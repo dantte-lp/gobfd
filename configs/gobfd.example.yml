@@ -1,0 +1,29 @@
+# GoBFD daemon configuration example.
+#
+# All settings can be overridden via environment variables:
+#   GOBFD_GRPC_ADDR=:50051
+#   GOBFD_LOG_LEVEL=debug
+
+grpc:
+  # gRPC (ConnectRPC) listen address.
+  addr: ":50051"
+
+metrics:
+  # Prometheus metrics endpoint.
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  # Log level: debug, info, warn, error.
+  level: "info"
+  # Log format: json, text.
+  format: "json"
+
+bfd:
+  # Default BFD session parameters (can be overridden per session via gRPC).
+  #
+  # IMPORTANT: BFD intervals are in microseconds per RFC 5880.
+  # Use duration strings for convenience (converted internally).
+  default_desired_min_tx: "1s"
+  default_required_min_rx: "1s"
+  default_detect_multiplier: 3

@@ -1,0 +1,131 @@
+version: "2"
+
+run:
+  timeout: 10m
+  relative-path-mode: gomod
+  tests: true
+  build-tags:
+    - integration
+
+formatters:
+  enable:
+    - goimports
+    - gofmt
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/wolfguard/gobfd
+
+output:
+  formats:
+    text:
+      print-linter-name: true
+      colors: true
+  show-stats: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: none
+  enable:
+    # Безопасность
+    - gosec
+    - bidichk
+    # Корректность
+    - govet
+    - staticcheck
+    - errcheck
+    - bodyclose
+    - noctx
+    - contextcheck
+    - nilerr
+    - nilnesserr
+    - durationcheck
+    - fatcontext
+    - copyloopvar
+    # Ошибки
+    - errorlint
+    - wrapcheck
+    - err113
+    - errname
+    # Сетевые
+    - nosprintfhostport
+    # Качество
+    - gocritic
+    - revive
+    - cyclop
+    - gocognit
+    - funlen
+    - nestif
+    - exhaustive
+    - unparam
+    - unconvert
+    - unused
+    - ineffassign
+    # Производительность
+    - prealloc
+    - perfsprint
+    # Стиль
+    - goconst
+    - dupl
+    - misspell
+    - sloglint
+    - musttag
+    - modernize
+    # Зависимости
+    - depguard
+    # Дисциплина
+    - nolintlint
+    # Тесты
+    - tparallel
+    - testpackage
+
+  settings:
+    gosec:
+      config:
+        global:
+          audit: "true"
+    govet:
+      enable:
+        - shadow
+        - atomic
+        - copylocks
+        - loopclosure
+        - httpmux
+    cyclop:
+      max-complexity: 15
+      skip-tests: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: "math/rand$"
+              desc: "Use crypto/rand or math/rand/v2"
+            - pkg: "log"
+              desc: "Use log/slog"
+            - pkg: "io/ioutil"
+              desc: "Deprecated in Go 1.16"
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    sloglint:
+      attr-only: false
+
+  exclusions:
+    generated: strict
+    presets:
+      - std-error-handling
+      - common-false-positives
+    rules:
+      - path: _test\.go
+        linters: [gosec, dupl, funlen, cyclop, err113, wrapcheck]
+
+severity:
+  default: warning
+  rules:
+    - linters: [gosec, errcheck, bodyclose, noctx, staticcheck]
+      severity: error

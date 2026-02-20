@@ -1,0 +1,33 @@
+FROM docker.io/golang:1.26-trixie AS dev
+
+# Build tools and certificates
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    tzdata \
+    make \
+    bash \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# buf CLI — protobuf toolchain
+RUN go install github.com/bufbuild/buf/cmd/buf@latest
+
+# protoc-gen-go — Go protobuf code generator
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
+# protoc-gen-connect-go — ConnectRPC code generator
+RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+
+# golangci-lint v2 — strict linting (v2.10.1+, requires Go >= 1.25)
+RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+
+# govulncheck — vulnerability scanner
+RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+
+# Module cache warm-up happens on first `go mod download`
+WORKDIR /app
+VOLUME /app
+
+# Keep container running for exec commands
+CMD ["sleep", "infinity"]

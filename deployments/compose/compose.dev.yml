@@ -1,0 +1,21 @@
+services:
+  dev:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Containerfile.dev
+    container_name: gobfd-dev
+    volumes:
+      - ../..:/app:z
+    working_dir: /app
+    command: sleep infinity
+    # BFD requires raw sockets for UDP with IP headers
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    cap_drop:
+      - ALL
+    network_mode: host
+    environment:
+      GOFLAGS: "-buildvcs=false"
+      GOCACHE: /tmp/go-cache
+      GOMODCACHE: /go/pkg/mod

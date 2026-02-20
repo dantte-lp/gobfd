@@ -1,0 +1,108 @@
+# GoBFD Makefile — all Go commands run inside Podman containers.
+# NO local Go toolchain required.
+#
+# Usage:
+#   make up          — start dev container
+#   make build       — compile both binaries
+#   make test        — run all tests with race detector
+#   make lint        — run golangci-lint v2
+#   make proto-gen   — generate protobuf Go code
+#   make proto-lint  — lint proto definitions
+#   make all         — build + test + lint
+
+COMPOSE_FILE := deployments/compose/compose.dev.yml
+DC := podman-compose -f $(COMPOSE_FILE)
+EXEC := $(DC) exec -T dev
+
+.PHONY: all build test lint proto-gen proto-lint fuzz vulncheck \
+        up down restart logs shell clean tidy
+
+# === Lifecycle ===
+
+up:
+	$(DC) up -d --build
+
+down:
+	$(DC) down
+
+restart: down up
+
+logs:
+	$(DC) logs -f dev
+
+shell:
+	$(DC) exec dev bash
+
+# === Build ===
+
+all: build test lint
+
+build:
+	$(EXEC) go build ./cmd/gobfd
+	$(EXEC) go build ./cmd/gobfdctl
+
+# === Test ===
+
+test:
+	$(EXEC) go test ./... -race -count=1
+
+test-v:
+	$(EXEC) go test ./... -race -count=1 -v
+
+test-run:
+	@test -n "$(RUN)" || (echo "Usage: make test-run RUN=TestFSMTransition PKG=./internal/bfd"; exit 1)
+	$(EXEC) go test -run '$(RUN)' $(PKG) -race -count=1 -v
+
+fuzz:
+	@test -n "$(FUNC)" || (echo "Usage: make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd"; exit 1)
+	$(EXEC) go test -fuzz=$(FUNC) $(PKG) -fuzztime=60s
+
+test-integration:
+	$(EXEC) go test -tags integration ./test/integration/ -race -count=1 -v
+
+# === Quality ===
+
+lint:
+	$(EXEC) golangci-lint run ./...
+
+lint-fix:
+	$(EXEC) golangci-lint run --fix ./...
+
+vulncheck:
+	$(EXEC) govulncheck ./...
+
+# === Proto ===
+
+proto-gen:
+	$(EXEC) buf generate
+
+proto-lint:
+	$(EXEC) buf lint
+
+proto-breaking:
+	$(EXEC) buf breaking --against '.git#branch=master'
+
+proto-update:
+	$(EXEC) buf dep update
+
+# === Dependencies ===
+
+tidy:
+	$(EXEC) go mod tidy
+
+download:
+	$(EXEC) go mod download
+
+# === Clean ===
+
+clean:
+	$(EXEC) rm -f gobfd gobfdctl
+	$(EXEC) go clean -cache -testcache
+
+# === Info ===
+
+versions:
+	@echo "=== Go ===" && $(EXEC) go version
+	@echo "=== Buf ===" && $(EXEC) buf --version
+	@echo "=== golangci-lint ===" && $(EXEC) golangci-lint version --short
+	@echo "=== govulncheck ===" && $(EXEC) govulncheck -version 2>/dev/null || echo "installed"

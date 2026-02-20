@@ -1,3 +1,3 @@
 module github.com/wolfguard/gobfd
 
-go 1.24.0
+go 1.26.0

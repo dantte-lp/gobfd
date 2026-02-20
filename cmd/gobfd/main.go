@@ -1,3 +1,4 @@
+// GoBFD daemon — BFD protocol implementation (RFC 5880/5881).
 package main
 
 import (

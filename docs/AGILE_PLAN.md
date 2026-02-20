@@ -12,12 +12,15 @@
 ### Dev-контейнер (Containerfile.dev)
 
 ```dockerfile
-FROM docker.io/golang:1.24-alpine AS dev
-RUN apk add --no-cache git ca-certificates tzdata make bash protobuf \
-    && go install github.com/bufbuild/buf/cmd/buf@latest \
+FROM docker.io/golang:1.26-trixie AS dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates tzdata make bash curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN go install github.com/bufbuild/buf/cmd/buf@latest \
     && go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
     && go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest \
-    && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+    && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest \
+    && go install golang.org/x/vuln/cmd/govulncheck@latest
 WORKDIR /app
 VOLUME /app
 ```
@@ -75,8 +78,8 @@ services:
 | # | Задача | Артефакт | Definition of Done |
 |---|--------|----------|--------------------|
 | 0.1 | Инициализировать git-репозиторий | `.gitignore`, initial commit | Repo инициализирован с правильным .gitignore |
-| 0.2 | Создать `go.mod` через Podman | `go.mod` | `module github.com/wolfguard/gobfd`, Go 1.24 |
-| 0.3 | Создать dev Containerfile | `deployments/docker/Containerfile.dev` | Go 1.24 + buf + protoc-gen-go + protoc-gen-connect-go + golangci-lint v2 |
+| 0.2 | Создать `go.mod` через Podman | `go.mod` | `module github.com/wolfguard/gobfd`, Go 1.26 |
+| 0.3 | Создать dev Containerfile | `deployments/docker/Containerfile.dev` | Go 1.26 + buf + protoc-gen-go + protoc-gen-connect-go + golangci-lint v2 |
 | 0.4 | Создать compose.dev.yml | `deployments/compose/compose.dev.yml` | `podman-compose up -d` запускает dev-контейнер |
 | 0.5 | Создать Taskfile.yml | `Taskfile.yml` | Все команды через `task build`, `task test`, `task lint` обёрнуты в podman-compose exec |
 | 0.6 | Создать `.golangci.yml` v2 | `.golangci.yml` | Строгая конфигурация из HELP.md (~40 линтеров) |
@@ -90,7 +93,7 @@ services:
 ```bash
 podman-compose -f deployments/compose/compose.dev.yml up -d
 podman-compose -f deployments/compose/compose.dev.yml exec dev go version
-# → go version go1.24.x linux/amd64
+# → go version go1.26.x linux/amd64
 podman-compose -f deployments/compose/compose.dev.yml exec dev buf --version
 # → 1.x.x
 podman-compose -f deployments/compose/compose.dev.yml exec dev golangci-lint version
@@ -592,7 +595,7 @@ func TestBFDSessionEstablishment(t *testing.T) {
 ### Production Dockerfile
 
 ```dockerfile
-FROM docker.io/golang:1.24-alpine AS builder
+FROM docker.io/golang:1.26-trixie AS builder
 RUN apk add --no-cache git ca-certificates tzdata \
     && addgroup -S gobfd && adduser -S -G gobfd -H -s /sbin/nologin gobfd
 WORKDIR /src

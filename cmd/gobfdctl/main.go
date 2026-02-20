@@ -1,3 +1,4 @@
+// GoBFDctl — CLI client for GoBFD daemon over gRPC.
 package main
 
 import (

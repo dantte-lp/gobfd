@@ -1,5 +1,5 @@
-// Package version provides build version information injected via ldflags.
-package version
+// Package appversion provides build version information injected via ldflags.
+package appversion
 
 // Version is set at build time via:
 //
