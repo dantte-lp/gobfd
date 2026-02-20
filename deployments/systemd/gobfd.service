@@ -5,10 +5,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
 ExecStart=/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
+WatchdogSec=30s
 
 # Security hardening
 User=gobfd

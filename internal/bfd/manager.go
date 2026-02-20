@@ -613,6 +613,124 @@ func (m *Manager) StateChanges() <-chan StateChange {
 }
 
 // -------------------------------------------------------------------------
+// Session Reconciliation — SIGHUP reload
+// -------------------------------------------------------------------------
+
+// ReconcileConfig describes a desired BFD session for reconciliation.
+// The Manager creates sessions that are missing and destroys sessions
+// that no longer appear in the desired set.
+type ReconcileConfig struct {
+	// Key uniquely identifies the session for diffing purposes.
+	// Typically: "peer|local|interface".
+	Key string
+
+	// SessionConfig is the BFD session configuration to create if missing.
+	SessionConfig SessionConfig
+
+	// Sender provides the packet sending capability for new sessions.
+	Sender PacketSender
+}
+
+// ReconcileSessions diffs the desired session set against the current sessions.
+// Sessions present in desired but absent are created. Sessions present in
+// current but absent from desired are destroyed. Existing sessions are left
+// untouched (parameter changes require a separate Poll Sequence mechanism).
+//
+// Returns the number of sessions created and destroyed, and any errors
+// encountered. Partial failures are logged and accumulated; reconciliation
+// continues for all sessions.
+func (m *Manager) ReconcileSessions(
+	ctx context.Context,
+	desired []ReconcileConfig,
+) (created, destroyed int, err error) {
+	// Build desired key set.
+	desiredKeys := make(map[string]ReconcileConfig, len(desired))
+	for _, rc := range desired {
+		desiredKeys[rc.Key] = rc
+	}
+
+	// Build current key set.
+	currentKeys := m.sessionKeySet()
+
+	// Destroy sessions not in desired set.
+	var errs []error
+	for key, discr := range currentKeys {
+		if _, want := desiredKeys[key]; !want {
+			m.logger.Info("reconcile: destroying removed session",
+				slog.String("key", key),
+				slog.Uint64("local_discr", uint64(discr)),
+			)
+			if dErr := m.DestroySession(ctx, discr); dErr != nil {
+				errs = append(errs, fmt.Errorf("reconcile destroy %s: %w", key, dErr))
+			} else {
+				destroyed++
+			}
+		}
+	}
+
+	// Create sessions in desired but not in current.
+	for key, rc := range desiredKeys {
+		if _, exists := currentKeys[key]; !exists {
+			m.logger.Info("reconcile: creating new session",
+				slog.String("key", key),
+			)
+			if _, cErr := m.CreateSession(ctx, rc.SessionConfig, rc.Sender); cErr != nil {
+				errs = append(errs, fmt.Errorf("reconcile create %s: %w", key, cErr))
+			} else {
+				created++
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
+	}
+
+	m.logger.Info("session reconciliation complete",
+		slog.Int("created", created),
+		slog.Int("destroyed", destroyed),
+	)
+
+	return created, destroyed, err
+}
+
+// sessionKeySet returns a map of session key -> local discriminator for all
+// currently active sessions.
+func (m *Manager) sessionKeySet() map[string]uint32 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keys := make(map[string]uint32, len(m.sessionsByPeer))
+	for sk, entry := range m.sessionsByPeer {
+		key := sk.peerAddr.String() + "|" + sk.localAddr.String() + "|" + sk.ifName
+		keys[key] = entry.session.LocalDiscriminator()
+	}
+
+	return keys
+}
+
+// -------------------------------------------------------------------------
+// Graceful Drain — RFC 5880 Section 6.8.16
+// -------------------------------------------------------------------------
+
+// DrainAllSessions transitions all sessions to AdminDown with
+// DiagAdminDown (RFC 5880 Section 6.8.16). This signals peers that the
+// shutdown is intentional, not a failure. The caller should wait briefly
+// for the final AdminDown packets to be transmitted before closing.
+func (m *Manager) DrainAllSessions() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, entry := range m.sessions {
+		entry.session.SetAdminDown()
+	}
+
+	m.logger.Info("all sessions set to AdminDown for graceful drain",
+		slog.Int("count", len(m.sessions)),
+	)
+}
+
+// -------------------------------------------------------------------------
 // Lifecycle
 // -------------------------------------------------------------------------
 

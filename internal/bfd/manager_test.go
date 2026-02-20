@@ -584,6 +584,192 @@ func TestManagerStateChanges(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
+// TestManagerReconcileSessions — Sprint 14 (14.4)
+// -------------------------------------------------------------------------
+
+// TestManagerReconcileSessionsCreatesNew verifies that ReconcileSessions
+// creates sessions that are in the desired set but not yet active.
+func TestManagerReconcileSessionsCreatesNew(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		desired := []bfd.ReconcileConfig{
+			{
+				Key: "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: bfd.SessionConfig{
+					PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+					LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+					Interface:             "eth0",
+					Type:                  bfd.SessionTypeSingleHop,
+					Role:                  bfd.RoleActive,
+					DesiredMinTxInterval:  time.Second,
+					RequiredMinRxInterval: time.Second,
+					DetectMultiplier:      3,
+				},
+				Sender: noopSender{},
+			},
+		}
+
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), desired)
+		if err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		if created != 1 {
+			t.Errorf("created = %d, want 1", created)
+		}
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0", destroyed)
+		}
+
+		// Verify session exists.
+		snapshots := mgr.Sessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("expected 1 session, got %d", len(snapshots))
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerReconcileSessionsDestroysStale verifies that ReconcileSessions
+// destroys sessions not present in the desired set.
+func TestManagerReconcileSessionsDestroysStale(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		_, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		// Reconcile with empty desired set: existing session should be destroyed.
+		created, destroyed, reconcileErr := mgr.ReconcileSessions(
+			context.Background(), nil,
+		)
+		if reconcileErr != nil {
+			t.Fatalf("ReconcileSessions: %v", reconcileErr)
+		}
+		if created != 0 {
+			t.Errorf("created = %d, want 0", created)
+		}
+		if destroyed != 1 {
+			t.Errorf("destroyed = %d, want 1", destroyed)
+		}
+
+		if len(mgr.Sessions()) != 0 {
+			t.Error("expected 0 sessions after reconciliation")
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerReconcileSessionsKeepsExisting verifies that reconciliation
+// does not destroy sessions that exist in both current and desired sets.
+func TestManagerReconcileSessionsKeepsExisting(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		desired := []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: cfg,
+				Sender:        noopSender{},
+			},
+		}
+
+		created, destroyed, reconcileErr := mgr.ReconcileSessions(
+			context.Background(), desired,
+		)
+		if reconcileErr != nil {
+			t.Fatalf("ReconcileSessions: %v", reconcileErr)
+		}
+		if created != 0 {
+			t.Errorf("created = %d, want 0 (existing kept)", created)
+		}
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0 (existing kept)", destroyed)
+		}
+
+		// Original session should still exist.
+		found, ok := mgr.LookupByDiscriminator(sess.LocalDiscriminator())
+		if !ok {
+			t.Fatal("original session not found after reconciliation")
+		}
+		if found != sess {
+			t.Error("session pointer changed after reconciliation")
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// -------------------------------------------------------------------------
+// TestManagerDrainAllSessions — Sprint 14 (14.10)
+// -------------------------------------------------------------------------
+
+// TestManagerDrainAllSessions verifies that DrainAllSessions transitions
+// all sessions to AdminDown with DiagAdminDown.
+func TestManagerDrainAllSessions(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg1 := defaultManagerConfig()
+		cfg2 := bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("198.51.100.1"),
+			LocalAddr:             netip.MustParseAddr("198.51.100.2"),
+			Interface:             "eth1",
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  time.Second,
+			RequiredMinRxInterval: time.Second,
+			DetectMultiplier:      3,
+		}
+
+		sess1, err := mgr.CreateSession(context.Background(), cfg1, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession 1: %v", err)
+		}
+		sess2, err := mgr.CreateSession(context.Background(), cfg2, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession 2: %v", err)
+		}
+
+		// Drain all sessions.
+		mgr.DrainAllSessions()
+
+		// Both sessions should be AdminDown.
+		if sess1.State() != bfd.StateAdminDown {
+			t.Errorf("sess1.State() = %s, want AdminDown", sess1.State())
+		}
+		if sess2.State() != bfd.StateAdminDown {
+			t.Errorf("sess2.State() = %s, want AdminDown", sess2.State())
+		}
+
+		// Both sessions should have DiagAdminDown.
+		if sess1.LocalDiag() != bfd.DiagAdminDown {
+			t.Errorf("sess1.LocalDiag() = %s, want AdminDown", sess1.LocalDiag())
+		}
+		if sess2.LocalDiag() != bfd.DiagAdminDown {
+			t.Errorf("sess2.LocalDiag() = %s, want AdminDown", sess2.LocalDiag())
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
 

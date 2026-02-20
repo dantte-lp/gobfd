@@ -2,7 +2,10 @@
 #
 # All settings can be overridden via environment variables:
 #   GOBFD_GRPC_ADDR=:50051
+#   GOBFD_METRICS_ADDR=:9100
+#   GOBFD_METRICS_PATH=/metrics
 #   GOBFD_LOG_LEVEL=debug
+#   GOBFD_LOG_FORMAT=text
 
 grpc:
   # gRPC (ConnectRPC) listen address.
@@ -27,3 +30,22 @@ bfd:
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
   default_detect_multiplier: 3
+
+# Declarative BFD sessions. Sessions defined here are created on startup
+# and reconciled on SIGHUP reload (new sessions added, removed sessions
+# destroyed, existing sessions left untouched).
+#
+# sessions:
+#   - peer: "10.0.0.1"
+#     local: "10.0.0.2"
+#     interface: "eth0"
+#     type: single_hop
+#     desired_min_tx: "100ms"
+#     required_min_rx: "100ms"
+#     detect_mult: 3
+#   - peer: "10.0.1.1"
+#     local: "10.0.1.2"
+#     type: multi_hop
+#     desired_min_tx: "300ms"
+#     required_min_rx: "300ms"
+#     detect_mult: 5

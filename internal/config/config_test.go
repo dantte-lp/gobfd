@@ -278,6 +278,282 @@ func TestLoadNonexistentFile(t *testing.T) {
 	}
 }
 
+// -------------------------------------------------------------------------
+// Session Config Tests — Sprint 14 (14.5)
+// -------------------------------------------------------------------------
+
+func TestLoadWithSessions(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+sessions:
+  - peer: "10.0.0.1"
+    local: "10.0.0.2"
+    interface: "eth0"
+    type: single_hop
+    desired_min_tx: "100ms"
+    required_min_rx: "100ms"
+    detect_mult: 3
+  - peer: "10.0.1.1"
+    local: "10.0.1.2"
+    type: multi_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 5
+`
+
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error: %v", path, err)
+	}
+
+	if len(cfg.Sessions) != 2 {
+		t.Fatalf("Sessions count = %d, want 2", len(cfg.Sessions))
+	}
+
+	// Verify first session.
+	s1 := cfg.Sessions[0]
+	if s1.Peer != "10.0.0.1" {
+		t.Errorf("Sessions[0].Peer = %q, want %q", s1.Peer, "10.0.0.1")
+	}
+	if s1.Local != "10.0.0.2" {
+		t.Errorf("Sessions[0].Local = %q, want %q", s1.Local, "10.0.0.2")
+	}
+	if s1.Interface != "eth0" {
+		t.Errorf("Sessions[0].Interface = %q, want %q", s1.Interface, "eth0")
+	}
+	if s1.Type != "single_hop" {
+		t.Errorf("Sessions[0].Type = %q, want %q", s1.Type, "single_hop")
+	}
+	if s1.DesiredMinTx != 100*time.Millisecond {
+		t.Errorf("Sessions[0].DesiredMinTx = %v, want %v", s1.DesiredMinTx, 100*time.Millisecond)
+	}
+	if s1.RequiredMinRx != 100*time.Millisecond {
+		t.Errorf("Sessions[0].RequiredMinRx = %v, want %v", s1.RequiredMinRx, 100*time.Millisecond)
+	}
+	if s1.DetectMult != 3 {
+		t.Errorf("Sessions[0].DetectMult = %d, want %d", s1.DetectMult, 3)
+	}
+
+	// Verify second session.
+	s2 := cfg.Sessions[1]
+	if s2.Peer != "10.0.1.1" {
+		t.Errorf("Sessions[1].Peer = %q, want %q", s2.Peer, "10.0.1.1")
+	}
+	if s2.Type != "multi_hop" {
+		t.Errorf("Sessions[1].Type = %q, want %q", s2.Type, "multi_hop")
+	}
+	if s2.DetectMult != 5 {
+		t.Errorf("Sessions[1].DetectMult = %d, want %d", s2.DetectMult, 5)
+	}
+
+	// Session keys should be distinct.
+	if s1.SessionKey() == s2.SessionKey() {
+		t.Error("Sessions[0] and Sessions[1] have the same key, expected different")
+	}
+}
+
+func TestValidateSessionErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "empty session peer",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "", Local: "10.0.0.2"},
+				}
+			},
+			wantErr: config.ErrInvalidSessionPeer,
+		},
+		{
+			name: "invalid session peer",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "not-an-ip", Local: "10.0.0.2"},
+				}
+			},
+			wantErr: config.ErrInvalidSessionPeer,
+		},
+		{
+			name: "invalid session type",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "10.0.0.1", Local: "10.0.0.2", Type: "bogus"},
+				}
+			},
+			wantErr: config.ErrInvalidSessionType,
+		},
+		{
+			name: "duplicate session keys",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "10.0.0.1", Local: "10.0.0.2", Interface: "eth0"},
+					{Peer: "10.0.0.1", Local: "10.0.0.2", Interface: "eth0"},
+				}
+			},
+			wantErr: config.ErrDuplicateSessionKey,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+
+			err := config.Validate(cfg)
+			if err == nil {
+				t.Fatal("Validate() returned nil, want error")
+			}
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateSessionValidTypes(t *testing.T) {
+	t.Parallel()
+
+	// Both single_hop and multi_hop should be valid.
+	for _, typ := range []string{"single_hop", "multi_hop", ""} {
+		cfg := config.DefaultConfig()
+		cfg.Sessions = []config.SessionConfig{
+			{Peer: "10.0.0.1", Local: "10.0.0.2", Type: typ},
+		}
+
+		if err := config.Validate(cfg); err != nil {
+			t.Errorf("Validate() with type %q returned error: %v", typ, err)
+		}
+	}
+}
+
+func TestSessionConfigKey(t *testing.T) {
+	t.Parallel()
+
+	sc := config.SessionConfig{
+		Peer:      "10.0.0.1",
+		Local:     "10.0.0.2",
+		Interface: "eth0",
+	}
+
+	want := "10.0.0.1|10.0.0.2|eth0"
+	if got := sc.SessionKey(); got != want {
+		t.Errorf("SessionKey() = %q, want %q", got, want)
+	}
+}
+
+func TestSessionConfigPeerAddr(t *testing.T) {
+	t.Parallel()
+
+	sc := config.SessionConfig{Peer: "10.0.0.1"}
+	addr, err := sc.PeerAddr()
+	if err != nil {
+		t.Fatalf("PeerAddr() error: %v", err)
+	}
+	if addr.String() != "10.0.0.1" {
+		t.Errorf("PeerAddr() = %s, want 10.0.0.1", addr)
+	}
+}
+
+func TestSessionConfigLocalAddr(t *testing.T) {
+	t.Parallel()
+
+	sc := config.SessionConfig{Local: "10.0.0.2"}
+	addr, err := sc.LocalAddr()
+	if err != nil {
+		t.Fatalf("LocalAddr() error: %v", err)
+	}
+	if addr.String() != "10.0.0.2" {
+		t.Errorf("LocalAddr() = %s, want 10.0.0.2", addr)
+	}
+}
+
+func TestSessionConfigLocalAddrEmpty(t *testing.T) {
+	t.Parallel()
+
+	sc := config.SessionConfig{Local: ""}
+	addr, err := sc.LocalAddr()
+	if err != nil {
+		t.Fatalf("LocalAddr() error: %v", err)
+	}
+	if addr.IsValid() {
+		t.Errorf("LocalAddr() should be zero value for empty, got %s", addr)
+	}
+}
+
+// -------------------------------------------------------------------------
+// Environment Variable Override Tests — Sprint 14 (14.6)
+// -------------------------------------------------------------------------
+
+func TestLoadEnvOverrides(t *testing.T) {
+	// Environment variable tests cannot be parallel because they modify
+	// process-wide state (os.Setenv).
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+log:
+  level: "info"
+`
+	path := writeTemp(t, yamlContent)
+
+	// Set env overrides.
+	t.Setenv("GOBFD_GRPC_ADDR", ":60000")
+	t.Setenv("GOBFD_LOG_LEVEL", "debug")
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error: %v", path, err)
+	}
+
+	if cfg.GRPC.Addr != ":60000" {
+		t.Errorf("GRPC.Addr = %q, want %q (from env)", cfg.GRPC.Addr, ":60000")
+	}
+
+	if cfg.Log.Level != "debug" {
+		t.Errorf("Log.Level = %q, want %q (from env)", cfg.Log.Level, "debug")
+	}
+}
+
+func TestLoadEnvOverridesMetrics(t *testing.T) {
+	yamlContent := `
+grpc:
+  addr: ":50051"
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+`
+	path := writeTemp(t, yamlContent)
+
+	t.Setenv("GOBFD_METRICS_ADDR", ":9200")
+	t.Setenv("GOBFD_METRICS_PATH", "/custom")
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error: %v", path, err)
+	}
+
+	if cfg.Metrics.Addr != ":9200" {
+		t.Errorf("Metrics.Addr = %q, want %q (from env)", cfg.Metrics.Addr, ":9200")
+	}
+
+	if cfg.Metrics.Path != "/custom" {
+		t.Errorf("Metrics.Path = %q, want %q (from env)", cfg.Metrics.Path, "/custom")
+	}
+}
+
 // writeTemp creates a temporary YAML file and returns its path.
 // The file is automatically cleaned up when the test finishes.
 func writeTemp(t *testing.T, content string) string {

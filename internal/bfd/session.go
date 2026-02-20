@@ -532,6 +532,22 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
 	}
 }
 
+// SetAdminDown transitions the session to AdminDown with DiagAdminDown.
+// RFC 5880 Section 6.8.16: the local system sets bfd.SessionState to
+// AdminDown and bfd.LocalDiag to 7 (Administratively Down).
+//
+// This is used during graceful shutdown to signal the remote peer that
+// the session is being administratively disabled, not failing. The session
+// goroutine will rebuild the cached packet and transmit the AdminDown
+// state on the next TX interval.
+//
+// Thread-safe: uses atomic operations on state and diag.
+func (s *Session) SetAdminDown() {
+	s.localDiag.Store(uint32(DiagAdminDown))
+	s.state.Store(uint32(StateAdminDown))
+	s.logger.Info("session set to AdminDown for graceful drain")
+}
+
 // -------------------------------------------------------------------------
 // Main Goroutine — RFC 5880 Session Lifecycle
 // -------------------------------------------------------------------------
