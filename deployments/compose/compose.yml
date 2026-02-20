@@ -1,0 +1,32 @@
+services:
+  gobfd:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    network_mode: host
+    volumes:
+      - ../../configs/gobfd.example.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    container_name: gobfd-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    container_name: gobfd-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z

@@ -1,0 +1,31 @@
+[Unit]
+Description=GoBFD — BFD Protocol Daemon
+Documentation=https://github.com/dantte-lp/gobfd
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gobfd -config /etc/gobfd/gobfd.yml
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+User=gobfd
+Group=gobfd
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/gobfd
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

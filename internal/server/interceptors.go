@@ -42,6 +42,12 @@ func LoggingInterceptor(logger *slog.Logger) connect.UnaryInterceptorFunc {
 	}
 }
 
+// LoggingInterceptorOption returns a connect.HandlerOption that installs the
+// logging interceptor. This is a convenience wrapper for use with server.New.
+func LoggingInterceptorOption(logger *slog.Logger) connect.HandlerOption {
+	return connect.WithInterceptors(LoggingInterceptor(logger))
+}
+
 // RecoveryInterceptor returns a ConnectRPC unary interceptor that recovers from
 // panics in RPC handlers. On panic, it logs the panic value and stack trace at
 // Error level and returns a CodeInternal error to the client.
@@ -68,4 +74,10 @@ func RecoveryInterceptor(logger *slog.Logger) connect.UnaryInterceptorFunc {
 			return next(ctx, req)
 		}
 	}
+}
+
+// RecoveryInterceptorOption returns a connect.HandlerOption that installs the
+// recovery interceptor. This is a convenience wrapper for use with server.New.
+func RecoveryInterceptorOption(logger *slog.Logger) connect.HandlerOption {
+	return connect.WithInterceptors(RecoveryInterceptor(logger))
 }
