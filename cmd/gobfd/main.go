@@ -16,6 +16,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -59,12 +61,16 @@ func run() int {
 		slog.String("metrics_addr", cfg.Metrics.Addr),
 	)
 
-	// 4. Create BFD session manager.
-	mgr := bfd.NewManager(logger)
+	// 4. Create Prometheus metrics collector.
+	reg := prometheus.NewRegistry()
+	collector := bfdmetrics.NewCollector(reg)
+
+	// 5. Create BFD session manager with metrics wired in.
+	mgr := bfd.NewManager(logger, bfd.WithManagerMetrics(collector))
 	defer mgr.Close()
 
-	// 5-7. Run servers.
-	if err := runServers(cfg, mgr, logger, *configPath, logLevel); err != nil {
+	// 6-8. Run servers.
+	if err := runServers(cfg, mgr, reg, logger, *configPath, logLevel); err != nil {
 		logger.Error("gobfd exited with error",
 			slog.String("error", err.Error()),
 		)
@@ -80,14 +86,11 @@ func run() int {
 func runServers(
 	cfg *config.Config,
 	mgr *bfd.Manager,
+	reg *prometheus.Registry,
 	logger *slog.Logger,
 	configPath string,
 	logLevel *slog.LevelVar,
 ) error {
-	// Metrics collector with a dedicated registry.
-	reg := prometheus.NewRegistry()
-	_ = bfdmetrics.NewCollector(reg)
-
 	metricsSrv := newMetricsServer(cfg.Metrics, reg)
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, logger)
 
@@ -226,6 +229,8 @@ func newMetricsServer(cfg config.MetricsConfig, reg *prometheus.Registry) *http.
 }
 
 // newGRPCServer creates an HTTP server for the ConnectRPC gRPC endpoint.
+// The handler is wrapped with h2c to support HTTP/2 without TLS, which is
+// required for gRPC clients that connect over plaintext (e.g., gobfdctl).
 func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 	path, handler := server.New(mgr, nil, logger,
@@ -235,7 +240,7 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, logger *slog.Logger)
 	mux.Handle(path, handler)
 	return &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           mux,
+		Handler:           h2c.NewHandler(mux, &http2.Server{}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 }

@@ -307,18 +307,27 @@ func (s *BFDServer) getSessionByDiscriminator(discr uint32) (*bfdv1.GetSessionRe
 	}
 
 	snap := bfd.SessionSnapshot{
-		LocalDiscr:       sess.LocalDiscriminator(),
-		RemoteDiscr:      sess.RemoteDiscriminator(),
-		PeerAddr:         sess.PeerAddr(),
-		LocalAddr:        sess.LocalAddr(),
-		Interface:        sess.Interface(),
-		Type:             sess.Type(),
-		State:            sess.State(),
-		RemoteState:      sess.RemoteState(),
-		LocalDiag:        sess.LocalDiag(),
-		DesiredMinTx:     sess.DesiredMinTxInterval(),
-		RequiredMinRx:    sess.RequiredMinRxInterval(),
-		DetectMultiplier: sess.DetectMultiplier(),
+		LocalDiscr:           sess.LocalDiscriminator(),
+		RemoteDiscr:          sess.RemoteDiscriminator(),
+		PeerAddr:             sess.PeerAddr(),
+		LocalAddr:            sess.LocalAddr(),
+		Interface:            sess.Interface(),
+		Type:                 sess.Type(),
+		State:                sess.State(),
+		RemoteState:          sess.RemoteState(),
+		LocalDiag:            sess.LocalDiag(),
+		DesiredMinTx:         sess.DesiredMinTxInterval(),
+		RequiredMinRx:        sess.RequiredMinRxInterval(),
+		DetectMultiplier:     sess.DetectMultiplier(),
+		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
+		DetectionTime:        sess.DetectionTime(),
+		LastStateChange:      sess.LastStateChange(),
+		LastPacketReceived:   sess.LastPacketReceived(),
+		Counters: bfd.SessionCounters{
+			PacketsSent:      sess.PacketsSent(),
+			PacketsReceived:  sess.PacketsReceived(),
+			StateTransitions: sess.StateTransitions(),
+		},
 	}
 
 	return &bfdv1.GetSessionResponse{
@@ -417,24 +426,33 @@ func durationFromProto(d *durationpb.Duration) time.Duration {
 // Used immediately after CreateSession when we have both the session pointer and config.
 func snapshotFromSession(sess *bfd.Session, cfg bfd.SessionConfig) bfd.SessionSnapshot {
 	return bfd.SessionSnapshot{
-		LocalDiscr:       sess.LocalDiscriminator(),
-		RemoteDiscr:      sess.RemoteDiscriminator(),
-		PeerAddr:         sess.PeerAddr(),
-		LocalAddr:        sess.LocalAddr(),
-		Interface:        sess.Interface(),
-		Type:             cfg.Type,
-		State:            sess.State(),
-		RemoteState:      sess.RemoteState(),
-		LocalDiag:        sess.LocalDiag(),
-		DesiredMinTx:     cfg.DesiredMinTxInterval,
-		RequiredMinRx:    cfg.RequiredMinRxInterval,
-		DetectMultiplier: cfg.DetectMultiplier,
+		LocalDiscr:           sess.LocalDiscriminator(),
+		RemoteDiscr:          sess.RemoteDiscriminator(),
+		PeerAddr:             sess.PeerAddr(),
+		LocalAddr:            sess.LocalAddr(),
+		Interface:            sess.Interface(),
+		Type:                 cfg.Type,
+		State:                sess.State(),
+		RemoteState:          sess.RemoteState(),
+		LocalDiag:            sess.LocalDiag(),
+		DesiredMinTx:         cfg.DesiredMinTxInterval,
+		RequiredMinRx:        cfg.RequiredMinRxInterval,
+		DetectMultiplier:     cfg.DetectMultiplier,
+		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
+		DetectionTime:        sess.DetectionTime(),
+		LastStateChange:      sess.LastStateChange(),
+		LastPacketReceived:   sess.LastPacketReceived(),
+		Counters: bfd.SessionCounters{
+			PacketsSent:      sess.PacketsSent(),
+			PacketsReceived:  sess.PacketsReceived(),
+			StateTransitions: sess.StateTransitions(),
+		},
 	}
 }
 
 // snapshotToProto converts an internal SessionSnapshot to a proto BfdSession message.
 func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
-	return &bfdv1.BfdSession{
+	pb := &bfdv1.BfdSession{
 		PeerAddress:           snap.PeerAddr.String(),
 		LocalAddress:          snap.LocalAddr.String(),
 		InterfaceName:         snap.Interface,
@@ -447,7 +465,23 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTx),
 		RequiredMinRxInterval: durationpb.New(snap.RequiredMinRx),
 		DetectMultiplier:      uint32(snap.DetectMultiplier),
+		NegotiatedTxInterval:  durationpb.New(snap.NegotiatedTxInterval),
+		DetectionTime:         durationpb.New(snap.DetectionTime),
+		Counters: &bfdv1.SessionCounters{
+			PacketsSent:      snap.Counters.PacketsSent,
+			PacketsReceived:  snap.Counters.PacketsReceived,
+			StateTransitions: snap.Counters.StateTransitions,
+		},
 	}
+
+	if !snap.LastStateChange.IsZero() {
+		pb.LastStateChange = timestamppb.New(snap.LastStateChange)
+	}
+	if !snap.LastPacketReceived.IsZero() {
+		pb.LastPacketReceived = timestamppb.New(snap.LastPacketReceived)
+	}
+
+	return pb
 }
 
 // stateChangeToProto converts an internal StateChange to a WatchSessionEventsResponse.

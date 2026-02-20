@@ -110,6 +110,39 @@ type SessionSnapshot struct {
 
 	// DetectMultiplier is the configured detection multiplier.
 	DetectMultiplier uint8
+
+	// NegotiatedTxInterval is the actual TX interval after negotiation.
+	// RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).
+	NegotiatedTxInterval time.Duration
+
+	// DetectionTime is the calculated detection time.
+	// RFC 5880 Section 6.8.4: RemoteDetectMult * max(RequiredMinRx, RemoteDesiredMinTx).
+	DetectionTime time.Duration
+
+	// LastStateChange is the timestamp of the most recent FSM state transition.
+	// Zero value means no transition has occurred since session creation.
+	LastStateChange time.Time
+
+	// LastPacketReceived is the timestamp of the most recent valid BFD
+	// Control packet received from the peer. Zero value means no packet
+	// has been received yet.
+	LastPacketReceived time.Time
+
+	// Counters contains per-session packet and state transition counters.
+	Counters SessionCounters
+}
+
+// SessionCounters holds per-session atomic counter snapshots.
+// These are monotonically increasing counters for the lifetime of the session.
+type SessionCounters struct {
+	// PacketsSent is the total BFD Control packets transmitted.
+	PacketsSent uint64
+
+	// PacketsReceived is the total BFD Control packets received.
+	PacketsReceived uint64
+
+	// StateTransitions is the total FSM state transitions.
+	StateTransitions uint64
 }
 
 // -------------------------------------------------------------------------
@@ -155,6 +188,10 @@ type Manager struct {
 
 	discriminators *DiscriminatorAllocator
 
+	// metrics is the optional metrics reporter. Never nil -- uses noopMetrics
+	// when no collector is configured.
+	metrics MetricsReporter
+
 	// notifyCh aggregates state changes from all sessions.
 	notifyCh chan StateChange
 
@@ -169,19 +206,37 @@ type sessionEntry struct {
 	key     sessionKey
 }
 
+// ManagerOption configures optional Manager parameters.
+type ManagerOption func(*Manager)
+
+// WithManagerMetrics sets the MetricsReporter for the manager and all
+// sessions it creates. If mr is nil, a no-op reporter is used.
+func WithManagerMetrics(mr MetricsReporter) ManagerOption {
+	return func(m *Manager) {
+		if mr != nil {
+			m.metrics = mr
+		}
+	}
+}
+
 // NewManager creates a new BFD session manager.
 //
 // The manager allocates local discriminators (RFC 5880 Section 6.8.1),
 // manages session lifecycle, and provides demultiplexing for incoming
 // BFD Control packets.
-func NewManager(logger *slog.Logger) *Manager {
-	return &Manager{
+func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
+	m := &Manager{
 		sessions:       make(map[uint32]*sessionEntry),
 		sessionsByPeer: make(map[sessionKey]*sessionEntry),
 		discriminators: NewDiscriminatorAllocator(),
+		metrics:        noopMetrics{},
 		notifyCh:       make(chan StateChange, notifyChSize),
 		logger:         logger.With(slog.String("component", "bfd.manager")),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // -------------------------------------------------------------------------
@@ -256,7 +311,9 @@ func (m *Manager) allocateAndBuild(
 		return 0, nil, fmt.Errorf("create session: %w", err)
 	}
 
-	sess, err := NewSession(cfg, discr, sender, m.notifyCh, m.logger)
+	sess, err := NewSession(cfg, discr, sender, m.notifyCh, m.logger,
+		WithMetrics(m.metrics),
+	)
 	if err != nil {
 		m.discriminators.Release(discr)
 		return 0, nil, fmt.Errorf("create session: %w", err)
@@ -295,8 +352,11 @@ func (m *Manager) registerAndStart(
 	return nil
 }
 
-// logSessionCreated logs the successful creation of a BFD session.
+// logSessionCreated logs the successful creation of a BFD session and
+// registers it in the metrics collector.
 func (m *Manager) logSessionCreated(cfg SessionConfig, discr uint32) {
+	m.metrics.RegisterSession(cfg.PeerAddr, cfg.LocalAddr, cfg.Type.String())
+
 	m.logger.Info("session created",
 		slog.String("peer", cfg.PeerAddr.String()),
 		slog.String("local", cfg.LocalAddr.String()),
@@ -342,6 +402,12 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 
 	// Release discriminator for reuse.
 	m.discriminators.Release(localDiscr)
+
+	m.metrics.UnregisterSession(
+		entry.session.PeerAddr(),
+		entry.session.LocalAddr(),
+		entry.session.Type().String(),
+	)
 
 	m.logger.Info("session destroyed",
 		slog.String("peer", entry.session.PeerAddr().String()),
@@ -505,18 +571,27 @@ func (m *Manager) Sessions() []SessionSnapshot {
 	for _, entry := range m.sessions {
 		s := entry.session
 		snapshots = append(snapshots, SessionSnapshot{
-			LocalDiscr:       s.LocalDiscriminator(),
-			RemoteDiscr:      s.RemoteDiscriminator(),
-			PeerAddr:         s.PeerAddr(),
-			LocalAddr:        s.LocalAddr(),
-			Interface:        s.Interface(),
-			Type:             s.Type(),
-			State:            s.State(),
-			RemoteState:      s.RemoteState(),
-			LocalDiag:        s.LocalDiag(),
-			DesiredMinTx:     s.DesiredMinTxInterval(),
-			RequiredMinRx:    s.RequiredMinRxInterval(),
-			DetectMultiplier: s.DetectMultiplier(),
+			LocalDiscr:           s.LocalDiscriminator(),
+			RemoteDiscr:          s.RemoteDiscriminator(),
+			PeerAddr:             s.PeerAddr(),
+			LocalAddr:            s.LocalAddr(),
+			Interface:            s.Interface(),
+			Type:                 s.Type(),
+			State:                s.State(),
+			RemoteState:          s.RemoteState(),
+			LocalDiag:            s.LocalDiag(),
+			DesiredMinTx:         s.DesiredMinTxInterval(),
+			RequiredMinRx:        s.RequiredMinRxInterval(),
+			DetectMultiplier:     s.DetectMultiplier(),
+			NegotiatedTxInterval: s.NegotiatedTxInterval(),
+			DetectionTime:        s.DetectionTime(),
+			LastStateChange:      s.LastStateChange(),
+			LastPacketReceived:   s.LastPacketReceived(),
+			Counters: SessionCounters{
+				PacketsSent:      s.PacketsSent(),
+				PacketsReceived:  s.PacketsReceived(),
+				StateTransitions: s.StateTransitions(),
+			},
 		})
 	}
 

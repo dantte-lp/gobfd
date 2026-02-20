@@ -136,6 +136,23 @@ type PacketSender interface {
 }
 
 // -------------------------------------------------------------------------
+// Session Options — functional options pattern
+// -------------------------------------------------------------------------
+
+// SessionOption configures optional Session parameters.
+type SessionOption func(*Session)
+
+// WithMetrics attaches a MetricsReporter to the session. If mr is nil,
+// the default no-op reporter is used.
+func WithMetrics(mr MetricsReporter) SessionOption {
+	return func(s *Session) {
+		if mr != nil {
+			s.metrics = mr
+		}
+	}
+}
+
+// -------------------------------------------------------------------------
 // Session Errors
 // -------------------------------------------------------------------------
 
@@ -268,9 +285,27 @@ type Session struct {
 	// authState tracks per-session auth sequence numbers.
 	authState *AuthState
 
+	// --- Per-session atomic counters ---
+	// These counters are updated on the hot path by the session goroutine
+	// and read atomically by snapshot methods. Using sync/atomic avoids
+	// contention with the session goroutine.
+
+	packetsSent      atomic.Uint64
+	packetsReceived  atomic.Uint64
+	stateTransitions atomic.Uint64
+
+	// lastStateChange stores the Unix nanosecond timestamp of the most
+	// recent FSM state transition. Zero means no transition has occurred.
+	lastStateChange atomic.Int64
+
+	// lastPacketRecv stores the Unix nanosecond timestamp of the most
+	// recent valid BFD Control packet received. Zero means no packet received.
+	lastPacketRecv atomic.Int64
+
 	// --- Runtime ---
 
 	sender   PacketSender
+	metrics  MetricsReporter
 	logger   *slog.Logger
 	recvCh   chan recvItem
 	notifyCh chan<- StateChange
@@ -293,6 +328,7 @@ type recvItem struct {
 // localDiscr must be a unique nonzero discriminator allocated externally.
 // sender is the abstraction for sending BFD packets on the wire.
 // notifyCh may be nil if no state change notifications are needed.
+// metrics may be nil; a no-op reporter is used in that case.
 //
 // RFC 5880 Section 6.8.1: all state variables are initialized to their
 // mandatory values.
@@ -302,6 +338,7 @@ func NewSession(
 	sender PacketSender,
 	notifyCh chan<- StateChange,
 	logger *slog.Logger,
+	opts ...SessionOption,
 ) (*Session, error) {
 	if err := validateSessionConfig(cfg, localDiscr); err != nil {
 		return nil, err
@@ -321,6 +358,7 @@ func NewSession(
 		auth:                  cfg.Auth,
 		authKeys:              cfg.AuthKeys,
 		sender:                sender,
+		metrics:               noopMetrics{},
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
 		cachedPacket:          make([]byte, MaxPacketSize),
@@ -328,6 +366,10 @@ func NewSession(
 			slog.String("peer", cfg.PeerAddr.String()),
 			slog.Uint64("local_discr", uint64(localDiscr)),
 		),
+	}
+
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	// RFC 5880 Section 6.8.1: bfd.SessionState MUST be initialized to Down.
@@ -433,6 +475,44 @@ func (s *Session) RequiredMinRxInterval() time.Duration { return s.requiredMinRx
 
 // DetectMultiplier returns the configured detection multiplier.
 func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
+
+// NegotiatedTxInterval returns the current negotiated TX interval.
+// RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).
+// When state is not Up, the slow rate (1s) is enforced per RFC 5880 Section 6.8.3.
+func (s *Session) NegotiatedTxInterval() time.Duration { return s.calcTxInterval() }
+
+// DetectionTime returns the current calculated detection time.
+// RFC 5880 Section 6.8.4: RemoteDetectMult * max(RequiredMinRx, RemoteDesiredMinTx).
+func (s *Session) DetectionTime() time.Duration { return s.calcDetectionTime() }
+
+// PacketsSent returns the total BFD Control packets transmitted (atomic read).
+func (s *Session) PacketsSent() uint64 { return s.packetsSent.Load() }
+
+// PacketsReceived returns the total BFD Control packets received (atomic read).
+func (s *Session) PacketsReceived() uint64 { return s.packetsReceived.Load() }
+
+// StateTransitions returns the total FSM state transitions (atomic read).
+func (s *Session) StateTransitions() uint64 { return s.stateTransitions.Load() }
+
+// LastStateChange returns the timestamp of the most recent FSM state
+// transition. Returns zero time.Time if no transition has occurred.
+func (s *Session) LastStateChange() time.Time {
+	ns := s.lastStateChange.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
+
+// LastPacketReceived returns the timestamp of the most recent valid BFD
+// Control packet received. Returns zero time.Time if no packet received.
+func (s *Session) LastPacketReceived() time.Time {
+	ns := s.lastPacketRecv.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
 
 // RecvPacket delivers a received BFD Control packet to the session for
 // processing. This is safe to call from any goroutine. If the receive
@@ -542,7 +622,10 @@ func (s *Session) sendControl(ctx context.Context) {
 		s.logger.Warn("failed to send control packet",
 			slog.String("error", err.Error()),
 		)
+		return
 	}
+	s.packetsSent.Add(1)
+	s.metrics.IncPacketsSent(s.peerAddr, s.localAddr)
 }
 
 // -------------------------------------------------------------------------
@@ -584,6 +667,11 @@ func (s *Session) handleRecvPacket(
 	if !s.checkAuthConsistency(pkt) {
 		return
 	}
+
+	// Record received packet counter and timestamp.
+	s.packetsReceived.Add(1)
+	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
+	s.lastPacketRecv.Store(time.Now().UnixNano())
 
 	// RFC 5880 Section 6.7: verify authentication if configured.
 	if s.auth != nil {
@@ -681,12 +769,19 @@ func (s *Session) executeFSMActions(
 	}
 }
 
-// logStateChange logs the FSM transition and emits a StateChange notification.
+// logStateChange logs the FSM transition, updates counters, and emits a
+// StateChange notification.
 func (s *Session) logStateChange(result FSMResult) {
 	s.logger.Info("session state changed",
 		slog.String("old_state", result.OldState.String()),
 		slog.String("new_state", result.NewState.String()),
 		slog.String("diag", s.LocalDiag().String()),
+	)
+	s.stateTransitions.Add(1)
+	s.lastStateChange.Store(time.Now().UnixNano())
+	s.metrics.RecordStateTransition(
+		s.peerAddr, s.localAddr,
+		result.OldState.String(), result.NewState.String(),
 	)
 	s.emitNotification(result)
 }
