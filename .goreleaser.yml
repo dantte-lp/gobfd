@@ -1,0 +1,52 @@
+version: 2
+
+builds:
+  - id: gobfd
+    main: ./cmd/gobfd
+    binary: gobfd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/dantte-lp/gobfd/internal/version.Version={{.Version}}
+
+  - id: gobfdctl
+    main: ./cmd/gobfdctl
+    binary: gobfdctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}"
+      - "ghcr.io/dantte-lp/gobfd:latest"
+    dockerfile: deployments/docker/Containerfile
+    build_flag_templates:
+      - "--build-arg=VERSION={{.Version}}"
