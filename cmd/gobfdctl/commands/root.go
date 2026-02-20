@@ -43,7 +43,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "localhost:50051",
 		"gobfd daemon address (host:port)")
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table",
-		"output format: table, json")
+		"output format: table, json, yaml")
 
 	rootCmd.AddCommand(sessionCmd())
 	rootCmd.AddCommand(monitorCmd())

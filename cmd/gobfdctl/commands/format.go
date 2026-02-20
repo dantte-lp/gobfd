@@ -9,12 +9,15 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
 
 const (
 	formatJSON  = "json"
 	formatTable = "table"
+	formatYAML  = "yaml"
 	valueNA     = "N/A"
 	valueUnknow = "Unknown"
 )
@@ -29,6 +32,8 @@ func formatSessions(sessions []*bfdv1.BfdSession, format string) (string, error)
 		return formatSessionsJSON(sessions)
 	case formatTable:
 		return formatSessionsTable(sessions)
+	case formatYAML:
+		return formatSessionsYAML(sessions)
 	default:
 		return "", fmt.Errorf("%w: %q", errUnsupportedFormat, format)
 	}
@@ -41,6 +46,8 @@ func formatSession(session *bfdv1.BfdSession, format string) (string, error) {
 		return formatSessionJSON(session)
 	case formatTable:
 		return formatSessionDetail(session)
+	case formatYAML:
+		return formatSessionYAML(session)
 	default:
 		return "", fmt.Errorf("%w: %q", errUnsupportedFormat, format)
 	}
@@ -53,6 +60,8 @@ func formatEvent(event *bfdv1.WatchSessionEventsResponse, format string) (string
 		return formatEventJSON(event)
 	case formatTable:
 		return formatEventTable(event), nil
+	case formatYAML:
+		return formatEventYAML(event)
 	default:
 		return "", fmt.Errorf("%w: %q", errUnsupportedFormat, format)
 	}
@@ -196,34 +205,63 @@ func formatEventJSON(event *bfdv1.WatchSessionEventsResponse) (string, error) {
 	return string(data), nil
 }
 
-// --- View types for clean JSON output ---
+// --- YAML formatters ---
+
+func formatSessionsYAML(sessions []*bfdv1.BfdSession) (string, error) {
+	data, err := yaml.Marshal(sessionsToView(sessions))
+	if err != nil {
+		return "", fmt.Errorf("marshal sessions to YAML: %w", err)
+	}
+
+	return string(data), nil
+}
+
+func formatSessionYAML(session *bfdv1.BfdSession) (string, error) {
+	data, err := yaml.Marshal(sessionToView(session))
+	if err != nil {
+		return "", fmt.Errorf("marshal session to YAML: %w", err)
+	}
+
+	return string(data), nil
+}
+
+func formatEventYAML(event *bfdv1.WatchSessionEventsResponse) (string, error) {
+	data, err := yaml.Marshal(eventToView(event))
+	if err != nil {
+		return "", fmt.Errorf("marshal event to YAML: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// --- View types for clean JSON/YAML output ---
 
 type sessionView struct {
-	PeerAddress         string `json:"peer_address"`
-	LocalAddress        string `json:"local_address"`
-	InterfaceName       string `json:"interface_name,omitempty"`
-	Type                string `json:"type"`
-	LocalState          string `json:"local_state"`
-	RemoteState         string `json:"remote_state"`
-	LocalDiagnostic     string `json:"local_diagnostic"`
-	LocalDiscriminator  uint32 `json:"local_discriminator"`
-	RemoteDiscriminator uint32 `json:"remote_discriminator"`
-	DetectMultiplier    uint32 `json:"detect_multiplier"`
-	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"`
-	RequiredMinRx       string `json:"required_min_rx_interval,omitempty"`
-	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"`
-	NegotiatedTx        string `json:"negotiated_tx_interval,omitempty"`
-	DetectionTime       string `json:"detection_time,omitempty"`
-	AuthType            string `json:"auth_type"`
-	LastStateChange     string `json:"last_state_change,omitempty"`
-	LastPacketReceived  string `json:"last_packet_received,omitempty"`
+	PeerAddress         string `json:"peer_address"                       yaml:"peer_address"`
+	LocalAddress        string `json:"local_address"                      yaml:"local_address"`
+	InterfaceName       string `json:"interface_name,omitempty"            yaml:"interface_name,omitempty"`
+	Type                string `json:"type"                               yaml:"type"`
+	LocalState          string `json:"local_state"                        yaml:"local_state"`
+	RemoteState         string `json:"remote_state"                       yaml:"remote_state"`
+	LocalDiagnostic     string `json:"local_diagnostic"                   yaml:"local_diagnostic"`
+	LocalDiscriminator  uint32 `json:"local_discriminator"                yaml:"local_discriminator"`
+	RemoteDiscriminator uint32 `json:"remote_discriminator"               yaml:"remote_discriminator"`
+	DetectMultiplier    uint32 `json:"detect_multiplier"                  yaml:"detect_multiplier"`
+	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"  yaml:"desired_min_tx_interval,omitempty"`
+	RequiredMinRx       string `json:"required_min_rx_interval,omitempty" yaml:"required_min_rx_interval,omitempty"`
+	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"   yaml:"remote_min_rx_interval,omitempty"`
+	NegotiatedTx        string `json:"negotiated_tx_interval,omitempty"   yaml:"negotiated_tx_interval,omitempty"`
+	DetectionTime       string `json:"detection_time,omitempty"           yaml:"detection_time,omitempty"`
+	AuthType            string `json:"auth_type"                          yaml:"auth_type"`
+	LastStateChange     string `json:"last_state_change,omitempty"        yaml:"last_state_change,omitempty"`
+	LastPacketReceived  string `json:"last_packet_received,omitempty"     yaml:"last_packet_received,omitempty"`
 }
 
 type eventView struct {
-	Timestamp     string       `json:"timestamp"`
-	EventType     string       `json:"event_type"`
-	PreviousState string       `json:"previous_state"`
-	Session       *sessionView `json:"session,omitempty"`
+	Timestamp     string       `json:"timestamp"      yaml:"timestamp"`
+	EventType     string       `json:"event_type"     yaml:"event_type"`
+	PreviousState string       `json:"previous_state" yaml:"previous_state"`
+	Session       *sessionView `json:"session,omitempty" yaml:"session,omitempty"`
 }
 
 func sessionToView(s *bfdv1.BfdSession) *sessionView {
