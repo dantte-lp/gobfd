@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -34,37 +35,91 @@ var (
 	ErrDetectMultOverflow = errors.New("detect multiplier exceeds maximum 255")
 )
 
+// SenderFactory creates a PacketSender for a BFD session. The factory
+// abstracts socket creation so that the server can be tested without
+// real network sockets.
+//
+// On session creation, the factory is called with the session's local
+// address and session type. On session destruction, CloseSender is
+// called to release resources (close socket, release port).
+type SenderFactory interface {
+	// CreateSender allocates a source port and creates a PacketSender
+	// bound to localAddr. Returns the sender and allocated port.
+	CreateSender(
+		localAddr netip.Addr,
+		multiHop bool,
+		logger *slog.Logger,
+	) (bfd.PacketSender, uint16, error)
+
+	// CloseSender releases resources for the sender identified by
+	// the allocated source port (close socket, release port).
+	CloseSender(srcPort uint16) error
+}
+
 // noopSender is a PacketSender that discards all packets.
-// Used as a placeholder until the real socket sender is wired from netio.
+// Used as a fallback when no SenderFactory is configured.
 type noopSender struct{}
 
 func (noopSender) SendPacket(_ context.Context, _ []byte, _ netip.Addr) error {
 	return nil
 }
 
+// noopSenderFactory returns noopSender instances (for tests).
+type noopSenderFactory struct{}
+
+func (noopSenderFactory) CreateSender(
+	_ netip.Addr,
+	_ bool,
+	_ *slog.Logger,
+) (bfd.PacketSender, uint16, error) {
+	return noopSender{}, 0, nil
+}
+
+func (noopSenderFactory) CloseSender(_ uint16) error { return nil }
+
 // BFDServer implements bfdv1connect.BfdServiceHandler.
 //
 // Each RPC delegates to the session Manager for actual BFD operations.
 // The server is a thin adapter between gRPC API and internal domain.
 type BFDServer struct {
-	manager *bfd.Manager
-	logger  *slog.Logger
+	manager       *bfd.Manager
+	senderFactory SenderFactory
+	logger        *slog.Logger
+
+	// senderPorts tracks allocated source ports per session discriminator
+	// for cleanup on DestroySession.
+	senderPorts   map[uint32]uint16
+	senderPortsMu sync.Mutex
 }
 
 // verify interface compliance at compile time.
 var _ bfdv1connect.BfdServiceHandler = (*BFDServer)(nil)
 
 // New creates a new BFDServer and returns the HTTP handler and path.
-func New(mgr *bfd.Manager, logger *slog.Logger, opts ...connect.HandlerOption) (string, http.Handler) {
+// If sf is nil, a noopSenderFactory is used (for testing without sockets).
+func New(
+	mgr *bfd.Manager,
+	sf SenderFactory,
+	logger *slog.Logger,
+	opts ...connect.HandlerOption,
+) (string, http.Handler) {
+	if sf == nil {
+		sf = noopSenderFactory{}
+	}
 	srv := &BFDServer{
-		manager: mgr,
-		logger:  logger.With(slog.String("component", "server")),
+		manager:       mgr,
+		senderFactory: sf,
+		senderPorts:   make(map[uint32]uint16),
+		logger:        logger.With(slog.String("component", "server")),
 	}
 	return bfdv1connect.NewBfdServiceHandler(srv, opts...)
 }
 
 // AddSession creates a new BFD session with the given parameters.
-func (s *BFDServer) AddSession(ctx context.Context, req *bfdv1.AddSessionRequest) (*bfdv1.AddSessionResponse, error) {
+func (s *BFDServer) AddSession(
+	ctx context.Context,
+	req *bfdv1.AddSessionRequest,
+) (*bfdv1.AddSessionResponse, error) {
 	s.logger.InfoContext(ctx, "AddSession called",
 		slog.String("peer", req.GetPeerAddress()),
 		slog.String("local", req.GetLocalAddress()),
@@ -75,10 +130,13 @@ func (s *BFDServer) AddSession(ctx context.Context, req *bfdv1.AddSessionRequest
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	sess, err := s.manager.CreateSession(ctx, cfg, noopSender{})
+	sender, srcPort, sess, err := s.createSessionWithSender(ctx, cfg)
 	if err != nil {
-		return nil, mapManagerError(err, "add session")
+		return nil, err
 	}
+
+	_ = sender // sender is owned by session now
+	s.trackSenderPort(sess.LocalDiscriminator(), srcPort)
 
 	snap := snapshotFromSession(sess, cfg)
 
@@ -87,17 +145,80 @@ func (s *BFDServer) AddSession(ctx context.Context, req *bfdv1.AddSessionRequest
 	}, nil
 }
 
+// createSessionWithSender creates the sender and session together.
+// On session creation failure, the sender is cleaned up.
+func (s *BFDServer) createSessionWithSender(
+	ctx context.Context,
+	cfg bfd.SessionConfig,
+) (bfd.PacketSender, uint16, *bfd.Session, error) {
+	multiHop := cfg.Type == bfd.SessionTypeMultiHop
+
+	sender, srcPort, err := s.senderFactory.CreateSender(
+		cfg.LocalAddr, multiHop, s.logger,
+	)
+	if err != nil {
+		return nil, 0, nil, mapManagerError(
+			fmt.Errorf("create sender: %w", err), "add session",
+		)
+	}
+
+	sess, err := s.manager.CreateSession(ctx, cfg, sender)
+	if err != nil {
+		if closeErr := s.senderFactory.CloseSender(srcPort); closeErr != nil {
+			s.logger.Warn("failed to close sender after session creation failure",
+				slog.String("error", closeErr.Error()),
+			)
+		}
+		return nil, 0, nil, mapManagerError(err, "add session")
+	}
+
+	return sender, srcPort, sess, nil
+}
+
+// trackSenderPort records the source port for cleanup on DestroySession.
+func (s *BFDServer) trackSenderPort(discr uint32, srcPort uint16) {
+	s.senderPortsMu.Lock()
+	s.senderPorts[discr] = srcPort
+	s.senderPortsMu.Unlock()
+}
+
 // DeleteSession removes a BFD session by its local discriminator.
-func (s *BFDServer) DeleteSession(ctx context.Context, req *bfdv1.DeleteSessionRequest) (*bfdv1.DeleteSessionResponse, error) {
+func (s *BFDServer) DeleteSession(
+	ctx context.Context,
+	req *bfdv1.DeleteSessionRequest,
+) (*bfdv1.DeleteSessionResponse, error) {
+	discr := req.GetLocalDiscriminator()
 	s.logger.InfoContext(ctx, "DeleteSession called",
-		slog.Uint64("discriminator", uint64(req.GetLocalDiscriminator())),
+		slog.Uint64("discriminator", uint64(discr)),
 	)
 
-	if err := s.manager.DestroySession(ctx, req.GetLocalDiscriminator()); err != nil {
+	if err := s.manager.DestroySession(ctx, discr); err != nil {
 		return nil, mapManagerError(err, "delete session")
 	}
 
+	s.cleanupSender(discr)
+
 	return &bfdv1.DeleteSessionResponse{}, nil
+}
+
+// cleanupSender closes the sender and releases the source port for a
+// destroyed session.
+func (s *BFDServer) cleanupSender(discr uint32) {
+	s.senderPortsMu.Lock()
+	srcPort, ok := s.senderPorts[discr]
+	if ok {
+		delete(s.senderPorts, discr)
+	}
+	s.senderPortsMu.Unlock()
+
+	if ok {
+		if err := s.senderFactory.CloseSender(srcPort); err != nil {
+			s.logger.Warn("failed to close sender",
+				slog.Uint64("discriminator", uint64(discr)),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 }
 
 // ListSessions returns all active BFD sessions.

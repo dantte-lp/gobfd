@@ -228,7 +228,7 @@ func newMetricsServer(cfg config.MetricsConfig, reg *prometheus.Registry) *http.
 // newGRPCServer creates an HTTP server for the ConnectRPC gRPC endpoint.
 func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
-	path, handler := server.New(mgr, logger,
+	path, handler := server.New(mgr, nil, logger,
 		server.LoggingInterceptorOption(logger),
 		server.RecoveryInterceptorOption(logger),
 	)

@@ -39,7 +39,7 @@ func setupTestServer(t *testing.T) bfdv1connect.BfdServiceClient {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, logger)
+	path, handler := server.New(mgr, nil, logger)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 

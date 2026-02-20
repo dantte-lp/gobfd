@@ -23,7 +23,7 @@ func TestServerSessionLifecycle(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, logger)
+	path, handler := server.New(mgr, nil, logger)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

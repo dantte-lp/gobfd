@@ -98,6 +98,14 @@ type SessionConfig struct {
 	// DetectMultiplier is the detection time multiplier (RFC 5880 Section 6.8.1).
 	// MUST be nonzero.
 	DetectMultiplier uint8
+
+	// Auth is the optional authenticator for this session.
+	// nil means no authentication (RFC 5880 Section 6.7).
+	Auth Authenticator
+
+	// AuthKeys provides the key store for authentication.
+	// Required if Auth is not nil.
+	AuthKeys AuthKeyStore
 }
 
 // StateChange is emitted when a session FSM transitions between states.
@@ -251,12 +259,28 @@ type Session struct {
 	// --- Cached packet (FRR bfdd pattern) ---
 	cachedPacket []byte
 
+	// --- Authentication (RFC 5880 Section 6.7) ---
+
+	// auth holds the authenticator (nil if no auth).
+	auth Authenticator
+	// authKeys provides the key store for authentication.
+	authKeys AuthKeyStore
+	// authState tracks per-session auth sequence numbers.
+	authState *AuthState
+
 	// --- Runtime ---
 
 	sender   PacketSender
 	logger   *slog.Logger
-	recvCh   chan *ControlPacket
+	recvCh   chan recvItem
 	notifyCh chan<- StateChange
+}
+
+// recvItem carries a received BFD Control packet along with the raw
+// wire bytes needed for authentication verification (RFC 5880 Section 6.7).
+type recvItem struct {
+	pkt  *ControlPacket
+	wire []byte // raw wire bytes for auth digest verification
 }
 
 // -------------------------------------------------------------------------
@@ -294,9 +318,11 @@ func NewSession(
 		peerAddr:              cfg.PeerAddr,
 		localAddr:             cfg.LocalAddr,
 		ifName:                cfg.Interface,
+		auth:                  cfg.Auth,
+		authKeys:              cfg.AuthKeys,
 		sender:                sender,
 		notifyCh:              notifyCh,
-		recvCh:                make(chan *ControlPacket, recvChSize),
+		recvCh:                make(chan recvItem, recvChSize),
 		cachedPacket:          make([]byte, MaxPacketSize),
 		logger: logger.With(
 			slog.String("peer", cfg.PeerAddr.String()),
@@ -310,6 +336,11 @@ func NewSession(
 	s.remoteState.Store(uint32(StateDown))
 	// RFC 5880 Section 6.8.1: bfd.LocalDiag MUST be initialized to zero.
 	s.localDiag.Store(uint32(DiagNone))
+
+	// Initialize auth state if authentication is configured.
+	if err := s.initAuth(cfg); err != nil {
+		return nil, err
+	}
 
 	s.rebuildCachedPacket()
 
@@ -333,6 +364,21 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if localDiscr == 0 {
 		return fmt.Errorf("local discriminator: %w", ErrInvalidDiscriminator)
 	}
+	return nil
+}
+
+// initAuth initializes the authentication state if auth is configured.
+// RFC 5880 Section 6.8.1: bfd.XmitAuthSeq MUST be initialized to a
+// random 32-bit value.
+func (s *Session) initAuth(cfg SessionConfig) error {
+	if cfg.Auth == nil {
+		return nil
+	}
+	as, err := NewAuthState(AuthTypeNone)
+	if err != nil {
+		return fmt.Errorf("init auth state: %w", err)
+	}
+	s.authState = as
 	return nil
 }
 
@@ -391,9 +437,16 @@ func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
 // RecvPacket delivers a received BFD Control packet to the session for
 // processing. This is safe to call from any goroutine. If the receive
 // channel is full, the packet is dropped (logged at debug level).
-func (s *Session) RecvPacket(pkt *ControlPacket) {
+//
+// wire is the raw packet bytes needed for auth verification. It may be
+// nil if no authentication is configured.
+func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
+	var w []byte
+	if len(wire) > 0 {
+		w = wire[0]
+	}
 	select {
-	case s.recvCh <- pkt:
+	case s.recvCh <- recvItem{pkt: pkt, wire: w}:
 	default:
 		s.logger.Debug("recv channel full, dropping packet")
 	}
@@ -442,8 +495,8 @@ func (s *Session) runLoop(
 			s.logger.Info("session stopped")
 			return
 
-		case pkt := <-s.recvCh:
-			s.handleRecvPacket(pkt, txTimer, detectTimer)
+		case item := <-s.recvCh:
+			s.handleRecvPacket(item, txTimer, detectTimer)
 
 		case <-txTimer.C:
 			s.handleTxTimer(ctx, txTimer)
@@ -521,13 +574,28 @@ func (s *Session) handleDetectTimer(
 // Steps 1-7 (basic validation) were done by UnmarshalControlPacket.
 // This method implements steps 8-18 of RFC 5880 Section 6.8.6.
 func (s *Session) handleRecvPacket(
-	pkt *ControlPacket,
+	item recvItem,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
+	pkt := item.pkt
+
 	// Steps 8-9: Auth mismatch check.
 	if !s.checkAuthConsistency(pkt) {
 		return
+	}
+
+	// RFC 5880 Section 6.7: verify authentication if configured.
+	if s.auth != nil {
+		if err := s.auth.Verify(
+			s.authState, s.authKeys, pkt, item.wire, len(item.wire),
+		); err != nil {
+			s.logger.Debug("auth verification failed",
+				slog.String("peer", s.peerAddr.String()),
+				slog.String("error", err.Error()),
+			)
+			return
+		}
 	}
 
 	// Step 13: Set bfd.RemoteDiscr = My Discriminator.
@@ -568,10 +636,15 @@ func (s *Session) handleRecvPacket(
 // checkAuthConsistency validates RFC 5880 Section 6.8.6 steps 8-9.
 func (s *Session) checkAuthConsistency(pkt *ControlPacket) bool {
 	// Step 8: A bit set but no auth configured -> discard.
-	// Step 9: A bit clear but auth configured -> discard.
-	// For MVP: no auth is configured (AuthTypeNone), so reject if A bit set.
-	if pkt.AuthPresent {
+	if pkt.AuthPresent && s.auth == nil {
 		s.logger.Warn("discarding packet: auth present but not configured",
+			slog.String("peer", s.peerAddr.String()),
+		)
+		return false
+	}
+	// Step 9: A bit clear but auth configured -> discard.
+	if !pkt.AuthPresent && s.auth != nil {
+		s.logger.Warn("discarding packet: auth not present but configured",
 			slog.String("peer", s.peerAddr.String()),
 		)
 		return false
@@ -812,13 +885,36 @@ func (s *Session) rebuildCachedPacket() {
 		)
 		return
 	}
-	// Ensure the length byte is set for sendControl.
-	_ = n
+	// RFC 5880 Section 6.7: sign the packet if auth is configured.
+	if s.auth != nil {
+		s.signCachedPacket(&pkt, n)
+	}
+}
+
+// signCachedPacket applies authentication to the cached packet.
+// Sign modifies both the packet struct and the buffer in-place.
+func (s *Session) signCachedPacket(pkt *ControlPacket, n int) {
+	if err := s.auth.Sign(
+		s.authState, s.authKeys, pkt, s.cachedPacket, n,
+	); err != nil {
+		s.logger.Error("auth sign failed",
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 // buildControlPacket constructs a ControlPacket from current session state.
 // RFC 5880 Section 6.8.7: field-by-field specification of transmitted packets.
 func (s *Session) buildControlPacket() ControlPacket {
+	// RFC 5880 Section 6.8.3: "When bfd.SessionState is not Up, the
+	// system MUST set bfd.DesiredMinTxInterval to a value of not less
+	// than one second (1,000,000 microseconds)." This applies to the
+	// wire value so the remote peer calculates correct detection time.
+	wireTxInterval := s.desiredMinTxInterval
+	if s.State() != StateUp && wireTxInterval < slowTxInterval {
+		wireTxInterval = slowTxInterval
+	}
+
 	pkt := ControlPacket{
 		Version:                   Version,
 		Diag:                      s.LocalDiag(),
@@ -832,7 +928,7 @@ func (s *Session) buildControlPacket() ControlPacket {
 		DetectMult:                s.detectMult,
 		MyDiscriminator:           s.localDiscr,
 		YourDiscriminator:         s.remoteDiscr,
-		DesiredMinTxInterval:      microsecondsFromDuration(s.desiredMinTxInterval),
+		DesiredMinTxInterval:      microsecondsFromDuration(wireTxInterval),
 		RequiredMinRxInterval:     microsecondsFromDuration(s.requiredMinRxInterval),
 		RequiredMinEchoRxInterval: 0, // Echo not implemented in MVP.
 	}

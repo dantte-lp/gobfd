@@ -15,6 +15,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/spf13/cobra v1.10.2
+	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.13.0
 	golang.org/x/sys v0.41.0
 )

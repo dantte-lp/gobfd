@@ -434,6 +434,59 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) error {
 	return nil
 }
 
+// DemuxWithWire routes a packet like Demux but also passes raw wire
+// bytes to the session for authentication verification (RFC 5880 Section 6.7).
+func (m *Manager) DemuxWithWire(
+	pkt *ControlPacket,
+	meta PacketMeta,
+	wire []byte,
+) error {
+	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
+	if pkt.YourDiscriminator != 0 {
+		return m.demuxByDiscr(pkt, wire)
+	}
+
+	// Tier 2: lookup by peer key when Your Discriminator == 0.
+	return m.demuxByPeer(pkt, meta, wire)
+}
+
+// demuxByDiscr routes a packet by Your Discriminator (tier 1).
+func (m *Manager) demuxByDiscr(pkt *ControlPacket, wire []byte) error {
+	sess, ok := m.LookupByDiscriminator(pkt.YourDiscriminator)
+	if !ok {
+		return fmt.Errorf(
+			"demux: your discriminator %d not found: %w",
+			pkt.YourDiscriminator, ErrDemuxNoMatch,
+		)
+	}
+	sess.RecvPacket(pkt, wire)
+	return nil
+}
+
+// demuxByPeer routes a packet by peer key (tier 2).
+func (m *Manager) demuxByPeer(
+	pkt *ControlPacket,
+	meta PacketMeta,
+	wire []byte,
+) error {
+	key := sessionKey{
+		peerAddr:  meta.SrcAddr,
+		localAddr: meta.DstAddr,
+		ifName:    meta.IfName,
+	}
+
+	sess, ok := m.LookupByPeer(key)
+	if !ok {
+		return fmt.Errorf(
+			"demux: no session for peer %s -> %s (iface=%s): %w",
+			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
+		)
+	}
+
+	sess.RecvPacket(pkt, wire)
+	return nil
+}
+
 // -------------------------------------------------------------------------
 // Snapshot — read-only session listing
 // -------------------------------------------------------------------------
