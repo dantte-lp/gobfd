@@ -358,11 +358,35 @@ func (s *Session) LocalDiag() Diag {
 	return Diag(s.localDiag.Load()) //nolint:gosec // G115: Diag is 0-8, fits uint8
 }
 
+// RemoteDiscriminator returns the remote discriminator learned from the peer.
+// Returns 0 if no packet has been received yet (RFC 5880 Section 6.8.1).
+//
+// NOTE: This value is updated by the session goroutine and is NOT atomic.
+// It is intended for snapshot reads (e.g., Manager.Sessions) where the
+// session goroutine may be running. Callers must tolerate slightly stale
+// values; exact consistency is not required for display/monitoring purposes.
+func (s *Session) RemoteDiscriminator() uint32 { return s.remoteDiscr }
+
 // PeerAddr returns the remote system's IP address.
 func (s *Session) PeerAddr() netip.Addr { return s.peerAddr }
 
+// LocalAddr returns the local system's IP address.
+func (s *Session) LocalAddr() netip.Addr { return s.localAddr }
+
+// Interface returns the network interface name (empty for multi-hop sessions).
+func (s *Session) Interface() string { return s.ifName }
+
 // Type returns the session type (single-hop or multi-hop).
 func (s *Session) Type() SessionType { return s.sessionType }
+
+// DesiredMinTxInterval returns the configured desired minimum TX interval.
+func (s *Session) DesiredMinTxInterval() time.Duration { return s.desiredMinTxInterval }
+
+// RequiredMinRxInterval returns the configured required minimum RX interval.
+func (s *Session) RequiredMinRxInterval() time.Duration { return s.requiredMinRxInterval }
+
+// DetectMultiplier returns the configured detection multiplier.
+func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
 
 // RecvPacket delivers a received BFD Control packet to the session for
 // processing. This is safe to call from any goroutine. If the receive
