@@ -43,19 +43,25 @@ const (
 // -------------------------------------------------------------------------
 
 // PacketMeta contains transport-layer metadata extracted from received
-// BFD Control packets via ancillary data (IP_PKTINFO, IP_RECVTTL).
+// BFD Control packets via ancillary data. Supports both IPv4 and IPv6:
+//   - IPv4: IP_PKTINFO + IP_RECVTTL
+//   - IPv6: IPV6_PKTINFO + IPV6_RECVHOPLIMIT
+//
 // Used for GTSM validation (RFC 5082) and session demultiplexing.
 type PacketMeta struct {
-	// SrcAddr is the source IP address from the IP header.
+	// SrcAddr is the source IP address from the IP header (IPv4 or IPv6).
 	SrcAddr netip.Addr
 
-	// DstAddr is the destination IP address, obtained from IP_PKTINFO
-	// ancillary data. Needed for multi-hop demultiplexing (RFC 5883).
+	// DstAddr is the destination IP address, obtained from ancillary data:
+	// IP_PKTINFO (IPv4) or IPV6_PKTINFO (IPv6).
+	// Needed for multi-hop demultiplexing (RFC 5883).
 	DstAddr netip.Addr
 
-	// TTL is the Time-to-Live / Hop Limit from the received IP header.
-	// Single-hop (RFC 5881 Section 5): MUST be 255.
-	// Multi-hop (RFC 5883 Section 2): MUST be >= 254.
+	// TTL is the Time-to-Live (IPv4) or Hop Limit (IPv6) from the
+	// received IP header. Both are semantically equivalent for GTSM
+	// (RFC 5082):
+	//   - Single-hop (RFC 5881 Section 5): MUST be 255
+	//   - Multi-hop (RFC 5883 Section 2): MUST be >= 254
 	TTL uint8
 
 	// IfIndex is the interface index on which the packet was received.
@@ -119,7 +125,9 @@ var (
 // GTSM Validation — RFC 5881 Section 5, RFC 5883 Section 2
 // -------------------------------------------------------------------------
 
-// ValidateTTL checks the received TTL against GTSM requirements.
+// ValidateTTL checks the received TTL (IPv4) or Hop Limit (IPv6) against
+// GTSM requirements. The validation rules are identical for both address
+// families per RFC 5082.
 //
 // For single-hop (RFC 5881 Section 5): "the received TTL MUST be checked
 // to be 255." This is the Generalized TTL Security Mechanism (RFC 5082).

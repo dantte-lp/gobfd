@@ -324,6 +324,95 @@ func TestValidateTTLMultiHop(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
+// Tests — IPv6 GTSM Hop Limit Validation
+// -------------------------------------------------------------------------
+
+// TestValidateHopLimitSingleHopIPv6 verifies that single-hop IPv6 sessions
+// require HopLimit = 255 exactly, same as IPv4 TTL (RFC 5881 Section 5,
+// RFC 5082). The PacketMeta.TTL field stores the IPv6 Hop Limit.
+func TestValidateHopLimitSingleHopIPv6(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		hopLimit uint8
+		wantErr  bool
+	}{
+		{name: "HopLimit 255 valid", hopLimit: 255, wantErr: false},
+		{name: "HopLimit 254 invalid", hopLimit: 254, wantErr: true},
+		{name: "HopLimit 0 invalid", hopLimit: 0, wantErr: true},
+		{name: "HopLimit 128 invalid", hopLimit: 128, wantErr: true},
+		{name: "HopLimit 64 invalid", hopLimit: 64, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			meta := netio.PacketMeta{
+				SrcAddr: netip.MustParseAddr("2001:db8::1"),
+				DstAddr: netip.MustParseAddr("2001:db8::2"),
+				TTL:     tt.hopLimit,
+			}
+			err := netio.ValidateTTL(meta, false)
+
+			if tt.wantErr && err == nil {
+				t.Errorf("HopLimit %d: expected error, got nil", tt.hopLimit)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("HopLimit %d: unexpected error: %v", tt.hopLimit, err)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, netio.ErrTTLInvalid) {
+				t.Errorf("HopLimit %d: error does not wrap ErrTTLInvalid: %v",
+					tt.hopLimit, err)
+			}
+		})
+	}
+}
+
+// TestValidateHopLimitMultiHopIPv6 verifies that multi-hop IPv6 sessions
+// require HopLimit >= 254 (RFC 5883 Section 2). Same rules as IPv4.
+func TestValidateHopLimitMultiHopIPv6(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		hopLimit uint8
+		wantErr  bool
+	}{
+		{name: "HopLimit 255 valid", hopLimit: 255, wantErr: false},
+		{name: "HopLimit 254 valid", hopLimit: 254, wantErr: false},
+		{name: "HopLimit 253 invalid", hopLimit: 253, wantErr: true},
+		{name: "HopLimit 0 invalid", hopLimit: 0, wantErr: true},
+		{name: "HopLimit 128 invalid", hopLimit: 128, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			meta := netio.PacketMeta{
+				SrcAddr: netip.MustParseAddr("2001:db8::1"),
+				DstAddr: netip.MustParseAddr("2001:db8::2"),
+				TTL:     tt.hopLimit,
+			}
+			err := netio.ValidateTTL(meta, true)
+
+			if tt.wantErr && err == nil {
+				t.Errorf("HopLimit %d: expected error, got nil", tt.hopLimit)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("HopLimit %d: unexpected error: %v", tt.hopLimit, err)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, netio.ErrTTLInvalid) {
+				t.Errorf("HopLimit %d: error does not wrap ErrTTLInvalid: %v",
+					tt.hopLimit, err)
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
 // Tests — MockPacketConn
 // -------------------------------------------------------------------------
 
@@ -471,6 +560,42 @@ func TestPacketMetaFields(t *testing.T) {
 	}
 }
 
+// TestPacketMetaFieldsIPv6 verifies that PacketMeta correctly stores
+// IPv6 addresses and hop limit (stored in TTL field).
+func TestPacketMetaFieldsIPv6(t *testing.T) {
+	t.Parallel()
+
+	meta := netio.PacketMeta{
+		SrcAddr: netip.MustParseAddr("2001:db8::1"),
+		DstAddr: netip.MustParseAddr("2001:db8::2"),
+		TTL:     255,
+		IfIndex: 7,
+		IfName:  "eth1",
+	}
+
+	if meta.SrcAddr != netip.MustParseAddr("2001:db8::1") {
+		t.Errorf("SrcAddr = %s, want 2001:db8::1", meta.SrcAddr)
+	}
+	if meta.DstAddr != netip.MustParseAddr("2001:db8::2") {
+		t.Errorf("DstAddr = %s, want 2001:db8::2", meta.DstAddr)
+	}
+	if !meta.SrcAddr.Is6() {
+		t.Error("SrcAddr should be IPv6")
+	}
+	if !meta.DstAddr.Is6() {
+		t.Error("DstAddr should be IPv6")
+	}
+	if meta.TTL != 255 {
+		t.Errorf("TTL (HopLimit) = %d, want 255", meta.TTL)
+	}
+	if meta.IfIndex != 7 {
+		t.Errorf("IfIndex = %d, want 7", meta.IfIndex)
+	}
+	if meta.IfName != "eth1" {
+		t.Errorf("IfName = %s, want eth1", meta.IfName)
+	}
+}
+
 // TestPacketMetaZeroValue verifies that a zero-value PacketMeta has
 // sensible defaults (zero addr, zero TTL, etc.).
 func TestPacketMetaZeroValue(t *testing.T) {
@@ -543,6 +668,54 @@ func TestListenerRecvWithMock(t *testing.T) {
 	}
 }
 
+// TestListenerRecvWithMockIPv6 verifies that Listener.Recv correctly
+// handles IPv6 addresses and hop limit validation via mock.
+func TestListenerRecvWithMockIPv6(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddrPort("[::1]:3784")
+	mock := NewMockPacketConn(addr)
+
+	wantMeta := netio.PacketMeta{
+		SrcAddr: netip.MustParseAddr("2001:db8::1"),
+		DstAddr: netip.MustParseAddr("2001:db8::2"),
+		TTL:     255,
+		IfIndex: 2,
+		IfName:  "eth0",
+	}
+	bfdData := []byte{0x20, 0x40, 0x03, 0x18}
+
+	mock.ReadFunc = func(buf []byte) (int, netio.PacketMeta, error) {
+		n := copy(buf, bfdData)
+		return n, wantMeta, nil
+	}
+
+	listener := netio.NewListenerFromConn(mock, false)
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	}()
+
+	buf, meta, err := listener.Recv(t.Context())
+	if err != nil {
+		t.Fatalf("recv: unexpected error: %v", err)
+	}
+
+	if len(buf) != len(bfdData) {
+		t.Errorf("buf len = %d, want %d", len(buf), len(bfdData))
+	}
+	if meta.SrcAddr != wantMeta.SrcAddr {
+		t.Errorf("src = %s, want %s", meta.SrcAddr, wantMeta.SrcAddr)
+	}
+	if !meta.SrcAddr.Is6() {
+		t.Error("expected IPv6 source address")
+	}
+	if meta.TTL != 255 {
+		t.Errorf("hop limit = %d, want 255", meta.TTL)
+	}
+}
+
 // TestListenerRecvRejectsBadTTL verifies that the Listener drops packets
 // with invalid TTL and continues reading until a valid packet arrives.
 func TestListenerRecvRejectsBadTTL(t *testing.T) {
@@ -591,6 +764,154 @@ func TestListenerRecvRejectsBadTTL(t *testing.T) {
 	// The first two packets with TTL=254 should have been dropped.
 	if callCount != 3 {
 		t.Errorf("read count = %d, expected 3 (2 dropped + 1 valid)", callCount)
+	}
+}
+
+// TestListenerRecvRejectsBadHopLimitIPv6 verifies that the Listener drops
+// IPv6 packets with invalid Hop Limit (stored in TTL field) and continues
+// reading until a valid packet arrives.
+func TestListenerRecvRejectsBadHopLimitIPv6(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddrPort("[::1]:3784")
+	mock := NewMockPacketConn(addr)
+
+	callCount := 0
+	mock.ReadFunc = func(buf []byte) (int, netio.PacketMeta, error) {
+		callCount++
+		data := []byte{0x20, 0x40, 0x03, 0x18}
+		n := copy(buf, data)
+
+		if callCount <= 2 {
+			// First two packets have bad Hop Limit (single-hop requires 255).
+			return n, netio.PacketMeta{
+				SrcAddr: netip.MustParseAddr("2001:db8::1"),
+				TTL:     64,
+			}, nil
+		}
+
+		// Third packet has valid Hop Limit.
+		return n, netio.PacketMeta{
+			SrcAddr: netip.MustParseAddr("2001:db8::1"),
+			TTL:     255,
+		}, nil
+	}
+
+	listener := netio.NewListenerFromConn(mock, false)
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	}()
+
+	_, meta, err := listener.Recv(t.Context())
+	if err != nil {
+		t.Fatalf("recv: unexpected error: %v", err)
+	}
+
+	if meta.TTL != 255 {
+		t.Errorf("received packet with HopLimit %d, expected 255", meta.TTL)
+	}
+
+	if callCount != 3 {
+		t.Errorf("read count = %d, expected 3 (2 dropped + 1 valid)", callCount)
+	}
+}
+
+// TestMockPacketConnWriteIPv6 verifies that WritePacket records IPv6
+// destination addresses correctly.
+func TestMockPacketConnWriteIPv6(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddrPort("[::1]:3784")
+	mock := NewMockPacketConn(addr)
+
+	dst := netip.MustParseAddr("2001:db8::1")
+	payload := []byte{0x20, 0x40, 0x03, 0x18, 0x00, 0x00, 0x00, 0x01}
+
+	err := mock.WritePacket(payload, dst)
+	if err != nil {
+		t.Fatalf("write: unexpected error: %v", err)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+
+	if len(mock.Written) != 1 {
+		t.Fatalf("expected 1 written packet, got %d", len(mock.Written))
+	}
+
+	if mock.Written[0].Dst != dst {
+		t.Errorf("dst = %s, want %s", mock.Written[0].Dst, dst)
+	}
+
+	if !mock.Written[0].Dst.Is6() {
+		t.Error("expected IPv6 destination address")
+	}
+
+	if len(mock.Written[0].Data) != len(payload) {
+		t.Errorf("data length = %d, want %d", len(mock.Written[0].Data), len(payload))
+	}
+}
+
+// TestMockPacketConnReadIPv6 verifies that ReadPacket correctly returns
+// IPv6 metadata from the injected ReadFunc.
+func TestMockPacketConnReadIPv6(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddrPort("[::1]:3784")
+	mock := NewMockPacketConn(addr)
+
+	wantMeta := netio.PacketMeta{
+		SrcAddr: netip.MustParseAddr("2001:db8::1"),
+		DstAddr: netip.MustParseAddr("2001:db8::2"),
+		TTL:     255,
+		IfIndex: 5,
+		IfName:  "eth0",
+	}
+	wantData := []byte{0x20, 0x40, 0x03, 0x18}
+
+	mock.ReadFunc = func(buf []byte) (int, netio.PacketMeta, error) {
+		n := copy(buf, wantData)
+		return n, wantMeta, nil
+	}
+
+	buf := make([]byte, 64)
+	n, meta, err := mock.ReadPacket(buf)
+	if err != nil {
+		t.Fatalf("read: unexpected error: %v", err)
+	}
+
+	if n != len(wantData) {
+		t.Errorf("n = %d, want %d", n, len(wantData))
+	}
+	if meta.SrcAddr != wantMeta.SrcAddr {
+		t.Errorf("src = %s, want %s", meta.SrcAddr, wantMeta.SrcAddr)
+	}
+	if !meta.SrcAddr.Is6() {
+		t.Error("expected IPv6 source address")
+	}
+	if meta.DstAddr != wantMeta.DstAddr {
+		t.Errorf("dst = %s, want %s", meta.DstAddr, wantMeta.DstAddr)
+	}
+	if meta.TTL != wantMeta.TTL {
+		t.Errorf("hop limit = %d, want %d", meta.TTL, wantMeta.TTL)
+	}
+	if meta.IfIndex != wantMeta.IfIndex {
+		t.Errorf("ifindex = %d, want %d", meta.IfIndex, wantMeta.IfIndex)
+	}
+}
+
+// TestMockPacketConnLocalAddrIPv6 verifies LocalAddr returns the
+// configured IPv6 address.
+func TestMockPacketConnLocalAddrIPv6(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddrPort("[2001:db8::1]:4784")
+	mock := NewMockPacketConn(addr)
+
+	if mock.LocalAddr() != addr {
+		t.Errorf("LocalAddr = %s, want %s", mock.LocalAddr(), addr)
 	}
 }
 

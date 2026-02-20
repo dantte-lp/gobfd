@@ -13,11 +13,13 @@ import (
 // -------------------------------------------------------------------------
 
 // ListenerConfig holds configuration for a BFD packet listener.
+// Supports both IPv4 and IPv6 addresses; the address family is
+// auto-detected from Addr.
 //
 // For single-hop (RFC 5881): Port = 3784, IfName is required.
 // For multi-hop (RFC 5883): Port = 4784, IfName is empty.
 type ListenerConfig struct {
-	// Addr is the local IP address to bind to.
+	// Addr is the local IP address to bind to (IPv4 or IPv6).
 	Addr netip.Addr
 
 	// IfName is the network interface name for SO_BINDTODEVICE.
@@ -72,9 +74,9 @@ func NewListenerFromConn(conn PacketConn, multiHop bool) *Listener {
 // and any error. The caller is responsible for returning the buffer to
 // bfd.PacketPool after processing.
 //
-// Recv validates the received TTL per GTSM requirements:
-//   - Single-hop (RFC 5881 Section 5): TTL must be 255
-//   - Multi-hop (RFC 5883 Section 2): TTL must be >= 254
+// Recv validates the received TTL (IPv4) or Hop Limit (IPv6) per GTSM:
+//   - Single-hop (RFC 5881 Section 5): TTL/HopLimit must be 255
+//   - Multi-hop (RFC 5883 Section 2): TTL/HopLimit must be >= 254
 func (l *Listener) Recv(ctx context.Context) ([]byte, PacketMeta, error) {
 	for {
 		if err := ctx.Err(); err != nil {

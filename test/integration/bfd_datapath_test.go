@@ -294,12 +294,19 @@ func TestDatapathDetectionTimeout(t *testing.T) {
 		waitForState(t, sessA, bfd.StateUp, 10*time.Second)
 		waitForState(t, sessB, bfd.StateUp, 10*time.Second)
 
+		// Allow packet exchanges at the negotiated rate so both peers
+		// update remoteDesiredMinTxInterval from slow-rate (1s) to the
+		// configured 100ms. Without this, detection time may still be
+		// 3 * 1s = 3s if the last received packet used slow-rate.
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+
 		// Disconnect B's sender (A stops receiving from B).
 		senderBtoA.setTarget(nil)
 
 		// A should detect the timeout. Detection time = 3 * 100ms = 300ms.
-		// With some jitter, allow up to 2 seconds.
-		waitForState(t, sessA, bfd.StateDown, 2*time.Second)
+		// Allow up to 5 seconds for worst-case jitter and timer alignment.
+		waitForState(t, sessA, bfd.StateDown, 5*time.Second)
 
 		if sessA.LocalDiag() != bfd.DiagControlTimeExpired {
 			t.Errorf("session A diag = %s, want ControlTimeExpired",

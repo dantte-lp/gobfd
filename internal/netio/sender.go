@@ -18,8 +18,10 @@ import (
 // over UDP. Each sender is bound to a specific local address and source
 // port within the RFC 5881 Section 4 ephemeral range (49152-65535).
 //
-// TTL is set to 255 at socket creation time per RFC 5881 Section 5
-// (GTSM, RFC 5082).
+// Supports both IPv4 and IPv6. The address family is auto-detected from
+// the local address:
+//   - IPv4: IP_TTL = 255 (RFC 5881 Section 5, GTSM RFC 5082)
+//   - IPv6: IPV6_UNICAST_HOPS = 255 (RFC 5881 Section 5, GTSM RFC 5082)
 type UDPSender struct {
 	conn     *net.UDPConn
 	dstPort  uint16
@@ -31,9 +33,11 @@ type UDPSender struct {
 }
 
 // NewUDPSender creates a sender for BFD packets from localAddr:srcPort.
+// Supports both IPv4 and IPv6 addresses; the address family is auto-detected.
 //
 // The socket is configured with:
-//   - IP_TTL = 255 (RFC 5881 Section 5 / RFC 5082 GTSM)
+//   - IPv4: IP_TTL = 255 (RFC 5881 Section 5 / RFC 5082 GTSM)
+//   - IPv6: IPV6_UNICAST_HOPS = 255 (RFC 5881 Section 5 / RFC 5082 GTSM)
 //   - SO_REUSEADDR for compatibility with multiple BFD sessions
 //
 // Destination port is determined by multiHop:
@@ -70,19 +74,27 @@ func NewUDPSender(
 }
 
 // dialSenderSocket creates and configures a UDP socket for BFD TX.
+// Auto-detects IPv4 vs IPv6 from the local address.
 func dialSenderSocket(
 	localAddr netip.Addr,
 	srcPort uint16,
 ) (*net.UDPConn, error) {
 	laddr := netip.AddrPortFrom(localAddr, srcPort)
+	isIPv6 := localAddr.Is6() && !localAddr.Is4In6()
 
 	lc := net.ListenConfig{
 		Control: func(_, _ string, c syscall.RawConn) error {
-			return setSenderOpts(c)
+			return setSenderOpts(c, isIPv6)
 		},
 	}
 
-	pc, err := lc.ListenPacket(context.Background(), "udp", laddr.String())
+	// Use explicit network to prevent dual-stack ambiguity.
+	network := "udp4"
+	if isIPv6 {
+		network = "udp6"
+	}
+
+	pc, err := lc.ListenPacket(context.Background(), network, laddr.String())
 	if err != nil {
 		return nil, fmt.Errorf("listen UDP %s: %w", laddr, err)
 	}
@@ -100,7 +112,8 @@ func dialSenderSocket(
 }
 
 // setSenderOpts configures socket options for BFD TX.
-func setSenderOpts(c syscall.RawConn) error {
+// For IPv4: sets IP_TTL = 255. For IPv6: sets IPV6_UNICAST_HOPS = 255.
+func setSenderOpts(c syscall.RawConn, isIPv6 bool) error {
 	var sockErr error
 
 	err := c.Control(func(fd uintptr) {
@@ -115,11 +128,20 @@ func setSenderOpts(c syscall.RawConn) error {
 			return
 		}
 
-		// IP_TTL = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
-		if sockErr = unix.SetsockoptInt(
-			intFD, unix.IPPROTO_IP, unix.IP_TTL, int(ttlRequired),
-		); sockErr != nil {
-			sockErr = fmt.Errorf("set IP_TTL: %w", sockErr)
+		if isIPv6 {
+			// IPV6_UNICAST_HOPS = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
+			if sockErr = unix.SetsockoptInt(
+				intFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, int(ttlRequired),
+			); sockErr != nil {
+				sockErr = fmt.Errorf("set IPV6_UNICAST_HOPS: %w", sockErr)
+			}
+		} else {
+			// IP_TTL = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
+			if sockErr = unix.SetsockoptInt(
+				intFD, unix.IPPROTO_IP, unix.IP_TTL, int(ttlRequired),
+			); sockErr != nil {
+				sockErr = fmt.Errorf("set IP_TTL: %w", sockErr)
+			}
 		}
 	})
 	if err != nil {
