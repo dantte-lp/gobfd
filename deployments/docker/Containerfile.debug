@@ -1,0 +1,35 @@
+FROM docker.io/golang:1.26-trixie AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY . .
+
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION}" \
+    -o /bin/gobfd ./cmd/gobfd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o /bin/gobfdctl ./cmd/gobfdctl
+
+FROM docker.io/alpine:3.21 AS debug
+
+# Install networking debug tools useful for BFD troubleshooting:
+#   tcpdump   - capture BFD packets (UDP 3784/4784)
+#   iproute2  - ip link, ip addr, ip route inspection
+#   bind-tools - dig/nslookup for DNS debugging
+#   bash      - interactive debugging shell
+#   strace    - system call tracing for socket issues
+RUN apk add --no-cache \
+    tcpdump \
+    iproute2 \
+    bind-tools \
+    bash \
+    strace \
+    && addgroup -S gobfd && adduser -S -G gobfd -s /sbin/nologin gobfd
+
+COPY --from=builder /bin/gobfd /bin/gobfdctl /usr/local/bin/
+
+EXPOSE 3784/udp 4784/udp 50051
+
+ENTRYPOINT ["/usr/local/bin/gobfd"]

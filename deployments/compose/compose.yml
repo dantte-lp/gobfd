@@ -30,3 +30,4 @@ services:
       - "3000:3000"
     volumes:
       - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z

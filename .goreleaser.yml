@@ -32,6 +32,11 @@ archives:
   - id: default
     format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - src: configs/gobfd.example.yml
+        dst: etc/gobfd/gobfd.example.yml
+      - src: deployments/systemd/gobfd.service
+        dst: lib/systemd/system/gobfd.service
 
 checksum:
   name_template: checksums.txt
@@ -42,6 +47,35 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+
+nfpms:
+  - id: packages
+    package_name: gobfd
+    vendor: dantte-lp
+    homepage: https://github.com/dantte-lp/gobfd
+    maintainer: dantte-lp
+    description: BFD protocol daemon implementing RFC 5880/5881 for network failure detection.
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin
+    contents:
+      - src: configs/gobfd.example.yml
+        dst: /etc/gobfd/gobfd.yml
+        type: config|noreplace
+      - src: deployments/systemd/gobfd.service
+        dst: /lib/systemd/system/gobfd.service
+    scripts:
+      postinstall: deployments/nfpm/postinstall.sh
+      preremove: deployments/nfpm/preremove.sh
+    overrides:
+      deb:
+        dependencies:
+          - systemd
+      rpm:
+        dependencies:
+          - systemd
 
 dockers:
   - image_templates:
