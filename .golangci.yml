@@ -105,7 +105,7 @@ linters:
           deny:
             - pkg: "math/rand$"
               desc: "Use crypto/rand or math/rand/v2"
-            - pkg: "log"
+            - pkg: "^log$"
               desc: "Use log/slog"
             - pkg: "io/ioutil"
               desc: "Deprecated in Go 1.16"

@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package bfd.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/wolfguard/gobfd/pkg/bfdpb/v1;bfdpb";
+
+// SessionState represents the BFD session state (RFC 5880 Section 4.1, Section 6.2).
+enum SessionState {
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_ADMIN_DOWN = 1;
+  SESSION_STATE_DOWN = 2;
+  SESSION_STATE_INIT = 3;
+  SESSION_STATE_UP = 4;
+}
+
+// DiagnosticCode represents the BFD diagnostic code (RFC 5880 Section 4.1).
+enum DiagnosticCode {
+  DIAGNOSTIC_CODE_UNSPECIFIED = 0;
+  DIAGNOSTIC_CODE_NONE = 1;
+  DIAGNOSTIC_CODE_CONTROL_TIME_EXPIRED = 2;
+  DIAGNOSTIC_CODE_ECHO_FAILED = 3;
+  DIAGNOSTIC_CODE_NEIGHBOR_DOWN = 4;
+  DIAGNOSTIC_CODE_FORWARDING_RESET = 5;
+  DIAGNOSTIC_CODE_PATH_DOWN = 6;
+  DIAGNOSTIC_CODE_CONCAT_PATH_DOWN = 7;
+  DIAGNOSTIC_CODE_ADMIN_DOWN = 8;
+  DIAGNOSTIC_CODE_REVERSE_CONCAT_PATH_DOWN = 9;
+}
+
+// AuthenticationType identifies the BFD authentication mechanism (RFC 5880 Section 4.1).
+enum AuthenticationType {
+  AUTHENTICATION_TYPE_UNSPECIFIED = 0;
+  AUTHENTICATION_TYPE_NONE = 1;
+  AUTHENTICATION_TYPE_SIMPLE_PASSWORD = 2;
+  AUTHENTICATION_TYPE_KEYED_MD5 = 3;
+  AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5 = 4;
+  AUTHENTICATION_TYPE_KEYED_SHA1 = 5;
+  AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1 = 6;
+}
+
+// SessionType distinguishes single-hop from multi-hop BFD sessions.
+enum SessionType {
+  SESSION_TYPE_UNSPECIFIED = 0;
+  // Single-hop: RFC 5881, port 3784, TTL=255 both ways.
+  SESSION_TYPE_SINGLE_HOP = 1;
+  // Multi-hop: RFC 5883, port 4784, TX TTL=255, RX TTL>=254.
+  SESSION_TYPE_MULTI_HOP = 2;
+}
+
+// BfdSession represents the full state of a BFD session.
+message BfdSession {
+  string peer_address = 1 [(buf.validate.field).string.ip = true];
+  string local_address = 2 [(buf.validate.field).string.ip = true];
+  string interface_name = 3;
+  SessionType type = 4;
+  SessionState local_state = 5;
+  SessionState remote_state = 6;
+  DiagnosticCode local_diagnostic = 7;
+  uint32 local_discriminator = 8;
+  uint32 remote_discriminator = 9;
+  google.protobuf.Duration desired_min_tx_interval = 10;
+  google.protobuf.Duration required_min_rx_interval = 11;
+  google.protobuf.Duration remote_min_rx_interval = 12;
+  uint32 detect_multiplier = 13 [(buf.validate.field).uint32 = {gte: 1}];
+  google.protobuf.Duration negotiated_tx_interval = 14;
+  google.protobuf.Duration detection_time = 15;
+  AuthenticationType auth_type = 16;
+  google.protobuf.Timestamp last_state_change = 17;
+  google.protobuf.Timestamp last_packet_received = 18;
+  SessionCounters counters = 19;
+}
+
+// SessionCounters contains packet and state transition counters for a session.
+message SessionCounters {
+  uint64 packets_sent = 1;
+  uint64 packets_received = 2;
+  uint64 packets_dropped = 3;
+  uint64 state_transitions = 4;
+  uint64 auth_failures = 5;
+}
+
+// AddSessionRequest creates a new BFD session.
+message AddSessionRequest {
+  string peer_address = 1 [(buf.validate.field).string.ip = true];
+  string local_address = 2 [(buf.validate.field).string.ip = true];
+  string interface_name = 3;
+  SessionType type = 4;
+  google.protobuf.Duration desired_min_tx_interval = 5;
+  google.protobuf.Duration required_min_rx_interval = 6;
+  uint32 detect_multiplier = 7 [(buf.validate.field).uint32 = {gte: 1}];
+  AuthenticationType auth_type = 8;
+}
+
+// AddSessionResponse returns the newly created session.
+message AddSessionResponse {
+  BfdSession session = 1;
+}
+
+// DeleteSessionRequest removes a BFD session by its local discriminator.
+message DeleteSessionRequest {
+  uint32 local_discriminator = 1;
+}
+
+// DeleteSessionResponse is empty on success.
+message DeleteSessionResponse {}
+
+// ListSessionsRequest retrieves all active BFD sessions.
+message ListSessionsRequest {}
+
+// ListSessionsResponse contains all active BFD sessions.
+message ListSessionsResponse {
+  repeated BfdSession sessions = 1;
+}
+
+// GetSessionRequest retrieves a single BFD session by discriminator or peer address.
+message GetSessionRequest {
+  oneof identifier {
+    uint32 local_discriminator = 1;
+    string peer_address = 2;
+  }
+}
+
+// GetSessionResponse returns the requested BFD session.
+message GetSessionResponse {
+  BfdSession session = 1;
+}
+
+// WatchSessionEventsRequest starts a server-side stream of BFD session events.
+message WatchSessionEventsRequest {
+  // If true, send current state of all sessions first, then stream changes.
+  // Pattern from GoBGP: gobgp monitor --current.
+  bool include_current = 1;
+}
+
+// WatchSessionEventsResponse represents a BFD session lifecycle event
+// streamed from WatchSessionEvents RPC.
+message WatchSessionEventsResponse {
+  // EventType classifies the session event.
+  enum EventType {
+    EVENT_TYPE_UNSPECIFIED = 0;
+    EVENT_TYPE_STATE_CHANGE = 1;
+    EVENT_TYPE_SESSION_ADDED = 2;
+    EVENT_TYPE_SESSION_DELETED = 3;
+  }
+  EventType type = 1;
+  BfdSession session = 2;
+  SessionState previous_state = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// BfdService provides gRPC API for managing BFD sessions.
+//
+// Architecture follows the GoBGP pattern: daemon exposes gRPC API,
+// CLI (gobfdctl) is a thin client. All operations available via API.
+service BfdService {
+  // AddSession creates a new BFD session with the given parameters.
+  rpc AddSession(AddSessionRequest) returns (AddSessionResponse);
+  // DeleteSession removes a BFD session by its local discriminator.
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  // ListSessions returns all active BFD sessions.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // GetSession returns a single session by discriminator or peer address.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // WatchSessionEvents streams BFD session state changes (server-side streaming).
+  rpc WatchSessionEvents(WatchSessionEventsRequest) returns (stream WatchSessionEventsResponse);
+}

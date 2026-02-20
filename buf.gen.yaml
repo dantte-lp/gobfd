@@ -8,6 +8,7 @@ plugins:
     out: pkg/bfdpb
     opt:
       - paths=source_relative
+      - simple
 inputs:
   - directory: api
 managed:
@@ -15,3 +16,6 @@ managed:
   override:
     - file_option: go_package_prefix
       value: github.com/wolfguard/gobfd/pkg/bfdpb
+  disable:
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
