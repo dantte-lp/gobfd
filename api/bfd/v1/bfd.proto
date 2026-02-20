@@ -6,7 +6,7 @@ import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/wolfguard/gobfd/pkg/bfdpb/v1;bfdpb";
+option go_package = "github.com/dantte-lp/gobfd/pkg/bfdpb/v1;bfdpb";
 
 // SessionState represents the BFD session state (RFC 5880 Section 4.1, Section 6.2).
 enum SessionState {

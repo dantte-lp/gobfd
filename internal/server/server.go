@@ -9,8 +9,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	bfdv1 "github.com/wolfguard/gobfd/pkg/bfdpb/bfd/v1"
-	"github.com/wolfguard/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
+	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
+	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
 
 var errNotImplemented = errors.New("not yet implemented")

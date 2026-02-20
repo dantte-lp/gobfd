@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/wolfguard/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // TestFSMTransitionTable verifies every transition in the BFD FSM table

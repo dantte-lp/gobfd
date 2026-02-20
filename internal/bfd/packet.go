@@ -28,6 +28,9 @@ const HeaderSize = 24
 // Padded to 64 for alignment and future auth types.
 const MaxPacketSize = 64
 
+// unknownStr is the string representation for unrecognized enum values.
+const unknownStr = "Unknown"
+
 // MinPacketSizeNoAuth is the minimum valid packet size when the A bit is
 // clear (RFC 5880 Section 6.8.6: "24 if the A bit is clear").
 const MinPacketSizeNoAuth = 24

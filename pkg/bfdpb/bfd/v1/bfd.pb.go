@@ -1248,7 +1248,7 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"GetSession\x12\x19.bfd.v1.GetSessionRequest\x1a\x1a.bfd.v1.GetSessionResponse\x12]\n" +
 	"\x12WatchSessionEvents\x12!.bfd.v1.WatchSessionEventsRequest\x1a\".bfd.v1.WatchSessionEventsResponse0\x01B\x82\x01\n" +
 	"\n" +
-	"com.bfd.v1B\bBfdProtoP\x01Z1github.com/wolfguard/gobfd/pkg/bfdpb/bfd/v1;bfdv1\xa2\x02\x03BXX\xaa\x02\x06Bfd.V1\xca\x02\x06Bfd\\V1\xe2\x02\x12Bfd\\V1\\GPBMetadata\xea\x02\aBfd::V1b\x06proto3"
+	"com.bfd.v1B\bBfdProtoP\x01Z1github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1;bfdv1\xa2\x02\x03BXX\xaa\x02\x06Bfd.V1\xca\x02\x06Bfd\\V1\xe2\x02\x12Bfd\\V1\\GPBMetadata\xea\x02\aBfd::V1b\x06proto3"
 
 var (
 	file_bfd_v1_bfd_proto_rawDescOnce sync.Once

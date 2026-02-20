@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/wolfguard/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // -------------------------------------------------------------------------

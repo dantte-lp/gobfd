@@ -1,4 +1,4 @@
-module github.com/wolfguard/gobfd
+module github.com/dantte-lp/gobfd
 
 go 1.26.0
 

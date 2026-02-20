@@ -78,7 +78,7 @@ services:
 | # | Задача | Артефакт | Definition of Done |
 |---|--------|----------|--------------------|
 | 0.1 | Инициализировать git-репозиторий | `.gitignore`, initial commit | Repo инициализирован с правильным .gitignore |
-| 0.2 | Создать `go.mod` через Podman | `go.mod` | `module github.com/wolfguard/gobfd`, Go 1.26 |
+| 0.2 | Создать `go.mod` через Podman | `go.mod` | `module github.com/dantte-lp/gobfd`, Go 1.26 |
 | 0.3 | Создать dev Containerfile | `deployments/docker/Containerfile.dev` | Go 1.26 + buf + protoc-gen-go + protoc-gen-connect-go + golangci-lint v2 |
 | 0.4 | Создать compose.dev.yml | `deployments/compose/compose.dev.yml` | `podman-compose up -d` запускает dev-контейнер |
 | 0.5 | Создать Taskfile.yml | `Taskfile.yml` | Все команды через `task build`, `task test`, `task lint` обёрнуты в podman-compose exec |
@@ -125,7 +125,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "buf/validate/validate.proto";
 
-option go_package = "github.com/wolfguard/gobfd/pkg/bfdpb/v1;bfdpb";
+option go_package = "github.com/dantte-lp/gobfd/pkg/bfdpb/v1;bfdpb";
 
 // === Enums ===
 
@@ -299,7 +299,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/wolfguard/gobfd/pkg/bfdpb
+      value: github.com/dantte-lp/gobfd/pkg/bfdpb
 ```
 
 ---
@@ -603,7 +603,7 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w -X github.com/wolfguard/gobfd/internal/version.Version=${VERSION:-dev}" \
+    -ldflags="-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION:-dev}" \
     -o /bin/gobfd ./cmd/gobfd
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
     -o /bin/gobfdctl ./cmd/gobfdctl

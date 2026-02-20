@@ -77,7 +77,7 @@ func (e Event) String() string {
 	case EventAdminUp:
 		return "AdminUp"
 	default:
-		return "Unknown"
+		return unknownStr
 	}
 }
 
@@ -126,7 +126,7 @@ func (a Action) String() string {
 	case ActionSetDiagAdminDown:
 		return "SetDiagAdminDown"
 	default:
-		return "Unknown"
+		return unknownStr
 	}
 }
 

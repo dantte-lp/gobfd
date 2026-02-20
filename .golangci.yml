@@ -14,7 +14,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/wolfguard/gobfd
+        - github.com/dantte-lp/gobfd
 
 output:
   formats:

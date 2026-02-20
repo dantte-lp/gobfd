@@ -37,6 +37,10 @@ make integration                                   # интеграционны�
 - Tests: table-driven, `t.Parallel()` where safe, always `-race`
 - FSM: all state transitions MUST match RFC 5880 §6.8.6 exactly
 
+## Git
+- Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
+- Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard
+
 ## Important: don't
 - NEVER modify generated files in `pkg/bfdpb/` — regenerate with `buf generate`
 - NEVER use `unsafe` package — this is a network daemon handling untrusted input

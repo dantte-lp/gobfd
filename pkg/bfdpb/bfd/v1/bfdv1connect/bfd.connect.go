@@ -8,7 +8,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/wolfguard/gobfd/pkg/bfdpb/bfd/v1"
+	v1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	http "net/http"
 	strings "strings"
 )

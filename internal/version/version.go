@@ -3,5 +3,5 @@ package appversion
 
 // Version is set at build time via:
 //
-//	-ldflags="-X github.com/wolfguard/gobfd/internal/version.Version=v1.0.0"
+//	-ldflags="-X github.com/dantte-lp/gobfd/internal/version.Version=v1.0.0"
 var Version = "dev"
