@@ -122,7 +122,7 @@ linters:
       - common-false-positives
     rules:
       - path: _test\.go
-        linters: [gosec, dupl, funlen, cyclop, err113, wrapcheck]
+        linters: [gosec, dupl, funlen, cyclop, gocognit, nestif, err113, wrapcheck]
 
 severity:
   default: warning
