@@ -1,12 +1,8 @@
-// GoBFDctl — CLI client for GoBFD daemon over gRPC.
+// GoBFDctl -- CLI client for GoBFD daemon over ConnectRPC.
 package main
 
-import (
-	"fmt"
-	"os"
-)
+import "github.com/dantte-lp/gobfd/cmd/gobfdctl/commands"
 
 func main() {
-	fmt.Fprintln(os.Stderr, "gobfdctl: not yet implemented")
-	os.Exit(1)
+	commands.Execute()
 }
