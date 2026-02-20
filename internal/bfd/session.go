@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/netip"
+	"runtime"
 	"sync/atomic"
 	"time"
 )
@@ -562,6 +563,12 @@ func (s *Session) SetAdminDown() {
 //  3. Detection timer expires (RFC 5880 Section 6.8.4)
 //  4. Context cancellation (graceful shutdown)
 func (s *Session) Run(ctx context.Context) {
+	// Pin the session goroutine to an OS thread for sub-millisecond timer
+	// precision. BFD detection intervals can be as low as 50ms; OS thread
+	// affinity reduces scheduler-induced jitter on timer wakeups.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	txInterval := s.calcTxInterval()
 	txTimer := time.NewTimer(ApplyJitter(txInterval, s.detectMult))
 	defer txTimer.Stop()
