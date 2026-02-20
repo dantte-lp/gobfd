@@ -31,6 +31,25 @@ bfd:
   default_required_min_rx: "1s"
   default_detect_multiplier: 3
 
+# GoBGP integration (RFC 5882 Section 4.3).
+# When enabled, BFD state changes are propagated to a GoBGP instance
+# via its gRPC API. BFD Down triggers BGP peer disable; BFD Up re-enables.
+#
+# gobgp:
+#   enabled: true
+#   # GoBGP gRPC API address. Use a different port than gobfd's own gRPC.
+#   addr: "127.0.0.1:50052"
+#   # Strategy: "disable-peer" (default) or "withdraw-routes" (future).
+#   strategy: "disable-peer"
+#   # RFC 5882 Section 3.2: flap dampening prevents rapid BFD oscillation
+#   # from causing excessive BGP route churn.
+#   dampening:
+#     enabled: false
+#     suppress_threshold: 3
+#     reuse_threshold: 2
+#     max_suppress_time: "60s"
+#     half_life: "15s"
+
 # Declarative BFD sessions. Sessions defined here are created on startup
 # and reconciled on SIGHUP reload (new sessions added, removed sessions
 # destroyed, existing sessions left untouched).

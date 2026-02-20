@@ -27,6 +27,7 @@ type Config struct {
 	Metrics  MetricsConfig   `koanf:"metrics"`
 	Log      LogConfig       `koanf:"log"`
 	BFD      BFDConfig       `koanf:"bfd"`
+	GoBGP    GoBGPConfig     `koanf:"gobgp"`
 	Sessions []SessionConfig `koanf:"sessions"`
 }
 
@@ -66,6 +67,44 @@ type BFDConfig struct {
 	// DefaultDetectMultiplier is the default detection time multiplier.
 	// RFC 5880 Section 6.8.1: MUST be nonzero.
 	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+}
+
+// GoBGPConfig holds the GoBGP integration configuration.
+// When enabled, BFD state changes are propagated to a GoBGP instance
+// via its gRPC API (RFC 5882 Section 4.3).
+type GoBGPConfig struct {
+	// Enabled controls whether the GoBGP integration is active.
+	// When false (default), BFD state changes are not propagated to BGP.
+	Enabled bool `koanf:"enabled"`
+
+	// Addr is the GoBGP gRPC API address (e.g., "127.0.0.1:50051").
+	Addr string `koanf:"addr"`
+
+	// Strategy determines how BFD state changes affect BGP:
+	//   - "disable-peer": disable/enable the BGP peer (default)
+	//   - "withdraw-routes": withdraw/restore routes (future)
+	Strategy string `koanf:"strategy"`
+
+	// Dampening configures RFC 5882 Section 3.2 flap dampening.
+	Dampening GoBGPDampeningConfig `koanf:"dampening"`
+}
+
+// GoBGPDampeningConfig holds flap dampening parameters (RFC 5882 Section 3.2).
+type GoBGPDampeningConfig struct {
+	// Enabled controls whether flap dampening is active.
+	Enabled bool `koanf:"enabled"`
+
+	// SuppressThreshold is the penalty value above which events are suppressed.
+	SuppressThreshold float64 `koanf:"suppress_threshold"`
+
+	// ReuseThreshold is the penalty value below which suppression is lifted.
+	ReuseThreshold float64 `koanf:"reuse_threshold"`
+
+	// MaxSuppressTime is the maximum duration events can be suppressed.
+	MaxSuppressTime time.Duration `koanf:"max_suppress_time"`
+
+	// HalfLife is the time for the penalty to decay by half.
+	HalfLife time.Duration `koanf:"half_life"`
 }
 
 // SessionConfig describes a declarative BFD session from the configuration file.
@@ -151,6 +190,18 @@ func DefaultConfig() *Config {
 			DefaultRequiredMinRx:    1 * time.Second,
 			DefaultDetectMultiplier: 3,
 		},
+		GoBGP: GoBGPConfig{
+			Enabled:  false,
+			Addr:     "127.0.0.1:50051",
+			Strategy: "disable-peer",
+			Dampening: GoBGPDampeningConfig{
+				Enabled:           false,
+				SuppressThreshold: 3,
+				ReuseThreshold:    2,
+				MaxSuppressTime:   60 * time.Second,
+				HalfLife:          15 * time.Second,
+			},
+		},
 	}
 }
 
@@ -218,14 +269,22 @@ func envKeyMapper(s string) string {
 // loadDefaults marshals the default config into koanf as the base layer.
 func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 	defaultMap := map[string]any{
-		"grpc.addr":                     defaults.GRPC.Addr,
-		"metrics.addr":                  defaults.Metrics.Addr,
-		"metrics.path":                  defaults.Metrics.Path,
-		"log.level":                     defaults.Log.Level,
-		"log.format":                    defaults.Log.Format,
-		"bfd.default_desired_min_tx":    defaults.BFD.DefaultDesiredMinTx.String(),
-		"bfd.default_required_min_rx":   defaults.BFD.DefaultRequiredMinRx.String(),
-		"bfd.default_detect_multiplier": defaults.BFD.DefaultDetectMultiplier,
+		"grpc.addr":                          defaults.GRPC.Addr,
+		"metrics.addr":                       defaults.Metrics.Addr,
+		"metrics.path":                       defaults.Metrics.Path,
+		"log.level":                          defaults.Log.Level,
+		"log.format":                         defaults.Log.Format,
+		"bfd.default_desired_min_tx":         defaults.BFD.DefaultDesiredMinTx.String(),
+		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
+		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
+		"gobgp.enabled":                      defaults.GoBGP.Enabled,
+		"gobgp.addr":                         defaults.GoBGP.Addr,
+		"gobgp.strategy":                     defaults.GoBGP.Strategy,
+		"gobgp.dampening.enabled":            defaults.GoBGP.Dampening.Enabled,
+		"gobgp.dampening.suppress_threshold": defaults.GoBGP.Dampening.SuppressThreshold,
+		"gobgp.dampening.reuse_threshold":    defaults.GoBGP.Dampening.ReuseThreshold,
+		"gobgp.dampening.max_suppress_time":  defaults.GoBGP.Dampening.MaxSuppressTime.String(),
+		"gobgp.dampening.half_life":          defaults.GoBGP.Dampening.HalfLife.String(),
 	}
 
 	for key, val := range defaultMap {
@@ -266,6 +325,18 @@ var (
 
 	// ErrDuplicateSessionKey indicates two sessions share the same (peer, local, interface) key.
 	ErrDuplicateSessionKey = errors.New("duplicate session key")
+
+	// ErrEmptyGoBGPAddr indicates the GoBGP address is empty when enabled.
+	ErrEmptyGoBGPAddr = errors.New("gobgp.addr must not be empty when gobgp is enabled")
+
+	// ErrInvalidGoBGPStrategy indicates an unrecognized GoBGP strategy.
+	ErrInvalidGoBGPStrategy = errors.New("gobgp.strategy must be disable-peer or withdraw-routes")
+
+	// ErrInvalidDampeningThreshold indicates suppress threshold is not greater than reuse.
+	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold")
+
+	// ErrInvalidDampeningHalfLife indicates the half-life is not positive.
+	ErrInvalidDampeningHalfLife = errors.New("gobgp.dampening.half_life must be > 0 when dampening is enabled")
 )
 
 // Validate checks the configuration for logical errors.
@@ -287,8 +358,54 @@ func Validate(cfg *Config) error {
 		return ErrInvalidRequiredMinRx
 	}
 
+	if err := validateGoBGP(cfg.GoBGP); err != nil {
+		return err
+	}
+
 	if err := validateSessions(cfg.Sessions); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ValidGoBGPStrategies lists the recognized GoBGP strategy strings.
+var ValidGoBGPStrategies = map[string]bool{
+	"disable-peer":    true,
+	"withdraw-routes": true,
+}
+
+// validateGoBGP checks the GoBGP integration configuration for logical errors.
+func validateGoBGP(cfg GoBGPConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+
+	if cfg.Addr == "" {
+		return ErrEmptyGoBGPAddr
+	}
+
+	if !ValidGoBGPStrategies[cfg.Strategy] {
+		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrInvalidGoBGPStrategy)
+	}
+
+	if cfg.Dampening.Enabled {
+		if err := validateDampening(cfg.Dampening); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateDampening checks the dampening parameters for logical errors.
+func validateDampening(cfg GoBGPDampeningConfig) error {
+	if cfg.SuppressThreshold <= cfg.ReuseThreshold {
+		return ErrInvalidDampeningThreshold
+	}
+
+	if cfg.HalfLife <= 0 {
+		return ErrInvalidDampeningHalfLife
 	}
 
 	return nil

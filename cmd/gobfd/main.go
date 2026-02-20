@@ -26,6 +26,7 @@ import (
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
 	"github.com/dantte-lp/gobfd/internal/server"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
@@ -127,43 +128,19 @@ func runServers(
 
 	g, gCtx := errgroup.WithContext(ctx)
 
-	lc := net.ListenConfig{}
+	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
+	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, logger)
 
-	// gRPC server goroutine.
-	g.Go(func() error {
-		logger.Info("gRPC server listening", slog.String("addr", cfg.GRPC.Addr))
-		return listenAndServe(gCtx, &lc, grpcSrv, cfg.GRPC.Addr)
-	})
+	// GoBGP integration goroutine (RFC 5882 Section 4.3).
+	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, mgr, logger)
+	if err != nil {
+		return fmt.Errorf("start gobgp handler: %w", err)
+	}
+	defer closeGoBGPClient(bgpCloser, logger)
 
-	// Metrics server goroutine.
-	g.Go(func() error {
-		logger.Info("metrics server listening",
-			slog.String("addr", cfg.Metrics.Addr),
-			slog.String("path", cfg.Metrics.Path),
-		)
-		return listenAndServe(gCtx, &lc, metricsSrv, cfg.Metrics.Addr)
-	})
-
-	// Systemd watchdog goroutine: sends keepalive at WatchdogSec/2 interval.
-	g.Go(func() error {
-		return runWatchdog(gCtx, logger)
-	})
-
-	// SIGHUP reload goroutine: reloads configuration on SIGHUP.
-	// Supports dynamic log level changes and session reconciliation.
-	sigHUP := make(chan os.Signal, 1)
-	signal.Notify(sigHUP, syscall.SIGHUP)
-	g.Go(func() error {
-		defer signal.Stop(sigHUP)
-		handleSIGHUP(gCtx, sigHUP, configPath, logLevel, mgr, logger)
-		return nil
-	})
-
-	// Notify systemd that initialization is complete (Type=notify).
 	notifyReady(logger)
 
-	// Shutdown goroutine: waits for context cancellation, then drains
-	// sessions and shuts down HTTP servers gracefully.
+	// Shutdown goroutine: waits for context cancellation.
 	g.Go(func() error {
 		<-gCtx.Done()
 		return gracefulShutdown(gCtx, mgr, logger, fr, grpcSrv, metricsSrv)
@@ -173,6 +150,65 @@ func runServers(
 		return fmt.Errorf("run servers: %w", err)
 	}
 	return nil
+}
+
+// startHTTPServers registers the gRPC and metrics HTTP server goroutines.
+func startHTTPServers(
+	ctx context.Context,
+	g *errgroup.Group,
+	cfg *config.Config,
+	grpcSrv *http.Server,
+	metricsSrv *http.Server,
+	logger *slog.Logger,
+) {
+	lc := net.ListenConfig{}
+
+	g.Go(func() error {
+		logger.Info("gRPC server listening", slog.String("addr", cfg.GRPC.Addr))
+		return listenAndServe(ctx, &lc, grpcSrv, cfg.GRPC.Addr)
+	})
+
+	g.Go(func() error {
+		logger.Info("metrics server listening",
+			slog.String("addr", cfg.Metrics.Addr),
+			slog.String("path", cfg.Metrics.Path),
+		)
+		return listenAndServe(ctx, &lc, metricsSrv, cfg.Metrics.Addr)
+	})
+}
+
+// startDaemonGoroutines registers the watchdog and SIGHUP reload goroutines.
+func startDaemonGoroutines(
+	ctx context.Context,
+	g *errgroup.Group,
+	configPath string,
+	logLevel *slog.LevelVar,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+) {
+	g.Go(func() error {
+		return runWatchdog(ctx, logger)
+	})
+
+	sigHUP := make(chan os.Signal, 1)
+	signal.Notify(sigHUP, syscall.SIGHUP)
+	g.Go(func() error {
+		defer signal.Stop(sigHUP)
+		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, logger)
+		return nil
+	})
+}
+
+// closeGoBGPClient closes the GoBGP client if non-nil, logging any error.
+func closeGoBGPClient(client gobgp.Client, logger *slog.Logger) {
+	if client == nil {
+		return
+	}
+	if err := client.Close(); err != nil {
+		logger.Warn("failed to close gobgp client",
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -544,6 +580,62 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, logger *slog.Logger)
 		Handler:           h2c.NewHandler(mux, &http2.Server{}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+}
+
+// -------------------------------------------------------------------------
+// GoBGP Integration — RFC 5882 Section 4.3
+// -------------------------------------------------------------------------
+
+// startGoBGPHandler creates and starts the GoBGP handler goroutine if enabled.
+// Returns the GoBGP client (for deferred Close) and any initialization error.
+// Returns nil client when GoBGP integration is disabled.
+func startGoBGPHandler(
+	ctx context.Context,
+	g *errgroup.Group,
+	cfg config.GoBGPConfig,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+) (gobgp.Client, error) {
+	if !cfg.Enabled {
+		logger.Info("gobgp integration disabled")
+		return nil, nil
+	}
+
+	client, err := gobgp.NewGRPCClient(gobgp.GRPCClientConfig{
+		Addr: cfg.Addr,
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create gobgp client: %w", err)
+	}
+
+	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
+		Client:   client,
+		Strategy: gobgp.Strategy(cfg.Strategy),
+		Dampening: gobgp.DampeningConfig{
+			Enabled:           cfg.Dampening.Enabled,
+			SuppressThreshold: cfg.Dampening.SuppressThreshold,
+			ReuseThreshold:    cfg.Dampening.ReuseThreshold,
+			MaxSuppressTime:   cfg.Dampening.MaxSuppressTime,
+			HalfLife:          cfg.Dampening.HalfLife,
+		},
+		Logger: logger,
+	})
+	if err != nil {
+		closeGoBGPClient(client, logger)
+		return nil, fmt.Errorf("create gobgp handler: %w", err)
+	}
+
+	g.Go(func() error {
+		return handler.Run(ctx, mgr.StateChanges())
+	})
+
+	logger.Info("gobgp integration enabled",
+		slog.String("addr", cfg.Addr),
+		slog.String("strategy", cfg.Strategy),
+		slog.Bool("dampening", cfg.Dampening.Enabled),
+	)
+
+	return client, nil
 }
 
 // loadConfig loads configuration from a file path or returns defaults.
