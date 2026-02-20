@@ -1,0 +1,48 @@
+# Binaries
+/gobfd
+/gobfdctl
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Generated protobuf (regenerate with: make proto-gen)
+# pkg/bfdpb/ is committed but tracked via buf generate
+
+# Podman/Docker
+.podman/
+
+# Fuzz corpus (can be large)
+**/testdata/fuzz/
+
+# Claude local config
+CLAUDE.local.md
+
+# Build artifacts
+dist/
