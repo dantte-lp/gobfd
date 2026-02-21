@@ -658,6 +658,37 @@ make test  # all tests pass with -race -count=1
 
 ---
 
+### Sprint 19: Interoperability Testing (FRR + BIRD3)
+
+**Date**: 2026-02-21
+
+**Goal**: Validate GoBFD RFC 5880/5881 compliance by testing BFD session establishment and failure detection against two production routing daemons: FRR 10.2.5 (bfdd) and BIRD3 (Debian Trixie).
+
+**Priority**: P2 -- Required for production confidence. Validates wire-format compliance, timer negotiation, and three-way handshake against real-world implementations.
+
+**Dependencies**: Sprint 11 (Data Path) -- requires functional packet TX/RX.
+
+| # | Task | Artifact | DoD |
+|---|------|----------|-----|
+| 19.1 | BIRD3 Containerfile | `test/interop/bird3/Containerfile` | Debian Trixie slim base, bird3 package installed, foreground mode. |
+| 19.2 | FRR BFD configuration | `test/interop/frr/frr.conf`, `test/interop/frr/daemons` | bfdd enabled, BFD peer 172.20.0.10, 300ms intervals, detect-mult 3. |
+| 19.3 | BIRD3 BFD configuration | `test/interop/bird3/bird.conf` | BFD protocol, neighbor 172.20.0.10, 300ms intervals, multiplier 3. |
+| 19.4 | GoBFD interop config | `test/interop/gobfd/gobfd.yml` | Two sessions: FRR (172.20.0.20) and BIRD3 (172.20.0.30), single-hop. |
+| 19.5 | Interop compose stack | `test/interop/compose.yml` | Three services on 172.20.0.0/24 bridge: gobfd, frr, bird3 with static IPs. |
+| 19.6 | Shell test runner | `test/interop/run.sh` | Build, start, verify handshake, test detection timeout, test graceful shutdown. |
+| 19.7 | Go interop tests | `test/interop/interop_test.go` | Build-tagged `interop`, tests FRR/BIRD3 handshake and failure detection via exec. |
+| 19.8 | Makefile targets | `Makefile` | `make interop`, `make interop-up`, `make interop-down`, `make interop-logs`. |
+| 19.9 | AGILE_PLAN_V2 update | `docs/AGILE_PLAN_V2.md` | Sprint 19 documented with tasks and dependency graph updated. |
+
+**Test scenarios**:
+
+1. **Three-way handshake (RFC 5880 Section 6.8.6)**: GoBFD <-> FRR and GoBFD <-> BIRD3 sessions reach Up state.
+2. **Timer negotiation (RFC 5880 Section 6.8.1)**: Both peers agree on 300ms intervals.
+3. **Detection timeout (RFC 5880 Section 6.8.3)**: Stopping FRR causes GoBFD to detect Down within detection time (3 * 300ms = 900ms + jitter).
+4. **Graceful shutdown (RFC 5880 Section 6.8.16)**: Stopping GoBFD sends AdminDown, FRR detects orderly shutdown.
+
+---
+
 ## Part 5: Dependency Graph (Updated)
 
 ```
@@ -672,10 +703,12 @@ Sprint 11 (Data Path)     <-- CRITICAL, unblocks everything
     |                   +---> Sprint 15 (Integration Tests & CLI)
     |                   |         |
     |                   |         +---> Sprint 16 (GoBGP Integration)
-    |                   |                   |
-    |                   |                   +---> Sprint 17 (Performance, optional)
-    |                   |                   |
-    |                   |                   +---> Sprint 18 (Release)
+    |                   |         |         |
+    |                   |         |         +---> Sprint 17 (Performance, optional)
+    |                   |         |         |
+    |                   |         |         +---> Sprint 18 (Release)
+    |                   |         |
+    |                   |         +---> Sprint 19 (Interop: FRR + BIRD3)
     |                   |
     |                   +---> Sprint 18 (Release, partial)
 ```

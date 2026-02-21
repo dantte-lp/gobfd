@@ -1,0 +1,39 @@
+# GoBFD configuration for interoperability testing.
+#
+# Two BFD sessions are configured:
+#   1. FRR peer at 172.20.0.20 (single-hop, 300ms intervals, detect-mult 3)
+#   2. BIRD3 peer at 172.20.0.30 (single-hop, 300ms intervals, detect-mult 3)
+#
+# Detection time = detect_mult * max(RequiredMinRxInterval, RemoteDesiredMinTxInterval)
+#                = 3 * 300ms = 900ms (RFC 5880 Section 6.8.3)
+
+grpc:
+  addr: ":50051"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+sessions:
+  - peer: "172.20.0.20"
+    local: "172.20.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  - peer: "172.20.0.30"
+    local: "172.20.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

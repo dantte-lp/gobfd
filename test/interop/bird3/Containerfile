@@ -1,0 +1,18 @@
+# BIRD3 container for BFD interoperability testing with GoBFD.
+#
+# BIRD3 is available in Debian Trixie's official repositories as the
+# "bird3" package. No external PPA or third-party repo is needed.
+
+FROM docker.io/debian:trixie-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bird3 \
+       iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# BIRD3 expects its configuration at /etc/bird/bird.conf.
+# The config file is bind-mounted from the host at runtime via compose.
+RUN mkdir -p /run/bird
+
+ENTRYPOINT ["bird", "-f", "-c", "/etc/bird/bird.conf"]

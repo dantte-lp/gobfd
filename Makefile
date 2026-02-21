@@ -9,13 +9,17 @@
 #   make proto-gen   — generate protobuf Go code
 #   make proto-lint  — lint proto definitions
 #   make all         — build + test + lint
+#   make interop     — run interop tests (FRR + BIRD3)
+#   make interop-up  — start interop test stack
+#   make interop-down — stop interop test stack
 
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := podman-compose -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 
 .PHONY: all build test lint proto-gen proto-lint fuzz vulncheck \
-        up down restart logs shell clean tidy
+        up down restart logs shell clean tidy \
+        interop interop-up interop-down interop-logs
 
 # === Lifecycle ===
 
@@ -59,6 +63,23 @@ fuzz:
 
 test-integration:
 	$(EXEC) go test -tags integration ./test/integration/ -race -count=1 -v
+
+# === Interop Tests (FRR + BIRD3) ===
+
+INTEROP_COMPOSE := test/interop/compose.yml
+INTEROP_DC := podman-compose -f $(INTEROP_COMPOSE)
+
+interop:
+	./test/interop/run.sh
+
+interop-up:
+	$(INTEROP_DC) up --build -d
+
+interop-down:
+	$(INTEROP_DC) down --volumes --remove-orphans
+
+interop-logs:
+	$(INTEROP_DC) logs -f
 
 # === Quality ===
 
