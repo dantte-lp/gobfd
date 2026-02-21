@@ -19,7 +19,8 @@ EXEC := $(DC) exec -T dev
 
 .PHONY: all build test lint proto-gen proto-lint fuzz vulncheck \
         up down restart logs shell clean tidy \
-        interop interop-up interop-down interop-logs
+        interop interop-up interop-down interop-logs \
+        interop-capture interop-pcap interop-pcap-summary
 
 # === Lifecycle ===
 
@@ -80,6 +81,20 @@ interop-down:
 
 interop-logs:
 	$(INTEROP_DC) logs -f
+
+interop-capture:
+	podman exec tshark-interop tshark -i any -f "udp port 3784" -V
+
+interop-pcap:
+	podman exec tshark-interop tshark -r /captures/bfd.pcapng -V -Y bfd
+
+interop-pcap-summary:
+	podman exec tshark-interop tshark -r /captures/bfd.pcapng -Y bfd \
+		-T fields -e frame.time_relative -e ip.src -e ip.dst \
+		-e bfd.version -e bfd.diag -e bfd.sta -e bfd.flags \
+		-e bfd.detect_time_multiplier -e bfd.my_discriminator \
+		-e bfd.your_discriminator -e bfd.desired_min_tx_interval \
+		-e bfd.required_min_rx_interval -E header=y -E separator=,
 
 # === Quality ===
 

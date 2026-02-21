@@ -127,6 +127,11 @@ func waitForCondition(t *testing.T, desc string, timeout time.Duration, fn func(
 // TestFRRHandshake verifies that the BFD three-way handshake completes
 // between GoBFD and FRR, resulting in both sides reporting session Up.
 func TestFRRHandshake(t *testing.T) {
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 50)
+		}
+	})
 	ctx := t.Context()
 	waitForCondition(t, "FRR BFD session Up", 60*time.Second, func() (bool, error) {
 		status, err := frrBFDPeerStatus(ctx)
@@ -140,6 +145,11 @@ func TestFRRHandshake(t *testing.T) {
 // TestBIRD3Handshake verifies that the BFD three-way handshake completes
 // between GoBFD and BIRD3, resulting in both sides reporting session Up.
 func TestBIRD3Handshake(t *testing.T) {
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 50)
+		}
+	})
 	ctx := t.Context()
 	waitForCondition(t, "BIRD3 BFD session Up", 60*time.Second, func() (bool, error) {
 		return bird3BFDSessionUp(ctx)
@@ -151,6 +161,11 @@ func TestBIRD3Handshake(t *testing.T) {
 // should transition to Down within the detection time (3 * 300ms = 900ms,
 // plus margin for jitter and timer alignment).
 func TestFRRDetectionTimeout(t *testing.T) {
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 100)
+		}
+	})
 	ctx := t.Context()
 
 	// Ensure session is Up first.
@@ -193,6 +208,11 @@ func TestFRRDetectionTimeout(t *testing.T) {
 // (SIGTERM), it sends AdminDown to peers before exiting, and FRR detects
 // the session going Down.
 func TestGracefulShutdown(t *testing.T) {
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 100)
+		}
+	})
 	ctx := t.Context()
 
 	// Wait for sessions to re-establish.
@@ -223,6 +243,39 @@ func TestGracefulShutdown(t *testing.T) {
 	if status != "down" {
 		t.Errorf("FRR BFD peer status = %q after gobfd shutdown, want down", status)
 	}
+}
+
+// dumpTsharkCapture logs the last N BFD packets captured by tshark.
+// Useful for post-mortem debugging when sessions fail to establish.
+func dumpTsharkCapture(t *testing.T, count int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "podman", "exec", "tshark-interop",
+		"tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd",
+		"-c", fmt.Sprintf("%d", count),
+		"-T", "fields",
+		"-e", "frame.time_relative",
+		"-e", "ip.src",
+		"-e", "ip.dst",
+		"-e", "bfd.sta",
+		"-e", "bfd.flags",
+		"-e", "bfd.my_discriminator",
+		"-e", "bfd.your_discriminator",
+		"-e", "bfd.desired_min_tx_interval",
+		"-e", "bfd.required_min_rx_interval",
+		"-E", "header=y",
+		"-E", "separator=\t",
+	)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Run(); err != nil {
+		t.Logf("tshark dump unavailable: %v", err)
+		return
+	}
+	t.Logf("BFD packet capture (last %d packets):\n%s", count, buf.String())
 }
 
 // lastNLines returns the last n lines of s.

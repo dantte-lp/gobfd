@@ -599,13 +599,13 @@ func (s *Session) runLoop(
 			return
 
 		case item := <-s.recvCh:
-			s.handleRecvPacket(item, txTimer, detectTimer)
+			s.handleRecvPacket(ctx, item, txTimer, detectTimer)
 
 		case <-txTimer.C:
 			s.handleTxTimer(ctx, txTimer)
 
 		case <-detectTimer.C:
-			s.handleDetectTimer(txTimer, detectTimer)
+			s.handleDetectTimer(ctx, txTimer, detectTimer)
 		}
 	}
 }
@@ -659,6 +659,7 @@ func (s *Session) sendControl(ctx context.Context) {
 // a valid packet. RFC 5880 Section 6.8.4: "the local system MUST set
 // bfd.SessionState to Down and bfd.LocalDiag to 1."
 func (s *Session) handleDetectTimer(
+	ctx context.Context,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
@@ -669,7 +670,7 @@ func (s *Session) handleDetectTimer(
 		detectTimer.Reset(s.calcDetectionTime())
 		return
 	}
-	s.applyFSMEvent(EventTimerExpired, txTimer, detectTimer)
+	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
 }
 
 // -------------------------------------------------------------------------
@@ -680,6 +681,7 @@ func (s *Session) handleDetectTimer(
 // Steps 1-7 (basic validation) were done by UnmarshalControlPacket.
 // This method implements steps 8-18 of RFC 5880 Section 6.8.6.
 func (s *Session) handleRecvPacket(
+	ctx context.Context,
 	item recvItem,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
@@ -735,13 +737,21 @@ func (s *Session) handleRecvPacket(
 		s.pendingFinal = true
 	}
 
-	// Update timers after parameter changes.
-	s.resetTxTimer(txTimer)
+	// Reset detection timer on every valid packet (RFC 5880 Section 6.8.4).
 	s.resetDetectTimer(detectTimer)
 
 	// Apply FSM event based on received state.
 	event := RecvStateToEvent(pkt.State)
-	s.applyFSMEvent(event, txTimer, detectTimer)
+	s.applyFSMEvent(ctx, event, txTimer, detectTimer)
+
+	// RFC 5880 Section 6.5: "the receiving system MUST transmit a BFD
+	// Control packet with the Final (F) bit set as soon as practicable."
+	// Send immediately if we have a pending Final response or if a state
+	// change triggered ActionSendControl.
+	if s.pendingFinal {
+		s.sendControl(ctx)
+		s.resetTxTimer(txTimer)
+	}
 }
 
 // checkAuthConsistency validates RFC 5880 Section 6.8.6 steps 8-9.
@@ -769,16 +779,18 @@ func (s *Session) checkAuthConsistency(pkt *ControlPacket) bool {
 
 // applyFSMEvent runs the FSM and executes resulting actions.
 func (s *Session) applyFSMEvent(
+	ctx context.Context,
 	event Event,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
 	result := ApplyEvent(s.State(), event)
-	s.executeFSMActions(result, txTimer, detectTimer)
+	s.executeFSMActions(ctx, result, txTimer, detectTimer)
 }
 
 // executeFSMActions processes the FSMResult and performs side-effects.
 func (s *Session) executeFSMActions(
+	ctx context.Context,
 	result FSMResult,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
@@ -788,7 +800,7 @@ func (s *Session) executeFSMActions(
 		s.logStateChange(result)
 	}
 	for _, action := range result.Actions {
-		s.executeAction(action, txTimer, detectTimer)
+		s.executeAction(ctx, action, txTimer, detectTimer)
 	}
 }
 
@@ -811,6 +823,7 @@ func (s *Session) logStateChange(result FSMResult) {
 
 // executeAction dispatches a single FSM action.
 func (s *Session) executeAction(
+	ctx context.Context,
 	action Action,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
@@ -818,7 +831,7 @@ func (s *Session) executeAction(
 	switch action {
 	case ActionSendControl:
 		// Immediate send + reset TX timer (RFC 5880 Section 6.8.7).
-		s.rebuildCachedPacket()
+		s.sendControl(ctx)
 		s.resetTxTimer(txTimer)
 	case ActionNotifyUp:
 		// State already set; recalculate timers for Up state.

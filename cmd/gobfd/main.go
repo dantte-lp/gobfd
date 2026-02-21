@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/trace"
+	"sync"
 	"syscall"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
+	"github.com/dantte-lp/gobfd/internal/netio"
 	"github.com/dantte-lp/gobfd/internal/server"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 )
@@ -115,8 +117,11 @@ func runServers(
 	logLevel *slog.LevelVar,
 	fr *trace.FlightRecorder,
 ) error {
+	// Create real UDP sender factory backed by SourcePortAllocator.
+	sf := newUDPSenderFactory()
+
 	metricsSrv := newMetricsServer(cfg.Metrics, reg)
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, logger)
+	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, logger)
 
 	// errgroup with signal-aware context.
 	ctx, stop := signal.NotifyContext(
@@ -128,8 +133,22 @@ func runServers(
 
 	g, gCtx := errgroup.WithContext(ctx)
 
+	// Start BFD packet listeners and receiver for incoming packets.
+	listeners, err := createListeners(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("create BFD listeners: %w", err)
+	}
+	defer closeListeners(listeners, logger)
+
+	if len(listeners) > 0 {
+		recv := netio.NewReceiver(mgr, logger)
+		g.Go(func() error {
+			return recv.Run(gCtx, listeners...)
+		})
+	}
+
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
-	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, logger)
+	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, sf, logger)
 
 	// GoBGP integration goroutine (RFC 5882 Section 4.3).
 	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, mgr, logger)
@@ -137,6 +156,9 @@ func runServers(
 		return fmt.Errorf("start gobgp handler: %w", err)
 	}
 	defer closeGoBGPClient(bgpCloser, logger)
+
+	// Reconcile declarative sessions from config at startup.
+	reconcileSessions(gCtx, cfg, mgr, sf, logger)
 
 	notifyReady(logger)
 
@@ -184,6 +206,7 @@ func startDaemonGoroutines(
 	configPath string,
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
+	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) {
 	g.Go(func() error {
@@ -194,7 +217,7 @@ func startDaemonGoroutines(
 	signal.Notify(sigHUP, syscall.SIGHUP)
 	g.Go(func() error {
 		defer signal.Stop(sigHUP)
-		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, logger)
+		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, sf, logger)
 		return nil
 	})
 }
@@ -300,6 +323,7 @@ func handleSIGHUP(
 	configPath string,
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
+	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) {
 	for {
@@ -308,7 +332,7 @@ func handleSIGHUP(
 			return
 		case <-sigHUP:
 			logger.Info("received SIGHUP, reloading configuration")
-			reloadConfig(ctx, configPath, logLevel, mgr, logger)
+			reloadConfig(ctx, configPath, logLevel, mgr, sf, logger)
 		}
 	}
 }
@@ -322,6 +346,7 @@ func reloadConfig(
 	configPath string,
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
+	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) {
 	newCfg, err := loadConfig(configPath)
@@ -343,7 +368,7 @@ func reloadConfig(
 	)
 
 	// Reconcile declarative sessions.
-	reconcileSessions(ctx, newCfg, mgr, logger)
+	reconcileSessions(ctx, newCfg, mgr, sf, logger)
 }
 
 // reconcileSessions diffs the declarative sessions from the config against
@@ -352,6 +377,7 @@ func reconcileSessions(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
+	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) {
 	if len(cfg.Sessions) == 0 {
@@ -370,10 +396,21 @@ func reconcileSessions(
 			continue
 		}
 
+		multiHop := sessCfg.Type == bfd.SessionTypeMultiHop
+		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
+		sender, err := sf.createSenderForSession(sessCfg.LocalAddr, multiHop, logger)
+		if err != nil {
+			logger.Error("failed to create sender for session, skipping",
+				slog.String("peer", sc.Peer),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+
 		desired = append(desired, bfd.ReconcileConfig{
 			Key:           sc.SessionKey(),
 			SessionConfig: sessCfg,
-			Sender:        noopConfigSender{},
+			Sender:        sender,
 		})
 	}
 
@@ -390,14 +427,73 @@ func reconcileSessions(
 	)
 }
 
-// noopConfigSender is a PacketSender used for declarative sessions created
-// from config. In production, this would be replaced with a real sender
-// backed by raw sockets. For now, sessions created via YAML config use a
-// no-op sender since socket factory is only available via the gRPC API path.
-type noopConfigSender struct{}
+// udpSenderFactory implements server.SenderFactory using real UDP sockets
+// with RFC 5881 source port allocation and TTL=255 (GTSM).
+type udpSenderFactory struct {
+	portAlloc *netio.SourcePortAllocator
+	senders   map[uint16]*netio.UDPSender
+	mu        sync.Mutex
+}
 
-func (noopConfigSender) SendPacket(_ context.Context, _ []byte, _ netip.Addr) error {
+func newUDPSenderFactory() *udpSenderFactory {
+	return &udpSenderFactory{
+		portAlloc: netio.NewSourcePortAllocator(),
+		senders:   make(map[uint16]*netio.UDPSender),
+	}
+}
+
+func (f *udpSenderFactory) CreateSender(
+	localAddr netip.Addr,
+	multiHop bool,
+	logger *slog.Logger,
+) (bfd.PacketSender, uint16, error) {
+	srcPort, err := f.portAlloc.Allocate()
+	if err != nil {
+		return nil, 0, fmt.Errorf("allocate source port: %w", err)
+	}
+
+	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger)
+	if err != nil {
+		f.portAlloc.Release(srcPort)
+		return nil, 0, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
+	}
+
+	f.mu.Lock()
+	f.senders[srcPort] = sender
+	f.mu.Unlock()
+
+	return sender, srcPort, nil
+}
+
+func (f *udpSenderFactory) CloseSender(srcPort uint16) error {
+	f.mu.Lock()
+	sender, ok := f.senders[srcPort]
+	if ok {
+		delete(f.senders, srcPort)
+	}
+	f.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	f.portAlloc.Release(srcPort)
+
+	if err := sender.Close(); err != nil {
+		return fmt.Errorf("close sender port %d: %w", srcPort, err)
+	}
 	return nil
+}
+
+// createSenderForSession allocates a source port and creates a UDPSender
+// for a declarative session. Used by reconcileSessions.
+func (f *udpSenderFactory) createSenderForSession(
+	localAddr netip.Addr,
+	multiHop bool,
+	logger *slog.Logger,
+) (bfd.PacketSender, error) {
+	sender, _, err := f.CreateSender(localAddr, multiHop, logger)
+	return sender, err
 }
 
 // configSessionToBFD converts a config.SessionConfig to a bfd.SessionConfig,
@@ -447,6 +543,78 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
 	}, nil
+}
+
+// -------------------------------------------------------------------------
+// BFD Listeners — receive incoming BFD Control packets
+// -------------------------------------------------------------------------
+
+// createListeners inspects the declared sessions and creates the necessary
+// BFD packet listeners. For each unique (localAddr, type) pair a single
+// listener is created on the appropriate port (3784 for single-hop, 4784
+// for multi-hop). Returns the listeners and any error.
+func createListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.Listener, error) {
+	type listenerKey struct {
+		addr     netip.Addr
+		multiHop bool
+	}
+
+	seen := make(map[listenerKey]struct{})
+	var listeners []*netio.Listener
+
+	for _, sc := range cfg.Sessions {
+		localAddr, err := sc.LocalAddr()
+		if err != nil || !localAddr.IsValid() {
+			continue
+		}
+
+		multiHop := sc.Type == "multi_hop"
+		key := listenerKey{addr: localAddr, multiHop: multiHop}
+
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		lnCfg := netio.ListenerConfig{
+			Addr:     localAddr,
+			IfName:   sc.Interface,
+			MultiHop: multiHop,
+		}
+		if multiHop {
+			lnCfg.Port = netio.PortMultiHop
+		} else {
+			lnCfg.Port = netio.PortSingleHop
+		}
+
+		ln, err := netio.NewListener(lnCfg)
+		if err != nil {
+			// Close already-created listeners on failure.
+			closeListeners(listeners, logger)
+			return nil, fmt.Errorf("create listener on %s (multihop=%v): %w", localAddr, multiHop, err)
+		}
+
+		logger.Info("BFD listener started",
+			slog.String("addr", localAddr.String()),
+			slog.Bool("multi_hop", multiHop),
+			slog.String("interface", sc.Interface),
+		)
+
+		listeners = append(listeners, ln)
+	}
+
+	return listeners, nil
+}
+
+// closeListeners closes all provided listeners, logging any errors.
+func closeListeners(listeners []*netio.Listener, logger *slog.Logger) {
+	for _, ln := range listeners {
+		if err := ln.Close(); err != nil {
+			logger.Warn("failed to close BFD listener",
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -557,11 +725,11 @@ func newMetricsServer(cfg config.MetricsConfig, reg *prometheus.Registry) *http.
 // The handler is wrapped with h2c to support HTTP/2 without TLS, which is
 // required for gRPC clients that connect over plaintext (e.g., gobfdctl).
 // Includes standard gRPC health checking (grpc.health.v1).
-func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, logger *slog.Logger) *http.Server {
+func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFactory, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 
 	// BFD service handler.
-	path, handler := server.New(mgr, nil, logger,
+	path, handler := server.New(mgr, sf, logger,
 		server.LoggingInterceptorOption(logger),
 		server.RecoveryInterceptorOption(logger),
 	)

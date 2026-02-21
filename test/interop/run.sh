@@ -60,7 +60,22 @@ assert_pass() {
 # Cleanup
 # ---------------------------------------------------------------------------
 
+dump_tshark() {
+    if podman ps --format '{{.Names}}' 2>/dev/null | grep -q tshark-interop; then
+        info "=== BFD packet capture (last 50 packets) ==="
+        podman exec tshark-interop tshark -r /captures/bfd.pcapng -Y bfd -c 50 \
+            -T fields -e frame.time_relative -e ip.src -e ip.dst \
+            -e bfd.sta -e bfd.flags -e bfd.my_discriminator \
+            -e bfd.your_discriminator -e bfd.desired_min_tx_interval \
+            -e bfd.required_min_rx_interval \
+            -E header=y -E separator='	' 2>/dev/null || true
+    fi
+}
+
 cleanup() {
+    if [ "${TESTS_FAILED}" -gt 0 ]; then
+        dump_tshark
+    fi
     info "cleaning up containers and network"
     ${DC} down --volumes --remove-orphans 2>/dev/null || true
 }

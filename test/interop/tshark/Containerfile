@@ -1,0 +1,28 @@
+# tshark container for BFD packet analysis in interoperability tests.
+#
+# Captures all BFD traffic (UDP 3784/4784) on the shared bridge network
+# and writes pcap files to /captures/ for offline analysis.
+#
+# tshark includes a built-in BFD dissector that decodes all RFC 5880 fields:
+#   Version, Diagnostic, State, Flags (P/F/C/A/D/M),
+#   Detect Mult, Length, My/Your Discriminator, intervals.
+
+FROM docker.io/debian:trixie-slim
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       tshark \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /captures
+
+VOLUME /captures
+
+# Capture BFD control packets (port 3784) and multihop (port 4784)
+# on all interfaces. Autostop after 100MB to prevent disk exhaustion.
+ENTRYPOINT ["tshark", \
+    "-i", "any", \
+    "-f", "udp port 3784 or udp port 4784", \
+    "-w", "/captures/bfd.pcapng", \
+    "-a", "filesize:102400", \
+    "-q"]

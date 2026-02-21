@@ -2,12 +2,16 @@
 #
 # All three containers share a custom bridge network (172.20.0.0/24)
 # with static IP assignments:
-#   - gobfd:  172.20.0.10
-#   - frr:    172.20.0.20
-#   - bird3:  172.20.0.30
+#   - gobfd:   172.20.0.10  (tshark shares this network namespace)
+#   - frr:     172.20.0.20
+#   - bird3:   172.20.0.30
 #
 # BFD single-hop sessions are established between gobfd and each peer.
 # RFC 5881: destination port 3784, source port 49152-65535, TTL=255.
+#
+# tshark captures all BFD traffic to /captures/ for offline analysis.
+# Live decode:  podman exec tshark-interop tshark -r /captures/bfd.pcapng -V -Y bfd
+# Live capture: podman exec tshark-interop tshark -i any -f "udp port 3784" -V
 #
 # Usage:
 #   podman-compose -f test/interop/compose.yml up --build -d
@@ -20,6 +24,7 @@ services:
       context: ../..
       dockerfile: deployments/docker/Containerfile
     container_name: gobfd-interop
+    user: "0:0"
     cap_add:
       - NET_RAW
       - NET_ADMIN
@@ -29,12 +34,6 @@ services:
     networks:
       bfdnet:
         ipv4_address: 172.20.0.10
-    healthcheck:
-      test: ["/bin/gobfdctl", "session", "list", "--addr", "127.0.0.1:50051", "--format", "json"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
 
   frr:
     image: quay.io/frrouting/frr:10.2.5
@@ -42,6 +41,7 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
+      - SYS_ADMIN
     volumes:
       - ./frr/daemons:/etc/frr/daemons:ro,z
       - ./frr/frr.conf:/etc/frr/frr.conf:ro,z
@@ -62,6 +62,23 @@ services:
     networks:
       bfdnet:
         ipv4_address: 172.20.0.30
+
+  tshark:
+    build:
+      context: ./tshark
+      dockerfile: Containerfile
+    container_name: tshark-interop
+    network_mode: "service:gobfd"
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+volumes:
+  captures:
 
 networks:
   bfdnet:
