@@ -31,10 +31,16 @@ const (
 	gobfdIP  = "172.20.0.10"
 	frrIP    = "172.20.0.20"
 	bird3IP  = "172.20.0.30"
+	scapyIP  = "172.20.0.40"
 	aiobfdIP = "172.20.0.50"
 	thoroIP  = "172.20.0.60"
 
 	pollInterval = 2 * time.Second
+
+	// scapyImage is the image name for the Scapy BFD fuzzer.
+	// Built with podman build (not compose) to avoid compose's "run"
+	// behavior that tears down and recreates the entire stack.
+	scapyImage = "gobfd-scapy-fuzz:latest"
 )
 
 // =========================================================================
@@ -1112,17 +1118,46 @@ func TestFRRDetectionTimeout(t *testing.T) {
 // TestScapyFuzzing runs the Scapy BFD fuzzer container that sends ~1000+
 // crafted/invalid BFD packets to GoBFD and verifies it survives.
 // Tests RFC 5880 Section 6.8.6 validation robustness.
+//
+// Uses podman build + podman run directly (NOT podman-compose run) because
+// podman-compose's "run" subcommand tears down and recreates the entire
+// compose stack, destroying frr-interop and other containers.
 func TestScapyFuzzing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	// Run the Scapy fuzzer container (fuzz profile).
-	output, err := podmanCompose(ctx, "--profile", "fuzz", "run", "--rm", "scapy")
+	// Clean up leftover container from a previous failed run.
+	_ = exec.CommandContext(ctx, "podman", "rm", "-f", "scapy-interop").Run()
+
+	// Build the scapy image directly.
+	// Go test runs from the package directory (test/interop/),
+	// so the scapy build context is relative to that.
+	buildOut, err := exec.CommandContext(ctx,
+		"podman", "build",
+		"-t", scapyImage,
+		"-f", "scapy/Containerfile",
+		"scapy/",
+	).CombinedOutput()
 	if err != nil {
-		t.Fatalf("scapy fuzzer failed: %v\n%s", err, output)
+		t.Fatalf("podman build scapy: %v\n%s", err, buildOut)
 	}
 
-	t.Logf("Scapy fuzzer output:\n%s", output)
+	// Run on the existing compose network without disturbing other services.
+	runOut, err := exec.CommandContext(ctx,
+		"podman", "run", "--rm",
+		"--name", "scapy-interop",
+		"--network", "interop_bfdnet",
+		"--ip", scapyIP,
+		"--cap-add", "NET_RAW",
+		"--cap-add", "NET_ADMIN",
+		"-e", "GOBFD_IP="+gobfdIP,
+		scapyImage,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("scapy fuzzer failed: %v\n%s", err, runOut)
+	}
+
+	t.Logf("Scapy fuzzer output:\n%s", string(runOut))
 
 	// Verify gobfd is still running after fuzzing.
 	out, err := exec.CommandContext(ctx,
@@ -1174,13 +1209,33 @@ func TestGracefulShutdown(t *testing.T) {
 			adminDownAfter-adminDownBefore)
 	}
 
+	// RFC 5880 §6.8.16: AdminDown must be sent to ALL peers on shutdown.
+	for _, peer := range []struct {
+		name string
+		ip   string
+	}{
+		{"FRR", frrIP}, {"BIRD3", bird3IP},
+		{"aiobfd", aiobfdIP}, {"Thoro", thoroIP},
+	} {
+		count, err := tsharkCount(ctx,
+			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+peer.ip+
+				" && bfd.sta == 0x00 && bfd.diag == 0x07")
+		if err != nil {
+			t.Logf("tshark query for %s AdminDown: %v", peer.name, err)
+			continue
+		}
+		if count == 0 {
+			t.Errorf("GoBFD did not send AdminDown to %s (%s)", peer.name, peer.ip)
+		} else {
+			t.Logf("GoBFD sent %d AdminDown packets to %s", count, peer.name)
+		}
+	}
+
 	// Verify FRR sees session down.
 	status, err := frrBFDPeerStatus(ctx)
 	if err != nil {
-		t.Logf("FRR peer lookup error (acceptable if removed): %v", err)
-		return
+		t.Fatalf("FRR peer status lookup failed: %v", err)
 	}
-
 	if status != "down" {
 		t.Errorf("FRR BFD peer status = %q after gobfd shutdown, want down", status)
 	}

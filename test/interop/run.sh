@@ -1153,9 +1153,28 @@ info "=== Phase 5: Scapy Protocol Fuzzing ==="
 
 test_scapy_fuzzing() {
     local desc="Scapy BFD fuzzing — gobfd survives all invalid packets"
+    local scapy_image="gobfd-scapy-fuzz:latest"
 
-    # Build and run the Scapy container (fuzz profile).
-    if ! ${DC} --profile fuzz run --rm scapy 2>&1; then
+    # Clean up leftover container from a previous failed run.
+    podman rm -f scapy-interop 2>/dev/null || true
+
+    # Build scapy image directly (podman-compose "run" tears down the stack).
+    if ! podman build -t "${scapy_image}" \
+        -f "${SCRIPT_DIR}/scapy/Containerfile" \
+        "${SCRIPT_DIR}/scapy/" 2>&1; then
+        fail "${desc} — scapy image build failed"
+        return 1
+    fi
+
+    # Run on the existing compose network without disturbing other services.
+    if ! podman run --rm \
+        --name scapy-interop \
+        --network interop_bfdnet \
+        --ip 172.20.0.40 \
+        --cap-add NET_RAW \
+        --cap-add NET_ADMIN \
+        -e "GOBFD_IP=${GOBFD_IP}" \
+        "${scapy_image}" 2>&1; then
         fail "${desc} — scapy container exited with error"
         return 1
     fi
