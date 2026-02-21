@@ -1,37 +1,37 @@
 # RFC 5880 Implementation Notes
 
 This document records implementation decisions for each relevant section of
-RFC 5880 (Bidirectional Forwarding Detection). Where GoBFD deviates from or
-simplifies the RFC, the rationale is stated explicitly.
+[RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) (Bidirectional
+Forwarding Detection). Where GoBFD deviates from or simplifies the RFC, the
+rationale is stated explicitly.
 
 ## Section 4.1: BFD Control Packet Format
 
-**Implementation**: `internal/bfd/packet.go`
+**Implementation**: [`internal/bfd/packet.go`](../internal/bfd/packet.go)
 
 The 24-byte mandatory header is encoded and decoded using `encoding/binary.BigEndian`
 directly on a caller-owned byte buffer. No reflection, no `unsafe`, no gopacket.
 
 Wire layout:
 
-| Offset | Size  | Field                        |
-|--------|-------|------------------------------|
-| 0      | 1     | Version(3b) + Diag(5b)       |
-| 1      | 1     | State(2b) + P F C A D M(6b)  |
-| 2      | 1     | Detect Mult                  |
-| 3      | 1     | Length                        |
-| 4-7    | 4     | My Discriminator             |
-| 8-11   | 4     | Your Discriminator           |
-| 12-15  | 4     | Desired Min TX (microseconds)|
+| Offset | Size  | Field                         |
+|--------|-------|-------------------------------|
+| 0      | 1     | Version (3b) + Diag (5b)      |
+| 1      | 1     | State (2b) + P F C A D M (6b) |
+| 2      | 1     | Detect Mult                   |
+| 3      | 1     | Length                         |
+| 4-7    | 4     | My Discriminator              |
+| 8-11   | 4     | Your Discriminator            |
+| 12-15  | 4     | Desired Min TX (microseconds) |
 | 16-19  | 4     | Required Min RX (microseconds)|
-| 20-23  | 4     | Required Min Echo RX (us)    |
-| 24+    | var   | Auth Section (optional)      |
+| 20-23  | 4     | Required Min Echo RX (us)     |
+| 24+    | var   | Auth Section (optional)       |
 
-All interval fields are in MICROSECONDS on the wire. Conversion to
-`time.Duration` happens at the boundary:
-
-```go
-interval := time.Duration(pkt.DesiredMinTxInterval) * time.Microsecond
-```
+> [!IMPORTANT]
+> All interval fields are in **microseconds** on the wire. Conversion to `time.Duration` happens at the boundary:
+> ```go
+> interval := time.Duration(pkt.DesiredMinTxInterval) * time.Microsecond
+> ```
 
 **Zero-allocation codec**: `MarshalControlPacket` writes into a pre-allocated
 buffer (typically from `sync.Pool`). `UnmarshalControlPacket` fills a
@@ -41,54 +41,56 @@ returning the buffer to the pool.
 
 ## Section 6.1: State Variables
 
-**Implementation**: `internal/bfd/session.go`
+**Implementation**: [`internal/bfd/session.go`](../internal/bfd/session.go)
 
 All mandatory state variables from RFC 5880 Section 6.1 are represented:
 
-| RFC Variable              | Go Field                    | Notes                    |
-|---------------------------|-----------------------------|--------------------------|
-| bfd.SessionState          | `session.state` (atomic)    | External reads via atomic|
-| bfd.RemoteSessionState    | `session.remoteState` (at.) | From received packets    |
-| bfd.LocalDiscr            | `session.localDiscr`        | Immutable after creation |
-| bfd.RemoteDiscr           | `session.remoteDiscr`       | Set from received pkts   |
-| bfd.LocalDiag             | `session.localDiag` (at.)   | Set by FSM actions       |
-| bfd.DesiredMinTxInterval  | `session.desiredMinTxInterval` | Configurable          |
-| bfd.RequiredMinRxInterval | `session.requiredMinRxInterval`| Configurable          |
-| bfd.RemoteMinRxInterval   | `session.remoteMinRxInterval`  | From received packets |
-| bfd.DemandMode            | Not implemented             | See "Not Implemented"    |
-| bfd.RemoteDemandMode      | `session.remoteDemandMode`  | Parsed but ignored       |
-| bfd.DetectMult            | `session.detectMult`        | Configurable             |
-| bfd.AuthType              | `session.auth` (interface)  | Via Authenticator        |
-| bfd.RcvAuthSeq            | `session.authState`         | AuthState tracks this    |
-| bfd.XmitAuthSeq           | `session.authState`         | AuthState tracks this    |
-| bfd.AuthSeqKnown          | `session.authState`         | AuthState tracks this    |
+| RFC Variable              | Go Field                       | Notes                    |
+|---------------------------|--------------------------------|--------------------------|
+| bfd.SessionState          | `session.state` (atomic)       | External reads via atomic|
+| bfd.RemoteSessionState    | `session.remoteState` (atomic) | From received packets    |
+| bfd.LocalDiscr            | `session.localDiscr`           | Immutable after creation |
+| bfd.RemoteDiscr           | `session.remoteDiscr`          | Set from received pkts   |
+| bfd.LocalDiag             | `session.localDiag` (atomic)   | Set by FSM actions       |
+| bfd.DesiredMinTxInterval  | `session.desiredMinTxInterval` | Configurable             |
+| bfd.RequiredMinRxInterval | `session.requiredMinRxInterval`| Configurable             |
+| bfd.RemoteMinRxInterval   | `session.remoteMinRxInterval`  | From received packets    |
+| bfd.DemandMode            | Not implemented                | See "Not Implemented"    |
+| bfd.RemoteDemandMode      | `session.remoteDemandMode`     | Parsed but ignored       |
+| bfd.DetectMult            | `session.detectMult`           | Configurable             |
+| bfd.AuthType              | `session.auth` (interface)     | Via Authenticator        |
+| bfd.RcvAuthSeq            | `session.authState`            | AuthState tracks this    |
+| bfd.XmitAuthSeq           | `session.authState`            | AuthState tracks this    |
+| bfd.AuthSeqKnown          | `session.authState`            | AuthState tracks this    |
 
-Thread safety: `state`, `remoteState`, and `localDiag` use `atomic.Uint32`
+**Thread safety**: `state`, `remoteState`, and `localDiag` use `atomic.Uint32`
 for lock-free reads from the gRPC server goroutine. All other state is
 owned exclusively by the session goroutine.
 
 ## Section 6.5: Poll Sequence
 
-**Implementation**: `internal/bfd/session.go` (`pollActive`, `pendingFinal`,
-`pendingDesiredMinTx`, `pendingRequiredMinRx`, `terminatePollSequence`)
+**Implementation**: [`internal/bfd/session.go`](../internal/bfd/session.go)
+(`pollActive`, `pendingFinal`, `pendingDesiredMinTx`, `pendingRequiredMinRx`,
+`terminatePollSequence`)
 
 When parameters change (TX or RX interval), GoBFD:
 
-1. Stores pending values in `pendingDesiredMinTx` / `pendingRequiredMinRx`.
-2. Sets `pollActive = true`, causing the Poll (P) bit to be set in outgoing packets.
+1. Stores pending values in `pendingDesiredMinTx` / `pendingRequiredMinRx`
+2. Sets `pollActive = true`, causing the Poll (P) bit to be set in outgoing packets
 3. When a packet with Final (F) bit is received, `terminatePollSequence()` applies
-   the pending values and clears `pollActive`.
+   the pending values and clears `pollActive`
 
 The RFC states (Section 6.5): "Only one Poll Sequence may be active at a time."
 This is enforced by the single `pollActive` flag.
 
-**Decision**: Parameter changes are deferred until poll completion rather than
-applied immediately. This matches the RFC intent: "A Poll Sequence MUST be
-used in order to verify that the change has been received."
+> [!NOTE]
+> Parameter changes are deferred until poll completion rather than applied
+> immediately. This matches the RFC intent: "A Poll Sequence MUST be used in
+> order to verify that the change has been received."
 
 ## Section 6.7: Authentication
 
-**Implementation**: `internal/bfd/auth.go`
+**Implementation**: [`internal/bfd/auth.go`](../internal/bfd/auth.go)
 
 The `Authenticator` interface supports all five RFC-defined auth types:
 
@@ -112,9 +114,10 @@ numbers are accepted if they fall within `3 * DetectMult` of
 **Key rotation**: `AuthKeyStore` supports multiple simultaneous keys indexed
 by Key ID. This allows hitless key rotation per RFC 5880 Section 6.7.1.
 
-**Decision**: MD5 and SHA1 are retained despite cryptographic weakness because
-the RFC mandates them as the only defined hash-based auth types. GoBFD logs a
-warning at startup when MD5 auth is configured.
+> [!WARNING]
+> MD5 and SHA1 are retained despite cryptographic weakness because the RFC
+> mandates them as the only defined hash-based auth types. GoBFD logs a
+> warning at startup when MD5 auth is configured.
 
 ## Section 6.8.1: State Variables Initialization
 
@@ -157,16 +160,18 @@ is calculated using local parameters as a fallback.
 
 ## Section 6.8.6: Reception of BFD Control Packets
 
-**Implementation**: `UnmarshalControlPacket` (steps 1-7), `session.handleRecvPacket` (steps 8-18)
+**Implementation**: `UnmarshalControlPacket` (steps 1-7),
+`session.handleRecvPacket` (steps 8-18)
 
 The validation is split across two layers:
 
-- **Codec layer** (`packet.go`): Steps 1-7 (version, length, detect mult,
-  multipoint, discriminators). These are stateless and can reject packets
-  before any session lookup.
+- **Codec layer** ([`packet.go`](../internal/bfd/packet.go)): Steps 1-7
+  (version, length, detect mult, multipoint, discriminators). These are
+  stateless and can reject packets before any session lookup.
 
-- **Session layer** (`session.go`): Steps 8-18 (auth consistency, auth
-  verification, update state variables, FSM event, timer reset).
+- **Session layer** ([`session.go`](../internal/bfd/session.go)): Steps 8-18
+  (auth consistency, auth verification, update state variables, FSM event,
+  timer reset).
 
 This split allows the listener to discard obviously invalid packets without
 acquiring session locks.
@@ -178,9 +183,9 @@ acquiring session locks.
 
 Transmission preconditions (all enforced):
 
-1. Passive role: do not transmit if `bfd.RemoteDiscr` is zero.
-2. Do not transmit if `bfd.RemoteMinRxInterval` is zero (peer requests no packets).
-3. Apply jitter per Section 6.8.7 (see below).
+1. Passive role: do not transmit if `bfd.RemoteDiscr` is zero
+2. Do not transmit if `bfd.RemoteMinRxInterval` is zero (peer requests no packets)
+3. Apply jitter per Section 6.8.7 (see below)
 
 **Cached packet pattern**: Inspired by FRR bfdd. The session pre-serializes
 its BFD Control packet into `cachedPacket []byte`. This is rebuilt only when
@@ -195,7 +200,7 @@ the auth sequence number is updated in the cached packet on each transmission.
 ```go
 func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
     if detectMult == 1 {
-        // 75-90% of interval
+        // 75-90% of interval (max 90% per RFC)
         jitterPercent = 10 + rand.IntN(16)
     } else {
         // 75-100% of interval
@@ -205,8 +210,8 @@ func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
 }
 ```
 
-Uses `math/rand/v2` (not `crypto/rand`) for jitter because it is not
-security-sensitive and is called on the hot path.
+Uses `math/rand/v2` for jitter because it is not security-sensitive and is
+called on the hot path.
 
 ## Not Implemented
 

@@ -43,6 +43,16 @@ Thumbs.db
 
 # Claude local config
 CLAUDE.local.md
+.mcp.json
+
+# Internal planning/research docs (not for public repo)
+HELP.md
+gobfd-technology-stack.md
+docs/HELP-DOCS.md
+docs/AGILE_PLAN.md
+docs/AGILE_PLAN_V2.md
+docs/implementation-plan.md
+docs/Software-BFD-implementations.md
 
 # Build artifacts
 dist/
