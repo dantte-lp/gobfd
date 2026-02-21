@@ -5,6 +5,7 @@
 #   - gobfd:   172.20.0.10  (tshark shares this network namespace)
 #   - frr:     172.20.0.20
 #   - bird3:   172.20.0.30
+#   - scapy:   172.20.0.40  (BFD protocol fuzzer, runs once and exits)
 #
 # BFD single-hop sessions are established between gobfd and each peer.
 # RFC 5881: destination port 3784, source port 49152-65535, TTL=255.
@@ -76,6 +77,24 @@ services:
       - NET_ADMIN
     volumes:
       - captures:/captures:z
+
+  scapy:
+    build:
+      context: ./scapy
+      dockerfile: Containerfile
+    container_name: scapy-interop
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      GOBFD_IP: "172.20.0.10"
+    networks:
+      bfdnet:
+        ipv4_address: 172.20.0.40
+    profiles:
+      - fuzz
 
 volumes:
   captures:

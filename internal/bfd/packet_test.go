@@ -1146,6 +1146,56 @@ func FuzzControlPacket(f *testing.F) {
 	binary.BigEndian.PutUint32(seed4[28:32], 42) // Sequence Number
 	f.Add(seed4)
 
+	// Seed: packet with Keyed MD5 auth.
+	seed5 := make([]byte, 48)
+	seed5[0] = 0x20        // Version=1
+	seed5[1] = 0xC0 | 0x04 // State=Up, A=1
+	seed5[2] = 3           // DetectMult
+	seed5[3] = 48          // Length
+	binary.BigEndian.PutUint32(seed5[4:8], 1)
+	binary.BigEndian.PutUint32(seed5[8:12], 2)
+	binary.BigEndian.PutUint32(seed5[12:16], 1000000)
+	binary.BigEndian.PutUint32(seed5[16:20], 1000000)
+	seed5[24] = 2                                 // Auth Type = Keyed MD5
+	seed5[25] = 24                                // Auth Len
+	seed5[26] = 1                                 // Key ID
+	seed5[27] = 0                                 // Reserved
+	binary.BigEndian.PutUint32(seed5[28:32], 100) // Sequence Number
+	f.Add(seed5)
+
+	// Seed: packet with Meticulous Keyed SHA1 auth.
+	seed6 := make([]byte, 52)
+	seed6[0] = 0x20        // Version=1
+	seed6[1] = 0xC0 | 0x04 // State=Up, A=1
+	seed6[2] = 3           // DetectMult
+	seed6[3] = 52          // Length
+	binary.BigEndian.PutUint32(seed6[4:8], 0x12345678)
+	binary.BigEndian.PutUint32(seed6[8:12], 0x9ABCDEF0)
+	binary.BigEndian.PutUint32(seed6[12:16], 300000)
+	binary.BigEndian.PutUint32(seed6[16:20], 300000)
+	seed6[24] = 5                                  // Auth Type = Meticulous Keyed SHA1
+	seed6[25] = 28                                 // Auth Len
+	seed6[26] = 2                                  // Key ID
+	seed6[27] = 0                                  // Reserved
+	binary.BigEndian.PutUint32(seed6[28:32], 9999) // Sequence Number
+	f.Add(seed6)
+
+	// Seed: packet with Meticulous Keyed MD5 auth.
+	seed7 := make([]byte, 48)
+	seed7[0] = 0x20        // Version=1
+	seed7[1] = 0x40 | 0x04 // State=Down, A=1
+	seed7[2] = 1           // DetectMult
+	seed7[3] = 48          // Length
+	binary.BigEndian.PutUint32(seed7[4:8], 0xAABBCCDD)
+	binary.BigEndian.PutUint32(seed7[12:16], 1000000)
+	binary.BigEndian.PutUint32(seed7[16:20], 1000000)
+	seed7[24] = 3                                      // Auth Type = Meticulous Keyed MD5
+	seed7[25] = 24                                     // Auth Len
+	seed7[26] = 3                                      // Key ID
+	seed7[27] = 0                                      // Reserved
+	binary.BigEndian.PutUint32(seed7[28:32], 0xFFFFFF) // Sequence Number near wrap
+	f.Add(seed7)
+
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Step 1: UnmarshalControlPacket must not panic on arbitrary input.
 		var pkt bfd.ControlPacket
@@ -1222,6 +1272,26 @@ func FuzzControlPacket(f *testing.F) {
 		if pkt2.RequiredMinEchoRxInterval != pkt.RequiredMinEchoRxInterval {
 			t.Errorf("round-trip RequiredMinEchoRxInterval mismatch: %d vs %d",
 				pkt2.RequiredMinEchoRxInterval, pkt.RequiredMinEchoRxInterval)
+		}
+
+		// Compare auth section fields if present.
+		if pkt.AuthPresent && pkt2.AuthPresent && pkt.Auth != nil && pkt2.Auth != nil {
+			if pkt2.Auth.Type != pkt.Auth.Type {
+				t.Errorf("round-trip Auth.Type mismatch: %d vs %d",
+					pkt2.Auth.Type, pkt.Auth.Type)
+			}
+			if pkt2.Auth.Len != pkt.Auth.Len {
+				t.Errorf("round-trip Auth.Len mismatch: %d vs %d",
+					pkt2.Auth.Len, pkt.Auth.Len)
+			}
+			if pkt2.Auth.KeyID != pkt.Auth.KeyID {
+				t.Errorf("round-trip Auth.KeyID mismatch: %d vs %d",
+					pkt2.Auth.KeyID, pkt.Auth.KeyID)
+			}
+			if pkt2.Auth.SequenceNumber != pkt.Auth.SequenceNumber {
+				t.Errorf("round-trip Auth.SequenceNumber mismatch: %d vs %d",
+					pkt2.Auth.SequenceNumber, pkt.Auth.SequenceNumber)
+			}
 		}
 	})
 }

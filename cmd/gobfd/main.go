@@ -644,6 +644,11 @@ func gracefulShutdown(
 	// Wait for final AdminDown packets to be transmitted.
 	time.Sleep(drainTimeout)
 
+	// Explicitly cancel all session goroutines after the drain period.
+	// Sessions use context.WithoutCancel so they don't see SIGTERM directly;
+	// Close cancels their individual contexts.
+	mgr.Close()
+
 	// Stop flight recorder.
 	if fr != nil {
 		fr.Stop()

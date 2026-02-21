@@ -1,0 +1,16 @@
+# Scapy-based BFD protocol fuzzer for interoperability testing.
+#
+# Sends crafted/invalid BFD packets to GoBFD to verify robustness
+# against malformed input per RFC 5880 Section 6.8.6 validation rules.
+#
+# Uses scapy.contrib.bfd for BFD packet construction.
+
+FROM docker.io/python:3.13-slim-trixie
+
+RUN pip install --no-cache-dir scapy==2.6.1
+
+COPY bfd_fuzz.py /opt/bfd_fuzz.py
+
+WORKDIR /opt
+
+ENTRYPOINT ["python3", "/opt/bfd_fuzz.py"]

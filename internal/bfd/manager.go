@@ -341,7 +341,11 @@ func (m *Manager) registerAndStart(
 	}
 
 	entry := &sessionEntry{session: sess, key: key}
-	sessCtx, cancel := context.WithCancel(ctx)
+	// Decouple session lifetime from the parent context so that SIGTERM
+	// does not immediately cancel sessions. Graceful shutdown first sets
+	// AdminDown (DrainAllSessions), waits for packets to be sent, and
+	// only then calls Manager.Close which cancels each session explicitly.
+	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	entry.cancel = cancel
 	go sess.Run(sessCtx)
 

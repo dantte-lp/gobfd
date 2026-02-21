@@ -582,3 +582,137 @@ func verifyStrictlyIncrementing(t *testing.T, seqs []uint32) {
 		}
 	}
 }
+
+// -------------------------------------------------------------------------
+// FuzzAuthSignVerify — fuzz Sign→Marshal→Unmarshal→Verify round-trip
+// -------------------------------------------------------------------------
+
+// FuzzAuthSignVerify verifies that for any valid key material and sequence
+// number, the Sign→Marshal→Unmarshal→Verify round-trip always succeeds.
+// This catches consistency bugs in the crypto path across all 5 auth types.
+func FuzzAuthSignVerify(f *testing.F) {
+	// Seeds: one per auth type with representative secrets.
+	f.Add([]byte("pass"), uint8(0), uint32(0))                     // Simple Password
+	f.Add([]byte("md5-secret-key!!"), uint8(1), uint32(100))       // Keyed MD5
+	f.Add([]byte("met-md5-secret!!"), uint8(2), uint32(500))       // Meticulous MD5
+	f.Add([]byte("sha1-secret-20bytes!"), uint8(3), uint32(42))    // Keyed SHA1
+	f.Add([]byte("met-sha1-secret!!!!"), uint8(4), uint32(999999)) // Meticulous SHA1
+	f.Add([]byte("x"), uint8(0), uint32(0xFFFFFFFE))               // single-char near wrap
+
+	f.Fuzz(func(t *testing.T, secret []byte, authIdx uint8, seq uint32) {
+		authTypes := []bfd.AuthType{
+			bfd.AuthTypeSimplePassword,
+			bfd.AuthTypeKeyedMD5,
+			bfd.AuthTypeMeticulousKeyedMD5,
+			bfd.AuthTypeKeyedSHA1,
+			bfd.AuthTypeMeticulousKeyedSHA1,
+		}
+		authType := authTypes[authIdx%uint8(len(authTypes))]
+
+		// Constrain secret to valid lengths per RFC 5880.
+		if len(secret) == 0 {
+			return
+		}
+		if authType == bfd.AuthTypeSimplePassword && len(secret) > 16 {
+			return
+		}
+		if authType != bfd.AuthTypeSimplePassword && len(secret) > 20 {
+			return
+		}
+
+		keys := newTestKeyStore(1, authType, secret)
+
+		var auth bfd.Authenticator
+		switch authType {
+		case bfd.AuthTypeNone:
+			return // No authenticator for AuthTypeNone.
+		case bfd.AuthTypeSimplePassword:
+			auth = bfd.SimplePasswordAuth{}
+		case bfd.AuthTypeKeyedMD5:
+			auth = bfd.KeyedMD5Auth{}
+		case bfd.AuthTypeMeticulousKeyedMD5:
+			auth = bfd.MeticulousKeyedMD5Auth{}
+		case bfd.AuthTypeKeyedSHA1:
+			auth = bfd.KeyedSHA1Auth{}
+		case bfd.AuthTypeMeticulousKeyedSHA1:
+			auth = bfd.MeticulousKeyedSHA1Auth{}
+		}
+
+		txState := &bfd.AuthState{Type: authType, XmitAuthSeq: seq}
+		pkt := newTestPacket()
+		buf := make([]byte, bfd.MaxPacketSize)
+
+		// Sign must succeed for valid inputs.
+		if err := auth.Sign(txState, keys, pkt, buf, 0); err != nil {
+			t.Fatalf("Sign(%s, secret=%d bytes, seq=%d): %v",
+				authType, len(secret), seq, err)
+		}
+
+		// Marshal→Unmarshal round-trip.
+		rxBuf := make([]byte, bfd.MaxPacketSize)
+
+		n, err := bfd.MarshalControlPacket(pkt, rxBuf)
+		if err != nil {
+			t.Fatalf("Marshal after Sign: %v", err)
+		}
+
+		var rxPkt bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(rxBuf[:n], &rxPkt); err != nil {
+			t.Fatalf("Unmarshal after Sign: %v", err)
+		}
+
+		// Verify must succeed for a freshly signed packet.
+		rxState := &bfd.AuthState{Type: authType}
+		if err := auth.Verify(rxState, keys, &rxPkt, rxBuf[:n], n); err != nil {
+			t.Fatalf("Verify(%s, secret=%d bytes, seq=%d): %v",
+				authType, len(secret), seq, err)
+		}
+	})
+}
+
+// -------------------------------------------------------------------------
+// FuzzSeqInWindow — fuzz circular uint32 window arithmetic
+// -------------------------------------------------------------------------
+
+// FuzzSeqInWindow verifies mathematical invariants of the circular uint32
+// window check used by MD5/SHA1 sequence number validation
+// (RFC 5880 Sections 6.7.3, 6.7.4).
+func FuzzSeqInWindow(f *testing.F) {
+	f.Add(uint32(5), uint32(3), uint32(10))                           // normal range
+	f.Add(uint32(2), uint32(0xFFFFFFFE), uint32(5))                   // wrap-around
+	f.Add(uint32(0), uint32(0), uint32(0))                            // zero window
+	f.Add(uint32(0xFFFFFFFF), uint32(0xFFFFFFFF), uint32(0))          // max→0 wrap
+	f.Add(uint32(0x80000000), uint32(0x7FFFFFFF), uint32(0x80000001)) // half-space boundary
+
+	f.Fuzz(func(t *testing.T, seq, lo, hi uint32) {
+		// Must not panic.
+		_ = bfd.SeqInWindow(seq, lo, hi)
+
+		// Invariant 1: lo is always in [lo, hi].
+		if !bfd.SeqInWindow(lo, lo, hi) {
+			t.Errorf("lo=%d must be in [lo=%d, hi=%d]", lo, lo, hi)
+		}
+
+		// Invariant 2: hi is always in [lo, hi].
+		if !bfd.SeqInWindow(hi, lo, hi) {
+			t.Errorf("hi=%d must be in [lo=%d, hi=%d]", hi, lo, hi)
+		}
+
+		// Invariant 3: if lo == hi, only lo (==hi) is in window.
+		if lo == hi {
+			if bfd.SeqInWindow(lo+1, lo, hi) {
+				t.Errorf("lo+1=%d should NOT be in single-element window [%d, %d]",
+					lo+1, lo, hi)
+			}
+		}
+
+		// Invariant 4: if seq is in [lo, hi], then seq-lo <= hi-lo
+		// (direct formula verification).
+		result := bfd.SeqInWindow(seq, lo, hi)
+		expected := (seq - lo) <= (hi - lo)
+		if result != expected {
+			t.Errorf("SeqInWindow(%d, %d, %d) = %t, formula says %t",
+				seq, lo, hi, result, expected)
+		}
+	})
+}
