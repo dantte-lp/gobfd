@@ -28,9 +28,11 @@ import (
 )
 
 const (
-	gobfdIP = "172.20.0.10"
-	frrIP   = "172.20.0.20"
-	bird3IP = "172.20.0.30"
+	gobfdIP  = "172.20.0.10"
+	frrIP    = "172.20.0.20"
+	bird3IP  = "172.20.0.30"
+	aiobfdIP = "172.20.0.50"
+	thoroIP  = "172.20.0.60"
 
 	pollInterval = 2 * time.Second
 )
@@ -76,12 +78,22 @@ func frrBFDPeerStatus(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("vtysh show bfd peers json: %w: %s", err, output)
 	}
 
+	// vtysh may emit warnings (e.g., "% Can't open configuration file
+	// [/etc/frr/frr.conf]...") before the JSON array. Find the JSON array
+	// by looking for "[\n" (array on its own line) to avoid false matches.
+	jsonStr := strings.TrimSpace(output)
+	if idx := strings.Index(output, "\n["); idx >= 0 {
+		jsonStr = strings.TrimSpace(output[idx+1:])
+	} else if !strings.HasPrefix(jsonStr, "[") {
+		return "", fmt.Errorf("no JSON array in vtysh output: %s", output)
+	}
+
 	var peers []struct {
 		Peer   string `json:"peer"`
 		Status string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(output), &peers); err != nil {
-		return "", fmt.Errorf("parse bfd peers json: %w: raw=%s", err, output)
+	if err := json.Unmarshal([]byte(jsonStr), &peers); err != nil {
+		return "", fmt.Errorf("parse bfd peers json: %w: raw=%s", err, jsonStr)
 	}
 
 	for _, p := range peers {
@@ -147,6 +159,44 @@ func waitBIRD3Up(t *testing.T, ctx context.Context, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "BIRD3 BFD session Up", timeout, func() (bool, error) {
 		return bird3BFDSessionUp(ctx)
+	})
+}
+
+// aiobfdSessionUp checks if the GoBFD <-> aiobfd session is Up
+// by looking for Up packets from aiobfd in the tshark capture.
+func aiobfdSessionUp(ctx context.Context) (bool, error) {
+	count, err := tsharkCount(ctx,
+		"bfd && ip.src == "+aiobfdIP+" && ip.dst == "+gobfdIP+" && bfd.sta == 0x03")
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// waitAiobfdUp waits for the aiobfd BFD session to reach Up state.
+func waitAiobfdUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+	t.Helper()
+	waitForCondition(t, "aiobfd BFD session Up", timeout, func() (bool, error) {
+		return aiobfdSessionUp(ctx)
+	})
+}
+
+// thoroSessionUp checks if the GoBFD <-> Thoro/bfd session is Up
+// by looking for Up packets from Thoro/bfd in the tshark capture.
+func thoroSessionUp(ctx context.Context) (bool, error) {
+	count, err := tsharkCount(ctx,
+		"bfd && ip.src == "+thoroIP+" && ip.dst == "+gobfdIP+" && bfd.sta == 0x03")
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// waitThoroUp waits for the Thoro/bfd BFD session to reach Up state.
+func waitThoroUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+	t.Helper()
+	waitForCondition(t, "Thoro/bfd BFD session Up", timeout, func() (bool, error) {
+		return thoroSessionUp(ctx)
 	})
 }
 
@@ -309,6 +359,30 @@ func TestBIRD3Handshake(t *testing.T) {
 	waitBIRD3Up(t, t.Context(), 60*time.Second)
 }
 
+// TestAiobfdHandshake verifies that the BFD three-way handshake completes
+// between GoBFD and aiobfd (Python asyncio BFD daemon, RFC 5880/5881).
+func TestAiobfdHandshake(t *testing.T) {
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 50)
+		}
+	})
+	waitAiobfdUp(t, t.Context(), 60*time.Second)
+}
+
+// TestThoroHandshake verifies that the BFD three-way handshake completes
+// between GoBFD and Thoro/bfd (Go BFD daemon with gRPC API, RFC 5880/5881).
+// No authentication is used because Thoro/bfd does not implement auth
+// verification on the receive path.
+func TestThoroHandshake(t *testing.T) {
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 50)
+		}
+	})
+	waitThoroUp(t, t.Context(), 60*time.Second)
+}
+
 // =========================================================================
 // Test 3: Comprehensive RFC 5880/5881 compliance
 // =========================================================================
@@ -325,9 +399,14 @@ func TestRFCCompliance(t *testing.T) {
 	})
 	ctx := t.Context()
 
-	// Prerequisite: both sessions must be Up.
+	// Prerequisite: all sessions must be Up.
 	waitFRRUp(t, ctx, 60*time.Second)
 	waitBIRD3Up(t, ctx, 60*time.Second)
+	waitAiobfdUp(t, ctx, 60*time.Second)
+	waitThoroUp(t, ctx, 60*time.Second)
+
+	// Allow tshark capture to accumulate data before read-only analysis.
+	time.Sleep(3 * time.Second)
 
 	// Filter prefix for packets originated by GoBFD.
 	const gobfdPkts = "bfd && ip.src == " + gobfdIP
@@ -379,7 +458,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_4.1_PacketLength", func(t *testing.T) {
 		// Without authentication, BFD Control is exactly 24 bytes.
 		assertNoPackets(t, ctx,
-			gobfdPkts+" && bfd.length != 24",
+			gobfdPkts+" && bfd.message_length != 24",
 			"packet length must be 24 (no auth)")
 	})
 
@@ -407,42 +486,99 @@ func TestRFCCompliance(t *testing.T) {
 	})
 
 	// -----------------------------------------------------------------
+	// Group A (continued): Peer-originated packet invariants
+	// Validate that each peer also sends RFC-compliant packets.
+	// -----------------------------------------------------------------
+
+	t.Run("PeerPacketInvariants", func(t *testing.T) {
+		type peer struct {
+			name string
+			ip   string
+			// skipSrcPort: BIRD3 uses a fixed source port outside the
+			// ephemeral range (known RFC 5881 §4 deviation).
+			skipSrcPort bool
+		}
+		peers := []peer{
+			{"FRR", frrIP, false},
+			{"BIRD3", bird3IP, true},
+			{"aiobfd", aiobfdIP, false},
+			{"Thoro", thoroIP, false},
+		}
+		for _, p := range peers {
+			t.Run(p.name+"_Version1", func(t *testing.T) {
+				assertNoPackets(t, ctx,
+					"bfd && ip.src == "+p.ip+" && bfd.version != 1",
+					p.name+" packets must have version=1")
+			})
+			t.Run(p.name+"_TTL255", func(t *testing.T) {
+				assertNoPackets(t, ctx,
+					"bfd && ip.src == "+p.ip+" && ip.ttl != 255",
+					p.name+" packets must have TTL=255 (GTSM)")
+			})
+			t.Run(p.name+"_DstPort3784", func(t *testing.T) {
+				assertNoPackets(t, ctx,
+					"bfd && ip.src == "+p.ip+" && udp.dstport != 3784",
+					p.name+" packets must use dst port 3784")
+			})
+			t.Run(p.name+"_SrcPortEphemeral", func(t *testing.T) {
+				if p.skipSrcPort {
+					t.Skipf("%s uses a fixed source port (known RFC 5881 §4 deviation)", p.name)
+				}
+				assertNoPackets(t, ctx,
+					"bfd && ip.src == "+p.ip+" && (udp.srcport < 49152 || udp.srcport > 65535)",
+					p.name+" packets must use ephemeral src port")
+			})
+		}
+	})
+
+	// -----------------------------------------------------------------
 	// Group B: Handshake & State Sequence (RFC 5880 §6.2, §6.8.6)
 	// -----------------------------------------------------------------
 
 	t.Run("RFC5880_6.2_HandshakeSequence", func(t *testing.T) {
-		// Verify GoBFD→FRR packets follow strict Down→Init→Up.
-		// No state regressions during the initial handshake.
-		rows, err := tsharkFields(ctx,
-			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP,
-			[]string{"bfd.sta"}, 0)
-		if err != nil {
-			t.Fatalf("tshark: %v", err)
+		// Verify GoBFD→peer packets follow strict Down→Init→Up
+		// for all 4 peers. No state regressions during initial handshake.
+		type peer struct {
+			name string
+			ip   string
 		}
-		if len(rows) == 0 {
-			t.Fatal("no packets from GoBFD to FRR")
+		peers := []peer{
+			{"FRR", frrIP}, {"BIRD3", bird3IP},
+			{"aiobfd", aiobfdIP}, {"Thoro", thoroIP},
 		}
+		for _, p := range peers {
+			t.Run(p.name, func(t *testing.T) {
+				rows, err := tsharkFields(ctx,
+					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
+					[]string{"bfd.sta"}, 0)
+				if err != nil {
+					t.Fatalf("tshark: %v", err)
+				}
+				if len(rows) == 0 {
+					t.Fatalf("no packets from GoBFD to %s", p.name)
+				}
 
-		// Find the initial handshake: all packets up to first Up.
-		var maxState uint64
-		for i, row := range rows {
-			state, err := parseHexOrDec(row[0])
-			if err != nil {
-				t.Fatalf("parse state at row %d: %v", i, err)
-			}
-			if state > maxState {
-				maxState = state
-			} else if state < maxState {
-				t.Errorf("state regression at packet %d: state=%d after reaching %d",
-					i, state, maxState)
-				break
-			}
-			if state == 3 { // Up
-				break
-			}
-		}
-		if maxState != 3 {
-			t.Errorf("handshake did not reach Up (max state: %d)", maxState)
+				var maxState uint64
+				for i, row := range rows {
+					state, err := parseHexOrDec(row[0])
+					if err != nil {
+						t.Fatalf("parse state at row %d: %v", i, err)
+					}
+					if state > maxState {
+						maxState = state
+					} else if state < maxState {
+						t.Errorf("state regression at packet %d: state=%d after reaching %d",
+							i, state, maxState)
+						break
+					}
+					if state == 3 { // Up
+						break
+					}
+				}
+				if maxState != 3 {
+					t.Errorf("handshake did not reach Up (max state: %d)", maxState)
+				}
+			})
 		}
 	})
 
@@ -456,20 +592,55 @@ func TestRFCCompliance(t *testing.T) {
 
 	t.Run("RFC5880_6.8.1_DiscrUniqueness", func(t *testing.T) {
 		// Each session must use a unique local discriminator.
-		toFRR, err := tsharkFields(ctx,
-			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x03",
-			[]string{"bfd.my_discriminator"}, 1)
-		if err != nil || len(toFRR) == 0 {
-			t.Fatalf("no Up packets to FRR: %v", err)
+		// Read all packets and filter by state in Go to avoid
+		// tshark pcapng read-while-write race conditions.
+		findUpDiscr := func(peerIP string) (string, error) {
+			rows, err := tsharkFields(ctx,
+				"bfd && ip.src == "+gobfdIP+" && ip.dst == "+peerIP,
+				[]string{"bfd.sta", "bfd.my_discriminator"}, 0)
+			if err != nil {
+				return "", err
+			}
+			for _, row := range rows {
+				if len(row) >= 2 {
+					state, _ := parseHexOrDec(row[0])
+					if state == 3 {
+						return row[1], nil
+					}
+				}
+			}
+			return "", fmt.Errorf("no Up packets to %s", peerIP)
 		}
-		toBIRD, err := tsharkFields(ctx,
-			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+bird3IP+" && bfd.sta == 0x03",
-			[]string{"bfd.my_discriminator"}, 1)
-		if err != nil || len(toBIRD) == 0 {
-			t.Fatalf("no Up packets to BIRD3: %v", err)
+
+		frrDiscr, err := findUpDiscr(frrIP)
+		if err != nil {
+			t.Fatalf("FRR: %v", err)
 		}
-		if toFRR[0][0] == toBIRD[0][0] {
-			t.Errorf("FRR and BIRD3 sessions use same discriminator: %s", toFRR[0][0])
+		birdDiscr, err := findUpDiscr(bird3IP)
+		if err != nil {
+			t.Fatalf("BIRD3: %v", err)
+		}
+		aiobfdDiscr, err := findUpDiscr(aiobfdIP)
+		if err != nil {
+			t.Fatalf("aiobfd: %v", err)
+		}
+		thoroDiscr, err := findUpDiscr(thoroIP)
+		if err != nil {
+			t.Fatalf("Thoro: %v", err)
+		}
+
+		discrs := map[string]string{
+			"FRR":    frrDiscr,
+			"BIRD3":  birdDiscr,
+			"aiobfd": aiobfdDiscr,
+			"Thoro":  thoroDiscr,
+		}
+		seen := make(map[string]string)
+		for peer, d := range discrs {
+			if other, ok := seen[d]; ok {
+				t.Errorf("%s and %s sessions use same discriminator: %s", other, peer, d)
+			}
+			seen[d] = peer
 		}
 	})
 
@@ -487,15 +658,31 @@ func TestRFCCompliance(t *testing.T) {
 
 	t.Run("RFC5880_6.8.3_FastTxOnceUp", func(t *testing.T) {
 		// Once Up, configured DesiredMinTxInterval (300ms) is used.
+		// Read without bfd.sta filter and find first Up packet in Go
+		// to avoid tshark pcapng read-while-write race conditions.
 		rows, err := tsharkFields(ctx,
-			gobfdPkts+" && bfd.sta == 0x03",
-			[]string{"bfd.desired_min_tx_interval"}, 1)
-		if err != nil || len(rows) == 0 {
-			t.Fatalf("no Up packets: %v", err)
-		}
-		interval, err := parseHexOrDec(rows[0][0])
+			gobfdPkts,
+			[]string{"bfd.sta", "bfd.desired_min_tx_interval"}, 0)
 		if err != nil {
-			t.Fatalf("parse interval: %v", err)
+			t.Fatalf("tshark: %v", err)
+		}
+		var interval uint64
+		found := false
+		for _, row := range rows {
+			if len(row) >= 2 {
+				state, _ := parseHexOrDec(row[0])
+				if state == 3 {
+					interval, err = parseHexOrDec(row[1])
+					if err != nil {
+						t.Fatalf("parse interval: %v", err)
+					}
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no Up packets from GoBFD")
 		}
 		if interval != 300000 {
 			t.Errorf("DesiredMinTxInterval in Up state = %d, want 300000", interval)
@@ -574,6 +761,24 @@ func TestRFCCompliance(t *testing.T) {
 		}
 		if !up {
 			t.Error("BIRD3 session went Down when only FRR was stopped — sessions are not independent")
+		}
+
+		// aiobfd session must also remain Up.
+		aiobfdUp, err := aiobfdSessionUp(ctx)
+		if err != nil {
+			t.Fatalf("check aiobfd: %v", err)
+		}
+		if !aiobfdUp {
+			t.Error("aiobfd session went Down when only FRR was stopped — sessions are not independent")
+		}
+
+		// Thoro/bfd session must also remain Up.
+		thoroUp, err := thoroSessionUp(ctx)
+		if err != nil {
+			t.Fatalf("check Thoro: %v", err)
+		}
+		if !thoroUp {
+			t.Error("Thoro/bfd session went Down when only FRR was stopped — sessions are not independent")
 		}
 	})
 
@@ -657,6 +862,24 @@ func TestRFCCompliance(t *testing.T) {
 		}
 		if !up {
 			t.Error("BIRD3 session not Up after FRR recovery cycle")
+		}
+
+		// Verify aiobfd is still Up.
+		aiobfdUp, err := aiobfdSessionUp(ctx)
+		if err != nil {
+			t.Fatalf("check aiobfd: %v", err)
+		}
+		if !aiobfdUp {
+			t.Error("aiobfd session not Up after FRR recovery cycle")
+		}
+
+		// Verify Thoro/bfd is still Up.
+		thoroUp, err := thoroSessionUp(ctx)
+		if err != nil {
+			t.Fatalf("check Thoro: %v", err)
+		}
+		if !thoroUp {
+			t.Error("Thoro/bfd session not Up after FRR recovery cycle")
 		}
 	})
 
@@ -774,49 +997,70 @@ func TestRFCCompliance(t *testing.T) {
 		// RFC 5880 §6.8.7: "the interval MUST be reduced by a random
 		// value of 0 to 25%." So actual TX interval is 75-100% of the
 		// negotiated interval. For 300ms: [225ms, 300ms].
-		rows, err := tsharkFields(ctx,
-			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+bird3IP+" && bfd.sta == 0x03",
-			[]string{"frame.time_epoch"}, 200)
-		if err != nil || len(rows) < 10 {
-			t.Skipf("insufficient Up packets for jitter analysis: %d", len(rows))
+		// Verify jitter compliance for all 4 peers.
+		type peer struct {
+			name string
+			ip   string
 		}
-
-		// Compute inter-packet deltas.
-		var deltas []float64
-		var prev float64
-		for i, row := range rows {
-			ts, err := strconv.ParseFloat(strings.TrimSpace(row[0]), 64)
-			if err != nil {
-				t.Fatalf("parse epoch at row %d: %v", i, err)
-			}
-			if i > 0 {
-				delta := ts - prev
-				deltas = append(deltas, delta)
-			}
-			prev = ts
+		peers := []peer{
+			{"FRR", frrIP}, {"BIRD3", bird3IP},
+			{"aiobfd", aiobfdIP}, {"Thoro", thoroIP},
 		}
+		for _, p := range peers {
+			t.Run(p.name, func(t *testing.T) {
+				rows, err := tsharkFields(ctx,
+					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip+" && bfd.sta == 0x03",
+					[]string{"frame.time_epoch"}, 200)
+				if err != nil || len(rows) < 10 {
+					t.Skipf("insufficient Up packets to %s for jitter analysis: %d", p.name, len(rows))
+				}
 
-		var minDelta, maxDelta float64
-		minDelta = math.MaxFloat64
-		for _, d := range deltas {
-			if d < minDelta {
-				minDelta = d
-			}
-			if d > maxDelta {
-				maxDelta = d
-			}
-		}
+				var deltas []float64
+				var prev float64
+				for i, row := range rows {
+					ts, err := strconv.ParseFloat(strings.TrimSpace(row[0]), 64)
+					if err != nil {
+						t.Fatalf("parse epoch at row %d: %v", i, err)
+					}
+					if i > 0 {
+						delta := ts - prev
+						// Filter out sub-100ms deltas: these are state
+						// transition artifacts (session cycles, P/F bursts)
+						// not steady-state jitter.
+						if delta >= 0.100 {
+							deltas = append(deltas, delta)
+						}
+					}
+					prev = ts
+				}
 
-		t.Logf("inter-packet timing: min=%.3fs max=%.3fs samples=%d",
-			minDelta, maxDelta, len(deltas))
+				if len(deltas) < 5 {
+					t.Skipf("insufficient steady-state deltas to %s: %d", p.name, len(deltas))
+				}
 
-		// Expected: 75-100% of 300ms = 0.225-0.300s.
-		// Allow some slack for container scheduling: 0.200-0.350s.
-		if minDelta < 0.150 {
-			t.Errorf("min inter-packet interval %.3fs is too short (< 150ms)", minDelta)
-		}
-		if maxDelta > 0.400 {
-			t.Errorf("max inter-packet interval %.3fs is too long (> 400ms)", maxDelta)
+				var minDelta, maxDelta float64
+				minDelta = math.MaxFloat64
+				for _, d := range deltas {
+					if d < minDelta {
+						minDelta = d
+					}
+					if d > maxDelta {
+						maxDelta = d
+					}
+				}
+
+				t.Logf("%s inter-packet timing: min=%.3fs max=%.3fs samples=%d",
+					p.name, minDelta, maxDelta, len(deltas))
+
+				// Expected: 75-100% of 300ms = 0.225-0.300s.
+				// Allow slack for container scheduling: 0.150-0.400s.
+				if minDelta < 0.150 {
+					t.Errorf("min inter-packet interval %.3fs is too short (< 150ms)", minDelta)
+				}
+				if maxDelta > 0.400 {
+					t.Errorf("max inter-packet interval %.3fs is too long (> 400ms)", maxDelta)
+				}
+			})
 		}
 	})
 }

@@ -1,0 +1,20 @@
+# Thoro/bfd configuration for interoperability testing with GoBFD.
+#
+# Thoro/bfd listens on 0.0.0.0:3784 by default (if no listen addresses
+# successfully bind, Serve() creates a default listener).
+#
+# Config format (from README):
+#   interval: the interval that packets are sent in ms
+#   detectionMultiplier: after how many missed packets is the peer declared down
+#
+# Note: Thoro/bfd has a bug where DesiredMinTxInterval on wire is the config
+# value (ms) rather than microseconds. The actual send interval is negotiated
+# as max(local.desired, remote.required) so this is harmless in practice:
+# GoBFD sends RequiredMinRxInterval=300000us which dominates.
+
+peers:
+  172.20.0.10:
+    name: gobfd
+    port: 3784
+    interval: 300
+    detectionMultiplier: 3

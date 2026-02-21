@@ -1,0 +1,16 @@
+# aiobfd — Python BFD daemon for interoperability testing.
+#
+# Lightweight BFD peer (RFC 5880, RFC 5881) using Python asyncio.
+# No authentication, no echo mode. Used to verify GoBFD compatibility
+# with a third-party Python implementation.
+#
+# Source: https://github.com/netedgeplus/aiobfd
+
+FROM docker.io/python:3.11-slim-bookworm
+
+# Pin bitstring<4.0: aiobfd uses bitstring.BitString which was removed in 4.0.
+RUN pip install --no-cache-dir 'bitstring<4.0' aiobfd==0.2
+
+# aiobfd requires NET_RAW capability for raw sockets.
+# Usage: aiobfd <local_ip> <peer_ip> [--rx-interval ms] [--tx-interval ms] [--detect-mult N]
+ENTRYPOINT ["aiobfd"]

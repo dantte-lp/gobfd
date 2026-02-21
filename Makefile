@@ -8,10 +8,12 @@
 #   make lint        — run golangci-lint v2
 #   make proto-gen   — generate protobuf Go code
 #   make proto-lint  — lint proto definitions
-#   make all         — build + test + lint
-#   make interop     — run interop tests (FRR + BIRD3)
-#   make interop-up  — start interop test stack
-#   make interop-down — stop interop test stack
+#   make all           — build + test + lint
+#   make interop       — run interop tests (bash, builds + tests + cleans up)
+#   make interop-test  — run Go interop tests (stack must be running)
+#   make interop-up    — start interop test stack (4 peers)
+#   make interop-down  — stop interop test stack
+#   make integration   — alias for interop
 
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := podman-compose -f $(COMPOSE_FILE)
@@ -19,8 +21,8 @@ EXEC := $(DC) exec -T dev
 
 .PHONY: all build test lint proto-gen proto-lint fuzz vulncheck \
         up down restart logs shell clean tidy \
-        interop interop-up interop-down interop-logs \
-        interop-capture interop-pcap interop-pcap-summary
+        interop interop-test interop-up interop-down interop-logs \
+        interop-capture interop-pcap interop-pcap-summary integration
 
 # === Lifecycle ===
 
@@ -65,13 +67,16 @@ fuzz:
 test-integration:
 	$(EXEC) go test -tags integration ./test/integration/ -race -count=1 -v
 
-# === Interop Tests (FRR + BIRD3) ===
+# === Interop Tests (FRR + BIRD3 + aiobfd + Thoro/bfd — 4-peer topology) ===
 
 INTEROP_COMPOSE := test/interop/compose.yml
 INTEROP_DC := podman-compose -f $(INTEROP_COMPOSE)
 
 interop:
 	./test/interop/run.sh
+
+interop-test:
+	INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 
 interop-up:
 	$(INTEROP_DC) up --build -d
@@ -95,6 +100,8 @@ interop-pcap-summary:
 		-e bfd.detect_time_multiplier -e bfd.my_discriminator \
 		-e bfd.your_discriminator -e bfd.desired_min_tx_interval \
 		-e bfd.required_min_rx_interval -E header=y -E separator=,
+
+integration: interop
 
 # === Quality ===
 

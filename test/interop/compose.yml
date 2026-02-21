@@ -1,11 +1,13 @@
-# Interoperability test stack: GoBFD <-> FRR <-> BIRD3
+# Interoperability test stack: GoBFD <-> FRR <-> BIRD3 <-> aiobfd <-> Thoro/bfd
 #
-# All three containers share a custom bridge network (172.20.0.0/24)
+# All containers share a custom bridge network (172.20.0.0/24)
 # with static IP assignments:
 #   - gobfd:   172.20.0.10  (tshark shares this network namespace)
 #   - frr:     172.20.0.20
 #   - bird3:   172.20.0.30
 #   - scapy:   172.20.0.40  (BFD protocol fuzzer, runs once and exits)
+#   - aiobfd:  172.20.0.50  (Python asyncio BFD peer, no auth)
+#   - thoro:   172.20.0.60  (Go BFD peer, no auth — auth verify not implemented)
 #
 # BFD single-hop sessions are established between gobfd and each peer.
 # RFC 5881: destination port 3784, source port 49152-65535, TTL=255.
@@ -77,6 +79,38 @@ services:
       - NET_ADMIN
     volumes:
       - captures:/captures:z
+
+  aiobfd:
+    build:
+      context: ./aiobfd
+      dockerfile: Containerfile
+    container_name: aiobfd-interop
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    # aiobfd <local> <remote> --rx-interval <ms> --tx-interval <ms> --detect-mult <N>
+    command: ["172.20.0.50", "172.20.0.10", "-r", "300", "-t", "300", "-m", "3", "-l", "DEBUG"]
+    networks:
+      bfdnet:
+        ipv4_address: 172.20.0.50
+
+  thoro:
+    build:
+      context: ./thoro
+      dockerfile: Containerfile
+    container_name: thoro-interop
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./thoro/config.yaml:/etc/bfdd/config.yaml:ro,z
+    networks:
+      bfdnet:
+        ipv4_address: 172.20.0.60
 
   scapy:
     build:

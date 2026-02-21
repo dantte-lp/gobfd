@@ -1,0 +1,37 @@
+# Thoro/bfd — Go BFD daemon for interoperability testing with GoBFD.
+#
+# Thoro/bfd is a standalone BFD daemon with gRPC API, implementing
+# RFC 5880 and RFC 5881. It supports Simple Password auth on the
+# wire (marshaling) but NOT on the receive path (returns ErrNotImplemented).
+#
+# For interop testing, we use it WITHOUT authentication — it serves as
+# a 4th unique BFD peer implementation (Go-based, distinct from GoBFD).
+#
+# Source: https://github.com/Thoro/bfd
+# Known issues:
+#   - Auth verification on receive is not implemented (peer.go:435-438)
+#   - Config interval is in milliseconds (README says ms)
+#   - DesiredMinTxInterval on wire is config value without us conversion (bug)
+#     This is compensated by timer negotiation: actual TX uses
+#     max(local.desired, remote.required) so behavior is correct.
+
+FROM docker.io/golang:1.26-trixie AS builder
+
+WORKDIR /src
+
+# Clone and build Thoro/bfd from source.
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth=1 https://github.com/Thoro/bfd.git . \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /bin/bfdd ./cmd/bfdd
+
+FROM docker.io/debian:trixie-slim
+
+COPY --from=builder /bin/bfdd /bin/bfdd
+
+# Default config path: /etc/bfdd/config.yaml (overridable via -c flag).
+RUN mkdir -p /etc/bfdd
+
+ENTRYPOINT ["/bin/bfdd"]
+CMD ["-c", "/etc/bfdd/config.yaml"]

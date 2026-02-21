@@ -11,7 +11,9 @@ go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
 golangci-lint run                                  # линтер (v2, строгий)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
-make integration                                   # интеграционные тесты (testcontainers + podman)
+make interop                                       # interop tests (FRR + BIRD3 + aiobfd + Thoro, 4 peers)
+make interop-up && make interop-test               # start stack, run Go tests separately
+make interop-down                                  # stop and cleanup interop stack
 ```
 
 ## Architecture
@@ -24,6 +26,7 @@ make integration                                   # интеграционны�
 - `cmd/gobfdctl/` — CLI: cobra (non-interactive) + go-prompt (interactive shell)
 - `pkg/bfdpb/` — generated protobuf types (public API for external consumers)
 - `api/v1/` — proto definitions (buf managed)
+- `test/interop/` — 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro/bfd) with tshark capture
 
 ## Code style
 - Errors: always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)`

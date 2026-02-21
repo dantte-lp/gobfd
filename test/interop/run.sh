@@ -27,6 +27,8 @@ DC="podman-compose -f ${COMPOSE_FILE}"
 GOBFD_IP="172.20.0.10"
 FRR_IP="172.20.0.20"
 BIRD3_IP="172.20.0.30"
+AIOBFD_IP="172.20.0.50"
+THORO_IP="172.20.0.60"
 
 # Colors for test output (disabled if not a terminal).
 if [ -t 1 ]; then
@@ -213,6 +215,40 @@ wait_bird3_up() {
     return 1
 }
 
+wait_aiobfd_up() {
+    local max_wait="${1:-30}"
+    local interval=2
+    local waited=0
+
+    while [ "${waited}" -lt "${max_wait}" ]; do
+        local count
+        count="$(tshark_count "bfd && ip.src == ${AIOBFD_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+        if [ "${count}" -gt 0 ]; then
+            return 0
+        fi
+        sleep "${interval}"
+        waited=$((waited + interval))
+    done
+    return 1
+}
+
+wait_thoro_up() {
+    local max_wait="${1:-30}"
+    local interval=2
+    local waited=0
+
+    while [ "${waited}" -lt "${max_wait}" ]; do
+        local count
+        count="$(tshark_count "bfd && ip.src == ${THORO_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+        if [ "${count}" -gt 0 ]; then
+            return 0
+        fi
+        sleep "${interval}"
+        waited=$((waited + interval))
+    done
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Build & Start
 # ---------------------------------------------------------------------------
@@ -227,7 +263,7 @@ info "waiting for containers to start (10s)"
 sleep 10
 
 # Verify all containers are running.
-for svc in gobfd frr bird3; do
+for svc in gobfd frr bird3 aiobfd thoro; do
     if ! ${DC} ps | grep -q "${svc}-interop"; then
         fail "container ${svc}-interop is not running"
         ${DC} logs "${svc}" 2>&1 | tail -20
@@ -265,6 +301,38 @@ test_bird3_handshake() {
     fi
     fail "BIRD3 BFD session did not reach Up state within 60s"
     ${DC} exec -T bird3 birdc "show bfd sessions" 2>&1 || true
+    ${DC} logs --tail 30 gobfd 2>&1 || true
+    return 1
+}
+
+# ===========================================================================
+# Test 3: BFD three-way handshake — GoBFD <-> aiobfd
+# ===========================================================================
+
+test_aiobfd_handshake() {
+    info "test: BFD handshake GoBFD <-> aiobfd"
+    if wait_aiobfd_up 60; then
+        pass "aiobfd BFD session with gobfd (${GOBFD_IP}) is Up"
+        return 0
+    fi
+    fail "aiobfd BFD session did not reach Up state within 60s"
+    ${DC} logs --tail 30 aiobfd 2>&1 || true
+    ${DC} logs --tail 30 gobfd 2>&1 || true
+    return 1
+}
+
+# ===========================================================================
+# Test 4: BFD three-way handshake — GoBFD <-> Thoro/bfd
+# ===========================================================================
+
+test_thoro_handshake() {
+    info "test: BFD handshake GoBFD <-> Thoro/bfd"
+    if wait_thoro_up 60; then
+        pass "Thoro/bfd BFD session with gobfd (${GOBFD_IP}) is Up"
+        return 0
+    fi
+    fail "Thoro/bfd BFD session did not reach Up state within 60s"
+    ${DC} logs --tail 30 thoro 2>&1 || true
     ${DC} logs --tail 30 gobfd 2>&1 || true
     return 1
 }
@@ -314,7 +382,7 @@ test_rfc5880_my_discr_nonzero() {
 test_rfc5880_packet_length() {
     info "test: RFC 5880 §4.1 — packet length=24 (no auth)"
     assert_no_packets \
-        "${GOBFD_PKTS} && bfd.length != 24" \
+        "${GOBFD_PKTS} && bfd.message_length != 24" \
         "packet length must be 24 (no auth)"
 }
 
@@ -340,46 +408,115 @@ test_rfc5881_src_port_ephemeral() {
 }
 
 # ===========================================================================
+# Group A (continued): Peer-originated packet invariants
+# Validate that each peer's packets also conform to RFC 5880/5881.
+# ===========================================================================
+
+test_peer_packet_invariants() {
+    info "test: peer packet invariants — version, TTL, ports"
+
+    local ok=true
+
+    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "aiobfd:${AIOBFD_IP}" "Thoro:${THORO_IP}"; do
+        local name="${peer_name_ip%%:*}"
+        local ip="${peer_name_ip##*:}"
+        local peer_pkts="bfd && ip.src == ${ip}"
+
+        # Version must be 1.
+        local ver_bad
+        ver_bad="$(tshark_count "${peer_pkts} && bfd.version != 1")"
+        if [ "${ver_bad}" -gt 0 ]; then
+            fail "${name}: ${ver_bad} packets with version != 1"
+            ok=false
+        fi
+
+        # TTL must be 255 (GTSM).
+        local ttl_bad
+        ttl_bad="$(tshark_count "${peer_pkts} && ip.ttl != 255")"
+        if [ "${ttl_bad}" -gt 0 ]; then
+            fail "${name}: ${ttl_bad} packets with TTL != 255"
+            ok=false
+        fi
+
+        # Destination port must be 3784.
+        local dst_bad
+        dst_bad="$(tshark_count "${peer_pkts} && udp.dstport != 3784")"
+        if [ "${dst_bad}" -gt 0 ]; then
+            fail "${name}: ${dst_bad} packets with dst port != 3784"
+            ok=false
+        fi
+
+        # Source port must be ephemeral (49152-65535).
+        # BIRD3 uses a fixed source port (known RFC 5881 §4 deviation) — skip.
+        if [ "${name}" != "BIRD3" ]; then
+            local src_bad
+            src_bad="$(tshark_count "${peer_pkts} && (udp.srcport < 49152 || udp.srcport > 65535)")"
+            if [ "${src_bad}" -gt 0 ]; then
+                fail "${name}: ${src_bad} packets with non-ephemeral src port"
+                ok=false
+            fi
+        else
+            info "${name}: skipping src port check (known RFC 5881 §4 deviation)"
+        fi
+    done
+
+    if [ "${ok}" = true ]; then
+        pass "all peer packets conform to RFC 5880/5881 (version, TTL, ports)"
+        return 0
+    fi
+    return 1
+}
+
+# ===========================================================================
 # Group B: Handshake & State Sequence (RFC 5880 §6.2, §6.8.6)
 # ===========================================================================
 
 test_rfc5880_handshake_sequence() {
-    info "test: RFC 5880 §6.2 — handshake state sequence Down→Init→Up"
+    info "test: RFC 5880 §6.2 — handshake state sequence Down→Init→Up (all peers)"
 
-    local max_state=0
-    local found_up=false
-    local regression=false
+    local ok=true
 
-    while IFS= read -r state_val; do
-        state_val="$(echo "${state_val}" | tr -d '[:space:]')"
-        [ -z "${state_val}" ] && continue
+    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "aiobfd:${AIOBFD_IP}" "Thoro:${THORO_IP}"; do
+        local name="${peer_name_ip%%:*}"
+        local ip="${peer_name_ip##*:}"
 
-        # Handle hex values from tshark.
-        local state_int
-        state_int="$((state_val))"
+        local max_state=0
+        local found_up=false
+        local regression=false
 
-        if [ "${state_int}" -gt "${max_state}" ]; then
-            max_state="${state_int}"
-        elif [ "${state_int}" -lt "${max_state}" ]; then
-            regression=true
-            break
+        while IFS= read -r state_val; do
+            state_val="$(echo "${state_val}" | tr -d '[:space:]')"
+            [ -z "${state_val}" ] && continue
+
+            local state_int
+            state_int="$((state_val))"
+
+            if [ "${state_int}" -gt "${max_state}" ]; then
+                max_state="${state_int}"
+            elif [ "${state_int}" -lt "${max_state}" ]; then
+                regression=true
+                break
+            fi
+            if [ "${state_int}" -eq 3 ]; then
+                found_up=true
+                break
+            fi
+        done < <(tshark_fields "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip}" "bfd.sta")
+
+        if [ "${regression}" = true ]; then
+            fail "${name}: handshake has state regression (went backward after reaching state ${max_state})"
+            ok=false
+        elif [ "${found_up}" = true ]; then
+            pass "${name}: handshake follows strict Down→Init→Up sequence"
+        else
+            fail "${name}: handshake did not reach Up (max state: ${max_state})"
+            ok=false
         fi
-        if [ "${state_int}" -eq 3 ]; then
-            found_up=true
-            break
-        fi
-    done < <(tshark_fields "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${FRR_IP}" "bfd.sta")
+    done
 
-    if [ "${regression}" = true ]; then
-        fail "handshake has state regression (went backward after reaching state ${max_state})"
-        return 1
-    fi
-    if [ "${found_up}" = true ]; then
-        pass "handshake follows strict Down→Init→Up sequence"
+    if [ "${ok}" = true ]; then
         return 0
     fi
-
-    fail "handshake did not reach Up (max state: ${max_state})"
     return 1
 }
 
@@ -393,25 +530,36 @@ test_rfc5880_discr_learning() {
 test_rfc5880_discr_uniqueness() {
     info "test: RFC 5880 §6.8.1 — unique discriminators per session"
 
-    local frr_discr bird3_discr
+    local frr_discr bird3_discr aiobfd_discr thoro_discr
     frr_discr="$(tshark_fields \
         "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${FRR_IP} && bfd.sta == 0x03" \
         "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
     bird3_discr="$(tshark_fields \
         "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${BIRD3_IP} && bfd.sta == 0x03" \
         "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
+    aiobfd_discr="$(tshark_fields \
+        "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${AIOBFD_IP} && bfd.sta == 0x03" \
+        "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
+    thoro_discr="$(tshark_fields \
+        "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${THORO_IP} && bfd.sta == 0x03" \
+        "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
 
-    if [ -z "${frr_discr}" ] || [ -z "${bird3_discr}" ]; then
-        fail "could not extract discriminators (frr=${frr_discr:-empty}, bird3=${bird3_discr:-empty})"
+    if [ -z "${frr_discr}" ] || [ -z "${bird3_discr}" ] || [ -z "${aiobfd_discr}" ] || [ -z "${thoro_discr}" ]; then
+        fail "could not extract discriminators (frr=${frr_discr:-empty}, bird3=${bird3_discr:-empty}, aiobfd=${aiobfd_discr:-empty}, thoro=${thoro_discr:-empty})"
         return 1
     fi
 
-    if [ "${frr_discr}" = "${bird3_discr}" ]; then
-        fail "FRR and BIRD3 sessions use same discriminator: ${frr_discr}"
+    # Check all pairs for uniqueness.
+    local all_discrs="${frr_discr} ${bird3_discr} ${aiobfd_discr} ${thoro_discr}"
+    local unique_count
+    unique_count="$(echo "${all_discrs}" | tr ' ' '\n' | sort -u | wc -l)"
+
+    if [ "${unique_count}" -ne 4 ]; then
+        fail "discriminators not unique (FRR=${frr_discr}, BIRD3=${bird3_discr}, aiobfd=${aiobfd_discr}, Thoro=${thoro_discr})"
         return 1
     fi
 
-    pass "discriminators are unique (FRR=${frr_discr}, BIRD3=${bird3_discr})"
+    pass "discriminators are unique (FRR=${frr_discr}, BIRD3=${bird3_discr}, aiobfd=${aiobfd_discr}, Thoro=${thoro_discr})"
     return 0
 }
 
@@ -508,22 +656,46 @@ test_rfc5880_poll_final_handshake() {
 # ===========================================================================
 
 test_rfc5880_session_independence() {
-    info "test: RFC 5880 §6.8.1 — session independence (stop FRR, check BIRD3)"
+    info "test: RFC 5880 §6.8.1 — session independence (stop FRR, check BIRD3 + aiobfd)"
 
     ${DC} stop frr
 
     sleep 3
 
+    local ok=true
+
     local status
     status="$(bird3_bfd_session_status "${GOBFD_IP}")"
     if echo "${status}" | grep -qi "up"; then
         pass "BIRD3 session remained Up when FRR was stopped"
-        ${DC} start frr
-        return 0
+    else
+        fail "BIRD3 session went Down when only FRR was stopped"
+        ok=false
     fi
 
-    fail "BIRD3 session went Down when only FRR was stopped"
+    local aiobfd_count
+    aiobfd_count="$(tshark_count "bfd && ip.src == ${AIOBFD_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+    if [ "${aiobfd_count}" -gt 0 ]; then
+        pass "aiobfd session remained Up when FRR was stopped"
+    else
+        fail "aiobfd session went Down when only FRR was stopped"
+        ok=false
+    fi
+
+    local thoro_count
+    thoro_count="$(tshark_count "bfd && ip.src == ${THORO_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+    if [ "${thoro_count}" -gt 0 ]; then
+        pass "Thoro/bfd session remained Up when FRR was stopped"
+    else
+        fail "Thoro/bfd session went Down when only FRR was stopped"
+        ok=false
+    fi
+
     ${DC} start frr
+
+    if [ "${ok}" = true ]; then
+        return 0
+    fi
     return 1
 }
 
@@ -615,21 +787,47 @@ test_rfc5880_session_recovery() {
 
     # FRR should have been restarted by session_independence cleanup.
     # Wait for recovery.
-    if wait_frr_up 60; then
-        pass "FRR session recovered to Up after restart"
-
-        # Verify BIRD3 still Up.
-        local status
-        status="$(bird3_bfd_session_status "${GOBFD_IP}")"
-        if echo "${status}" | grep -qi "up"; then
-            pass "BIRD3 session still Up after FRR recovery cycle"
-            return 0
-        fi
-        fail "BIRD3 session not Up after FRR recovery"
+    if ! wait_frr_up 60; then
+        fail "FRR session did not recover to Up within 60s"
         return 1
     fi
+    pass "FRR session recovered to Up after restart"
 
-    fail "FRR session did not recover to Up within 60s"
+    local ok=true
+
+    # Verify BIRD3 still Up.
+    local status
+    status="$(bird3_bfd_session_status "${GOBFD_IP}")"
+    if echo "${status}" | grep -qi "up"; then
+        pass "BIRD3 session still Up after FRR recovery cycle"
+    else
+        fail "BIRD3 session not Up after FRR recovery"
+        ok=false
+    fi
+
+    # Verify aiobfd still Up.
+    local aiobfd_count
+    aiobfd_count="$(tshark_count "bfd && ip.src == ${AIOBFD_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+    if [ "${aiobfd_count}" -gt 0 ]; then
+        pass "aiobfd session still Up after FRR recovery cycle"
+    else
+        fail "aiobfd session not Up after FRR recovery"
+        ok=false
+    fi
+
+    # Verify Thoro/bfd still Up.
+    local thoro_count
+    thoro_count="$(tshark_count "bfd && ip.src == ${THORO_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+    if [ "${thoro_count}" -gt 0 ]; then
+        pass "Thoro/bfd session still Up after FRR recovery cycle"
+    else
+        fail "Thoro/bfd session not Up after FRR recovery"
+        ok=false
+    fi
+
+    if [ "${ok}" = true ]; then
+        return 0
+    fi
     return 1
 }
 
@@ -740,63 +938,71 @@ test_rfc5880_poll_final_parameter_change() {
 # ===========================================================================
 
 test_rfc5880_jitter_compliance() {
-    info "test: RFC 5880 §6.8.7 — TX jitter 75-100% of interval"
+    info "test: RFC 5880 §6.8.7 — TX jitter 75-100% of interval (all peers)"
 
-    local epochs
-    epochs="$(tshark_fields \
-        "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${BIRD3_IP} && bfd.sta == 0x03" \
-        "frame.time_epoch" | head -200)"
+    local ok=true
 
-    local count
-    count="$(echo "${epochs}" | grep -c '[0-9]' || true)"
+    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "aiobfd:${AIOBFD_IP}" "Thoro:${THORO_IP}"; do
+        local name="${peer_name_ip%%:*}"
+        local ip="${peer_name_ip##*:}"
 
-    if [ "${count}" -lt 10 ]; then
-        info "SKIP: insufficient Up packets for jitter analysis (${count})"
-        pass "jitter compliance (skipped)"
-        return 0
-    fi
+        local epochs
+        epochs="$(tshark_fields \
+            "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip} && bfd.sta == 0x03" \
+            "frame.time_epoch" | head -200)"
 
-    # Compute min/max inter-packet deltas using python3.
-    local result
-    result="$(echo "${epochs}" | python3 -c "
+        local count
+        count="$(echo "${epochs}" | grep -c '[0-9]' || true)"
+
+        if [ "${count}" -lt 10 ]; then
+            info "${name}: SKIP — insufficient Up packets for jitter analysis (${count})"
+            continue
+        fi
+
+        local result
+        result="$(echo "${epochs}" | python3 -c "
 import sys
 times = [float(line.strip()) for line in sys.stdin if line.strip()]
 if len(times) < 2:
     print('skip')
     sys.exit(0)
-deltas = [times[i+1] - times[i] for i in range(len(times)-1)]
+# Filter out sub-100ms deltas: state transition artifacts, not steady-state jitter.
+deltas = [times[i+1] - times[i] for i in range(len(times)-1) if times[i+1] - times[i] >= 0.100]
+if len(deltas) < 5:
+    print('skip')
+    sys.exit(0)
 mn, mx = min(deltas), max(deltas)
 print(f'{mn:.3f} {mx:.3f} {len(deltas)}')
 ")"
 
-    if [ "${result}" = "skip" ]; then
-        pass "jitter compliance (skipped: insufficient data)"
-        return 0
-    fi
+        if [ "${result}" = "skip" ]; then
+            info "${name}: SKIP — insufficient steady-state data"
+            continue
+        fi
 
-    local min_delta max_delta n_samples
-    min_delta="$(echo "${result}" | awk '{print $1}')"
-    max_delta="$(echo "${result}" | awk '{print $2}')"
-    n_samples="$(echo "${result}" | awk '{print $3}')"
+        local min_delta max_delta n_samples
+        min_delta="$(echo "${result}" | awk '{print $1}')"
+        max_delta="$(echo "${result}" | awk '{print $2}')"
+        n_samples="$(echo "${result}" | awk '{print $3}')"
 
-    info "inter-packet timing: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
+        info "${name}: inter-packet timing: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
 
-    local ok=true
-    local min_ok max_ok
-    min_ok="$(python3 -c "print('yes' if ${min_delta} >= 0.150 else 'no')")"
-    max_ok="$(python3 -c "print('yes' if ${max_delta} <= 0.400 else 'no')")"
+        local min_ok max_ok
+        min_ok="$(python3 -c "print('yes' if ${min_delta} >= 0.150 else 'no')")"
+        max_ok="$(python3 -c "print('yes' if ${max_delta} <= 0.400 else 'no')")"
 
-    if [ "${min_ok}" != "yes" ]; then
-        fail "min inter-packet interval ${min_delta}s too short (< 150ms)"
-        ok=false
-    fi
-    if [ "${max_ok}" != "yes" ]; then
-        fail "max inter-packet interval ${max_delta}s too long (> 400ms)"
-        ok=false
-    fi
+        if [ "${min_ok}" != "yes" ]; then
+            fail "${name}: min inter-packet interval ${min_delta}s too short (< 150ms)"
+            ok=false
+        fi
+        if [ "${max_ok}" != "yes" ]; then
+            fail "${name}: max inter-packet interval ${max_delta}s too long (> 400ms)"
+            ok=false
+        fi
+    done
 
     if [ "${ok}" = true ]; then
-        pass "jitter compliant: ${min_delta}s - ${max_delta}s (expected 0.225-0.300s)"
+        pass "jitter compliant for all peers"
         return 0
     fi
     return 1
@@ -877,7 +1083,7 @@ test_gobfd_graceful_shutdown() {
 echo ""
 echo "========================================="
 echo "  GoBFD Interoperability Tests"
-echo "  FRR 10.2.5 + BIRD3 (Debian Trixie)"
+echo "  FRR 10.2.5 + BIRD3 + aiobfd 0.2 + Thoro/bfd"
 echo "  RFC 5880/5881 Compliance Suite"
 echo "========================================="
 echo ""
@@ -886,6 +1092,8 @@ echo ""
 info "=== Phase 1: Handshake ==="
 assert_pass test_frr_handshake
 assert_pass test_bird3_handshake
+assert_pass test_aiobfd_handshake
+assert_pass test_thoro_handshake
 
 # --- Phase 2: Read-only tshark analysis (Groups A, B, C, D-initial, F-handshake) ---
 info "=== Phase 2: RFC Packet Invariants ==="
@@ -898,6 +1106,9 @@ assert_pass test_rfc5880_packet_length
 assert_pass test_rfc5881_ttl_255
 assert_pass test_rfc5881_dst_port_3784
 assert_pass test_rfc5881_src_port_ephemeral
+
+info "=== Phase 2: Peer Packet Invariants ==="
+assert_pass test_peer_packet_invariants
 
 info "=== Phase 2: Handshake Sequence & Discriminators ==="
 assert_pass test_rfc5880_handshake_sequence

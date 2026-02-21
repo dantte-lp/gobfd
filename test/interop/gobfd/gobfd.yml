@@ -1,11 +1,17 @@
 # GoBFD configuration for interoperability testing.
 #
-# Two BFD sessions are configured:
+# BFD sessions are configured:
 #   1. FRR peer at 172.20.0.20 (single-hop, 300ms intervals, detect-mult 3)
 #   2. BIRD3 peer at 172.20.0.30 (single-hop, 300ms intervals, detect-mult 3)
+#   3. aiobfd peer at 172.20.0.50 (single-hop, 300ms intervals, detect-mult 3)
+#   4. Thoro/bfd peer at 172.20.0.60 (single-hop, 300ms intervals, detect-mult 3, no auth)
 #
 # Detection time = detect_mult * max(RequiredMinRxInterval, RemoteDesiredMinTxInterval)
 #                = 3 * 300ms = 900ms (RFC 5880 Section 6.8.3)
+#
+# Note on Thoro/bfd: auth is NOT enabled because Thoro/bfd does not implement
+# auth verification on the receive path (returns ErrNotImplemented). It serves
+# as a 4th unique BFD peer implementation for protocol conformance testing.
 
 grpc:
   addr: ":50051"
@@ -32,6 +38,20 @@ sessions:
     detect_mult: 3
 
   - peer: "172.20.0.30"
+    local: "172.20.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  - peer: "172.20.0.50"
+    local: "172.20.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  - peer: "172.20.0.60"
     local: "172.20.0.10"
     type: single_hop
     desired_min_tx: "300ms"
