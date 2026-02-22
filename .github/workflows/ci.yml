@@ -107,9 +107,13 @@ jobs:
       - name: buf lint
         run: buf lint
 
+      - name: Fetch base branch for buf breaking
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.event.pull_request.base.ref }}
+
       - name: buf breaking
         if: github.event_name == 'pull_request'
-        run: buf breaking --against '.git#branch=${{ github.event.pull_request.base.ref }}'
+        run: buf breaking --against '.git#branch=origin/${{ github.event.pull_request.base.ref }}'
 
   trivy:
     runs-on: ubuntu-latest
