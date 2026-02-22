@@ -15,7 +15,7 @@ jobs:
     container:
       image: golang:1.26-trixie
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -63,7 +63,7 @@ jobs:
     container:
       image: golang:1.26-trixie
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -81,7 +81,7 @@ jobs:
     container:
       image: golang:1.26-trixie
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -104,7 +104,7 @@ jobs:
     needs: build-and-test
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -121,7 +121,7 @@ jobs:
   buf:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up buf
         uses: bufbuild/buf-action@v1
