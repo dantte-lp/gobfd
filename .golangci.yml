@@ -59,6 +59,9 @@ linters:
     - gocheckcompilerdirectives  # Valid //go: directives
     - protogetter         # Enforce proto message getters
     - iface               # Incorrect interface usage patterns
+    - asasalint           # Catch []any as any in variadic func(...any)
+    - gochecksumtype      # Exhaustive sum type checks
+    - gochecknoinits      # No init() — explicit initialization
 
     # ── Обработка ошибок / Error handling ──
     - errorlint           # Error wrapping style (Go 1.13+)
@@ -86,6 +89,9 @@ linters:
     - nakedret            # Naked returns
     - nonamedreturns      # Named return parameters
     - goprintffuncname    # Printf-like functions end with 'f'
+    - interfacebloat      # Prevent interface pollution
+    - inamedparam         # Named interface method parameters
+    - decorder            # Consistent declaration ordering
 
     # ── Производительность / Performance ──
     - prealloc            # Slice pre-allocation
@@ -110,9 +116,13 @@ linters:
     - loggercheck         # Logger key-value pair validation
     - whitespace          # Unnecessary blank lines
     - godot               # Comments end with period
+    - godoclint           # Godoc validation
+    - tagalign            # Aligned struct tags
+    - importas            # Enforce import aliases consistency
 
     # ── Зависимости / Dependencies ──
     - depguard            # Forbidden package imports
+    - gomoddirectives     # Catch stray replace/retract in go.mod
 
     # ── Дисциплина / Discipline ──
     - nolintlint          # Nolint directive quality
@@ -123,6 +133,7 @@ linters:
     - thelper             # Test helpers call t.Helper()
     - testableexamples    # Examples have expected output
     - usetesting          # Testing package replacements
+    - testifylint         # Testify best practices
 
     # ── Наблюдаемость / Observability ──
     - promlinter          # Prometheus metric naming
@@ -155,6 +166,10 @@ linters:
       max-func-lines: 0
     exhaustive:
       default-signifies-exhaustive: true
+    interfacebloat:
+      max: 10
+    importas:
+      no-unaliased: false
     depguard:
       rules:
         main:
@@ -200,6 +215,9 @@ linters:
           - maintidx
           - containedctx
           - forcetypeassert
+      - path: cmd/
+        linters:
+          - gochecknoinits  # cobra uses init() for flag registration
 
 severity:
   default: warning
