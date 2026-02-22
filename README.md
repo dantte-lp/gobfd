@@ -14,6 +14,7 @@
   <a href="https://github.com/dantte-lp/gobfd/actions/workflows/security.yml"><img src="https://img.shields.io/github/actions/workflow/status/dantte-lp/gobfd/security.yml?branch=master&style=for-the-badge&label=Security" alt="Security"></a>
   <a href="https://codecov.io/gh/dantte-lp/gobfd"><img src="https://img.shields.io/codecov/c/github/dantte-lp/gobfd?style=for-the-badge&logo=codecov&logoColor=white" alt="Codecov"></a>
   <a href="https://sonarcloud.io/summary/new_code?id=dantte-lp_gobfd"><img src="https://img.shields.io/sonar/quality_gate/dantte-lp_gobfd?server=https%3A%2F%2Fsonarcloud.io&style=for-the-badge&logo=sonarcloud&logoColor=white" alt="Quality Gate"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/dantte-lp/gobfd"><img src="https://img.shields.io/ossf-scorecard/github.com/dantte-lp/gobfd?style=for-the-badge&label=OpenSSF" alt="OpenSSF Scorecard"></a>
 </p>
 
 ---
