@@ -1,0 +1,35 @@
+# GoBFD configuration for the ExaBGP side BFD sidecar.
+#
+# This instance runs alongside ExaBGP (shared network namespace at 172.21.0.40)
+# and provides BFD peering with gobfd-bgp at 172.21.0.10.
+#
+# ExaBGP does not support BFD natively. This gobfd instance acts as a
+# BFD sidecar: if it is paused/stopped, the BFD session goes Down, and
+# gobfd-bgp tells GoBGP to disable the ExaBGP peer at 172.21.0.40.
+#
+# GoBGP integration is NOT enabled here — only gobfd-bgp has the handler.
+# GoBFD gRPC is at :50052 (ExaBGP does not use this port).
+
+grpc:
+  addr: ":50052"
+
+metrics:
+  addr: ":9101"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+sessions:
+  - peer: "172.21.0.10"
+    local: "172.21.0.40"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

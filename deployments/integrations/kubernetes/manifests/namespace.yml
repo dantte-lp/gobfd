@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gobfd
+  labels:
+    app.kubernetes.io/name: gobfd
+    app.kubernetes.io/part-of: gobfd-demo

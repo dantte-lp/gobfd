@@ -1,0 +1,38 @@
+groups:
+  - name: gobfd
+    rules:
+      - alert: BFDSessionDown
+        expr: gobfd_bfd_sessions == 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "All BFD sessions are down"
+          description: "No active BFD sessions detected. Check network connectivity and peer availability."
+
+      - alert: BFDSessionFlapping
+        expr: rate(gobfd_bfd_state_transitions_total[5m]) > 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BFD session flapping detected"
+          description: "BFD session {{ $labels.peer_addr }} has >2 state transitions/sec over 5m window."
+
+      - alert: BFDAuthFailures
+        expr: rate(gobfd_bfd_auth_failures_total[5m]) > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "BFD authentication failures detected"
+          description: "Authentication failures on peer {{ $labels.peer_addr }}. Check shared secret configuration."
+
+      - alert: BFDPacketDrops
+        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BFD packet drops detected"
+          description: "Packets dropped for peer {{ $labels.peer_addr }}. Possible network congestion or misconfiguration."

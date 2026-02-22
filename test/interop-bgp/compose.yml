@@ -1,0 +1,150 @@
+# BGP+BFD full-cycle interop test stack.
+#
+# Tests the end-to-end BFD->BGP coupling (RFC 5882): when BFD detects a
+# forwarding failure, GoBGP disables the BGP peer; on BFD recovery, the
+# peer is re-enabled and routes are restored.
+#
+# Three test scenarios:
+#   1. gobfd + GoBGP  <->  FRR (bgpd + bfdd)        -- native BGP+BFD
+#   2. gobfd + GoBGP  <->  BIRD3 (BGP + bfd on)      -- native BGP+BFD
+#   3. gobfd + GoBGP  <->  gobfd + ExaBGP             -- BFD sidecar for ExaBGP
+#
+# Network: 172.21.0.0/24 (separate from BFD-only interop at 172.20.0.0/24)
+#
+# Shared network namespaces:
+#   - gobgp shares gobfd-bgp's netns  -> both at 172.21.0.10
+#   - exabgp shares gobfd-exabgp's netns -> both at 172.21.0.40
+#   - tshark-bgp shares gobfd-bgp's netns
+#
+# This ensures BFD peer addresses match BGP neighbor addresses, so the
+# GoBGP handler's DisablePeer(bfd_peer_addr) correctly targets the BGP peer.
+#
+# Usage:
+#   podman-compose -f test/interop-bgp/compose.yml up --build -d
+#   podman-compose -f test/interop-bgp/compose.yml logs -f
+#   podman-compose -f test/interop-bgp/compose.yml down
+
+services:
+  # === GoBGP side: gobfd (BFD) + gobgp (BGP) at 172.21.0.10 ===
+
+  gobfd-bgp:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-bgp-interop
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd-bgp/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      bgpbfdnet:
+        ipv4_address: 172.21.0.10
+
+  gobgp:
+    image: docker.io/jauderho/gobgp:v3.33.0
+    container_name: gobgp-interop
+    user: "0:0"
+    cap_add:
+      - NET_BIND_SERVICE
+    network_mode: "service:gobfd-bgp"
+    depends_on:
+      - gobfd-bgp
+    volumes:
+      - ./gobgp/gobgp.toml:/etc/gobgp/gobgp.toml:ro,z
+    command: ["gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+
+  tshark-bgp:
+    build:
+      context: ../interop/tshark
+      dockerfile: Containerfile
+    container_name: tshark-bgp-interop
+    network_mode: "service:gobfd-bgp"
+    depends_on:
+      - gobfd-bgp
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+  # === FRR: bgpd + bfdd at 172.21.0.20 (ASN 65002) ===
+
+  frr-bgp:
+    image: quay.io/frrouting/frr:10.2.5
+    container_name: frr-bgp-interop
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./frr/daemons:/etc/frr/daemons:ro,z
+      - ./frr/frr.conf:/etc/frr/frr.conf:ro,z
+    networks:
+      bgpbfdnet:
+        ipv4_address: 172.21.0.20
+
+  # === BIRD3: BGP + BFD at 172.21.0.30 (ASN 65003) ===
+
+  bird3-bgp:
+    build:
+      context: ../interop/bird3
+      dockerfile: Containerfile
+    container_name: bird3-bgp-interop
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./bird3/bird.conf:/etc/bird/bird.conf:ro,z
+    networks:
+      bgpbfdnet:
+        ipv4_address: 172.21.0.30
+
+  # === ExaBGP side: gobfd (BFD) + exabgp (BGP) at 172.21.0.40 ===
+
+  gobfd-exabgp:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-exabgp-interop
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd-exabgp/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      bgpbfdnet:
+        ipv4_address: 172.21.0.40
+
+  exabgp:
+    image: ghcr.io/exa-networks/exabgp:5.0.1
+    container_name: exabgp-interop
+    network_mode: "service:gobfd-exabgp"
+    depends_on:
+      - gobfd-exabgp
+    volumes:
+      - ./exabgp/exabgp.conf:/etc/exabgp/exabgp.conf:ro,z
+      - ./exabgp/announce.py:/etc/exabgp/announce.py:ro,z
+    environment:
+      - exabgp.daemon.daemonize=false
+      - exabgp.log.all=true
+      - exabgp.log.level=INFO
+      - exabgp.log.destination=stdout
+      - exabgp.api.ack=false
+      - exabgp.api.cli=false
+    command: ["server", "/etc/exabgp/exabgp.conf"]
+
+volumes:
+  captures:
+
+networks:
+  bgpbfdnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+          gateway: 172.21.0.1

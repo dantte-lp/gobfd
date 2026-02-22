@@ -1,0 +1,31 @@
+# GoBFD configuration for ExaBGP anycast integration example.
+#
+# BFD session to GoBGP at 172.24.0.10. When BFD is Up, the exabgp-bridge
+# announces the anycast prefix; when Down, it withdraws it.
+
+grpc:
+  addr: ":50052"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: false
+
+sessions:
+  - peer: "172.24.0.10"
+    local: "172.24.0.20"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

@@ -9,12 +9,16 @@ run:
 
 formatters:
   enable:
-    - goimports
     - gofmt
+    - gofumpt
+    - goimports
+    - golines
   settings:
     goimports:
       local-prefixes:
         - github.com/dantte-lp/gobfd
+    golines:
+      max-len: 120
 
 output:
   formats:
@@ -30,57 +34,98 @@ issues:
 linters:
   default: none
   enable:
-    # Безопасность
-    - gosec
-    - bidichk
-    # Корректность
-    - govet
-    - staticcheck
-    - errcheck
-    - bodyclose
-    - noctx
-    - contextcheck
-    - nilerr
-    - nilnesserr
-    - durationcheck
-    - fatcontext
-    - copyloopvar
-    # Ошибки
-    - errorlint
-    - wrapcheck
-    - err113
-    - errname
-    # Сетевые
-    - nosprintfhostport
-    # Качество
-    - gocritic
-    - revive
-    - cyclop
-    - gocognit
-    - funlen
-    - nestif
-    - exhaustive
-    - unparam
-    - unconvert
-    - unused
-    - ineffassign
-    # Производительность
-    - prealloc
-    - perfsprint
-    # Стиль
-    - goconst
-    - dupl
-    - misspell
-    - sloglint
-    - musttag
-    - modernize
-    # Зависимости
-    - depguard
-    # Дисциплина
-    - nolintlint
-    # Тесты
-    - tparallel
-    - testpackage
+    # ── Безопасность / Security ──
+    - gosec               # Security problems (audit mode)
+    - bidichk             # Dangerous Unicode sequences
+    - forcetypeassert     # Forced type assertions → panic on bad input
+    - reassign            # Package variable reassignment
+    - containedctx        # context.Context stored in structs
+
+    # ── Корректность / Correctness ──
+    - govet               # Go vet with extra analyzers
+    - staticcheck         # Comprehensive static analysis
+    - errcheck            # Unchecked errors
+    - bodyclose           # HTTP response body not closed
+    - noctx               # HTTP request without context
+    - contextcheck        # Non-inherited context usage
+    - nilerr              # Returns nil when error is not nil
+    - nilnesserr          # Simultaneous nil error + invalid value
+    - nilnil              # Simultaneous nil error + nil value
+    - durationcheck       # Two durations multiplied together
+    - fatcontext          # Nested contexts in loops
+    - copyloopvar         # Loop variable copies
+    - predeclared         # Shadows predeclared identifiers (true, len, etc.)
+    - recvcheck           # Receiver type consistency (pointer vs value)
+    - gocheckcompilerdirectives  # Valid //go: directives
+    - protogetter         # Enforce proto message getters
+    - iface               # Incorrect interface usage patterns
+
+    # ── Обработка ошибок / Error handling ──
+    - errorlint           # Error wrapping style (Go 1.13+)
+    - wrapcheck           # External package errors must be wrapped
+    - err113              # Error handling expressions
+    - errname             # Sentinel errors prefixed with Err
+    - errchkjson          # JSON encoding type checks
+
+    # ── Сетевые / Network ──
+    - nosprintfhostport   # Misuse of Sprintf for host:port URLs
+
+    # ── Качество кода / Code quality ──
+    - gocritic            # Bugs, performance, style diagnostics
+    - revive              # Consistency and optimizations
+    - cyclop              # Cyclomatic complexity
+    - gocognit            # Cognitive complexity
+    - funlen              # Long functions
+    - nestif              # Deeply nested if statements
+    - exhaustive          # Exhaustive enum switch
+    - unparam             # Unused function parameters
+    - unconvert           # Unnecessary type conversions
+    - unused              # Unused code
+    - ineffassign         # Ineffective assignments
+    - maintidx            # Maintainability index
+    - nakedret            # Naked returns
+    - nonamedreturns      # Named return parameters
+    - goprintffuncname    # Printf-like functions end with 'f'
+
+    # ── Производительность / Performance ──
+    - prealloc            # Slice pre-allocation
+    - perfsprint          # Faster fmt.Sprintf alternatives
+    - makezero            # Slice with non-zero length + append
+    - mirror              # Wrong bytes/strings mirror patterns
+    - wastedassign        # Wasted assignment statements
+    - intrange            # Integer range in for loops (Go 1.22+)
+    - exptostd            # Replace x/exp with stdlib
+
+    # ── Стиль / Style ──
+    - goconst             # Repeated strings → constant
+    - dupl                # Code clones
+    - misspell            # Misspelled English words
+    - sloglint            # Consistent slog usage
+    - musttag             # Struct tags in marshaling
+    - modernize           # Modern Go patterns
+    - asciicheck          # ASCII-only identifiers
+    - canonicalheader     # Canonical net/http.Header
+    - dupword             # Duplicate words in comments
+    - usestdlibvars       # Use stdlib variables/constants
+    - loggercheck         # Logger key-value pair validation
+    - whitespace          # Unnecessary blank lines
+    - godot               # Comments end with period
+
+    # ── Зависимости / Dependencies ──
+    - depguard            # Forbidden package imports
+
+    # ── Дисциплина / Discipline ──
+    - nolintlint          # Nolint directive quality
+
+    # ── Тесты / Testing ──
+    - tparallel           # Inappropriate t.Parallel() usage
+    - testpackage         # Separate _test package
+    - thelper             # Test helpers call t.Helper()
+    - testableexamples    # Examples have expected output
+    - usetesting          # Testing package replacements
+
+    # ── Наблюдаемость / Observability ──
+    - promlinter          # Prometheus metric naming
 
   settings:
     gosec:
@@ -97,6 +142,17 @@ linters:
     cyclop:
       max-complexity: 15
       skip-tests: true
+    gocognit:
+      min-complexity: 15
+    funlen:
+      lines: 60
+      statements: 40
+    nestif:
+      min-complexity: 4
+    maintidx:
+      under: 20
+    nakedret:
+      max-func-lines: 0
     exhaustive:
       default-signifies-exhaustive: true
     depguard:
@@ -109,11 +165,20 @@ linters:
               desc: "Use log/slog"
             - pkg: "io/ioutil"
               desc: "Deprecated in Go 1.16"
+            - pkg: "unsafe"
+              desc: "Forbidden — network daemon handles untrusted input"
+            - pkg: "os/exec"
+              desc: "Shell injection risk — not needed in this project"
     nolintlint:
       require-explanation: true
       require-specific: true
     sloglint:
       attr-only: false
+    loggercheck:
+      require-string-key: true
+      no-printf-like: true
+    promlinter:
+      strict: true
 
   exclusions:
     generated: strict
@@ -122,10 +187,31 @@ linters:
       - common-false-positives
     rules:
       - path: _test\.go
-        linters: [gosec, dupl, funlen, cyclop, gocognit, nestif, err113, wrapcheck]
+        linters:
+          - gosec
+          - dupl
+          - funlen
+          - cyclop
+          - gocognit
+          - nestif
+          - err113
+          - wrapcheck
+          - nonamedreturns
+          - maintidx
+          - containedctx
+          - forcetypeassert
 
 severity:
   default: warning
   rules:
-    - linters: [gosec, errcheck, bodyclose, noctx, staticcheck]
+    - linters:
+        - gosec
+        - errcheck
+        - bodyclose
+        - noctx
+        - staticcheck
+        - forcetypeassert
+        - containedctx
+        - nilnil
+        - reassign
       severity: error

@@ -14,6 +14,8 @@ builds:
     ldflags:
       - -s -w
       - -X github.com/dantte-lp/gobfd/internal/version.Version={{.Version}}
+      - -X github.com/dantte-lp/gobfd/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/dantte-lp/gobfd/internal/version.BuildDate={{.Date}}
 
   - id: gobfdctl
     main: ./cmd/gobfdctl
@@ -27,6 +29,41 @@ builds:
       - arm64
     ldflags:
       - -s -w
+      - -X github.com/dantte-lp/gobfd/internal/version.Version={{.Version}}
+      - -X github.com/dantte-lp/gobfd/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/dantte-lp/gobfd/internal/version.BuildDate={{.Date}}
+
+  - id: gobfd-haproxy-agent
+    main: ./cmd/gobfd-haproxy-agent
+    binary: gobfd-haproxy-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/dantte-lp/gobfd/internal/version.Version={{.Version}}
+      - -X github.com/dantte-lp/gobfd/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/dantte-lp/gobfd/internal/version.BuildDate={{.Date}}
+
+  - id: gobfd-exabgp-bridge
+    main: ./cmd/gobfd-exabgp-bridge
+    binary: gobfd-exabgp-bridge
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/dantte-lp/gobfd/internal/version.Version={{.Version}}
+      - -X github.com/dantte-lp/gobfd/internal/version.GitCommit={{.ShortCommit}}
+      - -X github.com/dantte-lp/gobfd/internal/version.BuildDate={{.Date}}
 
 archives:
   - id: default
@@ -42,11 +79,7 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
+  disable: true
 
 nfpms:
   - id: packages
@@ -84,3 +117,5 @@ dockers:
     dockerfile: deployments/docker/Containerfile
     build_flag_templates:
       - "--build-arg=VERSION={{.Version}}"
+      - "--build-arg=GIT_COMMIT={{.ShortCommit}}"
+      - "--build-arg=BUILD_DATE={{.Date}}"

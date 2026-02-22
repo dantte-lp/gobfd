@@ -1,11 +1,11 @@
 package commands
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
-	"strings"
 
+	"github.com/reeflective/console"
 	"github.com/spf13/cobra"
 )
 
@@ -28,38 +28,71 @@ func shellCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "shell",
 		Short: "Start an interactive gobfdctl shell",
-		Long:  "Launches a simple REPL that accepts gobfdctl subcommands. Type 'help', 'exit', or 'quit'.",
+		Long:  "Launches an interactive REPL with tab completion. Type 'exit' or Ctrl-D to quit.",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			printShellBanner()
-			scanner := bufio.NewScanner(os.Stdin)
-			fmt.Print("gobfdctl> ")
+		RunE:  runShell,
+	}
+}
 
-			for scanner.Scan() {
-				line := strings.TrimSpace(scanner.Text())
+// runShell initializes and starts the reeflective/console REPL.
+// Tab completions are derived automatically from the Cobra command tree.
+func runShell(_ *cobra.Command, _ []string) error {
+	app := console.New("gobfdctl")
 
-				switch {
-				case line == "exit" || line == "quit":
-					return nil
-				case line == "help" || line == "?":
-					printShellHelp()
-				case line != "":
-					args := strings.Fields(line)
-					rootCmd.SetArgs(args)
+	menu := app.ActiveMenu()
+	menu.SetCommands(makeShellCommands)
 
-					if err := rootCmd.Execute(); err != nil {
-						fmt.Fprintln(os.Stderr, "Error:", err)
-					}
-				}
+	// Ctrl-D (EOF) exits the shell cleanly.
+	menu.AddInterrupt(io.EOF, func(_ *console.Console) {
+		os.Exit(0)
+	})
 
-				fmt.Print("gobfdctl> ")
-			}
+	printShellBanner()
 
-			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("read stdin: %w", err)
-			}
+	if err := app.Start(); err != nil {
+		return fmt.Errorf("run interactive shell: %w", err)
+	}
 
-			return nil
+	return nil
+}
+
+// makeShellCommands returns a fresh Cobra command tree for the interactive shell.
+// reeflective/console calls this before each prompt cycle to rebuild completions.
+func makeShellCommands() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "gobfdctl",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+
+	root.AddCommand(sessionCmd())
+	root.AddCommand(monitorCmd())
+	root.AddCommand(versionCmd())
+	root.AddCommand(shellHelpCmd())
+	root.AddCommand(exitCmd())
+
+	return root
+}
+
+// shellHelpCmd returns a "help" command that prints shell-specific help.
+func shellHelpCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "help",
+		Short: "Show available commands",
+		Run: func(_ *cobra.Command, _ []string) {
+			printShellHelp()
+		},
+	}
+}
+
+// exitCmd returns an "exit" command that terminates the shell.
+func exitCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "exit",
+		Aliases: []string{"quit"},
+		Short:   "Leave the interactive shell",
+		Run: func(_ *cobra.Command, _ []string) {
+			os.Exit(0)
 		},
 	}
 }
@@ -67,6 +100,7 @@ func shellCmd() *cobra.Command {
 // printShellBanner prints a welcome message when the shell starts.
 func printShellBanner() {
 	fmt.Println("GoBFD interactive shell. Type 'help' for available commands, 'exit' to quit.")
+	fmt.Println("Press Tab for autocomplete suggestions.")
 	fmt.Println()
 }
 

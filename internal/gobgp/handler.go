@@ -169,7 +169,7 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 
 // handleDown processes a BFD session going Down.
 // RFC 5882 Section 4.3: "When BFD for BGP detects a failure, the BGP
-// session is torn down."
+// session is torn down.".
 func (h *Handler) handleDown(ctx context.Context, peerAddr string, sc bfd.StateChange) {
 	// RFC 5882 Section 3.2: apply flap dampening before acting.
 	if h.dampener.ShouldSuppress(peerAddr) {
@@ -196,7 +196,7 @@ func (h *Handler) handleDown(ctx context.Context, peerAddr string, sc bfd.StateC
 
 // handleUp processes a BFD session going Up.
 // RFC 5882 Section 4.3: "When the BFD session comes back up, the BGP
-// session should be re-established."
+// session should be re-established.".
 func (h *Handler) handleUp(ctx context.Context, peerAddr string, sc bfd.StateChange) {
 	// RFC 5882 Section 3.2: suppress Up if peer is still dampened.
 	if h.dampener.ShouldSuppressUp(peerAddr) {

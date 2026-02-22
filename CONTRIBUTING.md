@@ -21,7 +21,7 @@ All Go commands run inside Podman containers. No local Go toolchain required.
 
 ```bash
 make up            # Start dev container
-make build         # Compile gobfd and gobfdctl
+make build         # Compile all binaries (gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge)
 make test          # Run tests with -race -count=1
 make lint          # Run golangci-lint v2
 make all           # build + test + lint
@@ -67,7 +67,7 @@ Never modify generated files in `pkg/bfdpb/` manually.
 
 ### Linting
 
-The project uses golangci-lint v2 with a strict configuration (35+ linters).
+The project uses golangci-lint v2 with a strict configuration (68 linters).
 Your code must pass:
 
 ```bash
@@ -95,6 +95,7 @@ make lint
 - [ ] `make all` passes (build + test + lint)
 - [ ] `buf lint` passes (if proto files changed)
 - [ ] Documentation updated (if applicable)
+- [ ] CHANGELOG.md updated (if user-facing change)
 - [ ] Commit messages are descriptive
 
 ## Reporting Issues

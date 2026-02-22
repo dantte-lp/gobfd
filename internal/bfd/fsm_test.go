@@ -191,7 +191,7 @@ func TestFSMTransitionTable(t *testing.T) {
 
 // TestFSMAdminDownIgnoresPackets verifies that AdminDown state discards all
 // received BFD Control packets. RFC 5880 Section 6.8.6: "If bfd.SessionState
-// is AdminDown, discard the packet."
+// is AdminDown, discard the packet.".
 func TestFSMAdminDownIgnoresPackets(t *testing.T) {
 	t.Parallel()
 
@@ -284,7 +284,7 @@ func TestFSMThreeWayHandshake(t *testing.T) {
 // Init and Up states to Down with DiagTimeExpired action.
 // RFC 5880 Section 6.8.4: "If the Detection Time expires [...] the session
 // has gone down -- the local system MUST set bfd.SessionState to Down and
-// bfd.LocalDiag to 1 (Control Detection Time Expired)."
+// bfd.LocalDiag to 1 (Control Detection Time Expired).".
 func TestFSMDetectionTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -419,7 +419,7 @@ func TestFSMAdminControl(t *testing.T) {
 // TestFSMSelfLoops verifies that self-loop transitions do not report a state
 // change (Changed=false) and return the same state. Self-loops occur when:
 // - Up receives Init or Up (RFC 5880 Section 6.2 diagram: "INIT, UP" arc)
-// - Init receives Down (RFC 5880 Section 6.2 diagram: "DOWN" arc on Init)
+// - Init receives Down (RFC 5880 Section 6.2 diagram: "DOWN" arc on Init).
 func TestFSMSelfLoops(t *testing.T) {
 	t.Parallel()
 

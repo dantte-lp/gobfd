@@ -1,0 +1,95 @@
+# Auto-generated GoBGP config for vendor BFD interop tests.
+# ASN 65001, used alongside GoBFD for protocol-triggered BFD sessions.
+
+[global.config]
+as = 65001
+router-id = "10.0.0.1"
+port = 179
+
+[global.apply-policy.config]
+default-import-policy = "accept-route"
+default-export-policy = "accept-route"
+
+# --- arista (ASN 65002, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.1.2"
+peer-as = 65002
+
+[neighbors.transport.config]
+local-address = "10.0.1.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- arista (ASN 65002, IPv6) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "fd00:0:1::1"
+peer-as = 65002
+
+[neighbors.transport.config]
+local-address = "fd00:0:1::"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv6-unicast"
+
+# --- nokia (ASN 65003, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.2.2"
+peer-as = 65003
+
+[neighbors.transport.config]
+local-address = "10.0.2.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- nokia (ASN 65003, IPv6) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "fd00:0:2::1"
+peer-as = 65003
+
+[neighbors.transport.config]
+local-address = "fd00:0:2::"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv6-unicast"
+
+# --- frr (ASN 65007, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.6.2"
+peer-as = 65007
+
+[neighbors.transport.config]
+local-address = "10.0.6.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- frr (ASN 65007, IPv6) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "fd00:0:6::1"
+peer-as = 65007
+
+[neighbors.transport.config]
+local-address = "fd00:0:6::"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv6-unicast"

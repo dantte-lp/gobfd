@@ -64,7 +64,7 @@ func (r *Receiver) Run(ctx context.Context, listeners ...*Listener) error {
 	}
 
 	// Wait for all goroutines to finish.
-	for range len(listeners) {
+	for range listeners {
 		<-done
 	}
 

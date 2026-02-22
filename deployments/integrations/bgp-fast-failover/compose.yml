@@ -1,0 +1,90 @@
+# BGP Fast Failover integration example.
+#
+# Demonstrates BFD Down → BGP peer disabled → routes withdrawn → recovery.
+# GoBFD + GoBGP (AS 65001) peer with FRR (AS 65002, bgpd + bfdd).
+#
+# Topology: 172.22.0.0/24 (bgp-failover-net)
+#   172.22.0.10 — gobfd + gobgp (shared netns)
+#   172.22.0.20 — FRR (bgpd + bfdd, announces 10.20.0.0/24)
+#
+# Usage:
+#   podman-compose up --build -d
+#   podman-compose logs -f
+#   podman-compose down --volumes --remove-orphans
+
+services:
+  # === GoBFD (BFD daemon) at 172.22.0.10 ===
+
+  gobfd:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-bgp-failover
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      bgp-failover-net:
+        ipv4_address: 172.22.0.10
+
+  # === GoBGP (BGP daemon, shared netns with gobfd) ===
+
+  gobgp:
+    image: docker.io/jauderho/gobgp:v3.33.0
+    container_name: gobgp-bgp-failover
+    user: "0:0"
+    cap_add:
+      - NET_BIND_SERVICE
+    network_mode: "service:gobfd"
+    depends_on:
+      - gobfd
+    volumes:
+      - ./gobgp/gobgp.toml:/etc/gobgp/gobgp.toml:ro,z
+    command: ["gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+
+  # === FRR (BGP + BFD) at 172.22.0.20 ===
+
+  frr:
+    image: quay.io/frrouting/frr:10.2.5
+    container_name: frr-bgp-failover
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./frr/daemons:/etc/frr/daemons:ro,z
+      - ./frr/frr.conf:/etc/frr/frr.conf:ro,z
+    networks:
+      bgp-failover-net:
+        ipv4_address: 172.22.0.20
+
+  # === tshark (BFD packet capture) ===
+
+  tshark:
+    build:
+      context: ../../../test/interop/tshark
+      dockerfile: Containerfile
+    container_name: tshark-bgp-failover
+    network_mode: "service:gobfd"
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+volumes:
+  captures:
+
+networks:
+  bgp-failover-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1

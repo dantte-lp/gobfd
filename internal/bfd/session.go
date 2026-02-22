@@ -182,7 +182,7 @@ var (
 const (
 	// slowTxInterval is the minimum TX interval when session is not Up.
 	// RFC 5880 Section 6.8.3: "MUST set bfd.DesiredMinTxInterval to a
-	// value of not less than one second (1,000,000 microseconds)."
+	// value of not less than one second (1,000,000 microseconds).".
 	slowTxInterval = 1 * time.Second
 
 	// recvChSize is the buffer size for the receive channel. Sized to
@@ -657,7 +657,7 @@ func (s *Session) sendControl(ctx context.Context) {
 
 // handleDetectTimer fires when the detection time expires without receiving
 // a valid packet. RFC 5880 Section 6.8.4: "the local system MUST set
-// bfd.SessionState to Down and bfd.LocalDiag to 1."
+// bfd.SessionState to Down and bfd.LocalDiag to 1.".
 func (s *Session) handleDetectTimer(
 	ctx context.Context,
 	txTimer *time.Timer,
@@ -884,7 +884,7 @@ func (s *Session) emitNotification(result FSMResult) {
 //
 // RFC 5880 Section 6.8.3: "When bfd.SessionState is not Up, the system
 // MUST set bfd.DesiredMinTxInterval to a value of not less than one
-// second (1,000,000 microseconds)."
+// second (1,000,000 microseconds).".
 func (s *Session) calcTxInterval() time.Duration {
 	desired := s.desiredMinTxInterval
 	// RFC 5880 Section 6.8.3: enforce slow rate when not Up.
@@ -899,7 +899,7 @@ func (s *Session) calcTxInterval() time.Duration {
 // RFC 5880 Section 6.8.4 (Asynchronous mode): "equal to the value of
 // Detect Mult received from the remote system, multiplied by the agreed
 // transmit interval of the remote system (the greater of
-// bfd.RequiredMinRxInterval and the last received Desired Min TX Interval)."
+// bfd.RequiredMinRxInterval and the last received Desired Min TX Interval).".
 func (s *Session) calcDetectionTime() time.Duration {
 	if s.remoteDetectMult == 0 {
 		// Before receiving any packet, use local detect mult with slow rate.
@@ -978,7 +978,7 @@ func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
 
 // terminatePollSequence ends the Poll Sequence and applies pending changes.
 // RFC 5880 Section 6.5: "When the system sending the Poll Sequence
-// receives a packet with Final, the Poll Sequence is terminated."
+// receives a packet with Final, the Poll Sequence is terminated.".
 func (s *Session) terminatePollSequence() {
 	s.pollActive = false
 	s.applyPendingParams()

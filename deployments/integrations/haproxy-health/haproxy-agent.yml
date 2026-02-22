@@ -1,0 +1,12 @@
+# gobfd-haproxy-agent configuration.
+#
+# Maps BFD peers to HAProxy agent-check TCP ports.
+# HAProxy connects to these ports and reads "up ready\n" or "down\n".
+
+gobfd_addr: "http://127.0.0.1:50052"
+
+backends:
+  - peer: "172.23.0.30"
+    agent_port: 9990
+  - peer: "172.23.0.40"
+    agent_port: 9991

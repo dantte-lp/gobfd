@@ -37,9 +37,9 @@ const (
 //   - State transition counters record FSM changes for alerting.
 //   - Auth failure counters flag potential security issues.
 type Collector struct {
-	// SessionsTotal tracks the number of currently active BFD sessions.
+	// Sessions tracks the number of currently active BFD sessions.
 	// Incremented on session creation, decremented on session destruction.
-	SessionsTotal *prometheus.GaugeVec
+	Sessions *prometheus.GaugeVec
 
 	// PacketsSent counts the total BFD Control packets transmitted per peer.
 	PacketsSent *prometheus.CounterVec
@@ -74,7 +74,7 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 	c := newMetrics()
 
 	reg.MustRegister(
-		c.SessionsTotal,
+		c.Sessions,
 		c.PacketsSent,
 		c.PacketsReceived,
 		c.PacketsDropped,
@@ -92,10 +92,10 @@ func newMetrics() *Collector {
 	transitionLabels := []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}
 
 	return &Collector{
-		SessionsTotal: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Sessions: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
-			Name:      "sessions_total",
+			Name:      "sessions",
 			Help:      "Number of currently active BFD sessions.",
 		}, sessionLabels),
 
@@ -143,13 +143,13 @@ func newMetrics() *Collector {
 // RegisterSession increments the active sessions gauge for the given peer.
 // Called when a new BFD session is created by the Manager.
 func (c *Collector) RegisterSession(peer, local netip.Addr, sessionType string) {
-	c.SessionsTotal.WithLabelValues(peer.String(), local.String(), sessionType).Inc()
+	c.Sessions.WithLabelValues(peer.String(), local.String(), sessionType).Inc()
 }
 
 // UnregisterSession decrements the active sessions gauge for the given peer.
 // Called when a BFD session is destroyed by the Manager.
 func (c *Collector) UnregisterSession(peer, local netip.Addr, sessionType string) {
-	c.SessionsTotal.WithLabelValues(peer.String(), local.String(), sessionType).Dec()
+	c.Sessions.WithLabelValues(peer.String(), local.String(), sessionType).Dec()
 }
 
 // -------------------------------------------------------------------------

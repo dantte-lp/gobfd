@@ -1,0 +1,40 @@
+set / interface ethernet-1/1 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv4 address 10.0.2.2/30
+set / interface ethernet-1/1 subinterface 0 ipv6 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv6 address fd00:0:2::1/127
+
+set / interface lo0 subinterface 0 ipv4 admin-state enable
+set / interface lo0 subinterface 0 ipv4 address 10.20.2.1/32
+
+set / network-instance default interface ethernet-1/1.0
+set / network-instance default interface lo0.0
+
+set / network-instance default next-hop-groups group blackhole blackhole generate-icmp true
+set / network-instance default static-routes route 10.20.2.0/24 next-hop-group blackhole
+set / network-instance default static-routes route fd00:20:2::/48 next-hop-group blackhole
+
+set / bfd subinterface ethernet-1/1.0 admin-state enable
+set / bfd subinterface ethernet-1/1.0 desired-minimum-transmit-interval 300000
+set / bfd subinterface ethernet-1/1.0 required-minimum-receive 300000
+set / bfd subinterface ethernet-1/1.0 detection-multiplier 3
+
+set / routing-policy policy export-static statement 10 match protocol static
+set / routing-policy policy export-static statement 10 action policy-result accept
+
+set / network-instance default protocols bgp autonomous-system 65003
+set / network-instance default protocols bgp router-id 10.0.2.2
+set / network-instance default protocols bgp afi-safi ipv4-unicast admin-state enable
+set / network-instance default protocols bgp afi-safi ipv6-unicast admin-state enable
+set / network-instance default protocols bgp group ebgp afi-safi ipv4-unicast admin-state enable
+set / network-instance default protocols bgp group ebgp afi-safi ipv6-unicast admin-state enable
+set / network-instance default protocols bgp group ebgp export-policy [ export-static ]
+set / network-instance default protocols bgp group ebgp failure-detection enable-bfd true
+set / network-instance default protocols bgp group ebgp failure-detection fast-failover true
+set / network-instance default protocols bgp neighbor 10.0.2.1 admin-state enable
+set / network-instance default protocols bgp neighbor 10.0.2.1 peer-group ebgp
+set / network-instance default protocols bgp neighbor 10.0.2.1 peer-as 65001
+set / network-instance default protocols bgp neighbor fd00:0:2::0 admin-state enable
+set / network-instance default protocols bgp neighbor fd00:0:2::0 peer-group ebgp
+set / network-instance default protocols bgp neighbor fd00:0:2::0 peer-as 65001
+set / network-instance default protocols bgp admin-state enable

@@ -1,19 +1,23 @@
 # GoBFD — BFD Protocol Daemon
 
 Go 1.26 implementation of Bidirectional Forwarding Detection (RFC 5880/5881).
-Two binaries: `gobfd` (daemon) and `gobfdctl` (CLI client over gRPC).
+Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProxy bridge), `gobfd-exabgp-bridge` (ExaBGP bridge).
 
 ## Commands
 ```sh
-go build ./cmd/gobfd && go build ./cmd/gobfdctl   # сборка
+make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
 go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
 golangci-lint run                                  # линтер (v2, строгий)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
 make interop                                       # interop tests (FRR + BIRD3 + aiobfd + Thoro, 4 peers)
-make interop-up && make interop-test               # start stack, run Go tests separately
-make interop-down                                  # stop and cleanup interop stack
+make interop-bgp                                   # BGP+BFD tests (FRR, BIRD3, ExaBGP)
+make int-bgp-failover                              # integration: BGP fast failover demo
+make int-haproxy                                   # integration: HAProxy agent-check bridge
+make int-observability                             # integration: Prometheus + Grafana
+make int-exabgp-anycast                            # integration: ExaBGP anycast
+make int-k8s                                       # integration: Kubernetes DaemonSet
 ```
 
 ## Architecture
@@ -22,11 +26,18 @@ make interop-down                                  # stop and cleanup interop st
 - `internal/netio/` — raw socket abstraction (Linux-specific), UDP listeners 3784/4784
 - `internal/config/` — koanf/v2: YAML + env + flags
 - `internal/metrics/` — Prometheus collectors for BFD sessions
+- `internal/version/` — shared version package with ldflags injection (Version, GitCommit, BuildDate)
+- `internal/gobgp/` — GoBGP integration handler (BFD↔BGP session coupling)
 - `cmd/gobfd/` — daemon entry point (signal handling, graceful shutdown)
-- `cmd/gobfdctl/` — CLI: cobra (non-interactive) + go-prompt (interactive shell)
+- `cmd/gobfdctl/` — CLI: cobra (non-interactive) + reeflective/console (interactive shell)
+- `cmd/gobfd-haproxy-agent/` — HAProxy agent-check bridge (BFD state → agent TCP responses)
+- `cmd/gobfd-exabgp-bridge/` — ExaBGP process API bridge (BFD state → route announcements)
 - `pkg/bfdpb/` — generated protobuf types (public API for external consumers)
 - `api/v1/` — proto definitions (buf managed)
 - `test/interop/` — 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro/bfd) with tshark capture
+- `test/interop-bgp/` — BGP+BFD interop tests (GoBGP + FRR, BIRD3, ExaBGP)
+- `test/interop-clab/` — Containerlab vendor NOS interop tests (Nokia, Arista, FRR)
+- `deployments/integrations/` — 5 integration examples (BGP failover, HAProxy, observability, ExaBGP, k8s)
 
 ## Code style
 - Errors: always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)`
@@ -50,5 +61,5 @@ make interop-down                                  # stop and cleanup interop st
 - NEVER skip error checks on socket operations in `internal/netio/`
 - NEVER add dependencies without checking: `go mod tidy && govulncheck ./...`
 - Timer intervals in BFD are in MICROSECONDS per RFC — don't confuse with milliseconds
-- See `docs/architecture.md` for connection lifecycle and FSM state diagram
-- See `docs/rfc5880-notes.md` for implementation decisions per RFC section
+- See `docs/en/01-architecture.md` for connection lifecycle and FSM state diagram
+- See `docs/en/08-rfc-compliance.md` for implementation decisions per RFC section

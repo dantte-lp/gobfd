@@ -1,0 +1,56 @@
+grpc:
+  addr: ":50051"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+sessions:
+  # Arista cEOS (ASN 65002)
+  - peer: "10.0.1.2"
+    local: "10.0.1.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # Nokia SR Linux (ASN 65003)
+  - peer: "10.0.2.2"
+    local: "10.0.2.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # Cisco XRd (ASN 65004)
+  - peer: "10.0.3.2"
+    local: "10.0.3.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # SONiC-VS (ASN 65005)
+  - peer: "10.0.4.2"
+    local: "10.0.4.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # VyOS (ASN 65006)
+  - peer: "10.0.5.2"
+    local: "10.0.5.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

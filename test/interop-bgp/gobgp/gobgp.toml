@@ -1,0 +1,61 @@
+# GoBGP configuration for BGP+BFD interoperability testing.
+#
+# ASN 65001, router-id 172.21.0.10 (shared netns with gobfd-bgp).
+# Three eBGP neighbors:
+#   - FRR at 172.21.0.20 (ASN 65002)
+#   - BIRD3 at 172.21.0.30 (ASN 65003)
+#   - ExaBGP at 172.21.0.40 (ASN 65004, shared netns with gobfd-exabgp)
+#
+# BFD is handled by gobfd-bgp, NOT by GoBGP itself. GoBGP receives
+# DisablePeer/EnablePeer calls from the gobfd handler via gRPC.
+
+[global.config]
+as = 65001
+router-id = "172.21.0.10"
+port = 179
+
+[global.apply-policy.config]
+default-import-policy = "accept-route"
+default-export-policy = "accept-route"
+
+# --- FRR (ASN 65002) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "172.21.0.20"
+peer-as = 65002
+
+[neighbors.transport.config]
+local-address = "172.21.0.10"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- BIRD3 (ASN 65003) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "172.21.0.30"
+peer-as = 65003
+
+[neighbors.transport.config]
+local-address = "172.21.0.10"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- ExaBGP (ASN 65004) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "172.21.0.40"
+peer-as = 65004
+
+[neighbors.transport.config]
+local-address = "172.21.0.10"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"

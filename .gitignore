@@ -1,6 +1,8 @@
 # Binaries
 /gobfd
 /gobfdctl
+/gobfd-haproxy-agent
+/gobfd-exabgp-bridge
 /bin/
 *.exe
 *.exe~
@@ -46,13 +48,12 @@ CLAUDE.local.md
 .mcp.json
 
 # Internal planning/research docs (not for public repo)
-HELP.md
-gobfd-technology-stack.md
-docs/HELP-DOCS.md
-docs/AGILE_PLAN.md
-docs/AGILE_PLAN_V2.md
-docs/implementation-plan.md
-docs/Software-BFD-implementations.md
+docs/tmp/
 
 # Build artifacts
 dist/
+
+# Containerlab generated files
+test/interop-clab/*.generated.clab.yml
+test/interop-clab/gobfd/*.generated.yml
+test/interop-clab/clab-*/

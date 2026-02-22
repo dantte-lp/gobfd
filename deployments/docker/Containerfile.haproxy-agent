@@ -1,0 +1,23 @@
+FROM docker.io/golang:1.26-trixie AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY . .
+
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
+    -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+
+FROM scratch AS production
+
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /bin/gobfd-haproxy-agent /bin/gobfd-haproxy-agent
+
+ENTRYPOINT ["/bin/gobfd-haproxy-agent"]

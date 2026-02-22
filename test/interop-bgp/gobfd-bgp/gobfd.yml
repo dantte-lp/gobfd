@@ -1,0 +1,59 @@
+# GoBFD configuration for BGP+BFD interoperability testing.
+#
+# This instance runs alongside GoBGP (shared network namespace at 172.21.0.10)
+# and provides BFD monitoring for three BGP peers:
+#   1. FRR at 172.21.0.20 (BGP ASN 65002, native BFD)
+#   2. BIRD3 at 172.21.0.30 (BGP ASN 65003, native BFD)
+#   3. gobfd-exabgp at 172.21.0.40 (BFD sidecar for ExaBGP ASN 65004)
+#
+# When BFD detects a peer failure, the GoBGP handler calls DisablePeer()
+# to tear down the corresponding BGP session (RFC 5882 Section 4.3).
+# When BFD recovers, EnablePeer() re-establishes the session.
+#
+# GoBGP gRPC is at localhost:50051 (shared netns).
+# GoBFD gRPC is at :50052 (different port to avoid conflict).
+
+grpc:
+  addr: ":50052"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: true
+  addr: "127.0.0.1:50051"
+  strategy: "disable-peer"
+  dampening:
+    enabled: false
+
+sessions:
+  - peer: "172.21.0.20"
+    local: "172.21.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  - peer: "172.21.0.30"
+    local: "172.21.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  - peer: "172.21.0.40"
+    local: "172.21.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

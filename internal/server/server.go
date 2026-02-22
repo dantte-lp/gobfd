@@ -222,7 +222,10 @@ func (s *BFDServer) cleanupSender(discr uint32) {
 }
 
 // ListSessions returns all active BFD sessions.
-func (s *BFDServer) ListSessions(ctx context.Context, _ *bfdv1.ListSessionsRequest) (*bfdv1.ListSessionsResponse, error) {
+func (s *BFDServer) ListSessions(
+	ctx context.Context,
+	_ *bfdv1.ListSessionsRequest,
+) (*bfdv1.ListSessionsResponse, error) {
 	s.logger.InfoContext(ctx, "ListSessions called")
 
 	snapshots := s.manager.Sessions()

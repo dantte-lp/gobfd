@@ -53,6 +53,7 @@ func LoggingInterceptorOption(logger *slog.Logger) connect.HandlerOption {
 // Error level and returns a CodeInternal error to the client.
 func RecoveryInterceptor(logger *slog.Logger) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		//nolint:nonamedreturns // Named returns required for defer-based panic recovery.
 		return func(ctx context.Context, req connect.AnyRequest) (resp connect.AnyResponse, retErr error) {
 			defer func() {
 				if r := recover(); r != nil {

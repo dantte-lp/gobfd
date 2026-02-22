@@ -6,6 +6,7 @@ services:
     container_name: gobfd-dev
     volumes:
       - ../..:/app:z
+      - /run/podman/podman.sock:/run/podman/podman.sock:z
     working_dir: /app
     command: sleep infinity
     # BFD requires raw sockets for UDP with IP headers
@@ -19,3 +20,4 @@ services:
       GOFLAGS: "-buildvcs=false"
       GOCACHE: /tmp/go-cache
       GOMODCACHE: /go/pkg/mod
+      CONTAINER_HOST: "unix:///run/podman/podman.sock"

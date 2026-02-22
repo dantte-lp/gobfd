@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gobfd
+  namespace: gobfd
+  labels:
+    app.kubernetes.io/name: gobfd
+    app.kubernetes.io/component: bfd-daemon
+spec:
+  selector:
+    matchLabels:
+      app: gobfd
+  template:
+    metadata:
+      labels:
+        app: gobfd
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: gobfd
+          image: gobfd:local
+          imagePullPolicy: Never
+          args: ["-config", "/etc/gobfd/gobfd.yml"]
+          ports:
+            - containerPort: 3784
+              protocol: UDP
+            - containerPort: 4784
+              protocol: UDP
+            - containerPort: 50052
+              protocol: TCP
+            - containerPort: 9100
+              protocol: TCP
+          securityContext:
+            capabilities:
+              add: ["NET_RAW", "NET_ADMIN"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gobfd
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+
+        - name: gobgp
+          image: docker.io/jauderho/gobgp:v3.33.0
+          args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+          ports:
+            - containerPort: 179
+              protocol: TCP
+            - containerPort: 50051
+              protocol: TCP
+          volumeMounts:
+            - name: gobgp-config
+              mountPath: /etc/gobgp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+
+      volumes:
+        - name: config
+          configMap:
+            name: gobfd-config
+        - name: gobgp-config
+          configMap:
+            name: gobgp-config

@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gobfd-config
+  namespace: gobfd
+data:
+  gobfd.yml: |
+    # GoBFD configuration for Kubernetes DaemonSet.
+    #
+    # No static sessions: BFD sessions are added dynamically via gobfdctl
+    # after discovering other node IPs.
+
+    grpc:
+      addr: ":50052"
+
+    metrics:
+      addr: ":9100"
+      path: "/metrics"
+
+    log:
+      level: "info"
+      format: "text"
+
+    bfd:
+      default_desired_min_tx: "300ms"
+      default_required_min_rx: "300ms"
+      default_detect_multiplier: 3
+
+    gobgp:
+      enabled: true
+      addr: "127.0.0.1:50051"
+      strategy: "disable-peer"
+      dampening:
+        enabled: false

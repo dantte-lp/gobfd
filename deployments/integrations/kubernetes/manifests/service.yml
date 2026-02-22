@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gobfd
+  namespace: gobfd
+  labels:
+    app.kubernetes.io/name: gobfd
+spec:
+  clusterIP: None
+  selector:
+    app: gobfd
+  ports:
+    - name: bfd
+      port: 3784
+      protocol: UDP
+    - name: bfd-multihop
+      port: 4784
+      protocol: UDP
+    - name: grpc
+      port: 50052
+      protocol: TCP
+    - name: metrics
+      port: 9100
+      protocol: TCP

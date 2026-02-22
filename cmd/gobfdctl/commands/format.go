@@ -239,7 +239,7 @@ func formatEventYAML(event *bfdv1.WatchSessionEventsResponse) (string, error) {
 type sessionView struct {
 	PeerAddress         string `json:"peer_address"                       yaml:"peer_address"`
 	LocalAddress        string `json:"local_address"                      yaml:"local_address"`
-	InterfaceName       string `json:"interface_name,omitempty"            yaml:"interface_name,omitempty"`
+	InterfaceName       string `json:"interface_name,omitempty"           yaml:"interface_name,omitempty"`
 	Type                string `json:"type"                               yaml:"type"`
 	LocalState          string `json:"local_state"                        yaml:"local_state"`
 	RemoteState         string `json:"remote_state"                       yaml:"remote_state"`
@@ -258,9 +258,9 @@ type sessionView struct {
 }
 
 type eventView struct {
-	Timestamp     string       `json:"timestamp"      yaml:"timestamp"`
-	EventType     string       `json:"event_type"     yaml:"event_type"`
-	PreviousState string       `json:"previous_state" yaml:"previous_state"`
+	Timestamp     string       `json:"timestamp"         yaml:"timestamp"`
+	EventType     string       `json:"event_type"        yaml:"event_type"`
+	PreviousState string       `json:"previous_state"    yaml:"previous_state"`
 	Session       *sessionView `json:"session,omitempty" yaml:"session,omitempty"`
 }
 

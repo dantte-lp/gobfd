@@ -1,0 +1,30 @@
+# GoBFD sidecar configuration for backend2.
+#
+# BFD responder: participates in BFD session with the monitor at 172.23.0.10.
+
+grpc:
+  addr: ":50052"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "info"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: false
+
+sessions:
+  - peer: "172.23.0.10"
+    local: "172.23.0.40"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

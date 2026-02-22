@@ -6,11 +6,32 @@ RUN go mod download && go mod verify
 COPY . .
 
 ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
 RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION}" \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfdctl ./cmd/gobfdctl
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
+    -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
+    -o /bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
 
 FROM docker.io/alpine:3.21 AS debug
 
@@ -28,7 +49,7 @@ RUN apk add --no-cache \
     strace \
     && addgroup -S gobfd && adduser -S -G gobfd -s /sbin/nologin gobfd
 
-COPY --from=builder /bin/gobfd /bin/gobfdctl /usr/local/bin/
+COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/gobfd-haproxy-agent /bin/gobfd-exabgp-bridge /usr/local/bin/
 
 EXPOSE 3784/udp 4784/udp 50051
 

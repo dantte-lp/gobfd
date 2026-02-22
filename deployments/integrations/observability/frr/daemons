@@ -1,0 +1,26 @@
+# FRR daemons configuration for observability integration example.
+#
+# BFD-only: zebra (required) + bfdd. No BGP needed.
+
+zebra=yes
+bgpd=no
+ospfd=no
+ospf6d=no
+ripd=no
+ripngd=no
+isisd=no
+pimd=no
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pbrd=no
+staticd=no
+bfdd=yes
+fabricd=no
+
+vtysh_enable=yes
+
+zebra_options="  -A 127.0.0.1 -s 90000000"
+bfdd_options="   -A 127.0.0.1"

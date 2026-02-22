@@ -335,7 +335,7 @@ func TestSessionThreeWayHandshake(t *testing.T) {
 //
 // RFC 5880 Section 6.8.7: "a system MUST NOT transmit BFD Control packets
 // at an interval less than the larger of bfd.DesiredMinTxInterval and
-// bfd.RemoteMinRxInterval."
+// bfd.RemoteMinRxInterval.".
 func TestSessionTimerNegotiation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &mockSender{}
@@ -405,7 +405,7 @@ func TestSessionTimerNegotiation(t *testing.T) {
 //
 // RFC 5880 Section 6.8.4: "If a period of time equal to the Detection Time
 // passes without receiving a BFD Control packet from the remote system,
-// and bfd.SessionState is Init or Up, the session has gone down."
+// and bfd.SessionState is Init or Up, the session has gone down.".
 func TestSessionDetectionTimeout(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &mockSender{}
@@ -462,7 +462,7 @@ func TestSessionDetectionTimeout(t *testing.T) {
 // when the session state is not Up.
 //
 // RFC 5880 Section 6.8.3: "When bfd.SessionState is not Up, the system
-// MUST set bfd.DesiredMinTxInterval to a value of not less than one second."
+// MUST set bfd.DesiredMinTxInterval to a value of not less than one second.".
 func TestSessionSlowTxRate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &mockSender{}
@@ -563,7 +563,7 @@ func TestApplyJitter(t *testing.T) {
 // TestSessionPollSequence verifies the P/F bit exchange mechanism.
 //
 // RFC 5880 Section 6.5: "When the other system receives a Poll, it
-// immediately transmits a BFD Control packet with the Final (F) bit set."
+// immediately transmits a BFD Control packet with the Final (F) bit set.".
 func TestSessionPollSequence(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &mockSender{}
@@ -767,7 +767,7 @@ func TestSessionCachedPacketRebuild(t *testing.T) {
 // until it receives a packet from the remote system.
 //
 // RFC 5880 Section 6.8.7: "A system MUST NOT transmit BFD Control packets
-// if bfd.RemoteDiscr is zero and the system is taking the Passive role."
+// if bfd.RemoteDiscr is zero and the system is taking the Passive role.".
 func TestSessionPassiveRole(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sender := &mockSender{}

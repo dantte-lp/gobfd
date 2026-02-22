@@ -1,0 +1,27 @@
+# GoBGP configuration for BGP fast failover integration example.
+#
+# ASN 65001, router-id 172.22.0.10 (shared netns with gobfd).
+# Single eBGP neighbor: FRR at 172.22.0.20 (ASN 65002).
+
+[global.config]
+as = 65001
+router-id = "172.22.0.10"
+port = 179
+
+[global.apply-policy.config]
+default-import-policy = "accept-route"
+default-export-policy = "accept-route"
+
+# --- FRR (ASN 65002) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "172.22.0.20"
+peer-as = 65002
+
+[neighbors.transport.config]
+local-address = "172.22.0.10"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"

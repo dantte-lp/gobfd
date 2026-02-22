@@ -6,8 +6,59 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.26-trixie
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Build
+        shell: bash
+        run: |
+          VERSION="ci-${GITHUB_SHA::8}"
+          GIT_COMMIT="${GITHUB_SHA::8}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w \
+            -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+            -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+            -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfdctl
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-haproxy-agent
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-exabgp-bridge
+
+      - name: Test with coverage
+        run: go test -buildvcs=false ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: false
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 1
+
+  lint:
     runs-on: ubuntu-latest
     container:
       image: golang:1.26-trixie
@@ -20,21 +71,51 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Build
-        run: go build ./...
-
-      - name: Test
-        run: go test ./... -race -count=1
-
       - name: Lint
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
           golangci-lint run ./...
 
-      - name: Vulnerability Check
+  vulnerability-check:
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.26-trixie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Vulnerability Check (govulncheck)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
+
+      - name: Vulnerability Check (osv-scanner)
+        run: |
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+          osv-scanner scan -r .
+
+  sonarcloud:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   buf:
     runs-on: ubuntu-latest
@@ -50,7 +131,5 @@ jobs:
         run: buf lint
 
       - name: buf breaking
-        # Check for breaking changes against the master branch.
-        # Only runs on pull requests (push events have no base ref).
         if: github.event_name == 'pull_request'
         run: buf breaking --against '.git#branch=${{ github.event.pull_request.base.ref }}'

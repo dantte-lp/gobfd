@@ -1,0 +1,109 @@
+# Observability integration example — GoBFD + Prometheus + Grafana.
+#
+# Production monitoring with alerting rules, pre-provisioned dashboards,
+# and a demo BFD peer (FRR) for generating metrics.
+#
+# Topology: 172.25.0.0/24 (observability-net)
+#   172.25.0.10 — gobfd (BFD sessions + metrics :9100)
+#   172.25.0.20 — FRR (BFD peer, stoppable for alert demo)
+# Host-mapped ports:
+#   :9090 — Prometheus
+#   :3000 — Grafana (admin/admin)
+#
+# Usage:
+#   podman-compose up --build -d
+#   open http://localhost:3000  (Grafana, admin/admin)
+#   open http://localhost:9090  (Prometheus)
+
+services:
+  # === GoBFD at 172.25.0.10 ===
+
+  gobfd:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-observability
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      observability-net:
+        ipv4_address: 172.25.0.10
+
+  # === FRR (BFD peer) at 172.25.0.20 ===
+
+  frr:
+    image: quay.io/frrouting/frr:10.2.5
+    container_name: frr-observability
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./frr/daemons:/etc/frr/daemons:ro,z
+      - ./frr/frr.conf:/etc/frr/frr.conf:ro,z
+    networks:
+      observability-net:
+        ipv4_address: 172.25.0.20
+
+  # === Prometheus ===
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    container_name: prometheus-observability
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - ./configs/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro,z
+    networks:
+      observability-net:
+
+  # === Grafana ===
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    container_name: grafana-observability
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    networks:
+      observability-net:
+
+  # === tshark (BFD packet capture) ===
+
+  tshark:
+    build:
+      context: ../../../test/interop/tshark
+      dockerfile: Containerfile
+    container_name: tshark-observability
+    network_mode: "service:gobfd"
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+volumes:
+  captures:
+
+networks:
+  observability-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/24
+          gateway: 172.25.0.1

@@ -168,8 +168,10 @@ func (a SimplePasswordAuth) Sign(
 ) error {
 	key := keys.CurrentKey()
 	pkt.Auth = &AuthSection{
-		Type:     AuthTypeSimplePassword,
-		Len:      uint8(authSimpleHeaderSize + len(key.Secret)), //nolint:gosec // G115: password max 16 bytes per RFC 5880 Section 4.2, sum fits uint8
+		Type: AuthTypeSimplePassword,
+		Len: uint8( //nolint:gosec // G115: password max 16 bytes per RFC 5880 Section 4.2, sum fits uint8.
+			authSimpleHeaderSize + len(key.Secret),
+		),
 		KeyID:    key.ID,
 		AuthData: key.Secret,
 	}
@@ -206,7 +208,9 @@ func (a SimplePasswordAuth) Verify(
 
 // verifyPassword checks password length and value match.
 func verifyPassword(key AuthKey, auth *AuthSection) error {
-	expectedLen := uint8(authSimpleHeaderSize + len(key.Secret)) //nolint:gosec // G115: password max 16 bytes per RFC 5880 Section 4.2, sum fits uint8
+	expectedLen := uint8( //nolint:gosec // G115: password max 16 bytes per RFC 5880 Section 4.2, sum fits uint8.
+		authSimpleHeaderSize + len(key.Secret),
+	)
 	if auth.Len != expectedLen {
 		return fmt.Errorf("simple password: auth len %d, expected %d: %w",
 			auth.Len, expectedLen, ErrAuthLenMismatch)

@@ -60,7 +60,13 @@ func main() {
 func run() int {
 	// 1. Parse flags.
 	configPath := flag.String("config", "", "path to configuration file (YAML)")
+	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(appversion.Full("gobfd"))
+		return 0
+	}
 
 	// 2. Load config.
 	cfg, err := loadConfig(*configPath)
@@ -771,7 +777,7 @@ func startGoBGPHandler(
 ) (gobgp.Client, error) {
 	if !cfg.Enabled {
 		logger.Info("gobgp integration disabled")
-		return nil, nil
+		return nil, nil //nolint:nilnil // Nil client is valid when GoBGP is disabled; caller handles nil.
 	}
 
 	client, err := gobgp.NewGRPCClient(gobgp.GRPCClientConfig{

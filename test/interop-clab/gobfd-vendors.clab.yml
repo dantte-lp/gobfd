@@ -1,0 +1,91 @@
+# GoBFD vendor BFD interoperability test topology.
+#
+# Star topology: GoBFD (ext-container) at the center with point-to-point
+# /30 links to each vendor NOS. Tests BFD single-hop (RFC 5881) against
+# commercial/enterprise routing stacks.
+#
+# Vendor images that are not present are silently skipped by the Go tests.
+# Nokia SR Linux is always available (free public image).
+#
+# Usage:
+#   containerlab --runtime podman deploy -t gobfd-vendors.clab.yml
+#   containerlab --runtime podman destroy -t gobfd-vendors.clab.yml --cleanup
+
+name: gobfd-vendors
+
+topology:
+  nodes:
+    # === GoBFD: external container with NET_RAW + NET_ADMIN ===
+    # Started separately by run.sh before containerlab deploy.
+    # For ext-container kind, the node name MUST match the actual container name.
+    clab-gobfd-vendors-gobfd:
+      kind: ext-container
+      exec:
+        - ip addr add 10.0.1.1/30 dev eth1
+        - ip addr add 10.0.2.1/30 dev eth2
+        - ip addr add 10.0.3.1/30 dev eth3
+        - ip addr add 10.0.4.1/30 dev eth4
+        - ip addr add 10.0.5.1/30 dev eth5
+        - ip addr add 10.0.6.1/30 dev eth6
+        - ip link set eth1 up
+        - ip link set eth2 up
+        - ip link set eth3 up
+        - ip link set eth4 up
+        - ip link set eth5 up
+        - ip link set eth6 up
+
+    # === Arista cEOS (ASN 65002) ===
+    # Image: download from arista.com (free registration)
+    # Import: podman import cEOS64-lab-4.35.2F.tar ceos:4.35.2F
+    arista:
+      kind: arista_ceos
+      image: ceos:4.35.2F
+      startup-config: arista/startup-config.cfg
+      enforce-startup-config: true
+
+    # === Nokia SR Linux (ASN 65003) ===
+    # Image: ghcr.io/nokia/srlinux (freely available, no registration)
+    nokia:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:24.10.1
+      startup-config: nokia/config.cli
+
+    # === Cisco XRd (ASN 65004) ===
+    # Image: requires Cisco service contract
+    # Import: docker load -i xrd-control-plane-container-x64.dockerv1.tgz
+    cisco:
+      kind: cisco_xrd
+      image: ios-xr/xrd-control-plane:24.3.1
+      startup-config: cisco/xrd.cfg
+
+    # === SONiC-VS (ASN 65005) ===
+    # Image: docker pull netreplica/docker-sonic-vs:latest
+    # Or build from Azure pipelines: sonic-build.azurewebsites.net
+    sonic:
+      kind: sonic-vs
+      image: docker-sonic-vs:latest
+
+    # === VyOS (ASN 65006) ===
+    # Image: build from nightly ISO (see README.md)
+    vyos:
+      kind: vyosnetworks_vyos
+      image: vyos:latest
+      startup-config: vyos/config.boot
+
+    # === FRRouting (ASN 65007) ===
+    # Image: quay.io/frrouting/frr (freely available, no registration)
+    # RFC coverage: 5880 (base), 5881 (single-hop), 5882 (BGP-BFD), 5883 (multihop)
+    frr:
+      kind: linux
+      image: quay.io/frrouting/frr:10.2.5
+      binds:
+        - frr/daemons:/etc/frr/daemons:ro
+        - frr/frr.conf:/etc/frr/frr.conf:ro
+
+  links:
+    - endpoints: ["clab-gobfd-vendors-gobfd:eth1", "arista:eth1"]
+    - endpoints: ["clab-gobfd-vendors-gobfd:eth2", "nokia:e1-1"]
+    - endpoints: ["clab-gobfd-vendors-gobfd:eth3", "cisco:Gi0-0-0-0"]
+    - endpoints: ["clab-gobfd-vendors-gobfd:eth4", "sonic:eth1"]
+    - endpoints: ["clab-gobfd-vendors-gobfd:eth5", "vyos:eth1"]
+    - endpoints: ["clab-gobfd-vendors-gobfd:eth6", "frr:eth1"]

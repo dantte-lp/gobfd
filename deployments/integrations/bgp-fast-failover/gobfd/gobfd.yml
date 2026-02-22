@@ -1,0 +1,35 @@
+# GoBFD configuration for BGP fast failover integration example.
+#
+# Single BFD session to FRR at 172.22.0.20. When BFD detects failure,
+# the GoBGP handler calls DisablePeer() to tear down the BGP session.
+
+grpc:
+  addr: ":50052"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: true
+  addr: "127.0.0.1:50051"
+  strategy: "disable-peer"
+  dampening:
+    enabled: false
+
+sessions:
+  - peer: "172.22.0.20"
+    local: "172.22.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

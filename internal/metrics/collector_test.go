@@ -21,8 +21,8 @@ func TestNewCollector(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	c := bfdmetrics.NewCollector(reg)
 
-	if c.SessionsTotal == nil {
-		t.Error("SessionsTotal is nil")
+	if c.Sessions == nil {
+		t.Error("Sessions is nil")
 	}
 	if c.PacketsSent == nil {
 		t.Error("PacketsSent is nil")
@@ -61,7 +61,7 @@ func TestRegisterUnregisterSession(t *testing.T) {
 	// Register a session -- gauge should go to 1.
 	c.RegisterSession(peer, local, "single_hop")
 
-	val := gaugeValue(t, c.SessionsTotal, peer.String(), local.String(), "single_hop")
+	val := gaugeValue(t, c.Sessions, peer.String(), local.String(), "single_hop")
 	if val != 1 {
 		t.Errorf("after RegisterSession: sessions gauge = %v, want 1", val)
 	}
@@ -69,7 +69,7 @@ func TestRegisterUnregisterSession(t *testing.T) {
 	// Register another session with different type.
 	c.RegisterSession(peer, local, "multi_hop")
 
-	val = gaugeValue(t, c.SessionsTotal, peer.String(), local.String(), "multi_hop")
+	val = gaugeValue(t, c.Sessions, peer.String(), local.String(), "multi_hop")
 	if val != 1 {
 		t.Errorf("after second RegisterSession: multi_hop gauge = %v, want 1", val)
 	}
@@ -77,13 +77,13 @@ func TestRegisterUnregisterSession(t *testing.T) {
 	// Unregister single_hop -- gauge should go back to 0.
 	c.UnregisterSession(peer, local, "single_hop")
 
-	val = gaugeValue(t, c.SessionsTotal, peer.String(), local.String(), "single_hop")
+	val = gaugeValue(t, c.Sessions, peer.String(), local.String(), "single_hop")
 	if val != 0 {
 		t.Errorf("after UnregisterSession: sessions gauge = %v, want 0", val)
 	}
 
 	// multi_hop should still be 1.
-	val = gaugeValue(t, c.SessionsTotal, peer.String(), local.String(), "multi_hop")
+	val = gaugeValue(t, c.Sessions, peer.String(), local.String(), "multi_hop")
 	if val != 1 {
 		t.Errorf("multi_hop gauge = %v, want 1 (should be unaffected)", val)
 	}

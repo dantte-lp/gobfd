@@ -22,8 +22,11 @@ RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
 # golangci-lint v2 — strict linting (v2.10.1+, requires Go >= 1.25)
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
-# govulncheck — vulnerability scanner
+# govulncheck — Go vulnerability scanner (go.dev/doc/security/vuln)
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+
+# osv-scanner — Google OSV vulnerability scanner (github.com/google/osv-scanner)
+RUN go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
 
 # Module cache warm-up happens on first `go mod download`
 WORKDIR /app

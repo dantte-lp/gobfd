@@ -19,10 +19,17 @@ COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := podman-compose -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 
-.PHONY: all build test lint proto-gen proto-lint fuzz vulncheck \
+.PHONY: all build test lint proto-gen proto-lint fuzz vulncheck osv-scan \
         up down restart logs shell clean tidy \
         interop interop-test interop-up interop-down interop-logs \
-        interop-capture interop-pcap interop-pcap-summary integration
+        interop-capture interop-pcap interop-pcap-summary integration \
+        interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
+        interop-clab interop-clab-test interop-clab-up interop-clab-down \
+        int-bgp-failover int-bgp-failover-up int-bgp-failover-down int-bgp-failover-logs \
+        int-haproxy int-haproxy-up int-haproxy-down int-haproxy-logs \
+        int-observability int-observability-up int-observability-down int-observability-logs \
+        int-exabgp-anycast int-exabgp-anycast-up int-exabgp-anycast-down int-exabgp-anycast-logs \
+        int-k8s int-k8s-up int-k8s-down
 
 # === Lifecycle ===
 
@@ -44,9 +51,19 @@ shell:
 
 all: build test lint
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -s -w \
+  -X github.com/dantte-lp/gobfd/internal/version.Version=$(VERSION) \
+  -X github.com/dantte-lp/gobfd/internal/version.GitCommit=$(GIT_COMMIT) \
+  -X github.com/dantte-lp/gobfd/internal/version.BuildDate=$(BUILD_DATE)
+
 build:
-	$(EXEC) go build ./cmd/gobfd
-	$(EXEC) go build ./cmd/gobfdctl
+	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfd
+	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfdctl
+	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfd-haproxy-agent
+	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfd-exabgp-bridge
 
 # === Test ===
 
@@ -103,6 +120,107 @@ interop-pcap-summary:
 
 integration: interop
 
+# === BGP+BFD Interop Tests (GoBGP + FRR + BIRD3 + ExaBGP — 3 scenarios) ===
+
+INTEROP_BGP_COMPOSE := test/interop-bgp/compose.yml
+INTEROP_BGP_DC := podman-compose -f $(INTEROP_BGP_COMPOSE)
+
+interop-bgp:
+	./test/interop-bgp/run.sh
+
+interop-bgp-test:
+	INTEROP_BGP_COMPOSE_FILE=$(INTEROP_BGP_COMPOSE) go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
+
+interop-bgp-up:
+	$(INTEROP_BGP_DC) up --build -d
+
+interop-bgp-down:
+	$(INTEROP_BGP_DC) down --volumes --remove-orphans
+
+interop-bgp-logs:
+	$(INTEROP_BGP_DC) logs -f
+
+# === Containerlab Vendor Interop Tests (Arista + Nokia + Cisco + SONiC + VyOS) ===
+
+CLAB_TOPO := test/interop-clab/gobfd-vendors.clab.yml
+
+interop-clab:
+	./test/interop-clab/run.sh
+
+interop-clab-test:
+	go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+
+interop-clab-up:
+	./test/interop-clab/run.sh --up-only
+
+interop-clab-down:
+	containerlab --runtime podman destroy -t $(CLAB_TOPO) --cleanup 2>/dev/null || true
+	podman rm -f clab-gobfd-vendors-gobfd 2>/dev/null || true
+
+# === Integration Examples ===
+
+INT_BGP_DC := podman-compose -f deployments/integrations/bgp-fast-failover/compose.yml
+INT_HAPROXY_DC := podman-compose -f deployments/integrations/haproxy-health/compose.yml
+INT_OBS_DC := podman-compose -f deployments/integrations/observability/compose.yml
+INT_EXABGP_DC := podman-compose -f deployments/integrations/exabgp-anycast/compose.yml
+
+int-bgp-failover:
+	./deployments/integrations/bgp-fast-failover/run.sh
+
+int-bgp-failover-up:
+	$(INT_BGP_DC) up --build -d
+
+int-bgp-failover-down:
+	$(INT_BGP_DC) down --volumes --remove-orphans
+
+int-bgp-failover-logs:
+	$(INT_BGP_DC) logs -f
+
+int-haproxy:
+	./deployments/integrations/haproxy-health/run.sh
+
+int-haproxy-up:
+	$(INT_HAPROXY_DC) up --build -d
+
+int-haproxy-down:
+	$(INT_HAPROXY_DC) down --volumes --remove-orphans
+
+int-haproxy-logs:
+	$(INT_HAPROXY_DC) logs -f
+
+int-observability:
+	./deployments/integrations/observability/run.sh
+
+int-observability-up:
+	$(INT_OBS_DC) up --build -d
+
+int-observability-down:
+	$(INT_OBS_DC) down --volumes --remove-orphans
+
+int-observability-logs:
+	$(INT_OBS_DC) logs -f
+
+int-exabgp-anycast:
+	./deployments/integrations/exabgp-anycast/run.sh
+
+int-exabgp-anycast-up:
+	$(INT_EXABGP_DC) up --build -d
+
+int-exabgp-anycast-down:
+	$(INT_EXABGP_DC) down --volumes --remove-orphans
+
+int-exabgp-anycast-logs:
+	$(INT_EXABGP_DC) logs -f
+
+int-k8s:
+	./deployments/integrations/kubernetes/run.sh
+
+int-k8s-up:
+	./deployments/integrations/kubernetes/setup-cluster.sh && kubectl apply -f deployments/integrations/kubernetes/manifests/
+
+int-k8s-down:
+	./deployments/integrations/kubernetes/teardown.sh
+
 # === Quality ===
 
 lint:
@@ -113,6 +231,9 @@ lint-fix:
 
 vulncheck:
 	$(EXEC) govulncheck ./...
+
+osv-scan:
+	$(EXEC) osv-scanner scan -r .
 
 # === Proto ===
 

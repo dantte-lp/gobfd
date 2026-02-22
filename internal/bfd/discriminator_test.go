@@ -30,7 +30,7 @@ func TestNewDiscriminatorAllocator(t *testing.T) {
 
 // TestDiscriminatorAllocateNonZero verifies that Allocate never returns zero.
 // RFC 5880 Section 6.8.1: bfd.LocalDiscr MUST be nonzero.
-// RFC 5880 Section 6.8.6 step 7b: zero means "not yet known."
+// RFC 5880 Section 6.8.6 step 7b: zero means "not yet known".
 func TestDiscriminatorAllocateNonZero(t *testing.T) {
 	t.Parallel()
 

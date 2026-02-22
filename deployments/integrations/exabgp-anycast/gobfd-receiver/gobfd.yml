@@ -1,0 +1,30 @@
+# GoBFD sidecar at 172.24.0.10 (shared netns with GoBGP).
+#
+# Responds to BFD sessions from gobfd at 172.24.0.20.
+
+grpc:
+  addr: ":50053"
+
+metrics:
+  addr: ":9101"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: false
+
+sessions:
+  - peer: "172.24.0.20"
+    local: "172.24.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

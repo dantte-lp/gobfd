@@ -1,0 +1,141 @@
+# HAProxy Backend Health integration example.
+#
+# Sub-second backend failure detection via BFD, integrated with HAProxy agent-check.
+#
+# Topology: 172.23.0.0/24 (haproxy-health-net)
+#   172.23.0.10 — gobfd-monitor + haproxy-agent (shared netns, monitors .30 and .40)
+#   172.23.0.20 — haproxy (load balancer, agent-check to .10:9990 and .10:9991)
+#   172.23.0.30 — backend1 (nginx) + backend1-bfd (GoBFD sidecar, shared netns)
+#   172.23.0.40 — backend2 (nginx) + backend2-bfd (GoBFD sidecar, shared netns)
+#
+# Usage:
+#   podman-compose up --build -d
+#   curl http://localhost:8080
+#   podman-compose down --volumes --remove-orphans
+
+services:
+  # === GoBFD monitor at 172.23.0.10 ===
+
+  gobfd-monitor:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-monitor
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd-monitor/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      haproxy-health-net:
+        ipv4_address: 172.23.0.10
+
+  # === HAProxy agent (shared netns with gobfd-monitor) ===
+
+  haproxy-agent:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile.haproxy-agent
+    container_name: haproxy-agent
+    network_mode: "service:gobfd-monitor"
+    depends_on:
+      - gobfd-monitor
+    volumes:
+      - ./haproxy-agent.yml:/etc/gobfd-haproxy-agent/config.yml:ro,z
+    command: ["--config", "/etc/gobfd-haproxy-agent/config.yml"]
+
+  # === HAProxy (load balancer) at 172.23.0.20 ===
+
+  haproxy:
+    image: docker.io/haproxy:3.1-alpine
+    container_name: haproxy-health
+    user: "0:0"
+    ports:
+      - "8080:80"
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro,z
+    depends_on:
+      - gobfd-monitor
+      - haproxy-agent
+    networks:
+      haproxy-health-net:
+        ipv4_address: 172.23.0.20
+
+  # === Backend 1 (nginx) at 172.23.0.30 ===
+
+  backend1:
+    image: docker.io/nginx:alpine
+    container_name: backend1
+    networks:
+      haproxy-health-net:
+        ipv4_address: 172.23.0.30
+
+  backend1-bfd:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: backend1-bfd
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    network_mode: "service:backend1"
+    depends_on:
+      - backend1
+    volumes:
+      - ./backend1-bfd/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+
+  # === Backend 2 (nginx) at 172.23.0.40 ===
+
+  backend2:
+    image: docker.io/nginx:alpine
+    container_name: backend2
+    networks:
+      haproxy-health-net:
+        ipv4_address: 172.23.0.40
+
+  backend2-bfd:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: backend2-bfd
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    network_mode: "service:backend2"
+    depends_on:
+      - backend2
+    volumes:
+      - ./backend2-bfd/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+
+  # === tshark (BFD packet capture) ===
+
+  tshark:
+    build:
+      context: ../../../test/interop/tshark
+      dockerfile: Containerfile
+    container_name: tshark-haproxy
+    network_mode: "service:gobfd-monitor"
+    depends_on:
+      - gobfd-monitor
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+volumes:
+  captures:
+
+networks:
+  haproxy-health-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/24
+          gateway: 172.23.0.1

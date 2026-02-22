@@ -646,7 +646,7 @@ type ReconcileConfig struct {
 func (m *Manager) ReconcileSessions(
 	ctx context.Context,
 	desired []ReconcileConfig,
-) (created, destroyed int, err error) {
+) (int, int, error) {
 	// Build desired key set.
 	desiredKeys := make(map[string]ReconcileConfig, len(desired))
 	for _, rc := range desired {
@@ -657,35 +657,45 @@ func (m *Manager) ReconcileSessions(
 	currentKeys := m.sessionKeySet()
 
 	// Destroy sessions not in desired set.
+	var created, destroyed int
 	var errs []error
 	for key, discr := range currentKeys {
-		if _, want := desiredKeys[key]; !want {
-			m.logger.Info("reconcile: destroying removed session",
-				slog.String("key", key),
-				slog.Uint64("local_discr", uint64(discr)),
-			)
-			if dErr := m.DestroySession(ctx, discr); dErr != nil {
-				errs = append(errs, fmt.Errorf("reconcile destroy %s: %w", key, dErr))
-			} else {
-				destroyed++
-			}
+		if _, want := desiredKeys[key]; want {
+			continue
 		}
+
+		m.logger.Info("reconcile: destroying removed session",
+			slog.String("key", key),
+			slog.Uint64("local_discr", uint64(discr)),
+		)
+
+		if dErr := m.DestroySession(ctx, discr); dErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile destroy %s: %w", key, dErr))
+			continue
+		}
+
+		destroyed++
 	}
 
 	// Create sessions in desired but not in current.
 	for key, rc := range desiredKeys {
-		if _, exists := currentKeys[key]; !exists {
-			m.logger.Info("reconcile: creating new session",
-				slog.String("key", key),
-			)
-			if _, cErr := m.CreateSession(ctx, rc.SessionConfig, rc.Sender); cErr != nil {
-				errs = append(errs, fmt.Errorf("reconcile create %s: %w", key, cErr))
-			} else {
-				created++
-			}
+		if _, exists := currentKeys[key]; exists {
+			continue
 		}
+
+		m.logger.Info("reconcile: creating new session",
+			slog.String("key", key),
+		)
+
+		if _, cErr := m.CreateSession(ctx, rc.SessionConfig, rc.Sender); cErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile create %s: %w", key, cErr))
+			continue
+		}
+
+		created++
 	}
 
+	var err error
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
 	}

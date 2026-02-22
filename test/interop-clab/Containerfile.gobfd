@@ -1,0 +1,24 @@
+FROM docker.io/golang:1.26-trixie AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY . .
+
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o /bin/gobfd ./cmd/gobfd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+    -o /bin/gobfdctl ./cmd/gobfdctl
+
+FROM docker.io/jauderho/gobgp:v3.33.0 AS gobgp
+
+FROM docker.io/library/alpine:3.21
+
+RUN apk add --no-cache iproute2 bash tcpdump ethtool
+
+COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
+COPY --from=gobgp /usr/local/bin/gobgpd /usr/local/bin/gobgp /usr/local/bin/
+
+EXPOSE 3784/udp 4784/udp 50051 50052 179
+
+ENTRYPOINT ["/bin/gobfd"]

@@ -8,10 +8,19 @@ RUN go mod download && go mod verify
 COPY . .
 
 ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
 RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION}" \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfd ./cmd/gobfd
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
+      -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
+      -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfdctl ./cmd/gobfdctl
 
 FROM scratch AS production

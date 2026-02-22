@@ -1,0 +1,38 @@
+# GoBFD configuration for HAProxy health integration example.
+#
+# Monitors two backends via BFD. The haproxy-agent reads session state
+# via gRPC and serves HAProxy agent-check responses.
+
+grpc:
+  addr: ":50052"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: false
+
+sessions:
+  - peer: "172.23.0.30"
+    local: "172.23.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  - peer: "172.23.0.40"
+    local: "172.23.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

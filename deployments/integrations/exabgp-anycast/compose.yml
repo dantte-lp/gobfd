@@ -1,0 +1,117 @@
+# ExaBGP Anycast integration example.
+#
+# Anycast IP announcement controlled by BFD link health.
+# GoBFD monitors a BFD session; the exabgp-bridge process announces/withdraws
+# a route via ExaBGP's process API based on BFD state.
+#
+# Topology: 172.24.0.0/24 (exabgp-anycast-net)
+#   172.24.0.10 — gobgp (AS 65001, route receiver)
+#   172.24.0.20 — gobfd + exabgp (AS 65002, shared netns, announces 198.51.100.1/32)
+#
+# Usage:
+#   podman-compose up --build -d
+#   podman exec gobgp-anycast gobgp global rib
+#   podman-compose down --volumes --remove-orphans
+
+services:
+  # === GoBGP (route receiver) at 172.24.0.10 ===
+
+  gobgp:
+    image: docker.io/jauderho/gobgp:v3.33.0
+    container_name: gobgp-anycast
+    user: "0:0"
+    cap_add:
+      - NET_BIND_SERVICE
+    volumes:
+      - ./gobgp/gobgp.toml:/etc/gobgp/gobgp.toml:ro,z
+    command: ["gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+    networks:
+      exabgp-anycast-net:
+        ipv4_address: 172.24.0.10
+
+  # === GoBFD receiver sidecar (shared netns with gobgp) ===
+
+  gobfd-receiver:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-receiver-anycast
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    network_mode: "service:gobgp"
+    depends_on:
+      - gobgp
+    volumes:
+      - ./gobfd-receiver/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+
+  # === GoBFD (BFD daemon) at 172.24.0.20 ===
+
+  gobfd:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-anycast
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      exabgp-anycast-net:
+        ipv4_address: 172.24.0.20
+
+  # === ExaBGP + bridge (shared netns with gobfd) ===
+
+  exabgp:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile.exabgp
+    container_name: exabgp-anycast
+    network_mode: "service:gobfd"
+    depends_on:
+      - gobfd
+    volumes:
+      - ./exabgp/exabgp.conf:/etc/exabgp/exabgp.conf:ro,z
+    environment:
+      - exabgp.daemon.daemonize=false
+      - exabgp.log.all=true
+      - exabgp.log.level=INFO
+      - exabgp.log.destination=stdout
+      - exabgp.api.ack=false
+      - exabgp.api.cli=false
+      - GOBFD_ADDR=http://127.0.0.1:50052
+      - GOBFD_PEER=172.24.0.10
+      - ANYCAST_PREFIX=198.51.100.1/32
+    command: ["server", "/etc/exabgp/exabgp.conf"]
+
+  # === tshark (BFD packet capture) ===
+
+  tshark:
+    build:
+      context: ../../../test/interop/tshark
+      dockerfile: Containerfile
+    container_name: tshark-anycast
+    network_mode: "service:gobfd"
+    depends_on:
+      - gobfd
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+volumes:
+  captures:
+
+networks:
+  exabgp-anycast-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.24.0.0/24
+          gateway: 172.24.0.1
