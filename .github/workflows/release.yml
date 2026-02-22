@@ -24,6 +24,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Build
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           GIT_COMMIT="${GITHUB_SHA::8}"
@@ -32,13 +33,13 @@ jobs:
             -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
             -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
             -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-          go build -ldflags="${LDFLAGS}" ./cmd/gobfd
-          go build -ldflags="${LDFLAGS}" ./cmd/gobfdctl
-          go build -ldflags="${LDFLAGS}" ./cmd/gobfd-haproxy-agent
-          go build -ldflags="${LDFLAGS}" ./cmd/gobfd-exabgp-bridge
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfdctl
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-haproxy-agent
+          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-exabgp-bridge
 
       - name: Test
-        run: go test ./... -race -count=1
+        run: go test -buildvcs=false ./... -race -count=1
 
       - name: Lint
         run: |
@@ -97,6 +98,12 @@ jobs:
 
           echo "--- Release notes for $VERSION ---"
           cat release-notes.md
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3

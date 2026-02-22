@@ -1,0 +1,13 @@
+FROM debian:trixie-slim
+
+RUN groupadd -r gobfd && useradd -r -g gobfd -s /usr/sbin/nologin gobfd \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY gobfd gobfdctl gobfd-haproxy-agent gobfd-exabgp-bridge /usr/local/bin/
+
+USER gobfd:gobfd
+
+EXPOSE 3784/udp 4784/udp 50051
+
+ENTRYPOINT ["/usr/local/bin/gobfd"]

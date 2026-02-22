@@ -65,6 +65,13 @@ builds:
       - -X github.com/dantte-lp/gobfd/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/dantte-lp/gobfd/internal/version.BuildDate={{.Date}}
 
+upx:
+  - enabled: true
+    compress: best
+    lzma: true
+    goos: [linux]
+    goarch: [amd64, arm64]
+
 archives:
   - id: default
     format: tar.gz
@@ -111,11 +118,40 @@ nfpms:
           - systemd
 
 dockers:
-  - image_templates:
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}"
-      - "ghcr.io/dantte-lp/gobfd:latest"
-    dockerfile: deployments/docker/Containerfile
+  - id: gobfd-amd64
+    goos: linux
+    goarch: amd64
+    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
+    image_templates:
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-amd64"
+    dockerfile: deployments/docker/Containerfile.release
     build_flag_templates:
-      - "--build-arg=VERSION={{.Version}}"
-      - "--build-arg=GIT_COMMIT={{.ShortCommit}}"
-      - "--build-arg=BUILD_DATE={{.Date}}"
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title=gobfd"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/dantte-lp/gobfd"
+
+  - id: gobfd-arm64
+    goos: linux
+    goarch: arm64
+    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
+    image_templates:
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-arm64"
+    dockerfile: deployments/docker/Containerfile.release
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title=gobfd"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/dantte-lp/gobfd"
+
+docker_manifests:
+  - name_template: "ghcr.io/dantte-lp/gobfd:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-amd64"
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/dantte-lp/gobfd:latest"
+    image_templates:
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-amd64"
+      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-arm64"
