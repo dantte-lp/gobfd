@@ -223,7 +223,7 @@ func (h *Handler) handleUp(ctx context.Context, peerAddr string, sc bfd.StateCha
 func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.StateChange) error {
 	switch h.strategy {
 	case StrategyDisablePeer:
-		communication := "BFD session down: " + sc.Diag.String()
+		communication := FormatBFDDownCommunication(sc.Diag)
 		if err := h.client.DisablePeer(ctx, peerAddr, communication); err != nil {
 			return fmt.Errorf("disable peer %s: %w", peerAddr, err)
 		}

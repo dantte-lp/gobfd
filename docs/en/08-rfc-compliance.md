@@ -4,6 +4,7 @@
 ![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)
 ![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)
 ![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)
+![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
 ![RFC 7130](https://img.shields.io/badge/RFC_7130-Stub-ffc107?style=for-the-badge)
 
@@ -30,6 +31,7 @@
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Implemented** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Implemented** | GoBGP integration, flap dampening |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Implemented** | UDP 4784, TTL>=254 check |
+| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Implemented** | Cease/10 subcode in shutdown communication |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Stub** | Per-member-link sessions planned |
@@ -156,6 +158,20 @@ Graceful shutdown sends AdminDown with Diag=7, waits 2x TX interval, then cancel
 | TTL>=254 incoming check | Separate TTL validation for multihop |
 | Demux by (MyDiscr, SrcIP, DstIP) | Manager.DemuxWithWire composite key |
 
+### RFC 9384 Implementation Notes
+
+**Implementation**: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
+
+RFC 9384 defines Cease NOTIFICATION subcode 10 ("BFD Down") for BGP sessions torn down due to BFD failure.
+
+| Requirement | Implementation |
+|---|---|
+| Cease subcode 10 (BFD Down) | `CeaseSubcodeBFDDown = 10` constant |
+| NOTIFICATION on BFD failure | `FormatBFDDownCommunication()` enriches the DisablePeer communication |
+| Diagnostic context | BFD `Diag` code included in the communication string |
+
+**Limitation**: GoBGP v3 does not expose per-subcode control in its `DisablePeer` API — it sends Cease subcode 2 (Administrative Shutdown) with the communication string per RFC 8203. The communication string is enriched with `"BFD Down (RFC 9384 Cease/10): diag=..."` so that operators can identify BFD-triggered shutdowns in logs and monitoring systems. Full subcode 10 support requires upstream GoBGP changes.
+
 ### Stub Interfaces
 
 The following RFCs have stub interfaces defined for future implementation:
@@ -172,6 +188,7 @@ These RFCs are referenced but not directly implemented:
 
 | RFC | Title | Relevance |
 |---|---|---|
+| RFC 8203 | BGP Administrative Shutdown | Communication string for DisablePeer |
 | RFC 5082 | GTSM | Basis for TTL=255 requirement |
 | RFC 4379 | LSP Ping | Dependency of RFC 5884 |
 | RFC 5085 | VCCV | Dependency of RFC 5885 |
