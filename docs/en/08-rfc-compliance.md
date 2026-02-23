@@ -9,7 +9,7 @@
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)
 ![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
-![RFC 7130](https://img.shields.io/badge/RFC_7130-Stub-ffc107?style=for-the-badge)
+![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)
 
 > RFC compliance matrix, per-section implementation notes, design rationale, and links to RFC source texts.
 
@@ -26,6 +26,7 @@
 - [RFC 9384 Implementation Notes](#rfc-9384-implementation-notes)
 - [RFC 9468 Implementation Notes](#rfc-9468-implementation-notes)
 - [RFC 9747 Implementation Notes](#rfc-9747-implementation-notes)
+- [RFC 7130 Implementation Notes](#rfc-7130-implementation-notes)
 - [Stub Interfaces](#stub-interfaces)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
@@ -44,7 +45,7 @@
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Implemented** | Echo session, DiagEchoFailed, UDP 3785 |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
-| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Stub** | Per-member-link sessions planned |
+| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Implemented** | Per-member-link sessions, aggregate state, UDP 6784 |
 
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated with a control session) and Demand Mode (RFC 5880 Section 6.6) are intentionally not implemented. Asynchronous mode covers the primary use case of BFD-assisted failover in ISP/DC environments. Unaffiliated echo (RFC 9747) is implemented as a standalone forwarding-path test without requiring a control session.
 
@@ -253,6 +254,32 @@ Key differences from BFD control sessions:
 - No authentication (echo packets are self-originated)
 - Separate `EchoSession` type with simplified FSM
 
+### RFC 7130 Implementation Notes
+
+**Implementation**: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
+
+RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link for per-link forwarding verification with faster detection than LACP alone.
+
+| Requirement | Implementation |
+|---|---|
+| UDP port 6784 | `netio.PortMicroBFD = 6784` |
+| One BFD session per member link | `MicroBFDGroup.members` map |
+| Aggregate state tracking | `upCount >= minActive` threshold |
+| Member removed on BFD Down | `UpdateMemberState()` triggers aggregate change |
+| Dedicated multicast MAC | `01-00-5E-90-00-01` for initial packets |
+| Asynchronous mode only | Standard RFC 5880 procedures per member |
+| Session type | `SessionTypeMicroBFD` constant |
+| Per-group configuration | `MicroBFDConfig` with LAG interface + member links |
+
+Aggregate state logic:
+- Group starts with all members Down, aggregate Down
+- When `upCount >= MinActiveLinks`, aggregate transitions to Up
+- When `upCount < MinActiveLinks`, aggregate transitions to Down
+- State changes are reported only on aggregate transitions (threshold crossing)
+- Init state on a member is not counted as Up (only `StateUp` increments `upCount`)
+
+`MicroBFDGroupSnapshot` provides a read-only view of the group state including per-member link details, useful for gRPC API responses and monitoring.
+
 ### Stub Interfaces
 
 The following RFCs have stub interfaces defined for future implementation:
@@ -261,7 +288,6 @@ The following RFCs have stub interfaces defined for future implementation:
 |---|---|---|
 | RFC 5884 (BFD for MPLS) | LSP Ping (RFC 4379) | Interfaces defined in `internal/bfd` |
 | RFC 5885 (BFD for VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Interfaces defined |
-| RFC 7130 (Micro-BFD for LAG) | Per-member-link sessions | `SO_BINDTODEVICE` per member ready |
 
 ### Reference RFCs
 

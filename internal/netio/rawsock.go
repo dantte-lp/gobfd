@@ -25,6 +25,11 @@ const (
 	// transmitted in UDP packets with destination port 3785").
 	PortEcho uint16 = 3785
 
+	// PortMicroBFD is the destination UDP port for micro-BFD sessions
+	// on LAG member links (RFC 7130 Section 2.1: "Micro-BFD sessions
+	// use a well-known UDP destination port: 6784").
+	PortMicroBFD uint16 = 6784
+
 	// sourcePortMin is the minimum ephemeral source port for BFD sessions
 	// (RFC 5881 Section 4: "source port MUST be in the range 49152 through
 	// 65535").

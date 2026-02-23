@@ -28,6 +28,9 @@ const (
 
 	// SessionTypeEcho indicates an unaffiliated BFD echo session (RFC 9747).
 	SessionTypeEcho
+
+	// SessionTypeMicroBFD indicates a per-member-link micro-BFD session (RFC 7130).
+	SessionTypeMicroBFD
 )
 
 // String returns the human-readable name for the session type.
@@ -39,6 +42,8 @@ func (st SessionType) String() string {
 		return "MultiHop"
 	case SessionTypeEcho:
 		return "Echo"
+	case SessionTypeMicroBFD:
+		return "MicroBFD"
 	default:
 		return unknownStr
 	}

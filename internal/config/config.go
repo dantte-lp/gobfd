@@ -26,6 +26,7 @@ type Config struct {
 	BFD         BFDConfig         `koanf:"bfd"`
 	Unsolicited UnsolicitedConfig `koanf:"unsolicited"`
 	Echo        EchoConfig        `koanf:"echo"`
+	MicroBFD    MicroBFDConfig    `koanf:"micro_bfd"`
 	GoBGP       GoBGPConfig       `koanf:"gobgp"`
 	Sessions    []SessionConfig   `koanf:"sessions"`
 }
@@ -128,6 +129,44 @@ type EchoConfig struct {
 
 	// DefaultDetectMultiplier is the default echo detection multiplier.
 	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+}
+
+// MicroBFDConfig holds the RFC 7130 Micro-BFD for LAG configuration.
+// When configured, GoBFD runs independent BFD sessions on each LAG member
+// link and tracks the aggregate LAG state.
+type MicroBFDConfig struct {
+	// Groups holds per-LAG Micro-BFD group configurations.
+	Groups []MicroBFDGroupConfig `koanf:"groups"`
+}
+
+// MicroBFDGroupConfig holds the configuration for a single LAG's Micro-BFD group.
+type MicroBFDGroupConfig struct {
+	// LAGInterface is the logical LAG interface name (e.g., "bond0").
+	LAGInterface string `koanf:"lag_interface"`
+
+	// MemberLinks lists the physical member link names (e.g., ["eth0", "eth1"]).
+	// RFC 7130 Section 2: one micro-BFD session per member link.
+	MemberLinks []string `koanf:"member_links"`
+
+	// PeerAddr is the remote system's IP address for all member sessions.
+	PeerAddr string `koanf:"peer_addr"`
+
+	// LocalAddr is the local system's IP address.
+	LocalAddr string `koanf:"local_addr"`
+
+	// DesiredMinTx is the BFD timer interval for member sessions.
+	DesiredMinTx time.Duration `koanf:"desired_min_tx"`
+
+	// RequiredMinRx is the minimum acceptable RX interval.
+	RequiredMinRx time.Duration `koanf:"required_min_rx"`
+
+	// DetectMult is the detection time multiplier.
+	DetectMult uint32 `koanf:"detect_mult"`
+
+	// MinActiveLinks is the minimum number of member links that must be
+	// Up for the LAG to be considered operational.
+	// Must be >= 1 and <= len(MemberLinks).
+	MinActiveLinks int `koanf:"min_active_links"`
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.
