@@ -20,12 +20,13 @@ import (
 
 // Config holds the complete gobfd configuration.
 type Config struct {
-	GRPC     GRPCConfig      `koanf:"grpc"`
-	Metrics  MetricsConfig   `koanf:"metrics"`
-	Log      LogConfig       `koanf:"log"`
-	BFD      BFDConfig       `koanf:"bfd"`
-	GoBGP    GoBGPConfig     `koanf:"gobgp"`
-	Sessions []SessionConfig `koanf:"sessions"`
+	GRPC        GRPCConfig        `koanf:"grpc"`
+	Metrics     MetricsConfig     `koanf:"metrics"`
+	Log         LogConfig         `koanf:"log"`
+	BFD         BFDConfig         `koanf:"bfd"`
+	Unsolicited UnsolicitedConfig `koanf:"unsolicited"`
+	GoBGP       GoBGPConfig       `koanf:"gobgp"`
+	Sessions    []SessionConfig   `koanf:"sessions"`
 }
 
 // GRPCConfig holds the ConnectRPC server configuration.
@@ -70,6 +71,46 @@ type BFDConfig struct {
 	// rounded UP to the nearest RFC 7419 common interval value
 	// (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s) for hardware interop.
 	AlignIntervals bool `koanf:"align_intervals"`
+}
+
+// UnsolicitedConfig holds the RFC 9468 unsolicited BFD configuration.
+// When enabled, GoBFD auto-creates passive sessions for incoming BFD
+// packets from unknown peers on configured interfaces.
+type UnsolicitedConfig struct {
+	// Enabled controls whether unsolicited BFD is active globally.
+	// RFC 9468 Section 2: MUST be disabled by default.
+	Enabled bool `koanf:"enabled"`
+
+	// MaxSessions limits the number of dynamically created sessions.
+	// Zero means no limit.
+	MaxSessions int `koanf:"max_sessions"`
+
+	// CleanupTimeout is how long to wait after a passive session goes Down
+	// before deleting it. Zero means delete immediately.
+	CleanupTimeout time.Duration `koanf:"cleanup_timeout"`
+
+	// Interfaces holds per-interface unsolicited BFD settings.
+	Interfaces map[string]UnsolicitedInterfaceConfig `koanf:"interfaces"`
+
+	// SessionDefaults holds default timer parameters for auto-created sessions.
+	SessionDefaults UnsolicitedSessionDefaultsConfig `koanf:"session_defaults"`
+}
+
+// UnsolicitedInterfaceConfig holds per-interface unsolicited BFD settings.
+type UnsolicitedInterfaceConfig struct {
+	// Enabled controls unsolicited BFD on this interface.
+	Enabled bool `koanf:"enabled"`
+
+	// AllowedPrefixes restricts which source addresses can create sessions.
+	// RFC 9468 Section 6.1: apply policy from specific subnets/hosts.
+	AllowedPrefixes []string `koanf:"allowed_prefixes"`
+}
+
+// UnsolicitedSessionDefaultsConfig holds default timer parameters.
+type UnsolicitedSessionDefaultsConfig struct {
+	DesiredMinTx  time.Duration `koanf:"desired_min_tx"`
+	RequiredMinRx time.Duration `koanf:"required_min_rx"`
+	DetectMult    uint32        `koanf:"detect_mult"`
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.

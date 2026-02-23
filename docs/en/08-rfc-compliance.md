@@ -6,6 +6,7 @@
 ![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)
 ![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)
 ![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)
+![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
 ![RFC 7130](https://img.shields.io/badge/RFC_7130-Stub-ffc107?style=for-the-badge)
 
@@ -22,6 +23,7 @@
 - [RFC 7419 Implementation Notes](#rfc-7419-implementation-notes)
 - [RFC 5883 Implementation Notes](#rfc-5883-implementation-notes)
 - [RFC 9384 Implementation Notes](#rfc-9384-implementation-notes)
+- [RFC 9468 Implementation Notes](#rfc-9468-implementation-notes)
 - [Stub Interfaces](#stub-interfaces)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
@@ -36,6 +38,7 @@
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Implemented** | UDP 4784, TTL>=254 check |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Implemented** | Cease/10 subcode in shutdown communication |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Implemented** | Passive session auto-creation, per-interface policy |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Stub** | Per-member-link sessions planned |
@@ -203,6 +206,25 @@ RFC 9384 defines Cease NOTIFICATION subcode 10 ("BFD Down") for BGP sessions tor
 | Diagnostic context | BFD `Diag` code included in the communication string |
 
 **Limitation**: GoBGP v3 does not expose per-subcode control in its `DisablePeer` API — it sends Cease subcode 2 (Administrative Shutdown) with the communication string per RFC 8203. The communication string is enriched with `"BFD Down (RFC 9384 Cease/10): diag=..."` so that operators can identify BFD-triggered shutdowns in logs and monitoring systems. Full subcode 10 support requires upstream GoBGP changes.
+
+### RFC 9468 Implementation Notes
+
+**Implementation**: [`internal/bfd/unsolicited.go`](../../internal/bfd/unsolicited.go), [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
+
+RFC 9468 enables one BFD endpoint to dynamically create passive sessions in response to incoming BFD Control packets, without per-session configuration. Useful for static route next-hop tracking and IXP route-server deployments.
+
+| Requirement | Implementation |
+|---|---|
+| Disabled by default (MUST) | `unsolicited.enabled: false` default |
+| Per-interface policy (MUST) | `UnsolicitedInterfaceConfig` per interface |
+| Source address validation (MUST) | `AllowedPrefixes` ACL check |
+| Single-hop only (MUST) | `SessionTypeSingleHop` enforced |
+| Local discriminator allocation (MUST) | `DiscriminatorAllocator` for passive sessions |
+| Configurable timers (SHOULD) | `UnsolicitedSessionDefaults` |
+| Max session limit | `MaxSessions` prevents resource exhaustion |
+| Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
+
+Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet.
 
 ### Stub Interfaces
 

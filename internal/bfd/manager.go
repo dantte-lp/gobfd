@@ -131,6 +131,9 @@ type SessionSnapshot struct {
 	// has been received yet.
 	LastPacketReceived time.Time
 
+	// Unsolicited indicates the session was auto-created via RFC 9468.
+	Unsolicited bool
+
 	// Counters contains per-session packet and state transition counters.
 	Counters SessionCounters
 }
@@ -176,7 +179,9 @@ const (
 //  2. If Your Discriminator == 0 AND State is Down or AdminDown:
 //     Match by (source IP, dest IP, interface) for single-hop (RFC 5881 Section 3).
 //     Match by (source IP, dest IP) for multi-hop (RFC 5883).
-//     If no match found, discard.
+//     If no match found AND unsolicited BFD is enabled (RFC 9468):
+//     auto-create a passive session for the peer.
+//     If no match and unsolicited disabled: discard.
 //
 // This two-tier lookup is the standard BFD demux pattern (FRR, GoBGP, Junos).
 type Manager struct {
@@ -194,6 +199,14 @@ type Manager struct {
 	// metrics is the optional metrics reporter. Never nil -- uses noopMetrics
 	// when no collector is configured.
 	metrics MetricsReporter
+
+	// unsolicited holds the RFC 9468 unsolicited BFD state.
+	// nil when unsolicited BFD is not configured.
+	unsolicited *unsolicitedState
+
+	// unsolicitedSender provides packet sending for auto-created sessions.
+	// Set via WithUnsolicitedSender option.
+	unsolicitedSender PacketSender
 
 	// notifyCh aggregates state changes from all sessions.
 	notifyCh chan StateChange
@@ -219,6 +232,25 @@ func WithManagerMetrics(mr MetricsReporter) ManagerOption {
 		if mr != nil {
 			m.metrics = mr
 		}
+	}
+}
+
+// WithUnsolicitedPolicy enables RFC 9468 unsolicited BFD with the given policy.
+// When set, the Manager auto-creates passive sessions for incoming packets
+// from unknown peers, subject to the policy's interface and prefix restrictions.
+func WithUnsolicitedPolicy(policy *UnsolicitedPolicy) ManagerOption {
+	return func(m *Manager) {
+		if policy != nil && policy.Enabled {
+			m.unsolicited = newUnsolicitedState(policy)
+		}
+	}
+}
+
+// WithUnsolicitedSender sets the PacketSender used for auto-created
+// unsolicited sessions. Required when unsolicited BFD is enabled.
+func WithUnsolicitedSender(sender PacketSender) ManagerOption {
+	return func(m *Manager) {
+		m.unsolicitedSender = sender
 	}
 }
 
@@ -537,6 +569,8 @@ func (m *Manager) demuxByDiscr(pkt *ControlPacket, wire []byte) error {
 }
 
 // demuxByPeer routes a packet by peer key (tier 2).
+// If no matching session exists and unsolicited BFD is enabled (RFC 9468),
+// attempts to auto-create a passive session for the peer.
 func (m *Manager) demuxByPeer(
 	pkt *ControlPacket,
 	meta PacketMeta,
@@ -549,14 +583,78 @@ func (m *Manager) demuxByPeer(
 	}
 
 	sess, ok := m.LookupByPeer(key)
-	if !ok {
+	if ok {
+		sess.RecvPacket(pkt, wire)
+		return nil
+	}
+
+	// RFC 9468: attempt unsolicited session creation.
+	if m.unsolicited != nil {
+		return m.tryCreateUnsolicited(pkt, meta, wire)
+	}
+
+	return fmt.Errorf(
+		"demux: no session for peer %s -> %s (iface=%s): %w",
+		meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
+	)
+}
+
+// tryCreateUnsolicited validates the unsolicited policy and creates a
+// passive BFD session for the incoming packet (RFC 9468 Section 2).
+func (m *Manager) tryCreateUnsolicited(
+	pkt *ControlPacket,
+	meta PacketMeta,
+	wire []byte,
+) error {
+	// RFC 9468 Section 6.1: unsolicited BFD is single-hop only.
+	// Multi-hop packets arrive on port 4784; single-hop on 3784.
+	// We use the interface name as a proxy: multi-hop sessions have no interface.
+	// Also validate via policy.
+
+	if err := m.unsolicited.checkPolicy(meta.SrcAddr, meta.IfName); err != nil {
 		return fmt.Errorf(
-			"demux: no session for peer %s -> %s (iface=%s): %w",
-			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
+			"unsolicited: peer %s on %s: %w",
+			meta.SrcAddr, meta.IfName, err,
 		)
 	}
 
+	defaults := m.unsolicited.policy.SessionDefaults
+	cfg := SessionConfig{
+		PeerAddr:              meta.SrcAddr,
+		LocalAddr:             meta.DstAddr,
+		Interface:             meta.IfName,
+		Type:                  SessionTypeSingleHop,
+		Role:                  RolePassive,
+		DesiredMinTxInterval:  defaults.DesiredMinTxInterval,
+		RequiredMinRxInterval: defaults.RequiredMinRxInterval,
+		DetectMultiplier:      defaults.DetectMultiplier,
+	}
+
+	sender := m.unsolicitedSender
+	if sender == nil {
+		return fmt.Errorf(
+			"unsolicited: no sender configured for peer %s: %w",
+			meta.SrcAddr, ErrUnsolicitedDisabled,
+		)
+	}
+
+	sess, err := m.CreateSession(context.Background(), cfg, sender)
+	if err != nil {
+		return fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
+	}
+
+	m.unsolicited.incrementCount()
+
+	m.logger.Info("unsolicited session created (RFC 9468)",
+		slog.String("peer", meta.SrcAddr.String()),
+		slog.String("local", meta.DstAddr.String()),
+		slog.String("interface", meta.IfName),
+		slog.Uint64("local_discr", uint64(sess.LocalDiscriminator())),
+	)
+
+	// Deliver the initial packet that triggered session creation.
 	sess.RecvPacket(pkt, wire)
+
 	return nil
 }
 
