@@ -1,17 +1,17 @@
 # RFC Compliance
 
-![RFC 5880](https://img.shields.io/badge/RFC_5880-Implemented-34a853?style=for-the-badge)
-![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)
-![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)
-![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)
-![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)
-![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)
-![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)
-![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)
-![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)
-![RFC 9521](https://img.shields.io/badge/RFC_9521-Implemented-34a853?style=for-the-badge)
-![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
-![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)
+[![RFC 5880](https://img.shields.io/badge/RFC_5880-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
+[![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
+[![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
+[![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
+[![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
+[![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
+[![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
+[![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
+[![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
 
 > RFC compliance matrix, per-section implementation notes, design rationale, and links to RFC source texts.
 

@@ -1,11 +1,17 @@
 # Соответствие RFC
 
-![RFC 5880](https://img.shields.io/badge/RFC_5880-Implemented-34a853?style=for-the-badge)
-![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)
-![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)
-![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)
-![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
-![RFC 7130](https://img.shields.io/badge/RFC_7130-Stub-ffc107?style=for-the-badge)
+[![RFC 5880](https://img.shields.io/badge/RFC_5880-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
+[![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
+[![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
+[![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
+[![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
+[![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
+[![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
+[![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
+[![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
 
 > Матрица соответствия RFC, постраничные заметки по реализации, обоснование дизайна и ссылки на исходные тексты RFC.
 
@@ -18,6 +24,13 @@
 - [Заметки по RFC 5881](#заметки-по-rfc-5881)
 - [Заметки по RFC 5882](#заметки-по-rfc-5882)
 - [Заметки по RFC 5883](#заметки-по-rfc-5883)
+- [Заметки по RFC 7419](#заметки-по-rfc-7419)
+- [Заметки по RFC 9384](#заметки-по-rfc-9384)
+- [Заметки по RFC 9468](#заметки-по-rfc-9468)
+- [Заметки по RFC 9747](#заметки-по-rfc-9747)
+- [Заметки по RFC 7130](#заметки-по-rfc-7130)
+- [Заметки по RFC 8971](#заметки-по-rfc-8971)
+- [Заметки по RFC 9521](#заметки-по-rfc-9521)
 - [Stub-интерфейсы](#stub-интерфейсы)
 - [Справочные RFC](#справочные-rfc)
 - [Исходные файлы RFC](#исходные-файлы-rfc)
@@ -30,11 +43,17 @@
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Реализован** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Реализован** | Интеграция с GoBGP, демпфирование flap-ов |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Реализован** | UDP 4784, проверка TTL>=254 |
+| [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
+| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Реализован** | Cease/10 subcode в строке shutdown |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Реализован** | Автосоздание пассивных сессий, политика per-interface |
+| [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Реализован** | Echo-сессия, DiagEchoFailed, UDP 3785 |
+| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Реализован** | Per-member-link сессии, агрегатное состояние, UDP 6784 |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Реализован** | VXLAN encap/decap, Management VNI, inner port 3784 |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Реализован** | Geneve encap/decap, O bit control, Ethernet/IP payloads |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Stub** | Интерфейсы определены, ожидает LSP Ping |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Stub** | Интерфейсы определены, ожидает VCCV/LDP |
-| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Stub** | Сессии per-member-link запланированы |
 
-> Echo Mode (Section 6.4) и Demand Mode (Section 6.6) намеренно не реализованы. Асинхронный режим покрывает основной сценарий BFD-assisted failover в ISP/DC.
+> Traditional Echo Mode (RFC 5880 Section 6.4, affiliated с контрольной сессией) и Demand Mode (Section 6.6) намеренно не реализованы. Асинхронный режим покрывает основной сценарий BFD-assisted failover в ISP/DC. Unaffiliated echo (RFC 9747) реализован как автономный тест forwarding-path без контрольной сессии.
 
 ### Заметки по RFC 5880
 
@@ -102,7 +121,7 @@ Graceful shutdown отправляет AdminDown с Diag=7, ожидает 2x TX
 
 | Секция | Функция | Обоснование |
 |---|---|---|
-| 6.4 | Echo Mode | Требует поддержки ядра; малая выгода для BFD-BGP |
+| 6.4 | Affiliated Echo Mode | Требует контрольной сессии; RFC 9747 unaffiliated echo реализован вместо |
 | 6.6 | Demand Mode | Редко используется; настройка интервалов достигает той же цели |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
@@ -137,13 +156,54 @@ Graceful shutdown отправляет AdminDown с Diag=7, ожидает 2x TX
 | Проверка TTL>=254 входящий | Отдельная валидация TTL для multihop |
 | Демультиплексирование по (MyDiscr, SrcIP, DstIP) | `Manager.DemuxWithWire` составной ключ |
 
+### Заметки по RFC 7419
+
+Реализация: [`internal/bfd/intervals.go`](../../internal/bfd/intervals.go)
+
+RFC 7419 определяет набор общих интервалов BFD для совместимости с аппаратными реализациями: 3.3мс, 10мс, 20мс, 50мс, 100мс, 1с. Опция `bfd.align_intervals: true` выравнивает интервалы вверх до ближайшего общего значения.
+
+### Заметки по RFC 9384
+
+Реализация: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
+
+RFC 9384 определяет Cease NOTIFICATION subcode 10 ("BFD Down") для BGP-сессий, разорванных из-за BFD. Строка communication обогащена `"BFD Down (RFC 9384 Cease/10): diag=..."`.
+
+### Заметки по RFC 9468
+
+Реализация: [`internal/bfd/unsolicited.go`](../../internal/bfd/unsolicited.go), [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
+
+RFC 9468 позволяет динамически создавать пассивные сессии при получении BFD-пакетов от неизвестных пиров. Автосоздание в `Manager.demuxByPeer()` с политикой per-interface и ограничением `MaxSessions`.
+
+### Заметки по RFC 9747
+
+Реализация: [`internal/bfd/echo.go`](../../internal/bfd/echo.go)
+
+RFC 9747 определяет unaffiliated BFD echo для обнаружения отказов forwarding-path без BFD на удалённой стороне. UDP порт 3785, упрощённая двухсостоянийная FSM (Down/Up), `DiagEchoFailed` при таймауте.
+
+### Заметки по RFC 7130
+
+Реализация: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
+
+RFC 7130 определяет Micro-BFD — независимые BFD-сессии на каждом member link LAG. UDP порт 6784. Агрегатное состояние: группа Up когда `upCount >= MinActiveLinks`.
+
+### Заметки по RFC 8971
+
+Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go)
+
+RFC 8971 определяет BFD в VXLAN-инкапсуляции для обнаружения отказов между VTEP. VXLAN-заголовок (8 байт) с Management VNI, внутренний порт 3784.
+
+### Заметки по RFC 9521
+
+Реализация: [`internal/netio/geneve.go`](../../internal/netio/geneve.go)
+
+RFC 9521 определяет BFD в Geneve-инкапсуляции для обнаружения отказов между NVE на уровне VAP. Geneve-заголовок с переменной длиной, O bit для управляющих сообщений, поддержка Ethernet (0x6558) и IP (0x0800/0x86DD) payload.
+
 ### Stub-интерфейсы
 
 | RFC | Зависимость | Статус |
 |---|---|---|
 | RFC 5884 (BFD для MPLS) | LSP Ping (RFC 4379) | Интерфейсы определены в `internal/bfd` |
 | RFC 5885 (BFD для VCCV) | VCCV (RFC 5085), LDP (RFC 4447) | Интерфейсы определены |
-| RFC 7130 (Micro-BFD для LAG) | Per-member-link сессии | `SO_BINDTODEVICE` per member готов |
 
 ### Справочные RFC
 
@@ -151,11 +211,11 @@ Graceful shutdown отправляет AdminDown с Diag=7, ожидает 2x TX
 
 | RFC | Название | Отношение |
 |---|---|---|
+| RFC 8203 | BGP Administrative Shutdown | Строка communication для DisablePeer |
 | RFC 5082 | GTSM | Основание для требования TTL=255 |
 | RFC 4379 | LSP Ping | Зависимость RFC 5884 |
 | RFC 5085 | VCCV | Зависимость RFC 5885 |
 | RFC 4447 | LDP | Зависимость RFC 5885 |
-| RFC 7419 | Common Interval Support | Руководство по согласованию интервалов |
 | RFC 7726 | Clarifying BFD for MPLS | Процедуры MPLS-сессий |
 | RFC 9127 | YANG Data Model for BFD | Эталон модели конфигурации |
 
@@ -181,4 +241,4 @@ Graceful shutdown отправляет AdminDown с Diag=7, ожидает 2x TX
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Последнее обновление: 2026-02-23*
