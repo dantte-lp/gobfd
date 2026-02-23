@@ -411,7 +411,7 @@ func sessionTypeFromProto(pt bfdv1.SessionType) (bfd.SessionType, error) {
 	case bfdv1.SessionType_SESSION_TYPE_MULTI_HOP:
 		return bfd.SessionTypeMultiHop, nil
 	default:
-		return 0, fmt.Errorf("%s: %w", pt, ErrInvalidSessionType)
+		return 0, wrapError(pt.String(), ErrInvalidSessionType)
 	}
 }
 
@@ -558,24 +558,25 @@ func sessionTypeToProto(st bfd.SessionType) bfdv1.SessionType {
 	}
 }
 
+// wrapError returns an error that wraps err with a context prefix.
+func wrapError(context string, err error) error {
+	return fmt.Errorf("%s: %w", context, err)
+}
+
 // mapManagerError translates bfd.Manager errors into appropriate ConnectRPC error codes.
 func mapManagerError(err error, operation string) *connect.Error {
 	switch {
 	case errors.Is(err, bfd.ErrDuplicateSession):
-		return connect.NewError(connect.CodeAlreadyExists,
-			fmt.Errorf("%s: %w", operation, err))
+		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err))
 	case errors.Is(err, bfd.ErrSessionNotFound):
-		return connect.NewError(connect.CodeNotFound,
-			fmt.Errorf("%s: %w", operation, err))
+		return connect.NewError(connect.CodeNotFound, wrapError(operation, err))
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
 		errors.Is(err, bfd.ErrInvalidTxInterval),
 		errors.Is(err, bfd.ErrInvalidSessionType),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
-		return connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("%s: %w", operation, err))
+		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err))
 	default:
-		return connect.NewError(connect.CodeInternal,
-			fmt.Errorf("%s: %w", operation, err))
+		return connect.NewError(connect.CodeInternal, wrapError(operation, err))
 	}
 }

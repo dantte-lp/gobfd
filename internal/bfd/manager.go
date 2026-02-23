@@ -30,6 +30,9 @@ var (
 	ErrInvalidPeerAddr = errors.New("peer address must be valid")
 )
 
+// createSessionErrPrefix is the common error prefix for session creation failures.
+const createSessionErrPrefix = "create session"
+
 // -------------------------------------------------------------------------
 // PacketMeta — transport metadata for demultiplexing
 // -------------------------------------------------------------------------
@@ -257,7 +260,7 @@ func (m *Manager) CreateSession(
 	sender PacketSender,
 ) (*Session, error) {
 	if !cfg.PeerAddr.IsValid() {
-		return nil, fmt.Errorf("create session: %w", ErrInvalidPeerAddr)
+		return nil, fmt.Errorf("%s: %w", createSessionErrPrefix, ErrInvalidPeerAddr)
 	}
 
 	key := sessionKey{
@@ -308,7 +311,7 @@ func (m *Manager) allocateAndBuild(
 ) (uint32, *Session, error) {
 	discr, err := m.discriminators.Allocate()
 	if err != nil {
-		return 0, nil, fmt.Errorf("create session: %w", err)
+		return 0, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
 	sess, err := NewSession(cfg, discr, sender, m.notifyCh, m.logger,
@@ -316,7 +319,7 @@ func (m *Manager) allocateAndBuild(
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
-		return 0, nil, fmt.Errorf("create session: %w", err)
+		return 0, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
 	return discr, sess, nil

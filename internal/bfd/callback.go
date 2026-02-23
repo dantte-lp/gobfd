@@ -75,9 +75,9 @@ type MetricsReporter interface {
 // on the hot path beyond the interface dispatch.
 type noopMetrics struct{}
 
-func (noopMetrics) IncPacketsSent(_, _ netip.Addr)                     {}
-func (noopMetrics) IncPacketsReceived(_, _ netip.Addr)                 {}
-func (noopMetrics) IncPacketsDropped(_, _ netip.Addr)                  {}
-func (noopMetrics) RecordStateTransition(_, _ netip.Addr, _, _ string) {}
-func (noopMetrics) RegisterSession(_, _ netip.Addr, _ string)          {}
-func (noopMetrics) UnregisterSession(_, _ netip.Addr, _ string)        {}
+func (noopMetrics) IncPacketsSent(_, _ netip.Addr)                     { /* no-op */ }
+func (noopMetrics) IncPacketsReceived(_, _ netip.Addr)                 { /* no-op */ }
+func (noopMetrics) IncPacketsDropped(_, _ netip.Addr)                  { /* no-op */ }
+func (noopMetrics) RecordStateTransition(_, _ netip.Addr, _, _ string) { /* no-op */ }
+func (noopMetrics) RegisterSession(_, _ netip.Addr, _ string)          { /* no-op */ }
+func (noopMetrics) UnregisterSession(_, _ netip.Addr, _ string)        { /* no-op */ }
