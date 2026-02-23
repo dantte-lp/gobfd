@@ -25,6 +25,7 @@ type Config struct {
 	Log         LogConfig         `koanf:"log"`
 	BFD         BFDConfig         `koanf:"bfd"`
 	Unsolicited UnsolicitedConfig `koanf:"unsolicited"`
+	Echo        EchoConfig        `koanf:"echo"`
 	GoBGP       GoBGPConfig       `koanf:"gobgp"`
 	Sessions    []SessionConfig   `koanf:"sessions"`
 }
@@ -111,6 +112,22 @@ type UnsolicitedSessionDefaultsConfig struct {
 	DesiredMinTx  time.Duration `koanf:"desired_min_tx"`
 	RequiredMinRx time.Duration `koanf:"required_min_rx"`
 	DetectMult    uint32        `koanf:"detect_mult"`
+}
+
+// EchoConfig holds the RFC 9747 unaffiliated BFD echo configuration.
+// When enabled, GoBFD can create echo sessions that detect forwarding-path
+// failures without requiring the remote to run BFD.
+type EchoConfig struct {
+	// Enabled controls whether BFD echo sessions are available.
+	// Disabled by default.
+	Enabled bool `koanf:"enabled"`
+
+	// DefaultTxInterval is the default echo transmit interval.
+	// RFC 9747 Section 3.3: locally provisioned, not negotiated.
+	DefaultTxInterval time.Duration `koanf:"default_tx_interval"`
+
+	// DefaultDetectMultiplier is the default echo detection multiplier.
+	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.

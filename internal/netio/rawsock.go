@@ -20,6 +20,11 @@ const (
 	// (RFC 5883 Section 2: "The destination UDP port MUST be set to 4784").
 	PortMultiHop uint16 = 4784
 
+	// PortEcho is the destination UDP port for BFD echo packets
+	// (RFC 5881 Section 4, RFC 9747: "BFD Echo packets MUST be
+	// transmitted in UDP packets with destination port 3785").
+	PortEcho uint16 = 3785
+
 	// sourcePortMin is the minimum ephemeral source port for BFD sessions
 	// (RFC 5881 Section 4: "source port MUST be in the range 49152 through
 	// 65535").

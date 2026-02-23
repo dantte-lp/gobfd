@@ -25,6 +25,9 @@ const (
 
 	// SessionTypeMultiHop indicates a multi-hop BFD session (RFC 5883).
 	SessionTypeMultiHop
+
+	// SessionTypeEcho indicates an unaffiliated BFD echo session (RFC 9747).
+	SessionTypeEcho
 )
 
 // String returns the human-readable name for the session type.
@@ -34,6 +37,8 @@ func (st SessionType) String() string {
 		return "SingleHop"
 	case SessionTypeMultiHop:
 		return "MultiHop"
+	case SessionTypeEcho:
+		return "Echo"
 	default:
 		return unknownStr
 	}

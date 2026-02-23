@@ -7,6 +7,7 @@
 ![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)
 ![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)
+![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
 ![RFC 7130](https://img.shields.io/badge/RFC_7130-Stub-ffc107?style=for-the-badge)
 
@@ -24,6 +25,7 @@
 - [RFC 5883 Implementation Notes](#rfc-5883-implementation-notes)
 - [RFC 9384 Implementation Notes](#rfc-9384-implementation-notes)
 - [RFC 9468 Implementation Notes](#rfc-9468-implementation-notes)
+- [RFC 9747 Implementation Notes](#rfc-9747-implementation-notes)
 - [Stub Interfaces](#stub-interfaces)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
@@ -39,11 +41,12 @@
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Implemented** | Cease/10 subcode in shutdown communication |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Implemented** | Passive session auto-creation, per-interface policy |
+| [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Implemented** | Echo session, DiagEchoFailed, UDP 3785 |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Stub** | Per-member-link sessions planned |
 
-> Echo Mode (RFC 5880 Section 6.4) and Demand Mode (RFC 5880 Section 6.6) are intentionally not implemented. Asynchronous mode covers the primary use case of BFD-assisted failover in ISP/DC environments.
+> Traditional Echo Mode (RFC 5880 Section 6.4, affiliated with a control session) and Demand Mode (RFC 5880 Section 6.6) are intentionally not implemented. Asynchronous mode covers the primary use case of BFD-assisted failover in ISP/DC environments. Unaffiliated echo (RFC 9747) is implemented as a standalone forwarding-path test without requiring a control session.
 
 ### RFC 5880 Implementation Notes
 
@@ -130,7 +133,7 @@ Graceful shutdown sends AdminDown with Diag=7, waits 2x TX interval, then cancel
 
 | Section | Feature | Rationale |
 |---|---|---|
-| 6.4 | Echo Mode | Requires kernel cooperation; low benefit for BFD-BGP use case |
+| 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
 | 6.6 | Demand Mode | Rarely used; interval tuning achieves same goal |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
@@ -225,6 +228,30 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 | Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
 
 Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet.
+
+### RFC 9747 Implementation Notes
+
+**Implementation**: [`internal/bfd/echo.go`](../../internal/bfd/echo.go)
+
+RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness detection without requiring the remote system to run BFD. The local system sends BFD Control packets (echo packets) to the remote, which forwards them back via normal IP routing.
+
+| Requirement | Implementation |
+|---|---|
+| UDP port 3785 | `netio.PortEcho = 3785` |
+| Standard BFD Control packet format | Reuses `MarshalControlPacket` codec |
+| DiagEchoFailed on timeout | `DiagEchoFailed` (value 2) |
+| Locally provisioned timers | `EchoSessionConfig.TxInterval`, no negotiation |
+| Two-state FSM (Up/Down) | Simplified FSM in `EchoSession` |
+| DetectionTime = DetectMult * TxInterval | `EchoSession.DetectionTime()` |
+| Demux by MyDiscriminator on return | Echo listener matches returned packets |
+| Session type | `SessionTypeEcho` constant |
+| TTL 255 send, TTL >= 254 receive | GTSM validation via `netio.ValidateTTL` |
+
+Key differences from BFD control sessions:
+- No three-way handshake (no Init state)
+- No timer negotiation with remote (locally provisioned)
+- No authentication (echo packets are self-originated)
+- Separate `EchoSession` type with simplified FSM
 
 ### Stub Interfaces
 
