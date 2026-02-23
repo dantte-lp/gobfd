@@ -34,7 +34,6 @@
 - tshark-сайдкар для верификации пакетов во всех интеграционных стеках.
 - Документация по интеграциям (docs/en/11-integrations.md, docs/ru/11-integrations.md).
 - Цели Makefile для всех примеров интеграции (`int-bgp-failover`, `int-haproxy`, `int-observability`, `int-exabgp-anycast`, `int-k8s`).
-
 - Отображение версии (`--version`) для всех бинарников с хешем коммита и датой сборки.
 - Общий пакет версии (`internal/version`) с инжекцией через ldflags.
 - Инжекция версии в Makefile, CI, GoReleaser и всех Containerfile.
