@@ -34,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tshark packet verification sidecar in all integration stacks.
 - Integration documentation (docs/en/11-integrations.md, docs/ru/11-integrations.md).
 - Makefile targets for all integration examples (`int-bgp-failover`, `int-haproxy`, `int-observability`, `int-exabgp-anycast`, `int-k8s`).
-
 - Version display (`--version`) for all binaries with commit hash and build date.
 - Shared version package (`internal/version`) with ldflags injection.
 - Version injection in Makefile, CI, GoReleaser, and all Containerfiles.
