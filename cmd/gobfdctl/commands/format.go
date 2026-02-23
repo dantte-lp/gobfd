@@ -25,46 +25,40 @@ const (
 // errUnsupportedFormat is returned when the requested output format is not supported.
 var errUnsupportedFormat = errors.New("unsupported output format")
 
-// formatSessions renders a slice of BFD sessions in the requested format.
-func formatSessions(sessions []*bfdv1.BfdSession, format string) (string, error) {
+// formatOutput dispatches to the appropriate serializer for the given format.
+// view is the pre-converted view struct for JSON/YAML; tableFn renders the table format.
+func formatOutput(view any, format string, tableFn func() (string, error)) (string, error) {
 	switch format {
 	case formatJSON:
-		return formatSessionsJSON(sessions)
+		return marshalJSON(view)
 	case formatTable:
-		return formatSessionsTable(sessions)
+		return tableFn()
 	case formatYAML:
-		return formatSessionsYAML(sessions)
+		return marshalYAML(view)
 	default:
 		return "", fmt.Errorf("%w: %q", errUnsupportedFormat, format)
 	}
+}
+
+// formatSessions renders a slice of BFD sessions in the requested format.
+func formatSessions(sessions []*bfdv1.BfdSession, format string) (string, error) {
+	return formatOutput(sessionsToView(sessions), format, func() (string, error) {
+		return formatSessionsTable(sessions)
+	})
 }
 
 // formatSession renders a single BFD session in the requested format.
 func formatSession(session *bfdv1.BfdSession, format string) (string, error) {
-	switch format {
-	case formatJSON:
-		return formatSessionJSON(session)
-	case formatTable:
+	return formatOutput(sessionToView(session), format, func() (string, error) {
 		return formatSessionDetail(session)
-	case formatYAML:
-		return formatSessionYAML(session)
-	default:
-		return "", fmt.Errorf("%w: %q", errUnsupportedFormat, format)
-	}
+	})
 }
 
 // formatEvent renders a session event in the requested format.
 func formatEvent(event *bfdv1.WatchSessionEventsResponse, format string) (string, error) {
-	switch format {
-	case formatJSON:
-		return formatEventJSON(event)
-	case formatTable:
+	return formatOutput(eventToView(event), format, func() (string, error) {
 		return formatEventTable(event), nil
-	case formatYAML:
-		return formatEventYAML(event)
-	default:
-		return "", fmt.Errorf("%w: %q", errUnsupportedFormat, format)
-	}
+	})
 }
 
 // --- Table formatters ---
@@ -176,59 +170,21 @@ func formatEventTable(event *bfdv1.WatchSessionEventsResponse) string {
 	)
 }
 
-// --- JSON formatters ---
+// --- JSON / YAML helpers ---
 
-func formatSessionsJSON(sessions []*bfdv1.BfdSession) (string, error) {
-	data, err := json.MarshalIndent(sessionsToView(sessions), "", "  ")
+func marshalJSON(v any) (string, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("marshal sessions to JSON: %w", err)
+		return "", fmt.Errorf("marshal to JSON: %w", err)
 	}
 
 	return string(data), nil
 }
 
-func formatSessionJSON(session *bfdv1.BfdSession) (string, error) {
-	data, err := json.MarshalIndent(sessionToView(session), "", "  ")
+func marshalYAML(v any) (string, error) {
+	data, err := yaml.Marshal(v)
 	if err != nil {
-		return "", fmt.Errorf("marshal session to JSON: %w", err)
-	}
-
-	return string(data), nil
-}
-
-func formatEventJSON(event *bfdv1.WatchSessionEventsResponse) (string, error) {
-	data, err := json.MarshalIndent(eventToView(event), "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal event to JSON: %w", err)
-	}
-
-	return string(data), nil
-}
-
-// --- YAML formatters ---
-
-func formatSessionsYAML(sessions []*bfdv1.BfdSession) (string, error) {
-	data, err := yaml.Marshal(sessionsToView(sessions))
-	if err != nil {
-		return "", fmt.Errorf("marshal sessions to YAML: %w", err)
-	}
-
-	return string(data), nil
-}
-
-func formatSessionYAML(session *bfdv1.BfdSession) (string, error) {
-	data, err := yaml.Marshal(sessionToView(session))
-	if err != nil {
-		return "", fmt.Errorf("marshal session to YAML: %w", err)
-	}
-
-	return string(data), nil
-}
-
-func formatEventYAML(event *bfdv1.WatchSessionEventsResponse) (string, error) {
-	data, err := yaml.Marshal(eventToView(event))
-	if err != nil {
-		return "", fmt.Errorf("marshal event to YAML: %w", err)
+		return "", fmt.Errorf("marshal to YAML: %w", err)
 	}
 
 	return string(data), nil
