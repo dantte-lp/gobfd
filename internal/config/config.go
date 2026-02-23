@@ -27,6 +27,7 @@ type Config struct {
 	Unsolicited UnsolicitedConfig `koanf:"unsolicited"`
 	Echo        EchoConfig        `koanf:"echo"`
 	MicroBFD    MicroBFDConfig    `koanf:"micro_bfd"`
+	VXLAN       VXLANConfig       `koanf:"vxlan"`
 	GoBGP       GoBGPConfig       `koanf:"gobgp"`
 	Sessions    []SessionConfig   `koanf:"sessions"`
 }
@@ -167,6 +168,28 @@ type MicroBFDGroupConfig struct {
 	// Up for the LAG to be considered operational.
 	// Must be >= 1 and <= len(MemberLinks).
 	MinActiveLinks int `koanf:"min_active_links"`
+}
+
+// VXLANConfig holds the RFC 8971 BFD for VXLAN configuration.
+// When configured, GoBFD can run BFD sessions encapsulated in VXLAN
+// to verify VTEP-to-VTEP forwarding paths.
+type VXLANConfig struct {
+	// Enabled controls whether VXLAN BFD is available.
+	Enabled bool `koanf:"enabled"`
+
+	// ManagementVNI is the VXLAN Network Identifier used for BFD
+	// control messages. RFC 8971 Section 3: all BFD packets use
+	// a dedicated Management VNI.
+	ManagementVNI uint32 `koanf:"management_vni"`
+
+	// DefaultDesiredMinTx is the default TX interval for VXLAN BFD sessions.
+	DefaultDesiredMinTx time.Duration `koanf:"default_desired_min_tx"`
+
+	// DefaultRequiredMinRx is the default RX interval for VXLAN BFD sessions.
+	DefaultRequiredMinRx time.Duration `koanf:"default_required_min_rx"`
+
+	// DefaultDetectMultiplier is the default detection multiplier.
+	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.

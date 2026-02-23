@@ -8,6 +8,7 @@
 ![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)
 ![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)
+![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
 ![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)
 
@@ -27,6 +28,7 @@
 - [RFC 9468 Implementation Notes](#rfc-9468-implementation-notes)
 - [RFC 9747 Implementation Notes](#rfc-9747-implementation-notes)
 - [RFC 7130 Implementation Notes](#rfc-7130-implementation-notes)
+- [RFC 8971 Implementation Notes](#rfc-8971-implementation-notes)
 - [Stub Interfaces](#stub-interfaces)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
@@ -46,6 +48,7 @@
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Implemented** | Per-member-link sessions, aggregate state, UDP 6784 |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Implemented** | VXLAN encap/decap, Management VNI, inner port 3784 |
 
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated with a control session) and Demand Mode (RFC 5880 Section 6.6) are intentionally not implemented. Asynchronous mode covers the primary use case of BFD-assisted failover in ISP/DC environments. Unaffiliated echo (RFC 9747) is implemented as a standalone forwarding-path test without requiring a control session.
 
@@ -279,6 +282,31 @@ Aggregate state logic:
 - Init state on a member is not counted as Up (only `StateUp` increments `upCount`)
 
 `MicroBFDGroupSnapshot` provides a read-only view of the group state including per-member link details, useful for gRPC API responses and monitoring.
+
+### RFC 8971 Implementation Notes
+
+**Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go)
+
+RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detection between VTEPs (Virtual Tunnel Endpoints). BFD Control packets are carried inside VXLAN-encapsulated inner Ethernet frames.
+
+| Requirement | Implementation |
+|---|---|
+| Outer UDP port 4789 | `netio.VXLANPort = 4789` |
+| Inner UDP port 3784 | Standard BFD single-hop port |
+| VXLAN header codec | `MarshalVXLANHeader` / `UnmarshalVXLANHeader` |
+| Management VNI | `VXLANConfig.ManagementVNI` |
+| VNI validation (24-bit) | `ErrVXLANVNIOverflow` sentinel |
+| I flag validation | `ErrVXLANInvalidFlags` sentinel |
+| Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
+| Session type | `SessionTypeVXLAN` constant |
+
+Packet encapsulation stack:
+```
+Outer IP → Outer UDP (4789) → VXLAN Header (8 bytes) →
+Inner Ethernet → Inner IP → Inner UDP (3784) → BFD Control
+```
+
+The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) and 24-bit VNI encoding. Management VNI packets are processed locally and not forwarded to tenant networks.
 
 ### Stub Interfaces
 
