@@ -4,6 +4,7 @@
 ![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)
 ![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)
 ![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)
+![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)
 ![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
 ![RFC 7130](https://img.shields.io/badge/RFC_7130-Stub-ffc107?style=for-the-badge)
@@ -18,7 +19,9 @@
 - [RFC 5880 Implementation Notes](#rfc-5880-implementation-notes)
 - [RFC 5881 Implementation Notes](#rfc-5881-implementation-notes)
 - [RFC 5882 Implementation Notes](#rfc-5882-implementation-notes)
+- [RFC 7419 Implementation Notes](#rfc-7419-implementation-notes)
 - [RFC 5883 Implementation Notes](#rfc-5883-implementation-notes)
+- [RFC 9384 Implementation Notes](#rfc-9384-implementation-notes)
 - [Stub Interfaces](#stub-interfaces)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
@@ -31,6 +34,7 @@
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Implemented** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Implemented** | GoBGP integration, flap dampening |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Implemented** | UDP 4784, TTL>=254 check |
+| [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Implemented** | Cease/10 subcode in shutdown communication |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
@@ -158,6 +162,34 @@ Graceful shutdown sends AdminDown with Diag=7, waits 2x TX interval, then cancel
 | TTL>=254 incoming check | Separate TTL validation for multihop |
 | Demux by (MyDiscr, SrcIP, DstIP) | Manager.DemuxWithWire composite key |
 
+### RFC 7419 Implementation Notes
+
+**Implementation**: [`internal/bfd/intervals.go`](../../internal/bfd/intervals.go)
+
+RFC 7419 defines a set of common BFD timer interval values to ensure interoperability between software-based and hardware-based implementations.
+
+| Common Interval | Use Case |
+|---|---|
+| 3.3 ms | MPLS-TP (GR-253-CORE) |
+| 10 ms | General consensus minimum |
+| 20 ms | Software-based minimum |
+| 50 ms | Widely deployed |
+| 100 ms | G.8013/Y.1731 reuse |
+| 1 s | RFC 5880 slow rate |
+
+Additionally, 10s is recommended for graceful restart (multiplier 255 = 42.5 min timeout).
+
+| Feature | Implementation |
+|---|---|
+| Common interval set | `CommonIntervals` array (6 values) |
+| Align to common interval | `AlignToCommonInterval()` — rounds UP |
+| Check if common | `IsCommonInterval()` |
+| Nearest common interval | `NearestCommonInterval()` |
+| Config option | `bfd.align_intervals: true` in YAML config |
+| Graceful restart interval | `GracefulRestartInterval = 10s` |
+
+When `bfd.align_intervals` is enabled, `DesiredMinTxInterval` and `RequiredMinRxInterval` are aligned to the nearest common interval (rounded up) during session creation. This prevents negotiation mismatches with hardware BFD implementations from Arista, Nokia, Juniper, and Cisco.
+
 ### RFC 9384 Implementation Notes
 
 **Implementation**: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
@@ -193,7 +225,6 @@ These RFCs are referenced but not directly implemented:
 | RFC 4379 | LSP Ping | Dependency of RFC 5884 |
 | RFC 5085 | VCCV | Dependency of RFC 5885 |
 | RFC 4447 | LDP | Dependency of RFC 5885 |
-| RFC 7419 | Common Interval Support | Interval negotiation guidance |
 | RFC 7726 | Clarifying BFD for MPLS | MPLS session procedures |
 | RFC 9127 | YANG Data Model for BFD | Configuration model reference |
 
@@ -210,6 +241,7 @@ Full RFC text files are available in the `docs/rfc/` directory:
 | [rfc5884.txt](../rfc/rfc5884.txt) | 28 KB |
 | [rfc5885.txt](../rfc/rfc5885.txt) | 31 KB |
 | [rfc7130.txt](../rfc/rfc7130.txt) | 21 KB |
+| [rfc7419.txt](../rfc/rfc7419.txt) | 12 KB |
 
 ### Related Documents
 
@@ -219,4 +251,4 @@ Full RFC text files are available in the `docs/rfc/` directory:
 
 ---
 
-*Last updated: 2026-02-21*
+*Last updated: 2026-02-23*

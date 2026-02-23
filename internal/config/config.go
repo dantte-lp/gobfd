@@ -64,6 +64,12 @@ type BFDConfig struct {
 	// DefaultDetectMultiplier is the default detection time multiplier.
 	// RFC 5880 Section 6.8.1: MUST be nonzero.
 	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+
+	// AlignIntervals enables RFC 7419 common interval alignment.
+	// When true, DesiredMinTxInterval and RequiredMinRxInterval are
+	// rounded UP to the nearest RFC 7419 common interval value
+	// (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s) for hardware interop.
+	AlignIntervals bool `koanf:"align_intervals"`
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.
@@ -186,6 +192,7 @@ func DefaultConfig() *Config {
 			DefaultDesiredMinTx:     1 * time.Second,
 			DefaultRequiredMinRx:    1 * time.Second,
 			DefaultDetectMultiplier: 3,
+			AlignIntervals:          false,
 		},
 		GoBGP: GoBGPConfig{
 			Enabled:  false,
@@ -274,6 +281,7 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"bfd.default_desired_min_tx":         defaults.BFD.DefaultDesiredMinTx.String(),
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
+		"bfd.align_intervals":                defaults.BFD.AlignIntervals,
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,

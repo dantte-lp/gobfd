@@ -539,6 +539,12 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		return bfd.SessionConfig{}, fmt.Errorf("detect_mult %d: %w", detectMult, errDetectMultOverflow)
 	}
 
+	// RFC 7419: align intervals to common set for hardware interop.
+	if defaults.AlignIntervals {
+		desiredMinTx = bfd.AlignToCommonInterval(desiredMinTx)
+		requiredMinRx = bfd.AlignToCommonInterval(requiredMinRx)
+	}
+
 	return bfd.SessionConfig{
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
