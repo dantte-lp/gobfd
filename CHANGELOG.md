@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-23
+
 ### Added
 
 - IPv6 dual-stack BFD testing in vendor interop suite (RFC 5881 Section 5): Arista cEOS, Nokia SR Linux, FRRouting tested with ULA fd00::/8 addresses and /127 prefixes per RFC 6164.
@@ -67,5 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.1.0

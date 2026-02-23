@@ -52,6 +52,7 @@ docs/tmp/
 
 # Build artifacts
 dist/
+release-notes.md
 
 # Containerlab generated files
 test/interop-clab/*.generated.clab.yml
