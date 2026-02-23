@@ -89,7 +89,7 @@ func (l *Listener) Recv(ctx context.Context) ([]byte, PacketMeta, error) {
 		}
 
 		// Validate GTSM TTL before returning to caller.
-		if ttlErr := ValidateTTL(meta, l.multiHop); ttlErr != nil {
+		if err := ValidateTTL(meta, l.multiHop); err != nil {
 			continue // Drop packets with invalid TTL silently.
 		}
 

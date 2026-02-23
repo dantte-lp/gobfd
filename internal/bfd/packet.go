@@ -31,6 +31,9 @@ const MaxPacketSize = 64
 // unknownStr is the string representation for unrecognized enum values.
 const unknownStr = "Unknown"
 
+// unknownFmt is the format string for unrecognized enum values with numeric code.
+const unknownFmt = "Unknown(%d)"
+
 // MinPacketSizeNoAuth is the minimum valid packet size when the A bit is
 // clear (RFC 5880 Section 6.8.6: "24 if the A bit is clear").
 const MinPacketSizeNoAuth = 24
@@ -132,7 +135,7 @@ func (d Diag) String() string {
 	if int(d) < len(diagNames) {
 		return diagNames[d]
 	}
-	return fmt.Sprintf("Unknown(%d)", d)
+	return fmt.Sprintf(unknownFmt, d)
 }
 
 // -------------------------------------------------------------------------
@@ -174,7 +177,7 @@ func (s State) String() string {
 	if int(s) < len(stateNames) {
 		return stateNames[s]
 	}
-	return fmt.Sprintf("Unknown(%d)", s)
+	return fmt.Sprintf(unknownFmt, s)
 }
 
 // -------------------------------------------------------------------------
@@ -224,7 +227,7 @@ func (a AuthType) String() string {
 	if int(a) < len(authTypeNames) {
 		return authTypeNames[a]
 	}
-	return fmt.Sprintf("Unknown(%d)", a)
+	return fmt.Sprintf(unknownFmt, a)
 }
 
 // -------------------------------------------------------------------------
@@ -413,6 +416,9 @@ var (
 	ErrAuthSectionTruncated = errors.New("auth section truncated")
 )
 
+// unmarshalErrPrefix is the common error prefix for packet decoding failures.
+const unmarshalErrPrefix = "unmarshal control packet"
+
 // -------------------------------------------------------------------------
 // MarshalControlPacket — RFC 5880 Section 4.1
 // -------------------------------------------------------------------------
@@ -529,17 +535,12 @@ func marshalAuthSection(auth *AuthSection, buf []byte) error {
 		buf[2] = auth.KeyID
 		copy(buf[3:], auth.AuthData)
 
-	case AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5:
-		// RFC 5880 Section 4.3: Type(1) + Len(1) + KeyID(1) + Reserved(1) +
+	case AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5,
+		AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1:
+		// RFC 5880 Section 4.3 (MD5): Type(1) + Len(1) + KeyID(1) + Reserved(1) +
 		// SeqNum(4) + Digest(16). Auth Len = 24.
-		buf[2] = auth.KeyID
-		buf[3] = 0 // Reserved: MUST be set to zero on transmit.
-		binary.BigEndian.PutUint32(buf[4:8], auth.SequenceNumber)
-		copy(buf[8:], auth.Digest)
-
-	case AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1:
-		// RFC 5880 Section 4.4: Type(1) + Len(1) + KeyID(1) + Reserved(1) +
-		// SeqNum(4) + Hash(20). Auth Len = 28.
+		// RFC 5880 Section 4.4 (SHA1): same layout, Digest(20). Auth Len = 28.
+		// Wire format is identical; digest length is encoded in auth.Length.
 		buf[2] = auth.KeyID
 		buf[3] = 0 // Reserved: MUST be set to zero on transmit.
 		binary.BigEndian.PutUint32(buf[4:8], auth.SequenceNumber)
@@ -578,8 +579,8 @@ func marshalAuthSection(auth *AuthSection, buf []byte) error {
 func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 	// Pre-check: need at least 24 bytes to decode the mandatory header.
 	if len(buf) < MinPacketSizeNoAuth {
-		return fmt.Errorf("unmarshal control packet: received %d bytes, minimum %d: %w",
-			len(buf), MinPacketSizeNoAuth, ErrPacketTooShort)
+		return fmt.Errorf("%s: received %d bytes, minimum %d: %w",
+			unmarshalErrPrefix, len(buf), MinPacketSizeNoAuth, ErrPacketTooShort)
 	}
 
 	// Decode fixed header fields (bytes 0-3).
@@ -603,7 +604,7 @@ func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 	if pkt.AuthPresent {
 		auth := &AuthSection{}
 		if err := unmarshalAuthSection(buf[HeaderSize:pkt.Length], auth); err != nil {
-			return fmt.Errorf("unmarshal control packet: %w", err)
+			return fmt.Errorf("%s: %w", unmarshalErrPrefix, err)
 		}
 		pkt.Auth = auth
 	}
@@ -636,8 +637,8 @@ func decodeHeader(buf []byte, pkt *ControlPacket) {
 func validateHeader(buf []byte, pkt *ControlPacket) error {
 	// Step 1: version must be 1.
 	if pkt.Version != Version {
-		return fmt.Errorf("unmarshal control packet: version %d: %w",
-			pkt.Version, ErrInvalidVersion)
+		return fmt.Errorf("%s: version %d: %w",
+			unmarshalErrPrefix, pkt.Version, ErrInvalidVersion)
 	}
 
 	// Step 2: length >= minimum (24 or 26 with auth).
@@ -646,24 +647,24 @@ func validateHeader(buf []byte, pkt *ControlPacket) error {
 		minLen = MinPacketSizeWithAuth
 	}
 	if pkt.Length < minLen {
-		return fmt.Errorf("unmarshal control packet: length field %d below minimum %d (auth=%t): %w",
-			pkt.Length, minLen, pkt.AuthPresent, ErrInvalidLength)
+		return fmt.Errorf("%s: length field %d below minimum %d (auth=%t): %w",
+			unmarshalErrPrefix, pkt.Length, minLen, pkt.AuthPresent, ErrInvalidLength)
 	}
 
 	// Step 3: length <= payload size.
 	if int(pkt.Length) > len(buf) {
-		return fmt.Errorf("unmarshal control packet: length field %d exceeds payload %d: %w",
-			pkt.Length, len(buf), ErrLengthExceedsPayload)
+		return fmt.Errorf("%s: length field %d exceeds payload %d: %w",
+			unmarshalErrPrefix, pkt.Length, len(buf), ErrLengthExceedsPayload)
 	}
 
 	// Step 4: detect multiplier != 0.
 	if pkt.DetectMult == 0 {
-		return fmt.Errorf("unmarshal control packet: %w", ErrZeroDetectMult)
+		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrZeroDetectMult)
 	}
 
 	// Step 5: multipoint bit must be zero.
 	if pkt.Multipoint {
-		return fmt.Errorf("unmarshal control packet: %w", ErrMultipointSet)
+		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrMultipointSet)
 	}
 
 	return nil
@@ -682,13 +683,13 @@ func decodeBody(buf []byte, pkt *ControlPacket) {
 func validateDiscriminators(pkt *ControlPacket) error {
 	// Step 6: my discriminator must be nonzero.
 	if pkt.MyDiscriminator == 0 {
-		return fmt.Errorf("unmarshal control packet: %w", ErrZeroMyDiscriminator)
+		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrZeroMyDiscriminator)
 	}
 
 	// Step 7b: your discriminator zero only valid in Down or AdminDown.
 	if pkt.YourDiscriminator == 0 && pkt.State != StateDown && pkt.State != StateAdminDown {
-		return fmt.Errorf("unmarshal control packet: state %s with zero your discriminator: %w",
-			pkt.State, ErrZeroYourDiscriminator)
+		return fmt.Errorf("%s: state %s with zero your discriminator: %w",
+			unmarshalErrPrefix, pkt.State, ErrZeroYourDiscriminator)
 	}
 
 	return nil
