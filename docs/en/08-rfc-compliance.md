@@ -9,6 +9,7 @@
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)
 ![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)
 ![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)
+![RFC 9521](https://img.shields.io/badge/RFC_9521-Implemented-34a853?style=for-the-badge)
 ![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)
 ![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)
 
@@ -29,6 +30,7 @@
 - [RFC 9747 Implementation Notes](#rfc-9747-implementation-notes)
 - [RFC 7130 Implementation Notes](#rfc-7130-implementation-notes)
 - [RFC 8971 Implementation Notes](#rfc-8971-implementation-notes)
+- [RFC 9521 Implementation Notes](#rfc-9521-implementation-notes)
 - [Stub Interfaces](#stub-interfaces)
 - [Reference RFCs](#reference-rfcs)
 - [RFC Source Files](#rfc-source-files)
@@ -49,6 +51,7 @@
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Implemented** | Per-member-link sessions, aggregate state, UDP 6784 |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Implemented** | VXLAN encap/decap, Management VNI, inner port 3784 |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Implemented** | Geneve encap/decap, O bit control, Ethernet/IP payloads |
 
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated with a control session) and Demand Mode (RFC 5880 Section 6.6) are intentionally not implemented. Asynchronous mode covers the primary use case of BFD-assisted failover in ISP/DC environments. Unaffiliated echo (RFC 9747) is implemented as a standalone forwarding-path test without requiring a control session.
 
@@ -307,6 +310,32 @@ Inner Ethernet → Inner IP → Inner UDP (3784) → BFD Control
 ```
 
 The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) and 24-bit VNI encoding. Management VNI packets are processed locally and not forwarded to tenant networks.
+
+### RFC 9521 Implementation Notes
+
+**Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go)
+
+RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detection between NVEs (Network Virtualization Edges) at the VAP (Virtual Access Point) level. Geneve is the evolution of VXLAN for cloud-native environments.
+
+| Requirement | Implementation |
+|---|---|
+| Outer UDP port 6081 | `netio.GenevePort = 6081` |
+| Geneve header codec | `MarshalGeneveHeader` / `UnmarshalGeneveHeader` |
+| O bit (control) = 1 | `GeneveHeader.OBit` for BFD control messages |
+| C bit (critical) = 0 | `GeneveHeader.CBit` validation |
+| VNI validation (24-bit) | `ErrGeneveVNIOverflow` sentinel |
+| Version validation | `ErrGeneveInvalidVersion` (only version 0 supported) |
+| Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
+| IPv4 payload (Format B) | `GeneveProtocolIPv4 = 0x0800` |
+| IPv6 payload (Format B) | `GeneveProtocolIPv6 = 0x86DD` |
+| Variable-length options | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
+| Session type | `SessionTypeGeneve` constant |
+
+Key differences from VXLAN BFD (RFC 8971):
+- Geneve supports variable-length TLV options (VXLAN has fixed 8-byte header)
+- Two payload formats: Ethernet (Format A) and IP (Format B)
+- O bit control flag indicates management/control traffic
+- Sessions originate/terminate at VAPs, not directly at NVEs
 
 ### Stub Interfaces
 

@@ -71,13 +71,13 @@ type VXLANHeader struct {
 // Sentinel errors for VXLAN operations.
 var (
 	// ErrVXLANHeaderTooShort indicates the buffer is shorter than 8 bytes.
-	ErrVXLANHeaderTooShort = errors.New("VXLAN header too short: need 8 bytes")
+	ErrVXLANHeaderTooShort = errors.New("vxlan header too short: need 8 bytes")
 
 	// ErrVXLANInvalidFlags indicates the I flag is not set.
-	ErrVXLANInvalidFlags = errors.New("VXLAN header: I flag (VNI valid) not set")
+	ErrVXLANInvalidFlags = errors.New("vxlan header: I flag (VNI valid) not set")
 
 	// ErrVXLANVNIOverflow indicates the VNI exceeds 24 bits.
-	ErrVXLANVNIOverflow = errors.New("VXLAN VNI exceeds 24-bit range")
+	ErrVXLANVNIOverflow = errors.New("vxlan VNI exceeds 24-bit range")
 )
 
 // MarshalVXLANHeader encodes a VXLAN header into buf (must be >= 8 bytes).

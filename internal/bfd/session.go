@@ -34,6 +34,9 @@ const (
 
 	// SessionTypeVXLAN indicates a BFD session over a VXLAN tunnel (RFC 8971).
 	SessionTypeVXLAN
+
+	// SessionTypeGeneve indicates a BFD session over a Geneve tunnel (RFC 9521).
+	SessionTypeGeneve
 )
 
 // String returns the human-readable name for the session type.
@@ -49,6 +52,8 @@ func (st SessionType) String() string {
 		return "MicroBFD"
 	case SessionTypeVXLAN:
 		return "VXLAN"
+	case SessionTypeGeneve:
+		return "Geneve"
 	default:
 		return unknownStr
 	}

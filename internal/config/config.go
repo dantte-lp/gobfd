@@ -28,6 +28,7 @@ type Config struct {
 	Echo        EchoConfig        `koanf:"echo"`
 	MicroBFD    MicroBFDConfig    `koanf:"micro_bfd"`
 	VXLAN       VXLANConfig       `koanf:"vxlan"`
+	Geneve      GeneveConfig      `koanf:"geneve"`
 	GoBGP       GoBGPConfig       `koanf:"gobgp"`
 	Sessions    []SessionConfig   `koanf:"sessions"`
 }
@@ -186,6 +187,26 @@ type VXLANConfig struct {
 	DefaultDesiredMinTx time.Duration `koanf:"default_desired_min_tx"`
 
 	// DefaultRequiredMinRx is the default RX interval for VXLAN BFD sessions.
+	DefaultRequiredMinRx time.Duration `koanf:"default_required_min_rx"`
+
+	// DefaultDetectMultiplier is the default detection multiplier.
+	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+}
+
+// GeneveConfig holds the RFC 9521 BFD for Geneve configuration.
+// When configured, GoBFD can run BFD sessions encapsulated in Geneve
+// to verify NVE-to-NVE forwarding paths at the VAP level.
+type GeneveConfig struct {
+	// Enabled controls whether Geneve BFD is available.
+	Enabled bool `koanf:"enabled"`
+
+	// DefaultVNI is the default Geneve VNI for BFD sessions.
+	DefaultVNI uint32 `koanf:"default_vni"`
+
+	// DefaultDesiredMinTx is the default TX interval for Geneve BFD sessions.
+	DefaultDesiredMinTx time.Duration `koanf:"default_desired_min_tx"`
+
+	// DefaultRequiredMinRx is the default RX interval for Geneve BFD sessions.
 	DefaultRequiredMinRx time.Duration `koanf:"default_required_min_rx"`
 
 	// DefaultDetectMultiplier is the default detection multiplier.
