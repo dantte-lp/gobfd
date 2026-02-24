@@ -1,6 +1,7 @@
 package bfd_test
 
 import (
+	"errors"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -403,5 +404,228 @@ func TestMicroBFDGroupInitTransitionsThenRecover(t *testing.T) {
 	}
 	if !g.IsUp() {
 		t.Error("expected aggregate Up")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Dynamic Member Add/Remove Tests
+// -------------------------------------------------------------------------
+
+func TestMicroBFDGroupAddMember(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		MinActiveLinks: 1,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Add a new member.
+	if err := g.AddMember("eth1"); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	if g.MemberCount() != 2 {
+		t.Errorf("MemberCount() = %d, want 2", g.MemberCount())
+	}
+
+	// The new member should start in Down state.
+	states := g.MemberStates()
+	for _, s := range states {
+		if s.Interface == "eth1" {
+			if s.State != bfd.StateDown {
+				t.Errorf("new member state = %v, want Down", s.State)
+			}
+			return
+		}
+	}
+	t.Error("eth1 not found in MemberStates()")
+}
+
+func TestMicroBFDGroupAddMemberDuplicate(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		MinActiveLinks: 1,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Adding an existing member should fail.
+	err = g.AddMember("eth0")
+	if err == nil {
+		t.Fatal("expected error for duplicate member")
+	}
+	if !errors.Is(err, bfd.ErrMicroBFDMemberExists) {
+		t.Errorf("error = %v, want ErrMicroBFDMemberExists", err)
+	}
+}
+
+func TestMicroBFDGroupRemoveMemberDown(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0", "eth1"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		MinActiveLinks: 1,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Remove a Down member. No aggregate change expected.
+	changed, err := g.RemoveMember("eth1")
+	if err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if changed {
+		t.Error("expected no aggregate change when removing Down member")
+	}
+
+	if g.MemberCount() != 1 {
+		t.Errorf("MemberCount() = %d, want 1", g.MemberCount())
+	}
+}
+
+func TestMicroBFDGroupRemoveMemberUp(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0", "eth1"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		MinActiveLinks: 2,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Bring both members Up — aggregate Up (upCount=2 >= minActive=2).
+	if _, uErr := g.UpdateMemberState("eth0", bfd.StateUp, 1); uErr != nil {
+		t.Fatalf("unexpected error: %v", uErr)
+	}
+	if _, uErr := g.UpdateMemberState("eth1", bfd.StateUp, 2); uErr != nil {
+		t.Fatalf("unexpected error: %v", uErr)
+	}
+	if !g.IsUp() {
+		t.Fatal("expected aggregate Up with 2 Up members")
+	}
+
+	// Remove an Up member — aggregate should go Down (upCount=1 < minActive=2).
+	changed, err := g.RemoveMember("eth1")
+	if err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if !changed {
+		t.Error("expected aggregate change when removing Up member below threshold")
+	}
+	if g.IsUp() {
+		t.Error("expected aggregate Down after removing Up member")
+	}
+	if g.UpCount() != 1 {
+		t.Errorf("UpCount() = %d, want 1", g.UpCount())
+	}
+}
+
+func TestMicroBFDGroupRemoveMemberNotFound(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		MinActiveLinks: 1,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = g.RemoveMember("eth99")
+	if err == nil {
+		t.Fatal("expected error for removing nonexistent member")
+	}
+	if !errors.Is(err, bfd.ErrMicroBFDMemberNotFound) {
+		t.Errorf("error = %v, want ErrMicroBFDMemberNotFound", err)
+	}
+}
+
+func TestMicroBFDGroupPeerAndLocalAddr(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		LocalAddr:      netip.MustParseAddr("10.0.0.2"),
+		MinActiveLinks: 1,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if g.PeerAddr() != cfg.PeerAddr {
+		t.Errorf("PeerAddr() = %v, want %v", g.PeerAddr(), cfg.PeerAddr)
+	}
+	if g.LocalAddr() != cfg.LocalAddr {
+		t.Errorf("LocalAddr() = %v, want %v", g.LocalAddr(), cfg.LocalAddr)
+	}
+}
+
+func TestMicroBFDGroupMemberNames(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface:   "bond0",
+		MemberLinks:    []string{"eth0", "eth1", "eth2"},
+		PeerAddr:       netip.MustParseAddr("10.0.0.1"),
+		MinActiveLinks: 1,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	g, err := bfd.NewMicroBFDGroup(cfg, logger)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	names := g.MemberNames()
+	if len(names) != 3 {
+		t.Fatalf("MemberNames() returned %d entries, want 3", len(names))
+	}
+
+	nameSet := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		nameSet[n] = struct{}{}
+	}
+	for _, want := range []string{"eth0", "eth1", "eth2"} {
+		if _, ok := nameSet[want]; !ok {
+			t.Errorf("MemberNames() missing %q", want)
+		}
 	}
 }

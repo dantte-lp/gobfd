@@ -204,6 +204,90 @@ func validateMicroBFDConfig(cfg MicroBFDConfig) error {
 }
 
 // -------------------------------------------------------------------------
+// Dynamic Member Management — future Sprint 7 (netlink LAG events)
+// -------------------------------------------------------------------------
+
+// ErrMicroBFDMemberExists indicates the specified member link already
+// exists in the group.
+var ErrMicroBFDMemberExists = errors.New("member link already exists in micro-BFD group")
+
+// AddMember adds a new member link to the group. The member starts in
+// Down state. This enables dynamic LAG membership changes (e.g., via
+// netlink events when a physical port is added to a LAG).
+//
+// Returns ErrMicroBFDMemberExists if the member already exists.
+func (g *MicroBFDGroup) AddMember(ifName string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if _, exists := g.members[ifName]; exists {
+		return fmt.Errorf("micro-BFD group %q: member %q: %w",
+			g.lagInterface, ifName, ErrMicroBFDMemberExists)
+	}
+
+	g.members[ifName] = &memberEntry{
+		ifName: ifName,
+		state:  StateDown,
+	}
+
+	g.logger.Info("member link added",
+		slog.String("member", ifName),
+		slog.Int("member_count", len(g.members)),
+	)
+
+	return nil
+}
+
+// RemoveMember removes a member link from the group. If the member was
+// in Up state, the upCount is decremented and the aggregate state may
+// change. Returns true if the aggregate state changed as a result.
+//
+// Returns ErrMicroBFDMemberNotFound if the member does not exist.
+func (g *MicroBFDGroup) RemoveMember(ifName string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	entry, ok := g.members[ifName]
+	if !ok {
+		return false, fmt.Errorf("micro-BFD group %q: member %q: %w",
+			g.lagInterface, ifName, ErrMicroBFDMemberNotFound)
+	}
+
+	// Adjust upCount if the member was Up.
+	if entry.state == StateUp {
+		g.upCount--
+	}
+
+	delete(g.members, ifName)
+
+	g.logger.Info("member link removed",
+		slog.String("member", ifName),
+		slog.Int("up_count", g.upCount),
+		slog.Int("member_count", len(g.members)),
+	)
+
+	// Re-evaluate aggregate state.
+	oldAggUp := g.aggregateUp
+	g.aggregateUp = g.upCount >= g.minActive
+
+	if oldAggUp != g.aggregateUp {
+		if g.aggregateUp {
+			g.logger.Info("LAG aggregate state: Up (after member removal)",
+				slog.Int("up_count", g.upCount),
+			)
+		} else {
+			g.logger.Warn("LAG aggregate state: Down (after member removal)",
+				slog.Int("up_count", g.upCount),
+				slog.Int("min_active", g.minActive),
+			)
+		}
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// -------------------------------------------------------------------------
 // State Management
 // -------------------------------------------------------------------------
 
@@ -273,6 +357,12 @@ func (g *MicroBFDGroup) UpdateMemberState(ifName string, newState State, localDi
 // LAGInterface returns the logical LAG interface name.
 func (g *MicroBFDGroup) LAGInterface() string { return g.lagInterface }
 
+// PeerAddr returns the remote system's IP address for the group.
+func (g *MicroBFDGroup) PeerAddr() netip.Addr { return g.peerAddr }
+
+// LocalAddr returns the local system's IP address for the group.
+func (g *MicroBFDGroup) LocalAddr() netip.Addr { return g.localAddr }
+
 // IsUp returns whether the LAG aggregate is considered Up.
 // True when the number of Up member links >= MinActiveLinks.
 func (g *MicroBFDGroup) IsUp() bool {
@@ -297,6 +387,18 @@ func (g *MicroBFDGroup) MemberCount() int {
 
 // MinActiveLinks returns the minimum active links threshold.
 func (g *MicroBFDGroup) MinActiveLinks() int { return g.minActive }
+
+// MemberNames returns the names of all member links in the group.
+func (g *MicroBFDGroup) MemberNames() []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	names := make([]string, 0, len(g.members))
+	for name := range g.members {
+		names = append(names, name)
+	}
+	return names
+}
 
 // MemberStates returns a snapshot of all member link states.
 func (g *MicroBFDGroup) MemberStates() []MemberLinkState {

@@ -75,6 +75,12 @@ type BFDConfig struct {
 	// rounded UP to the nearest RFC 7419 common interval value
 	// (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s) for hardware interop.
 	AlignIntervals bool `koanf:"align_intervals"`
+
+	// DefaultPaddedPduSize is the default padded PDU size for RFC 9764.
+	// When nonzero, all sessions pad BFD Control packets to this length
+	// and set the DF bit for path MTU verification.
+	// Valid range: 24-9000. Zero means no padding (default).
+	DefaultPaddedPduSize uint16 `koanf:"default_padded_pdu_size"`
 }
 
 // UnsolicitedConfig holds the RFC 9468 unsolicited BFD configuration.
@@ -131,6 +137,61 @@ type EchoConfig struct {
 
 	// DefaultDetectMultiplier is the default echo detection multiplier.
 	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+
+	// Peers holds per-peer echo session configurations.
+	// Each entry creates an echo session on daemon startup and SIGHUP reload.
+	Peers []EchoPeerConfig `koanf:"peers"`
+}
+
+// EchoPeerConfig describes a declarative echo session from the configuration file.
+// Each entry creates an RFC 9747 echo session targeting a specific peer.
+type EchoPeerConfig struct {
+	// Peer is the remote system's IP address (echo target).
+	Peer string `koanf:"peer"`
+
+	// Local is the local system's IP address.
+	Local string `koanf:"local"`
+
+	// Interface is the network interface for SO_BINDTODEVICE (optional).
+	Interface string `koanf:"interface"`
+
+	// TxInterval is the echo transmit interval (e.g., "100ms").
+	// Overrides EchoConfig.DefaultTxInterval when nonzero.
+	TxInterval time.Duration `koanf:"tx_interval"`
+
+	// DetectMult is the detection multiplier (must be >= 1).
+	// Overrides EchoConfig.DefaultDetectMultiplier when nonzero.
+	DetectMult uint32 `koanf:"detect_mult"`
+}
+
+// EchoSessionKey returns a unique identifier for the echo session based on
+// (peer, local, interface). Used for diffing echo sessions on SIGHUP reload.
+func (ec EchoPeerConfig) EchoSessionKey() string {
+	return "echo|" + ec.Peer + "|" + ec.Local + "|" + ec.Interface
+}
+
+// PeerAddr parses the Peer string as a netip.Addr.
+func (ec EchoPeerConfig) PeerAddr() (netip.Addr, error) {
+	if ec.Peer == "" {
+		return netip.Addr{}, fmt.Errorf("echo peer: %w", ErrInvalidEchoPeer)
+	}
+	addr, err := netip.ParseAddr(ec.Peer)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("parse echo peer %q: %w", ec.Peer, err)
+	}
+	return addr, nil
+}
+
+// LocalAddr parses the Local string as a netip.Addr.
+func (ec EchoPeerConfig) LocalAddr() (netip.Addr, error) {
+	if ec.Local == "" {
+		return netip.Addr{}, nil
+	}
+	addr, err := netip.ParseAddr(ec.Local)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("parse echo local %q: %w", ec.Local, err)
+	}
+	return addr, nil
 }
 
 // MicroBFDConfig holds the RFC 7130 Micro-BFD for LAG configuration.
@@ -191,6 +252,58 @@ type VXLANConfig struct {
 
 	// DefaultDetectMultiplier is the default detection multiplier.
 	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+
+	// Peers holds per-VTEP BFD session configurations.
+	// Each entry creates a VXLAN-encapsulated BFD session targeting a remote VTEP.
+	Peers []VXLANPeerConfig `koanf:"peers"`
+}
+
+// VXLANPeerConfig describes a declarative VXLAN BFD session.
+// Each entry creates an RFC 8971 BFD-over-VXLAN session at daemon startup.
+type VXLANPeerConfig struct {
+	// Peer is the remote VTEP IP address.
+	Peer string `koanf:"peer"`
+
+	// Local is the local VTEP IP address.
+	Local string `koanf:"local"`
+
+	// DesiredMinTx overrides VXLANConfig.DefaultDesiredMinTx when nonzero.
+	DesiredMinTx time.Duration `koanf:"desired_min_tx"`
+
+	// RequiredMinRx overrides VXLANConfig.DefaultRequiredMinRx when nonzero.
+	RequiredMinRx time.Duration `koanf:"required_min_rx"`
+
+	// DetectMult overrides VXLANConfig.DefaultDetectMultiplier when nonzero.
+	DetectMult uint32 `koanf:"detect_mult"`
+}
+
+// VXLANSessionKey returns a unique identifier for the VXLAN session.
+func (vc VXLANPeerConfig) VXLANSessionKey() string {
+	return "vxlan|" + vc.Peer + "|" + vc.Local
+}
+
+// PeerAddr parses the Peer string as a netip.Addr.
+func (vc VXLANPeerConfig) PeerAddr() (netip.Addr, error) {
+	if vc.Peer == "" {
+		return netip.Addr{}, fmt.Errorf("vxlan peer: %w", ErrInvalidVXLANPeer)
+	}
+	addr, err := netip.ParseAddr(vc.Peer)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("parse vxlan peer %q: %w", vc.Peer, err)
+	}
+	return addr, nil
+}
+
+// LocalAddr parses the Local string as a netip.Addr.
+func (vc VXLANPeerConfig) LocalAddr() (netip.Addr, error) {
+	if vc.Local == "" {
+		return netip.Addr{}, nil
+	}
+	addr, err := netip.ParseAddr(vc.Local)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("parse vxlan local %q: %w", vc.Local, err)
+	}
+	return addr, nil
 }
 
 // GeneveConfig holds the RFC 9521 BFD for Geneve configuration.
@@ -211,6 +324,62 @@ type GeneveConfig struct {
 
 	// DefaultDetectMultiplier is the default detection multiplier.
 	DefaultDetectMultiplier uint32 `koanf:"default_detect_multiplier"`
+
+	// Peers holds per-NVE BFD session configurations.
+	// Each entry creates a Geneve-encapsulated BFD session targeting a remote NVE.
+	Peers []GenevePeerConfig `koanf:"peers"`
+}
+
+// GenevePeerConfig describes a declarative Geneve BFD session.
+// Each entry creates an RFC 9521 BFD-over-Geneve session at daemon startup.
+type GenevePeerConfig struct {
+	// Peer is the remote NVE IP address.
+	Peer string `koanf:"peer"`
+
+	// Local is the local NVE IP address.
+	Local string `koanf:"local"`
+
+	// VNI overrides GeneveConfig.DefaultVNI for this specific peer.
+	// Zero means use the default.
+	VNI uint32 `koanf:"vni"`
+
+	// DesiredMinTx overrides GeneveConfig.DefaultDesiredMinTx when nonzero.
+	DesiredMinTx time.Duration `koanf:"desired_min_tx"`
+
+	// RequiredMinRx overrides GeneveConfig.DefaultRequiredMinRx when nonzero.
+	RequiredMinRx time.Duration `koanf:"required_min_rx"`
+
+	// DetectMult overrides GeneveConfig.DefaultDetectMultiplier when nonzero.
+	DetectMult uint32 `koanf:"detect_mult"`
+}
+
+// GeneveSessionKey returns a unique identifier for the Geneve session.
+func (gc GenevePeerConfig) GeneveSessionKey() string {
+	return "geneve|" + gc.Peer + "|" + gc.Local
+}
+
+// PeerAddr parses the Peer string as a netip.Addr.
+func (gc GenevePeerConfig) PeerAddr() (netip.Addr, error) {
+	if gc.Peer == "" {
+		return netip.Addr{}, fmt.Errorf("geneve peer: %w", ErrInvalidGenevePeer)
+	}
+	addr, err := netip.ParseAddr(gc.Peer)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("parse geneve peer %q: %w", gc.Peer, err)
+	}
+	return addr, nil
+}
+
+// LocalAddr parses the Local string as a netip.Addr.
+func (gc GenevePeerConfig) LocalAddr() (netip.Addr, error) {
+	if gc.Local == "" {
+		return netip.Addr{}, nil
+	}
+	addr, err := netip.ParseAddr(gc.Local)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("parse geneve local %q: %w", gc.Local, err)
+	}
+	return addr, nil
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.
@@ -274,6 +443,11 @@ type SessionConfig struct {
 
 	// DetectMult is the detection multiplier (must be >= 1).
 	DetectMult uint32 `koanf:"detect_mult"`
+
+	// PaddedPduSize is the per-session padded PDU size (RFC 9764).
+	// Overrides BFDConfig.DefaultPaddedPduSize when nonzero.
+	// Valid range: 24-9000. Zero means use the global default.
+	PaddedPduSize uint16 `koanf:"padded_pdu_size"`
 }
 
 // SessionKey returns a unique identifier for the session based on
@@ -483,6 +657,33 @@ var (
 
 	// ErrInvalidDampeningHalfLife indicates the half-life is not positive.
 	ErrInvalidDampeningHalfLife = errors.New("gobgp.dampening.half_life must be > 0 when dampening is enabled")
+
+	// ErrInvalidEchoPeer indicates an echo peer has an invalid peer address.
+	ErrInvalidEchoPeer = errors.New("echo peer address is invalid")
+
+	// ErrInvalidEchoDetectMult indicates an echo detect multiplier is zero.
+	ErrInvalidEchoDetectMult = errors.New("echo detect_mult must be >= 1")
+
+	// ErrDuplicateEchoSessionKey indicates two echo sessions share the same key.
+	ErrDuplicateEchoSessionKey = errors.New("duplicate echo session key")
+
+	// ErrInvalidVXLANPeer indicates a VXLAN peer has an invalid peer address.
+	ErrInvalidVXLANPeer = errors.New("vxlan peer address is invalid")
+
+	// ErrInvalidVXLANVNI indicates the VXLAN VNI exceeds the 24-bit range.
+	ErrInvalidVXLANVNI = errors.New("vxlan VNI exceeds 24-bit range (0-16777215)")
+
+	// ErrDuplicateVXLANSessionKey indicates two VXLAN sessions share the same key.
+	ErrDuplicateVXLANSessionKey = errors.New("duplicate vxlan session key")
+
+	// ErrInvalidGenevePeer indicates a Geneve peer has an invalid peer address.
+	ErrInvalidGenevePeer = errors.New("geneve peer address is invalid")
+
+	// ErrInvalidGeneveVNI indicates the Geneve VNI exceeds the 24-bit range.
+	ErrInvalidGeneveVNI = errors.New("geneve VNI exceeds 24-bit range (0-16777215)")
+
+	// ErrDuplicateGeneveSessionKey indicates two Geneve sessions share the same key.
+	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
 )
 
 // Validate checks the configuration for logical errors.
@@ -509,6 +710,18 @@ func Validate(cfg *Config) error {
 	}
 
 	if err := validateSessions(cfg.Sessions); err != nil {
+		return err
+	}
+
+	if err := validateEchoPeers(cfg.Echo); err != nil {
+		return err
+	}
+
+	if err := validateVXLAN(cfg.VXLAN); err != nil {
+		return err
+	}
+
+	if err := validateGeneve(cfg.Geneve); err != nil {
 		return err
 	}
 
@@ -583,6 +796,104 @@ func validateSessions(sessions []SessionConfig) error {
 		key := sc.SessionKey()
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("sessions[%d] key %q: %w", i, key, ErrDuplicateSessionKey)
+		}
+		seen[key] = struct{}{}
+	}
+
+	return nil
+}
+
+// validateEchoPeers checks each declarative echo peer entry for correctness.
+func validateEchoPeers(cfg EchoConfig) error {
+	if !cfg.Enabled || len(cfg.Peers) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Peers))
+
+	for i, ep := range cfg.Peers {
+		if _, err := ep.PeerAddr(); err != nil {
+			return fmt.Errorf("echo.peers[%d]: %w: %w", i, ErrInvalidEchoPeer, err)
+		}
+
+		if ep.DetectMult != 0 && ep.DetectMult < 1 {
+			return fmt.Errorf("echo.peers[%d]: %w", i, ErrInvalidEchoDetectMult)
+		}
+
+		key := ep.EchoSessionKey()
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf("echo.peers[%d] key %q: %w", i, key, ErrDuplicateEchoSessionKey)
+		}
+		seen[key] = struct{}{}
+	}
+
+	return nil
+}
+
+// vniMax is the maximum valid VNI value (24-bit).
+const vniMax uint32 = 0x00FFFFFF
+
+// validateVXLAN checks the VXLAN BFD configuration for logical errors.
+func validateVXLAN(cfg VXLANConfig) error {
+	if !cfg.Enabled || len(cfg.Peers) == 0 {
+		return nil
+	}
+
+	if cfg.ManagementVNI > vniMax {
+		return fmt.Errorf("vxlan.management_vni %d: %w", cfg.ManagementVNI, ErrInvalidVXLANVNI)
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Peers))
+
+	for i, peer := range cfg.Peers {
+		if _, err := peer.PeerAddr(); err != nil {
+			return fmt.Errorf("vxlan.peers[%d]: %w: %w", i, ErrInvalidVXLANPeer, err)
+		}
+
+		if peer.DetectMult > 255 {
+			return fmt.Errorf("vxlan.peers[%d] detect_mult %d: %w",
+				i, peer.DetectMult, ErrInvalidSessionDetectMult)
+		}
+
+		key := peer.VXLANSessionKey()
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf("vxlan.peers[%d] key %q: %w", i, key, ErrDuplicateVXLANSessionKey)
+		}
+		seen[key] = struct{}{}
+	}
+
+	return nil
+}
+
+// validateGeneve checks the Geneve BFD configuration for logical errors.
+func validateGeneve(cfg GeneveConfig) error {
+	if !cfg.Enabled || len(cfg.Peers) == 0 {
+		return nil
+	}
+
+	if cfg.DefaultVNI > vniMax {
+		return fmt.Errorf("geneve.default_vni %d: %w", cfg.DefaultVNI, ErrInvalidGeneveVNI)
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Peers))
+
+	for i, peer := range cfg.Peers {
+		if _, err := peer.PeerAddr(); err != nil {
+			return fmt.Errorf("geneve.peers[%d]: %w: %w", i, ErrInvalidGenevePeer, err)
+		}
+
+		if peer.VNI > vniMax {
+			return fmt.Errorf("geneve.peers[%d] vni %d: %w", i, peer.VNI, ErrInvalidGeneveVNI)
+		}
+
+		if peer.DetectMult > 255 {
+			return fmt.Errorf("geneve.peers[%d] detect_mult %d: %w",
+				i, peer.DetectMult, ErrInvalidSessionDetectMult)
+		}
+
+		key := peer.GeneveSessionKey()
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf("geneve.peers[%d] key %q: %w", i, key, ErrDuplicateGeneveSessionKey)
 		}
 		seen[key] = struct{}{}
 	}

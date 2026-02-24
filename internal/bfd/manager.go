@@ -28,10 +28,28 @@ var (
 
 	// ErrInvalidPeerAddr indicates the peer address is not valid.
 	ErrInvalidPeerAddr = errors.New("peer address must be valid")
+
+	// ErrEchoSessionNotFound indicates no echo session exists for the given discriminator.
+	ErrEchoSessionNotFound = errors.New("echo session not found")
+
+	// ErrEchoDemuxNoMatch indicates no echo session matched the incoming packet's
+	// MyDiscriminator during demultiplexing (RFC 9747).
+	ErrEchoDemuxNoMatch = errors.New("no matching echo session for incoming packet")
+
+	// ErrMicroBFDGroupNotFound indicates no micro-BFD group exists for the
+	// given LAG interface name.
+	ErrMicroBFDGroupNotFound = errors.New("micro-BFD group not found")
+
+	// ErrMicroBFDGroupExists indicates a micro-BFD group already exists for
+	// the given LAG interface name.
+	ErrMicroBFDGroupExists = errors.New("micro-BFD group already exists for LAG interface")
 )
 
 // createSessionErrPrefix is the common error prefix for session creation failures.
 const createSessionErrPrefix = "create session"
+
+// createEchoSessionErrPrefix is the common error prefix for echo session creation failures.
+const createEchoSessionErrPrefix = "create echo session"
 
 // -------------------------------------------------------------------------
 // PacketMeta — transport metadata for demultiplexing
@@ -131,6 +149,9 @@ type SessionSnapshot struct {
 	// has been received yet.
 	LastPacketReceived time.Time
 
+	// PaddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
+	PaddedPduSize uint16
+
 	// Unsolicited indicates the session was auto-created via RFC 9468.
 	Unsolicited bool
 
@@ -192,6 +213,14 @@ type Manager struct {
 	// when Your Discriminator is zero.
 	sessionsByPeer map[sessionKey]*sessionEntry
 
+	// echoSessions indexed by local discriminator for echo demux.
+	// RFC 9747: echo packets are demultiplexed by MyDiscriminator on return.
+	echoSessions map[uint32]*echoSessionEntry
+
+	// microGroups holds RFC 7130 micro-BFD groups indexed by LAG interface name.
+	// Each group tracks the aggregate state of per-member-link BFD sessions.
+	microGroups map[string]*MicroBFDGroup
+
 	mu sync.RWMutex
 
 	discriminators *DiscriminatorAllocator
@@ -208,8 +237,14 @@ type Manager struct {
 	// Set via WithUnsolicitedSender option.
 	unsolicitedSender PacketSender
 
-	// notifyCh aggregates state changes from all sessions.
-	notifyCh chan StateChange
+	// rawNotifyCh receives state changes from all sessions.
+	// The Manager's dispatch goroutine reads from this channel,
+	// handles micro-BFD group updates, and forwards to publicNotifyCh.
+	rawNotifyCh chan StateChange
+
+	// publicNotifyCh is the fan-out channel exposed via StateChanges().
+	// The GoBGP handler and other external consumers read from this channel.
+	publicNotifyCh chan StateChange
 
 	logger *slog.Logger
 }
@@ -220,6 +255,13 @@ type sessionEntry struct {
 	session *Session
 	cancel  context.CancelFunc
 	key     sessionKey
+}
+
+// echoSessionEntry holds an echo session and its cancellation function.
+// The cancel function is used by DestroyEchoSession to stop the echo session goroutine.
+type echoSessionEntry struct {
+	session *EchoSession
+	cancel  context.CancelFunc
 }
 
 // ManagerOption configures optional Manager parameters.
@@ -263,9 +305,12 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		sessions:       make(map[uint32]*sessionEntry),
 		sessionsByPeer: make(map[sessionKey]*sessionEntry),
+		echoSessions:   make(map[uint32]*echoSessionEntry),
+		microGroups:    make(map[string]*MicroBFDGroup),
 		discriminators: NewDiscriminatorAllocator(),
 		metrics:        noopMetrics{},
-		notifyCh:       make(chan StateChange, notifyChSize),
+		rawNotifyCh:    make(chan StateChange, notifyChSize),
+		publicNotifyCh: make(chan StateChange, notifyChSize),
 		logger:         logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
@@ -346,7 +391,7 @@ func (m *Manager) allocateAndBuild(
 		return 0, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
-	sess, err := NewSession(cfg, discr, sender, m.notifyCh, m.logger,
+	sess, err := NewSession(cfg, discr, sender, m.rawNotifyCh, m.logger,
 		WithMetrics(m.metrics),
 	)
 	if err != nil {
@@ -692,6 +737,7 @@ func (m *Manager) Sessions() []SessionSnapshot {
 			DetectionTime:        s.DetectionTime(),
 			LastStateChange:      s.LastStateChange(),
 			LastPacketReceived:   s.LastPacketReceived(),
+			PaddedPduSize:        s.PaddedPduSize(),
 			Counters: SessionCounters{
 				PacketsSent:      s.PacketsSent(),
 				PacketsReceived:  s.PacketsReceived(),
@@ -709,12 +755,15 @@ func (m *Manager) Sessions() []SessionSnapshot {
 
 // StateChanges returns a read-only channel that receives state change
 // notifications from all sessions. This channel is intended for the gRPC
-// streaming API (MonitorSessions).
+// streaming API (MonitorSessions) and the GoBGP integration handler.
 //
 // The channel is buffered (64 entries). If the consumer falls behind,
 // individual session goroutines will drop notifications (logged at warn level).
+//
+// Micro-BFD state changes are dispatched internally by the Manager's
+// RunDispatch goroutine before forwarding to this channel.
 func (m *Manager) StateChanges() <-chan StateChange {
-	return m.notifyCh
+	return m.publicNotifyCh
 }
 
 // -------------------------------------------------------------------------
@@ -825,6 +874,473 @@ func (m *Manager) sessionKeySet() map[string]uint32 {
 }
 
 // -------------------------------------------------------------------------
+// Echo Session CRUD — RFC 9747
+// -------------------------------------------------------------------------
+
+// CreateEchoSession creates a new RFC 9747 echo session with the given
+// configuration. The session is registered in the echo session map and
+// its Run goroutine is started. Returns the allocated discriminator.
+//
+// RFC 9747 Section 3: echo sessions do not negotiate timers and do not
+// participate in the BFD three-way handshake.
+func (m *Manager) CreateEchoSession(
+	ctx context.Context,
+	cfg EchoSessionConfig,
+	sender PacketSender,
+) (uint32, error) {
+	if !cfg.PeerAddr.IsValid() {
+		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, ErrInvalidPeerAddr)
+	}
+
+	discr, err := m.discriminators.Allocate()
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
+	}
+
+	es, err := NewEchoSession(cfg, discr, sender, m.rawNotifyCh, m.logger,
+		WithEchoMetrics(m.metrics),
+	)
+	if err != nil {
+		m.discriminators.Release(discr)
+		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
+	}
+
+	// Start echo session goroutine with a decoupled context (same pattern
+	// as control sessions — graceful shutdown calls DrainAllSessions first).
+	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	entry := &echoSessionEntry{session: es, cancel: cancel}
+
+	m.mu.Lock()
+	m.echoSessions[discr] = entry
+	m.mu.Unlock()
+
+	go es.Run(sessCtx)
+
+	m.logger.Info("echo session created",
+		slog.String("peer", cfg.PeerAddr.String()),
+		slog.String("local", cfg.LocalAddr.String()),
+		slog.String("interface", cfg.Interface),
+		slog.Uint64("local_discr", uint64(discr)),
+		slog.Duration("tx_interval", cfg.TxInterval),
+		slog.Uint64("detect_mult", uint64(cfg.DetectMultiplier)),
+	)
+
+	return discr, nil
+}
+
+// DestroyEchoSession stops and removes the echo session identified by discr.
+// The session goroutine is cancelled and the discriminator is released.
+//
+// Returns ErrEchoSessionNotFound if no echo session exists with the given
+// discriminator.
+func (m *Manager) DestroyEchoSession(discr uint32) error {
+	m.mu.Lock()
+	entry, ok := m.echoSessions[discr]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf(
+			"destroy echo session with discriminator %d: %w",
+			discr, ErrEchoSessionNotFound,
+		)
+	}
+	delete(m.echoSessions, discr)
+	m.mu.Unlock()
+
+	entry.cancel()
+	m.discriminators.Release(discr)
+
+	m.logger.Info("echo session destroyed",
+		slog.String("peer", entry.session.PeerAddr().String()),
+		slog.Uint64("local_discr", uint64(discr)),
+	)
+
+	return nil
+}
+
+// DemuxEcho routes a returned echo packet to the appropriate echo session.
+//
+// RFC 9747: echo packets are self-originated and bounced back by the remote.
+// Demultiplexing is by MyDiscriminator in the returned packet, which identifies
+// the local echo session that originated the packet.
+//
+// Returns ErrEchoDemuxNoMatch if no echo session matches the discriminator.
+func (m *Manager) DemuxEcho(myDiscr uint32) error {
+	m.mu.RLock()
+	entry, ok := m.echoSessions[myDiscr]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf(
+			"echo demux: discriminator %d not found: %w",
+			myDiscr, ErrEchoDemuxNoMatch,
+		)
+	}
+
+	entry.session.RecvEcho()
+	return nil
+}
+
+// EchoSessions returns a snapshot of all active echo sessions.
+// The returned slice contains copies; no references to mutable data are held.
+func (m *Manager) EchoSessions() []EchoSessionSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	snapshots := make([]EchoSessionSnapshot, 0, len(m.echoSessions))
+	for _, entry := range m.echoSessions {
+		snapshots = append(snapshots, entry.session.Snapshot())
+	}
+	return snapshots
+}
+
+// -------------------------------------------------------------------------
+// Echo Session Reconciliation — SIGHUP reload
+// -------------------------------------------------------------------------
+
+// EchoReconcileConfig describes a desired echo session for reconciliation.
+type EchoReconcileConfig struct {
+	// Key uniquely identifies the echo session for diffing purposes.
+	// Typically: "echo|peer|local|interface".
+	Key string
+
+	// EchoSessionConfig is the echo session configuration to create if missing.
+	EchoSessionConfig EchoSessionConfig
+
+	// Sender provides the packet sending capability for the echo session.
+	Sender PacketSender
+}
+
+// ReconcileEchoSessions diffs the desired echo session set against current
+// echo sessions. Sessions present in desired but absent are created. Sessions
+// present in current but absent from desired are destroyed.
+//
+// Returns the number of sessions created and destroyed, and any errors.
+func (m *Manager) ReconcileEchoSessions(
+	ctx context.Context,
+	desired []EchoReconcileConfig,
+) (int, int, error) {
+	desiredKeys := make(map[string]EchoReconcileConfig, len(desired))
+	for _, rc := range desired {
+		desiredKeys[rc.Key] = rc
+	}
+
+	currentKeys := m.echoSessionKeySet()
+
+	var created, destroyed int
+	var errs []error
+
+	// Destroy echo sessions not in desired set.
+	for key, discr := range currentKeys {
+		if _, want := desiredKeys[key]; want {
+			continue
+		}
+
+		m.logger.Info("reconcile: destroying removed echo session",
+			slog.String("key", key),
+			slog.Uint64("local_discr", uint64(discr)),
+		)
+
+		if dErr := m.DestroyEchoSession(discr); dErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile destroy echo %s: %w", key, dErr))
+			continue
+		}
+		destroyed++
+	}
+
+	// Create echo sessions in desired but not in current.
+	for key, rc := range desiredKeys {
+		if _, exists := currentKeys[key]; exists {
+			continue
+		}
+
+		m.logger.Info("reconcile: creating new echo session",
+			slog.String("key", key),
+		)
+
+		if _, cErr := m.CreateEchoSession(ctx, rc.EchoSessionConfig, rc.Sender); cErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile create echo %s: %w", key, cErr))
+			continue
+		}
+		created++
+	}
+
+	var err error
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
+	}
+
+	m.logger.Info("echo session reconciliation complete",
+		slog.Int("created", created),
+		slog.Int("destroyed", destroyed),
+	)
+
+	return created, destroyed, err
+}
+
+// echoSessionKeySet returns a map of echo session key -> discriminator
+// for all active echo sessions.
+func (m *Manager) echoSessionKeySet() map[string]uint32 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keys := make(map[string]uint32, len(m.echoSessions))
+	for _, entry := range m.echoSessions {
+		es := entry.session
+		key := "echo|" + es.PeerAddr().String() + "|" + es.LocalAddr().String() + "|" + es.Interface()
+		keys[key] = es.LocalDiscriminator()
+	}
+	return keys
+}
+
+// -------------------------------------------------------------------------
+// Micro-BFD Group CRUD — RFC 7130
+// -------------------------------------------------------------------------
+
+// CreateMicroBFDGroup creates a new micro-BFD group for the given configuration.
+// The group is registered in the microGroups map keyed by LAG interface name.
+//
+// RFC 7130 Section 2: one micro-BFD session per member link. The caller
+// (daemon wiring) is responsible for creating per-member BFD sessions
+// with SessionTypeMicroBFD and appropriate SO_BINDTODEVICE binding.
+//
+// Returns ErrMicroBFDGroupExists if a group already exists for the LAG.
+func (m *Manager) CreateMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.microGroups[cfg.LAGInterface]; exists {
+		return nil, fmt.Errorf(
+			"create micro-BFD group for %q: %w",
+			cfg.LAGInterface, ErrMicroBFDGroupExists,
+		)
+	}
+
+	group, err := NewMicroBFDGroup(cfg, m.logger)
+	if err != nil {
+		return nil, fmt.Errorf("create micro-BFD group for %q: %w",
+			cfg.LAGInterface, err)
+	}
+
+	m.microGroups[cfg.LAGInterface] = group
+
+	m.logger.Info("micro-BFD group created",
+		slog.String("lag", cfg.LAGInterface),
+		slog.Int("members", len(cfg.MemberLinks)),
+		slog.Int("min_active", cfg.MinActiveLinks),
+	)
+
+	return group, nil
+}
+
+// DestroyMicroBFDGroup removes the micro-BFD group for the given LAG interface.
+// The caller is responsible for destroying the per-member BFD sessions
+// associated with the group beforehand.
+//
+// Returns ErrMicroBFDGroupNotFound if no group exists for the LAG.
+func (m *Manager) DestroyMicroBFDGroup(lagInterface string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.microGroups[lagInterface]; !exists {
+		return fmt.Errorf(
+			"destroy micro-BFD group %q: %w",
+			lagInterface, ErrMicroBFDGroupNotFound,
+		)
+	}
+
+	delete(m.microGroups, lagInterface)
+
+	m.logger.Info("micro-BFD group destroyed",
+		slog.String("lag", lagInterface),
+	)
+
+	return nil
+}
+
+// MicroBFDGroups returns a snapshot of all active micro-BFD groups.
+// The returned slice contains copies; no references to mutable data are held.
+func (m *Manager) MicroBFDGroups() []MicroBFDGroupSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	snapshots := make([]MicroBFDGroupSnapshot, 0, len(m.microGroups))
+	for _, group := range m.microGroups {
+		snapshots = append(snapshots, group.Snapshot())
+	}
+	return snapshots
+}
+
+// LookupMicroBFDGroup returns the micro-BFD group for the given LAG interface.
+func (m *Manager) LookupMicroBFDGroup(lagInterface string) (*MicroBFDGroup, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	group, ok := m.microGroups[lagInterface]
+	return group, ok
+}
+
+// -------------------------------------------------------------------------
+// State Change Dispatch — internal fan-out with micro-BFD routing
+// -------------------------------------------------------------------------
+
+// RunDispatch reads state change notifications from all sessions (rawNotifyCh),
+// dispatches micro-BFD events to the appropriate group's UpdateMemberState,
+// and forwards all notifications to the public StateChanges channel.
+//
+// This goroutine MUST be running for state change notifications to reach
+// external consumers (GoBGP handler, gRPC streaming). Without RunDispatch,
+// the rawNotifyCh will fill up and sessions will drop notifications.
+//
+// Blocks until ctx is cancelled.
+func (m *Manager) RunDispatch(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case sc := <-m.rawNotifyCh:
+			// Dispatch micro-BFD events to the group.
+			if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
+				m.dispatchMicroBFD(sc)
+			}
+
+			// Forward to public channel for GoBGP handler and gRPC streaming.
+			select {
+			case m.publicNotifyCh <- sc:
+			default:
+				m.logger.Warn("public notification channel full, dropping state change",
+					slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
+					slog.String("new_state", sc.NewState.String()),
+				)
+			}
+		}
+	}
+}
+
+// dispatchMicroBFD routes a micro-BFD session state change to the
+// appropriate MicroBFDGroup by finding which group contains the session's
+// interface as a member link.
+func (m *Manager) dispatchMicroBFD(sc StateChange) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, group := range m.microGroups {
+		changed, err := group.UpdateMemberState(sc.Interface, sc.NewState, sc.LocalDiscr)
+		if err != nil {
+			// This interface is not a member of this group — try the next one.
+			if errors.Is(err, ErrMicroBFDMemberNotFound) {
+				continue
+			}
+			m.logger.Warn("micro-BFD dispatch error",
+				slog.String("lag", group.LAGInterface()),
+				slog.String("member", sc.Interface),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+
+		if changed {
+			m.logger.Info("micro-BFD aggregate state changed",
+				slog.String("lag", group.LAGInterface()),
+				slog.Bool("aggregate_up", group.IsUp()),
+				slog.Int("up_count", group.UpCount()),
+			)
+		}
+		return
+	}
+}
+
+// -------------------------------------------------------------------------
+// Micro-BFD Group Reconciliation — SIGHUP reload
+// -------------------------------------------------------------------------
+
+// MicroBFDReconcileConfig describes a desired micro-BFD group for reconciliation.
+type MicroBFDReconcileConfig struct {
+	// Key uniquely identifies the group (LAG interface name).
+	Key string
+
+	// Config is the micro-BFD group configuration.
+	Config MicroBFDConfig
+}
+
+// ReconcileMicroBFDGroups diffs the desired micro-BFD groups against the
+// current groups. Groups present in desired but absent are created. Groups
+// present in current but absent from desired are destroyed.
+//
+// Returns the number of groups created and destroyed, and any errors.
+// The caller is responsible for creating/destroying per-member sessions.
+func (m *Manager) ReconcileMicroBFDGroups(
+	desired []MicroBFDReconcileConfig,
+) (int, int, error) {
+	desiredKeys := make(map[string]MicroBFDReconcileConfig, len(desired))
+	for _, rc := range desired {
+		desiredKeys[rc.Key] = rc
+	}
+
+	currentKeys := m.microBFDGroupKeySet()
+
+	var created, destroyed int
+	var errs []error
+
+	// Destroy groups not in desired set.
+	for key := range currentKeys {
+		if _, want := desiredKeys[key]; want {
+			continue
+		}
+
+		m.logger.Info("reconcile: destroying removed micro-BFD group",
+			slog.String("lag", key),
+		)
+
+		if dErr := m.DestroyMicroBFDGroup(key); dErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile destroy micro-BFD %s: %w", key, dErr))
+			continue
+		}
+		destroyed++
+	}
+
+	// Create groups in desired but not in current.
+	for key, rc := range desiredKeys {
+		if _, exists := currentKeys[key]; exists {
+			continue
+		}
+
+		m.logger.Info("reconcile: creating new micro-BFD group",
+			slog.String("lag", key),
+		)
+
+		if _, cErr := m.CreateMicroBFDGroup(rc.Config); cErr != nil {
+			errs = append(errs, fmt.Errorf("reconcile create micro-BFD %s: %w", key, cErr))
+			continue
+		}
+		created++
+	}
+
+	var err error
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
+	}
+
+	m.logger.Info("micro-BFD group reconciliation complete",
+		slog.Int("created", created),
+		slog.Int("destroyed", destroyed),
+	)
+
+	return created, destroyed, err
+}
+
+// microBFDGroupKeySet returns a set of LAG interface names for all active groups.
+func (m *Manager) microBFDGroupKeySet() map[string]struct{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keys := make(map[string]struct{}, len(m.microGroups))
+	for lagName := range m.microGroups {
+		keys[lagName] = struct{}{}
+	}
+	return keys
+}
+
+// -------------------------------------------------------------------------
 // Graceful Drain — RFC 5880 Section 6.8.16
 // -------------------------------------------------------------------------
 
@@ -861,9 +1377,16 @@ func (m *Manager) Close() {
 		m.discriminators.Release(discr)
 	}
 
+	for discr, entry := range m.echoSessions {
+		entry.cancel()
+		m.discriminators.Release(discr)
+	}
+
 	// Clear maps to prevent use-after-close.
 	m.sessions = make(map[uint32]*sessionEntry)
 	m.sessionsByPeer = make(map[sessionKey]*sessionEntry)
+	m.echoSessions = make(map[uint32]*echoSessionEntry)
+	m.microGroups = make(map[string]*MicroBFDGroup)
 
 	m.logger.Info("manager closed")
 }

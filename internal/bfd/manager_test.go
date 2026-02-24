@@ -532,11 +532,17 @@ func TestManagerSessions(t *testing.T) {
 // -------------------------------------------------------------------------
 
 // TestManagerStateChanges verifies that state changes from sessions propagate
-// to the manager's aggregated StateChanges channel.
+// to the manager's aggregated StateChanges channel via RunDispatch.
 func TestManagerStateChanges(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mgr := newTestManager(t)
 		defer mgr.Close()
+
+		// RunDispatch must be running to forward notifications from the
+		// internal rawNotifyCh to the public StateChanges channel.
+		dispatchCtx, dispatchCancel := context.WithCancel(context.Background())
+		defer dispatchCancel()
+		go mgr.RunDispatch(dispatchCtx)
 
 		cfg := defaultManagerConfig()
 		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
@@ -767,6 +773,545 @@ func TestManagerDrainAllSessions(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 	})
+}
+
+// -------------------------------------------------------------------------
+// Echo Session Manager Tests — RFC 9747
+// -------------------------------------------------------------------------
+
+// defaultEchoConfig returns a valid EchoSessionConfig for manager tests.
+func defaultEchoConfig() bfd.EchoSessionConfig {
+	return bfd.EchoSessionConfig{
+		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+		LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+		Interface:        "eth0",
+		TxInterval:       100 * time.Millisecond,
+		DetectMultiplier: 3,
+	}
+}
+
+// TestManagerCreateEchoSession verifies that CreateEchoSession allocates a
+// discriminator, stores the session, and starts the goroutine.
+func TestManagerCreateEchoSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultEchoConfig()
+		discr, err := mgr.CreateEchoSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession: %v", err)
+		}
+		if discr == 0 {
+			t.Error("echo session discriminator is zero")
+		}
+
+		// Echo session should appear in the snapshot.
+		snapshots := mgr.EchoSessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("expected 1 echo session, got %d", len(snapshots))
+		}
+		if snapshots[0].LocalDiscr != discr {
+			t.Errorf("snapshot discr = %d, want %d", snapshots[0].LocalDiscr, discr)
+		}
+		if snapshots[0].PeerAddr != cfg.PeerAddr {
+			t.Errorf("snapshot peer = %s, want %s", snapshots[0].PeerAddr, cfg.PeerAddr)
+		}
+		if snapshots[0].State != bfd.StateDown {
+			t.Errorf("snapshot state = %s, want Down", snapshots[0].State)
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerCreateEchoSessionInvalidPeer verifies that creating an echo
+// session with an invalid peer address returns an error.
+func TestManagerCreateEchoSessionInvalidPeer(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	cfg := bfd.EchoSessionConfig{
+		PeerAddr:         netip.Addr{}, // invalid
+		TxInterval:       100 * time.Millisecond,
+		DetectMultiplier: 3,
+	}
+
+	_, err := mgr.CreateEchoSession(context.Background(), cfg, noopSender{})
+	if err == nil {
+		t.Fatal("expected error for invalid peer addr, got nil")
+	}
+}
+
+// TestManagerDestroyEchoSession verifies that destroying an echo session
+// removes it from the map and cancels the goroutine.
+func TestManagerDestroyEchoSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultEchoConfig()
+		discr, err := mgr.CreateEchoSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession: %v", err)
+		}
+
+		if err := mgr.DestroyEchoSession(discr); err != nil {
+			t.Fatalf("DestroyEchoSession: %v", err)
+		}
+
+		snapshots := mgr.EchoSessions()
+		if len(snapshots) != 0 {
+			t.Errorf("expected 0 echo sessions after destroy, got %d", len(snapshots))
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerDestroyEchoSessionNotFound verifies that destroying a
+// nonexistent echo session returns ErrEchoSessionNotFound.
+func TestManagerDestroyEchoSessionNotFound(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	err := mgr.DestroyEchoSession(99999)
+	if err == nil {
+		t.Fatal("expected ErrEchoSessionNotFound, got nil")
+	}
+	if !errors.Is(err, bfd.ErrEchoSessionNotFound) {
+		t.Errorf("error = %v, want ErrEchoSessionNotFound", err)
+	}
+}
+
+// TestManagerDemuxEcho verifies that DemuxEcho routes a returned echo
+// packet to the correct echo session by MyDiscriminator.
+func TestManagerDemuxEcho(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultEchoConfig()
+		discr, err := mgr.CreateEchoSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession: %v", err)
+		}
+
+		// DemuxEcho with the echo session's discriminator should succeed.
+		if err := mgr.DemuxEcho(discr); err != nil {
+			t.Fatalf("DemuxEcho: %v", err)
+		}
+
+		// Let the echo recv signal be processed.
+		time.Sleep(50 * time.Millisecond)
+
+		// After receiving an echo return, the session should transition
+		// Down -> Up (RFC 9747 Section 3.3).
+		snapshots := mgr.EchoSessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("expected 1 echo session, got %d", len(snapshots))
+		}
+		if snapshots[0].State != bfd.StateUp {
+			t.Errorf("echo session state = %s, want Up", snapshots[0].State)
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerDemuxEchoNoMatch verifies that DemuxEcho returns
+// ErrEchoDemuxNoMatch for an unknown discriminator.
+func TestManagerDemuxEchoNoMatch(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	err := mgr.DemuxEcho(99999)
+	if err == nil {
+		t.Fatal("expected ErrEchoDemuxNoMatch, got nil")
+	}
+	if !errors.Is(err, bfd.ErrEchoDemuxNoMatch) {
+		t.Errorf("error = %v, want ErrEchoDemuxNoMatch", err)
+	}
+}
+
+// TestManagerEchoSessionsSnapshot verifies that EchoSessions returns
+// correct snapshot data for multiple echo sessions.
+func TestManagerEchoSessionsSnapshot(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg1 := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       100 * time.Millisecond,
+			DetectMultiplier: 3,
+		}
+		cfg2 := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.3"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.4"),
+			TxInterval:       200 * time.Millisecond,
+			DetectMultiplier: 5,
+		}
+
+		discr1, err := mgr.CreateEchoSession(context.Background(), cfg1, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession 1: %v", err)
+		}
+		discr2, err := mgr.CreateEchoSession(context.Background(), cfg2, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession 2: %v", err)
+		}
+
+		snapshots := mgr.EchoSessions()
+		if len(snapshots) != 2 {
+			t.Fatalf("expected 2 echo sessions, got %d", len(snapshots))
+		}
+
+		byDiscr := make(map[uint32]bfd.EchoSessionSnapshot, len(snapshots))
+		for _, snap := range snapshots {
+			byDiscr[snap.LocalDiscr] = snap
+		}
+
+		snap1, ok := byDiscr[discr1]
+		if !ok {
+			t.Fatal("echo session 1 not found in snapshots")
+		}
+		if snap1.PeerAddr != cfg1.PeerAddr {
+			t.Errorf("snap1.PeerAddr = %s, want %s", snap1.PeerAddr, cfg1.PeerAddr)
+		}
+		if snap1.TxInterval != cfg1.TxInterval {
+			t.Errorf("snap1.TxInterval = %v, want %v", snap1.TxInterval, cfg1.TxInterval)
+		}
+
+		snap2, ok := byDiscr[discr2]
+		if !ok {
+			t.Fatal("echo session 2 not found in snapshots")
+		}
+		if snap2.PeerAddr != cfg2.PeerAddr {
+			t.Errorf("snap2.PeerAddr = %s, want %s", snap2.PeerAddr, cfg2.PeerAddr)
+		}
+		if snap2.DetectMultiplier != cfg2.DetectMultiplier {
+			t.Errorf("snap2.DetectMult = %d, want %d", snap2.DetectMultiplier, cfg2.DetectMultiplier)
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerCloseEchoSessions verifies that Close() cancels echo session
+// goroutines and clears the echo session map.
+func TestManagerCloseEchoSessions(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+
+		cfg := defaultEchoConfig()
+		_, err := mgr.CreateEchoSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession: %v", err)
+		}
+
+		mgr.Close()
+
+		snapshots := mgr.EchoSessions()
+		if len(snapshots) != 0 {
+			t.Errorf("expected 0 echo sessions after Close, got %d", len(snapshots))
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerReconcileEchoSessionsCreatesNew verifies that
+// ReconcileEchoSessions creates echo sessions in the desired set
+// but not yet active.
+func TestManagerReconcileEchoSessionsCreatesNew(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		desired := []bfd.EchoReconcileConfig{
+			{
+				Key: "echo|10.0.0.1|10.0.0.2|eth0",
+				EchoSessionConfig: bfd.EchoSessionConfig{
+					PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+					LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+					Interface:        "eth0",
+					TxInterval:       100 * time.Millisecond,
+					DetectMultiplier: 3,
+				},
+				Sender: noopSender{},
+			},
+		}
+
+		created, destroyed, err := mgr.ReconcileEchoSessions(context.Background(), desired)
+		if err != nil {
+			t.Fatalf("ReconcileEchoSessions: %v", err)
+		}
+		if created != 1 {
+			t.Errorf("created = %d, want 1", created)
+		}
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0", destroyed)
+		}
+
+		snapshots := mgr.EchoSessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("expected 1 echo session, got %d", len(snapshots))
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// TestManagerReconcileEchoSessionsDestroysStale verifies that
+// ReconcileEchoSessions destroys echo sessions not in the desired set.
+func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultEchoConfig()
+		_, err := mgr.CreateEchoSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateEchoSession: %v", err)
+		}
+
+		// Reconcile with empty desired set: existing echo session should be destroyed.
+		created, destroyed, reconcileErr := mgr.ReconcileEchoSessions(
+			context.Background(), nil,
+		)
+		if reconcileErr != nil {
+			t.Fatalf("ReconcileEchoSessions: %v", reconcileErr)
+		}
+		if created != 0 {
+			t.Errorf("created = %d, want 0", created)
+		}
+		if destroyed != 1 {
+			t.Errorf("destroyed = %d, want 1", destroyed)
+		}
+
+		if len(mgr.EchoSessions()) != 0 {
+			t.Error("expected 0 echo sessions after reconciliation")
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+// -------------------------------------------------------------------------
+// Micro-BFD Group Manager Tests — RFC 7130
+// -------------------------------------------------------------------------
+
+// testLAG is the default LAG interface name used across micro-BFD manager tests.
+const testLAG = "bond0"
+
+// defaultMicroBFDConfig returns a valid MicroBFDConfig for manager tests.
+func defaultMicroBFDConfig() bfd.MicroBFDConfig {
+	return bfd.MicroBFDConfig{
+		LAGInterface:          testLAG,
+		MemberLinks:           []string{"eth0", "eth1"},
+		PeerAddr:              netip.MustParseAddr("10.0.0.1"),
+		LocalAddr:             netip.MustParseAddr("10.0.0.2"),
+		DesiredMinTxInterval:  100 * time.Millisecond,
+		RequiredMinRxInterval: 100 * time.Millisecond,
+		DetectMultiplier:      3,
+		MinActiveLinks:        1,
+	}
+}
+
+// TestManagerCreateMicroBFDGroup verifies that CreateMicroBFDGroup
+// registers the group and it appears in the snapshot.
+func TestManagerCreateMicroBFDGroup(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	cfg := defaultMicroBFDConfig()
+	group, err := mgr.CreateMicroBFDGroup(cfg)
+	if err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+
+	if group.LAGInterface() != testLAG {
+		t.Errorf("LAGInterface() = %q, want %q", group.LAGInterface(), testLAG)
+	}
+
+	// Group should appear in snapshots.
+	snapshots := mgr.MicroBFDGroups()
+	if len(snapshots) != 1 {
+		t.Fatalf("expected 1 micro-BFD group, got %d", len(snapshots))
+	}
+	if snapshots[0].LAGInterface != testLAG {
+		t.Errorf("snapshot LAG = %q, want %q", snapshots[0].LAGInterface, testLAG)
+	}
+}
+
+// TestManagerCreateMicroBFDGroupDuplicate verifies that creating a second
+// group for the same LAG returns ErrMicroBFDGroupExists.
+func TestManagerCreateMicroBFDGroupDuplicate(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	cfg := defaultMicroBFDConfig()
+	if _, err := mgr.CreateMicroBFDGroup(cfg); err != nil {
+		t.Fatalf("first CreateMicroBFDGroup: %v", err)
+	}
+
+	_, err := mgr.CreateMicroBFDGroup(cfg)
+	if err == nil {
+		t.Fatal("expected ErrMicroBFDGroupExists, got nil")
+	}
+	if !errors.Is(err, bfd.ErrMicroBFDGroupExists) {
+		t.Errorf("error = %v, want ErrMicroBFDGroupExists", err)
+	}
+}
+
+// TestManagerDestroyMicroBFDGroup verifies that destroying a group removes
+// it from the Manager.
+func TestManagerDestroyMicroBFDGroup(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	cfg := defaultMicroBFDConfig()
+	if _, err := mgr.CreateMicroBFDGroup(cfg); err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+
+	if err := mgr.DestroyMicroBFDGroup(testLAG); err != nil {
+		t.Fatalf("DestroyMicroBFDGroup: %v", err)
+	}
+
+	snapshots := mgr.MicroBFDGroups()
+	if len(snapshots) != 0 {
+		t.Errorf("expected 0 groups after destroy, got %d", len(snapshots))
+	}
+}
+
+// TestManagerDestroyMicroBFDGroupNotFound verifies that destroying a
+// nonexistent group returns ErrMicroBFDGroupNotFound.
+func TestManagerDestroyMicroBFDGroupNotFound(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	err := mgr.DestroyMicroBFDGroup("bond99")
+	if err == nil {
+		t.Fatal("expected ErrMicroBFDGroupNotFound, got nil")
+	}
+	if !errors.Is(err, bfd.ErrMicroBFDGroupNotFound) {
+		t.Errorf("error = %v, want ErrMicroBFDGroupNotFound", err)
+	}
+}
+
+// TestManagerLookupMicroBFDGroup verifies the lookup method.
+func TestManagerLookupMicroBFDGroup(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	cfg := defaultMicroBFDConfig()
+	created, err := mgr.CreateMicroBFDGroup(cfg)
+	if err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+
+	found, ok := mgr.LookupMicroBFDGroup(testLAG)
+	if !ok {
+		t.Fatal("LookupMicroBFDGroup: not found")
+	}
+	if found != created {
+		t.Error("LookupMicroBFDGroup returned different group")
+	}
+
+	_, ok = mgr.LookupMicroBFDGroup("bond99")
+	if ok {
+		t.Error("LookupMicroBFDGroup should not find nonexistent group")
+	}
+}
+
+// TestManagerReconcileMicroBFDGroups verifies reconciliation creates
+// and destroys groups correctly.
+func TestManagerReconcileMicroBFDGroups(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+	defer mgr.Close()
+
+	// Create an initial group.
+	cfg1 := defaultMicroBFDConfig()
+	if _, err := mgr.CreateMicroBFDGroup(cfg1); err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+
+	// Reconcile: remove bond0, add bond1.
+	cfg2 := bfd.MicroBFDConfig{
+		LAGInterface:          "bond1",
+		MemberLinks:           []string{"eth2", "eth3"},
+		PeerAddr:              netip.MustParseAddr("10.0.0.3"),
+		LocalAddr:             netip.MustParseAddr("10.0.0.4"),
+		DesiredMinTxInterval:  200 * time.Millisecond,
+		RequiredMinRxInterval: 200 * time.Millisecond,
+		DetectMultiplier:      3,
+		MinActiveLinks:        1,
+	}
+
+	desired := []bfd.MicroBFDReconcileConfig{
+		{Key: "bond1", Config: cfg2},
+	}
+
+	created, destroyed, err := mgr.ReconcileMicroBFDGroups(desired)
+	if err != nil {
+		t.Fatalf("ReconcileMicroBFDGroups: %v", err)
+	}
+	if created != 1 {
+		t.Errorf("created = %d, want 1", created)
+	}
+	if destroyed != 1 {
+		t.Errorf("destroyed = %d, want 1", destroyed)
+	}
+
+	// Verify bond0 is gone and bond1 exists.
+	snapshots := mgr.MicroBFDGroups()
+	if len(snapshots) != 1 {
+		t.Fatalf("expected 1 group, got %d", len(snapshots))
+	}
+	if snapshots[0].LAGInterface != "bond1" {
+		t.Errorf("remaining group LAG = %q, want %q", snapshots[0].LAGInterface, "bond1")
+	}
+}
+
+// TestManagerCloseCleansMicroBFDGroups verifies that Close clears
+// micro-BFD groups.
+func TestManagerCloseCleansMicroBFDGroups(t *testing.T) {
+	t.Parallel()
+
+	mgr := newTestManager(t)
+
+	cfg := defaultMicroBFDConfig()
+	if _, err := mgr.CreateMicroBFDGroup(cfg); err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+
+	mgr.Close()
+
+	snapshots := mgr.MicroBFDGroups()
+	if len(snapshots) != 0 {
+		t.Errorf("expected 0 groups after Close, got %d", len(snapshots))
+	}
 }
 
 // -------------------------------------------------------------------------
