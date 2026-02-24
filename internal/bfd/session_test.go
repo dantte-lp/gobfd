@@ -876,6 +876,9 @@ func TestSessionTypeString(t *testing.T) {
 	}{
 		{bfd.SessionTypeSingleHop, "SingleHop"},
 		{bfd.SessionTypeMultiHop, "MultiHop"},
+		{bfd.SessionTypeMicroBFD, "MicroBFD"},
+		{bfd.SessionTypeVXLAN, "VXLAN"},
+		{bfd.SessionTypeGeneve, "Geneve"},
 		{bfd.SessionType(0), "Unknown"},
 		{bfd.SessionType(255), "Unknown"},
 	}

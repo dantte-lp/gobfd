@@ -1,0 +1,28 @@
+# FRR daemons configuration for BGP+BFD interoperability testing (RFC 9384).
+#
+# Enabled: zebra (required), bgpd (BGP), bfdd (BFD), staticd (static routes).
+
+zebra=yes
+bgpd=yes
+ospfd=no
+ospf6d=no
+ripd=no
+ripngd=no
+isisd=no
+pimd=no
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pbrd=no
+staticd=yes
+bfdd=yes
+fabricd=no
+
+vtysh_enable=yes
+
+zebra_options="  -A 127.0.0.1 -s 90000000"
+bgpd_options="   -A 127.0.0.1"
+bfdd_options="   -A 127.0.0.1"
+staticd_options="-A 127.0.0.1"

@@ -23,13 +23,45 @@ import (
 //   - IPv4: IP_TTL = 255 (RFC 5881 Section 5, GTSM RFC 5082)
 //   - IPv6: IPV6_UNICAST_HOPS = 255 (RFC 5881 Section 5, GTSM RFC 5082)
 type UDPSender struct {
-	conn     *net.UDPConn
-	dstPort  uint16
-	logger   *slog.Logger
-	mu       sync.Mutex
-	closed   bool
-	srcPort  uint16
-	multiHop bool
+	conn       *net.UDPConn
+	dstPort    uint16
+	logger     *slog.Logger
+	mu         sync.Mutex
+	closed     bool
+	srcPort    uint16
+	multiHop   bool
+	dfBit      bool   // RFC 9764: Don't Fragment bit for path MTU verification
+	bindDevice string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
+}
+
+// SenderOption configures optional UDPSender parameters.
+type SenderOption func(*UDPSender)
+
+// WithDFBit enables the Don't Fragment bit on transmitted packets (RFC 9764).
+// For IPv4: sets IP_MTU_DISCOVER = IP_PMTUDISC_DO.
+// For IPv6: sets IPV6_DONTFRAG = 1.
+func WithDFBit() SenderOption {
+	return func(s *UDPSender) {
+		s.dfBit = true
+	}
+}
+
+// WithDstPort overrides the default destination port.
+// Use this for echo sessions (port 3785) or micro-BFD (port 6784).
+func WithDstPort(port uint16) SenderOption {
+	return func(s *UDPSender) {
+		s.dstPort = port
+	}
+}
+
+// WithBindDevice sets SO_BINDTODEVICE on the sender socket, binding it
+// to a specific network interface. Required for RFC 7130 micro-BFD
+// per-member-link sessions where each BFD session MUST be bound to its
+// individual LAG member interface.
+func WithBindDevice(ifName string) SenderOption {
+	return func(s *UDPSender) {
+		s.bindDevice = ifName
+	}
 }
 
 // NewUDPSender creates a sender for BFD packets from localAddr:srcPort.
@@ -48,20 +80,14 @@ func NewUDPSender(
 	srcPort uint16,
 	multiHop bool,
 	logger *slog.Logger,
+	opts ...SenderOption,
 ) (*UDPSender, error) {
 	dstPort := PortSingleHop
 	if multiHop {
 		dstPort = PortMultiHop
 	}
 
-	conn, err := dialSenderSocket(localAddr, srcPort)
-	if err != nil {
-		return nil, fmt.Errorf("create UDP sender %s:%d: %w",
-			localAddr, srcPort, err)
-	}
-
-	return &UDPSender{
-		conn:     conn,
+	s := &UDPSender{
 		dstPort:  dstPort,
 		srcPort:  srcPort,
 		multiHop: multiHop,
@@ -70,21 +96,36 @@ func NewUDPSender(
 			slog.String("local", localAddr.String()),
 			slog.Uint64("src_port", uint64(srcPort)),
 		),
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	isIPv6 := localAddr.Is6() && !localAddr.Is4In6()
+
+	conn, err := dialSenderSocket(localAddr, srcPort, isIPv6, s.dfBit, s.bindDevice)
+	if err != nil {
+		return nil, fmt.Errorf("create UDP sender %s:%d: %w",
+			localAddr, srcPort, err)
+	}
+
+	s.conn = conn
+	return s, nil
 }
 
 // dialSenderSocket creates and configures a UDP socket for BFD TX.
-// Auto-detects IPv4 vs IPv6 from the local address.
 func dialSenderSocket(
 	localAddr netip.Addr,
 	srcPort uint16,
+	isIPv6 bool,
+	dfBit bool,
+	bindDevice string,
 ) (*net.UDPConn, error) {
 	laddr := netip.AddrPortFrom(localAddr, srcPort)
-	isIPv6 := localAddr.Is6() && !localAddr.Is4In6()
 
 	lc := net.ListenConfig{
 		Control: func(_, _ string, c syscall.RawConn) error {
-			return setSenderOpts(c, isIPv6)
+			return setSenderOpts(c, isIPv6, dfBit, bindDevice)
 		},
 	}
 
@@ -113,42 +154,88 @@ func dialSenderSocket(
 
 // setSenderOpts configures socket options for BFD TX.
 // For IPv4: sets IP_TTL = 255. For IPv6: sets IPV6_UNICAST_HOPS = 255.
-func setSenderOpts(c syscall.RawConn, isIPv6 bool) error {
+// When dfBit is true, sets IP_PMTUDISC_DO (IPv4) or IPV6_DONTFRAG (IPv6)
+// for RFC 9764 path MTU verification.
+// When bindDevice is non-empty, sets SO_BINDTODEVICE for per-interface
+// binding (RFC 7130 micro-BFD per-member-link sessions).
+func setSenderOpts(c syscall.RawConn, isIPv6 bool, dfBit bool, bindDevice string) error {
 	var sockErr error
 
 	err := c.Control(func(fd uintptr) {
 		//nolint:gosec // G115: fd uintptr->int is safe; kernel FDs are always small positive integers.
 		intFD := int(fd)
 
-		// SO_REUSEADDR: allow address reuse.
-		if sockErr = unix.SetsockoptInt(
-			intFD, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1,
-		); sockErr != nil {
-			sockErr = fmt.Errorf("set SO_REUSEADDR: %w", sockErr)
-			return
-		}
-
-		if isIPv6 {
-			// IPV6_UNICAST_HOPS = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
-			if sockErr = unix.SetsockoptInt(
-				intFD, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, int(ttlRequired),
-			); sockErr != nil {
-				sockErr = fmt.Errorf("set IPV6_UNICAST_HOPS: %w", sockErr)
-			}
-		} else {
-			// IP_TTL = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
-			if sockErr = unix.SetsockoptInt(
-				intFD, unix.IPPROTO_IP, unix.IP_TTL, int(ttlRequired),
-			); sockErr != nil {
-				sockErr = fmt.Errorf("set IP_TTL: %w", sockErr)
-			}
-		}
+		sockErr = setSenderSockOpts(intFD, isIPv6, dfBit, bindDevice)
 	})
 	if err != nil {
 		return fmt.Errorf("raw conn control: %w", err)
 	}
 
 	return sockErr
+}
+
+// setSenderSockOpts applies socket-level and IP-level options for a BFD sender FD.
+func setSenderSockOpts(fd int, isIPv6 bool, dfBit bool, bindDevice string) error {
+	// SO_REUSEADDR: allow address reuse.
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
+		return fmt.Errorf("set SO_REUSEADDR: %w", err)
+	}
+
+	// SO_BINDTODEVICE: bind to specific interface.
+	// RFC 7130 Section 2: micro-BFD sessions MUST be bound per member link.
+	if bindDevice != "" {
+		if err := unix.SetsockoptString(
+			fd, unix.SOL_SOCKET, unix.SO_BINDTODEVICE, bindDevice,
+		); err != nil {
+			return fmt.Errorf("set SO_BINDTODEVICE(%s): %w", bindDevice, err)
+		}
+	}
+
+	if isIPv6 {
+		return setSenderOptsIPv6(fd, dfBit)
+	}
+
+	return setSenderOptsIPv4(fd, dfBit)
+}
+
+// setSenderOptsIPv4 configures IPv4-specific socket options for BFD TX.
+func setSenderOptsIPv4(fd int, dfBit bool) error {
+	// IP_TTL = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, int(ttlRequired)); err != nil {
+		return fmt.Errorf("set IP_TTL: %w", err)
+	}
+
+	// RFC 9764: set DF bit for path MTU verification.
+	if dfBit {
+		if err := unix.SetsockoptInt(
+			fd, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, unix.IP_PMTUDISC_DO,
+		); err != nil {
+			return fmt.Errorf("set IP_PMTUDISC_DO: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// setSenderOptsIPv6 configures IPv6-specific socket options for BFD TX.
+func setSenderOptsIPv6(fd int, dfBit bool) error {
+	// IPV6_UNICAST_HOPS = 255: RFC 5881 Section 5 / RFC 5082 GTSM.
+	if err := unix.SetsockoptInt(
+		fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, int(ttlRequired),
+	); err != nil {
+		return fmt.Errorf("set IPV6_UNICAST_HOPS: %w", err)
+	}
+
+	// RFC 9764: set DF bit for path MTU verification.
+	if dfBit {
+		if err := unix.SetsockoptInt(
+			fd, unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1,
+		); err != nil {
+			return fmt.Errorf("set IPV6_DONTFRAG: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // SendPacket sends buf to the given peer address on the standard BFD

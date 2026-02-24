@@ -1,0 +1,60 @@
+# GoBFD configuration for RFC interoperability testing.
+#
+# This instance tests:
+#   1. RFC 7419 — Common interval alignment (align_intervals: true)
+#      Session to frr-rfc (172.22.0.20) with 80ms timers → aligned to 100ms.
+#   2. RFC 9468 — Unsolicited BFD (passive session auto-creation)
+#      No pre-configured session for frr-rfc-unsolicited (172.22.0.50).
+#      GoBFD must auto-create a session when FRR sends initial BFD packets.
+#   3. RFC 9747 — Unaffiliated BFD echo (echo session to echo-reflector)
+#      Echo session to echo-reflector (172.22.0.60) on port 3785.
+#
+# tshark-rfc shares this container's network namespace for packet capture.
+
+grpc:
+  addr: ":50052"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "80ms"
+  default_required_min_rx: "80ms"
+  default_detect_multiplier: 3
+  align_intervals: true
+
+unsolicited:
+  enabled: true
+  max_sessions: 10
+  cleanup_timeout: "30s"
+  session_defaults:
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+  interfaces:
+    # Empty string key matches the default listener (no interface binding).
+    # The raw socket listener does not set interface name in PacketMeta,
+    # so the key must be "" to match incoming unsolicited packets.
+    "":
+      enabled: true
+      allowed_prefixes: ["172.22.0.0/24"]
+
+# RFC 9747: Unaffiliated BFD echo session to echo-reflector (172.22.0.60).
+# The echo-reflector container listens on port 3785 and reflects packets back.
+echo:
+  enabled: true
+  default_tx_interval: "200ms"
+  default_detect_multiplier: 3
+  peers:
+    - peer: "172.22.0.60"
+      local: "172.22.0.10"
+
+sessions:
+  - peer: "172.22.0.20"
+    local: "172.22.0.10"
+    type: single_hop
+    desired_min_tx: "80ms"
+    required_min_rx: "80ms"
+    detect_mult: 3
+  # NOTE: NO session for 172.22.0.50 — unsolicited auto-creates it (RFC 9468).

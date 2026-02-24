@@ -158,6 +158,40 @@ func NewMultiHopListener(
 	}, nil
 }
 
+// NewGenericListener creates a PacketConn for BFD on a specified port.
+// Supports both IPv4 and IPv6 addresses; the address family is auto-detected.
+//
+// This is used for non-standard BFD port listeners:
+//   - RFC 7130 micro-BFD (port 6784): per-member-link sessions
+//   - RFC 9747 echo (port 3785): echo packet reception
+//
+// Socket configuration matches single-hop (RFC 5881 Section 5):
+//   - IPv4: IP_TTL = 255, IP_RECVTTL, IP_PKTINFO (RFC 5082 GTSM)
+//   - IPv6: IPV6_UNICAST_HOPS = 255, IPV6_RECVHOPLIMIT, IPV6_RECVPKTINFO
+//   - SO_BINDTODEVICE set to ifName when non-empty
+//   - SO_REUSEADDR for multiple listeners
+func NewGenericListener(
+	ctx context.Context,
+	addr netip.Addr,
+	ifName string,
+	port uint16,
+) (*LinuxPacketConn, error) {
+	laddr := netip.AddrPortFrom(addr, port)
+
+	conn, err := listenUDP(ctx, laddr, ifName, false)
+	if err != nil {
+		return nil, fmt.Errorf("generic listener on %s%%%s port %d: %w",
+			laddr, ifName, port, err)
+	}
+
+	return &LinuxPacketConn{
+		conn:      conn,
+		localAddr: laddr,
+		ifName:    ifName,
+		multiHop:  false,
+	}, nil
+}
+
 // -------------------------------------------------------------------------
 // Socket creation helpers
 // -------------------------------------------------------------------------

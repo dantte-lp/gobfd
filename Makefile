@@ -24,6 +24,7 @@ EXEC := $(DC) exec -T dev
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
+        interop-rfc interop-rfc-test interop-rfc-up interop-rfc-down interop-rfc-logs \
         interop-clab interop-clab-test interop-clab-up interop-clab-down \
         int-bgp-failover int-bgp-failover-up int-bgp-failover-down int-bgp-failover-logs \
         int-haproxy int-haproxy-up int-haproxy-down int-haproxy-logs \
@@ -139,6 +140,26 @@ interop-bgp-down:
 
 interop-bgp-logs:
 	$(INTEROP_BGP_DC) logs -f
+
+# === RFC Interop Tests (RFC 7419 + RFC 9384 + RFC 9468 — 3 scenarios) ===
+
+INTEROP_RFC_COMPOSE := test/interop-rfc/compose.yml
+INTEROP_RFC_DC := podman-compose -f $(INTEROP_RFC_COMPOSE)
+
+interop-rfc:
+	./test/interop-rfc/run.sh
+
+interop-rfc-test:
+	INTEROP_RFC_COMPOSE_FILE=$(INTEROP_RFC_COMPOSE) go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
+
+interop-rfc-up:
+	$(INTEROP_RFC_DC) up --build -d
+
+interop-rfc-down:
+	$(INTEROP_RFC_DC) down --volumes --remove-orphans
+
+interop-rfc-logs:
+	$(INTEROP_RFC_DC) logs -f
 
 # === Containerlab Vendor Interop Tests (Arista + Nokia + Cisco + SONiC + VyOS) ===
 

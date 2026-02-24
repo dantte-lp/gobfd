@@ -43,7 +43,7 @@ const (
 	gobfdContainer = "clab-" + labName + "-gobfd"
 
 	pollInterval      = 2 * time.Second
-	bfdUpTimeout      = 180 * time.Second // Vendor NOS may take time to boot + BGP/BFD recovery
+	bfdUpTimeout      = 300 * time.Second // Vendor NOS may take time to boot + BGP/BFD recovery (XRd vRouter: 120-300s)
 	failureDetectWait = 10 * time.Second
 	recoveryTimeout   = 180 * time.Second
 )
@@ -122,6 +122,17 @@ var vendors = []vendorPeer{
 		upMatch:   "Up",
 	},
 	{
+		name:      "cisco-v6",
+		baseName:  "cisco",
+		container: "clab-" + labName + "-cisco",
+		peerIP:    "fd00:0:3::1",
+		localIP:   "fd00:0:3::",
+		route:     "fd00:20:3::/48",
+		asn:       65004,
+		showCmd:   []string{"bash", "-c", "source /etc/profile && xr_cli 'show bfd session'"},
+		upMatch:   "Up",
+	},
+	{
 		name:      "sonic",
 		baseName:  "sonic",
 		container: "clab-" + labName + "-sonic",
@@ -129,7 +140,7 @@ var vendors = []vendorPeer{
 		localIP:   "10.0.4.1",
 		route:     "10.20.4.0/24",
 		asn:       65005,
-		showCmd:   []string{"vtysh", "-c", "show bfd peers brief"},
+		showCmd:   []string{"vtysh", "-c", "show bfd peers"},
 		upMatch:   "up",
 	},
 	{
@@ -282,26 +293,44 @@ func ensureBFDUp(ctx context.Context, t *testing.T, v vendorPeer) {
 // cycle the neighbor (disable → enable) so BGP can reconnect. A simple "enable"
 // is insufficient when GoBGP receives a NOTIFICATION during the outage — it
 // transitions to IDLE and won't retry without a full disable/enable cycle.
+//
+// IMPORTANT: This resets ALL sibling peers sharing the same container, not
+// just the given peer. IPv4 and IPv6 sessions share a container — pausing
+// it kills both BGP sessions, and both need explicit reset.
 func resetGoBGPNeighbor(ctx context.Context, t *testing.T, v vendorPeer) {
 	t.Helper()
 
-	// For Nokia SR Linux: also reset BGP on the vendor side to speed up reconnection.
-	// Nokia's BGP may have stale TCP sockets and retry backoff after container pause.
-	if v.baseName == "nokia" {
-		if _, err := containerExec(ctx, v.container,
-			"sr_cli", "-d", "tools /network-instance default protocols bgp neighbor "+
-				v.localIP+" reset-peer"); err != nil {
-			t.Logf("nokia BGP reset-peer %s: %v (may not be needed)", v.localIP, err)
+	// Collect all peers sharing the same container (IPv4 + IPv6 siblings).
+	var siblings []vendorPeer
+	for _, peer := range vendors {
+		if peer.container == v.container {
+			siblings = append(siblings, peer)
 		}
 	}
 
-	// Cycle GoBGP neighbor: disable first to clear any stale IDLE state,
-	// then enable to trigger a fresh connection attempt.
-	containerExec(ctx, gobfdContainer, "gobgp", "neighbor", v.peerIP, "disable") //nolint:errcheck // best-effort
+	// For Nokia SR Linux: reset all BGP neighbors on the vendor side.
+	// Nokia's BGP may have stale TCP sockets and retry backoff after container pause.
+	if v.baseName == "nokia" {
+		for _, sib := range siblings {
+			if _, err := containerExec(ctx, v.container,
+				"sr_cli", "-d", "tools /network-instance default protocols bgp neighbor "+
+					sib.localIP+" reset-peer"); err != nil {
+				t.Logf("nokia BGP reset-peer %s: %v (may not be needed)", sib.localIP, err)
+			}
+		}
+	}
+
+	// Cycle all sibling GoBGP neighbors: disable first to clear stale IDLE state,
+	// then enable to trigger fresh connection attempts.
+	for _, sib := range siblings {
+		containerExec(ctx, gobfdContainer, "gobgp", "neighbor", sib.peerIP, "disable") //nolint:errcheck // best-effort
+	}
 	time.Sleep(1 * time.Second)
-	if _, err := containerExec(ctx, gobfdContainer,
-		"gobgp", "neighbor", v.peerIP, "enable"); err != nil {
-		t.Logf("gobgp neighbor enable %s: %v (may not need reset)", v.peerIP, err)
+	for _, sib := range siblings {
+		if _, err := containerExec(ctx, gobfdContainer,
+			"gobgp", "neighbor", sib.peerIP, "enable"); err != nil {
+			t.Logf("gobgp neighbor enable %s: %v (may not need reset)", sib.peerIP, err)
+		}
 	}
 }
 
@@ -717,12 +746,14 @@ func TestVendorBFD_DetectionTiming(t *testing.T) {
 				}
 			}
 
-			// Restore for next test.
+			// Restore for next test — unpause and reset BGP, but don't block
+			// on full BFD recovery. The next subtest's ensureBFDUp handles that.
+			// Recovery correctness is already verified in TestVendorBFD_FailureDetection.
 			if err := containerUnpause(ctx, v.container); err != nil {
 				t.Fatalf("unpause %s: %v", v.name, err)
 			}
 			resetGoBGPNeighbor(ctx, t, v)
-			waitBFDUp(ctx, t, v)
+			time.Sleep(5 * time.Second) // brief settle time before next subtest
 		})
 	}
 }

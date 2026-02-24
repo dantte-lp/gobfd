@@ -26,10 +26,12 @@
 
 ### Обзор системы
 
-GoBFD -- production-ready демон протокола BFD (Bidirectional Forwarding Detection). Состоит из двух бинарных файлов:
+GoBFD -- production-ready демон протокола BFD (Bidirectional Forwarding Detection). Состоит из четырёх бинарных файлов:
 
 - **gobfd** -- демон, управляющий BFD-сессиями, отправляющий/принимающий BFD Control пакеты и интегрированный с GoBGP
 - **gobfdctl** -- CLI-клиент, взаимодействующий с gobfd через ConnectRPC
+- **gobfd-haproxy-agent** -- мост для HAProxy agent-check (состояние BFD в TCP-ответы агента)
+- **gobfd-exabgp-bridge** -- мост для ExaBGP process API (состояние BFD в анонсы маршрутов)
 
 ```mermaid
 graph TB
@@ -51,7 +53,7 @@ graph TB
     subgraph "External"
         GOBGP["GoBGP<br/>gRPC :50052"]
         PROM["Prometheus<br/>:9100/metrics"]
-        PEER["BFD Peers<br/>UDP 3784/4784"]
+        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081/7784"]
     end
 
     MAIN --> CFG
@@ -112,7 +114,7 @@ graph TB
 | Пакет | Ответственность |
 |---|---|
 | `internal/bfd` | Ядро протокола: FSM, сессии, кодек пакетов, аутентификация |
-| `internal/netio` | Абстракция сырых сокетов, UDP-слушатели портов 3784/4784 |
+| `internal/netio` | Абстракция сырых сокетов, UDP-слушатели, overlay-туннели (Linux) |
 | `internal/server` | ConnectRPC-сервер с перехватчиками (логирование, recovery) |
 | `internal/config` | Конфигурация через koanf/v2: YAML + env + флаги |
 | `internal/metrics` | Prometheus-коллекторы для BFD-сессий |
@@ -210,15 +212,21 @@ graph TB
         SN["Session N<br/>TX timer + RX channel"]
     end
 
-    subgraph "Shared"
+    subgraph "Shared Receivers"
         L["netio.Listener<br/>ReadBatch goroutine"]
         R["netio.Receiver<br/>demux + dispatch"]
+        ER["netio.EchoReceiver<br/>port 3785"]
+        OR["netio.OverlayReceiver<br/>VXLAN 4789 / Geneve 6081"]
+        MD["MicroBFD Dispatch<br/>port 6784 per-member"]
     end
 
     L --> R
     R --> S1
     R --> S2
     R --> SN
+    ER --> S1
+    OR --> S2
+    MD --> SN
     M --> S1
     M --> S2
     M --> SN
@@ -249,24 +257,31 @@ gobfd/
 +-- cmd/
 |   +-- gobfd/main.go             # Daemon entry point
 |   +-- gobfdctl/                 # CLI client
-|       +-- main.go
-|       +-- commands/             # Cobra commands + reeflective/console shell
+|   |   +-- main.go
+|   |   +-- commands/             # Cobra commands + reeflective/console shell
+|   +-- gobfd-haproxy-agent/      # HAProxy agent-check bridge
+|   +-- gobfd-exabgp-bridge/      # ExaBGP process API bridge
 +-- internal/
 |   +-- bfd/                      # Core protocol (FSM, session, packet, auth)
 |   +-- config/                   # koanf/v2 configuration
 |   +-- gobgp/                    # GoBGP gRPC client + flap dampening
 |   +-- metrics/                  # Prometheus collectors
-|   +-- netio/                    # Raw sockets, UDP listeners (Linux)
+|   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests
++-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro)
++-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
++-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
++-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
++-- test/integration/            # Integration tests (datapath, CLI, server)
 +-- configs/                      # Example configuration
 +-- deployments/
 |   +-- compose/                  # Podman Compose (dev + prod stacks)
 |   +-- docker/                   # Containerfile + debug image
 |   +-- systemd/                  # systemd unit file
 |   +-- nfpm/                     # deb/rpm install scripts
+|   +-- integrations/            # 5 integration examples (BGP, HAProxy, observability, ExaBGP, k8s)
 +-- docs/                         # Documentation + RFC texts
 ```
 
@@ -288,6 +303,25 @@ gobfd/
 | Контейнеры | Podman + Podman Compose | Разработка и тестирование |
 | systemd | Type=notify, watchdog | Жизненный цикл production-демона |
 
+### Карта UDP-портов
+
+| Порт | Протокол | RFC | Направление | Статус |
+|---|---|---|---|---|
+| 3784 | BFD Single-Hop | RFC 5881 | TX + RX | Активен |
+| 4784 | BFD Multi-Hop | RFC 5883 | TX + RX | Активен |
+| 3785 | BFD Echo | RFC 9747 | TX + RX | Активен |
+| 6784 | Micro-BFD (LAG) | RFC 7130 | TX + RX | Активен |
+| 4789 | VXLAN BFD (outer) | RFC 8971 | TX + RX | Активен |
+| 6081 | Geneve BFD (outer) | RFC 9521 | TX + RX | Активен |
+| 7784 | S-BFD Reflector | RFC 7881 | RX (рефлектор) + TX (инициатор) | Планируется |
+
+### Карта TCP/HTTP-портов
+
+| Порт | Протокол | Назначение | Статус |
+|---|---|---|---|
+| 50051 | ConnectRPC (gRPC) | API управления сессиями | Активен |
+| 9100 | HTTP | Метрики Prometheus (`/metrics`) | Активен |
+
 ### Связанные документы
 
 - [02-protocol.md](./02-protocol.md) -- Детали протокола BFD (FSM, таймеры, формат пакета)
@@ -297,4 +331,4 @@ gobfd/
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Последнее обновление: 2026-02-24*

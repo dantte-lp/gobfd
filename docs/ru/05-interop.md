@@ -19,6 +19,7 @@
 - [Что тестируется](#что-тестируется)
 - [Захват пакетов](#захват-пакетов)
 - [Устранение проблем](#устранение-проблем)
+- [Тестирование совместимости по RFC](#тестирование-совместимости-по-rfc)
 
 ### Обзор
 
@@ -255,6 +256,83 @@ GoBFD и GoBGP разделяют сетевое пространство имё
 
 ---
 
+## Тестирование совместимости по RFC
+
+![RFC 7419](https://img.shields.io/badge/RFC_7419-PASS-34a853?style=for-the-badge)
+![RFC 9384](https://img.shields.io/badge/RFC_9384-PASS-34a853?style=for-the-badge)
+![RFC 9468](https://img.shields.io/badge/RFC_9468-PASS-34a853?style=for-the-badge)
+
+> Целевые interop-тесты для RFC-расширений сверх базового протокола. Каждый тест проверяет конкретное требование RFC против FRR в топологии из 7 контейнеров с захватом пакетов (tshark).
+
+### Топология RFC Interop
+
+```mermaid
+graph LR
+    subgraph "172.22.0.0/24 (rfcnet)"
+        subgraph "172.22.0.10 (общий netns)"
+            GOBFD["GoBFD<br/>RFC 7419 + 9468"]
+            TSHARK["tshark<br/>захват"]
+        end
+        FRR_BFD["FRR<br/>172.22.0.20<br/>BFD-only пир"]
+        subgraph "172.22.0.30 (общий netns)"
+            GOBFD2["GoBFD<br/>RFC 9384"]
+            GOBGP["GoBGP<br/>ASN 65101"]
+        end
+        FRR_BGP["FRR<br/>172.22.0.40<br/>BGP+BFD пир"]
+        FRR_UNSOL["FRR<br/>172.22.0.50<br/>Unsolicited пир"]
+    end
+
+    GOBFD <-->|"BFD 80мс<br/>(выровнено до 100мс)"| FRR_BFD
+    GOBFD2 <-->|"BFD"| FRR_BGP
+    GOBGP <-->|"BGP"| FRR_BGP
+    FRR_UNSOL -->|"BFD (unsolicited)"| GOBFD
+
+    style GOBFD fill:#1a73e8,color:#fff
+    style GOBFD2 fill:#1a73e8,color:#fff
+    style GOBGP fill:#00ADD8,color:#fff
+    style FRR_BFD fill:#dc3545,color:#fff
+    style FRR_BGP fill:#dc3545,color:#fff
+    style FRR_UNSOL fill:#dc3545,color:#fff
+    style TSHARK fill:#6c757d,color:#fff
+```
+
+### Контейнеры (7)
+
+| Контейнер | IP | Роль |
+|---|---|---|
+| `gobfd-rfc` | 172.22.0.10 | GoBFD с align_intervals + unsolicited |
+| `tshark-rfc` | (общий netns) | Захват пакетов на интерфейсах gobfd-rfc |
+| `frr-rfc` | 172.22.0.20 | FRR BFD-only пир для выравнивания таймеров RFC 7419 |
+| `gobfd-rfc9384` | 172.22.0.30 | GoBFD с интеграцией GoBGP для RFC 9384 |
+| `gobgp-rfc` | (общий netns) | GoBGP ASN 65101 для тестирования BGP Cease |
+| `frr-rfc-bgp` | 172.22.0.40 | FRR BGP+BFD пир для RFC 9384 |
+| `frr-rfc-unsolicited` | 172.22.0.50 | FRR BFD пир без предварительно настроенной сессии на GoBFD |
+
+### Результаты тестов
+
+| Тест | RFC | Описание | Результат |
+|---|---|---|---|
+| `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD настроен на 80мс; с `align_intervals: true` интервал должен быть выровнен до 100мс. Верифицируется через tshark-захват поля `DesiredMinTxInterval`. | **PASS** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. В логах GoBGP: "BFD Down (RFC 9384 Cease/10)". | **PASS** |
+| `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) отправляет BFD-пакеты к GoBFD. Предварительно настроенной сессии нет. GoBFD автоматически создаёт пассивную сессию по unsolicited-политике. Сессия достигает Up. Пауза FRR → сессия Down → очистка. | **PASS** |
+
+### Запуск RFC Interop тестов
+
+```bash
+# Полный цикл (рекомендуется)
+make interop-rfc
+
+# Пошагово
+make interop-rfc-up       # Запуск топологии из 7 контейнеров
+make interop-rfc-test     # Запуск Go-тестов
+make interop-rfc-down     # Очистка
+
+# Просмотр логов
+make interop-rfc-logs
+```
+
+---
+
 ## Совместимость с вендорными NOS (Containerlab)
 
 ![Nokia](https://img.shields.io/badge/Nokia-SR_Linux-124191?style=for-the-badge)
@@ -276,14 +354,14 @@ graph TD
     NOKIA["Nokia SR Linux<br/>10.0.2.2 / fd00:0:2::1<br/>ASN 65003"]
     FRR["FRRouting<br/>10.0.6.2 / fd00:0:6::1<br/>ASN 65007"]
     ARISTA["Arista cEOS<br/>10.0.1.2 / fd00:0:1::1<br/>ASN 65002"]
-    CISCO["Cisco XRd<br/>10.0.3.2<br/>ASN 65004"]
+    CISCO["Cisco XRd vRouter<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
     SONIC["SONiC-VS<br/>10.0.4.2<br/>ASN 65005"]
     VYOS["VyOS<br/>10.0.5.2<br/>ASN 65006"]
 
     GOBFD ---|"eth2 ↔ e1-1<br/>10.0.2.0/30 + fd00:0:2::/127"| NOKIA
     GOBFD ---|"eth6 ↔ eth1<br/>10.0.6.0/30 + fd00:0:6::/127"| FRR
     GOBFD ---|"eth1 ↔ eth1<br/>10.0.1.0/30 + fd00:0:1::/127"| ARISTA
-    GOBFD -.-|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30"| CISCO
+    GOBFD ---|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
     GOBFD -.-|"eth4 ↔ eth1<br/>10.0.4.0/30"| SONIC
     GOBFD -.-|"eth5 ↔ eth1<br/>10.0.5.0/30"| VYOS
 
@@ -305,7 +383,7 @@ graph TD
 | **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Доступен | Бесплатно, без регистрации |
 | **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Доступен | GPL, бесплатно |
 | **Arista cEOS** | `ceos:4.35.2F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Доступен | Бесплатный аккаунт Arista.com |
-| Cisco XRd | `ios-xr/xrd-control-plane:24.3.1` | `10.0.3.0/30` | -- | 65004 | Ручной импорт | Сервисный контракт Cisco |
+| **Cisco XRd** | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Доступен | Сервисный контракт Cisco |
 | SONiC-VS | `docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Ручной импорт | Бесплатно |
 | VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Сборка из ISO | Бесплатно (rolling) |
 
@@ -315,6 +393,39 @@ graph TD
 - **containerlab** 0.57+ (для справки по топологии; используется прямое управление Podman)
 - Capabilities контейнера: `NET_ADMIN`, `NET_RAW`
 - Хотя бы один доступный вендорный образ
+
+### Подготовка лаборатории (`bootstrap.py`)
+
+Самодостаточный скрипт на Python 3.12+ автоматизирует полную подготовку образов с чистой машины:
+
+```bash
+# Скачать все open-source образы + собрать VyOS из ISO + собрать GoBFD
+python3 test/interop-clab/bootstrap.py -v
+
+# С коммерческими образами
+python3 test/interop-clab/bootstrap.py \
+    --arista-image /path/to/cEOS64-lab-4.35.2F.tar \
+    --cisco-image /path/to/xrd-control-plane-container-x64.25.4.1.tgz
+
+# Подготовка + деплой топологии
+python3 test/interop-clab/bootstrap.py --deploy
+
+# Подготовка + полный прогон тестов
+python3 test/interop-clab/bootstrap.py --test
+
+# Пробный запуск (показать что будет сделано)
+python3 test/interop-clab/bootstrap.py --dry-run
+```
+
+Скрипт выполняет:
+- **Предварительные проверки**: podman, go, системные утилиты, свободное место
+- **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, FRRouting (+ зависимости сборки)
+- **Сборка образа VyOS**: скачивание rolling ISO, извлечение squashfs, импорт в podman
+- **Импорт коммерческих образов**: Arista cEOS (`podman load`) и Cisco XRd (распаковка вложенного архива)
+- **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
+- **Отчёт об инвентаризации**: итоговая таблица всех образов со статусом готовности
+
+Выполните `python3 test/interop-clab/bootstrap.py --help` для просмотра всех опций.
 
 ### Запуск вендорных тестов
 
@@ -348,6 +459,8 @@ make interop-clab-down   # Уничтожение контейнеров и veth
 
 **Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.35.2F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
 
+**Cisco XRd**: XRd Control Plane выполняет тот же код IOS-XR, что и физические платформы Cisco 8000/NCS. Контейнер запускается с `--privileged` и обнаруживает Linux-интерфейсы напрямую (veth-конечные точки с именем `Gi0-0-0-0`). Время загрузки 60-180с; тестовый раннер ожидает успешного выполнения `xr_cli 'show version'`. BFD настраивается через BGP-соседа с `bfd fast-detect` и таймерами 300мс. Режим эхо явно отключён (`bfd echo disable`), так как контейнеры XRd не поддерживают аппаратный эхо-режим. **Примечание**: XRd vRouter (DPDK-датаплейн) требует PCI-проброса и несовместим с veth-топологиями — здесь может использоваться только Control Plane.
+
 **Интеграция с GoBGP**: GoBFD работает совместно с GoBGP (ASN 65001) внутри контейнера GoBFD. Вендорные NOS, такие как Nokia, требуют BGP для BFD, инициируемого протоколом. При паузе/возобновлении контейнера вендора BGP-сосед GoBGP переходит в состояние `Idle(Admin)` и должен быть явно перевключён через `gobgp neighbor <ip> enable`.
 
 ### Тестирование BFD с двойным стеком IPv6
@@ -365,6 +478,7 @@ RFC 5881 определяет BFD как для IPv4 (Section 4), так и дл
 |---|---|---|---|---|
 | Arista | `fd00:0:1::` | `fd00:0:1::1` | `fd00:0:1::/127` | `fd00:20:1::/48` |
 | Nokia  | `fd00:0:2::` | `fd00:0:2::1` | `fd00:0:2::/127` | `fd00:20:2::/48` |
+| Cisco  | `fd00:0:3::` | `fd00:0:3::1` | `fd00:0:3::/127` | `fd00:20:3::/48` |
 | FRR    | `fd00:0:6::` | `fd00:0:6::1` | `fd00:0:6::/127` | `fd00:20:6::/48` |
 
 **Конструктивные решения**:
@@ -439,4 +553,4 @@ netlab автоматически управляет IP-адресацией, н
 
 ---
 
-*Последнее обновление: 2026-02-22*
+*Последнее обновление: 2026-02-24*

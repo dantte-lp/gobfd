@@ -18,16 +18,19 @@ import (
 //
 // For single-hop (RFC 5881): Port = 3784, IfName is required.
 // For multi-hop (RFC 5883): Port = 4784, IfName is empty.
+// For micro-BFD (RFC 7130): Port = 6784, IfName is required (member link).
 type ListenerConfig struct {
 	// Addr is the local IP address to bind to (IPv4 or IPv6).
 	Addr netip.Addr
 
 	// IfName is the network interface name for SO_BINDTODEVICE.
-	// Required for single-hop sessions (RFC 5881 Section 4).
+	// Required for single-hop sessions (RFC 5881 Section 4)
+	// and micro-BFD per-member sessions (RFC 7130 Section 2).
 	// Empty for multi-hop sessions.
 	IfName string
 
-	// Port is the destination UDP port: 3784 (single-hop) or 4784 (multi-hop).
+	// Port is the destination UDP port: 3784 (single-hop), 4784 (multi-hop),
+	// 3785 (echo), or 6784 (micro-BFD).
 	Port uint16
 
 	// MultiHop indicates whether this is a multi-hop listener (RFC 5883).
@@ -128,6 +131,16 @@ func createConn(cfg ListenerConfig) (PacketConn, error) {
 		conn, err := NewMultiHopListener(context.Background(), cfg.Addr)
 		if err != nil {
 			return nil, fmt.Errorf("create multi-hop listener: %w", err)
+		}
+		return conn, nil
+	}
+
+	// For non-standard ports (micro-BFD 6784, echo 3785), use the generic
+	// listener with SO_BINDTODEVICE and GTSM TTL=255 (single-hop semantics).
+	if cfg.Port != 0 && cfg.Port != PortSingleHop {
+		conn, err := NewGenericListener(context.Background(), cfg.Addr, cfg.IfName, cfg.Port)
+		if err != nil {
+			return nil, fmt.Errorf("create listener on port %d: %w", cfg.Port, err)
 		}
 		return conn, nil
 	}

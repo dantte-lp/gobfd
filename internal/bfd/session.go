@@ -25,6 +25,18 @@ const (
 
 	// SessionTypeMultiHop indicates a multi-hop BFD session (RFC 5883).
 	SessionTypeMultiHop
+
+	// SessionTypeEcho indicates an unaffiliated BFD echo session (RFC 9747).
+	SessionTypeEcho
+
+	// SessionTypeMicroBFD indicates a per-member-link micro-BFD session (RFC 7130).
+	SessionTypeMicroBFD
+
+	// SessionTypeVXLAN indicates a BFD session over a VXLAN tunnel (RFC 8971).
+	SessionTypeVXLAN
+
+	// SessionTypeGeneve indicates a BFD session over a Geneve tunnel (RFC 9521).
+	SessionTypeGeneve
 )
 
 // String returns the human-readable name for the session type.
@@ -34,6 +46,14 @@ func (st SessionType) String() string {
 		return "SingleHop"
 	case SessionTypeMultiHop:
 		return "MultiHop"
+	case SessionTypeEcho:
+		return "Echo"
+	case SessionTypeMicroBFD:
+		return "MicroBFD"
+	case SessionTypeVXLAN:
+		return "VXLAN"
+	case SessionTypeGeneve:
+		return "Geneve"
 	default:
 		return unknownStr
 	}
@@ -107,6 +127,13 @@ type SessionConfig struct {
 	// AuthKeys provides the key store for authentication.
 	// Required if Auth is not nil.
 	AuthKeys AuthKeyStore
+
+	// PaddedPduSize is the padded PDU size for BFD Large Packets (RFC 9764).
+	// When nonzero, transmitted BFD Control packets are padded with zeros to
+	// this total length. The DF bit is set to enable path MTU verification.
+	// Valid range: HeaderSize (24) to MaxPaddedPduSize (9000).
+	// Zero means no padding (default behavior).
+	PaddedPduSize uint16
 }
 
 // StateChange is emitted when a session FSM transitions between states.
@@ -128,6 +155,14 @@ type StateChange struct {
 
 	// Timestamp is when the transition occurred.
 	Timestamp time.Time
+
+	// Type is the session type (single-hop, multi-hop, micro-BFD, etc.).
+	// Used by the Manager to dispatch micro-BFD events to the correct group.
+	Type SessionType
+
+	// Interface is the network interface name.
+	// Used for micro-BFD dispatch: identifies the LAG member link.
+	Interface string
 }
 
 // PacketSender abstracts sending BFD Control packets over the network.
@@ -173,6 +208,9 @@ var (
 
 	// ErrInvalidDiscriminator indicates the local discriminator is zero.
 	ErrInvalidDiscriminator = errors.New("local discriminator must be nonzero")
+
+	// ErrInvalidPaddedPduSize indicates the padded PDU size is out of range.
+	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0 or between 24 and 9000")
 )
 
 // -------------------------------------------------------------------------
@@ -180,6 +218,10 @@ var (
 // -------------------------------------------------------------------------
 
 const (
+	// MaxPaddedPduSize is the maximum padded PDU size for RFC 9764.
+	// Capped at jumbo frame Ethernet MTU minus IP+UDP headers.
+	MaxPaddedPduSize = 9000
+
 	// slowTxInterval is the minimum TX interval when session is not Up.
 	// RFC 5880 Section 6.8.3: "MUST set bfd.DesiredMinTxInterval to a
 	// value of not less than one second (1,000,000 microseconds).".
@@ -277,6 +319,9 @@ type Session struct {
 	// --- Cached packet (FRR bfdd pattern) ---
 	cachedPacket []byte
 
+	// paddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
+	paddedPduSize uint16
+
 	// --- Authentication (RFC 5880 Section 6.7) ---
 
 	// auth holds the authenticator (nil if no auth).
@@ -345,6 +390,12 @@ func NewSession(
 		return nil, err
 	}
 
+	// RFC 9764: allocate a buffer large enough for padded packets.
+	pktBufSize := MaxPacketSize
+	if cfg.PaddedPduSize > uint16(pktBufSize) {
+		pktBufSize = int(cfg.PaddedPduSize)
+	}
+
 	s := &Session{
 		localDiscr:            localDiscr,
 		desiredMinTxInterval:  cfg.DesiredMinTxInterval,
@@ -358,11 +409,12 @@ func NewSession(
 		ifName:                cfg.Interface,
 		auth:                  cfg.Auth,
 		authKeys:              cfg.AuthKeys,
+		paddedPduSize:         cfg.PaddedPduSize,
 		sender:                sender,
 		metrics:               noopMetrics{},
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
-		cachedPacket:          make([]byte, MaxPacketSize),
+		cachedPacket:          make([]byte, pktBufSize),
 		logger: logger.With(
 			slog.String("peer", cfg.PeerAddr.String()),
 			slog.Uint64("local_discr", uint64(localDiscr)),
@@ -398,7 +450,7 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.DesiredMinTxInterval <= 0 {
 		return fmt.Errorf("desired min TX interval %v: %w", cfg.DesiredMinTxInterval, ErrInvalidTxInterval)
 	}
-	if cfg.Type != SessionTypeSingleHop && cfg.Type != SessionTypeMultiHop {
+	if cfg.Type != SessionTypeSingleHop && cfg.Type != SessionTypeMultiHop && cfg.Type != SessionTypeMicroBFD {
 		return fmt.Errorf("session type %d: %w", cfg.Type, ErrInvalidSessionType)
 	}
 	if cfg.Role != RoleActive && cfg.Role != RolePassive {
@@ -406,6 +458,10 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	}
 	if localDiscr == 0 {
 		return fmt.Errorf("local discriminator: %w", ErrInvalidDiscriminator)
+	}
+	// RFC 9764: PaddedPduSize must be 0 (disabled) or within [HeaderSize, MaxPaddedPduSize].
+	if cfg.PaddedPduSize != 0 && (cfg.PaddedPduSize < HeaderSize || cfg.PaddedPduSize > MaxPaddedPduSize) {
+		return fmt.Errorf("padded PDU size %d: %w", cfg.PaddedPduSize, ErrInvalidPaddedPduSize)
 	}
 	return nil
 }
@@ -467,6 +523,9 @@ func (s *Session) Interface() string { return s.ifName }
 
 // Type returns the session type (single-hop or multi-hop).
 func (s *Session) Type() SessionType { return s.sessionType }
+
+// PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
+func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
 
 // DesiredMinTxInterval returns the configured desired minimum TX interval.
 func (s *Session) DesiredMinTxInterval() time.Duration { return s.desiredMinTxInterval }
@@ -638,10 +697,23 @@ func (s *Session) maybeSendControl(ctx context.Context) {
 }
 
 // sendControl serializes and sends a BFD Control packet.
+// RFC 9764: when paddedPduSize is set, the packet is padded with zeros
+// to the configured size. The Length field in the BFD header retains the
+// actual (unpadded) protocol length; padding follows the BFD PDU.
 func (s *Session) sendControl(ctx context.Context) {
 	s.rebuildCachedPacket()
 	pktLen := int(s.cachedPacket[3]) // Length field at byte 3
-	if err := s.sender.SendPacket(ctx, s.cachedPacket[:pktLen], s.peerAddr); err != nil {
+
+	sendLen := pktLen
+	if s.paddedPduSize > 0 && int(s.paddedPduSize) > pktLen {
+		sendLen = int(s.paddedPduSize)
+		// RFC 9764 Section 3: padding MUST be zero.
+		// clear only extends beyond the BFD PDU; the buffer was
+		// zero-allocated and only BFD header bytes are written.
+		clear(s.cachedPacket[pktLen:sendLen])
+	}
+
+	if err := s.sender.SendPacket(ctx, s.cachedPacket[:sendLen], s.peerAddr); err != nil {
 		s.logger.Warn("failed to send control packet",
 			slog.String("error", err.Error()),
 		)
@@ -865,6 +937,8 @@ func (s *Session) emitNotification(result FSMResult) {
 		NewState:   result.NewState,
 		Diag:       s.LocalDiag(),
 		Timestamp:  time.Now(),
+		Type:       s.sessionType,
+		Interface:  s.ifName,
 	}
 	select {
 	case s.notifyCh <- sc:

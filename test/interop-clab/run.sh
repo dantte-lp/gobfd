@@ -38,11 +38,39 @@ DEPLOYED_VENDORS=()
 VENDOR_DEFS=(
     "arista:clab-${LAB_NAME}-arista:ceos:4.35.2F:1:10.0.1.2:10.0.1.1:65002"
     "nokia:clab-${LAB_NAME}-nokia:ghcr.io/nokia/srlinux:25.10.2:2:10.0.2.2:10.0.2.1:65003"
-    "cisco:clab-${LAB_NAME}-cisco:ios-xr/xrd-control-plane:24.3.1:3:10.0.3.2:10.0.3.1:65004"
+    "cisco:clab-${LAB_NAME}-cisco:CISCO_XRD_IMAGE:3:10.0.3.2:10.0.3.1:65004"
     "sonic:clab-${LAB_NAME}-sonic:docker-sonic-vs:latest:4:10.0.4.2:10.0.4.1:65005"
     "vyos:clab-${LAB_NAME}-vyos:vyos:latest:5:10.0.5.2:10.0.5.1:65006"
     "frr:clab-${LAB_NAME}-frr:quay.io/frrouting/frr:10.2.5:6:10.0.6.2:10.0.6.1:65007"
 )
+
+# Resolve Cisco XRd image: prefer Control Plane (supports linux veth interfaces)
+# over vRouter (requires PCI passthrough, incompatible with veth topologies).
+# CISCO_XRD_IMAGE is a placeholder in VENDOR_DEFS, resolved here.
+CISCO_XRD_IMAGE="cisco-xrd-missing:none"
+for xrd_candidate in \
+    "ios-xr/xrd-control-plane:25.4.1" \
+    "ios-xr/xrd-control-plane:24.3.1" \
+    "ios-xr/xrd-control-plane:latest"; do
+    if podman image exists "${xrd_candidate}" 2>/dev/null; then
+        CISCO_XRD_IMAGE="${xrd_candidate}"
+        break
+    fi
+done
+if [ "${CISCO_XRD_IMAGE}" = "cisco-xrd-missing:none" ]; then
+    # Check if vRouter is available (will be skipped during deploy with a warning).
+    for xrd_candidate in \
+        "ios-xr/xrd-vrouter:25.4.1" \
+        "ios-xr/xrd-vrouter:latest"; do
+        if podman image exists "${xrd_candidate}" 2>/dev/null; then
+            CISCO_XRD_IMAGE="${xrd_candidate}"
+            break
+        fi
+    done
+fi
+
+# Substitute the resolved image into VENDOR_DEFS.
+VENDOR_DEFS=("${VENDOR_DEFS[@]//CISCO_XRD_IMAGE/${CISCO_XRD_IMAGE}}")
 
 # IPv6 dual-stack addresses (RFC 4193 ULA, /127 per RFC 6164).
 declare -A VENDOR_IPV6_PEER VENDOR_IPV6_LOCAL VENDOR_IPV6_ROUTE
@@ -52,6 +80,9 @@ VENDOR_IPV6_ROUTE[arista]="fd00:20:1::/48"
 VENDOR_IPV6_PEER[nokia]="fd00:0:2::1"
 VENDOR_IPV6_LOCAL[nokia]="fd00:0:2::"
 VENDOR_IPV6_ROUTE[nokia]="fd00:20:2::/48"
+VENDOR_IPV6_PEER[cisco]="fd00:0:3::1"
+VENDOR_IPV6_LOCAL[cisco]="fd00:0:3::"
+VENDOR_IPV6_ROUTE[cisco]="fd00:20:3::/48"
 VENDOR_IPV6_PEER[frr]="fd00:0:6::1"
 VENDOR_IPV6_LOCAL[frr]="fd00:0:6::"
 VENDOR_IPV6_ROUTE[frr]="fd00:20:6::/48"
@@ -407,6 +438,50 @@ start_frr() {
         "${image}"
 }
 
+# start_cisco_xrd starts Cisco XRd container.
+# Supports both XRd Control Plane (uses linux interfaces) and XRd vRouter
+# (requires PCI passthrough). The image type is auto-detected.
+#
+# XRd Control Plane: lightweight (2GB RAM), uses linux veth interfaces directly.
+# XRd vRouter: full DPDK dataplane (5GB RAM + hugepages), requires PCI devices.
+#   vRouter CANNOT use linux veth interfaces — it will be skipped with a warning
+#   unless PCI passthrough is configured.
+start_cisco_xrd() {
+    local cname="$1" image="$2"
+
+    # Detect image type from the image name.
+    if echo "${image}" | grep -q "xrd-vrouter"; then
+        info "Cisco XRd vRouter detected — requires PCI passthrough for data interfaces"
+        info "  vRouter cannot use linux veth interfaces (DPDK limitation)"
+        info "  use XRd Control Plane image for veth-based lab topologies"
+        info "  skipping Cisco XRd"
+        return 1
+    fi
+
+    info "starting Cisco XRd Control Plane: ${cname}"
+    podman run -d --name "${cname}" --privileged \
+        --pids-limit=-1 \
+        -v "${SCRIPT_DIR}/cisco/xrd.cfg:/etc/xrd/startup.cfg:ro,z" \
+        "${image}"
+}
+
+# wait_cisco_xrd waits for XRd to fully initialize (up to 300s).
+# Health check: xr_cli "show version" succeeds when XR is fully booted.
+wait_cisco_xrd() {
+    local cname="$1"
+    info "waiting for Cisco XRd to initialize (up to 300s)..."
+    local deadline=$((SECONDS + 300))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if podman exec "${cname}" bash -c "source /etc/profile && xr_cli 'show version'" &>/dev/null; then
+            pass "Cisco XRd initialized"
+            return 0
+        fi
+        sleep 10
+    done
+    fail "Cisco XRd did not initialize within 300s"
+    return 1
+}
+
 deploy_vendors() {
     local deployed=0
 
@@ -437,17 +512,18 @@ deploy_vendors() {
                 start_arista_ceos "${cname}" "${image}"
                 ;;
             cisco)
-                podman run -d --name "${cname}" --privileged \
-                    -v "${SCRIPT_DIR}/cisco/xrd.cfg:/etc/xrd/startup.cfg:ro,z" \
-                    "${image}"
+                # || true: vRouter images return 1 (skip) — let the container
+                # check below handle the skip instead of tripping set -e.
+                start_cisco_xrd "${cname}" "${image}" || true
                 ;;
             sonic)
                 podman run -d --name "${cname}" --privileged "${image}"
                 ;;
             vyos)
                 podman run -d --name "${cname}" --privileged \
+                    -v /lib/modules:/lib/modules:ro \
                     -v "${SCRIPT_DIR}/vyos/config.boot:/opt/vyatta/etc/config/config.boot:ro,z" \
-                    "${image}"
+                    "${image}" /sbin/init
                 ;;
             frr)
                 start_frr "${cname}" "${image}"
@@ -494,12 +570,29 @@ deploy_vendors() {
         fi
 
         # Vendor-specific post-link configuration.
+        # Failures here should not abort the entire deployment — skip the
+        # vendor and continue with the rest (set -e would otherwise exit).
         case "${name}" in
             nokia)
-                configure_nokia_srl "${cname}"
+                if ! configure_nokia_srl "${cname}"; then
+                    fail "vendor ${name} configuration failed — skipping"
+                    podman rm -f "${cname}" 2>/dev/null || true
+                    continue
+                fi
                 ;;
             arista)
-                wait_arista_ceos "${cname}"
+                if ! wait_arista_ceos "${cname}"; then
+                    fail "vendor ${name} did not initialize — skipping"
+                    podman rm -f "${cname}" 2>/dev/null || true
+                    continue
+                fi
+                ;;
+            cisco)
+                if ! wait_cisco_xrd "${cname}"; then
+                    fail "vendor ${name} did not initialize — skipping"
+                    podman rm -f "${cname}" 2>/dev/null || true
+                    continue
+                fi
                 ;;
         esac
 
@@ -730,9 +823,9 @@ configure_sonic() {
 # ---------------------------------------------------------------------------
 
 wait_bfd_convergence() {
-    info "waiting for BFD sessions to establish (up to 120s)"
+    info "waiting for BFD sessions to establish (up to 180s)"
 
-    local max_wait=120
+    local max_wait=180
     local waited=0
     local interval=10
 

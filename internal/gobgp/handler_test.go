@@ -146,8 +146,10 @@ func TestHandlerBFDDownDisablesPeer(t *testing.T) {
 		t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
 	}
 
-	if calls[0].communication == "" {
-		t.Error("expected non-empty communication string")
+	// RFC 9384: communication must contain Cease/10 context and diagnostic.
+	wantComm := gobgp.FormatBFDDownCommunication(bfd.DiagControlTimeExpired)
+	if calls[0].communication != wantComm {
+		t.Errorf("communication mismatch\n  got:  %q\n  want: %q", calls[0].communication, wantComm)
 	}
 
 	cancel()

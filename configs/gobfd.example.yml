@@ -30,6 +30,90 @@ bfd:
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
   default_detect_multiplier: 3
+  # RFC 7419: align timers to nearest common interval (3.3ms, 10ms, 20ms,
+  # 50ms, 100ms, 1s) for hardware interop. Default: false.
+  # align_intervals: true
+  #
+  # RFC 9764: pad BFD Control packets to this size and set DF bit for
+  # path MTU verification. Valid range: 24-9000. Default: 0 (no padding).
+  # default_padded_pdu_size: 128
+
+# RFC 9468: Unsolicited BFD. Auto-creates passive sessions for incoming
+# BFD packets from unknown peers. MUST be disabled by default per RFC.
+#
+# unsolicited:
+#   enabled: true
+#   max_sessions: 10
+#   cleanup_timeout: "30s"
+#   session_defaults:
+#     desired_min_tx: "300ms"
+#     required_min_rx: "300ms"
+#     detect_mult: 3
+#   interfaces:
+#     "":
+#       enabled: true
+#       allowed_prefixes: ["10.0.0.0/8"]
+
+# RFC 9747: Unaffiliated BFD Echo. Detects forwarding-path failures
+# without requiring the remote to run BFD. Uses UDP port 3785.
+#
+# echo:
+#   enabled: true
+#   default_tx_interval: "100ms"
+#   default_detect_multiplier: 3
+#   peers:
+#     - peer: "10.0.0.1"
+#       local: "10.0.0.2"
+#       interface: "eth0"
+#       tx_interval: "50ms"
+#       detect_mult: 5
+
+# RFC 7130: Micro-BFD for LAG. Runs independent BFD sessions on each
+# LAG member link for per-link forwarding verification. Uses UDP port 6784.
+#
+# micro_bfd:
+#   groups:
+#     - lag_interface: "bond0"
+#       member_links: ["eth0", "eth1"]
+#       peer_addr: "10.0.0.2"
+#       local_addr: "10.0.0.1"
+#       desired_min_tx: "100ms"
+#       required_min_rx: "100ms"
+#       detect_mult: 3
+#       min_active_links: 1
+
+# RFC 8971: BFD for VXLAN. Runs BFD sessions encapsulated in VXLAN
+# to verify VTEP-to-VTEP forwarding paths. Uses UDP port 4789.
+#
+# vxlan:
+#   enabled: true
+#   management_vni: 16777215
+#   default_desired_min_tx: "1s"
+#   default_required_min_rx: "1s"
+#   default_detect_multiplier: 3
+#   peers:
+#     - peer: "10.0.0.2"
+#       local: "10.0.0.1"
+#       desired_min_tx: "300ms"
+#       required_min_rx: "300ms"
+#       detect_mult: 5
+
+# RFC 9521: BFD for Geneve. Runs BFD sessions encapsulated in Geneve
+# to verify NVE-to-NVE forwarding paths. Uses UDP port 6081.
+#
+# geneve:
+#   enabled: true
+#   default_vni: 100
+#   default_desired_min_tx: "1s"
+#   default_required_min_rx: "1s"
+#   default_detect_multiplier: 3
+#   peers:
+#     - peer: "10.0.0.2"
+#       local: "10.0.0.1"
+#       vni: 200
+#       desired_min_tx: "300ms"
+#       required_min_rx: "300ms"
+#       detect_mult: 5
 
 # GoBGP integration (RFC 5882 Section 4.3).
 # When enabled, BFD state changes are propagated to a GoBGP instance
@@ -62,6 +146,8 @@ bfd:
 #     desired_min_tx: "100ms"
 #     required_min_rx: "100ms"
 #     detect_mult: 3
+#     # RFC 9764: per-session padded PDU size. Overrides bfd.default_padded_pdu_size.
+#     # padded_pdu_size: 128
 #   - peer: "10.0.1.1"
 #     local: "10.0.1.2"
 #     type: multi_hop

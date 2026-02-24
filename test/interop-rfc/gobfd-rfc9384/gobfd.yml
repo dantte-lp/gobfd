@@ -1,0 +1,38 @@
+# GoBFD configuration for RFC 9384 interoperability testing.
+#
+# This instance runs alongside GoBGP (shared netns at 172.22.0.30) and
+# provides BFD monitoring for the BGP peer at frr-rfc-bgp (172.22.0.40).
+#
+# When BFD detects failure, the GoBGP handler calls DisablePeer() with
+# an RFC 9384-enriched communication string:
+#   "BFD Down (RFC 9384 Cease/10): diag=Control Detection Time Expired"
+#
+# GoBGP gRPC is at localhost:50051 (shared netns).
+# GoBFD gRPC is at :50052 (different port to avoid conflict).
+
+grpc:
+  addr: ":50052"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+gobgp:
+  enabled: true
+  addr: "127.0.0.1:50051"
+  strategy: "disable-peer"
+  dampening:
+    enabled: false
+
+sessions:
+  - peer: "172.22.0.40"
+    local: "172.22.0.30"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3

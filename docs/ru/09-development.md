@@ -116,6 +116,7 @@ make all
 | `make lint` | Запуск golangci-lint v2 |
 | `make lint-fix` | Автоматическое исправление проблем линтера |
 | `make vulncheck` | Запуск govulncheck |
+| `make osv-scan` | Запуск OSV Scanner (`osv-scanner scan -r .`) |
 
 #### Protobuf
 
@@ -272,4 +273,4 @@ make proto-lint   # Линтинг proto-определений
 
 ---
 
-*Последнее обновление: 2026-02-22*
+*Последнее обновление: 2026-02-24*

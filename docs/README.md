@@ -1,7 +1,7 @@
 # GoBFD Documentation / Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-9-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-11-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-EN%20%2F%20RU-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -34,4 +34,4 @@ Full RFC text files are available in [`docs/rfc/`](./rfc/):
 
 ---
 
-*Last updated / Последнее обновление: 2026-02-21*
+*Last updated / Последнее обновление: 2026-02-24*

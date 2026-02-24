@@ -1,0 +1,153 @@
+# RFC interop test stack for GoBFD.
+#
+# Tests four RFCs that are practically interop-testable:
+#   1. RFC 7419 — Common interval alignment (tshark verification)
+#   2. RFC 9384 — BGP Cease BFD-Down (log inspection + BGP state)
+#   3. RFC 9468 — Unsolicited BFD (auto-session creation)
+#   4. RFC 9747 — Unaffiliated BFD echo (echo reflector)
+#
+# Network: 172.22.0.0/24 (separate from interop 172.20.0.0/24
+# and interop-bgp 172.21.0.0/24).
+#
+# Shared network namespaces:
+#   - tshark-rfc shares gobfd-rfc's netns → packet capture
+#   - gobgp-rfc shares gobfd-rfc9384's netns → both at 172.22.0.30
+#
+# Usage:
+#   podman-compose -f test/interop-rfc/compose.yml up --build -d
+#   podman-compose -f test/interop-rfc/compose.yml logs -f
+#   podman-compose -f test/interop-rfc/compose.yml down
+
+services:
+  # === RFC 7419 + RFC 9468: gobfd-rfc at 172.22.0.10 ===
+
+  gobfd-rfc:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-rfc-interop
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd-rfc/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      rfcnet:
+        ipv4_address: 172.22.0.10
+
+  tshark-rfc:
+    build:
+      context: ../interop/tshark
+      dockerfile: Containerfile
+    container_name: tshark-rfc-interop
+    network_mode: "service:gobfd-rfc"
+    depends_on:
+      - gobfd-rfc
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - captures:/captures:z
+
+  # === RFC 7419: FRR BFD-only peer at 172.22.0.20 ===
+
+  frr-rfc:
+    image: quay.io/frrouting/frr:10.2.5
+    container_name: frr-rfc-interop
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./frr/daemons:/etc/frr/daemons:ro,z
+      - ./frr/frr.conf:/etc/frr/frr.conf:ro,z
+    networks:
+      rfcnet:
+        ipv4_address: 172.22.0.20
+
+  # === RFC 9384: gobfd-rfc9384 + gobgp-rfc at 172.22.0.30 ===
+
+  gobfd-rfc9384:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Containerfile
+    container_name: gobfd-rfc9384-interop
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./gobfd-rfc9384/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    networks:
+      rfcnet:
+        ipv4_address: 172.22.0.30
+
+  gobgp-rfc:
+    image: docker.io/jauderho/gobgp:v3.33.0
+    container_name: gobgp-rfc-interop
+    user: "0:0"
+    cap_add:
+      - NET_BIND_SERVICE
+    network_mode: "service:gobfd-rfc9384"
+    depends_on:
+      - gobfd-rfc9384
+    volumes:
+      - ./gobgp/gobgp.toml:/etc/gobgp/gobgp.toml:ro,z
+    command: ["gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
+
+  # === RFC 9384: FRR BGP+BFD peer at 172.22.0.40 ===
+
+  frr-rfc-bgp:
+    image: quay.io/frrouting/frr:10.2.5
+    container_name: frr-rfc-bgp-interop
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./frr-bgp/daemons:/etc/frr/daemons:ro,z
+      - ./frr-bgp/frr.conf:/etc/frr/frr.conf:ro,z
+    networks:
+      rfcnet:
+        ipv4_address: 172.22.0.40
+
+  # === RFC 9747: Echo reflector at 172.22.0.60 ===
+
+  echo-reflector:
+    build:
+      context: ./echo-reflector
+      dockerfile: Containerfile
+    container_name: echo-reflector-interop
+    networks:
+      rfcnet:
+        ipv4_address: 172.22.0.60
+
+  # === RFC 9468: FRR BFD-only peer at 172.22.0.50 (unsolicited) ===
+
+  frr-rfc-unsolicited:
+    image: quay.io/frrouting/frr:10.2.5
+    container_name: frr-rfc-unsolicited-interop
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+    volumes:
+      - ./frr-unsolicited/daemons:/etc/frr/daemons:ro,z
+      - ./frr-unsolicited/frr.conf:/etc/frr/frr.conf:ro,z
+    networks:
+      rfcnet:
+        ipv4_address: 172.22.0.50
+
+volumes:
+  captures:
+
+networks:
+  rfcnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1
