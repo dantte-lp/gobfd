@@ -50,6 +50,28 @@ bfd:
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
   default_detect_multiplier: 3
+  align_intervals: false
+  default_padded_pdu_size: 0       # RFC 9764: 0 = no padding
+
+# Unsolicited BFD (RFC 9468)
+unsolicited:
+  enabled: false
+
+# Echo (RFC 9747)
+echo:
+  enabled: false
+
+# Micro-BFD (RFC 7130)
+micro_bfd:
+  groups: []
+
+# VXLAN BFD (RFC 8971)
+vxlan:
+  enabled: false
+
+# Geneve BFD (RFC 9521)
+geneve:
+  enabled: false
 
 # GoBGP integration (RFC 5882 Section 4.3)
 gobgp:
@@ -78,6 +100,7 @@ sessions:
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
     detect_mult: 5
+    padded_pdu_size: 128             # RFC 9764: per-session PDU padding
 ```
 
 ### Configuration Sections
@@ -111,14 +134,187 @@ Log level can be changed at runtime via SIGHUP reload without restarting the dae
 | `default_desired_min_tx` | duration | `"1s"` | Default Desired Min TX Interval |
 | `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval |
 | `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (MUST be >= 1) |
+| `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
+| `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled, valid: 24-9000) |
 
 These defaults apply to sessions created via gRPC that do not specify their own parameters. Sessions defined in the `sessions` section can override any of these values.
+
+When `align_intervals` is `true`, `DesiredMinTxInterval` and `RequiredMinRxInterval` are rounded UP to the nearest RFC 7419 common interval (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s). This prevents negotiation mismatches with hardware BFD implementations.
 
 > **Note**: Per RFC 5880 Section 6.8.3, when the session is not in Up state, the TX interval is enforced to be at least 1 second regardless of the configured value.
 
 #### `gobgp` -- GoBGP Integration
 
 See [GoBGP Integration](#gobgp-integration) for details.
+
+#### `unsolicited` -- RFC 9468 Unsolicited BFD
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `unsolicited.enabled` | bool | `false` | Enable unsolicited BFD (MUST be disabled by default per RFC 9468) |
+| `unsolicited.max_sessions` | int | `0` | Max dynamically created sessions (0 = unlimited) |
+| `unsolicited.cleanup_timeout` | duration | `"0s"` | Wait time before deleting Down passive sessions |
+| `unsolicited.session_defaults.desired_min_tx` | duration | `"1s"` | Default TX interval for auto-created sessions |
+| `unsolicited.session_defaults.required_min_rx` | duration | `"1s"` | Default RX interval for auto-created sessions |
+| `unsolicited.session_defaults.detect_mult` | uint32 | `3` | Default detect multiplier for auto-created sessions |
+| `unsolicited.interfaces.<name>.enabled` | bool | `false` | Enable unsolicited on this interface |
+| `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Restrict source addresses (CIDR notation) |
+
+Example:
+```yaml
+unsolicited:
+  enabled: true
+  max_sessions: 10
+  cleanup_timeout: "30s"
+  session_defaults:
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+  interfaces:
+    "":
+      enabled: true
+      allowed_prefixes: ["10.0.0.0/8"]
+```
+
+> **Note**: The empty string key `""` matches the default listener (no interface binding). Use this for raw socket listeners that don't report an interface name.
+
+#### `echo` -- RFC 9747 Unaffiliated BFD Echo
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `echo.enabled` | bool | `false` | Enable BFD echo sessions |
+| `echo.default_tx_interval` | duration | -- | Default echo transmit interval |
+| `echo.default_detect_multiplier` | uint32 | -- | Default echo detection multiplier |
+| `echo.peers[].peer` | string | -- | Remote system IP (echo target) |
+| `echo.peers[].local` | string | -- | Local system IP |
+| `echo.peers[].interface` | string | -- | Network interface for `SO_BINDTODEVICE` (optional) |
+| `echo.peers[].tx_interval` | duration | -- | Override `default_tx_interval` for this peer |
+| `echo.peers[].detect_mult` | uint32 | -- | Override `default_detect_multiplier` for this peer |
+
+Echo sessions detect forwarding-path failures without requiring the remote system to run BFD. The local system sends BFD Control packets to UDP port 3785 on the remote, which forwards them back via normal IP routing.
+
+Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
+
+Example:
+```yaml
+echo:
+  enabled: true
+  default_tx_interval: "100ms"
+  default_detect_multiplier: 3
+  peers:
+    - peer: "10.0.0.1"
+      local: "10.0.0.2"
+      interface: "eth0"
+      tx_interval: "50ms"
+      detect_mult: 5
+```
+
+#### `micro_bfd` -- RFC 7130 Micro-BFD for LAG
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `micro_bfd.groups[].lag_interface` | string | -- | Logical LAG interface name (e.g., "bond0") |
+| `micro_bfd.groups[].member_links` | []string | -- | Physical member link names |
+| `micro_bfd.groups[].peer_addr` | string | -- | Remote system IP for all member sessions |
+| `micro_bfd.groups[].local_addr` | string | -- | Local system IP |
+| `micro_bfd.groups[].desired_min_tx` | duration | -- | BFD timer interval for member sessions |
+| `micro_bfd.groups[].required_min_rx` | duration | -- | Minimum acceptable RX interval |
+| `micro_bfd.groups[].detect_mult` | uint32 | -- | Detection time multiplier |
+| `micro_bfd.groups[].min_active_links` | int | -- | Minimum Up members for LAG Up (>= 1) |
+
+Micro-BFD runs independent BFD sessions on each LAG member link (UDP port 6784) with `SO_BINDTODEVICE` per member. The aggregate LAG state is Up when `upCount >= min_active_links`.
+
+Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
+
+Example:
+```yaml
+micro_bfd:
+  groups:
+    - lag_interface: "bond0"
+      member_links: ["eth0", "eth1"]
+      peer_addr: "10.0.0.2"
+      local_addr: "10.0.0.1"
+      desired_min_tx: "100ms"
+      required_min_rx: "100ms"
+      detect_mult: 3
+      min_active_links: 1
+```
+
+#### `vxlan` -- RFC 8971 BFD for VXLAN
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `vxlan.enabled` | bool | `false` | Enable VXLAN BFD sessions |
+| `vxlan.management_vni` | uint32 | -- | Management VNI for BFD control (24-bit, max 16777215) |
+| `vxlan.default_desired_min_tx` | duration | -- | Default TX interval for VXLAN sessions |
+| `vxlan.default_required_min_rx` | duration | -- | Default RX interval for VXLAN sessions |
+| `vxlan.default_detect_multiplier` | uint32 | -- | Default detection multiplier |
+| `vxlan.peers[].peer` | string | -- | Remote VTEP IP address |
+| `vxlan.peers[].local` | string | -- | Local VTEP IP address |
+| `vxlan.peers[].desired_min_tx` | duration | -- | Override default TX interval for this peer |
+| `vxlan.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
+| `vxlan.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
+
+BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers.
+
+Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
+
+Example:
+```yaml
+vxlan:
+  enabled: true
+  management_vni: 16777215
+  default_desired_min_tx: "1s"
+  default_required_min_rx: "1s"
+  default_detect_multiplier: 3
+  peers:
+    - peer: "10.0.0.2"
+      local: "10.0.0.1"
+    - peer: "10.0.0.3"
+      local: "10.0.0.1"
+      desired_min_tx: "300ms"
+      required_min_rx: "300ms"
+      detect_mult: 5
+```
+
+#### `geneve` -- RFC 9521 BFD for Geneve
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `geneve.enabled` | bool | `false` | Enable Geneve BFD sessions |
+| `geneve.default_vni` | uint32 | -- | Default Geneve VNI (24-bit, max 16777215) |
+| `geneve.default_desired_min_tx` | duration | -- | Default TX interval for Geneve sessions |
+| `geneve.default_required_min_rx` | duration | -- | Default RX interval for Geneve sessions |
+| `geneve.default_detect_multiplier` | uint32 | -- | Default detection multiplier |
+| `geneve.peers[].peer` | string | -- | Remote NVE IP address |
+| `geneve.peers[].local` | string | -- | Local NVE IP address |
+| `geneve.peers[].vni` | uint32 | -- | Override `default_vni` for this peer (0 = use default) |
+| `geneve.peers[].desired_min_tx` | duration | -- | Override default TX interval for this peer |
+| `geneve.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
+| `geneve.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
+
+BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0.
+
+Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
+
+Example:
+```yaml
+geneve:
+  enabled: true
+  default_vni: 100
+  default_desired_min_tx: "1s"
+  default_required_min_rx: "1s"
+  default_detect_multiplier: 3
+  peers:
+    - peer: "10.0.0.2"
+      local: "10.0.0.1"
+    - peer: "10.0.0.3"
+      local: "10.0.0.1"
+      vni: 200
+      desired_min_tx: "300ms"
+      required_min_rx: "300ms"
+      detect_mult: 5
+```
 
 #### `sessions` -- Declarative Sessions
 
@@ -155,6 +351,7 @@ Session key is the tuple: `(peer, local, interface)`.
 | `desired_min_tx` | duration | No | Override default TX interval |
 | `required_min_rx` | duration | No | Override default RX interval |
 | `detect_mult` | uint32 | No | Override default detect multiplier |
+| `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size (overrides `bfd.default_padded_pdu_size`) |
 
 Session types determine the UDP port and TTL handling:
 
@@ -203,7 +400,11 @@ On reload:
 1. The YAML file is re-read and validated
 2. Log level is updated dynamically (no restart needed)
 3. Declarative sessions are reconciled (added/removed)
-4. Errors during reload are logged -- the previous configuration remains in effect
+4. Echo sessions are reconciled (added/removed)
+5. Micro-BFD groups are reconciled (added/removed, member link changes)
+6. VXLAN tunnel sessions are reconciled (added/removed)
+7. Geneve tunnel sessions are reconciled (added/removed)
+8. Errors during reload are logged -- the previous configuration remains in effect
 
 ### Validation Rules
 
@@ -221,6 +422,15 @@ On reload:
 | Session `type` must be `single_hop` or `multi_hop` | `ErrInvalidSessionType` |
 | Session `detect_mult` must be >= 1 | `ErrInvalidSessionDetectMult` |
 | No duplicate session keys (peer, local, interface) | `ErrDuplicateSessionKey` |
+| Echo `peer` must be a valid IP address | `ErrInvalidEchoPeer` |
+| Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |
+| No duplicate echo session keys | `ErrDuplicateEchoSessionKey` |
+| VXLAN `management_vni` must be <= 16777215 (24-bit) | `ErrInvalidVXLANVNI` |
+| VXLAN `peer` must be a valid IP address | `ErrInvalidVXLANPeer` |
+| No duplicate VXLAN session keys | `ErrDuplicateVXLANSessionKey` |
+| Geneve `default_vni` and per-peer `vni` must be <= 16777215 | `ErrInvalidGeneveVNI` |
+| Geneve `peer` must be a valid IP address | `ErrInvalidGenevePeer` |
+| No duplicate Geneve session keys | `ErrDuplicateGeneveSessionKey` |
 
 ### Defaults
 
@@ -245,4 +455,4 @@ On reload:
 
 ---
 
-*Last updated: 2026-02-21*
+*Last updated: 2026-02-23*

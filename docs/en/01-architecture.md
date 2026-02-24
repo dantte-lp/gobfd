@@ -26,10 +26,12 @@
 
 ### System Overview
 
-GoBFD is a production-grade BFD (Bidirectional Forwarding Detection) protocol daemon. It consists of two binaries:
+GoBFD is a production-grade BFD (Bidirectional Forwarding Detection) protocol daemon. It consists of four binaries:
 
 - **gobfd** -- the daemon that manages BFD sessions, sends/receives BFD Control packets, and integrates with GoBGP
 - **gobfdctl** -- the CLI client that communicates with gobfd via ConnectRPC
+- **gobfd-haproxy-agent** -- HAProxy agent-check bridge (BFD state to TCP agent responses)
+- **gobfd-exabgp-bridge** -- ExaBGP process API bridge (BFD state to route announcements)
 
 ```mermaid
 graph TB
@@ -51,7 +53,7 @@ graph TB
     subgraph "External"
         GOBGP["GoBGP<br/>gRPC :50052"]
         PROM["Prometheus<br/>:9100/metrics"]
-        PEER["BFD Peers<br/>UDP 3784/4784"]
+        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081/7784"]
     end
 
     MAIN --> CFG
@@ -198,15 +200,21 @@ graph TB
         SN["Session N<br/>TX timer + RX channel"]
     end
 
-    subgraph "Shared"
+    subgraph "Shared Receivers"
         L["netio.Listener<br/>ReadBatch goroutine"]
         R["netio.Receiver<br/>demux + dispatch"]
+        ER["netio.EchoReceiver<br/>port 3785"]
+        OR["netio.OverlayReceiver<br/>VXLAN 4789 / Geneve 6081"]
+        MD["MicroBFD Dispatch<br/>port 6784 per-member"]
     end
 
     L --> R
     R --> S1
     R --> S2
     R --> SN
+    ER --> S1
+    OR --> S2
+    MD --> SN
     M --> S1
     M --> S2
     M --> SN
@@ -232,24 +240,31 @@ gobfd/
 +-- cmd/
 |   +-- gobfd/main.go             # Daemon entry point
 |   +-- gobfdctl/                 # CLI client
-|       +-- main.go
-|       +-- commands/             # Cobra commands + reeflective/console shell
+|   |   +-- main.go
+|   |   +-- commands/             # Cobra commands + reeflective/console shell
+|   +-- gobfd-haproxy-agent/      # HAProxy agent-check bridge
+|   +-- gobfd-exabgp-bridge/      # ExaBGP process API bridge
 +-- internal/
 |   +-- bfd/                      # Core protocol (FSM, session, packet, auth)
 |   +-- config/                   # koanf/v2 configuration
 |   +-- gobgp/                    # GoBGP gRPC client + flap dampening
 |   +-- metrics/                  # Prometheus collectors
-|   +-- netio/                    # Raw sockets, UDP listeners (Linux)
+|   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests
++-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro)
++-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
++-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
++-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
++-- test/integration/            # Integration tests (datapath, CLI, server)
 +-- configs/                      # Example configuration
 +-- deployments/
 |   +-- compose/                  # Podman Compose (dev + prod stacks)
 |   +-- docker/                   # Containerfile + debug image
 |   +-- systemd/                  # systemd unit file
 |   +-- nfpm/                     # deb/rpm install scripts
+|   +-- integrations/            # 5 integration examples (BGP, HAProxy, observability, ExaBGP, k8s)
 +-- docs/                         # Documentation + RFC texts
 ```
 
@@ -271,6 +286,25 @@ gobfd/
 | Containers | Podman + Podman Compose | Development and testing |
 | systemd | Type=notify, watchdog | Production daemon lifecycle |
 
+### UDP Port Map
+
+| Port | Protocol | RFC | Direction | Status |
+|---|---|---|---|---|
+| 3784 | BFD Single-Hop | RFC 5881 | TX + RX | Active |
+| 4784 | BFD Multi-Hop | RFC 5883 | TX + RX | Active |
+| 3785 | BFD Echo | RFC 9747 | TX + RX | Active |
+| 6784 | Micro-BFD (LAG) | RFC 7130 | TX + RX | Active |
+| 4789 | VXLAN BFD (outer) | RFC 8971 | TX + RX | Active |
+| 6081 | Geneve BFD (outer) | RFC 9521 | TX + RX | Active |
+| 7784 | S-BFD Reflector | RFC 7881 | RX (reflector) + TX (initiator) | Planned |
+
+### TCP/HTTP Port Map
+
+| Port | Protocol | Purpose | Status |
+|---|---|---|---|
+| 50051 | ConnectRPC (gRPC) | Session management API | Active |
+| 9100 | HTTP | Prometheus metrics (`/metrics`) | Active |
+
 ### Related Documents
 
 - [02-protocol.md](./02-protocol.md) -- BFD protocol details (FSM, timers, packet format)
@@ -280,4 +314,4 @@ gobfd/
 
 ---
 
-*Last updated: 2026-02-21*
+*Last updated: 2026-02-24*

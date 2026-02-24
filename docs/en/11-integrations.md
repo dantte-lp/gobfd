@@ -367,6 +367,10 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | Observability | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | ExaBGP Anycast | 172.24.0.0/24 | gobgp, gobfd, exabgp, tshark | — |
 | Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
+| **Interop: Base** | 10.99.0.0/24 | gobfd, frr, bird3, aiobfd, thoro, tshark | — |
+| **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
+| **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
+| **Interop: Vendor** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, cisco, frr, sonic, vyos | — |
 
 ### New Binaries
 
@@ -386,4 +390,4 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-24*

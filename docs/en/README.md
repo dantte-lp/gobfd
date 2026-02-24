@@ -76,7 +76,7 @@ graph TD
 |---|---|---|
 | 03 | [**Configuration**](./03-configuration.md) | YAML config reference, environment variables, hot reload |
 | 04 | [**CLI Reference**](./04-cli.md) | gobfdctl commands, interactive shell, output formats |
-| 05 | [**Interop Testing**](./05-interop.md) | 4-peer interop topology, FRR, BIRD3, aiobfd, Thoro |
+| 05 | [**Interop Testing**](./05-interop.md) | Interop suites: 4-peer, BGP+BFD, RFC-specific, vendor NOS |
 | 06 | [**Deployment**](./06-deployment.md) | systemd, Podman Compose, container image, production |
 | 07 | [**Monitoring**](./07-monitoring.md) | Prometheus metrics, Grafana dashboard, alerting |
 
@@ -121,4 +121,4 @@ See [06-deployment.md](./06-deployment.md) for production deployment and [09-dev
 
 ---
 
-*Last updated: 2026-02-21*
+*Last updated: 2026-02-24*

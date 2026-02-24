@@ -116,6 +116,7 @@ All Go commands run inside Podman containers via `podman-compose exec`.
 | `make lint` | Run golangci-lint v2 |
 | `make lint-fix` | Auto-fix lint issues |
 | `make vulncheck` | Run govulncheck |
+| `make osv-scan` | Run OSV Scanner (`osv-scanner scan -r .`) |
 
 #### Protobuf
 
@@ -272,4 +273,4 @@ make proto-lint   # Lint proto definitions
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-24*

@@ -19,6 +19,7 @@
 - [What is Tested](#what-is-tested)
 - [Packet Capture](#packet-capture)
 - [Troubleshooting](#troubleshooting)
+- [RFC-Specific Interop Testing](#rfc-specific-interop-testing)
 
 ### Overview
 
@@ -252,6 +253,83 @@ The same pattern applies to ExaBGP: GoBFD sidecar and ExaBGP share a netns at `1
 
 ---
 
+## RFC-Specific Interop Testing
+
+![RFC 7419](https://img.shields.io/badge/RFC_7419-PASS-34a853?style=for-the-badge)
+![RFC 9384](https://img.shields.io/badge/RFC_9384-PASS-34a853?style=for-the-badge)
+![RFC 9468](https://img.shields.io/badge/RFC_9468-PASS-34a853?style=for-the-badge)
+
+> Targeted interoperability tests for RFC extensions beyond the base protocol. Each test verifies a specific RFC requirement against FRR in a 7-container topology with packet capture (tshark).
+
+### RFC Interop Topology
+
+```mermaid
+graph LR
+    subgraph "172.22.0.0/24 (rfcnet)"
+        subgraph "172.22.0.10 (shared netns)"
+            GOBFD["GoBFD<br/>RFC 7419 + 9468"]
+            TSHARK["tshark<br/>capture"]
+        end
+        FRR_BFD["FRR<br/>172.22.0.20<br/>BFD-only peer"]
+        subgraph "172.22.0.30 (shared netns)"
+            GOBFD2["GoBFD<br/>RFC 9384"]
+            GOBGP["GoBGP<br/>ASN 65101"]
+        end
+        FRR_BGP["FRR<br/>172.22.0.40<br/>BGP+BFD peer"]
+        FRR_UNSOL["FRR<br/>172.22.0.50<br/>Unsolicited peer"]
+    end
+
+    GOBFD <-->|"BFD 80ms<br/>(aligned to 100ms)"| FRR_BFD
+    GOBFD2 <-->|"BFD"| FRR_BGP
+    GOBGP <-->|"BGP"| FRR_BGP
+    FRR_UNSOL -->|"BFD (unsolicited)"| GOBFD
+
+    style GOBFD fill:#1a73e8,color:#fff
+    style GOBFD2 fill:#1a73e8,color:#fff
+    style GOBGP fill:#00ADD8,color:#fff
+    style FRR_BFD fill:#dc3545,color:#fff
+    style FRR_BGP fill:#dc3545,color:#fff
+    style FRR_UNSOL fill:#dc3545,color:#fff
+    style TSHARK fill:#6c757d,color:#fff
+```
+
+### Containers (7)
+
+| Container | IP | Role |
+|---|---|---|
+| `gobfd-rfc` | 172.22.0.10 | GoBFD with align_intervals + unsolicited enabled |
+| `tshark-rfc` | (shared netns) | Packet capture on gobfd-rfc's interfaces |
+| `frr-rfc` | 172.22.0.20 | FRR BFD-only peer for RFC 7419 timer alignment |
+| `gobfd-rfc9384` | 172.22.0.30 | GoBFD with GoBGP integration for RFC 9384 |
+| `gobgp-rfc` | (shared netns) | GoBGP ASN 65101 for BGP Cease testing |
+| `frr-rfc-bgp` | 172.22.0.40 | FRR BGP+BFD peer for RFC 9384 |
+| `frr-rfc-unsolicited` | 172.22.0.50 | FRR BFD peer with no pre-configured session on GoBFD |
+
+### Test Results
+
+| Test | RFC | Description | Result |
+|---|---|---|---|
+| `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD configures 80ms timers; with `align_intervals: true`, negotiated interval should be aligned to 100ms. Verified via tshark capture of `DesiredMinTxInterval` field on the wire. | **PASS** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. GoBGP logs contain "BFD Down (RFC 9384 Cease/10)". | **PASS** |
+| `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) sends BFD packets to GoBFD. No pre-configured session exists. GoBFD auto-creates a passive session per unsolicited policy. Session reaches Up. Pause FRR → session goes Down → cleanup. | **PASS** |
+
+### Running RFC Interop Tests
+
+```bash
+# Full cycle (recommended)
+make interop-rfc
+
+# Step by step
+make interop-rfc-up       # Start 7-container topology
+make interop-rfc-test     # Run Go tests
+make interop-rfc-down     # Cleanup
+
+# View logs
+make interop-rfc-logs
+```
+
+---
+
 ## Vendor NOS Interoperability (Containerlab)
 
 ![Nokia](https://img.shields.io/badge/Nokia-SR_Linux-124191?style=for-the-badge)
@@ -273,14 +351,14 @@ graph TD
     NOKIA["Nokia SR Linux<br/>10.0.2.2 / fd00:0:2::1<br/>ASN 65003"]
     FRR["FRRouting<br/>10.0.6.2 / fd00:0:6::1<br/>ASN 65007"]
     ARISTA["Arista cEOS<br/>10.0.1.2 / fd00:0:1::1<br/>ASN 65002"]
-    CISCO["Cisco XRd<br/>10.0.3.2<br/>ASN 65004"]
+    CISCO["Cisco XRd vRouter<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
     SONIC["SONiC-VS<br/>10.0.4.2<br/>ASN 65005"]
     VYOS["VyOS<br/>10.0.5.2<br/>ASN 65006"]
 
     GOBFD ---|"eth2 ↔ e1-1<br/>10.0.2.0/30 + fd00:0:2::/127"| NOKIA
     GOBFD ---|"eth6 ↔ eth1<br/>10.0.6.0/30 + fd00:0:6::/127"| FRR
     GOBFD ---|"eth1 ↔ eth1<br/>10.0.1.0/30 + fd00:0:1::/127"| ARISTA
-    GOBFD -.-|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30"| CISCO
+    GOBFD ---|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
     GOBFD -.-|"eth4 ↔ eth1<br/>10.0.4.0/30"| SONIC
     GOBFD -.-|"eth5 ↔ eth1<br/>10.0.5.0/30"| VYOS
 
@@ -302,7 +380,7 @@ graph TD
 | **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Available | Free, no registration |
 | **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Available | GPL, free |
 | **Arista cEOS** | `ceos:4.35.2F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Available | Free Arista.com account |
-| Cisco XRd | `ios-xr/xrd-control-plane:24.3.1` | `10.0.3.0/30` | -- | 65004 | Manual import | Cisco service contract |
+| **Cisco XRd** | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Available | Cisco service contract |
 | SONiC-VS | `docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Manual import | Free |
 | VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Build from ISO | Free (rolling) |
 
@@ -312,6 +390,39 @@ graph TD
 - **containerlab** 0.57+ (for topology reference; direct Podman management used)
 - Container capabilities: `NET_ADMIN`, `NET_RAW`
 - At least one vendor image available
+
+### Lab Preparation (`bootstrap.py`)
+
+A self-contained Python 3.12+ script automates full image preparation from a clean machine:
+
+```bash
+# Pull all open-source images + build VyOS from ISO + build GoBFD
+python3 test/interop-clab/bootstrap.py -v
+
+# With commercial images
+python3 test/interop-clab/bootstrap.py \
+    --arista-image /path/to/cEOS64-lab-4.35.2F.tar \
+    --cisco-image /path/to/xrd-control-plane-container-x64.25.4.1.tgz
+
+# Prepare + deploy topology
+python3 test/interop-clab/bootstrap.py --deploy
+
+# Prepare + full test run
+python3 test/interop-clab/bootstrap.py --test
+
+# Dry run (show what would be done)
+python3 test/interop-clab/bootstrap.py --dry-run
+```
+
+The script handles:
+- **Preflight checks**: podman, go, host tools, disk space
+- **Parallel image pulls**: Nokia SR Linux, SONiC-VS, FRRouting (+ build dependencies)
+- **VyOS image build**: downloads rolling ISO, extracts squashfs, imports into podman
+- **Commercial image import**: Arista cEOS (`podman load`) and Cisco XRd (nested tarball extraction)
+- **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
+- **Inventory report**: final table of all images with ready/missing status
+
+Run `python3 test/interop-clab/bootstrap.py --help` for all options.
 
 ### Running Vendor Tests
 
@@ -345,6 +456,8 @@ make interop-clab-down   # Destroy containers and veth links
 
 **Arista cEOS**: BFD sessions are protocol-triggered (requires established BGP session via `neighbor X bfd`). cEOS 4.35.2F runs with `service routing protocols model multi-agent` and requires 8 mandatory environment variables for containerized operation (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth`, etc.). Boot time is 60-120s; the test runner waits for `Cli -p 15 -c "show version"` to succeed. BFD state is checked via `Cli -p 15 -c "show bfd peers"`.
 
+**Cisco XRd**: XRd Control Plane runs the same IOS-XR code as Cisco 8000/NCS physical platforms. The container starts with `--privileged` and discovers Linux interfaces directly (veth endpoints named `Gi0-0-0-0`). Boot time is 60-180s; the test runner waits for `xr_cli 'show version'` to succeed. BFD is configured via BGP neighbor `bfd fast-detect` with 300ms timers. Echo mode is explicitly disabled (`bfd echo disable`) as XRd containers lack hardware echo support. **Note**: XRd vRouter (DPDK-based dataplane) requires PCI passthrough and is incompatible with veth-based topologies — only the Control Plane variant can be used here.
+
 **GoBGP integration**: GoBFD runs alongside GoBGP (ASN 65001) inside the GoBFD container. Vendor NOS like Nokia require BGP for protocol-triggered BFD. When a vendor container is paused/unpaused, GoBGP's BGP neighbor transitions to `Idle(Admin)` and must be explicitly re-enabled via `gobgp neighbor <ip> enable`.
 
 ### IPv6 Dual-Stack BFD Testing
@@ -362,6 +475,7 @@ RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor 
 |---|---|---|---|---|
 | Arista | `fd00:0:1::` | `fd00:0:1::1` | `fd00:0:1::/127` | `fd00:20:1::/48` |
 | Nokia  | `fd00:0:2::` | `fd00:0:2::1` | `fd00:0:2::/127` | `fd00:20:2::/48` |
+| Cisco  | `fd00:0:3::` | `fd00:0:3::1` | `fd00:0:3::/127` | `fd00:20:3::/48` |
 | FRR    | `fd00:0:6::` | `fd00:0:6::1` | `fd00:0:6::/127` | `fd00:20:6::/48` |
 
 **Design notes**:
@@ -436,4 +550,4 @@ Based on the analysis in `docs/tmp/bfd-interoperability-testing.md`:
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-24*
