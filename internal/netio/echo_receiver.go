@@ -1,13 +1,3 @@
-// echo_receiver.go implements the echo receiver for RFC 9747 BFD echo packets.
-//
-// The EchoReceiver reads BFD packets from port 3785 listeners, unmarshals
-// the BFD Control packet header, and routes returned echo packets to the
-// originating echo session via EchoDemuxer.DemuxEcho.
-//
-// RFC 9747 Section 3: echo packets are standard BFD Control packets sent
-// to the remote system on port 3785. The remote forwards them back via
-// normal IP routing. On return, MyDiscriminator identifies the originating
-// echo session.
 package netio
 
 import (
