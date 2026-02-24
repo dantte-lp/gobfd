@@ -97,33 +97,13 @@ func run() int {
 	collector := bfdmetrics.NewCollector(reg)
 
 	// 6. Create BFD session manager with metrics and unsolicited BFD (RFC 9468).
-	mgrOpts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
-	if cfg.Unsolicited.Enabled {
-		policy, err := buildUnsolicitedPolicy(cfg.Unsolicited)
-		if err != nil {
-			logger.Error("invalid unsolicited BFD config",
-				slog.String("error", err.Error()),
-			)
-			return 1
-		}
-		mgrOpts = append(mgrOpts, bfd.WithUnsolicitedPolicy(policy))
-
-		sf := newUDPSenderFactory()
-		// Unsolicited sessions are single-hop only (RFC 9468 Section 6.1).
-		// Use wildcard address; the sender resolves local addr per-packet.
-		sender, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
-		if err != nil {
-			logger.Error("failed to create unsolicited BFD sender",
-				slog.String("error", err.Error()),
-			)
-			return 1
-		}
-		mgrOpts = append(mgrOpts, bfd.WithUnsolicitedSender(sender))
-		logger.Info("unsolicited BFD enabled (RFC 9468)",
-			slog.Int("max_sessions", policy.MaxSessions),
+	mgr, err := newManager(cfg, collector, logger)
+	if err != nil {
+		logger.Error("failed to create BFD manager",
+			slog.String("error", err.Error()),
 		)
+		return 1
 	}
-	mgr := bfd.NewManager(logger, mgrOpts...)
 	defer mgr.Close()
 
 	// 7. Run servers.
@@ -195,17 +175,7 @@ func runServers(
 	overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, logger)
 	defer overlayCleanup()
 
-	// Reconcile declarative sessions from config at startup.
-	reconcileSessions(gCtx, cfg, mgr, sf, logger)
-
-	// Reconcile declarative echo sessions from config at startup (RFC 9747).
-	reconcileEchoSessions(gCtx, cfg, mgr, sf, logger)
-
-	// Reconcile micro-BFD groups from config at startup (RFC 7130).
-	reconcileMicroBFDGroups(gCtx, cfg, mgr, sf, logger)
-
-	// Reconcile overlay tunnel BFD sessions (VXLAN RFC 8971, Geneve RFC 9521).
-	reconcileOverlayTunnels(gCtx, cfg, mgr, sf, logger)
+	reconcileAllSessions(gCtx, cfg, mgr, sf, logger)
 
 	notifyReady(logger)
 
@@ -425,6 +395,20 @@ func reloadConfig(
 
 	// Reconcile overlay tunnel BFD sessions (VXLAN RFC 8971, Geneve RFC 9521).
 	reconcileOverlayTunnels(ctx, newCfg, mgr, sf, logger)
+}
+
+// reconcileAllSessions reconciles all declarative session types at startup.
+func reconcileAllSessions(
+	ctx context.Context,
+	cfg *config.Config,
+	mgr *bfd.Manager,
+	sf *udpSenderFactory,
+	logger *slog.Logger,
+) {
+	reconcileSessions(ctx, cfg, mgr, sf, logger)
+	reconcileEchoSessions(ctx, cfg, mgr, sf, logger)
+	reconcileMicroBFDGroups(ctx, cfg, mgr, sf, logger)
+	reconcileOverlayTunnels(ctx, cfg, mgr, sf, logger)
 }
 
 // reconcileSessions diffs the declarative sessions from the config against
@@ -725,6 +709,29 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		DetectMultiplier:      uint8(detectMult),
 		PaddedPduSize:         paddedPduSize,
 	}, nil
+}
+
+// newManager creates a BFD session manager with metrics and optional unsolicited BFD (RFC 9468).
+func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slog.Logger) (*bfd.Manager, error) {
+	opts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
+	if cfg.Unsolicited.Enabled {
+		policy, err := buildUnsolicitedPolicy(cfg.Unsolicited)
+		if err != nil {
+			return nil, fmt.Errorf("invalid unsolicited BFD config: %w", err)
+		}
+		opts = append(opts, bfd.WithUnsolicitedPolicy(policy))
+
+		sf := newUDPSenderFactory()
+		sender, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create unsolicited BFD sender: %w", err)
+		}
+		opts = append(opts, bfd.WithUnsolicitedSender(sender))
+		logger.Info("unsolicited BFD enabled (RFC 9468)",
+			slog.Int("max_sessions", policy.MaxSessions),
+		)
+	}
+	return bfd.NewManager(logger, opts...), nil
 }
 
 // buildUnsolicitedPolicy converts config.UnsolicitedConfig to bfd.UnsolicitedPolicy.

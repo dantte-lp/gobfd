@@ -1,4 +1,4 @@
-// Package netio provides the echo receiver for RFC 9747 BFD echo packets.
+// echo_receiver.go implements the echo receiver for RFC 9747 BFD echo packets.
 //
 // The EchoReceiver reads BFD packets from port 3785 listeners, unmarshals
 // the BFD Control packet header, and routes returned echo packets to the

@@ -157,10 +157,8 @@ func TestLargePacket_Validation(t *testing.T) {
 				if tt.errMatch != "" && !strings.Contains(err.Error(), tt.errMatch) {
 					t.Errorf("error = %q, want to contain %q", err.Error(), tt.errMatch)
 				}
-			} else {
-				if err != nil {
-					t.Fatalf("NewSession() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Fatalf("NewSession() unexpected error: %v", err)
 			}
 		})
 	}
