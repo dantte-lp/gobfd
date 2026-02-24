@@ -1,0 +1,30 @@
+# GoBGP configuration for RFC 9384 interoperability testing.
+#
+# ASN 65011, router-id 172.22.0.30 (shared netns with gobfd-rfc9384).
+# Single eBGP neighbor: FRR at 172.22.0.40 (ASN 65012).
+#
+# BFD is handled by gobfd-rfc9384, NOT by GoBGP itself. GoBGP receives
+# DisablePeer/EnablePeer calls from the gobfd handler via gRPC.
+
+[global.config]
+as = 65011
+router-id = "172.22.0.30"
+port = 179
+
+[global.apply-policy.config]
+default-import-policy = "accept-route"
+default-export-policy = "accept-route"
+
+# --- FRR (ASN 65012) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "172.22.0.40"
+peer-as = 65012
+
+[neighbors.transport.config]
+local-address = "172.22.0.30"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"

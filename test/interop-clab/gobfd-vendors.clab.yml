@@ -51,11 +51,12 @@ topology:
       startup-config: nokia/config.cli
 
     # === Cisco XRd (ASN 65004) ===
-    # Image: requires Cisco service contract
-    # Import: docker load -i xrd-control-plane-container-x64.dockerv1.tgz
+    # Use XRd Control Plane for veth-based topologies (supports linux interfaces).
+    # XRd vRouter requires PCI passthrough and cannot be used here.
+    # CP import: podman load -i xrd-control-plane-container-x64.dockerv1.tgz
     cisco:
       kind: cisco_xrd
-      image: ios-xr/xrd-control-plane:24.3.1
+      image: ios-xr/xrd-control-plane:25.4.1
       startup-config: cisco/xrd.cfg
 
     # === SONiC-VS (ASN 65005) ===

@@ -1,0 +1,27 @@
+# FRR daemons configuration for unsolicited BFD testing (RFC 9468).
+#
+# Enabled: zebra (required), bfdd (BFD), staticd (static routes).
+
+zebra=yes
+bgpd=no
+ospfd=no
+ospf6d=no
+ripd=no
+ripngd=no
+isisd=no
+pimd=no
+ldpd=no
+nhrpd=no
+eigrpd=no
+babeld=no
+sharpd=no
+pbrd=no
+staticd=yes
+bfdd=yes
+fabricd=no
+
+vtysh_enable=yes
+
+zebra_options="  -A 127.0.0.1 -s 90000000"
+bfdd_options="   -A 127.0.0.1"
+staticd_options="-A 127.0.0.1"

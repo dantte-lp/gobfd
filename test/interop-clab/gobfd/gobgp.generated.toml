@@ -10,34 +10,6 @@ port = 179
 default-import-policy = "accept-route"
 default-export-policy = "accept-route"
 
-# --- arista (ASN 65002, IPv4) ---
-
-[[neighbors]]
-[neighbors.config]
-neighbor-address = "10.0.1.2"
-peer-as = 65002
-
-[neighbors.transport.config]
-local-address = "10.0.1.1"
-
-[[neighbors.afi-safis]]
-[neighbors.afi-safis.config]
-afi-safi-name = "ipv4-unicast"
-
-# --- arista (ASN 65002, IPv6) ---
-
-[[neighbors]]
-[neighbors.config]
-neighbor-address = "fd00:0:1::1"
-peer-as = 65002
-
-[neighbors.transport.config]
-local-address = "fd00:0:1::"
-
-[[neighbors.afi-safis]]
-[neighbors.afi-safis.config]
-afi-safi-name = "ipv6-unicast"
-
 # --- nokia (ASN 65003, IPv4) ---
 
 [[neighbors]]
@@ -65,6 +37,20 @@ local-address = "fd00:0:2::"
 [[neighbors.afi-safis]]
 [neighbors.afi-safis.config]
 afi-safi-name = "ipv6-unicast"
+
+# --- sonic (ASN 65005, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.4.2"
+peer-as = 65005
+
+[neighbors.transport.config]
+local-address = "10.0.4.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
 
 # --- frr (ASN 65007, IPv4) ---
 
