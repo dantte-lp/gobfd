@@ -7,6 +7,26 @@
 
 ## [Не выпущено]
 
+## [0.3.0] - 2026-02-24
+
+### Добавлено
+
+- RFC 7419: поддержка общего интервала для согласования таймеров BFD-сессий.
+- RFC 9468: незапрашиваемый режим BFD для бессессионных приложений с пассивным слушателем.
+- RFC 9747: неаффилированная функция эхо BFD с приёмником и рефлектором эхо-пакетов.
+- RFC 7130: Micro-BFD для LAG-интерфейсов с посессионным мониторингом участников и агрегированным состоянием.
+- RFC 8971: BFD для VXLAN-туннелей с обработкой пакетов с учётом оверлея.
+- RFC 9521: BFD для Geneve-туннелей с инкапсуляцией option-C.
+- RFC 9384: BGP Cease NOTIFICATION подкод 10 (BFD Down) через интеграцию с GoBGP.
+- Скрипт подготовки вендорной interop-лаборатории (`test/interop-clab/bootstrap.py`): автоматическая подготовка образов для Nokia SR Linux, SONiC-VS, FRRouting, VyOS, Arista cEOS, Cisco XRd.
+- RFC-специфичный набор interop-тестов (`test/interop-rfc/`): выделенные тесты для незапрашиваемого BFD, функции эхо и BGP Cease notification.
+- Поддержка вендорного interop Cisco XRd с конфигурацией XR и обработкой лимитов PID.
+- Улучшения interop SONiC-VS с надёжным скриптом конфигурации BGP/BFD.
+
+### Изменено
+
+- Вендорный interop `run.sh` корректно пропускает вендоров с ошибкой инициализации вместо прерывания.
+
 ## [0.2.0] - 2026-02-23
 
 ### Добавлено
@@ -68,6 +88,7 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.1.0

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-24
+
+### Added
+
+- RFC 7419 common interval support for BFD session timer negotiation.
+- RFC 9468 unsolicited BFD mode for sessionless applications with passive listener.
+- RFC 9747 unaffiliated BFD echo function with echo receiver and reflector.
+- RFC 7130 Micro-BFD for LAG interfaces with per-member-link sessions and aggregate state.
+- RFC 8971 BFD for VXLAN tunnels with overlay-aware packet handling.
+- RFC 9521 BFD for Geneve tunnels with option-C encapsulation.
+- RFC 9384 BGP Cease NOTIFICATION subcode 10 (BFD Down) via GoBGP integration.
+- Vendor interop lab bootstrap script (`test/interop-clab/bootstrap.py`): automated image preparation for Nokia SR Linux, SONiC-VS, FRRouting, VyOS, Arista cEOS, Cisco XRd.
+- RFC-specific interop test suite (`test/interop-rfc/`): dedicated tests for unsolicited BFD, echo function, and BGP Cease notification.
+- Cisco XRd vendor interop support with XR configuration and PID limit handling.
+- SONiC-VS interop improvements with robust BGP/BFD configuration script.
+
+### Changed
+
+- Vendor interop `run.sh` gracefully skips vendors that fail initialization instead of aborting.
+
 ## [0.2.0] - 2026-02-23
 
 ### Added
@@ -68,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.1.0
