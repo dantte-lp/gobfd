@@ -32,6 +32,9 @@ COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
 
 USER gobfd:gobfd
 
+ENV GOMEMLIMIT=256MiB
+ENV GOGC=off
+
 EXPOSE 3784/udp 4784/udp 50051
 
 ENTRYPOINT ["/bin/gobfd"]

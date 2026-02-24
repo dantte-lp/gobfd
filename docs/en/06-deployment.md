@@ -225,8 +225,40 @@ GoBFD follows the principle of least privilege:
 | **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
 
+### Memory Tuning (GOMEMLIMIT + Green Tea GC)
+
+Go 1.26 introduces the Green Tea garbage collector, which performs significantly better under bounded memory. GoBFD recommends setting `GOMEMLIMIT` with `GOGC=off` for production deployments to eliminate GC pauses on the hot path.
+
+| Deployment | GOMEMLIMIT | Notes |
+|---|---|---|
+| Small (< 50 sessions) | `256MiB` | Sufficient for typical edge deployments |
+| Medium (50-500 sessions) | `512MiB` | Route reflectors, aggregation routers |
+| Large (500+ sessions) | `1GiB` | Large-scale BGP+BFD deployments |
+
+#### systemd Configuration
+
+Add to `[Service]` section of `gobfd.service`:
+
+```ini
+Environment=GOMEMLIMIT=256MiB
+Environment=GOGC=off
+```
+
+#### Container Configuration
+
+```dockerfile
+ENV GOMEMLIMIT=256MiB
+ENV GOGC=off
+```
+
+#### Monitoring
+
+Monitor memory usage via the Prometheus metric `process_resident_memory_bytes`. If the process approaches `GOMEMLIMIT`, increase the limit. The Go runtime will perform more aggressive GC as it nears the limit rather than OOM.
+
 ### Production Checklist
 
+- [ ] Set `GOMEMLIMIT` and `GOGC=off` for bounded memory operation
+- [ ] Monitor `process_resident_memory_bytes` relative to `GOMEMLIMIT`
 - [ ] Configure `gobfd.yml` with appropriate session parameters
 - [ ] Set `log.format: json` for structured logging
 - [ ] Enable GoBGP integration if using BFD for BGP failover
