@@ -20,6 +20,7 @@ DC := podman-compose -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 
 .PHONY: all build test lint proto-gen proto-lint fuzz vulncheck osv-scan \
+        benchmark coverage profile \
         up down restart logs shell clean tidy \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
@@ -241,6 +242,28 @@ int-k8s-up:
 
 int-k8s-down:
 	./deployments/integrations/kubernetes/teardown.sh
+
+# === Benchmarks & Profiling ===
+
+benchmark:
+	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' ./internal/bfd/ | tee benchmark.txt
+
+benchmark-all:
+	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' ./... | tee benchmark.txt
+
+coverage:
+	$(EXEC) go test -buildvcs=false ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+	$(EXEC) go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
+
+coverage-func:
+	$(EXEC) go test -buildvcs=false ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+	$(EXEC) go tool cover -func=coverage.out
+
+profile:
+	$(EXEC) go test -buildvcs=false -bench=. -run='^$$' -cpuprofile=cpu.prof -memprofile=mem.prof ./internal/bfd/
+	@echo "CPU profile: cpu.prof — view with: go tool pprof -http=:8080 cpu.prof"
+	@echo "Memory profile: mem.prof — view with: go tool pprof -http=:8080 mem.prof"
 
 # === Quality ===
 

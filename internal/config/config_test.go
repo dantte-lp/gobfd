@@ -11,6 +11,12 @@ import (
 	"github.com/dantte-lp/gobfd/internal/config"
 )
 
+const (
+	testLocalAddr    = "10.0.0.2"
+	testGoBGPAddr    = "127.0.0.1:50051"
+	testStrategyPeer = "disable-peer"
+)
+
 func TestDefaultConfig(t *testing.T) {
 	t.Parallel()
 
@@ -320,8 +326,8 @@ sessions:
 	if s1.Peer != "10.0.0.1" {
 		t.Errorf("Sessions[0].Peer = %q, want %q", s1.Peer, "10.0.0.1")
 	}
-	if s1.Local != "10.0.0.2" {
-		t.Errorf("Sessions[0].Local = %q, want %q", s1.Local, "10.0.0.2")
+	if s1.Local != testLocalAddr {
+		t.Errorf("Sessions[0].Local = %q, want %q", s1.Local, testLocalAddr)
 	}
 	if s1.Interface != "eth0" {
 		t.Errorf("Sessions[0].Interface = %q, want %q", s1.Interface, "eth0")
@@ -369,7 +375,7 @@ func TestValidateSessionErrors(t *testing.T) {
 			name: "empty session peer",
 			modify: func(cfg *config.Config) {
 				cfg.Sessions = []config.SessionConfig{
-					{Peer: "", Local: "10.0.0.2"},
+					{Peer: "", Local: testLocalAddr},
 				}
 			},
 			wantErr: config.ErrInvalidSessionPeer,
@@ -378,7 +384,7 @@ func TestValidateSessionErrors(t *testing.T) {
 			name: "invalid session peer",
 			modify: func(cfg *config.Config) {
 				cfg.Sessions = []config.SessionConfig{
-					{Peer: "not-an-ip", Local: "10.0.0.2"},
+					{Peer: "not-an-ip", Local: testLocalAddr},
 				}
 			},
 			wantErr: config.ErrInvalidSessionPeer,
@@ -387,7 +393,7 @@ func TestValidateSessionErrors(t *testing.T) {
 			name: "invalid session type",
 			modify: func(cfg *config.Config) {
 				cfg.Sessions = []config.SessionConfig{
-					{Peer: "10.0.0.1", Local: "10.0.0.2", Type: "bogus"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, Type: "bogus"},
 				}
 			},
 			wantErr: config.ErrInvalidSessionType,
@@ -396,8 +402,8 @@ func TestValidateSessionErrors(t *testing.T) {
 			name: "duplicate session keys",
 			modify: func(cfg *config.Config) {
 				cfg.Sessions = []config.SessionConfig{
-					{Peer: "10.0.0.1", Local: "10.0.0.2", Interface: "eth0"},
-					{Peer: "10.0.0.1", Local: "10.0.0.2", Interface: "eth0"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"},
 				}
 			},
 			wantErr: config.ErrDuplicateSessionKey,
@@ -430,7 +436,7 @@ func TestValidateSessionValidTypes(t *testing.T) {
 	for _, typ := range []string{"single_hop", "multi_hop", ""} {
 		cfg := config.DefaultConfig()
 		cfg.Sessions = []config.SessionConfig{
-			{Peer: "10.0.0.1", Local: "10.0.0.2", Type: typ},
+			{Peer: "10.0.0.1", Local: testLocalAddr, Type: typ},
 		}
 
 		if err := config.Validate(cfg); err != nil {
@@ -444,7 +450,7 @@ func TestSessionConfigKey(t *testing.T) {
 
 	sc := config.SessionConfig{
 		Peer:      "10.0.0.1",
-		Local:     "10.0.0.2",
+		Local:     testLocalAddr,
 		Interface: "eth0",
 	}
 
@@ -470,12 +476,12 @@ func TestSessionConfigPeerAddr(t *testing.T) {
 func TestSessionConfigLocalAddr(t *testing.T) {
 	t.Parallel()
 
-	sc := config.SessionConfig{Local: "10.0.0.2"}
+	sc := config.SessionConfig{Local: testLocalAddr}
 	addr, err := sc.LocalAddr()
 	if err != nil {
 		t.Fatalf("LocalAddr() error: %v", err)
 	}
-	if addr.String() != "10.0.0.2" {
+	if addr.String() != testLocalAddr {
 		t.Errorf("LocalAddr() = %s, want 10.0.0.2", addr)
 	}
 }
@@ -551,6 +557,759 @@ metrics:
 
 	if cfg.Metrics.Path != "/custom" {
 		t.Errorf("Metrics.Path = %q, want %q (from env)", cfg.Metrics.Path, "/custom")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Echo Peer Config Tests
+// -------------------------------------------------------------------------
+
+func TestEchoPeerConfigSessionKey(t *testing.T) {
+	t.Parallel()
+
+	ep := config.EchoPeerConfig{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"}
+	want := "echo|10.0.0.1|10.0.0.2|eth0"
+	if got := ep.EchoSessionKey(); got != want {
+		t.Errorf("EchoSessionKey() = %q, want %q", got, want)
+	}
+}
+
+func TestEchoPeerConfigPeerAddr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		peer    string
+		wantErr bool
+	}{
+		{name: "valid IPv4", peer: "10.0.0.1"},
+		{name: "valid IPv6", peer: "2001:db8::1"},
+		{name: "empty", peer: "", wantErr: true},
+		{name: "invalid", peer: "not-an-ip", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ep := config.EchoPeerConfig{Peer: tt.peer}
+			_, err := ep.PeerAddr()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PeerAddr() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEchoPeerConfigLocalAddr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		local string
+		valid bool
+	}{
+		{name: "valid", local: testLocalAddr, valid: true},
+		{name: "empty returns zero", local: ""},
+		{name: "invalid", local: "bad"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ep := config.EchoPeerConfig{Local: tt.local}
+			addr, err := ep.LocalAddr()
+			if tt.local == "" {
+				if err != nil || addr.IsValid() {
+					t.Errorf("expected zero addr for empty, got %s, err %v", addr, err)
+				}
+				return
+			}
+			if tt.valid && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if !tt.valid && tt.local != "" && err == nil {
+				t.Error("expected error for invalid local")
+			}
+		})
+	}
+}
+
+// -------------------------------------------------------------------------
+// VXLAN Peer Config Tests
+// -------------------------------------------------------------------------
+
+func TestVXLANPeerConfigSessionKey(t *testing.T) {
+	t.Parallel()
+
+	vc := config.VXLANPeerConfig{Peer: "10.0.0.1", Local: testLocalAddr}
+	want := "vxlan|10.0.0.1|10.0.0.2"
+	if got := vc.VXLANSessionKey(); got != want {
+		t.Errorf("VXLANSessionKey() = %q, want %q", got, want)
+	}
+}
+
+func TestVXLANPeerConfigPeerAddr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		peer    string
+		wantErr bool
+	}{
+		{name: "valid", peer: "10.0.0.1"},
+		{name: "empty", peer: "", wantErr: true},
+		{name: "invalid", peer: "bad", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			vc := config.VXLANPeerConfig{Peer: tt.peer}
+			_, err := vc.PeerAddr()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PeerAddr() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestVXLANPeerConfigLocalAddr(t *testing.T) {
+	t.Parallel()
+
+	vc := config.VXLANPeerConfig{Local: testLocalAddr}
+	addr, err := vc.LocalAddr()
+	if err != nil {
+		t.Fatalf("LocalAddr() error: %v", err)
+	}
+	if addr.String() != testLocalAddr {
+		t.Errorf("LocalAddr() = %s, want 10.0.0.2", addr)
+	}
+
+	// Empty local returns zero.
+	vc2 := config.VXLANPeerConfig{Local: ""}
+	addr2, err := vc2.LocalAddr()
+	if err != nil || addr2.IsValid() {
+		t.Errorf("empty Local: addr = %s, err = %v", addr2, err)
+	}
+
+	// Invalid local returns error.
+	vc3 := config.VXLANPeerConfig{Local: "bad"}
+	_, err = vc3.LocalAddr()
+	if err == nil {
+		t.Error("expected error for invalid local")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Geneve Peer Config Tests
+// -------------------------------------------------------------------------
+
+func TestGenevePeerConfigSessionKey(t *testing.T) {
+	t.Parallel()
+
+	gc := config.GenevePeerConfig{Peer: "10.0.0.1", Local: testLocalAddr}
+	want := "geneve|10.0.0.1|10.0.0.2"
+	if got := gc.GeneveSessionKey(); got != want {
+		t.Errorf("GeneveSessionKey() = %q, want %q", got, want)
+	}
+}
+
+func TestGenevePeerConfigPeerAddr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		peer    string
+		wantErr bool
+	}{
+		{name: "valid", peer: "10.0.0.1"},
+		{name: "empty", peer: "", wantErr: true},
+		{name: "invalid", peer: "bad", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gc := config.GenevePeerConfig{Peer: tt.peer}
+			_, err := gc.PeerAddr()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PeerAddr() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGenevePeerConfigLocalAddr(t *testing.T) {
+	t.Parallel()
+
+	gc := config.GenevePeerConfig{Local: testLocalAddr}
+	addr, err := gc.LocalAddr()
+	if err != nil {
+		t.Fatalf("LocalAddr() error: %v", err)
+	}
+	if addr.String() != testLocalAddr {
+		t.Errorf("LocalAddr() = %s, want 10.0.0.2", addr)
+	}
+
+	// Empty local returns zero.
+	gc2 := config.GenevePeerConfig{Local: ""}
+	addr2, err := gc2.LocalAddr()
+	if err != nil || addr2.IsValid() {
+		t.Errorf("empty Local: addr = %s, err = %v", addr2, err)
+	}
+
+	// Invalid local returns error.
+	gc3 := config.GenevePeerConfig{Local: "bad"}
+	_, err = gc3.LocalAddr()
+	if err == nil {
+		t.Error("expected error for invalid local")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Validation: GoBGP, Dampening, Echo, VXLAN, Geneve
+// -------------------------------------------------------------------------
+
+func TestValidateGoBGPErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "gobgp disabled passes",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = false
+			},
+		},
+		{
+			name: "empty gobgp addr",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = ""
+				cfg.GoBGP.Strategy = testStrategyPeer
+			},
+			wantErr: config.ErrEmptyGoBGPAddr,
+		},
+		{
+			name: "invalid gobgp strategy",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = "bogus"
+			},
+			wantErr: config.ErrInvalidGoBGPStrategy,
+		},
+		{
+			name: "valid gobgp disable-peer",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+			},
+		},
+		{
+			name: "valid gobgp withdraw-routes",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = "withdraw-routes"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+			err := config.Validate(cfg)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateDampeningErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "suppress <= reuse",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 2
+				cfg.GoBGP.Dampening.ReuseThreshold = 2
+				cfg.GoBGP.Dampening.HalfLife = 15 * time.Second
+			},
+			wantErr: config.ErrInvalidDampeningThreshold,
+		},
+		{
+			name: "zero half-life",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 5
+				cfg.GoBGP.Dampening.ReuseThreshold = 2
+				cfg.GoBGP.Dampening.HalfLife = 0
+			},
+			wantErr: config.ErrInvalidDampeningHalfLife,
+		},
+		{
+			name: "valid dampening",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 5
+				cfg.GoBGP.Dampening.ReuseThreshold = 2
+				cfg.GoBGP.Dampening.HalfLife = 15 * time.Second
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+			err := config.Validate(cfg)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateEchoErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "disabled echo skips validation",
+			modify: func(cfg *config.Config) {
+				cfg.Echo.Enabled = false
+				cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: "bad"}}
+			},
+		},
+		{
+			name: "empty echo peer",
+			modify: func(cfg *config.Config) {
+				cfg.Echo.Enabled = true
+				cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: ""}}
+			},
+			wantErr: config.ErrInvalidEchoPeer,
+		},
+		{
+			name: "invalid echo peer",
+			modify: func(cfg *config.Config) {
+				cfg.Echo.Enabled = true
+				cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: "not-an-ip"}}
+			},
+			wantErr: config.ErrInvalidEchoPeer,
+		},
+		{
+			name: "duplicate echo session key",
+			modify: func(cfg *config.Config) {
+				cfg.Echo.Enabled = true
+				cfg.Echo.Peers = []config.EchoPeerConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+				}
+			},
+			wantErr: config.ErrDuplicateEchoSessionKey,
+		},
+		{
+			name: "valid echo peers",
+			modify: func(cfg *config.Config) {
+				cfg.Echo.Enabled = true
+				cfg.Echo.Peers = []config.EchoPeerConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+			err := config.Validate(cfg)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateVXLANErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "disabled vxlan skips validation",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = false
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "bad"}}
+			},
+		},
+		{
+			name: "vni exceeds 24-bit",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.ManagementVNI = 0x01000000 // > 16777215
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1"}}
+			},
+			wantErr: config.ErrInvalidVXLANVNI,
+		},
+		{
+			name: "invalid vxlan peer",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "not-an-ip"}}
+			},
+			wantErr: config.ErrInvalidVXLANPeer,
+		},
+		{
+			name: "detect_mult exceeds 255",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
+					{Peer: "10.0.0.1", DetectMult: 256},
+				}
+			},
+			wantErr: config.ErrInvalidSessionDetectMult,
+		},
+		{
+			name: "duplicate vxlan session key",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+				}
+			},
+			wantErr: config.ErrDuplicateVXLANSessionKey,
+		},
+		{
+			name: "valid vxlan peers",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+			err := config.Validate(cfg)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateGeneveErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "disabled geneve skips validation",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = false
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "bad"}}
+			},
+		},
+		{
+			name: "default vni exceeds 24-bit",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 0x01000000
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1"}}
+			},
+			wantErr: config.ErrInvalidGeneveVNI,
+		},
+		{
+			name: "invalid geneve peer",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "not-an-ip"}}
+			},
+			wantErr: config.ErrInvalidGenevePeer,
+		},
+		{
+			name: "peer vni exceeds 24-bit",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Peers = []config.GenevePeerConfig{
+					{Peer: "10.0.0.1", VNI: 0x01000000},
+				}
+			},
+			wantErr: config.ErrInvalidGeneveVNI,
+		},
+		{
+			name: "detect_mult exceeds 255",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Peers = []config.GenevePeerConfig{
+					{Peer: "10.0.0.1", DetectMult: 300},
+				}
+			},
+			wantErr: config.ErrInvalidSessionDetectMult,
+		},
+		{
+			name: "duplicate geneve session key",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Peers = []config.GenevePeerConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.1", Local: testLocalAddr},
+				}
+			},
+			wantErr: config.ErrDuplicateGeneveSessionKey,
+		},
+		{
+			name: "valid geneve peers",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100},
+					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+			err := config.Validate(cfg)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSessionConfigLocalAddrInvalid(t *testing.T) {
+	t.Parallel()
+
+	sc := config.SessionConfig{Local: "not-an-ip"}
+	_, err := sc.LocalAddr()
+	if err == nil {
+		t.Error("expected error for invalid local address")
+	}
+}
+
+func TestLoadWithGoBGPConfig(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+gobgp:
+  enabled: true
+  addr: "127.0.0.1:50051"
+  strategy: "disable-peer"
+  dampening:
+    enabled: true
+    suppress_threshold: 5
+    reuse_threshold: 2
+    max_suppress_time: "60s"
+    half_life: "15s"
+`
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if !cfg.GoBGP.Enabled {
+		t.Error("GoBGP.Enabled should be true")
+	}
+	if cfg.GoBGP.Addr != testGoBGPAddr {
+		t.Errorf("GoBGP.Addr = %q, want %q", cfg.GoBGP.Addr, testGoBGPAddr)
+	}
+	if cfg.GoBGP.Strategy != testStrategyPeer {
+		t.Errorf("GoBGP.Strategy = %q, want %q", cfg.GoBGP.Strategy, testStrategyPeer)
+	}
+	if !cfg.GoBGP.Dampening.Enabled {
+		t.Error("GoBGP.Dampening.Enabled should be true")
+	}
+	if cfg.GoBGP.Dampening.SuppressThreshold != 5 {
+		t.Errorf("SuppressThreshold = %v, want 5", cfg.GoBGP.Dampening.SuppressThreshold)
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("valid config failed validation: %v", err)
+	}
+}
+
+func TestLoadWithEchoConfig(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+echo:
+  enabled: true
+  peers:
+    - peer: "10.0.0.1"
+      local: "10.0.0.2"
+      detect_mult: 3
+    - peer: "10.0.0.3"
+      local: "10.0.0.4"
+`
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if !cfg.Echo.Enabled {
+		t.Error("Echo.Enabled should be true")
+	}
+	if len(cfg.Echo.Peers) != 2 {
+		t.Fatalf("Echo.Peers count = %d, want 2", len(cfg.Echo.Peers))
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("valid echo config failed validation: %v", err)
+	}
+}
+
+func TestLoadWithVXLANConfig(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+vxlan:
+  enabled: true
+  management_vni: 100
+  peers:
+    - peer: "10.0.0.1"
+      local: "10.0.0.2"
+`
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if !cfg.VXLAN.Enabled {
+		t.Error("VXLAN.Enabled should be true")
+	}
+	if cfg.VXLAN.ManagementVNI != 100 {
+		t.Errorf("ManagementVNI = %d, want 100", cfg.VXLAN.ManagementVNI)
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("valid vxlan config failed validation: %v", err)
+	}
+}
+
+func TestLoadWithGeneveConfig(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+geneve:
+  enabled: true
+  default_vni: 42
+  peers:
+    - peer: "10.0.0.1"
+      local: "10.0.0.2"
+      vni: 100
+`
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if !cfg.Geneve.Enabled {
+		t.Error("Geneve.Enabled should be true")
+	}
+	if cfg.Geneve.DefaultVNI != 42 {
+		t.Errorf("DefaultVNI = %d, want 42", cfg.Geneve.DefaultVNI)
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("valid geneve config failed validation: %v", err)
 	}
 }
 

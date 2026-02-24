@@ -85,6 +85,11 @@ archives:
 checksum:
   name_template: checksums.txt
 
+sboms:
+  - artifacts: archive
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+    cmd: syft
+
 changelog:
   disable: true
 
