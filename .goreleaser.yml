@@ -74,7 +74,7 @@ upx:
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - src: configs/gobfd.example.yml
@@ -84,6 +84,10 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+release:
+  mode: replace
+  replace_existing_artifacts: true
 
 sboms:
   - artifacts: archive
@@ -122,41 +126,21 @@ nfpms:
         dependencies:
           - systemd
 
-dockers:
-  - id: gobfd-amd64
-    goos: linux
-    goarch: amd64
-    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
-    image_templates:
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-amd64"
+dockers_v2:
+  - id: gobfd
     dockerfile: deployments/docker/Containerfile.release
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.title=gobfd"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.source=https://github.com/dantte-lp/gobfd"
-
-  - id: gobfd-arm64
-    goos: linux
-    goarch: arm64
     ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
-    image_templates:
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-arm64"
-    dockerfile: deployments/docker/Containerfile.release
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.title=gobfd"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.source=https://github.com/dantte-lp/gobfd"
-
-docker_manifests:
-  - name_template: "ghcr.io/dantte-lp/gobfd:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-amd64"
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/dantte-lp/gobfd:latest"
-    image_templates:
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-amd64"
-      - "ghcr.io/dantte-lp/gobfd:{{ .Version }}-arm64"
+    images:
+      - ghcr.io/dantte-lp/gobfd
+    tags:
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: gobfd
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.source: https://github.com/dantte-lp/gobfd
+    sbom: false
