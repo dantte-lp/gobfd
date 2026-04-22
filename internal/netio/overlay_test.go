@@ -3,9 +3,11 @@ package netio_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dantte-lp/gobfd/internal/netio"
@@ -26,6 +28,29 @@ type testOverlayConn struct {
 type overlaySendRecord struct {
 	payload []byte
 	dst     netip.Addr
+}
+
+type countWarnHandler struct {
+	warnings atomic.Int64
+}
+
+func (h *countWarnHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *countWarnHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Level >= slog.LevelWarn {
+		h.warnings.Add(1)
+	}
+	return nil
+}
+
+func (h *countWarnHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *countWarnHandler) WithGroup(string) slog.Handler {
+	return h
 }
 
 func (m *testOverlayConn) SendEncapsulated(_ context.Context, bfdPayload []byte, dstAddr netip.Addr) error {
@@ -190,6 +215,39 @@ func TestOverlayReceiver_RunDemuxesValidPacket(t *testing.T) {
 	}
 	if dmux.calls[0].SrcAddr != netip.MustParseAddr("10.0.0.2") {
 		t.Errorf("SrcAddr = %s, want 10.0.0.2", dmux.calls[0].SrcAddr)
+	}
+	if dmux.calls[0].WireLen != 0 {
+		t.Errorf("WireLen = %d, want 0 for unauthenticated overlay packet", dmux.calls[0].WireLen)
+	}
+}
+
+func TestOverlayReceiver_DropsExpectedOverlayErrorsWithoutWarn(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	ctx, cancel := context.WithCancel(context.Background())
+
+	conn := &testOverlayConn{
+		recvFunc: func(_ context.Context) ([]byte, netio.OverlayMeta, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, netio.OverlayMeta{}, fmt.Errorf("wrapped: %w", netio.ErrOverlayVNIMismatch)
+			}
+			cancel()
+			return nil, netio.OverlayMeta{}, errors.New("stopped")
+		},
+	}
+
+	handler := &countWarnHandler{}
+	recv := netio.NewOverlayReceiver(conn, &mockDemuxer{}, slog.New(handler))
+
+	err := recv.Run(ctx)
+	if err != nil {
+		t.Errorf("Run returned error: %v", err)
+	}
+
+	if warnings := handler.warnings.Load(); warnings != 0 {
+		t.Errorf("warnings = %d, want 0 for expected overlay drop errors", warnings)
 	}
 }
 

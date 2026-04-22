@@ -18,9 +18,14 @@
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := podman-compose -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
+SEMGREP ?= semgrep
+SEMGREP_CONFIG ?= p/golang
+SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all build test lint proto-gen proto-lint fuzz vulncheck osv-scan \
-        benchmark coverage profile \
+.PHONY: all build test lint semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
+        benchmark benchmark-all benchmark-save benchmark-compare \
+        test-report report-all \
+        coverage profile \
         up down restart logs shell clean tidy \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
@@ -31,7 +36,8 @@ EXEC := $(DC) exec -T dev
         int-haproxy int-haproxy-up int-haproxy-down int-haproxy-logs \
         int-observability int-observability-up int-observability-down int-observability-logs \
         int-exabgp-anycast int-exabgp-anycast-up int-exabgp-anycast-down int-exabgp-anycast-logs \
-        int-k8s int-k8s-up int-k8s-down
+        int-k8s int-k8s-up int-k8s-down \
+        benchmark-cross benchmark-report
 
 # === Lifecycle ===
 
@@ -56,6 +62,9 @@ all: build test lint
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BENCH_DIR    := testdata/benchmarks
+REPORT_DIR   := reports
+BENCH_VERSION ?= $(VERSION)
 LDFLAGS := -s -w \
   -X github.com/dantte-lp/gobfd/internal/version.Version=$(VERSION) \
   -X github.com/dantte-lp/gobfd/internal/version.GitCommit=$(GIT_COMMIT) \
@@ -265,6 +274,79 @@ profile:
 	@echo "CPU profile: cpu.prof — view with: go tool pprof -http=:8080 cpu.prof"
 	@echo "Memory profile: mem.prof — view with: go tool pprof -http=:8080 mem.prof"
 
+# === Reports ===
+
+# Save benchmarks tagged by version.
+# Usage: make benchmark-save [BENCH_VERSION=v0.5.0]
+benchmark-save:
+	@mkdir -p $(BENCH_DIR)/$(BENCH_VERSION)
+	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' -timeout=120s \
+		./internal/bfd/ | tee $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-bfd.txt
+	$(EXEC) go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$$' -timeout=120s \
+		./internal/netio/ | tee $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-netio.txt
+	@cat $(BENCH_DIR)/$(BENCH_VERSION)/benchmark-bfd.txt \
+		$(BENCH_DIR)/$(BENCH_VERSION)/benchmark-netio.txt \
+		> $(BENCH_DIR)/$(BENCH_VERSION)/benchmark.txt
+	@printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
+		"$(BENCH_VERSION)" "$(GIT_COMMIT)" "$(BUILD_DATE)" \
+		"$$($(EXEC) go env GOVERSION)" \
+		> $(BENCH_DIR)/$(BENCH_VERSION)/meta.json
+	@echo "=== Benchmarks saved to $(BENCH_DIR)/$(BENCH_VERSION)/ ==="
+
+# Compare benchmarks between two versions via benchstat.
+# Usage: make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
+OLD ?= baseline
+NEW ?= $(BENCH_VERSION)
+
+benchmark-compare:
+	@mkdir -p $(REPORT_DIR)/benchmarks
+	@old_file=""; new_file=""; \
+	if [ "$(OLD)" = "baseline" ]; then old_file="$(BENCH_DIR)/baseline.txt"; \
+	else old_file="$(BENCH_DIR)/$(OLD)/benchmark.txt"; fi; \
+	new_file="$(BENCH_DIR)/$(NEW)/benchmark.txt"; \
+	$(EXEC) benchstat "$$old_file" "$$new_file" | tee $(REPORT_DIR)/benchmarks/comparison.txt; \
+	printf '<!DOCTYPE html>\n<html><head><meta charset="utf-8">\n<title>GoBFD Benchmark Comparison: %s vs %s</title>\n<style>\nbody{font-family:system-ui,sans-serif;margin:2em;background:#1a1a2e;color:#e0e0e0}\nh1{color:#00d4ff}pre{background:#16213e;padding:1.5em;border-radius:8px;overflow-x:auto;font-size:14px;line-height:1.6;border:1px solid #0f3460}\n.meta{color:#888;font-size:13px}\n</style></head><body>\n<h1>GoBFD Benchmark Comparison</h1>\n<p class="meta">Old: %s &mdash; New: %s &mdash; Generated: %s</p>\n<pre>\n' \
+		"$(OLD)" "$(NEW)" "$(OLD)" "$(NEW)" "$(BUILD_DATE)" \
+		> $(REPORT_DIR)/benchmarks/comparison.html; \
+	cat $(REPORT_DIR)/benchmarks/comparison.txt >> $(REPORT_DIR)/benchmarks/comparison.html; \
+	printf '</pre></body></html>\n' >> $(REPORT_DIR)/benchmarks/comparison.html; \
+	echo "=== Comparison: $(REPORT_DIR)/benchmarks/comparison.html ==="
+
+# Generate test report (JUnit XML -> standalone HTML).
+# Usage: make test-report
+test-report:
+	@mkdir -p $(REPORT_DIR)/tests
+	$(EXEC) gotestsum \
+		--junitfile $(REPORT_DIR)/tests/unit-report.xml \
+		--jsonfile $(REPORT_DIR)/tests/unit-report.json \
+		--format short-verbose \
+		-- -buildvcs=false ./... -race -count=1
+	$(EXEC) junit2html $(REPORT_DIR)/tests/unit-report.xml \
+		$(REPORT_DIR)/tests/unit-report.html
+	@echo "=== Test report: $(REPORT_DIR)/tests/unit-report.html ==="
+
+# Full pipeline: tests + benchmarks + comparison.
+# Usage: make report-all [OLD=v0.4.0]
+report-all: test-report benchmark-save benchmark-compare
+	@echo "=== All reports in $(REPORT_DIR)/ ==="
+
+# === Cross-Implementation Benchmarks ===
+
+BENCH_COMPOSE := bench/compose.yml
+BENCH_DC := podman-compose -f $(BENCH_COMPOSE)
+BENCH_RESULTS := bench-results
+
+benchmark-cross:
+	@mkdir -p $(BENCH_RESULTS)
+	$(BENCH_DC) build
+	$(BENCH_DC) run --rm bench-c
+	$(BENCH_DC) run --rm bench-python
+	$(BENCH_DC) run --rm bench-go
+	@echo "=== All benchmarks completed. Results in $(BENCH_RESULTS)/ ==="
+
+benchmark-report:
+	./scripts/gen-report.sh $(BENCH_RESULTS)
+
 # === Quality ===
 
 lint:
@@ -273,10 +355,24 @@ lint:
 lint-fix:
 	$(EXEC) golangci-lint run --fix ./...
 
+semgrep:
+	$(SEMGREP) scan $(SEMGREP_COMMON_FLAGS)
+
+semgrep-json:
+	$(SEMGREP) scan $(SEMGREP_COMMON_FLAGS) --json
+
+semgrep-pro:
+	$(SEMGREP) scan --pro $(SEMGREP_COMMON_FLAGS)
+
 vulncheck:
+	$(EXEC) go run ./scripts/vuln-audit.go
+
+osv-scan: vulncheck
+
+vulncheck-strict:
 	$(EXEC) govulncheck ./...
 
-osv-scan:
+osv-scan-strict:
 	$(EXEC) osv-scanner scan -r .
 
 # === Proto ===

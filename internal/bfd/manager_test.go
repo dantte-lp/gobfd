@@ -720,6 +720,33 @@ func TestManagerReconcileSessionsKeepsExisting(t *testing.T) {
 	})
 }
 
+func TestManagerStateChangeSubscribersReceiveSameEvent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		dispatchCtx, dispatchCancel := context.WithCancel(context.Background())
+		defer dispatchCancel()
+		go mgr.RunDispatch(dispatchCtx)
+
+		sub1 := mgr.SubscribeStateChanges(dispatchCtx)
+		sub2 := mgr.SubscribeStateChanges(dispatchCtx)
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		time.Sleep(2 * time.Second)
+		sess.RecvPacket(makeControlPacket(bfd.StateDown, 42, sess.LocalDiscriminator()))
+		time.Sleep(50 * time.Millisecond)
+
+		assertSubscriberEvent(t, sub1, sess.LocalDiscriminator(), bfd.StateInit)
+		assertSubscriberEvent(t, sub2, sess.LocalDiscriminator(), bfd.StateInit)
+	})
+}
+
 // -------------------------------------------------------------------------
 // TestManagerDrainAllSessions — Sprint 14 (14.10)
 // -------------------------------------------------------------------------
@@ -773,6 +800,107 @@ func TestManagerDrainAllSessions(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 	})
+}
+
+func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
+	t.Parallel()
+
+	policy := &bfd.UnsolicitedPolicy{
+		Enabled:     true,
+		MaxSessions: 1,
+		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
+			"eth0": {
+				Enabled: true,
+				AllowedPrefixes: []netip.Prefix{
+					netip.MustParsePrefix("192.0.2.0/24"),
+				},
+			},
+		},
+		SessionDefaults: bfd.UnsolicitedSessionDefaults{
+			DesiredMinTxInterval:  time.Second,
+			RequiredMinRxInterval: time.Second,
+			DetectMultiplier:      3,
+		},
+	}
+	mgr := bfd.NewManager(
+		slog.Default(),
+		bfd.WithUnsolicitedPolicy(policy),
+		bfd.WithUnsolicitedSender(noopSender{}),
+	)
+	defer mgr.Close()
+
+	first := makeUnsolicitedControlPacket(100)
+	firstMeta := bfd.PacketMeta{
+		SrcAddr: netip.MustParseAddr("192.0.2.10"),
+		DstAddr: netip.MustParseAddr("192.0.2.1"),
+		IfName:  "eth0",
+		TTL:     255,
+	}
+	if err := mgr.DemuxWithWire(first, firstMeta, nil); err != nil {
+		t.Fatalf("create first unsolicited session: %v", err)
+	}
+
+	snapshots := mgr.Sessions()
+	if len(snapshots) != 1 {
+		t.Fatalf("sessions after first create = %d, want 1", len(snapshots))
+	}
+	if err := mgr.DestroySession(context.Background(), snapshots[0].LocalDiscr); err != nil {
+		t.Fatalf("destroy first unsolicited session: %v", err)
+	}
+
+	second := makeUnsolicitedControlPacket(200)
+	secondMeta := firstMeta
+	secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.11")
+	if err := mgr.DemuxWithWire(second, secondMeta, nil); err != nil {
+		t.Fatalf("create second unsolicited session after destroy: %v", err)
+	}
+}
+
+func TestManagerUnsolicitedCleanupRemovesDownSession(t *testing.T) {
+	t.Parallel()
+
+	policy := &bfd.UnsolicitedPolicy{
+		Enabled:        true,
+		MaxSessions:    1,
+		CleanupTimeout: 20 * time.Millisecond,
+		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
+			"eth0": {Enabled: true},
+		},
+		SessionDefaults: bfd.UnsolicitedSessionDefaults{
+			DesiredMinTxInterval:  50 * time.Millisecond,
+			RequiredMinRxInterval: 50 * time.Millisecond,
+			DetectMultiplier:      3,
+		},
+	}
+	mgr := bfd.NewManager(
+		slog.Default(),
+		bfd.WithUnsolicitedPolicy(policy),
+		bfd.WithUnsolicitedSender(noopSender{}),
+	)
+	defer mgr.Close()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go mgr.RunDispatch(ctx)
+
+	meta := bfd.PacketMeta{
+		SrcAddr: netip.MustParseAddr("192.0.2.10"),
+		DstAddr: netip.MustParseAddr("192.0.2.1"),
+		IfName:  "eth0",
+		TTL:     255,
+	}
+	if err := mgr.DemuxWithWire(makeUnsolicitedControlPacket(100), meta, nil); err != nil {
+		t.Fatalf("create unsolicited session: %v", err)
+	}
+
+	sess := waitForSingleSession(t, mgr)
+	localDiscr := sess.LocalDiscriminator()
+
+	sess.RecvPacket(makeControlPacket(bfd.StateInit, 100, localDiscr))
+	waitForSessionState(t, sess, bfd.StateUp)
+
+	sess.RecvPacket(makeControlPacket(bfd.StateDown, 100, localDiscr))
+	waitForSessionCount(t, mgr, 0)
 }
 
 // -------------------------------------------------------------------------
@@ -1317,6 +1445,85 @@ func TestManagerCloseCleansMicroBFDGroups(t *testing.T) {
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
+
+func makeUnsolicitedControlPacket(myDiscr uint32) *bfd.ControlPacket {
+	return &bfd.ControlPacket{
+		Version:                   bfd.Version,
+		State:                     bfd.StateDown,
+		DetectMult:                3,
+		MyDiscriminator:           myDiscr,
+		YourDiscriminator:         0,
+		DesiredMinTxInterval:      1000000,
+		RequiredMinRxInterval:     1000000,
+		RequiredMinEchoRxInterval: 0,
+	}
+}
+
+func waitForSingleSession(t *testing.T, mgr *bfd.Manager) *bfd.Session {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshots := mgr.Sessions()
+		if len(snapshots) == 1 {
+			sess, ok := mgr.LookupByDiscriminator(snapshots[0].LocalDiscr)
+			if !ok {
+				t.Fatalf("session snapshot discriminator %d not found", snapshots[0].LocalDiscr)
+			}
+			return sess
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for exactly one session, got %d", len(mgr.Sessions()))
+	return nil
+}
+
+func waitForSessionState(t *testing.T, sess *bfd.Session, want bfd.State) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := sess.State(); got == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for session state %s, got %s", want, sess.State())
+}
+
+func waitForSessionCount(t *testing.T, mgr *bfd.Manager, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := len(mgr.Sessions()); got == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for %d sessions, got %d", want, len(mgr.Sessions()))
+}
+
+func assertSubscriberEvent(
+	t *testing.T,
+	ch <-chan bfd.StateChange,
+	localDiscr uint32,
+	wantState bfd.State,
+) {
+	t.Helper()
+
+	select {
+	case sc := <-ch:
+		if sc.LocalDiscr != localDiscr {
+			t.Fatalf("subscriber local discr = %d, want %d", sc.LocalDiscr, localDiscr)
+		}
+		if sc.NewState != wantState {
+			t.Fatalf("subscriber state = %s, want %s", sc.NewState, wantState)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout waiting for subscriber event %s", wantState)
+	}
+}
 
 // containsSubstring reports whether s contains substr.
 func containsSubstring(s, substr string) bool {

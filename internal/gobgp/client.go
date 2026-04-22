@@ -10,14 +10,18 @@ package gobgp
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	apipb "github.com/osrg/gobgp/v3/api"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -49,6 +53,9 @@ var (
 
 	// ErrDialFailed indicates the gRPC dial to GoBGP failed.
 	ErrDialFailed = errors.New("gobgp gRPC dial failed")
+
+	// ErrNoRootCAPEM indicates the configured CA file contained no PEM certificates.
+	ErrNoRootCAPEM = errors.New("no PEM certificates found")
 )
 
 // -------------------------------------------------------------------------
@@ -58,8 +65,9 @@ var (
 // GRPCClient connects to GoBGP's gRPC API and implements the Client interface.
 // It wraps the generated GobgpApiClient with reconnection-friendly patterns.
 //
-// The underlying gRPC connection uses insecure credentials (plaintext) because
-// GoBGP's API is typically accessed on localhost in production deployments.
+// The underlying gRPC connection can use TLS for remote GoBGP APIs. Plaintext
+// remains supported for local deployments where GoBGP listens only on loopback
+// or another trusted management network.
 type GRPCClient struct {
 	conn   *grpc.ClientConn
 	api    apipb.GobgpApiClient
@@ -74,25 +82,46 @@ type GRPCClientConfig struct {
 	// Addr is the GoBGP gRPC listen address (e.g., "127.0.0.1:50051").
 	Addr string
 
+	// TLS configures transport security for the GoBGP gRPC connection.
+	TLS GRPCClientTLSConfig
+
 	// DialTimeout is the maximum time to wait for the initial connection.
 	// Zero means no timeout (use context deadline instead).
 	DialTimeout time.Duration
 }
 
+// GRPCClientTLSConfig holds TLS settings for the GoBGP gRPC client.
+type GRPCClientTLSConfig struct {
+	// Enabled switches the GoBGP gRPC client from plaintext to TLS.
+	Enabled bool
+
+	// CAFile optionally points to a PEM bundle used as the root CA pool.
+	// Empty means use the host root CA pool.
+	CAFile string
+
+	// ServerName overrides the TLS server name used for certificate
+	// verification. Empty means derive it from the target address.
+	ServerName string
+}
+
 // NewGRPCClient creates a new GoBGP gRPC client and establishes a connection.
 //
-// The connection uses grpc.NewClient with insecure credentials. GoBGP's gRPC
-// API is typically exposed on localhost without TLS. The client uses lazy
-// connection establishment (grpc.NewClient does not block); actual connectivity
-// is verified on the first RPC call.
+// The client uses lazy connection establishment (grpc.NewClient does not
+// block); actual connectivity is verified on the first RPC call.
 func NewGRPCClient(cfg GRPCClientConfig, logger *slog.Logger) (*GRPCClient, error) {
 	if cfg.Addr == "" {
 		return nil, fmt.Errorf("create gobgp client: %w: empty address", ErrDialFailed)
 	}
 
+	transportCreds, err := buildTransportCredentials(cfg.TLS)
+	if err != nil {
+		return nil, fmt.Errorf("create gobgp client to %s: %w: %w", cfg.Addr, ErrDialFailed, err)
+	}
+
 	conn, err := grpc.NewClient(
 		cfg.Addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection -- transportCreds is TLS when gobgp.tls.enabled is true; plaintext fallback is supported only for loopback/trusted GoBGP deployments.
+		grpc.WithTransportCredentials(transportCreds),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create gobgp client to %s: %w: %w", cfg.Addr, ErrDialFailed, err)
@@ -109,9 +138,46 @@ func NewGRPCClient(cfg GRPCClientConfig, logger *slog.Logger) (*GRPCClient, erro
 
 	client.logger.Info("gobgp gRPC client created",
 		slog.String("target", cfg.Addr),
+		slog.Bool("tls", cfg.TLS.Enabled),
 	)
 
 	return client, nil
+}
+
+func buildTransportCredentials(cfg GRPCClientTLSConfig) (credentials.TransportCredentials, error) {
+	if !cfg.Enabled {
+		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection -- plaintext is supported for loopback/trusted GoBGP deployments; enable gobgp.tls for remote endpoints.
+		return insecure.NewCredentials(), nil
+	}
+
+	tlsCfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: cfg.ServerName,
+	}
+
+	if cfg.CAFile != "" {
+		rootCAs, err := loadRootCAs(cfg.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.RootCAs = rootCAs
+	}
+
+	return credentials.NewTLS(tlsCfg), nil
+}
+
+func loadRootCAs(path string) (*x509.CertPool, error) {
+	pemBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read CA file %s: %w", path, err)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("read CA file %s: %w", path, ErrNoRootCAPEM)
+	}
+
+	return pool, nil
 }
 
 // DisablePeer disables a BGP peer by address with an administrative reason.

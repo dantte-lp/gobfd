@@ -4,9 +4,10 @@ package netio
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math/big"
 	"net"
 	"net/netip"
 	"sync"
@@ -97,6 +98,23 @@ func (c *LinuxPacketConn) Close() error {
 // LocalAddr returns the local address and port the socket is bound to.
 func (c *LinuxPacketConn) LocalAddr() netip.AddrPort {
 	return c.localAddr
+}
+
+// SetReadBuffer sets the SO_RCVBUF size on the underlying UDP socket.
+// Larger buffers reduce packet loss under high session counts.
+func (c *LinuxPacketConn) SetReadBuffer(bytes int) error {
+	if err := c.conn.SetReadBuffer(bytes); err != nil {
+		return fmt.Errorf("set read buffer: %w", err)
+	}
+	return nil
+}
+
+// SetWriteBuffer sets the SO_SNDBUF size on the underlying UDP socket.
+func (c *LinuxPacketConn) SetWriteBuffer(bytes int) error {
+	if err := c.conn.SetWriteBuffer(bytes); err != nil {
+		return fmt.Errorf("set write buffer: %w", err)
+	}
+	return nil
 }
 
 // -------------------------------------------------------------------------
@@ -489,9 +507,10 @@ func (a *SourcePortAllocator) Allocate() (uint16, error) {
 		return 0, fmt.Errorf("all %d ports allocated: %w", a.portSpan, ErrPortExhausted)
 	}
 
-	// Random starting offset for probe, then linear scan.
-	//nolint:gosec // G404: port selection does not require cryptographic randomness.
-	offset := rand.IntN(a.portSpan)
+	offset, err := randomPortOffset(a.portSpan)
+	if err != nil {
+		return 0, fmt.Errorf("choose random source port offset: %w", err)
+	}
 
 	for i := range a.portSpan {
 		//nolint:gosec // G115: (offset+i)%portSpan is always in [0, 16383], fits uint16 after adding sourcePortMin.
@@ -503,6 +522,14 @@ func (a *SourcePortAllocator) Allocate() (uint16, error) {
 	}
 
 	return 0, fmt.Errorf("all %d ports allocated: %w", a.portSpan, ErrPortExhausted)
+}
+
+func randomPortOffset(portSpan int) (int, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(portSpan)))
+	if err != nil {
+		return 0, err
+	}
+	return int(n.Int64()), nil
 }
 
 // Release returns a port to the available pool.

@@ -1,7 +1,7 @@
 # GoBFD Documentation
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-11-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-14-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -32,6 +32,12 @@ graph TD
         C3["09-development.md<br/>Development"]
     end
 
+    subgraph "Performance"
+        E1["12-benchmarks.md<br/>Benchmarks"]
+        E2["13-competitive-analysis.md<br/>Competitive Analysis"]
+        E3["14-performance-analysis.md<br/>Performance Analysis"]
+    end
+
     subgraph "Reference"
         D1["08-rfc-compliance.md<br/>RFC Compliance"]
         D2["rfc/<br/>RFC Text Files"]
@@ -48,6 +54,7 @@ graph TD
     IDX --> C2
     IDX --> C3
     IDX --> D1
+    IDX --> E1
 
     A1 --> A2
     A2 --> D1
@@ -55,6 +62,8 @@ graph TD
     B3 --> C2
     C1 --> C3
     D1 --> D2
+    E1 --> E2
+    E2 --> E3
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -88,6 +97,14 @@ graph TD
 | 09 | [**Development**](./09-development.md) | Dev workflow, Make targets, testing, linting, proto generation |
 | 10 | [**Changelog Guide**](./10-changelog.md) | How to maintain CHANGELOG.md, release process, semantic versioning |
 | 11 | [**Integrations**](./11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes examples |
+
+### Performance
+
+| # | Document | Description |
+|---|---|---|
+| 12 | [**Benchmarks**](./12-benchmarks.md) | How to run, read, and interpret benchmark results |
+| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, aiobfd, hardware platforms |
+| 14 | [**Performance Analysis**](./14-performance-analysis.md) | GoBFD vs C implementations: benchmarks, architecture, CPU load behavior |
 
 ### RFC Source Files
 

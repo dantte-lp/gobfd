@@ -39,6 +39,36 @@ type mockCall struct {
 	communication string
 }
 
+type blockingClient struct {
+	started chan struct{}
+	done    chan struct{}
+}
+
+func newBlockingClient() *blockingClient {
+	return &blockingClient{
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (b *blockingClient) DisablePeer(ctx context.Context, _ string, _ string) error {
+	close(b.started)
+	<-ctx.Done()
+	close(b.done)
+	return ctx.Err()
+}
+
+func (b *blockingClient) EnablePeer(ctx context.Context, _ string) error {
+	close(b.started)
+	<-ctx.Done()
+	close(b.done)
+	return ctx.Err()
+}
+
+func (b *blockingClient) Close() error {
+	return nil
+}
+
 func newMockClient() *mockClient {
 	return &mockClient{}
 }
@@ -369,6 +399,59 @@ func TestHandlerGoBGPErrorNonFatal(t *testing.T) {
 			t.Fatal("handler did not stop after context cancel")
 		}
 	})
+}
+
+func TestHandlerActionTimeoutBoundsGoBGPRPC(t *testing.T) {
+	t.Parallel()
+
+	client := newBlockingClient()
+	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
+		Client:        client,
+		Strategy:      gobgp.StrategyDisablePeer,
+		ActionTimeout: 25 * time.Millisecond,
+		Logger:        slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+
+	events := make(chan bfd.StateChange, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = handler.Run(ctx, events)
+	}()
+
+	events <- bfd.StateChange{
+		LocalDiscr: 1,
+		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+		OldState:   bfd.StateUp,
+		NewState:   bfd.StateDown,
+		Diag:       bfd.DiagControlTimeExpired,
+		Timestamp:  time.Now(),
+	}
+
+	select {
+	case <-client.started:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("GoBGP RPC did not start")
+	}
+
+	select {
+	case <-client.done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("GoBGP RPC was not bounded by ActionTimeout")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handler did not stop after action timeout and context cancel")
+	}
 }
 
 // -------------------------------------------------------------------------

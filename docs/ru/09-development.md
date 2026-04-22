@@ -18,6 +18,7 @@
 - [Стратегия тестирования](#стратегия-тестирования)
 - [Линтинг](#линтинг)
 - [Рабочий процесс Protobuf](#рабочий-процесс-protobuf)
+- [Возможности Go 1.26](#возможности-go-126)
 - [Конвенции кода](#конвенции-кода)
 - [Вклад в проект](#вклад-в-проект)
 
@@ -115,8 +116,13 @@ make all
 |---|---|
 | `make lint` | Запуск golangci-lint v2 |
 | `make lint-fix` | Автоматическое исправление проблем линтера |
-| `make vulncheck` | Запуск govulncheck |
-| `make osv-scan` | Запуск OSV Scanner (`osv-scanner scan -r .`) |
+| `make semgrep` | Локальный Semgrep OSS scan с ruleset `p/golang` |
+| `make semgrep-json` | Semgrep OSS scan с JSON-выводом |
+| `make semgrep-pro` | Semgrep с `--pro`; требует Semgrep Pro Engine и `semgrep login` |
+| `make vulncheck` | Контролируемый vulnerability audit (`govulncheck` + OSV Scanner) |
+| `make osv-scan` | Алиас для контролируемого vulnerability audit |
+| `make vulncheck-strict` | Raw `govulncheck ./...` без project allowlist |
+| `make osv-scan-strict` | Raw `osv-scanner scan -r .` без project allowlist |
 
 #### Protobuf
 
@@ -178,13 +184,31 @@ func TestFSMDetectionTimeout(t *testing.T) {
 
 #### Фаззинг
 
-Round-trip фаззинг для парсера BFD-пакетов:
+GoBFD включает fuzz-тесты для всех парсеров пакетов, обрабатывающих ненадёжный сетевой ввод:
 
 ```bash
+# Кодек BFD Control пакетов
 make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd
+
+# Overlay-кодек VXLAN (RFC 8971)
+make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio
+
+# Overlay-кодек Geneve (RFC 9521)
+make fuzz FUNC=FuzzGeneveHeader PKG=./internal/netio
+
+# Сборка/разбор внутренних пакетов
+make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
 ```
 
-Фаззер проверяет: `parse(marshal(packet)) == packet` для произвольных входных данных.
+Каждый fuzz-тест имеет два варианта:
+- **Round-trip**: проверяет `parse(marshal(packet)) == packet` для структурированных входных данных
+- **Raw input**: подаёт произвольные байты в парсер, проверяя отсутствие паники
+
+Длительность фаззинга по умолчанию — 60 секунд. Для более длительного запуска:
+
+```bash
+make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
+```
 
 #### Интеграционные тесты
 
@@ -200,7 +224,7 @@ make test-integration
 
 ### Линтинг
 
-golangci-lint v2 со строгой конфигурацией (68 линтеров):
+golangci-lint v2 со строгой curated-конфигурацией:
 
 ```bash
 make lint
@@ -209,9 +233,30 @@ make lint
 Конфигурация в `.golangci.yml`. Ключевые линтеры:
 - `gosec` (с `audit: true`) -- анализ безопасности
 - `govet`, `staticcheck`, `errcheck` -- стандартные проверки Go
-- `gocognit`, `cyclop` -- лимиты сложности
 - `noctx` -- проверки передачи контекста
 - `exhaustive` -- исчерпывающие switch/map проверки
+- `depguard`, `gomoddirectives` -- гигиена зависимостей
+- `nolintlint` -- качество директив `//nolint`
+
+### Semgrep
+
+Semgrep используется как дополнительный локальный SAST-проход:
+
+```bash
+make semgrep       # Semgrep OSS, ruleset p/golang
+make semgrep-json  # тот же scan, JSON-вывод
+make semgrep-pro   # требует Semgrep Pro Engine и semgrep login
+```
+
+Согласно Semgrep CLI reference, `semgrep scan` предназначен для локальных
+проверок и может запускать registry rulesets вроде `p/golang` без аккаунта
+Semgrep. `semgrep ci` использует политики Semgrep App, diff-aware поведение в
+CI и Pro-анализ, когда CLI авторизован. Флаг `--pro` включает interfile-анализ
+и требует Pro Engine плюс авторизацию.
+
+Текущие принятые предупреждения Semgrep задокументированы в
+[SECURITY.md](../../SECURITY.md): MD5 и SHA1 реализованы только для
+совместимости с аутентификацией RFC 5880.
 
 ### Рабочий процесс Protobuf
 
@@ -225,6 +270,50 @@ make proto-breaking  # Проверка на несовместимые изме
 ```
 
 > **НИКОГДА** не редактируйте файлы в `pkg/bfdpb/` вручную -- они генерируются через `buf generate`.
+
+### Возможности Go 1.26
+
+GoBFD использует возможности Go 1.26 для безопасности, производительности и отладки:
+
+#### `testing/synctest` -- Детерминированные тесты таймеров
+
+Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest` для выполнения с виртуальным временем. Тесты выполняются мгновенно (без реальных sleep) и полностью детерминированы. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
+
+#### `os.Root` -- Песочница для доступа к файлам
+
+Загрузка конфигурации использует `os.OpenRoot` для ограничения доступа к файловой системе директорией конфигурации. Это предотвращает атаки обхода пути (path traversal):
+
+```go
+root, err := os.OpenRoot(filepath.Dir(path))
+if err != nil { return nil, err }
+defer root.Close()
+f, err := root.Open(filepath.Base(path))
+```
+
+Применяется в `config.Load` и `gobfd-haproxy-agent` `loadConfig`.
+
+#### `errors.AsType[T]()` -- Типобезопасное сопоставление ошибок
+
+Тесты сервера используют обобщённый сопоставитель ошибок Go 1.26 вместо двухшагового паттерна `errors.As`:
+
+```go
+// Идиоматичный Go 1.26
+if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+    require.Equal(t, connect.CodeNotFound, connectErr.Code())
+}
+```
+
+#### `GOEXPERIMENT=goroutineleakprofile`
+
+Dev-контейнер (`Containerfile.dev`) включает эксперимент профилирования утечек горутин. В сочетании с `goleak.VerifyTestMain(m)` в тестовых пакетах это обеспечивает обнаружение утечек горутин в runtime во время разработки.
+
+#### `runtime/trace.FlightRecorder`
+
+HTTP-endpoint предоставляет flight recorder для посмертного захвата трассировки. Демон непрерывно записывает последние N секунд данных трассировки, которые можно получить по запросу для отладки всплесков задержки или дедлоков.
+
+#### Swiss Tables
+
+Go 1.26 использует Swiss tables как реализацию `map` по умолчанию. Поиск дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD выигрывают от улучшенной локальности кэша. См. [BENCHMARKS.md](../../BENCHMARKS.md) для сравнения с `GOEXPERIMENT=noswissmap`.
 
 ### Конвенции кода
 

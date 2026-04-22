@@ -267,5 +267,5 @@ func ipv4HeaderChecksum(hdr []byte) uint16 {
 	}
 
 	// One's complement.
-	return ^uint16(sum) //nolint:gosec // G115: intentional truncation after fold
+	return ^uint16(sum)
 }

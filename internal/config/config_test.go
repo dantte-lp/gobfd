@@ -803,6 +803,16 @@ func TestValidateGoBGPErrors(t *testing.T) {
 			wantErr: config.ErrInvalidGoBGPStrategy,
 		},
 		{
+			name: "invalid gobgp action timeout",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.ActionTimeout = 0
+			},
+			wantErr: config.ErrInvalidGoBGPActionTimeout,
+		},
+		{
 			name: "valid gobgp disable-peer",
 			modify: func(cfg *config.Config) {
 				cfg.GoBGP.Enabled = true
@@ -816,6 +826,28 @@ func TestValidateGoBGPErrors(t *testing.T) {
 				cfg.GoBGP.Enabled = true
 				cfg.GoBGP.Addr = testGoBGPAddr
 				cfg.GoBGP.Strategy = "withdraw-routes"
+			},
+		},
+		{
+			name: "gobgp tls ca requires tls enabled",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.TLS.Enabled = false
+				cfg.GoBGP.TLS.CAFile = "/etc/ssl/certs/gobgp-ca.pem"
+			},
+			wantErr: config.ErrInvalidGoBGPTLS,
+		},
+		{
+			name: "valid gobgp tls",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.TLS.Enabled = true
+				cfg.GoBGP.TLS.CAFile = "/etc/ssl/certs/gobgp-ca.pem"
+				cfg.GoBGP.TLS.ServerName = "gobgp.example.net"
 			},
 		},
 	}
@@ -834,6 +866,100 @@ func TestValidateGoBGPErrors(t *testing.T) {
 			}
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGoBGPPlaintextNonLoopback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  config.GoBGPConfig
+		want bool
+	}{
+		{
+			name: "disabled",
+			cfg: config.GoBGPConfig{
+				Enabled: false,
+				Addr:    "10.0.0.10:50051",
+			},
+			want: false,
+		},
+		{
+			name: "tls enabled remote",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "10.0.0.10:50051",
+				TLS:     config.GoBGPTLSConfig{Enabled: true},
+			},
+			want: false,
+		},
+		{
+			name: "ipv4 loopback",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "127.0.0.1:50051",
+			},
+			want: false,
+		},
+		{
+			name: "localhost",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "localhost:50051",
+			},
+			want: false,
+		},
+		{
+			name: "ipv6 loopback",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "[::1]:50051",
+			},
+			want: false,
+		},
+		{
+			name: "remote ipv4",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "10.0.0.10:50051",
+			},
+			want: true,
+		},
+		{
+			name: "wildcard ipv4",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "0.0.0.0:50051",
+			},
+			want: true,
+		},
+		{
+			name: "wildcard empty host",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    ":50051",
+			},
+			want: true,
+		},
+		{
+			name: "remote dns name",
+			cfg: config.GoBGPConfig{
+				Enabled: true,
+				Addr:    "gobgp.example.net:50051",
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := config.GoBGPPlaintextNonLoopback(tt.cfg)
+			if got != tt.want {
+				t.Fatalf("GoBGPPlaintextNonLoopback() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1179,6 +1305,10 @@ gobgp:
   enabled: true
   addr: "127.0.0.1:50051"
   strategy: "disable-peer"
+  tls:
+    enabled: true
+    ca_file: "/etc/ssl/certs/gobgp-ca.pem"
+    server_name: "gobgp.example.net"
   dampening:
     enabled: true
     suppress_threshold: 5
@@ -1201,6 +1331,15 @@ gobgp:
 	}
 	if cfg.GoBGP.Strategy != testStrategyPeer {
 		t.Errorf("GoBGP.Strategy = %q, want %q", cfg.GoBGP.Strategy, testStrategyPeer)
+	}
+	if !cfg.GoBGP.TLS.Enabled {
+		t.Error("GoBGP.TLS.Enabled should be true")
+	}
+	if cfg.GoBGP.TLS.CAFile != "/etc/ssl/certs/gobgp-ca.pem" {
+		t.Errorf("GoBGP.TLS.CAFile = %q, want /etc/ssl/certs/gobgp-ca.pem", cfg.GoBGP.TLS.CAFile)
+	}
+	if cfg.GoBGP.TLS.ServerName != "gobgp.example.net" {
+		t.Errorf("GoBGP.TLS.ServerName = %q, want gobgp.example.net", cfg.GoBGP.TLS.ServerName)
 	}
 	if !cfg.GoBGP.Dampening.Enabled {
 		t.Error("GoBGP.Dampening.Enabled should be true")
@@ -1310,6 +1449,115 @@ geneve:
 
 	if err := config.Validate(cfg); err != nil {
 		t.Errorf("valid geneve config failed validation: %v", err)
+	}
+}
+
+// =========================================================================
+// SocketConfig Tests — Sprint 9
+// =========================================================================
+
+func TestSocketConfigDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	if cfg.Socket.ReadBufferSize != 4*1024*1024 {
+		t.Errorf("Socket.ReadBufferSize = %d, want 4194304 (4 MiB)", cfg.Socket.ReadBufferSize)
+	}
+	if cfg.Socket.WriteBufferSize != 4*1024*1024 {
+		t.Errorf("Socket.WriteBufferSize = %d, want 4194304 (4 MiB)", cfg.Socket.WriteBufferSize)
+	}
+}
+
+func TestSocketConfigCustomOverride(t *testing.T) {
+	t.Parallel()
+
+	yaml := `
+socket:
+  read_buffer_size: 8388608
+  write_buffer_size: 2097152
+grpc:
+  addr: ":50051"
+`
+	path := writeTemp(t, yaml)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Socket.ReadBufferSize != 8388608 {
+		t.Errorf("Socket.ReadBufferSize = %d, want 8388608 (8 MiB)", cfg.Socket.ReadBufferSize)
+	}
+	if cfg.Socket.WriteBufferSize != 2097152 {
+		t.Errorf("Socket.WriteBufferSize = %d, want 2097152 (2 MiB)", cfg.Socket.WriteBufferSize)
+	}
+}
+
+func TestSocketConfigZeroUsesOSDefault(t *testing.T) {
+	t.Parallel()
+
+	yaml := `
+socket:
+  read_buffer_size: 0
+  write_buffer_size: 0
+grpc:
+  addr: ":50051"
+`
+	path := writeTemp(t, yaml)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Socket.ReadBufferSize != 0 {
+		t.Errorf("Socket.ReadBufferSize = %d, want 0 (OS default)", cfg.Socket.ReadBufferSize)
+	}
+	if cfg.Socket.WriteBufferSize != 0 {
+		t.Errorf("Socket.WriteBufferSize = %d, want 0 (OS default)", cfg.Socket.WriteBufferSize)
+	}
+}
+
+// =========================================================================
+// os.Root Config Sandboxing Tests — Go 1.26
+// =========================================================================
+
+func TestLoadRejectsPathTraversal(t *testing.T) {
+	t.Parallel()
+
+	// Attempt to load a config with path traversal components.
+	// os.Root should prevent accessing files outside the config directory.
+	_, err := config.Load("../../../etc/passwd")
+	if err == nil {
+		t.Fatal("Load() with path traversal should return error, got nil")
+	}
+}
+
+func TestLoadValidConfigFileViaOsRoot(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+grpc:
+  addr: ":50051"
+log:
+  level: "info"
+`
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error: %v", path, err)
+	}
+
+	if cfg.GRPC.Addr != ":50051" {
+		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":50051")
+	}
+}
+
+func TestLoadNonexistentDirectoryViaOsRoot(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load("/nonexistent/directory/config.yml")
+	if err == nil {
+		t.Fatal("Load() with nonexistent directory should return error, got nil")
 	}
 }
 

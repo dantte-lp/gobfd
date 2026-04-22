@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoBFD Cross-Implementation Benchmark Comparison</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.8/dist/cdn.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'bfd-bg':      '#0f172a',
+                        'bfd-card':    '#1e293b',
+                        'bfd-border':  '#334155',
+                        'bfd-accent':  '#00d4ff',
+                        'bfd-text':    '#e2e8f0',
+                        'bfd-muted':   '#94a3b8',
+                        'impl-go':     '#00d4ff',
+                        'impl-frr':    '#4ade80',
+                        'impl-bird':   '#fbbf24',
+                        'impl-aiobfd': '#f472b6',
+                        'impl-struct': '#a78bfa',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .tab-enter { animation: fadeIn 0.15s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        /* Tooltip for annotations */
+        .has-tooltip { position: relative; cursor: help; }
+        .has-tooltip .tooltip-text {
+            visibility: hidden; opacity: 0;
+            position: absolute; z-index: 20;
+            bottom: 100%; left: 50%; transform: translateX(-50%);
+            padding: 4px 8px; border-radius: 6px;
+            background: #334155; color: #e2e8f0;
+            font-size: 11px; white-space: nowrap;
+            transition: opacity 0.15s;
+            pointer-events: none;
+        }
+        .has-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+        /* Annotation badge */
+        .annotation-badge {
+            display: inline-block; font-size: 9px;
+            padding: 1px 5px; border-radius: 4px;
+            background: #334155; color: #94a3b8;
+            margin-left: 4px; vertical-align: middle;
+        }
+    </style>
+</head>
+<body class="bg-bfd-bg text-bfd-text min-h-screen font-sans antialiased">
+
+<script>
+    const REPORT_DATA = __BENCHMARK_DATA__;
+</script>
+
+<div x-data="benchApp()" x-cloak>
+
+    <!-- ================================================================ -->
+    <!-- Header                                                           -->
+    <!-- ================================================================ -->
+    <header class="border-b border-bfd-border bg-bfd-card/60 backdrop-blur-sm sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                    <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">
+                        <span class="text-bfd-accent">GoBFD</span>
+                        <span class="font-normal text-bfd-text/80">Benchmark Comparison</span>
+                    </h1>
+                    <p class="text-bfd-muted text-sm mt-1">
+                        BFD protocol performance &mdash; Go vs C (FRR) vs C (BIRD) vs Python (aiobfd)
+                    </p>
+                </div>
+                <div class="text-right text-xs text-bfd-muted space-y-0.5 font-mono">
+                    <div x-text="'GoBFD ' + data.meta.gobfd_version"></div>
+                    <div x-text="data.meta.platform"></div>
+                    <div x-text="data.meta.generated"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
+
+        <!-- ============================================================ -->
+        <!-- Summary Cards                                                -->
+        <!-- ============================================================ -->
+        <section>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <template x-for="impl in data.implementations" :key="impl.id">
+                    <div class="bg-bfd-card rounded-xl p-4 border border-bfd-border hover:border-opacity-60 transition-colors"
+                         :style="'border-color: ' + impl.color + '33'">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="w-2.5 h-2.5 rounded-full" :style="'background:' + impl.color"></div>
+                            <span class="text-xs font-medium text-bfd-muted" x-text="impl.name"></span>
+                        </div>
+                        <div class="text-2xl font-bold font-mono" :style="'color:' + impl.color">
+                            <span x-text="impl.headline_value"></span>
+                            <span class="text-sm font-normal text-bfd-muted" x-text="impl.headline_unit"></span>
+                        </div>
+                        <div class="text-xs text-bfd-muted mt-1" x-text="impl.headline_label"></div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Tab Navigation                                               -->
+        <!-- ============================================================ -->
+        <section>
+            <div class="flex flex-wrap gap-1 bg-bfd-card rounded-lg p-1 border border-bfd-border">
+                <template x-for="tab in tabs" :key="tab.id">
+                    <button @click="activeTab = tab.id"
+                            :class="activeTab === tab.id
+                                ? 'bg-slate-700 text-white shadow-sm'
+                                : 'text-bfd-muted hover:text-bfd-text hover:bg-slate-700/50'"
+                            class="px-3 py-1.5 rounded-md text-sm font-medium transition-all">
+                        <span x-text="tab.label"></span>
+                    </button>
+                </template>
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Comparison Table (all implementations side-by-side)          -->
+        <!-- ============================================================ -->
+        <section x-show="activeTab === 'comparison'" class="tab-enter">
+            <h2 class="text-lg font-semibold mb-3">Side-by-Side Comparison</h2>
+            <div class="bg-bfd-card rounded-xl border border-bfd-border overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-bfd-border text-left">
+                                <th class="px-4 py-3 text-bfd-muted font-medium cursor-pointer select-none hover:text-bfd-text"
+                                    @click="toggleSort('name')">
+                                    Benchmark <span class="text-xs" x-text="sortArrow('name')"></span>
+                                </th>
+                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
+                                    style="color: #00d4ff" @click="toggleSort('go')">
+                                    Go <span class="text-xs" x-text="sortArrow('go')"></span>
+                                </th>
+                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
+                                    style="color: #4ade80" @click="toggleSort('frr')">
+                                    C-FRR <span class="text-xs" x-text="sortArrow('frr')"></span>
+                                </th>
+                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
+                                    style="color: #fbbf24" @click="toggleSort('bird')">
+                                    C-BIRD <span class="text-xs" x-text="sortArrow('bird')"></span>
+                                </th>
+                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
+                                    style="color: #f472b6" @click="toggleSort('aiobfd')">
+                                    Py-aiobfd <span class="text-xs" x-text="sortArrow('aiobfd')"></span>
+                                </th>
+                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
+                                    style="color: #a78bfa" @click="toggleSort('pystruct')">
+                                    Py-struct <span class="text-xs" x-text="sortArrow('pystruct')"></span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="row in sortedBenchmarks()" :key="row.name">
+                                <tr class="border-b border-bfd-border/30 hover:bg-slate-700/20 transition-colors">
+                                    <td class="px-4 py-2.5 font-mono text-xs font-medium">
+                                        <span x-text="row.name"></span>
+                                        <template x-if="row.annotation?.note">
+                                            <span class="has-tooltip">
+                                                <span class="annotation-badge">i</span>
+                                                <span class="tooltip-text" x-text="row.annotation.note"></span>
+                                            </span>
+                                        </template>
+                                        <template x-if="row.annotation?.go_only && !row.frr && !row.bird">
+                                            <span class="annotation-badge text-amber-400/80">Go-only</span>
+                                        </template>
+                                    </td>
+                                    <td class="px-4 py-2.5 text-right font-mono text-xs"
+                                        style="color: #00d4ff" x-text="fmtNs(row.go?.ns_op)"></td>
+                                    <template x-for="implKey in ['frr','bird','aiobfd','pystruct']" :key="implKey">
+                                        <td class="px-4 py-2.5 text-right font-mono text-xs"
+                                            :style="'color:' + implColors[implKey]">
+                                            <template x-if="row[implKey]?.ns_op != null">
+                                                <span x-text="fmtNs(row[implKey]?.ns_op)"></span>
+                                            </template>
+                                            <template x-if="row[implKey]?.ns_op == null">
+                                                <span class="has-tooltip text-slate-500">
+                                                    &mdash;
+                                                    <template x-if="row.annotation?.go_only">
+                                                        <span class="tooltip-text" x-text="row.annotation.go_only"></span>
+                                                    </template>
+                                                </span>
+                                            </template>
+                                        </td>
+                                    </template>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Bar Chart Visualization                                      -->
+        <!-- ============================================================ -->
+        <section x-show="activeTab === 'charts'" class="tab-enter">
+            <h2 class="text-lg font-semibold mb-1">Performance Visualization</h2>
+            <p class="text-xs text-bfd-muted mb-4">
+                Horizontal bars on logarithmic scale (log<sub>10</sub>). Shorter = faster.
+            </p>
+            <div class="space-y-4">
+                <template x-for="row in data.benchmarks" :key="row.name">
+                    <div class="bg-bfd-card rounded-xl border border-bfd-border p-4">
+                        <h3 class="text-sm font-medium text-bfd-text mb-3" x-text="row.name"></h3>
+                        <div class="space-y-1.5">
+                            <template x-for="impl in barImpls(row)" :key="impl.id">
+                                <div class="flex items-center gap-3">
+                                    <span class="w-16 text-xs text-bfd-muted text-right shrink-0 font-mono"
+                                          x-text="impl.label"></span>
+                                    <div class="flex-1 h-5 bg-slate-700/40 rounded-full overflow-hidden relative">
+                                        <div class="h-full rounded-full flex items-center px-2 transition-all duration-300"
+                                             :style="'width:' + logBarWidth(impl.ns, maxNsForRow(row)) + '%; background:' + impl.color + 'cc'">
+                                            <span class="text-[10px] font-mono text-white whitespace-nowrap ml-auto"
+                                                  x-text="fmtNs(impl.ns)"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Implementation Detail Tabs                                   -->
+        <!-- ============================================================ -->
+        <template x-for="impl in data.implementations" :key="impl.id">
+            <section x-show="activeTab === impl.id" class="tab-enter">
+                <h2 class="text-lg font-semibold mb-3" x-text="impl.name + ' — Full Results'"></h2>
+                <div class="bg-bfd-card rounded-xl border border-bfd-border overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b border-bfd-border text-left">
+                                    <th class="px-4 py-3 text-bfd-muted font-medium">Benchmark</th>
+                                    <th class="px-4 py-3 text-bfd-muted font-medium text-right">ns/op</th>
+                                    <th class="px-4 py-3 text-bfd-muted font-medium text-right"
+                                        x-show="impl.has_allocs">B/op</th>
+                                    <th class="px-4 py-3 text-bfd-muted font-medium text-right"
+                                        x-show="impl.has_allocs">allocs/op</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="row in implRows(impl.id)" :key="row.name">
+                                    <tr class="border-b border-bfd-border/30 hover:bg-slate-700/20 transition-colors">
+                                        <td class="px-4 py-2.5 font-mono text-xs" x-text="row.name"></td>
+                                        <td class="px-4 py-2.5 text-right font-mono text-xs"
+                                            :style="'color:' + impl.color"
+                                            x-text="fmtNs(row[impl.id]?.ns_op)"></td>
+                                        <td class="px-4 py-2.5 text-right font-mono text-xs"
+                                            x-show="impl.has_allocs"
+                                            :class="row[impl.id]?.b_op === 0 ? 'text-green-400' : 'text-amber-400'"
+                                            x-text="row[impl.id]?.b_op ?? '—'"></td>
+                                        <td class="px-4 py-2.5 text-right font-mono text-xs"
+                                            x-show="impl.has_allocs"
+                                            :class="row[impl.id]?.allocs_op === 0 ? 'text-green-400' : 'text-amber-400'"
+                                            x-text="row[impl.id]?.allocs_op ?? '—'"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div x-show="implRows(impl.id).length === 0"
+                         class="px-6 py-10 text-center text-bfd-muted">
+                        <p class="text-sm">No benchmark data available for this implementation.</p>
+                    </div>
+                </div>
+            </section>
+        </template>
+
+        <!-- ============================================================ -->
+        <!-- Feature Matrix                                               -->
+        <!-- ============================================================ -->
+        <section x-show="activeTab === 'features'" class="tab-enter">
+            <h2 class="text-lg font-semibold mb-3">Feature Matrix</h2>
+            <div class="bg-bfd-card rounded-xl border border-bfd-border overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-bfd-border">
+                                <th class="px-4 py-3 text-left text-bfd-muted font-medium">Feature / RFC</th>
+                                <th class="px-4 py-3 text-center font-medium" style="color:#00d4ff">GoBFD</th>
+                                <th class="px-4 py-3 text-center font-medium" style="color:#4ade80">FRR</th>
+                                <th class="px-4 py-3 text-center font-medium" style="color:#fbbf24">BIRD</th>
+                                <th class="px-4 py-3 text-center font-medium" style="color:#f472b6">aiobfd</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="feat in data.features" :key="feat.name">
+                                <tr class="border-b border-bfd-border/30 hover:bg-slate-700/20 transition-colors">
+                                    <td class="px-4 py-2.5 font-medium text-sm" x-text="feat.name"></td>
+                                    <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.go)"></td>
+                                    <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.frr)"></td>
+                                    <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.bird)"></td>
+                                    <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.aiobfd)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- Methodology Accordion                                        -->
+        <!-- ============================================================ -->
+        <section x-show="activeTab === 'methodology'" class="tab-enter space-y-2">
+            <h2 class="text-lg font-semibold mb-3">Methodology</h2>
+
+            <!-- Fair Disclosure -->
+            <div class="bg-bfd-card rounded-xl border border-bfd-border">
+                <button @click="expanded.disclosure = !expanded.disclosure"
+                        class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-700/30 transition-colors rounded-xl">
+                    <span class="font-medium">Fair Disclosure</span>
+                    <svg class="w-4 h-4 text-bfd-muted transition-transform duration-200"
+                         :class="expanded.disclosure && 'rotate-180'"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="expanded.disclosure" x-cloak
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     class="px-5 pb-5 text-sm text-bfd-muted space-y-3">
+                    <p><strong class="text-bfd-text">GoBFD</strong> benchmarks use
+                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">go test -bench -benchmem -count=6</code>
+                       with <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">benchstat</code> analysis.
+                       All results are median of 6 iterations on an isolated container.</p>
+                    <p><strong class="text-bfd-text">C benchmarks (FRR/BIRD)</strong> are standalone programs that
+                       replicate the exact code patterns (packet fill, FSM switch, jitter calculation) extracted
+                       from FRR bfdd and BIRD BFD source code. They are NOT the full FRR/BIRD programs &mdash;
+                       they isolate the hot-path operations for apples-to-apples comparison of code patterns.</p>
+                    <p><strong class="text-bfd-text">Python benchmarks (aiobfd)</strong> replicate the
+                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">bitstring.pack()</code> and
+                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">ConstBitStream.unpack()</code>
+                       patterns from aiobfd. The "struct" variant uses
+                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">struct.pack()/unpack()</code>
+                       as an optimized Python baseline.</p>
+                    <p class="text-xs italic">These benchmarks measure isolated operations, not end-to-end system performance.
+                       Real-world performance depends on OS scheduling, network stack, socket I/O, and many other factors.</p>
+                </div>
+            </div>
+
+            <!-- Environment -->
+            <div class="bg-bfd-card rounded-xl border border-bfd-border">
+                <button @click="expanded.environment = !expanded.environment"
+                        class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-700/30 transition-colors rounded-xl">
+                    <span class="font-medium">Test Environment</span>
+                    <svg class="w-4 h-4 text-bfd-muted transition-transform duration-200"
+                         :class="expanded.environment && 'rotate-180'"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="expanded.environment" x-cloak
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     class="px-5 pb-5">
+                    <table class="text-sm w-full max-w-md">
+                        <tbody class="text-bfd-muted">
+                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">Platform</td>
+                                <td class="font-mono text-xs" x-text="data.meta.platform"></td></tr>
+                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">Go</td>
+                                <td class="font-mono text-xs" x-text="data.meta.go_version"></td></tr>
+                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">GCC</td>
+                                <td class="font-mono text-xs" x-text="data.meta.gcc_version"></td></tr>
+                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">Python</td>
+                                <td class="font-mono text-xs" x-text="data.meta.python_version"></td></tr>
+                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">GOMAXPROCS</td>
+                                <td class="font-mono text-xs" x-text="data.meta.gomaxprocs"></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Architecture Notes -->
+            <div class="bg-bfd-card rounded-xl border border-bfd-border">
+                <button @click="expanded.architecture = !expanded.architecture"
+                        class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-700/30 transition-colors rounded-xl">
+                    <span class="font-medium">Architecture Notes: Why Some Comparisons Are Unfair</span>
+                    <svg class="w-4 h-4 text-bfd-muted transition-transform duration-200"
+                         :class="expanded.architecture && 'rotate-180'"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="expanded.architecture" x-cloak
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     class="px-5 pb-5 text-sm text-bfd-muted space-y-4">
+                    <div>
+                        <h4 class="text-bfd-text font-medium mb-1">Goroutine-per-Session Model</h4>
+                        <p>GoBFD runs each BFD session in an isolated goroutine with a dedicated event loop.
+                           Incoming packets are delivered via buffered channels. This provides <strong class="text-bfd-text">complete session isolation</strong>:
+                           one session cannot block another, and BFD timers are not affected by CPU load from other protocols.</p>
+                        <p class="mt-1">C implementations (FRR, BIRD) run all BFD sessions in a single thread with a shared event loop.
+                           While faster per-packet, this means a CPU-intensive operation (e.g., BGP convergence) can delay BFD timer processing,
+                           potentially causing false session drops (<a href="https://github.com/FRRouting/frr/issues/9078" class="text-bfd-accent hover:underline" target="_blank">FRR Issue #9078</a>).</p>
+                    </div>
+                    <div>
+                        <h4 class="text-bfd-text font-medium mb-1">FullRxPath: Different Operations</h4>
+                        <p><strong class="text-bfd-text">Go FullRxPath</strong> (~50ns) = unmarshal + RWMutex lock + map lookup + channel send to session goroutine.
+                           <strong class="text-bfd-text">C FullRxPath</strong> (~5ns) = unmarshal + inline FSM call (no IPC, no locking).
+                           The ~10x gap is the cost of goroutine isolation, not codec inefficiency.</p>
+                        <p class="mt-1"><strong class="text-bfd-text">FullRxPathCodec</strong> (Go-only) measures only unmarshal + FSM &mdash; the fair comparison with C.
+                           Expected ratio: ~1.5-2x, which is typical for Go vs C on compute-bound operations.</p>
+                    </div>
+                    <div>
+                        <h4 class="text-bfd-text font-medium mb-1">SessionDemux: Channel Send vs Hashmap Lookup</h4>
+                        <p><strong class="text-bfd-text">Go Demux</strong> (~47ns) = RWMutex + map lookup + channel send.
+                           <strong class="text-bfd-text">C Demux</strong> (~1.4ns) = hashmap lookup only.
+                           ~70% of Go's cost is the channel send &mdash; which is the mechanism that enables goroutine isolation.</p>
+                        <p class="mt-1"><strong class="text-bfd-text">SessionLookup1000</strong> (Go-only) measures only RWMutex + map lookup &mdash; the fair comparison
+                           with C's hashmap lookup.</p>
+                    </div>
+                    <div>
+                        <h4 class="text-bfd-text font-medium mb-1">SessionCreate: Different Abstractions</h4>
+                        <p><strong class="text-bfd-text">Go</strong> creates goroutines, channels, contexts, and loggers per session.
+                           <strong class="text-bfd-text">C</strong> allocates structs and inserts into a hashmap.
+                           These measure fundamentally different operations and should not be compared directly.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reproduce -->
+            <div class="bg-bfd-card rounded-xl border border-bfd-border">
+                <button @click="expanded.reproduce = !expanded.reproduce"
+                        class="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-700/30 transition-colors rounded-xl">
+                    <span class="font-medium">How to Reproduce</span>
+                    <svg class="w-4 h-4 text-bfd-muted transition-transform duration-200"
+                         :class="expanded.reproduce && 'rotate-180'"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="expanded.reproduce" x-cloak
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     class="px-5 pb-5">
+                    <pre class="bg-slate-900 rounded-lg p-4 overflow-x-auto text-xs font-mono text-green-400 leading-relaxed"># Run all cross-implementation benchmarks
+make benchmark-cross
+
+# Generate interactive HTML report
+make benchmark-report
+
+# Run only Go benchmarks
+make benchmark-all
+
+# Compare Go versions
+make benchmark-compare OLD=v0.4.0 NEW=v0.5.0</pre>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ================================================================ -->
+    <!-- Footer                                                           -->
+    <!-- ================================================================ -->
+    <footer class="border-t border-bfd-border mt-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-bfd-muted">
+                <div>
+                    Generated by <span class="text-bfd-accent font-medium">GoBFD</span> benchmark pipeline
+                </div>
+                <div class="font-mono" x-text="data.meta.generated"></div>
+            </div>
+        </div>
+    </footer>
+
+</div>
+
+<!-- ================================================================ -->
+<!-- Alpine.js Application                                            -->
+<!-- ================================================================ -->
+<script>
+function benchApp() {
+    return {
+        data: REPORT_DATA,
+        implColors: { frr: '#4ade80', bird: '#fbbf24', aiobfd: '#f472b6', pystruct: '#a78bfa' },
+
+        activeTab: 'comparison',
+        sortCol: 'name',
+        sortAsc: true,
+        expanded: { disclosure: false, environment: false, architecture: false, reproduce: false },
+
+        tabs: [
+            { id: 'comparison', label: 'Comparison' },
+            { id: 'charts', label: 'Charts' },
+            ...REPORT_DATA.implementations.map(i => ({ id: i.id, label: i.short_name })),
+            { id: 'features', label: 'Features' },
+            { id: 'methodology', label: 'Methodology' },
+        ],
+
+        /* ---- Sorting ---- */
+        toggleSort(col) {
+            if (this.sortCol === col) this.sortAsc = !this.sortAsc;
+            else { this.sortCol = col; this.sortAsc = true; }
+        },
+
+        sortArrow(col) {
+            if (col !== this.sortCol) return '';
+            return this.sortAsc ? '\u25B2' : '\u25BC';
+        },
+
+        sortedBenchmarks() {
+            const col = this.sortCol;
+            const asc = this.sortAsc;
+            return [...this.data.benchmarks].sort((a, b) => {
+                let va, vb;
+                if (col === 'name') {
+                    va = a.name; vb = b.name;
+                    return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+                }
+                va = a[col]?.ns_op ?? Infinity;
+                vb = b[col]?.ns_op ?? Infinity;
+                return asc ? va - vb : vb - va;
+            });
+        },
+
+        /* ---- Per-implementation rows ---- */
+        implRows(implId) {
+            return this.data.benchmarks.filter(b => b[implId] && b[implId].ns_op != null);
+        },
+
+        /* ---- Bar chart helpers ---- */
+        barImpls(row) {
+            const impls = [
+                { id: 'go', label: 'Go', color: '#00d4ff' },
+                { id: 'frr', label: 'C-FRR', color: '#4ade80' },
+                { id: 'bird', label: 'C-BIRD', color: '#fbbf24' },
+                { id: 'aiobfd', label: 'Py-aio', color: '#f472b6' },
+                { id: 'pystruct', label: 'Py-str', color: '#a78bfa' },
+            ];
+            return impls
+                .filter(i => row[i.id] && row[i.id].ns_op != null)
+                .map(i => ({ ...i, ns: row[i.id].ns_op }));
+        },
+
+        maxNsForRow(row) {
+            let max = 0;
+            for (const k of ['go', 'frr', 'bird', 'aiobfd', 'pystruct']) {
+                if (row[k]?.ns_op > max) max = row[k].ns_op;
+            }
+            return max || 1;
+        },
+
+        logBarWidth(ns, maxNs) {
+            if (!ns || ns <= 0) return 2;
+            if (maxNs <= 0) return 50;
+            const logVal = Math.log10(Math.max(ns, 0.1));
+            const logMax = Math.log10(Math.max(maxNs, 0.1));
+            const logMin = Math.log10(0.1);
+            const range = logMax - logMin;
+            if (range <= 0) return 50;
+            return Math.max(8, Math.min(100, ((logVal - logMin) / range) * 100));
+        },
+
+        /* ---- Formatting ---- */
+        fmtNs(val) {
+            if (val == null) return '\u2014';
+            if (val >= 1e6) return (val / 1e6).toFixed(1) + ' ms';
+            if (val >= 1e3) return (val / 1e3).toFixed(1) + ' \u00B5s';
+            if (val < 1) return val.toFixed(3) + ' ns';
+            if (val < 10) return val.toFixed(2) + ' ns';
+            if (val < 100) return val.toFixed(1) + ' ns';
+            return val.toFixed(0) + ' ns';
+        },
+
+        featureIcon(val) {
+            if (val === true) return '<span class="text-green-400">&#10003;</span>';
+            if (val === false) return '<span class="text-red-400">&#10007;</span>';
+            if (val === 'partial') return '<span class="text-amber-400">~</span>';
+            if (val === 'n/a') return '<span class="text-slate-500">&mdash;</span>';
+            return '<span class="text-bfd-muted">' + val + '</span>';
+        },
+    };
+}
+</script>
+
+</body>
+</html>

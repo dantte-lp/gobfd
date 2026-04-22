@@ -26,15 +26,17 @@ type demuxCall struct {
 	MyDiscr   uint32
 	YourDiscr uint32
 	SrcAddr   netip.Addr
+	WireLen   int
 }
 
-func (m *mockDemuxer) DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, _ []byte) error {
+func (m *mockDemuxer) DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, demuxCall{
 		MyDiscr:   pkt.MyDiscriminator,
 		YourDiscr: pkt.YourDiscriminator,
 		SrcAddr:   meta.SrcAddr,
+		WireLen:   len(wire),
 	})
 	return m.err
 }
@@ -156,6 +158,9 @@ func TestReceiver_RunDemuxesValidPacket(t *testing.T) {
 	}
 	if dmux.calls[0].SrcAddr != netip.MustParseAddr("10.0.0.2") {
 		t.Errorf("SrcAddr = %s, want 10.0.0.2", dmux.calls[0].SrcAddr)
+	}
+	if dmux.calls[0].WireLen != 0 {
+		t.Errorf("WireLen = %d, want 0 for unauthenticated packet", dmux.calls[0].WireLen)
 	}
 }
 

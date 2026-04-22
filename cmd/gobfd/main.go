@@ -1155,16 +1155,29 @@ func startGoBGPHandler(
 		return nil, nil //nolint:nilnil // Nil client is valid when GoBGP is disabled; caller handles nil.
 	}
 
+	if config.GoBGPPlaintextNonLoopback(cfg) {
+		logger.Warn("gobgp plaintext grpc configured for non-loopback address",
+			slog.String("addr", cfg.Addr),
+			slog.String("mitigation", "enable gobgp.tls.enabled for remote GoBGP API endpoints"),
+		)
+	}
+
 	client, err := gobgp.NewGRPCClient(gobgp.GRPCClientConfig{
 		Addr: cfg.Addr,
+		TLS: gobgp.GRPCClientTLSConfig{
+			Enabled:    cfg.TLS.Enabled,
+			CAFile:     cfg.TLS.CAFile,
+			ServerName: cfg.TLS.ServerName,
+		},
 	}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create gobgp client: %w", err)
 	}
 
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
-		Client:   client,
-		Strategy: gobgp.Strategy(cfg.Strategy),
+		Client:        client,
+		Strategy:      gobgp.Strategy(cfg.Strategy),
+		ActionTimeout: cfg.ActionTimeout,
 		Dampening: gobgp.DampeningConfig{
 			Enabled:           cfg.Dampening.Enabled,
 			SuppressThreshold: cfg.Dampening.SuppressThreshold,
@@ -1180,12 +1193,14 @@ func startGoBGPHandler(
 	}
 
 	g.Go(func() error {
-		return handler.Run(ctx, mgr.StateChanges())
+		return handler.Run(ctx, mgr.SubscribeStateChanges(ctx))
 	})
 
 	logger.Info("gobgp integration enabled",
 		slog.String("addr", cfg.Addr),
 		slog.String("strategy", cfg.Strategy),
+		slog.Duration("action_timeout", cfg.ActionTimeout),
+		slog.Bool("tls", cfg.TLS.Enabled),
 		slog.Bool("dampening", cfg.Dampening.Enabled),
 	)
 

@@ -1,0 +1,13 @@
+# bench/Containerfile.python — Run BFD Python benchmarks (aiobfd + struct style).
+#
+# Uses Python 3.12 slim with bitstring<4.0 (aiobfd requirement).
+# Results are written to /results/ (mount a volume).
+
+FROM docker.io/python:3.12-slim-bookworm
+
+RUN pip install --no-cache-dir 'bitstring<4.0'
+
+WORKDIR /bench
+COPY python/ ./
+
+CMD ["sh", "-c", "python3 bench_aiobfd.py > /results/bench-python-aiobfd.txt && python3 bench_struct.py > /results/bench-python-struct.txt && echo 'Python benchmarks complete'"]

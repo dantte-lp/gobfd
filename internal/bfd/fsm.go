@@ -163,6 +163,36 @@ type FSMResult struct {
 	Changed bool
 }
 
+// fsmEntry is a single cell in the array-based FSM lookup table.
+// The valid field distinguishes defined transitions from empty cells.
+type fsmEntry struct {
+	newState State
+	actions  []Action
+	valid    bool
+}
+
+const (
+	numStates = 4 // AdminDown(0), Down(1), Init(2), Up(3)
+	numEvents = 7 // RecvAdminDown(0) .. AdminUp(6)
+)
+
+// fsmArray is the pre-computed array-based FSM lookup table.
+// Built from fsmTable at init() for O(1) lookup without hashing.
+//
+//nolint:gochecknoglobals // FSM lookup array is intentionally package-level.
+var fsmArray [numStates][numEvents]fsmEntry
+
+//nolint:gochecknoinits // One-time initialization of FSM lookup array from map.
+func init() {
+	for key, tr := range fsmTable {
+		fsmArray[key.state][key.event] = fsmEntry{
+			newState: tr.newState,
+			actions:  tr.actions,
+			valid:    true,
+		}
+	}
+}
+
 // fsmTable is the complete BFD FSM transition table.
 //
 // Derived from RFC 5880 Section 6.8.6 pseudocode and the state diagram
@@ -350,29 +380,36 @@ var fsmTable = map[stateEvent]transition{
 // transition table, the event is silently ignored and FSMResult.Changed is
 // false with an empty action list.
 //
+// Uses a pre-computed array lookup (O(1), no hashing) instead of a map
+// for hot-path performance. The fsmTable map remains as the authoritative
+// source of truth for readability and testing.
+//
 // Reference: RFC 5880 Section 6.8.6 (reception FSM transitions),
 // Section 6.8.4 (timer expiration), Section 6.8.16 (administrative control).
 func ApplyEvent(currentState State, event Event) FSMResult {
-	key := stateEvent{state: currentState, event: event}
+	if uint8(currentState) >= numStates || uint8(event) >= numEvents {
+		return FSMResult{
+			OldState: currentState,
+			NewState: currentState,
+		}
+	}
 
-	tr, ok := fsmTable[key]
-	if !ok {
+	entry := &fsmArray[currentState][event]
+	if !entry.valid {
 		// Event is not applicable in this state. Per RFC 5880 Section 6.8.6,
 		// AdminDown discards all received packets; Down ignores recv Up and
 		// timer expiration. Return unchanged.
 		return FSMResult{
 			OldState: currentState,
 			NewState: currentState,
-			Actions:  nil,
-			Changed:  false,
 		}
 	}
 
 	return FSMResult{
 		OldState: currentState,
-		NewState: tr.newState,
-		Actions:  tr.actions,
-		Changed:  currentState != tr.newState,
+		NewState: entry.newState,
+		Actions:  entry.actions,
+		Changed:  currentState != entry.newState,
 	}
 }
 

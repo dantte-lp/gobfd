@@ -175,6 +175,16 @@ func (r *OverlayReceiver) Run(ctx context.Context) error {
 				r.logger.Info("overlay receiver stopped")
 				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
 			}
+			if errors.Is(err, ErrOverlayRecvClosed) {
+				r.logger.Info("overlay receiver stopped")
+				return nil
+			}
+			if isExpectedOverlayDrop(err) {
+				r.logger.Debug("overlay packet dropped",
+					slog.String("error", err.Error()),
+				)
+				continue
+			}
 			r.logger.Warn("overlay recv error",
 				slog.String("error", err.Error()),
 			)
@@ -213,9 +223,16 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 		TTL:     255, // Inner TTL=255 per RFC 5881 Section 5
 	}
 
-	// Step 4: Copy raw wire bytes for auth verification.
-	wire := make([]byte, len(bfdPayload))
-	copy(wire, bfdPayload)
+	// Step 4: Copy raw wire bytes only when auth verification needs stable
+	// backing storage for authentication slices.
+	var wire []byte
+	if pkt.Auth != nil {
+		wire = make([]byte, len(bfdPayload))
+		copy(wire, bfdPayload)
+		if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
+			return fmt.Errorf("overlay reparse auth packet: %w", err)
+		}
+	}
 
 	// Step 5: Route to session via manager.
 	if err := r.mgr.DemuxWithWire(&pkt, meta, wire); err != nil {
@@ -227,4 +244,28 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func isExpectedOverlayDrop(err error) bool {
+	expected := []error{
+		ErrOverlayVNIMismatch,
+		ErrOverlayInvalidAddr,
+		ErrInnerPacketTooShort,
+		ErrInnerBadEtherType,
+		ErrInnerBadIPVersion,
+		ErrInnerBadProtocol,
+		ErrVXLANHeaderTooShort,
+		ErrVXLANInvalidFlags,
+		ErrGeneveHeaderTooShort,
+		ErrGeneveInvalidVersion,
+		ErrGeneveOBitNotSet,
+		ErrGeneveCBitSet,
+		ErrGeneveUnexpectedProto,
+	}
+	for _, target := range expected {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }

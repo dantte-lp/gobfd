@@ -2,7 +2,7 @@
 
 ## Overview
 
-GoBFD maintains 18 micro-benchmarks covering every hot path in the BFD protocol implementation. All benchmarks enforce **zero heap allocations** on the critical packet processing paths, ensuring predictable sub-millisecond latency for production BFD deployments.
+GoBFD maintains 28 micro-benchmarks covering every hot path in the BFD protocol implementation. All benchmarks enforce **zero heap allocations** on the critical packet processing paths, ensuring predictable sub-millisecond latency for production BFD deployments.
 
 Benchmarks live in `internal/bfd/bench_test.go` and run automatically in CI via `benchstat` to catch performance regressions (>10% threshold).
 
@@ -69,6 +69,30 @@ Sub-nanosecond detection time and TX interval calculations confirm pure arithmet
 
 The full receive path processes ~16M packets/sec with zero allocations. This includes wire unmarshal, two-tier discriminator demultiplexing, and channel delivery to the session goroutine.
 
+### Overlay Codec
+
+| Benchmark | ns/op | B/op | allocs/op | Description |
+|-----------|------:|-----:|----------:|-------------|
+| `BuildInnerPacket` | ~120 | 0 | 0 | Assemble Ethernet+IP+UDP inner packet for overlay encapsulation |
+| `StripInnerPacket` | ~25 | 0 | 0 | Parse inner packet headers and extract BFD payload |
+| `VXLANHeaderMarshal` | ~8 | 0 | 0 | Serialize 8-byte VXLAN header (RFC 8971) |
+| `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Parse 8-byte VXLAN header from wire format |
+| `GeneveHeaderMarshal` | ~10 | 0 | 0 | Serialize 8-byte Geneve header (RFC 9521) |
+| `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Parse 8-byte Geneve header from wire format |
+
+All overlay codec operations achieve zero allocations, critical for VXLAN/Geneve BFD hot paths where packets are assembled and parsed at protocol timer frequency.
+
+### Session Scaling
+
+| Benchmark | ns/op | B/op | allocs/op | Description |
+|-----------|------:|-----:|----------:|-------------|
+| `ManagerCreate100Sessions` | ~— | — | — | Create + destroy lifecycle for 100 BFD sessions |
+| `ManagerCreate1000Sessions` | ~— | — | — | Create + destroy lifecycle for 1000 BFD sessions |
+| `ManagerDemux1000Sessions` | ~60 | 0 | 0 | Demux by discriminator across 1000 active sessions |
+| `ManagerReconcile` | ~— | — | — | Reconcile diff: add 10, remove 5 on 100-session baseline |
+
+The `Demux1000Sessions` benchmark confirms O(1) demultiplexing: ns/op is equivalent to `FullRecvPath` regardless of session count. This is achieved via Swiss table map lookups by discriminator.
+
 ## Zero Allocation Policy
 
 All hot paths (packet codec, FSM transitions, timer operations, session event loop) MUST maintain 0 allocs/op. This is enforced by:
@@ -102,7 +126,7 @@ No code changes were required to adopt Swiss tables — the runtime switch is tr
 
 ## Обзор
 
-GoBFD содержит 18 микробенчмарков, покрывающих все горячие пути реализации протокола BFD. Все бенчмарки обеспечивают **ноль аллокаций в куче** на критических путях обработки пакетов, гарантируя предсказуемую задержку менее миллисекунды для промышленных развёртываний BFD.
+GoBFD содержит 28 микробенчмарков, покрывающих все горячие пути реализации протокола BFD. Все бенчмарки обеспечивают **ноль аллокаций в куче** на критических путях обработки пакетов, гарантируя предсказуемую задержку менее миллисекунды для промышленных развёртываний BFD.
 
 Бенчмарки расположены в `internal/bfd/bench_test.go` и автоматически запускаются в CI через `benchstat` для обнаружения регрессий производительности (порог >10%).
 
@@ -162,6 +186,30 @@ make profile            # Генерация CPU-профиля pprof
 | `FullTxPath` | ~5.8 | 0 | 0 | Сборка пакета + marshal (полный путь TX) |
 
 Полный путь приёма обрабатывает ~16M пакетов/сек с нулём аллокаций.
+
+### Overlay-кодеки
+
+| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
+|----------|------:|-----:|----------:|----------|
+| `BuildInnerPacket` | ~120 | 0 | 0 | Сборка Ethernet+IP+UDP внутреннего пакета для overlay-инкапсуляции |
+| `StripInnerPacket` | ~25 | 0 | 0 | Разбор заголовков внутреннего пакета и извлечение BFD-полезной нагрузки |
+| `VXLANHeaderMarshal` | ~8 | 0 | 0 | Сериализация 8-байтного заголовка VXLAN (RFC 8971) |
+| `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Разбор 8-байтного заголовка VXLAN |
+| `GeneveHeaderMarshal` | ~10 | 0 | 0 | Сериализация 8-байтного заголовка Geneve (RFC 9521) |
+| `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Разбор 8-байтного заголовка Geneve |
+
+Все операции overlay-кодеков достигают нулевых аллокаций, что критично для горячих путей VXLAN/Geneve BFD.
+
+### Масштабирование сессий
+
+| Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
+|----------|------:|-----:|----------:|----------|
+| `ManagerCreate100Sessions` | ~— | — | — | Цикл создания + уничтожения 100 BFD-сессий |
+| `ManagerCreate1000Sessions` | ~— | — | — | Цикл создания + уничтожения 1000 BFD-сессий |
+| `ManagerDemux1000Sessions` | ~60 | 0 | 0 | Демультиплексирование по дискриминатору среди 1000 активных сессий |
+| `ManagerReconcile` | ~— | — | — | Реконсиляция: добавить 10, удалить 5 на базе 100 сессий |
+
+Бенчмарк `Demux1000Sessions` подтверждает O(1) демультиплексирование: нс/оп эквивалентно `FullRecvPath` независимо от количества сессий. Это достигается через Swiss table map-поиск по дискриминатору.
 
 ## Политика нулевых аллокаций
 

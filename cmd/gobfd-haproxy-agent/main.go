@@ -21,8 +21,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
@@ -30,6 +32,11 @@ import (
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
+)
+
+const (
+	agentCheckMaxConcurrent = 64
+	agentCheckWriteTimeout  = 100 * time.Millisecond
 )
 
 func main() {
@@ -194,6 +201,7 @@ func serveAgentCheck(
 		}
 	}()
 
+	sem := make(chan struct{}, agentCheckMaxConcurrent)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -204,7 +212,21 @@ func serveAgentCheck(
 			continue
 		}
 
-		handleAgentCheck(conn, peer, states, logger)
+		select {
+		case sem <- struct{}{}:
+			go func() {
+				defer func() { <-sem }()
+				handleAgentCheck(conn, peer, states, logger)
+			}()
+		default:
+			logger.Warn("agent-check concurrency limit reached",
+				slog.String("peer", peer),
+				slog.String("remote", conn.RemoteAddr().String()),
+			)
+			if cErr := conn.Close(); cErr != nil {
+				logger.Debug("conn close error", slog.String("error", cErr.Error()))
+			}
+		}
 	}
 }
 
@@ -215,6 +237,13 @@ func handleAgentCheck(conn net.Conn, peer string, states *stateMap, logger *slog
 	response := "down\n"
 	if state == bfdv1.SessionState_SESSION_STATE_UP {
 		response = "up ready\n"
+	}
+
+	if dErr := conn.SetWriteDeadline(time.Now().Add(agentCheckWriteTimeout)); dErr != nil {
+		logger.Debug("set write deadline error",
+			slog.String("peer", peer),
+			slog.String("error", dErr.Error()),
+		)
 	}
 
 	if _, wErr := conn.Write([]byte(response)); wErr != nil {
@@ -246,7 +275,21 @@ type agentConfig struct {
 }
 
 func loadConfig(path string) (*agentConfig, error) {
-	data, err := os.ReadFile(path)
+	// Go 1.26 os.Root: sandboxed file access to prevent path traversal.
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open config root %s: %w", dir, err)
+	}
+	defer root.Close()
+
+	f, err := root.Open(base)
+	if err != nil {
+		return nil, fmt.Errorf("open config file %s: %w", base, err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}

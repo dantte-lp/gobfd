@@ -107,6 +107,12 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 
 Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
+## Performance
+
+GoBFD processes **~16M packets/sec** on the full receive path with **zero heap allocations**. O(1) session demultiplexing via Swiss table maps scales linearly -- demux latency is ~60 ns/op whether managing 1 or 1000 concurrent sessions.
+
+28 micro-benchmarks enforce the zero-allocation policy across all hot paths: packet codec, FSM transitions, timer operations, overlay encapsulation (VXLAN/Geneve), and session management. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
+
 ## Key Features
 
 - Table-driven FSM matching RFC 5880 Section 6.8.6 (no if-else chains)

@@ -583,37 +583,13 @@ func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 			unmarshalErrPrefix, len(buf), MinPacketSizeNoAuth, ErrPacketTooShort)
 	}
 
-	// Decode fixed header fields (bytes 0-3).
-	decodeHeader(buf, pkt)
+	// BCE (Bounds Check Elimination) hint: after the length check above,
+	// the compiler knows buf has at least 24 bytes. This single access
+	// proves buf[0:24] is in bounds, eliminating subsequent per-field checks.
+	_ = buf[23]
 
-	// RFC 5880 Section 6.8.6 steps 1-7: validate decoded fields.
-	if err := validateHeader(buf, pkt); err != nil {
-		return err
-	}
+	// --- Decode header (bytes 0-3) ---
 
-	// Bytes 4-23: discriminators and interval fields.
-	decodeBody(buf, pkt)
-
-	// RFC 5880 Section 6.8.6 steps 6-7: validate discriminators.
-	if err := validateDiscriminators(pkt); err != nil {
-		return err
-	}
-
-	// Decode optional Authentication Section if the A bit is set.
-	pkt.Auth = nil
-	if pkt.AuthPresent {
-		auth := &AuthSection{}
-		if err := unmarshalAuthSection(buf[HeaderSize:pkt.Length], auth); err != nil {
-			return fmt.Errorf("%s: %w", unmarshalErrPrefix, err)
-		}
-		pkt.Auth = auth
-	}
-
-	return nil
-}
-
-// decodeHeader extracts the fixed 4-byte header fields from buf into pkt.
-func decodeHeader(buf []byte, pkt *ControlPacket) {
 	// Byte 0: Version(3 bits high) | Diag(5 bits low).
 	pkt.Version = buf[0] >> 5
 	pkt.Diag = Diag(buf[0] & 0x1F)
@@ -631,10 +607,9 @@ func decodeHeader(buf []byte, pkt *ControlPacket) {
 	// Bytes 2-3: Detect Mult and Length.
 	pkt.DetectMult = buf[2]
 	pkt.Length = buf[3]
-}
 
-// validateHeader checks RFC 5880 Section 6.8.6 steps 1-5.
-func validateHeader(buf []byte, pkt *ControlPacket) error {
+	// --- Validate header (RFC 5880 Section 6.8.6 steps 1-5) ---
+
 	// Step 1: version must be 1.
 	if pkt.Version != Version {
 		return fmt.Errorf("%s: version %d: %w",
@@ -667,20 +642,16 @@ func validateHeader(buf []byte, pkt *ControlPacket) error {
 		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrMultipointSet)
 	}
 
-	return nil
-}
+	// --- Decode body (bytes 4-23) ---
 
-// decodeBody extracts the 20-byte body (discriminators + intervals) from buf.
-func decodeBody(buf []byte, pkt *ControlPacket) {
 	pkt.MyDiscriminator = binary.BigEndian.Uint32(buf[4:8])
 	pkt.YourDiscriminator = binary.BigEndian.Uint32(buf[8:12])
 	pkt.DesiredMinTxInterval = binary.BigEndian.Uint32(buf[12:16])
 	pkt.RequiredMinRxInterval = binary.BigEndian.Uint32(buf[16:20])
 	pkt.RequiredMinEchoRxInterval = binary.BigEndian.Uint32(buf[20:24])
-}
 
-// validateDiscriminators checks RFC 5880 Section 6.8.6 steps 6-7.
-func validateDiscriminators(pkt *ControlPacket) error {
+	// --- Validate discriminators (RFC 5880 Section 6.8.6 steps 6-7) ---
+
 	// Step 6: my discriminator must be nonzero.
 	if pkt.MyDiscriminator == 0 {
 		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrZeroMyDiscriminator)
@@ -690,6 +661,16 @@ func validateDiscriminators(pkt *ControlPacket) error {
 	if pkt.YourDiscriminator == 0 && pkt.State != StateDown && pkt.State != StateAdminDown {
 		return fmt.Errorf("%s: state %s with zero your discriminator: %w",
 			unmarshalErrPrefix, pkt.State, ErrZeroYourDiscriminator)
+	}
+
+	// Decode optional Authentication Section if the A bit is set.
+	pkt.Auth = nil
+	if pkt.AuthPresent {
+		auth := &AuthSection{}
+		if err := unmarshalAuthSection(buf[HeaderSize:pkt.Length], auth); err != nil {
+			return fmt.Errorf("%s: %w", unmarshalErrPrefix, err)
+		}
+		pkt.Auth = auth
 	}
 
 	return nil

@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
     container:
-      image: golang:1.26-trixie
+      image: golang:1.26.2-trixie
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -39,8 +39,34 @@ jobs:
           go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-haproxy-agent
           go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-exabgp-bridge
 
+      - name: Install test tools
+        run: |
+          go install gotest.tools/gotestsum@latest
+          pip install --break-system-packages --no-cache-dir junit2html 2>/dev/null || true
+
       - name: Test with coverage
-        run: go test -buildvcs=false ./... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+        run: |
+          gotestsum \
+            --junitfile unit-report.xml \
+            --jsonfile unit-report.json \
+            --format short-verbose \
+            -- -buildvcs=false ./... -race -count=1 \
+               -coverprofile=coverage.out -covermode=atomic
+
+      - name: Generate HTML test report
+        if: always()
+        run: junit2html unit-report.xml unit-report.html 2>/dev/null || true
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6db9a6b7e75b195db0cb23deacb33 # v4
+        with:
+          name: test-reports
+          path: |
+            unit-report.xml
+            unit-report.json
+            unit-report.html
+          retention-days: 30
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
@@ -55,7 +81,7 @@ jobs:
     permissions:
       contents: read
     container:
-      image: golang:1.26-trixie
+      image: golang:1.26.2-trixie
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -67,7 +93,7 @@ jobs:
 
       - name: Lint
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
           golangci-lint run ./...
 
   vulnerability-check:
@@ -75,7 +101,7 @@ jobs:
     permissions:
       contents: read
     container:
-      image: golang:1.26-trixie
+      image: golang:1.26.2-trixie
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -85,15 +111,8 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Vulnerability Check (govulncheck)
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
-
-      - name: Vulnerability Check (osv-scanner)
-        run: |
-          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
-          osv-scanner scan -r .
+      - name: Vulnerability Audit
+        run: go run ./scripts/vuln-audit.go
 
   buf:
     runs-on: ubuntu-latest
@@ -127,7 +146,7 @@ jobs:
       contents: read
       pull-requests: write
     container:
-      image: golang:1.26-trixie
+      image: golang:1.26.2-trixie
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -143,13 +162,13 @@ jobs:
         run: go install golang.org/x/perf/cmd/benchstat@latest
 
       - name: Run benchmarks (PR)
-        run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./internal/bfd/ > new.txt
+        run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > new.txt
 
       - name: Checkout base branch
-        run: git checkout ${{ github.event.pull_request.base.ref }} -- .
+        run: git checkout origin/${{ github.event.pull_request.base.ref }} -- .
 
       - name: Run benchmarks (base)
-        run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./internal/bfd/ > old.txt || true
+        run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > old.txt || true
 
       - name: Restore PR code
         run: git checkout ${{ github.sha }} -- .
@@ -162,12 +181,68 @@ jobs:
           echo '```' >> bench-report.md
           cat bench-report.md
 
+      - name: Generate HTML comparison
+        run: |
+          {
+            echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Benchmark Comparison</title>'
+            echo '<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}'
+            echo 'pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;line-height:1.6;border:1px solid #0f3460}</style>'
+            echo '</head><body><h1 style="color:#00d4ff">Benchmark Comparison</h1><pre>'
+            benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
+            echo '</pre></body></html>'
+          } > bench-comparison.html
+
       - name: Check for regressions (>10%)
         run: |
           benchstat -format csv old.txt new.txt > bench-csv.txt 2>/dev/null || true
           if grep -qE '\+[1-9][0-9]\.' bench-csv.txt 2>/dev/null; then
             echo "::warning::Benchmark regression detected (>10%). Review bench-report.md."
           fi
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6db9a6b7e75b195db0cb23deacb33 # v4
+        with:
+          name: benchmark-reports
+          path: |
+            old.txt
+            new.txt
+            bench-report.md
+            bench-comparison.html
+          retention-days: 30
+
+      - name: Post benchmark comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- benchmark-report -->';
+            const body = marker + '\n' + fs.readFileSync('bench-report.md', 'utf8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
 
   trivy:
     runs-on: ubuntu-latest
