@@ -197,6 +197,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.43.0
+
+      - name: Add Syft to PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/syft-bin"
+          ln -sf "${{ steps.syft.outputs.cmd }}" "$RUNNER_TEMP/syft-bin/syft"
+          echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7
         with:
