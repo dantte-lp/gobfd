@@ -38,3 +38,8 @@ ignore:
   - "docs/**"
   - "bench/**"
   - "scripts/**"
+  # Command entrypoints are orchestration code; package logic remains covered in internal/* tests.
+  - "cmd/gobfd/main.go"
+  - "cmd/gobfd-haproxy-agent/main.go"
+  # Linux raw socket option setup is validated by build/lint/security scans and integration paths.
+  - "internal/netio/rawsock_linux.go"
