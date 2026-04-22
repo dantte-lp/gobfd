@@ -164,6 +164,9 @@ jobs:
       - name: Run benchmarks (PR)
         run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > new.txt
 
+      - name: Trust workspace for benchmark git checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Checkout base branch
         run: git checkout origin/${{ github.event.pull_request.base.ref }} -- .
 
