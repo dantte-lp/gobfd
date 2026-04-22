@@ -1,13 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
+	"runtime/trace"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -849,6 +857,106 @@ func TestNewLoggerWithLevel(t *testing.T) {
 			t.Error("expected Debug to be enabled after level change")
 		}
 	})
+}
+
+// =========================================================================
+// 4.8 — daemon utility paths
+// =========================================================================
+
+func TestNotifyReadyAndStoppingWithoutSystemdSocket(t *testing.T) {
+	t.Setenv("NOTIFY_SOCKET", "")
+
+	logger := slog.New(slog.DiscardHandler)
+	notifyReady(logger)
+	notifyStopping(logger)
+}
+
+func TestRunWatchdogWithoutSystemdEnvironment(t *testing.T) {
+	t.Setenv("WATCHDOG_USEC", "")
+	t.Setenv("WATCHDOG_PID", "")
+
+	if err := runWatchdog(context.Background(), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("runWatchdog() error = %v", err)
+	}
+}
+
+func TestRunWatchdogIgnoresInvalidEnvironment(t *testing.T) {
+	t.Setenv("WATCHDOG_USEC", "not-a-duration")
+	t.Setenv("WATCHDOG_PID", "")
+
+	if err := runWatchdog(context.Background(), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("runWatchdog() error = %v", err)
+	}
+}
+
+func TestNewMetricsServerServesMetrics(t *testing.T) {
+	t.Parallel()
+
+	srv := newMetricsServer(
+		config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
+		prometheus.NewRegistry(),
+		nil,
+	)
+	if srv.Addr != "127.0.0.1:0" {
+		t.Fatalf("Addr = %q, want 127.0.0.1:0", srv.Addr)
+	}
+	if srv.ReadHeaderTimeout != 10*time.Second {
+		t.Fatalf("ReadHeaderTimeout = %v, want 10s", srv.ReadHeaderTimeout)
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /metrics status = %d, want 200", rec.Code)
+	}
+}
+
+func TestNewMetricsServerRegistersFlightRecorderEndpoint(t *testing.T) {
+	fr := trace.NewFlightRecorder(trace.FlightRecorderConfig{
+		MinAge:   flightRecorderMinAge,
+		MaxBytes: flightRecorderMaxBytes,
+	})
+	if err := fr.Start(); err != nil {
+		t.Skipf("flight recorder unavailable: %v", err)
+	}
+	defer fr.Stop()
+
+	srv := newMetricsServer(
+		config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
+		prometheus.NewRegistry(),
+		fr,
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/flightrecorder", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("GET /debug/flightrecorder status = %d, endpoint not registered", rec.Code)
+	}
+}
+
+func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	_, err := startGoBGPHandler(
+		context.Background(),
+		new(errgroup.Group),
+		config.GoBGPConfig{Enabled: true, Addr: ""},
+		nil,
+		logger,
+	)
+	if err == nil {
+		t.Fatal("startGoBGPHandler() expected error for empty GoBGP address")
+	}
+
+	got := logs.String()
+	if !strings.Contains(got, "gobgp plaintext grpc configured for non-loopback address") {
+		t.Fatalf("log output missing plaintext warning: %s", got)
+	}
 }
 
 // =========================================================================
