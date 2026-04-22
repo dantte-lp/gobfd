@@ -416,8 +416,12 @@ var (
 	ErrAuthSectionTruncated = errors.New("auth section truncated")
 )
 
-// unmarshalErrPrefix is the common error prefix for packet decoding failures.
-const unmarshalErrPrefix = "unmarshal control packet"
+const (
+	// unmarshalErrPrefix is the common error prefix for packet decoding failures.
+	unmarshalErrPrefix = "unmarshal control packet"
+
+	unmarshalWrapErrFormat = "%s: %w"
+)
 
 // -------------------------------------------------------------------------
 // MarshalControlPacket — RFC 5880 Section 4.1
@@ -634,12 +638,12 @@ func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 
 	// Step 4: detect multiplier != 0.
 	if pkt.DetectMult == 0 {
-		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrZeroDetectMult)
+		return fmt.Errorf(unmarshalWrapErrFormat, unmarshalErrPrefix, ErrZeroDetectMult)
 	}
 
 	// Step 5: multipoint bit must be zero.
 	if pkt.Multipoint {
-		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrMultipointSet)
+		return fmt.Errorf(unmarshalWrapErrFormat, unmarshalErrPrefix, ErrMultipointSet)
 	}
 
 	// --- Decode body (bytes 4-23) ---
@@ -654,7 +658,7 @@ func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 
 	// Step 6: my discriminator must be nonzero.
 	if pkt.MyDiscriminator == 0 {
-		return fmt.Errorf("%s: %w", unmarshalErrPrefix, ErrZeroMyDiscriminator)
+		return fmt.Errorf(unmarshalWrapErrFormat, unmarshalErrPrefix, ErrZeroMyDiscriminator)
 	}
 
 	// Step 7b: your discriminator zero only valid in Down or AdminDown.
@@ -668,7 +672,7 @@ func UnmarshalControlPacket(buf []byte, pkt *ControlPacket) error {
 	if pkt.AuthPresent {
 		auth := &AuthSection{}
 		if err := unmarshalAuthSection(buf[HeaderSize:pkt.Length], auth); err != nil {
-			return fmt.Errorf("%s: %w", unmarshalErrPrefix, err)
+			return fmt.Errorf(unmarshalWrapErrFormat, unmarshalErrPrefix, err)
 		}
 		pkt.Auth = auth
 	}

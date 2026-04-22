@@ -26,6 +26,8 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
+const overlayReceiverStoppedMsg = "overlay receiver stopped"
+
 // -------------------------------------------------------------------------
 // OverlayConn — tunnel connection interface
 // -------------------------------------------------------------------------
@@ -166,17 +168,17 @@ func (r *OverlayReceiver) Run(ctx context.Context) error {
 
 	for {
 		if ctx.Err() != nil {
-			r.logger.Info("overlay receiver stopped")
+			r.logger.Info(overlayReceiverStoppedMsg)
 			return nil //nolint:nilerr // Context cancellation is expected; return nil to signal clean shutdown.
 		}
 
 		if err := r.recvOne(ctx); err != nil {
 			if ctx.Err() != nil {
-				r.logger.Info("overlay receiver stopped")
+				r.logger.Info(overlayReceiverStoppedMsg)
 				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
 			}
 			if errors.Is(err, ErrOverlayRecvClosed) {
-				r.logger.Info("overlay receiver stopped")
+				r.logger.Info(overlayReceiverStoppedMsg)
 				return nil
 			}
 			if isExpectedOverlayDrop(err) {
