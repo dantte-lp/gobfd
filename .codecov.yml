@@ -36,3 +36,5 @@ ignore:
   - "test/**"
   - "deployments/**"
   - "docs/**"
+  - "bench/**"
+  - "scripts/**"
