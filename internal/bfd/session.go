@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -267,6 +268,8 @@ const (
 //   - RFC 5880 Section 6.8.7: packet transmission (jitter, cached packet)
 //   - RFC 5880 Section 6.5: Poll Sequence
 type Session struct {
+	mu sync.RWMutex
+
 	// --- RFC 5880 Section 6.8.1 state variables ---
 
 	// state is bfd.SessionState. Atomic for lock-free external reads.
@@ -561,12 +564,11 @@ func (s *Session) LocalDiag() Diag {
 
 // RemoteDiscriminator returns the remote discriminator learned from the peer.
 // Returns 0 if no packet has been received yet (RFC 5880 Section 6.8.1).
-//
-// NOTE: This value is updated by the session goroutine and is NOT atomic.
-// It is intended for snapshot reads (e.g., Manager.Sessions) where the
-// session goroutine may be running. Callers must tolerate slightly stale
-// values; exact consistency is not required for display/monitoring purposes.
-func (s *Session) RemoteDiscriminator() uint32 { return s.remoteDiscr }
+func (s *Session) RemoteDiscriminator() uint32 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.remoteDiscr
+}
 
 // PeerAddr returns the remote system's IP address.
 func (s *Session) PeerAddr() netip.Addr { return s.peerAddr }
@@ -584,10 +586,18 @@ func (s *Session) Type() SessionType { return s.sessionType }
 func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
 
 // DesiredMinTxInterval returns the configured desired minimum TX interval.
-func (s *Session) DesiredMinTxInterval() time.Duration { return s.desiredMinTxInterval }
+func (s *Session) DesiredMinTxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.desiredMinTxInterval
+}
 
 // RequiredMinRxInterval returns the configured required minimum RX interval.
-func (s *Session) RequiredMinRxInterval() time.Duration { return s.requiredMinRxInterval }
+func (s *Session) RequiredMinRxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.requiredMinRxInterval
+}
 
 // DetectMultiplier returns the configured detection multiplier.
 func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
@@ -595,11 +605,15 @@ func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
 // NegotiatedTxInterval returns the current negotiated TX interval.
 // RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).
 // When state is not Up, the slow rate (1s) is enforced per RFC 5880 Section 6.8.3.
-func (s *Session) NegotiatedTxInterval() time.Duration { return s.calcTxInterval() }
+func (s *Session) NegotiatedTxInterval() time.Duration {
+	return s.calcTxInterval()
+}
 
 // DetectionTime returns the current calculated detection time.
 // RFC 5880 Section 6.8.4: RemoteDetectMult * max(RequiredMinRx, RemoteDesiredMinTx).
-func (s *Session) DetectionTime() time.Duration { return s.calcDetectionTime() }
+func (s *Session) DetectionTime() time.Duration {
+	return s.calcDetectionTime()
+}
 
 // PacketsSent returns the total BFD Control packets transmitted (atomic read).
 func (s *Session) PacketsSent() uint64 { return s.packetsSent.Load() }
@@ -839,21 +853,20 @@ func (s *Session) handleRecvPacket(
 		}
 	}
 
+	s.mu.Lock()
 	// Step 13: Set bfd.RemoteDiscr = My Discriminator.
 	s.remoteDiscr = pkt.MyDiscriminator
-
-	// Step 14: Set bfd.RemoteState.
-	s.remoteState.Store(uint32(pkt.State))
-
 	// Step 15: Set bfd.RemoteDemandMode = Demand bit.
 	s.remoteDemandMode = pkt.Demand
-
 	// Step 16: Set bfd.RemoteMinRxInterval.
 	s.remoteMinRxInterval = durationFromMicroseconds(pkt.RequiredMinRxInterval)
-
 	// Step 17: Set remoteDesiredMinTxInterval + remoteDetectMult.
 	s.remoteDesiredMinTxInterval = durationFromMicroseconds(pkt.DesiredMinTxInterval)
 	s.remoteDetectMult = pkt.DetectMult
+	s.mu.Unlock()
+
+	// Step 14: Set bfd.RemoteState.
+	s.remoteState.Store(uint32(pkt.State))
 
 	// Poll Sequence: if Final bit set and poll is active, terminate.
 	if pkt.Final && s.pollActive {
@@ -968,7 +981,9 @@ func (s *Session) executeAction(
 		s.resetDetectTimer(detectTimer)
 	case ActionNotifyDown:
 		// RFC 5880 Section 6.8.1: reset remoteDiscr on session failure.
+		s.mu.Lock()
 		s.remoteDiscr = 0
+		s.mu.Unlock()
 		s.resetTxTimer(txTimer)
 		s.resetDetectTimer(detectTimer)
 	case ActionSetDiagTimeExpired:
@@ -1017,6 +1032,9 @@ func (s *Session) emitNotification(result FSMResult) {
 // MUST set bfd.DesiredMinTxInterval to a value of not less than one
 // second (1,000,000 microseconds).".
 func (s *Session) calcTxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	desired := s.desiredMinTxInterval
 	// RFC 5880 Section 6.8.3: enforce slow rate when not Up.
 	if s.State() != StateUp && desired < slowTxInterval {
@@ -1032,13 +1050,24 @@ func (s *Session) calcTxInterval() time.Duration {
 // transmit interval of the remote system (the greater of
 // bfd.RequiredMinRxInterval and the last received Desired Min TX Interval).".
 func (s *Session) calcDetectionTime() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.remoteDetectMult == 0 {
 		// Before receiving any packet, use local detect mult with slow rate.
-		txInterval := s.calcTxInterval()
+		txInterval := s.calcTxIntervalLocked()
 		return time.Duration(int64(txInterval) * int64(s.detectMult))
 	}
 	agreedInterval := max(s.requiredMinRxInterval, s.remoteDesiredMinTxInterval)
 	return time.Duration(int64(agreedInterval) * int64(s.remoteDetectMult))
+}
+
+func (s *Session) calcTxIntervalLocked() time.Duration {
+	desired := s.desiredMinTxInterval
+	if s.State() != StateUp && desired < slowTxInterval {
+		desired = slowTxInterval
+	}
+	return max(desired, s.remoteMinRxInterval)
 }
 
 // resetTxTimer resets the TX timer with jittered negotiated interval.
@@ -1203,6 +1232,9 @@ func (s *Session) terminatePollSequence() {
 
 // applyPendingParams applies deferred parameter changes after poll completion.
 func (s *Session) applyPendingParams() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.pendingDesiredMinTx > 0 {
 		s.desiredMinTxInterval = s.pendingDesiredMinTx
 		s.pendingDesiredMinTx = 0
