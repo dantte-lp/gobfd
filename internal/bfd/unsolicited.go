@@ -103,9 +103,7 @@ func newUnsolicitedState(policy *UnsolicitedPolicy) *unsolicitedState {
 	}
 }
 
-// checkPolicy validates whether an unsolicited session can be created
-// for the given source address on the given interface.
-func (us *unsolicitedState) checkPolicy(srcAddr netip.Addr, ifName string) error {
+func (us *unsolicitedState) checkInterfacePolicy(srcAddr netip.Addr, ifName string) error {
 	if us.policy == nil || !us.policy.Enabled {
 		return ErrUnsolicitedDisabled
 	}
@@ -122,26 +120,42 @@ func (us *unsolicitedState) checkPolicy(srcAddr netip.Addr, ifName string) error
 		}
 	}
 
-	// Check global session limit.
-	if us.policy.MaxSessions > 0 {
-		current := int(us.sessionCount.Load())
-		if current >= us.policy.MaxSessions {
-			return ErrUnsolicitedMaxSessions
-		}
-	}
-
 	return nil
 }
 
-// incrementCount increments the unsolicited session counter.
-func (us *unsolicitedState) incrementCount() {
-	us.sessionCount.Add(1)
+func (us *unsolicitedState) reserve(srcAddr netip.Addr, ifName string) error {
+	if err := us.checkInterfacePolicy(srcAddr, ifName); err != nil {
+		return err
+	}
+
+	if us.policy.MaxSessions <= 0 {
+		us.sessionCount.Add(1)
+		return nil
+	}
+
+	for {
+		current := us.sessionCount.Load()
+		if int(current) >= us.policy.MaxSessions {
+			return ErrUnsolicitedMaxSessions
+		}
+		if us.sessionCount.CompareAndSwap(current, current+1) {
+			return nil
+		}
+	}
 }
 
-// DecrementCount decrements the unsolicited session counter.
+// release decrements the unsolicited session counter.
 // Called when an unsolicited session is destroyed (cleanup on Down).
-func (us *unsolicitedState) DecrementCount() {
-	us.sessionCount.Add(-1)
+func (us *unsolicitedState) release() {
+	for {
+		current := us.sessionCount.Load()
+		if current == 0 {
+			return
+		}
+		if us.sessionCount.CompareAndSwap(current, current-1) {
+			return
+		}
+	}
 }
 
 // matchesAnyPrefix reports whether addr is contained in any of the given prefixes.

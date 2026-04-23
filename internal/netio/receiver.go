@@ -94,13 +94,16 @@ func (r *Receiver) recvLoop(ctx context.Context, ln *Listener) {
 // recvOne performs a single receive-unmarshal-demux cycle. The buffer
 // from PacketPool is returned after demux regardless of outcome.
 func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
-	raw, netMeta, err := ln.Recv(ctx)
+	received, err := ln.RecvPacket(ctx)
 	if err != nil {
 		return fmt.Errorf("recv: %w", err)
 	}
+	defer received.Release()
+
+	raw := received.Data
 
 	// Convert netio.PacketMeta -> bfd.PacketMeta to avoid import cycles.
-	bfdMeta := convertMeta(netMeta)
+	bfdMeta := convertMeta(received.Meta)
 
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(raw, &pkt); err != nil {
@@ -111,9 +114,16 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 		return nil // Drop invalid packets silently per RFC 5880 Section 6.8.6.
 	}
 
-	// Copy raw bytes for auth verification before buffer is reused.
-	wire := make([]byte, len(raw))
-	copy(wire, raw)
+	// Auth fields are zero-copy slices into raw. If auth is present, copy and
+	// re-parse from stable wire bytes before returning raw to PacketPool.
+	var wire []byte
+	if pkt.Auth != nil {
+		wire = make([]byte, len(raw))
+		copy(wire, raw)
+		if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
+			return fmt.Errorf("reparse auth packet from wire copy: %w", err)
+		}
+	}
 
 	if err := r.demuxer.DemuxWithWire(&pkt, bfdMeta, wire); err != nil {
 		r.logger.Debug("demux failed",

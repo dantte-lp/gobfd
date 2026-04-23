@@ -4,7 +4,13 @@ RUN groupadd -r gobfd && useradd -r -g gobfd -s /usr/sbin/nologin gobfd \
     && apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY gobfd gobfdctl gobfd-haproxy-agent gobfd-exabgp-bridge /usr/local/bin/
+ARG TARGETPLATFORM
+
+COPY ${TARGETPLATFORM}/gobfd \
+     ${TARGETPLATFORM}/gobfdctl \
+     ${TARGETPLATFORM}/gobfd-haproxy-agent \
+     ${TARGETPLATFORM}/gobfd-exabgp-bridge \
+     /usr/local/bin/
 
 USER gobfd:gobfd
 

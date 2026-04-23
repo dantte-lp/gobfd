@@ -61,7 +61,7 @@ type AuthKey struct {
 
 	// Secret is the key material: 1-16 bytes for Simple Password and
 	// MD5, 1-20 bytes for SHA1 (RFC 5880 Sections 4.2, 4.3, 4.4).
-	Secret []byte //nolint:gosec // G117: field name is intentional RFC terminology for auth key material
+	Secret []byte
 }
 
 // -------------------------------------------------------------------------
@@ -476,11 +476,11 @@ func copyDigest(buf []byte, p hashParams) []byte {
 // computeDigest computes MD5 or SHA1 hash over the given data.
 func computeDigest(data []byte, p hashParams) []byte {
 	if p.digestSize == md5DigestSize {
-		sum := md5.Sum(data) //nolint:gosec // G401: MD5 required by RFC 5880 Section 6.7.3
+		sum := md5.Sum(data) //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5 -- MD5 required by RFC 5880 Section 6.7.3
 		return sum[:]
 	}
 
-	sum := sha1.Sum(data) //nolint:gosec // G401: SHA1 required by RFC 5880 Section 6.7.4
+	sum := sha1.Sum(data) //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1 -- SHA1 required by RFC 5880 Section 6.7.4
 	return sum[:]
 }
 

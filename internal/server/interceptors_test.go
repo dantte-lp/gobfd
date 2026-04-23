@@ -101,12 +101,12 @@ func TestLoggingInterceptorError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+		if connectErr.Code() != connect.CodeNotFound {
+			t.Errorf("code = %s, want NotFound", connectErr.Code())
+		}
+	} else {
 		t.Fatalf("expected connect.Error, got %T: %v", err, err)
-	}
-	if connectErr.Code() != connect.CodeNotFound {
-		t.Errorf("code = %s, want NotFound", connectErr.Code())
 	}
 }
 
@@ -147,12 +147,12 @@ func TestRecoveryInterceptorPanic(t *testing.T) {
 		t.Fatal("expected error after panic, got nil")
 	}
 
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+		if connectErr.Code() != connect.CodeInternal {
+			t.Errorf("code = %s, want Internal", connectErr.Code())
+		}
+	} else {
 		t.Fatalf("expected connect.Error, got %T: %v", err, err)
-	}
-	if connectErr.Code() != connect.CodeInternal {
-		t.Errorf("code = %s, want Internal", connectErr.Code())
 	}
 }
 

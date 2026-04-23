@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"connectrpc.com/grpchealth"
-	"github.com/coreos/go-systemd/v22/daemon"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
@@ -30,6 +29,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	"github.com/dantte-lp/gobfd/internal/sdnotify"
 	"github.com/dantte-lp/gobfd/internal/server"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 )
@@ -132,7 +132,7 @@ func runServers(
 	// Create real UDP sender factory backed by SourcePortAllocator.
 	sf := newUDPSenderFactory()
 
-	metricsSrv := newMetricsServer(cfg.Metrics, reg)
+	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, logger)
 
 	// errgroup with signal-aware context.
@@ -258,7 +258,7 @@ func closeGoBGPClient(client gobgp.Client, logger *slog.Logger) {
 // notifyReady sends READY=1 to systemd, indicating the daemon has
 // completed initialization and is ready to serve.
 func notifyReady(logger *slog.Logger) {
-	sent, err := daemon.SdNotify(false, daemon.SdNotifyReady)
+	sent, err := sdnotify.Notify(sdnotify.Ready)
 	if err != nil {
 		logger.Warn("failed to notify systemd readiness",
 			slog.String("error", err.Error()),
@@ -273,7 +273,7 @@ func notifyReady(logger *slog.Logger) {
 // notifyStopping sends STOPPING=1 to systemd, indicating the daemon
 // is beginning graceful shutdown.
 func notifyStopping(logger *slog.Logger) {
-	sent, err := daemon.SdNotify(false, daemon.SdNotifyStopping)
+	sent, err := sdnotify.Notify(sdnotify.Stopping)
 	if err != nil {
 		logger.Warn("failed to notify systemd stopping",
 			slog.String("error", err.Error()),
@@ -289,7 +289,7 @@ func notifyStopping(logger *slog.Logger) {
 // The interval is WatchdogSec/2 as recommended by the systemd documentation.
 // If watchdog is not configured, the goroutine exits immediately.
 func runWatchdog(ctx context.Context, logger *slog.Logger) error {
-	interval, err := daemon.SdWatchdogEnabled(false)
+	interval, err := sdnotify.WatchdogEnabled()
 	if err != nil {
 		logger.Warn("failed to check systemd watchdog",
 			slog.String("error", err.Error()),
@@ -316,7 +316,7 @@ func runWatchdog(ctx context.Context, logger *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if _, wdErr := daemon.SdNotify(false, daemon.SdNotifyWatchdog); wdErr != nil {
+			if _, wdErr := sdnotify.Notify(sdnotify.Watchdog); wdErr != nil {
 				logger.Warn("failed to send watchdog keepalive",
 					slog.String("error", wdErr.Error()),
 				)
@@ -1072,14 +1072,38 @@ func listenAndServe(ctx context.Context, lc *net.ListenConfig, srv *http.Server,
 	return nil
 }
 
-// newMetricsServer creates an HTTP server for the Prometheus metrics endpoint.
-func newMetricsServer(cfg config.MetricsConfig, reg *prometheus.Registry) *http.Server {
+// newMetricsServer creates an HTTP server for the Prometheus metrics endpoint
+// and optional debug endpoints (flight recorder trace dump).
+func newMetricsServer(
+	cfg config.MetricsConfig,
+	reg *prometheus.Registry,
+	fr *trace.FlightRecorder,
+) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle(cfg.Path, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+
+	if fr != nil {
+		mux.HandleFunc("/debug/flightrecorder", flightRecorderHandler(fr))
+	}
+
 	return &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+}
+
+// flightRecorderHandler returns an HTTP handler that dumps the current
+// FlightRecorder trace snapshot. The output is a Go execution trace that
+// can be analyzed with `go tool trace`.
+func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="trace.out"`)
+
+		if _, err := fr.WriteTo(w); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -1131,16 +1155,29 @@ func startGoBGPHandler(
 		return nil, nil //nolint:nilnil // Nil client is valid when GoBGP is disabled; caller handles nil.
 	}
 
+	if config.GoBGPPlaintextNonLoopback(cfg) {
+		logger.Warn("gobgp plaintext grpc configured for non-loopback address",
+			slog.String("addr", cfg.Addr),
+			slog.String("mitigation", "enable gobgp.tls.enabled for remote GoBGP API endpoints"),
+		)
+	}
+
 	client, err := gobgp.NewGRPCClient(gobgp.GRPCClientConfig{
 		Addr: cfg.Addr,
+		TLS: gobgp.GRPCClientTLSConfig{
+			Enabled:    cfg.TLS.Enabled,
+			CAFile:     cfg.TLS.CAFile,
+			ServerName: cfg.TLS.ServerName,
+		},
 	}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create gobgp client: %w", err)
 	}
 
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
-		Client:   client,
-		Strategy: gobgp.Strategy(cfg.Strategy),
+		Client:        client,
+		Strategy:      gobgp.Strategy(cfg.Strategy),
+		ActionTimeout: cfg.ActionTimeout,
 		Dampening: gobgp.DampeningConfig{
 			Enabled:           cfg.Dampening.Enabled,
 			SuppressThreshold: cfg.Dampening.SuppressThreshold,
@@ -1156,12 +1193,14 @@ func startGoBGPHandler(
 	}
 
 	g.Go(func() error {
-		return handler.Run(ctx, mgr.StateChanges())
+		return handler.Run(ctx, mgr.SubscribeStateChanges(ctx))
 	})
 
 	logger.Info("gobgp integration enabled",
 		slog.String("addr", cfg.Addr),
 		slog.String("strategy", cfg.Strategy),
+		slog.Duration("action_timeout", cfg.ActionTimeout),
+		slog.Bool("tls", cfg.TLS.Enabled),
 		slog.Bool("dampening", cfg.Dampening.Enabled),
 	)
 

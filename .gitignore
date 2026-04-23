@@ -53,6 +53,18 @@ docs/tmp/
 # Build artifacts
 dist/
 release-notes.md
+.codex
+
+# Generated reports (regenerate with: make report-all)
+/reports/
+
+# Profiling
+*.prof
+
+# Cross-implementation benchmark build artifacts
+/bench/c/bench_frr
+/bench/c/bench_bird
+/bench-results/
 
 # Containerlab generated files
 test/interop-clab/*.generated.clab.yml

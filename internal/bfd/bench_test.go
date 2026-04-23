@@ -363,23 +363,69 @@ func BenchmarkFullRecvPath(b *testing.B) {
 }
 
 // -------------------------------------------------------------------------
-// BenchmarkFullTxPath — buildControlPacket + marshal
+// BenchmarkFullRecvPathCodec — unmarshal + FSM only (no IPC)
+// -------------------------------------------------------------------------
+
+// BenchmarkFullRecvPathCodec measures the codec-only receive path:
+// unmarshal a wire-format packet, map remote state to FSM event, and
+// apply the event to the FSM. This excludes Manager.Demux (RWMutex +
+// map lookup + channel send) and is the FAIR comparison with C benchmarks,
+// which also measure only unmarshal + FSM without inter-process communication.
+//
+// Target: zero allocations per operation.
+func BenchmarkFullRecvPathCodec(b *testing.B) {
+	// Build a valid wire-format keepalive packet.
+	srcPkt := &bfd.ControlPacket{
+		Version:               bfd.Version,
+		Diag:                  bfd.DiagNone,
+		State:                 bfd.StateUp,
+		DetectMult:            3,
+		MyDiscriminator:       0xABCD1234,
+		YourDiscriminator:     0xCAFEBABE,
+		DesiredMinTxInterval:  1000000, // 1s in microseconds
+		RequiredMinRxInterval: 1000000,
+	}
+	wireBuf := make([]byte, bfd.MaxPacketSize)
+	n, err := bfd.MarshalControlPacket(srcPkt, wireBuf)
+	if err != nil {
+		b.Fatalf("MarshalControlPacket: %v", err)
+	}
+	wire := wireBuf[:n]
+
+	var pkt bfd.ControlPacket
+	localState := bfd.StateUp
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		// Step 1: Unmarshal (RFC 5880 Section 6.8.6 steps 1-7).
+		_ = bfd.UnmarshalControlPacket(wire, &pkt)
+		// Step 2: Map remote state to FSM event.
+		ev := bfd.RecvStateToEvent(pkt.State)
+		// Step 3: Apply FSM transition.
+		result := bfd.ApplyEvent(localState, ev)
+		localState = result.NewState
+	}
+}
+
+// -------------------------------------------------------------------------
+// BenchmarkFullTxPath — buildControlPacket + marshal + jitter
 // -------------------------------------------------------------------------
 
 // BenchmarkFullTxPath measures the complete transmit-side hot path:
-// build a BFD Control packet from session state and marshal it into a
-// pre-allocated buffer. This represents the per-TX-interval cost
-// (RFC 5880 Section 6.8.7) excluding the actual socket send.
+// build a BFD Control packet from session state, marshal it into a
+// pre-allocated buffer, and apply jitter to the TX interval.
+// This represents the per-TX-interval cost (RFC 5880 Section 6.8.7)
+// excluding the actual socket send.
 //
-// The benchmark constructs a ControlPacket with typical Up-state values
-// and marshals it, simulating the session's rebuildCachedPacket() path.
+// Includes ApplyJitter for fair comparison with C benchmarks, which
+// measure marshal + jitter together in their FullTxPath.
 //
 // Target: zero allocations per operation.
 func BenchmarkFullTxPath(b *testing.B) {
 	buf := make([]byte, bfd.MaxPacketSize)
+	interval := 100 * time.Millisecond
 
-	// Simulate session state: build the packet struct as Session.buildControlPacket
-	// would for a session in Up state (RFC 5880 Section 6.8.7).
 	pkt := bfd.ControlPacket{
 		Version:                   bfd.Version,
 		Diag:                      bfd.DiagNone,
@@ -402,6 +448,7 @@ func BenchmarkFullTxPath(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _ = bfd.MarshalControlPacket(&pkt, buf)
+		_ = bfd.ApplyJitter(interval, 3)
 	}
 }
 
@@ -534,6 +581,107 @@ func BenchmarkCalcTxInterval(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = sess.NegotiatedTxInterval()
+	}
+}
+
+// -------------------------------------------------------------------------
+// BenchmarkDetectionTimeCalcHot — hot-path detection time (cached state)
+// -------------------------------------------------------------------------
+
+// BenchmarkDetectionTimeCalcHot measures the detection time calculation
+// using cachedState (no atomic load). This is the actual hot path inside
+// the session goroutine where state is goroutine-confined.
+func BenchmarkDetectionTimeCalcHot(b *testing.B) {
+	logger := slog.New(slog.DiscardHandler)
+	sender := &discardSender{}
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  100 * time.Millisecond,
+		RequiredMinRxInterval: 100 * time.Millisecond,
+		DetectMultiplier:      3,
+	}
+
+	sess, err := bfd.NewSession(cfg, 42, sender, nil, logger)
+	if err != nil {
+		b.Fatalf("NewSession: %v", err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = sess.BenchCalcDetectionTimeHot()
+	}
+}
+
+// -------------------------------------------------------------------------
+// BenchmarkCalcTxIntervalHot — hot-path TX interval (cached state)
+// -------------------------------------------------------------------------
+
+// BenchmarkCalcTxIntervalHot measures the TX interval negotiation using
+// cachedState. This is the actual hot path inside the session goroutine.
+func BenchmarkCalcTxIntervalHot(b *testing.B) {
+	logger := slog.New(slog.DiscardHandler)
+	sender := &discardSender{}
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  100 * time.Millisecond,
+		RequiredMinRxInterval: 100 * time.Millisecond,
+		DetectMultiplier:      3,
+	}
+
+	sess, err := bfd.NewSession(cfg, 42, sender, nil, logger)
+	if err != nil {
+		b.Fatalf("NewSession: %v", err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = sess.BenchCalcTxIntervalHot()
+	}
+}
+
+// -------------------------------------------------------------------------
+// BenchmarkSessionApplyJitter — session-local PRNG jitter
+// -------------------------------------------------------------------------
+
+// BenchmarkSessionApplyJitter measures the session-local jitter calculation
+// that uses a goroutine-confined crypto-seeded PRNG instead of global RNG
+// state. This is the actual hot-path jitter used in production.
+//
+// Compare with BenchmarkApplyJitter which uses the global PRNG.
+//
+// Target: zero allocations per operation.
+func BenchmarkSessionApplyJitter(b *testing.B) {
+	logger := slog.New(slog.DiscardHandler)
+	sender := &discardSender{}
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  100 * time.Millisecond,
+		RequiredMinRxInterval: 100 * time.Millisecond,
+		DetectMultiplier:      3,
+	}
+
+	sess, err := bfd.NewSession(cfg, 42, sender, nil, logger)
+	if err != nil {
+		b.Fatalf("NewSession: %v", err)
+	}
+
+	interval := 100 * time.Millisecond
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = sess.BenchApplyJitter(interval)
 	}
 }
 

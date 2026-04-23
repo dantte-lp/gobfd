@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -32,6 +33,8 @@ const (
 	// Currently only disable-peer is supported.
 	StrategyWithdrawRoutes Strategy = "withdraw-routes"
 )
+
+const DefaultActionTimeout = 5 * time.Second
 
 // ValidStrategies lists all recognized strategy strings.
 //
@@ -68,6 +71,7 @@ type Handler struct {
 	client   Client
 	strategy Strategy
 	dampener *Dampener
+	timeout  time.Duration
 	logger   *slog.Logger
 }
 
@@ -81,6 +85,10 @@ type HandlerConfig struct {
 
 	// Dampening configures RFC 5882 Section 3.2 flap dampening.
 	Dampening DampeningConfig
+
+	// ActionTimeout bounds each GoBGP API action. When unset, the handler
+	// uses DefaultActionTimeout.
+	ActionTimeout time.Duration
 
 	// Logger is the parent logger. The handler adds its own component tag.
 	Logger *slog.Logger
@@ -96,10 +104,16 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		return nil, fmt.Errorf("handler strategy %q: %w", cfg.Strategy, ErrUnsupportedStrategy)
 	}
 
+	timeout := cfg.ActionTimeout
+	if timeout <= 0 {
+		timeout = DefaultActionTimeout
+	}
+
 	return &Handler{
 		client:   cfg.Client,
 		strategy: cfg.Strategy,
 		dampener: NewDampener(cfg.Dampening, cfg.Logger),
+		timeout:  timeout,
 		logger: cfg.Logger.With(
 			slog.String("component", "gobgp.handler"),
 			slog.String("strategy", string(cfg.Strategy)),
@@ -223,8 +237,11 @@ func (h *Handler) handleUp(ctx context.Context, peerAddr string, sc bfd.StateCha
 func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.StateChange) error {
 	switch h.strategy {
 	case StrategyDisablePeer:
+		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
+		defer cancel()
+
 		communication := FormatBFDDownCommunication(sc.Diag)
-		if err := h.client.DisablePeer(ctx, peerAddr, communication); err != nil {
+		if err := h.client.DisablePeer(actionCtx, peerAddr, communication); err != nil {
 			return fmt.Errorf("disable peer %s: %w", peerAddr, err)
 		}
 		return nil
@@ -242,7 +259,10 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 func (h *Handler) applyUpAction(ctx context.Context, peerAddr string, _ bfd.StateChange) error {
 	switch h.strategy {
 	case StrategyDisablePeer:
-		if err := h.client.EnablePeer(ctx, peerAddr); err != nil {
+		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
+		defer cancel()
+
+		if err := h.client.EnablePeer(actionCtx, peerAddr); err != nil {
 			return fmt.Errorf("enable peer %s: %w", peerAddr, err)
 		}
 		return nil

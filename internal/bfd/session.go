@@ -2,12 +2,14 @@ package bfd
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"net/netip"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -200,6 +202,12 @@ var (
 	// ErrInvalidTxInterval indicates the desired min TX interval is invalid.
 	ErrInvalidTxInterval = errors.New("desired min TX interval must be > 0")
 
+	// ErrInvalidRxInterval indicates the required min RX interval is invalid.
+	ErrInvalidRxInterval = errors.New("required min RX interval must be > 0")
+
+	// ErrInvalidWireInterval indicates an interval cannot be represented in BFD wire format.
+	ErrInvalidWireInterval = errors.New("wire interval must fit uint32 microseconds")
+
 	// ErrInvalidSessionType indicates an unknown session type.
 	ErrInvalidSessionType = errors.New("invalid session type")
 
@@ -221,6 +229,10 @@ const (
 	// MaxPaddedPduSize is the maximum padded PDU size for RFC 9764.
 	// Capped at jumbo frame Ethernet MTU minus IP+UDP headers.
 	MaxPaddedPduSize = 9000
+
+	// MaxWireInterval is the largest BFD interval encodable on the wire.
+	// RFC 5880 stores intervals as uint32 microseconds.
+	MaxWireInterval = time.Duration(1<<32-1) * time.Microsecond
 
 	// slowTxInterval is the minimum TX interval when session is not Up.
 	// RFC 5880 Section 6.8.3: "MUST set bfd.DesiredMinTxInterval to a
@@ -256,6 +268,8 @@ const (
 //   - RFC 5880 Section 6.8.7: packet transmission (jitter, cached packet)
 //   - RFC 5880 Section 6.5: Poll Sequence
 type Session struct {
+	mu sync.RWMutex
+
 	// --- RFC 5880 Section 6.8.1 state variables ---
 
 	// state is bfd.SessionState. Atomic for lock-free external reads.
@@ -348,6 +362,17 @@ type Session struct {
 	// recent valid BFD Control packet received. Zero means no packet received.
 	lastPacketRecv atomic.Int64
 
+	// --- Hot-path optimizations ---
+
+	// jitterRng is a session-local PRNG for jitter calculations.
+	// Goroutine-confined to the session goroutine — no synchronization needed.
+	jitterRng jitterRNG
+
+	// cachedState mirrors s.state for hot-path reads within the session goroutine.
+	// Updated in executeFSMActions on every state change. Avoids
+	// atomic.Uint32.Load() on every timer recalculation.
+	cachedState State
+
 	// --- Runtime ---
 
 	sender   PacketSender
@@ -410,6 +435,8 @@ func NewSession(
 		auth:                  cfg.Auth,
 		authKeys:              cfg.AuthKeys,
 		paddedPduSize:         cfg.PaddedPduSize,
+		jitterRng:             newJitterRNG(),
+		cachedState:           StateDown, // RFC 5880 Section 6.8.1: initialized to Down
 		sender:                sender,
 		metrics:               noopMetrics{},
 		notifyCh:              notifyCh,
@@ -450,7 +477,26 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.DesiredMinTxInterval <= 0 {
 		return fmt.Errorf("desired min TX interval %v: %w", cfg.DesiredMinTxInterval, ErrInvalidTxInterval)
 	}
-	if cfg.Type != SessionTypeSingleHop && cfg.Type != SessionTypeMultiHop && cfg.Type != SessionTypeMicroBFD {
+	if cfg.RequiredMinRxInterval <= 0 {
+		return fmt.Errorf("required min RX interval %v: %w", cfg.RequiredMinRxInterval, ErrInvalidRxInterval)
+	}
+	if cfg.DesiredMinTxInterval > MaxWireInterval {
+		return fmt.Errorf(
+			"desired min TX interval %v exceeds max wire interval %v: %w",
+			cfg.DesiredMinTxInterval,
+			MaxWireInterval,
+			ErrInvalidWireInterval,
+		)
+	}
+	if cfg.RequiredMinRxInterval > MaxWireInterval {
+		return fmt.Errorf(
+			"required min RX interval %v exceeds max wire interval %v: %w",
+			cfg.RequiredMinRxInterval,
+			MaxWireInterval,
+			ErrInvalidWireInterval,
+		)
+	}
+	if !isValidSessionType(cfg.Type) {
 		return fmt.Errorf("session type %d: %w", cfg.Type, ErrInvalidSessionType)
 	}
 	if cfg.Role != RoleActive && cfg.Role != RolePassive {
@@ -464,6 +510,19 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 		return fmt.Errorf("padded PDU size %d: %w", cfg.PaddedPduSize, ErrInvalidPaddedPduSize)
 	}
 	return nil
+}
+
+func isValidSessionType(t SessionType) bool {
+	switch t {
+	case SessionTypeSingleHop,
+		SessionTypeMultiHop,
+		SessionTypeMicroBFD,
+		SessionTypeVXLAN,
+		SessionTypeGeneve:
+		return true
+	default:
+		return false
+	}
 }
 
 // initAuth initializes the authentication state if auth is configured.
@@ -505,12 +564,11 @@ func (s *Session) LocalDiag() Diag {
 
 // RemoteDiscriminator returns the remote discriminator learned from the peer.
 // Returns 0 if no packet has been received yet (RFC 5880 Section 6.8.1).
-//
-// NOTE: This value is updated by the session goroutine and is NOT atomic.
-// It is intended for snapshot reads (e.g., Manager.Sessions) where the
-// session goroutine may be running. Callers must tolerate slightly stale
-// values; exact consistency is not required for display/monitoring purposes.
-func (s *Session) RemoteDiscriminator() uint32 { return s.remoteDiscr }
+func (s *Session) RemoteDiscriminator() uint32 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.remoteDiscr
+}
 
 // PeerAddr returns the remote system's IP address.
 func (s *Session) PeerAddr() netip.Addr { return s.peerAddr }
@@ -528,10 +586,18 @@ func (s *Session) Type() SessionType { return s.sessionType }
 func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
 
 // DesiredMinTxInterval returns the configured desired minimum TX interval.
-func (s *Session) DesiredMinTxInterval() time.Duration { return s.desiredMinTxInterval }
+func (s *Session) DesiredMinTxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.desiredMinTxInterval
+}
 
 // RequiredMinRxInterval returns the configured required minimum RX interval.
-func (s *Session) RequiredMinRxInterval() time.Duration { return s.requiredMinRxInterval }
+func (s *Session) RequiredMinRxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.requiredMinRxInterval
+}
 
 // DetectMultiplier returns the configured detection multiplier.
 func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
@@ -539,11 +605,15 @@ func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
 // NegotiatedTxInterval returns the current negotiated TX interval.
 // RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).
 // When state is not Up, the slow rate (1s) is enforced per RFC 5880 Section 6.8.3.
-func (s *Session) NegotiatedTxInterval() time.Duration { return s.calcTxInterval() }
+func (s *Session) NegotiatedTxInterval() time.Duration {
+	return s.calcTxInterval()
+}
 
 // DetectionTime returns the current calculated detection time.
 // RFC 5880 Section 6.8.4: RemoteDetectMult * max(RequiredMinRx, RemoteDesiredMinTx).
-func (s *Session) DetectionTime() time.Duration { return s.calcDetectionTime() }
+func (s *Session) DetectionTime() time.Duration {
+	return s.calcDetectionTime()
+}
 
 // PacketsSent returns the total BFD Control packets transmitted (atomic read).
 func (s *Session) PacketsSent() uint64 { return s.packetsSent.Load() }
@@ -628,11 +698,11 @@ func (s *Session) Run(ctx context.Context) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	txInterval := s.calcTxInterval()
-	txTimer := time.NewTimer(ApplyJitter(txInterval, s.detectMult))
+	txInterval := s.calcTxIntervalHot()
+	txTimer := time.NewTimer(s.applyJitter(txInterval))
 	defer txTimer.Stop()
 
-	detectTime := s.calcDetectionTime()
+	detectTime := s.calcDetectionTimeHot()
 	detectTimer := time.NewTimer(detectTime)
 	defer detectTimer.Stop()
 
@@ -676,8 +746,8 @@ func (s *Session) runLoop(
 // handleTxTimer fires on each transmission interval.
 func (s *Session) handleTxTimer(ctx context.Context, txTimer *time.Timer) {
 	s.maybeSendControl(ctx)
-	txInterval := s.calcTxInterval()
-	txTimer.Reset(ApplyJitter(txInterval, s.detectMult))
+	txInterval := s.calcTxIntervalHot()
+	txTimer.Reset(s.applyJitter(txInterval))
 }
 
 // maybeSendControl checks transmission preconditions and sends if allowed.
@@ -735,11 +805,11 @@ func (s *Session) handleDetectTimer(
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
-	curState := s.State()
+	// Use cachedState (goroutine-confined) to avoid atomic load.
 	// RFC 5880 Section 6.8.4: only if bfd.SessionState is Init or Up.
-	if curState != StateInit && curState != StateUp {
+	if s.cachedState != StateInit && s.cachedState != StateUp {
 		// Restart detect timer even in Down state to handle re-negotiation.
-		detectTimer.Reset(s.calcDetectionTime())
+		detectTimer.Reset(s.calcDetectionTimeHot())
 		return
 	}
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
@@ -783,21 +853,20 @@ func (s *Session) handleRecvPacket(
 		}
 	}
 
+	s.mu.Lock()
 	// Step 13: Set bfd.RemoteDiscr = My Discriminator.
 	s.remoteDiscr = pkt.MyDiscriminator
-
-	// Step 14: Set bfd.RemoteState.
-	s.remoteState.Store(uint32(pkt.State))
-
 	// Step 15: Set bfd.RemoteDemandMode = Demand bit.
 	s.remoteDemandMode = pkt.Demand
-
 	// Step 16: Set bfd.RemoteMinRxInterval.
 	s.remoteMinRxInterval = durationFromMicroseconds(pkt.RequiredMinRxInterval)
-
 	// Step 17: Set remoteDesiredMinTxInterval + remoteDetectMult.
 	s.remoteDesiredMinTxInterval = durationFromMicroseconds(pkt.DesiredMinTxInterval)
 	s.remoteDetectMult = pkt.DetectMult
+	s.mu.Unlock()
+
+	// Step 14: Set bfd.RemoteState.
+	s.remoteState.Store(uint32(pkt.State))
 
 	// Poll Sequence: if Final bit set and poll is active, terminate.
 	if pkt.Final && s.pollActive {
@@ -856,7 +925,7 @@ func (s *Session) applyFSMEvent(
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
-	result := ApplyEvent(s.State(), event)
+	result := ApplyEvent(s.cachedState, event)
 	s.executeFSMActions(ctx, result, txTimer, detectTimer)
 }
 
@@ -869,6 +938,7 @@ func (s *Session) executeFSMActions(
 ) {
 	if result.Changed {
 		s.state.Store(uint32(result.NewState))
+		s.cachedState = result.NewState // goroutine-confined mirror
 		s.logStateChange(result)
 	}
 	for _, action := range result.Actions {
@@ -911,7 +981,9 @@ func (s *Session) executeAction(
 		s.resetDetectTimer(detectTimer)
 	case ActionNotifyDown:
 		// RFC 5880 Section 6.8.1: reset remoteDiscr on session failure.
+		s.mu.Lock()
 		s.remoteDiscr = 0
+		s.mu.Unlock()
 		s.resetTxTimer(txTimer)
 		s.resetDetectTimer(detectTimer)
 	case ActionSetDiagTimeExpired:
@@ -960,6 +1032,9 @@ func (s *Session) emitNotification(result FSMResult) {
 // MUST set bfd.DesiredMinTxInterval to a value of not less than one
 // second (1,000,000 microseconds).".
 func (s *Session) calcTxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	desired := s.desiredMinTxInterval
 	// RFC 5880 Section 6.8.3: enforce slow rate when not Up.
 	if s.State() != StateUp && desired < slowTxInterval {
@@ -975,27 +1050,40 @@ func (s *Session) calcTxInterval() time.Duration {
 // transmit interval of the remote system (the greater of
 // bfd.RequiredMinRxInterval and the last received Desired Min TX Interval).".
 func (s *Session) calcDetectionTime() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.remoteDetectMult == 0 {
 		// Before receiving any packet, use local detect mult with slow rate.
-		txInterval := s.calcTxInterval()
+		txInterval := s.calcTxIntervalLocked()
 		return time.Duration(int64(txInterval) * int64(s.detectMult))
 	}
 	agreedInterval := max(s.requiredMinRxInterval, s.remoteDesiredMinTxInterval)
 	return time.Duration(int64(agreedInterval) * int64(s.remoteDetectMult))
 }
 
+func (s *Session) calcTxIntervalLocked() time.Duration {
+	desired := s.desiredMinTxInterval
+	if s.State() != StateUp && desired < slowTxInterval {
+		desired = slowTxInterval
+	}
+	return max(desired, s.remoteMinRxInterval)
+}
+
 // resetTxTimer resets the TX timer with jittered negotiated interval.
+// Uses session-local PRNG and cached state for hot-path performance.
 func (s *Session) resetTxTimer(txTimer *time.Timer) {
-	interval := s.calcTxInterval()
+	interval := s.calcTxIntervalHot()
 	if !txTimer.Stop() {
 		drainTimer(txTimer)
 	}
-	txTimer.Reset(ApplyJitter(interval, s.detectMult))
+	txTimer.Reset(s.applyJitter(interval))
 }
 
 // resetDetectTimer resets the detection timer with the calculated timeout.
+// Uses cached state for hot-path performance.
 func (s *Session) resetDetectTimer(detectTimer *time.Timer) {
-	detectTime := s.calcDetectionTime()
+	detectTime := s.calcDetectionTimeHot()
 	if !detectTimer.Stop() {
 		drainTimer(detectTimer)
 	}
@@ -1021,29 +1109,111 @@ func drainTimer(t *time.Timer) {
 //   - If bfd.DetectMult == 1: interval MUST be between 75% and 90%.
 //   - Otherwise: interval MUST be between 75% and 100%.
 //
-// Uses math/rand/v2 for non-cryptographic randomness (jitter is not
-// security-sensitive; using crypto/rand would add unnecessary overhead
-// on the hot path).
+// Uses a crypto-seeded PRNG for non-cryptographic jitter. Jitter is not a
+// security boundary, but seeding from crypto/rand avoids predictable process
+// startup state and keeps static security scanners quiet.
 func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
 	if interval <= 0 {
 		return interval
 	}
 
+	rng := newJitterRNG()
+	return applyJitterWithRand(interval, detectMult, rng.IntN)
+}
+
+func applyJitterWithRand(interval time.Duration, detectMult uint8, intN func(int) int) time.Duration {
 	// RFC 5880 Section 6.8.7:
 	//   Normal: reduce by 0-25% (result 75-100%).
 	//   DetectMult == 1: reduce by 10-25% (result 75-90%).
 	var jitterPercent int
 	if detectMult == 1 {
 		// 10 + rand(0..15) = reduction of 10-25%.
-		jitterPercent = 10 + rand.IntN(16) //nolint:gosec // G404: jitter does not require cryptographic randomness
+		jitterPercent = 10 + intN(16)
 	} else {
 		// rand(0..25) = reduction of 0-25%.
-		jitterPercent = rand.IntN(26) //nolint:gosec // G404: jitter does not require cryptographic randomness
+		jitterPercent = intN(26)
 	}
 
 	reduction := time.Duration(int64(interval) * int64(jitterPercent) / 100)
 
 	return interval - reduction
+}
+
+// applyJitter is the session-local variant of ApplyJitter. It uses
+// s.jitterRng (goroutine-confined PRNG) instead of allocating or reading
+// randomness on every timer reset.
+//
+// Same RFC 5880 Section 6.8.7 semantics as the exported ApplyJitter.
+func (s *Session) applyJitter(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		return interval
+	}
+
+	return applyJitterWithRand(interval, s.detectMult, s.jitterRng.IntN)
+}
+
+type jitterRNG struct {
+	state uint64
+}
+
+func newJitterRNG() jitterRNG {
+	var seed [8]byte
+	if _, err := crand.Read(seed[:]); err == nil {
+		if v := binary.LittleEndian.Uint64(seed[:]); v != 0 {
+			return jitterRNG{state: v}
+		}
+	}
+
+	now := time.Now()
+	fallback := uint64(now.UnixNano()) ^ (uint64(now.UnixMicro()) << 17)
+	if fallback == 0 {
+		fallback = 0x9e3779b97f4a7c15
+	}
+	return jitterRNG{state: fallback}
+}
+
+func (r *jitterRNG) IntN(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	v := r.next() % uint64(n)
+	// #nosec G115 -- v is bounded by n, and n is already a valid int.
+	return int(v)
+}
+
+func (r *jitterRNG) next() uint64 {
+	x := r.state
+	if x == 0 {
+		x = 0x9e3779b97f4a7c15
+	}
+	x ^= x >> 12
+	x ^= x << 25
+	x ^= x >> 27
+	r.state = x
+	return x * 2685821657736338717
+}
+
+// calcTxIntervalHot is the goroutine-confined variant of calcTxInterval.
+// Uses s.cachedState instead of s.State() to avoid atomic load on the hot path.
+// MUST only be called from the session goroutine (Run/runLoop).
+func (s *Session) calcTxIntervalHot() time.Duration {
+	desired := s.desiredMinTxInterval
+	if s.cachedState != StateUp && desired < slowTxInterval {
+		desired = slowTxInterval
+	}
+	return max(desired, s.remoteMinRxInterval)
+}
+
+// calcDetectionTimeHot is the goroutine-confined variant of calcDetectionTime.
+// Uses calcTxIntervalHot for the fallback path.
+// MUST only be called from the session goroutine (Run/runLoop).
+func (s *Session) calcDetectionTimeHot() time.Duration {
+	if s.remoteDetectMult == 0 {
+		txInterval := s.calcTxIntervalHot()
+		return time.Duration(int64(txInterval) * int64(s.detectMult))
+	}
+	agreedInterval := max(s.requiredMinRxInterval, s.remoteDesiredMinTxInterval)
+	return time.Duration(int64(agreedInterval) * int64(s.remoteDetectMult))
 }
 
 // -------------------------------------------------------------------------
@@ -1062,6 +1232,9 @@ func (s *Session) terminatePollSequence() {
 
 // applyPendingParams applies deferred parameter changes after poll completion.
 func (s *Session) applyPendingParams() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.pendingDesiredMinTx > 0 {
 		s.desiredMinTxInterval = s.pendingDesiredMinTx
 		s.pendingDesiredMinTx = 0
@@ -1116,14 +1289,14 @@ func (s *Session) buildControlPacket() ControlPacket {
 	// than one second (1,000,000 microseconds)." This applies to the
 	// wire value so the remote peer calculates correct detection time.
 	wireTxInterval := s.desiredMinTxInterval
-	if s.State() != StateUp && wireTxInterval < slowTxInterval {
+	if s.cachedState != StateUp && wireTxInterval < slowTxInterval {
 		wireTxInterval = slowTxInterval
 	}
 
 	pkt := ControlPacket{
 		Version:                   Version,
 		Diag:                      s.LocalDiag(),
-		State:                     s.State(),
+		State:                     s.cachedState,
 		Poll:                      s.pollActive,
 		Final:                     s.pendingFinal,
 		ControlPlaneIndependent:   false,

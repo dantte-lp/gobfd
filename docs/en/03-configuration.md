@@ -14,6 +14,7 @@
 - [Configuration Sources](#configuration-sources)
 - [Full Configuration Example](#full-configuration-example)
 - [Configuration Sections](#configuration-sections)
+- [Socket Tuning](#socket-tuning)
 - [Environment Variables](#environment-variables)
 - [Declarative Sessions](#declarative-sessions)
 - [GoBGP Integration](#gobgp-integration)
@@ -78,12 +79,22 @@ gobgp:
   enabled: true
   addr: "127.0.0.1:50052"
   strategy: "disable-peer"   # or "withdraw-routes"
+  action_timeout: "5s"
+  tls:
+    enabled: false            # enable for remote/non-loopback GoBGP API
+    ca_file: ""               # optional PEM root CA bundle
+    server_name: ""           # optional certificate verification name
   dampening:
     enabled: true
     suppress_threshold: 3
     reuse_threshold: 2
     max_suppress_time: "60s"
     half_life: "15s"
+
+# Socket buffer tuning (reduces packet loss under high session counts)
+socket:
+  read_buffer_size: 4194304    # SO_RCVBUF: 4 MiB (0 = OS default)
+  write_buffer_size: 4194304   # SO_SNDBUF: 4 MiB (0 = OS default)
 
 # Declarative sessions (reconciled on SIGHUP reload)
 sessions:
@@ -316,6 +327,27 @@ geneve:
       detect_mult: 5
 ```
 
+#### `socket` -- Socket Buffer Tuning
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `socket.read_buffer_size` | int | `4194304` (4 MiB) | `SO_RCVBUF` size in bytes for listener sockets. Larger buffers reduce packet loss under high session counts. Set to `0` to use the OS default. |
+| `socket.write_buffer_size` | int | `4194304` (4 MiB) | `SO_SNDBUF` size in bytes for sender sockets. Larger buffers reduce `sendto` failures under burst conditions. Set to `0` to use the OS default. |
+
+Socket buffer sizes are applied to all BFD listener and sender sockets at creation time. The values are passed directly to `setsockopt(SO_RCVBUF)` and `setsockopt(SO_SNDBUF)`.
+
+**Sizing guidelines:**
+
+- **< 100 sessions**: OS defaults are usually sufficient (set both to `0`)
+- **100-1000 sessions**: 4 MiB (default) provides headroom for burst traffic
+- **> 1000 sessions**: Consider 8-16 MiB; monitor `netstat -su` for UDP receive errors
+
+> **Note**: The kernel may cap the effective buffer size at `net.core.rmem_max` / `net.core.wmem_max`. To allow larger buffers, increase these sysctl values:
+> ```bash
+> sysctl -w net.core.rmem_max=16777216
+> sysctl -w net.core.wmem_max=16777216
+> ```
+
 #### `sessions` -- Declarative Sessions
 
 See [Declarative Sessions](#declarative-sessions) for details.
@@ -372,6 +404,15 @@ When enabled, BFD state changes are propagated to a GoBGP instance via its gRPC 
 | `gobgp.enabled` | bool | `false` | Enable/disable GoBGP integration |
 | `gobgp.addr` | string | `"127.0.0.1:50051"` | GoBGP gRPC API address |
 | `gobgp.strategy` | string | `"disable-peer"` | Strategy: `disable-peer` or `withdraw-routes` |
+| `gobgp.action_timeout` | duration | `"5s"` | Maximum time allowed for each GoBGP API action |
+| `gobgp.tls.enabled` | bool | `false` | Use TLS for the GoBGP gRPC connection |
+| `gobgp.tls.ca_file` | string | `""` | Optional PEM root CA bundle; empty uses system roots |
+| `gobgp.tls.server_name` | string | `""` | Optional TLS server name override |
+
+Plaintext GoBGP gRPC is retained for compatibility with common localhost
+deployments. Enable `gobgp.tls.enabled` for remote or non-loopback GoBGP API
+endpoints. When GoBGP is enabled with plaintext and `gobgp.addr` is not
+loopback/localhost, GoBFD logs a startup warning.
 
 #### Flap Dampening (RFC 5882 Section 3.2)
 
@@ -416,6 +457,8 @@ On reload:
 | `bfd.default_required_min_rx` must be > 0 | `ErrInvalidRequiredMinRx` |
 | `gobgp.addr` must not be empty when enabled | `ErrEmptyGoBGPAddr` |
 | `gobgp.strategy` must be `disable-peer` or `withdraw-routes` | `ErrInvalidGoBGPStrategy` |
+| `gobgp.action_timeout` must be > 0 when enabled | `ErrInvalidGoBGPActionTimeout` |
+| `gobgp.tls.ca_file` / `server_name` require `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
 | `gobgp.dampening.suppress_threshold` must be > `reuse_threshold` | `ErrInvalidDampeningThreshold` |
 | `gobgp.dampening.half_life` must be > 0 when dampening enabled | `ErrInvalidDampeningHalfLife` |
 | Session `peer` must be a valid IP address | `ErrInvalidSessionPeer` |
@@ -446,6 +489,10 @@ On reload:
 | `bfd.default_detect_multiplier` | `3` | 3x detection time |
 | `gobgp.enabled` | `false` | Opt-in integration |
 | `gobgp.strategy` | `disable-peer` | Safest BGP action |
+| `gobgp.action_timeout` | `5s` | Bounds external GoBGP API calls |
+| `gobgp.tls.enabled` | `false` | Backward-compatible localhost GoBGP default |
+| `socket.read_buffer_size` | `4194304` (4 MiB) | Headroom for 100+ sessions |
+| `socket.write_buffer_size` | `4194304` (4 MiB) | Headroom for 100+ sessions |
 
 ### Related Documents
 
@@ -455,4 +502,4 @@ On reload:
 
 ---
 
-*Last updated: 2026-02-23*
+*Last updated: 2026-02-24*

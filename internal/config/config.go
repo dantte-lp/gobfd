@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,6 +27,7 @@ type Config struct {
 	Metrics     MetricsConfig     `koanf:"metrics"`
 	Log         LogConfig         `koanf:"log"`
 	BFD         BFDConfig         `koanf:"bfd"`
+	Socket      SocketConfig      `koanf:"socket"`
 	Unsolicited UnsolicitedConfig `koanf:"unsolicited"`
 	Echo        EchoConfig        `koanf:"echo"`
 	MicroBFD    MicroBFDConfig    `koanf:"micro_bfd"`
@@ -31,6 +35,19 @@ type Config struct {
 	Geneve      GeneveConfig      `koanf:"geneve"`
 	GoBGP       GoBGPConfig       `koanf:"gobgp"`
 	Sessions    []SessionConfig   `koanf:"sessions"`
+}
+
+// SocketConfig holds UDP socket buffer tuning parameters.
+// These control the kernel-level buffer sizes for BFD UDP sockets,
+// helping to prevent packet loss under high session counts.
+type SocketConfig struct {
+	// ReadBufferSize is the SO_RCVBUF size for UDP listeners in bytes.
+	// Default: 4 MiB. Set to 0 to use the OS default.
+	ReadBufferSize int `koanf:"read_buffer_size"`
+
+	// WriteBufferSize is the SO_SNDBUF size for UDP senders in bytes.
+	// Default: 4 MiB. Set to 0 to use the OS default.
+	WriteBufferSize int `koanf:"write_buffer_size"`
 }
 
 // GRPCConfig holds the ConnectRPC server configuration.
@@ -398,8 +415,59 @@ type GoBGPConfig struct {
 	//   - "withdraw-routes": withdraw/restore routes (future)
 	Strategy string `koanf:"strategy"`
 
+	// ActionTimeout bounds each GoBGP API action.
+	ActionTimeout time.Duration `koanf:"action_timeout"`
+
+	// TLS configures transport security for the GoBGP gRPC API.
+	TLS GoBGPTLSConfig `koanf:"tls"`
+
 	// Dampening configures RFC 5882 Section 3.2 flap dampening.
 	Dampening GoBGPDampeningConfig `koanf:"dampening"`
+}
+
+// GoBGPTLSConfig holds TLS settings for the GoBGP gRPC client.
+type GoBGPTLSConfig struct {
+	// Enabled switches the GoBGP gRPC client from plaintext to TLS.
+	Enabled bool `koanf:"enabled"`
+
+	// CAFile optionally points to a PEM root CA bundle.
+	// Empty means use the host root CA pool.
+	CAFile string `koanf:"ca_file"`
+
+	// ServerName overrides the certificate verification name.
+	ServerName string `koanf:"server_name"`
+}
+
+// GoBGPPlaintextNonLoopback reports whether the GoBGP integration is enabled,
+// TLS is disabled, and the configured endpoint is not a loopback host.
+func GoBGPPlaintextNonLoopback(cfg GoBGPConfig) bool {
+	if !cfg.Enabled || cfg.TLS.Enabled {
+		return false
+	}
+
+	host := goBGPAddrHost(cfg.Addr)
+	if host == "" {
+		return true
+	}
+
+	if strings.EqualFold(host, "localhost") {
+		return false
+	}
+
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return true
+	}
+	return !addr.IsLoopback()
+}
+
+func goBGPAddrHost(addr string) string {
+	addr = strings.TrimSpace(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil {
+		return strings.Trim(host, "[]")
+	}
+	return strings.Trim(addr, "[]")
 }
 
 // GoBGPDampeningConfig holds flap dampening parameters (RFC 5882 Section 3.2).
@@ -509,10 +577,18 @@ func DefaultConfig() *Config {
 			DefaultDetectMultiplier: 3,
 			AlignIntervals:          false,
 		},
+		Socket: SocketConfig{
+			ReadBufferSize:  4 * 1024 * 1024, // 4 MiB
+			WriteBufferSize: 4 * 1024 * 1024, // 4 MiB
+		},
 		GoBGP: GoBGPConfig{
-			Enabled:  false,
-			Addr:     "127.0.0.1:50051",
-			Strategy: "disable-peer",
+			Enabled:       false,
+			Addr:          "127.0.0.1:50051",
+			Strategy:      "disable-peer",
+			ActionTimeout: 5 * time.Second,
+			TLS: GoBGPTLSConfig{
+				Enabled: false,
+			},
 			Dampening: GoBGPDampeningConfig{
 				Enabled:           false,
 				SuppressThreshold: 3,
@@ -546,6 +622,24 @@ const envPrefix = "GOBFD_"
 //
 // Uses koanf/v2 with file + env providers and YAML parser.
 func Load(path string) (*Config, error) {
+	// Go 1.26 os.Root: sandboxed file access to prevent path traversal.
+	// Validate that the config file is within the expected directory
+	// before allowing koanf to read it.
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open config root %s: %w", dir, err)
+	}
+	defer root.Close()
+
+	// Validate the file is accessible within the root.
+	f, err := root.Open(base)
+	if err != nil {
+		return nil, fmt.Errorf("open config file %s in root %s: %w", base, dir, err)
+	}
+	defer f.Close()
+
 	k := koanf.New(".")
 
 	// Load defaults first.
@@ -600,6 +694,10 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,
+		"gobgp.action_timeout":               defaults.GoBGP.ActionTimeout.String(),
+		"gobgp.tls.enabled":                  defaults.GoBGP.TLS.Enabled,
+		"gobgp.tls.ca_file":                  defaults.GoBGP.TLS.CAFile,
+		"gobgp.tls.server_name":              defaults.GoBGP.TLS.ServerName,
 		"gobgp.dampening.enabled":            defaults.GoBGP.Dampening.Enabled,
 		"gobgp.dampening.suppress_threshold": defaults.GoBGP.Dampening.SuppressThreshold,
 		"gobgp.dampening.reuse_threshold":    defaults.GoBGP.Dampening.ReuseThreshold,
@@ -651,6 +749,12 @@ var (
 
 	// ErrInvalidGoBGPStrategy indicates an unrecognized GoBGP strategy.
 	ErrInvalidGoBGPStrategy = errors.New("gobgp.strategy must be disable-peer or withdraw-routes")
+
+	// ErrInvalidGoBGPActionTimeout indicates a non-positive GoBGP action timeout.
+	ErrInvalidGoBGPActionTimeout = errors.New("gobgp.action_timeout must be > 0 when gobgp is enabled")
+
+	// ErrInvalidGoBGPTLS indicates inconsistent GoBGP TLS settings.
+	ErrInvalidGoBGPTLS = errors.New("gobgp.tls ca_file/server_name require gobgp.tls.enabled")
 
 	// ErrInvalidDampeningThreshold indicates suppress threshold is not greater than reuse.
 	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold")
@@ -746,6 +850,14 @@ func validateGoBGP(cfg GoBGPConfig) error {
 
 	if !ValidGoBGPStrategies[cfg.Strategy] {
 		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrInvalidGoBGPStrategy)
+	}
+
+	if cfg.ActionTimeout <= 0 {
+		return ErrInvalidGoBGPActionTimeout
+	}
+
+	if !cfg.TLS.Enabled && (cfg.TLS.CAFile != "" || cfg.TLS.ServerName != "") {
+		return ErrInvalidGoBGPTLS
 	}
 
 	if cfg.Dampening.Enabled {

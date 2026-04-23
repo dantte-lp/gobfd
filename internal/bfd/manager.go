@@ -242,9 +242,12 @@ type Manager struct {
 	// handles micro-BFD group updates, and forwards to publicNotifyCh.
 	rawNotifyCh chan StateChange
 
-	// publicNotifyCh is the fan-out channel exposed via StateChanges().
-	// The GoBGP handler and other external consumers read from this channel.
+	// publicNotifyCh is the legacy single-consumer channel exposed via
+	// StateChanges(). New consumers should use SubscribeStateChanges.
 	publicNotifyCh chan StateChange
+
+	subscribers map[chan StateChange]struct{}
+	subMu       sync.RWMutex
 
 	logger *slog.Logger
 }
@@ -252,9 +255,10 @@ type Manager struct {
 // sessionEntry holds a session and its cancellation function.
 // The cancel function is used by DestroySession to stop the session goroutine.
 type sessionEntry struct {
-	session *Session
-	cancel  context.CancelFunc
-	key     sessionKey
+	session     *Session
+	cancel      context.CancelFunc
+	key         sessionKey
+	unsolicited bool
 }
 
 // echoSessionEntry holds an echo session and its cancellation function.
@@ -311,6 +315,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		metrics:        noopMetrics{},
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
 		publicNotifyCh: make(chan StateChange, notifyChSize),
+		subscribers:    make(map[chan StateChange]struct{}),
 		logger:         logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
@@ -425,7 +430,7 @@ func (m *Manager) registerAndStart(
 	// does not immediately cancel sessions. Graceful shutdown first sets
 	// AdminDown (DrainAllSessions), waits for packets to be sent, and
 	// only then calls Manager.Close which cancels each session explicitly.
-	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx)) //nolint:gosec // G118: cancel is stored in sessionEntry and called by DestroySession/Close.
 	entry.cancel = cancel
 	go sess.Run(sessCtx)
 
@@ -479,6 +484,10 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 	delete(m.sessions, localDiscr)
 	delete(m.sessionsByPeer, entry.key)
 	m.mu.Unlock()
+
+	if entry.unsolicited && m.unsolicited != nil {
+		m.unsolicited.release()
+	}
 
 	// Cancel session goroutine (outside lock to avoid holding lock during
 	// goroutine teardown).
@@ -656,7 +665,7 @@ func (m *Manager) tryCreateUnsolicited(
 	// We use the interface name as a proxy: multi-hop sessions have no interface.
 	// Also validate via policy.
 
-	if err := m.unsolicited.checkPolicy(meta.SrcAddr, meta.IfName); err != nil {
+	if err := m.unsolicited.reserve(meta.SrcAddr, meta.IfName); err != nil {
 		return fmt.Errorf(
 			"unsolicited: peer %s on %s: %w",
 			meta.SrcAddr, meta.IfName, err,
@@ -685,10 +694,11 @@ func (m *Manager) tryCreateUnsolicited(
 
 	sess, err := m.CreateSession(context.Background(), cfg, sender)
 	if err != nil {
+		m.unsolicited.release()
 		return fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
 	}
 
-	m.unsolicited.incrementCount()
+	m.markSessionUnsolicited(sess.LocalDiscriminator())
 
 	m.logger.Info("unsolicited session created (RFC 9468)",
 		slog.String("peer", meta.SrcAddr.String()),
@@ -701,6 +711,15 @@ func (m *Manager) tryCreateUnsolicited(
 	sess.RecvPacket(pkt, wire)
 
 	return nil
+}
+
+func (m *Manager) markSessionUnsolicited(localDiscr uint32) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if entry, ok := m.sessions[localDiscr]; ok {
+		entry.unsolicited = true
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -753,9 +772,9 @@ func (m *Manager) Sessions() []SessionSnapshot {
 // State Change Notifications
 // -------------------------------------------------------------------------
 
-// StateChanges returns a read-only channel that receives state change
-// notifications from all sessions. This channel is intended for the gRPC
-// streaming API (MonitorSessions) and the GoBGP integration handler.
+// StateChanges returns the legacy read-only channel that receives state change
+// notifications from all sessions. Prefer SubscribeStateChanges for new
+// consumers; multiple StateChanges readers compete for events.
 //
 // The channel is buffered (64 entries). If the consumer falls behind,
 // individual session goroutines will drop notifications (logged at warn level).
@@ -764,6 +783,29 @@ func (m *Manager) Sessions() []SessionSnapshot {
 // RunDispatch goroutine before forwarding to this channel.
 func (m *Manager) StateChanges() <-chan StateChange {
 	return m.publicNotifyCh
+}
+
+// SubscribeStateChanges returns a per-consumer channel that receives every
+// manager state change until ctx is cancelled. Slow subscribers drop their own
+// events without affecting other subscribers or session goroutines.
+func (m *Manager) SubscribeStateChanges(ctx context.Context) <-chan StateChange {
+	ch := make(chan StateChange, notifyChSize)
+
+	m.subMu.Lock()
+	m.subscribers[ch] = struct{}{}
+	m.subMu.Unlock()
+
+	go func() {
+		<-ctx.Done()
+		m.subMu.Lock()
+		if _, ok := m.subscribers[ch]; ok {
+			delete(m.subscribers, ch)
+			close(ch)
+		}
+		m.subMu.Unlock()
+	}()
+
+	return ch
 }
 
 // -------------------------------------------------------------------------
@@ -907,7 +949,7 @@ func (m *Manager) CreateEchoSession(
 
 	// Start echo session goroutine with a decoupled context (same pattern
 	// as control sessions — graceful shutdown calls DrainAllSessions first).
-	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx)) //nolint:gosec // G118: cancel is stored in echoSessionEntry and called by DestroyEchoSession/Close.
 	entry := &echoSessionEntry{session: es, cancel: cancel}
 
 	m.mu.Lock()
@@ -1202,8 +1244,12 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
 				m.dispatchMicroBFD(sc)
 			}
+			if sc.NewState == StateDown {
+				m.scheduleUnsolicitedCleanup(ctx, sc)
+			}
+			m.broadcastStateChange(sc)
 
-			// Forward to public channel for GoBGP handler and gRPC streaming.
+			// Forward to the legacy single-consumer channel.
 			select {
 			case m.publicNotifyCh <- sc:
 			default:
@@ -1214,6 +1260,74 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (m *Manager) broadcastStateChange(sc StateChange) {
+	m.subMu.RLock()
+	defer m.subMu.RUnlock()
+
+	for ch := range m.subscribers {
+		select {
+		case ch <- sc:
+		default:
+			m.logger.Warn("state change subscriber channel full, dropping event",
+				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
+				slog.String("new_state", sc.NewState.String()),
+			)
+		}
+	}
+}
+
+func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange) {
+	if m.unsolicited == nil {
+		return
+	}
+
+	m.mu.RLock()
+	entry, ok := m.sessions[sc.LocalDiscr]
+	isUnsolicited := ok && entry.unsolicited
+	m.mu.RUnlock()
+	if !isUnsolicited {
+		return
+	}
+
+	timeout := m.unsolicited.policy.CleanupTimeout
+	go func() {
+		if timeout > 0 {
+			timer := time.NewTimer(timeout)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
+		}
+		m.cleanupUnsolicitedSession(ctx, sc.LocalDiscr)
+	}()
+}
+
+func (m *Manager) cleanupUnsolicitedSession(ctx context.Context, localDiscr uint32) {
+	m.mu.RLock()
+	entry, ok := m.sessions[localDiscr]
+	if !ok || !entry.unsolicited || entry.session.State() != StateDown {
+		m.mu.RUnlock()
+		return
+	}
+	peer := entry.session.PeerAddr()
+	m.mu.RUnlock()
+
+	if err := m.DestroySession(ctx, localDiscr); err != nil {
+		m.logger.Debug("unsolicited cleanup skipped",
+			slog.Uint64("local_discr", uint64(localDiscr)),
+			slog.String("peer", peer.String()),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	m.logger.Info("unsolicited session cleaned up",
+		slog.Uint64("local_discr", uint64(localDiscr)),
+		slog.String("peer", peer.String()),
+	)
 }
 
 // dispatchMicroBFD routes a micro-BFD session state change to the
@@ -1387,6 +1501,13 @@ func (m *Manager) Close() {
 	m.sessionsByPeer = make(map[sessionKey]*sessionEntry)
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
+
+	m.subMu.Lock()
+	for ch := range m.subscribers {
+		delete(m.subscribers, ch)
+		close(ch)
+	}
+	m.subMu.Unlock()
 
 	m.logger.Info("manager closed")
 }
