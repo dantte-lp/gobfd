@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-24
+
+### Added
+
+- Comprehensive test coverage for `cmd/gobfd/main.go` -- 32+ table-driven tests covering `configSessionToBFD`, `buildUnsolicitedPolicy`, `configEchoToBFD`, `configMicroBFDToBFD`, `buildOverlaySessionConfig`, `loadConfig`, `newLoggerWithLevel`.
+- Fuzz tests for overlay codecs: `FuzzVXLANHeader`, `FuzzGeneveHeader`, `FuzzInnerPacket` with round-trip and raw-input variants for untrusted network input.
+- Overlay codec benchmarks: `BenchmarkBuildInnerPacket`, `BenchmarkStripInnerPacket`, `BenchmarkVXLAN/GeneveHeaderMarshal/Unmarshal` (0 allocs/op).
+- Test coverage for `internal/version` -- `Full()` format, default values.
+- Test coverage for `gobfd-haproxy-agent` -- `stateMap` concurrency, `handleAgentCheck` with `net.Pipe()`, `loadConfig`, `envOrDefault`.
+- Test coverage for `gobfd-exabgp-bridge` -- `handleStateChange` with stdout capture, `envOrDefault`.
+- Session scaling benchmarks: `BenchmarkManagerCreate100/1000Sessions`, `BenchmarkManagerDemux1000Sessions` (O(1) demux verification), `BenchmarkManagerReconcile`.
+- Configurable socket buffer tuning via `socket.read_buffer_size` and `socket.write_buffer_size` (default 4 MiB each) for `SO_RCVBUF`/`SO_SNDBUF` on listener and sender sockets.
+- `os.Root` sandboxed config file access in `config.Load` and `gobfd-haproxy-agent` `loadConfig` (Go 1.26 path traversal protection).
+- `GOEXPERIMENT=goroutineleakprofile` in dev container for goroutine leak profiling at runtime.
+- `runtime/trace.FlightRecorder` HTTP endpoint for post-mortem debugging.
+- PR benchmark comments in CI via `actions/github-script` for regression visibility.
+- `internal/sdnotify` package replacing external `go-systemd` dependency.
+- Config, server, netio, and GoBGP integration tests (Sprint 1 quality foundation).
+
+### Changed
+
+- Pinned golangci-lint to `v2.1.6` in CI and release workflows (was `@latest`).
+- Added `-race` flag to SonarQube test workflow for data race detection.
+- CI benchmarks expanded from `./internal/bfd/` to `./...` to cover overlay codec benchmarks.
+- Replaced `errors.As` with Go 1.26 `errors.AsType[T]()` in server tests for type-safe error matching.
+- Converted 15 timer-dependent tests to `testing/synctest` for deterministic virtual-time execution.
+- Replaced `go-systemd` external dependency with `internal/sdnotify` (zero external deps for systemd notify).
+
 ## [0.3.0] - 2026-02-24
 
 ### Added
@@ -88,7 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.1.0

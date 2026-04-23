@@ -14,6 +14,7 @@
 - [Источники конфигурации](#источники-конфигурации)
 - [Полный пример конфигурации](#полный-пример-конфигурации)
 - [Секции конфигурации](#секции-конфигурации)
+- [Настройка буферов сокетов](#настройка-буферов-сокетов)
 - [Переменные окружения](#переменные-окружения)
 - [Декларативные сессии](#декларативные-сессии)
 - [Интеграция с GoBGP](#интеграция-с-gobgp)
@@ -80,12 +81,22 @@ gobgp:
   enabled: true
   addr: "127.0.0.1:50052"
   strategy: "disable-peer"   # или "withdraw-routes"
+  action_timeout: "5s"
+  tls:
+    enabled: false            # включите для удалённого/non-loopback GoBGP API
+    ca_file: ""               # опциональный PEM bundle корневых CA
+    server_name: ""           # опциональное имя для проверки сертификата
   dampening:
     enabled: true
     suppress_threshold: 3
     reuse_threshold: 2
     max_suppress_time: "60s"
     half_life: "15s"
+
+# Настройка буферов сокетов (снижает потерю пакетов при большом количестве сессий)
+socket:
+  read_buffer_size: 4194304    # SO_RCVBUF: 4 МиБ (0 = значение ОС)
+  write_buffer_size: 4194304   # SO_SNDBUF: 4 МиБ (0 = значение ОС)
 
 # Декларативные сессии (реконсилируются при SIGHUP)
 sessions:
@@ -312,6 +323,27 @@ geneve:
       detect_mult: 5
 ```
 
+#### `socket` -- Настройка буферов сокетов
+
+| Ключ | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `socket.read_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_RCVBUF` в байтах для сокетов слушателей. Увеличенные буферы снижают потерю пакетов при большом количестве сессий. `0` = значение ОС по умолчанию. |
+| `socket.write_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_SNDBUF` в байтах для сокетов отправителей. Увеличенные буферы снижают ошибки `sendto` при всплесках нагрузки. `0` = значение ОС по умолчанию. |
+
+Размеры буферов применяются ко всем BFD-сокетам слушателей и отправителей при создании. Значения передаются напрямую в `setsockopt(SO_RCVBUF)` и `setsockopt(SO_SNDBUF)`.
+
+**Рекомендации по размерам:**
+
+- **< 100 сессий**: значений ОС по умолчанию обычно достаточно (установите оба в `0`)
+- **100-1000 сессий**: 4 МиБ (по умолчанию) обеспечивает запас для всплесков трафика
+- **> 1000 сессий**: рассмотрите 8-16 МиБ; мониторьте `netstat -su` на предмет ошибок приёма UDP
+
+> **Примечание**: Ядро может ограничить эффективный размер буфера значением `net.core.rmem_max` / `net.core.wmem_max`. Для увеличения буферов поднимите эти sysctl-параметры:
+> ```bash
+> sysctl -w net.core.rmem_max=16777216
+> sysctl -w net.core.wmem_max=16777216
+> ```
+
 ### Переменные окружения
 
 Все ключи конфигурации можно переопределить через переменные окружения с префиксом `GOBFD_`. Правило маппинга: убрать префикс, привести к нижнему регистру, заменить `_` на `.`.
@@ -364,6 +396,15 @@ geneve:
 | `gobgp.enabled` | bool | `false` | Включить/выключить интеграцию с GoBGP |
 | `gobgp.addr` | string | `"127.0.0.1:50051"` | Адрес gRPC API GoBGP |
 | `gobgp.strategy` | string | `"disable-peer"` | Стратегия: `disable-peer` или `withdraw-routes` |
+| `gobgp.action_timeout` | duration | `"5s"` | Максимальное время на один вызов GoBGP API |
+| `gobgp.tls.enabled` | bool | `false` | Использовать TLS для GoBGP gRPC соединения |
+| `gobgp.tls.ca_file` | string | `""` | Опциональный PEM bundle корневых CA; пустое значение использует системные roots |
+| `gobgp.tls.server_name` | string | `""` | Опциональное имя сервера для проверки TLS-сертификата |
+
+Plaintext GoBGP gRPC сохранён для совместимости с типичными localhost
+развёртываниями. Для удалённых или non-loopback GoBGP API endpoints включайте
+`gobgp.tls.enabled`. Если GoBGP включён без TLS и `gobgp.addr` не указывает на
+loopback/localhost, GoBFD пишет предупреждение при старте.
 
 #### Демпфирование flap-ов (RFC 5882 Section 3.2)
 
@@ -406,6 +447,8 @@ kill -HUP $(pidof gobfd)
 | `bfd.default_required_min_rx` должен быть > 0 | `ErrInvalidRequiredMinRx` |
 | `gobgp.addr` не должен быть пустым при включённой интеграции | `ErrEmptyGoBGPAddr` |
 | `gobgp.strategy` должен быть `disable-peer` или `withdraw-routes` | `ErrInvalidGoBGPStrategy` |
+| `gobgp.action_timeout` должен быть > 0 при включённой интеграции | `ErrInvalidGoBGPActionTimeout` |
+| `gobgp.tls.ca_file` / `server_name` требуют `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
 | `gobgp.dampening.suppress_threshold` должен быть > `reuse_threshold` | `ErrInvalidDampeningThreshold` |
 | `gobgp.dampening.half_life` должен быть > 0 при включённом демпфировании | `ErrInvalidDampeningHalfLife` |
 | `peer` сессии должен быть валидным IP-адресом | `ErrInvalidSessionPeer` |
@@ -436,6 +479,10 @@ kill -HUP $(pidof gobfd)
 | `bfd.default_detect_multiplier` | `3` | 3x время обнаружения |
 | `gobgp.enabled` | `false` | Opt-in интеграция |
 | `gobgp.strategy` | `disable-peer` | Наиболее безопасное действие BGP |
+| `gobgp.action_timeout` | `5s` | Ограничивает внешние вызовы GoBGP API |
+| `gobgp.tls.enabled` | `false` | Совместимый default для localhost GoBGP |
+| `socket.read_buffer_size` | `4194304` (4 МиБ) | Запас для 100+ сессий |
+| `socket.write_buffer_size` | `4194304` (4 МиБ) | Запас для 100+ сессий |
 
 ### Связанные документы
 
@@ -445,4 +492,4 @@ kill -HUP $(pidof gobfd)
 
 ---
 
-*Последнее обновление: 2026-02-23*
+*Последнее обновление: 2026-02-24*

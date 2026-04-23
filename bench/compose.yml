@@ -1,0 +1,43 @@
+# bench/compose.yml — Orchestrate cross-implementation BFD benchmarks.
+#
+# Three services share a /results volume:
+#   bench-c      — C benchmarks (FRR + BIRD style, Alpine + gcc)
+#   bench-python — Python benchmarks (aiobfd + struct, Python 3.12)
+#   bench-go     — Go benchmarks (reuses existing Containerfile.dev)
+#
+# Run sequentially to avoid CPU contention:
+#   podman-compose -f bench/compose.yml run --rm bench-c
+#   podman-compose -f bench/compose.yml run --rm bench-python
+#   podman-compose -f bench/compose.yml run --rm bench-go
+
+services:
+  bench-c:
+    build:
+      context: .
+      dockerfile: Containerfile.c
+    volumes:
+      - bench-results:/results:z
+
+  bench-python:
+    build:
+      context: .
+      dockerfile: Containerfile.python
+    volumes:
+      - bench-results:/results:z
+
+  bench-go:
+    build:
+      context: ..
+      dockerfile: deployments/docker/Containerfile.dev
+    volumes:
+      - ..:/app:z
+      - bench-results:/results:z
+    working_dir: /app
+    command: >-
+      sh -c "go test -buildvcs=false -bench=. -benchmem -count=6
+             -run='^$$' -timeout=120s ./internal/bfd/
+             | tee /results/bench-go.txt
+             && echo 'Go benchmarks complete'"
+
+volumes:
+  bench-results:

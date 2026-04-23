@@ -51,13 +51,16 @@ var (
 // Format A (Ethernet payload, Protocol Type 0x6558) for BFD encapsulation.
 //
 // Thread safety: same model as VXLANConn. SendEncapsulated and
-// RecvDecapsulated may be called concurrently. The mu mutex protects
+// RecvDecapsulated may be called concurrently. RecvDecapsulated is
+// intended to be called by one receive loop at a time and reuses readBuf
+// to avoid per-packet jumbo-buffer allocations. The mu mutex protects
 // only the closed flag.
 type GeneveConn struct {
 	conn      *net.UDPConn
 	vni       uint32
 	localAddr netip.Addr
 	srcPort   uint16 // Ephemeral source port for inner UDP header
+	readBuf   []byte
 	logger    *slog.Logger
 	mu        sync.Mutex
 	closed    bool
@@ -93,6 +96,7 @@ func NewGeneveConn(
 		vni:       vni,
 		localAddr: localAddr,
 		srcPort:   srcPort,
+		readBuf:   make([]byte, geneveBufSize),
 		logger: logger.With(
 			slog.String("component", "netio.geneve_conn"),
 			slog.String("local", localAddr.String()),
@@ -172,9 +176,7 @@ func (c *GeneveConn) SendEncapsulated(
 //   - VNI matches configured VNI
 //   - Inner packet headers (Ethernet EtherType, IP version, IP protocol)
 func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	buf := make([]byte, geneveBufSize)
-
-	n, remoteAddr, err := c.conn.ReadFromUDP(buf)
+	n, remoteAddr, err := c.conn.ReadFromUDP(c.readBuf)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed
@@ -185,7 +187,7 @@ func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, e
 		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
 	}
 
-	bfdPayload, geneveHdr, err := c.decapGenevePacket(buf[:n])
+	bfdPayload, geneveHdr, err := c.decapGenevePacket(c.readBuf[:n])
 	if err != nil {
 		return nil, OverlayMeta{}, err
 	}

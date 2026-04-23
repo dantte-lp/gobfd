@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"log/slog"
 	"net/netip"
 	"testing"
 
@@ -13,6 +14,31 @@ import (
 // -------------------------------------------------------------------------
 // Geneve Encap/Decap Round-Trip Tests (no real sockets)
 // -------------------------------------------------------------------------
+
+func TestNewGeneveConnLoopbackLifecycle(t *testing.T) {
+	conn, err := netio.NewGeneveConn(
+		netip.MustParseAddr("127.0.0.1"),
+		100,
+		49152,
+		slog.New(slog.DiscardHandler),
+	)
+	if err != nil {
+		t.Skipf("Geneve loopback socket unavailable: %v", err)
+	}
+
+	err = conn.Close()
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	err = conn.Close()
+	if err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	err = conn.SendEncapsulated(context.Background(), makePayload(24), netip.MustParseAddr("127.0.0.1"))
+	if !errors.Is(err, netio.ErrOverlayRecvClosed) {
+		t.Fatalf("SendEncapsulated after Close error = %v, want ErrOverlayRecvClosed", err)
+	}
+}
 
 func TestBuildGenevePacketRoundTrip(t *testing.T) {
 	t.Parallel()
