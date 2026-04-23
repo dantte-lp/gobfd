@@ -138,7 +138,8 @@ Steps 8-18 (session): auth consistency, auth verification, state variable update
 
 - Normal (DetectMult > 1): 75-100% of interval
 - DetectMult == 1: 75-90% of interval
-- Uses `math/rand/v2` (not security-sensitive, hot path)
+- Uses a crypto-seeded session-local PRNG; jitter is not a security boundary,
+  but the seed is non-predictable and avoids global RNG contention on the hot path
 
 #### Section 6.8.16: Administrative Control
 
@@ -173,6 +174,7 @@ Graceful shutdown sends AdminDown with Diag=7, waits 2x TX interval, then cancel
 - Section 4.3 (BFD for BGP): `handler.go` watches BFD state changes and calls GoBGP gRPC API
   - BFD Down --> `DisablePeer()` (or `DeletePath()` per strategy)
   - BFD Up --> `EnablePeer()` (or `AddPath()`)
+  - Each GoBGP API action is bounded by `gobgp.action_timeout` so a slow external API cannot block state-change processing indefinitely
 
 ### RFC 5883 Implementation Notes
 
@@ -242,7 +244,7 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 | Max session limit | `MaxSessions` prevents resource exhaustion |
 | Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
 
-Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet.
+Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet. The `MaxSessions` quota is reserved atomically before creation and released on create failure, explicit destroy, or cleanup of a passive Down session after `CleanupTimeout`.
 
 ### RFC 9747 Implementation Notes
 
@@ -325,6 +327,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Session type | `SessionTypeVXLAN` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips VXLAN + inner headers, delivers to `Manager.DemuxWithWire` |
+| Receive hardening | Reuses bounded jumbo receive buffers; expected malformed/non-management packets are dropped at debug level |
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 
@@ -359,6 +362,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Session type | `SessionTypeGeneve` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips Geneve + inner headers, delivers to `Manager.DemuxWithWire` |
+| Receive hardening | Reuses bounded jumbo receive buffers; expected malformed/non-management packets are dropped at debug level |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 

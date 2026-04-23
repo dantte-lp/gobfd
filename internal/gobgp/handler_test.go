@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -36,6 +37,36 @@ type mockCall struct {
 	method        string
 	addr          string
 	communication string
+}
+
+type blockingClient struct {
+	started chan struct{}
+	done    chan struct{}
+}
+
+func newBlockingClient() *blockingClient {
+	return &blockingClient{
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (b *blockingClient) DisablePeer(ctx context.Context, _ string, _ string) error {
+	close(b.started)
+	<-ctx.Done()
+	close(b.done)
+	return ctx.Err()
+}
+
+func (b *blockingClient) EnablePeer(ctx context.Context, _ string) error {
+	close(b.started)
+	<-ctx.Done()
+	close(b.done)
+	return ctx.Err()
+}
+
+func (b *blockingClient) Close() error {
+	return nil
 }
 
 func newMockClient() *mockClient {
@@ -102,243 +133,291 @@ func (m *mockClient) setError(err error) {
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- BFD Down -> BGP DisablePeer
+// Handler Tests -- BFD Down -> BGP DisablePeer (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerBFDDownDisablesPeer(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+		events := make(chan bfd.StateChange, 1)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange, 1)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
+		// BFD Up -> Down transition (RFC 5882 Section 4.3).
+		events <- bfd.StateChange{
+			LocalDiscr: 1,
+			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			OldState:   bfd.StateUp,
+			NewState:   bfd.StateDown,
+			Diag:       bfd.DiagControlTimeExpired,
+			Timestamp:  time.Now(),
+		}
 
-	// BFD Up -> Down transition (RFC 5882 Section 4.3).
-	events <- bfd.StateChange{
-		LocalDiscr: 1,
-		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
-		OldState:   bfd.StateUp,
-		NewState:   bfd.StateDown,
-		Diag:       bfd.DiagControlTimeExpired,
-		Timestamp:  time.Now(),
-	}
+		// Wait for processing.
+		waitForCalls(t, mock, 1)
 
-	// Wait for processing.
-	waitForCalls(t, mock, 1)
+		calls := mock.getCalls()
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 call, got %d", len(calls))
+		}
 
-	calls := mock.getCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
-	}
+		if calls[0].method != methodDisablePeer {
+			t.Errorf("expected %s, got %s", methodDisablePeer, calls[0].method)
+		}
 
-	if calls[0].method != methodDisablePeer {
-		t.Errorf("expected %s, got %s", methodDisablePeer, calls[0].method)
-	}
+		if calls[0].addr != "10.0.0.1" {
+			t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
+		}
 
-	if calls[0].addr != "10.0.0.1" {
-		t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
-	}
+		// RFC 9384: communication must contain Cease/10 context and diagnostic.
+		wantComm := gobgp.FormatBFDDownCommunication(bfd.DiagControlTimeExpired)
+		if calls[0].communication != wantComm {
+			t.Errorf("communication mismatch\n  got:  %q\n  want: %q", calls[0].communication, wantComm)
+		}
 
-	// RFC 9384: communication must contain Cease/10 context and diagnostic.
-	wantComm := gobgp.FormatBFDDownCommunication(bfd.DiagControlTimeExpired)
-	if calls[0].communication != wantComm {
-		t.Errorf("communication mismatch\n  got:  %q\n  want: %q", calls[0].communication, wantComm)
-	}
-
-	cancel()
-	<-done
+		cancel()
+		<-done
+	})
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- BFD Up -> BGP EnablePeer
+// Handler Tests -- BFD Up -> BGP EnablePeer (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerBFDUpEnablesPeer(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+		events := make(chan bfd.StateChange, 2)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange, 2)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
+		// BFD Init -> Up transition.
+		events <- bfd.StateChange{
+			LocalDiscr: 1,
+			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			OldState:   bfd.StateInit,
+			NewState:   bfd.StateUp,
+			Diag:       bfd.DiagNone,
+			Timestamp:  time.Now(),
+		}
 
-	// BFD Init -> Up transition.
-	events <- bfd.StateChange{
-		LocalDiscr: 1,
-		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
-		OldState:   bfd.StateInit,
-		NewState:   bfd.StateUp,
-		Diag:       bfd.DiagNone,
-		Timestamp:  time.Now(),
-	}
+		waitForCalls(t, mock, 1)
 
-	waitForCalls(t, mock, 1)
+		calls := mock.getCalls()
+		if len(calls) != 1 {
+			t.Fatalf("expected 1 call, got %d", len(calls))
+		}
 
-	calls := mock.getCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(calls))
-	}
+		if calls[0].method != methodEnablePeer {
+			t.Errorf("expected %s, got %s", methodEnablePeer, calls[0].method)
+		}
 
-	if calls[0].method != methodEnablePeer {
-		t.Errorf("expected %s, got %s", methodEnablePeer, calls[0].method)
-	}
+		if calls[0].addr != "10.0.0.1" {
+			t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
+		}
 
-	if calls[0].addr != "10.0.0.1" {
-		t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
-	}
-
-	cancel()
-	<-done
+		cancel()
+		<-done
+	})
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- Non-actionable transitions are ignored
+// Handler Tests -- Non-actionable transitions are ignored (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+		events := make(chan bfd.StateChange, 4)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange, 4)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
+		// Down -> Init: informational only, no BGP action.
+		events <- bfd.StateChange{
+			LocalDiscr: 1,
+			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			OldState:   bfd.StateDown,
+			NewState:   bfd.StateInit,
+			Diag:       bfd.DiagNone,
+			Timestamp:  time.Now(),
+		}
 
-	// Down -> Init: informational only, no BGP action.
-	events <- bfd.StateChange{
-		LocalDiscr: 1,
-		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
-		OldState:   bfd.StateDown,
-		NewState:   bfd.StateInit,
-		Diag:       bfd.DiagNone,
-		Timestamp:  time.Now(),
-	}
+		// Up -> AdminDown: intentional local action, not a failure.
+		events <- bfd.StateChange{
+			LocalDiscr: 2,
+			PeerAddr:   netip.MustParseAddr("10.0.0.2"),
+			OldState:   bfd.StateUp,
+			NewState:   bfd.StateAdminDown,
+			Diag:       bfd.DiagAdminDown,
+			Timestamp:  time.Now(),
+		}
 
-	// Up -> AdminDown: intentional local action, not a failure.
-	events <- bfd.StateChange{
-		LocalDiscr: 2,
-		PeerAddr:   netip.MustParseAddr("10.0.0.2"),
-		OldState:   bfd.StateUp,
-		NewState:   bfd.StateAdminDown,
-		Diag:       bfd.DiagAdminDown,
-		Timestamp:  time.Now(),
-	}
+		// AdminDown -> Down: also not actionable.
+		events <- bfd.StateChange{
+			LocalDiscr: 3,
+			PeerAddr:   netip.MustParseAddr("10.0.0.3"),
+			OldState:   bfd.StateAdminDown,
+			NewState:   bfd.StateDown,
+			Diag:       bfd.DiagNone,
+			Timestamp:  time.Now(),
+		}
 
-	// AdminDown -> Down: also not actionable.
-	events <- bfd.StateChange{
-		LocalDiscr: 3,
-		PeerAddr:   netip.MustParseAddr("10.0.0.3"),
-		OldState:   bfd.StateAdminDown,
-		NewState:   bfd.StateDown,
-		Diag:       bfd.DiagNone,
-		Timestamp:  time.Now(),
-	}
+		// Give time for processing then verify no calls made.
+		time.Sleep(100 * time.Millisecond)
 
-	// Give time for processing then verify no calls made.
-	time.Sleep(100 * time.Millisecond)
+		calls := mock.getCalls()
+		if len(calls) != 0 {
+			t.Errorf("expected 0 calls, got %d: %+v", len(calls), calls)
+		}
 
-	calls := mock.getCalls()
-	if len(calls) != 0 {
-		t.Errorf("expected 0 calls, got %d: %+v", len(calls), calls)
-	}
-
-	cancel()
-	<-done
+		cancel()
+		<-done
+	})
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- Channel close stops handler
+// Handler Tests -- Channel close stops handler (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerStopsOnChannelClose(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+		events := make(chan bfd.StateChange)
+		ctx := context.Background()
 
-	events := make(chan bfd.StateChange)
-	ctx := context.Background()
+		done := make(chan error, 1)
+		go func() {
+			done <- handler.Run(ctx, events)
+		}()
 
-	done := make(chan error, 1)
-	go func() {
-		done <- handler.Run(ctx, events)
-	}()
+		close(events)
 
-	close(events)
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("expected nil error, got %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not stop after channel close")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not stop after channel close")
-	}
+	})
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- Context cancellation stops handler
+// Handler Tests -- Context cancellation stops handler (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerStopsOnContextCancel(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+		events := make(chan bfd.StateChange)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- handler.Run(ctx, events)
+		}()
 
-	done := make(chan error, 1)
-	go func() {
-		done <- handler.Run(ctx, events)
-	}()
+		cancel()
 
-	cancel()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("expected nil error, got %v", err)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("expected nil error, got %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not stop after context cancel")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not stop after context cancel")
-	}
+	})
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- GoBGP client error is logged, not fatal
+// Handler Tests -- GoBGP client error is logged, not fatal (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerGoBGPErrorNonFatal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		mock.setError(errors.New("connection refused"))
+
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+
+		events := make(chan bfd.StateChange, 1)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
+
+		// BFD Down event should not crash the handler even if GoBGP call fails.
+		events <- bfd.StateChange{
+			LocalDiscr: 1,
+			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			OldState:   bfd.StateUp,
+			NewState:   bfd.StateDown,
+			Diag:       bfd.DiagControlTimeExpired,
+			Timestamp:  time.Now(),
+		}
+
+		// Give time for processing.
+		time.Sleep(100 * time.Millisecond)
+
+		// Handler should still be running despite the error.
+		cancel()
+
+		select {
+		case <-done:
+			// Success: handler stopped gracefully.
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not stop after context cancel")
+		}
+	})
+}
+
+func TestHandlerActionTimeoutBoundsGoBGPRPC(t *testing.T) {
 	t.Parallel()
 
-	mock := newMockClient()
-	mock.setError(errors.New("connection refused"))
-
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{})
+	client := newBlockingClient()
+	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
+		Client:        client,
+		Strategy:      gobgp.StrategyDisablePeer,
+		ActionTimeout: 25 * time.Millisecond,
+		Logger:        slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
 
 	events := make(chan bfd.StateChange, 1)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
@@ -346,7 +425,6 @@ func TestHandlerGoBGPErrorNonFatal(t *testing.T) {
 		_ = handler.Run(ctx, events)
 	}()
 
-	// BFD Down event should not crash the handler even if GoBGP call fails.
 	events <- bfd.StateChange{
 		LocalDiscr: 1,
 		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
@@ -356,17 +434,23 @@ func TestHandlerGoBGPErrorNonFatal(t *testing.T) {
 		Timestamp:  time.Now(),
 	}
 
-	// Give time for processing.
-	time.Sleep(100 * time.Millisecond)
-
-	// Handler should still be running despite the error.
-	cancel()
+	select {
+	case <-client.started:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("GoBGP RPC did not start")
+	}
 
 	select {
+	case <-client.done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("GoBGP RPC was not bounded by ActionTimeout")
+	}
+
+	cancel()
+	select {
 	case <-done:
-		// Success: handler stopped gracefully.
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not stop after context cancel")
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handler did not stop after action timeout and context cancel")
 	}
 }
 
@@ -407,7 +491,7 @@ func TestNewHandlerWithdrawRoutesUnsupported(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
-// Handler Dampening Integration -- rapid flaps are suppressed
+// Handler Dampening Integration -- rapid flaps are suppressed (synctest)
 // -------------------------------------------------------------------------
 
 // TestHandlerDampeningIntegration tests the full handler with dampening
@@ -415,183 +499,184 @@ func TestNewHandlerWithdrawRoutesUnsupported(t *testing.T) {
 // The handler creates its own dampener with real time, so we use a
 // threshold of 4 to ensure 3 events pass through and the 4th+ are suppressed.
 func TestHandlerDampeningIntegration(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{
+			Enabled:           true,
+			SuppressThreshold: 4,
+			ReuseThreshold:    2,
+			MaxSuppressTime:   60 * time.Second,
+			HalfLife:          15 * time.Second,
+		})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{
-		Enabled:           true,
-		SuppressThreshold: 4,
-		ReuseThreshold:    2,
-		MaxSuppressTime:   60 * time.Second,
-		HalfLife:          15 * time.Second,
+		events := make(chan bfd.StateChange, 10)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
+
+		peer := netip.MustParseAddr("10.0.0.1")
+
+		// Send 6 rapid Down events.
+		for range 6 {
+			events <- bfd.StateChange{
+				LocalDiscr: 1,
+				PeerAddr:   peer,
+				OldState:   bfd.StateUp,
+				NewState:   bfd.StateDown,
+				Diag:       bfd.DiagControlTimeExpired,
+				Timestamp:  time.Now(),
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		// Wait for processing.
+		time.Sleep(200 * time.Millisecond)
+
+		calls := mock.getCalls()
+
+		// With threshold=4 and 15s half-life, the tiny decay between rapid
+		// calls is negligible. Events 1-3 pass (penalties ~1,2,3), event 4
+		// reaches threshold (penalty ~4) and is suppressed.
+		if len(calls) < 2 || len(calls) > 4 {
+			t.Errorf("expected 2-4 calls before suppression, got %d: %+v", len(calls), calls)
+		}
+
+		for _, c := range calls {
+			if c.method != methodDisablePeer {
+				t.Errorf("expected %s, got %s", methodDisablePeer, c.method)
+			}
+		}
+
+		cancel()
+		<-done
 	})
-
-	events := make(chan bfd.StateChange, 10)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
-
-	peer := netip.MustParseAddr("10.0.0.1")
-
-	// Send 6 rapid Down events.
-	for range 6 {
-		events <- bfd.StateChange{
-			LocalDiscr: 1,
-			PeerAddr:   peer,
-			OldState:   bfd.StateUp,
-			NewState:   bfd.StateDown,
-			Diag:       bfd.DiagControlTimeExpired,
-			Timestamp:  time.Now(),
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	// Wait for processing.
-	time.Sleep(200 * time.Millisecond)
-
-	calls := mock.getCalls()
-
-	// With threshold=4 and 15s half-life, the tiny decay between rapid
-	// calls is negligible. Events 1-3 pass (penalties ~1,2,3), event 4
-	// reaches threshold (penalty ~4) and is suppressed.
-	if len(calls) < 2 || len(calls) > 4 {
-		t.Errorf("expected 2-4 calls before suppression, got %d: %+v", len(calls), calls)
-	}
-
-	for _, c := range calls {
-		if c.method != methodDisablePeer {
-			t.Errorf("expected %s, got %s", methodDisablePeer, c.method)
-		}
-	}
-
-	cancel()
-	<-done
 }
 
 // -------------------------------------------------------------------------
 // Handler Dampening Integration -- Up events suppressed during dampening
+// (synctest)
 // -------------------------------------------------------------------------
 
 func TestHandlerDampeningUpSuppressed(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{
+			Enabled:           true,
+			SuppressThreshold: 2,
+			ReuseThreshold:    1,
+			MaxSuppressTime:   60 * time.Second,
+			HalfLife:          15 * time.Second,
+		})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{
-		Enabled:           true,
-		SuppressThreshold: 2,
-		ReuseThreshold:    1,
-		MaxSuppressTime:   60 * time.Second,
-		HalfLife:          15 * time.Second,
-	})
+		events := make(chan bfd.StateChange, 10)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange, 10)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
+		peer := netip.MustParseAddr("10.0.0.1")
 
-	peer := netip.MustParseAddr("10.0.0.1")
+		// Send 3 rapid Down events to trigger suppression.
+		for range 3 {
+			events <- bfd.StateChange{
+				LocalDiscr: 1,
+				PeerAddr:   peer,
+				OldState:   bfd.StateUp,
+				NewState:   bfd.StateDown,
+				Diag:       bfd.DiagControlTimeExpired,
+				Timestamp:  time.Now(),
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 
-	// Send 3 rapid Down events to trigger suppression.
-	for range 3 {
+		// Wait for Down events to be processed.
+		time.Sleep(100 * time.Millisecond)
+
+		// Now send an Up event -- it should be suppressed because the peer
+		// is still dampened.
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   peer,
-			OldState:   bfd.StateUp,
-			NewState:   bfd.StateDown,
-			Diag:       bfd.DiagControlTimeExpired,
+			OldState:   bfd.StateDown,
+			NewState:   bfd.StateUp,
+			Diag:       bfd.DiagNone,
 			Timestamp:  time.Now(),
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
 
-	// Wait for Down events to be processed.
-	time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-	// Now send an Up event -- it should be suppressed because the peer
-	// is still dampened.
-	events <- bfd.StateChange{
-		LocalDiscr: 1,
-		PeerAddr:   peer,
-		OldState:   bfd.StateDown,
-		NewState:   bfd.StateUp,
-		Diag:       bfd.DiagNone,
-		Timestamp:  time.Now(),
-	}
+		calls := mock.getCalls()
 
-	time.Sleep(200 * time.Millisecond)
-
-	calls := mock.getCalls()
-
-	// Verify no EnablePeer call was made.
-	hasEnablePeer := false
-	for _, c := range calls {
-		if c.method == methodEnablePeer {
-			hasEnablePeer = true
+		// Verify no EnablePeer call was made.
+		hasEnablePeer := false
+		for _, c := range calls {
+			if c.method == methodEnablePeer {
+				hasEnablePeer = true
+			}
 		}
-	}
 
-	if hasEnablePeer {
-		t.Error("EnablePeer should be suppressed during dampening")
-	}
+		if hasEnablePeer {
+			t.Error("EnablePeer should be suppressed during dampening")
+		}
 
-	cancel()
-	<-done
+		cancel()
+		<-done
+	})
 }
 
 // -------------------------------------------------------------------------
-// Handler Tests -- Disabled dampening passes all events
+// Handler Tests -- Disabled dampening passes all events (synctest)
 // -------------------------------------------------------------------------
 
 func TestDampeningDisabledPassesAll(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{
+			Enabled: false,
+		})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{
-		Enabled: false,
-	})
+		events := make(chan bfd.StateChange, 10)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange, 10)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
+		peer := netip.MustParseAddr("10.0.0.1")
 
-	peer := netip.MustParseAddr("10.0.0.1")
-
-	// Send 5 rapid Down events.
-	for range 5 {
-		events <- bfd.StateChange{
-			LocalDiscr: 1,
-			PeerAddr:   peer,
-			OldState:   bfd.StateUp,
-			NewState:   bfd.StateDown,
-			Diag:       bfd.DiagControlTimeExpired,
-			Timestamp:  time.Now(),
+		// Send 5 rapid Down events.
+		for range 5 {
+			events <- bfd.StateChange{
+				LocalDiscr: 1,
+				PeerAddr:   peer,
+				OldState:   bfd.StateUp,
+				NewState:   bfd.StateDown,
+				Diag:       bfd.DiagControlTimeExpired,
+				Timestamp:  time.Now(),
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
 
-	// Wait for processing.
-	waitForCalls(t, mock, 5)
+		// Wait for processing.
+		waitForCalls(t, mock, 5)
 
-	calls := mock.getCalls()
-	if len(calls) != 5 {
-		t.Errorf("expected 5 calls with dampening disabled, got %d", len(calls))
-	}
+		calls := mock.getCalls()
+		if len(calls) != 5 {
+			t.Errorf("expected 5 calls with dampening disabled, got %d", len(calls))
+		}
 
-	cancel()
-	<-done
+		cancel()
+		<-done
+	})
 }
 
 // -------------------------------------------------------------------------
@@ -793,7 +878,7 @@ func TestDampenerMaxSuppressTime(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
-// Full Integration Scenario -- Down/Up/Down cycle with dampening
+// Full Integration Scenario -- Down/Up/Down cycle with dampening (synctest)
 // -------------------------------------------------------------------------
 
 // TestHandlerFullCycleDamped tests a realistic BFD flap scenario.
@@ -803,77 +888,77 @@ func TestDampenerMaxSuppressTime(t *testing.T) {
 // than 0.01 penalty units -- far below the 0.5 margin built into the
 // threshold value.
 func TestHandlerFullCycleDamped(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		handler := newTestHandler(t, mock, gobgp.DampeningConfig{
+			Enabled:           true,
+			SuppressThreshold: 2.5,
+			ReuseThreshold:    1,
+			MaxSuppressTime:   60 * time.Second,
+			HalfLife:          15 * time.Second,
+		})
 
-	mock := newMockClient()
-	handler := newTestHandler(t, mock, gobgp.DampeningConfig{
-		Enabled:           true,
-		SuppressThreshold: 2.5,
-		ReuseThreshold:    1,
-		MaxSuppressTime:   60 * time.Second,
-		HalfLife:          15 * time.Second,
-	})
+		events := make(chan bfd.StateChange, 20)
+		ctx, cancel := context.WithCancel(context.Background())
 
-	events := make(chan bfd.StateChange, 20)
-	ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = handler.Run(ctx, events)
+		}()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = handler.Run(ctx, events)
-	}()
+		peer := netip.MustParseAddr("10.0.0.1")
 
-	peer := netip.MustParseAddr("10.0.0.1")
-
-	// Send 4 Down/Up cycles. The first 2 Down events pass (penalties ~1, ~2).
-	// The 3rd Down event reaches ~3 which is > 2.5 threshold, so it's suppressed.
-	for i := range 4 {
-		events <- bfd.StateChange{
-			LocalDiscr: 1, PeerAddr: peer,
-			OldState: bfd.StateUp, NewState: bfd.StateDown,
-			Diag: bfd.DiagControlTimeExpired, Timestamp: time.Now(),
-		}
-		time.Sleep(10 * time.Millisecond)
-
-		events <- bfd.StateChange{
-			LocalDiscr: 1, PeerAddr: peer,
-			OldState: bfd.StateDown, NewState: bfd.StateUp,
-			Diag: bfd.DiagNone, Timestamp: time.Now(),
-		}
-
-		if i < 3 {
+		// Send 4 Down/Up cycles. The first 2 Down events pass (penalties ~1, ~2).
+		// The 3rd Down event reaches ~3 which is > 2.5 threshold, so it's suppressed.
+		for i := range 4 {
+			events <- bfd.StateChange{
+				LocalDiscr: 1, PeerAddr: peer,
+				OldState: bfd.StateUp, NewState: bfd.StateDown,
+				Diag: bfd.DiagControlTimeExpired, Timestamp: time.Now(),
+			}
 			time.Sleep(10 * time.Millisecond)
+
+			events <- bfd.StateChange{
+				LocalDiscr: 1, PeerAddr: peer,
+				OldState: bfd.StateDown, NewState: bfd.StateUp,
+				Diag: bfd.DiagNone, Timestamp: time.Now(),
+			}
+
+			if i < 3 {
+				time.Sleep(10 * time.Millisecond)
+			}
 		}
-	}
 
-	time.Sleep(200 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-	calls := mock.getCalls()
+		calls := mock.getCalls()
 
-	disableCount := 0
-	enableCount := 0
+		disableCount := 0
+		enableCount := 0
 
-	for _, c := range calls {
-		switch c.method {
-		case methodDisablePeer:
-			disableCount++
-		case methodEnablePeer:
-			enableCount++
+		for _, c := range calls {
+			switch c.method {
+			case methodDisablePeer:
+				disableCount++
+			case methodEnablePeer:
+				enableCount++
+			}
 		}
-	}
 
-	// Cycles 1-2: DisablePeer+EnablePeer each (penalties ~1, ~2).
-	// Cycles 3-4: suppressed (penalties ~3+, all > 2.5).
-	if disableCount != 2 {
-		t.Errorf("expected 2 DisablePeer calls (before dampening), got %d", disableCount)
-	}
+		// Cycles 1-2: DisablePeer+EnablePeer each (penalties ~1, ~2).
+		// Cycles 3-4: suppressed (penalties ~3+, all > 2.5).
+		if disableCount != 2 {
+			t.Errorf("expected 2 DisablePeer calls (before dampening), got %d", disableCount)
+		}
 
-	if enableCount != 2 {
-		t.Errorf("expected 2 EnablePeer calls (before dampening), got %d", enableCount)
-	}
+		if enableCount != 2 {
+			t.Errorf("expected 2 EnablePeer calls (before dampening), got %d", enableCount)
+		}
 
-	cancel()
-	<-done
+		cancel()
+		<-done
+	})
 }
 
 // -------------------------------------------------------------------------

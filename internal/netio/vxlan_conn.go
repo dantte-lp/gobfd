@@ -36,12 +36,15 @@ const vxlanBufSize = 9000
 // Thread safety: SendEncapsulated and RecvDecapsulated may be called
 // concurrently from separate goroutines (TX from session goroutine,
 // RX from OverlayReceiver goroutine). The underlying net.UDPConn is
-// safe for concurrent use. The mu mutex protects the closed flag only.
+// safe for concurrent use. RecvDecapsulated is intended to be called by
+// one receive loop at a time and reuses readBuf to avoid per-packet
+// jumbo-buffer allocations. The mu mutex protects the closed flag only.
 type VXLANConn struct {
 	conn          *net.UDPConn
 	managementVNI uint32
 	localAddr     netip.Addr
 	srcPort       uint16 // Ephemeral source port for inner UDP header
+	readBuf       []byte
 	logger        *slog.Logger
 	mu            sync.Mutex
 	closed        bool
@@ -77,6 +80,7 @@ func NewVXLANConn(
 		managementVNI: managementVNI,
 		localAddr:     localAddr,
 		srcPort:       srcPort,
+		readBuf:       make([]byte, vxlanBufSize),
 		logger: logger.With(
 			slog.String("component", "netio.vxlan_conn"),
 			slog.String("local", localAddr.String()),
@@ -148,9 +152,7 @@ func (c *VXLANConn) SendEncapsulated(
 // Packets with non-matching VNI are silently dropped (they belong to
 // data-plane VNIs, not BFD management traffic).
 func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	buf := make([]byte, vxlanBufSize)
-
-	n, remoteAddr, err := c.conn.ReadFromUDP(buf)
+	n, remoteAddr, err := c.conn.ReadFromUDP(c.readBuf)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed
@@ -161,7 +163,7 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
 
-	data := buf[:n]
+	data := c.readBuf[:n]
 
 	// Need at least VXLAN header + minimum inner overhead.
 	minSize := VXLANHeaderSize + InnerOverheadIPv4

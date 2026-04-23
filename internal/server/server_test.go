@@ -162,12 +162,12 @@ func TestAddSessionInvalidArgs(t *testing.T) {
 				t.Fatal("expected error, got nil")
 			}
 
-			var connectErr *connect.Error
-			if !errors.As(err, &connectErr) {
+			if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+				if connectErr.Code() != connect.CodeInvalidArgument {
+					t.Errorf("code = %s, want InvalidArgument", connectErr.Code())
+				}
+			} else {
 				t.Fatalf("expected connect.Error, got %T: %v", err, err)
-			}
-			if connectErr.Code() != connect.CodeInvalidArgument {
-				t.Errorf("code = %s, want InvalidArgument", connectErr.Code())
 			}
 		})
 	}
@@ -196,12 +196,12 @@ func TestAddSessionDuplicate(t *testing.T) {
 		t.Fatal("expected error for duplicate session, got nil")
 	}
 
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+		if connectErr.Code() != connect.CodeAlreadyExists {
+			t.Errorf("code = %s, want AlreadyExists", connectErr.Code())
+		}
+	} else {
 		t.Fatalf("expected connect.Error, got %T: %v", err, err)
-	}
-	if connectErr.Code() != connect.CodeAlreadyExists {
-		t.Errorf("code = %s, want AlreadyExists", connectErr.Code())
 	}
 }
 
@@ -255,12 +255,12 @@ func TestDeleteSessionNotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent session, got nil")
 	}
 
-	var connectErr *connect.Error
-	if !errors.As(err, &connectErr) {
+	if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+		if connectErr.Code() != connect.CodeNotFound {
+			t.Errorf("code = %s, want NotFound", connectErr.Code())
+		}
+	} else {
 		t.Fatalf("expected connect.Error, got %T: %v", err, err)
-	}
-	if connectErr.Code() != connect.CodeNotFound {
-		t.Errorf("code = %s, want NotFound", connectErr.Code())
 	}
 }
 
@@ -431,12 +431,12 @@ func TestGetSessionNotFound(t *testing.T) {
 				t.Fatal("expected error, got nil")
 			}
 
-			var connectErr *connect.Error
-			if !errors.As(err, &connectErr) {
+			if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+				if connectErr.Code() != connect.CodeNotFound {
+					t.Errorf("code = %s, want NotFound", connectErr.Code())
+				}
+			} else {
 				t.Fatalf("expected connect.Error, got %T: %v", err, err)
-			}
-			if connectErr.Code() != connect.CodeNotFound {
-				t.Errorf("code = %s, want NotFound", connectErr.Code())
 			}
 		})
 	}

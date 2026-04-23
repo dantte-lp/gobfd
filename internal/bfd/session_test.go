@@ -189,6 +189,48 @@ func TestNewSessionValidationErrors(t *testing.T) {
 			wantErr:    "desired min TX interval",
 		},
 		{
+			name: "zero RX interval",
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  bfd.SessionTypeSingleHop,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: 0,
+				DetectMultiplier:      3,
+			},
+			localDiscr: 1,
+			wantErr:    "required min RX interval",
+		},
+		{
+			name: "TX interval exceeds wire range",
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  bfd.SessionTypeSingleHop,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  bfd.MaxWireInterval + time.Microsecond,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+			localDiscr: 1,
+			wantErr:    "wire interval",
+		},
+		{
+			name: "RX interval exceeds wire range",
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  bfd.SessionTypeSingleHop,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: bfd.MaxWireInterval + time.Microsecond,
+				DetectMultiplier:      3,
+			},
+			localDiscr: 1,
+			wantErr:    "wire interval",
+		},
+		{
 			name: "zero discriminator",
 			cfg: bfd.SessionConfig{
 				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
@@ -241,6 +283,27 @@ func TestNewSessionValidationErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewSessionAcceptsOverlaySessionTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, sessType := range []bfd.SessionType{
+		bfd.SessionTypeVXLAN,
+		bfd.SessionTypeGeneve,
+	} {
+		t.Run(sessType.String(), func(t *testing.T) {
+			t.Parallel()
+
+			cfg := defaultSessionConfig()
+			cfg.Type = sessType
+
+			_, err := bfd.NewSession(cfg, 1, &mockSender{}, nil, slog.Default())
+			if err != nil {
+				t.Fatalf("NewSession(%s) returned error: %v", sessType, err)
 			}
 		})
 	}

@@ -50,6 +50,9 @@ make int-k8s                                       # integration: Kubernetes Dae
 - Interfaces: small, near consumers, composition over inheritance
 - Tests: table-driven, `t.Parallel()` where safe, always `-race`
 - FSM: all state transitions MUST match RFC 5880 §6.8.6 exactly
+- Zero allocation: hot paths (packet codec, FSM, timers, session event loop) MUST be 0 allocs/op in benchmarks
+- No duplication: extract shared logic into reusable functions; session types share packet codec, timer, FSM infrastructure via composition and interfaces
+- Go 1.26 best practices: use `testing/synctest` for timer tests, `runtime/trace.FlightRecorder` for debugging, `os.Root` for sandboxed I/O, `GOMEMLIMIT`+`GOGC=off` for bounded memory, `weak.Pointer` for caches, range-over-func iterators, `slices`/`maps`/`cmp` stdlib packages
 
 ## Git
 - Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages

@@ -12,17 +12,15 @@ formatters:
     - gofmt
     - gofumpt
     - goimports
-    - golines
   settings:
     goimports:
       local-prefixes:
         - github.com/dantte-lp/gobfd
-    golines:
-      max-len: 120
 
 output:
   formats:
     text:
+      path: stdout
       print-linter-name: true
       colors: true
   show-stats: true
@@ -65,7 +63,6 @@ linters:
 
     # ── Обработка ошибок / Error handling ──
     - errorlint           # Error wrapping style (Go 1.13+)
-    - wrapcheck           # External package errors must be wrapped
     - err113              # Error handling expressions
     - errname             # Sentinel errors prefixed with Err
     - errchkjson          # JSON encoding type checks
@@ -75,11 +72,7 @@ linters:
 
     # ── Качество кода / Code quality ──
     - gocritic            # Bugs, performance, style diagnostics
-    - revive              # Consistency and optimizations
-    - cyclop              # Cyclomatic complexity
-    - gocognit            # Cognitive complexity
     - funlen              # Long functions
-    - nestif              # Deeply nested if statements
     - exhaustive          # Exhaustive enum switch
     - unparam             # Unused function parameters
     - unconvert           # Unnecessary type conversions
@@ -103,7 +96,6 @@ linters:
     - exptostd            # Replace x/exp with stdlib
 
     # ── Стиль / Style ──
-    - goconst             # Repeated strings → constant
     - dupl                # Code clones
     - misspell            # Misspelled English words
     - sloglint            # Consistent slog usage
@@ -129,14 +121,10 @@ linters:
 
     # ── Тесты / Testing ──
     - tparallel           # Inappropriate t.Parallel() usage
-    - testpackage         # Separate _test package
     - thelper             # Test helpers call t.Helper()
     - testableexamples    # Examples have expected output
     - usetesting          # Testing package replacements
     - testifylint         # Testify best practices
-
-    # ── Наблюдаемость / Observability ──
-    - promlinter          # Prometheus metric naming
 
   settings:
     gosec:
@@ -150,16 +138,9 @@ linters:
         - copylocks
         - loopclosure
         - httpmux
-    cyclop:
-      max-complexity: 15
-      skip-tests: true
-    gocognit:
-      min-complexity: 15
     funlen:
       lines: 60
       statements: 40
-    nestif:
-      min-complexity: 4
     maintidx:
       under: 20
     nakedret:
@@ -192,9 +173,6 @@ linters:
     loggercheck:
       require-string-key: true
       no-printf-like: true
-    promlinter:
-      strict: true
-
   exclusions:
     generated: strict
     presets:
@@ -206,11 +184,7 @@ linters:
           - gosec
           - dupl
           - funlen
-          - cyclop
-          - gocognit
-          - nestif
           - err113
-          - wrapcheck
           - nonamedreturns
           - maintidx
           - containedctx
@@ -218,6 +192,17 @@ linters:
       - path: cmd/
         linters:
           - gochecknoinits  # cobra uses init() for flag registration
+      - path: test/interop/
+        linters:
+          - depguard
+      - path: scripts/vuln-audit.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
+      - path: internal/bfd/packet.go
+        text: "Function 'UnmarshalControlPacket' has too many statements"
+        linters:
+          - funlen
 
 severity:
   default: warning

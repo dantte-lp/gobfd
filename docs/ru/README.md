@@ -1,7 +1,7 @@
 # Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-11-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-14-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -32,6 +32,12 @@ graph TD
         C3["09-development.md<br/>Разработка"]
     end
 
+    subgraph "Производительность"
+        E1["12-benchmarks.md<br/>Бенчмарки"]
+        E2["13-competitive-analysis.md<br/>Конкурентный анализ"]
+        E3["14-performance-analysis.md<br/>Анализ производительности"]
+    end
+
     subgraph "Справочник"
         D1["08-rfc-compliance.md<br/>Соответствие RFC"]
         D2["rfc/<br/>Тексты RFC"]
@@ -48,6 +54,7 @@ graph TD
     IDX --> C2
     IDX --> C3
     IDX --> D1
+    IDX --> E1
 
     A1 --> A2
     A2 --> D1
@@ -55,6 +62,8 @@ graph TD
     B3 --> C2
     C1 --> C3
     D1 --> D2
+    E1 --> E2
+    E2 --> E3
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -88,6 +97,14 @@ graph TD
 | 09 | [**Разработка**](./09-development.md) | Рабочий процесс, Make-цели, тестирование, линтинг |
 | 10 | [**Руководство по Changelog**](./10-changelog.md) | Ведение CHANGELOG.md, процесс релиза, семантическое версионирование |
 | 11 | [**Интеграции**](./11-integrations.md) | BGP failover, HAProxy, наблюдаемость, ExaBGP, Kubernetes |
+
+### Производительность
+
+| # | Документ | Описание |
+|---|---|---|
+| 12 | [**Бенчмарки**](./12-benchmarks.md) | Как запускать, читать и интерпретировать результаты бенчмарков |
+| 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, aiobfd, аппаратными платформами |
+| 14 | [**Анализ производительности**](./14-performance-analysis.md) | GoBFD vs реализации на C: бенчмарки, архитектура, поведение при нагрузке |
 
 ### Исходные тексты RFC
 
