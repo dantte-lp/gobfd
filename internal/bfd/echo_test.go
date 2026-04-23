@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -120,177 +121,177 @@ func TestNewEchoSessionInvalidPeerAddr(t *testing.T) {
 }
 
 // -------------------------------------------------------------------------
-// EchoSession State Transition Tests
+// EchoSession State Transition Tests (synctest — deterministic timers)
 // -------------------------------------------------------------------------
 
 func TestEchoSessionDownToUpOnRecv(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		es := createTestEchoSession(t)
+		notifyCh := make(chan bfd.StateChange, 8)
 
-	es := createTestEchoSession(t)
-	notifyCh := make(chan bfd.StateChange, 8)
+		es2 := createTestEchoSessionWithNotify(t, notifyCh)
+		go es2.Run(t.Context())
 
-	es2 := createTestEchoSessionWithNotify(t, notifyCh)
-	go es2.Run(t.Context())
+		// Wait for session to start, then send echo return.
+		time.Sleep(10 * time.Millisecond)
+		es2.RecvEcho()
 
-	// Wait for session to start, then send echo return.
-	time.Sleep(10 * time.Millisecond)
-	es2.RecvEcho()
-
-	// Wait for state change notification.
-	select {
-	case sc := <-notifyCh:
-		if sc.OldState != bfd.StateDown {
-			t.Errorf("old state = %v, want Down", sc.OldState)
+		// Wait for state change notification.
+		select {
+		case sc := <-notifyCh:
+			if sc.OldState != bfd.StateDown {
+				t.Errorf("old state = %v, want Down", sc.OldState)
+			}
+			if sc.NewState != bfd.StateUp {
+				t.Errorf("new state = %v, want Up", sc.NewState)
+			}
+			if sc.Diag != bfd.DiagNone {
+				t.Errorf("diag = %v, want None", sc.Diag)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timeout waiting for state change notification")
 		}
-		if sc.NewState != bfd.StateUp {
-			t.Errorf("new state = %v, want Up", sc.NewState)
-		}
-		if sc.Diag != bfd.DiagNone {
-			t.Errorf("diag = %v, want None", sc.Diag)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for state change notification")
-	}
 
-	// Verify the state without the running session.
-	_ = es
+		// Verify the state without the running session.
+		_ = es
+	})
 }
 
 func TestEchoSessionUpToDownOnTimeout(t *testing.T) {
-	t.Parallel()
-
-	notifyCh := make(chan bfd.StateChange, 8)
-	cfg := bfd.EchoSessionConfig{
-		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
-		LocalAddr:        netip.MustParseAddr("10.0.0.2"),
-		TxInterval:       50 * time.Millisecond,
-		DetectMultiplier: 2, // Detection time = 100ms
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	es, err := bfd.NewEchoSession(cfg, 100, noopSender{}, notifyCh, logger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	go es.Run(t.Context())
-
-	// First, transition to Up by sending an echo return.
-	time.Sleep(10 * time.Millisecond)
-	es.RecvEcho()
-
-	// Wait for Down → Up notification.
-	select {
-	case sc := <-notifyCh:
-		if sc.NewState != bfd.StateUp {
-			t.Fatalf("expected Up, got %v", sc.NewState)
+	synctest.Test(t, func(t *testing.T) {
+		notifyCh := make(chan bfd.StateChange, 8)
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       50 * time.Millisecond,
+			DetectMultiplier: 2, // Detection time = 100ms
 		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for Up")
-	}
 
-	// Now wait for detection timeout (100ms + jitter margin).
-	select {
-	case sc := <-notifyCh:
-		if sc.OldState != bfd.StateUp {
-			t.Errorf("old state = %v, want Up", sc.OldState)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		es, err := bfd.NewEchoSession(cfg, 100, noopSender{}, notifyCh, logger)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if sc.NewState != bfd.StateDown {
-			t.Errorf("new state = %v, want Down", sc.NewState)
+
+		go es.Run(t.Context())
+
+		// First, transition to Up by sending an echo return.
+		time.Sleep(10 * time.Millisecond)
+		es.RecvEcho()
+
+		// Wait for Down → Up notification.
+		select {
+		case sc := <-notifyCh:
+			if sc.NewState != bfd.StateUp {
+				t.Fatalf("expected Up, got %v", sc.NewState)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timeout waiting for Up")
 		}
-		if sc.Diag != bfd.DiagEchoFailed {
-			t.Errorf("diag = %v, want EchoFailed", sc.Diag)
+
+		// Now wait for detection timeout (100ms + jitter margin).
+		select {
+		case sc := <-notifyCh:
+			if sc.OldState != bfd.StateUp {
+				t.Errorf("old state = %v, want Up", sc.OldState)
+			}
+			if sc.NewState != bfd.StateDown {
+				t.Errorf("new state = %v, want Down", sc.NewState)
+			}
+			if sc.Diag != bfd.DiagEchoFailed {
+				t.Errorf("diag = %v, want EchoFailed", sc.Diag)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timeout waiting for Down on detect timeout")
 		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for Down on detect timeout")
-	}
+	})
 }
 
 func TestEchoSessionStaysUpWithEchoes(t *testing.T) {
-	t.Parallel()
-
-	notifyCh := make(chan bfd.StateChange, 16)
-	cfg := bfd.EchoSessionConfig{
-		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
-		LocalAddr:        netip.MustParseAddr("10.0.0.2"),
-		TxInterval:       50 * time.Millisecond,
-		DetectMultiplier: 3, // Detection time = 150ms
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	es, err := bfd.NewEchoSession(cfg, 101, noopSender{}, notifyCh, logger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	go es.Run(t.Context())
-
-	// Transition to Up.
-	time.Sleep(10 * time.Millisecond)
-	es.RecvEcho()
-
-	// Wait for Up notification.
-	select {
-	case sc := <-notifyCh:
-		if sc.NewState != bfd.StateUp {
-			t.Fatalf("expected Up, got %v", sc.NewState)
+	synctest.Test(t, func(t *testing.T) {
+		notifyCh := make(chan bfd.StateChange, 16)
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       50 * time.Millisecond,
+			DetectMultiplier: 3, // Detection time = 150ms
 		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for Up")
-	}
 
-	// Keep sending echoes faster than detection time.
-	for range 5 {
-		time.Sleep(40 * time.Millisecond)
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		es, err := bfd.NewEchoSession(cfg, 101, noopSender{}, notifyCh, logger)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		go es.Run(t.Context())
+
+		// Transition to Up.
+		time.Sleep(10 * time.Millisecond)
 		es.RecvEcho()
-	}
 
-	// Verify no Down notification was sent.
-	select {
-	case sc := <-notifyCh:
-		t.Fatalf("unexpected state change: %v → %v", sc.OldState, sc.NewState)
-	case <-time.After(50 * time.Millisecond):
-		// Good — no state change.
-	}
+		// Wait for Up notification.
+		select {
+		case sc := <-notifyCh:
+			if sc.NewState != bfd.StateUp {
+				t.Fatalf("expected Up, got %v", sc.NewState)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("timeout waiting for Up")
+		}
 
-	if es.State() != bfd.StateUp {
-		t.Errorf("state = %v, want Up", es.State())
-	}
+		// Keep sending echoes faster than detection time.
+		for range 5 {
+			time.Sleep(40 * time.Millisecond)
+			es.RecvEcho()
+		}
+
+		// Verify no Down notification was sent.
+		select {
+		case sc := <-notifyCh:
+			t.Fatalf("unexpected state change: %v → %v", sc.OldState, sc.NewState)
+		case <-time.After(50 * time.Millisecond):
+			// Good — no state change.
+		}
+
+		if es.State() != bfd.StateUp {
+			t.Errorf("state = %v, want Up", es.State())
+		}
+	})
 }
 
 func TestEchoSessionCounters(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       50 * time.Millisecond,
+			DetectMultiplier: 3,
+		}
 
-	cfg := bfd.EchoSessionConfig{
-		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
-		LocalAddr:        netip.MustParseAddr("10.0.0.2"),
-		TxInterval:       50 * time.Millisecond,
-		DetectMultiplier: 3,
-	}
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		es, err := bfd.NewEchoSession(cfg, 102, noopSender{}, nil, logger)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	es, err := bfd.NewEchoSession(cfg, 102, noopSender{}, nil, logger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		go es.Run(t.Context())
 
-	go es.Run(t.Context())
+		// Let it send a few echo packets.
+		time.Sleep(200 * time.Millisecond)
 
-	// Let it send a few echo packets.
-	time.Sleep(200 * time.Millisecond)
+		if es.EchosSent() == 0 {
+			t.Error("expected echos_sent > 0")
+		}
 
-	if es.EchosSent() == 0 {
-		t.Error("expected echos_sent > 0")
-	}
+		// Send some echo returns.
+		es.RecvEcho()
+		es.RecvEcho()
+		time.Sleep(10 * time.Millisecond)
 
-	// Send some echo returns.
-	es.RecvEcho()
-	es.RecvEcho()
-	time.Sleep(10 * time.Millisecond)
-
-	if es.EchosReceived() < 2 {
-		t.Errorf("echos_received = %d, want >= 2", es.EchosReceived())
-	}
+		if es.EchosReceived() < 2 {
+			t.Errorf("echos_received = %d, want >= 2", es.EchosReceived())
+		}
+	})
 }
 
 func TestEchoSessionSnapshot(t *testing.T) {
@@ -397,38 +398,38 @@ func TestEchoSessionIPv6(t *testing.T) {
 }
 
 func TestEchoSessionShutdown(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       50 * time.Millisecond,
+			DetectMultiplier: 3,
+		}
 
-	cfg := bfd.EchoSessionConfig{
-		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
-		LocalAddr:        netip.MustParseAddr("10.0.0.2"),
-		TxInterval:       50 * time.Millisecond,
-		DetectMultiplier: 3,
-	}
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		es, err := bfd.NewEchoSession(cfg, 400, noopSender{}, nil, logger)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	es, err := bfd.NewEchoSession(cfg, 400, noopSender{}, nil, logger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+		go func() {
+			es.Run(ctx)
+			close(done)
+		}()
 
-	go func() {
-		es.Run(ctx)
-		close(done)
-	}()
+		time.Sleep(50 * time.Millisecond)
+		cancel()
 
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-		// Session stopped cleanly.
-	case <-time.After(1 * time.Second):
-		t.Fatal("echo session did not stop after context cancellation")
-	}
+		select {
+		case <-done:
+			// Session stopped cleanly.
+		case <-time.After(1 * time.Second):
+			t.Fatal("echo session did not stop after context cancellation")
+		}
+	})
 }
 
 func TestSessionTypeEchoString(t *testing.T) {

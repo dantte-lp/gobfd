@@ -164,15 +164,17 @@ Implementation:
 ```go
 func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
     if detectMult == 1 {
-        jitterPercent = 10 + rand.IntN(16) // 75-90%
+        jitterPercent = 10 + rng.IntN(16) // 75-90%
     } else {
-        jitterPercent = rand.IntN(26)       // 75-100%
+        jitterPercent = rng.IntN(26)       // 75-100%
     }
     return interval - (interval * jitterPercent / 100)
 }
 ```
 
-Uses `math/rand/v2` for jitter (not security-sensitive, called on hot path).
+The runtime session path uses a crypto-seeded session-local PRNG. Jitter is not
+a security boundary, but the seed is non-predictable and the session-local state
+avoids global RNG contention on the hot path.
 
 ### Poll Sequence
 
@@ -216,7 +218,7 @@ RFC 5880 Section 6.7. Five authentication types are supported:
 
 **Key rotation**: `AuthKeyStore` supports multiple simultaneous keys indexed by Key ID, allowing hitless key rotation per RFC 5880 Section 6.7.1.
 
-> **WARNING**: MD5 and SHA1 are retained despite cryptographic weakness because the RFC mandates them as the only defined hash-based auth types. GoBFD logs a warning at startup when MD5 auth is configured.
+> **WARNING**: MD5 and SHA1 are retained despite cryptographic weakness because RFC 5880 defines them as the only hash-based BFD authentication types. Prefer SHA1 over MD5 when interoperability allows, and use meticulous modes when replay-window tightness matters.
 
 #### Auth Section Wire Format
 

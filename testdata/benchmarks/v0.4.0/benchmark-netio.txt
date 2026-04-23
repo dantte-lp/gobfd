@@ -1,0 +1,42 @@
+goos: linux
+goarch: amd64
+pkg: github.com/dantte-lp/gobfd/internal/netio
+cpu: AMD EPYC Processor
+BenchmarkBuildInnerPacket-8        	25643449	        47.06 ns/op	      80 B/op	       1 allocs/op
+BenchmarkBuildInnerPacket-8        	24631138	        46.95 ns/op	      80 B/op	       1 allocs/op
+BenchmarkBuildInnerPacket-8        	25450857	        51.71 ns/op	      80 B/op	       1 allocs/op
+BenchmarkBuildInnerPacket-8        	17619164	        64.45 ns/op	      80 B/op	       1 allocs/op
+BenchmarkBuildInnerPacket-8        	25305490	        51.31 ns/op	      80 B/op	       1 allocs/op
+BenchmarkBuildInnerPacket-8        	34116928	        40.50 ns/op	      80 B/op	       1 allocs/op
+BenchmarkStripInnerPacket-8        	253949386	         4.523 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStripInnerPacket-8        	287927779	         4.243 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStripInnerPacket-8        	269124649	         4.481 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStripInnerPacket-8        	234299350	         4.714 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStripInnerPacket-8        	245900311	         4.373 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStripInnerPacket-8        	282574524	         4.465 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderMarshal-8      	497937159	         2.395 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderMarshal-8      	466709822	         2.471 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderMarshal-8      	457142194	         2.491 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderMarshal-8      	419129952	         2.511 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderMarshal-8      	482802536	         2.356 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderMarshal-8      	514454029	         2.571 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderUnmarshal-8    	1000000000	         0.8568 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderUnmarshal-8    	1000000000	         0.7965 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderUnmarshal-8    	1000000000	         0.6093 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderUnmarshal-8    	1000000000	         0.8349 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderUnmarshal-8    	1000000000	         0.7280 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVXLANHeaderUnmarshal-8    	1000000000	         0.7126 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderMarshal-8     	237436276	         4.932 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderMarshal-8     	252558693	         4.774 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderMarshal-8     	255322227	         4.740 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderMarshal-8     	262964964	         4.550 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderMarshal-8     	263028320	         4.702 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderMarshal-8     	266528535	         4.635 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderUnmarshal-8   	315702289	         3.910 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderUnmarshal-8   	301412020	         3.851 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderUnmarshal-8   	310175065	         3.786 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderUnmarshal-8   	317975876	         3.591 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderUnmarshal-8   	324740343	         3.877 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGeneveHeaderUnmarshal-8   	308067361	         3.753 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/dantte-lp/gobfd/internal/netio	40.484s

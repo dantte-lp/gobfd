@@ -99,15 +99,16 @@ func (r *EchoReceiver) recvLoop(ctx context.Context, ln *Listener) {
 
 // recvOne performs a single receive-unmarshal-demux cycle for an echo packet.
 func (r *EchoReceiver) recvOne(ctx context.Context, ln *Listener) error {
-	raw, _, err := ln.Recv(ctx)
+	received, err := ln.RecvPacket(ctx)
 	if err != nil {
 		return fmt.Errorf("echo recv: %w", err)
 	}
+	defer received.Release()
 
 	// Unmarshal just enough to extract MyDiscriminator.
 	// RFC 9747: echo packets use standard BFD Control format.
 	var pkt bfd.ControlPacket
-	if err := bfd.UnmarshalControlPacket(raw, &pkt); err != nil {
+	if err := bfd.UnmarshalControlPacket(received.Data, &pkt); err != nil {
 		r.logger.Debug("invalid echo packet",
 			slog.String("error", err.Error()),
 		)

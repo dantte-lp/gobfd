@@ -23,15 +23,16 @@ import (
 //   - IPv4: IP_TTL = 255 (RFC 5881 Section 5, GTSM RFC 5082)
 //   - IPv6: IPV6_UNICAST_HOPS = 255 (RFC 5881 Section 5, GTSM RFC 5082)
 type UDPSender struct {
-	conn       *net.UDPConn
-	dstPort    uint16
-	logger     *slog.Logger
-	mu         sync.Mutex
-	closed     bool
-	srcPort    uint16
-	multiHop   bool
-	dfBit      bool   // RFC 9764: Don't Fragment bit for path MTU verification
-	bindDevice string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
+	conn            *net.UDPConn
+	dstPort         uint16
+	logger          *slog.Logger
+	mu              sync.Mutex
+	closed          bool
+	srcPort         uint16
+	multiHop        bool
+	dfBit           bool   // RFC 9764: Don't Fragment bit for path MTU verification
+	bindDevice      string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
+	writeBufferSize int    // SO_SNDBUF size in bytes (0 = OS default)
 }
 
 // SenderOption configures optional UDPSender parameters.
@@ -61,6 +62,15 @@ func WithDstPort(port uint16) SenderOption {
 func WithBindDevice(ifName string) SenderOption {
 	return func(s *UDPSender) {
 		s.bindDevice = ifName
+	}
+}
+
+// WithWriteBuffer sets SO_SNDBUF on the sender socket to the given
+// size in bytes. Larger write buffers reduce sendto failures under
+// high session counts. When zero, the OS default is used.
+func WithWriteBuffer(bytes int) SenderOption {
+	return func(s *UDPSender) {
+		s.writeBufferSize = bytes
 	}
 }
 
@@ -110,6 +120,15 @@ func NewUDPSender(
 	}
 
 	s.conn = conn
+
+	// Apply write buffer tuning if configured.
+	if s.writeBufferSize > 0 {
+		if err := conn.SetWriteBuffer(s.writeBufferSize); err != nil {
+			conn.Close() //nolint:gosec // G104: already returning primary error
+			return nil, fmt.Errorf("set write buffer to %d: %w", s.writeBufferSize, err)
+		}
+	}
+
 	return s, nil
 }
 
