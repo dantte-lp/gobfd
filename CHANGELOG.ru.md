@@ -34,6 +34,8 @@
   `auth_key_id` и `auth_secret`.
 - Флаги аутентификации `gobfdctl session add`: `--auth-type`,
   `--auth-key-id` и `--auth-secret`.
+- Словарь типов сессий публичного API для RFC 9747 Echo, RFC 7130 Micro-BFD,
+  RFC 8971 VXLAN и RFC 9521 Geneve.
 
 ### Изменено
 
@@ -52,6 +54,8 @@
   доступ к Podman socket исправлен через `security_opt: label=disable`.
 - CI workflow теперь использует read-only token policy на уровне workflow и
   именованные задачи, согласованные с локальными quality gates.
+- Форматирование `gobfdctl` list/show/event теперь отображает advanced session
+  families вместо `unknown`.
 
 ### Исправлено
 
@@ -71,6 +75,8 @@
   обновляют `LastPacketReceived` и `PacketsReceived`.
 - gRPC `AddSession` теперь отклоняет неполный или неожиданный auth key material
   вместо тихого создания неаутентифицированной сессии.
+- gRPC `AddSession` теперь отклоняет распознанные transport-specific типы
+  сессий до появления dedicated API для Echo, Micro-BFD, VXLAN и Geneve.
 
 ## [0.4.0] - 2026-02-24
 

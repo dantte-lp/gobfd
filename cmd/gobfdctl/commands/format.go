@@ -308,6 +308,14 @@ func shortSessionType(t bfdv1.SessionType) string {
 		return "single-hop"
 	case bfdv1.SessionType_SESSION_TYPE_MULTI_HOP:
 		return "multi-hop"
+	case bfdv1.SessionType_SESSION_TYPE_ECHO:
+		return "echo"
+	case bfdv1.SessionType_SESSION_TYPE_MICRO_BFD:
+		return "micro-bfd"
+	case bfdv1.SessionType_SESSION_TYPE_VXLAN:
+		return "vxlan"
+	case bfdv1.SessionType_SESSION_TYPE_GENEVE:
+		return "geneve"
 	default:
 		return "unknown"
 	}

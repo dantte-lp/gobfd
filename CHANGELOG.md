@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `auth_type`, `auth_key_id`, and `auth_secret`.
 - `gobfdctl session add` authentication flags: `--auth-type`,
   `--auth-key-id`, and `--auth-secret`.
+- Public API session type vocabulary for RFC 9747 Echo, RFC 7130 Micro-BFD,
+  RFC 8971 VXLAN, and RFC 9521 Geneve sessions.
 
 ### Changed
 
@@ -52,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Podman socket access fixed via `security_opt: label=disable`.
 - CI workflow now uses a workflow-level read-only token policy and named jobs
   aligned with the local quality gates.
+- `gobfdctl` list/show/event formatting now renders advanced session families
+  instead of collapsing them to `unknown`.
 
 ### Fixed
 
@@ -71,6 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refresh `LastPacketReceived` or `PacketsReceived`.
 - The gRPC `AddSession` path now rejects incomplete or unexpected auth key
   material instead of silently creating an unauthenticated session.
+- The gRPC `AddSession` path now rejects recognized transport-specific session
+  families until dedicated Echo, Micro-BFD, VXLAN, and Geneve APIs are added.
 
 ## [0.4.0] - 2026-02-24
 

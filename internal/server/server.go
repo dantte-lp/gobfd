@@ -27,6 +27,10 @@ var (
 	// ErrInvalidSessionType indicates an unrecognized session type in the request.
 	ErrInvalidSessionType = errors.New("invalid session type")
 
+	// ErrDedicatedTransportRequired indicates AddSession received a recognized
+	// session family that needs its own transport-specific configuration path.
+	ErrDedicatedTransportRequired = errors.New("session type requires dedicated transport configuration")
+
 	// ErrDetectMultZero indicates a zero detect multiplier in the request.
 	ErrDetectMultZero = errors.New("detect multiplier must be >= 1")
 
@@ -391,6 +395,9 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 	if err != nil {
 		return bfd.SessionConfig{}, err
 	}
+	if !isGenericAddSessionType(sessType) {
+		return bfd.SessionConfig{}, wrapError(req.GetType().String(), ErrDedicatedTransportRequired)
+	}
 
 	auth, authKeys, err := authConfigFromProto(req)
 	if err != nil {
@@ -489,9 +496,21 @@ func sessionTypeFromProto(pt bfdv1.SessionType) (bfd.SessionType, error) {
 		return bfd.SessionTypeSingleHop, nil
 	case bfdv1.SessionType_SESSION_TYPE_MULTI_HOP:
 		return bfd.SessionTypeMultiHop, nil
+	case bfdv1.SessionType_SESSION_TYPE_ECHO:
+		return bfd.SessionTypeEcho, nil
+	case bfdv1.SessionType_SESSION_TYPE_MICRO_BFD:
+		return bfd.SessionTypeMicroBFD, nil
+	case bfdv1.SessionType_SESSION_TYPE_VXLAN:
+		return bfd.SessionTypeVXLAN, nil
+	case bfdv1.SessionType_SESSION_TYPE_GENEVE:
+		return bfd.SessionTypeGeneve, nil
 	default:
 		return 0, wrapError(pt.String(), ErrInvalidSessionType)
 	}
+}
+
+func isGenericAddSessionType(st bfd.SessionType) bool {
+	return st == bfd.SessionTypeSingleHop || st == bfd.SessionTypeMultiHop
 }
 
 // durationFromProto converts a protobuf Duration to time.Duration.
@@ -634,6 +653,14 @@ func sessionTypeToProto(st bfd.SessionType) bfdv1.SessionType {
 		return bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP
 	case bfd.SessionTypeMultiHop:
 		return bfdv1.SessionType_SESSION_TYPE_MULTI_HOP
+	case bfd.SessionTypeEcho:
+		return bfdv1.SessionType_SESSION_TYPE_ECHO
+	case bfd.SessionTypeMicroBFD:
+		return bfdv1.SessionType_SESSION_TYPE_MICRO_BFD
+	case bfd.SessionTypeVXLAN:
+		return bfdv1.SessionType_SESSION_TYPE_VXLAN
+	case bfd.SessionTypeGeneve:
+		return bfdv1.SessionType_SESSION_TYPE_GENEVE
 	default:
 		return bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED
 	}

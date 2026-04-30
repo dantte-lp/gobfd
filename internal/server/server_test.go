@@ -126,6 +126,43 @@ func TestAddSessionWithAuthentication(t *testing.T) {
 	}
 }
 
+func TestAddSessionRejectsTransportSpecificTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		sessType bfdv1.SessionType
+	}{
+		{"echo", bfdv1.SessionType_SESSION_TYPE_ECHO},
+		{"micro-bfd", bfdv1.SessionType_SESSION_TYPE_MICRO_BFD},
+		{"vxlan", bfdv1.SessionType_SESSION_TYPE_VXLAN},
+		{"geneve", bfdv1.SessionType_SESSION_TYPE_GENEVE},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := setupTestServer(t)
+			req := validAddRequest()
+			req.Type = tt.sessType
+
+			_, err := client.AddSession(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+				if connectErr.Code() != connect.CodeInvalidArgument {
+					t.Errorf("code = %s, want InvalidArgument", connectErr.Code())
+				}
+			} else {
+				t.Fatalf("expected connect.Error, got %T: %v", err, err)
+			}
+		})
+	}
+}
+
 // -------------------------------------------------------------------------
 // TestAddSessionInvalidArgs
 // -------------------------------------------------------------------------

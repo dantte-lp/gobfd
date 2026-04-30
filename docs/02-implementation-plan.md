@@ -60,7 +60,7 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | RFC 7419 / 9384 / 9468 interop | Green | `make interop-rfc-test` passes these scenarios when the RFC stack is running. |
 | RFC 9747 Echo interop | Green | `make interop-rfc-test` verifies Echo `Up`, UDP 3785 packet capture both ways, Echo failure on reflector pause, and recovery. |
 | Code/docs consistency | Improving | README, changelogs, and planning docs now reflect the implemented RFC set; `docs/03-codebase-consistency-audit.md` tracks remaining gaps. |
-| Control-plane API | Partial | Proto and CLI expose single-hop/multi-hop only; internal code has Echo, Micro-BFD, VXLAN, and Geneve session types. |
+| Control-plane API | Partial | Proto/session snapshots and `gobfdctl` output now expose Echo, Micro-BFD, VXLAN, and Geneve vocabulary; generic `AddSession` and `gobfdctl session add` intentionally remain single-hop/multi-hop until dedicated transport-specific APIs exist. |
 | Interface monitoring | Green on Linux | `internal/netio` subscribes to rtnetlink `RTMGRP_LINK` and `Manager.HandleInterfaceEvent` transitions sessions on link-down before detection timer expiry. eBPF is deferred; see `docs/s4-linux-netlink-ebpf-research.md`. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession`, and `gobfdctl session add` now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time. Dynamic key rotation is deferred to production hardening. |
 | pkg.go.dev command page | Weak | `cmd/gobfd` has a one-line package comment. |
@@ -101,7 +101,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | Proto, server mappings, CLI create/list/show, and docs expose every supported internal session type. Commit: `feat(api): expose advanced bfd session types`. |
+| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | In progress: proto enum, server mappings, snapshots, and `gobfdctl` list/show/event formatting expose advanced session families; generic `AddSession` rejects recognized transport-specific families until dedicated configuration APIs exist. Commit: `feat(api): expose advanced session type vocabulary`. |
 | **S5.1** | State mutation consistency. | Done: `SetAdminDown` routes through the session control channel when the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes; wire tests verify the next packet carries `AdminDown` / `DiagAdminDown`. Commit: `fix(bfd): serialize admin-down transition`. |
 | **S6** | Production security posture. | ConnectRPC and GoBGP integrations document mTLS/default localhost policy; vulnerability allowlist has owner, expiry, and mitigation. Commit: `docs(security): define production hardening policy`. |
 | **S7** | Kubernetes and routing integration hardening for um-docs. | DaemonSet/Helm manifests, Prometheus rules, Arista/FRR/GoBGP examples, and failure drills are documented. Commit: `feat(k8s): add production integration assets`. |

@@ -95,6 +95,10 @@ func TestSessionTypeToProto(t *testing.T) {
 	}{
 		{"SingleHop", bfd.SessionTypeSingleHop, bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP},
 		{"MultiHop", bfd.SessionTypeMultiHop, bfdv1.SessionType_SESSION_TYPE_MULTI_HOP},
+		{"Echo", bfd.SessionTypeEcho, bfdv1.SessionType_SESSION_TYPE_ECHO},
+		{"MicroBFD", bfd.SessionTypeMicroBFD, bfdv1.SessionType_SESSION_TYPE_MICRO_BFD},
+		{"VXLAN", bfd.SessionTypeVXLAN, bfdv1.SessionType_SESSION_TYPE_VXLAN},
+		{"Geneve", bfd.SessionTypeGeneve, bfdv1.SessionType_SESSION_TYPE_GENEVE},
 		{"Unknown", bfd.SessionType(99), bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED},
 	}
 
@@ -124,6 +128,10 @@ func TestSessionTypeFromProto(t *testing.T) {
 	}{
 		{"SingleHop", bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, bfd.SessionTypeSingleHop, false},
 		{"MultiHop", bfdv1.SessionType_SESSION_TYPE_MULTI_HOP, bfd.SessionTypeMultiHop, false},
+		{"Echo", bfdv1.SessionType_SESSION_TYPE_ECHO, bfd.SessionTypeEcho, false},
+		{"MicroBFD", bfdv1.SessionType_SESSION_TYPE_MICRO_BFD, bfd.SessionTypeMicroBFD, false},
+		{"VXLAN", bfdv1.SessionType_SESSION_TYPE_VXLAN, bfd.SessionTypeVXLAN, false},
+		{"Geneve", bfdv1.SessionType_SESSION_TYPE_GENEVE, bfd.SessionTypeGeneve, false},
 		{"Unspecified", bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED, 0, true},
 	}
 
