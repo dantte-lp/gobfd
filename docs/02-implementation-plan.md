@@ -103,7 +103,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 |---|---|---|
 | **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | In progress: proto enum, server mappings, snapshots, and `gobfdctl` list/show/event formatting expose advanced session families; generic `AddSession` rejects recognized transport-specific families until dedicated configuration APIs exist. Commit: `feat(api): expose advanced session type vocabulary`. |
 | **S5.1** | State mutation consistency. | Done: `SetAdminDown` routes through the session control channel when the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes; wire tests verify the next packet carries `AdminDown` / `DiagAdminDown`. Commit: `fix(bfd): serialize admin-down transition`. |
-| **S6** | Production security posture. | ConnectRPC and GoBGP integrations document mTLS/default localhost policy; vulnerability allowlist has owner, expiry, and mitigation. Commit: `docs(security): define production hardening policy`. |
+| **S6** | Production security posture. | Done: security policy documents ConnectRPC, GoBGP, BFD auth, container privileges, and vulnerability gate boundaries; allowlist entries require owner, expiry, reason, and mitigation. Commit: `docs(security): define production hardening policy`. |
 | **S7** | Kubernetes and routing integration hardening for um-docs. | DaemonSet/Helm manifests, Prometheus rules, Arista/FRR/GoBGP examples, and failure drills are documented. Commit: `feat(k8s): add production integration assets`. |
 
 ### Phase 4 -- Release Readiness

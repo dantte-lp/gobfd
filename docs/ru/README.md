@@ -1,7 +1,7 @@
 # Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-14-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-15-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -24,6 +24,7 @@ graph TD
         B1["03-configuration.md<br/>Конфигурация"]
         B2["04-cli.md<br/>Справочник CLI"]
         B3["06-deployment.md<br/>Развёртывание"]
+        B4["15-security.md<br/>Политика безопасности"]
     end
 
     subgraph "Тестирование и качество"
@@ -50,6 +51,7 @@ graph TD
     IDX --> B1
     IDX --> B2
     IDX --> B3
+    IDX --> B4
     IDX --> C1
     IDX --> C2
     IDX --> C3
@@ -88,6 +90,7 @@ graph TD
 | 05 | [**Тесты совместимости**](./05-interop.md) | Наборы тестов: 4-пировый, BGP+BFD, RFC-специфичный, вендорные NOS |
 | 06 | [**Развёртывание**](./06-deployment.md) | systemd, Podman Compose, контейнерный образ, production |
 | 07 | [**Мониторинг**](./07-monitoring.md) | Метрики Prometheus, дашборд Grafana, алертинг |
+| 15 | [**Политика безопасности**](./15-security.md) | Production policy для API, GoBGP, BFD auth, контейнеров и vulnerability gate |
 
 ### Справочник
 

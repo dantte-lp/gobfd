@@ -39,6 +39,8 @@
 | **Используется в** | `internal/gobgp/` — опциональная интеграция GoBGP |
 | **Известный advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
 | **Уровень риска** | Высокий |
+| **Владелец allowlist** | `maintainers` |
+| **Срок пересмотра** | `2026-07-31` |
 
 ### Описание
 
@@ -52,8 +54,9 @@ NEXT_HOP. По состоянию на 2026-04-22 база Go vulnerability data
    подключаться только к GoBGP gRPC endpoint на localhost или в доверенной
    management-сети.
 2. **Контролируемый CI allowlist**: `scripts/vuln-audit.go` разрешает только
-   `GO-2026-4736`; любой дополнительный finding из `govulncheck` или OSV ломает
-   CI.
+   `GO-2026-4736`; запись содержит owner, expiry, reason и mitigation. Любой
+   дополнительный finding из `govulncheck` или OSV, а также expired allowlist
+   entry, ломает CI.
 3. **Триггер обновления**: удалить allowlist-запись после публикации
    исправленного релиза GoBGP и обновления модуля через `go mod tidy`.
 

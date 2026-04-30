@@ -1,7 +1,7 @@
 # GoBFD Documentation
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-14-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-15-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -24,6 +24,7 @@ graph TD
         B1["03-configuration.md<br/>Configuration"]
         B2["04-cli.md<br/>CLI Reference"]
         B3["06-deployment.md<br/>Deployment"]
+        B4["15-security.md<br/>Security Policy"]
     end
 
     subgraph "Testing & Quality"
@@ -50,6 +51,7 @@ graph TD
     IDX --> B1
     IDX --> B2
     IDX --> B3
+    IDX --> B4
     IDX --> C1
     IDX --> C2
     IDX --> C3
@@ -88,6 +90,7 @@ graph TD
 | 05 | [**Interop Testing**](./05-interop.md) | Interop suites: 4-peer, BGP+BFD, RFC-specific, vendor NOS |
 | 06 | [**Deployment**](./06-deployment.md) | systemd, Podman Compose, container image, production |
 | 07 | [**Monitoring**](./07-monitoring.md) | Prometheus metrics, Grafana dashboard, alerting |
+| 15 | [**Security Policy**](./15-security.md) | Production API, GoBGP, BFD auth, container, and vulnerability policy |
 
 ### Reference
 

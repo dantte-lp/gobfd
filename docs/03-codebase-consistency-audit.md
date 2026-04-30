@@ -119,7 +119,7 @@ Next sprint: S7, `feat(k8s): add production integration assets`.
 | S4.1 | Close code/docs/tooling drift. | Harden `gopls-check`, update README RFC status, record this audit. | `chore(lint): harden gopls diagnostics gate` |
 | S5 | Make public control plane match daemon capabilities. | In progress: API vocabulary, session snapshots, and CLI output cover Echo, Micro-BFD, VXLAN, Geneve; dedicated create flows remain. | `feat(api): expose advanced session type vocabulary` |
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
-| S6 | Production security policy. | mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
+| S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S7 | `um-docs` integration readiness. | Kubernetes manifests, Arista/FRR/GoBGP examples, alerts, and failure drills. | `feat(k8s): add production integration assets` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
 

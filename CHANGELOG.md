@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--auth-key-id`, and `--auth-secret`.
 - Public API session type vocabulary for RFC 9747 Echo, RFC 7130 Micro-BFD,
   RFC 8971 VXLAN, and RFC 9521 Geneve sessions.
+- Production security policy covering BFD authentication, ConnectRPC exposure,
+  GoBGP TLS/localhost boundaries, container privileges, and vulnerability gate
+  ownership.
 
 ### Changed
 
@@ -77,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   material instead of silently creating an unauthenticated session.
 - The gRPC `AddSession` path now rejects recognized transport-specific session
   families until dedicated Echo, Micro-BFD, VXLAN, and Geneve APIs are added.
+- Vulnerability allowlist entries now require owner, expiry, reason, and
+  mitigation metadata; expired entries fail the audit gate.
 
 ## [0.4.0] - 2026-02-24
 

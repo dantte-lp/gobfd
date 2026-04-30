@@ -36,6 +36,9 @@
   `--auth-key-id` и `--auth-secret`.
 - Словарь типов сессий публичного API для RFC 9747 Echo, RFC 7130 Micro-BFD,
   RFC 8971 VXLAN и RFC 9521 Geneve.
+- Production security policy для BFD authentication, экспозиции ConnectRPC,
+  GoBGP TLS/localhost границ, контейнерных привилегий и ownership
+  vulnerability gate.
 
 ### Изменено
 
@@ -77,6 +80,8 @@
   вместо тихого создания неаутентифицированной сессии.
 - gRPC `AddSession` теперь отклоняет распознанные transport-specific типы
   сессий до появления dedicated API для Echo, Micro-BFD, VXLAN и Geneve.
+- Записи vulnerability allowlist теперь требуют owner, expiry, reason и
+  mitigation metadata; expired entries ломают audit gate.
 
 ## [0.4.0] - 2026-02-24
 

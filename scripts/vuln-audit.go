@@ -20,15 +20,26 @@ const (
 	scannerTimeout     = 10 * time.Minute
 )
 
+var (
+	errAllowEntryIncomplete = errors.New("allowlist entry missing package, owner, reason, or mitigation")
+	errAllowEntryExpired    = errors.New("allowlist entry expired")
+)
+
 type allowEntry struct {
-	Package string
-	Reason  string
+	Package    string
+	Owner      string
+	Expires    string
+	Reason     string
+	Mitigation string
 }
 
 var allowlist = map[string]allowEntry{
 	"GO-2026-4736": {
-		Package: "github.com/osrg/gobgp/v3",
-		Reason:  "GoBGP NEXT_HOP DoS advisory has no fixed version; GoBGP integration must be kept on localhost or a trusted network until upstream ships a fix.",
+		Package:    "github.com/osrg/gobgp/v3",
+		Owner:      "maintainers",
+		Expires:    "2026-07-31",
+		Reason:     "GoBGP NEXT_HOP DoS advisory has no fixed version.",
+		Mitigation: "Keep GoBGP integration on localhost or a trusted management network until upstream ships a fix.",
 	},
 }
 
@@ -251,23 +262,24 @@ func sortedFindings(items map[string]finding) []finding {
 }
 
 func report(findings []finding) {
-	allowed := map[string][]finding{}
-	unallowed := map[string][]finding{}
-
-	for _, item := range findings {
-		if _, ok := allowlist[item.ID]; ok {
-			allowed[item.ID] = append(allowed[item.ID], item)
-			continue
-		}
-		unallowed[item.ID] = append(unallowed[item.ID], item)
-	}
+	allowed, unallowed, failures := classifyFindings(findings, allowlist, time.Now().UTC())
 
 	for _, id := range sortedIDs(allowed) {
 		entry := allowlist[id]
-		fmt.Fprintf(os.Stderr, "allowed vulnerability: %s (%s) - %s\n", id, entry.Package, entry.Reason)
+		fmt.Fprintf(os.Stderr, "allowed vulnerability: %s (%s) owner=%s expires=%s\n",
+			id, entry.Package, entry.Owner, entry.Expires)
+		fmt.Fprintf(os.Stderr, "  reason: %s\n", entry.Reason)
+		fmt.Fprintf(os.Stderr, "  mitigation: %s\n", entry.Mitigation)
 		for _, item := range allowed[id] {
 			fmt.Fprintf(os.Stderr, "  - %s: %s %s %s\n", item.Scanner, item.Package, item.Version, item.Source)
 		}
+	}
+
+	if len(failures) > 0 {
+		for _, failure := range failures {
+			fmt.Fprintln(os.Stderr, failure)
+		}
+		os.Exit(2)
 	}
 
 	if len(unallowed) > 0 {
@@ -286,6 +298,49 @@ func report(findings []finding) {
 	}
 
 	fmt.Println("vulnerability audit: no unallowed vulnerabilities found")
+}
+
+func classifyFindings(
+	findings []finding,
+	entries map[string]allowEntry,
+	now time.Time,
+) (map[string][]finding, map[string][]finding, []string) {
+	allowed := map[string][]finding{}
+	unallowed := map[string][]finding{}
+	var failures []string
+
+	for _, item := range findings {
+		entry, ok := entries[item.ID]
+		if !ok {
+			unallowed[item.ID] = append(unallowed[item.ID], item)
+			continue
+		}
+		if err := validateAllowEntry(item.ID, entry, now); err != nil {
+			failures = append(failures, err.Error())
+			continue
+		}
+		allowed[item.ID] = append(allowed[item.ID], item)
+	}
+
+	return allowed, unallowed, failures
+}
+
+func validateAllowEntry(id string, entry allowEntry, now time.Time) error {
+	if entry.Package == "" || entry.Owner == "" || entry.Reason == "" || entry.Mitigation == "" {
+		return fmt.Errorf("allowlist entry %s: %w", id, errAllowEntryIncomplete)
+	}
+	expiry, err := time.Parse(time.DateOnly, entry.Expires)
+	if err != nil {
+		return fmt.Errorf("allowlist entry %s has invalid expiry %q: %w", id, entry.Expires, err)
+	}
+	today, err := time.Parse(time.DateOnly, now.UTC().Format(time.DateOnly))
+	if err != nil {
+		return fmt.Errorf("current date parse failed: %w", err)
+	}
+	if today.After(expiry) {
+		return fmt.Errorf("allowlist entry %s expired on %s: %w", id, entry.Expires, errAllowEntryExpired)
+	}
+	return nil
 }
 
 func sortedIDs(groups map[string][]finding) []string {
