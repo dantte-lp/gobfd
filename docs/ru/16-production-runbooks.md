@@ -81,6 +81,9 @@ make int-bgp-failover-up
 make int-bgp-failover-logs
 ```
 
+Полная документация примера:
+[`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md).
+
 Baseline checks:
 
 ```bash
@@ -174,6 +177,10 @@ podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
 Примеры GoBFD должны оставаться vendor-neutral. Vendor snippets можно добавлять
 как optional public interop notes, если они проверены по первичной vendor
 документации или MCP.
+
+Опубликованные optional notes:
+
+- [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
 
 Публичное поведение Arista EOS, проверенное через Arista MCP:
 

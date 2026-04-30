@@ -47,6 +47,13 @@ All stacks use **podman-compose** with OCI containers and include a **tshark** s
 
 BFD Down triggers BGP peer disable, causing immediate route withdrawal instead of waiting for the 90-second BGP holdtimer.
 
+Detailed runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
+
+The lab uses RFC 5881 single-hop BFD packets on UDP destination port 3784 with
+TTL 255. The example timers are 300 ms transmit, 300 ms receive, and detect
+multiplier 3, giving an expected detection target of about 900 ms before local
+scheduling and BGP control-plane latency.
+
 ### Topology
 
 ```mermaid

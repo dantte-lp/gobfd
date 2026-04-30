@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generic production runbooks in `docs/en/16-production-runbooks.md` and
   `docs/ru/16-production-runbooks.md` covering Kubernetes, BGP failover,
   Prometheus alerts, packet verification, and open production gaps.
+- FRR/GoBGP BGP fast-failover runbook with RFC packet checks,
+  troubleshooting, and optional public Arista EOS verification notes.
 
 ### Changed
 

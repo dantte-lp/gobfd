@@ -45,6 +45,8 @@
 - Generic production runbooks в `docs/en/16-production-runbooks.md` и
   `docs/ru/16-production-runbooks.md` для Kubernetes, BGP failover,
   Prometheus alerts, packet verification и открытых production gaps.
+- Runbook FRR/GoBGP BGP fast-failover с RFC packet checks,
+  troubleshooting и optional public Arista EOS verification notes.
 
 ### Изменено
 

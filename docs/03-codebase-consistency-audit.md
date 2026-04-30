@@ -109,18 +109,20 @@ scenario families are: Linux routing hosts, BGP fast-failover, Kubernetes
 host-network daemons, EVPN/VXLAN and Geneve overlays, partner edge failover,
 and DCI-style fast-failover drills.
 
-GoBFD aligns with these scenarios only after adding:
+S7a and S7b moved the operator-assets layer from planning to published
+generic examples:
 
-- Kubernetes DaemonSet or Helm packaging with `NET_RAW`, `NET_ADMIN`,
-  hostNetwork, node selectors, and explicit network namespace assumptions.
-- FRR/GoBGP examples and optional public vendor examples for BGP neighbor BFD,
-  timers, and failure drills.
-- Prometheus alerts and Grafana panels tied to BFD session state, auth failures,
-  flap dampening, and link-down diagnostics.
-- Runbooks for BFD `300/300/3`, interface-down simulation, BGP withdraw
-  verification, and rollback.
+- Kubernetes DaemonSet manifests now document `NET_RAW`, `NET_ADMIN`,
+  hostNetwork, node selectors, probes, labels, and network namespace
+  assumptions.
+- FRR/GoBGP BGP fast-failover docs now cover BGP neighbor BFD, `300/300/3`
+  timers, RFC-visible packet checks, failure drills, and rollback.
+- Prometheus alerts now map to exported GoBFD metrics for active sessions,
+  Up-to-Down transitions, flapping, auth failures, and packet drops.
+- Optional public Arista EOS notes are separated from runnable examples and
+  validated through Arista MCP.
 
-Next sprint: S7, `feat(examples): add production integration assets`.
+Next sprint: S7.1, `feat(netio): add linux lag actuator`.
 
 ### F5: Linux advanced BFD needs explicit dataplane ownership
 
@@ -152,8 +154,9 @@ Next sprints:
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
-| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, and alert rule correction are done; FRR/GoBGP examples and optional public vendor examples remain. | `feat(examples): add production integration assets` |
+| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, and public EOS verification notes are done; remaining work is S7.1/S7.2 implementation. | `feat(examples): add production integration assets` |
 | S7a | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. | `docs(examples): add production integration runbooks` |
+| S7b | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. | `docs(examples): document bgp failover interop` |
 | S7.1 | Linux Micro-BFD enforcement. | Policy-gated actuator for bond/team/OVS member disable/remove on micro-BFD Down. | `feat(netio): add linux lag actuator` |
 | S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
@@ -164,6 +167,6 @@ Next sprints:
 |---|---:|---|
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 62% | Good for base sessions, auth, and advanced session observability; advanced create/update flows still missing. |
-| Linux production daemon behavior | 78% | Raw sockets, buffers, rtnetlink, systemd, metrics, and serialized drain behavior exist; Kubernetes assets need hardening. |
-| Independent production applicability | 58% | Suitable direction for BGP fast failover and overlay checks; Linux LAG actuator and overlay dataplane backend are still open. |
+| Linux production daemon behavior | 82% | Raw sockets, buffers, rtnetlink, systemd, metrics, serialized drain behavior, and hardened Kubernetes examples exist. |
+| Independent production applicability | 66% | Generic runbooks and BGP fast-failover examples are published; Linux LAG actuator and overlay dataplane backend are still open. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

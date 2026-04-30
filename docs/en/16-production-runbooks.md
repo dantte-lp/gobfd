@@ -80,6 +80,9 @@ make int-bgp-failover-up
 make int-bgp-failover-logs
 ```
 
+Full example documentation:
+[`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md).
+
 Baseline checks:
 
 ```bash
@@ -174,6 +177,10 @@ Expected single-hop values:
 
 GoBFD examples should stay vendor-neutral. Vendor snippets can be added as
 optional public interop notes when validated against primary vendor docs or MCP.
+
+Published optional notes:
+
+- [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
 
 Arista EOS public behavior validated through Arista MCP:
 
