@@ -846,6 +846,7 @@ func TestManagerDrainAllSessions(t *testing.T) {
 
 		// Drain all sessions.
 		mgr.DrainAllSessions()
+		time.Sleep(10 * time.Millisecond)
 
 		// Both sessions should be AdminDown.
 		if sess1.State() != bfd.StateAdminDown {

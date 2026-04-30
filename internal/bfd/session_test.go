@@ -532,6 +532,55 @@ func TestSessionDetectionTimeout(t *testing.T) {
 	})
 }
 
+func TestSessionSetAdminDownSendsAdminDownPacket(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &mockSender{}
+		logger := slog.Default()
+
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+		}, 42, sender, nil, logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		sess.RecvPacket(makeControlPacket(bfd.StateInit, 99, 42))
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up", sess.State())
+		}
+
+		sender.mu.Lock()
+		sender.packets = nil
+		sender.mu.Unlock()
+
+		sess.SetAdminDown()
+		time.Sleep(2 * time.Second)
+
+		if sess.State() != bfd.StateAdminDown {
+			t.Fatalf("state = %s, want AdminDown", sess.State())
+		}
+
+		pkt := sender.lastPacket(t)
+		if pkt.State != bfd.StateAdminDown {
+			t.Errorf("packet State = %s, want AdminDown", pkt.State)
+		}
+		if pkt.Diag != bfd.DiagAdminDown {
+			t.Errorf("packet Diag = %s, want AdminDown", pkt.Diag)
+		}
+	})
+}
+
 // -------------------------------------------------------------------------
 // TestSessionSlowTxRate — RFC 5880 Section 6.8.3
 // -------------------------------------------------------------------------

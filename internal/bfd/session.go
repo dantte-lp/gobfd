@@ -384,6 +384,7 @@ type Session struct {
 	recvCh   chan recvItem
 	ctrlCh   chan sessionControl
 	notifyCh chan<- StateChange
+	running  atomic.Bool
 }
 
 // recvItem carries a received BFD Control packet along with the raw
@@ -395,7 +396,10 @@ type recvItem struct {
 
 type sessionControlKind uint8
 
-const controlPathDown sessionControlKind = 1
+const (
+	controlPathDown sessionControlKind = iota + 1
+	controlAdminDown
+)
 
 type sessionControl struct {
 	kind sessionControlKind
@@ -719,8 +723,18 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
 // goroutine will rebuild the cached packet and transmit the AdminDown
 // state on the next TX interval.
 //
-// Thread-safe: uses atomic operations on state and diag.
+// Thread-safe: when the session goroutine is running, routes the transition
+// through ctrlCh so the goroutine-confined cached state stays coherent.
 func (s *Session) SetAdminDown() {
+	if s.running.Load() {
+		select {
+		case s.ctrlCh <- sessionControl{kind: controlAdminDown}:
+			return
+		default:
+			s.logger.Warn("session control channel full, applying AdminDown directly")
+		}
+	}
+
 	s.localDiag.Store(uint32(DiagAdminDown))
 	s.state.Store(uint32(StateAdminDown))
 	s.logger.Info("session set to AdminDown for graceful drain")
@@ -755,6 +769,10 @@ func (s *Session) Run(ctx context.Context) {
 	// Pin the session goroutine to an OS thread for sub-millisecond timer
 	// precision. BFD detection intervals can be as low as 50ms; OS thread
 	// affinity reduces scheduler-induced jitter on timer wakeups.
+	s.running.Store(true)
+	defer s.running.Store(false)
+	s.cachedState = s.State()
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -811,9 +829,21 @@ func (s *Session) handleControlCommand(
 	switch cmd.kind {
 	case controlPathDown:
 		s.handlePathDown(ctx, txTimer, detectTimer)
+	case controlAdminDown:
+		s.handleAdminDown(ctx, txTimer, detectTimer)
 	default:
 		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
 	}
+}
+
+func (s *Session) handleAdminDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
+	result := ApplyEvent(s.cachedState, EventAdminDown)
+	if !result.Changed {
+		s.localDiag.Store(uint32(DiagAdminDown))
+		return
+	}
+	result.Actions = append(result.Actions, ActionSendControl)
+	s.executeFSMActions(ctx, result, txTimer, detectTimer)
 }
 
 func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {

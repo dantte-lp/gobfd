@@ -42,7 +42,7 @@ gate to run under a Linux build context and fail on any diagnostics.
 | Interface monitor | Linux rtnetlink monitor transitions sessions on link-down. Non-Linux has stub behavior. | S4 research doc and implementation plan describe Linux scope. | Consistent |
 | `gopls-check` | Old target checked raw file list, mixed GOOS scopes, printed diagnostics, and exited 0. | Plan claimed `gopls-check` as a green quality gate. | Fixed in S4.1 |
 | pkg.go.dev command page | `cmd/gobfd` has a minimal package comment. | Plan marks pkg.go.dev as weak. | Open |
-| Graceful AdminDown | `SetAdminDown` updates atomics directly, while hot-path `cachedState` is goroutine-confined. | Docs claim graceful AdminDown drain. | Needs S5.1 verification/fix |
+| Graceful AdminDown | `SetAdminDown` routes through the session control channel while the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes. | Docs claim graceful AdminDown drain. | Fixed in S5.1 |
 | `um-docs` readiness | Core BFD can support BGP fast failover, EVPN/VXLAN checks, and Kubernetes daemon deployment patterns. | `um-docs` expects BFD on BGP links, RKE2/Cilium/Calico context, and multi-site failover docs. | Partial |
 
 ## Findings
@@ -72,15 +72,16 @@ README clone.
 
 Next sprint: S8, `docs(pkg): improve command package documentation`.
 
-### F3: AdminDown state path needs serialization review
+### F3: AdminDown state path was serialized in S5.1
 
-`Session.SetPathDown` now uses a control channel so state changes happen in the
-session goroutine and keep `cachedState` coherent. `SetAdminDown` still writes
-atomic state directly. The code may still transmit AdminDown because the cached
-packet is rebuilt explicitly, but the split state path is inconsistent with the
-new control-channel model and should be tested/fixed.
+`Session.SetPathDown` uses a control channel so state changes happen in the
+session goroutine and keep `cachedState` coherent. S5.1 applied the same model
+to `SetAdminDown` when the session goroutine is running. If an administrative
+change happens before `Run`, startup syncs `cachedState` from the atomic state
+before timers are calculated.
 
-Next sprint: S5.1, `fix(bfd): serialize admin-down transition`.
+Evidence: `TestSessionSetAdminDownSendsAdminDownPacket` verifies that an Up
+session sends `AdminDown` / `DiagAdminDown` on the wire after graceful drain.
 
 ### F4: `um-docs` production use needs operator assets
 
@@ -104,7 +105,7 @@ Next sprint: S7, `feat(k8s): add production integration assets`.
 |---|---|---|---|
 | S4.1 | Close code/docs/tooling drift. | Harden `gopls-check`, update README RFC status, record this audit. | `chore(lint): harden gopls diagnostics gate` |
 | S5 | Make public control plane match daemon capabilities. | API/CLI/session snapshots cover Echo, Micro-BFD, VXLAN, Geneve. | `feat(api): expose advanced bfd session types` |
-| S5.1 | Keep session state mutation paths coherent. | AdminDown transition serialized through the session goroutine or proven safe by tests. | `fix(bfd): serialize admin-down transition` |
+| S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S7 | `um-docs` integration readiness. | Kubernetes manifests, Arista/FRR/GoBGP examples, alerts, and failure drills. | `feat(k8s): add production integration assets` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
@@ -115,6 +116,6 @@ Next sprint: S7, `feat(k8s): add production integration assets`.
 |---|---:|---|
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 55% | Good for base sessions and auth; advanced families missing. |
-| Linux production daemon behavior | 75% | Raw sockets, buffers, rtnetlink, systemd, metrics exist; Kubernetes assets need hardening. |
+| Linux production daemon behavior | 78% | Raw sockets, buffers, rtnetlink, systemd, metrics, and serialized drain behavior exist; Kubernetes assets need hardening. |
 | `um-docs` applicability | 60% | Suitable direction for BGP fast failover, not yet packaged/documented enough for full platform use. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

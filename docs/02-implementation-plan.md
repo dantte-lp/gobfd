@@ -102,7 +102,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | # | Output | Exit |
 |---|---|---|
 | **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | Proto, server mappings, CLI create/list/show, and docs expose every supported internal session type. Commit: `feat(api): expose advanced bfd session types`. |
-| **S5.1** | State mutation consistency. | Route AdminDown through the session control channel or otherwise update `cachedState` under the session goroutine so graceful drain and snapshots cannot diverge. Commit: `fix(bfd): serialize admin-down transition`. |
+| **S5.1** | State mutation consistency. | Done: `SetAdminDown` routes through the session control channel when the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes; wire tests verify the next packet carries `AdminDown` / `DiagAdminDown`. Commit: `fix(bfd): serialize admin-down transition`. |
 | **S6** | Production security posture. | ConnectRPC and GoBGP integrations document mTLS/default localhost policy; vulnerability allowlist has owner, expiry, and mitigation. Commit: `docs(security): define production hardening policy`. |
 | **S7** | Kubernetes and routing integration hardening for um-docs. | DaemonSet/Helm manifests, Prometheus rules, Arista/FRR/GoBGP examples, and failure drills are documented. Commit: `feat(k8s): add production integration assets`. |
 

@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Graceful drain now routes `SetAdminDown` through the session control channel
+  when the session goroutine is running, keeping the goroutine-confined cached
+  state aligned with the atomic state and ensuring the transmitted control
+  packet carries `AdminDown` / `DiagAdminDown`.
 - RFC 9747 Echo receive path now accepts only looped-back packets with
   TTL/Hop Limit 254 while preserving TTL 255 validation for single-hop BFD.
 - RFC interop packet capture now includes UDP 3785 Echo packets.

@@ -55,6 +55,10 @@
 
 ### Исправлено
 
+- Graceful drain теперь проводит `SetAdminDown` через control channel сессии,
+  когда session goroutine запущена: goroutine-confined cached state остаётся
+  согласованным с atomic state, а отправляемый control packet несёт
+  `AdminDown` / `DiagAdminDown`.
 - Путь приема RFC 9747 Echo теперь принимает только looped-back пакеты с
   TTL/Hop Limit 254, сохраняя проверку TTL 255 для single-hop BFD.
 - RFC interop packet capture теперь включает UDP 3785 Echo-пакеты.
