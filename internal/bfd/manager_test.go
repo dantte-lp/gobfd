@@ -86,6 +86,71 @@ func TestManagerCreateSession(t *testing.T) {
 	})
 }
 
+func TestManagerHandleInterfaceEventMarksMatchingSessionsPathDown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		pkt := &bfd.ControlPacket{
+			Version:               bfd.Version,
+			State:                 bfd.StateInit,
+			DetectMult:            3,
+			MyDiscriminator:       99,
+			YourDiscriminator:     sess.LocalDiscriminator(),
+			DesiredMinTxInterval:  100000,
+			RequiredMinRxInterval: 100000,
+		}
+		sess.RecvPacket(pkt)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up before link-down", sess.State())
+		}
+
+		affected := mgr.HandleInterfaceEvent("eth0", false)
+		time.Sleep(50 * time.Millisecond)
+
+		if affected != 1 {
+			t.Fatalf("affected sessions = %d, want 1", affected)
+		}
+		if sess.State() != bfd.StateDown {
+			t.Fatalf("state = %s, want Down after link-down", sess.State())
+		}
+		if sess.LocalDiag() != bfd.DiagPathDown {
+			t.Fatalf("local diag = %s, want PathDown", sess.LocalDiag())
+		}
+	})
+}
+
+func TestManagerHandleInterfaceEventIgnoresOtherInterfaces(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		affected := mgr.HandleInterfaceEvent("eth9", false)
+		time.Sleep(10 * time.Millisecond)
+
+		if affected != 0 {
+			t.Fatalf("affected sessions = %d, want 0", affected)
+		}
+		if sess.LocalDiag() == bfd.DiagPathDown {
+			t.Fatalf("local diag = %s, want unchanged", sess.LocalDiag())
+		}
+	})
+}
+
 // -------------------------------------------------------------------------
 // TestManagerCreateSessionValidation
 // -------------------------------------------------------------------------

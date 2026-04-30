@@ -155,6 +155,8 @@ func runServers(
 		return nil
 	})
 
+	startInterfaceMonitor(gCtx, g, mgr, logger)
+
 	// Start BFD packet listeners and receivers for incoming packets.
 	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, logger)
 	if err != nil {
@@ -1267,6 +1269,52 @@ func startGoBGPHandler(
 	)
 
 	return client, nil
+}
+
+func startInterfaceMonitor(
+	ctx context.Context,
+	g *errgroup.Group,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+) {
+	mon, err := netio.NewInterfaceMonitor(logger)
+	if err != nil {
+		logger.Warn("interface monitoring disabled",
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+
+	g.Go(func() error {
+		defer func() {
+			if err := mon.Close(); err != nil {
+				logger.Warn("failed to close interface monitor",
+					slog.String("error", err.Error()),
+				)
+			}
+		}()
+		return mon.Run(ctx)
+	})
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case ev, ok := <-mon.Events():
+				if !ok {
+					return nil
+				}
+				affected := mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
+				logger.Debug("interface event processed",
+					slog.String("interface", ev.IfName),
+					slog.Int("ifindex", ev.IfIndex),
+					slog.Bool("up", ev.Up),
+					slog.Int("affected_sessions", affected),
+				)
+			}
+		}
+	})
 }
 
 // loadConfig loads configuration from a file path or returns defaults.

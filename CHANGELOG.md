@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Linux rtnetlink interface monitor for `RTM_NEWLINK` / `RTM_DELLINK` events,
+  with immediate BFD `Down` / `Path Down` handling for sessions bound to a
+  failed interface.
+- S4 Linux netlink vs eBPF research note documenting why rtnetlink is the
+  correct default for link-state monitoring.
 - Canonical phased implementation plan in `docs/02-implementation-plan.md`
   aligned with Keep a Changelog, SemVer, Conventional Commits, Compose
   Specification, Containerfile, `.containerignore`, and containers.conf.

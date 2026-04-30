@@ -60,7 +60,7 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | RFC 7419 / 9384 / 9468 interop | Green | `make interop-rfc-test` passes these scenarios when the RFC stack is running. |
 | RFC 9747 Echo interop | Green | `make interop-rfc-test` verifies Echo `Up`, UDP 3785 packet capture both ways, Echo failure on reflector pause, and recovery. |
 | Control-plane API | Partial | Proto and CLI expose single-hop/multi-hop only; internal code has Echo, Micro-BFD, VXLAN, and Geneve session types. |
-| Interface monitoring | Stub | `internal/netio/ifmon.go` does not emit link-state events yet. |
+| Interface monitoring | Green on Linux | `internal/netio` subscribes to rtnetlink `RTMGRP_LINK` and `Manager.HandleInterfaceEvent` transitions sessions on link-down before detection timer expiry. eBPF is deferred; see `docs/s4-linux-netlink-ebpf-research.md`. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession`, and `gobfdctl session add` now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time. Dynamic key rotation is deferred to production hardening. |
 | pkg.go.dev command page | Weak | `cmd/gobfd` has a one-line package comment. |
 | Documentation standards | Improving | Keep a Changelog and SemVer are present; commitlint and doc lint gates are now explicit. |
@@ -93,7 +93,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 |---|---|---|
 | **S2** | RFC 9747 Echo fix with packet-level evidence. | Done: `make interop-rfc-test` passes all RFC scenarios, including Echo. Commit: `fix(bfd): complete rfc9747 echo interop`. |
 | **S3** | Auth wire integration audit and fixes. | Done for static keys: YAML sessions, gRPC `AddSession`, and `gobfdctl session add` wire auth into TX/RX; static key-store validation prevents nil-key panics; missing raw wire bytes are rejected without panic; failed auth packets do not refresh receive counters; receive sequence knowledge resets after 2x Detection Time; snapshots expose auth type; incomplete API auth key material is rejected. Commits: `fix(bfd): wire declarative authentication`, `fix(bfd): harden auth wire verification`, `fix(bfd): reset auth sequence window`, `feat(api): accept auth key material`, next `feat(cli): add auth session flags`. |
-| **S4** | Interface monitor implementation. | Linux netlink link-down event drives immediate BFD state transition before detection timer expiry. Commit: `feat(netio): react to link state events`. |
+| **S4** | Interface monitor implementation. | Done: Linux rtnetlink link-down events drive immediate BFD `Down` / `Path Down` transition before detection timer expiry; cilium/ebpf was researched and deferred as packet-fast-path tooling, not link-notification tooling. Commit: `feat(netio): react to link state events`. |
 
 ### Phase 3 -- Control Plane and Operations
 

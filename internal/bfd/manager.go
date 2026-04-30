@@ -513,6 +513,38 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 	return nil
 }
 
+// HandleInterfaceEvent applies an interface state event to sessions bound to
+// the interface. Link-up events are informational; link-down events transition
+// matching sessions to Down with DiagPathDown before detection timer expiry.
+func (m *Manager) HandleInterfaceEvent(ifName string, up bool) int {
+	if ifName == "" || up {
+		return 0
+	}
+
+	m.mu.RLock()
+	matches := make([]*Session, 0)
+	for _, entry := range m.sessions {
+		if entry.key.ifName == ifName {
+			matches = append(matches, entry.session)
+		}
+	}
+	m.mu.RUnlock()
+
+	affected := 0
+	for _, sess := range matches {
+		if sess.SetPathDown() {
+			affected++
+		}
+	}
+	if affected > 0 {
+		m.logger.Warn("interface link down affected BFD sessions",
+			slog.String("interface", ifName),
+			slog.Int("sessions", affected),
+		)
+	}
+	return affected
+}
+
 // -------------------------------------------------------------------------
 // Lookup — RFC 5880 Section 6.8.6 demultiplexing
 // -------------------------------------------------------------------------

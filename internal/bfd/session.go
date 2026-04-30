@@ -382,6 +382,7 @@ type Session struct {
 	metrics  MetricsReporter
 	logger   *slog.Logger
 	recvCh   chan recvItem
+	ctrlCh   chan sessionControl
 	notifyCh chan<- StateChange
 }
 
@@ -390,6 +391,14 @@ type Session struct {
 type recvItem struct {
 	pkt  *ControlPacket
 	wire []byte // raw wire bytes for auth digest verification
+}
+
+type sessionControlKind uint8
+
+const controlPathDown sessionControlKind = 1
+
+type sessionControl struct {
+	kind sessionControlKind
 }
 
 // -------------------------------------------------------------------------
@@ -444,6 +453,7 @@ func NewSession(
 		metrics:               noopMetrics{},
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
+		ctrlCh:                make(chan sessionControl, 4),
 		cachedPacket:          make([]byte, pktBufSize),
 		logger: logger.With(
 			slog.String("peer", cfg.PeerAddr.String()),
@@ -716,6 +726,18 @@ func (s *Session) SetAdminDown() {
 	s.logger.Info("session set to AdminDown for graceful drain")
 }
 
+// SetPathDown asks the session goroutine to transition the session to Down
+// with DiagPathDown. It returns false if the control channel is full.
+func (s *Session) SetPathDown() bool {
+	select {
+	case s.ctrlCh <- sessionControl{kind: controlPathDown}:
+		return true
+	default:
+		s.logger.Warn("session control channel full, dropping path-down event")
+		return false
+	}
+}
+
 // -------------------------------------------------------------------------
 // Main Goroutine — RFC 5880 Session Lifecycle
 // -------------------------------------------------------------------------
@@ -768,6 +790,9 @@ func (s *Session) runLoop(
 		case item := <-s.recvCh:
 			s.handleRecvPacket(ctx, item, txTimer, detectTimer)
 
+		case cmd := <-s.ctrlCh:
+			s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
+
 		case <-txTimer.C:
 			s.handleTxTimer(ctx, txTimer)
 
@@ -775,6 +800,35 @@ func (s *Session) runLoop(
 			s.handleDetectTimer(ctx, txTimer, detectTimer)
 		}
 	}
+}
+
+func (s *Session) handleControlCommand(
+	ctx context.Context,
+	cmd sessionControl,
+	txTimer *time.Timer,
+	detectTimer *time.Timer,
+) {
+	switch cmd.kind {
+	case controlPathDown:
+		s.handlePathDown(ctx, txTimer, detectTimer)
+	default:
+		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
+	}
+}
+
+func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
+	oldState := s.cachedState
+	s.localDiag.Store(uint32(DiagPathDown))
+	if oldState == StateDown || oldState == StateAdminDown {
+		return
+	}
+
+	s.executeFSMActions(ctx, FSMResult{
+		OldState: oldState,
+		NewState: StateDown,
+		Changed:  true,
+		Actions:  []Action{ActionNotifyDown, ActionSendControl},
+	}, txTimer, detectTimer)
 }
 
 // -------------------------------------------------------------------------

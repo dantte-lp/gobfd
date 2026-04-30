@@ -9,6 +9,11 @@
 
 ### Добавлено
 
+- Linux rtnetlink monitor интерфейсов для событий `RTM_NEWLINK` /
+  `RTM_DELLINK`, с немедленным переводом BFD-сессий на отказавшем интерфейсе
+  в `Down` / `Path Down`.
+- Исследовательская заметка S4 по Linux netlink и eBPF с обоснованием выбора
+  rtnetlink для мониторинга состояния интерфейсов.
 - Каноничный поэтапный план разработки `docs/02-implementation-plan.md`,
   согласованный с Keep a Changelog, SemVer, Conventional Commits,
   Compose Specification, Containerfile, `.containerignore` и containers.conf.
