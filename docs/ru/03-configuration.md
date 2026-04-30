@@ -107,6 +107,10 @@ sessions:
     desired_min_tx: "100ms"
     required_min_rx: "100ms"
     detect_mult: 3
+    auth:
+      type: keyed_sha1
+      key_id: 7
+      secret: "change-me"
   - peer: "10.0.1.1"
     local: "10.0.1.2"
     type: multi_hop
@@ -376,6 +380,14 @@ geneve:
 | `required_min_rx` | duration | Нет | Переопределение RX-интервала |
 | `detect_mult` | uint32 | Нет | Переопределение множителя обнаружения |
 | `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера (переопределяет `bfd.default_padded_pdu_size`) |
+| `auth.type` | string | Нет | Тип аутентификации RFC 5880: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
+| `auth.key_id` | uint32 | Если auth включён | Auth Key ID, допустимый диапазон 0-255 |
+| `auth.secret` | string | Если auth включён | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
+
+Аутентификация сейчас настраивается через декларативные YAML-сессии. gRPC API
+`AddSession` отклоняет значения `auth_type`, отличные от `none`, пока в API нет
+явных полей управления ключами; это не позволяет случайно создать
+неаутентифицированную сессию по аутентифицированному запросу.
 
 Типы сессий определяют UDP-порт и обработку TTL:
 

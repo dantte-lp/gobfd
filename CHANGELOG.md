@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request titles.
 - `make gopls-check` gate backed by `gopls v0.21.1` in the Podman dev
   container.
+- Declarative RFC 5880 authentication wiring for YAML-defined BFD sessions,
+  including static key-store validation and API/session snapshots that expose
+  the configured auth type.
 
 ### Changed
 
@@ -37,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RFC 9747 Echo receive path now accepts only looped-back packets with
   TTL/Hop Limit 254 while preserving TTL 255 validation for single-hop BFD.
 - RFC interop packet capture now includes UDP 3785 Echo packets.
+- Session creation now rejects authentication without an auth key store instead
+  of panicking during cached packet signing.
+- The gRPC `AddSession` path now rejects non-`none` `auth_type` requests until
+  key-management fields are available, preventing silent unauthenticated
+  sessions.
 
 ## [0.4.0] - 2026-02-24
 

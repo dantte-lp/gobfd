@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/trace"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -662,10 +663,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		return bfd.SessionConfig{}, fmt.Errorf("parse local address: %w", err)
 	}
 
-	sessType := bfd.SessionTypeSingleHop
-	if sc.Type == "multi_hop" {
-		sessType = bfd.SessionTypeMultiHop
-	}
+	sessType := configSessionTypeToBFD(sc.Type)
 
 	desiredMinTx := sc.DesiredMinTx
 	if desiredMinTx == 0 {
@@ -698,6 +696,11 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		paddedPduSize = defaults.DefaultPaddedPduSize
 	}
 
+	auth, authKeys, err := configAuthToBFD(sc.Auth)
+	if err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("configure authentication: %w", err)
+	}
+
 	return bfd.SessionConfig{
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
@@ -708,7 +711,65 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
 		PaddedPduSize:         paddedPduSize,
+		Auth:                  auth,
+		AuthKeys:              authKeys,
 	}, nil
+}
+
+func configSessionTypeToBFD(sessionType string) bfd.SessionType {
+	if sessionType == "multi_hop" {
+		return bfd.SessionTypeMultiHop
+	}
+	return bfd.SessionTypeSingleHop
+}
+
+func configAuthToBFD(authCfg config.AuthConfig) (bfd.Authenticator, bfd.AuthKeyStore, error) {
+	authTypeName := strings.TrimSpace(authCfg.Type)
+	if authTypeName == "" || authTypeName == "none" {
+		return nil, nil, nil
+	}
+
+	authType, err := configAuthTypeToBFD(authTypeName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if authCfg.KeyID > 255 {
+		return nil, nil, fmt.Errorf("auth key ID %d exceeds 255: %w",
+			authCfg.KeyID, config.ErrInvalidSessionAuthKeyID)
+	}
+
+	auth, err := bfd.NewAuthenticator(authType)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+		ID:     uint8(authCfg.KeyID), // Range checked above.
+		Type:   authType,
+		Secret: []byte(authCfg.Secret),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return auth, keys, nil
+}
+
+func configAuthTypeToBFD(authType string) (bfd.AuthType, error) {
+	switch authType {
+	case "simple_password":
+		return bfd.AuthTypeSimplePassword, nil
+	case "keyed_md5":
+		return bfd.AuthTypeKeyedMD5, nil
+	case "meticulous_keyed_md5":
+		return bfd.AuthTypeMeticulousKeyedMD5, nil
+	case "keyed_sha1":
+		return bfd.AuthTypeKeyedSHA1, nil
+	case "meticulous_keyed_sha1":
+		return bfd.AuthTypeMeticulousKeyedSHA1, nil
+	default:
+		return bfd.AuthTypeNone, fmt.Errorf("auth type %q: %w",
+			authType, config.ErrInvalidSessionAuthType)
+	}
 }
 
 // newManager creates a BFD session manager with metrics and optional unsolicited BFD (RFC 9468).

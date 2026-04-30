@@ -272,6 +272,21 @@ func TestNewSessionValidationErrors(t *testing.T) {
 			localDiscr: 1,
 			wantErr:    "session role",
 		},
+		{
+			name: "auth without key store",
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  bfd.SessionTypeSingleHop,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+				Auth:                  bfd.KeyedSHA1Auth{},
+			},
+			localDiscr: 1,
+			wantErr:    "auth key store",
+		},
 	}
 
 	for _, tt := range tests {

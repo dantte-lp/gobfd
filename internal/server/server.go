@@ -32,6 +32,10 @@ var (
 
 	// ErrDetectMultOverflow indicates the detect multiplier exceeds uint8 range.
 	ErrDetectMultOverflow = errors.New("detect multiplier exceeds maximum 255")
+
+	// ErrAPIAuthKeyMaterialUnsupported indicates the API request selected
+	// authentication but cannot provide the key material required by RFC 5880.
+	ErrAPIAuthKeyMaterialUnsupported = errors.New("api auth key material is not supported yet")
 )
 
 // SenderFactory creates a PacketSender for a BFD session. The factory
@@ -381,6 +385,10 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		return bfd.SessionConfig{}, err
 	}
 
+	if err := validateAPIAuthRequest(req.GetAuthType()); err != nil {
+		return bfd.SessionConfig{}, err
+	}
+
 	desiredMinTx := durationFromProto(req.GetDesiredMinTxInterval())
 	requiredMinRx := durationFromProto(req.GetRequiredMinRxInterval())
 
@@ -402,6 +410,16 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
 	}, nil
+}
+
+func validateAPIAuthRequest(authType bfdv1.AuthenticationType) error {
+	switch authType {
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED,
+		bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE:
+		return nil
+	default:
+		return fmt.Errorf("auth_type %s: %w", authType, ErrAPIAuthKeyMaterialUnsupported)
+	}
 }
 
 // sessionTypeFromProto converts a proto SessionType to bfd.SessionType.
@@ -463,6 +481,7 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 		LocalState:            stateToProto(snap.State),
 		RemoteState:           stateToProto(snap.RemoteState),
 		LocalDiagnostic:       diagToProto(snap.LocalDiag),
+		AuthType:              authTypeToProto(snap.AuthType),
 		LocalDiscriminator:    snap.LocalDiscr,
 		RemoteDiscriminator:   snap.RemoteDiscr,
 		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTx),
@@ -556,6 +575,25 @@ func sessionTypeToProto(st bfd.SessionType) bfdv1.SessionType {
 		return bfdv1.SessionType_SESSION_TYPE_MULTI_HOP
 	default:
 		return bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED
+	}
+}
+
+func authTypeToProto(authType bfd.AuthType) bfdv1.AuthenticationType {
+	switch authType {
+	case bfd.AuthTypeNone:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE
+	case bfd.AuthTypeSimplePassword:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_SIMPLE_PASSWORD
+	case bfd.AuthTypeKeyedMD5:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_MD5
+	case bfd.AuthTypeMeticulousKeyedMD5:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5
+	case bfd.AuthTypeKeyedSHA1:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1
+	case bfd.AuthTypeMeticulousKeyedSHA1:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1
+	default:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED
 	}
 }
 

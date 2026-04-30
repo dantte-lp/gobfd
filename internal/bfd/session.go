@@ -219,6 +219,9 @@ var (
 
 	// ErrInvalidPaddedPduSize indicates the padded PDU size is out of range.
 	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0 or between 24 and 9000")
+
+	// ErrMissingAuthKeyStore indicates authentication was configured without keys.
+	ErrMissingAuthKeyStore = errors.New("auth key store is required when auth is configured")
 )
 
 // -------------------------------------------------------------------------
@@ -509,6 +512,29 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.PaddedPduSize != 0 && (cfg.PaddedPduSize < HeaderSize || cfg.PaddedPduSize > MaxPaddedPduSize) {
 		return fmt.Errorf("padded PDU size %d: %w", cfg.PaddedPduSize, ErrInvalidPaddedPduSize)
 	}
+	if err := validateSessionAuthConfig(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSessionAuthConfig(cfg SessionConfig) error {
+	if cfg.Auth == nil {
+		return nil
+	}
+	if cfg.AuthKeys == nil {
+		return ErrMissingAuthKeyStore
+	}
+
+	key := cfg.AuthKeys.CurrentKey()
+	authType, ok := authenticatorType(cfg.Auth)
+	if !ok {
+		return fmt.Errorf("authenticator %T: %w", cfg.Auth, ErrAuthTypeMismatch)
+	}
+	if key.Type != authType {
+		return fmt.Errorf("authenticator %s with key %s: %w",
+			authType, key.Type, ErrAuthKeyTypeMismatch)
+	}
 	return nil
 }
 
@@ -532,7 +558,11 @@ func (s *Session) initAuth(cfg SessionConfig) error {
 	if cfg.Auth == nil {
 		return nil
 	}
-	as, err := NewAuthState(AuthTypeNone)
+	authType, ok := authenticatorType(cfg.Auth)
+	if !ok {
+		return fmt.Errorf("init auth state: authenticator %T: %w", cfg.Auth, ErrAuthTypeMismatch)
+	}
+	as, err := NewAuthState(authType)
 	if err != nil {
 		return fmt.Errorf("init auth state: %w", err)
 	}
@@ -584,6 +614,14 @@ func (s *Session) Type() SessionType { return s.sessionType }
 
 // PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
 func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
+
+// AuthType returns the RFC 5880 authentication type configured for this session.
+func (s *Session) AuthType() AuthType {
+	if s.authState == nil {
+		return AuthTypeNone
+	}
+	return s.authState.Type
+}
 
 // DesiredMinTxInterval returns the configured desired minimum TX interval.
 func (s *Session) DesiredMinTxInterval() time.Duration {

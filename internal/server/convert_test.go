@@ -204,6 +204,7 @@ func TestSnapshotToProto(t *testing.T) {
 		State:                bfd.StateInit,
 		RemoteState:          bfd.StateDown,
 		LocalDiag:            bfd.DiagPathDown,
+		AuthType:             bfd.AuthTypeKeyedSHA1,
 		DesiredMinTx:         100 * time.Millisecond,
 		RequiredMinRx:        200 * time.Millisecond,
 		DetectMultiplier:     5,
@@ -237,6 +238,9 @@ func TestSnapshotToProto(t *testing.T) {
 	}
 	if pb.GetLocalDiagnostic() != bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_PATH_DOWN {
 		t.Errorf("LocalDiagnostic = %s, want PATH_DOWN", pb.GetLocalDiagnostic())
+	}
+	if pb.GetAuthType() != bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1 {
+		t.Errorf("AuthType = %s, want KEYED_SHA1", pb.GetAuthType())
 	}
 	if pb.GetDetectMultiplier() != 5 {
 		t.Errorf("DetectMultiplier = %d, want 5", pb.GetDetectMultiplier())

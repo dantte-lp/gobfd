@@ -149,6 +149,18 @@ func TestAddSessionInvalidArgs(t *testing.T) {
 				DetectMultiplier:      3,
 			},
 		},
+		{
+			name: "auth type without API key material",
+			req: &bfdv1.AddSessionRequest{
+				PeerAddress:           testPeerAddr,
+				LocalAddress:          testLocalAddr,
+				Type:                  bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP,
+				DesiredMinTxInterval:  durationpb.New(time.Second),
+				RequiredMinRxInterval: durationpb.New(time.Second),
+				DetectMultiplier:      3,
+				AuthType:              bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1,
+			},
+		},
 	}
 
 	for _, tt := range tests {

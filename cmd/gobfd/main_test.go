@@ -246,6 +246,60 @@ func TestConfigSessionToBFD(t *testing.T) {
 	}
 }
 
+func TestConfigSessionToBFDConfiguresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := configSessionToBFD(config.SessionConfig{
+		Peer:  "10.0.0.1",
+		Local: "10.0.0.2",
+		Type:  "single_hop",
+		Auth: config.AuthConfig{
+			Type:   "keyed_sha1",
+			KeyID:  7,
+			Secret: "sha1-auth-secret",
+		},
+	}, config.BFDConfig{
+		DefaultDesiredMinTx:     time.Second,
+		DefaultRequiredMinRx:    time.Second,
+		DefaultDetectMultiplier: 3,
+	})
+	if err != nil {
+		t.Fatalf("configSessionToBFD: %v", err)
+	}
+	if cfg.Auth == nil {
+		t.Fatal("Auth is nil, want keyed SHA1 authenticator")
+	}
+	if cfg.AuthKeys == nil {
+		t.Fatal("AuthKeys is nil, want static key store")
+	}
+
+	pkt := &bfd.ControlPacket{
+		Version:               bfd.Version,
+		State:                 bfd.StateDown,
+		DetectMult:            3,
+		MyDiscriminator:       1,
+		DesiredMinTxInterval:  1000000,
+		RequiredMinRxInterval: 1000000,
+	}
+	state, err := bfd.NewAuthState(bfd.AuthTypeKeyedSHA1)
+	if err != nil {
+		t.Fatalf("NewAuthState: %v", err)
+	}
+	buf := make([]byte, bfd.MaxPacketSize)
+	if err := cfg.Auth.Sign(state, cfg.AuthKeys, pkt, buf, 0); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if !pkt.AuthPresent || pkt.Auth == nil {
+		t.Fatal("signed packet missing auth section")
+	}
+	if pkt.Auth.Type != bfd.AuthTypeKeyedSHA1 {
+		t.Fatalf("Auth.Type = %s, want %s", pkt.Auth.Type, bfd.AuthTypeKeyedSHA1)
+	}
+	if pkt.Auth.KeyID != 7 {
+		t.Fatalf("Auth.KeyID = %d, want 7", pkt.Auth.KeyID)
+	}
+}
+
 // =========================================================================
 // 4.2 — buildUnsolicitedPolicy
 // =========================================================================

@@ -146,6 +146,13 @@ bfd:
 #     desired_min_tx: "100ms"
 #     required_min_rx: "100ms"
 #     detect_mult: 3
+#     auth:
+#       # RFC 5880 Section 6.7 authentication. Supported values:
+#       # simple_password, keyed_md5, meticulous_keyed_md5,
+#       # keyed_sha1, meticulous_keyed_sha1.
+#       type: keyed_sha1
+#       key_id: 7
+#       secret: "change-me"
 #     # RFC 9764: per-session padded PDU size. Overrides bfd.default_padded_pdu_size.
 #     # padded_pdu_size: 128
 #   - peer: "10.0.1.1"

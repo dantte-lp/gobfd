@@ -516,6 +516,26 @@ type SessionConfig struct {
 	// Overrides BFDConfig.DefaultPaddedPduSize when nonzero.
 	// Valid range: 24-9000. Zero means use the global default.
 	PaddedPduSize uint16 `koanf:"padded_pdu_size"`
+
+	// Auth configures RFC 5880 Section 6.7 authentication for this session.
+	// Empty Type means authentication is disabled.
+	Auth AuthConfig `koanf:"auth"`
+}
+
+// AuthConfig describes a single BFD authentication key for a session.
+// Multiple-key rotation is handled by the internal AuthKeyStore and can be
+// expanded in a later config schema without changing the wire behavior.
+type AuthConfig struct {
+	// Type is one of: simple_password, keyed_md5, meticulous_keyed_md5,
+	// keyed_sha1, meticulous_keyed_sha1. Empty or "none" disables auth.
+	Type string `koanf:"type"`
+
+	// KeyID is the RFC 5880 Auth Key ID. Valid range: 0-255.
+	KeyID uint32 `koanf:"key_id"`
+
+	// Secret is the authentication secret. Length limits are RFC-defined:
+	// 1-16 bytes for Simple Password and MD5, 1-20 bytes for SHA1.
+	Secret string `koanf:"secret"`
 }
 
 // SessionKey returns a unique identifier for the session based on
@@ -744,6 +764,15 @@ var (
 	// ErrDuplicateSessionKey indicates two sessions share the same (peer, local, interface) key.
 	ErrDuplicateSessionKey = errors.New("duplicate session key")
 
+	// ErrInvalidSessionAuthType indicates a session has an unrecognized auth type.
+	ErrInvalidSessionAuthType = errors.New("session auth.type is invalid")
+
+	// ErrInvalidSessionAuthKeyID indicates a session auth key ID exceeds the wire range.
+	ErrInvalidSessionAuthKeyID = errors.New("session auth.key_id must fit uint8")
+
+	// ErrInvalidSessionAuthSecret indicates a session auth secret has an invalid length.
+	ErrInvalidSessionAuthSecret = errors.New("session auth.secret length is invalid")
+
 	// ErrEmptyGoBGPAddr indicates the GoBGP address is empty when enabled.
 	ErrEmptyGoBGPAddr = errors.New("gobgp.addr must not be empty when gobgp is enabled")
 
@@ -888,6 +917,16 @@ var ValidSessionTypes = map[string]bool{
 	"multi_hop":  true,
 }
 
+// ValidAuthTypes lists recognized RFC 5880 authentication type strings.
+var ValidAuthTypes = map[string]bool{
+	"none":                  true,
+	"simple_password":       true,
+	"keyed_md5":             true,
+	"meticulous_keyed_md5":  true,
+	"keyed_sha1":            true,
+	"meticulous_keyed_sha1": true,
+}
+
 // validateSessions checks each declarative session entry for correctness.
 func validateSessions(sessions []SessionConfig) error {
 	seen := make(map[string]struct{}, len(sessions))
@@ -905,6 +944,10 @@ func validateSessions(sessions []SessionConfig) error {
 			return fmt.Errorf("sessions[%d]: %w", i, ErrInvalidSessionDetectMult)
 		}
 
+		if err := validateSessionAuth(sc.Auth); err != nil {
+			return fmt.Errorf("sessions[%d]: %w", i, err)
+		}
+
 		key := sc.SessionKey()
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("sessions[%d] key %q: %w", i, key, ErrDuplicateSessionKey)
@@ -912,6 +955,32 @@ func validateSessions(sessions []SessionConfig) error {
 		seen[key] = struct{}{}
 	}
 
+	return nil
+}
+
+func validateSessionAuth(auth AuthConfig) error {
+	authType := strings.TrimSpace(auth.Type)
+	if authType == "" || authType == "none" {
+		return nil
+	}
+	if !ValidAuthTypes[authType] {
+		return fmt.Errorf("auth.type %q: %w", auth.Type, ErrInvalidSessionAuthType)
+	}
+	if auth.KeyID > 255 {
+		return fmt.Errorf("auth.key_id %d: %w", auth.KeyID, ErrInvalidSessionAuthKeyID)
+	}
+
+	secretLen := len([]byte(auth.Secret))
+	switch authType {
+	case "simple_password", "keyed_md5", "meticulous_keyed_md5":
+		if secretLen < 1 || secretLen > 16 {
+			return fmt.Errorf("auth.secret length %d: %w", secretLen, ErrInvalidSessionAuthSecret)
+		}
+	case "keyed_sha1", "meticulous_keyed_sha1":
+		if secretLen < 1 || secretLen > 20 {
+			return fmt.Errorf("auth.secret length %d: %w", secretLen, ErrInvalidSessionAuthSecret)
+		}
+	}
 	return nil
 }
 

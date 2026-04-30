@@ -105,6 +105,10 @@ sessions:
     desired_min_tx: "100ms"
     required_min_rx: "100ms"
     detect_mult: 3
+    auth:
+      type: keyed_sha1
+      key_id: 7
+      secret: "change-me"
   - peer: "10.0.1.1"
     local: "10.0.1.2"
     type: multi_hop
@@ -384,6 +388,14 @@ Session key is the tuple: `(peer, local, interface)`.
 | `required_min_rx` | duration | No | Override default RX interval |
 | `detect_mult` | uint32 | No | Override default detect multiplier |
 | `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size (overrides `bfd.default_padded_pdu_size`) |
+| `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
+| `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
+| `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
+
+Authentication is currently configured through declarative YAML sessions. The
+gRPC `AddSession` API rejects non-`none` `auth_type` values until the API grows
+explicit key-management fields; this prevents accidentally creating an
+unauthenticated session from an authenticated request.
 
 Session types determine the UDP port and TTL handling:
 

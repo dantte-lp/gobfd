@@ -408,6 +408,49 @@ func TestValidateSessionErrors(t *testing.T) {
 			},
 			wantErr: config.ErrDuplicateSessionKey,
 		},
+		{
+			name: "invalid auth type",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{
+						Peer:  "10.0.0.1",
+						Local: testLocalAddr,
+						Auth:  config.AuthConfig{Type: "rot13", KeyID: 1, Secret: "secret"},
+					},
+				}
+			},
+			wantErr: config.ErrInvalidSessionAuthType,
+		},
+		{
+			name: "auth key ID overflow",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{
+						Peer:  "10.0.0.1",
+						Local: testLocalAddr,
+						Auth:  config.AuthConfig{Type: "keyed_sha1", KeyID: 256, Secret: "secret"},
+					},
+				}
+			},
+			wantErr: config.ErrInvalidSessionAuthKeyID,
+		},
+		{
+			name: "sha1 auth secret too long",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{
+						Peer:  "10.0.0.1",
+						Local: testLocalAddr,
+						Auth: config.AuthConfig{
+							Type:   "keyed_sha1",
+							KeyID:  1,
+							Secret: "123456789012345678901",
+						},
+					},
+				}
+			},
+			wantErr: config.ErrInvalidSessionAuthSecret,
+		},
 	}
 
 	for _, tt := range tests {

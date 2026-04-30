@@ -152,6 +152,9 @@ type SessionSnapshot struct {
 	// PaddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
 	PaddedPduSize uint16
 
+	// AuthType is the RFC 5880 authentication type configured for the session.
+	AuthType AuthType
+
 	// Unsolicited indicates the session was auto-created via RFC 9468.
 	Unsolicited bool
 
@@ -757,6 +760,7 @@ func (m *Manager) Sessions() []SessionSnapshot {
 			LastStateChange:      s.LastStateChange(),
 			LastPacketReceived:   s.LastPacketReceived(),
 			PaddedPduSize:        s.PaddedPduSize(),
+			AuthType:             s.AuthType(),
 			Counters: SessionCounters{
 				PacketsSent:      s.PacketsSent(),
 				PacketsReceived:  s.PacketsReceived(),

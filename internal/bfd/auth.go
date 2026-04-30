@@ -44,6 +44,14 @@ var (
 	// ErrAuthLenMismatch indicates the Auth Len field does not match
 	// the expected value for the auth type.
 	ErrAuthLenMismatch = errors.New("auth len mismatch")
+
+	// ErrAuthKeyTypeMismatch indicates the configured key type does not
+	// match the authenticator selected for the session.
+	ErrAuthKeyTypeMismatch = errors.New("auth key type mismatch")
+
+	// ErrAuthSecretInvalid indicates the configured secret length is invalid
+	// for the selected authentication type.
+	ErrAuthSecretInvalid = errors.New("auth secret length invalid")
 )
 
 // -------------------------------------------------------------------------
@@ -76,6 +84,102 @@ type AuthKeyStore interface {
 
 	// CurrentKey returns the currently selected key for transmission.
 	CurrentKey() AuthKey
+}
+
+// StaticAuthKeyStore is an in-memory AuthKeyStore with one selected
+// transmit key and optional additional receive keys for rotation.
+type StaticAuthKeyStore struct {
+	keys       map[uint8]AuthKey
+	currentKey AuthKey
+}
+
+// NewStaticAuthKeyStore creates a key store for a session. The current key is
+// used for transmitted packets; all keys are accepted for received packets.
+func NewStaticAuthKeyStore(current AuthKey, additional ...AuthKey) (*StaticAuthKeyStore, error) {
+	if err := validateAuthKey(current); err != nil {
+		return nil, err
+	}
+
+	keys := make(map[uint8]AuthKey, 1+len(additional))
+	keys[current.ID] = current
+	for _, key := range additional {
+		if err := validateAuthKey(key); err != nil {
+			return nil, err
+		}
+		keys[key.ID] = key
+	}
+
+	return &StaticAuthKeyStore{
+		keys:       keys,
+		currentKey: current,
+	}, nil
+}
+
+// LookupKey returns the key with the given ID.
+func (s *StaticAuthKeyStore) LookupKey(id uint8) (AuthKey, error) {
+	key, ok := s.keys[id]
+	if !ok {
+		return AuthKey{}, ErrAuthKeyNotFound
+	}
+	return key, nil
+}
+
+// CurrentKey returns the selected transmit key.
+func (s *StaticAuthKeyStore) CurrentKey() AuthKey {
+	return s.currentKey
+}
+
+func validateAuthKey(key AuthKey) error {
+	switch key.Type {
+	case AuthTypeSimplePassword, AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5:
+		if len(key.Secret) < 1 || len(key.Secret) > 16 {
+			return fmt.Errorf("%s secret length %d: %w",
+				key.Type, len(key.Secret), ErrAuthSecretInvalid)
+		}
+	case AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1:
+		if len(key.Secret) < 1 || len(key.Secret) > 20 {
+			return fmt.Errorf("%s secret length %d: %w",
+				key.Type, len(key.Secret), ErrAuthSecretInvalid)
+		}
+	default:
+		return fmt.Errorf("auth key type %d: %w", key.Type, ErrAuthTypeMismatch)
+	}
+	return nil
+}
+
+// NewAuthenticator returns the RFC 5880 authenticator for an auth type.
+func NewAuthenticator(authType AuthType) (Authenticator, error) {
+	switch authType {
+	case AuthTypeSimplePassword:
+		return SimplePasswordAuth{}, nil
+	case AuthTypeKeyedMD5:
+		return KeyedMD5Auth{}, nil
+	case AuthTypeMeticulousKeyedMD5:
+		return MeticulousKeyedMD5Auth{}, nil
+	case AuthTypeKeyedSHA1:
+		return KeyedSHA1Auth{}, nil
+	case AuthTypeMeticulousKeyedSHA1:
+		return MeticulousKeyedSHA1Auth{}, nil
+	default:
+		return nil, fmt.Errorf("auth type %d: %w", authType, ErrAuthTypeMismatch)
+	}
+}
+
+func authenticatorType(auth Authenticator) (AuthType, bool) {
+	switch auth.(type) {
+	case SimplePasswordAuth, *SimplePasswordAuth:
+		return AuthTypeSimplePassword, true
+	case KeyedMD5Auth, *KeyedMD5Auth:
+		return AuthTypeKeyedMD5, true
+	case MeticulousKeyedMD5Auth, *MeticulousKeyedMD5Auth:
+		return AuthTypeMeticulousKeyedMD5, true
+	case KeyedSHA1Auth, *KeyedSHA1Auth:
+		return AuthTypeKeyedSHA1, true
+	case MeticulousKeyedSHA1Auth, *MeticulousKeyedSHA1Auth:
+		return AuthTypeMeticulousKeyedSHA1, true
+	default:
+		return AuthTypeNone, false
+	}
 }
 
 // -------------------------------------------------------------------------
