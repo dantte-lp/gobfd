@@ -47,6 +47,8 @@
   Prometheus alerts, packet verification и открытых production gaps.
 - Runbook FRR/GoBGP BGP fast-failover с RFC packet checks,
   troubleshooting и optional public Arista EOS verification notes.
+- Micro-BFD actuator hook и guarded policy layer `netio.LAGActuator` для
+  будущего Linux LAG enforcement.
 
 ### Изменено
 

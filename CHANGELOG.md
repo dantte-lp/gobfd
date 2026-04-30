@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Prometheus alerts, packet verification, and open production gaps.
 - FRR/GoBGP BGP fast-failover runbook with RFC packet checks,
   troubleshooting, and optional public Arista EOS verification notes.
+- Micro-BFD actuator hook and guarded `netio.LAGActuator` policy layer for
+  future Linux LAG enforcement.
 
 ### Changed
 

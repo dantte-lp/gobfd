@@ -107,10 +107,11 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | **S5.1** | State mutation consistency. | Done: `SetAdminDown` routes through the session control channel when the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes; wire tests verify the next packet carries `AdminDown` / `DiagAdminDown`. Commit: `fix(bfd): serialize admin-down transition`. |
 | **S6** | Production security posture. | Done: security policy documents ConnectRPC, GoBGP, BFD auth, container privileges, and vulnerability gate boundaries; allowlist entries require owner, expiry, reason, and mitigation. Commit: `docs(security): define production hardening policy`. |
 | **S6.1** | Linux advanced BFD applicability close-out. | Align code comments, config examples, RFC docs, and audit notes with Micro-BFD actuator and VXLAN/Geneve dataplane ownership limits. Commit: `docs(linux): document advanced bfd applicability`. |
-| **S7** | Independent production integration assets. | In progress: generic runbooks, Kubernetes manifest hardening, Prometheus rule correction, FRR/GoBGP example documentation, and public EOS verification notes are done; remaining work is implementation-heavy S7.1/S7.2. Commit: `feat(examples): add production integration assets`. |
+| **S7** | Independent production integration assets. | In progress: generic runbooks, Kubernetes manifest hardening, Prometheus rule correction, FRR/GoBGP example documentation, public EOS verification notes, and Micro-BFD actuator policy are done; remaining work is S7.1b/S7.2. Commit: `feat(examples): add production integration assets`. |
 | **S7a** | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. Commit: `docs(examples): add production integration runbooks`. |
 | **S7b** | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. Commit: `docs(examples): document bgp failover interop`. |
-| **S7.1** | Linux Micro-BFD actuator. | Add a policy-gated bond/team/OVS actuator that can disable or remove a failed member after its micro-BFD session goes Down. Commit: `feat(netio): add linux lag actuator`. |
+| **S7.1** | Linux Micro-BFD actuator. | In progress: `MicroBFDActuator` hook and guarded `netio.LAGActuator` policy are done; Linux bond/team/OVS backend and YAML wiring remain. Commit: `feat(netio): add linux lag actuator`. |
+| **S7.1b** | Linux LAG backend wiring. | Add bond/team/OVS backend implementation, config validation, and daemon wiring for dry-run/enforce modes. Commit: `feat(netio): wire linux lag actuator backend`. |
 | **S7.2** | Overlay dataplane backend model. | Add design and first backend for VXLAN/Geneve coexistence with kernel/OVS dataplanes instead of assuming userspace ownership of UDP 4789/6081. Commit: `feat(netio): add overlay backend model`. |
 
 ### Phase 4 -- Release Readiness
@@ -144,5 +145,5 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | R3 | Interop requires Podman socket access from a container. | M | H | Use `security_opt: label=disable` for the dev container only; avoid `privileged`. |
 | R4 | GoBGP vulnerability allowlist becomes stale. | M | H | Track allowlist expiry and keep GoBGP gRPC on localhost/trusted networks until upstream fix. |
 | R5 | README/pkg.go.dev overclaim feature readiness. | M | M | Treat interop and API surface as source of truth before release notes. |
-| R6 | Micro-BFD is mistaken for full Linux LAG enforcement. | M | H | Keep docs explicit: current code detects/reports; S7.1 adds the actuator. |
+| R6 | Micro-BFD is mistaken for full Linux LAG enforcement. | M | H | Keep docs explicit: current code has a hook and policy gate, but full Linux enforcement needs S7.1b backend wiring. |
 | R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium dataplane. | M | H | Require explicit socket ownership in docs; S7.2 adds a pluggable backend. |

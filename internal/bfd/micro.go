@@ -97,6 +97,31 @@ type MemberLinkState struct {
 	LocalDiscr uint32
 }
 
+// MicroBFDMemberEvent describes a state transition for one LAG member
+// micro-BFD session after it has been applied to the aggregate group state.
+type MicroBFDMemberEvent struct {
+	// LAGInterface is the logical LAG interface name (e.g., "bond0").
+	LAGInterface string
+
+	// MemberInterface is the physical member link name (e.g., "eth0").
+	MemberInterface string
+
+	// OldState is the member session state before the transition.
+	OldState State
+
+	// NewState is the member session state after the transition.
+	NewState State
+
+	// LocalDiscr is the local discriminator of the member BFD session.
+	LocalDiscr uint32
+
+	// AggregateUp is the aggregate LAG state after this member transition.
+	AggregateUp bool
+
+	// AggregateChanged reports whether the aggregate LAG state changed.
+	AggregateChanged bool
+}
+
 // -------------------------------------------------------------------------
 // MicroBFDGroup — RFC 7130 per-LAG aggregate
 // -------------------------------------------------------------------------

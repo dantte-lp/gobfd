@@ -122,7 +122,7 @@ generic examples:
 - Optional public Arista EOS notes are separated from runnable examples and
   validated through Arista MCP.
 
-Next sprint: S7.1, `feat(netio): add linux lag actuator`.
+Next sprint: S7.1b, `feat(netio): wire linux lag actuator backend`.
 
 ### F5: Linux advanced BFD needs explicit dataplane ownership
 
@@ -142,7 +142,7 @@ those ports. That needs a backend model rather than a blanket claim that the
 userspace socket can always coexist with the dataplane.
 
 Next sprints:
-- S7.1, `feat(netio): add linux lag actuator`
+- S7.1b, `feat(netio): wire linux lag actuator backend`
 - S7.2, `feat(netio): add overlay backend model`
 
 ## Sprint Plan
@@ -154,10 +154,11 @@ Next sprints:
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
-| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, and public EOS verification notes are done; remaining work is S7.1/S7.2 implementation. | `feat(examples): add production integration assets` |
+| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, and Micro-BFD actuator policy are done; remaining work is S7.1b/S7.2 implementation. | `feat(examples): add production integration assets` |
 | S7a | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. | `docs(examples): add production integration runbooks` |
 | S7b | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. | `docs(examples): document bgp failover interop` |
-| S7.1 | Linux Micro-BFD enforcement. | Policy-gated actuator for bond/team/OVS member disable/remove on micro-BFD Down. | `feat(netio): add linux lag actuator` |
+| S7.1 | Linux Micro-BFD enforcement. | In progress: Manager actuator hook and guarded `netio.LAGActuator` policy are done; Linux bond/team/OVS backend and YAML wiring remain. | `feat(netio): add linux lag actuator` |
+| S7.1b | Linux LAG backend wiring. | Add backend implementation, config validation, and daemon wiring for dry-run/enforce modes. | `feat(netio): wire linux lag actuator backend` |
 | S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
 
