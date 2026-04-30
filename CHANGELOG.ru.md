@@ -11,7 +11,8 @@
 
 - Аудит консистентности кодовой базы
   `docs/03-codebase-consistency-audit.md`, сверяющий README/docs/API/CLI/config
-  с фактической реализацией и применимостью к целевому контуру `um-docs`.
+  с фактической реализацией и независимой production-применимостью в сетевых
+  сценариях.
 - Linux rtnetlink monitor интерфейсов для событий `RTM_NEWLINK` /
   `RTM_DELLINK`, с немедленным переводом BFD-сессий на отказавшем интерфейсе
   в `Down` / `Path Down`.
@@ -48,6 +49,8 @@
   реализованное обнаружение Micro-BFD от будущего Linux bond/team/OVS
   enforcement, а также описывают ограничения ownership userspace-сокетов
   VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
+- Roadmap S7 теперь нацелен на независимые production integration assets, без
+  привязки к site-specific контуру применимости.
 - `make gopls-check` теперь проверяет Linux target через `go list`, включает
   проектные build tags и падает при любых diagnostics `gopls check`, вместо
   прежнего вывода diagnostics с exit code 0.

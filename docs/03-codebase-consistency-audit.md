@@ -3,17 +3,18 @@
 Date: 2026-05-01
 
 Scope: repository structure, README, changelogs, English/Russian docs, public
-API, CLI, configuration schema, Makefile gates, and applicability to the
-`um-docs` infrastructure target.
+API, CLI, configuration schema, Makefile gates, and independent production
+networking applicability.
 
 Evidence sources:
 - Local code and tests under `cmd/`, `internal/`, `pkg/`, `api/`, `configs/`,
   `deployments/`, and `test/`.
 - Local documentation under `README.md`, `docs/`, `CHANGELOG.md`, and
   `CHANGELOG.ru.md`.
-- Neighbor repository patterns from `/opt/projects/repositories/pulumi-eos`.
-- `um-docs` references to Arista EOS, EVPN/VXLAN, RKE2, Cilium/Calico, BGP,
-  BFD `300/300/3`, partner failover, and DCI fast-failover expectations.
+- Public production scenarios: Linux routing hosts, BGP fast failover,
+  EVPN/VXLAN and Geneve overlays, Kubernetes host-network daemon deployment,
+  Cilium/Calico-style BGP environments, partner edge failover, and DCI-style
+  fast-failover expectations.
 - MCP checks: Context7 `gopls` docs for build environment scoping; Arista MCP
   EOS BFD snippets for BFD interface/BGP/per-link feature context.
 - Linux advanced BFD applicability note:
@@ -27,9 +28,9 @@ the RFC docs describe. Public API vocabulary, snapshots, and `gobfdctl`
 formatting now expose those families, while `AddSession` and
 `gobfdctl session add` intentionally remain limited to single-hop and
 multi-hop sessions until dedicated transport-specific configuration APIs exist.
-The primary functional gap for `um-docs` production use is therefore not the
+The primary functional gap for independent production use is therefore not the
 BFD packet engine; it is the operator-facing surface: dedicated API/CLI create
-flows, Kubernetes packaging, Arista/FRR examples, and failure-drill
+flows, Kubernetes packaging, public interop examples, and failure-drill
 documentation.
 
 The most important tooling inconsistency was `make gopls-check`: it printed
@@ -51,7 +52,7 @@ gate to run under a Linux build context and fail on any diagnostics.
 | `gopls-check` | Old target checked raw file list, mixed GOOS scopes, printed diagnostics, and exited 0. | Plan claimed `gopls-check` as a green quality gate. | Fixed in S4.1 |
 | pkg.go.dev command page | `cmd/gobfd` has a minimal package comment. | Plan marks pkg.go.dev as weak. | Open |
 | Graceful AdminDown | `SetAdminDown` routes through the session control channel while the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes. | Docs claim graceful AdminDown drain. | Fixed in S5.1 |
-| `um-docs` readiness | Core BFD can support BGP fast failover, EVPN/VXLAN checks, and Kubernetes daemon deployment patterns. | `um-docs` expects BFD on BGP links, RKE2/Cilium/Calico context, and multi-site failover docs. | Partial |
+| Production integration readiness | Core BFD can support BGP fast failover, EVPN/VXLAN checks, and Kubernetes daemon deployment patterns. | Public docs still need generic Kubernetes, routing daemon, vendor-neutral, and failure-drill assets. | Partial |
 
 ## Findings
 
@@ -72,9 +73,9 @@ on Geneve VAP/VNI encapsulation. Creating them through the existing generic
 sender would be a misleading API contract.
 
 Remaining impact: automation can observe advanced sessions via API/CLI output,
-but can create them only by editing YAML and triggering reload. For `um-docs`
-style operations, this is still insufficient for dynamic failover drills,
-GitOps controllers, or incident tooling.
+but can create them only by editing YAML and triggering reload. For production
+operations, this is still insufficient for dynamic failover drills, GitOps
+controllers, or incident tooling.
 
 Next sprint: S5b, add dedicated advanced create/update API shape without
 reusing the generic `AddSession` transport contract.
@@ -100,21 +101,26 @@ before timers are calculated.
 Evidence: `TestSessionSetAdminDownSendsAdminDownPacket` verifies that an Up
 session sends `AdminDown` / `DiagAdminDown` on the wire after graceful drain.
 
-### F4: `um-docs` production use needs operator assets
+### F4: Independent production use needs operator assets
 
-The `um-docs` repository describes Arista EOS EVPN/VXLAN fabric, BGP
-fast-failover, RKE2 Cilium/Calico clusters, partner tunnels, and DCI scenarios.
-GoBFD aligns with these needs only after adding:
+GoBFD is an independent project. Its public roadmap must describe generic,
+reusable production scenarios instead of site-specific topology. The relevant
+scenario families are: Linux routing hosts, BGP fast-failover, Kubernetes
+host-network daemons, EVPN/VXLAN and Geneve overlays, partner edge failover,
+and DCI-style fast-failover drills.
+
+GoBFD aligns with these scenarios only after adding:
 
 - Kubernetes DaemonSet or Helm packaging with `NET_RAW`, `NET_ADMIN`,
   hostNetwork, node selectors, and explicit network namespace assumptions.
-- Arista EOS and FRR examples for BGP neighbor BFD, timers, and failure drills.
+- FRR/GoBGP examples and optional public vendor examples for BGP neighbor BFD,
+  timers, and failure drills.
 - Prometheus alerts and Grafana panels tied to BFD session state, auth failures,
   flap dampening, and link-down diagnostics.
 - Runbooks for BFD `300/300/3`, interface-down simulation, BGP withdraw
   verification, and rollback.
 
-Next sprint: S7, `feat(k8s): add production integration assets`.
+Next sprint: S7, `feat(examples): add production integration assets`.
 
 ### F5: Linux advanced BFD needs explicit dataplane ownership
 
@@ -146,7 +152,7 @@ Next sprints:
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
-| S7 | `um-docs` integration readiness. | Kubernetes manifests, Arista/FRR/GoBGP examples, alerts, and failure drills. | `feat(k8s): add production integration assets` |
+| S7 | Independent production integration readiness. | Generic Kubernetes manifests, FRR/GoBGP examples, optional public vendor examples, alerts, and failure drills. | `feat(examples): add production integration assets` |
 | S7.1 | Linux Micro-BFD enforcement. | Policy-gated actuator for bond/team/OVS member disable/remove on micro-BFD Down. | `feat(netio): add linux lag actuator` |
 | S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
@@ -158,5 +164,5 @@ Next sprints:
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 62% | Good for base sessions, auth, and advanced session observability; advanced create/update flows still missing. |
 | Linux production daemon behavior | 78% | Raw sockets, buffers, rtnetlink, systemd, metrics, and serialized drain behavior exist; Kubernetes assets need hardening. |
-| `um-docs` applicability | 58% | Suitable direction for BGP fast failover and overlay checks; Linux LAG actuator and overlay dataplane backend are still open. |
+| Independent production applicability | 58% | Suitable direction for BGP fast failover and overlay checks; Linux LAG actuator and overlay dataplane backend are still open. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Codebase consistency audit in `docs/03-codebase-consistency-audit.md`
   comparing README/docs/API/CLI/config claims against implementation status
-  and the `um-docs` applicability target.
+  and independent production networking applicability.
 - Linux rtnetlink interface monitor for `RTM_NEWLINK` / `RTM_DELLINK` events,
   with immediate BFD `Down` / `Path Down` handling for sessions bound to a
   failed interface.
@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implemented Micro-BFD detection from future Linux bond/team/OVS enforcement,
   and document VXLAN/Geneve userspace socket ownership limits for kernel,
   OVS, Cilium, and NSX dataplanes.
+- S7 roadmap now targets independent production integration assets instead of
+  a site-specific applicability target.
 - `make gopls-check` now scopes diagnostics to the Linux target through
   `go list`, includes project build tags, and fails on any `gopls check`
   diagnostics instead of allowing them to scroll past with exit code 0.
