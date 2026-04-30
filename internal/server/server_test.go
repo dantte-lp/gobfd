@@ -105,6 +105,27 @@ func TestAddSession(t *testing.T) {
 	}
 }
 
+func TestAddSessionWithAuthentication(t *testing.T) {
+	t.Parallel()
+
+	client := setupTestServer(t)
+
+	req := validAddRequest()
+	req.AuthType = bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1
+	req.AuthKeyId = 7
+	req.AuthSecret = []byte("api-auth-secret")
+
+	resp, err := client.AddSession(context.Background(), req)
+	if err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+
+	sess := resp.GetSession()
+	if sess.GetAuthType() != bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1 {
+		t.Fatalf("AuthType = %s, want KEYED_SHA1", sess.GetAuthType())
+	}
+}
+
 // -------------------------------------------------------------------------
 // TestAddSessionInvalidArgs
 // -------------------------------------------------------------------------
@@ -150,7 +171,7 @@ func TestAddSessionInvalidArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "auth type without API key material",
+			name: "auth type without API secret",
 			req: &bfdv1.AddSessionRequest{
 				PeerAddress:           testPeerAddr,
 				LocalAddress:          testLocalAddr,
@@ -159,6 +180,20 @@ func TestAddSessionInvalidArgs(t *testing.T) {
 				RequiredMinRxInterval: durationpb.New(time.Second),
 				DetectMultiplier:      3,
 				AuthType:              bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1,
+				AuthKeyId:             7,
+			},
+		},
+		{
+			name: "auth key material without auth type",
+			req: &bfdv1.AddSessionRequest{
+				PeerAddress:           testPeerAddr,
+				LocalAddress:          testLocalAddr,
+				Type:                  bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP,
+				DesiredMinTxInterval:  durationpb.New(time.Second),
+				RequiredMinRxInterval: durationpb.New(time.Second),
+				DetectMultiplier:      3,
+				AuthKeyId:             7,
+				AuthSecret:            []byte("api-auth-secret"),
 			},
 		},
 	}

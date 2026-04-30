@@ -33,9 +33,16 @@ var (
 	// ErrDetectMultOverflow indicates the detect multiplier exceeds uint8 range.
 	ErrDetectMultOverflow = errors.New("detect multiplier exceeds maximum 255")
 
-	// ErrAPIAuthKeyMaterialUnsupported indicates the API request selected
-	// authentication but cannot provide the key material required by RFC 5880.
-	ErrAPIAuthKeyMaterialUnsupported = errors.New("api auth key material is not supported yet")
+	// ErrAPIAuthKeyMaterialMissing indicates the API request selected
+	// authentication but did not provide the key material required by RFC 5880.
+	ErrAPIAuthKeyMaterialMissing = errors.New("api auth key material is required")
+
+	// ErrAPIAuthKeyMaterialUnexpected indicates the API request provided auth
+	// key material without enabling authentication.
+	ErrAPIAuthKeyMaterialUnexpected = errors.New("api auth key material requires auth_type")
+
+	// ErrAPIAuthKeyIDOverflow indicates auth_key_id exceeds the BFD wire range.
+	ErrAPIAuthKeyIDOverflow = errors.New("api auth_key_id exceeds maximum 255")
 )
 
 // SenderFactory creates a PacketSender for a BFD session. The factory
@@ -385,7 +392,8 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		return bfd.SessionConfig{}, err
 	}
 
-	if err := validateAPIAuthRequest(req.GetAuthType()); err != nil {
+	auth, authKeys, err := authConfigFromProto(req)
+	if err != nil {
 		return bfd.SessionConfig{}, err
 	}
 
@@ -409,16 +417,68 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		DesiredMinTxInterval:  desiredMinTx,
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
+		Auth:                  auth,
+		AuthKeys:              authKeys,
 	}, nil
 }
 
-func validateAPIAuthRequest(authType bfdv1.AuthenticationType) error {
+func authConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.Authenticator, bfd.AuthKeyStore, error) {
+	authType, err := authTypeFromProto(req.GetAuthType())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if authType == bfd.AuthTypeNone {
+		if req.GetAuthKeyId() != 0 || len(req.GetAuthSecret()) != 0 {
+			return nil, nil, ErrAPIAuthKeyMaterialUnexpected
+		}
+		return nil, nil, nil
+	}
+
+	if len(req.GetAuthSecret()) == 0 {
+		return nil, nil, ErrAPIAuthKeyMaterialMissing
+	}
+	authKeyID := req.GetAuthKeyId()
+	if authKeyID > 255 {
+		return nil, nil, fmt.Errorf("auth_key_id %d: %w",
+			authKeyID, ErrAPIAuthKeyIDOverflow)
+	}
+
+	auth, err := bfd.NewAuthenticator(authType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+		ID:     uint8(authKeyID),
+		Type:   authType,
+		Secret: req.GetAuthSecret(),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("api auth key material: %w", err)
+	}
+
+	return auth, keys, nil
+}
+
+func authTypeFromProto(authType bfdv1.AuthenticationType) (bfd.AuthType, error) {
 	switch authType {
 	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED,
 		bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE:
-		return nil
+		return bfd.AuthTypeNone, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_SIMPLE_PASSWORD:
+		return bfd.AuthTypeSimplePassword, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_MD5:
+		return bfd.AuthTypeKeyedMD5, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5:
+		return bfd.AuthTypeMeticulousKeyedMD5, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1:
+		return bfd.AuthTypeKeyedSHA1, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1:
+		return bfd.AuthTypeMeticulousKeyedSHA1, nil
 	default:
-		return fmt.Errorf("auth_type %s: %w", authType, ErrAPIAuthKeyMaterialUnsupported)
+		return bfd.AuthTypeNone, fmt.Errorf("auth_type %s: %w",
+			authType, bfd.ErrAuthTypeMismatch)
 	}
 }
 
@@ -459,6 +519,7 @@ func snapshotFromSession(sess *bfd.Session, cfg bfd.SessionConfig) bfd.SessionSn
 		DesiredMinTx:         cfg.DesiredMinTxInterval,
 		RequiredMinRx:        cfg.RequiredMinRxInterval,
 		DetectMultiplier:     cfg.DetectMultiplier,
+		AuthType:             sess.AuthType(),
 		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
 		DetectionTime:        sess.DetectionTime(),
 		LastStateChange:      sess.LastStateChange(),

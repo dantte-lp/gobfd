@@ -392,10 +392,12 @@ Session key is the tuple: `(peer, local, interface)`.
 | `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
-Authentication is currently configured through declarative YAML sessions. The
-gRPC `AddSession` API rejects non-`none` `auth_type` values until the API grows
-explicit key-management fields; this prevents accidentally creating an
-unauthenticated session from an authenticated request.
+Authentication can be configured through declarative YAML sessions or through
+gRPC `AddSession` fields: `auth_type`, `auth_key_id`, and `auth_secret`.
+`auth_key_id` must fit the RFC 5880 one-octet key ID range. `auth_secret` must
+be 1-16 bytes for Simple Password/MD5 modes and 1-20 bytes for SHA1 modes.
+Requests that provide key material without an enabled `auth_type`, or enable
+auth without a secret, are rejected.
 
 Session types determine the UDP port and TTL handling:
 

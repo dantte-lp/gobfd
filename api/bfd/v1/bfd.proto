@@ -93,6 +93,8 @@ message AddSessionRequest {
   google.protobuf.Duration required_min_rx_interval = 6;
   uint32 detect_multiplier = 7 [(buf.validate.field).uint32 = {gte: 1}];
   AuthenticationType auth_type = 8;
+  uint32 auth_key_id = 9 [(buf.validate.field).uint32 = {lte: 255}];
+  bytes auth_secret = 10;
 }
 
 // AddSessionResponse returns the newly created session.

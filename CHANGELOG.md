@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Declarative RFC 5880 authentication wiring for YAML-defined BFD sessions,
   including static key-store validation and API/session snapshots that expose
   the configured auth type.
+- gRPC `AddSession` key-management fields for RFC 5880 authentication:
+  `auth_type`, `auth_key_id`, and `auth_secret`.
 
 ### Changed
 
@@ -47,9 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Authenticated sessions now reset the receive sequence window after 2x
   Detection Time without valid packets, and failed auth packets no longer
   refresh `LastPacketReceived` or `PacketsReceived`.
-- The gRPC `AddSession` path now rejects non-`none` `auth_type` requests until
-  key-management fields are available, preventing silent unauthenticated
-  sessions.
+- The gRPC `AddSession` path now rejects incomplete or unexpected auth key
+  material instead of silently creating an unauthenticated session.
 
 ## [0.4.0] - 2026-02-24
 

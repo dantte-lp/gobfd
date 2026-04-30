@@ -595,6 +595,8 @@ type AddSessionRequest struct {
 	RequiredMinRxInterval *durationpb.Duration   `protobuf:"bytes,6,opt,name=required_min_rx_interval,json=requiredMinRxInterval,proto3" json:"required_min_rx_interval,omitempty"`
 	DetectMultiplier      uint32                 `protobuf:"varint,7,opt,name=detect_multiplier,json=detectMultiplier,proto3" json:"detect_multiplier,omitempty"`
 	AuthType              AuthenticationType     `protobuf:"varint,8,opt,name=auth_type,json=authType,proto3,enum=bfd.v1.AuthenticationType" json:"auth_type,omitempty"`
+	AuthKeyId             uint32                 `protobuf:"varint,9,opt,name=auth_key_id,json=authKeyId,proto3" json:"auth_key_id,omitempty"`
+	AuthSecret            []byte                 `protobuf:"bytes,10,opt,name=auth_secret,json=authSecret,proto3" json:"auth_secret,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -683,6 +685,20 @@ func (x *AddSessionRequest) GetAuthType() AuthenticationType {
 		return x.AuthType
 	}
 	return AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED
+}
+
+func (x *AddSessionRequest) GetAuthKeyId() uint32 {
+	if x != nil {
+		return x.AuthKeyId
+	}
+	return 0
+}
+
+func (x *AddSessionRequest) GetAuthSecret() []byte {
+	if x != nil {
+		return x.AuthSecret
+	}
+	return nil
 }
 
 // AddSessionResponse returns the newly created session.
@@ -1172,7 +1188,7 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x10packets_received\x18\x02 \x01(\x04R\x0fpacketsReceived\x12'\n" +
 	"\x0fpackets_dropped\x18\x03 \x01(\x04R\x0epacketsDropped\x12+\n" +
 	"\x11state_transitions\x18\x04 \x01(\x04R\x10stateTransitions\x12#\n" +
-	"\rauth_failures\x18\x05 \x01(\x04R\fauthFailures\"\xd2\x03\n" +
+	"\rauth_failures\x18\x05 \x01(\x04R\fauthFailures\"\x9d\x04\n" +
 	"\x11AddSessionRequest\x12*\n" +
 	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
 	"\rlocal_address\x18\x02 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12%\n" +
@@ -1181,7 +1197,11 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x17desired_min_tx_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x14desiredMinTxInterval\x12R\n" +
 	"\x18required_min_rx_interval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x15requiredMinRxInterval\x124\n" +
 	"\x11detect_multiplier\x18\a \x01(\rB\a\xbaH\x04*\x02(\x01R\x10detectMultiplier\x127\n" +
-	"\tauth_type\x18\b \x01(\x0e2\x1a.bfd.v1.AuthenticationTypeR\bauthType\"B\n" +
+	"\tauth_type\x18\b \x01(\x0e2\x1a.bfd.v1.AuthenticationTypeR\bauthType\x12(\n" +
+	"\vauth_key_id\x18\t \x01(\rB\b\xbaH\x05*\x03\x18\xff\x01R\tauthKeyId\x12\x1f\n" +
+	"\vauth_secret\x18\n" +
+	" \x01(\fR\n" +
+	"authSecret\"B\n" +
 	"\x12AddSessionResponse\x12,\n" +
 	"\asession\x18\x01 \x01(\v2\x12.bfd.v1.BfdSessionR\asession\"G\n" +
 	"\x14DeleteSessionRequest\x12/\n" +
