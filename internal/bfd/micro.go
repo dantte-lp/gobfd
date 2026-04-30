@@ -9,7 +9,7 @@
 //   - One BFD session per LAG member link (per address family)
 //   - UDP destination port 6784 (distinct from single-hop 3784)
 //   - Standard RFC 5880/5881 procedures (Asynchronous mode only)
-//   - Aggregate state: member removed from LAG when micro-BFD goes Down
+//   - Aggregate state tracking when a member micro-BFD session goes Down
 //   - Dedicated multicast MAC 01-00-5E-90-00-01 for initial packets
 
 package bfd
@@ -112,8 +112,11 @@ type MemberLinkState struct {
 // to forward traffic, the member link MUST NOT be used by the load
 // balancer until all micro-BFD sessions of the member link are in Up state."
 //
-// RFC 7130 Section 5: "When a micro-BFD session goes down, this member
-// link MUST be taken out of the LAG load-balancing table(s).".
+// RFC 7130 Section 5 additionally requires the failed member link to be
+// taken out of the LAG load-balancing table(s). This package tracks the
+// state transition and aggregate threshold; applying that state to a Linux
+// bond/team/OVS dataplane is an operator actuator responsibility outside
+// this type.
 type MicroBFDGroup struct {
 	mu sync.RWMutex
 

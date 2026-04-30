@@ -16,6 +16,8 @@ Evidence sources:
   BFD `300/300/3`, partner failover, and DCI fast-failover expectations.
 - MCP checks: Context7 `gopls` docs for build environment scoping; Arista MCP
   EOS BFD snippets for BFD interface/BGP/per-link feature context.
+- Linux advanced BFD applicability note:
+  `docs/04-linux-advanced-bfd-applicability.md`.
 
 ## Executive Summary
 
@@ -41,6 +43,8 @@ gate to run under a Linux build context and fail on any diagnostics.
 | RFC 5880 auth | YAML, gRPC, CLI, snapshots, sequence reset, and hardening are implemented for static per-session keys. | Config and changelog describe static key material; dynamic rotation is deferred. | Consistent |
 | Single-hop / multi-hop | API and CLI create only `single-hop` and `multi-hop` sessions. | CLI docs match this behavior. | Consistent |
 | Echo / Micro-BFD / VXLAN / Geneve | Daemon, config, reconcile paths, codecs, receivers, and tests exist. | RFC/config docs describe implemented support. Previous README RFC table lagged behind. | Fixed in S4.1 |
+| Linux Micro-BFD enforcement | Per-member sessions and aggregate state tracking exist; no Linux bond/team/OVS actuator exists yet. | RFC docs now separate detection/reporting from load-balancer membership enforcement. | Partial |
+| Linux VXLAN/Geneve dataplane coexistence | Userspace UDP sockets bind `localAddr:4789` and `localAddr:6081`. | RFC/config docs now warn that kernel VXLAN/Geneve, OVS/OVN, or Cilium socket ownership needs explicit design. | Partial |
 | Advanced API vocabulary | Proto enum, server mappings, snapshots, and CLI output know Echo, Micro-BFD, VXLAN, and Geneve. Generic `AddSession` rejects these types until dedicated APIs are added. | Plan now separates vocabulary/snapshot exposure from advanced create flows. | Partial |
 | Unsolicited BFD | Manager auto-creates passive sessions behind explicit policy. | Config and RFC docs describe opt-in behavior. | Consistent |
 | Interface monitor | Linux rtnetlink monitor transitions sessions on link-down. Non-Linux has stub behavior. | S4 research doc and implementation plan describe Linux scope. | Consistent |
@@ -112,6 +116,27 @@ GoBFD aligns with these needs only after adding:
 
 Next sprint: S7, `feat(k8s): add production integration assets`.
 
+### F5: Linux advanced BFD needs explicit dataplane ownership
+
+The latest RFC/Linux review confirms that Micro-BFD, VXLAN BFD, and Geneve BFD
+are applicable to Linux, but the current implementation is not a complete
+dataplane controller.
+
+For Micro-BFD, GoBFD creates one RFC 7130 session per member link and tracks
+aggregate state. It does not yet remove a failed member from Linux bonding,
+team, or OVS load-balancing tables. This is the main gap between protocol
+detection and full RFC 7130 enforcement on Linux.
+
+For VXLAN/Geneve, GoBFD owns userspace UDP sockets on the standard outer ports.
+That works for dedicated management endpoints and labs, but production Linux
+VTEPs often already have kernel VXLAN/Geneve, OVS/OVN, Cilium, or NSX owning
+those ports. That needs a backend model rather than a blanket claim that the
+userspace socket can always coexist with the dataplane.
+
+Next sprints:
+- S7.1, `feat(netio): add linux lag actuator`
+- S7.2, `feat(netio): add overlay backend model`
+
 ## Sprint Plan
 
 | Sprint | Goal | Deliverable | Commit |
@@ -120,7 +145,10 @@ Next sprint: S7, `feat(k8s): add production integration assets`.
 | S5 | Make public control plane match daemon capabilities. | In progress: API vocabulary, session snapshots, and CLI output cover Echo, Micro-BFD, VXLAN, Geneve; dedicated create flows remain. | `feat(api): expose advanced session type vocabulary` |
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
+| S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
 | S7 | `um-docs` integration readiness. | Kubernetes manifests, Arista/FRR/GoBGP examples, alerts, and failure drills. | `feat(k8s): add production integration assets` |
+| S7.1 | Linux Micro-BFD enforcement. | Policy-gated actuator for bond/team/OVS member disable/remove on micro-BFD Down. | `feat(netio): add linux lag actuator` |
+| S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
 
 ## Current Readiness
@@ -130,5 +158,5 @@ Next sprint: S7, `feat(k8s): add production integration assets`.
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 62% | Good for base sessions, auth, and advanced session observability; advanced create/update flows still missing. |
 | Linux production daemon behavior | 78% | Raw sockets, buffers, rtnetlink, systemd, metrics, and serialized drain behavior exist; Kubernetes assets need hardening. |
-| `um-docs` applicability | 60% | Suitable direction for BGP fast failover, not yet packaged/documented enough for full platform use. |
+| `um-docs` applicability | 58% | Suitable direction for BGP fast failover and overlay checks; Linux LAG actuator and overlay dataplane backend are still open. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

@@ -39,9 +39,15 @@
 - Production security policy для BFD authentication, экспозиции ConnectRPC,
   GoBGP TLS/localhost границ, контейнерных привилегий и ownership
   vulnerability gate.
+- Заметка о применимости Micro-BFD, VXLAN BFD и Geneve BFD в Linux:
+  `docs/04-linux-advanced-bfd-applicability.md`.
 
 ### Изменено
 
+- RFC compliance docs, примеры конфигурации и комментарии кода теперь отделяют
+  реализованное обнаружение Micro-BFD от будущего Linux bond/team/OVS
+  enforcement, а также описывают ограничения ownership userspace-сокетов
+  VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
 - `make gopls-check` теперь проверяет Linux target через `go list`, включает
   проектные build tags и падает при любых diagnostics `gopls check`, вместо
   прежнего вывода diagnostics с exit code 0.

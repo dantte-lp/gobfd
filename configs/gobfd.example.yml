@@ -70,6 +70,9 @@ bfd:
 
 # RFC 7130: Micro-BFD for LAG. Runs independent BFD sessions on each
 # LAG member link for per-link forwarding verification. Uses UDP port 6784.
+# Current Linux behavior is detect/report only: removing failed members from
+# a bond/team/OVS load-balancing table requires an external actuator until the
+# dedicated Linux LAG actuator is implemented.
 #
 # micro_bfd:
 #   groups:
@@ -84,6 +87,8 @@ bfd:
 
 # RFC 8971: BFD for VXLAN. Runs BFD sessions encapsulated in VXLAN
 # to verify VTEP-to-VTEP forwarding paths. Uses UDP port 4789.
+# The userspace VXLAN socket must not conflict with kernel VXLAN, OVS, Cilium,
+# or another dataplane already bound to the same local address/namespace.
 #
 # vxlan:
 #   enabled: true
@@ -100,6 +105,8 @@ bfd:
 
 # RFC 9521: BFD for Geneve. Runs BFD sessions encapsulated in Geneve
 # to verify NVE-to-NVE forwarding paths. Uses UDP port 6081.
+# The userspace Geneve socket must not conflict with kernel Geneve, OVS/OVN,
+# NSX, or another dataplane already bound to the same local address/namespace.
 #
 # geneve:
 #   enabled: true

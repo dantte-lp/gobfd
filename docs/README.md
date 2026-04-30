@@ -24,11 +24,15 @@ The canonical phased implementation plan is
 [`docs/02-implementation-plan.md`](./02-implementation-plan.md).
 The current code/docs consistency audit is
 [`docs/03-codebase-consistency-audit.md`](./03-codebase-consistency-audit.md).
+Linux applicability notes for Micro-BFD, VXLAN BFD, and Geneve BFD are in
+[`docs/04-linux-advanced-bfd-applicability.md`](./04-linux-advanced-bfd-applicability.md).
 
 Каноничный поэтапный план разработки находится в
 [`docs/02-implementation-plan.md`](./02-implementation-plan.md).
 Текущий аудит консистентности кода и документации находится в
 [`docs/03-codebase-consistency-audit.md`](./03-codebase-consistency-audit.md).
+Заметки о применимости Micro-BFD, VXLAN BFD и Geneve BFD в Linux находятся в
+[`docs/04-linux-advanced-bfd-applicability.md`](./04-linux-advanced-bfd-applicability.md).
 
 ---
 

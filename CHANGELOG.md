@@ -40,9 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Production security policy covering BFD authentication, ConnectRPC exposure,
   GoBGP TLS/localhost boundaries, container privileges, and vulnerability gate
   ownership.
+- Linux applicability note for Micro-BFD, VXLAN BFD, and Geneve BFD in
+  `docs/04-linux-advanced-bfd-applicability.md`.
 
 ### Changed
 
+- RFC compliance docs, config examples, and code comments now distinguish
+  implemented Micro-BFD detection from future Linux bond/team/OVS enforcement,
+  and document VXLAN/Geneve userspace socket ownership limits for kernel,
+  OVS, Cilium, and NSX dataplanes.
 - `make gopls-check` now scopes diagnostics to the Linux target through
   `go list`, includes project build tags, and fails on any `gopls check`
   diagnostics instead of allowing them to scroll past with exit code 0.

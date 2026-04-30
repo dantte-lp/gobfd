@@ -132,6 +132,11 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 - 4-peer interop testing (FRR, BIRD3, aiobfd, Thoro/bfd) + 5 integration examples
 - Go 1.26 flight recorder for post-mortem debugging
 
+Advanced Linux modes are explicit about dataplane ownership: Micro-BFD detects
+per-member LAG state but needs a bond/team/OVS actuator for enforcement, while
+VXLAN/Geneve BFD userspace sockets must not conflict with kernel, OVS, Cilium,
+or NSX ownership of UDP 4789/6081.
+
 ## Contributing
 
 See [Development](docs/en/09-development.md) for the full workflow.

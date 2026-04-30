@@ -288,7 +288,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | One BFD session per member link | `MicroBFDGroup.members` map, `AddMember()`/`RemoveMember()` |
 | `SO_BINDTODEVICE` per member | `WithBindDevice()` functional option on sender |
 | Aggregate state tracking | `upCount >= minActive` threshold |
-| Member removed on BFD Down | `UpdateMemberState()` triggers aggregate change |
+| Member Down handling | `UpdateMemberState()` records member state and triggers aggregate threshold changes |
 | Dedicated multicast MAC | `01-00-5E-90-00-01` for initial packets |
 | Asynchronous mode only | Standard RFC 5880 procedures per member |
 | Session type | `SessionTypeMicroBFD` constant |
@@ -304,6 +304,14 @@ Aggregate state logic:
 - Init state on a member is not counted as Up (only `StateUp` increments `upCount`)
 
 `MicroBFDGroupSnapshot` provides a read-only view of the group state including per-member link details, useful for gRPC API responses and monitoring.
+
+**Linux production limitation**: RFC 7130 also requires a member link whose
+micro-BFD session is Down to be removed from the LAG load-balancing table.
+GoBFD currently detects and reports the per-member and aggregate state, but it
+does not yet drive Linux bonding, team, or OVS membership changes. Full RFC
+7130 enforcement on Linux therefore requires a future netlink/sysfs/OVS
+actuator, or an external operator that consumes GoBFD state and applies the
+dataplane change.
 
 ### RFC 8971 Implementation Notes
 
@@ -338,6 +346,14 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 ```
 
 The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) and 24-bit VNI encoding. Management VNI packets are processed locally and not forwarded to tenant networks.
+
+**Linux production limitation**: `VXLANConn` owns a userspace UDP socket on
+`localAddr:4789`. This is suitable for a lab endpoint, a dedicated management
+VNI endpoint, or a Linux VTEP where GoBFD owns the socket. If kernel VXLAN,
+OVS, Cilium, or another dataplane already owns UDP 4789 for the same local
+address/namespace, GoBFD can fail to bind or compete with the dataplane. A
+production Linux VTEP should use an explicit socket ownership model or a future
+pluggable backend that coexists with the kernel/OVS dataplane.
 
 ### RFC 9521 Implementation Notes
 
@@ -377,6 +393,13 @@ Key differences from VXLAN BFD (RFC 8971):
 - Two payload formats: Ethernet (Format A) and IP (Format B)
 - O bit control flag indicates management/control traffic
 - Sessions originate/terminate at VAPs, not directly at NVEs
+
+**Linux production limitation**: `GeneveConn` owns a userspace UDP socket on
+`localAddr:6081`. It validates RFC 9521 Format A packets, but it does not
+integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership. RFC
+9521 also inherits the Geneve requirement to run in a traffic-managed
+controlled environment or otherwise provision BFD transmit rates to avoid
+congestion-driven false failure detection.
 
 ### RFC 9764 Implementation Notes
 
