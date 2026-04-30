@@ -15,6 +15,11 @@ services:
       - NET_ADMIN
     cap_drop:
       - ALL
+    # The dev container runs interop tests that inspect sibling containers via
+    # the host Podman API socket. Disable container SELinux labeling for this
+    # container only; keep capabilities minimal instead of using privileged.
+    security_opt:
+      - label=disable
     network_mode: host
     environment:
       GOFLAGS: "-buildvcs=false"

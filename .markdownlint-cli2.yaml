@@ -1,0 +1,35 @@
+config:
+  default: true
+  MD001: false
+  MD003: { style: atx }
+  MD007: { indent: 2 }
+  MD013: false
+  MD022: false
+  MD024: { siblings_only: true }
+  MD025: false
+  MD033: false
+  MD034: false
+  MD036: false
+  MD041: false
+  MD031: false
+  MD032: false
+  MD040: false
+  MD046: { style: fenced }
+  MD047: true
+  MD049: false
+  MD050: { style: asterisk }
+  MD051: false
+  MD058: false
+  MD060: false
+
+ignores:
+  - node_modules
+  - vendor
+  - reports
+  - dist
+  - build
+  - bin
+  - .worktrees
+  - docs/rfc
+  - docs/tmp
+  - coverage.html

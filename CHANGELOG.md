@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Canonical phased implementation plan in `docs/02-implementation-plan.md`
+  aligned with Keep a Changelog, SemVer, Conventional Commits, Compose
+  Specification, Containerfile, `.containerignore`, and containers.conf.
+- Podman-only documentation lint gates: `make lint-md`, `make lint-yaml`,
+  `make lint-spell`, `make lint-docs`, and `make lint-commit`.
+- Repository-level `.containerignore`, Markdown lint, YAML lint, cspell, and
+  commitlint configuration files.
+- CI jobs for documentation linting and Conventional Commit validation of pull
+  request titles.
+
+### Changed
+
+- `make all` now includes documentation linting; `make verify` is the canonical
+  routine gate for build, tests, linters, proto lint, and vulnerability audit.
+- Interop Go test Makefile targets now execute through the Podman dev container
+  instead of the host Go toolchain.
+- Dev container now includes Node.js and Python-based documentation analyzers,
+  with Podman socket access fixed via `security_opt: label=disable`.
+- CI workflow now uses a workflow-level read-only token policy and named jobs
+  aligned with the local quality gates.
+
 ## [0.4.0] - 2026-02-24
 
 ### Added

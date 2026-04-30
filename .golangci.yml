@@ -38,6 +38,7 @@ linters:
     - forcetypeassert     # Forced type assertions → panic on bad input
     - reassign            # Package variable reassignment
     - containedctx        # context.Context stored in structs
+    - forbidigo           # Ban fmt.Print* / print* outside command glue
 
     # ── Корректность / Correctness ──
     - govet               # Go vet with extra analyzers
@@ -60,6 +61,7 @@ linters:
     - asasalint           # Catch []any as any in variadic func(...any)
     - gochecksumtype      # Exhaustive sum type checks
     - gochecknoinits      # No init() — explicit initialization
+    - iotamixing          # Catch mixed explicit/implicit iota values
 
     # ── Обработка ошибок / Error handling ──
     - errorlint           # Error wrapping style (Go 1.13+)
@@ -85,6 +87,10 @@ linters:
     - interfacebloat      # Prevent interface pollution
     - inamedparam         # Named interface method parameters
     - decorder            # Consistent declaration ordering
+    - embeddedstructfieldcheck # Embedded struct field pitfalls
+    - nestif              # Excessive nested branching
+    - goconst             # Repeated constants
+    - godox               # Track TODO/FIXME/HACK/BUG debt
 
     # ── Производительность / Performance ──
     - prealloc            # Slice pre-allocation
@@ -115,6 +121,7 @@ linters:
     # ── Зависимости / Dependencies ──
     - depguard            # Forbidden package imports
     - gomoddirectives     # Catch stray replace/retract in go.mod
+    - gomodguard          # Block deprecated dependency modules
 
     # ── Дисциплина / Discipline ──
     - nolintlint          # Nolint directive quality
@@ -128,9 +135,17 @@ linters:
 
   settings:
     gosec:
+      excludes: []
+      severity: low
+      confidence: low
       config:
         global:
           audit: "true"
+          nosec: "true"
+          show-ignored: "false"
+        G301: "0750"
+        G302: "0600"
+        G306: "0600"
     govet:
       enable:
         - shadow
@@ -173,6 +188,49 @@ linters:
     loggercheck:
       require-string-key: true
       no-printf-like: true
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print(|f|ln)$'
+          msg: "Use slog or t.Logf in library code; fmt.Print* is allowed only under cmd/, scripts/, and examples."
+        - pattern: '^print(ln)?$'
+          msg: "Bootstrap-only builtin; use slog instead."
+      exclude-godoc-examples: true
+    goconst:
+      min-len: 4
+      min-occurrences: 5
+      match-constant: true
+      ignore-string-values:
+        - '^(udp|tcp|unix)$'
+        - '^(up|down|admin_down|init)$'
+        - '^(single_hop|multi_hop)$'
+    godox:
+      keywords:
+        - TODO
+        - FIXME
+        - HACK
+        - XXX
+        - BUG
+        - OPTIMIZE
+    gomodguard:
+      blocked:
+        modules:
+          - github.com/pkg/errors:
+              recommendations:
+                - errors
+                - fmt
+              reason: "Standard library has covered errors.Is / errors.As since Go 1.13."
+          - io/ioutil:
+              recommendations:
+                - io
+                - os
+              reason: "Deprecated in Go 1.16; use io / os equivalents."
+    nestif:
+      min-complexity: 5
+    paralleltest:
+      ignore-missing: false
+      ignore-missing-subtests: false
+    embeddedstructfieldcheck:
+      forbid-mutex: true
   exclusions:
     generated: strict
     presets:
@@ -189,9 +247,18 @@ linters:
           - maintidx
           - containedctx
           - forcetypeassert
+          - goconst
+          - godox
+          - paralleltest
+          - nestif
       - path: cmd/
         linters:
           - gochecknoinits  # cobra uses init() for flag registration
+          - forbidigo
+      - path: scripts/
+        linters:
+          - forbidigo
+          - depguard
       - path: test/interop/
         linters:
           - depguard
@@ -217,4 +284,8 @@ severity:
         - containedctx
         - nilnil
         - reassign
+        - forbidigo
+        - gomodguard
+        - iotamixing
+        - paralleltest
       severity: error

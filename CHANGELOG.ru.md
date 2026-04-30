@@ -7,6 +7,30 @@
 
 ## [Не выпущено]
 
+### Добавлено
+
+- Каноничный поэтапный план разработки `docs/02-implementation-plan.md`,
+  согласованный с Keep a Changelog, SemVer, Conventional Commits,
+  Compose Specification, Containerfile, `.containerignore` и containers.conf.
+- Podman-only проверки документации: `make lint-md`, `make lint-yaml`,
+  `make lint-spell`, `make lint-docs` и `make lint-commit`.
+- Конфигурации `.containerignore`, Markdown lint, YAML lint, cspell и
+  commitlint на уровне репозитория.
+- CI-задачи для проверки документации и Conventional Commit в заголовках pull
+  request.
+
+### Изменено
+
+- `make all` теперь включает проверки документации; `make verify` является
+  каноничным регулярным gate для сборки, тестов, линтеров, proto lint и аудита
+  уязвимостей.
+- Makefile-цели interop Go tests теперь выполняются через Podman dev-контейнер,
+  а не через локальный Go toolchain.
+- Dev-контейнер теперь включает Node.js и Python-анализаторы документации, а
+  доступ к Podman socket исправлен через `security_opt: label=disable`.
+- CI workflow теперь использует read-only token policy на уровне workflow и
+  именованные задачи, согласованные с локальными quality gates.
+
 ## [0.4.0] - 2026-02-24
 
 ### Добавлено

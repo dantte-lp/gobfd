@@ -24,7 +24,8 @@ make up            # Start dev container
 make build         # Compile all binaries (gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge)
 make test          # Run tests with -race -count=1
 make lint          # Run golangci-lint v2
-make all           # build + test + lint
+make lint-docs     # Run Markdown, YAML, and spelling checks
+make verify        # build + test + lint + docs + proto + vuln audit
 ```
 
 ### Interoperability Tests
@@ -45,6 +46,37 @@ make proto-lint    # Lint proto definitions
 ```
 
 Never modify generated files in `pkg/bfdpb/` manually.
+
+### Documentation and Release Standards
+
+The repository follows:
+
+- [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
+- [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
+- [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)
+- [Compose Specification](https://github.com/compose-spec/compose-spec/blob/main/00-overview.md)
+- [Containerfile.5](https://github.com/containers/common/blob/main/docs/Containerfile.5.md)
+- [.containerignore.5](https://github.com/containers/common/blob/main/docs/containerignore.5.md)
+- [containers.conf.5](https://github.com/containers/common/blob/main/docs/containers.conf.5.md)
+
+Changelog entries are curated for users. Do not paste raw git logs into
+`CHANGELOG.md`. Keep the `Unreleased` section current while work is in progress.
+
+### Commit Messages
+
+Commits and PR titles use Conventional Commits:
+
+```text
+feat(bfd): add echo failure diagnostics
+fix(interop): run RFC tests from the dev container
+docs(release): describe SemVer policy
+```
+
+Validate a candidate message before committing:
+
+```bash
+make lint-commit MSG='fix(interop): run RFC tests from the dev container'
+```
 
 ## Code Standards
 
@@ -78,21 +110,22 @@ make lint
 
 - Never use the `unsafe` package -- GoBFD handles untrusted network input
 - Never use `math/rand` -- use `math/rand/v2` or `crypto/rand`
-- Run `govulncheck ./...` before adding new dependencies
+- Run `make vulncheck` before adding new dependencies
 
 ## Pull Request Process
 
 1. Open an issue first to discuss significant changes
 2. Create a feature branch from `master`
 3. Make focused, reviewable commits with descriptive messages
-4. Ensure all checks pass: `make all`
+4. Ensure all routine checks pass: `make verify`
 5. Update documentation if your change affects user-facing behavior
 6. Add or update tests for new functionality
 
 ### PR Checklist
 
 - [ ] Tests added or updated
-- [ ] `make all` passes (build + test + lint)
+- [ ] `make verify` passes
+- [ ] `make lint-docs` passes for documentation changes
 - [ ] `buf lint` passes (if proto files changed)
 - [ ] Documentation updated (if applicable)
 - [ ] CHANGELOG.md updated (if user-facing change)

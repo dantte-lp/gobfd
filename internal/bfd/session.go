@@ -1177,7 +1177,10 @@ func (r *jitterRNG) IntN(n int) int {
 		return 0
 	}
 	v := r.next() % uint64(n)
-	// #nosec G115 -- v is bounded by n, and n is already a valid int.
+	const maxInt = int(^uint(0) >> 1)
+	if v > uint64(maxInt) {
+		return n - 1
+	}
 	return int(v)
 }
 

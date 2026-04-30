@@ -1,0 +1,82 @@
+# .containerignore -- build-context exclusions for Podman / Buildah.
+# Spec: containers/common/docs/containerignore.5.md.
+#
+# Last matching rule wins. Use ! to negate an exclusion.
+
+# VCS / IDE
+.git
+.gitattributes
+.gitignore
+.idea
+.vscode
+.worktrees
+*.swp
+*.swo
+.DS_Store
+
+# Local agent state
+.agents
+.codex
+.claude
+
+# Build / generated artifacts
+bin/
+dist/
+build/
+reports/
+coverage.out
+coverage.html
+benchmark.txt
+cpu.prof
+mem.prof
+*.test
+*.prof
+gobfd
+gobfdctl
+gobfd-haproxy-agent
+gobfd-exabgp-bridge
+
+# Runtime captures and benchmark outputs
+bench-results/
+testdata/benchmarks/
+**/*.pcap
+**/*.pcapng
+
+# Local secrets / environment
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Tests, examples, and docs are not needed in production image contexts.
+bench/
+test/
+testdata/
+docs/
+**/*.md
+**/*.markdown
+
+# Container infra is not copied into release images.
+deployments/
+**/Containerfile*
+**/compose*.yml
+**/compose*.yaml
+**/*.containerignore
+
+# CI / lint / local tool configs
+.github/
+.golangci.yml
+.markdownlint-cli2.yaml
+.yamllint.yaml
+.cspell.json
+.commitlintrc.yaml
+.editorconfig
+.pre-commit-config.yaml
+sonar-project.properties
+
+# Node / Python local caches that may appear during dev
+node_modules/
+__pycache__/
+*.pyc
+.venv/

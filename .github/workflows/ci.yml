@@ -6,11 +6,13 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
+    name: Build & test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     container:
       image: golang:1.26.2-trixie
     steps:
@@ -76,10 +78,9 @@ jobs:
           flags: unittests
           fail_ci_if_error: false
 
-  lint:
+  lint-go:
+    name: Lint (Go)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     container:
       image: golang:1.26.2-trixie
     steps:
@@ -91,15 +92,57 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Lint
+      - name: golangci-lint v2
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
           golangci-lint run ./...
 
-  vulnerability-check:
+  lint-docs:
+    name: Lint (docs)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v6.0.0
+        with:
+          node-version: '22'
+
+      - name: Install documentation linters
+        run: |
+          npm install -g markdownlint-cli2@latest cspell@latest
+          pip install --user yamllint
+
+      - name: markdownlint
+        run: markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
+
+      - name: yamllint
+        run: ~/.local/bin/yamllint -c .yamllint.yaml .
+
+      - name: cspell
+        run: cspell --no-progress --no-summary --config .cspell.json README.md CONTRIBUTING.md CHANGELOG.md docs/02-implementation-plan.md
+
+  commitlint:
+    name: Commitlint (PR title)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v6.0.0
+        with:
+          node-version: '22'
+
+      - name: Install commitlint
+        run: npm install -g @commitlint/cli@latest @commitlint/config-conventional@latest
+
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | commitlint --config .commitlintrc.yaml
+
+  vulnerability-check:
+    name: Vulnerability audit
+    runs-on: ubuntu-latest
     container:
       image: golang:1.26.2-trixie
     steps:
@@ -115,9 +158,8 @@ jobs:
         run: go run ./scripts/vuln-audit.go
 
   buf:
+    name: Buf
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -140,6 +182,7 @@ jobs:
         run: buf breaking --against '.git#branch=origin/${{ github.event.pull_request.base.ref }}'
 
   benchmark:
+    name: Benchmark comparison
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     permissions:
@@ -248,8 +291,9 @@ jobs:
             }
 
   trivy:
+    name: Trivy filesystem scan
     runs-on: ubuntu-latest
-    needs: [build-and-test, lint, vulnerability-check, buf]
+    needs: [build-and-test, lint-go, lint-docs, vulnerability-check, buf]
     permissions:
       security-events: write
       contents: read

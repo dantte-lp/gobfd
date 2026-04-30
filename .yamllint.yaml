@@ -1,0 +1,31 @@
+extends: default
+
+rules:
+  line-length:
+    max: 140
+    level: warning
+  comments:
+    min-spaces-from-content: 1
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+  truthy:
+    allowed-values: ['true', 'false']
+    check-keys: false
+  document-start: disable
+  braces:
+    max-spaces-inside: 1
+    min-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+    min-spaces-inside: 0
+
+ignore: |
+  node_modules/
+  vendor/
+  reports/
+  .worktrees/
+  docs/rfc/
+  docs/tmp/
+  test/interop-clab/clab-gobfd-vendors/
+  coverage.html

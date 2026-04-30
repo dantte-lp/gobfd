@@ -1,7 +1,7 @@
 # GoBFD Documentation / Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-11-34a853?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.4.0-1a73e8?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-14-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-EN%20%2F%20RU-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -15,6 +15,16 @@ Documentation is available in two languages. Choose your preferred language belo
 |---|---|
 | **English** | [docs/en/README.md](./en/README.md) |
 | **Русский** | [docs/ru/README.md](./ru/README.md) |
+
+---
+
+### Project Planning / План проекта
+
+The canonical phased implementation plan is
+[`docs/02-implementation-plan.md`](./02-implementation-plan.md).
+
+Каноничный поэтапный план разработки находится в
+[`docs/02-implementation-plan.md`](./02-implementation-plan.md).
 
 ---
 
@@ -34,4 +44,4 @@ Full RFC text files are available in [`docs/rfc/`](./rfc/):
 
 ---
 
-*Last updated / Последнее обновление: 2026-02-24*
+*Last updated / Последнее обновление: 2026-04-30*

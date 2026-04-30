@@ -1,0 +1,135 @@
+# Implementation Plan -- `gobfd`
+
+- **Method:** phased, gated lifecycle with short implementation sprints.
+- **Scope:** production-grade BFD daemon, CLI, control-plane API, and interop
+  test environment for Linux networking stacks.
+- **Cadence:** 8 sprints x 2 weeks to `v1.0.0-rc.1`, then release
+  hardening and maintenance.
+- **Standards:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
+  [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
+  [.containerignore.5], [containers.conf.5].
+
+[Keep a Changelog 1.1.0]: https://keepachangelog.com/en/1.1.0/
+[Conventional Commits 1.0.0]: https://www.conventionalcommits.org/en/v1.0.0/
+[Semantic Versioning 2.0.0]: https://semver.org/spec/v2.0.0.html
+[Compose Specification]: https://github.com/compose-spec/compose-spec/blob/main/00-overview.md
+[Containerfile.5]: https://github.com/containers/common/blob/main/docs/Containerfile.5.md
+[.containerignore.5]: https://github.com/containers/common/blob/main/docs/containerignore.5.md
+[containers.conf.5]: https://github.com/containers/common/blob/main/docs/containers.conf.5.md
+
+---
+
+## 1. Decisions
+
+| ID | Decision | Rationale |
+|---|---|---|
+| ADR-1 | Podman-only Go toolchain. | Raw-socket tests, interop stacks, and analyzer versions must be reproducible without host Go. |
+| ADR-2 | `golangci-lint` v2 allowlist. | `default: none` keeps analyzer changes explicit and reviewable. |
+| ADR-3 | Keep `CHANGELOG.md` and `CHANGELOG.ru.md`. | User-facing changes must be curated for humans, not dumped from git logs. |
+| ADR-4 | SemVer tags only for released module versions. | Released versions are immutable; any fix ships as a new version. |
+| ADR-5 | Conventional Commits for commits and PR titles. | Commit type maps cleanly to release notes and SemVer impact. |
+| ADR-6 | Compose files follow the Compose Specification. | Interop stacks need portable service, network, volume, and profile semantics. |
+| ADR-7 | Containerfiles are native Podman/Buildah inputs. | Use `Containerfile`, `.containerignore`, and minimal capabilities instead of Docker-only assumptions. |
+| ADR-8 | MCP-backed design validation. | Standards, Arista/EOS behavior, and library config claims must be checked against current primary docs. |
+
+## 2. Quality Gates
+
+| Gate | Tool | Trigger |
+|---|---|---|
+| Go build | `make build` | Every code change. |
+| Unit and package tests | `make test` | Every code change; always inside Podman. |
+| Go static analysis | `make lint` | Every code change; `golangci-lint` v2 allowlist. |
+| Proto lint | `make proto-lint` | API changes and `make verify`. |
+| Vulnerability audit | `make vulncheck` | Dependency changes and `make verify`. |
+| Markdown | `make lint-md` | Documentation changes. |
+| YAML | `make lint-yaml` | Compose, CI, config, and docs tooling changes. |
+| Spelling | `make lint-spell` | Documentation and public API text changes. |
+| Commit message | `make lint-commit MSG='type(scope): subject'` | Before committing or PR title review. |
+| RFC interop | `make interop-rfc` | Protocol behavior changes; currently expected to expose the Echo gap. |
+| BGP interop | `make interop-bgp` | GoBGP, route withdrawal, and integration changes. |
+
+No local `go test`, `go build`, `go vet`, `golangci-lint`, or `buf` commands
+are valid project evidence. Use Makefile targets backed by Podman.
+
+## 3. Current Reality Snapshot
+
+| Area | Status | Evidence / Gap |
+|---|---|---|
+| Core build/test/lint | Green | `make test`, `make build`, `make lint`, `make proto-lint`, and `make vulncheck` pass in Podman. |
+| RFC 7419 / 9384 / 9468 interop | Green with fixed Podman API access | Interop tests pass when the dev container can connect to the Podman socket. |
+| RFC 9747 Echo interop | Red | Echo session starts but does not reach `Up` in the RFC interop test within 60 seconds. |
+| Control-plane API | Partial | Proto and CLI expose single-hop/multi-hop only; internal code has Echo, Micro-BFD, VXLAN, and Geneve session types. |
+| Interface monitoring | Stub | `internal/netio/ifmon.go` does not emit link-state events yet. |
+| Auth wiring | Needs review | Auth primitives exist; session-level invariants and wire integration need a dedicated audit. |
+| pkg.go.dev command page | Weak | `cmd/gobfd` has a one-line package comment. |
+| Documentation standards | Improving | Keep a Changelog and SemVer are present; commitlint and doc lint gates are now explicit. |
+
+## 4. Sprints
+
+### Sprint Close Protocol
+
+Every sprint closes with a small, reviewable commit after fresh evidence:
+
+1. Update this plan and both changelogs with the sprint result.
+2. Run `make verify` inside Podman.
+3. Run `make lint-commit MSG='type(scope): subject'` for the planned commit.
+4. Commit with a Conventional Commit subject:
+   `type(scope): short imperative summary`.
+5. If the sprint changes protocol behavior, also run the matching interop gate
+   before the commit and record pass/fail evidence in the sprint notes.
+
+### Phase 1 -- Tooling and Documentation Baseline
+
+| # | Output | Exit |
+|---|---|---|
+| **S1** | Podman-only analyzer stack, doc lint configs, commitlint config, `.containerignore`, canonical plan. | `make verify` exists; `make lint-docs` runs from the dev container; no host Go commands remain in Makefile test targets. Commit: `chore(lint): establish podman quality gates`. |
+| **S1.1** | Full-corpus spelling dictionary. | `make lint-spell` can expand from process docs to all published EN docs without mass false positives. Commit: `chore(docs): expand spelling coverage`. |
+| **S1.2** | Optional function-order cleanup. | `funcorder` can be enabled only after large legacy files are split or reordered without unrelated behavior changes. Commit: `refactor: normalize function order`. |
+
+### Phase 2 -- Protocol Correctness
+
+| # | Output | Exit |
+|---|---|---|
+| **S2** | RFC 9747 Echo fix with packet-level evidence. | `make interop-rfc` passes all RFC scenarios, including Echo. Commit: `fix(bfd): complete rfc9747 echo interop`. |
+| **S3** | Auth wire integration audit and fixes. | Auth-enabled sessions sign/verify packets; replay and sequence reset behavior are covered by tests. Commit: `fix(auth): wire bfd packet authentication`. |
+| **S4** | Interface monitor implementation. | Linux netlink link-down event drives immediate BFD state transition before detection timer expiry. Commit: `feat(netio): react to link state events`. |
+
+### Phase 3 -- Control Plane and Operations
+
+| # | Output | Exit |
+|---|---|---|
+| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | Proto, server mappings, CLI create/list/show, and docs expose every supported internal session type. Commit: `feat(api): expose advanced bfd session types`. |
+| **S6** | Production security posture. | ConnectRPC and GoBGP integrations document mTLS/default localhost policy; vulnerability allowlist has owner, expiry, and mitigation. Commit: `docs(security): define production hardening policy`. |
+| **S7** | Kubernetes and routing integration hardening for um-docs. | DaemonSet/Helm manifests, Prometheus rules, Arista/FRR/GoBGP examples, and failure drills are documented. Commit: `feat(k8s): add production integration assets`. |
+
+### Phase 4 -- Release Readiness
+
+| # | Output | Exit |
+|---|---|---|
+| **S8** | `v1.0.0-rc.1` readiness. | `make verify`, RFC/BGP interop, release dry-run, changelog, SemVer tag plan, and pkg.go.dev documentation all pass review. Commit: `chore(release): prepare v1.0.0-rc.1`. |
+
+## 5. Definition of Done
+
+1. The change has a failing test or manual reproduction before the fix when it
+   changes behavior.
+2. All Go/proto/analyzer commands are run through Podman.
+3. `make verify` passes unless the task explicitly documents a known failing
+   gate and the reason.
+4. Protocol behavior references the relevant RFC section and, where vendor
+   behavior is discussed, Arista MCP / primary vendor docs.
+5. User-facing changes update `CHANGELOG.md` and, when appropriate,
+   `CHANGELOG.ru.md`.
+6. Commit message and PR title follow Conventional Commits.
+7. Released artifacts follow SemVer; released tags are never rewritten.
+8. Container changes respect Compose Specification and Containerfile /
+   `.containerignore` behavior.
+
+## 6. Risk Register
+
+| ID | Risk | L | I | Mitigation |
+|---|---|---|---|---|
+| R1 | Echo interop remains red. | M | H | Make RFC 9747 the first protocol sprint and require packet capture evidence. |
+| R2 | Analyzer expansion creates noisy gates. | M | M | Keep `golangci-lint` allowlist explicit; add exclusions only with comments. |
+| R3 | Interop requires Podman socket access from a container. | M | H | Use `security_opt: label=disable` for the dev container only; avoid `privileged`. |
+| R4 | GoBGP vulnerability allowlist becomes stale. | M | H | Track allowlist expiry and keep GoBGP gRPC on localhost/trusted networks until upstream fix. |
+| R5 | README/pkg.go.dev overclaim feature readiness. | M | M | Treat interop and API surface as source of truth before release notes. |
