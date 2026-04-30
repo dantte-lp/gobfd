@@ -80,28 +80,37 @@ deployments/compose/configs/grafana/dashboards/bfd.json
 groups:
   - name: gobfd
     rules:
-      # Алерт при переходе сессии в Down
-      - alert: BFDSessionDown
-        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up", to_state="Down"}[5m]) > 0
+      # Алерт, когда нет сконфигурированных или динамически активных сессий.
+      - alert: BFDNoActiveSessions
+        expr: sum(gobfd_bfd_sessions) == 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Нет активных BFD-сессий"
+
+      # Алерт при переходе сессии в Down.
+      - alert: BFDSessionDownTransition
+        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0
         for: 0s
         labels:
           severity: critical
         annotations:
-          summary: "BFD-сессия {{ $labels.peer_addr }} перешла в Down"
+          summary: "BFD-сессия {{ $labels.local_addr }} -> {{ $labels.peer_addr }} перешла в Down"
 
-      # Алерт при чрезмерном flapping-е
+      # Алерт при чрезмерном flapping-е.
       - alert: BFDSessionFlapping
-        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up", to_state="Down"}[1h]) > 5
-        for: 5m
+        expr: sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3
+        for: 1m
         labels:
           severity: warning
         annotations:
-          summary: "BFD-сессия {{ $labels.peer_addr }} flapping"
+          summary: "BFD-сессия {{ $labels.local_addr }} -> {{ $labels.peer_addr }} flapping"
 
       # Алерт при ошибках аутентификации
-      - alert: BFDAuthFailure
+      - alert: BFDAuthFailures
         expr: rate(gobfd_bfd_auth_failures_total[5m]) > 0
-        for: 1m
+        for: 30s
         labels:
           severity: warning
         annotations:
@@ -109,8 +118,8 @@ groups:
 
       # Алерт при высоком уровне потерь пакетов
       - alert: BFDPacketDrops
-        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 1
-        for: 5m
+        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 0
+        for: 1m
         labels:
           severity: warning
         annotations:

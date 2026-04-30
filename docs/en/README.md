@@ -1,7 +1,7 @@
 # GoBFD Documentation
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-15-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-16-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -25,6 +25,7 @@ graph TD
         B2["04-cli.md<br/>CLI Reference"]
         B3["06-deployment.md<br/>Deployment"]
         B4["15-security.md<br/>Security Policy"]
+        B5["16-production-runbooks.md<br/>Production Runbooks"]
     end
 
     subgraph "Testing & Quality"
@@ -52,6 +53,7 @@ graph TD
     IDX --> B2
     IDX --> B3
     IDX --> B4
+    IDX --> B5
     IDX --> C1
     IDX --> C2
     IDX --> C3
@@ -91,6 +93,7 @@ graph TD
 | 06 | [**Deployment**](./06-deployment.md) | systemd, Podman Compose, container image, production |
 | 07 | [**Monitoring**](./07-monitoring.md) | Prometheus metrics, Grafana dashboard, alerting |
 | 15 | [**Security Policy**](./15-security.md) | Production API, GoBGP, BFD auth, container, and vulnerability policy |
+| 16 | [**Production Runbooks**](./16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, and failure drills |
 
 ### Reference
 
@@ -141,4 +144,4 @@ See [06-deployment.md](./06-deployment.md) for production deployment and [09-dev
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-05-01*

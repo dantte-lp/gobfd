@@ -183,8 +183,9 @@ graph LR
 
 | Алерт | Выражение | Критичность |
 |-------|----------|-------------|
-| BFDSessionDown | `gobfd_bfd_sessions == 0` за 10с | Critical |
-| BFDSessionFlapping | `rate(state_transitions[5m]) > 2` за 1м | Warning |
+| BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` за 10с | Warning |
+| BFDSessionDownTransition | `increase(state_transitions{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
+| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(state_transitions[5m])) > 3` за 1м | Warning |
 | BFDAuthFailures | `rate(auth_failures[5m]) > 0` за 30с | Warning |
 | BFDPacketDrops | `rate(packets_dropped[5m]) > 0` за 1м | Warning |
 
@@ -288,6 +289,8 @@ graph TD
 
 - **hostNetwork: true** — BFD использует raw-сокеты, требуется прямой доступ к сети хоста
 - **CAP_NET_RAW + CAP_NET_ADMIN** — необходимы для работы с BFD-пакетами
+- **Linux node selector** — пример опирается на Linux socket и capability semantics
+- **TCP probes** — gRPC и metrics sockets дают универсальные readiness/liveness проверки
 - **DaemonSet** — один экземпляр GoBFD на каждый узел для полного покрытия BFD
 - **Динамические сессии** — BFD-сессии добавляются через `gobfdctl` после обнаружения IP узлов
 
@@ -387,7 +390,8 @@ podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
 - [05-interop.md](./05-interop.md) — Тестирование совместимости (FRR, BIRD3, вендорные NOS)
 - [06-deployment.md](./06-deployment.md) — Контейнерный образ, Podman Compose, systemd
 - [07-monitoring.md](./07-monitoring.md) — Метрики Prometheus и дашборд Grafana
+- [16-production-runbooks.md](./16-production-runbooks.md) — Production drills и validation checklist
 
 ---
 
-*Последнее обновление: 2026-02-24*
+*Последнее обновление: 2026-05-01*

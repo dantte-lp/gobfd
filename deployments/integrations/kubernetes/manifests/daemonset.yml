@@ -9,32 +9,57 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: gobfd
+      app.kubernetes.io/name: gobfd
+      app.kubernetes.io/component: bfd-daemon
+  updateStrategy:
+    type: RollingUpdate
   template:
     metadata:
       labels:
-        app: gobfd
+        app.kubernetes.io/name: gobfd
+        app.kubernetes.io/component: bfd-daemon
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9100"
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: gobfd
           image: gobfd:local
           imagePullPolicy: Never
           args: ["-config", "/etc/gobfd/gobfd.yml"]
           ports:
-            - containerPort: 3784
+            - name: bfd
+              containerPort: 3784
               protocol: UDP
-            - containerPort: 4784
+            - name: bfd-multihop
+              containerPort: 4784
               protocol: UDP
-            - containerPort: 50052
+            - name: grpc
+              containerPort: 50052
               protocol: TCP
-            - containerPort: 9100
+            - name: metrics
+              containerPort: 9100
               protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
           securityContext:
+            allowPrivilegeEscalation: false
             capabilities:
               add: ["NET_RAW", "NET_ADMIN"]
           volumeMounts:
@@ -52,10 +77,23 @@ spec:
           image: docker.io/jauderho/gobgp:v3.33.0
           args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
           ports:
-            - containerPort: 179
+            - name: bgp
+              containerPort: 179
               protocol: TCP
-            - containerPort: 50051
+            - name: gobgp-grpc
+              containerPort: 50051
               protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: gobgp-grpc
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: gobgp-grpc
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
           volumeMounts:
             - name: gobgp-config
               mountPath: /etc/gobgp

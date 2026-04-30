@@ -1,23 +1,32 @@
 groups:
   - name: gobfd
     rules:
-      - alert: BFDSessionDown
-        expr: gobfd_bfd_sessions == 0
+      - alert: BFDNoActiveSessions
+        expr: sum(gobfd_bfd_sessions) == 0
         for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "No active BFD sessions"
+          description: "GoBFD has no configured active sessions. Check daemon configuration or dynamic session provisioning."
+
+      - alert: BFDSessionDownTransition
+        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0
+        for: 0s
         labels:
           severity: critical
         annotations:
-          summary: "All BFD sessions are down"
-          description: "No active BFD sessions detected. Check network connectivity and peer availability."
+          summary: "BFD session transitioned Down"
+          description: "BFD session {{ $labels.local_addr }} -> {{ $labels.peer_addr }} transitioned from Up to Down."
 
       - alert: BFDSessionFlapping
-        expr: rate(gobfd_bfd_state_transitions_total[5m]) > 2
+        expr: sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3
         for: 1m
         labels:
           severity: warning
         annotations:
           summary: "BFD session flapping detected"
-          description: "BFD session {{ $labels.peer_addr }} has >2 state transitions/sec over 5m window."
+          description: "BFD session {{ $labels.local_addr }} -> {{ $labels.peer_addr }} had more than 3 state transitions over 5 minutes."
 
       - alert: BFDAuthFailures
         expr: rate(gobfd_bfd_auth_failures_total[5m]) > 0

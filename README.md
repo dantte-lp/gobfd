@@ -79,6 +79,7 @@ Full documentation is available in [`docs/`](docs/README.md):
 | 09 | [Development](docs/en/09-development.md) | Dev workflow, make targets, testing, linting |
 | 10 | [Changelog Guide](docs/en/10-changelog.md) | How to maintain CHANGELOG.md, semantic versioning |
 | 11 | [Integrations](docs/en/11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes |
+| 16 | [Production Runbooks](docs/en/16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, failure drills |
 
 Documentation is also available in Russian at [`docs/ru/`](docs/ru/README.md).
 

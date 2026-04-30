@@ -42,6 +42,9 @@
   vulnerability gate.
 - Заметка о применимости Micro-BFD, VXLAN BFD и Geneve BFD в Linux:
   `docs/04-linux-advanced-bfd-applicability.md`.
+- Generic production runbooks в `docs/en/16-production-runbooks.md` и
+  `docs/ru/16-production-runbooks.md` для Kubernetes, BGP failover,
+  Prometheus alerts, packet verification и открытых production gaps.
 
 ### Изменено
 
@@ -51,6 +54,13 @@
   VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без
   привязки к site-specific контуру применимости.
+- Kubernetes integration manifests теперь используют согласованные app labels,
+  named ports, Linux node selection, TCP readiness/liveness probes и
+  host-network DNS policy.
+- Observability alert rules теперь отделяют "нет активных
+  сконфигурированных сессий" от реального BFD transition Up-to-Down и
+  используют flapping detection по счётчику transitions, совпадающему с
+  экспортируемыми метриками GoBFD.
 - `make gopls-check` теперь проверяет Linux target через `go list`, включает
   проектные build tags и падает при любых diagnostics `gopls check`, вместо
   прежнего вывода diagnostics с exit code 0.

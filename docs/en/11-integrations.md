@@ -183,8 +183,9 @@ graph LR
 
 | Alert | Expression | Severity |
 |-------|-----------|----------|
-| BFDSessionDown | `gobfd_bfd_sessions == 0` for 10s | Critical |
-| BFDSessionFlapping | `rate(state_transitions[5m]) > 2` for 1m | Warning |
+| BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` for 10s | Warning |
+| BFDSessionDownTransition | `increase(state_transitions{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
+| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(state_transitions[5m])) > 3` for 1m | Warning |
 | BFDAuthFailures | `rate(auth_failures[5m]) > 0` for 30s | Warning |
 | BFDPacketDrops | `rate(packets_dropped[5m]) > 0` for 1m | Warning |
 
@@ -288,6 +289,8 @@ graph TD
 
 - **hostNetwork: true** — BFD uses raw sockets, needs direct access to host network
 - **CAP_NET_RAW + CAP_NET_ADMIN** — required for BFD packet operations
+- **Linux node selector** — the example relies on Linux socket and capability semantics
+- **TCP probes** — gRPC and metrics sockets provide generic readiness/liveness checks
 - **DaemonSet** — one GoBFD instance per node for consistent BFD coverage
 - **Dynamic sessions** — BFD sessions added via `gobfdctl` after discovering node IPs
 
@@ -387,7 +390,8 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 - [05-interop.md](./05-interop.md) — Interoperability testing (FRR, BIRD3, vendor NOS)
 - [06-deployment.md](./06-deployment.md) — Container image, Podman Compose, systemd
 - [07-monitoring.md](./07-monitoring.md) — Prometheus metrics and Grafana dashboard
+- [16-production-runbooks.md](./16-production-runbooks.md) — Production drills and validation checklist
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-05-01*

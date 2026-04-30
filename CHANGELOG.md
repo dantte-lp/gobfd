@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ownership.
 - Linux applicability note for Micro-BFD, VXLAN BFD, and Geneve BFD in
   `docs/04-linux-advanced-bfd-applicability.md`.
+- Generic production runbooks in `docs/en/16-production-runbooks.md` and
+  `docs/ru/16-production-runbooks.md` covering Kubernetes, BGP failover,
+  Prometheus alerts, packet verification, and open production gaps.
 
 ### Changed
 
@@ -51,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OVS, Cilium, and NSX dataplanes.
 - S7 roadmap now targets independent production integration assets instead of
   a site-specific applicability target.
+- Kubernetes integration manifests now use consistent app labels, named ports,
+  Linux node selection, TCP readiness/liveness probes, and host-network DNS
+  policy.
+- Observability alert rules now distinguish "no active configured sessions"
+  from real Up-to-Down BFD transitions and use transition-count flapping
+  detection that matches exported GoBFD metrics.
 - `make gopls-check` now scopes diagnostics to the Linux target through
   `go list`, includes project build tags, and fails on any `gopls check`
   diagnostics instead of allowing them to scroll past with exit code 0.

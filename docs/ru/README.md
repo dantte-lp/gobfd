@@ -1,7 +1,7 @@
 # Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-15-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-16-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -25,6 +25,7 @@ graph TD
         B2["04-cli.md<br/>Справочник CLI"]
         B3["06-deployment.md<br/>Развёртывание"]
         B4["15-security.md<br/>Политика безопасности"]
+        B5["16-production-runbooks.md<br/>Production Runbooks"]
     end
 
     subgraph "Тестирование и качество"
@@ -52,6 +53,7 @@ graph TD
     IDX --> B2
     IDX --> B3
     IDX --> B4
+    IDX --> B5
     IDX --> C1
     IDX --> C2
     IDX --> C3
@@ -91,6 +93,7 @@ graph TD
 | 06 | [**Развёртывание**](./06-deployment.md) | systemd, Podman Compose, контейнерный образ, production |
 | 07 | [**Мониторинг**](./07-monitoring.md) | Метрики Prometheus, дашборд Grafana, алертинг |
 | 15 | [**Политика безопасности**](./15-security.md) | Production policy для API, GoBGP, BFD auth, контейнеров и vulnerability gate |
+| 16 | [**Production Runbooks**](./16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification и failure drills |
 
 ### Справочник
 
@@ -141,4 +144,4 @@ make up
 
 ---
 
-*Последнее обновление: 2026-02-24*
+*Последнее обновление: 2026-05-01*
