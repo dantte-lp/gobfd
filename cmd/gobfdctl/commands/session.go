@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,8 +16,11 @@ import (
 
 // Sentinel errors for CLI validation.
 var (
-	errPeerRequired       = errors.New("--peer flag is required")
-	errUnknownSessionType = errors.New("unknown session type, expected single-hop or multi-hop")
+	errPeerRequired               = errors.New("--peer flag is required")
+	errUnknownSessionType         = errors.New("unknown session type, expected single-hop or multi-hop")
+	errUnknownAuthType            = errors.New("unknown auth type")
+	errAuthSecretRequired         = errors.New("--auth-secret is required when --auth-type is enabled")
+	errAuthKeyMaterialWithoutType = errors.New("--auth-key-id or --auth-secret requires --auth-type")
 )
 
 func sessionCmd() *cobra.Command {
@@ -109,38 +113,22 @@ func buildGetSessionRequest(identifier string) *bfdv1.GetSessionRequest {
 // --- session add ---
 
 func sessionAddCmd() *cobra.Command {
-	var (
-		peer       string
-		local      string
-		iface      string
-		sessType   string
-		txInterval time.Duration
-		rxInterval time.Duration
-		detectMult uint32
-	)
+	opts := addSessionOptions{
+		sessType:   "single-hop",
+		txInterval: time.Second,
+		rxInterval: time.Second,
+		detectMult: 3,
+		authType:   "none",
+	}
 
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Create a new BFD session",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if peer == "" {
-				return errPeerRequired
-			}
-
-			st, err := parseSessionType(sessType)
+			req, err := buildAddSessionRequest(opts)
 			if err != nil {
-				return fmt.Errorf("parse session type: %w", err)
-			}
-
-			req := &bfdv1.AddSessionRequest{
-				PeerAddress:           peer,
-				LocalAddress:          local,
-				InterfaceName:         iface,
-				Type:                  st,
-				DesiredMinTxInterval:  durationpb.New(txInterval),
-				RequiredMinRxInterval: durationpb.New(rxInterval),
-				DetectMultiplier:      detectMult,
+				return err
 			}
 
 			resp, err := client.AddSession(context.Background(), req)
@@ -159,16 +147,73 @@ func sessionAddCmd() *cobra.Command {
 		},
 	}
 
-	flags := cmd.Flags()
-	flags.StringVar(&peer, "peer", "", "peer IP address (required)")
-	flags.StringVar(&local, "local", "", "local IP address")
-	flags.StringVar(&iface, "interface", "", "network interface name")
-	flags.StringVar(&sessType, "type", "single-hop", "session type: single-hop or multi-hop")
-	flags.DurationVar(&txInterval, "tx-interval", time.Second, "desired minimum TX interval")
-	flags.DurationVar(&rxInterval, "rx-interval", time.Second, "required minimum RX interval")
-	flags.Uint32Var(&detectMult, "detect-mult", 3, "detection multiplier (RFC 5880 Section 6.1)")
+	bindSessionAddFlags(cmd, &opts)
 
 	return cmd
+}
+
+func bindSessionAddFlags(cmd *cobra.Command, opts *addSessionOptions) {
+	flags := cmd.Flags()
+	flags.StringVar(&opts.peer, "peer", "", "peer IP address (required)")
+	flags.StringVar(&opts.local, "local", "", "local IP address")
+	flags.StringVar(&opts.iface, "interface", "", "network interface name")
+	flags.StringVar(&opts.sessType, "type", opts.sessType, "session type: single-hop or multi-hop")
+	flags.DurationVar(&opts.txInterval, "tx-interval", opts.txInterval, "desired minimum TX interval")
+	flags.DurationVar(&opts.rxInterval, "rx-interval", opts.rxInterval, "required minimum RX interval")
+	flags.Uint32Var(&opts.detectMult, "detect-mult", opts.detectMult, "detection multiplier (RFC 5880 Section 6.1)")
+	flags.StringVar(&opts.authType, "auth-type", opts.authType,
+		"authentication type: none, simple-password, keyed-md5, meticulous-keyed-md5, keyed-sha1, meticulous-keyed-sha1")
+	flags.Uint32Var(&opts.authKeyID, "auth-key-id", opts.authKeyID, "authentication key ID (0-255)")
+	flags.StringVar(&opts.authSecret, "auth-secret", "", "authentication secret")
+}
+
+type addSessionOptions struct {
+	peer       string
+	local      string
+	iface      string
+	sessType   string
+	txInterval time.Duration
+	rxInterval time.Duration
+	detectMult uint32
+	authType   string
+	authKeyID  uint32
+	authSecret string
+}
+
+func buildAddSessionRequest(opts addSessionOptions) (*bfdv1.AddSessionRequest, error) {
+	if opts.peer == "" {
+		return nil, errPeerRequired
+	}
+
+	st, err := parseSessionType(opts.sessType)
+	if err != nil {
+		return nil, fmt.Errorf("parse session type: %w", err)
+	}
+
+	authType, err := parseAuthType(opts.authType)
+	if err != nil {
+		return nil, fmt.Errorf("parse auth type: %w", err)
+	}
+	if authType == bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE {
+		if opts.authKeyID != 0 || opts.authSecret != "" {
+			return nil, errAuthKeyMaterialWithoutType
+		}
+	} else if opts.authSecret == "" {
+		return nil, errAuthSecretRequired
+	}
+
+	return &bfdv1.AddSessionRequest{
+		PeerAddress:           opts.peer,
+		LocalAddress:          opts.local,
+		InterfaceName:         opts.iface,
+		Type:                  st,
+		DesiredMinTxInterval:  durationpb.New(opts.txInterval),
+		RequiredMinRxInterval: durationpb.New(opts.rxInterval),
+		DetectMultiplier:      opts.detectMult,
+		AuthType:              authType,
+		AuthKeyId:             opts.authKeyID,
+		AuthSecret:            []byte(opts.authSecret),
+	}, nil
 }
 
 // parseSessionType converts a CLI string to the protobuf SessionType enum.
@@ -182,6 +227,30 @@ func parseSessionType(s string) (bfdv1.SessionType, error) {
 		return bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED,
 			fmt.Errorf("%w: %q", errUnknownSessionType, s)
 	}
+}
+
+func parseAuthType(s string) (bfdv1.AuthenticationType, error) {
+	switch normalizeFlagValue(s) {
+	case "", "none":
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE, nil
+	case "simple-password":
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_SIMPLE_PASSWORD, nil
+	case "keyed-md5":
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_MD5, nil
+	case "meticulous-keyed-md5":
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5, nil
+	case "keyed-sha1":
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1, nil
+	case "meticulous-keyed-sha1":
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1, nil
+	default:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED,
+			fmt.Errorf("%w: %q", errUnknownAuthType, s)
+	}
+}
+
+func normalizeFlagValue(s string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), "_", "-")
 }
 
 // --- session delete ---

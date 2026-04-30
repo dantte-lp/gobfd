@@ -72,6 +72,14 @@ gobfdctl session add \
   --type multi-hop \
   --tx-interval 300ms \
   --detect-mult 5
+
+# Аутентифицированная сессия
+gobfdctl session add \
+  --peer 10.0.0.1 \
+  --local 10.0.0.2 \
+  --auth-type keyed-sha1 \
+  --auth-key-id 7 \
+  --auth-secret api-auth-secret
 ```
 
 | Флаг | Обязательный | По умолчанию | Описание |
@@ -83,6 +91,9 @@ gobfdctl session add \
 | `--tx-interval` | Нет | `1s` | Desired Min TX Interval |
 | `--rx-interval` | Нет | `1s` | Required Min RX Interval |
 | `--detect-mult` | Нет | `3` | Множитель обнаружения |
+| `--auth-type` | Нет | `none` | Тип auth: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
+| `--auth-key-id` | Если auth включён | `0` | Auth Key ID RFC 5880, диапазон 0-255 |
+| `--auth-secret` | Если auth включён | -- | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
 
 #### Удалить сессию
 

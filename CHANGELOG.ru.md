@@ -24,6 +24,8 @@
   API/snapshot сессии.
 - Поля управления ключами RFC 5880 в gRPC `AddSession`: `auth_type`,
   `auth_key_id` и `auth_secret`.
+- Флаги аутентификации `gobfdctl session add`: `--auth-type`,
+  `--auth-key-id` и `--auth-secret`.
 
 ### Изменено
 

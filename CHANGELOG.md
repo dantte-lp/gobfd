@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the configured auth type.
 - gRPC `AddSession` key-management fields for RFC 5880 authentication:
   `auth_type`, `auth_key_id`, and `auth_secret`.
+- `gobfdctl session add` authentication flags: `--auth-type`,
+  `--auth-key-id`, and `--auth-secret`.
 
 ### Changed
 
