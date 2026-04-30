@@ -940,10 +940,11 @@ func createEchoListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.List
 		seen[key] = struct{}{}
 
 		lnCfg := netio.ListenerConfig{
-			Addr:     localAddr,
-			IfName:   ep.Interface,
-			Port:     netio.PortEcho,
-			MultiHop: false, // Echo uses single-hop TTL semantics.
+			Addr:        localAddr,
+			IfName:      ep.Interface,
+			Port:        netio.PortEcho,
+			MultiHop:    false,
+			ExpectedTTL: netio.TTLEchoLoopback,
 		}
 
 		ln, err := netio.NewListener(lnCfg)

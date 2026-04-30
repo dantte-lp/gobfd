@@ -12,6 +12,7 @@ package main
 import (
 	"log"
 	"net"
+	"syscall"
 )
 
 func main() {
@@ -23,6 +24,13 @@ func main() {
 	conn, err := net.ListenUDP("udp4", addr)
 	if err != nil {
 		log.Fatalf("listen UDP :3785: %v", err)
+	}
+
+	if err := setUDPTTL(conn, 254); err != nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Printf("close UDP socket after TTL setup error: %v", closeErr)
+		}
+		log.Fatalf("set reflected packet TTL: %v", err)
 	}
 	defer conn.Close()
 
@@ -45,4 +53,20 @@ func main() {
 			log.Printf("write error to %s: %v", dst, err)
 		}
 	}
+}
+
+func setUDPTTL(conn *net.UDPConn, ttl int) error {
+	rawConn, err := conn.SyscallConn()
+	if err != nil {
+		return err
+	}
+
+	var sockErr error
+	if err := rawConn.Control(func(fd uintptr) {
+		//nolint:gosec // G115: kernel file descriptors are small non-negative integers.
+		sockErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TTL, ttl)
+	}); err != nil {
+		return err
+	}
+	return sockErr
 }

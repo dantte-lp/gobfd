@@ -2,9 +2,11 @@ package bfd_test
 
 import (
 	"context"
+	"encoding/binary"
 	"log/slog"
 	"net/netip"
 	"os"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -259,6 +261,48 @@ func TestEchoSessionStaysUpWithEchoes(t *testing.T) {
 	})
 }
 
+func TestEchoSessionUpPacketUsesNonzeroYourDiscriminator(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &captureEchoSender{}
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+			LocalAddr:        netip.MustParseAddr("10.0.0.2"),
+			TxInterval:       50 * time.Millisecond,
+			DetectMultiplier: 3,
+		}
+
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		es, err := bfd.NewEchoSession(cfg, 101, sender, nil, logger)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		go es.Run(t.Context())
+
+		time.Sleep(60 * time.Millisecond)
+		first := sender.last(t)
+		if got := binary.BigEndian.Uint32(first[8:12]); got != 0 {
+			t.Fatalf("initial Down packet YourDiscriminator = %d, want 0", got)
+		}
+
+		es.RecvEcho()
+		time.Sleep(60 * time.Millisecond)
+
+		upPacket := sender.last(t)
+		var pkt bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(upPacket, &pkt); err != nil {
+			t.Fatalf("unmarshal Up echo packet: %v", err)
+		}
+		if pkt.State != bfd.StateUp {
+			t.Fatalf("echo packet state = %s, want Up", pkt.State)
+		}
+		if pkt.YourDiscriminator != es.LocalDiscriminator() {
+			t.Errorf("Up packet YourDiscriminator = %d, want local discriminator %d",
+				pkt.YourDiscriminator, es.LocalDiscriminator())
+		}
+	})
+}
+
 func TestEchoSessionCounters(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := bfd.EchoSessionConfig{
@@ -445,6 +489,36 @@ func TestSessionTypeEchoString(t *testing.T) {
 // -------------------------------------------------------------------------
 
 // noopSender is defined in manager_test.go (same package bfd_test).
+
+type captureEchoSender struct {
+	mu      sync.Mutex
+	packets [][]byte
+}
+
+func (s *captureEchoSender) SendPacket(_ context.Context, buf []byte, _ netip.Addr) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	packet := make([]byte, len(buf))
+	copy(packet, buf)
+	s.packets = append(s.packets, packet)
+	return nil
+}
+
+func (s *captureEchoSender) last(t *testing.T) []byte {
+	t.Helper()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.packets) == 0 {
+		t.Fatal("no captured echo packets")
+	}
+
+	packet := make([]byte, len(s.packets[len(s.packets)-1]))
+	copy(packet, s.packets[len(s.packets)-1])
+	return packet
+}
 
 func createTestEchoSession(t *testing.T) *bfd.EchoSession {
 	t.Helper()

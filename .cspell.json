@@ -67,6 +67,7 @@
     "gobfdctl",
     "GoBGP",
     "gobgp",
+    "gopls",
     "goleak",
     "golangci",
     "golines",

@@ -18,6 +18,7 @@
   commitlint на уровне репозитория.
 - CI-задачи для проверки документации и Conventional Commit в заголовках pull
   request.
+- Gate `make gopls-check` на базе `gopls v0.21.1` в Podman dev-контейнере.
 
 ### Изменено
 
@@ -30,6 +31,12 @@
   доступ к Podman socket исправлен через `security_opt: label=disable`.
 - CI workflow теперь использует read-only token policy на уровне workflow и
   именованные задачи, согласованные с локальными quality gates.
+
+### Исправлено
+
+- Путь приема RFC 9747 Echo теперь принимает только looped-back пакеты с
+  TTL/Hop Limit 254, сохраняя проверку TTL 255 для single-hop BFD.
+- RFC interop packet capture теперь включает UDP 3785 Echo-пакеты.
 
 ## [0.4.0] - 2026-02-24
 

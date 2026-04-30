@@ -1,5 +1,6 @@
 ARG GO_VERSION=1.26.2
 ARG GOLANGCI_LINT_VERSION=v2.11.4
+ARG GOPLS_VERSION=v0.21.1
 ARG GOVULNCHECK_VERSION=v1.2.0
 ARG OSV_SCANNER_VERSION=v2.3.5
 ARG NODE_MAJOR=22
@@ -7,6 +8,7 @@ ARG NODE_MAJOR=22
 FROM docker.io/golang:${GO_VERSION}-trixie AS dev
 
 ARG GOLANGCI_LINT_VERSION
+ARG GOPLS_VERSION
 ARG GOVULNCHECK_VERSION
 ARG OSV_SCANNER_VERSION
 ARG NODE_MAJOR
@@ -61,6 +63,9 @@ RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
 
 # golangci-lint v2 — strict linting
 RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+
+# gopls — official Go language server diagnostics for editor-parity checks
+RUN go install golang.org/x/tools/gopls@${GOPLS_VERSION}
 
 # govulncheck — Go vulnerability scanner (go.dev/doc/security/vuln)
 RUN go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}

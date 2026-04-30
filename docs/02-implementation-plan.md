@@ -3,7 +3,7 @@
 - **Method:** phased, gated lifecycle with short implementation sprints.
 - **Scope:** production-grade BFD daemon, CLI, control-plane API, and interop
   test environment for Linux networking stacks.
-- **Cadence:** 8 sprints x 2 weeks to `v1.0.0-rc.1`, then release
+- **Cadence:** 8 sprints x 2 weeks to `v0.5.0`, then release
   hardening and maintenance.
 - **Standards:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
   [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
@@ -38,6 +38,7 @@
 |---|---|---|
 | Go build | `make build` | Every code change. |
 | Unit and package tests | `make test` | Every code change; always inside Podman. |
+| Go language diagnostics | `make gopls-check` | Every code change; official `gopls` diagnostics inside Podman. |
 | Go static analysis | `make lint` | Every code change; `golangci-lint` v2 allowlist. |
 | Proto lint | `make proto-lint` | API changes and `make verify`. |
 | Vulnerability audit | `make vulncheck` | Dependency changes and `make verify`. |
@@ -55,9 +56,9 @@ are valid project evidence. Use Makefile targets backed by Podman.
 
 | Area | Status | Evidence / Gap |
 |---|---|---|
-| Core build/test/lint | Green | `make test`, `make build`, `make lint`, `make proto-lint`, and `make vulncheck` pass in Podman. |
-| RFC 7419 / 9384 / 9468 interop | Green with fixed Podman API access | Interop tests pass when the dev container can connect to the Podman socket. |
-| RFC 9747 Echo interop | Red | Echo session starts but does not reach `Up` in the RFC interop test within 60 seconds. |
+| Core build/test/lint | Green | `make verify` passes in Podman and includes `gopls-check`, `golangci-lint`, doc lint, proto lint, and vulnerability audit. |
+| RFC 7419 / 9384 / 9468 interop | Green | `make interop-rfc-test` passes these scenarios when the RFC stack is running. |
+| RFC 9747 Echo interop | Green | `make interop-rfc-test` verifies Echo `Up`, UDP 3785 packet capture both ways, Echo failure on reflector pause, and recovery. |
 | Control-plane API | Partial | Proto and CLI expose single-hop/multi-hop only; internal code has Echo, Micro-BFD, VXLAN, and Geneve session types. |
 | Interface monitoring | Stub | `internal/netio/ifmon.go` does not emit link-state events yet. |
 | Auth wiring | Needs review | Auth primitives exist; session-level invariants and wire integration need a dedicated audit. |
@@ -90,7 +91,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S2** | RFC 9747 Echo fix with packet-level evidence. | `make interop-rfc` passes all RFC scenarios, including Echo. Commit: `fix(bfd): complete rfc9747 echo interop`. |
+| **S2** | RFC 9747 Echo fix with packet-level evidence. | Done: `make interop-rfc-test` passes all RFC scenarios, including Echo. Commit: `fix(bfd): complete rfc9747 echo interop`. |
 | **S3** | Auth wire integration audit and fixes. | Auth-enabled sessions sign/verify packets; replay and sequence reset behavior are covered by tests. Commit: `fix(auth): wire bfd packet authentication`. |
 | **S4** | Interface monitor implementation. | Linux netlink link-down event drives immediate BFD state transition before detection timer expiry. Commit: `feat(netio): react to link state events`. |
 
@@ -106,7 +107,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S8** | `v1.0.0-rc.1` readiness. | `make verify`, RFC/BGP interop, release dry-run, changelog, SemVer tag plan, and pkg.go.dev documentation all pass review. Commit: `chore(release): prepare v1.0.0-rc.1`. |
+| **S8** | `v0.5.0` readiness. | `make verify`, RFC/BGP interop, release dry-run, changelog, SemVer tag plan, and pkg.go.dev documentation all pass review. Commit: `chore(release): prepare v0.5.0`. |
 
 ## 5. Definition of Done
 

@@ -767,6 +767,53 @@ func TestListenerRecvRejectsBadTTL(t *testing.T) {
 	}
 }
 
+// TestListenerRecvAcceptsEchoLoopbackTTL verifies that RFC 9747 echo listeners
+// accept looped-back packets with TTL=254 and reject ordinary single-hop TTL=255.
+func TestListenerRecvAcceptsEchoLoopbackTTL(t *testing.T) {
+	t.Parallel()
+
+	addr := netip.MustParseAddrPort("192.168.1.1:3785")
+	mock := NewMockPacketConn(addr)
+
+	callCount := 0
+	mock.ReadFunc = func(buf []byte) (int, netio.PacketMeta, error) {
+		callCount++
+		data := []byte{0x20, 0x40, 0x03, 0x18}
+		n := copy(buf, data)
+
+		if callCount == 1 {
+			return n, netio.PacketMeta{
+				SrcAddr: netip.MustParseAddr("10.0.0.2"),
+				TTL:     255,
+			}, nil
+		}
+
+		return n, netio.PacketMeta{
+			SrcAddr: netip.MustParseAddr("10.0.0.2"),
+			TTL:     254,
+		}, nil
+	}
+
+	listener := netio.NewListenerFromConnWithExpectedTTL(mock, false, netio.TTLEchoLoopback)
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	}()
+
+	_, meta, err := listener.Recv(t.Context())
+	if err != nil {
+		t.Fatalf("recv: unexpected error: %v", err)
+	}
+
+	if meta.TTL != netio.TTLEchoLoopback {
+		t.Errorf("received packet with TTL %d, expected %d", meta.TTL, netio.TTLEchoLoopback)
+	}
+	if callCount != 2 {
+		t.Errorf("read count = %d, expected 2 (1 dropped + 1 valid)", callCount)
+	}
+}
+
 // TestListenerRecvRejectsBadHopLimitIPv6 verifies that the Listener drops
 // IPv6 packets with invalid Hop Limit (stored in TTL field) and continues
 // reading until a valid packet arrives.

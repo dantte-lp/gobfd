@@ -427,13 +427,18 @@ func (es *EchoSession) sendEcho(ctx context.Context) {
 // RFC 9747: uses standard BFD Control packet format.
 // MyDiscriminator is set for demux on return. YourDiscriminator is zero.
 func (es *EchoSession) rebuildCachedPacket() {
+	yourDiscr := uint32(0)
+	if es.State() == StateUp {
+		yourDiscr = es.localDiscr
+	}
+
 	pkt := ControlPacket{
 		Version:                   Version,
 		Diag:                      es.LocalDiag(),
 		State:                     es.State(),
 		DetectMult:                es.detectMult,
 		MyDiscriminator:           es.localDiscr,
-		YourDiscriminator:         0,
+		YourDiscriminator:         yourDiscr,
 		DesiredMinTxInterval:      microsecondsFromDuration(es.txInterval),
 		RequiredMinRxInterval:     0, // Echo does not negotiate.
 		RequiredMinEchoRxInterval: 0,

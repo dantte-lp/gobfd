@@ -6,6 +6,7 @@
 #   make build       — compile both binaries
 #   make test        — run all tests with race detector
 #   make lint        — run golangci-lint v2
+#   make gopls-check — run gopls diagnostics
 #   make proto-gen   — generate protobuf Go code
 #   make proto-lint  — lint proto definitions
 #   make all           — build + test + lint
@@ -22,7 +23,7 @@ SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all verify build test lint lint-fix lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
+.PHONY: all verify build test lint lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
@@ -57,7 +58,7 @@ shell:
 
 # === Build ===
 
-all: build test lint lint-docs
+all: build test gopls-check lint lint-docs
 
 # Canonical pre-commit gate for routine changes. Protocol or wire-format
 # changes must add the relevant interop target on top of this gate.
@@ -362,6 +363,9 @@ lint:
 
 lint-fix:
 	$(EXEC) golangci-lint run --fix ./...
+
+gopls-check:
+	$(EXEC) sh -c 'gopls check $$(find . -name "*.go" -not -path "./vendor/*" -not -path "./.worktrees/*")'
 
 lint-md:
 	$(EXEC) markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"

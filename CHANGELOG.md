@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commitlint configuration files.
 - CI jobs for documentation linting and Conventional Commit validation of pull
   request titles.
+- `make gopls-check` gate backed by `gopls v0.21.1` in the Podman dev
+  container.
 
 ### Changed
 
@@ -29,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Podman socket access fixed via `security_opt: label=disable`.
 - CI workflow now uses a workflow-level read-only token policy and named jobs
   aligned with the local quality gates.
+
+### Fixed
+
+- RFC 9747 Echo receive path now accepts only looped-back packets with
+  TTL/Hop Limit 254 while preserving TTL 255 validation for single-hop BFD.
+- RFC interop packet capture now includes UDP 3785 Echo packets.
 
 ## [0.4.0] - 2026-02-24
 
