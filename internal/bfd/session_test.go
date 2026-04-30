@@ -768,6 +768,82 @@ func TestSessionRecvPacketUpdatesState(t *testing.T) {
 	})
 }
 
+func TestSessionDropsAuthenticatedPacketWithoutWireBytes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		keys := newTestKeyStore(3, bfd.AuthTypeKeyedSHA1, []byte("sha1-wire-secret"))
+		auth := bfd.KeyedSHA1Auth{}
+		sender := &mockSender{}
+		logger := slog.Default()
+
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+			Auth:                  auth,
+			AuthKeys:              keys,
+		}, 42, sender, nil, logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		pkt := makeControlPacket(bfd.StateInit, 99, 42)
+		wire := signControlPacketForTest(t, auth, keys, pkt)
+
+		var rxPkt bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(wire, &rxPkt); err != nil {
+			t.Fatalf("Unmarshal signed packet: %v", err)
+		}
+
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("RecvPacket without wire panicked: %v", r)
+				}
+			}()
+			sess.RecvPacket(&rxPkt)
+			time.Sleep(50 * time.Millisecond)
+		}()
+
+		if sess.State() != bfd.StateDown {
+			t.Fatalf("state = %s, want Down after packet without auth wire", sess.State())
+		}
+		if sess.RemoteDiscriminator() != 0 {
+			t.Fatalf("remote discriminator = %d, want 0", sess.RemoteDiscriminator())
+		}
+	})
+}
+
+func signControlPacketForTest(
+	t *testing.T,
+	auth bfd.Authenticator,
+	keys bfd.AuthKeyStore,
+	pkt *bfd.ControlPacket,
+) []byte {
+	t.Helper()
+
+	state, err := bfd.NewAuthState(keys.CurrentKey().Type)
+	if err != nil {
+		t.Fatalf("NewAuthState: %v", err)
+	}
+
+	buf := make([]byte, bfd.MaxPacketSize)
+	if err := auth.Sign(state, keys, pkt, buf, 0); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	n := int(buf[3])
+	wire := make([]byte, n)
+	copy(wire, buf[:n])
+	return wire
+}
+
 // -------------------------------------------------------------------------
 // TestSessionCachedPacketRebuild — cached packet correctness
 // -------------------------------------------------------------------------

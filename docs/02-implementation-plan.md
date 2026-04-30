@@ -92,7 +92,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | # | Output | Exit |
 |---|---|---|
 | **S2** | RFC 9747 Echo fix with packet-level evidence. | Done: `make interop-rfc-test` passes all RFC scenarios, including Echo. Commit: `fix(bfd): complete rfc9747 echo interop`. |
-| **S3** | Auth wire integration audit and fixes. | In progress: YAML sessions wire auth into TX/RX, static key-store validation prevents nil-key panics, snapshots expose auth type, and gRPC rejects auth requests without key material. Remaining: full session-level replay/sequence reset tests and CLI/API key-management design. Commit: `fix(auth): wire bfd packet authentication`. |
+| **S3** | Auth wire integration audit and fixes. | In progress: YAML sessions wire auth into TX/RX, static key-store validation prevents nil-key panics, missing raw wire bytes are rejected without panic, snapshots expose auth type, and gRPC rejects auth requests without key material. Remaining: full session-level replay/sequence reset tests and CLI/API key-management design. Commits: `fix(bfd): wire declarative authentication`, next `fix(bfd): harden auth wire verification`. |
 | **S4** | Interface monitor implementation. | Linux netlink link-down event drives immediate BFD state transition before detection timer expiry. Commit: `feat(netio): react to link state events`. |
 
 ### Phase 3 -- Control Plane and Operations

@@ -52,6 +52,10 @@ var (
 	// ErrAuthSecretInvalid indicates the configured secret length is invalid
 	// for the selected authentication type.
 	ErrAuthSecretInvalid = errors.New("auth secret length invalid")
+
+	// ErrAuthWireMissing indicates raw wire bytes were not provided for
+	// digest verification.
+	ErrAuthWireMissing = errors.New("auth wire bytes missing")
 )
 
 // -------------------------------------------------------------------------
@@ -622,8 +626,20 @@ func verifyHash(
 	if err := checkSeqWindow(state, pkt, p); err != nil {
 		return err
 	}
+	if err := validateAuthWire(buf, n, p); err != nil {
+		return err
+	}
 
 	return verifyAndUpdateSeq(state, pkt, key, buf, n, p)
+}
+
+func validateAuthWire(buf []byte, n int, p hashParams) error {
+	digestEnd := HeaderSize + 8 + p.digestSize
+	if n < digestEnd || len(buf) < n {
+		return fmt.Errorf("hash auth: wire length %d, buffer length %d: %w",
+			n, len(buf), ErrAuthWireMissing)
+	}
+	return nil
 }
 
 // validateHashAuth checks the auth section is present and has the

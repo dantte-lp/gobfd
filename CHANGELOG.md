@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RFC interop packet capture now includes UDP 3785 Echo packets.
 - Session creation now rejects authentication without an auth key store instead
   of panicking during cached packet signing.
+- Hash-auth verification now rejects missing raw wire bytes instead of
+  panicking when a legacy/internal caller delivers only the parsed packet.
 - The gRPC `AddSession` path now rejects non-`none` `auth_type` requests until
   key-management fields are available, preventing silent unauthenticated
   sessions.
