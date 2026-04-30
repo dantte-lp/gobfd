@@ -101,9 +101,15 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Implemented |
 | RFC 5882 | Generic Application of BFD | Implemented |
 | RFC 5883 | BFD for Multihop Paths | Implemented |
+| RFC 7419 | Common Interval Support | Implemented |
+| RFC 9468 | Unsolicited BFD | Implemented |
+| RFC 9747 | Unaffiliated BFD Echo | Implemented |
+| RFC 7130 | Micro-BFD for LAG | Implemented |
+| RFC 8971 | BFD for VXLAN | Implemented |
+| RFC 9521 | BFD for Geneve | Implemented |
+| RFC 9764 | BFD Large Packets | Implemented |
 | RFC 5884 | BFD for MPLS LSPs | Stub |
 | RFC 5885 | BFD for PW VCCV | Stub |
-| RFC 7130 | Micro-BFD for LAG | Stub |
 
 Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
@@ -117,6 +123,7 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 
 - Table-driven FSM matching RFC 5880 Section 6.8.6 (no if-else chains)
 - Five authentication modes (Simple Password, Keyed MD5/SHA1, Meticulous MD5/SHA1)
+- RFC 9747 Echo, RFC 7130 Micro-BFD, RFC 8971 VXLAN, and RFC 9521 Geneve support
 - BFD flap dampening for BGP integration (RFC 5882 Section 3.2)
 - Zero-allocation packet codec with pre-built cached packets
 - ConnectRPC/gRPC API + CLI with interactive shell

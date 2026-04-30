@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Codebase consistency audit in `docs/03-codebase-consistency-audit.md`
+  comparing README/docs/API/CLI/config claims against implementation status
+  and the `um-docs` applicability target.
 - Linux rtnetlink interface monitor for `RTM_NEWLINK` / `RTM_DELLINK` events,
   with immediate BFD `Down` / `Path Down` handling for sessions bound to a
   failed interface.
@@ -35,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `make gopls-check` now scopes diagnostics to the Linux target through
+  `go list`, includes project build tags, and fails on any `gopls check`
+  diagnostics instead of allowing them to scroll past with exit code 0.
+- README RFC status now matches the detailed RFC compliance documents for
+  Echo, Micro-BFD, VXLAN, Geneve, Unsolicited BFD, common intervals, and large
+  packets.
 - `make all` now includes documentation linting; `make verify` is the canonical
   routine gate for build, tests, linters, proto lint, and vulnerability audit.
 - Interop Go test Makefile targets now execute through the Podman dev container

@@ -22,9 +22,13 @@ Documentation is available in two languages. Choose your preferred language belo
 
 The canonical phased implementation plan is
 [`docs/02-implementation-plan.md`](./02-implementation-plan.md).
+The current code/docs consistency audit is
+[`docs/03-codebase-consistency-audit.md`](./03-codebase-consistency-audit.md).
 
 Каноничный поэтапный план разработки находится в
 [`docs/02-implementation-plan.md`](./02-implementation-plan.md).
+Текущий аудит консистентности кода и документации находится в
+[`docs/03-codebase-consistency-audit.md`](./03-codebase-consistency-audit.md).
 
 ---
 

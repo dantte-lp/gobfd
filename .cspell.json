@@ -119,6 +119,7 @@
     "predeclared",
     "Println",
     "protogetter",
+    "pulumi",
     "Qube",
     "RCVBUF",
     "recv",

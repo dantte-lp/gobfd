@@ -9,6 +9,9 @@
 
 ### Добавлено
 
+- Аудит консистентности кодовой базы
+  `docs/03-codebase-consistency-audit.md`, сверяющий README/docs/API/CLI/config
+  с фактической реализацией и применимостью к целевому контуру `um-docs`.
 - Linux rtnetlink monitor интерфейсов для событий `RTM_NEWLINK` /
   `RTM_DELLINK`, с немедленным переводом BFD-сессий на отказавшем интерфейсе
   в `Down` / `Path Down`.
@@ -34,6 +37,12 @@
 
 ### Изменено
 
+- `make gopls-check` теперь проверяет Linux target через `go list`, включает
+  проектные build tags и падает при любых diagnostics `gopls check`, вместо
+  прежнего вывода diagnostics с exit code 0.
+- RFC-статус в README теперь согласован с подробными RFC compliance документами
+  для Echo, Micro-BFD, VXLAN, Geneve, Unsolicited BFD, common intervals и large
+  packets.
 - `make all` теперь включает проверки документации; `make verify` является
   каноничным регулярным gate для сборки, тестов, линтеров, proto lint и аудита
   уязвимостей.

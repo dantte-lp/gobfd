@@ -365,7 +365,7 @@ lint-fix:
 	$(EXEC) golangci-lint run --fix ./...
 
 gopls-check:
-	$(EXEC) sh -c 'gopls check $$(find . -name "*.go" -not -path "./vendor/*" -not -path "./.worktrees/*")'
+	$(EXEC) sh ./scripts/gopls-check.sh
 
 lint-md:
 	$(EXEC) markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
@@ -378,7 +378,8 @@ lint-spell:
 		README.md \
 		CONTRIBUTING.md \
 		CHANGELOG.md \
-		docs/02-implementation-plan.md
+		docs/02-implementation-plan.md \
+		docs/03-codebase-consistency-audit.md
 
 lint-docs: lint-md lint-yaml lint-spell
 
