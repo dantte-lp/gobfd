@@ -843,6 +843,8 @@ func (s *Session) handleDetectTimer(
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
+	s.maybeResetAuthSeqKnown()
+
 	// Use cachedState (goroutine-confined) to avoid atomic load.
 	// RFC 5880 Section 6.8.4: only if bfd.SessionState is Init or Up.
 	if s.cachedState != StateInit && s.cachedState != StateUp {
@@ -851,6 +853,26 @@ func (s *Session) handleDetectTimer(
 		return
 	}
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
+}
+
+// maybeResetAuthSeqKnown implements RFC 5880 Section 6.8.1:
+// bfd.AuthSeqKnown MUST be reset to false after no packets have been received
+// for at least 2x Detection Time.
+func (s *Session) maybeResetAuthSeqKnown() {
+	if s.authState == nil || !s.authState.AuthSeqKnown {
+		return
+	}
+	lastNS := s.lastPacketRecv.Load()
+	if lastNS == 0 {
+		return
+	}
+
+	detectTime := s.calcDetectionTimeHot()
+	if time.Since(time.Unix(0, lastNS)) < 2*detectTime {
+		return
+	}
+
+	s.authState.AuthSeqKnown = false
 }
 
 // -------------------------------------------------------------------------
@@ -873,11 +895,6 @@ func (s *Session) handleRecvPacket(
 		return
 	}
 
-	// Record received packet counter and timestamp.
-	s.packetsReceived.Add(1)
-	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
-	s.lastPacketRecv.Store(time.Now().UnixNano())
-
 	// RFC 5880 Section 6.7: verify authentication if configured.
 	if s.auth != nil {
 		if err := s.auth.Verify(
@@ -890,6 +907,8 @@ func (s *Session) handleRecvPacket(
 			return
 		}
 	}
+
+	s.recordValidReceivedPacket()
 
 	s.mu.Lock()
 	// Step 13: Set bfd.RemoteDiscr = My Discriminator.
@@ -931,6 +950,12 @@ func (s *Session) handleRecvPacket(
 		s.sendControl(ctx)
 		s.resetTxTimer(txTimer)
 	}
+}
+
+func (s *Session) recordValidReceivedPacket() {
+	s.packetsReceived.Add(1)
+	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
+	s.lastPacketRecv.Store(time.Now().UnixNano())
 }
 
 // checkAuthConsistency validates RFC 5880 Section 6.8.6 steps 8-9.

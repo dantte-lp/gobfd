@@ -44,6 +44,9 @@
   panic во время подписи cached packet.
 - Проверка hash-auth теперь отклоняет отсутствие raw wire bytes вместо panic,
   если legacy/internal caller передал только разобранный пакет.
+- Аутентифицированные сессии теперь сбрасывают receive sequence window после
+  2x Detection Time без валидных пакетов, а пакеты с ошибкой auth больше не
+  обновляют `LastPacketReceived` и `PacketsReceived`.
 - gRPC `AddSession` теперь отклоняет `auth_type`, отличный от `none`, пока в
   API нет полей управления ключами, чтобы не создавать неаутентифицированные
   сессии без явного предупреждения.

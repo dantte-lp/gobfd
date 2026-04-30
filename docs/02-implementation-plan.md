@@ -61,7 +61,7 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | RFC 9747 Echo interop | Green | `make interop-rfc-test` verifies Echo `Up`, UDP 3785 packet capture both ways, Echo failure on reflector pause, and recovery. |
 | Control-plane API | Partial | Proto and CLI expose single-hop/multi-hop only; internal code has Echo, Micro-BFD, VXLAN, and Geneve session types. |
 | Interface monitoring | Stub | `internal/netio/ifmon.go` does not emit link-state events yet. |
-| Auth wiring | Partial | YAML-defined sessions now wire RFC 5880 auth into session TX/RX and expose auth type in snapshots; gRPC key management is intentionally rejected until API fields exist. |
+| Auth wiring | Partial | YAML-defined sessions now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time; gRPC key management is intentionally rejected until API fields exist. |
 | pkg.go.dev command page | Weak | `cmd/gobfd` has a one-line package comment. |
 | Documentation standards | Improving | Keep a Changelog and SemVer are present; commitlint and doc lint gates are now explicit. |
 
@@ -92,7 +92,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | # | Output | Exit |
 |---|---|---|
 | **S2** | RFC 9747 Echo fix with packet-level evidence. | Done: `make interop-rfc-test` passes all RFC scenarios, including Echo. Commit: `fix(bfd): complete rfc9747 echo interop`. |
-| **S3** | Auth wire integration audit and fixes. | In progress: YAML sessions wire auth into TX/RX, static key-store validation prevents nil-key panics, missing raw wire bytes are rejected without panic, snapshots expose auth type, and gRPC rejects auth requests without key material. Remaining: full session-level replay/sequence reset tests and CLI/API key-management design. Commits: `fix(bfd): wire declarative authentication`, next `fix(bfd): harden auth wire verification`. |
+| **S3** | Auth wire integration audit and fixes. | In progress: YAML sessions wire auth into TX/RX, static key-store validation prevents nil-key panics, missing raw wire bytes are rejected without panic, failed auth packets do not refresh receive counters, receive sequence knowledge resets after 2x Detection Time, snapshots expose auth type, and gRPC rejects auth requests without key material. Remaining: CLI/API key-management design. Commits: `fix(bfd): wire declarative authentication`, `fix(bfd): harden auth wire verification`, next `fix(bfd): reset auth sequence window`. |
 | **S4** | Interface monitor implementation. | Linux netlink link-down event drives immediate BFD state transition before detection timer expiry. Commit: `feat(netio): react to link state events`. |
 
 ### Phase 3 -- Control Plane and Operations

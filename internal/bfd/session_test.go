@@ -817,6 +817,87 @@ func TestSessionDropsAuthenticatedPacketWithoutWireBytes(t *testing.T) {
 		if sess.RemoteDiscriminator() != 0 {
 			t.Fatalf("remote discriminator = %d, want 0", sess.RemoteDiscriminator())
 		}
+		if got := sess.LastPacketReceived(); !got.IsZero() {
+			t.Fatalf("last packet received = %s, want zero after auth failure", got)
+		}
+		if got := sess.PacketsReceived(); got != 0 {
+			t.Fatalf("packets received = %d, want 0 after auth failure", got)
+		}
+	})
+}
+
+func TestSessionResetsAuthSequenceAfterTwoDetectionTimes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		keys := newTestKeyStore(7, bfd.AuthTypeMeticulousKeyedSHA1, []byte("meticulous-reset"))
+		auth := bfd.MeticulousKeyedSHA1Auth{}
+		sender := &mockSender{}
+		logger := slog.Default()
+
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+			Auth:                  auth,
+			AuthKeys:              keys,
+		}, 42, sender, nil, logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		firstPkt := makeControlPacket(bfd.StateInit, 99, 42)
+		firstWire := signControlPacketWithSeqForTest(t, auth, keys, firstPkt, 201)
+
+		var rxFirst bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(firstWire, &rxFirst); err != nil {
+			t.Fatalf("Unmarshal first signed packet: %v", err)
+		}
+		sess.RecvPacket(&rxFirst, firstWire)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up after first authenticated packet", sess.State())
+		}
+
+		replayPkt := makeControlPacket(bfd.StateDown, 123, 0)
+		replayWire := signControlPacketWithSeqForTest(t, auth, keys, replayPkt, 100)
+
+		var rxReplay bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(replayWire, &rxReplay); err != nil {
+			t.Fatalf("Unmarshal replay signed packet: %v", err)
+		}
+
+		sess.RecvPacket(&rxReplay, replayWire)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up after low sequence before reset", sess.State())
+		}
+		if got := sess.RemoteDiscriminator(); got != 99 {
+			t.Fatalf("remote discriminator = %d, want 99 before reset", got)
+		}
+
+		time.Sleep(600 * time.Millisecond)
+
+		if sess.State() != bfd.StateDown {
+			t.Fatalf("state = %s, want Down after detection timeout", sess.State())
+		}
+
+		sess.RecvPacket(&rxReplay, replayWire)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateInit {
+			t.Fatalf("state = %s, want Init after sequence reset accepts packet", sess.State())
+		}
+		if got := sess.RemoteDiscriminator(); got != 123 {
+			t.Fatalf("remote discriminator = %d, want 123 after sequence reset", got)
+		}
 	})
 }
 
@@ -831,6 +912,31 @@ func signControlPacketForTest(
 	state, err := bfd.NewAuthState(keys.CurrentKey().Type)
 	if err != nil {
 		t.Fatalf("NewAuthState: %v", err)
+	}
+
+	buf := make([]byte, bfd.MaxPacketSize)
+	if err := auth.Sign(state, keys, pkt, buf, 0); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	n := int(buf[3])
+	wire := make([]byte, n)
+	copy(wire, buf[:n])
+	return wire
+}
+
+func signControlPacketWithSeqForTest(
+	t *testing.T,
+	auth bfd.Authenticator,
+	keys bfd.AuthKeyStore,
+	pkt *bfd.ControlPacket,
+	seq uint32,
+) []byte {
+	t.Helper()
+
+	state := &bfd.AuthState{
+		Type:        keys.CurrentKey().Type,
+		XmitAuthSeq: seq - 1,
 	}
 
 	buf := make([]byte, bfd.MaxPacketSize)

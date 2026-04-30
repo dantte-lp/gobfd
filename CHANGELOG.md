@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of panicking during cached packet signing.
 - Hash-auth verification now rejects missing raw wire bytes instead of
   panicking when a legacy/internal caller delivers only the parsed packet.
+- Authenticated sessions now reset the receive sequence window after 2x
+  Detection Time without valid packets, and failed auth packets no longer
+  refresh `LastPacketReceived` or `PacketsReceived`.
 - The gRPC `AddSession` path now rejects non-`none` `auth_type` requests until
   key-management fields are available, preventing silent unauthenticated
   sessions.
