@@ -677,6 +677,16 @@ func TestBuildMicroBFDActuator(t *testing.T) {
 				UpAction:    config.MicroBFDActuatorActionAddMember,
 			},
 		},
+		{
+			name: "enforce wires ovs backend",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeEnforce,
+				Backend:     config.MicroBFDActuatorBackendOVS,
+				OwnerPolicy: config.MicroBFDActuatorOwnerAllowExternal,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+		},
 	}
 
 	for _, tt := range tests {

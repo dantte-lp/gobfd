@@ -44,7 +44,7 @@ gate to run under a Linux build context and fail on any diagnostics.
 | RFC 5880 auth | YAML, gRPC, CLI, snapshots, sequence reset, and hardening are implemented for static per-session keys. | Config and changelog describe static key material; dynamic rotation is deferred. | Consistent |
 | Single-hop / multi-hop | API and CLI create only `single-hop` and `multi-hop` sessions. | CLI docs match this behavior. | Consistent |
 | Echo / Micro-BFD / VXLAN / Geneve | Daemon, config, reconcile paths, codecs, receivers, and tests exist. | RFC/config docs describe implemented support. Previous README RFC table lagged behind. | Fixed in S4.1 |
-| Linux Micro-BFD enforcement | Per-member sessions, aggregate state tracking, actuator policy, dry-run config wiring, and explicit kernel-bond sysfs backend exist; OVS/NetworkManager backends do not exist yet. | RFC/config docs separate detect/report, dry-run policy, kernel-bond enforcement with `allow-external`, and remaining owner-specific backends. | Partial |
+| Linux Micro-BFD enforcement | Per-member sessions, aggregate state tracking, actuator policy, dry-run config wiring, explicit kernel-bond sysfs backend, and OVS bonded-port backend exist; NetworkManager backend does not exist yet. | RFC/config docs separate detect/report, dry-run policy, kernel-bond/OVS enforcement with `allow-external`, and remaining NetworkManager D-Bus backend. | Partial |
 | Linux VXLAN/Geneve dataplane coexistence | Userspace UDP sockets bind `localAddr:4789` and `localAddr:6081`. | RFC/config docs now warn that kernel VXLAN/Geneve, OVS/OVN, or Cilium socket ownership needs explicit design. | Partial |
 | Advanced API vocabulary | Proto enum, server mappings, snapshots, and CLI output know Echo, Micro-BFD, VXLAN, and Geneve. Generic `AddSession` rejects these types until dedicated APIs are added. | Plan now separates vocabulary/snapshot exposure from advanced create flows. | Partial |
 | Unsolicited BFD | Manager auto-creates passive sessions behind explicit policy. | Config and RFC docs describe opt-in behavior. | Consistent |
@@ -122,7 +122,7 @@ generic examples:
 - Optional public Arista EOS notes are separated from runnable examples and
   validated through Arista MCP.
 
-Next sprint: S7.1d, `feat(netio): add owner-aware lag backends`.
+Next sprint: S7.1e, `feat(netio): add networkmanager lag backend`.
 
 ### F5: Linux advanced BFD needs explicit dataplane ownership
 
@@ -133,7 +133,8 @@ dataplane controller.
 For Micro-BFD, GoBFD creates one RFC 7130 session per member link, tracks
 aggregate state, wires a dry-run actuator policy into the daemon, and can
 remove/add members for explicit Linux kernel bonding through sysfs when the
-operator sets `owner_policy: allow-external`. It does not yet control OVS or
+operator sets `owner_policy: allow-external`. It can also remove/add members on
+an existing OVS bonded port through `ovs-vsctl`. It does not yet control
 NetworkManager-owned load-balancing tables. This is the main remaining gap
 between protocol detection and universal RFC 7130 enforcement on Linux.
 
@@ -144,7 +145,7 @@ those ports. That needs a backend model rather than a blanket claim that the
 userspace socket can always coexist with the dataplane.
 
 Next sprints:
-- S7.1d, `feat(netio): add owner-aware lag backends`
+- S7.1e, `feat(netio): add networkmanager lag backend`
 - S7.2, `feat(netio): add overlay backend model`
 
 ## Sprint Plan
@@ -156,13 +157,14 @@ Next sprints:
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
-| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, Micro-BFD actuator policy/config wiring, and kernel-bond backend are done; remaining work is S7.1d/S7.2 implementation. | `feat(examples): add production integration assets` |
+| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, Micro-BFD actuator policy/config wiring, kernel-bond backend, and OVS backend are done; remaining work is S7.1e/S7.2 implementation. | `feat(examples): add production integration assets` |
 | S7a | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. | `docs(examples): add production integration runbooks` |
 | S7b | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. | `docs(examples): document bgp failover interop` |
-| S7.1 | Linux Micro-BFD enforcement. | In progress: Manager actuator hook, guarded `netio.LAGActuator` policy, config validation, daemon dry-run wiring, and explicit kernel-bond backend are done; OVS/NetworkManager backend remains. | `feat(netio): add linux lag actuator` |
+| S7.1 | Linux Micro-BFD enforcement. | In progress: Manager actuator hook, guarded `netio.LAGActuator` policy, config validation, daemon dry-run wiring, explicit kernel-bond backend, and OVS backend are done; NetworkManager D-Bus backend remains. | `feat(netio): add linux lag actuator` |
 | S7.1b | Linux LAG actuator config wiring. | Add config validation and daemon wiring for disabled/dry-run/enforce policy modes without destructive Linux changes. | `feat(config): wire micro-bfd actuator config` |
 | S7.1c | Kernel bond LAG backend. | Linux bonding sysfs backend and daemon enforce wiring for explicit `backend: kernel-bond` plus `owner_policy: allow-external`. | `feat(netio): add kernel bond lag backend` |
-| S7.1d | Owner-aware OVS/NetworkManager backends. | OVS command backend and optional NetworkManager D-Bus backend without making NetworkManager a required dependency. | `feat(netio): add owner-aware lag backends` |
+| S7.1d | OVS LAG backend. | OVS bonded-port backend using `ovs-vsctl add-bond-iface` / `del-bond-iface` for explicit `backend: ovs` plus `owner_policy: allow-external`. | `feat(netio): add ovs lag backend` |
+| S7.1e | Optional NetworkManager backend. | NetworkManager D-Bus backend without making NetworkManager a required runtime dependency. | `feat(netio): add networkmanager lag backend` |
 | S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
 
@@ -173,5 +175,5 @@ Next sprints:
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 62% | Good for base sessions, auth, and advanced session observability; advanced create/update flows still missing. |
 | Linux production daemon behavior | 82% | Raw sockets, buffers, rtnetlink, systemd, metrics, serialized drain behavior, and hardened Kubernetes examples exist. |
-| Independent production applicability | 71% | Generic runbooks, BGP fast-failover examples, Micro-BFD dry-run wiring, and explicit kernel-bond enforcement are published; OVS/NetworkManager and overlay dataplane backends are still open. |
+| Independent production applicability | 73% | Generic runbooks, BGP fast-failover examples, Micro-BFD dry-run wiring, kernel-bond enforcement, and OVS enforcement are published; NetworkManager and overlay dataplane backends are still open. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/dantte-lp/gobfd/internal/netio"
@@ -85,6 +86,66 @@ func TestNewLAGActuatorBackendRejectsKernelBondWithoutExternalOwnerAllowance(t *
 	}
 }
 
+func TestOVSLAGBackendRunsBondIfaceCommands(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingCommandRunner{}
+	backend := netio.NewOVSLAGBackend(netio.OVSLAGBackendConfig{
+		Command: "ovs-vsctl-test",
+		Runner:  runner,
+	})
+
+	if err := backend.RemoveMember(context.Background(), "bond0", "eth0"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if err := backend.AddMember(context.Background(), "bond0", "eth0"); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	want := []commandCall{
+		{
+			name: "ovs-vsctl-test",
+			args: []string{"--if-exists", "del-bond-iface", "bond0", "eth0"},
+		},
+		{
+			name: "ovs-vsctl-test",
+			args: []string{"--may-exist", "add-bond-iface", "bond0", "eth0"},
+		},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("command calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestOVSLAGBackendRejectsUnsafeInterfaceNames(t *testing.T) {
+	t.Parallel()
+
+	backend := netio.NewOVSLAGBackend(netio.OVSLAGBackendConfig{
+		Runner: &recordingCommandRunner{},
+	})
+
+	err := backend.RemoveMember(context.Background(), "bond0/../../x", "eth0")
+	if !errors.Is(err, netio.ErrInvalidLAGInterfaceName) {
+		t.Fatalf("RemoveMember error = %v, want %v", err, netio.ErrInvalidLAGInterfaceName)
+	}
+}
+
+func TestNewLAGActuatorBackendSelectsOVS(t *testing.T) {
+	t.Parallel()
+
+	backend, err := netio.NewLAGActuatorBackend(netio.LAGActuatorConfig{
+		Mode:        netio.LAGActuatorModeEnforce,
+		Backend:     netio.LAGActuatorBackendOVS,
+		OwnerPolicy: netio.LAGOwnerPolicyAllowExternal,
+	})
+	if err != nil {
+		t.Fatalf("NewLAGActuatorBackend: %v", err)
+	}
+	if backend == nil {
+		t.Fatal("NewLAGActuatorBackend returned nil backend")
+	}
+}
+
 func TestNewLAGActuatorBackendRejectsUnsupportedBackends(t *testing.T) {
 	t.Parallel()
 
@@ -97,11 +158,6 @@ func TestNewLAGActuatorBackendRejectsUnsupportedBackends(t *testing.T) {
 			name:    "auto requires explicit backend",
 			backend: netio.LAGActuatorBackendAuto,
 			policy:  netio.LAGOwnerPolicyRefuseIfManaged,
-		},
-		{
-			name:    "ovs not implemented",
-			backend: netio.LAGActuatorBackendOVS,
-			policy:  netio.LAGOwnerPolicyAllowExternal,
 		},
 		{
 			name:    "networkmanager not implemented",
@@ -125,6 +181,23 @@ func TestNewLAGActuatorBackendRejectsUnsupportedBackends(t *testing.T) {
 			}
 		})
 	}
+}
+
+type commandCall struct {
+	name string
+	args []string
+}
+
+type recordingCommandRunner struct {
+	calls []commandCall
+}
+
+func (r *recordingCommandRunner) Run(_ context.Context, name string, args ...string) error {
+	r.calls = append(r.calls, commandCall{
+		name: name,
+		args: append([]string(nil), args...),
+	})
+	return nil
 }
 
 func assertFileContent(t *testing.T, path, want string) {

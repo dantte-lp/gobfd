@@ -54,6 +54,9 @@
 - Linux kernel-bond backend для Micro-BFD enforcement, который пишет RFC 7130
   remove/add действия через bonding sysfs при явном `backend: kernel-bond` и
   `owner_policy: allow-external`.
+- OVS backend для Micro-BFD enforcement, который запускает команды
+  `ovs-vsctl del-bond-iface` и `ovs-vsctl add-bond-iface` при явном
+  `backend: ovs` и `owner_policy: allow-external`.
 
 ### Изменено
 
@@ -62,7 +65,8 @@
   enforcement, а также описывают ограничения ownership userspace-сокетов
   VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
 - S7.1 разделён на неразрушающий actuator config wiring, explicit
-  kernel-bond enforcement и следующие sprint-ы OVS/NetworkManager backend.
+  kernel-bond enforcement, OVS enforcement и следующий sprint NetworkManager
+  backend.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без
   привязки к site-specific контуру применимости.
 - Kubernetes integration manifests теперь используют согласованные app labels,

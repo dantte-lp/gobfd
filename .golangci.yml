@@ -266,6 +266,12 @@ linters:
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
+      # OVS LAG backend shells out to the official ovs-vsctl admin CLI with
+      # validated interface names; keep os/exec forbidden everywhere else.
+      - path: internal/netio/lag_backend.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
       - path: internal/bfd/packet.go
         text: "Function 'UnmarshalControlPacket' has too many statements"
         linters:

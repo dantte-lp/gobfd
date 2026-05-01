@@ -242,13 +242,13 @@ Micro-BFD запускает независимые BFD-сессии на каж
 
 RFC 7130 enforcement защищён блоком `micro_bfd.actuator`. Режим по умолчанию
 `disabled` означает только detect/report. `dry-run` подключает daemon к policy
-layer и логирует планируемые действия с member. `enforce` намеренно
-требует `backend: kernel-bond` и пишет RFC 7130 remove/add команды через Linux
-bonding sysfs. Так как direct sysfs backend не может доказать, что интерфейсом
-не владеет другой manager, режим enforce также требует `owner_policy:
-allow-external`. `backend: ovs` и `backend: networkmanager` зарезервированы
-для будущих owner-specific backend-ов. Используйте `owner_policy:
-networkmanager-dbus` только с будущим NetworkManager backend; в остальных
+layer и логирует планируемые действия с member. `enforce` сейчас требует
+`owner_policy: allow-external` с `backend: kernel-bond` или `backend: ovs`.
+Kernel-bond backend пишет RFC 7130 remove/add команды через Linux bonding
+sysfs. OVS backend использует `ovs-vsctl del-bond-iface` и `ovs-vsctl
+add-bond-iface` для существующего OVS bond port. `backend: networkmanager`
+зарезервирован для будущего D-Bus backend. Используйте `owner_policy:
+networkmanager-dbus` только с этим будущим NetworkManager backend; в остальных
 случаях оставляйте политику отказа при внешнем владельце для disabled и
 dry-run режимов.
 

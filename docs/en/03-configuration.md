@@ -247,13 +247,14 @@ Micro-BFD runs independent BFD sessions on each LAG member link (UDP port 6784) 
 RFC 7130 enforcement is guarded by `micro_bfd.actuator`. The default
 `disabled` mode is detect/report only. `dry-run` wires the daemon into the
 policy layer and logs planned member actions. `enforce` currently requires
-`backend: kernel-bond` and writes RFC 7130 remove/add commands through Linux
-bonding sysfs. Because this direct sysfs backend cannot prove that another
-manager owns the interface, enforce mode also requires `owner_policy:
-allow-external`. `backend: ovs` and `backend: networkmanager` are reserved for
-future owner-specific backends. Use `owner_policy: networkmanager-dbus` only
-with the future NetworkManager backend; otherwise keep the default owner
-refusal policy for disabled and dry-run modes.
+`owner_policy: allow-external` with `backend: kernel-bond` or `backend: ovs`.
+The kernel-bond backend writes RFC 7130 remove/add commands through Linux
+bonding sysfs. The OVS backend uses `ovs-vsctl del-bond-iface` and
+`ovs-vsctl add-bond-iface` against an existing OVS bond port.
+`backend: networkmanager` is reserved for a future D-Bus backend. Use
+`owner_policy: networkmanager-dbus` only with that future NetworkManager
+backend; otherwise keep the default owner refusal policy for disabled and
+dry-run modes.
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 

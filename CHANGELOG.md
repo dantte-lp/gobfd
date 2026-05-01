@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Linux kernel-bond Micro-BFD enforcement backend that writes RFC 7130
   remove/add actions through bonding sysfs for explicit `backend: kernel-bond`
   with `owner_policy: allow-external`.
+- OVS Micro-BFD enforcement backend that runs `ovs-vsctl del-bond-iface` and
+  `ovs-vsctl add-bond-iface` for explicit `backend: ovs` with
+  `owner_policy: allow-external`.
 
 ### Changed
 
@@ -62,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and document VXLAN/Geneve userspace socket ownership limits for kernel,
   OVS, Cilium, and NSX dataplanes.
 - S7.1 is split into non-destructive actuator config wiring, explicit
-  kernel-bond enforcement, and later OVS/NetworkManager backend sprints.
+  kernel-bond enforcement, OVS enforcement, and a later NetworkManager backend
+  sprint.
 - S7 roadmap now targets independent production integration assets instead of
   a site-specific applicability target.
 - Kubernetes integration manifests now use consistent app labels, named ports,

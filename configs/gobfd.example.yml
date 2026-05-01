@@ -72,8 +72,8 @@ bfd:
 # LAG member link for per-link forwarding verification. Uses UDP port 6784.
 # The actuator is disabled by default. Dry-run mode plans member remove/add
 # actions without changing the host. Enforce mode currently supports explicit
-# backend: "kernel-bond" with owner_policy: "allow-external"; OVS and
-# NetworkManager backends are planned.
+# backend: "kernel-bond" or "ovs" with owner_policy: "allow-external";
+# NetworkManager D-Bus backend is planned.
 #
 # micro_bfd:
 #   actuator:

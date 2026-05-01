@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
 const (
 	defaultKernelBondSysfsRoot = "/sys/class/net"
+	defaultOVSVSCTLCommand     = "ovs-vsctl"
 	maxLinuxInterfaceNameLen   = 15
 )
 
@@ -38,8 +40,13 @@ func NewLAGActuatorBackend(cfg LAGActuatorConfig) (LAGActuatorBackend, error) {
 				normalized.Backend, normalized.OwnerPolicy, ErrUnsupportedLAGOwnerPolicy)
 		}
 		return NewKernelBondLAGBackend(KernelBondLAGBackendConfig{}), nil
+	case LAGActuatorBackendOVS:
+		if normalized.OwnerPolicy != LAGOwnerPolicyAllowExternal {
+			return nil, fmt.Errorf("%s with %s: %w",
+				normalized.Backend, normalized.OwnerPolicy, ErrUnsupportedLAGOwnerPolicy)
+		}
+		return NewOVSLAGBackend(OVSLAGBackendConfig{}), nil
 	case LAGActuatorBackendAuto,
-		LAGActuatorBackendOVS,
 		LAGActuatorBackendNetworkManager:
 		return nil, fmt.Errorf("%s: %w",
 			normalized.Backend, ErrUnsupportedLAGActuatorBackend)
@@ -117,6 +124,98 @@ func (b *KernelBondLAGBackend) writeSlaveCommand(
 	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close %s: %w", path, err)
+	}
+	return nil
+}
+
+// CommandRunner runs an external command.
+type CommandRunner interface {
+	Run(ctx context.Context, name string, args ...string) error
+}
+
+type execCommandRunner struct{}
+
+func (execCommandRunner) Run(ctx context.Context, name string, args ...string) error {
+	// #nosec G204 -- the command is a fixed backend binary and all interface
+	// arguments are validated before this runner is called.
+	cmd := exec.CommandContext(ctx, name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w: %s",
+			name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+// OVSLAGBackendConfig configures an ovs-vsctl-backed LAG actuator.
+type OVSLAGBackendConfig struct {
+	// Command is the ovs-vsctl binary path. Empty means ovs-vsctl from PATH.
+	Command string
+
+	// Runner executes ovs-vsctl. Empty uses os/exec.
+	Runner CommandRunner
+}
+
+// OVSLAGBackend applies member changes to an existing OVS bond port.
+type OVSLAGBackend struct {
+	command string
+	runner  CommandRunner
+}
+
+// NewOVSLAGBackend creates an ovs-vsctl backend for OVS bonded ports.
+func NewOVSLAGBackend(cfg OVSLAGBackendConfig) *OVSLAGBackend {
+	command := cfg.Command
+	if command == "" {
+		command = defaultOVSVSCTLCommand
+	}
+	runner := cfg.Runner
+	if runner == nil {
+		runner = execCommandRunner{}
+	}
+	return &OVSLAGBackend{
+		command: command,
+		runner:  runner,
+	}
+}
+
+// RemoveMember removes memberInterface from an OVS bond port.
+func (b *OVSLAGBackend) RemoveMember(
+	ctx context.Context,
+	lagInterface string,
+	memberInterface string,
+) error {
+	return b.runBondIfaceCommand(ctx, "--if-exists", "del-bond-iface", lagInterface, memberInterface)
+}
+
+// AddMember adds memberInterface to an existing OVS bond port.
+func (b *OVSLAGBackend) AddMember(
+	ctx context.Context,
+	lagInterface string,
+	memberInterface string,
+) error {
+	return b.runBondIfaceCommand(ctx, "--may-exist", "add-bond-iface", lagInterface, memberInterface)
+}
+
+func (b *OVSLAGBackend) runBondIfaceCommand(
+	ctx context.Context,
+	existenceFlag string,
+	command string,
+	lagInterface string,
+	memberInterface string,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateLAGInterfaceName(lagInterface); err != nil {
+		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
+	}
+	if err := validateLAGInterfaceName(memberInterface); err != nil {
+		return fmt.Errorf("member interface %q: %w", memberInterface, err)
+	}
+
+	if err := b.runner.Run(ctx, b.command,
+		existenceFlag, command, lagInterface, memberInterface); err != nil {
+		return fmt.Errorf("ovs lag backend: %w", err)
 	}
 	return nil
 }

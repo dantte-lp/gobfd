@@ -128,6 +128,7 @@ Required production work:
 | S7.1a | Add Micro-BFD actuator hook and guarded LAG actuator policy. |
 | S7.1b | Add Micro-BFD actuator configuration and daemon dry-run wiring. |
 | S7.1c | Add Linux kernel-bond sysfs backend implementation. |
-| S7.1d | Add owner-aware OVS and optional NetworkManager backend implementation. |
+| S7.1d | Add OVS bonded-port backend implementation. |
+| S7.1e | Add optional NetworkManager D-Bus backend implementation. |
 | S7.2 | Add overlay backend model for VXLAN/Geneve dataplane coexistence. |
 | S8 | Ensure README and pkg.go.dev do not overclaim production readiness before release. |
