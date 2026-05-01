@@ -29,6 +29,7 @@ type profile struct {
 	ID           string   `json:"id"`
 	Vendor       string   `json:"vendor"`
 	Platform     string   `json:"platform"`
+	ProfileClass string   `json:"profile_class"`
 	TopologyNode string   `json:"topology_node"`
 	ConfigPaths  []string `json:"config_paths"`
 	Images       []string `json:"images"`
@@ -103,6 +104,35 @@ func TestVendorProfilesContract(t *testing.T) {
 	writeJSONArtifact(t, "vendor-profiles.json", m)
 }
 
+func TestPrimaryVendorSetAndCiscoDeferred(t *testing.T) {
+	m := readManifest(t)
+
+	wantClass := map[string]string{
+		"arista-ceos":   "primary",
+		"nokia-srlinux": "primary",
+		"sonic-vs":      "primary",
+		"vyos":          "primary",
+		"frr":           "baseline",
+		"cisco-xrd":     "deferred",
+	}
+	for _, p := range m.Profiles {
+		want, ok := wantClass[p.ID]
+		if !ok {
+			t.Fatalf("unexpected profile %s", p.ID)
+		}
+		if p.ProfileClass != want {
+			t.Fatalf("profile %s class = %q, want %q", p.ID, p.ProfileClass, want)
+		}
+		if p.ID == "arista-ceos" && !slices.Contains(p.Images, "localhost/ceos:4.36.0.1F") {
+			t.Fatalf("profile %s images = %v, want local cEOS 4.36.0.1F candidate", p.ID, p.Images)
+		}
+		delete(wantClass, p.ID)
+	}
+	if len(wantClass) > 0 {
+		t.Fatalf("missing vendor profile classes: %v", wantClass)
+	}
+}
+
 func TestContainerlabTopologyMatchesManifest(t *testing.T) {
 	m := readManifest(t)
 	topology, err := os.ReadFile(repoPath(t, "test/interop-clab/gobfd-vendors.clab.yml"))
@@ -128,10 +158,15 @@ func TestContainerlabTopologyMatchesManifest(t *testing.T) {
 		}
 	}
 	writeJSONArtifact(t, "skip-summary.json", map[string]any{
-		"topology":          "test/interop-clab/gobfd-vendors.clab.yml",
-		"runner":            "test/interop-clab/run.sh",
-		"missing_images":    "documented as skips",
-		"public_ci_default": m.Runtime.PublicCIDefault,
+		"topology":            "test/interop-clab/gobfd-vendors.clab.yml",
+		"runner":              "test/interop-clab/run.sh",
+		"primary_profiles":    []string{"arista-ceos", "nokia-srlinux", "sonic-vs", "vyos"},
+		"baseline_profiles":   []string{"frr"},
+		"deferred_profiles":   []string{"cisco-xrd"},
+		"missing_images":      "documented as skips",
+		"public_ci_default":   m.Runtime.PublicCIDefault,
+		"cisco_xrd_profile":   "deferred until an operator-provided XRd image is available",
+		"primary_skip_policy": "primary profile images are explicit evidence, not public CI requirements",
 	})
 }
 

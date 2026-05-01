@@ -18,8 +18,9 @@ DEV_DC=(podman-compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
 write_vendor_images() {
     local profile
     while IFS= read -r profile; do
-        local id skip_policy images available status reason image
+        local id profile_class skip_policy images available status reason image
         id="$(jq -r '.id' <<<"${profile}")"
+        profile_class="$(jq -r '.profile_class' <<<"${profile}")"
         skip_policy="$(jq -r '.skip_policy' <<<"${profile}")"
         images="$(jq -c '.images' <<<"${profile}")"
         available="[]"
@@ -40,11 +41,12 @@ write_vendor_images() {
 
         jq -cn \
             --arg profile_id "${id}" \
+            --arg profile_class "${profile_class}" \
             --arg status "${status}" \
             --arg reason "${reason}" \
             --argjson images "${images}" \
             --argjson available "${available}" \
-            '{profile_id: $profile_id, images: $images, available: $available, status: $status, reason: $reason}'
+            '{profile_id: $profile_id, profile_class: $profile_class, images: $images, available: $available, status: $status, reason: $reason}'
     done < <(jq -c '.profiles[]' "${ROOT_DIR}/test/e2e/vendor/profiles.json") \
         | jq -s . >"${REPORT_DIR}/vendor-images.json"
 }
@@ -83,6 +85,8 @@ write_summary() {
 | Vendor profiles | \`vendor-profiles.json\` |
 | Image availability | \`vendor-images.json\` |
 | Skip summary | \`skip-summary.json\` |
+| Primary profiles | \`arista-ceos,nokia-srlinux,sonic-vs,vyos\` |
+| Deferred profiles | \`cisco-xrd\` |
 EOF_SUMMARY
 }
 

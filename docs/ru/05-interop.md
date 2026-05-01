@@ -361,7 +361,7 @@ graph TD
     GOBFD ---|"eth2 ↔ e1-1<br/>10.0.2.0/30 + fd00:0:2::/127"| NOKIA
     GOBFD ---|"eth6 ↔ eth1<br/>10.0.6.0/30 + fd00:0:6::/127"| FRR
     GOBFD ---|"eth1 ↔ eth1<br/>10.0.1.0/30 + fd00:0:1::/127"| ARISTA
-    GOBFD ---|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
+    GOBFD -.-|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
     GOBFD -.-|"eth4 ↔ eth1<br/>10.0.4.0/30"| SONIC
     GOBFD -.-|"eth5 ↔ eth1<br/>10.0.5.0/30"| VYOS
 
@@ -374,18 +374,20 @@ graph TD
     style VYOS fill:#6f42c1,color:#fff
 ```
 
-> Сплошные линии = доступны и протестированы (двойной стек). Пунктирные линии = определены в топологии, пропускаются при отсутствии образа (только IPv4).
+> Сплошные линии = primary или baseline profiles. Пунктирные линии =
+> deferred profile или image-dependent profile. Image availability фиксируется
+> через `make e2e-vendor`.
 
 ### Доступность вендоров
 
 | Вендор | Образ | Подсеть IPv4 | Подсеть IPv6 | ASN | Статус | Лицензия |
 |---|---|---|---|---|---|---|
-| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Доступен | Бесплатно, без регистрации |
-| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Доступен | GPL, бесплатно |
-| **Arista cEOS** | `ceos:4.35.2F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Доступен | Бесплатный аккаунт Arista.com |
-| **Cisco XRd** | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Доступен | Сервисный контракт Cisco |
-| SONiC-VS | `docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Ручной импорт | Бесплатно |
-| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Сборка из ISO | Бесплатно (rolling) |
+| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Бесплатно, без регистрации |
+| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, бесплатно |
+| **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Бесплатный аккаунт Arista.com |
+| SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Бесплатно |
+| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, built from ISO | Бесплатно (rolling) |
+| Cisco XRd | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Deferred | Сервисный контракт Cisco |
 
 ### Предварительные требования
 
@@ -404,8 +406,7 @@ python3 test/interop-clab/bootstrap.py -v
 
 # С коммерческими образами
 python3 test/interop-clab/bootstrap.py \
-    --arista-image /path/to/cEOS64-lab-4.35.2F.tar \
-    --cisco-image /path/to/xrd-control-plane-container-x64.25.4.1.tgz
+    --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Подготовка + деплой топологии
 python3 test/interop-clab/bootstrap.py --deploy
@@ -421,7 +422,7 @@ python3 test/interop-clab/bootstrap.py --dry-run
 - **Предварительные проверки**: podman, go, системные утилиты, свободное место
 - **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, FRRouting (+ зависимости сборки)
 - **Сборка образа VyOS**: скачивание rolling ISO, извлечение squashfs, импорт в podman
-- **Импорт коммерческих образов**: Arista cEOS (`podman load`) и Cisco XRd (распаковка вложенного архива)
+- **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
 - **Отчёт об инвентаризации**: итоговая таблица всех образов со статусом готовности
 
@@ -457,9 +458,9 @@ make interop-clab-down   # Уничтожение контейнеров и veth
 
 **FRRouting**: Нативный демон `bfdd` реализует RFC 5880/5881/5882/5883. Таймеры BFD настраиваются напрямую в `frr.conf` (300мс TX/RX, множитель 3). FRR интегрирует BFD с BGP через директиву `neighbor X bfd`. Контейнер ~188МБ, запускается за секунды.
 
-**Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.35.2F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
+**Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.36.0.1F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
 
-**Cisco XRd**: XRd Control Plane выполняет тот же код IOS-XR, что и физические платформы Cisco 8000/NCS. Контейнер запускается с `--privileged` и обнаруживает Linux-интерфейсы напрямую (veth-конечные точки с именем `Gi0-0-0-0`). Время загрузки 60-180с; тестовый раннер ожидает успешного выполнения `xr_cli 'show version'`. BFD настраивается через BGP-соседа с `bfd fast-detect` и таймерами 300мс. Режим эхо явно отключён (`bfd echo disable`), так как контейнеры XRd не поддерживают аппаратный эхо-режим. **Примечание**: XRd vRouter (DPDK-датаплейн) требует PCI-проброса и несовместим с veth-топологиями — здесь может использоваться только Control Plane.
+**Cisco XRd**: XRd Control Plane является deferred optional profile. Profile определён, но не входит в primary S10.6 vendor set до появления operator-provided XRd image. XRd vRouter требует PCI passthrough и несовместим с veth-based topologies.
 
 **Интеграция с GoBGP**: GoBFD работает совместно с GoBGP (ASN 65001) внутри контейнера GoBFD. Вендорные NOS, такие как Nokia, требуют BGP для BFD, инициируемого протоколом. При паузе/возобновлении контейнера вендора BGP-сосед GoBGP переходит в состояние `Idle(Admin)` и должен быть явно перевключён через `gobgp neighbor <ip> enable`.
 

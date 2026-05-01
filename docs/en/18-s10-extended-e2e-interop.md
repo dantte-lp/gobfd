@@ -51,7 +51,7 @@ Canonical plan for the S10 evidence sprint.
 | Four-peer BFD interop | `make interop` | GoBFD against FRR, BIRD3, aiobfd, and Thoro/bfd. |
 | BGP+BFD interop | `make interop-bgp` | GoBFD and GoBGP failover against FRR, BIRD3, and ExaBGP scenarios. |
 | RFC-specific interop | `make interop-rfc` | RFC 7419, RFC 9384, RFC 9468, and RFC 9747 behavior. |
-| Vendor NOS lab | `make interop-clab` | Optional containerlab profile for Arista cEOS, Nokia SR Linux, Cisco XRd, SONiC-VS, VyOS, and FRR. |
+| Vendor NOS lab | `make interop-clab` | Optional containerlab profile for primary Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS, baseline FRR, and deferred Cisco XRd. |
 | Example integrations | `make int-bgp-failover`, `make int-haproxy`, `make int-observability`, `make int-exabgp-anycast`, `make int-k8s` | Scenario-level deployment evidence. |
 | Benchmark comparison | GitHub Actions `Benchmark comparison` | Hot-path regression guard; no expansion needed for docs-only changes. |
 
@@ -161,7 +161,7 @@ graph TD
 |---|---|
 | Output | Optional vendor NOS test profiles with explicit skip rules. |
 | Files | `test/interop-clab/`, `test/e2e/vendor/`. |
-| Scenarios | Arista cEOS VXLAN BFD profile, Nokia SR Linux BFD profile, Cisco XRd profile, SONiC-VS profile, VyOS/FRR baseline profile. |
+| Scenarios | Primary Arista cEOS VXLAN BFD profile, Nokia SR Linux BFD profile, SONiC-VS profile, VyOS profile, baseline FRR profile, deferred Cisco XRd profile. |
 | Required target | `make e2e-vendor`. |
 | Acceptance | `make e2e-vendor` writes `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, `vendor-profiles.json`, `vendor-images.json`, and `skip-summary.json`; missing licensed/vendor images cause documented skips, not false failures; Podman and containerlab runtimes are explicit. |
 | Status | Implemented. |

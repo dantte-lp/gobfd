@@ -4,8 +4,9 @@
 # /30 links to each vendor NOS. Tests BFD single-hop (RFC 5881) against
 # commercial/enterprise routing stacks.
 #
-# Vendor images that are not present are silently skipped by the Go tests.
-# Nokia SR Linux is always available (free public image).
+# Vendor images that are not present are skipped by the Go tests.
+# Primary profiles: Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
+# Baseline profile: FRR. Deferred profile: Cisco XRd.
 #
 # Usage:
 #   containerlab --runtime podman deploy -t gobfd-vendors.clab.yml
@@ -36,10 +37,10 @@ topology:
 
     # === Arista cEOS (ASN 65002) ===
     # Image: download from arista.com (free registration)
-    # Import: podman import cEOS64-lab-4.35.2F.tar ceos:4.35.2F
+    # Import: podman import cEOS64-lab-4.36.0.1F.tar ceos:4.36.0.1F
     arista:
       kind: arista_ceos
-      image: ceos:4.35.2F
+      image: ceos:4.36.0.1F
       startup-config: arista/startup-config.cfg
       enforce-startup-config: true
 
@@ -60,11 +61,11 @@ topology:
       startup-config: cisco/xrd.cfg
 
     # === SONiC-VS (ASN 65005) ===
-    # Image: docker pull netreplica/docker-sonic-vs:latest
+    # Image: podman pull docker.io/netreplica/docker-sonic-vs:latest
     # Or build from Azure pipelines: sonic-build.azurewebsites.net
     sonic:
       kind: sonic-vs
-      image: docker-sonic-vs:latest
+      image: docker.io/netreplica/docker-sonic-vs:latest
 
     # === VyOS (ASN 65006) ===
     # Image: build from nightly ISO (see README.md)

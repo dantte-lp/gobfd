@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10.6 vendor E2E target `make e2e-vendor` with an optional NOS profile
   manifest, Podman image availability evidence, containerlab Podman runtime
   contract checks, and explicit skips for missing or licensed vendor images.
+- S10.6 primary vendor profile set for Arista cEOS, Nokia SR Linux, SONiC-VS,
+  and VyOS, with Cisco XRd retained as a deferred optional profile until an
+  operator-provided image is available.
 - `make gopls-check` coverage for S10 E2E build tags.
 
 ### Fixed

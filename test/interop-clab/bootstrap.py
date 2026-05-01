@@ -846,7 +846,7 @@ def _parse_args() -> argparse.Namespace:
     g.add_argument(
         "--arista-tag",
         metavar="TAG",
-        default="ceos:4.35.2F",
+        default="ceos:4.36.0.1F",
         help="tag for imported Arista image (default: %(default)s)",
     )
     g.add_argument(
@@ -944,7 +944,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _build_tags(args: argparse.Namespace) -> dict[str, str]:
     """Derive image tag substitution map from CLI args."""
-    arista_tag = args.arista_tag.split(":")[-1] if ":" in args.arista_tag else "4.35.2F"
+    arista_tag = args.arista_tag.split(":")[-1] if ":" in args.arista_tag else "4.36.0.1F"
     cisco_tag = args.cisco_tag.split(":")[-1] if ":" in args.cisco_tag else "25.4.1"
     return {
         "nokia_tag": args.nokia_tag,

@@ -358,7 +358,7 @@ graph TD
     GOBFD ---|"eth2 ↔ e1-1<br/>10.0.2.0/30 + fd00:0:2::/127"| NOKIA
     GOBFD ---|"eth6 ↔ eth1<br/>10.0.6.0/30 + fd00:0:6::/127"| FRR
     GOBFD ---|"eth1 ↔ eth1<br/>10.0.1.0/30 + fd00:0:1::/127"| ARISTA
-    GOBFD ---|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
+    GOBFD -.-|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
     GOBFD -.-|"eth4 ↔ eth1<br/>10.0.4.0/30"| SONIC
     GOBFD -.-|"eth5 ↔ eth1<br/>10.0.5.0/30"| VYOS
 
@@ -371,18 +371,20 @@ graph TD
     style VYOS fill:#6f42c1,color:#fff
 ```
 
-> Solid lines = available and tested (dual-stack). Dashed lines = defined in topology, skip if image absent (IPv4 only).
+> Solid lines = primary or baseline profiles. Dashed lines = deferred profile
+> or image-dependent profile. Image availability is recorded by `make
+> e2e-vendor`.
 
 ### Vendor Availability
 
 | Vendor | Image | IPv4 Subnet | IPv6 Subnet | ASN | Status | License |
 |---|---|---|---|---|---|---|
-| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Available | Free, no registration |
-| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Available | GPL, free |
-| **Arista cEOS** | `ceos:4.35.2F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Available | Free Arista.com account |
-| **Cisco XRd** | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Available | Cisco service contract |
-| SONiC-VS | `docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Manual import | Free |
-| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Build from ISO | Free (rolling) |
+| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Free, no registration |
+| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, free |
+| **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Free Arista.com account |
+| SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Free |
+| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, built from ISO | Free (rolling) |
+| Cisco XRd | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Deferred | Cisco service contract |
 
 ### Prerequisites
 
@@ -401,8 +403,7 @@ python3 test/interop-clab/bootstrap.py -v
 
 # With commercial images
 python3 test/interop-clab/bootstrap.py \
-    --arista-image /path/to/cEOS64-lab-4.35.2F.tar \
-    --cisco-image /path/to/xrd-control-plane-container-x64.25.4.1.tgz
+    --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Prepare + deploy topology
 python3 test/interop-clab/bootstrap.py --deploy
@@ -418,7 +419,7 @@ The script handles:
 - **Preflight checks**: podman, go, host tools, disk space
 - **Parallel image pulls**: Nokia SR Linux, SONiC-VS, FRRouting (+ build dependencies)
 - **VyOS image build**: downloads rolling ISO, extracts squashfs, imports into podman
-- **Commercial image import**: Arista cEOS (`podman load`) and Cisco XRd (nested tarball extraction)
+- **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
 - **Inventory report**: final table of all images with ready/missing status
 
@@ -454,9 +455,9 @@ make interop-clab-down   # Destroy containers and veth links
 
 **FRRouting**: Native `bfdd` daemon implements RFC 5880/5881/5882/5883. BFD timers are configured directly in `frr.conf` (300ms TX/RX, multiplier 3). FRR integrates BFD with BGP via `neighbor X bfd` directive. The container is ~188MB and starts in seconds.
 
-**Arista cEOS**: BFD sessions are protocol-triggered (requires established BGP session via `neighbor X bfd`). cEOS 4.35.2F runs with `service routing protocols model multi-agent` and requires 8 mandatory environment variables for containerized operation (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth`, etc.). Boot time is 60-120s; the test runner waits for `Cli -p 15 -c "show version"` to succeed. BFD state is checked via `Cli -p 15 -c "show bfd peers"`.
+**Arista cEOS**: BFD sessions are protocol-triggered (requires established BGP session via `neighbor X bfd`). cEOS 4.36.0.1F runs with `service routing protocols model multi-agent` and requires 8 mandatory environment variables for containerized operation (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth`, etc.). Boot time is 60-120s; the test runner waits for `Cli -p 15 -c "show version"` to succeed. BFD state is checked via `Cli -p 15 -c "show bfd peers"`.
 
-**Cisco XRd**: XRd Control Plane runs the same IOS-XR code as Cisco 8000/NCS physical platforms. The container starts with `--privileged` and discovers Linux interfaces directly (veth endpoints named `Gi0-0-0-0`). Boot time is 60-180s; the test runner waits for `xr_cli 'show version'` to succeed. BFD is configured via BGP neighbor `bfd fast-detect` with 300ms timers. Echo mode is explicitly disabled (`bfd echo disable`) as XRd containers lack hardware echo support. **Note**: XRd vRouter (DPDK-based dataplane) requires PCI passthrough and is incompatible with veth-based topologies — only the Control Plane variant can be used here.
+**Cisco XRd**: XRd Control Plane is a deferred optional profile. The profile remains defined, but it is not part of the primary S10.6 vendor set until an operator-provided XRd image is available. XRd vRouter requires PCI passthrough and is incompatible with veth-based topologies.
 
 **GoBGP integration**: GoBFD runs alongside GoBGP (ASN 65001) inside the GoBFD container. Vendor NOS like Nokia require BGP for protocol-triggered BFD. When a vendor container is paused/unpaused, GoBGP's BGP neighbor transitions to `Idle(Admin)` and must be explicitly re-enabled via `gobgp neighbor <ip> enable`.
 

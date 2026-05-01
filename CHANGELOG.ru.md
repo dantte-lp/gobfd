@@ -30,6 +30,9 @@
 - S10.6 vendor E2E target `make e2e-vendor`: optional NOS profile manifest,
   Podman image availability evidence, containerlab Podman runtime contract
   checks и explicit skips для missing или licensed vendor images.
+- Primary vendor profile set S10.6 для Arista cEOS, Nokia SR Linux, SONiC-VS и
+  VyOS; Cisco XRd сохранён как deferred optional profile до появления
+  operator-provided image.
 - Coverage `make gopls-check` для S10 E2E build tags.
 
 ### Исправлено

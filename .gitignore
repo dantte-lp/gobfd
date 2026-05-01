@@ -21,6 +21,10 @@ vendor/
 !test/e2e/vendor/
 !test/e2e/vendor/**
 
+# Python
+__pycache__/
+*.pyc
+
 # IDE
 .idea/
 .vscode/
