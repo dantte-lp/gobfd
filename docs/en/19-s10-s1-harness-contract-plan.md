@@ -123,27 +123,41 @@ S10 E2E targets
   e2e-rfc       implemented: RFC 7419/9384/9468/9747 aggregate
   e2e-overlay   implemented: VXLAN/Geneve backend boundary checks
   e2e-linux     implemented: rtnetlink/kernel-bond/OVSDB/NM ownership checks
-  e2e-vendor    planned: optional containerlab vendor profiles
+  e2e-vendor    implemented: optional containerlab vendor profile evidence
 ```
 
 - [x] Keep non-implemented S10 aggregate targets fail-closed.
 
-Required behavior:
+Initial S10.1 required behavior:
 
 ```bash
 make e2e-vendor
 ```
 
-Expected:
+Expected S10.1 placeholder output:
 
 ```text
-e2e-vendor: planned in S10.6; not implemented in S10.1
+e2e-vendor placeholder message
 ```
 
 Exit code:
 
 ```text
 2
+```
+
+Current S10.6 required behavior:
+
+```bash
+make e2e-vendor
+```
+
+Expected artifacts:
+
+```text
+reports/e2e/vendor/<timestamp>/vendor-profiles.json
+reports/e2e/vendor/<timestamp>/vendor-images.json
+reports/e2e/vendor/<timestamp>/skip-summary.json
 ```
 
 ### Task 3 -- Create Harness Contract

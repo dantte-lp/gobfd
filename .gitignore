@@ -18,6 +18,8 @@ coverage.txt
 
 # Go
 vendor/
+!test/e2e/vendor/
+!test/e2e/vendor/**
 
 # IDE
 .idea/

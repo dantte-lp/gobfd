@@ -163,7 +163,8 @@ graph TD
 | Files | `test/interop-clab/`, `test/e2e/vendor/`. |
 | Scenarios | Arista cEOS VXLAN BFD profile, Nokia SR Linux BFD profile, Cisco XRd profile, SONiC-VS profile, VyOS/FRR baseline profile. |
 | Required target | `make e2e-vendor`. |
-| Acceptance | Missing licensed/vendor images cause documented skips, not false failures; Podman runtime is explicit. |
+| Acceptance | `make e2e-vendor` writes `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, `vendor-profiles.json`, `vendor-images.json`, and `skip-summary.json`; missing licensed/vendor images cause documented skips, not false failures; Podman and containerlab runtimes are explicit. |
+| Status | Implemented. |
 | Commit | `test(interop): document vendor interop profiles` |
 
 ### S10.7 -- CI, Reports, and Benchmark Policy

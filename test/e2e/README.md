@@ -26,7 +26,7 @@ optional vendor profiles.
 | `make e2e-rfc` | Implemented S10.4 | RFC 7419, RFC 9384, RFC 9468, RFC 9747 interop stack. |
 | `make e2e-overlay` | Implemented S10.4 | VXLAN/Geneve userspace packet-shape checks and reserved backend fail-closed tests. |
 | `make e2e-linux` | Implemented S10.5 | Isolated rtnetlink/veth, kernel-bond, OVS, NetworkManager ownership checks. |
-| `make e2e-vendor` | Planned S10.6 | `make interop-clab` and vendor-specific profiles. |
+| `make e2e-vendor` | Implemented S10.6 | Optional NOS profile manifest, Podman image availability evidence, and containerlab Podman runtime contract. |
 
 ## Artifact Layout
 
@@ -94,6 +94,14 @@ link-events.json
 lag-backends.json
 ```
 
+The `e2e-vendor` target also writes:
+
+```text
+vendor-profiles.json
+vendor-images.json
+skip-summary.json
+```
+
 ## HTML Report Backlog
 
 Future S10 report generation must add:
@@ -122,6 +130,7 @@ Future S10 report generation must add:
 | `unsupported-host-capability` | Kernel, namespace, or Podman capability is absent. | Capability command output. |
 | `missing-image` | Required public image is unavailable. | Image reference and pull/inspect failure. |
 | `licensed-vendor-image` | Vendor image cannot be redistributed or pulled by CI. | Image name and documented manual profile. |
+| `manual-only-image` | Vendor image requires operator-provided build or import. | Image name and documented manual profile. |
 | `manual-only` | Scenario requires operator-owned infrastructure. | Reason and manual command. |
 
 Skips must be explicit and visible in `summary.md`.

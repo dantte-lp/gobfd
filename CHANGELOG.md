@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--network none` rtnetlink virtual Ethernet evidence, kernel-bond fake
   sysfs checks, OVS owner-policy guard checks, and NetworkManager D-Bus policy
   checks.
+- S10.6 vendor E2E target `make e2e-vendor` with an optional NOS profile
+  manifest, Podman image availability evidence, containerlab Podman runtime
+  contract checks, and explicit skips for missing or licensed vendor images.
+- `make gopls-check` coverage for S10 E2E build tags.
 
 ### Fixed
 

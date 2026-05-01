@@ -27,6 +27,10 @@
 - S10.5 Linux dataplane E2E target `make e2e-linux`: isolated `--network none`
   rtnetlink virtual Ethernet evidence, kernel-bond fake sysfs checks,
   OVS owner-policy guard checks и NetworkManager D-Bus policy checks.
+- S10.6 vendor E2E target `make e2e-vendor`: optional NOS profile manifest,
+  Podman image availability evidence, containerlab Podman runtime contract
+  checks и explicit skips для missing или licensed vendor images.
+- Coverage `make gopls-check` для S10 E2E build tags.
 
 ### Исправлено
 

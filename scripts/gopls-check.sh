@@ -3,7 +3,7 @@ set -eu
 
 target_goos="${GOPLS_GOOS:-linux}"
 target_goarch="${GOPLS_GOARCH:-amd64}"
-target_tags="${GOPLS_TAGS:-integration,interop,interop_bgp,interop_rfc,interop_clab}"
+target_tags="${GOPLS_TAGS:-integration,interop,interop_bgp,interop_rfc,interop_clab,e2e_core,e2e_overlay,e2e_linux,e2e_vendor}"
 
 export GOOS="${target_goos}"
 export GOARCH="${target_goarch}"
