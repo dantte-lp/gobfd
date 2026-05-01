@@ -67,8 +67,8 @@ Podman.
 | Linux VXLAN/Geneve dataplane coexistence | Partial | Реализован explicit `userspace-udp` backend для dedicated endpoints; reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` имена fail closed до owner-specific integrations. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession` и `gobfdctl session add` подключают RFC 5880 auth в TX/RX, snapshots показывают auth type, missing raw wire bytes rejected, receive sequence knowledge resets after 2x Detection Time. Dynamic key rotation отложен. |
 | pkg.go.dev command page | Green | `v0.5.2` индексируется на pkg.go.dev, Apache-2.0 определяется, `cmd/gobfd` имеет command documentation. |
-| Documentation standards | Partial | Keep a Changelog, SemVer, commitlint и doc lint gates есть; non-canonical temporary research files не должны оставаться в published Markdown corpus. |
-| Extended E2E / interop evidence | Planned | S10 добавляет Podman-only evidence matrix для core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles и CI artifacts. |
+| Documentation standards | Green | Keep a Changelog, SemVer, commitlint, canonical `docs/en` и `docs/ru`, а также doc lint gates присутствуют; temporary research files исключены из published Markdown corpus. |
+| Extended E2E / interop evidence | Green | S10.1-S10.7 реализуют Podman-only evidence для core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles и CI artifacts. |
 
 ## 4. Спринты
 
@@ -126,7 +126,7 @@ Podman.
 
 | # | Output | Exit |
 |---|---|---|
-| **S10** | Extended E2E and interoperability evidence. | Planned: `docs/ru/18-s10-extended-e2e-interop.md` задаёт Podman-only evidence matrix, source validation, sprint breakdown, benchmark policy и close criteria; `docs/ru/19-s10-s1-harness-contract-plan.md` задаёт S10.1. Commit: `docs(interop): plan s10 extended interop evidence`. |
+| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 задают и реализуют Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence и benchmark policy separation. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
 
 ## 5. Definition of Done
 

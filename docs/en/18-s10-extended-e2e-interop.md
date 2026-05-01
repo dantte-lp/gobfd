@@ -4,6 +4,7 @@
 ![Scope](https://img.shields.io/badge/Scope-E2E%20Interop-34a853?style=for-the-badge)
 ![Runtime](https://img.shields.io/badge/Runtime-Podman-ea4335?style=for-the-badge)
 ![Release](https://img.shields.io/badge/Release-No%20code%20release-6f42c1?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Implemented-brightgreen?style=for-the-badge)
 
 Canonical plan for the S10 evidence sprint.
 
@@ -16,7 +17,8 @@ Canonical plan for the S10 evidence sprint.
 | Sprint | S10 |
 | Primary objective | Extended end-to-end and interoperability evidence for the existing GoBFD feature set. |
 | Preferred direction | Extend E2E/interop coverage before adding new protocol backends. |
-| Release impact | No release for this planning-only change; a later test-harness implementation may ship as a patch or minor prerelease only when user-facing behavior changes. |
+| Release impact | No code release is required for documentation-only closeout changes; future user-facing harness behavior changes may ship as patch or minor prerelease updates. |
+| Implementation status | Implemented. |
 | Required runtime | Podman. |
 | Required evidence | Go test JSON, container logs, BFD packet captures, control-plane snapshots, and CI artifacts. |
 | Non-goal | No default enablement of kernel, OVS, OVN, Cilium, Calico, NSX, VXLAN, or Geneve owner-specific backends. |
@@ -61,7 +63,7 @@ Canonical plan for the S10 evidence sprint.
 |---|---|
 | Stack lifecycle | Keep the existing shell and `podman-compose` model for multi-container topology lifecycle. |
 | Assertion layer | Keep Go tests as the protocol assertion layer. |
-| Podman control | Add a shared Go helper for Podman REST API operations before expanding E2E assertions. |
+| Podman control | Current S10 targets use target-local helpers; shared helper extraction remains deferred after S10 close. |
 | Artifact model | Standardize every S10 target on `reports/e2e/<target>/<timestamp>/`. |
 | Human report model | Add a standalone HTML report per E2E run with a shared JavaScript renderer, repository-themed styling, target status summary, artifact links, packet evidence tables, container state, and collapsible logs. |
 | Worktree safety | Require validation that the dev/test container is mounted to the active checkout before evidence is accepted. |
@@ -238,12 +240,16 @@ graph TD
 
 ## 10. Close Criteria
 
-1. S10 plan exists in `docs/en/` and `docs/ru/`.
-2. `docs/en/README.md`, `docs/ru/README.md`, and `docs/README.md` list the S10 plan.
-3. `docs/en/implementation-plan.md` and `docs/ru/implementation-plan.md` include S10.
-4. `CHANGELOG.md` and `CHANGELOG.ru.md` record the planning update under Unreleased.
-5. Documentation lint passes in Podman.
-6. The S10 implementation starts only after this evidence matrix is accepted.
+| Criterion | Status |
+|---|---|
+| S10 plan exists in `docs/en/` and `docs/ru/`. | Met. |
+| `docs/en/README.md`, `docs/ru/README.md`, and `docs/README.md` list the S10 plan. | Met. |
+| `docs/en/implementation-plan.md` and `docs/ru/implementation-plan.md` include S10. | Met. |
+| `CHANGELOG.md` and `CHANGELOG.ru.md` record S10 implementation under Unreleased. | Met. |
+| S10 targets produce standard artifacts under `reports/e2e/<target>/<timestamp>/`. | Met. |
+| PR-safe, nightly, and manual vendor CI gates are declared in `.github/workflows/e2e.yml`. | Met. |
+| Documentation lint passes in Podman. | Required for every S10 documentation commit. |
+| Protocol behavior remains tied to RFC-backed E2E targets. | Met through `make e2e-rfc` and `make e2e-overlay`. |
 
 ---
 

@@ -66,8 +66,8 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | Linux VXLAN/Geneve dataplane coexistence | Partial | GoBFD has an explicit `userspace-udp` backend for dedicated endpoints and fails closed for reserved kernel/OVS/OVN/Cilium/Calico/NSX backend names; actual non-userspace integrations remain future work. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession`, and `gobfdctl session add` now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time. Dynamic key rotation is deferred to production hardening. |
 | pkg.go.dev command page | Green | `v0.5.2` is indexed on pkg.go.dev, Apache-2.0 is detected, and `cmd/gobfd` has command documentation. |
-| Documentation standards | Partial | Keep a Changelog, SemVer, commitlint, and doc lint gates are present; non-canonical temporary research files must not remain in the published Markdown corpus. |
-| Extended E2E / interop evidence | Planned | S10 adds a Podman-only evidence matrix for core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles, and CI artifacts. |
+| Documentation standards | Green | Keep a Changelog, SemVer, commitlint, canonical `docs/en` and `docs/ru`, and doc lint gates are present; temporary research files are excluded from the published Markdown corpus. |
+| Extended E2E / interop evidence | Green | S10.1-S10.7 implement Podman-only evidence for core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles, and CI artifacts. |
 
 ## 4. Sprints
 
@@ -132,7 +132,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S10** | Extended E2E and interoperability evidence. | Planned: `docs/en/18-s10-extended-e2e-interop.md` defines the Podman-only evidence matrix, source validation, sprint breakdown, benchmark policy, and close criteria; `docs/en/19-s10-s1-harness-contract-plan.md` defines S10.1. Commit: `docs(interop): plan s10 extended interop evidence`. |
+| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 define and implement Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence, and benchmark policy separation. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
 
 ## 5. Definition of Done
 

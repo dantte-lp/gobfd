@@ -36,6 +36,9 @@
 - S10.7 E2E evidence GitHub Actions workflow с PR-safe, nightly и manual
   vendor gates, 30-day report artifact retention и explicit benchmark policy
   separation.
+- S10 close-out документация, которая помечает extended E2E evidence sprint
+  как implemented и фиксирует post-S10 Podman API helper extraction как
+  deferred.
 - Coverage `make gopls-check` для S10 E2E build tags.
 
 ### Исправлено

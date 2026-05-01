@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10.7 E2E evidence GitHub Actions workflow with PR-safe, nightly, and manual
   vendor gates, 30-day report artifact retention, and explicit benchmark
   policy separation.
+- S10 close-out documentation that marks the extended E2E evidence sprint as
+  implemented and records post-S10 Podman API helper extraction as deferred.
 - `make gopls-check` coverage for S10 E2E build tags.
 
 ### Fixed

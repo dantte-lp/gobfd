@@ -3,9 +3,9 @@
 ![Sprint](https://img.shields.io/badge/Sprint-S10.1-1a73e8?style=for-the-badge)
 ![Scope](https://img.shields.io/badge/Scope-Harness%20Contract-34a853?style=for-the-badge)
 ![Runtime](https://img.shields.io/badge/Runtime-Podman-ea4335?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Planned-6f42c1?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Implemented-brightgreen?style=for-the-badge)
 
-Detailed implementation plan for S10.1.
+Implementation record for S10.1.
 
 ---
 
@@ -26,7 +26,7 @@ Detailed implementation plan for S10.1.
 |---|---|---|
 | Current shell + `podman-compose` runners | Keep as stack lifecycle layer. | Existing interop stacks require fixed networks, packet captures, FRR/BIRD/GoBGP services, and explicit cleanup. |
 | Current Go interop tests | Keep as assertion layer. | Go tests already express protocol assertions, timeouts, Podman API actions, and pcap parsing. |
-| Shared Go Podman API helper | Add. | `test/interop-bgp`, `test/interop-rfc`, and `test/interop-clab` duplicate exec/logs/pause/start helpers. |
+| Shared Go Podman API helper | Defer after S10 close. | `test/interop-bgp`, `test/interop-rfc`, and `test/interop-clab` still duplicate exec/logs/pause/start helpers; S10 standardizes aggregate evidence first. |
 | `testcontainers-go` | Defer for S10.1; allow later for isolated S10.2 core tests only. | Context7 confirms Podman provider support, but the current repo already depends on compose topologies, static IPs, packet capture containers, and vendor NOS profiles. |
 | containerlab | Keep optional/manual for vendor profile only. | Containerlab documents Docker as default and Podman as experimental; public CI must not depend on licensed NOS images. |
 | Host `go test` inside runner scripts | Remove from future S10 gates. | Project evidence requires Go commands through Podman. |
@@ -38,7 +38,7 @@ Detailed implementation plan for S10.1.
 |---|---|---|
 | Worktree safety | `deployments/compose/compose.dev.yml` previously used fixed `container_name: gobfd-dev`. | Remove the fixed name, default `COMPOSE_PROJECT_NAME` to the checkout directory, and expose `make dev-project` / `make dev-ps`. |
 | Full-cycle interop runners | `test/interop-rfc/run.sh` and similar scripts run `go test` directly. | Route Go tests through a Podman command or make the shell runner lifecycle-only. |
-| Podman API helpers | `podman_api_test.go` logic is duplicated across interop packages. | Plan a shared `test/internal/podmanapi` helper for S10.2 or S10.3. |
+| Podman API helpers | `podman_api_test.go` logic is duplicated across interop packages. | Track shared `test/internal/podmanapi` helper as a post-S10 refactor. |
 | Artifact output | Existing pcap files live inside capture containers or stack-local paths. | Define `reports/e2e/<target>/<timestamp>/` and copy logs/pcaps/test JSON there. |
 | Target discoverability | `make interop*` targets exist; no S10 aggregate help target exists. | Add `make e2e-help` in S10.1. |
 | Evidence format | `gotestsum` exists for unit reports; interop targets do not produce standard JSON/JUnit. | Standardize on Go `-json` and optional `gotestsum` output for S10 targets. |
@@ -241,7 +241,7 @@ Required decision:
 
 ```text
 S10 keeps the existing shell/compose stack lifecycle and Go assertion model.
-S10 improves it with a shared Podman API helper, worktree-safe execution, standard artifacts, and Podman-only Go execution.
+S10 improves it with worktree-safe execution, standard artifacts, Podman-only Go execution, and a deferred post-S10 Podman API helper extraction item.
 S10.2 uses the compose topology for daemon-to-daemon testing; testcontainers-go remains deferred.
 ```
 

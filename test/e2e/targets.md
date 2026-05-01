@@ -10,7 +10,7 @@ Current test and integration targets mapped to the S10 E2E evidence model.
 |---|---|---|---|---|---|---|---|---|
 | `make e2e-core` | `e2e-core` | Core E2E stack | Podman Compose plus dev container Go test | `172.30.10.0/24` | GoBFD A/B, static simple-password auth, tshark | Go test JSON/log, container logs/state, metrics checks, pcapng, packet CSV, summary | `down --volumes --remove-orphans` | Implemented for core daemon. |
 | `make test-integration` | `e2e-core` input | Go integration tests | Dev container | In-process HTTP/test server | Go test package `./test/integration` | Verbose Go test output | Go test cleanup | No daemon-to-daemon packet evidence. |
-| `make e2e-routing` | `e2e-routing` | Routing E2E aggregate | Podman Compose plus dev container Go test | `172.20.0.0/24`, `172.21.0.0/24` | `test/interop`, `test/interop-bgp`, tshark | Aggregate Go test JSON/log, container logs/state, merged pcapng, packet CSV, suite artifacts | `down --volumes --remove-orphans` per suite | Implemented for existing routing interop suites; shared Podman API helper extraction remains planned. |
+| `make e2e-routing` | `e2e-routing` | Routing E2E aggregate | Podman Compose plus dev container Go test | `172.20.0.0/24`, `172.21.0.0/24` | `test/interop`, `test/interop-bgp`, tshark | Aggregate Go test JSON/log, container logs/state, merged pcapng, packet CSV, suite artifacts | `down --volumes --remove-orphans` per suite | Implemented for existing routing interop suites; shared Podman API helper extraction is deferred after S10 close. |
 | `make interop` | `e2e-routing` input | BFD interop stack | Podman Compose | `172.20.0.0/24` | GoBFD, FRR, BIRD3, aiobfd, Thoro/bfd, tshark | Go test output, pcap in capture container | `down --volumes --remove-orphans` | Normalized by `make e2e-routing`. |
 | `make interop-bgp` | `e2e-routing` input | BGP+BFD interop stack | Podman Compose | `172.21.0.0/24` | GoBFD, GoBGP, FRR, BIRD3, ExaBGP, tshark | Go test output, BGP/BFD state | `down --volumes --remove-orphans` | Normalized by `make e2e-routing`; duplicated Podman API helpers remain. |
 | `make e2e-rfc` | `e2e-rfc` | RFC E2E aggregate | Podman Compose plus dev container Go test | `172.22.0.0/24` | RFC 7419, 9384, 9468, 9747 scenarios | Go test JSON/log, container logs/state, pcapng, packet CSV, summary | `down --volumes --remove-orphans` | Implemented for current RFC interop suite. |
@@ -61,7 +61,8 @@ graph TD
 | Overlay backend boundary checks | Implemented in S10.4. |
 | Linux dataplane ownership checks | Implemented in S10.5. |
 | Vendor optional profiles | Implemented in S10.6. |
-| Podman API helper extraction | Planned after S10.3. |
+| E2E CI artifact workflow | Implemented in S10.7. |
+| Podman API helper extraction | Deferred after S10 close. |
 | Host `go test` removal from full-cycle runners | Implemented for `e2e-core`, `e2e-routing`, `e2e-rfc`, `e2e-overlay`, `e2e-linux`, and `e2e-vendor`. |
 
 ---
