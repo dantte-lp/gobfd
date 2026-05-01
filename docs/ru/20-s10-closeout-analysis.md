@@ -62,9 +62,9 @@ graph TD
 
 | Priority | Item | Status | Reason |
 |---|---|---|---|
-| P1 | Shared Podman API helper | Deferred | `test/interop-bgp`, `test/interop-rfc` и `test/interop-clab` всё ещё дублируют container exec/log helpers |
+| P1 | Shared Podman API helper | Implemented in S11.1 | `test/internal/podmanapi` используется routing, RFC и vendor interop tests |
 | P1 | Styled HTML E2E reports | Backlog | Standard JSON/CSV/log artifacts существуют; shared JavaScript renderer не реализован |
-| P1 | Full S10 workflow run on GitHub after push | Pending | Local Podman checks проходят; remote PR-safe/nightly/manual gates требуют CI evidence |
+| P1 | Full local E2E execution evidence | Implemented in S11.2 | Core, overlay, routing, RFC и Linux local evidence recorded; remote CI evidence остаётся pending |
 | P2 | Owner-specific VXLAN/Geneve backends | Planned | `userspace-udp` backend существует; kernel/OVS/OVN/Cilium/Calico/NSX owner integrations fail closed |
 | P2 | Broader vendor NOS execution | Manual | Нужны licensed или local images для cEOS, SR Linux, SONiC-VS, VyOS и XRd |
 | P2 | Micro-BFD production hardening | Partial | Protocol, daemon wiring и selected enforcement paths существуют; wider LAG owner interop требуется |
@@ -85,10 +85,12 @@ graph TD
 
 | Sprint | Objective | Exit Criteria |
 |---|---|---|
-| S11.1 | Extract shared Podman API helper | Shared package используется routing, RFC и vendor E2E tests; behavior regression отсутствует |
-| S11.2 | Generate styled HTML E2E reports | Каждый S10 target пишет `index.html` через shared JavaScript renderer и единый artifact schema |
-| S11.3 | Execute remote CI evidence | PR-safe workflow green; nightly workflow result recorded; vendor workflow skip/pass matrix recorded |
-| S11.4 | Select first owner-specific backend | Decision record для kernel, OVS/OVN, Cilium, Calico или NSX на основе доступного interop environment |
+| S11.1 | Extract shared Podman API helper | Implemented |
+| S11.2 | Record full local E2E evidence | Implemented |
+| S11.3 | Vendor NOS execution matrix | Pending |
+| S11.4 | Generate styled HTML E2E reports | Pending |
+| S11.5 | Execute remote CI evidence | Pending |
+| S11.6 | Select first owner-specific backend | Pending |
 
 ---
 

@@ -26,7 +26,7 @@
 | Sprint Item | Status | Evidence |
 |---|---|---|
 | S11.1 shared Podman API helper | Implemented | `test/internal/podmanapi`, interop wrappers, Podman-only test/lint/gopls/doc gates |
-| S11.2 full local E2E run | Pending | Not started |
+| S11.2 full local E2E run | Implemented | Core, overlay, routing, RFC и Linux local E2E evidence recorded |
 | S11.3 vendor NOS execution | Pending | Not started |
 | S11.4 styled HTML reports | Pending | Not started |
 | S11.5 remote CI evidence | Pending | Not started |
@@ -161,7 +161,7 @@ Result: pass.
 - Modify: `docs/en/21-s11-full-e2e-interop-plan.md`
 - Modify: `docs/ru/21-s11-full-e2e-interop-plan.md`
 
-- [ ] **Step 1: Run PR-safe profile locally**
+- [x] **Step 1: Run PR-safe profile locally**
 
 Run:
 
@@ -173,7 +173,17 @@ make e2e-overlay
 
 Expected: `reports/e2e/core/<timestamp>/` and `reports/e2e/overlay/<timestamp>/`.
 
-- [ ] **Step 2: Run nightly profile locally**
+Current S11.2 local evidence:
+
+| Target | Result | Artifact Directory |
+|---|---|---|
+| `make e2e-core` | pass | `reports/e2e/core/20260501T195321Z` |
+| `make e2e-overlay` | pass | `reports/e2e/overlay/20260501T195359Z` |
+| `make e2e-routing` | pass | `reports/e2e/routing/20260501T200903Z` |
+| `make e2e-rfc` | pass | `reports/e2e/rfc/20260501T201501Z` |
+| `make e2e-linux` | pass | `reports/e2e/linux/20260501T201805Z` |
+
+- [x] **Step 2: Run nightly profile locally**
 
 Run:
 
@@ -185,7 +195,7 @@ make e2e-linux
 
 Expected: routing, RFC, and Linux report directories with `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, and `summary.md`.
 
-- [ ] **Step 3: Validate packet evidence**
+- [x] **Step 3: Validate packet evidence**
 
 Run:
 
@@ -195,14 +205,32 @@ find reports/e2e -name packets.csv -o -name packets.pcapng
 
 Expected: packet artifacts for core, routing, RFC, and overlay targets.
 
-- [ ] **Step 4: Record evidence digest**
+Current S11.2 packet evidence:
+
+| Target | Packet Evidence |
+|---|---|
+| `make e2e-core` | `packets.csv`, `packets.pcapng` |
+| `make e2e-routing` | `packets.csv`, `packets.pcapng`; nested `interop/` и `interop-bgp/` captures |
+| `make e2e-rfc` | `packets.csv`, `packets.pcapng` |
+| `make e2e-overlay` | `packets.csv` |
+| `make e2e-linux` | Not packet-based; `link-events.json` и `lag-backends.json` являются target evidence. |
+
+- [x] **Step 4: Record evidence digest**
 
 Update S11 plan status tables with target, timestamp, result, and artifact directory. Do not commit generated report payloads unless explicitly required.
 
-- [ ] **Step 5: Commit**
+Recorded constraints:
+
+| Item | Requirement |
+|---|---|
+| Generated report payloads | Must remain uncommitted unless explicitly required. |
+| FRR `vtysh` JSON output | Must tolerate diagnostic prefix and suffix text before JSON decoding. |
+| Arista VXLAN BFD | Must remain EOS-specific `bfd vtep evpn` evidence, not generic Linux backend evidence. |
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add docs/en/21-s11-full-e2e-interop-plan.md docs/ru/21-s11-full-e2e-interop-plan.md
+git add CHANGELOG.md CHANGELOG.ru.md docs/en/20-s10-closeout-analysis.md docs/ru/20-s10-closeout-analysis.md docs/en/21-s11-full-e2e-interop-plan.md docs/ru/21-s11-full-e2e-interop-plan.md test/internal/frrjson test/interop test/interop-bgp test/interop-rfc
 git commit -m "test(interop): record full local e2e evidence"
 ```
 

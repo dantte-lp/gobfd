@@ -58,6 +58,9 @@
 
 ### Исправлено
 
+- FRR JSON extraction в routing и RFC interop tests теперь допускает diagnostic
+  prefix и suffix text вокруг JSON payload.
+
 - Linux rtnetlink interface monitor shutdown теперь ограничен receive timeout,
   поэтому cancellation завершается детерминированно, даже если закрытие netlink
   file descriptor не прерывает receive syscall сразу.

@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- FRR JSON extraction in routing and RFC interop tests now tolerates diagnostic
+  prefix and suffix text around the JSON payload.
+
 - Linux rtnetlink interface monitor shutdown is now bounded by a receive
   timeout, so cancellation exits deterministically even when closing the
   netlink file descriptor does not interrupt the receive system call
