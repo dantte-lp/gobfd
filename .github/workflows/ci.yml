@@ -238,7 +238,7 @@ jobs:
 
       - name: Check for regressions (>10%)
         run: |
-          benchstat -format csv old.txt new.txt > bench-csv.txt 2>/dev/null || true
+          go tool benchstat -format csv old.txt new.txt > bench-csv.txt 2>/dev/null || true
           if grep -qE '\+[1-9][0-9]\.' bench-csv.txt 2>/dev/null; then
             echo "::warning::Benchmark regression detected (>10%). Review bench-report.md."
           fi
