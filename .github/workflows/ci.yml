@@ -241,6 +241,12 @@ jobs:
           mkdir -p bench-regression
           go tool benchstat -format csv old.txt new.txt > bench-regression/bench-csv.txt 2> bench-regression/benchstat-notes.txt
           awk -F, '
+            BEGIN {
+              critical = "^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|"
+              critical = critical "FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|"
+              critical = critical "ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|"
+              critical = critical "VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-"
+            }
             $2 == "sec/op" { metric = "sec/op"; next }
             $2 == "B/op" || $2 == "allocs/op" { metric = $2; next }
             metric == "sec/op" && $6 ~ /^\+[0-9.]+%/ {
@@ -249,7 +255,7 @@ jobs:
               if (pct + 0 < 10) {
                 next
               }
-              if ($1 ~ /^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-/ && (($2 + 0) >= 0.0000001 || ($4 + 0) >= 0.0000001)) {
+              if ($1 ~ critical && (($2 + 0) >= 0.0000001 || ($4 + 0) >= 0.0000001)) {
                 print $1 "," $6 "," $7 >> "bench-regression/critical-regressions.csv"
               } else if (($2 + 0) >= 0.000000001 || ($4 + 0) >= 0.000000001) {
                 print $1 "," $6 "," $7 >> "bench-regression/reported-regressions.csv"
