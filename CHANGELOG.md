@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10 closeout analysis in `docs/en/20-s10-closeout-analysis.md` and
   `docs/ru/20-s10-closeout-analysis.md`, including delivered scope, remaining
   backlog, and RFC/MCP source validation.
+- S11 full E2E and interoperability execution plan in
+  `docs/en/21-s11-full-e2e-interop-plan.md` and
+  `docs/ru/21-s11-full-e2e-interop-plan.md`, covering shared Podman API helper
+  extraction, full local E2E runs, vendor NOS evidence, styled HTML reports,
+  remote CI evidence, and owner-backend decision gates.
 - README and protocol documentation synchronization for advanced BFD feature
   status: Micro-BFD partial production integration, VXLAN/Geneve userspace
   backend status, and RFC 9747 unaffiliated Echo separation from affiliated

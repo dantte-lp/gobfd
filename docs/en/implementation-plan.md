@@ -133,6 +133,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | # | Output | Exit |
 |---|---|---|
 | **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 define and implement Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence, and benchmark policy separation. Closeout: `docs/en/20-s10-closeout-analysis.md`. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
+| **S11** | Full E2E and interoperability execution. | Planned: `docs/en/21-s11-full-e2e-interop-plan.md` defines shared Podman API helper extraction, full local E2E runs, vendor NOS pass/skip evidence, styled HTML reports, remote CI evidence, and the owner-backend decision gate. |
 
 ## 5. Definition of Done
 

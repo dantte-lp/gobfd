@@ -42,6 +42,11 @@
 - S10 closeout analysis в `docs/en/20-s10-closeout-analysis.md` и
   `docs/ru/20-s10-closeout-analysis.md`: delivered scope, remaining backlog и
   RFC/MCP source validation.
+- S11 full E2E and interoperability execution plan в
+  `docs/en/21-s11-full-e2e-interop-plan.md` и
+  `docs/ru/21-s11-full-e2e-interop-plan.md`: shared Podman API helper
+  extraction, full local E2E runs, vendor NOS evidence, styled HTML reports,
+  remote CI evidence и owner-backend decision gates.
 - Синхронизация README и protocol documentation по статусам advanced BFD:
   Micro-BFD partial production integration, VXLAN/Geneve userspace backend
   status и разделение RFC 9747 unaffiliated Echo от affiliated RFC 5880 Echo
