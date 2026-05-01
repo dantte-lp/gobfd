@@ -21,7 +21,7 @@ optional vendor profiles.
 
 | Target | Status | Input |
 |---|---|---|
-| `make e2e-core` | Planned S10.2 | `make test-integration`, daemon-to-daemon Podman topology. |
+| `make e2e-core` | Implemented S10.2 | GoBFD-to-GoBFD Podman topology, static auth, CLI, metrics, reload, packet capture. |
 | `make e2e-routing` | Planned S10.3 | `make interop`, `make interop-bgp`, routing examples. |
 | `make e2e-rfc` | Planned S10.4 | `make interop-rfc`. |
 | `make e2e-overlay` | Planned S10.4 | VXLAN/Geneve backend-boundary tests. |
@@ -52,6 +52,15 @@ Wire-behavior targets also write:
 ```text
 packets.pcapng
 packets.csv
+```
+
+The `e2e-core` target also writes:
+
+```text
+runtime/gobfd-a.yml
+runtime/gobfd-b.yml
+captures/bfd.pcapng
+pcap-summary.tsv
 ```
 
 ## Cleanup Policy

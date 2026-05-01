@@ -65,7 +65,7 @@
 | Artifact model | Стандартизировать каждый S10 target на `reports/e2e/<target>/<timestamp>/`. |
 | Worktree safety | Требовать проверку, что dev/test container смонтирован к active checkout, до принятия evidence. |
 | Host Go | Не использовать host `go test` в S10 gates. |
-| `testcontainers-go` | Отложить до isolated daemon-to-daemon S10.2 scenarios; не заменять existing compose/vendor topologies в S10.1. |
+| `testcontainers-go` | Не используется в S10.2. Compose topology остается для packet capture, static addressing и artifact parity с existing interop targets. |
 
 ## 5. Целевая evidence architecture
 
@@ -111,10 +111,11 @@ graph TD
 | Поле | Значение |
 |---|---|
 | Output | Deterministic GoBFD-to-GoBFD E2E suite. |
-| Files | `test/e2e/core/`, `test/e2e/core/compose.yml`, `test/e2e/core/core_test.go`. |
+| Files | `test/e2e/core/`, `test/e2e/core/compose.yml`, `test/e2e/core/core_test.go`, `test/e2e/core/run.sh`. |
 | Scenarios | Session `Up`, graceful `AdminDown`, config reload, static auth, CLI list/show/events, metrics availability, packet capture. |
 | Required target | `make e2e-core`. |
-| Acceptance | Suite проходит из clean Podman state и пишет Go test JSON, daemon logs, CLI output и BFD pcapng artifacts. |
+| Acceptance | Suite проходит из clean Podman state и пишет `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, `packets.pcapng` и `packets.csv`. |
+| Status | Implemented. |
 | Commit | `test(interop): add core daemon scenarios` |
 
 ### S10.3 -- Routing Interop Aggregate

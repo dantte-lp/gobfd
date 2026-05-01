@@ -1,0 +1,69 @@
+# S10.2 core E2E stack: GoBFD daemon-to-daemon validation.
+
+services:
+  gobfd-a:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ${E2E_CORE_A_CONFIG:?set E2E_CORE_A_CONFIG}:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    ports:
+      - "127.0.0.1:${E2E_CORE_A_GRPC_PORT:?set E2E_CORE_A_GRPC_PORT}:50051"
+      - "127.0.0.1:${E2E_CORE_A_METRICS_PORT:?set E2E_CORE_A_METRICS_PORT}:9100"
+    networks:
+      bfdnet:
+        ipv4_address: 172.30.10.10
+
+  gobfd-b:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker/Containerfile
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ${E2E_CORE_B_CONFIG:?set E2E_CORE_B_CONFIG}:/etc/gobfd/gobfd.yml:ro,z
+    command: ["-config", "/etc/gobfd/gobfd.yml"]
+    ports:
+      - "127.0.0.1:${E2E_CORE_B_GRPC_PORT:?set E2E_CORE_B_GRPC_PORT}:50051"
+      - "127.0.0.1:${E2E_CORE_B_METRICS_PORT:?set E2E_CORE_B_METRICS_PORT}:9100"
+    networks:
+      bfdnet:
+        ipv4_address: 172.30.10.20
+
+  tshark:
+    build:
+      context: ../../interop/tshark
+      dockerfile: Containerfile
+    network_mode: "service:gobfd-a"
+    depends_on:
+      - gobfd-a
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ${E2E_CORE_CAPTURE_DIR:?set E2E_CORE_CAPTURE_DIR}:/captures:z
+
+  analyzer:
+    build:
+      context: ../../interop/tshark
+      dockerfile: Containerfile
+    entrypoint: ["tshark"]
+    profiles:
+      - tools
+    volumes:
+      - ${E2E_CORE_CAPTURE_DIR:?set E2E_CORE_CAPTURE_DIR}:/captures:z
+
+networks:
+  bfdnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+          gateway: 172.30.10.1

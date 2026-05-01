@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10.1 harness contract plan and target inventory for extended E2E evidence.
 - Checkout-safe development Compose automation with generated container names,
   `COMPOSE_PROJECT_NAME` scoping, `make dev-project`, and `make dev-ps`.
+- S10.2 core daemon E2E target `make e2e-core` with GoBFD-to-GoBFD Podman
+  topology, static RFC 5880 authentication, CLI list/show/event checks,
+  metrics checks, SIGHUP reload, graceful AdminDown packet capture, and
+  standardized S10 artifacts.
+
+### Fixed
+
+- Authenticated BFD sessions now serialize the authentication section into the
+  cached transmit packet before sending, so declarative RFC 5880 auth sessions
+  can establish with peers that require authentication.
 
 ## [0.5.2] - 2026-05-01
 

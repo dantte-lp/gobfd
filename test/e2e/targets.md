@@ -8,6 +8,7 @@ Current test and integration targets mapped to the S10 E2E evidence model.
 
 | Current Target | S10 Target | Owner | Runtime | Network | Inputs | Outputs | Cleanup | Current Gap |
 |---|---|---|---|---|---|---|---|---|
+| `make e2e-core` | `e2e-core` | Core E2E stack | Podman Compose plus dev container Go test | `172.30.10.0/24` | GoBFD A/B, static simple-password auth, tshark | Go test JSON/log, container logs/state, metrics checks, pcapng, packet CSV, summary | `down --volumes --remove-orphans` | Implemented for core daemon; routing/RFC/Linux/vendor aggregates remain planned. |
 | `make test-integration` | `e2e-core` input | Go integration tests | Dev container | In-process HTTP/test server | Go test package `./test/integration` | Verbose Go test output | Go test cleanup | No daemon-to-daemon packet evidence. |
 | `make interop` | `e2e-routing` input | BFD interop stack | Podman Compose | `172.20.0.0/24` | GoBFD, FRR, BIRD3, aiobfd, Thoro/bfd, tshark | Go test output, pcap in capture container | `down --volumes --remove-orphans` | Artifact export is not standardized. |
 | `make interop-bgp` | `e2e-routing` input | BGP+BFD interop stack | Podman Compose | `172.21.0.0/24` | GoBFD, GoBGP, FRR, BIRD3, ExaBGP, tshark | Go test output, BGP/BFD state | `down --volumes --remove-orphans` | Duplicated Podman API helpers. |
@@ -40,17 +41,18 @@ graph TD
     style VENDOR fill:#6f42c1,color:#fff
 ```
 
-## S10.1 Required Changes
+## S10 Status
 
 | Item | Status |
 |---|---|
-| Worktree-safe dev Compose project | Required. |
-| Fixed dev `container_name` removed | Required. |
-| `make e2e-help` | Required. |
-| Planned S10 targets fail closed | Required. |
-| Standard artifact directory contract | Required. |
-| Podman API helper extraction | Planned after S10.1. |
-| Host `go test` removal from full-cycle runners | Planned after S10.1. |
+| Worktree-safe dev Compose project | Implemented in S10.1. |
+| Fixed dev `container_name` removed | Implemented in S10.1. |
+| `make e2e-help` | Implemented in S10.1. |
+| Non-implemented S10 targets fail closed | Implemented in S10.1. |
+| Standard artifact directory contract | Implemented in S10.1 and applied by `make e2e-core` in S10.2. |
+| Core daemon E2E | Implemented in S10.2. |
+| Podman API helper extraction | Planned after S10.2. |
+| Host `go test` removal from full-cycle runners | Started in S10.2; remaining aggregate runners are planned. |
 
 ---
 

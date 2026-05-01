@@ -15,6 +15,16 @@
 - План S10.1 harness contract и target inventory для extended E2E evidence.
 - Worktree-safe automation для development Compose: generated container names,
   `COMPOSE_PROJECT_NAME`, `make dev-project` и `make dev-ps`.
+- S10.2 core daemon E2E target `make e2e-core`: GoBFD-to-GoBFD Podman
+  topology, static RFC 5880 authentication, CLI list/show/event checks,
+  metrics checks, SIGHUP reload, graceful AdminDown packet capture и
+  standardized S10 artifacts.
+
+### Исправлено
+
+- Authenticated BFD sessions теперь сериализуют authentication section в
+  cached transmit packet перед отправкой, поэтому declarative RFC 5880 auth
+  sessions могут устанавливаться с peers, требующими authentication.
 
 ## [0.5.2] - 2026-05-01
 

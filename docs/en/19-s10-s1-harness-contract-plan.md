@@ -118,7 +118,7 @@ Required output:
 
 ```text
 S10 E2E targets
-  e2e-core      planned: GoBFD daemon-to-daemon scenarios
+  e2e-core      implemented: GoBFD daemon-to-daemon scenarios
   e2e-routing   planned: FRR/BIRD3/GoBGP/ExaBGP aggregate
   e2e-rfc       planned: RFC 7419/9384/9468/9747 aggregate
   e2e-overlay   planned: VXLAN/Geneve backend boundary checks
@@ -126,18 +126,18 @@ S10 E2E targets
   e2e-vendor    planned: optional containerlab vendor profiles
 ```
 
-- [x] Keep non-implemented targets fail-closed.
+- [x] Keep non-implemented S10 aggregate targets fail-closed.
 
 Required behavior:
 
 ```bash
-make e2e-core
+make e2e-routing
 ```
 
 Expected:
 
 ```text
-e2e-core: planned in S10.2; not implemented in S10.1
+e2e-routing: planned in S10.3; not implemented in S10.1
 ```
 
 Exit code:
@@ -228,7 +228,7 @@ Required decision:
 ```text
 S10 keeps the existing shell/compose stack lifecycle and Go assertion model.
 S10 improves it with a shared Podman API helper, worktree-safe execution, standard artifacts, and Podman-only Go execution.
-testcontainers-go is deferred to isolated daemon-to-daemon S10.2 scenarios only.
+S10.2 uses the compose topology for daemon-to-daemon testing; testcontainers-go remains deferred.
 ```
 
 - [x] Update `docs/ru/18-s10-extended-e2e-interop.md` with the same decision.
