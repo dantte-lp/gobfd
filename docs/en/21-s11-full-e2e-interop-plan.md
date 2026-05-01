@@ -29,7 +29,7 @@
 | S11.2 full local E2E run | Implemented | Core, overlay, routing, RFC, and Linux local E2E evidence recorded |
 | S11.3 vendor NOS execution | Implemented | `make e2e-vendor` and `make interop-clab`; public Nokia SR Linux, SONiC-VS, VyOS plus Arista cEOS and FRRouting evidence |
 | S11.4 styled HTML reports | Pending | Not started |
-| S11.5 remote CI evidence | Pending | Not started |
+| S11.5 release and CI evidence | In progress | Local Podman release gate recorded; remote GitHub Actions rerun remains pending |
 | S11.6 backend decision gate | Pending | Not started |
 
 ## 2. Source Validation
@@ -43,6 +43,8 @@
 | RFC 9764 | Large Packet BFD requires padded packets and DF behavior for path MTU verification. |
 | Arista MCP | EOS VXLAN BFD is configured as `bfd vtep evpn` under the VXLAN Tunnel Interface. |
 | Context7 GitHub Actions | `workflow_dispatch` typed inputs, `github.event_name` job conditions, `always()` artifact upload, and least-privilege `contents: read` are valid workflow patterns. |
+| Context7 GoReleaser | `goreleaser check` validates configuration; `goreleaser release --snapshot --clean` produces local snapshot artifacts without requiring a tag or publishing. |
+| Context7 golangci-lint | `golangci-lint run` executes project linters; `golangci-lint config verify` validates configuration against the schema. |
 
 ## 3. Sprint Map
 
@@ -53,7 +55,7 @@ graph TD
     L["S11.2 full local E2E run"]
     V["S11.3 vendor NOS execution"]
     R["S11.4 styled HTML reports"]
-    C["S11.5 CI evidence"]
+    C["S11.5 release and CI evidence"]
     D["S11.6 backend decision gate"]
 
     S11 --> H
@@ -433,6 +435,104 @@ git add docs/en/21-s11-full-e2e-interop-plan.md docs/ru/21-s11-full-e2e-interop-
 git commit -m "ci(interop): record remote e2e evidence"
 ```
 
+### Task 5.1: Local Release Gate Evidence
+
+**Files:**
+- Modify: `docs/en/21-s11-full-e2e-interop-plan.md`
+- Modify: `docs/ru/21-s11-full-e2e-interop-plan.md`
+- Modify: `CHANGELOG.md`
+- Modify: `CHANGELOG.ru.md`
+
+- [x] **Step 1: Run repository verification gate**
+
+Run:
+
+```bash
+make up
+make verify
+```
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| Build | Pass inside Podman dev container |
+| `go test ./... -race -count=1` | Pass inside Podman dev container |
+| `make gopls-check` | Pass; no diagnostics for S10/S11 E2E build tags |
+| `golangci-lint run ./...` | Pass; 0 issues |
+| `make lint-docs` | Pass |
+| `buf lint` | Blocked by external BSR access: `buf.build/bufbuild/protovalidate` returned `permission_denied: 403 Forbidden` |
+
+- [x] **Step 2: Verify tool configuration**
+
+Run:
+
+```bash
+COMPOSE_PROJECT_NAME=s10-s1-e2e-harness podman-compose -p s10-s1-e2e-harness -f deployments/compose/compose.dev.yml exec -T dev \
+  golangci-lint config verify
+```
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `golangci-lint config verify` | Pass inside Podman dev container |
+
+- [x] **Step 3: Run security gates**
+
+Run:
+
+```bash
+make vulncheck
+make vulncheck-strict
+make osv-scan-strict
+make semgrep-pro
+```
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `make vulncheck` | Pass; only allowlisted `GO-2026-4736` for `github.com/osrg/gobgp/v3` |
+| `make vulncheck-strict` | Fails by policy on `GO-2026-4736`; upstream fixed version unavailable |
+| `make osv-scan-strict` | Fails by policy on `GO-2026-4736`; upstream fixed version unavailable |
+| `make semgrep-pro` | Pass; 110 Go rules, 62 Go files, 0 findings |
+
+- [x] **Step 4: Run GoReleaser snapshot gate**
+
+Run:
+
+```bash
+podman run --rm --security-opt label=disable \
+  -e DOCKER_HOST=unix:///run/podman/podman.sock \
+  -v /run/podman/podman.sock:/run/podman/podman.sock \
+  -v /root/.config/superpowers/worktrees/gobfd/s10-s1-e2e-harness:/root/.config/superpowers/worktrees/gobfd/s10-s1-e2e-harness:Z \
+  -v /opt/projects/repositories/gobfd:/opt/projects/repositories/gobfd:Z \
+  -w /root/.config/superpowers/worktrees/gobfd/s10-s1-e2e-harness \
+  docker.io/goreleaser/goreleaser:v2.16.0-nightly \
+  release --snapshot --clean --skip=publish --parallelism=1
+```
+
+Evidence:
+
+| Artifact | Result |
+|---|---|
+| Snapshot version | `0.5.2-SNAPSHOT-dd59084` |
+| Binaries | `gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, `gobfd-exabgp-bridge` for `linux/amd64` and `linux/arm64` |
+| Archives | `tar.gz` archives for `linux/amd64` and `linux/arm64` |
+| Packages | `deb` and `rpm` packages for `linux/amd64` and `linux/arm64` |
+| SBOM | Syft SBOM JSON files generated |
+| OCI images | Debian trixie and Oracle Linux 10 images built for `linux/amd64` and `linux/arm64` through Podman Docker API |
+| Publish | Skipped by snapshot/publish gate |
+
+- [ ] **Step 5: Clear release blockers**
+
+| Blocker | Required Action |
+|---|---|
+| Buf remote module access | Restore BSR access, vendor/cache the dependency, or replace remote dependency flow with a reproducible public path. |
+| Strict vulnerability gates | Remove or upgrade `github.com/osrg/gobgp/v3` after a fixed upstream release; keep controlled allowlist expiry at `2026-07-31` until then. |
+| Remote CI evidence | Rerun PR-safe/nightly/manual profiles in GitHub Actions and attach artifacts. |
+
 ### Task 6: Backend Readiness Decision
 
 **Files:**
@@ -498,4 +598,4 @@ Expected:
 
 ---
 
-*Last updated: 2026-05-01*
+*Last updated: 2026-05-02*

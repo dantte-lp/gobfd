@@ -66,7 +66,7 @@ graph TD
 | P1 | Styled HTML E2E reports | Backlog | Standard JSON/CSV/log artifacts exist; shared JavaScript renderer is not implemented |
 | P1 | Full local E2E execution evidence | Implemented in S11.2 | Core, overlay, routing, RFC, and Linux local evidence is recorded; remote CI evidence still pending |
 | P2 | Owner-specific VXLAN/Geneve backends | Planned | `userspace-udp` backend exists; kernel/OVS/OVN/Cilium/Calico/NSX owner integrations fail closed |
-| P2 | Broader vendor NOS execution | Manual | Licensed or local images are required for cEOS, SR Linux, SONiC-VS, VyOS, and XRd |
+| P2 | Broader vendor NOS execution | Implemented in S11.3 for public images | Public SR Linux, SONiC-VS, VyOS, and FRR images are exercised; cEOS and XRd remain operator-provided or licensed |
 | P2 | Micro-BFD production hardening | Partial | Protocol, daemon wiring, and selected enforcement paths exist; wider LAG owner interop remains needed |
 | P3 | S-BFD RFC 7880/7881 | Planned | No S-BFD reflector or initiator implementation |
 
@@ -87,11 +87,11 @@ graph TD
 |---|---|---|
 | S11.1 | Extract shared Podman API helper | Implemented |
 | S11.2 | Record full local E2E evidence | Implemented |
-| S11.3 | Vendor NOS execution matrix | Pending |
+| S11.3 | Vendor NOS execution matrix | Implemented |
 | S11.4 | Generate styled HTML E2E reports | Pending |
-| S11.5 | Execute remote CI evidence | Pending |
+| S11.5 | Execute release and remote CI evidence | In progress |
 | S11.6 | Select first owner-specific backend | Pending |
 
 ---
 
-*Last updated: 2026-05-01*
+*Last updated: 2026-05-02*

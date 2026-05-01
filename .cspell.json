@@ -170,6 +170,7 @@
     "stdlib",
     "subinterface",
     "sysfs",
+    "Syft",
     "synctest",
     "tparallel",
     "trixie",

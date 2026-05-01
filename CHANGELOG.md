@@ -62,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public vendor NOS image path for Nokia SR Linux, SONiC-VS, and VyOS, with
   `make interop-clab` evidence for 8/10 available vendor BFD sessions; Cisco
   XRd remains licensed/operator-provided.
+- S11.5 local release gate evidence: Podman `make verify` partial pass through
+  build, race tests, gopls, golangci-lint, and docs lint; Buf remote module
+  access is documented as the remaining verification blocker.
+- GoReleaser snapshot release evidence in Podman for binaries, archives,
+  deb/rpm packages, Syft SBOMs, and Debian trixie plus Oracle Linux 10 OCI
+  images on `linux/amd64` and `linux/arm64`.
+- Semgrep Pro gate evidence for 110 Go rules across 62 Go files with 0
+  findings.
 
 ### Fixed
 

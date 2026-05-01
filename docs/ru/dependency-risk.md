@@ -45,7 +45,7 @@
 ### Описание
 
 GoBGP затронут denial-of-service advisory в обработке BGP path attribute
-NEXT_HOP. По состоянию на 2026-04-22 база Go vulnerability database не указывает
+NEXT_HOP. По состоянию на 2026-05-02 база Go vulnerability database не указывает
 исправленную версию.
 
 ### Митигация
