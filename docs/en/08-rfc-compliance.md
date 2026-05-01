@@ -300,6 +300,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | Daemon wiring | `micro_bfd.actuator` configures mode, backend, OVSDB endpoint, owner policy, and member actions |
 | Kernel bond backend | `KernelBondLAGBackend` writes `-member` / `+member` to Linux bonding sysfs |
 | OVS backend | `OVSDBLAGBackend` mutates `Port.interfaces` through OVSDB; `OVSLAGBackend` remains a CLI fallback type |
+| NetworkManager backend | `NetworkManagerLAGBackend` deactivates and activates NM-owned bond port profiles through D-Bus |
 
 Aggregate state logic:
 - Group starts with all members Down, aggregate Down
@@ -319,7 +320,10 @@ member remove/add through Linux bonding sysfs when `owner_policy:
 allow-external` is explicit. `backend: ovs` can enforce member remove/add on an
 existing OVS bonded port with native OVSDB transactions against
 `Port.interfaces`. `OVSLAGBackend` remains a direct CLI fallback type, while
-NetworkManager D-Bus backend remains a follow-up implementation step.
+`backend: networkmanager` can enforce member remove/add by deactivating the
+active NetworkManager bond port profile and reactivating the remembered or
+available bond port profile when `owner_policy: networkmanager-dbus` is
+explicit.
 
 ### RFC 8971 Implementation Notes
 

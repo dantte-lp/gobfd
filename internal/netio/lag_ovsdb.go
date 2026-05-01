@@ -26,24 +26,18 @@ var (
 	ErrOVSDBRowInvalidUUID     = errors.New("OVSDB row _uuid has unsupported type")
 )
 
-// OVSDBLAGClient applies OVS bond member changes through OVSDB.
-type OVSDBLAGClient interface {
-	RemoveBondInterface(ctx context.Context, bond string, iface string) error
-	AddBondInterface(ctx context.Context, bond string, iface string) error
-}
-
 // OVSDBLAGBackendConfig configures native OVSDB LAG enforcement.
 type OVSDBLAGBackendConfig struct {
 	// Endpoint is the OVSDB endpoint. Empty means unix:/var/run/openvswitch/db.sock.
 	Endpoint string
 
 	// Client applies high-level bond interface operations. Empty uses libovsdb.
-	Client OVSDBLAGClient
+	Client BondLAGClient
 }
 
 // OVSDBLAGBackend applies member changes to an existing OVS bond port via OVSDB.
 type OVSDBLAGBackend struct {
-	client OVSDBLAGClient
+	client BondLAGClient
 }
 
 // NewOVSDBLAGBackend creates a native OVSDB backend for OVS bonded ports.

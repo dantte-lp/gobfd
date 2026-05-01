@@ -47,10 +47,10 @@
   Prometheus alerts, packet verification и открытых production gaps.
 - Runbook FRR/GoBGP BGP fast-failover с RFC packet checks,
   troubleshooting и optional public Arista EOS verification notes.
-- Micro-BFD actuator hook и guarded policy layer `netio.LAGActuator` для
-  будущего Linux LAG enforcement.
+- Micro-BFD actuator hook и guarded policy layer `netio.LAGActuator` для Linux
+  LAG enforcement.
 - Owner-aware конфигурация `micro_bfd.actuator` и daemon dry-run wiring для
-  будущих kernel bond, OVS и NetworkManager backend-ов Micro-BFD enforcement.
+  kernel bond, OVS и NetworkManager backend-ов Micro-BFD enforcement.
 - Linux kernel-bond backend для Micro-BFD enforcement, который пишет RFC 7130
   remove/add действия через bonding sysfs при явном `backend: kernel-bond` и
   `owner_policy: allow-external`.
@@ -62,6 +62,11 @@
 - Native OVSDB backend для Micro-BFD enforcement с `backend: ovs`, который
   использует `libovsdb` transactions против `Port.interfaces` и настраиваемый
   `micro_bfd.actuator.ovsdb_endpoint`.
+- NetworkManager D-Bus backend для Micro-BFD enforcement с `backend:
+  networkmanager`, который использует `GetDeviceByIpIface`,
+  `ActiveConnection`, `DeactivateConnection`, `AvailableConnections`,
+  `GetSettings` и `ActivateConnection` для управления NM-owned bond port
+  profiles.
 
 ### Изменено
 
@@ -71,7 +76,7 @@
   VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
 - S7.1 разделён на неразрушающий actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend
-  и следующий sprint NetworkManager backend.
+  и NetworkManager D-Bus backend.
 - `backend: ovs` теперь выбирает native OVSDB implementation; прежний
   `OVSLAGBackend` остаётся explicit CLI fallback type.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без

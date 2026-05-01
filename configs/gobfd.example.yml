@@ -73,7 +73,8 @@ bfd:
 # The actuator is disabled by default. Dry-run mode plans member remove/add
 # actions without changing the host. Enforce mode supports explicit
 # backend: "kernel-bond" or native OVSDB backend: "ovs" with
-# owner_policy: "allow-external"; NetworkManager D-Bus backend is planned.
+# owner_policy: "allow-external"; backend: "networkmanager" requires
+# owner_policy: "networkmanager-dbus".
 #
 # micro_bfd:
 #   actuator:

@@ -250,9 +250,10 @@ sysfs. OVS backend использует native OVSDB transactions против
 `Port.interfaces` на существующем OVS bond port. Задайте
 `micro_bfd.actuator.ovsdb_endpoint`, если локальный OVSDB socket отличается от
 дефолта `unix:/var/run/openvswitch/db.sock`. `backend: networkmanager`
-зарезервирован для будущего D-Bus backend. Используйте `owner_policy:
-networkmanager-dbus` только с этим будущим
-NetworkManager backend; в остальных случаях оставляйте политику отказа при
+реализован через NetworkManager D-Bus и требует `owner_policy:
+networkmanager-dbus`. Он деактивирует активный bond port profile, когда member
+переходит в Down, и активирует remembered или available bond port profile при
+восстановлении member. В остальных случаях оставляйте политику отказа при
 внешнем владельце для disabled и dry-run режимов.
 
 Группы реконсилируются при SIGHUP. Ключ группы: `lag_interface`.

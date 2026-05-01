@@ -149,6 +149,36 @@ func TestNewLAGActuatorBackendSelectsOVS(t *testing.T) {
 	}
 }
 
+func TestNewLAGActuatorBackendSelectsNetworkManager(t *testing.T) {
+	t.Parallel()
+
+	backend, err := netio.NewLAGActuatorBackend(netio.LAGActuatorConfig{
+		Mode:        netio.LAGActuatorModeEnforce,
+		Backend:     netio.LAGActuatorBackendNetworkManager,
+		OwnerPolicy: netio.LAGOwnerPolicyNetworkManagerDBus,
+	})
+	if err != nil {
+		t.Fatalf("NewLAGActuatorBackend: %v", err)
+	}
+	if _, ok := backend.(*netio.NetworkManagerLAGBackend); !ok {
+		t.Fatalf("NewLAGActuatorBackend returned %T, want *NetworkManagerLAGBackend", backend)
+	}
+}
+
+func TestNewLAGActuatorBackendRejectsNetworkManagerWithoutDBusOwnerPolicy(t *testing.T) {
+	t.Parallel()
+
+	_, err := netio.NewLAGActuatorBackend(netio.LAGActuatorConfig{
+		Mode:        netio.LAGActuatorModeEnforce,
+		Backend:     netio.LAGActuatorBackendNetworkManager,
+		OwnerPolicy: netio.LAGOwnerPolicyAllowExternal,
+	})
+	if !errors.Is(err, netio.ErrUnsupportedLAGOwnerPolicy) {
+		t.Fatalf("NewLAGActuatorBackend error = %v, want %v",
+			err, netio.ErrUnsupportedLAGOwnerPolicy)
+	}
+}
+
 func TestNewLAGActuatorBackendRejectsUnsupportedBackends(t *testing.T) {
 	t.Parallel()
 
@@ -161,11 +191,6 @@ func TestNewLAGActuatorBackendRejectsUnsupportedBackends(t *testing.T) {
 			name:    "auto requires explicit backend",
 			backend: netio.LAGActuatorBackendAuto,
 			policy:  netio.LAGOwnerPolicyRefuseIfManaged,
-		},
-		{
-			name:    "networkmanager not implemented",
-			backend: netio.LAGActuatorBackendNetworkManager,
-			policy:  netio.LAGOwnerPolicyNetworkManagerDBus,
 		},
 	}
 

@@ -48,9 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FRR/GoBGP BGP fast-failover runbook with RFC packet checks,
   troubleshooting, and optional public Arista EOS verification notes.
 - Micro-BFD actuator hook and guarded `netio.LAGActuator` policy layer for
-  future Linux LAG enforcement.
+  Linux LAG enforcement.
 - Owner-aware `micro_bfd.actuator` configuration and daemon dry-run wiring for
-  future kernel bond, OVS, and NetworkManager Micro-BFD enforcement backends.
+  kernel bond, OVS, and NetworkManager Micro-BFD enforcement backends.
 - Linux kernel-bond Micro-BFD enforcement backend that writes RFC 7130
   remove/add actions through bonding sysfs for explicit `backend: kernel-bond`
   with `owner_policy: allow-external`.
@@ -62,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Native OVSDB Micro-BFD enforcement backend for `backend: ovs`, using
   `libovsdb` transactions against `Port.interfaces` and configurable
   `micro_bfd.actuator.ovsdb_endpoint`.
+- NetworkManager D-Bus Micro-BFD enforcement backend for `backend:
+  networkmanager`, using `GetDeviceByIpIface`, `ActiveConnection`,
+  `DeactivateConnection`, `AvailableConnections`, `GetSettings`, and
+  `ActivateConnection` to control NM-owned bond port profiles.
 
 ### Changed
 
@@ -71,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OVS, Cilium, and NSX dataplanes.
 - S7.1 is split into non-destructive actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend,
-  and a later NetworkManager backend sprint.
+  and NetworkManager D-Bus backend sprint.
 - `backend: ovs` now selects the native OVSDB implementation; the older
   `OVSLAGBackend` remains available as an explicit CLI fallback type.
 - S7 roadmap now targets independent production integration assets instead of

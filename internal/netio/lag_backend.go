@@ -23,6 +23,12 @@ var (
 	ErrLAGActuatorBackendNotRequired = errors.New("LAG actuator backend is only required in enforce mode")
 )
 
+// BondLAGClient applies high-level bond member changes to a specific backend.
+type BondLAGClient interface {
+	RemoveBondInterface(ctx context.Context, bond string, iface string) error
+	AddBondInterface(ctx context.Context, bond string, iface string) error
+}
+
 // NewLAGActuatorBackend creates the Linux backend selected by an actuator config.
 func NewLAGActuatorBackend(cfg LAGActuatorConfig) (LAGActuatorBackend, error) {
 	normalized, err := normalizeLAGActuatorConfig(cfg)
@@ -48,8 +54,13 @@ func NewLAGActuatorBackend(cfg LAGActuatorConfig) (LAGActuatorBackend, error) {
 		return NewOVSDBLAGBackend(OVSDBLAGBackendConfig{
 			Endpoint: normalized.OVSDBEndpoint,
 		}), nil
-	case LAGActuatorBackendAuto,
-		LAGActuatorBackendNetworkManager:
+	case LAGActuatorBackendNetworkManager:
+		if normalized.OwnerPolicy != LAGOwnerPolicyNetworkManagerDBus {
+			return nil, fmt.Errorf("%s with %s: %w",
+				normalized.Backend, normalized.OwnerPolicy, ErrUnsupportedLAGOwnerPolicy)
+		}
+		return NewNetworkManagerLAGBackend(NetworkManagerLAGBackendConfig{}), nil
+	case LAGActuatorBackendAuto:
 		return nil, fmt.Errorf("%s: %w",
 			normalized.Backend, ErrUnsupportedLAGActuatorBackend)
 	default:

@@ -92,9 +92,9 @@ by the kernel-bond and CLI-backed OVS paths.
 - Adding `libovsdb` increases dependency surface, so it must pass
   `make verify`, vulnerability audit, and module review before replacing the
   fallback.
-- NetworkManager-managed OVS remains a separate problem: NetworkManager owns
-  connection profiles and exposes device state through D-Bus, so that backend
-  should not be conflated with direct OVSDB ownership.
+- NetworkManager-managed devices use a separate D-Bus backend because
+  NetworkManager owns connection profiles and exposes device state through
+  D-Bus. That backend should not be conflated with direct OVSDB ownership.
 
 ## Sprint Impact
 
@@ -103,4 +103,4 @@ by the kernel-bond and CLI-backed OVS paths.
 | S7.1d | Existing OVS backend is useful as a transitional CLI fallback. |
 | S7.1d2 | Document OVSDB as the native OVS integration path. |
 | S7.1e | Done: replace default OVS enforcement with a native OVSDB backend. |
-| S7.1f | Add optional NetworkManager D-Bus backend for NM-owned devices. |
+| S7.1f | Done: add optional NetworkManager D-Bus backend for NM-owned devices. |
