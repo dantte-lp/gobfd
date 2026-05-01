@@ -21,6 +21,17 @@
 | Release impact | No code release until behavior, CLI, API, packaging, or published artifacts change. |
 | Non-goal | No kernel/OVS/OVN/Cilium/Calico/NSX backend implementation in S11. |
 
+## 1.1. Progress
+
+| Sprint Item | Status | Evidence |
+|---|---|---|
+| S11.1 shared Podman API helper | Implemented | `test/internal/podmanapi`, interop wrappers, Podman-only test/lint/gopls/doc gates |
+| S11.2 full local E2E run | Pending | Not started |
+| S11.3 vendor NOS execution | Pending | Not started |
+| S11.4 styled HTML reports | Pending | Not started |
+| S11.5 remote CI evidence | Pending | Not started |
+| S11.6 backend decision gate | Pending | Not started |
+
 ## 2. Source Validation
 
 | Source | Constraint |
@@ -78,7 +89,7 @@ graph TD
 - Modify: `test/interop-rfc/podman_api_test.go`
 - Modify: `test/interop-clab/podman_api_test.go`
 
-- [ ] **Step 1: Add failing helper tests**
+- [x] **Step 1: Add failing helper tests**
 
 Run:
 
@@ -90,7 +101,7 @@ COMPOSE_PROJECT_NAME=s11-full-e2e podman-compose -p s11-full-e2e -f deployments/
 
 Expected: package does not exist.
 
-- [ ] **Step 2: Implement helper API**
+- [x] **Step 2: Implement helper API**
 
 Required exported functions:
 
@@ -102,11 +113,11 @@ Required exported functions:
 | `Inspect(ctx, container)` | Return JSON container state and network data. |
 | `Pause(ctx, container)` / `Unpause(ctx, container)` | Drive failure/recovery scenarios. |
 
-- [ ] **Step 3: Replace duplicated test helpers**
+- [x] **Step 3: Replace duplicated test helpers**
 
 Replace duplicated Podman REST helper logic in routing, RFC, and vendor test packages without changing scenario assertions.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -118,12 +129,30 @@ make lint
 
 Expected: all pass in Podman.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add test/internal/podmanapi test/interop-bgp test/interop-rfc test/interop-clab
+git add .cspell.json CHANGELOG.md CHANGELOG.ru.md docs/en/21-s11-full-e2e-interop-plan.md docs/ru/21-s11-full-e2e-interop-plan.md test/internal/podmanapi test/interop-bgp test/interop-rfc test/interop-clab
 git commit -m "test(interop): share podman api helper"
 ```
+
+Current S11.1 verification:
+
+```bash
+make up
+COMPOSE_PROJECT_NAME=s10-s1-e2e-harness podman-compose -p s10-s1-e2e-harness -f deployments/compose/compose.dev.yml exec -T dev \
+  go test ./test/internal/podmanapi -count=1 -v
+COMPOSE_PROJECT_NAME=s10-s1-e2e-harness podman-compose -p s10-s1-e2e-harness -f deployments/compose/compose.dev.yml exec -T dev \
+  go test -tags 'interop_bgp interop_rfc interop_clab' ./test/interop-bgp ./test/interop-rfc ./test/interop-clab -run '^$' -count=1
+make test
+make gopls-check
+make lint
+make lint-docs
+make lint-commit MSG='test(interop): share podman api helper'
+git diff --check
+```
+
+Result: pass.
 
 ### Task 2: Full Local E2E Execution Evidence
 

@@ -47,6 +47,9 @@
   `docs/ru/21-s11-full-e2e-interop-plan.md`: shared Podman API helper
   extraction, full local E2E runs, vendor NOS evidence, styled HTML reports,
   remote CI evidence и owner-backend decision gates.
+- Shared S11 Podman REST API helper в `test/internal/podmanapi`, который
+  заменяет duplicated container exec/logs/inspect/start/stop/pause/unpause
+  logic в routing, RFC и vendor interop test packages.
 - Синхронизация README и protocol documentation по статусам advanced BFD:
   Micro-BFD partial production integration, VXLAN/Geneve userspace backend
   status и разделение RFC 9747 unaffiliated Echo от affiliated RFC 5880 Echo

@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/ru/21-s11-full-e2e-interop-plan.md`, covering shared Podman API helper
   extraction, full local E2E runs, vendor NOS evidence, styled HTML reports,
   remote CI evidence, and owner-backend decision gates.
+- Shared S11 Podman REST API helper under `test/internal/podmanapi`, replacing
+  duplicated container exec/logs/inspect/start/stop/pause/unpause logic in
+  routing, RFC, and vendor interop test packages.
 - README and protocol documentation synchronization for advanced BFD feature
   status: Micro-BFD partial production integration, VXLAN/Geneve userspace
   backend status, and RFC 9747 unaffiliated Echo separation from affiliated
