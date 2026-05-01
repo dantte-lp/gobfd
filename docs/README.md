@@ -1,7 +1,7 @@
 # GoBFD Documentation / Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-0.5.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-22-34a853?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-23-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-EN%20%2F%20RU-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 

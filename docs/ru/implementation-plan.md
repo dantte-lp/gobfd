@@ -3,8 +3,8 @@
 - **Метод:** поэтапный gated lifecycle с короткими implementation sprint.
 - **Область:** production-oriented BFD daemon, CLI, control-plane API и
   interop-среда для Linux networking stacks.
-- **Каденс:** 8 спринтов по 2 недели до `v0.5.0`, затем release hardening и
-  сопровождение.
+- **Каденс:** 8 спринтов по 2 недели до `v0.5.0`, затем release hardening,
+  Scorecard hardening и сопровождение.
 - **Стандарты:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
   [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
   [.containerignore.5], [containers.conf.5].
@@ -60,14 +60,14 @@ Podman.
 | Core build/test/lint | Green | `make verify` проходит в Podman и включает `gopls-check`, `golangci-lint`, doc lint, proto lint и vulnerability audit. |
 | RFC 7419 / 9384 / 9468 interop | Green | `make interop-rfc-test` проходит эти сценарии при запущенном RFC stack. |
 | RFC 9747 Echo interop | Green | `make interop-rfc-test` проверяет Echo `Up`, UDP 3785 packet capture, Echo failure и recovery. |
-| Code/docs consistency | Improving | README, changelogs и planning docs отражают implemented RFC set; `docs/ru/codebase-consistency-audit.md` фиксирует remaining gaps. |
+| Code/docs consistency | Partial | Canonical EN/RU docs требуют post-`v0.5.2` release synchronization; `docs/ru/codebase-consistency-audit.md` фиксирует remaining gaps. |
 | Control-plane API | Partial | Proto/session snapshots и `gobfdctl` output показывают Echo, Micro-BFD, VXLAN и Geneve; generic `AddSession` и `gobfdctl session add` намеренно остаются single-hop/multi-hop до dedicated transport-specific APIs. |
 | Interface monitoring | Green on Linux | `internal/netio` подписывается на rtnetlink `RTMGRP_LINK`, а `Manager.HandleInterfaceEvent` переводит сессии в Down до истечения detection timer. eBPF отложен; см. `docs/ru/linux-netlink-ebpf-research.md`. |
 | Linux Micro-BFD enforcement | Partial | Есть per-member RFC 7130 sessions, aggregate state, dry-run actuator wiring, explicit Linux kernel-bond sysfs, native OVSDB bonded-port enforcement и NetworkManager D-Bus bond port activation с operator-selected owner policy. |
-| Linux VXLAN/Geneve dataplane coexistence | Partial | Реализован explicit `userspace-udp` backend для dedicated endpoints; reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` имена должны fail closed до реализации. |
+| Linux VXLAN/Geneve dataplane coexistence | Partial | Реализован explicit `userspace-udp` backend для dedicated endpoints; reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` имена fail closed до owner-specific integrations. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession` и `gobfdctl session add` подключают RFC 5880 auth в TX/RX, snapshots показывают auth type, missing raw wire bytes rejected, receive sequence knowledge resets after 2x Detection Time. Dynamic key rotation отложен. |
-| pkg.go.dev command page | Weak | `cmd/gobfd` требует расширенного package comment для страницы `pkg.go.dev`. |
-| Documentation standards | Improving | Keep a Changelog, SemVer, commitlint и doc lint gates объявлены явно. |
+| pkg.go.dev command page | Green | `v0.5.2` индексируется на pkg.go.dev, Apache-2.0 определяется, `cmd/gobfd` имеет command documentation. |
+| Documentation standards | Partial | Keep a Changelog, SemVer, commitlint и doc lint gates есть; non-canonical temporary research files не должны оставаться в published Markdown corpus. |
 
 ## 4. Спринты
 
@@ -104,7 +104,7 @@ Podman.
 
 | # | Output | Exit |
 |---|---|---|
-| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, Geneve. | In progress: vocabulary/snapshots/output done; dedicated create flows remain. Commit: `feat(api): expose advanced session type vocabulary`. |
+| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, Geneve. | Partial: vocabulary/snapshots/output done; dedicated create flows remain. Commit: `feat(api): expose advanced session type vocabulary`. |
 | **S5.1** | State mutation consistency. | Done: `SetAdminDown` serialized through session goroutine. Commit: `fix(bfd): serialize admin-down transition`. |
 | **S6** | Production security posture. | Done. Commit: `docs(security): define production hardening policy`. |
 | **S6.1** | Linux advanced BFD applicability close-out. | Done: RFC docs, config examples and audit notes aligned with actuator and overlay limits. Commit: `docs(linux): document advanced bfd applicability`. |
@@ -117,7 +117,9 @@ Podman.
 
 | # | Output | Exit |
 |---|---|---|
-| **S8** | `v0.5.0` readiness, without v1 bump. | Documentation layout synchronized: root `docs/` contains only global `README.md`, canonical docs are in `docs/en/`, Russian translations are in `docs/ru/`, diagrams are Mermaid, changelog/doc links are aligned. Remaining release gates: package comment polish, release dry-run, RFC/BGP interop evidence, tag plan. Commit: `docs: sync release documentation layout`. |
+| **S8** | `v0.5.0` release readiness, without v1 bump. | Done: release dry-run, changelog, SemVer tag plan, docs layout and package artifacts prepared. Commit: `chore(release): prepare v0.5.0`. |
+| **S8.1** | `v0.5.2` pkg.go.dev close-out. | Done: command package docs and canonical Apache-2.0 license text restored pkg.go.dev command and license rendering. Commits: `docs(docs): document pkg.go.dev command pages`, `fix(docs): restore pkg.go.dev license detection`. |
+| **S9** | Documentation and Scorecard hardening. | In progress: close post-release doc drift, remove non-canonical Markdown, document one-maintainer Scorecard constraints, and plan repository ruleset/token/pinning/provenance work without cutting a new release. Commit: `docs: sync scorecard and release documentation`. |
 
 ## 5. Definition of Done
 

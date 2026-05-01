@@ -193,8 +193,8 @@ Arista EOS public behavior:
 | Gap | Planned sprint |
 |---|---|
 | Dedicated API/CLI create flows for Echo, Micro-BFD, VXLAN, and Geneve | S5b |
-| Kernel/OVS/OVN/Cilium/NSX overlay backends beyond `userspace-udp` | Future |
-| pkg.go.dev polish and v0.5.0 release dry-run | S8 |
+| Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
+| Release signatures, provenance, and Scorecard hardening | S9 |
 
 ---
 

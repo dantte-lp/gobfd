@@ -1,7 +1,7 @@
 # GoBFD Documentation
 
-![Version](https://img.shields.io/badge/Version-0.5.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-22-34a853?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-23-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -54,6 +54,7 @@ graph TD
         F3["linux-advanced-bfd-applicability.md<br/>Linux Advanced BFD"]
         F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF Research"]
         F5["ovsdb-api-research.md<br/>OVSDB API Research"]
+        F6["17-scorecard-hardening.md<br/>Scorecard Hardening"]
     end
 
     IDX --> A1
@@ -74,6 +75,7 @@ graph TD
     IDX --> F3
     IDX --> F4
     IDX --> F5
+    IDX --> F6
 
     A1 --> A2
     A2 --> D1
@@ -87,6 +89,7 @@ graph TD
     F2 --> F3
     F3 --> F4
     F3 --> F5
+    F2 --> F6
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -136,11 +139,12 @@ graph TD
 
 | Document | Description |
 |---|---|
-| [**Implementation Plan**](./implementation-plan.md) | Canonical phased sprint plan through `v0.5.0` |
+| [**Implementation Plan**](./implementation-plan.md) | Canonical phased sprint plan through `v0.5.2` |
 | [**Codebase Consistency Audit**](./codebase-consistency-audit.md) | Code, API, CLI, config, docs, and production-applicability audit |
 | [**Linux Advanced BFD Applicability**](./linux-advanced-bfd-applicability.md) | Applicability of Micro-BFD, VXLAN BFD, and Geneve BFD on Linux |
 | [**Linux Netlink/eBPF Research**](./linux-netlink-ebpf-research.md) | S4 decision record for rtnetlink vs eBPF link-state monitoring |
 | [**OVSDB API Research**](./ovsdb-api-research.md) | OVSDB JSON-RPC and `libovsdb` backend design notes |
+| [**OpenSSF Scorecard Hardening**](./17-scorecard-hardening.md) | S9 one-maintainer Scorecard hardening plan |
 
 ### RFC Source Files
 

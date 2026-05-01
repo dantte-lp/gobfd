@@ -65,7 +65,7 @@
 
 **google/gopacket**: Содержит BFD layer для парсинга пакетов, не реализация протокола.
 
-**GoBFD**: Первая production-oriented реализация BFD на Go с zero-allocation hot path, базовым покрытием RFC 5880/5881, аутентификацией, unaffiliated echo, поддержкой оверлеев (VXLAN/Geneve) и полным набором бенчмарков.
+**GoBFD**: Production-oriented реализация BFD на Go с zero-allocation hot path, базовым покрытием RFC 5880/5881, аутентификацией, unaffiliated echo, userspace VXLAN/Geneve protocol support и полным набором бенчмарков. Owner-specific overlay dataplane integrations остаются future work.
 
 ---
 
@@ -80,9 +80,9 @@
 | Auth MD5 (RFC 5880 §6.7) | Да | Да | Ограничено | Нет |
 | Auth SHA1 (RFC 5880 §6.7) | Да | Да | Ограничено | Нет |
 | Бит CPI (Control Plane Independent) | Да | Частично | Нет | Нет |
-| VXLAN BFD (RFC 8971) | Да | Нет | Нет | Нет |
-| Geneve BFD (RFC 9521) | Да | Нет | Нет | Нет |
-| Micro-BFD (RFC 7130) | Да | Нет | Нет | Нет |
+| VXLAN BFD (RFC 8971) | Userspace backend | Нет | Нет | Нет |
+| Geneve BFD (RFC 9521) | Userspace backend | Нет | Нет | Нет |
+| Micro-BFD (RFC 7130) | Partial integration | Нет | Нет | Нет |
 | Zero-alloc hot path | Да | N/A (C) | N/A (C) | Нет |
 | Интеграция с GoBGP | Да | N/A | N/A | Нет |
 | Метрики Prometheus | Да | Через SNMP | Нет | Нет |

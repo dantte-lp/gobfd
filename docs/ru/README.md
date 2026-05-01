@@ -1,7 +1,7 @@
 # Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-0.5.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-22-34a853?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-23-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -54,6 +54,7 @@ graph TD
         F3["linux-advanced-bfd-applicability.md<br/>Linux Advanced BFD"]
         F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF research"]
         F5["ovsdb-api-research.md<br/>OVSDB API research"]
+        F6["17-scorecard-hardening.md<br/>Scorecard Hardening"]
     end
 
     IDX --> A1
@@ -74,6 +75,7 @@ graph TD
     IDX --> F3
     IDX --> F4
     IDX --> F5
+    IDX --> F6
 
     A1 --> A2
     A2 --> D1
@@ -87,6 +89,7 @@ graph TD
     F2 --> F3
     F3 --> F4
     F3 --> F5
+    F2 --> F6
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -136,11 +139,12 @@ graph TD
 
 | Документ | Описание |
 |---|---|
-| [**План реализации**](./implementation-plan.md) | Каноничный поэтапный план спринтов до `v0.5.0` |
+| [**План реализации**](./implementation-plan.md) | Каноничный поэтапный план спринтов до `v0.5.2` |
 | [**Аудит консистентности кодовой базы**](./codebase-consistency-audit.md) | Аудит кода, API, CLI, конфигурации, документации и production-применимости |
 | [**Применимость Linux Advanced BFD**](./linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux |
 | [**Исследование Linux Netlink/eBPF**](./linux-netlink-ebpf-research.md) | Decision record S4 по rtnetlink и eBPF для мониторинга состояния интерфейсов |
 | [**Исследование OVSDB API**](./ovsdb-api-research.md) | Заметки по OVSDB JSON-RPC и backend на `libovsdb` |
+| [**OpenSSF Scorecard Hardening**](./17-scorecard-hardening.md) | План S9 по повышению Scorecard с одним maintainer |
 
 ### Исходные тексты RFC
 
