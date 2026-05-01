@@ -1,13 +1,3 @@
-// gobfd-haproxy-agent bridges BFD session state to HAProxy agent-check protocol.
-//
-// It watches BFD session events via GoBFD's gRPC streaming API and serves
-// HAProxy agent-check responses over TCP. When a BFD session is Up, the agent
-// responds with "up ready\n"; when Down, it responds with "down\n".
-//
-// HAProxy agent-check protocol:
-//   - HAProxy connects TCP to agent-port, reads ASCII string until newline.
-//   - Keywords: up, down, maint, ready, drain.
-//   - Response format: "up ready\n" or "down\n".
 package main
 
 import (

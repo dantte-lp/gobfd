@@ -5,6 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/dantte-lp/gobfd/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dantte-lp/gobfd/ci.yml?branch=master&style=for-the-badge&label=CI" alt="CI"></a>
+  <a href="https://pkg.go.dev/github.com/dantte-lp/gobfd"><img src="https://img.shields.io/badge/pkg.go.dev-reference-007d9c?style=for-the-badge&logo=go&logoColor=white" alt="pkg.go.dev"></a>
   <a href="https://goreportcard.com/report/github.com/dantte-lp/gobfd"><img src="https://img.shields.io/badge/Go_Report-A+-00ADD8?style=for-the-badge" alt="Go Report Card"></a>
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26">
   <img src="https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge" alt="RFC 5880">

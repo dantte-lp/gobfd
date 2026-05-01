@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- pkg.go.dev reference badge in README and command package documentation for
+  `gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, and `gobfd-exabgp-bridge`.
+
+### Changed
+
+- PR benchmark comparison now targets stable hot-path benchmarks only and uses
+  an explicit Go test timeout.
+
 ## [0.5.0] - 2026-05-01
 
 ### Added

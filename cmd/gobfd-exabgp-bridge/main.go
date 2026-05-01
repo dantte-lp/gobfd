@@ -1,17 +1,3 @@
-// gobfd-exabgp-bridge is an ExaBGP process that announces/withdraws routes
-// based on BFD session state from GoBFD.
-//
-// ExaBGP invokes this binary as a "process". Communication follows ExaBGP
-// conventions: STDOUT = commands to ExaBGP, STDERR = logging.
-//
-// On BFD Up:   writes "announce route <prefix> next-hop self\n" to STDOUT
-// On BFD Down: writes "withdraw route <prefix> next-hop self\n" to STDOUT
-//
-// Configuration via environment variables:
-//
-//	GOBFD_ADDR      - GoBFD gRPC address (default: http://127.0.0.1:50052)
-//	GOBFD_PEER      - BFD peer address to watch
-//	ANYCAST_PREFIX  - route prefix to announce/withdraw (e.g., 198.51.100.1/32)
 package main
 
 import (

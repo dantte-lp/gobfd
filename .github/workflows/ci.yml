@@ -186,9 +186,13 @@ jobs:
     name: Benchmark comparison
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
+    env:
+      BENCH_REGEX: >-
+        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
     container:
       image: golang:1.26.2-trixie
     steps:
@@ -203,7 +207,9 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Run benchmarks (PR)
-        run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > new.txt
+        run: >
+          go test -buildvcs=false -bench="$BENCH_REGEX" -benchmem -count=6 -run='^$'
+          -timeout=120s ./internal/bfd/ ./internal/netio/ > new.txt
 
       - name: Create base branch worktree
         run: |
@@ -214,7 +220,8 @@ jobs:
         run: |
           (
             cd ../gobfd-base
-            go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./...
+            go test -buildvcs=false -bench="$BENCH_REGEX" -benchmem -count=6 -run='^$' \
+              -timeout=120s ./internal/bfd/ ./internal/netio/
           ) > old.txt
 
       - name: Compare benchmarks
