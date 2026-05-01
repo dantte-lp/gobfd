@@ -7,6 +7,12 @@
 
 ## [Не выпущено]
 
+### Добавлено
+
+- План S10 extended E2E and interoperability для Podman-only evidence,
+  RFC validation, Linux dataplane ownership, overlay backend boundaries,
+  optional vendor profiles и benchmark policy.
+
 ## [0.5.2] - 2026-05-01
 
 ### Исправлено

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- S10 extended E2E and interoperability plan covering Podman-only evidence,
+  RFC validation, Linux dataplane ownership, overlay backend boundaries,
+  optional vendor profiles, and benchmark policy.
+
 ## [0.5.2] - 2026-05-01
 
 ### Fixed

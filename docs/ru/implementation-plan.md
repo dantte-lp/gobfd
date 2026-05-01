@@ -4,7 +4,7 @@
 - **Область:** production-oriented BFD daemon, CLI, control-plane API и
   interop-среда для Linux networking stacks.
 - **Каденс:** 8 спринтов по 2 недели до `v0.5.0`, затем release hardening,
-  Scorecard hardening и сопровождение.
+  Scorecard hardening, extended E2E evidence и сопровождение.
 - **Стандарты:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
   [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
   [.containerignore.5], [containers.conf.5].
@@ -68,6 +68,7 @@ Podman.
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession` и `gobfdctl session add` подключают RFC 5880 auth в TX/RX, snapshots показывают auth type, missing raw wire bytes rejected, receive sequence knowledge resets after 2x Detection Time. Dynamic key rotation отложен. |
 | pkg.go.dev command page | Green | `v0.5.2` индексируется на pkg.go.dev, Apache-2.0 определяется, `cmd/gobfd` имеет command documentation. |
 | Documentation standards | Partial | Keep a Changelog, SemVer, commitlint и doc lint gates есть; non-canonical temporary research files не должны оставаться в published Markdown corpus. |
+| Extended E2E / interop evidence | Planned | S10 добавляет Podman-only evidence matrix для core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles и CI artifacts. |
 
 ## 4. Спринты
 
@@ -119,7 +120,13 @@ Podman.
 |---|---|---|
 | **S8** | `v0.5.0` release readiness, without v1 bump. | Done: release dry-run, changelog, SemVer tag plan, docs layout and package artifacts prepared. Commit: `chore(release): prepare v0.5.0`. |
 | **S8.1** | `v0.5.2` pkg.go.dev close-out. | Done: command package docs and canonical Apache-2.0 license text restored pkg.go.dev command and license rendering. Commits: `docs(docs): document pkg.go.dev command pages`, `fix(docs): restore pkg.go.dev license detection`. |
-| **S9** | Documentation and Scorecard hardening. | In progress: close post-release doc drift, remove non-canonical Markdown, document one-maintainer Scorecard constraints, and plan repository ruleset/token/pinning/provenance work without cutting a new release. Commit: `docs: sync scorecard and release documentation`. |
+| **S9** | Documentation and Scorecard hardening. | Done: post-release doc drift закрыт, non-canonical Markdown удалён, one-maintainer Scorecard constraints задокументированы, repository hardening work разделён на follow-up actions без нового релиза. Commit: `docs: sync scorecard and release documentation`. |
+
+### Phase 5 -- Extended Evidence
+
+| # | Output | Exit |
+|---|---|---|
+| **S10** | Extended E2E and interoperability evidence. | Planned: `docs/ru/18-s10-extended-e2e-interop.md` задаёт Podman-only evidence matrix, source validation, sprint breakdown, benchmark policy и close criteria. Commit: `docs(interop): plan s10 extended interop evidence`. |
 
 ## 5. Definition of Done
 

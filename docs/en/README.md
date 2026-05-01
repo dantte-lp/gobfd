@@ -1,7 +1,7 @@
 # GoBFD Documentation
 
 ![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-23-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-24-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -55,6 +55,7 @@ graph TD
         F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF Research"]
         F5["ovsdb-api-research.md<br/>OVSDB API Research"]
         F6["17-scorecard-hardening.md<br/>Scorecard Hardening"]
+        F7["18-s10-extended-e2e-interop.md<br/>S10 E2E Interop"]
     end
 
     IDX --> A1
@@ -76,6 +77,7 @@ graph TD
     IDX --> F4
     IDX --> F5
     IDX --> F6
+    IDX --> F7
 
     A1 --> A2
     A2 --> D1
@@ -90,6 +92,7 @@ graph TD
     F3 --> F4
     F3 --> F5
     F2 --> F6
+    F6 --> F7
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -145,6 +148,7 @@ graph TD
 | [**Linux Netlink/eBPF Research**](./linux-netlink-ebpf-research.md) | S4 decision record for rtnetlink vs eBPF link-state monitoring |
 | [**OVSDB API Research**](./ovsdb-api-research.md) | OVSDB JSON-RPC and `libovsdb` backend design notes |
 | [**OpenSSF Scorecard Hardening**](./17-scorecard-hardening.md) | S9 one-maintainer Scorecard hardening plan |
+| [**S10 Extended E2E and Interoperability**](./18-s10-extended-e2e-interop.md) | S10 evidence plan for E2E, interop, Linux dataplane, overlay, and vendor profiles |
 
 ### RFC Source Files
 
