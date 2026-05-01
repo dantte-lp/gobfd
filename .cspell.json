@@ -142,6 +142,7 @@
     "prealloc",
     "predeclared",
     "Println",
+    "Protovalidate",
     "protogetter",
     "pulumi",
     "Qube",

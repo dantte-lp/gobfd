@@ -29,7 +29,7 @@
 | S11.2 full local E2E run | Implemented | Core, overlay, routing, RFC и Linux local E2E evidence recorded |
 | S11.3 vendor NOS execution | Implemented | `make e2e-vendor` and `make interop-clab`; public Nokia SR Linux, SONiC-VS, VyOS plus Arista cEOS and FRRouting evidence |
 | S11.4 styled HTML reports | Pending | Not started |
-| S11.5 release and CI evidence | In progress | Local Podman release gate recorded; remote GitHub Actions rerun остаётся pending |
+| S11.5 release and CI evidence | In progress | Local Podman release gate passes; remote GitHub Actions rerun остаётся pending |
 | S11.6 backend decision gate | Pending | Not started |
 
 ## 2. Source Validation
@@ -461,7 +461,8 @@ Evidence:
 | `make gopls-check` | Pass; no diagnostics для S10/S11 E2E build tags |
 | `golangci-lint run ./...` | Pass; 0 issues |
 | `make lint-docs` | Pass |
-| `buf lint` | Blocked by external BSR access: `buf.build/bufbuild/protovalidate` returned `permission_denied: 403 Forbidden` |
+| `buf lint` | Pass with vendored `buf/validate/validate.proto` workspace module |
+| `make vulncheck` | Pass with controlled `GO-2026-4736` allowlist |
 
 - [x] **Step 2: Verify tool configuration**
 
@@ -525,11 +526,21 @@ Evidence:
 | OCI images | Debian trixie and Oracle Linux 10 images built for `linux/amd64` and `linux/arm64` through Podman Docker API |
 | Publish | Skipped by snapshot/publish gate |
 
-- [ ] **Step 5: Clear release blockers**
+- [x] **Step 5: Clear Buf remote dependency blocker**
+
+Evidence:
+
+| Item | Result |
+|---|---|
+| Root cause | Buf attempted to resolve `buf.build/bufbuild/protovalidate` from BSR during lint and received `permission_denied: 403 Forbidden`. |
+| Fix | `buf/validate/validate.proto` vendored from `bufbuild/protovalidate` `v1.2.0` as local Buf workspace module. |
+| Managed mode | `buf.gen.yaml` disables Go package prefix rewriting for `buf/validate/validate.proto`; generated Go remains unchanged. |
+| Verification | `make proto-lint`, `make proto-gen` and `make verify` pass inside Podman. |
+
+- [ ] **Step 6: Clear remaining release blockers**
 
 | Blocker | Required Action |
 |---|---|
-| Buf remote module access | Restore BSR access, vendor/cache dependency или заменить remote dependency flow воспроизводимым public path. |
 | Strict vulnerability gates | Remove или upgrade `github.com/osrg/gobgp/v3` после fixed upstream release; keep controlled allowlist expiry at `2026-07-31` until then. |
 | Remote CI evidence | Rerun PR-safe/nightly/manual profiles in GitHub Actions and attach artifacts. |
 

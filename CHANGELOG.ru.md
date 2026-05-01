@@ -61,13 +61,16 @@
 - Public vendor NOS image path для Nokia SR Linux, SONiC-VS и VyOS с
   `make interop-clab` evidence для 8/10 доступных vendor BFD sessions; Cisco
   XRd остаётся licensed/operator-provided.
-- S11.5 local release gate evidence: Podman `make verify` partial pass через
-  build, race tests, gopls, golangci-lint и docs lint; Buf remote module
-  access documented как remaining verification blocker.
+- S11.5 local release gate evidence: Podman `make verify` passes through build,
+  race tests, gopls, golangci-lint, docs lint, proto lint и controlled
+  vulnerability audit.
 - GoReleaser snapshot release evidence в Podman для binaries, archives,
   deb/rpm packages, Syft SBOMs и Debian trixie plus Oracle Linux 10 OCI images
   на `linux/amd64` и `linux/arm64`.
 - Semgrep Pro gate evidence для 110 Go rules по 62 Go files с 0 findings.
+- Vendored Protovalidate `buf/validate/validate.proto` from
+  `bufbuild/protovalidate` `v1.2.0`, чтобы `buf lint` не зависел от Buf Schema
+  Registry availability.
 
 ### Исправлено
 

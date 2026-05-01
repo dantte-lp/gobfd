@@ -1,8 +1,13 @@
 version: v2
-deps:
-  - buf.build/bufbuild/protovalidate
 modules:
   - path: api
+  - path: third_party/proto/protovalidate
+    lint:
+      use:
+        - STANDARD
+      ignore_only:
+        PACKAGE_VERSION_SUFFIX:
+          - third_party/proto/protovalidate/buf/validate/validate.proto
 lint:
   use:
     - STANDARD
