@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   future Linux LAG enforcement.
 - Owner-aware `micro_bfd.actuator` configuration and daemon dry-run wiring for
   future kernel bond, OVS, and NetworkManager Micro-BFD enforcement backends.
+- Linux kernel-bond Micro-BFD enforcement backend that writes RFC 7130
+  remove/add actions through bonding sysfs for explicit `backend: kernel-bond`
+  with `owner_policy: allow-external`.
 
 ### Changed
 
@@ -58,8 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implemented Micro-BFD detection from future Linux bond/team/OVS enforcement,
   and document VXLAN/Geneve userspace socket ownership limits for kernel,
   OVS, Cilium, and NSX dataplanes.
-- S7.1 is split into non-destructive actuator config wiring and a later
-  owner-aware Linux backend implementation sprint.
+- S7.1 is split into non-destructive actuator config wiring, explicit
+  kernel-bond enforcement, and later OVS/NetworkManager backend sprints.
 - S7 roadmap now targets independent production integration assets instead of
   a site-specific applicability target.
 - Kubernetes integration manifests now use consistent app labels, named ports,

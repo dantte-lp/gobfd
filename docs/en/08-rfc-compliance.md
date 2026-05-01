@@ -298,6 +298,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | Actuator hook | `MicroBFDActuator` receives member state events after group state update |
 | Policy gate | `netio.LAGActuator` supports `disabled`, `dry-run`, and `enforce` modes |
 | Daemon wiring | `micro_bfd.actuator` configures mode, backend, owner policy, and member actions |
+| Kernel bond backend | `KernelBondLAGBackend` writes `-member` / `+member` to Linux bonding sysfs |
 
 Aggregate state logic:
 - Group starts with all members Down, aggregate Down
@@ -312,9 +313,10 @@ Aggregate state logic:
 micro-BFD session is Down to be removed from the LAG load-balancing table.
 GoBFD now has a `MicroBFDActuator` hook and a tested `netio.LAGActuator` policy
 gate for disabled, dry-run, and enforce modes. YAML wiring is present, including
-NetworkManager-aware owner policy selection. It still does not include a Linux
-bond/team/OVS/NetworkManager backend, so full RFC 7130 enforcement on Linux
-remains a follow-up implementation step.
+NetworkManager-aware owner policy selection. `backend: kernel-bond` can enforce
+member remove/add through Linux bonding sysfs when `owner_policy:
+allow-external` is explicit. OVS and NetworkManager D-Bus backends remain
+follow-up implementation steps.
 
 ### RFC 8971 Implementation Notes
 

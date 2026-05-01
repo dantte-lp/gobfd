@@ -668,15 +668,14 @@ func TestBuildMicroBFDActuator(t *testing.T) {
 			},
 		},
 		{
-			name: "enforce waits for backend implementation",
+			name: "enforce wires kernel bond backend",
 			cfg: config.MicroBFDActuatorConfig{
 				Mode:        config.MicroBFDActuatorModeEnforce,
 				Backend:     config.MicroBFDActuatorBackendKernelBond,
-				OwnerPolicy: config.MicroBFDActuatorOwnerRefuseIfManaged,
+				OwnerPolicy: config.MicroBFDActuatorOwnerAllowExternal,
 				DownAction:  config.MicroBFDActuatorActionRemoveMember,
 				UpAction:    config.MicroBFDActuatorActionAddMember,
 			},
-			wantErr: netio.ErrLAGActuatorBackendNil,
 		},
 	}
 

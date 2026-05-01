@@ -149,6 +149,7 @@
     "sourceport",
     "stdlib",
     "subinterface",
+    "sysfs",
     "synctest",
     "tparallel",
     "tshark",

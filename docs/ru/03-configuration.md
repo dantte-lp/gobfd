@@ -243,10 +243,14 @@ Micro-BFD запускает независимые BFD-сессии на каж
 RFC 7130 enforcement защищён блоком `micro_bfd.actuator`. Режим по умолчанию
 `disabled` означает только detect/report. `dry-run` подключает daemon к policy
 layer и логирует планируемые действия с member. `enforce` намеренно
-отклоняется, пока не появится реальный Linux backend. Используйте значение
-`networkmanager` для `backend` и `networkmanager-dbus` для `owner_policy`
-только когда NetworkManager владеет LAG или member-устройствами; в остальных
-случаях оставляйте политику отказа при внешнем владельце.
+требует `backend: kernel-bond` и пишет RFC 7130 remove/add команды через Linux
+bonding sysfs. Так как direct sysfs backend не может доказать, что интерфейсом
+не владеет другой manager, режим enforce также требует `owner_policy:
+allow-external`. `backend: ovs` и `backend: networkmanager` зарезервированы
+для будущих owner-specific backend-ов. Используйте `owner_policy:
+networkmanager-dbus` только с будущим NetworkManager backend; в остальных
+случаях оставляйте политику отказа при внешнем владельце для disabled и
+dry-run режимов.
 
 Группы реконсилируются при SIGHUP. Ключ группы: `lag_interface`.
 
@@ -255,7 +259,7 @@ layer и логирует планируемые действия с member. `en
 micro_bfd:
   actuator:
     mode: "dry-run"
-    backend: "auto"
+    backend: "kernel-bond"
     owner_policy: "refuse-if-managed"
     down_action: "remove-member"
     up_action: "add-member"

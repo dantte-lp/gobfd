@@ -812,7 +812,15 @@ func buildMicroBFDActuator(
 		return nil, false, nil
 	}
 	actuatorCfg := configMicroBFDActuatorToNetio(cfg)
-	actuator, err := netio.NewLAGActuator(actuatorCfg, nil, logger)
+	var backend netio.LAGActuatorBackend
+	var err error
+	if actuatorCfg.Mode == netio.LAGActuatorModeEnforce {
+		backend, err = netio.NewLAGActuatorBackend(actuatorCfg)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	actuator, err := netio.NewLAGActuator(actuatorCfg, backend, logger)
 	if err != nil {
 		return nil, false, err
 	}
