@@ -16,6 +16,7 @@ const (
 	OverlayBackendOVS          OverlayBackendType = "ovs"
 	OverlayBackendOVN          OverlayBackendType = "ovn"
 	OverlayBackendCilium       OverlayBackendType = "cilium"
+	OverlayBackendCalico       OverlayBackendType = "calico"
 	OverlayBackendNSX          OverlayBackendType = "nsx"
 )
 
@@ -60,6 +61,7 @@ func NewVXLANOverlayBackend(cfg VXLANOverlayBackendConfig) (OverlayConn, error) 
 		OverlayBackendOVS,
 		OverlayBackendOVN,
 		OverlayBackendCilium,
+		OverlayBackendCalico,
 		OverlayBackendNSX:
 		return nil, fmt.Errorf("vxlan overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
 	default:
@@ -84,6 +86,7 @@ func NewGeneveOverlayBackend(cfg GeneveOverlayBackendConfig) (OverlayConn, error
 		OverlayBackendOVS,
 		OverlayBackendOVN,
 		OverlayBackendCilium,
+		OverlayBackendCalico,
 		OverlayBackendNSX:
 		return nil, fmt.Errorf("geneve overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
 	default:
@@ -101,6 +104,7 @@ func normalizeOverlayBackend(backend OverlayBackendType) (OverlayBackendType, er
 		OverlayBackendOVS,
 		OverlayBackendOVN,
 		OverlayBackendCilium,
+		OverlayBackendCalico,
 		OverlayBackendNSX:
 		return backend, nil
 	default:

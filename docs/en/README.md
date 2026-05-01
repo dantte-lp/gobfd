@@ -1,11 +1,11 @@
 # GoBFD Documentation
 
-![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-16-34a853?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.5.0-1a73e8?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-22-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-> Comprehensive technical documentation for **GoBFD** -- a production-grade BFD protocol daemon (RFC 5880/5881) written in Go 1.26.
+> Canonical technical documentation for **GoBFD** -- a production-oriented BFD protocol daemon (RFC 5880/5881) written in Go 1.26.
 
 ---
 
@@ -13,7 +13,7 @@
 
 ```mermaid
 graph TD
-    IDX["docs/en/README.md<br/>(You are here)"]
+    IDX["docs/en/README.md<br/>"]
 
     subgraph "Architecture"
         A1["01-architecture.md<br/>System Architecture"]
@@ -45,6 +45,15 @@ graph TD
         D2["rfc/<br/>RFC Text Files"]
         D3["10-changelog.md<br/>Changelog Guide"]
         D4["11-integrations.md<br/>Integrations"]
+        D5["dependency-risk.md<br/>Dependency Risk"]
+    end
+
+    subgraph "Release Planning"
+        F1["implementation-plan.md<br/>S8 Plan"]
+        F2["codebase-consistency-audit.md<br/>Consistency Audit"]
+        F3["linux-advanced-bfd-applicability.md<br/>Linux Advanced BFD"]
+        F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF Research"]
+        F5["ovsdb-api-research.md<br/>OVSDB API Research"]
     end
 
     IDX --> A1
@@ -58,7 +67,13 @@ graph TD
     IDX --> C2
     IDX --> C3
     IDX --> D1
+    IDX --> D5
     IDX --> E1
+    IDX --> F1
+    IDX --> F2
+    IDX --> F3
+    IDX --> F4
+    IDX --> F5
 
     A1 --> A2
     A2 --> D1
@@ -68,6 +83,10 @@ graph TD
     D1 --> D2
     E1 --> E2
     E2 --> E3
+    F1 --> F2
+    F2 --> F3
+    F3 --> F4
+    F3 --> F5
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -103,6 +122,7 @@ graph TD
 | 09 | [**Development**](./09-development.md) | Dev workflow, Make targets, testing, linting, proto generation |
 | 10 | [**Changelog Guide**](./10-changelog.md) | How to maintain CHANGELOG.md, release process, semantic versioning |
 | 11 | [**Integrations**](./11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes examples |
+| -- | [**Dependency Risk**](./dependency-risk.md) | Current dependency-risk notes and mitigations |
 
 ### Performance
 
@@ -111,6 +131,16 @@ graph TD
 | 12 | [**Benchmarks**](./12-benchmarks.md) | How to run, read, and interpret benchmark results |
 | 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, aiobfd, hardware platforms |
 | 14 | [**Performance Analysis**](./14-performance-analysis.md) | GoBFD vs C implementations: benchmarks, architecture, CPU load behavior |
+
+### Release Planning and Research
+
+| Document | Description |
+|---|---|
+| [**Implementation Plan**](./implementation-plan.md) | Canonical phased sprint plan through `v0.5.0` |
+| [**Codebase Consistency Audit**](./codebase-consistency-audit.md) | Code, API, CLI, config, docs, and production-applicability audit |
+| [**Linux Advanced BFD Applicability**](./linux-advanced-bfd-applicability.md) | Applicability of Micro-BFD, VXLAN BFD, and Geneve BFD on Linux |
+| [**Linux Netlink/eBPF Research**](./linux-netlink-ebpf-research.md) | S4 decision record for rtnetlink vs eBPF link-state monitoring |
+| [**OVSDB API Research**](./ovsdb-api-research.md) | OVSDB JSON-RPC and `libovsdb` backend design notes |
 
 ### RFC Source Files
 

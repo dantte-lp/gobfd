@@ -338,7 +338,7 @@ make interop-rfc-logs
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
 ![containerlab](https://img.shields.io/badge/containerlab-0.73-1a73e8?style=for-the-badge)
 
-> Multi-vendor BFD interoperability testing against commercial/enterprise NOS containers. Validates RFC 5880/5881/5882 compliance against independent, production-grade BFD implementations. Dual-stack: IPv4 (RFC 5881 Section 4) and IPv6 (RFC 5881 Section 5) tested on every available vendor.
+> Multi-vendor BFD interoperability testing against commercial/enterprise NOS containers. Validates RFC 5880/5881/5882 compliance against independent, production-oriented BFD implementations. Dual-stack: IPv4 (RFC 5881 Section 4) and IPv6 (RFC 5881 Section 5) tested on every available vendor.
 
 ### Vendor Topology
 
@@ -536,7 +536,7 @@ netlab automatically handles IP addressing, BGP AS assignment, and BFD session c
 
 ### Three-Tier Testing Strategy
 
-Based on the analysis in `docs/tmp/bfd-interoperability-testing.md`:
+Based on the analysis in `docs/tmp/17-bfd-ecosystem-technical-analysis.md`:
 
 | Tier | Vendor | Purpose | RFC Coverage |
 |---|---|---|---|

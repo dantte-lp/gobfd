@@ -284,7 +284,7 @@ micro_bfd:
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `vxlan.enabled` | bool | `false` | Включить VXLAN BFD-сессии |
-| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Реализован только `userspace-udp`; `kernel`, `ovs`, `ovn`, `cilium` и `nsx` зарезервированы и не проходят validation |
+| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Реализован только `userspace-udp`; `kernel`, `ovs`, `ovn`, `cilium`, `calico` и `nsx` зарезервированы и не проходят validation |
 | `vxlan.management_vni` | uint32 | -- | Management VNI для BFD control (24 бит, макс. 16777215) |
 | `vxlan.default_desired_min_tx` | duration | -- | TX-интервал для VXLAN-сессий по умолчанию |
 | `vxlan.default_required_min_rx` | duration | -- | RX-интервал для VXLAN-сессий по умолчанию |
@@ -299,7 +299,7 @@ BFD Control пакеты инкапсулируются в VXLAN (внешний
 выделенным Management VNI. Внутренний стек включает Ethernet (dst MAC
 `00:52:02:00:00:00`), IPv4 (TTL=255) и UDP (dst 3784) заголовки. Текущий
 backend `userspace-udp` владеет `local:4789`; если kernel VXLAN, OVS/OVN,
-Cilium, NSX или другой dataplane уже владеет тем же socket, нужен будущий
+Cilium, Calico, NSX или другой dataplane уже владеет тем же socket, нужен будущий
 owner-specific backend.
 
 Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
@@ -328,7 +328,7 @@ vxlan:
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `geneve.enabled` | bool | `false` | Включить Geneve BFD-сессии |
-| `geneve.backend` | string | `userspace-udp` | Overlay backend. Реализован только `userspace-udp`; `kernel`, `ovs`, `ovn`, `cilium` и `nsx` зарезервированы и не проходят validation |
+| `geneve.backend` | string | `userspace-udp` | Overlay backend. Реализован только `userspace-udp`; `kernel`, `ovs`, `ovn`, `cilium`, `calico` и `nsx` зарезервированы и не проходят validation |
 | `geneve.default_vni` | uint32 | -- | VNI Geneve по умолчанию (24 бит, макс. 16777215) |
 | `geneve.default_desired_min_tx` | duration | -- | TX-интервал для Geneve-сессий по умолчанию |
 | `geneve.default_required_min_rx` | duration | -- | RX-интервал для Geneve-сессий по умолчанию |

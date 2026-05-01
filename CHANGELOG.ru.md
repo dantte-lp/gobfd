@@ -10,7 +10,7 @@
 ### Добавлено
 
 - Аудит консистентности кодовой базы
-  `docs/03-codebase-consistency-audit.md`, сверяющий README/docs/API/CLI/config
+  `docs/ru/codebase-consistency-audit.md`, сверяющий README/docs/API/CLI/config
   с фактической реализацией и независимой production-применимостью в сетевых
   сценариях.
 - Linux rtnetlink monitor интерфейсов для событий `RTM_NEWLINK` /
@@ -18,7 +18,7 @@
   в `Down` / `Path Down`.
 - Исследовательская заметка S4 по Linux netlink и eBPF с обоснованием выбора
   rtnetlink для мониторинга состояния интерфейсов.
-- Каноничный поэтапный план разработки `docs/02-implementation-plan.md`,
+- Каноничный поэтапный план разработки `docs/ru/implementation-plan.md`,
   согласованный с Keep a Changelog, SemVer, Conventional Commits,
   Compose Specification, Containerfile, `.containerignore` и containers.conf.
 - Podman-only проверки документации: `make lint-md`, `make lint-yaml`,
@@ -41,7 +41,7 @@
   GoBGP TLS/localhost границ, контейнерных привилегий и ownership
   vulnerability gate.
 - Заметка о применимости Micro-BFD, VXLAN BFD и Geneve BFD в Linux:
-  `docs/04-linux-advanced-bfd-applicability.md`.
+  `docs/ru/linux-advanced-bfd-applicability.md`.
 - Generic production runbooks в `docs/en/16-production-runbooks.md` и
   `docs/ru/16-production-runbooks.md` для Kubernetes, BGP failover,
   Prometheus alerts, packet verification и открытых production gaps.
@@ -68,14 +68,22 @@
   `GetSettings` и `ActivateConnection` для управления NM-owned bond port
   profiles.
 - Модель overlay backend для VXLAN/Geneve с явным ownership `userspace-udp`
-  и зарезервированными именами `kernel`, `ovs`, `ovn`, `cilium` и `nsx`.
+  и зарезервированными именами `kernel`, `ovs`, `ovn`, `cilium`, `calico` и `nsx`.
+- Каноничная структура документации: English sources в `docs/en/`, русский
+  перевод в `docs/ru/`, в корне `docs/` только глобальный индекс
+  `docs/README.md`.
+- Русские переводы S8 planning, consistency audit, Linux advanced BFD,
+  Linux netlink/eBPF и OVSDB API research документов.
 
 ### Изменено
 
+- Documentation style теперь использует декларативные status tables,
+  official standards, RFCs, primary vendor/library references и не содержит
+  internal validation process artifacts в published documents.
 - RFC compliance docs, примеры конфигурации и комментарии кода теперь отделяют
   реализованное обнаружение Micro-BFD от будущего Linux bond/team/OVS
   enforcement, а также описывают ограничения ownership userspace-сокетов
-  VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
+  VXLAN/Geneve для kernel, OVS, Cilium, Calico и NSX dataplane.
 - S7.1 разделён на неразрушающий actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend
   и NetworkManager D-Bus backend.

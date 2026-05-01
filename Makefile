@@ -378,8 +378,8 @@ lint-spell:
 		README.md \
 		CONTRIBUTING.md \
 		CHANGELOG.md \
-		docs/02-implementation-plan.md \
-		docs/03-codebase-consistency-audit.md
+		docs/en/implementation-plan.md \
+		docs/en/codebase-consistency-audit.md
 
 lint-docs: lint-md lint-yaml lint-spell
 

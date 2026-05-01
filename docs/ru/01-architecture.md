@@ -26,7 +26,7 @@
 
 ### Обзор системы
 
-GoBFD -- production-ready демон протокола BFD (Bidirectional Forwarding Detection). Состоит из четырёх бинарных файлов:
+GoBFD -- production-oriented демон протокола BFD (Bidirectional Forwarding Detection). Состоит из четырёх бинарных файлов:
 
 - **gobfd** -- демон, управляющий BFD-сессиями, отправляющий/принимающий BFD Control пакеты и интегрированный с GoBGP
 - **gobfdctl** -- CLI-клиент, взаимодействующий с gobfd через ConnectRPC

@@ -1,11 +1,11 @@
 # Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-1.0.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-16-34a853?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.5.0-1a73e8?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-22-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-> Полная техническая документация **GoBFD** -- production-ready демона протокола BFD (RFC 5880/5881) на Go 1.26.
+> Русский перевод каноничной технической документации **GoBFD** -- production-oriented демона протокола BFD (RFC 5880/5881) на Go 1.26.
 
 ---
 
@@ -13,7 +13,7 @@
 
 ```mermaid
 graph TD
-    IDX["docs/ru/README.md<br/>(Вы здесь)"]
+    IDX["docs/ru/README.md<br/>"]
 
     subgraph "Архитектура"
         A1["01-architecture.md<br/>Архитектура системы"]
@@ -45,6 +45,15 @@ graph TD
         D2["rfc/<br/>Тексты RFC"]
         D3["10-changelog.md<br/>Руководство по Changelog"]
         D4["11-integrations.md<br/>Интеграции"]
+        D5["dependency-risk.md<br/>Риски зависимостей"]
+    end
+
+    subgraph "Планирование релиза"
+        F1["implementation-plan.md<br/>План S8"]
+        F2["codebase-consistency-audit.md<br/>Аудит консистентности"]
+        F3["linux-advanced-bfd-applicability.md<br/>Linux Advanced BFD"]
+        F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF research"]
+        F5["ovsdb-api-research.md<br/>OVSDB API research"]
     end
 
     IDX --> A1
@@ -58,7 +67,13 @@ graph TD
     IDX --> C2
     IDX --> C3
     IDX --> D1
+    IDX --> D5
     IDX --> E1
+    IDX --> F1
+    IDX --> F2
+    IDX --> F3
+    IDX --> F4
+    IDX --> F5
 
     A1 --> A2
     A2 --> D1
@@ -68,6 +83,10 @@ graph TD
     D1 --> D2
     E1 --> E2
     E2 --> E3
+    F1 --> F2
+    F2 --> F3
+    F3 --> F4
+    F3 --> F5
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -103,6 +122,7 @@ graph TD
 | 09 | [**Разработка**](./09-development.md) | Рабочий процесс, Make-цели, тестирование, линтинг |
 | 10 | [**Руководство по Changelog**](./10-changelog.md) | Ведение CHANGELOG.md, процесс релиза, семантическое версионирование |
 | 11 | [**Интеграции**](./11-integrations.md) | BGP failover, HAProxy, наблюдаемость, ExaBGP, Kubernetes |
+| -- | [**Риски зависимостей**](./dependency-risk.md) | Текущие риски зависимостей и меры снижения |
 
 ### Производительность
 
@@ -111,6 +131,16 @@ graph TD
 | 12 | [**Бенчмарки**](./12-benchmarks.md) | Как запускать, читать и интерпретировать результаты бенчмарков |
 | 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, aiobfd, аппаратными платформами |
 | 14 | [**Анализ производительности**](./14-performance-analysis.md) | GoBFD vs реализации на C: бенчмарки, архитектура, поведение при нагрузке |
+
+### Планирование релиза и исследования
+
+| Документ | Описание |
+|---|---|
+| [**План реализации**](./implementation-plan.md) | Каноничный поэтапный план спринтов до `v0.5.0` |
+| [**Аудит консистентности кодовой базы**](./codebase-consistency-audit.md) | Аудит кода, API, CLI, конфигурации, документации и production-применимости |
+| [**Применимость Linux Advanced BFD**](./linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux |
+| [**Исследование Linux Netlink/eBPF**](./linux-netlink-ebpf-research.md) | Decision record S4 по rtnetlink и eBPF для мониторинга состояния интерфейсов |
+| [**Исследование OVSDB API**](./ovsdb-api-research.md) | Заметки по OVSDB JSON-RPC и backend на `libovsdb` |
 
 ### Исходные тексты RFC
 

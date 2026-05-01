@@ -248,6 +248,7 @@ const (
 	OverlayBackendOVS          = "ovs"
 	OverlayBackendOVN          = "ovn"
 	OverlayBackendCilium       = "cilium"
+	OverlayBackendCalico       = "calico"
 	OverlayBackendNSX          = "nsx"
 )
 
@@ -904,10 +905,10 @@ var (
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
 
 	// ErrInvalidOverlayBackend indicates an unrecognized overlay dataplane backend.
-	ErrInvalidOverlayBackend = errors.New("overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, or nsx")
+	ErrInvalidOverlayBackend = errors.New("overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, calico, or nsx")
 
 	// ErrUnsupportedOverlayBackend indicates a recognized but not yet implemented backend.
-	ErrUnsupportedOverlayBackend = errors.New("overlay backend must be userspace-udp until kernel/ovs/ovn/cilium/nsx backends are implemented")
+	ErrUnsupportedOverlayBackend = errors.New("overlay backend must be userspace-udp until kernel/ovs/ovn/cilium/calico/nsx backends are implemented")
 
 	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
 	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
@@ -999,6 +1000,7 @@ var validOverlayBackends = map[string]bool{
 	OverlayBackendOVS:          true,
 	OverlayBackendOVN:          true,
 	OverlayBackendCilium:       true,
+	OverlayBackendCalico:       true,
 	OverlayBackendNSX:          true,
 }
 

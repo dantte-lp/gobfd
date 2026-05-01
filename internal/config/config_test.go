@@ -1192,6 +1192,16 @@ func TestValidateVXLANErrors(t *testing.T) {
 			wantErr: config.ErrUnsupportedOverlayBackend,
 		},
 		{
+			name: "reserved vxlan calico backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Backend = config.OverlayBackendCalico
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
+		},
+		{
 			name: "vni exceeds 24-bit",
 			modify: func(cfg *config.Config) {
 				cfg.VXLAN.Enabled = true
@@ -1291,6 +1301,16 @@ func TestValidateGeneveErrors(t *testing.T) {
 			modify: func(cfg *config.Config) {
 				cfg.Geneve.Enabled = true
 				cfg.Geneve.Backend = config.OverlayBackendOVS
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
+		},
+		{
+			name: "reserved geneve calico backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Backend = config.OverlayBackendCalico
 				cfg.Geneve.DefaultVNI = 42
 				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
 			},

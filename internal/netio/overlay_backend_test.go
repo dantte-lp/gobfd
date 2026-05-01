@@ -88,6 +88,19 @@ func TestNewOverlayBackendRejectsReservedBackends(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "vxlan calico",
+			run: func() error {
+				_, err := netio.NewVXLANOverlayBackend(netio.VXLANOverlayBackendConfig{
+					Backend:       netio.OverlayBackendCalico,
+					LocalAddr:     netip.MustParseAddr("127.0.0.14"),
+					ManagementVNI: 100,
+					SourcePort:    49156,
+					Logger:        slog.Default(),
+				})
+				return err
+			},
+		},
 	}
 
 	for _, tt := range tests {

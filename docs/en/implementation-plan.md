@@ -1,7 +1,7 @@
 # Implementation Plan -- `gobfd`
 
 - **Method:** phased, gated lifecycle with short implementation sprints.
-- **Scope:** production-grade BFD daemon, CLI, control-plane API, and interop
+- **Scope:** production-oriented BFD daemon, CLI, control-plane API, and interop
   test environment for Linux networking stacks.
 - **Cadence:** 8 sprints x 2 weeks to `v0.5.0`, then release
   hardening and maintenance.
@@ -30,7 +30,7 @@
 | ADR-5 | Conventional Commits for commits and PR titles. | Commit type maps cleanly to release notes and SemVer impact. |
 | ADR-6 | Compose files follow the Compose Specification. | Interop stacks need portable service, network, volume, and profile semantics. |
 | ADR-7 | Containerfiles are native Podman/Buildah inputs. | Use `Containerfile`, `.containerignore`, and minimal capabilities instead of Docker-only assumptions. |
-| ADR-8 | MCP-backed design validation. | Standards, Arista/EOS behavior, and library config claims must be checked against current primary docs. |
+| ADR-8 | Source-backed design validation. | Standards, vendor behavior, and library config claims must be checked against current primary or official docs. |
 
 ## 2. Quality Gates
 
@@ -59,9 +59,9 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | Core build/test/lint | Green | `make verify` passes in Podman and includes `gopls-check`, `golangci-lint`, doc lint, proto lint, and vulnerability audit. |
 | RFC 7419 / 9384 / 9468 interop | Green | `make interop-rfc-test` passes these scenarios when the RFC stack is running. |
 | RFC 9747 Echo interop | Green | `make interop-rfc-test` verifies Echo `Up`, UDP 3785 packet capture both ways, Echo failure on reflector pause, and recovery. |
-| Code/docs consistency | Improving | README, changelogs, and planning docs now reflect the implemented RFC set; `docs/03-codebase-consistency-audit.md` tracks remaining gaps. |
+| Code/docs consistency | Improving | README, changelogs, and planning docs now reflect the implemented RFC set; `docs/en/codebase-consistency-audit.md` tracks remaining gaps. |
 | Control-plane API | Partial | Proto/session snapshots and `gobfdctl` output now expose Echo, Micro-BFD, VXLAN, and Geneve vocabulary; generic `AddSession` and `gobfdctl session add` intentionally remain single-hop/multi-hop until dedicated transport-specific APIs exist. |
-| Interface monitoring | Green on Linux | `internal/netio` subscribes to rtnetlink `RTMGRP_LINK` and `Manager.HandleInterfaceEvent` transitions sessions on link-down before detection timer expiry. eBPF is deferred; see `docs/s4-linux-netlink-ebpf-research.md`. |
+| Interface monitoring | Green on Linux | `internal/netio` subscribes to rtnetlink `RTMGRP_LINK` and `Manager.HandleInterfaceEvent` transitions sessions on link-down before detection timer expiry. eBPF is deferred; see `docs/en/linux-netlink-ebpf-research.md`. |
 | Linux Micro-BFD enforcement | Partial | GoBFD creates per-member RFC 7130 sessions, tracks aggregate state, has dry-run actuator wiring, and supports explicit Linux kernel-bond sysfs, native OVSDB bonded-port enforcement, and NetworkManager D-Bus bond port activation with operator-selected owner policy. |
 | Linux VXLAN/Geneve dataplane coexistence | Partial | GoBFD has an explicit `userspace-udp` backend for dedicated endpoints and fails closed for reserved kernel/OVS/OVN/Cilium/NSX backend names; actual non-userspace integrations remain future work. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession`, and `gobfdctl session add` now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time. Dynamic key rotation is deferred to production hardening. |
@@ -133,7 +133,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 3. `make verify` passes unless the task explicitly documents a known failing
    gate and the reason.
 4. Protocol behavior references the relevant RFC section and, where vendor
-   behavior is discussed, Arista MCP / primary vendor docs.
+   behavior is discussed, primary vendor docs.
 5. User-facing changes update `CHANGELOG.md` and, when appropriate,
    `CHANGELOG.ru.md`.
 6. Commit message and PR title follow Conventional Commits.
@@ -151,4 +151,4 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | R4 | GoBGP vulnerability allowlist becomes stale. | M | H | Track allowlist expiry and keep GoBGP gRPC on localhost/trusted networks until upstream fix. |
 | R5 | README/pkg.go.dev overclaim feature readiness. | M | M | Treat interop and API surface as source of truth before release notes. |
 | R6 | Micro-BFD is mistaken for universal Linux LAG enforcement. | M | H | Keep docs explicit: current code enforces explicit kernel-bond, native OVSDB, and NetworkManager D-Bus paths only when the operator selects the matching owner policy/backend. |
-| R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium dataplane. | M | H | `userspace-udp` is explicit and reserved backend names fail closed until kernel/OVS/OVN/Cilium/NSX integrations exist. |
+| R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium/Calico dataplane. | M | H | `userspace-udp` is explicit and reserved backend names fail closed until kernel/OVS/OVN/Cilium/NSX/Calico integrations exist. |

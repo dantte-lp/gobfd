@@ -34,13 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - New feature description.
 
-## [1.2.0] - 2026-03-15
+## [0.4.0] - 2026-03-15
 
 ### Fixed
 - Bug fix description.
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/dantte-lp/gobfd/releases/tag/v1.2.0
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
 ```
 
 Rules:
@@ -113,7 +113,7 @@ When preparing a release:
    ```markdown
    ## [Unreleased]
 
-   ## [1.3.0] - 2026-04-01
+   ## [0.5.0] - 2026-04-01
 
    ### Added
    - (entries moved from Unreleased)
@@ -122,30 +122,30 @@ When preparing a release:
 2. **Update comparison links** at the bottom of the file:
 
    ```markdown
-   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.3.0...HEAD
-   [1.3.0]: https://github.com/dantte-lp/gobfd/compare/v1.2.0...v1.3.0
-   [1.2.0]: https://github.com/dantte-lp/gobfd/releases/tag/v1.2.0
+   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+   [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
+   [0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
    ```
 
 3. **Commit** the changelog update:
 
    ```bash
    git add CHANGELOG.md
-   git commit -m "Prepare release v1.3.0"
+   git commit -m "chore(release): prepare v0.5.0"
    ```
 
 4. **Tag and push**:
 
    ```bash
-   git tag -a v1.3.0 -m "Release v1.3.0"
+   git tag -a v0.5.0 -m "Release v0.5.0"
    git push origin master --tags
    ```
 
 5. **GitHub Actions** automatically:
    - Runs the full test suite.
-   - Extracts the release notes from CHANGELOG.md for version 1.3.0.
+   - Extracts the release notes from CHANGELOG.md for version 0.5.0.
    - Builds binaries (linux/amd64, linux/arm64), .deb, .rpm packages.
-   - Publishes Docker image to `ghcr.io/dantte-lp/gobfd:1.3.0`.
+   - Publishes Docker image to `ghcr.io/dantte-lp/gobfd:0.5.0`.
    - Creates a GitHub Release with the changelog content as the release body.
 
 ### Semantic Versioning
@@ -158,7 +158,7 @@ This project follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.
 | **MINOR** | New features, backward-compatible | Added RFC 5883 multihop support; new `gobfdctl monitor` command. |
 | **PATCH** | Bug fixes, documentation, dependency updates | Fixed detection timeout calculation; updated Go dependency. |
 
-Pre-release versions use suffixes: `v1.0.0-rc.1`, `v1.0.0-beta.2`.
+Pre-release versions use suffixes: `v0.5.0-rc.1`, `v0.5.0-beta.2`.
 
 ### Examples
 

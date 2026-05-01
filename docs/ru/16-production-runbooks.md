@@ -7,8 +7,6 @@
 
 ## База проверки
 
-Эти runbooks основаны на:
-
 - RFC 5880: в Asynchronous mode detection time равен удалённому Detect Mult,
   умноженному на согласованный receive interval.
 - RFC 5881: single-hop BFD использует UDP destination port 3784, source port из
@@ -19,10 +17,9 @@
   3784 и inner TTL/Hop Limit 255.
 - RFC 9521: Geneve BFD работает для point-to-point Geneve tunnels с inner
   TTL/Hop Limit 255 и требованиями к управлению частотой трафика.
-- MCP validation: Kubernetes `hostNetwork: true` использует
-  `dnsPolicy: ClusterFirstWithHostNet`; Arista EOS имеет публичные команды BFD
-  для BGP и RFC 7130/VXLAN verification, но примеры GoBFD по умолчанию
-  остаются vendor-neutral.
+- Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
+  when `hostNetwork: true` is set.
+- Vendor examples require public vendor documentation.
 
 ## Профили развёртывания
 
@@ -31,7 +28,7 @@
 | BGP failover | Linux routing host или лабораторная пара FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
 | Kubernetes daemon | Один экземпляр GoBFD на узел через host networking | `deployments/integrations/kubernetes/` |
 | Наблюдаемость | Prometheus alerts и Grafana dashboard | `deployments/integrations/observability/` |
-| Overlay endpoint | Выделенный VXLAN/Geneve management endpoint | `docs/04-linux-advanced-bfd-applicability.md` |
+| Overlay endpoint | Выделенный VXLAN/Geneve management endpoint | `docs/ru/linux-advanced-bfd-applicability.md` |
 
 ## Kubernetes host-network daemon
 
@@ -174,15 +171,14 @@ podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
 
 ## Public vendor notes
 
-Примеры GoBFD должны оставаться vendor-neutral. Vendor snippets можно добавлять
-как optional public interop notes, если они проверены по первичной vendor
-документации или MCP.
+Примеры GoBFD остаются vendor-neutral. Vendor snippets требуют первичной
+vendor-документации.
 
 Опубликованные optional notes:
 
 - [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
 
-Публичное поведение Arista EOS, проверенное через Arista MCP:
+Публичное поведение Arista EOS:
 
 - `neighbor bfd` включает BFD для BGP neighbor или peer group.
 - Если BFD-сессия перешла Down, связанная BGP-сессия также переводится Down.

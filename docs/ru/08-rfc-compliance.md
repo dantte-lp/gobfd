@@ -300,7 +300,7 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 **Production-ограничение Linux**: `vxlan.backend: userspace-udp` владеет UDP
 сокетом на `localAddr:4789`. Это подходит для лабораторного endpoint,
 выделенного Management VNI endpoint или Linux VTEP, где GoBFD владеет сокетом.
-Если kernel VXLAN, OVS/OVN, Cilium, NSX или другой dataplane уже владеет UDP
+Если kernel VXLAN, OVS/OVN, Cilium, Calico, NSX или другой dataplane уже владеет UDP
 4789 в том же namespace/local address, зарезервированные backend names fail
 closed до появления owner-specific integration. Sender reconciliation
 использует runtime backend, который уже обслуживает receiver, и не bind-ит

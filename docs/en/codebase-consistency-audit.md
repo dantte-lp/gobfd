@@ -15,13 +15,11 @@ Evidence sources:
   EVPN/VXLAN and Geneve overlays, Kubernetes host-network daemon deployment,
   Cilium/Calico-style BGP environments, partner edge failover, and DCI-style
   fast-failover expectations.
-- OVSDB API research note: `docs/05-ovsdb-api-research.md`.
-- MCP checks: Context7 `gopls`, NetworkManager D-Bus, `godbus/dbus`, and
-  `cilium/ebpf` docs for build environment, D-Bus API, and future eBPF
-  backend scoping; Arista MCP EOS BFD snippets for BFD interface/BGP/per-link
-  feature context.
+- OVSDB API research note: `docs/en/ovsdb-api-research.md`.
+- Official and primary docs for `gopls`, NetworkManager D-Bus, `godbus/dbus`,
+  `cilium/ebpf`, Arista EOS BFD behavior, and Open vSwitch OVSDB behavior.
 - Linux advanced BFD applicability note:
-  `docs/04-linux-advanced-bfd-applicability.md`.
+  `docs/en/linux-advanced-bfd-applicability.md`.
 
 ## Executive Summary
 
@@ -123,7 +121,7 @@ generic examples:
 - Prometheus alerts now map to exported GoBFD metrics for active sessions,
   Up-to-Down transitions, flapping, auth failures, and packet drops.
 - Optional public Arista EOS notes are separated from runnable examples and
-  validated through Arista MCP.
+  tied to public vendor documentation.
 
 Next sprint: S8, `chore(release): prepare v0.5.0`.
 
@@ -146,7 +144,7 @@ remembered or available bond port profile when the member recovers.
 
 For VXLAN/Geneve, GoBFD now models the overlay transport backend explicitly.
 The implemented backend is `userspace-udp`, which owns the standard outer UDP
-socket. Reserved `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` backends fail
+socket. Reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` backends fail
 closed until those dataplane integrations exist. Sender reconciliation reuses
 the runtime backend already serving the receiver, so the daemon no longer
 tries to bind duplicate VXLAN/Geneve sockets for the same local endpoint.

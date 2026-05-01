@@ -288,7 +288,7 @@ micro_bfd:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `vxlan.enabled` | bool | `false` | Enable VXLAN BFD sessions |
-| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` are reserved and fail validation |
+| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` are reserved and fail validation |
 | `vxlan.management_vni` | uint32 | -- | Management VNI for BFD control (24-bit, max 16777215) |
 | `vxlan.default_desired_min_tx` | duration | -- | Default TX interval for VXLAN sessions |
 | `vxlan.default_required_min_rx` | duration | -- | Default RX interval for VXLAN sessions |
@@ -299,7 +299,7 @@ micro_bfd:
 | `vxlan.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `vxlan.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
-BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, NSX, or another dataplane already owns the same socket.
+BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns the same socket.
 
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 
@@ -327,7 +327,7 @@ vxlan:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `geneve.enabled` | bool | `false` | Enable Geneve BFD sessions |
-| `geneve.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` are reserved and fail validation |
+| `geneve.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` are reserved and fail validation |
 | `geneve.default_vni` | uint32 | -- | Default Geneve VNI (24-bit, max 16777215) |
 | `geneve.default_desired_min_tx` | duration | -- | Default TX interval for Geneve sessions |
 | `geneve.default_required_min_rx` | duration | -- | Default RX interval for Geneve sessions |

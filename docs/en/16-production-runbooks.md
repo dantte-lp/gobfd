@@ -7,8 +7,6 @@
 
 ## Evidence Baseline
 
-These runbooks are based on:
-
 - RFC 5880 detection-time rules: in Asynchronous mode, local detection time is
   the remote Detect Mult multiplied by the negotiated receive interval.
 - RFC 5881 single-hop encapsulation: UDP destination port 3784, source port in
@@ -18,10 +16,9 @@ These runbooks are based on:
   inner TTL/Hop Limit 255.
 - RFC 9521 Geneve BFD: Geneve BFD for point-to-point Geneve tunnels with inner
   TTL/Hop Limit 255 and traffic-managed rate assumptions.
-- MCP validation: Kubernetes `hostNetwork: true` uses
-  `dnsPolicy: ClusterFirstWithHostNet`; Arista EOS exposes public BFD BGP and
-  RFC 7130/VXLAN verification commands, but GoBFD examples remain
-  vendor-neutral by default.
+- Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
+  when `hostNetwork: true` is set.
+- Vendor examples remain optional and must cite public vendor documentation.
 
 ## Deployment Profiles
 
@@ -30,7 +27,7 @@ These runbooks are based on:
 | BGP failover | Linux routing host or lab pair with FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
 | Kubernetes daemon | One GoBFD instance per node with host networking | `deployments/integrations/kubernetes/` |
 | Observability | Prometheus alerts and Grafana dashboard | `deployments/integrations/observability/` |
-| Overlay endpoint | Dedicated VXLAN/Geneve management endpoint | `docs/04-linux-advanced-bfd-applicability.md` |
+| Overlay endpoint | Dedicated VXLAN/Geneve management endpoint | `docs/en/linux-advanced-bfd-applicability.md` |
 
 ## Kubernetes Host-Network Daemon
 
@@ -175,14 +172,14 @@ Expected single-hop values:
 
 ## Public Vendor Notes
 
-GoBFD examples should stay vendor-neutral. Vendor snippets can be added as
-optional public interop notes when validated against primary vendor docs or MCP.
+GoBFD examples stay vendor-neutral. Vendor snippets require primary vendor
+documentation.
 
 Published optional notes:
 
 - [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
 
-Arista EOS public behavior validated through Arista MCP:
+Arista EOS public behavior:
 
 - `neighbor bfd` enables BFD for a BGP neighbor or peer group.
 - If a BFD session goes down, the associated BGP session is changed to down.

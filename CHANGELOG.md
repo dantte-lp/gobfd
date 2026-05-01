@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Codebase consistency audit in `docs/03-codebase-consistency-audit.md`
+- Codebase consistency audit in `docs/en/codebase-consistency-audit.md`
   comparing README/docs/API/CLI/config claims against implementation status
   and independent production networking applicability.
 - Linux rtnetlink interface monitor for `RTM_NEWLINK` / `RTM_DELLINK` events,
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed interface.
 - S4 Linux netlink vs eBPF research note documenting why rtnetlink is the
   correct default for link-state monitoring.
-- Canonical phased implementation plan in `docs/02-implementation-plan.md`
+- Canonical phased implementation plan in `docs/en/implementation-plan.md`
   aligned with Keep a Changelog, SemVer, Conventional Commits, Compose
   Specification, Containerfile, `.containerignore`, and containers.conf.
 - Podman-only documentation lint gates: `make lint-md`, `make lint-yaml`,
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GoBGP TLS/localhost boundaries, container privileges, and vulnerability gate
   ownership.
 - Linux applicability note for Micro-BFD, VXLAN BFD, and Geneve BFD in
-  `docs/04-linux-advanced-bfd-applicability.md`.
+  `docs/en/linux-advanced-bfd-applicability.md`.
 - Generic production runbooks in `docs/en/16-production-runbooks.md` and
   `docs/ru/16-production-runbooks.md` covering Kubernetes, BGP failover,
   Prometheus alerts, packet verification, and open production gaps.
@@ -67,10 +67,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DeactivateConnection`, `AvailableConnections`, `GetSettings`, and
   `ActivateConnection` to control NM-owned bond port profiles.
 - VXLAN/Geneve overlay backend model with explicit `userspace-udp` ownership
-  and reserved `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` backend names.
+  and reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` backend names.
+- Canonical documentation layout with published English sources in `docs/en/`,
+  Russian translations in `docs/ru/`, and only the global index in
+  `docs/README.md`.
+- Russian translations for S8 planning, consistency audit, Linux advanced BFD,
+  Linux netlink/eBPF, and OVSDB API research documents.
 
 ### Changed
 
+- Documentation style now uses declarative status tables, official standards,
+  RFCs, primary vendor/library references, and no internal validation process
+  artifacts in published documents.
 - RFC compliance docs, config examples, and code comments now distinguish
   implemented Micro-BFD detection from future Linux bond/team/OVS enforcement,
   and document VXLAN/Geneve userspace socket ownership limits for kernel,

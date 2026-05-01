@@ -363,7 +363,7 @@ The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) a
 **Linux production limitation**: `vxlan.backend: userspace-udp` owns a UDP
 socket on `localAddr:4789`. This is suitable for a lab endpoint, a dedicated
 management VNI endpoint, or a Linux VTEP where GoBFD owns the socket. If kernel
-VXLAN, OVS/OVN, Cilium, NSX, or another dataplane already owns UDP 4789 for the
+VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns UDP 4789 for the
 same local address/namespace, GoBFD fails closed for reserved backend names
 until an owner-specific integration exists. Sender reconciliation reuses the
 runtime backend already serving the receiver and does not bind a second socket.
