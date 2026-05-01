@@ -317,8 +317,9 @@ gate for disabled, dry-run, and enforce modes. YAML wiring is present, including
 NetworkManager-aware owner policy selection. `backend: kernel-bond` can enforce
 member remove/add through Linux bonding sysfs when `owner_policy:
 allow-external` is explicit. `backend: ovs` can enforce member remove/add on an
-existing OVS bonded port with `ovs-vsctl`. NetworkManager D-Bus backend remains
-a follow-up implementation step.
+existing OVS bonded port with `ovs-vsctl`, but that path is a transitional CLI
+fallback before native OVSDB enforcement. Native OVSDB and NetworkManager
+D-Bus backends remain follow-up implementation steps.
 
 ### RFC 8971 Implementation Notes
 

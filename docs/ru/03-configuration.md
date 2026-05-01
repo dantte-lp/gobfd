@@ -246,11 +246,12 @@ layer и логирует планируемые действия с member. `en
 `owner_policy: allow-external` с `backend: kernel-bond` или `backend: ovs`.
 Kernel-bond backend пишет RFC 7130 remove/add команды через Linux bonding
 sysfs. OVS backend использует `ovs-vsctl del-bond-iface` и `ovs-vsctl
-add-bond-iface` для существующего OVS bond port. `backend: networkmanager`
-зарезервирован для будущего D-Bus backend. Используйте `owner_policy:
-networkmanager-dbus` только с этим будущим NetworkManager backend; в остальных
-случаях оставляйте политику отказа при внешнем владельце для disabled и
-dry-run режимов.
+add-bond-iface` для существующего OVS bond port. Этот OVS path является
+transitional CLI fallback; production roadmap нацелен на native OVSDB backend.
+`backend: networkmanager` зарезервирован для будущего D-Bus backend.
+Используйте `owner_policy: networkmanager-dbus` только с этим будущим
+NetworkManager backend; в остальных случаях оставляйте политику отказа при
+внешнем владельце для disabled и dry-run режимов.
 
 Группы реконсилируются при SIGHUP. Ключ группы: `lag_interface`.
 

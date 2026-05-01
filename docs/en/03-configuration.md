@@ -251,10 +251,11 @@ policy layer and logs planned member actions. `enforce` currently requires
 The kernel-bond backend writes RFC 7130 remove/add commands through Linux
 bonding sysfs. The OVS backend uses `ovs-vsctl del-bond-iface` and
 `ovs-vsctl add-bond-iface` against an existing OVS bond port.
-`backend: networkmanager` is reserved for a future D-Bus backend. Use
-`owner_policy: networkmanager-dbus` only with that future NetworkManager
-backend; otherwise keep the default owner refusal policy for disabled and
-dry-run modes.
+This OVS path is a transitional CLI fallback; the production roadmap targets a
+native OVSDB backend. `backend: networkmanager` is reserved for a future D-Bus
+backend. Use `owner_policy: networkmanager-dbus` only with that future
+NetworkManager backend; otherwise keep the default owner refusal policy for
+disabled and dry-run modes.
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 

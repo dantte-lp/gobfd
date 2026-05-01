@@ -57,6 +57,8 @@
 - OVS backend для Micro-BFD enforcement, который запускает команды
   `ovs-vsctl del-bond-iface` и `ovs-vsctl add-bond-iface` при явном
   `backend: ovs` и `owner_policy: allow-external`.
+- OVSDB API research, фиксирующий OVSDB JSON-RPC как native OVS integration
+  path и `libovsdb` как предпочтительный Go route для следующего backend.
 
 ### Изменено
 
@@ -65,8 +67,8 @@
   enforcement, а также описывают ограничения ownership userspace-сокетов
   VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
 - S7.1 разделён на неразрушающий actuator config wiring, explicit
-  kernel-bond enforcement, OVS enforcement и следующий sprint NetworkManager
-  backend.
+  kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend
+  и следующий sprint NetworkManager backend.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без
   привязки к site-specific контуру применимости.
 - Kubernetes integration manifests теперь используют согласованные app labels,

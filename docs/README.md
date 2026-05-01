@@ -1,7 +1,7 @@
 # GoBFD Documentation / Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-0.4.0-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-16-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-17-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-EN%20%2F%20RU-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -26,6 +26,8 @@ The current code/docs consistency audit is
 [`docs/03-codebase-consistency-audit.md`](./03-codebase-consistency-audit.md).
 Linux applicability notes for Micro-BFD, VXLAN BFD, and Geneve BFD are in
 [`docs/04-linux-advanced-bfd-applicability.md`](./04-linux-advanced-bfd-applicability.md).
+OVSDB API research for the native Micro-BFD OVS backend is in
+[`docs/05-ovsdb-api-research.md`](./05-ovsdb-api-research.md).
 
 Каноничный поэтапный план разработки находится в
 [`docs/02-implementation-plan.md`](./02-implementation-plan.md).
@@ -33,6 +35,8 @@ Linux applicability notes for Micro-BFD, VXLAN BFD, and Geneve BFD are in
 [`docs/03-codebase-consistency-audit.md`](./03-codebase-consistency-audit.md).
 Заметки о применимости Micro-BFD, VXLAN BFD и Geneve BFD в Linux находятся в
 [`docs/04-linux-advanced-bfd-applicability.md`](./04-linux-advanced-bfd-applicability.md).
+Исследование OVSDB API для native Micro-BFD OVS backend находится в
+[`docs/05-ovsdb-api-research.md`](./05-ovsdb-api-research.md).
 
 ---
 
@@ -52,4 +56,4 @@ Full RFC text files are available in [`docs/rfc/`](./rfc/):
 
 ---
 
-*Last updated / Последнее обновление: 2026-04-30*
+*Last updated / Последнее обновление: 2026-05-01*
