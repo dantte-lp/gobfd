@@ -3,8 +3,8 @@
 - **Method:** phased, gated lifecycle with short implementation sprints.
 - **Scope:** production-oriented BFD daemon, CLI, control-plane API, and interop
   test environment for Linux networking stacks.
-- **Cadence:** 8 sprints x 2 weeks to `v0.5.0`, then release
-  hardening and maintenance.
+- **Cadence:** 8 sprints x 2 weeks to `v0.5.0`, then release hardening,
+  Scorecard hardening, and maintenance.
 - **Standards:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
   [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
   [.containerignore.5], [containers.conf.5].
@@ -59,14 +59,14 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | Core build/test/lint | Green | `make verify` passes in Podman and includes `gopls-check`, `golangci-lint`, doc lint, proto lint, and vulnerability audit. |
 | RFC 7419 / 9384 / 9468 interop | Green | `make interop-rfc-test` passes these scenarios when the RFC stack is running. |
 | RFC 9747 Echo interop | Green | `make interop-rfc-test` verifies Echo `Up`, UDP 3785 packet capture both ways, Echo failure on reflector pause, and recovery. |
-| Code/docs consistency | Improving | README, changelogs, and planning docs now reflect the implemented RFC set; `docs/en/codebase-consistency-audit.md` tracks remaining gaps. |
+| Code/docs consistency | Partial | Canonical EN/RU docs need post-`v0.5.2` release synchronization; `docs/en/codebase-consistency-audit.md` tracks remaining gaps. |
 | Control-plane API | Partial | Proto/session snapshots and `gobfdctl` output now expose Echo, Micro-BFD, VXLAN, and Geneve vocabulary; generic `AddSession` and `gobfdctl session add` intentionally remain single-hop/multi-hop until dedicated transport-specific APIs exist. |
 | Interface monitoring | Green on Linux | `internal/netio` subscribes to rtnetlink `RTMGRP_LINK` and `Manager.HandleInterfaceEvent` transitions sessions on link-down before detection timer expiry. eBPF is deferred; see `docs/en/linux-netlink-ebpf-research.md`. |
 | Linux Micro-BFD enforcement | Partial | GoBFD creates per-member RFC 7130 sessions, tracks aggregate state, has dry-run actuator wiring, and supports explicit Linux kernel-bond sysfs, native OVSDB bonded-port enforcement, and NetworkManager D-Bus bond port activation with operator-selected owner policy. |
-| Linux VXLAN/Geneve dataplane coexistence | Partial | GoBFD has an explicit `userspace-udp` backend for dedicated endpoints and fails closed for reserved kernel/OVS/OVN/Cilium/NSX backend names; actual non-userspace integrations remain future work. |
+| Linux VXLAN/Geneve dataplane coexistence | Partial | GoBFD has an explicit `userspace-udp` backend for dedicated endpoints and fails closed for reserved kernel/OVS/OVN/Cilium/Calico/NSX backend names; actual non-userspace integrations remain future work. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession`, and `gobfdctl session add` now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time. Dynamic key rotation is deferred to production hardening. |
-| pkg.go.dev command page | Weak | `cmd/gobfd` has a one-line package comment. |
-| Documentation standards | Improving | Keep a Changelog and SemVer are present; commitlint and doc lint gates are now explicit. |
+| pkg.go.dev command page | Green | `v0.5.2` is indexed on pkg.go.dev, Apache-2.0 is detected, and `cmd/gobfd` has command documentation. |
+| Documentation standards | Partial | Keep a Changelog, SemVer, commitlint, and doc lint gates are present; non-canonical temporary research files must not remain in the published Markdown corpus. |
 
 ## 4. Sprints
 
@@ -103,14 +103,14 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | In progress: proto enum, server mappings, snapshots, and `gobfdctl` list/show/event formatting expose advanced session families; generic `AddSession` rejects recognized transport-specific families until dedicated configuration APIs exist. Commit: `feat(api): expose advanced session type vocabulary`. |
+| **S5** | API/CLI coverage for Echo, Micro-BFD, VXLAN, and Geneve. | Partial: proto enum, server mappings, snapshots, and `gobfdctl` list/show/event formatting expose advanced session families; generic `AddSession` rejects recognized transport-specific families until dedicated configuration APIs exist. Commit: `feat(api): expose advanced session type vocabulary`. |
 | **S5.1** | State mutation consistency. | Done: `SetAdminDown` routes through the session control channel when the session goroutine is running; startup syncs `cachedState` from atomic state for pre-run administrative changes; wire tests verify the next packet carries `AdminDown` / `DiagAdminDown`. Commit: `fix(bfd): serialize admin-down transition`. |
 | **S6** | Production security posture. | Done: security policy documents ConnectRPC, GoBGP, BFD auth, container privileges, and vulnerability gate boundaries; allowlist entries require owner, expiry, reason, and mitigation. Commit: `docs(security): define production hardening policy`. |
 | **S6.1** | Linux advanced BFD applicability close-out. | Align code comments, config examples, RFC docs, and audit notes with Micro-BFD actuator and VXLAN/Geneve dataplane ownership limits. Commit: `docs(linux): document advanced bfd applicability`. |
-| **S7** | Independent production integration assets. | In progress: generic runbooks, Kubernetes manifest hardening, Prometheus rule correction, FRR/GoBGP example documentation, public EOS verification notes, Micro-BFD actuator policy/config wiring, kernel-bond backend, OVS CLI fallback, OVSDB research, native OVSDB backend, NetworkManager D-Bus backend, and overlay backend model are done; remaining work moves to S8. Commit: `feat(examples): add production integration assets`. |
+| **S7** | Independent production integration assets. | Done for generic runbooks, Kubernetes manifest hardening, Prometheus rule correction, FRR/GoBGP example documentation, public EOS verification notes, Micro-BFD actuator policy/config wiring, kernel-bond backend, OVS CLI fallback, OVSDB research, native OVSDB backend, NetworkManager D-Bus backend, and overlay backend model. Commit: `feat(examples): add production integration assets`. |
 | **S7a** | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. Commit: `docs(examples): add production integration runbooks`. |
 | **S7b** | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. Commit: `docs(examples): document bgp failover interop`. |
-| **S7.1** | Linux Micro-BFD actuator. | In progress: `MicroBFDActuator` hook, guarded `netio.LAGActuator` policy, config validation, daemon dry-run wiring, explicit kernel-bond backend, OVS CLI fallback, native OVSDB backend, and NetworkManager D-Bus backend are done. Commit: `feat(netio): add linux lag actuator`. |
+| **S7.1** | Linux Micro-BFD actuator. | Partial production integration: `MicroBFDActuator` hook, guarded `netio.LAGActuator` policy, config validation, daemon dry-run wiring, explicit kernel-bond backend, OVS CLI fallback, native OVSDB backend, and NetworkManager D-Bus backend are done. Dedicated API/CLI create flows remain S5b. Commit: `feat(netio): add linux lag actuator`. |
 | **S7.1b** | Linux LAG actuator config wiring. | Add config validation and daemon wiring for disabled/dry-run/enforce policy modes without destructive Linux changes. Commit: `feat(config): wire micro-bfd actuator config`. |
 | **S7.1c** | Kernel bond LAG backend. | Add Linux bonding sysfs backend and daemon enforce wiring for explicit `backend: kernel-bond` plus `owner_policy: allow-external`. Commit: `feat(netio): add kernel bond lag backend`. |
 | **S7.1d** | OVS CLI fallback backend. | Add transitional OVS bonded-port backend using `ovs-vsctl add-bond-iface` / `del-bond-iface` for explicit `backend: ovs` plus `owner_policy: allow-external`. Commit: `feat(netio): add ovs lag backend`. |
@@ -123,7 +123,9 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S8** | `v0.5.0` readiness. | `make verify`, RFC/BGP interop, release dry-run, changelog, SemVer tag plan, and pkg.go.dev documentation all pass review. Commit: `chore(release): prepare v0.5.0`. |
+| **S8** | `v0.5.0` release readiness. | Done: release dry-run, changelog, SemVer tag plan, docs layout, and package artifacts were prepared without a v1 bump. Commit: `chore(release): prepare v0.5.0`. |
+| **S8.1** | `v0.5.2` pkg.go.dev close-out. | Done: command package docs and canonical Apache-2.0 license text restored pkg.go.dev command and license rendering. Commits: `docs(docs): document pkg.go.dev command pages`, `fix(docs): restore pkg.go.dev license detection`. |
+| **S9** | Documentation and Scorecard hardening. | In progress: close post-release doc drift, remove non-canonical Markdown, document one-maintainer Scorecard constraints, and plan repository ruleset/token/pinning/provenance work without cutting a new release. Commit: `docs: sync scorecard and release documentation`. |
 
 ## 5. Definition of Done
 

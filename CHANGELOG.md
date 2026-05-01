@@ -294,7 +294,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0

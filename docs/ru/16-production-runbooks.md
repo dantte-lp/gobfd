@@ -192,8 +192,8 @@ vendor-документации.
 | Gap | Плановый sprint |
 |---|---|
 | Dedicated API/CLI create flows для Echo, Micro-BFD, VXLAN и Geneve | S5b |
-| Kernel/OVS/OVN/Cilium/NSX overlay backends beyond `userspace-udp` | Future |
-| pkg.go.dev polish и v0.5.0 release dry-run | S8 |
+| Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
+| Release signatures, provenance и Scorecard hardening | S9 |
 
 ---
 

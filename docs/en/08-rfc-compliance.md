@@ -8,9 +8,9 @@
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
-[![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
@@ -52,9 +52,9 @@
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Implemented** | Cease/10 subcode in shutdown communication |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Implemented** | Passive session auto-creation, per-interface policy |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Implemented** | EchoSession FSM, port 3785 listener, echo receiver, daemon wiring |
-| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Implemented** | MicroBFDGroup, per-member sessions, port 6784, `SO_BINDTODEVICE`, RunDispatch |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Implemented** | VXLANConn port 4789, inner packet assembly, OverlaySender/Receiver, daemon wiring |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Implemented** | GeneveConn port 6081, O=1/C=0, inner packet assembly, OverlaySender/Receiver, daemon wiring |
+| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Protocol implemented; production integration partial** | MicroBFDGroup, per-member sessions, port 6784, `SO_BINDTODEVICE`, RunDispatch, kernel-bond/OVSDB/NetworkManager enforcement paths |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Userspace backend implemented; owner backends planned** | VXLANConn port 4789, inner packet assembly, OverlaySender/Receiver, daemon wiring, explicit `userspace-udp` ownership |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Userspace backend implemented; owner backends planned** | GeneveConn port 6081, O=1/C=0, inner packet assembly, OverlaySender/Receiver, daemon wiring, explicit `userspace-udp` ownership |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Implemented** | PaddedPduSize, DF bit (`IP_PMTUDISC_DO`), zero-padding in TX path |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
@@ -276,7 +276,7 @@ Key differences from BFD control sessions:
 
 ### RFC 7130 Implementation Notes
 
-**Status**: Implemented
+**Status**: Protocol implemented; production integration partial
 
 **Implementation**: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 
@@ -327,7 +327,7 @@ explicit.
 
 ### RFC 8971 Implementation Notes
 
-**Status**: Implemented
+**Status**: Userspace backend implemented; owner-specific backends planned
 
 **Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -370,7 +370,7 @@ runtime backend already serving the receiver and does not bind a second socket.
 
 ### RFC 9521 Implementation Notes
 
-**Status**: Implemented
+**Status**: Userspace backend implemented; owner-specific backends planned
 
 **Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 

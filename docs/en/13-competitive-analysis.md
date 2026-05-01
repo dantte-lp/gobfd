@@ -65,7 +65,7 @@
 
 **google/gopacket**: Contains a BFD layer for packet parsing, not a protocol implementation.
 
-**GoBFD**: First production-oriented Go BFD implementation with zero-allocation hot path, base RFC 5880/5881 coverage, authentication, unaffiliated echo, overlay support (VXLAN/Geneve), and comprehensive benchmarks.
+**GoBFD**: Production-oriented Go BFD implementation with zero-allocation hot path, base RFC 5880/5881 coverage, authentication, unaffiliated echo, userspace VXLAN/Geneve protocol support, and comprehensive benchmarks. Owner-specific overlay dataplane integrations remain future work.
 
 ---
 
@@ -80,9 +80,9 @@
 | Auth MD5 (RFC 5880 §6.7) | Yes | Yes | Limited | No |
 | Auth SHA1 (RFC 5880 §6.7) | Yes | Yes | Limited | No |
 | CPI bit (Control Plane Independent) | Yes | Partial | No | No |
-| VXLAN BFD (RFC 8971) | Yes | No | No | No |
-| Geneve BFD (RFC 9521) | Yes | No | No | No |
-| Micro-BFD (RFC 7130) | Yes | No | No | No |
+| VXLAN BFD (RFC 8971) | Userspace backend | No | No | No |
+| Geneve BFD (RFC 9521) | Userspace backend | No | No | No |
+| Micro-BFD (RFC 7130) | Partial integration | No | No | No |
 | Zero-alloc hot path | Yes | N/A (C) | N/A (C) | No |
 | GoBGP integration | Yes | N/A | N/A | No |
 | Prometheus metrics | Yes | Via SNMP | No | No |

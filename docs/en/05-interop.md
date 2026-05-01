@@ -536,7 +536,7 @@ netlab automatically handles IP addressing, BGP AS assignment, and BFD session c
 
 ### Three-Tier Testing Strategy
 
-Based on the analysis in `docs/tmp/17-bfd-ecosystem-technical-analysis.md`:
+Vendor interop coverage uses three tiers:
 
 | Tier | Vendor | Purpose | RFC Coverage |
 |---|---|---|---|

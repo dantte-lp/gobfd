@@ -119,4 +119,4 @@ Production constraints:
 | S7.1e | Native OVSDB bonded-port backend added. |
 | S7.1f | NetworkManager D-Bus backend added. |
 | S7.2 | Overlay backend model for VXLAN/Geneve dataplane coexistence added. |
-| S8 | README, docs indexes and pkg.go.dev release surface aligned to `v0.5.0`. |
+| S8 | README, docs indexes and pkg.go.dev release surface aligned to `v0.5.2`. |

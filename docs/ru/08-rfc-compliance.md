@@ -8,9 +8,9 @@
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
-[![RFC 7130](https://img.shields.io/badge/RFC_7130-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
@@ -52,9 +52,9 @@
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Реализован** | Cease/10 subcode в строке shutdown |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Реализован** | Автосоздание пассивных сессий, политика per-interface |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Реализован** | EchoSession FSM, слушатель порта 3785, echo receiver, подключение к демону |
-| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Реализован** | MicroBFDGroup, per-member сессии, порт 6784, `SO_BINDTODEVICE`, RunDispatch |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Реализован** | VXLANConn порт 4789, сборка inner-пакетов, OverlaySender/Receiver, подключение к демону |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Реализован** | GeneveConn порт 6081, O=1/C=0, сборка inner-пакетов, OverlaySender/Receiver, подключение к демону |
+| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Протокол реализован; production integration частичная** | MicroBFDGroup, per-member сессии, порт 6784, `SO_BINDTODEVICE`, RunDispatch, kernel-bond/OVSDB/NetworkManager enforcement paths |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Userspace backend реализован; owner backends planned** | VXLANConn порт 4789, сборка inner-пакетов, OverlaySender/Receiver, daemon wiring, explicit `userspace-udp` ownership |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Userspace backend реализован; owner backends planned** | GeneveConn порт 6081, O=1/C=0, сборка inner-пакетов, OverlaySender/Receiver, daemon wiring, explicit `userspace-udp` ownership |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Реализован** | PaddedPduSize, бит DF (`IP_PMTUDISC_DO`), zero-padding в TX-пути |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
@@ -214,7 +214,7 @@ RFC 9747 определяет unaffiliated BFD echo для обнаружени�
 
 ### Заметки по RFC 7130
 
-**Статус**: Реализован
+**Статус**: Протокол реализован; production integration частичная
 
 Реализация: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 
@@ -264,7 +264,7 @@ available bond port profile при явном `owner_policy: networkmanager-dbus
 
 ### Заметки по RFC 8971
 
-**Статус**: Реализован
+**Статус**: Userspace backend реализован; owner-specific backends planned
 
 Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -308,7 +308,7 @@ closed до появления owner-specific integration. Sender reconciliation
 
 ### Заметки по RFC 9521
 
-**Статус**: Реализован
+**Статус**: Userspace backend реализован; owner-specific backends planned
 
 Реализация: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
