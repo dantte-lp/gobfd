@@ -7,6 +7,25 @@
 
 ## [Не выпущено]
 
+## [0.5.2] - 2026-05-01
+
+### Исправлено
+
+- Восстановлен каноничный текст лицензии Apache-2.0, чтобы pkg.go.dev мог
+  определить лицензию модуля и показывать документацию пакетов.
+
+## [0.5.1] - 2026-05-01
+
+### Добавлено
+
+- Badge pkg.go.dev в README и package documentation для command packages:
+  `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` и `gobfd-exabgp-bridge`.
+
+### Изменено
+
+- PR benchmark comparison теперь запускает только стабильные hot-path
+  benchmarks и использует явный timeout для `go test`.
+
 ## [0.5.0] - 2026-05-01
 
 ### Добавлено
