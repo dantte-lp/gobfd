@@ -19,6 +19,8 @@
   topology, static RFC 5880 authentication, CLI list/show/event checks,
   metrics checks, SIGHUP reload, graceful AdminDown packet capture и
   standardized S10 artifacts.
+- S10.3 routing E2E target `make e2e-routing`: normalized FRR/BIRD3 BFD
+  interop и GoBGP/ExaBGP BGP+BFD coupling evidence в S10 artifact contract.
 
 ### Исправлено
 

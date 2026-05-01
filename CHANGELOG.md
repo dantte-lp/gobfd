@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   topology, static RFC 5880 authentication, CLI list/show/event checks,
   metrics checks, SIGHUP reload, graceful AdminDown packet capture, and
   standardized S10 artifacts.
+- S10.3 routing E2E target `make e2e-routing` with normalized FRR/BIRD3 BFD
+  interop and GoBGP/ExaBGP BGP+BFD coupling evidence under the S10 artifact
+  contract.
 
 ### Fixed
 

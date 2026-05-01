@@ -32,7 +32,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         up down restart logs shell clean tidy \
         dev-ps dev-project \
         e2e-help e2e-core e2e-core-test e2e-core-up e2e-core-down e2e-core-logs \
-        e2e-routing e2e-rfc e2e-overlay e2e-linux e2e-vendor \
+        e2e-routing e2e-routing-test e2e-rfc e2e-overlay e2e-linux e2e-vendor \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
@@ -73,7 +73,7 @@ e2e-help:
 	@printf '%s\n' \
 		'S10 E2E targets' \
 		'  e2e-core      implemented: GoBFD daemon-to-daemon scenarios' \
-		'  e2e-routing   planned: FRR/BIRD3/GoBGP/ExaBGP aggregate' \
+		'  e2e-routing   implemented: FRR/BIRD3/GoBGP/ExaBGP aggregate' \
 		'  e2e-rfc       planned: RFC 7419/9384/9468/9747 aggregate' \
 		'  e2e-overlay   planned: VXLAN/Geneve backend boundary checks' \
 		'  e2e-linux     planned: rtnetlink/kernel-bond/OVSDB/NM ownership checks' \
@@ -102,8 +102,14 @@ e2e-core-logs:
 	$(E2E_CORE_DC) logs -f
 
 e2e-routing:
-	@echo "e2e-routing: planned in S10.3; not implemented in S10.1"
-	@exit 2
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/routing/run.sh
+
+e2e-routing-test:
+	$(EXEC) env INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
+		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
+	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
+		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
 e2e-rfc:
 	@echo "e2e-rfc: planned in S10.4; not implemented in S10.1"

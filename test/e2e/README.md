@@ -22,7 +22,7 @@ optional vendor profiles.
 | Target | Status | Input |
 |---|---|---|
 | `make e2e-core` | Implemented S10.2 | GoBFD-to-GoBFD Podman topology, static auth, CLI, metrics, reload, packet capture. |
-| `make e2e-routing` | Planned S10.3 | `make interop`, `make interop-bgp`, routing examples. |
+| `make e2e-routing` | Implemented S10.3 | FRR/BIRD3 BFD interop, GoBGP/ExaBGP BGP+BFD coupling, merged routing artifacts. |
 | `make e2e-rfc` | Planned S10.4 | `make interop-rfc`. |
 | `make e2e-overlay` | Planned S10.4 | VXLAN/Geneve backend-boundary tests. |
 | `make e2e-linux` | Planned S10.5 | rtnetlink, kernel-bond, OVSDB, NetworkManager isolated tests. |
@@ -61,6 +61,17 @@ runtime/gobfd-a.yml
 runtime/gobfd-b.yml
 captures/bfd.pcapng
 pcap-summary.tsv
+```
+
+The `e2e-routing` target also writes:
+
+```text
+interop/go-test.json
+interop/packets.pcapng
+interop/packets.csv
+interop-bgp/go-test.json
+interop-bgp/packets.pcapng
+interop-bgp/packets.csv
 ```
 
 ## Cleanup Policy

@@ -126,7 +126,8 @@ graph TD
 | Files | `test/e2e/routing/`, existing `test/interop/`, `test/interop-bgp/`. |
 | Scenarios | Session establishment, BGP route withdrawal, BGP route recovery, peer-specific state snapshots. |
 | Required target | `make e2e-routing`. |
-| Acceptance | Existing `make interop` и `make interop-bgp` evidence нормализована в один artifact directory без ослабления текущих targets. |
+| Acceptance | Existing `test/interop` и `test/interop-bgp` evidence normalized into `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, `packets.pcapng`, `packets.csv`, `interop/` и `interop-bgp/` без weakening current targets. |
+| Status | Implemented. |
 | Commit | `test(interop): aggregate routing interop evidence` |
 
 ### S10.4 -- RFC and Overlay Ownership

@@ -119,7 +119,7 @@ Required output:
 ```text
 S10 E2E targets
   e2e-core      implemented: GoBFD daemon-to-daemon scenarios
-  e2e-routing   planned: FRR/BIRD3/GoBGP/ExaBGP aggregate
+  e2e-routing   implemented: FRR/BIRD3/GoBGP/ExaBGP aggregate
   e2e-rfc       planned: RFC 7419/9384/9468/9747 aggregate
   e2e-overlay   planned: VXLAN/Geneve backend boundary checks
   e2e-linux     planned: rtnetlink/kernel-bond/OVSDB/NM ownership checks
@@ -131,13 +131,13 @@ S10 E2E targets
 Required behavior:
 
 ```bash
-make e2e-routing
+make e2e-rfc
 ```
 
 Expected:
 
 ```text
-e2e-routing: planned in S10.3; not implemented in S10.1
+e2e-rfc: planned in S10.4; not implemented in S10.1
 ```
 
 Exit code:
