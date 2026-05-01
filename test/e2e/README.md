@@ -87,6 +87,17 @@ The `e2e-overlay` target also writes:
 packets.csv
 ```
 
+## HTML Report Backlog
+
+Future S10 report generation must add:
+
+- `index.html` in every `reports/e2e/<target>/<YYYYMMDDTHHMMSSZ>/` directory.
+- One shared JavaScript renderer for all E2E targets.
+- One shared stylesheet aligned with the repository visual identity.
+- Target status summary, duration, environment metadata, container state, packet
+  evidence tables, artifact links, and collapsible logs.
+- Standalone offline rendering without external network dependencies.
+
 ## Cleanup Policy
 
 | Resource | Requirement |

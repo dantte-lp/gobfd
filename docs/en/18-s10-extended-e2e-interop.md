@@ -63,6 +63,7 @@ Canonical plan for the S10 evidence sprint.
 | Assertion layer | Keep Go tests as the protocol assertion layer. |
 | Podman control | Add a shared Go helper for Podman REST API operations before expanding E2E assertions. |
 | Artifact model | Standardize every S10 target on `reports/e2e/<target>/<timestamp>/`. |
+| Human report model | Add a standalone HTML report per E2E run with a shared JavaScript renderer, repository-themed styling, target status summary, artifact links, packet evidence tables, container state, and collapsible logs. |
 | Worktree safety | Require validation that the dev/test container is mounted to the active checkout before evidence is accepted. |
 | Host Go | Do not use host `go test` in S10 gates. |
 | `testcontainers-go` | Not used for S10.2. Keep compose topology for packet capture, static addressing, and artifact parity with existing interop targets. |
@@ -169,10 +170,11 @@ graph TD
 | Field | Value |
 |---|---|
 | Output | CI split between PR-safe, nightly, and manual evidence gates. |
-| Files | `.github/workflows/ci.yml`, `.github/workflows/e2e.yml`, `docs/en/12-benchmarks.md`, `docs/ru/12-benchmarks.md`. |
+| Files | `.github/workflows/ci.yml`, `.github/workflows/e2e.yml`, `scripts/e2e-report/`, `docs/en/12-benchmarks.md`, `docs/ru/12-benchmarks.md`. |
 | PR gate | `make e2e-core` plus fast overlay fail-closed checks. |
 | Nightly gate | `make e2e-routing`, `make e2e-rfc`, `make e2e-linux`, benchmark comparison. |
 | Manual gate | `make e2e-vendor`. |
+| HTML report backlog | `reports/e2e/<target>/<timestamp>/index.html` is generated from the standard JSON, CSV, PCAP metadata, summary, and container artifacts. The renderer is shared by all S10 targets and uses a consistent repository visual style. |
 | Benchmark rule | Existing hot-path benchmark comparison remains stable; S10 adds E2E artifacts, not noisy interop microbenchmarks. |
 | Commit | `ci(interop): publish extended evidence artifacts` |
 
