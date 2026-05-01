@@ -386,7 +386,7 @@ graph TD
 | **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, бесплатно |
 | **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Бесплатный аккаунт Arista.com |
 | SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Бесплатно |
-| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, built from ISO | Бесплатно (rolling) |
+| VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Бесплатный rolling/community image |
 | Cisco XRd | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Deferred | Сервисный контракт Cisco |
 
 ### Предварительные требования
@@ -401,7 +401,7 @@ graph TD
 Самодостаточный скрипт на Python 3.12+ автоматизирует полную подготовку образов с чистой машины:
 
 ```bash
-# Скачать все open-source образы + собрать VyOS из ISO + собрать GoBFD
+# Скачать все public образы + подготовить VyOS tag + собрать GoBFD
 python3 test/interop-clab/bootstrap.py -v
 
 # С коммерческими образами
@@ -420,8 +420,8 @@ python3 test/interop-clab/bootstrap.py --dry-run
 
 Скрипт выполняет:
 - **Предварительные проверки**: podman, go, системные утилиты, свободное место
-- **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, FRRouting (+ зависимости сборки)
-- **Сборка образа VyOS**: скачивание rolling ISO, извлечение squashfs, импорт в podman
+- **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ зависимости сборки)
+- **Подготовка образа VyOS**: скачивание `docker.io/muruu1/vyos:latest`, tag как `vyos:latest`; ISO build остаётся fallback
 - **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
 - **Отчёт об инвентаризации**: итоговая таблица всех образов со статусом готовности
@@ -439,6 +439,10 @@ make interop-clab-up     # Сборка + деплой топологии
 make interop-clab-test   # Запуск Go-тестов (топология должна работать)
 make interop-clab-down   # Уничтожение контейнеров и veth-линков
 ```
+
+`make interop-clab` скачивает public images Nokia SR Linux, SONiC-VS, VyOS и
+FRRouting до проверки availability. Cisco XRd и Arista cEOS остаются
+operator-provided images.
 
 ### Матрица соответствия RFC
 

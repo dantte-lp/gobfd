@@ -58,6 +58,9 @@
 - Podman-only execution path для `make interop-clab`: target запускает dev
   container, выполняет Go vendor interop tests через него и фиксирует S11.3
   evidence для Arista cEOS и FRRouting IPv4/IPv6 BFD.
+- Public vendor NOS image path для Nokia SR Linux, SONiC-VS и VyOS с
+  `make interop-clab` evidence для 8/10 доступных vendor BFD sessions; Cisco
+  XRd остаётся licensed/operator-provided.
 
 ### Исправлено
 

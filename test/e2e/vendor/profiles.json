@@ -121,9 +121,11 @@
       ],
       "images": [
         "localhost/vyos:latest",
+        "docker.io/muruu1/vyos:latest",
+        "muruu1/vyos:latest",
         "vyos:latest"
       ],
-      "skip_policy": "manual-only-image",
+      "skip_policy": "missing-image",
       "scenario": "single-hop-bfd-with-bgp-trigger",
       "standards": [
         "RFC 5880",

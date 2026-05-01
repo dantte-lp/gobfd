@@ -71,10 +71,11 @@ topology:
       image: docker.io/netreplica/docker-sonic-vs:latest
 
     # === VyOS (ASN 65006) ===
-    # Image: build from nightly ISO (see README.md)
+    # Official reproducible image path: build from a VyOS Stream/nightly ISO.
+    # Public lab mirror used by run.sh when present: docker.io/muruu1/vyos:latest.
     vyos:
       kind: vyosnetworks_vyos
-      image: vyos:latest
+      image: docker.io/muruu1/vyos:latest
       startup-config: vyos/config.boot
 
     # === FRRouting (ASN 65007) ===

@@ -383,7 +383,7 @@ graph TD
 | **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, free |
 | **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Free Arista.com account |
 | SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Free |
-| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, built from ISO | Free (rolling) |
+| VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Free rolling/community image |
 | Cisco XRd | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Deferred | Cisco service contract |
 
 ### Prerequisites
@@ -398,7 +398,7 @@ graph TD
 A self-contained Python 3.12+ script automates full image preparation from a clean machine:
 
 ```bash
-# Pull all open-source images + build VyOS from ISO + build GoBFD
+# Pull all public images + prepare VyOS tag + build GoBFD
 python3 test/interop-clab/bootstrap.py -v
 
 # With commercial images
@@ -417,8 +417,8 @@ python3 test/interop-clab/bootstrap.py --dry-run
 
 The script handles:
 - **Preflight checks**: podman, go, host tools, disk space
-- **Parallel image pulls**: Nokia SR Linux, SONiC-VS, FRRouting (+ build dependencies)
-- **VyOS image build**: downloads rolling ISO, extracts squashfs, imports into podman
+- **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ build dependencies)
+- **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
 - **Inventory report**: final table of all images with ready/missing status
@@ -436,6 +436,10 @@ make interop-clab-up     # Build + deploy topology
 make interop-clab-test   # Run Go tests (topology must be up)
 make interop-clab-down   # Destroy containers and veth links
 ```
+
+`make interop-clab` pulls public Nokia SR Linux, SONiC-VS, VyOS, and FRRouting
+images before availability checks. Cisco XRd and Arista cEOS remain
+operator-provided images.
 
 ### RFC Compliance Matrix
 

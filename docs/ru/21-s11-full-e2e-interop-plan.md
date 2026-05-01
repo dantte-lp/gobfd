@@ -27,7 +27,7 @@
 |---|---|---|
 | S11.1 shared Podman API helper | Implemented | `test/internal/podmanapi`, interop wrappers, Podman-only test/lint/gopls/doc gates |
 | S11.2 full local E2E run | Implemented | Core, overlay, routing, RFC и Linux local E2E evidence recorded |
-| S11.3 vendor NOS execution | Implemented | `make e2e-vendor` and `make interop-clab`; Arista cEOS plus FRRouting IPv4/IPv6 evidence |
+| S11.3 vendor NOS execution | Implemented | `make e2e-vendor` and `make interop-clab`; public Nokia SR Linux, SONiC-VS, VyOS plus Arista cEOS and FRRouting evidence |
 | S11.4 styled HTML reports | Pending | Not started |
 | S11.5 remote CI evidence | Pending | Not started |
 | S11.6 backend decision gate | Pending | Not started |
@@ -258,9 +258,9 @@ Evidence:
 
 | Artifact | Value |
 |---|---|
-| Report directory | `reports/e2e/vendor/20260501T205235Z` |
-| Available images | `localhost/ceos:4.36.0.1F`, `ceos:4.36.0.1F`, `quay.io/frrouting/frr:10.2.5` |
-| Skipped images | Nokia SR Linux `missing-image`; SONiC-VS `missing-image`; VyOS `manual-only-image`; Cisco XRd `licensed-vendor-image` |
+| Report directory | `reports/e2e/vendor/20260501T212429Z` |
+| Available images | `localhost/ceos:4.36.0.1F`, `ghcr.io/nokia/srlinux:25.10.2`, `docker.io/netreplica/docker-sonic-vs:latest`, `docker.io/muruu1/vyos:latest`, `quay.io/frrouting/frr:10.2.5` |
+| Skipped images | Cisco XRd `licensed-vendor-image` |
 | Podman verification | `make e2e-vendor` passed |
 
 - [x] **Step 2: Execute available vendor profiles**
@@ -277,11 +277,11 @@ Evidence:
 
 | Check | Result |
 |---|---|
-| Available vendors | Arista cEOS IPv4/IPv6; FRRouting IPv4/IPv6 |
-| Session establishment | 4/4 available sessions Up |
-| Failure detection | Arista IPv4/IPv6 and FRR IPv4/IPv6 transitioned Down with `ControlTimeExpired` and recovered |
+| Available vendors | Arista cEOS IPv4/IPv6; Nokia SR Linux IPv4/IPv6; SONiC-VS IPv4; VyOS IPv4; FRRouting IPv4/IPv6 |
+| Session establishment | 8/8 available sessions Up |
+| Failure detection | Arista IPv4/IPv6, Nokia IPv4/IPv6, SONiC-VS IPv4, VyOS IPv4, and FRR IPv4/IPv6 transitioned Down with `ControlTimeExpired` and recovered |
 | Packet format | Captured BFDv1, UDP destination port `3784`, IPv4 TTL `255`, IPv6 Hop Limit `255` |
-| Detection timing | Arista: 973ms-1.036s; FRR: 808ms-971ms for 300ms x multiplier 3 |
+| Detection timing | Arista: 731-825ms; Nokia: 268-279ms; SONiC-VS: 1.016s; VyOS: 834ms; FRR: 783-809ms |
 | Podman verification | `make interop-clab` passed; Go tests ran through dev Podman container |
 
 - [x] **Step 3: Record profile status**
@@ -291,10 +291,10 @@ Required profile states:
 | Vendor | State |
 |---|---|
 | Arista cEOS | pass: IPv4/IPv6 |
-| Nokia SR Linux | missing-image |
-| SONiC-VS | missing-image |
-| VyOS | manual-only-image |
-| FRR | pass |
+| Nokia SR Linux | pass: IPv4/IPv6 |
+| SONiC-VS | pass: IPv4 |
+| VyOS | pass: IPv4 |
+| FRR | pass: IPv4/IPv6 |
 | Cisco XRd | licensed-vendor-image; deferred |
 
 - [x] **Step 4: Verify RFC/vendor claims**

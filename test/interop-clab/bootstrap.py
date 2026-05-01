@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Bootstrap the GoBFD vendor interop lab from a clean machine.
 
-Automates full image preparation: pulls open-source NOS images, builds VyOS
-from ISO, imports commercial tarballs, builds GoBFD, then optionally delegates
-to run.sh for deployment and testing.
+Automates full image preparation: pulls public NOS images, prepares a VyOS
+runtime tag, imports commercial tarballs, builds GoBFD, then optionally
+delegates to run.sh for deployment and testing.
 
 Requires Python 3.12+, podman, go. No external Python dependencies.
 """
@@ -39,6 +39,7 @@ MIN_DISK_GB = 15
 OPEN_SOURCE_IMAGES: dict[str, str] = {
     "nokia": "ghcr.io/nokia/srlinux:{nokia_tag}",
     "sonic": "docker.io/netreplica/docker-sonic-vs:{sonic_tag}",
+    "vyos": "docker.io/muruu1/vyos:{vyos_tag}",
     "frr": "quay.io/frrouting/frr:{frr_tag}",
     "gobgp": "docker.io/jauderho/gobgp:v3.33.0",
     "golang": "docker.io/golang:1.26-trixie",
@@ -59,8 +60,8 @@ INVENTORY: list[dict[str, str]] = [
     },
     {
         "label": "VyOS",
-        "ref_tpl": "vyos:latest",
-        "source": "built from ISO",
+        "ref_tpl": "docker.io/muruu1/vyos:{vyos_tag}",
+        "source": "pull, tagged as vyos:latest",
     },
     {
         "label": "FRRouting",
@@ -269,7 +270,7 @@ def _check_podman_socket() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2: Pull open-source images
+# Phase 2: Pull public images
 # ---------------------------------------------------------------------------
 
 
@@ -329,7 +330,7 @@ def _pull_images(
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Build VyOS from ISO
+# Phase 3: Prepare VyOS image
 # ---------------------------------------------------------------------------
 
 
@@ -486,19 +487,32 @@ def _build_vyos(
     *,
     vyos_iso: str | None,
     vyos_version: str,
+    vyos_image: str,
     skip_pull: bool,
     dry_run: bool,
 ) -> bool:
-    """Build VyOS container image from ISO. Returns success."""
+    """Prepare the VyOS image expected by run.sh. Returns success."""
     if skip_pull and _image_exists("vyos:latest"):
         _log.info("VyOS image already exists (skipped)")
         return True
     if _image_exists("vyos:latest", dry_run=dry_run) and not dry_run:
         _log.info("VyOS image already present")
         return True
-    if dry_run:
-        _log.info("[dry-run] would build vyos:latest from ISO")
+
+    if not vyos_iso and _image_exists(vyos_image, dry_run=dry_run):
+        _log.info("tagging %s as vyos:latest", vyos_image)
+        _run(["podman", "tag", vyos_image, "vyos:latest"], dry_run=dry_run)
         return True
+
+    if dry_run:
+        _log.info("[dry-run] would tag %s as vyos:latest", vyos_image)
+        return True
+
+    if not vyos_iso:
+        _log.warning(
+            "public VyOS image %s is unavailable; falling back to ISO build",
+            vyos_image,
+        )
 
     if not _which("unsquashfs"):
         _log.error("unsquashfs not found — install squashfs-tools")
@@ -871,7 +885,7 @@ def _parse_args() -> argparse.Namespace:
         "--vyos-version",
         metavar="VER",
         default="latest",
-        help="VyOS rolling version (default: %(default)s)",
+        help="VyOS rolling version used by ISO fallback (default: %(default)s)",
     )
 
     g = p.add_argument_group("image tags")
@@ -892,6 +906,12 @@ def _parse_args() -> argparse.Namespace:
         metavar="TAG",
         default="latest",
         help="SONiC-VS tag (default: %(default)s)",
+    )
+    g.add_argument(
+        "--vyos-tag",
+        metavar="TAG",
+        default="latest",
+        help="public VyOS container tag (default: %(default)s)",
     )
 
     g = p.add_argument_group("behaviour")
@@ -949,6 +969,7 @@ def _build_tags(args: argparse.Namespace) -> dict[str, str]:
     return {
         "nokia_tag": args.nokia_tag,
         "sonic_tag": args.sonic_tag,
+        "vyos_tag": args.vyos_tag,
         "frr_tag": args.frr_tag,
         "arista_tag": arista_tag,
         "cisco_tag": cisco_tag,
@@ -965,7 +986,7 @@ def _run_phases(args: argparse.Namespace) -> list[str]:
     _preflight(dry)
 
     _log.info(
-        "%s--- Phase 2: Pull open-source images ---%s",
+        "%s--- Phase 2: Pull public images ---%s",
         _c.bold,
         _c.reset,
     )
@@ -979,13 +1000,14 @@ def _run_phases(args: argparse.Namespace) -> list[str]:
     failures.extend(f"pull:{n}" for n, ok in results.items() if not ok)
 
     _log.info(
-        "%s--- Phase 3: Build VyOS image ---%s",
+        "%s--- Phase 3: Prepare VyOS image ---%s",
         _c.bold,
         _c.reset,
     )
     if not _build_vyos(
         vyos_iso=args.vyos_iso,
         vyos_version=args.vyos_version,
+        vyos_image=resolved["vyos"],
         skip_pull=args.skip_pull,
         dry_run=dry,
     ):

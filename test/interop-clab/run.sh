@@ -66,14 +66,16 @@ NOKIA_SRLINUX_IMAGE="$(resolve_image "ghcr.io/nokia/srlinux:25.10.2" \
     "${NOKIA_SRLINUX_IMAGE:-}" \
     "ghcr.io/nokia/srlinux:25.10.2" \
     "ghcr.io/nokia/srlinux:24.10.1")"
-SONIC_VS_IMAGE="$(resolve_image "docker-sonic-vs:latest" \
+SONIC_VS_IMAGE="$(resolve_image "docker.io/netreplica/docker-sonic-vs:latest" \
     "${SONIC_VS_IMAGE:-}" \
     "docker.io/netreplica/docker-sonic-vs:latest" \
     "netreplica/docker-sonic-vs:latest" \
     "docker-sonic-vs:latest")"
-VYOS_IMAGE="$(resolve_image "vyos:latest" \
+VYOS_IMAGE="$(resolve_image "docker.io/muruu1/vyos:latest" \
     "${VYOS_IMAGE:-}" \
     "localhost/vyos:latest" \
+    "docker.io/muruu1/vyos:latest" \
+    "muruu1/vyos:latest" \
     "vyos:latest")"
 
 VENDOR_DEFS=(
@@ -960,6 +962,33 @@ show_vendor_images() {
     done
 }
 
+pull_image_if_missing() {
+    local label="$1" image="$2"
+
+    if podman image exists "${image}" 2>/dev/null; then
+        info "  ${label} (${image}): already present"
+        return 0
+    fi
+
+    info "  ${label} (${image}): pulling"
+    if podman pull "${image}" >/dev/null; then
+        pass "${label} image ready: ${image}"
+        return 0
+    fi
+
+    fail "${label} image pull failed: ${image}"
+    return 1
+}
+
+prepare_public_images() {
+    info "preparing public NOS/baseline images:"
+
+    pull_image_if_missing "Nokia SR Linux" "${NOKIA_SRLINUX_IMAGE}"
+    pull_image_if_missing "SONiC-VS" "${SONIC_VS_IMAGE}"
+    pull_image_if_missing "VyOS" "${VYOS_IMAGE}"
+    pull_image_if_missing "FRRouting" "quay.io/frrouting/frr:10.2.5"
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -979,6 +1008,7 @@ if [ "${TEST_ONLY}" = true ]; then
 fi
 
 check_prerequisites
+prepare_public_images
 show_vendor_images
 
 build_gobfd_image

@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Podman-only `make interop-clab` execution path that starts the dev container,
   runs Go vendor interop tests through that container, and records Arista cEOS
   plus FRRouting IPv4/IPv6 BFD evidence for S11.3.
+- Public vendor NOS image path for Nokia SR Linux, SONiC-VS, and VyOS, with
+  `make interop-clab` evidence for 8/10 available vendor BFD sessions; Cisco
+  XRd remains licensed/operator-provided.
 
 ### Fixed
 
