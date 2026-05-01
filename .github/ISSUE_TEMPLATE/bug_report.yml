@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a reproducible GoBFD defect.
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities must be reported through GitHub Security Advisories, not public issues.
+  - type: input
+    id: version
+    attributes:
+      label: GoBFD version
+      description: Output of `gobfd --version` or release tag.
+      placeholder: v0.5.0
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment mode
+      options:
+        - bare metal
+        - systemd
+        - Podman
+        - Kubernetes
+        - interop lab
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide deterministic steps, configuration excerpts, and commands.
+      placeholder: |
+        1. Start gobfd with ...
+        2. Send packet or change link state ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, packet capture, or test output
+      description: Redact secrets and private addresses when required.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I have searched existing issues.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

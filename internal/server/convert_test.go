@@ -95,6 +95,10 @@ func TestSessionTypeToProto(t *testing.T) {
 	}{
 		{"SingleHop", bfd.SessionTypeSingleHop, bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP},
 		{"MultiHop", bfd.SessionTypeMultiHop, bfdv1.SessionType_SESSION_TYPE_MULTI_HOP},
+		{"Echo", bfd.SessionTypeEcho, bfdv1.SessionType_SESSION_TYPE_ECHO},
+		{"MicroBFD", bfd.SessionTypeMicroBFD, bfdv1.SessionType_SESSION_TYPE_MICRO_BFD},
+		{"VXLAN", bfd.SessionTypeVXLAN, bfdv1.SessionType_SESSION_TYPE_VXLAN},
+		{"Geneve", bfd.SessionTypeGeneve, bfdv1.SessionType_SESSION_TYPE_GENEVE},
 		{"Unknown", bfd.SessionType(99), bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED},
 	}
 
@@ -124,6 +128,10 @@ func TestSessionTypeFromProto(t *testing.T) {
 	}{
 		{"SingleHop", bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, bfd.SessionTypeSingleHop, false},
 		{"MultiHop", bfdv1.SessionType_SESSION_TYPE_MULTI_HOP, bfd.SessionTypeMultiHop, false},
+		{"Echo", bfdv1.SessionType_SESSION_TYPE_ECHO, bfd.SessionTypeEcho, false},
+		{"MicroBFD", bfdv1.SessionType_SESSION_TYPE_MICRO_BFD, bfd.SessionTypeMicroBFD, false},
+		{"VXLAN", bfdv1.SessionType_SESSION_TYPE_VXLAN, bfd.SessionTypeVXLAN, false},
+		{"Geneve", bfdv1.SessionType_SESSION_TYPE_GENEVE, bfd.SessionTypeGeneve, false},
 		{"Unspecified", bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED, 0, true},
 	}
 
@@ -204,6 +212,7 @@ func TestSnapshotToProto(t *testing.T) {
 		State:                bfd.StateInit,
 		RemoteState:          bfd.StateDown,
 		LocalDiag:            bfd.DiagPathDown,
+		AuthType:             bfd.AuthTypeKeyedSHA1,
 		DesiredMinTx:         100 * time.Millisecond,
 		RequiredMinRx:        200 * time.Millisecond,
 		DetectMultiplier:     5,
@@ -237,6 +246,9 @@ func TestSnapshotToProto(t *testing.T) {
 	}
 	if pb.GetLocalDiagnostic() != bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_PATH_DOWN {
 		t.Errorf("LocalDiagnostic = %s, want PATH_DOWN", pb.GetLocalDiagnostic())
+	}
+	if pb.GetAuthType() != bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1 {
+		t.Errorf("AuthType = %s, want KEYED_SHA1", pb.GetAuthType())
 	}
 	if pb.GetDetectMultiplier() != 5 {
 		t.Errorf("DetectMultiplier = %d, want 5", pb.GetDetectMultiplier())

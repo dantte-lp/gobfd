@@ -42,13 +42,21 @@ enum AuthenticationType {
   AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1 = 6;
 }
 
-// SessionType distinguishes single-hop from multi-hop BFD sessions.
+// SessionType identifies the BFD session family.
 enum SessionType {
   SESSION_TYPE_UNSPECIFIED = 0;
   // Single-hop: RFC 5881, port 3784, TTL=255 both ways.
   SESSION_TYPE_SINGLE_HOP = 1;
   // Multi-hop: RFC 5883, port 4784, TX TTL=255, RX TTL>=254.
   SESSION_TYPE_MULTI_HOP = 2;
+  // Echo: RFC 9747 unaffiliated BFD echo sessions.
+  SESSION_TYPE_ECHO = 3;
+  // Micro-BFD: RFC 7130 per-member LAG sessions, UDP port 6784.
+  SESSION_TYPE_MICRO_BFD = 4;
+  // VXLAN: RFC 8971 BFD over VXLAN Management VNI.
+  SESSION_TYPE_VXLAN = 5;
+  // Geneve: RFC 9521 BFD over Geneve tunnels.
+  SESSION_TYPE_GENEVE = 6;
 }
 
 // BfdSession represents the full state of a BFD session.
@@ -93,6 +101,8 @@ message AddSessionRequest {
   google.protobuf.Duration required_min_rx_interval = 6;
   uint32 detect_multiplier = 7 [(buf.validate.field).uint32 = {gte: 1}];
   AuthenticationType auth_type = 8;
+  uint32 auth_key_id = 9 [(buf.validate.field).uint32 = {lte: 255}];
+  bytes auth_secret = 10;
 }
 
 // AddSessionResponse returns the newly created session.

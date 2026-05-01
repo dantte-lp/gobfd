@@ -219,6 +219,9 @@ var (
 
 	// ErrInvalidPaddedPduSize indicates the padded PDU size is out of range.
 	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0 or between 24 and 9000")
+
+	// ErrMissingAuthKeyStore indicates authentication was configured without keys.
+	ErrMissingAuthKeyStore = errors.New("auth key store is required when auth is configured")
 )
 
 // -------------------------------------------------------------------------
@@ -379,7 +382,9 @@ type Session struct {
 	metrics  MetricsReporter
 	logger   *slog.Logger
 	recvCh   chan recvItem
+	ctrlCh   chan sessionControl
 	notifyCh chan<- StateChange
+	running  atomic.Bool
 }
 
 // recvItem carries a received BFD Control packet along with the raw
@@ -387,6 +392,17 @@ type Session struct {
 type recvItem struct {
 	pkt  *ControlPacket
 	wire []byte // raw wire bytes for auth digest verification
+}
+
+type sessionControlKind uint8
+
+const (
+	controlPathDown sessionControlKind = iota + 1
+	controlAdminDown
+)
+
+type sessionControl struct {
+	kind sessionControlKind
 }
 
 // -------------------------------------------------------------------------
@@ -441,6 +457,7 @@ func NewSession(
 		metrics:               noopMetrics{},
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
+		ctrlCh:                make(chan sessionControl, 4),
 		cachedPacket:          make([]byte, pktBufSize),
 		logger: logger.With(
 			slog.String("peer", cfg.PeerAddr.String()),
@@ -509,6 +526,29 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.PaddedPduSize != 0 && (cfg.PaddedPduSize < HeaderSize || cfg.PaddedPduSize > MaxPaddedPduSize) {
 		return fmt.Errorf("padded PDU size %d: %w", cfg.PaddedPduSize, ErrInvalidPaddedPduSize)
 	}
+	if err := validateSessionAuthConfig(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSessionAuthConfig(cfg SessionConfig) error {
+	if cfg.Auth == nil {
+		return nil
+	}
+	if cfg.AuthKeys == nil {
+		return ErrMissingAuthKeyStore
+	}
+
+	key := cfg.AuthKeys.CurrentKey()
+	authType, ok := authenticatorType(cfg.Auth)
+	if !ok {
+		return fmt.Errorf("authenticator %T: %w", cfg.Auth, ErrAuthTypeMismatch)
+	}
+	if key.Type != authType {
+		return fmt.Errorf("authenticator %s with key %s: %w",
+			authType, key.Type, ErrAuthKeyTypeMismatch)
+	}
 	return nil
 }
 
@@ -532,7 +572,11 @@ func (s *Session) initAuth(cfg SessionConfig) error {
 	if cfg.Auth == nil {
 		return nil
 	}
-	as, err := NewAuthState(AuthTypeNone)
+	authType, ok := authenticatorType(cfg.Auth)
+	if !ok {
+		return fmt.Errorf("init auth state: authenticator %T: %w", cfg.Auth, ErrAuthTypeMismatch)
+	}
+	as, err := NewAuthState(authType)
 	if err != nil {
 		return fmt.Errorf("init auth state: %w", err)
 	}
@@ -584,6 +628,14 @@ func (s *Session) Type() SessionType { return s.sessionType }
 
 // PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
 func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
+
+// AuthType returns the RFC 5880 authentication type configured for this session.
+func (s *Session) AuthType() AuthType {
+	if s.authState == nil {
+		return AuthTypeNone
+	}
+	return s.authState.Type
+}
 
 // DesiredMinTxInterval returns the configured desired minimum TX interval.
 func (s *Session) DesiredMinTxInterval() time.Duration {
@@ -671,11 +723,33 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
 // goroutine will rebuild the cached packet and transmit the AdminDown
 // state on the next TX interval.
 //
-// Thread-safe: uses atomic operations on state and diag.
+// Thread-safe: when the session goroutine is running, routes the transition
+// through ctrlCh so the goroutine-confined cached state stays coherent.
 func (s *Session) SetAdminDown() {
+	if s.running.Load() {
+		select {
+		case s.ctrlCh <- sessionControl{kind: controlAdminDown}:
+			return
+		default:
+			s.logger.Warn("session control channel full, applying AdminDown directly")
+		}
+	}
+
 	s.localDiag.Store(uint32(DiagAdminDown))
 	s.state.Store(uint32(StateAdminDown))
 	s.logger.Info("session set to AdminDown for graceful drain")
+}
+
+// SetPathDown asks the session goroutine to transition the session to Down
+// with DiagPathDown. It returns false if the control channel is full.
+func (s *Session) SetPathDown() bool {
+	select {
+	case s.ctrlCh <- sessionControl{kind: controlPathDown}:
+		return true
+	default:
+		s.logger.Warn("session control channel full, dropping path-down event")
+		return false
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -695,6 +769,10 @@ func (s *Session) Run(ctx context.Context) {
 	// Pin the session goroutine to an OS thread for sub-millisecond timer
 	// precision. BFD detection intervals can be as low as 50ms; OS thread
 	// affinity reduces scheduler-induced jitter on timer wakeups.
+	s.running.Store(true)
+	defer s.running.Store(false)
+	s.cachedState = s.State()
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -730,6 +808,9 @@ func (s *Session) runLoop(
 		case item := <-s.recvCh:
 			s.handleRecvPacket(ctx, item, txTimer, detectTimer)
 
+		case cmd := <-s.ctrlCh:
+			s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
+
 		case <-txTimer.C:
 			s.handleTxTimer(ctx, txTimer)
 
@@ -737,6 +818,47 @@ func (s *Session) runLoop(
 			s.handleDetectTimer(ctx, txTimer, detectTimer)
 		}
 	}
+}
+
+func (s *Session) handleControlCommand(
+	ctx context.Context,
+	cmd sessionControl,
+	txTimer *time.Timer,
+	detectTimer *time.Timer,
+) {
+	switch cmd.kind {
+	case controlPathDown:
+		s.handlePathDown(ctx, txTimer, detectTimer)
+	case controlAdminDown:
+		s.handleAdminDown(ctx, txTimer, detectTimer)
+	default:
+		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
+	}
+}
+
+func (s *Session) handleAdminDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
+	result := ApplyEvent(s.cachedState, EventAdminDown)
+	if !result.Changed {
+		s.localDiag.Store(uint32(DiagAdminDown))
+		return
+	}
+	result.Actions = append(result.Actions, ActionSendControl)
+	s.executeFSMActions(ctx, result, txTimer, detectTimer)
+}
+
+func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
+	oldState := s.cachedState
+	s.localDiag.Store(uint32(DiagPathDown))
+	if oldState == StateDown || oldState == StateAdminDown {
+		return
+	}
+
+	s.executeFSMActions(ctx, FSMResult{
+		OldState: oldState,
+		NewState: StateDown,
+		Changed:  true,
+		Actions:  []Action{ActionNotifyDown, ActionSendControl},
+	}, txTimer, detectTimer)
 }
 
 // -------------------------------------------------------------------------
@@ -805,6 +927,8 @@ func (s *Session) handleDetectTimer(
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
+	s.maybeResetAuthSeqKnown()
+
 	// Use cachedState (goroutine-confined) to avoid atomic load.
 	// RFC 5880 Section 6.8.4: only if bfd.SessionState is Init or Up.
 	if s.cachedState != StateInit && s.cachedState != StateUp {
@@ -813,6 +937,26 @@ func (s *Session) handleDetectTimer(
 		return
 	}
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
+}
+
+// maybeResetAuthSeqKnown implements RFC 5880 Section 6.8.1:
+// bfd.AuthSeqKnown MUST be reset to false after no packets have been received
+// for at least 2x Detection Time.
+func (s *Session) maybeResetAuthSeqKnown() {
+	if s.authState == nil || !s.authState.AuthSeqKnown {
+		return
+	}
+	lastNS := s.lastPacketRecv.Load()
+	if lastNS == 0 {
+		return
+	}
+
+	detectTime := s.calcDetectionTimeHot()
+	if time.Since(time.Unix(0, lastNS)) < 2*detectTime {
+		return
+	}
+
+	s.authState.AuthSeqKnown = false
 }
 
 // -------------------------------------------------------------------------
@@ -835,11 +979,6 @@ func (s *Session) handleRecvPacket(
 		return
 	}
 
-	// Record received packet counter and timestamp.
-	s.packetsReceived.Add(1)
-	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
-	s.lastPacketRecv.Store(time.Now().UnixNano())
-
 	// RFC 5880 Section 6.7: verify authentication if configured.
 	if s.auth != nil {
 		if err := s.auth.Verify(
@@ -852,6 +991,8 @@ func (s *Session) handleRecvPacket(
 			return
 		}
 	}
+
+	s.recordValidReceivedPacket()
 
 	s.mu.Lock()
 	// Step 13: Set bfd.RemoteDiscr = My Discriminator.
@@ -893,6 +1034,12 @@ func (s *Session) handleRecvPacket(
 		s.sendControl(ctx)
 		s.resetTxTimer(txTimer)
 	}
+}
+
+func (s *Session) recordValidReceivedPacket() {
+	s.packetsReceived.Add(1)
+	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
+	s.lastPacketRecv.Store(time.Now().UnixNano())
 }
 
 // checkAuthConsistency validates RFC 5880 Section 6.8.6 steps 8-9.
@@ -1177,7 +1324,10 @@ func (r *jitterRNG) IntN(n int) int {
 		return 0
 	}
 	v := r.next() % uint64(n)
-	// #nosec G115 -- v is bounded by n, and n is already a valid int.
+	const maxInt = int(^uint(0) >> 1)
+	if v > uint64(maxInt) {
+		return n - 1
+	}
 	return int(v)
 }
 

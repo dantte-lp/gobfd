@@ -19,7 +19,7 @@
 
 ---
 
-GoBFD is a production-grade [Bidirectional Forwarding Detection](https://datatracker.ietf.org/doc/html/rfc5880) (BFD) protocol daemon written in Go 1.26. It detects forwarding path failures between adjacent systems in milliseconds, enabling fast convergence for BGP, OSPF, and other routing protocols.
+GoBFD is a production-oriented [Bidirectional Forwarding Detection](https://datatracker.ietf.org/doc/html/rfc5880) (BFD) protocol daemon written in Go 1.26. It detects forwarding path failures between adjacent systems in milliseconds, enabling fast convergence for BGP, OSPF, and other routing protocols.
 
 Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (HAProxy bridge), **gobfd-exabgp-bridge** (ExaBGP bridge).
 
@@ -79,6 +79,7 @@ Full documentation is available in [`docs/`](docs/README.md):
 | 09 | [Development](docs/en/09-development.md) | Dev workflow, make targets, testing, linting |
 | 10 | [Changelog Guide](docs/en/10-changelog.md) | How to maintain CHANGELOG.md, semantic versioning |
 | 11 | [Integrations](docs/en/11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes |
+| 16 | [Production Runbooks](docs/en/16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, failure drills |
 
 Documentation is also available in Russian at [`docs/ru/`](docs/ru/README.md).
 
@@ -101,9 +102,15 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Implemented |
 | RFC 5882 | Generic Application of BFD | Implemented |
 | RFC 5883 | BFD for Multihop Paths | Implemented |
+| RFC 7419 | Common Interval Support | Implemented |
+| RFC 9468 | Unsolicited BFD | Implemented |
+| RFC 9747 | Unaffiliated BFD Echo | Implemented |
+| RFC 7130 | Micro-BFD for LAG | Implemented |
+| RFC 8971 | BFD for VXLAN | Implemented |
+| RFC 9521 | BFD for Geneve | Implemented |
+| RFC 9764 | BFD Large Packets | Implemented |
 | RFC 5884 | BFD for MPLS LSPs | Stub |
 | RFC 5885 | BFD for PW VCCV | Stub |
-| RFC 7130 | Micro-BFD for LAG | Stub |
 
 Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
@@ -117,6 +124,7 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 
 - Table-driven FSM matching RFC 5880 Section 6.8.6 (no if-else chains)
 - Five authentication modes (Simple Password, Keyed MD5/SHA1, Meticulous MD5/SHA1)
+- RFC 9747 Echo, RFC 7130 Micro-BFD, RFC 8971 VXLAN, and RFC 9521 Geneve support
 - BFD flap dampening for BGP integration (RFC 5882 Section 3.2)
 - Zero-allocation packet codec with pre-built cached packets
 - ConnectRPC/gRPC API + CLI with interactive shell
@@ -125,9 +133,18 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 - 4-peer interop testing (FRR, BIRD3, aiobfd, Thoro/bfd) + 5 integration examples
 - Go 1.26 flight recorder for post-mortem debugging
 
+Advanced Linux modes are explicit about dataplane ownership: Micro-BFD detects
+per-member LAG state but needs a bond/team/OVS actuator for enforcement, while
+VXLAN/Geneve BFD defaults to an explicit `userspace-udp` backend. Reserved
+kernel, OVS/OVN, Cilium, and NSX backend names fail closed until owner-specific
+integrations are implemented.
+
 ## Contributing
 
 See [Development](docs/en/09-development.md) for the full workflow.
+Repository participation is governed by [CONTRIBUTING.md](CONTRIBUTING.md),
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md),
+[SUPPORT.md](SUPPORT.md), and [GOVERNANCE.md](GOVERNANCE.md).
 
 ```bash
 make up && make all    # Build + test + lint

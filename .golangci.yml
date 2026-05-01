@@ -38,6 +38,7 @@ linters:
     - forcetypeassert     # Forced type assertions → panic on bad input
     - reassign            # Package variable reassignment
     - containedctx        # context.Context stored in structs
+    - forbidigo           # Ban fmt.Print* / print* outside command glue
 
     # ── Корректность / Correctness ──
     - govet               # Go vet with extra analyzers
@@ -52,14 +53,19 @@ linters:
     - durationcheck       # Two durations multiplied together
     - fatcontext          # Nested contexts in loops
     - copyloopvar         # Loop variable copies
+    - dogsled             # Too many blank identifiers
     - predeclared         # Shadows predeclared identifiers (true, len, etc.)
     - recvcheck           # Receiver type consistency (pointer vs value)
+    - rowserrcheck        # Database rows error checks
+    - sqlclosecheck       # SQL rows/statements close checks
     - gocheckcompilerdirectives  # Valid //go: directives
     - protogetter         # Enforce proto message getters
     - iface               # Incorrect interface usage patterns
     - asasalint           # Catch []any as any in variadic func(...any)
     - gochecksumtype      # Exhaustive sum type checks
     - gochecknoinits      # No init() — explicit initialization
+    - iotamixing          # Catch mixed explicit/implicit iota values
+    - unqueryvet          # Detect SELECT * SQL query patterns
 
     # ── Обработка ошибок / Error handling ──
     - errorlint           # Error wrapping style (Go 1.13+)
@@ -85,6 +91,11 @@ linters:
     - interfacebloat      # Prevent interface pollution
     - inamedparam         # Named interface method parameters
     - decorder            # Consistent declaration ordering
+    - embeddedstructfieldcheck # Embedded struct field pitfalls
+    - grouper             # Expression group consistency
+    - nestif              # Excessive nested branching
+    - goconst             # Repeated constants
+    - godox               # Track TODO/FIXME/HACK/BUG debt
 
     # ── Производительность / Performance ──
     - prealloc            # Slice pre-allocation
@@ -104,17 +115,21 @@ linters:
     - asciicheck          # ASCII-only identifiers
     - canonicalheader     # Canonical net/http.Header
     - dupword             # Duplicate words in comments
+    - gosmopolitan        # i18n/l10n anti-patterns
     - usestdlibvars       # Use stdlib variables/constants
     - loggercheck         # Logger key-value pair validation
+    - promlinter          # Prometheus metric naming checks
     - whitespace          # Unnecessary blank lines
     - godot               # Comments end with period
     - godoclint           # Godoc validation
     - tagalign            # Aligned struct tags
+    - tagliatelle         # Struct tag naming consistency
     - importas            # Enforce import aliases consistency
 
     # ── Зависимости / Dependencies ──
     - depguard            # Forbidden package imports
     - gomoddirectives     # Catch stray replace/retract in go.mod
+    - gomodguard          # Block deprecated dependency modules
 
     # ── Дисциплина / Discipline ──
     - nolintlint          # Nolint directive quality
@@ -125,12 +140,26 @@ linters:
     - testableexamples    # Examples have expected output
     - usetesting          # Testing package replacements
     - testifylint         # Testify best practices
+    - ginkgolinter        # Ginkgo/Gomega best practices
+
+    # ── Framework-specific no-op unless dependency is present ──
+    - arangolint          # ArangoDB client best practices
+    - spancheck           # OpenTelemetry/Census span checks
+    - zerologlint         # Zerolog event dispatch checks
 
   settings:
     gosec:
+      excludes: []
+      severity: low
+      confidence: low
       config:
         global:
           audit: "true"
+          nosec: "true"
+          show-ignored: "false"
+        G301: "0750"
+        G302: "0600"
+        G306: "0600"
     govet:
       enable:
         - shadow
@@ -173,6 +202,51 @@ linters:
     loggercheck:
       require-string-key: true
       no-printf-like: true
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print(|f|ln)$'
+          msg: "Use slog or t.Logf in library code; fmt.Print* is allowed only under cmd/, scripts/, and examples."
+        - pattern: '^print(ln)?$'
+          msg: "Bootstrap-only builtin; use slog instead."
+      exclude-godoc-examples: true
+    goconst:
+      min-len: 4
+      min-occurrences: 5
+      match-constant: true
+      ignore-string-values:
+        - '^(udp|tcp|unix)$'
+        - '^(up|down|admin_down|init)$'
+        - '^(single_hop|multi_hop)$'
+    godox:
+      keywords:
+        - TODO
+        - FIXME
+        - HACK
+        - XXX
+        - BUG
+        - OPTIMIZE
+    gomodguard:
+      blocked:
+        modules:
+          - github.com/pkg/errors:
+              recommendations:
+                - errors
+                - fmt
+              reason: "Standard library has covered errors.Is / errors.As since Go 1.13."
+          - io/ioutil:
+              recommendations:
+                - io
+                - os
+              reason: "Deprecated in Go 1.16; use io / os equivalents."
+    nestif:
+      min-complexity: 5
+    embeddedstructfieldcheck:
+      forbid-mutex: true
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
   exclusions:
     generated: strict
     presets:
@@ -189,13 +263,28 @@ linters:
           - maintidx
           - containedctx
           - forcetypeassert
+          - goconst
+          - godox
+          - dogsled
+          - nestif
       - path: cmd/
         linters:
           - gochecknoinits  # cobra uses init() for flag registration
+          - forbidigo
+      - path: scripts/
+        linters:
+          - forbidigo
+          - depguard
       - path: test/interop/
         linters:
           - depguard
       - path: scripts/vuln-audit.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
+      # OVS LAG backend shells out to the official ovs-vsctl admin CLI with
+      # validated interface names; keep os/exec forbidden everywhere else.
+      - path: internal/netio/lag_backend.go
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
@@ -217,4 +306,8 @@ severity:
         - containedctx
         - nilnil
         - reassign
+        - forbidigo
+        - gomodguard
+        - iotamixing
+        - tparallel
       severity: error

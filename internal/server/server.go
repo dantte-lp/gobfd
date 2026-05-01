@@ -27,11 +27,26 @@ var (
 	// ErrInvalidSessionType indicates an unrecognized session type in the request.
 	ErrInvalidSessionType = errors.New("invalid session type")
 
+	// ErrDedicatedTransportRequired indicates AddSession received a recognized
+	// session family that needs its own transport-specific configuration path.
+	ErrDedicatedTransportRequired = errors.New("session type requires dedicated transport configuration")
+
 	// ErrDetectMultZero indicates a zero detect multiplier in the request.
 	ErrDetectMultZero = errors.New("detect multiplier must be >= 1")
 
 	// ErrDetectMultOverflow indicates the detect multiplier exceeds uint8 range.
 	ErrDetectMultOverflow = errors.New("detect multiplier exceeds maximum 255")
+
+	// ErrAPIAuthKeyMaterialMissing indicates the API request selected
+	// authentication but did not provide the key material required by RFC 5880.
+	ErrAPIAuthKeyMaterialMissing = errors.New("api auth key material is required")
+
+	// ErrAPIAuthKeyMaterialUnexpected indicates the API request provided auth
+	// key material without enabling authentication.
+	ErrAPIAuthKeyMaterialUnexpected = errors.New("api auth key material requires auth_type")
+
+	// ErrAPIAuthKeyIDOverflow indicates auth_key_id exceeds the BFD wire range.
+	ErrAPIAuthKeyIDOverflow = errors.New("api auth_key_id exceeds maximum 255")
 )
 
 // SenderFactory creates a PacketSender for a BFD session. The factory
@@ -380,6 +395,14 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 	if err != nil {
 		return bfd.SessionConfig{}, err
 	}
+	if !isGenericAddSessionType(sessType) {
+		return bfd.SessionConfig{}, wrapError(req.GetType().String(), ErrDedicatedTransportRequired)
+	}
+
+	auth, authKeys, err := authConfigFromProto(req)
+	if err != nil {
+		return bfd.SessionConfig{}, err
+	}
 
 	desiredMinTx := durationFromProto(req.GetDesiredMinTxInterval())
 	requiredMinRx := durationFromProto(req.GetRequiredMinRxInterval())
@@ -401,7 +424,69 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		DesiredMinTxInterval:  desiredMinTx,
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
+		Auth:                  auth,
+		AuthKeys:              authKeys,
 	}, nil
+}
+
+func authConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.Authenticator, bfd.AuthKeyStore, error) {
+	authType, err := authTypeFromProto(req.GetAuthType())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if authType == bfd.AuthTypeNone {
+		if req.GetAuthKeyId() != 0 || len(req.GetAuthSecret()) != 0 {
+			return nil, nil, ErrAPIAuthKeyMaterialUnexpected
+		}
+		return nil, nil, nil
+	}
+
+	if len(req.GetAuthSecret()) == 0 {
+		return nil, nil, ErrAPIAuthKeyMaterialMissing
+	}
+	authKeyID := req.GetAuthKeyId()
+	if authKeyID > 255 {
+		return nil, nil, fmt.Errorf("auth_key_id %d: %w",
+			authKeyID, ErrAPIAuthKeyIDOverflow)
+	}
+
+	auth, err := bfd.NewAuthenticator(authType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+		ID:     uint8(authKeyID),
+		Type:   authType,
+		Secret: req.GetAuthSecret(),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("api auth key material: %w", err)
+	}
+
+	return auth, keys, nil
+}
+
+func authTypeFromProto(authType bfdv1.AuthenticationType) (bfd.AuthType, error) {
+	switch authType {
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED,
+		bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE:
+		return bfd.AuthTypeNone, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_SIMPLE_PASSWORD:
+		return bfd.AuthTypeSimplePassword, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_MD5:
+		return bfd.AuthTypeKeyedMD5, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5:
+		return bfd.AuthTypeMeticulousKeyedMD5, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1:
+		return bfd.AuthTypeKeyedSHA1, nil
+	case bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1:
+		return bfd.AuthTypeMeticulousKeyedSHA1, nil
+	default:
+		return bfd.AuthTypeNone, fmt.Errorf("auth_type %s: %w",
+			authType, bfd.ErrAuthTypeMismatch)
+	}
 }
 
 // sessionTypeFromProto converts a proto SessionType to bfd.SessionType.
@@ -411,9 +496,21 @@ func sessionTypeFromProto(pt bfdv1.SessionType) (bfd.SessionType, error) {
 		return bfd.SessionTypeSingleHop, nil
 	case bfdv1.SessionType_SESSION_TYPE_MULTI_HOP:
 		return bfd.SessionTypeMultiHop, nil
+	case bfdv1.SessionType_SESSION_TYPE_ECHO:
+		return bfd.SessionTypeEcho, nil
+	case bfdv1.SessionType_SESSION_TYPE_MICRO_BFD:
+		return bfd.SessionTypeMicroBFD, nil
+	case bfdv1.SessionType_SESSION_TYPE_VXLAN:
+		return bfd.SessionTypeVXLAN, nil
+	case bfdv1.SessionType_SESSION_TYPE_GENEVE:
+		return bfd.SessionTypeGeneve, nil
 	default:
 		return 0, wrapError(pt.String(), ErrInvalidSessionType)
 	}
+}
+
+func isGenericAddSessionType(st bfd.SessionType) bool {
+	return st == bfd.SessionTypeSingleHop || st == bfd.SessionTypeMultiHop
 }
 
 // durationFromProto converts a protobuf Duration to time.Duration.
@@ -441,6 +538,7 @@ func snapshotFromSession(sess *bfd.Session, cfg bfd.SessionConfig) bfd.SessionSn
 		DesiredMinTx:         cfg.DesiredMinTxInterval,
 		RequiredMinRx:        cfg.RequiredMinRxInterval,
 		DetectMultiplier:     cfg.DetectMultiplier,
+		AuthType:             sess.AuthType(),
 		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
 		DetectionTime:        sess.DetectionTime(),
 		LastStateChange:      sess.LastStateChange(),
@@ -463,6 +561,7 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 		LocalState:            stateToProto(snap.State),
 		RemoteState:           stateToProto(snap.RemoteState),
 		LocalDiagnostic:       diagToProto(snap.LocalDiag),
+		AuthType:              authTypeToProto(snap.AuthType),
 		LocalDiscriminator:    snap.LocalDiscr,
 		RemoteDiscriminator:   snap.RemoteDiscr,
 		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTx),
@@ -554,8 +653,35 @@ func sessionTypeToProto(st bfd.SessionType) bfdv1.SessionType {
 		return bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP
 	case bfd.SessionTypeMultiHop:
 		return bfdv1.SessionType_SESSION_TYPE_MULTI_HOP
+	case bfd.SessionTypeEcho:
+		return bfdv1.SessionType_SESSION_TYPE_ECHO
+	case bfd.SessionTypeMicroBFD:
+		return bfdv1.SessionType_SESSION_TYPE_MICRO_BFD
+	case bfd.SessionTypeVXLAN:
+		return bfdv1.SessionType_SESSION_TYPE_VXLAN
+	case bfd.SessionTypeGeneve:
+		return bfdv1.SessionType_SESSION_TYPE_GENEVE
 	default:
 		return bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED
+	}
+}
+
+func authTypeToProto(authType bfd.AuthType) bfdv1.AuthenticationType {
+	switch authType {
+	case bfd.AuthTypeNone:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE
+	case bfd.AuthTypeSimplePassword:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_SIMPLE_PASSWORD
+	case bfd.AuthTypeKeyedMD5:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_MD5
+	case bfd.AuthTypeMeticulousKeyedMD5:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5
+	case bfd.AuthTypeKeyedSHA1:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1
+	case bfd.AuthTypeMeticulousKeyedSHA1:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1
+	default:
+		return bfdv1.AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED
 	}
 }
 

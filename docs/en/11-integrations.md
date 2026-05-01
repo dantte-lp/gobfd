@@ -47,6 +47,13 @@ All stacks use **podman-compose** with OCI containers and include a **tshark** s
 
 BFD Down triggers BGP peer disable, causing immediate route withdrawal instead of waiting for the 90-second BGP holdtimer.
 
+Detailed runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
+
+The lab uses RFC 5881 single-hop BFD packets on UDP destination port 3784 with
+TTL 255. The example timers are 300 ms transmit, 300 ms receive, and detect
+multiplier 3, giving an expected detection target of about 900 ms before local
+scheduling and BGP control-plane latency.
+
 ### Topology
 
 ```mermaid
@@ -183,8 +190,9 @@ graph LR
 
 | Alert | Expression | Severity |
 |-------|-----------|----------|
-| BFDSessionDown | `gobfd_bfd_sessions == 0` for 10s | Critical |
-| BFDSessionFlapping | `rate(state_transitions[5m]) > 2` for 1m | Warning |
+| BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` for 10s | Warning |
+| BFDSessionDownTransition | `increase(state_transitions{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
+| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(state_transitions[5m])) > 3` for 1m | Warning |
 | BFDAuthFailures | `rate(auth_failures[5m]) > 0` for 30s | Warning |
 | BFDPacketDrops | `rate(packets_dropped[5m]) > 0` for 1m | Warning |
 
@@ -288,6 +296,8 @@ graph TD
 
 - **hostNetwork: true** — BFD uses raw sockets, needs direct access to host network
 - **CAP_NET_RAW + CAP_NET_ADMIN** — required for BFD packet operations
+- **Linux node selector** — the example relies on Linux socket and capability semantics
+- **TCP probes** — gRPC and metrics sockets provide generic readiness/liveness checks
 - **DaemonSet** — one GoBFD instance per node for consistent BFD coverage
 - **Dynamic sessions** — BFD sessions added via `gobfdctl` after discovering node IPs
 
@@ -387,7 +397,8 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 - [05-interop.md](./05-interop.md) — Interoperability testing (FRR, BIRD3, vendor NOS)
 - [06-deployment.md](./06-deployment.md) — Container image, Podman Compose, systemd
 - [07-monitoring.md](./07-monitoring.md) — Prometheus metrics and Grafana dashboard
+- [16-production-runbooks.md](./16-production-runbooks.md) — Production drills and validation checklist
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-05-01*

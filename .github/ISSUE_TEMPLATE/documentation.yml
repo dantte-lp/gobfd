@@ -1,0 +1,29 @@
+name: Documentation issue
+description: Report missing, stale, or inconsistent documentation.
+title: "docs: "
+labels:
+  - documentation
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or file
+      placeholder: docs/en/03-configuration.md
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: Issue
+      description: State the incorrect, missing, or inconsistent claim.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Expected correction
+  - type: textarea
+    id: source
+    attributes:
+      label: Source reference
+      description: Link an RFC, official documentation page, or repository evidence.

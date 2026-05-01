@@ -86,6 +86,71 @@ func TestManagerCreateSession(t *testing.T) {
 	})
 }
 
+func TestManagerHandleInterfaceEventMarksMatchingSessionsPathDown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		pkt := &bfd.ControlPacket{
+			Version:               bfd.Version,
+			State:                 bfd.StateInit,
+			DetectMult:            3,
+			MyDiscriminator:       99,
+			YourDiscriminator:     sess.LocalDiscriminator(),
+			DesiredMinTxInterval:  100000,
+			RequiredMinRxInterval: 100000,
+		}
+		sess.RecvPacket(pkt)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up before link-down", sess.State())
+		}
+
+		affected := mgr.HandleInterfaceEvent("eth0", false)
+		time.Sleep(50 * time.Millisecond)
+
+		if affected != 1 {
+			t.Fatalf("affected sessions = %d, want 1", affected)
+		}
+		if sess.State() != bfd.StateDown {
+			t.Fatalf("state = %s, want Down after link-down", sess.State())
+		}
+		if sess.LocalDiag() != bfd.DiagPathDown {
+			t.Fatalf("local diag = %s, want PathDown", sess.LocalDiag())
+		}
+	})
+}
+
+func TestManagerHandleInterfaceEventIgnoresOtherInterfaces(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		affected := mgr.HandleInterfaceEvent("eth9", false)
+		time.Sleep(10 * time.Millisecond)
+
+		if affected != 0 {
+			t.Fatalf("affected sessions = %d, want 0", affected)
+		}
+		if sess.LocalDiag() == bfd.DiagPathDown {
+			t.Fatalf("local diag = %s, want unchanged", sess.LocalDiag())
+		}
+	})
+}
+
 // -------------------------------------------------------------------------
 // TestManagerCreateSessionValidation
 // -------------------------------------------------------------------------
@@ -781,6 +846,7 @@ func TestManagerDrainAllSessions(t *testing.T) {
 
 		// Drain all sessions.
 		mgr.DrainAllSessions()
+		time.Sleep(10 * time.Millisecond)
 
 		// Both sessions should be AdminDown.
 		if sess1.State() != bfd.StateAdminDown {
@@ -1442,9 +1508,53 @@ func TestManagerCloseCleansMicroBFDGroups(t *testing.T) {
 	}
 }
 
+func TestManagerDispatchMicroBFDCallsActuator(t *testing.T) {
+	actuator := &recordingMicroBFDActuator{
+		events: make(chan bfd.MicroBFDMemberEvent, 8),
+	}
+	mgr := bfd.NewManager(slog.Default(), bfd.WithMicroBFDActuator(actuator))
+	defer mgr.Close()
+
+	cfg := defaultMicroBFDConfig()
+	if _, err := mgr.CreateMicroBFDGroup(cfg); err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+
+	sessCfg := defaultManagerConfig()
+	sessCfg.Type = bfd.SessionTypeMicroBFD
+	sessCfg.Interface = "eth0"
+	sess, err := mgr.CreateSession(context.Background(), sessCfg, noopSender{})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	go mgr.RunDispatch(t.Context())
+
+	sendControlState(t, sess, bfd.StateDown, 42)
+	assertMicroActuatorEvent(t, actuator.events, "bond0", "eth0", bfd.StateInit, false)
+
+	sendControlState(t, sess, bfd.StateInit, 42)
+	assertMicroActuatorEvent(t, actuator.events, "bond0", "eth0", bfd.StateUp, true)
+
+	sendControlState(t, sess, bfd.StateDown, 42)
+	assertMicroActuatorEvent(t, actuator.events, "bond0", "eth0", bfd.StateDown, false)
+}
+
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
+
+type recordingMicroBFDActuator struct {
+	events chan bfd.MicroBFDMemberEvent
+}
+
+func (r *recordingMicroBFDActuator) HandleMicroBFDMemberEvent(
+	_ context.Context,
+	ev bfd.MicroBFDMemberEvent,
+) error {
+	r.events <- ev
+	return nil
+}
 
 func makeUnsolicitedControlPacket(myDiscr uint32) *bfd.ControlPacket {
 	return &bfd.ControlPacket{
@@ -1456,6 +1566,49 @@ func makeUnsolicitedControlPacket(myDiscr uint32) *bfd.ControlPacket {
 		DesiredMinTxInterval:      1000000,
 		RequiredMinRxInterval:     1000000,
 		RequiredMinEchoRxInterval: 0,
+	}
+}
+
+func sendControlState(t *testing.T, sess *bfd.Session, state bfd.State, remoteDiscr uint32) {
+	t.Helper()
+
+	sess.RecvPacket(&bfd.ControlPacket{
+		Version:               bfd.Version,
+		State:                 state,
+		DetectMult:            3,
+		MyDiscriminator:       remoteDiscr,
+		YourDiscriminator:     sess.LocalDiscriminator(),
+		DesiredMinTxInterval:  1000000,
+		RequiredMinRxInterval: 1000000,
+	})
+}
+
+func assertMicroActuatorEvent(
+	t *testing.T,
+	ch <-chan bfd.MicroBFDMemberEvent,
+	wantLAG string,
+	wantMember string,
+	wantState bfd.State,
+	wantAggregateUp bool,
+) {
+	t.Helper()
+
+	select {
+	case ev := <-ch:
+		if ev.LAGInterface != wantLAG {
+			t.Fatalf("LAGInterface = %q, want %q", ev.LAGInterface, wantLAG)
+		}
+		if ev.MemberInterface != wantMember {
+			t.Fatalf("MemberInterface = %q, want %q", ev.MemberInterface, wantMember)
+		}
+		if ev.NewState != wantState {
+			t.Fatalf("NewState = %s, want %s", ev.NewState, wantState)
+		}
+		if ev.AggregateUp != wantAggregateUp {
+			t.Fatalf("AggregateUp = %v, want %v", ev.AggregateUp, wantAggregateUp)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout waiting for micro-BFD actuator event %s", wantState)
 	}
 }
 

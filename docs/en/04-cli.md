@@ -74,6 +74,14 @@ gobfdctl session add \
   --type multi-hop \
   --tx-interval 300ms \
   --detect-mult 5
+
+# Authenticated session
+gobfdctl session add \
+  --peer 10.0.0.1 \
+  --local 10.0.0.2 \
+  --auth-type keyed-sha1 \
+  --auth-key-id 7 \
+  --auth-secret api-auth-secret
 ```
 
 | Flag | Required | Default | Description |
@@ -85,6 +93,9 @@ gobfdctl session add \
 | `--tx-interval` | No | `1s` | Desired Min TX Interval |
 | `--rx-interval` | No | `1s` | Required Min RX Interval |
 | `--detect-mult` | No | `3` | Detection Multiplier |
+| `--auth-type` | No | `none` | Auth type: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
+| `--auth-key-id` | If auth enabled | `0` | RFC 5880 Auth Key ID, range 0-255 |
+| `--auth-secret` | If auth enabled | -- | Auth secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
 #### Delete a session
 

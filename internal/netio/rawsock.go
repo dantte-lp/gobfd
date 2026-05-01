@@ -46,6 +46,10 @@ const (
 	// (RFC 5883 Section 2: "the received TTL MUST be checked to be 254
 	// at a minimum").
 	ttlMultiHopMin uint8 = 254
+
+	// TTLEchoLoopback is the required TTL/Hop Limit for received RFC 9747
+	// Unaffiliated BFD Echo packets after one-hop loopback forwarding.
+	TTLEchoLoopback uint8 = 254
 )
 
 // -------------------------------------------------------------------------
@@ -159,6 +163,19 @@ func ValidateTTL(meta PacketMeta, multiHop bool) error {
 		return fmt.Errorf(
 			"single-hop TTL %d, required %d (RFC 5881 Section 5): %w",
 			meta.TTL, ttlRequired, ErrTTLInvalid,
+		)
+	}
+	return nil
+}
+
+// ValidateExpectedTTL checks that a received packet has an exact TTL/Hop Limit.
+// RFC 9747 requires looped-back Unaffiliated BFD Echo packets to be received
+// with TTL/Hop Limit 254.
+func ValidateExpectedTTL(meta PacketMeta, expected uint8, context string) error {
+	if meta.TTL != expected {
+		return fmt.Errorf(
+			"%s TTL %d, required %d: %w",
+			context, meta.TTL, expected, ErrTTLInvalid,
 		)
 	}
 	return nil

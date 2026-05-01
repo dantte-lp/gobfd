@@ -272,6 +272,21 @@ func TestNewSessionValidationErrors(t *testing.T) {
 			localDiscr: 1,
 			wantErr:    "session role",
 		},
+		{
+			name: "auth without key store",
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  bfd.SessionTypeSingleHop,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+				Auth:                  bfd.KeyedSHA1Auth{},
+			},
+			localDiscr: 1,
+			wantErr:    "auth key store",
+		},
 	}
 
 	for _, tt := range tests {
@@ -517,6 +532,55 @@ func TestSessionDetectionTimeout(t *testing.T) {
 	})
 }
 
+func TestSessionSetAdminDownSendsAdminDownPacket(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := &mockSender{}
+		logger := slog.Default()
+
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+		}, 42, sender, nil, logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		sess.RecvPacket(makeControlPacket(bfd.StateInit, 99, 42))
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up", sess.State())
+		}
+
+		sender.mu.Lock()
+		sender.packets = nil
+		sender.mu.Unlock()
+
+		sess.SetAdminDown()
+		time.Sleep(2 * time.Second)
+
+		if sess.State() != bfd.StateAdminDown {
+			t.Fatalf("state = %s, want AdminDown", sess.State())
+		}
+
+		pkt := sender.lastPacket(t)
+		if pkt.State != bfd.StateAdminDown {
+			t.Errorf("packet State = %s, want AdminDown", pkt.State)
+		}
+		if pkt.Diag != bfd.DiagAdminDown {
+			t.Errorf("packet Diag = %s, want AdminDown", pkt.Diag)
+		}
+	})
+}
+
 // -------------------------------------------------------------------------
 // TestSessionSlowTxRate — RFC 5880 Section 6.8.3
 // -------------------------------------------------------------------------
@@ -751,6 +815,188 @@ func TestSessionRecvPacketUpdatesState(t *testing.T) {
 
 		time.Sleep(10 * time.Millisecond)
 	})
+}
+
+func TestSessionDropsAuthenticatedPacketWithoutWireBytes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		keys := newTestKeyStore(3, bfd.AuthTypeKeyedSHA1, []byte("sha1-wire-secret"))
+		auth := bfd.KeyedSHA1Auth{}
+		sender := &mockSender{}
+		logger := slog.Default()
+
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+			Auth:                  auth,
+			AuthKeys:              keys,
+		}, 42, sender, nil, logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		pkt := makeControlPacket(bfd.StateInit, 99, 42)
+		wire := signControlPacketForTest(t, auth, keys, pkt)
+
+		var rxPkt bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(wire, &rxPkt); err != nil {
+			t.Fatalf("Unmarshal signed packet: %v", err)
+		}
+
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("RecvPacket without wire panicked: %v", r)
+				}
+			}()
+			sess.RecvPacket(&rxPkt)
+			time.Sleep(50 * time.Millisecond)
+		}()
+
+		if sess.State() != bfd.StateDown {
+			t.Fatalf("state = %s, want Down after packet without auth wire", sess.State())
+		}
+		if sess.RemoteDiscriminator() != 0 {
+			t.Fatalf("remote discriminator = %d, want 0", sess.RemoteDiscriminator())
+		}
+		if got := sess.LastPacketReceived(); !got.IsZero() {
+			t.Fatalf("last packet received = %s, want zero after auth failure", got)
+		}
+		if got := sess.PacketsReceived(); got != 0 {
+			t.Fatalf("packets received = %d, want 0 after auth failure", got)
+		}
+	})
+}
+
+func TestSessionResetsAuthSequenceAfterTwoDetectionTimes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		keys := newTestKeyStore(7, bfd.AuthTypeMeticulousKeyedSHA1, []byte("meticulous-reset"))
+		auth := bfd.MeticulousKeyedSHA1Auth{}
+		sender := &mockSender{}
+		logger := slog.Default()
+
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+			Auth:                  auth,
+			AuthKeys:              keys,
+		}, 42, sender, nil, logger)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		firstPkt := makeControlPacket(bfd.StateInit, 99, 42)
+		firstWire := signControlPacketWithSeqForTest(t, auth, keys, firstPkt, 201)
+
+		var rxFirst bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(firstWire, &rxFirst); err != nil {
+			t.Fatalf("Unmarshal first signed packet: %v", err)
+		}
+		sess.RecvPacket(&rxFirst, firstWire)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up after first authenticated packet", sess.State())
+		}
+
+		replayPkt := makeControlPacket(bfd.StateDown, 123, 0)
+		replayWire := signControlPacketWithSeqForTest(t, auth, keys, replayPkt, 100)
+
+		var rxReplay bfd.ControlPacket
+		if err := bfd.UnmarshalControlPacket(replayWire, &rxReplay); err != nil {
+			t.Fatalf("Unmarshal replay signed packet: %v", err)
+		}
+
+		sess.RecvPacket(&rxReplay, replayWire)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateUp {
+			t.Fatalf("state = %s, want Up after low sequence before reset", sess.State())
+		}
+		if got := sess.RemoteDiscriminator(); got != 99 {
+			t.Fatalf("remote discriminator = %d, want 99 before reset", got)
+		}
+
+		time.Sleep(600 * time.Millisecond)
+
+		if sess.State() != bfd.StateDown {
+			t.Fatalf("state = %s, want Down after detection timeout", sess.State())
+		}
+
+		sess.RecvPacket(&rxReplay, replayWire)
+		time.Sleep(50 * time.Millisecond)
+
+		if sess.State() != bfd.StateInit {
+			t.Fatalf("state = %s, want Init after sequence reset accepts packet", sess.State())
+		}
+		if got := sess.RemoteDiscriminator(); got != 123 {
+			t.Fatalf("remote discriminator = %d, want 123 after sequence reset", got)
+		}
+	})
+}
+
+func signControlPacketForTest(
+	t *testing.T,
+	auth bfd.Authenticator,
+	keys bfd.AuthKeyStore,
+	pkt *bfd.ControlPacket,
+) []byte {
+	t.Helper()
+
+	state, err := bfd.NewAuthState(keys.CurrentKey().Type)
+	if err != nil {
+		t.Fatalf("NewAuthState: %v", err)
+	}
+
+	buf := make([]byte, bfd.MaxPacketSize)
+	if err := auth.Sign(state, keys, pkt, buf, 0); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	n := int(buf[3])
+	wire := make([]byte, n)
+	copy(wire, buf[:n])
+	return wire
+}
+
+func signControlPacketWithSeqForTest(
+	t *testing.T,
+	auth bfd.Authenticator,
+	keys bfd.AuthKeyStore,
+	pkt *bfd.ControlPacket,
+	seq uint32,
+) []byte {
+	t.Helper()
+
+	state := &bfd.AuthState{
+		Type:        keys.CurrentKey().Type,
+		XmitAuthSeq: seq - 1,
+	}
+
+	buf := make([]byte, bfd.MaxPacketSize)
+	if err := auth.Sign(state, keys, pkt, buf, 0); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	n := int(buf[3])
+	wire := make([]byte, n)
+	copy(wire, buf[:n])
+	return wire
 }
 
 // -------------------------------------------------------------------------

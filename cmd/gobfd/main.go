@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/trace"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -154,6 +155,8 @@ func runServers(
 		return nil
 	})
 
+	startInterfaceMonitor(gCtx, g, mgr, logger)
+
 	// Start BFD packet listeners and receivers for incoming packets.
 	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, logger)
 	if err != nil {
@@ -162,8 +165,6 @@ func runServers(
 	defer lnCleanup()
 
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
-	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, sf, logger)
-
 	// GoBGP integration goroutine (RFC 5882 Section 4.3).
 	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, mgr, logger)
 	if err != nil {
@@ -172,10 +173,12 @@ func runServers(
 	defer closeGoBGPClient(bgpCloser, logger)
 
 	// Start overlay tunnel receivers (VXLAN on port 4789, Geneve on port 6081).
-	overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, logger)
+	overlayRuntime, overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, logger)
 	defer overlayCleanup()
 
-	reconcileAllSessions(gCtx, cfg, mgr, sf, logger)
+	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, sf, overlayRuntime, logger)
+
+	reconcileAllSessions(gCtx, cfg, mgr, sf, overlayRuntime, logger)
 
 	notifyReady(logger)
 
@@ -224,6 +227,7 @@ func startDaemonGoroutines(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
+	overlayRuntime *overlayRuntime,
 	logger *slog.Logger,
 ) {
 	g.Go(func() error {
@@ -234,7 +238,7 @@ func startDaemonGoroutines(
 	signal.Notify(sigHUP, syscall.SIGHUP)
 	g.Go(func() error {
 		defer signal.Stop(sigHUP)
-		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, sf, logger)
+		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, logger)
 		return nil
 	})
 }
@@ -341,6 +345,7 @@ func handleSIGHUP(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
+	overlayRuntime *overlayRuntime,
 	logger *slog.Logger,
 ) {
 	for {
@@ -349,7 +354,7 @@ func handleSIGHUP(
 			return
 		case <-sigHUP:
 			logger.Info("received SIGHUP, reloading configuration")
-			reloadConfig(ctx, configPath, logLevel, mgr, sf, logger)
+			reloadConfig(ctx, configPath, logLevel, mgr, sf, overlayRuntime, logger)
 		}
 	}
 }
@@ -364,6 +369,7 @@ func reloadConfig(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
+	overlayRuntime *overlayRuntime,
 	logger *slog.Logger,
 ) {
 	newCfg, err := loadConfig(configPath)
@@ -394,7 +400,7 @@ func reloadConfig(
 	reconcileMicroBFDGroups(ctx, newCfg, mgr, sf, logger)
 
 	// Reconcile overlay tunnel BFD sessions (VXLAN RFC 8971, Geneve RFC 9521).
-	reconcileOverlayTunnels(ctx, newCfg, mgr, sf, logger)
+	reconcileOverlayTunnels(ctx, newCfg, mgr, overlayRuntime, logger)
 }
 
 // reconcileAllSessions reconciles all declarative session types at startup.
@@ -403,12 +409,13 @@ func reconcileAllSessions(
 	cfg *config.Config,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
+	overlayRuntime *overlayRuntime,
 	logger *slog.Logger,
 ) {
 	reconcileSessions(ctx, cfg, mgr, sf, logger)
 	reconcileEchoSessions(ctx, cfg, mgr, sf, logger)
 	reconcileMicroBFDGroups(ctx, cfg, mgr, sf, logger)
-	reconcileOverlayTunnels(ctx, cfg, mgr, sf, logger)
+	reconcileOverlayTunnels(ctx, cfg, mgr, overlayRuntime, logger)
 }
 
 // reconcileSessions diffs the declarative sessions from the config against
@@ -662,10 +669,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		return bfd.SessionConfig{}, fmt.Errorf("parse local address: %w", err)
 	}
 
-	sessType := bfd.SessionTypeSingleHop
-	if sc.Type == "multi_hop" {
-		sessType = bfd.SessionTypeMultiHop
-	}
+	sessType := configSessionTypeToBFD(sc.Type)
 
 	desiredMinTx := sc.DesiredMinTx
 	if desiredMinTx == 0 {
@@ -698,6 +702,11 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		paddedPduSize = defaults.DefaultPaddedPduSize
 	}
 
+	auth, authKeys, err := configAuthToBFD(sc.Auth)
+	if err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("configure authentication: %w", err)
+	}
+
 	return bfd.SessionConfig{
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
@@ -708,12 +717,77 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
 		PaddedPduSize:         paddedPduSize,
+		Auth:                  auth,
+		AuthKeys:              authKeys,
 	}, nil
+}
+
+func configSessionTypeToBFD(sessionType string) bfd.SessionType {
+	if sessionType == "multi_hop" {
+		return bfd.SessionTypeMultiHop
+	}
+	return bfd.SessionTypeSingleHop
+}
+
+func configAuthToBFD(authCfg config.AuthConfig) (bfd.Authenticator, bfd.AuthKeyStore, error) {
+	authTypeName := strings.TrimSpace(authCfg.Type)
+	if authTypeName == "" || authTypeName == "none" {
+		return nil, nil, nil
+	}
+
+	authType, err := configAuthTypeToBFD(authTypeName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if authCfg.KeyID > 255 {
+		return nil, nil, fmt.Errorf("auth key ID %d exceeds 255: %w",
+			authCfg.KeyID, config.ErrInvalidSessionAuthKeyID)
+	}
+
+	auth, err := bfd.NewAuthenticator(authType)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+		ID:     uint8(authCfg.KeyID), // Range checked above.
+		Type:   authType,
+		Secret: []byte(authCfg.Secret),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return auth, keys, nil
+}
+
+func configAuthTypeToBFD(authType string) (bfd.AuthType, error) {
+	switch authType {
+	case "simple_password":
+		return bfd.AuthTypeSimplePassword, nil
+	case "keyed_md5":
+		return bfd.AuthTypeKeyedMD5, nil
+	case "meticulous_keyed_md5":
+		return bfd.AuthTypeMeticulousKeyedMD5, nil
+	case "keyed_sha1":
+		return bfd.AuthTypeKeyedSHA1, nil
+	case "meticulous_keyed_sha1":
+		return bfd.AuthTypeMeticulousKeyedSHA1, nil
+	default:
+		return bfd.AuthTypeNone, fmt.Errorf("auth type %q: %w",
+			authType, config.ErrInvalidSessionAuthType)
+	}
 }
 
 // newManager creates a BFD session manager with metrics and optional unsolicited BFD (RFC 9468).
 func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slog.Logger) (*bfd.Manager, error) {
 	opts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
+	actuator, actuatorEnabled, err := buildMicroBFDActuator(cfg.MicroBFD.Actuator, logger)
+	if err != nil {
+		return nil, fmt.Errorf("invalid micro-BFD actuator config: %w", err)
+	}
+	if actuatorEnabled {
+		opts = append(opts, bfd.WithMicroBFDActuator(actuator))
+	}
 	if cfg.Unsolicited.Enabled {
 		policy, err := buildUnsolicitedPolicy(cfg.Unsolicited)
 		if err != nil {
@@ -732,6 +806,40 @@ func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slo
 		)
 	}
 	return bfd.NewManager(logger, opts...), nil
+}
+
+func buildMicroBFDActuator(
+	cfg config.MicroBFDActuatorConfig,
+	logger *slog.Logger,
+) (bfd.MicroBFDActuator, bool, error) {
+	if cfg.Mode == config.MicroBFDActuatorModeDisabled {
+		return nil, false, nil
+	}
+	actuatorCfg := configMicroBFDActuatorToNetio(cfg)
+	var backend netio.LAGActuatorBackend
+	var err error
+	if actuatorCfg.Mode == netio.LAGActuatorModeEnforce {
+		backend, err = netio.NewLAGActuatorBackend(actuatorCfg)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	actuator, err := netio.NewLAGActuator(actuatorCfg, backend, logger)
+	if err != nil {
+		return nil, false, err
+	}
+	return actuator, true, nil
+}
+
+func configMicroBFDActuatorToNetio(cfg config.MicroBFDActuatorConfig) netio.LAGActuatorConfig {
+	return netio.LAGActuatorConfig{
+		Mode:          netio.LAGActuatorMode(cfg.Mode),
+		Backend:       netio.LAGActuatorBackendType(cfg.Backend),
+		OVSDBEndpoint: cfg.OVSDBEndpoint,
+		OwnerPolicy:   netio.LAGOwnerPolicy(cfg.OwnerPolicy),
+		DownAction:    netio.LAGActuatorAction(cfg.DownAction),
+		UpAction:      netio.LAGActuatorAction(cfg.UpAction),
+	}
 }
 
 // buildUnsolicitedPolicy converts config.UnsolicitedConfig to bfd.UnsolicitedPolicy.
@@ -940,10 +1048,11 @@ func createEchoListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.List
 		seen[key] = struct{}{}
 
 		lnCfg := netio.ListenerConfig{
-			Addr:     localAddr,
-			IfName:   ep.Interface,
-			Port:     netio.PortEcho,
-			MultiHop: false, // Echo uses single-hop TTL semantics.
+			Addr:        localAddr,
+			IfName:      ep.Interface,
+			Port:        netio.PortEcho,
+			MultiHop:    false,
+			ExpectedTTL: netio.TTLEchoLoopback,
 		}
 
 		ln, err := netio.NewListener(lnCfg)
@@ -1205,6 +1314,52 @@ func startGoBGPHandler(
 	)
 
 	return client, nil
+}
+
+func startInterfaceMonitor(
+	ctx context.Context,
+	g *errgroup.Group,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+) {
+	mon, err := netio.NewInterfaceMonitor(logger)
+	if err != nil {
+		logger.Warn("interface monitoring disabled",
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+
+	g.Go(func() error {
+		defer func() {
+			if err := mon.Close(); err != nil {
+				logger.Warn("failed to close interface monitor",
+					slog.String("error", err.Error()),
+				)
+			}
+		}()
+		return mon.Run(ctx)
+	})
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case ev, ok := <-mon.Events():
+				if !ok {
+					return nil
+				}
+				affected := mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
+				logger.Debug("interface event processed",
+					slog.String("interface", ev.IfName),
+					slog.Int("ifindex", ev.IfIndex),
+					slog.Bool("up", ev.Up),
+					slog.Int("affected_sessions", affected),
+				)
+			}
+		}
+	})
 }
 
 // loadConfig loads configuration from a file path or returns defaults.
@@ -1503,6 +1658,11 @@ func configMicroBFDToBFD(gc config.MicroBFDGroupConfig) (bfd.MicroBFDConfig, err
 // Overlay Tunnel Wiring — VXLAN (RFC 8971) + Geneve (RFC 9521)
 // -------------------------------------------------------------------------
 
+type overlayRuntime struct {
+	vxlan  netio.OverlayConn
+	geneve netio.OverlayConn
+}
+
 // startOverlayReceivers creates overlay tunnel connections and starts
 // OverlayReceiver goroutines in the errgroup. Returns a cleanup function
 // that closes all overlay connections when called.
@@ -1517,7 +1677,8 @@ func startOverlayReceivers(
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
 	logger *slog.Logger,
-) func() {
+) (*overlayRuntime, func()) {
+	runtime := &overlayRuntime{}
 	var conns []netio.OverlayConn
 
 	// VXLAN overlay receiver (RFC 8971, port 4789).
@@ -1528,11 +1689,13 @@ func startOverlayReceivers(
 				slog.String("error", err.Error()),
 			)
 		} else {
+			runtime.vxlan = vxlanConn
 			conns = append(conns, vxlanConn)
 			recv := netio.NewOverlayReceiver(vxlanConn, mgr, logger)
 			g.Go(func() error { return recv.Run(ctx) })
 			logger.Info("VXLAN overlay receiver started (RFC 8971)",
 				slog.Uint64("management_vni", uint64(cfg.VXLAN.ManagementVNI)),
+				slog.String("backend", cfg.VXLAN.Backend),
 			)
 		}
 	}
@@ -1545,16 +1708,18 @@ func startOverlayReceivers(
 				slog.String("error", err.Error()),
 			)
 		} else {
+			runtime.geneve = geneveConn
 			conns = append(conns, geneveConn)
 			recv := netio.NewOverlayReceiver(geneveConn, mgr, logger)
 			g.Go(func() error { return recv.Run(ctx) })
 			logger.Info("Geneve overlay receiver started (RFC 9521)",
 				slog.Uint64("default_vni", uint64(cfg.Geneve.DefaultVNI)),
+				slog.String("backend", cfg.Geneve.Backend),
 			)
 		}
 	}
 
-	return func() {
+	return runtime, func() {
 		for _, c := range conns {
 			if err := c.Close(); err != nil {
 				logger.Warn("failed to close overlay connection",
@@ -1571,7 +1736,7 @@ func createVXLANConn(
 	cfg *config.Config,
 	sf *udpSenderFactory,
 	logger *slog.Logger,
-) (*netio.VXLANConn, error) {
+) (netio.OverlayConn, error) {
 	// Use the first peer's local address for binding the socket.
 	localAddr, err := cfg.VXLAN.Peers[0].LocalAddr()
 	if err != nil || !localAddr.IsValid() {
@@ -1584,7 +1749,13 @@ func createVXLANConn(
 		return nil, fmt.Errorf("vxlan: allocate inner src port: %w", err)
 	}
 
-	conn, err := netio.NewVXLANConn(localAddr, cfg.VXLAN.ManagementVNI, srcPort, logger)
+	conn, err := netio.NewVXLANOverlayBackend(netio.VXLANOverlayBackendConfig{
+		Backend:       netio.OverlayBackendType(cfg.VXLAN.Backend),
+		LocalAddr:     localAddr,
+		ManagementVNI: cfg.VXLAN.ManagementVNI,
+		SourcePort:    srcPort,
+		Logger:        logger,
+	})
 	if err != nil {
 		sf.portAlloc.Release(srcPort)
 		return nil, fmt.Errorf("vxlan: create conn: %w", err)
@@ -1599,7 +1770,7 @@ func createGeneveConn(
 	cfg *config.Config,
 	sf *udpSenderFactory,
 	logger *slog.Logger,
-) (*netio.GeneveConn, error) {
+) (netio.OverlayConn, error) {
 	localAddr, err := cfg.Geneve.Peers[0].LocalAddr()
 	if err != nil || !localAddr.IsValid() {
 		return nil, fmt.Errorf("geneve: first peer has invalid local address: %w", err)
@@ -1616,7 +1787,13 @@ func createGeneveConn(
 		return nil, fmt.Errorf("geneve: allocate inner src port: %w", err)
 	}
 
-	conn, err := netio.NewGeneveConn(localAddr, vni, srcPort, logger)
+	conn, err := netio.NewGeneveOverlayBackend(netio.GeneveOverlayBackendConfig{
+		Backend:    netio.OverlayBackendType(cfg.Geneve.Backend),
+		LocalAddr:  localAddr,
+		VNI:        vni,
+		SourcePort: srcPort,
+		Logger:     logger,
+	})
 	if err != nil {
 		sf.portAlloc.Release(srcPort)
 		return nil, fmt.Errorf("geneve: create conn: %w", err)
@@ -1652,11 +1829,11 @@ func reconcileOverlayTunnels(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	overlayRuntime *overlayRuntime,
 	logger *slog.Logger,
 ) {
-	for _, tp := range buildOverlayTunnelParams(cfg, sf, logger) {
-		reconcileOverlayTunnel(ctx, mgr, sf, logger, tp)
+	for _, tp := range buildOverlayTunnelParams(cfg, overlayRuntime, logger) {
+		reconcileOverlayTunnel(ctx, mgr, logger, tp)
 	}
 }
 
@@ -1664,10 +1841,13 @@ func reconcileOverlayTunnels(
 // type. Returns an empty slice if neither VXLAN nor Geneve is configured.
 func buildOverlayTunnelParams(
 	cfg *config.Config,
-	sf *udpSenderFactory,
+	rt *overlayRuntime,
 	logger *slog.Logger,
 ) []overlayTunnelParams {
 	var params []overlayTunnelParams
+	if rt == nil {
+		rt = &overlayRuntime{}
+	}
 
 	if cfg.VXLAN.Enabled && len(cfg.VXLAN.Peers) > 0 {
 		entries := make([]overlayPeerEntry, 0, len(cfg.VXLAN.Peers))
@@ -1686,8 +1866,8 @@ func buildOverlayTunnelParams(
 				requiredMinRx: cfg.VXLAN.DefaultRequiredMinRx,
 				detectMult:    cfg.VXLAN.DefaultDetectMultiplier,
 			},
-			createConn: func() (netio.OverlayConn, error) { return createVXLANConn(cfg, sf, logger) },
-			entries:    entries,
+			conn:    rt.vxlan,
+			entries: entries,
 		})
 	}
 
@@ -1708,8 +1888,8 @@ func buildOverlayTunnelParams(
 				requiredMinRx: cfg.Geneve.DefaultRequiredMinRx,
 				detectMult:    cfg.Geneve.DefaultDetectMultiplier,
 			},
-			createConn: func() (netio.OverlayConn, error) { return createGeneveConn(cfg, sf, logger) },
-			entries:    entries,
+			conn:    rt.geneve,
+			entries: entries,
 		})
 	}
 
@@ -1723,31 +1903,29 @@ func buildOverlayTunnelParams(
 // overlayTunnelParams holds the parameters for reconcileOverlayTunnel,
 // capturing the differences between VXLAN and Geneve reconciliation.
 type overlayTunnelParams struct {
-	rfc        string
-	sessType   bfd.SessionType
-	defaults   overlayTimerDefaults
-	createConn func() (netio.OverlayConn, error)
-	entries    []overlayPeerEntry
+	rfc      string
+	sessType bfd.SessionType
+	defaults overlayTimerDefaults
+	conn     netio.OverlayConn
+	entries  []overlayPeerEntry
 }
 
 // reconcileOverlayTunnel is the shared implementation for overlay BFD session
-// reconciliation. It creates the tunnel connection, converts peer entries to
-// session configs, and calls mgr.ReconcileSessions.
+// reconciliation. It reuses the running tunnel backend, converts peer entries
+// to session configs, and calls mgr.ReconcileSessions.
 func reconcileOverlayTunnel(
 	ctx context.Context,
 	mgr *bfd.Manager,
-	_ *udpSenderFactory,
 	logger *slog.Logger,
 	params overlayTunnelParams,
 ) {
-	conn, connErr := params.createConn()
-	if connErr != nil {
-		logger.Error("failed to create overlay sender conn, skipping reconciliation",
-			slog.String("rfc", params.rfc), slog.String("error", connErr.Error()))
+	if params.conn == nil {
+		logger.Error("overlay backend is not running, skipping reconciliation",
+			slog.String("rfc", params.rfc))
 		return
 	}
 
-	sender := netio.NewOverlaySender(conn)
+	sender := netio.NewOverlaySender(params.conn)
 	desired := make([]bfd.ReconcileConfig, 0, len(params.entries))
 	for _, e := range params.entries {
 		sessCfg, cfgErr := buildOverlaySessionConfig(
@@ -1764,7 +1942,7 @@ func reconcileOverlayTunnel(
 		})
 	}
 
-	reconcileOverlaySessions(ctx, mgr, conn, desired, params.rfc, logger)
+	reconcileOverlaySessions(ctx, mgr, desired, params.rfc, logger)
 }
 
 // reconcileOverlaySessions performs the common reconciliation loop for overlay
@@ -1773,7 +1951,6 @@ func reconcileOverlayTunnel(
 func reconcileOverlaySessions(
 	ctx context.Context,
 	mgr *bfd.Manager,
-	_ netio.OverlayConn,
 	desired []bfd.ReconcileConfig,
 	rfc string,
 	logger *slog.Logger,

@@ -213,7 +213,7 @@ func (AuthenticationType) EnumDescriptor() ([]byte, []int) {
 	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{2}
 }
 
-// SessionType distinguishes single-hop from multi-hop BFD sessions.
+// SessionType identifies the BFD session family.
 type SessionType int32
 
 const (
@@ -222,6 +222,14 @@ const (
 	SessionType_SESSION_TYPE_SINGLE_HOP SessionType = 1
 	// Multi-hop: RFC 5883, port 4784, TX TTL=255, RX TTL>=254.
 	SessionType_SESSION_TYPE_MULTI_HOP SessionType = 2
+	// Echo: RFC 9747 unaffiliated BFD echo sessions.
+	SessionType_SESSION_TYPE_ECHO SessionType = 3
+	// Micro-BFD: RFC 7130 per-member LAG sessions, UDP port 6784.
+	SessionType_SESSION_TYPE_MICRO_BFD SessionType = 4
+	// VXLAN: RFC 8971 BFD over VXLAN Management VNI.
+	SessionType_SESSION_TYPE_VXLAN SessionType = 5
+	// Geneve: RFC 9521 BFD over Geneve tunnels.
+	SessionType_SESSION_TYPE_GENEVE SessionType = 6
 )
 
 // Enum value maps for SessionType.
@@ -230,11 +238,19 @@ var (
 		0: "SESSION_TYPE_UNSPECIFIED",
 		1: "SESSION_TYPE_SINGLE_HOP",
 		2: "SESSION_TYPE_MULTI_HOP",
+		3: "SESSION_TYPE_ECHO",
+		4: "SESSION_TYPE_MICRO_BFD",
+		5: "SESSION_TYPE_VXLAN",
+		6: "SESSION_TYPE_GENEVE",
 	}
 	SessionType_value = map[string]int32{
 		"SESSION_TYPE_UNSPECIFIED": 0,
 		"SESSION_TYPE_SINGLE_HOP":  1,
 		"SESSION_TYPE_MULTI_HOP":   2,
+		"SESSION_TYPE_ECHO":        3,
+		"SESSION_TYPE_MICRO_BFD":   4,
+		"SESSION_TYPE_VXLAN":       5,
+		"SESSION_TYPE_GENEVE":      6,
 	}
 )
 
@@ -595,6 +611,8 @@ type AddSessionRequest struct {
 	RequiredMinRxInterval *durationpb.Duration   `protobuf:"bytes,6,opt,name=required_min_rx_interval,json=requiredMinRxInterval,proto3" json:"required_min_rx_interval,omitempty"`
 	DetectMultiplier      uint32                 `protobuf:"varint,7,opt,name=detect_multiplier,json=detectMultiplier,proto3" json:"detect_multiplier,omitempty"`
 	AuthType              AuthenticationType     `protobuf:"varint,8,opt,name=auth_type,json=authType,proto3,enum=bfd.v1.AuthenticationType" json:"auth_type,omitempty"`
+	AuthKeyId             uint32                 `protobuf:"varint,9,opt,name=auth_key_id,json=authKeyId,proto3" json:"auth_key_id,omitempty"`
+	AuthSecret            []byte                 `protobuf:"bytes,10,opt,name=auth_secret,json=authSecret,proto3" json:"auth_secret,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -683,6 +701,20 @@ func (x *AddSessionRequest) GetAuthType() AuthenticationType {
 		return x.AuthType
 	}
 	return AuthenticationType_AUTHENTICATION_TYPE_UNSPECIFIED
+}
+
+func (x *AddSessionRequest) GetAuthKeyId() uint32 {
+	if x != nil {
+		return x.AuthKeyId
+	}
+	return 0
+}
+
+func (x *AddSessionRequest) GetAuthSecret() []byte {
+	if x != nil {
+		return x.AuthSecret
+	}
+	return nil
 }
 
 // AddSessionResponse returns the newly created session.
@@ -1172,7 +1204,7 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x10packets_received\x18\x02 \x01(\x04R\x0fpacketsReceived\x12'\n" +
 	"\x0fpackets_dropped\x18\x03 \x01(\x04R\x0epacketsDropped\x12+\n" +
 	"\x11state_transitions\x18\x04 \x01(\x04R\x10stateTransitions\x12#\n" +
-	"\rauth_failures\x18\x05 \x01(\x04R\fauthFailures\"\xd2\x03\n" +
+	"\rauth_failures\x18\x05 \x01(\x04R\fauthFailures\"\x9d\x04\n" +
 	"\x11AddSessionRequest\x12*\n" +
 	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
 	"\rlocal_address\x18\x02 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12%\n" +
@@ -1181,7 +1213,11 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x17desired_min_tx_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x14desiredMinTxInterval\x12R\n" +
 	"\x18required_min_rx_interval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x15requiredMinRxInterval\x124\n" +
 	"\x11detect_multiplier\x18\a \x01(\rB\a\xbaH\x04*\x02(\x01R\x10detectMultiplier\x127\n" +
-	"\tauth_type\x18\b \x01(\x0e2\x1a.bfd.v1.AuthenticationTypeR\bauthType\"B\n" +
+	"\tauth_type\x18\b \x01(\x0e2\x1a.bfd.v1.AuthenticationTypeR\bauthType\x12(\n" +
+	"\vauth_key_id\x18\t \x01(\rB\b\xbaH\x05*\x03\x18\xff\x01R\tauthKeyId\x12\x1f\n" +
+	"\vauth_secret\x18\n" +
+	" \x01(\fR\n" +
+	"authSecret\"B\n" +
 	"\x12AddSessionResponse\x12,\n" +
 	"\asession\x18\x01 \x01(\v2\x12.bfd.v1.BfdSessionR\asession\"G\n" +
 	"\x14DeleteSessionRequest\x12/\n" +
@@ -1233,11 +1269,15 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x1dAUTHENTICATION_TYPE_KEYED_MD5\x10\x03\x12,\n" +
 	"(AUTHENTICATION_TYPE_METICULOUS_KEYED_MD5\x10\x04\x12\"\n" +
 	"\x1eAUTHENTICATION_TYPE_KEYED_SHA1\x10\x05\x12-\n" +
-	")AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1\x10\x06*d\n" +
+	")AUTHENTICATION_TYPE_METICULOUS_KEYED_SHA1\x10\x06*\xc8\x01\n" +
 	"\vSessionType\x12\x1c\n" +
 	"\x18SESSION_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17SESSION_TYPE_SINGLE_HOP\x10\x01\x12\x1a\n" +
-	"\x16SESSION_TYPE_MULTI_HOP\x10\x022\x8e\x03\n" +
+	"\x16SESSION_TYPE_MULTI_HOP\x10\x02\x12\x15\n" +
+	"\x11SESSION_TYPE_ECHO\x10\x03\x12\x1a\n" +
+	"\x16SESSION_TYPE_MICRO_BFD\x10\x04\x12\x16\n" +
+	"\x12SESSION_TYPE_VXLAN\x10\x05\x12\x17\n" +
+	"\x13SESSION_TYPE_GENEVE\x10\x062\x8e\x03\n" +
 	"\n" +
 	"BfdService\x12C\n" +
 	"\n" +

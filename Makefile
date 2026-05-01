@@ -6,6 +6,7 @@
 #   make build       — compile both binaries
 #   make test        — run all tests with race detector
 #   make lint        — run golangci-lint v2
+#   make gopls-check — run gopls diagnostics
 #   make proto-gen   — generate protobuf Go code
 #   make proto-lint  — lint proto definitions
 #   make all           — build + test + lint
@@ -22,7 +23,7 @@ SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all build test lint semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
+.PHONY: all verify build test lint lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
@@ -57,7 +58,12 @@ shell:
 
 # === Build ===
 
-all: build test lint
+all: build test gopls-check lint lint-docs
+
+# Canonical pre-commit gate for routine changes. Protocol or wire-format
+# changes must add the relevant interop target on top of this gate.
+verify: all proto-lint vulncheck
+	@echo "verify: build, test, lint, docs, proto, and vulnerability gates passed"
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -104,7 +110,8 @@ interop:
 	./test/interop/run.sh
 
 interop-test:
-	INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) go test -tags interop -v -count=1 -timeout 300s ./test/interop/
+	$(EXEC) env INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) \
+		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 
 interop-up:
 	$(INTEROP_DC) up --build -d
@@ -140,7 +147,8 @@ interop-bgp:
 	./test/interop-bgp/run.sh
 
 interop-bgp-test:
-	INTEROP_BGP_COMPOSE_FILE=$(INTEROP_BGP_COMPOSE) go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
+	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=$(INTEROP_BGP_COMPOSE) \
+		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
 interop-bgp-up:
 	$(INTEROP_BGP_DC) up --build -d
@@ -160,7 +168,8 @@ interop-rfc:
 	./test/interop-rfc/run.sh
 
 interop-rfc-test:
-	INTEROP_RFC_COMPOSE_FILE=$(INTEROP_RFC_COMPOSE) go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
+	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=$(INTEROP_RFC_COMPOSE) \
+		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 
 interop-rfc-up:
 	$(INTEROP_RFC_DC) up --build -d
@@ -179,7 +188,7 @@ interop-clab:
 	./test/interop-clab/run.sh
 
 interop-clab-test:
-	go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+	$(EXEC) go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
 
 interop-clab-up:
 	./test/interop-clab/run.sh --up-only
@@ -354,6 +363,33 @@ lint:
 
 lint-fix:
 	$(EXEC) golangci-lint run --fix ./...
+
+gopls-check:
+	$(EXEC) sh ./scripts/gopls-check.sh
+
+lint-md:
+	$(EXEC) markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
+
+lint-yaml:
+	$(EXEC) yamllint -c .yamllint.yaml .
+
+lint-spell:
+	$(EXEC) cspell --no-progress --no-summary --config .cspell.json \
+		README.md \
+		CONTRIBUTING.md \
+		CODE_OF_CONDUCT.md \
+		SUPPORT.md \
+		GOVERNANCE.md \
+		MAINTAINERS.md \
+		CHANGELOG.md \
+		docs/en/implementation-plan.md \
+		docs/en/codebase-consistency-audit.md
+
+lint-docs: lint-md lint-yaml lint-spell
+
+lint-commit:
+	@test -n "$(MSG)" || (echo "Usage: make lint-commit MSG='feat(bfd): add feature'"; exit 1)
+	$(EXEC) sh -c 'printf "%s\n" "$$1" | commitlint --config .commitlintrc.yaml' sh "$(MSG)"
 
 semgrep:
 	$(SEMGREP) scan $(SEMGREP_COMMON_FLAGS)

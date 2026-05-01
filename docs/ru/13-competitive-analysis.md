@@ -65,7 +65,7 @@
 
 **google/gopacket**: Содержит BFD layer для парсинга пакетов, не реализация протокола.
 
-**GoBFD**: Первая production-grade реализация BFD на Go с zero-allocation hot path, полным соответствием RFC 5880/5881, аутентификацией, echo mode, demand mode, поддержкой оверлеев (VXLAN/Geneve) и полным набором бенчмарков.
+**GoBFD**: Первая production-oriented реализация BFD на Go с zero-allocation hot path, базовым покрытием RFC 5880/5881, аутентификацией, unaffiliated echo, поддержкой оверлеев (VXLAN/Geneve) и полным набором бенчмарков.
 
 ---
 

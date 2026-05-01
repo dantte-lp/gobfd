@@ -54,6 +54,14 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("BFD.DefaultDetectMultiplier = %d, want %d", cfg.BFD.DefaultDetectMultiplier, 3)
 	}
 
+	if cfg.VXLAN.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("VXLAN.Backend = %q, want %q", cfg.VXLAN.Backend, config.OverlayBackendUserspaceUDP)
+	}
+
+	if cfg.Geneve.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("Geneve.Backend = %q, want %q", cfg.Geneve.Backend, config.OverlayBackendUserspaceUDP)
+	}
+
 	// Defaults must pass validation.
 	if err := config.Validate(cfg); err != nil {
 		t.Errorf("DefaultConfig() failed validation: %v", err)
@@ -407,6 +415,49 @@ func TestValidateSessionErrors(t *testing.T) {
 				}
 			},
 			wantErr: config.ErrDuplicateSessionKey,
+		},
+		{
+			name: "invalid auth type",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{
+						Peer:  "10.0.0.1",
+						Local: testLocalAddr,
+						Auth:  config.AuthConfig{Type: "rot13", KeyID: 1, Secret: "secret"},
+					},
+				}
+			},
+			wantErr: config.ErrInvalidSessionAuthType,
+		},
+		{
+			name: "auth key ID overflow",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{
+						Peer:  "10.0.0.1",
+						Local: testLocalAddr,
+						Auth:  config.AuthConfig{Type: "keyed_sha1", KeyID: 256, Secret: "secret"},
+					},
+				}
+			},
+			wantErr: config.ErrInvalidSessionAuthKeyID,
+		},
+		{
+			name: "sha1 auth secret too long",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{
+						Peer:  "10.0.0.1",
+						Local: testLocalAddr,
+						Auth: config.AuthConfig{
+							Type:   "keyed_sha1",
+							KeyID:  1,
+							Secret: "123456789012345678901",
+						},
+					},
+				}
+			},
+			wantErr: config.ErrInvalidSessionAuthSecret,
 		},
 	}
 
@@ -1121,6 +1172,36 @@ func TestValidateVXLANErrors(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid vxlan backend",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Backend = "bad"
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrInvalidOverlayBackend,
+		},
+		{
+			name: "reserved vxlan backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Backend = config.OverlayBackendCilium
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
+		},
+		{
+			name: "reserved vxlan calico backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Backend = config.OverlayBackendCalico
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
+		},
+		{
 			name: "vni exceeds 24-bit",
 			modify: func(cfg *config.Config) {
 				cfg.VXLAN.Enabled = true
@@ -1204,6 +1285,36 @@ func TestValidateGeneveErrors(t *testing.T) {
 				cfg.Geneve.Enabled = false
 				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "bad"}}
 			},
+		},
+		{
+			name: "invalid geneve backend",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Backend = "bad"
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrInvalidOverlayBackend,
+		},
+		{
+			name: "reserved geneve backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Backend = config.OverlayBackendOVS
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
+		},
+		{
+			name: "reserved geneve calico backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Backend = config.OverlayBackendCalico
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
 		},
 		{
 			name: "default vni exceeds 24-bit",
@@ -1395,6 +1506,7 @@ grpc:
   addr: ":50051"
 vxlan:
   enabled: true
+  backend: "userspace-udp"
   management_vni: 100
   peers:
     - peer: "10.0.0.1"
@@ -1413,6 +1525,9 @@ vxlan:
 	if cfg.VXLAN.ManagementVNI != 100 {
 		t.Errorf("ManagementVNI = %d, want 100", cfg.VXLAN.ManagementVNI)
 	}
+	if cfg.VXLAN.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("VXLAN.Backend = %q, want %q", cfg.VXLAN.Backend, config.OverlayBackendUserspaceUDP)
+	}
 
 	if err := config.Validate(cfg); err != nil {
 		t.Errorf("valid vxlan config failed validation: %v", err)
@@ -1427,6 +1542,7 @@ grpc:
   addr: ":50051"
 geneve:
   enabled: true
+  backend: "userspace-udp"
   default_vni: 42
   peers:
     - peer: "10.0.0.1"
@@ -1446,9 +1562,113 @@ geneve:
 	if cfg.Geneve.DefaultVNI != 42 {
 		t.Errorf("DefaultVNI = %d, want 42", cfg.Geneve.DefaultVNI)
 	}
+	if cfg.Geneve.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("Geneve.Backend = %q, want %q", cfg.Geneve.Backend, config.OverlayBackendUserspaceUDP)
+	}
 
 	if err := config.Validate(cfg); err != nil {
 		t.Errorf("valid geneve config failed validation: %v", err)
+	}
+}
+
+func TestLoadWithMicroBFDActuatorConfig(t *testing.T) {
+	t.Parallel()
+
+	yamlContent := `
+micro_bfd:
+  actuator:
+    mode: "dry-run"
+    backend: "networkmanager"
+    ovsdb_endpoint: "unix:/run/openvswitch/db.sock"
+    owner_policy: "networkmanager-dbus"
+    down_action: "remove-member"
+    up_action: "add-member"
+`
+
+	path := writeTemp(t, yamlContent)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	actuator := cfg.MicroBFD.Actuator
+	if actuator.Mode != config.MicroBFDActuatorModeDryRun {
+		t.Errorf("Mode = %q, want %q", actuator.Mode, config.MicroBFDActuatorModeDryRun)
+	}
+	if actuator.Backend != config.MicroBFDActuatorBackendNetworkManager {
+		t.Errorf("Backend = %q, want %q", actuator.Backend, config.MicroBFDActuatorBackendNetworkManager)
+	}
+	if actuator.OVSDBEndpoint != "unix:/run/openvswitch/db.sock" {
+		t.Errorf("OVSDBEndpoint = %q, want unix:/run/openvswitch/db.sock", actuator.OVSDBEndpoint)
+	}
+	if actuator.OwnerPolicy != config.MicroBFDActuatorOwnerNetworkManagerDBus {
+		t.Errorf("OwnerPolicy = %q, want %q", actuator.OwnerPolicy, config.MicroBFDActuatorOwnerNetworkManagerDBus)
+	}
+	if actuator.DownAction != config.MicroBFDActuatorActionRemoveMember {
+		t.Errorf("DownAction = %q, want %q", actuator.DownAction, config.MicroBFDActuatorActionRemoveMember)
+	}
+	if actuator.UpAction != config.MicroBFDActuatorActionAddMember {
+		t.Errorf("UpAction = %q, want %q", actuator.UpAction, config.MicroBFDActuatorActionAddMember)
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("valid micro-BFD actuator config failed validation: %v", err)
+	}
+}
+
+func TestValidateMicroBFDActuatorErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		modify  func(*config.Config)
+		wantErr error
+	}{
+		{
+			name: "invalid mode",
+			modify: func(cfg *config.Config) {
+				cfg.MicroBFD.Actuator.Mode = "active"
+			},
+			wantErr: config.ErrInvalidMicroBFDActuatorMode,
+		},
+		{
+			name: "invalid backend",
+			modify: func(cfg *config.Config) {
+				cfg.MicroBFD.Actuator.Backend = "ifupdown"
+			},
+			wantErr: config.ErrInvalidMicroBFDActuatorBackend,
+		},
+		{
+			name: "invalid owner policy",
+			modify: func(cfg *config.Config) {
+				cfg.MicroBFD.Actuator.OwnerPolicy = "overwrite"
+			},
+			wantErr: config.ErrInvalidMicroBFDActuatorOwnerPolicy,
+		},
+		{
+			name: "invalid down action",
+			modify: func(cfg *config.Config) {
+				cfg.MicroBFD.Actuator.DownAction = "shutdown-lag"
+			},
+			wantErr: config.ErrInvalidMicroBFDActuatorAction,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			tt.modify(cfg)
+
+			err := config.Validate(cfg)
+			if err == nil {
+				t.Fatal("Validate() returned nil, want error")
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Validate() error = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

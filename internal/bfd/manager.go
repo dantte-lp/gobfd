@@ -152,6 +152,9 @@ type SessionSnapshot struct {
 	// PaddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
 	PaddedPduSize uint16
 
+	// AuthType is the RFC 5880 authentication type configured for the session.
+	AuthType AuthType
+
 	// Unsolicited indicates the session was auto-created via RFC 9468.
 	Unsolicited bool
 
@@ -237,6 +240,10 @@ type Manager struct {
 	// Set via WithUnsolicitedSender option.
 	unsolicitedSender PacketSender
 
+	// microActuator receives RFC 7130 member state transitions after the
+	// Manager updates its MicroBFDGroup aggregate state.
+	microActuator MicroBFDActuator
+
 	// rawNotifyCh receives state changes from all sessions.
 	// The Manager's dispatch goroutine reads from this channel,
 	// handles micro-BFD group updates, and forwards to publicNotifyCh.
@@ -271,6 +278,14 @@ type echoSessionEntry struct {
 // ManagerOption configures optional Manager parameters.
 type ManagerOption func(*Manager)
 
+// MicroBFDActuator reacts to RFC 7130 Micro-BFD member state transitions.
+//
+// Implementations must be quick or internally asynchronous. RunDispatch calls
+// the actuator synchronously to preserve ordering between member transitions.
+type MicroBFDActuator interface {
+	HandleMicroBFDMemberEvent(ctx context.Context, event MicroBFDMemberEvent) error
+}
+
 // WithManagerMetrics sets the MetricsReporter for the manager and all
 // sessions it creates. If mr is nil, a no-op reporter is used.
 func WithManagerMetrics(mr MetricsReporter) ManagerOption {
@@ -297,6 +312,14 @@ func WithUnsolicitedPolicy(policy *UnsolicitedPolicy) ManagerOption {
 func WithUnsolicitedSender(sender PacketSender) ManagerOption {
 	return func(m *Manager) {
 		m.unsolicitedSender = sender
+	}
+}
+
+// WithMicroBFDActuator sets an optional actuator for RFC 7130 Micro-BFD
+// member state transitions. A nil actuator leaves GoBFD in detect/report mode.
+func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
+	return func(m *Manager) {
+		m.microActuator = actuator
 	}
 }
 
@@ -508,6 +531,38 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 	)
 
 	return nil
+}
+
+// HandleInterfaceEvent applies an interface state event to sessions bound to
+// the interface. Link-up events are informational; link-down events transition
+// matching sessions to Down with DiagPathDown before detection timer expiry.
+func (m *Manager) HandleInterfaceEvent(ifName string, up bool) int {
+	if ifName == "" || up {
+		return 0
+	}
+
+	m.mu.RLock()
+	matches := make([]*Session, 0)
+	for _, entry := range m.sessions {
+		if entry.key.ifName == ifName {
+			matches = append(matches, entry.session)
+		}
+	}
+	m.mu.RUnlock()
+
+	affected := 0
+	for _, sess := range matches {
+		if sess.SetPathDown() {
+			affected++
+		}
+	}
+	if affected > 0 {
+		m.logger.Warn("interface link down affected BFD sessions",
+			slog.String("interface", ifName),
+			slog.Int("sessions", affected),
+		)
+	}
+	return affected
 }
 
 // -------------------------------------------------------------------------
@@ -757,6 +812,7 @@ func (m *Manager) Sessions() []SessionSnapshot {
 			LastStateChange:      s.LastStateChange(),
 			LastPacketReceived:   s.LastPacketReceived(),
 			PaddedPduSize:        s.PaddedPduSize(),
+			AuthType:             s.AuthType(),
 			Counters: SessionCounters{
 				PacketsSent:      s.PacketsSent(),
 				PacketsReceived:  s.PacketsReceived(),
@@ -1242,7 +1298,7 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 		case sc := <-m.rawNotifyCh:
 			// Dispatch micro-BFD events to the group.
 			if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
-				m.dispatchMicroBFD(sc)
+				m.dispatchMicroBFD(ctx, sc)
 			}
 			if sc.NewState == StateDown {
 				m.scheduleUnsolicitedCleanup(ctx, sc)
@@ -1333,7 +1389,7 @@ func (m *Manager) cleanupUnsolicitedSession(ctx context.Context, localDiscr uint
 // dispatchMicroBFD routes a micro-BFD session state change to the
 // appropriate MicroBFDGroup by finding which group contains the session's
 // interface as a member link.
-func (m *Manager) dispatchMicroBFD(sc StateChange) {
+func (m *Manager) dispatchMicroBFD(ctx context.Context, sc StateChange) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -1359,7 +1415,36 @@ func (m *Manager) dispatchMicroBFD(sc StateChange) {
 				slog.Int("up_count", group.UpCount()),
 			)
 		}
+		m.handleMicroBFDActuator(ctx, group, sc, changed)
 		return
+	}
+}
+
+func (m *Manager) handleMicroBFDActuator(
+	ctx context.Context,
+	group *MicroBFDGroup,
+	sc StateChange,
+	aggregateChanged bool,
+) {
+	if m.microActuator == nil {
+		return
+	}
+	ev := MicroBFDMemberEvent{
+		LAGInterface:     group.LAGInterface(),
+		MemberInterface:  sc.Interface,
+		OldState:         sc.OldState,
+		NewState:         sc.NewState,
+		LocalDiscr:       sc.LocalDiscr,
+		AggregateUp:      group.IsUp(),
+		AggregateChanged: aggregateChanged,
+	}
+	if err := m.microActuator.HandleMicroBFDMemberEvent(ctx, ev); err != nil {
+		m.logger.Warn("micro-BFD actuator failed",
+			slog.String("lag", ev.LAGInterface),
+			slog.String("member", ev.MemberInterface),
+			slog.String("new_state", ev.NewState.String()),
+			slog.String("error", err.Error()),
+		)
 	}
 }
 

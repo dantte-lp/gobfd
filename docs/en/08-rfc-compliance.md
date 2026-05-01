@@ -288,13 +288,19 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | One BFD session per member link | `MicroBFDGroup.members` map, `AddMember()`/`RemoveMember()` |
 | `SO_BINDTODEVICE` per member | `WithBindDevice()` functional option on sender |
 | Aggregate state tracking | `upCount >= minActive` threshold |
-| Member removed on BFD Down | `UpdateMemberState()` triggers aggregate change |
+| Member Down handling | `UpdateMemberState()` records member state and triggers aggregate threshold changes |
 | Dedicated multicast MAC | `01-00-5E-90-00-01` for initial packets |
 | Asynchronous mode only | Standard RFC 5880 procedures per member |
 | Session type | `SessionTypeMicroBFD` constant |
 | Per-group configuration | `MicroBFDGroupConfig` with LAG interface + member links |
 | Group reconciliation | `reconcileMicroBFDGroups()` in `main.go`, SIGHUP reload |
 | State dispatch | `RunDispatch` fan-out goroutine routes state changes to groups |
+| Actuator hook | `MicroBFDActuator` receives member state events after group state update |
+| Policy gate | `netio.LAGActuator` supports `disabled`, `dry-run`, and `enforce` modes |
+| Daemon wiring | `micro_bfd.actuator` configures mode, backend, OVSDB endpoint, owner policy, and member actions |
+| Kernel bond backend | `KernelBondLAGBackend` writes `-member` / `+member` to Linux bonding sysfs |
+| OVS backend | `OVSDBLAGBackend` mutates `Port.interfaces` through OVSDB; `OVSLAGBackend` remains a CLI fallback type |
+| NetworkManager backend | `NetworkManagerLAGBackend` deactivates and activates NM-owned bond port profiles through D-Bus |
 
 Aggregate state logic:
 - Group starts with all members Down, aggregate Down
@@ -305,17 +311,31 @@ Aggregate state logic:
 
 `MicroBFDGroupSnapshot` provides a read-only view of the group state including per-member link details, useful for gRPC API responses and monitoring.
 
+**Linux production limitation**: RFC 7130 also requires a member link whose
+micro-BFD session is Down to be removed from the LAG load-balancing table.
+GoBFD now has a `MicroBFDActuator` hook and a tested `netio.LAGActuator` policy
+gate for disabled, dry-run, and enforce modes. YAML wiring is present, including
+NetworkManager-aware owner policy selection. `backend: kernel-bond` can enforce
+member remove/add through Linux bonding sysfs when `owner_policy:
+allow-external` is explicit. `backend: ovs` can enforce member remove/add on an
+existing OVS bonded port with native OVSDB transactions against
+`Port.interfaces`. `OVSLAGBackend` remains a direct CLI fallback type, while
+`backend: networkmanager` can enforce member remove/add by deactivating the
+active NetworkManager bond port profile and reactivating the remembered or
+available bond port profile when `owner_policy: networkmanager-dbus` is
+explicit.
+
 ### RFC 8971 Implementation Notes
 
 **Status**: Implemented
 
-**Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
+**Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
 RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detection between VTEPs (Virtual Tunnel Endpoints). BFD Control packets are carried inside VXLAN-encapsulated inner Ethernet frames.
 
 | Requirement | Implementation |
 |---|---|
-| Outer UDP port 4789 | `netio.VXLANPort = 4789`, `VXLANConn` socket |
+| Outer UDP port 4789 | `netio.VXLANPort = 4789`, `VXLANConn` through explicit `userspace-udp` backend |
 | Inner UDP port 3784 | `BuildInnerPacket()` with dst port 3784 |
 | VXLAN header codec | `MarshalVXLANHeader` / `UnmarshalVXLANHeader` |
 | Management VNI | `VXLANConfig.ManagementVNI`, VNI mismatch rejection |
@@ -327,6 +347,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Session type | `SessionTypeVXLAN` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips VXLAN + inner headers, delivers to `Manager.DemuxWithWire` |
+| Backend model | `NewVXLANOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/NSX backends fail closed |
 | Receive hardening | Reuses bounded jumbo receive buffers; expected malformed/non-management packets are dropped at debug level |
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
@@ -339,17 +360,25 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 
 The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) and 24-bit VNI encoding. Management VNI packets are processed locally and not forwarded to tenant networks.
 
+**Linux production limitation**: `vxlan.backend: userspace-udp` owns a UDP
+socket on `localAddr:4789`. This is suitable for a lab endpoint, a dedicated
+management VNI endpoint, or a Linux VTEP where GoBFD owns the socket. If kernel
+VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns UDP 4789 for the
+same local address/namespace, GoBFD fails closed for reserved backend names
+until an owner-specific integration exists. Sender reconciliation reuses the
+runtime backend already serving the receiver and does not bind a second socket.
+
 ### RFC 9521 Implementation Notes
 
 **Status**: Implemented
 
-**Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
+**Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
 RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detection between NVEs (Network Virtualization Edges) at the VAP (Virtual Access Point) level. Geneve is the evolution of VXLAN for cloud-native environments.
 
 | Requirement | Implementation |
 |---|---|
-| Outer UDP port 6081 | `netio.GenevePort = 6081`, `GeneveConn` socket |
+| Outer UDP port 6081 | `netio.GenevePort = 6081`, `GeneveConn` through explicit `userspace-udp` backend |
 | Geneve header codec | `MarshalGeneveHeader` / `UnmarshalGeneveHeader` |
 | O bit (control) = 1 | RFC 9521 Section 4: set on send, validated on receive (`ErrGeneveOBitNotSet`) |
 | C bit (critical) = 0 | RFC 9521 Section 4: cleared on send, validated on receive (`ErrGeneveCBitSet`) |
@@ -362,6 +391,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Session type | `SessionTypeGeneve` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips Geneve + inner headers, delivers to `Manager.DemuxWithWire` |
+| Backend model | `NewGeneveOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/NSX backends fail closed |
 | Receive hardening | Reuses bounded jumbo receive buffers; expected malformed/non-management packets are dropped at debug level |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
@@ -377,6 +407,14 @@ Key differences from VXLAN BFD (RFC 8971):
 - Two payload formats: Ethernet (Format A) and IP (Format B)
 - O bit control flag indicates management/control traffic
 - Sessions originate/terminate at VAPs, not directly at NVEs
+
+**Linux production limitation**: `geneve.backend: userspace-udp` owns a UDP
+socket on `localAddr:6081`. It validates RFC 9521 Format A packets, but it does
+not integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
+Reserved owner-specific backend names fail closed until those integrations
+exist. RFC 9521 also inherits the Geneve requirement to run in a traffic-managed
+controlled environment or otherwise provision BFD transmit rates to avoid
+congestion-driven false failure detection.
 
 ### RFC 9764 Implementation Notes
 

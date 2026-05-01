@@ -19,6 +19,7 @@ import (
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
 // =========================================================================
@@ -243,6 +244,60 @@ func TestConfigSessionToBFD(t *testing.T) {
 				tt.check(t, cfg)
 			}
 		})
+	}
+}
+
+func TestConfigSessionToBFDConfiguresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := configSessionToBFD(config.SessionConfig{
+		Peer:  "10.0.0.1",
+		Local: "10.0.0.2",
+		Type:  "single_hop",
+		Auth: config.AuthConfig{
+			Type:   "keyed_sha1",
+			KeyID:  7,
+			Secret: "sha1-auth-secret",
+		},
+	}, config.BFDConfig{
+		DefaultDesiredMinTx:     time.Second,
+		DefaultRequiredMinRx:    time.Second,
+		DefaultDetectMultiplier: 3,
+	})
+	if err != nil {
+		t.Fatalf("configSessionToBFD: %v", err)
+	}
+	if cfg.Auth == nil {
+		t.Fatal("Auth is nil, want keyed SHA1 authenticator")
+	}
+	if cfg.AuthKeys == nil {
+		t.Fatal("AuthKeys is nil, want static key store")
+	}
+
+	pkt := &bfd.ControlPacket{
+		Version:               bfd.Version,
+		State:                 bfd.StateDown,
+		DetectMult:            3,
+		MyDiscriminator:       1,
+		DesiredMinTxInterval:  1000000,
+		RequiredMinRxInterval: 1000000,
+	}
+	state, err := bfd.NewAuthState(bfd.AuthTypeKeyedSHA1)
+	if err != nil {
+		t.Fatalf("NewAuthState: %v", err)
+	}
+	buf := make([]byte, bfd.MaxPacketSize)
+	if err := cfg.Auth.Sign(state, cfg.AuthKeys, pkt, buf, 0); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if !pkt.AuthPresent || pkt.Auth == nil {
+		t.Fatal("signed packet missing auth section")
+	}
+	if pkt.Auth.Type != bfd.AuthTypeKeyedSHA1 {
+		t.Fatalf("Auth.Type = %s, want %s", pkt.Auth.Type, bfd.AuthTypeKeyedSHA1)
+	}
+	if pkt.Auth.KeyID != 7 {
+		t.Fatalf("Auth.KeyID = %d, want 7", pkt.Auth.KeyID)
 	}
 }
 
@@ -582,9 +637,166 @@ func TestConfigMicroBFDToBFD(t *testing.T) {
 	}
 }
 
+func TestBuildMicroBFDActuator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     config.MicroBFDActuatorConfig
+		wantNil bool
+		wantErr error
+	}{
+		{
+			name: "disabled",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeDisabled,
+				Backend:     config.MicroBFDActuatorBackendAuto,
+				OwnerPolicy: config.MicroBFDActuatorOwnerRefuseIfManaged,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+			wantNil: true,
+		},
+		{
+			name: "dry run networkmanager owner",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeDryRun,
+				Backend:     config.MicroBFDActuatorBackendNetworkManager,
+				OwnerPolicy: config.MicroBFDActuatorOwnerNetworkManagerDBus,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+		},
+		{
+			name: "enforce wires kernel bond backend",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeEnforce,
+				Backend:     config.MicroBFDActuatorBackendKernelBond,
+				OwnerPolicy: config.MicroBFDActuatorOwnerAllowExternal,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+		},
+		{
+			name: "enforce wires ovs backend",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeEnforce,
+				Backend:     config.MicroBFDActuatorBackendOVS,
+				OwnerPolicy: config.MicroBFDActuatorOwnerAllowExternal,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			actuator, enabled, err := buildMicroBFDActuator(tt.cfg, slog.Default())
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("buildMicroBFDActuator error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("buildMicroBFDActuator: %v", err)
+			}
+			if tt.wantNil && actuator != nil {
+				t.Fatal("actuator is non-nil, want nil")
+			}
+			if tt.wantNil && enabled {
+				t.Fatal("actuator enabled, want disabled")
+			}
+			if !tt.wantNil && actuator == nil {
+				t.Fatal("actuator is nil, want non-nil")
+			}
+			if !tt.wantNil && !enabled {
+				t.Fatal("actuator disabled, want enabled")
+			}
+		})
+	}
+}
+
+func TestConfigMicroBFDActuatorToNetio(t *testing.T) {
+	t.Parallel()
+
+	got := configMicroBFDActuatorToNetio(config.MicroBFDActuatorConfig{
+		Mode:          config.MicroBFDActuatorModeDryRun,
+		Backend:       config.MicroBFDActuatorBackendNetworkManager,
+		OVSDBEndpoint: "unix:/run/openvswitch/db.sock",
+		OwnerPolicy:   config.MicroBFDActuatorOwnerNetworkManagerDBus,
+		DownAction:    config.MicroBFDActuatorActionRemoveMember,
+		UpAction:      config.MicroBFDActuatorActionNone,
+	})
+
+	if got.Mode != netio.LAGActuatorModeDryRun {
+		t.Errorf("Mode = %q, want %q", got.Mode, netio.LAGActuatorModeDryRun)
+	}
+	if got.Backend != netio.LAGActuatorBackendNetworkManager {
+		t.Errorf("Backend = %q, want %q", got.Backend, netio.LAGActuatorBackendNetworkManager)
+	}
+	if got.OVSDBEndpoint != "unix:/run/openvswitch/db.sock" {
+		t.Errorf("OVSDBEndpoint = %q, want unix:/run/openvswitch/db.sock", got.OVSDBEndpoint)
+	}
+	if got.OwnerPolicy != netio.LAGOwnerPolicyNetworkManagerDBus {
+		t.Errorf("OwnerPolicy = %q, want %q", got.OwnerPolicy, netio.LAGOwnerPolicyNetworkManagerDBus)
+	}
+	if got.DownAction != netio.LAGActuatorActionRemoveMember {
+		t.Errorf("DownAction = %q, want %q", got.DownAction, netio.LAGActuatorActionRemoveMember)
+	}
+	if got.UpAction != netio.LAGActuatorActionNone {
+		t.Errorf("UpAction = %q, want %q", got.UpAction, netio.LAGActuatorActionNone)
+	}
+}
+
 // =========================================================================
 // 4.5 — buildOverlaySessionConfig
 // =========================================================================
+
+type stubOverlayConn struct{}
+
+func (stubOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func (stubOverlayConn) RecvDecapsulated(context.Context) ([]byte, netio.OverlayMeta, error) {
+	return nil, netio.OverlayMeta{}, errors.New("stub overlay conn")
+}
+
+func (stubOverlayConn) Close() error {
+	return nil
+}
+
+func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
+	t.Parallel()
+
+	vxlanConn := stubOverlayConn{}
+	geneveConn := stubOverlayConn{}
+	cfg := config.DefaultConfig()
+	cfg.VXLAN.Enabled = true
+	cfg.VXLAN.ManagementVNI = 100
+	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: "10.0.0.2"}}
+	cfg.Geneve.Enabled = true
+	cfg.Geneve.DefaultVNI = 200
+	cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.3", Local: "10.0.0.4"}}
+
+	params := buildOverlayTunnelParams(cfg, &overlayRuntime{
+		vxlan:  vxlanConn,
+		geneve: geneveConn,
+	}, slog.Default())
+
+	if len(params) != 2 {
+		t.Fatalf("params len = %d, want 2", len(params))
+	}
+	if params[0].conn != vxlanConn {
+		t.Fatalf("VXLAN param conn = %T, want runtime VXLAN conn", params[0].conn)
+	}
+	if params[1].conn != geneveConn {
+		t.Fatalf("Geneve param conn = %T, want runtime Geneve conn", params[1].conn)
+	}
+}
 
 func TestBuildOverlaySessionConfig(t *testing.T) {
 	t.Parallel()

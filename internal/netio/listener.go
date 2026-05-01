@@ -40,6 +40,11 @@ type ListenerConfig struct {
 	// When nonzero, SetReadBuffer is called on the underlying socket.
 	// This reduces packet loss under high session counts.
 	ReadBufferSize int
+
+	// ExpectedTTL overrides the default BFD GTSM validation with an exact
+	// TTL/Hop Limit requirement. It is used for RFC 9747 Echo loopback
+	// packets, which MUST be received with TTL/Hop Limit 254.
+	ExpectedTTL uint8
 }
 
 // -------------------------------------------------------------------------
@@ -50,8 +55,9 @@ type ListenerConfig struct {
 // receive loop for BFD Control packets. It handles buffer management
 // using bfd.PacketPool and returns validated packet metadata.
 type Listener struct {
-	conn     PacketConn
-	multiHop bool
+	conn        PacketConn
+	multiHop    bool
+	expectedTTL uint8
 }
 
 // ReceivedPacket owns one buffer borrowed from bfd.PacketPool.
@@ -94,8 +100,9 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 	}
 
 	return &Listener{
-		conn:     conn,
-		multiHop: cfg.MultiHop,
+		conn:        conn,
+		multiHop:    cfg.MultiHop,
+		expectedTTL: cfg.ExpectedTTL,
 	}, nil
 }
 
@@ -105,6 +112,17 @@ func NewListenerFromConn(conn PacketConn, multiHop bool) *Listener {
 	return &Listener{
 		conn:     conn,
 		multiHop: multiHop,
+	}
+}
+
+// NewListenerFromConnWithExpectedTTL creates a Listener with an exact TTL
+// override. This is primarily used by tests for RFC 9747 echo loopback
+// behavior.
+func NewListenerFromConnWithExpectedTTL(conn PacketConn, multiHop bool, expectedTTL uint8) *Listener {
+	return &Listener{
+		conn:        conn,
+		multiHop:    multiHop,
+		expectedTTL: expectedTTL,
 	}
 }
 
@@ -142,13 +160,20 @@ func (l *Listener) RecvPacket(ctx context.Context) (*ReceivedPacket, error) {
 		}
 
 		// Validate GTSM TTL before returning to caller.
-		if err := ValidateTTL(pkt.Meta, l.multiHop); err != nil {
+		if err := l.validateTTL(pkt.Meta); err != nil {
 			pkt.Release()
 			continue // Drop packets with invalid TTL silently.
 		}
 
 		return pkt, nil
 	}
+}
+
+func (l *Listener) validateTTL(meta PacketMeta) error {
+	if l.expectedTTL != 0 {
+		return ValidateExpectedTTL(meta, l.expectedTTL, "listener")
+	}
+	return ValidateTTL(meta, l.multiHop)
 }
 
 // recvOne performs a single read from the underlying connection using

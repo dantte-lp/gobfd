@@ -67,9 +67,9 @@ type InterfaceMonitor interface {
 // never emits events. It is used when no platform-specific monitor is
 // available or when interface monitoring is disabled.
 //
-// A future implementation will use mdlayher/netlink with NETLINK_ROUTE
-// to subscribe to RTM_NEWLINK / RTM_DELLINK messages for real-time
-// interface state tracking on Linux.
+// Linux builds use NETLINK_ROUTE to subscribe to RTM_NEWLINK / RTM_DELLINK
+// messages for real-time interface state tracking. Other platforms use this
+// stub until a native monitor is added.
 type StubInterfaceMonitor struct {
 	events chan InterfaceEvent
 	logger *slog.Logger

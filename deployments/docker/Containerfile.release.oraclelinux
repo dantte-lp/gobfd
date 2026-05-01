@@ -1,0 +1,20 @@
+FROM docker.io/library/oraclelinux:10-slim
+
+RUN microdnf install -y ca-certificates shadow-utils \
+    && microdnf clean all \
+    && groupadd -r gobfd \
+    && useradd -r -g gobfd -s /sbin/nologin gobfd
+
+ARG TARGETPLATFORM
+
+COPY ${TARGETPLATFORM}/gobfd \
+     ${TARGETPLATFORM}/gobfdctl \
+     ${TARGETPLATFORM}/gobfd-haproxy-agent \
+     ${TARGETPLATFORM}/gobfd-exabgp-bridge \
+     /usr/local/bin/
+
+USER gobfd:gobfd
+
+EXPOSE 3784/udp 4784/udp 50051
+
+ENTRYPOINT ["/usr/local/bin/gobfd"]

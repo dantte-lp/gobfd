@@ -7,6 +7,156 @@
 
 ## [Не выпущено]
 
+## [0.5.0] - 2026-05-01
+
+### Добавлено
+
+- Repository governance и community-health files:
+  `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`,
+  `.github/CODEOWNERS`, `.github/pull_request_template.md`, issue forms и
+  `.github/repository-settings.md`.
+- Аудит консистентности кодовой базы
+  `docs/ru/codebase-consistency-audit.md`, сверяющий README/docs/API/CLI/config
+  с фактической реализацией и независимой production-применимостью в сетевых
+  сценариях.
+- Linux rtnetlink monitor интерфейсов для событий `RTM_NEWLINK` /
+  `RTM_DELLINK`, с немедленным переводом BFD-сессий на отказавшем интерфейсе
+  в `Down` / `Path Down`.
+- Исследовательская заметка S4 по Linux netlink и eBPF с обоснованием выбора
+  rtnetlink для мониторинга состояния интерфейсов.
+- Каноничный поэтапный план разработки `docs/ru/implementation-plan.md`,
+  согласованный с Keep a Changelog, SemVer, Conventional Commits,
+  Compose Specification, Containerfile, `.containerignore` и containers.conf.
+- Podman-only проверки документации: `make lint-md`, `make lint-yaml`,
+  `make lint-spell`, `make lint-docs` и `make lint-commit`.
+- Конфигурации `.containerignore`, Markdown lint, YAML lint, cspell и
+  commitlint на уровне репозитория.
+- CI-задачи для проверки документации и Conventional Commit в заголовках pull
+  request.
+- CI spell-check paths теперь используют каноничные planning docs из
+  `docs/en/` и community-health files.
+- Gate `make gopls-check` на базе `gopls v0.21.1` в Podman dev-контейнере.
+- Декларативное подключение аутентификации RFC 5880 для BFD-сессий из YAML,
+  включая валидацию статического хранилища ключей и отображение типа auth в
+  API/snapshot сессии.
+- Поля управления ключами RFC 5880 в gRPC `AddSession`: `auth_type`,
+  `auth_key_id` и `auth_secret`.
+- Флаги аутентификации `gobfdctl session add`: `--auth-type`,
+  `--auth-key-id` и `--auth-secret`.
+- Словарь типов сессий публичного API для RFC 9747 Echo, RFC 7130 Micro-BFD,
+  RFC 8971 VXLAN и RFC 9521 Geneve.
+- Production security policy для BFD authentication, экспозиции ConnectRPC,
+  GoBGP TLS/localhost границ, контейнерных привилегий и ownership
+  vulnerability gate.
+- Заметка о применимости Micro-BFD, VXLAN BFD и Geneve BFD в Linux:
+  `docs/ru/linux-advanced-bfd-applicability.md`.
+- Generic production runbooks в `docs/en/16-production-runbooks.md` и
+  `docs/ru/16-production-runbooks.md` для Kubernetes, BGP failover,
+  Prometheus alerts, packet verification и открытых production gaps.
+- Runbook FRR/GoBGP BGP fast-failover с RFC packet checks,
+  troubleshooting и optional public Arista EOS verification notes.
+- Micro-BFD actuator hook и guarded policy layer `netio.LAGActuator` для Linux
+  LAG enforcement.
+- Owner-aware конфигурация `micro_bfd.actuator` и daemon dry-run wiring для
+  kernel bond, OVS и NetworkManager backend-ов Micro-BFD enforcement.
+- Linux kernel-bond backend для Micro-BFD enforcement, который пишет RFC 7130
+  remove/add действия через bonding sysfs при явном `backend: kernel-bond` и
+  `owner_policy: allow-external`.
+- OVS backend для Micro-BFD enforcement, который запускает команды
+  `ovs-vsctl del-bond-iface` и `ovs-vsctl add-bond-iface` при явном
+  `backend: ovs` и `owner_policy: allow-external`.
+- OVSDB API research, фиксирующий OVSDB JSON-RPC как native OVS integration
+  path и `libovsdb` как предпочтительный Go route для следующего backend.
+- Native OVSDB backend для Micro-BFD enforcement с `backend: ovs`, который
+  использует `libovsdb` transactions против `Port.interfaces` и настраиваемый
+  `micro_bfd.actuator.ovsdb_endpoint`.
+- NetworkManager D-Bus backend для Micro-BFD enforcement с `backend:
+  networkmanager`, который использует `GetDeviceByIpIface`,
+  `ActiveConnection`, `DeactivateConnection`, `AvailableConnections`,
+  `GetSettings` и `ActivateConnection` для управления NM-owned bond port
+  profiles.
+- Модель overlay backend для VXLAN/Geneve с явным ownership `userspace-udp`
+  и зарезервированными именами `kernel`, `ovs`, `ovn`, `cilium`, `calico` и `nsx`.
+- Каноничная структура документации: English sources в `docs/en/`, русский
+  перевод в `docs/ru/`, в корне `docs/` только глобальный индекс
+  `docs/README.md`.
+- Русские переводы S8 planning, consistency audit, Linux advanced BFD,
+  Linux netlink/eBPF и OVSDB API research документов.
+
+### Изменено
+
+- Documentation style теперь использует декларативные status tables,
+  official standards, RFCs, primary vendor/library references и не содержит
+  internal validation process artifacts в published documents.
+- RFC compliance docs, примеры конфигурации и комментарии кода теперь отделяют
+  реализованное обнаружение Micro-BFD от будущего Linux bond/team/OVS
+  enforcement, а также описывают ограничения ownership userspace-сокетов
+  VXLAN/Geneve для kernel, OVS, Cilium, Calico и NSX dataplane.
+- S7.1 разделён на неразрушающий actuator config wiring, explicit
+  kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend
+  и NetworkManager D-Bus backend.
+- Overlay sender reconciliation теперь использует runtime VXLAN/Geneve backend,
+  который уже обслуживает receiver, без повторного bind на UDP 4789/6081.
+- `backend: ovs` теперь выбирает native OVSDB implementation; прежний
+  `OVSLAGBackend` остаётся explicit CLI fallback type.
+- Roadmap S7 теперь нацелен на независимые production integration assets, без
+  привязки к site-specific контуру применимости.
+- Kubernetes integration manifests теперь используют согласованные app labels,
+  named ports, Linux node selection, TCP readiness/liveness probes и
+  host-network DNS policy.
+- Observability alert rules теперь отделяют "нет активных
+  сконфигурированных сессий" от реального BFD transition Up-to-Down и
+  используют flapping detection по счётчику transitions, совпадающему с
+  экспортируемыми метриками GoBFD.
+- `make gopls-check` теперь проверяет Linux target через `go list`, включает
+  проектные build tags и падает при любых diagnostics `gopls check`, вместо
+  прежнего вывода diagnostics с exit code 0.
+- RFC-статус в README теперь согласован с подробными RFC compliance документами
+  для Echo, Micro-BFD, VXLAN, Geneve, Unsolicited BFD, common intervals и large
+  packets.
+- `make all` теперь включает проверки документации; `make verify` является
+  каноничным регулярным gate для сборки, тестов, линтеров, proto lint и аудита
+  уязвимостей.
+- Makefile-цели interop Go tests теперь выполняются через Podman dev-контейнер,
+  а не через локальный Go toolchain.
+- Dev-контейнер теперь включает Node.js и Python-анализаторы документации, а
+  доступ к Podman socket исправлен через `security_opt: label=disable`.
+- CI workflow теперь использует read-only token policy на уровне workflow и
+  именованные задачи, согласованные с локальными quality gates.
+- Go tools в CI и release workflow теперь запускаются через Go `tool`
+  directives, записанные в `go.mod`/`go.sum`: `gotestsum`, `benchstat` и
+  `golangci-lint`; Node и Python analyzer installs закрепляют версии
+  `markdownlint-cli2`, `cspell`, `commitlint`, `yamllint` и `junit2html`, а
+  также используют package-manager controls согласно supply-chain scanners.
+- Форматирование `gobfdctl` list/show/event теперь отображает advanced session
+  families вместо `unknown`.
+- Политика покрытия SonarCloud и Codecov теперь исключает command entrypoints
+  и host-network integration boundaries, проверяемые build, lint, security и
+  system/container checks.
+
+### Исправлено
+
+- Graceful drain теперь проводит `SetAdminDown` через control channel сессии,
+  когда session goroutine запущена: goroutine-confined cached state остаётся
+  согласованным с atomic state, а отправляемый control packet несёт
+  `AdminDown` / `DiagAdminDown`.
+- Путь приема RFC 9747 Echo теперь принимает только looped-back пакеты с
+  TTL/Hop Limit 254, сохраняя проверку TTL 255 для single-hop BFD.
+- RFC interop packet capture теперь включает UDP 3785 Echo-пакеты.
+- Создание сессии теперь отклоняет аутентификацию без хранилища ключей вместо
+  panic во время подписи cached packet.
+- Проверка hash-auth теперь отклоняет отсутствие raw wire bytes вместо panic,
+  если legacy/internal caller передал только разобранный пакет.
+- Аутентифицированные сессии теперь сбрасывают receive sequence window после
+  2x Detection Time без валидных пакетов, а пакеты с ошибкой auth больше не
+  обновляют `LastPacketReceived` и `PacketsReceived`.
+- gRPC `AddSession` теперь отклоняет неполный или неожиданный auth key material
+  вместо тихого создания неаутентифицированной сессии.
+- gRPC `AddSession` теперь отклоняет распознанные transport-specific типы
+  сессий до появления dedicated API для Echo, Micro-BFD, VXLAN и Geneve.
+- Записи vulnerability allowlist теперь требуют owner, expiry, reason и
+  mitigation metadata; expired entries ломают audit gate.
+
 ## [0.4.0] - 2026-02-24
 
 ### Добавлено
@@ -116,7 +266,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0

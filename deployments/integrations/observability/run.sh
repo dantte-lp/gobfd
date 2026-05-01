@@ -63,8 +63,8 @@ podman exec tshark-observability tshark -r /captures/bfd.pcapng -Y bfd -c 5 \
     2>/dev/null || warn "tshark capture not yet available."
 echo ""
 
-# --- Step 6: Trigger BFDSessionDown alert ---
-info "Step 6: Stopping FRR to trigger BFDSessionDown alert..."
+# --- Step 6: Trigger BFDSessionDownTransition alert ---
+info "Step 6: Stopping FRR to trigger BFDSessionDownTransition alert..."
 podman stop frr-observability
 info "FRR stopped. Waiting 30s for alert to fire..."
 sleep 30

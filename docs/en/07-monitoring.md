@@ -93,28 +93,37 @@ Recommended Prometheus alerting rules for BFD:
 groups:
   - name: gobfd
     rules:
-      # Alert on BFD session going Down
-      - alert: BFDSessionDown
-        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up", to_state="Down"}[5m]) > 0
+      # Alert when no sessions are configured or dynamically active.
+      - alert: BFDNoActiveSessions
+        expr: sum(gobfd_bfd_sessions) == 0
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "No active BFD sessions"
+
+      # Alert on BFD session going Down.
+      - alert: BFDSessionDownTransition
+        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0
         for: 0s
         labels:
           severity: critical
         annotations:
-          summary: "BFD session {{ $labels.peer_addr }} went Down"
+          summary: "BFD session {{ $labels.local_addr }} -> {{ $labels.peer_addr }} went Down"
 
-      # Alert on excessive session flapping
+      # Alert on excessive session flapping.
       - alert: BFDSessionFlapping
-        expr: increase(gobfd_bfd_state_transitions_total{from_state="Up", to_state="Down"}[1h]) > 5
-        for: 5m
+        expr: sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3
+        for: 1m
         labels:
           severity: warning
         annotations:
-          summary: "BFD session {{ $labels.peer_addr }} is flapping"
+          summary: "BFD session {{ $labels.local_addr }} -> {{ $labels.peer_addr }} is flapping"
 
       # Alert on authentication failures
-      - alert: BFDAuthFailure
+      - alert: BFDAuthFailures
         expr: rate(gobfd_bfd_auth_failures_total[5m]) > 0
-        for: 1m
+        for: 30s
         labels:
           severity: warning
         annotations:
@@ -122,8 +131,8 @@ groups:
 
       # Alert on high packet drop rate
       - alert: BFDPacketDrops
-        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 1
-        for: 5m
+        expr: rate(gobfd_bfd_packets_dropped_total[5m]) > 0
+        for: 1m
         labels:
           severity: warning
         annotations:

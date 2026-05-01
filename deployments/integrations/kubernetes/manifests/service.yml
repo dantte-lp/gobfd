@@ -8,17 +8,22 @@ metadata:
 spec:
   clusterIP: None
   selector:
-    app: gobfd
+    app.kubernetes.io/name: gobfd
+    app.kubernetes.io/component: bfd-daemon
   ports:
     - name: bfd
       port: 3784
+      targetPort: bfd
       protocol: UDP
     - name: bfd-multihop
       port: 4784
+      targetPort: bfd-multihop
       protocol: UDP
     - name: grpc
       port: 50052
+      targetPort: grpc
       protocol: TCP
     - name: metrics
       port: 9100
+      targetPort: metrics
       protocol: TCP

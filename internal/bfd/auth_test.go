@@ -2,6 +2,7 @@ package bfd_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -452,6 +453,120 @@ func TestAuthStateInitialization(t *testing.T) {
 	if state1.Type != bfd.AuthTypeKeyedSHA1 {
 		t.Errorf("state1.Type: got %d, want %d",
 			state1.Type, bfd.AuthTypeKeyedSHA1)
+	}
+}
+
+func TestStaticAuthKeyStore(t *testing.T) {
+	t.Parallel()
+
+	current := bfd.AuthKey{
+		ID:     1,
+		Type:   bfd.AuthTypeKeyedSHA1,
+		Secret: []byte("sha1-current-key"),
+	}
+	additional := bfd.AuthKey{
+		ID:     2,
+		Type:   bfd.AuthTypeKeyedSHA1,
+		Secret: []byte("sha1-rotate-key"),
+	}
+
+	store, err := bfd.NewStaticAuthKeyStore(current, additional)
+	if err != nil {
+		t.Fatalf("NewStaticAuthKeyStore: %v", err)
+	}
+
+	if got := store.CurrentKey(); got.ID != current.ID || got.Type != current.Type {
+		t.Fatalf("CurrentKey() = %+v, want ID %d type %d", got, current.ID, current.Type)
+	}
+
+	for _, want := range []bfd.AuthKey{current, additional} {
+		got, err := store.LookupKey(want.ID)
+		if err != nil {
+			t.Fatalf("LookupKey(%d): %v", want.ID, err)
+		}
+		if got.ID != want.ID || got.Type != want.Type || string(got.Secret) != string(want.Secret) {
+			t.Fatalf("LookupKey(%d) = %+v, want %+v", want.ID, got, want)
+		}
+	}
+
+	if _, err := store.LookupKey(99); !errors.Is(err, bfd.ErrAuthKeyNotFound) {
+		t.Fatalf("LookupKey(99) error = %v, want ErrAuthKeyNotFound", err)
+	}
+}
+
+func TestStaticAuthKeyStoreValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  bfd.AuthKey
+		want error
+	}{
+		{
+			name: "simple empty secret",
+			key:  bfd.AuthKey{ID: 1, Type: bfd.AuthTypeSimplePassword},
+			want: bfd.ErrAuthSecretInvalid,
+		},
+		{
+			name: "md5 too long",
+			key:  bfd.AuthKey{ID: 1, Type: bfd.AuthTypeKeyedMD5, Secret: []byte("12345678901234567")},
+			want: bfd.ErrAuthSecretInvalid,
+		},
+		{
+			name: "sha1 too long",
+			key:  bfd.AuthKey{ID: 1, Type: bfd.AuthTypeKeyedSHA1, Secret: []byte("123456789012345678901")},
+			want: bfd.ErrAuthSecretInvalid,
+		},
+		{
+			name: "none type",
+			key:  bfd.AuthKey{ID: 1, Type: bfd.AuthTypeNone, Secret: []byte("secret")},
+			want: bfd.ErrAuthTypeMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := bfd.NewStaticAuthKeyStore(tt.key)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("NewStaticAuthKeyStore() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewAuthenticator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		authType bfd.AuthType
+		wantType any
+	}{
+		{name: "simple", authType: bfd.AuthTypeSimplePassword, wantType: bfd.SimplePasswordAuth{}},
+		{name: "keyed md5", authType: bfd.AuthTypeKeyedMD5, wantType: bfd.KeyedMD5Auth{}},
+		{name: "meticulous md5", authType: bfd.AuthTypeMeticulousKeyedMD5, wantType: bfd.MeticulousKeyedMD5Auth{}},
+		{name: "keyed sha1", authType: bfd.AuthTypeKeyedSHA1, wantType: bfd.KeyedSHA1Auth{}},
+		{name: "meticulous sha1", authType: bfd.AuthTypeMeticulousKeyedSHA1, wantType: bfd.MeticulousKeyedSHA1Auth{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := bfd.NewAuthenticator(tt.authType)
+			if err != nil {
+				t.Fatalf("NewAuthenticator(%d): %v", tt.authType, err)
+			}
+			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.wantType) {
+				t.Fatalf("NewAuthenticator(%d) = %T, want %T", tt.authType, got, tt.wantType)
+			}
+		})
+	}
+
+	if _, err := bfd.NewAuthenticator(bfd.AuthTypeNone); !errors.Is(err, bfd.ErrAuthTypeMismatch) {
+		t.Fatalf("NewAuthenticator(AuthTypeNone) error = %v, want ErrAuthTypeMismatch", err)
 	}
 }
 

@@ -80,14 +80,13 @@ archives:
       - src: configs/gobfd.example.yml
         dst: etc/gobfd/gobfd.example.yml
       - src: deployments/systemd/gobfd.service
-        dst: lib/systemd/system/gobfd.service
+        dst: usr/lib/systemd/system/gobfd.service
 
 checksum:
   name_template: checksums.txt
 
 release:
-  mode: replace
-  replace_existing_artifacts: true
+  mode: keep_existing
 
 sboms:
   - artifacts: archive
@@ -114,7 +113,7 @@ nfpms:
         dst: /etc/gobfd/gobfd.yml
         type: config|noreplace
       - src: deployments/systemd/gobfd.service
-        dst: /lib/systemd/system/gobfd.service
+        dst: /usr/lib/systemd/system/gobfd.service
     scripts:
       postinstall: deployments/nfpm/postinstall.sh
       preremove: deployments/nfpm/preremove.sh
@@ -127,7 +126,7 @@ nfpms:
           - systemd
 
 dockers_v2:
-  - id: gobfd
+  - id: gobfd-debian-trixie
     dockerfile: deployments/docker/Containerfile.release
     ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
     images:
@@ -135,6 +134,8 @@ dockers_v2:
     tags:
       - "{{ .Version }}"
       - latest
+      - "{{ .Version }}-debian-trixie"
+      - debian-trixie
     platforms:
       - linux/amd64
       - linux/arm64
@@ -143,4 +144,24 @@ dockers_v2:
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.source: https://github.com/dantte-lp/gobfd
-    sbom: false
+      org.opencontainers.image.base.name: docker.io/library/debian:trixie-slim
+    sbom: true
+
+  - id: gobfd-oraclelinux10
+    dockerfile: deployments/docker/Containerfile.release.oraclelinux
+    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
+    images:
+      - ghcr.io/dantte-lp/gobfd
+    tags:
+      - "{{ .Version }}-oraclelinux10"
+      - oraclelinux10
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: gobfd
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.source: https://github.com/dantte-lp/gobfd
+      org.opencontainers.image.base.name: docker.io/library/oraclelinux:10-slim
+    sbom: true

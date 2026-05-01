@@ -70,8 +70,20 @@ bfd:
 
 # RFC 7130: Micro-BFD for LAG. Runs independent BFD sessions on each
 # LAG member link for per-link forwarding verification. Uses UDP port 6784.
+# The actuator is disabled by default. Dry-run mode plans member remove/add
+# actions without changing the host. Enforce mode supports explicit
+# backend: "kernel-bond" or native OVSDB backend: "ovs" with
+# owner_policy: "allow-external"; backend: "networkmanager" requires
+# owner_policy: "networkmanager-dbus".
 #
 # micro_bfd:
+#   actuator:
+#     mode: "dry-run"
+#     backend: "kernel-bond"
+#     ovsdb_endpoint: ""
+#     owner_policy: "refuse-if-managed"
+#     down_action: "remove-member"
+#     up_action: "add-member"
 #   groups:
 #     - lag_interface: "bond0"
 #       member_links: ["eth0", "eth1"]
@@ -84,9 +96,14 @@ bfd:
 
 # RFC 8971: BFD for VXLAN. Runs BFD sessions encapsulated in VXLAN
 # to verify VTEP-to-VTEP forwarding paths. Uses UDP port 4789.
+# The userspace VXLAN socket must not conflict with kernel VXLAN, OVS, Cilium,
+# or another dataplane already bound to the same local address/namespace.
 #
 # vxlan:
 #   enabled: true
+#   # Only "userspace-udp" is implemented today. Reserved future backends:
+#   # "kernel", "ovs", "ovn", "cilium", "calico", "nsx".
+#   backend: "userspace-udp"
 #   management_vni: 16777215
 #   default_desired_min_tx: "1s"
 #   default_required_min_rx: "1s"
@@ -100,9 +117,14 @@ bfd:
 
 # RFC 9521: BFD for Geneve. Runs BFD sessions encapsulated in Geneve
 # to verify NVE-to-NVE forwarding paths. Uses UDP port 6081.
+# The userspace Geneve socket must not conflict with kernel Geneve, OVS/OVN,
+# NSX, or another dataplane already bound to the same local address/namespace.
 #
 # geneve:
 #   enabled: true
+#   # Only "userspace-udp" is implemented today. Reserved future backends:
+#   # "kernel", "ovs", "ovn", "cilium", "calico", "nsx".
+#   backend: "userspace-udp"
 #   default_vni: 100
 #   default_desired_min_tx: "1s"
 #   default_required_min_rx: "1s"
@@ -146,6 +168,13 @@ bfd:
 #     desired_min_tx: "100ms"
 #     required_min_rx: "100ms"
 #     detect_mult: 3
+#     auth:
+#       # RFC 5880 Section 6.7 authentication. Supported values:
+#       # simple_password, keyed_md5, meticulous_keyed_md5,
+#       # keyed_sha1, meticulous_keyed_sha1.
+#       type: keyed_sha1
+#       key_id: 7
+#       secret: "change-me"
 #     # RFC 9764: per-session padded PDU size. Overrides bfd.default_padded_pdu_size.
 #     # padded_pdu_size: 128
 #   - peer: "10.0.1.1"

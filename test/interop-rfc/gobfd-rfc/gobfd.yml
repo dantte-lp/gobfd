@@ -57,4 +57,4 @@ sessions:
     desired_min_tx: "80ms"
     required_min_rx: "80ms"
     detect_mult: 3
-  # NOTE: NO session for 172.22.0.50 — unsolicited auto-creates it (RFC 9468).
+    # NOTE: NO session for 172.22.0.50 — unsolicited auto-creates it (RFC 9468).

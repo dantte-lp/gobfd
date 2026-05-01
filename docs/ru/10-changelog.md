@@ -34,13 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Описание новой функциональности.
 
-## [1.2.0] - 2026-03-15
+## [0.4.0] - 2026-03-15
 
 ### Fixed
 - Описание исправления.
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/dantte-lp/gobfd/releases/tag/v1.2.0
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
 ```
 
 Правила:
@@ -113,7 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    ```markdown
    ## [Unreleased]
 
-   ## [1.3.0] - 2026-04-01
+   ## [0.5.0] - 2026-04-01
 
    ### Added
    - (записи перенесены из Unreleased)
@@ -122,30 +122,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 2. **Обновите ссылки сравнения** внизу файла:
 
    ```markdown
-   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v1.3.0...HEAD
-   [1.3.0]: https://github.com/dantte-lp/gobfd/compare/v1.2.0...v1.3.0
-   [1.2.0]: https://github.com/dantte-lp/gobfd/releases/tag/v1.2.0
+   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+   [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
+   [0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
    ```
 
 3. **Зафиксируйте** обновление changelog:
 
    ```bash
    git add CHANGELOG.md
-   git commit -m "Prepare release v1.3.0"
+   git commit -m "chore(release): prepare v0.5.0"
    ```
 
 4. **Создайте тег и отправьте**:
 
    ```bash
-   git tag -a v1.3.0 -m "Release v1.3.0"
+   git tag -a v0.5.0 -m "Release v0.5.0"
    git push origin master --tags
    ```
 
 5. **GitHub Actions** автоматически:
    - Запускает полный набор тестов.
-   - Извлекает release notes из CHANGELOG.md для версии 1.3.0.
+   - Извлекает release notes из CHANGELOG.md для версии 0.5.0.
    - Собирает бинарники (linux/amd64, linux/arm64), .deb, .rpm пакеты.
-   - Публикует Docker-образ в `ghcr.io/dantte-lp/gobfd:1.3.0`.
+   - Публикует OCI-образы на базе Debian и Oracle Linux в
+     `ghcr.io/dantte-lp/gobfd`.
    - Создаёт GitHub Release с содержимым changelog в качестве описания.
 
 ### Семантическое версионирование
@@ -158,7 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | **MINOR** | Новые функции, обратно совместимые | Добавлена поддержка RFC 5883 multihop; новая команда `gobfdctl monitor`. |
 | **PATCH** | Исправления багов, документация, обновление зависимостей | Исправлен расчёт detection timeout; обновлена зависимость Go. |
 
-Предрелизные версии используют суффиксы: `v1.0.0-rc.1`, `v1.0.0-beta.2`.
+Предрелизные версии используют суффиксы: `v0.5.0-rc.1`, `v0.5.0-beta.2`.
 
 ### Примеры
 

@@ -7,6 +7,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-01
+
+### Added
+
+- Repository governance and community-health files:
+  `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`,
+  `.github/CODEOWNERS`, `.github/pull_request_template.md`, issue forms, and
+  `.github/repository-settings.md`.
+- Codebase consistency audit in `docs/en/codebase-consistency-audit.md`
+  comparing README/docs/API/CLI/config claims against implementation status
+  and independent production networking applicability.
+- Linux rtnetlink interface monitor for `RTM_NEWLINK` / `RTM_DELLINK` events,
+  with immediate BFD `Down` / `Path Down` handling for sessions bound to a
+  failed interface.
+- S4 Linux netlink vs eBPF research note documenting why rtnetlink is the
+  correct default for link-state monitoring.
+- Canonical phased implementation plan in `docs/en/implementation-plan.md`
+  aligned with Keep a Changelog, SemVer, Conventional Commits, Compose
+  Specification, Containerfile, `.containerignore`, and containers.conf.
+- Podman-only documentation lint gates: `make lint-md`, `make lint-yaml`,
+  `make lint-spell`, `make lint-docs`, and `make lint-commit`.
+- Repository-level `.containerignore`, Markdown lint, YAML lint, cspell, and
+  commitlint configuration files.
+- CI jobs for documentation linting and Conventional Commit validation of pull
+  request titles.
+- CI documentation spell-check paths now use the canonical `docs/en/` planning
+  documents and community-health files.
+- `make gopls-check` gate backed by `gopls v0.21.1` in the Podman dev
+  container.
+- Declarative RFC 5880 authentication wiring for YAML-defined BFD sessions,
+  including static key-store validation and API/session snapshots that expose
+  the configured auth type.
+- gRPC `AddSession` key-management fields for RFC 5880 authentication:
+  `auth_type`, `auth_key_id`, and `auth_secret`.
+- `gobfdctl session add` authentication flags: `--auth-type`,
+  `--auth-key-id`, and `--auth-secret`.
+- Public API session type vocabulary for RFC 9747 Echo, RFC 7130 Micro-BFD,
+  RFC 8971 VXLAN, and RFC 9521 Geneve sessions.
+- Production security policy covering BFD authentication, ConnectRPC exposure,
+  GoBGP TLS/localhost boundaries, container privileges, and vulnerability gate
+  ownership.
+- Linux applicability note for Micro-BFD, VXLAN BFD, and Geneve BFD in
+  `docs/en/linux-advanced-bfd-applicability.md`.
+- Generic production runbooks in `docs/en/16-production-runbooks.md` and
+  `docs/ru/16-production-runbooks.md` covering Kubernetes, BGP failover,
+  Prometheus alerts, packet verification, and open production gaps.
+- FRR/GoBGP BGP fast-failover runbook with RFC packet checks,
+  troubleshooting, and optional public Arista EOS verification notes.
+- Micro-BFD actuator hook and guarded `netio.LAGActuator` policy layer for
+  Linux LAG enforcement.
+- Owner-aware `micro_bfd.actuator` configuration and daemon dry-run wiring for
+  kernel bond, OVS, and NetworkManager Micro-BFD enforcement backends.
+- Linux kernel-bond Micro-BFD enforcement backend that writes RFC 7130
+  remove/add actions through bonding sysfs for explicit `backend: kernel-bond`
+  with `owner_policy: allow-external`.
+- OVS Micro-BFD enforcement backend that runs `ovs-vsctl del-bond-iface` and
+  `ovs-vsctl add-bond-iface` for explicit `backend: ovs` with
+  `owner_policy: allow-external`.
+- OVSDB API research documenting OVSDB JSON-RPC as the native OVS integration
+  path and `libovsdb` as the preferred Go route for the next backend.
+- Native OVSDB Micro-BFD enforcement backend for `backend: ovs`, using
+  `libovsdb` transactions against `Port.interfaces` and configurable
+  `micro_bfd.actuator.ovsdb_endpoint`.
+- NetworkManager D-Bus Micro-BFD enforcement backend for `backend:
+  networkmanager`, using `GetDeviceByIpIface`, `ActiveConnection`,
+  `DeactivateConnection`, `AvailableConnections`, `GetSettings`, and
+  `ActivateConnection` to control NM-owned bond port profiles.
+- VXLAN/Geneve overlay backend model with explicit `userspace-udp` ownership
+  and reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` backend names.
+- Canonical documentation layout with published English sources in `docs/en/`,
+  Russian translations in `docs/ru/`, and only the global index in
+  `docs/README.md`.
+- Russian translations for S8 planning, consistency audit, Linux advanced BFD,
+  Linux netlink/eBPF, and OVSDB API research documents.
+
+### Changed
+
+- Documentation style now uses declarative status tables, official standards,
+  RFCs, primary vendor/library references, and no internal validation process
+  artifacts in published documents.
+- RFC compliance docs, config examples, and code comments now distinguish
+  implemented Micro-BFD detection from future Linux bond/team/OVS enforcement,
+  and document VXLAN/Geneve userspace socket ownership limits for kernel,
+  OVS, Cilium, and NSX dataplanes.
+- S7.1 is split into non-destructive actuator config wiring, explicit
+  kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend,
+  and NetworkManager D-Bus backend sprint.
+- Overlay sender reconciliation now reuses the runtime VXLAN/Geneve backend
+  already serving the receiver, avoiding duplicate binds on UDP 4789/6081.
+- `backend: ovs` now selects the native OVSDB implementation; the older
+  `OVSLAGBackend` remains available as an explicit CLI fallback type.
+- S7 roadmap now targets independent production integration assets instead of
+  a site-specific applicability target.
+- Kubernetes integration manifests now use consistent app labels, named ports,
+  Linux node selection, TCP readiness/liveness probes, and host-network DNS
+  policy.
+- Observability alert rules now distinguish "no active configured sessions"
+  from real Up-to-Down BFD transitions and use transition-count flapping
+  detection that matches exported GoBFD metrics.
+- `make gopls-check` now scopes diagnostics to the Linux target through
+  `go list`, includes project build tags, and fails on any `gopls check`
+  diagnostics instead of allowing them to scroll past with exit code 0.
+- README RFC status now matches the detailed RFC compliance documents for
+  Echo, Micro-BFD, VXLAN, Geneve, Unsolicited BFD, common intervals, and large
+  packets.
+- `make all` now includes documentation linting; `make verify` is the canonical
+  routine gate for build, tests, linters, proto lint, and vulnerability audit.
+- Interop Go test Makefile targets now execute through the Podman dev container
+  instead of the host Go toolchain.
+- Dev container now includes Node.js and Python-based documentation analyzers,
+  with Podman socket access fixed via `security_opt: label=disable`.
+- CI workflow now uses a workflow-level read-only token policy and named jobs
+  aligned with the local quality gates.
+- CI and release workflow Go tools now run `gotestsum`, `benchstat`, and
+  `golangci-lint` through Go `tool` directives recorded in `go.mod`/`go.sum`;
+  Node and Python analyzer installs pin `markdownlint-cli2`, `cspell`,
+  `commitlint`, `yamllint`, and `junit2html` and use package-manager controls
+  required by supply-chain scanners.
+- GitHub Actions pins now track current upstream release tags for checkout,
+  cache, setup, CodeQL, GoReleaser, Trivy, gosec, Codecov, Buf, GitHub Script,
+  SonarQube, and artifact actions.
+- `golangci-lint` now enables 93 validated analyzers under the v2
+  configuration model, with `snake_case` JSON/YAML tag policy preserved for
+  public API and CLI contracts.
+- SonarCloud and Codecov coverage policy now excludes command entry points and
+  host-network integration boundaries that are validated by build, lint,
+  security, and system/container checks.
+- Vulnerability audit now runs `govulncheck v1.3.0`; OSV Scanner remains on
+  `v2.3.5` because `v2.3.6` is not usable through `go run` as a versioned tool
+  module.
+- GoReleaser now publishes immutable release artifacts with Debian `trixie-slim`
+  and Oracle Linux `10-slim` OCI image variants for `linux/amd64` and
+  `linux/arm64`.
+- `gobfdctl` list/show/event formatting now renders advanced session families
+  instead of collapsing them to `unknown`.
+
+### Fixed
+
+- Graceful drain now routes `SetAdminDown` through the session control channel
+  when the session goroutine is running, keeping the goroutine-confined cached
+  state aligned with the atomic state and ensuring the transmitted control
+  packet carries `AdminDown` / `DiagAdminDown`.
+- RFC 9747 Echo receive path now accepts only looped-back packets with
+  TTL/Hop Limit 254 while preserving TTL 255 validation for single-hop BFD.
+- RFC interop packet capture now includes UDP 3785 Echo packets.
+- Session creation now rejects authentication without an auth key store instead
+  of panicking during cached packet signing.
+- Hash-auth verification now rejects missing raw wire bytes instead of
+  panicking when a legacy/internal caller delivers only the parsed packet.
+- Authenticated sessions now reset the receive sequence window after 2x
+  Detection Time without valid packets, and failed auth packets no longer
+  refresh `LastPacketReceived` or `PacketsReceived`.
+- The gRPC `AddSession` path now rejects incomplete or unexpected auth key
+  material instead of silently creating an unauthenticated session.
+- The gRPC `AddSession` path now rejects recognized transport-specific session
+  families until dedicated Echo, Micro-BFD, VXLAN, and Geneve APIs are added.
+- Vulnerability allowlist entries now require owner, expiry, reason, and
+  mitigation metadata; expired entries fail the audit gate.
+
 ## [0.4.0] - 2026-02-24
 
 ### Added
@@ -116,7 +275,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0

@@ -217,6 +217,60 @@ func (ec EchoPeerConfig) LocalAddr() (netip.Addr, error) {
 type MicroBFDConfig struct {
 	// Groups holds per-LAG Micro-BFD group configurations.
 	Groups []MicroBFDGroupConfig `koanf:"groups"`
+
+	// Actuator controls optional RFC 7130 LAG member enforcement.
+	Actuator MicroBFDActuatorConfig `koanf:"actuator"`
+}
+
+// Micro-BFD actuator vocabulary.
+const (
+	MicroBFDActuatorModeDisabled = "disabled"
+	MicroBFDActuatorModeDryRun   = "dry-run"
+	MicroBFDActuatorModeEnforce  = "enforce"
+
+	MicroBFDActuatorBackendAuto           = "auto"
+	MicroBFDActuatorBackendKernelBond     = "kernel-bond"
+	MicroBFDActuatorBackendOVS            = "ovs"
+	MicroBFDActuatorBackendNetworkManager = "networkmanager"
+
+	MicroBFDActuatorOwnerRefuseIfManaged    = "refuse-if-managed"
+	MicroBFDActuatorOwnerAllowExternal      = "allow-external"
+	MicroBFDActuatorOwnerNetworkManagerDBus = "networkmanager-dbus"
+
+	MicroBFDActuatorActionNone         = "none"
+	MicroBFDActuatorActionRemoveMember = "remove-member"
+	MicroBFDActuatorActionAddMember    = "add-member"
+)
+
+const (
+	OverlayBackendUserspaceUDP = "userspace-udp"
+	OverlayBackendKernel       = "kernel"
+	OverlayBackendOVS          = "ovs"
+	OverlayBackendOVN          = "ovn"
+	OverlayBackendCilium       = "cilium"
+	OverlayBackendCalico       = "calico"
+	OverlayBackendNSX          = "nsx"
+)
+
+// MicroBFDActuatorConfig controls the optional LAG member actuator.
+type MicroBFDActuatorConfig struct {
+	// Mode controls whether actions are disabled, logged only, or enforced.
+	Mode string `koanf:"mode"`
+
+	// Backend selects the owner-specific dataplane backend.
+	Backend string `koanf:"backend"`
+
+	// OVSDBEndpoint is the native OVSDB endpoint for backend: ovs.
+	OVSDBEndpoint string `koanf:"ovsdb_endpoint"`
+
+	// OwnerPolicy controls behavior when another manager owns the interface.
+	OwnerPolicy string `koanf:"owner_policy"`
+
+	// DownAction is applied when a member transitions from Up to non-Up.
+	DownAction string `koanf:"down_action"`
+
+	// UpAction is applied when a member transitions back to Up.
+	UpAction string `koanf:"up_action"`
 }
 
 // MicroBFDGroupConfig holds the configuration for a single LAG's Micro-BFD group.
@@ -255,6 +309,10 @@ type MicroBFDGroupConfig struct {
 type VXLANConfig struct {
 	// Enabled controls whether VXLAN BFD is available.
 	Enabled bool `koanf:"enabled"`
+
+	// Backend selects the owner-specific overlay transport backend.
+	// Only userspace-udp is implemented; other values are reserved.
+	Backend string `koanf:"backend"`
 
 	// ManagementVNI is the VXLAN Network Identifier used for BFD
 	// control messages. RFC 8971 Section 3: all BFD packets use
@@ -329,6 +387,10 @@ func (vc VXLANPeerConfig) LocalAddr() (netip.Addr, error) {
 type GeneveConfig struct {
 	// Enabled controls whether Geneve BFD is available.
 	Enabled bool `koanf:"enabled"`
+
+	// Backend selects the owner-specific overlay transport backend.
+	// Only userspace-udp is implemented; other values are reserved.
+	Backend string `koanf:"backend"`
 
 	// DefaultVNI is the default Geneve VNI for BFD sessions.
 	DefaultVNI uint32 `koanf:"default_vni"`
@@ -516,6 +578,26 @@ type SessionConfig struct {
 	// Overrides BFDConfig.DefaultPaddedPduSize when nonzero.
 	// Valid range: 24-9000. Zero means use the global default.
 	PaddedPduSize uint16 `koanf:"padded_pdu_size"`
+
+	// Auth configures RFC 5880 Section 6.7 authentication for this session.
+	// Empty Type means authentication is disabled.
+	Auth AuthConfig `koanf:"auth"`
+}
+
+// AuthConfig describes a single BFD authentication key for a session.
+// Multiple-key rotation is handled by the internal AuthKeyStore and can be
+// expanded in a later config schema without changing the wire behavior.
+type AuthConfig struct {
+	// Type is one of: simple_password, keyed_md5, meticulous_keyed_md5,
+	// keyed_sha1, meticulous_keyed_sha1. Empty or "none" disables auth.
+	Type string `koanf:"type"`
+
+	// KeyID is the RFC 5880 Auth Key ID. Valid range: 0-255.
+	KeyID uint32 `koanf:"key_id"`
+
+	// Secret is the authentication secret. Length limits are RFC-defined:
+	// 1-16 bytes for Simple Password and MD5, 1-20 bytes for SHA1.
+	Secret string `koanf:"secret"`
 }
 
 // SessionKey returns a unique identifier for the session based on
@@ -580,6 +662,22 @@ func DefaultConfig() *Config {
 		Socket: SocketConfig{
 			ReadBufferSize:  4 * 1024 * 1024, // 4 MiB
 			WriteBufferSize: 4 * 1024 * 1024, // 4 MiB
+		},
+		MicroBFD: MicroBFDConfig{
+			Actuator: MicroBFDActuatorConfig{
+				Mode:          MicroBFDActuatorModeDisabled,
+				Backend:       MicroBFDActuatorBackendAuto,
+				OVSDBEndpoint: "",
+				OwnerPolicy:   MicroBFDActuatorOwnerRefuseIfManaged,
+				DownAction:    MicroBFDActuatorActionRemoveMember,
+				UpAction:      MicroBFDActuatorActionAddMember,
+			},
+		},
+		VXLAN: VXLANConfig{
+			Backend: OverlayBackendUserspaceUDP,
+		},
+		Geneve: GeneveConfig{
+			Backend: OverlayBackendUserspaceUDP,
 		},
 		GoBGP: GoBGPConfig{
 			Enabled:       false,
@@ -691,6 +789,14 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
 		"bfd.align_intervals":                defaults.BFD.AlignIntervals,
+		"micro_bfd.actuator.mode":            defaults.MicroBFD.Actuator.Mode,
+		"micro_bfd.actuator.backend":         defaults.MicroBFD.Actuator.Backend,
+		"micro_bfd.actuator.ovsdb_endpoint":  defaults.MicroBFD.Actuator.OVSDBEndpoint,
+		"micro_bfd.actuator.owner_policy":    defaults.MicroBFD.Actuator.OwnerPolicy,
+		"micro_bfd.actuator.down_action":     defaults.MicroBFD.Actuator.DownAction,
+		"micro_bfd.actuator.up_action":       defaults.MicroBFD.Actuator.UpAction,
+		"vxlan.backend":                      defaults.VXLAN.Backend,
+		"geneve.backend":                     defaults.Geneve.Backend,
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,
@@ -744,6 +850,15 @@ var (
 	// ErrDuplicateSessionKey indicates two sessions share the same (peer, local, interface) key.
 	ErrDuplicateSessionKey = errors.New("duplicate session key")
 
+	// ErrInvalidSessionAuthType indicates a session has an unrecognized auth type.
+	ErrInvalidSessionAuthType = errors.New("session auth.type is invalid")
+
+	// ErrInvalidSessionAuthKeyID indicates a session auth key ID exceeds the wire range.
+	ErrInvalidSessionAuthKeyID = errors.New("session auth.key_id must fit uint8")
+
+	// ErrInvalidSessionAuthSecret indicates a session auth secret has an invalid length.
+	ErrInvalidSessionAuthSecret = errors.New("session auth.secret length is invalid")
+
 	// ErrEmptyGoBGPAddr indicates the GoBGP address is empty when enabled.
 	ErrEmptyGoBGPAddr = errors.New("gobgp.addr must not be empty when gobgp is enabled")
 
@@ -788,6 +903,24 @@ var (
 
 	// ErrDuplicateGeneveSessionKey indicates two Geneve sessions share the same key.
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
+
+	// ErrInvalidOverlayBackend indicates an unrecognized overlay dataplane backend.
+	ErrInvalidOverlayBackend = errors.New("overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, calico, or nsx")
+
+	// ErrUnsupportedOverlayBackend indicates a recognized but not yet implemented backend.
+	ErrUnsupportedOverlayBackend = errors.New("overlay backend must be userspace-udp until kernel/ovs/ovn/cilium/calico/nsx backends are implemented")
+
+	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
+	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
+
+	// ErrInvalidMicroBFDActuatorBackend indicates an unrecognized Micro-BFD actuator backend.
+	ErrInvalidMicroBFDActuatorBackend = errors.New("micro_bfd.actuator.backend must be auto, kernel-bond, ovs, or networkmanager")
+
+	// ErrInvalidMicroBFDActuatorOwnerPolicy indicates an unrecognized interface owner policy.
+	ErrInvalidMicroBFDActuatorOwnerPolicy = errors.New("micro_bfd.actuator.owner_policy must be refuse-if-managed, allow-external, or networkmanager-dbus")
+
+	// ErrInvalidMicroBFDActuatorAction indicates an unrecognized Micro-BFD actuator action.
+	ErrInvalidMicroBFDActuatorAction = errors.New("micro_bfd.actuator action must be none, remove-member, or add-member")
 )
 
 // Validate checks the configuration for logical errors.
@@ -821,6 +954,10 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
+	if err := validateMicroBFDActuator(cfg.MicroBFD.Actuator); err != nil {
+		return err
+	}
+
 	if err := validateVXLAN(cfg.VXLAN); err != nil {
 		return err
 	}
@@ -829,6 +966,84 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
+	return nil
+}
+
+var validMicroBFDActuatorModes = map[string]bool{
+	MicroBFDActuatorModeDisabled: true,
+	MicroBFDActuatorModeDryRun:   true,
+	MicroBFDActuatorModeEnforce:  true,
+}
+
+var validMicroBFDActuatorBackends = map[string]bool{
+	MicroBFDActuatorBackendAuto:           true,
+	MicroBFDActuatorBackendKernelBond:     true,
+	MicroBFDActuatorBackendOVS:            true,
+	MicroBFDActuatorBackendNetworkManager: true,
+}
+
+var validMicroBFDActuatorOwnerPolicies = map[string]bool{
+	MicroBFDActuatorOwnerRefuseIfManaged:    true,
+	MicroBFDActuatorOwnerAllowExternal:      true,
+	MicroBFDActuatorOwnerNetworkManagerDBus: true,
+}
+
+var validMicroBFDActuatorActions = map[string]bool{
+	MicroBFDActuatorActionNone:         true,
+	MicroBFDActuatorActionRemoveMember: true,
+	MicroBFDActuatorActionAddMember:    true,
+}
+
+var validOverlayBackends = map[string]bool{
+	OverlayBackendUserspaceUDP: true,
+	OverlayBackendKernel:       true,
+	OverlayBackendOVS:          true,
+	OverlayBackendOVN:          true,
+	OverlayBackendCilium:       true,
+	OverlayBackendCalico:       true,
+	OverlayBackendNSX:          true,
+}
+
+func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
+	if !validMicroBFDActuatorModes[cfg.Mode] {
+		return fmt.Errorf("micro_bfd.actuator.mode %q: %w",
+			cfg.Mode, ErrInvalidMicroBFDActuatorMode)
+	}
+	if !validMicroBFDActuatorBackends[cfg.Backend] {
+		return fmt.Errorf("micro_bfd.actuator.backend %q: %w",
+			cfg.Backend, ErrInvalidMicroBFDActuatorBackend)
+	}
+	if !validMicroBFDActuatorOwnerPolicies[cfg.OwnerPolicy] {
+		return fmt.Errorf("micro_bfd.actuator.owner_policy %q: %w",
+			cfg.OwnerPolicy, ErrInvalidMicroBFDActuatorOwnerPolicy)
+	}
+	if !validMicroBFDActuatorActions[cfg.DownAction] {
+		return fmt.Errorf("micro_bfd.actuator.down_action %q: %w",
+			cfg.DownAction, ErrInvalidMicroBFDActuatorAction)
+	}
+	if !validMicroBFDActuatorActions[cfg.UpAction] {
+		return fmt.Errorf("micro_bfd.actuator.up_action %q: %w",
+			cfg.UpAction, ErrInvalidMicroBFDActuatorAction)
+	}
+	return nil
+}
+
+func normalizeOverlayBackend(backend string) string {
+	normalized := strings.TrimSpace(backend)
+	if normalized == "" {
+		return OverlayBackendUserspaceUDP
+	}
+	return normalized
+}
+
+func validateOverlayBackend(field string, backend string) error {
+	normalized := normalizeOverlayBackend(backend)
+	if !validOverlayBackends[normalized] {
+		return fmt.Errorf("%s %q: %w", field, backend, ErrInvalidOverlayBackend)
+	}
+	if normalized != OverlayBackendUserspaceUDP {
+		return fmt.Errorf("%s %q: %w", field, normalized, ErrUnsupportedOverlayBackend)
+	}
 	return nil
 }
 
@@ -888,6 +1103,16 @@ var ValidSessionTypes = map[string]bool{
 	"multi_hop":  true,
 }
 
+// ValidAuthTypes lists recognized RFC 5880 authentication type strings.
+var ValidAuthTypes = map[string]bool{
+	"none":                  true,
+	"simple_password":       true,
+	"keyed_md5":             true,
+	"meticulous_keyed_md5":  true,
+	"keyed_sha1":            true,
+	"meticulous_keyed_sha1": true,
+}
+
 // validateSessions checks each declarative session entry for correctness.
 func validateSessions(sessions []SessionConfig) error {
 	seen := make(map[string]struct{}, len(sessions))
@@ -905,6 +1130,10 @@ func validateSessions(sessions []SessionConfig) error {
 			return fmt.Errorf("sessions[%d]: %w", i, ErrInvalidSessionDetectMult)
 		}
 
+		if err := validateSessionAuth(sc.Auth); err != nil {
+			return fmt.Errorf("sessions[%d]: %w", i, err)
+		}
+
 		key := sc.SessionKey()
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("sessions[%d] key %q: %w", i, key, ErrDuplicateSessionKey)
@@ -912,6 +1141,32 @@ func validateSessions(sessions []SessionConfig) error {
 		seen[key] = struct{}{}
 	}
 
+	return nil
+}
+
+func validateSessionAuth(auth AuthConfig) error {
+	authType := strings.TrimSpace(auth.Type)
+	if authType == "" || authType == "none" {
+		return nil
+	}
+	if !ValidAuthTypes[authType] {
+		return fmt.Errorf("auth.type %q: %w", auth.Type, ErrInvalidSessionAuthType)
+	}
+	if auth.KeyID > 255 {
+		return fmt.Errorf("auth.key_id %d: %w", auth.KeyID, ErrInvalidSessionAuthKeyID)
+	}
+
+	secretLen := len([]byte(auth.Secret))
+	switch authType {
+	case "simple_password", "keyed_md5", "meticulous_keyed_md5":
+		if secretLen < 1 || secretLen > 16 {
+			return fmt.Errorf("auth.secret length %d: %w", secretLen, ErrInvalidSessionAuthSecret)
+		}
+	case "keyed_sha1", "meticulous_keyed_sha1":
+		if secretLen < 1 || secretLen > 20 {
+			return fmt.Errorf("auth.secret length %d: %w", secretLen, ErrInvalidSessionAuthSecret)
+		}
+	}
 	return nil
 }
 
@@ -951,6 +1206,10 @@ func validateVXLAN(cfg VXLANConfig) error {
 		return nil
 	}
 
+	if err := validateOverlayBackend("vxlan.backend", cfg.Backend); err != nil {
+		return err
+	}
+
 	if cfg.ManagementVNI > vniMax {
 		return fmt.Errorf("vxlan.management_vni %d: %w", cfg.ManagementVNI, ErrInvalidVXLANVNI)
 	}
@@ -981,6 +1240,10 @@ func validateVXLAN(cfg VXLANConfig) error {
 func validateGeneve(cfg GeneveConfig) error {
 	if !cfg.Enabled || len(cfg.Peers) == 0 {
 		return nil
+	}
+
+	if err := validateOverlayBackend("geneve.backend", cfg.Backend); err != nil {
+		return err
 	}
 
 	if cfg.DefaultVNI > vniMax {

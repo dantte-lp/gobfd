@@ -13,6 +13,7 @@
 ### Table of Contents
 
 - [Requirements](#requirements)
+- [Release Artifact Matrix](#release-artifact-matrix)
 - [Installation Methods](#installation-methods)
 - [systemd Service](#systemd-service)
 - [Podman Compose](#podman-compose)
@@ -25,6 +26,25 @@
 - **Linux** kernel (raw sockets require Linux-specific APIs)
 - **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
 - Go 1.26+ (for building from source only)
+
+### Release Artifact Matrix
+
+| Artifact | Target systems | Architectures | Base image / package format |
+|---|---|---|---|
+| Static binaries | Linux distributions with glibc or musl user space | `amd64`, `arm64` | `tar.gz` archive |
+| Debian package | Debian 13 `trixie`, Ubuntu-compatible systems | `amd64`, `arm64` | `.deb`, systemd unit |
+| RPM package | Oracle Linux 10, RHEL-compatible systems, Fedora-compatible systems | `amd64`, `arm64` | `.rpm`, systemd unit |
+| Default OCI image | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
+| Oracle Linux OCI image | Docker, Podman, Kubernetes CRI runtimes requiring Oracle Linux user space | `linux/amd64`, `linux/arm64` | `docker.io/library/oraclelinux:10-slim` |
+
+| Image tag | Base |
+|---|---|
+| `ghcr.io/dantte-lp/gobfd:<version>` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:latest` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:<version>-debian-trixie` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:debian-trixie` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:<version>-oraclelinux10` | Oracle Linux `10-slim` |
+| `ghcr.io/dantte-lp/gobfd:oraclelinux10` | Oracle Linux `10-slim` |
 
 ### Installation Methods
 
@@ -207,7 +227,9 @@ podman build -f deployments/docker/Containerfile -t gobfd .
 goreleaser release --snapshot --clean
 ```
 
-The Containerfile uses multi-stage builds for minimal image size. The final image includes only the gobfd binary with `CAP_NET_RAW` capability.
+Release images contain the four GoBFD binaries and no development toolchain:
+`gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, and
+`gobfd-exabgp-bridge`.
 
 Running the container requires:
 - `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities

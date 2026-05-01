@@ -105,6 +105,10 @@ sessions:
     desired_min_tx: "100ms"
     required_min_rx: "100ms"
     detect_mult: 3
+    auth:
+      type: keyed_sha1
+      key_id: 7
+      secret: "change-me"
   - peer: "10.0.1.1"
     local: "10.0.1.2"
     type: multi_hop
@@ -232,14 +236,42 @@ echo:
 | `micro_bfd.groups[].required_min_rx` | duration | -- | Minimum acceptable RX interval |
 | `micro_bfd.groups[].detect_mult` | uint32 | -- | Detection time multiplier |
 | `micro_bfd.groups[].min_active_links` | int | -- | Minimum Up members for LAG Up (>= 1) |
+| `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run`, or `enforce` |
+| `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs`, or `networkmanager` |
+| `micro_bfd.actuator.ovsdb_endpoint` | string | `""` | OVSDB endpoint for `backend: ovs`; empty uses `unix:/var/run/openvswitch/db.sock` |
+| `micro_bfd.actuator.owner_policy` | string | `refuse-if-managed` | Interface owner policy: refuse external ownership, allow external ownership, or use NetworkManager D-Bus |
+| `micro_bfd.actuator.down_action` | string | `remove-member` | Action after a member transitions from Up to non-Up |
+| `micro_bfd.actuator.up_action` | string | `add-member` | Action after a member transitions back to Up |
 
 Micro-BFD runs independent BFD sessions on each LAG member link (UDP port 6784) with `SO_BINDTODEVICE` per member. The aggregate LAG state is Up when `upCount >= min_active_links`.
+
+RFC 7130 enforcement is guarded by `micro_bfd.actuator`. The default
+`disabled` mode is detect/report only. `dry-run` wires the daemon into the
+policy layer and logs planned member actions. `enforce` currently requires
+`owner_policy: allow-external` with `backend: kernel-bond` or `backend: ovs`.
+The kernel-bond backend writes RFC 7130 remove/add commands through Linux
+bonding sysfs. The OVS backend uses native OVSDB transactions against
+`Port.interfaces` on an existing OVS bond port. Set
+`micro_bfd.actuator.ovsdb_endpoint` when the local OVSDB socket differs from
+the default `unix:/var/run/openvswitch/db.sock`. `backend: networkmanager` is
+implemented through NetworkManager D-Bus and requires `owner_policy:
+networkmanager-dbus`. It deactivates the active bond port profile when a member
+goes Down and activates the remembered or available bond port profile when the
+member recovers. Otherwise keep the default owner refusal policy for disabled
+and dry-run modes.
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 
 Example:
 ```yaml
 micro_bfd:
+  actuator:
+    mode: "dry-run"
+    backend: "kernel-bond"
+    ovsdb_endpoint: ""
+    owner_policy: "refuse-if-managed"
+    down_action: "remove-member"
+    up_action: "add-member"
   groups:
     - lag_interface: "bond0"
       member_links: ["eth0", "eth1"]
@@ -256,6 +288,7 @@ micro_bfd:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `vxlan.enabled` | bool | `false` | Enable VXLAN BFD sessions |
+| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` are reserved and fail validation |
 | `vxlan.management_vni` | uint32 | -- | Management VNI for BFD control (24-bit, max 16777215) |
 | `vxlan.default_desired_min_tx` | duration | -- | Default TX interval for VXLAN sessions |
 | `vxlan.default_required_min_rx` | duration | -- | Default RX interval for VXLAN sessions |
@@ -266,7 +299,7 @@ micro_bfd:
 | `vxlan.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `vxlan.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
-BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers.
+BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns the same socket.
 
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 
@@ -274,6 +307,7 @@ Example:
 ```yaml
 vxlan:
   enabled: true
+  backend: "userspace-udp"
   management_vni: 16777215
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
@@ -293,6 +327,7 @@ vxlan:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `geneve.enabled` | bool | `false` | Enable Geneve BFD sessions |
+| `geneve.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` are reserved and fail validation |
 | `geneve.default_vni` | uint32 | -- | Default Geneve VNI (24-bit, max 16777215) |
 | `geneve.default_desired_min_tx` | duration | -- | Default TX interval for Geneve sessions |
 | `geneve.default_required_min_rx` | duration | -- | Default RX interval for Geneve sessions |
@@ -304,7 +339,7 @@ vxlan:
 | `geneve.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `geneve.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
-BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0.
+BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0. The current `userspace-udp` backend owns `local:6081`; use a future owner-specific backend rather than this mode when kernel Geneve, OVS/OVN, NSX, or another dataplane already owns the same socket.
 
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 
@@ -312,6 +347,7 @@ Example:
 ```yaml
 geneve:
   enabled: true
+  backend: "userspace-udp"
   default_vni: 100
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
@@ -384,6 +420,16 @@ Session key is the tuple: `(peer, local, interface)`.
 | `required_min_rx` | duration | No | Override default RX interval |
 | `detect_mult` | uint32 | No | Override default detect multiplier |
 | `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size (overrides `bfd.default_padded_pdu_size`) |
+| `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
+| `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
+| `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
+
+Authentication can be configured through declarative YAML sessions or through
+gRPC `AddSession` fields: `auth_type`, `auth_key_id`, and `auth_secret`.
+`auth_key_id` must fit the RFC 5880 one-octet key ID range. `auth_secret` must
+be 1-16 bytes for Simple Password/MD5 modes and 1-20 bytes for SHA1 modes.
+Requests that provide key material without an enabled `auth_type`, or enable
+auth without a secret, are rejected.
 
 Session types determine the UDP port and TTL handling:
 
@@ -469,9 +515,11 @@ On reload:
 | Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |
 | No duplicate echo session keys | `ErrDuplicateEchoSessionKey` |
 | VXLAN `management_vni` must be <= 16777215 (24-bit) | `ErrInvalidVXLANVNI` |
+| VXLAN `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | VXLAN `peer` must be a valid IP address | `ErrInvalidVXLANPeer` |
 | No duplicate VXLAN session keys | `ErrDuplicateVXLANSessionKey` |
 | Geneve `default_vni` and per-peer `vni` must be <= 16777215 | `ErrInvalidGeneveVNI` |
+| Geneve `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | Geneve `peer` must be a valid IP address | `ErrInvalidGenevePeer` |
 | No duplicate Geneve session keys | `ErrDuplicateGeneveSessionKey` |
 

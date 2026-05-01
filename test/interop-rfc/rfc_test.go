@@ -41,18 +41,18 @@ const (
 	frrRFCIP         = "172.22.0.20" // frr-rfc (BFD-only, RFC 7419)
 	gobfdRFC9384IP   = "172.22.0.30" // gobfd-rfc9384 + gobgp-rfc (shared netns)
 	frrRFCBGPIP      = "172.22.0.40" // frr-rfc-bgp (BGP+BFD, RFC 9384)
-	frrUnsolicitedIP  = "172.22.0.50" // frr-rfc-unsolicited (RFC 9468)
-	echoReflectorIP   = "172.22.0.60" // echo-reflector (RFC 9747)
+	frrUnsolicitedIP = "172.22.0.50" // frr-rfc-unsolicited (RFC 9468)
+	echoReflectorIP  = "172.22.0.60" // echo-reflector (RFC 9747)
 
 	// Container names (as set by compose container_name).
-	gobfdRFCContainer        = "gobfd-rfc-interop"
-	gobfdRFC9384Container    = "gobfd-rfc9384-interop"
-	gobgpRFCContainer        = "gobgp-rfc-interop"
-	frrRFCContainer          = "frr-rfc-interop"
-	frrUnsolicitedContainer  = "frr-rfc-unsolicited-interop"
-	frrRFCBGPContainer       = "frr-rfc-bgp-interop"
-	tsharkRFCContainer       = "tshark-rfc-interop"
-	echoReflectorContainer   = "echo-reflector-interop"
+	gobfdRFCContainer       = "gobfd-rfc-interop"
+	gobfdRFC9384Container   = "gobfd-rfc9384-interop"
+	gobgpRFCContainer       = "gobgp-rfc-interop"
+	frrRFCContainer         = "frr-rfc-interop"
+	frrUnsolicitedContainer = "frr-rfc-unsolicited-interop"
+	frrRFCBGPContainer      = "frr-rfc-bgp-interop"
+	tsharkRFCContainer      = "tshark-rfc-interop"
+	echoReflectorContainer  = "echo-reflector-interop"
 
 	frrBGPRoute = "10.22.0.0/24"
 
@@ -686,11 +686,11 @@ func TestRFC9747_EchoSession(t *testing.T) {
 		t.Fatalf("get gobfd-rfc logs: %v", err)
 	}
 
-	if !strings.Contains(logs, "DiagEchoFailed") {
-		t.Error("gobfd-rfc did not log DiagEchoFailed after echo-reflector pause")
+	if !strings.Contains(logs, "Echo Function Failed") {
+		t.Error("gobfd-rfc did not log Echo Function Failed after echo-reflector pause")
 		t.Logf("logs:\n%s", logs)
 	} else {
-		t.Log("echo session Down with DiagEchoFailed (echo-reflector paused)")
+		t.Log("echo session Down with Echo Function Failed diagnostic (echo-reflector paused)")
 	}
 
 	// Phase 4: Unpause echo-reflector → echo session should recover.
@@ -712,17 +712,30 @@ func TestRFC9747_EchoSession(t *testing.T) {
 	})
 	t.Log("echo session recovered to Up after echo-reflector unpause")
 
+	recoveredLogs, err := containerLogs(ctx, gobfdRFCContainer, 500)
+	if err != nil {
+		t.Fatalf("get gobfd-rfc logs after recovery: %v", err)
+	}
+	downTransitionsBeforeStability := strings.Count(
+		recoveredLogs,
+		"mode=echo old_state=Up new_state=Down",
+	)
+
 	// Verify session stability post-recovery.
 	t.Log("verifying echo session stability (5s)...")
 	time.Sleep(5 * time.Second)
 
-	finalLogs, err := containerLogs(ctx, gobfdRFCContainer, 20)
+	finalLogs, err := containerLogs(ctx, gobfdRFCContainer, 500)
 	if err != nil {
 		t.Fatalf("get final gobfd-rfc logs: %v", err)
 	}
-	// Ensure no recent Down transitions in the last 20 lines.
-	if strings.Contains(finalLogs, "new_state=Down") && strings.Contains(finalLogs, "mode=echo") {
-		t.Error("echo session went Down again during stability check")
+	downTransitionsAfterStability := strings.Count(
+		finalLogs,
+		"mode=echo old_state=Up new_state=Down",
+	)
+	if downTransitionsAfterStability > downTransitionsBeforeStability {
+		t.Errorf("echo session went Down again during stability check: before=%d after=%d",
+			downTransitionsBeforeStability, downTransitionsAfterStability)
 	}
 	t.Log("echo session stable after recovery")
 }

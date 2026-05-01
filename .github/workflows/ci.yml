@@ -6,22 +6,24 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
+    name: Build & test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     container:
       image: golang:1.26.2-trixie
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
       - name: Cache Go modules
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/go/pkg/mod
+          path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Build
@@ -41,12 +43,11 @@ jobs:
 
       - name: Install test tools
         run: |
-          go install gotest.tools/gotestsum@latest
-          pip install --break-system-packages --no-cache-dir junit2html 2>/dev/null || true
+          pip install --break-system-packages --no-cache-dir --only-binary=:all: junit2html==31.0.5 2>/dev/null || true
 
       - name: Test with coverage
         run: |
-          gotestsum \
+          go tool gotestsum \
             --junitfile unit-report.xml \
             --jsonfile unit-report.json \
             --format short-verbose \
@@ -69,62 +70,104 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out
           flags: unittests
           fail_ci_if_error: false
 
-  lint:
+  lint-go:
+    name: Lint (Go)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     container:
       image: golang:1.26.2-trixie
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Cache Go modules
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/go/pkg/mod
+          path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Lint
+      - name: golangci-lint v2
+        run: go tool golangci-lint run ./...
+
+  lint-docs:
+    name: Lint (docs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Install documentation linters
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-          golangci-lint run ./...
+          npm install -g --ignore-scripts markdownlint-cli2@0.22.1 cspell@10.0.0
+          python3 -m pip install --user --break-system-packages --no-cache-dir --only-binary=:all: yamllint==1.38.0
+
+      - name: markdownlint
+        run: markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
+
+      - name: yamllint
+        run: ~/.local/bin/yamllint -c .yamllint.yaml .
+
+      - name: cspell
+        run: >
+          cspell --no-progress --no-summary --config .cspell.json
+          README.md CONTRIBUTING.md CHANGELOG.md
+          CODE_OF_CONDUCT.md SUPPORT.md GOVERNANCE.md MAINTAINERS.md
+          docs/en/implementation-plan.md docs/en/codebase-consistency-audit.md
+
+  commitlint:
+    name: Commitlint (PR title)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Install commitlint
+        run: npm install -g --ignore-scripts @commitlint/cli@20.5.3 @commitlint/config-conventional@20.5.3
+
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | commitlint --config .commitlintrc.yaml
 
   vulnerability-check:
+    name: Vulnerability audit
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     container:
       image: golang:1.26.2-trixie
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Cache Go modules
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/go/pkg/mod
+          path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go
 
   buf:
+    name: Buf
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
       - name: Set up buf
-        uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1
+        uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
         with:
           setup_only: true
 
@@ -140,6 +183,7 @@ jobs:
         run: buf breaking --against '.git#branch=origin/${{ github.event.pull_request.base.ref }}'
 
   benchmark:
+    name: Benchmark comparison
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     permissions:
@@ -148,39 +192,36 @@ jobs:
     container:
       image: golang:1.26.2-trixie
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
       - name: Cache Go modules
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/go/pkg/mod
+          path: /go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-
-      - name: Install benchstat
-        run: go install golang.org/x/perf/cmd/benchstat@latest
 
       - name: Run benchmarks (PR)
         run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > new.txt
 
-      - name: Trust workspace for benchmark git checkout
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Checkout base branch
-        run: git checkout origin/${{ github.event.pull_request.base.ref }} -- .
+      - name: Create base branch worktree
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git worktree add --detach ../gobfd-base origin/${{ github.event.pull_request.base.ref }}
 
       - name: Run benchmarks (base)
-        run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > old.txt || true
-
-      - name: Restore PR code
-        run: git checkout ${{ github.sha }} -- .
+        run: |
+          (
+            cd ../gobfd-base
+            go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./...
+          ) > old.txt
 
       - name: Compare benchmarks
         run: |
           echo "## Benchmark comparison" > bench-report.md
           echo '```' >> bench-report.md
-          benchstat old.txt new.txt >> bench-report.md 2>&1 || true
+          go tool benchstat old.txt new.txt >> bench-report.md 2>&1 || true
           echo '```' >> bench-report.md
           cat bench-report.md
 
@@ -191,15 +232,56 @@ jobs:
             echo '<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}'
             echo 'pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;line-height:1.6;border:1px solid #0f3460}</style>'
             echo '</head><body><h1 style="color:#00d4ff">Benchmark Comparison</h1><pre>'
-            benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
+            go tool benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
             echo '</pre></body></html>'
           } > bench-comparison.html
 
       - name: Check for regressions (>10%)
         run: |
-          benchstat -format csv old.txt new.txt > bench-csv.txt 2>/dev/null || true
-          if grep -qE '\+[1-9][0-9]\.' bench-csv.txt 2>/dev/null; then
-            echo "::warning::Benchmark regression detected (>10%). Review bench-report.md."
+          mkdir -p bench-regression
+          go tool benchstat -format csv old.txt new.txt > bench-regression/bench-csv.txt 2> bench-regression/benchstat-notes.txt
+          awk -F, '
+            $2 == "sec/op" { metric = "sec/op"; next }
+            $2 == "B/op" || $2 == "allocs/op" { metric = $2; next }
+            metric == "sec/op" && $6 ~ /^\+[0-9.]+%/ {
+              pct = $6
+              gsub(/[+%]/, "", pct)
+              if (pct + 0 < 10) {
+                next
+              }
+              if ($1 ~ /^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-/ && (($2 + 0) >= 0.0000001 || ($4 + 0) >= 0.0000001)) {
+                print $1 "," $6 "," $7 >> "bench-regression/critical-regressions.csv"
+              } else if (($2 + 0) >= 0.000000001 || ($4 + 0) >= 0.000000001) {
+                print $1 "," $6 "," $7 >> "bench-regression/reported-regressions.csv"
+              } else {
+                next
+              }
+            }
+          ' bench-regression/bench-csv.txt
+
+          if [ -s bench-regression/reported-regressions.csv ]; then
+            {
+              echo "### Report-only benchmark regressions"
+              echo ""
+              echo "| Benchmark | Delta | Significance |"
+              echo "| --- | ---: | --- |"
+              awk -F, '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }' bench-regression/reported-regressions.csv
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s bench-regression/benchstat-notes.txt ]; then
+            {
+              echo "### benchstat notes"
+              echo ""
+              echo '```'
+              cat bench-regression/benchstat-notes.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s bench-regression/critical-regressions.csv ]; then
+            echo "::warning::Critical benchmark regression detected (>10%). Review bench-report.md."
+            cat bench-regression/critical-regressions.csv
           fi
 
       - name: Upload benchmark artifacts
@@ -216,7 +298,7 @@ jobs:
 
       - name: Post benchmark comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
@@ -248,16 +330,17 @@ jobs:
             }
 
   trivy:
+    name: Trivy filesystem scan
     runs-on: ubuntu-latest
-    needs: [build-and-test, lint, vulnerability-check, buf]
+    needs: [build-and-test, lint-go, lint-docs, vulnerability-check, buf]
     permissions:
       security-events: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -266,7 +349,7 @@ jobs:
           output: trivy-results.sarif
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98 # v4
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         if: always()
         with:
           sarif_file: trivy-results.sarif

@@ -26,7 +26,7 @@
 
 ### System Overview
 
-GoBFD is a production-grade BFD (Bidirectional Forwarding Detection) protocol daemon. It consists of four binaries:
+GoBFD is a production-oriented BFD (Bidirectional Forwarding Detection) protocol daemon. It consists of four binaries:
 
 - **gobfd** -- the daemon that manages BFD sessions, sends/receives BFD Control packets, and integrates with GoBGP
 - **gobfdctl** -- the CLI client that communicates with gobfd via ConnectRPC
