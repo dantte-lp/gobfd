@@ -43,12 +43,11 @@ jobs:
 
       - name: Install test tools
         run: |
-          go install gotest.tools/gotestsum@v1.13.0
           pip install --break-system-packages --no-cache-dir --only-binary=:all: junit2html==31.0.5 2>/dev/null || true
 
       - name: Test with coverage
         run: |
-          gotestsum \
+          go tool gotestsum \
             --junitfile unit-report.xml \
             --jsonfile unit-report.json \
             --format short-verbose \
@@ -93,9 +92,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: golangci-lint v2
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-          golangci-lint run ./...
+        run: go tool golangci-lint run ./...
 
   lint-docs:
     name: Lint (docs)
@@ -205,9 +202,6 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Install benchstat
-        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260409210113-8e83ce0f7b1c
-
       - name: Run benchmarks (PR)
         run: go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' ./... > new.txt
 
@@ -227,7 +221,7 @@ jobs:
         run: |
           echo "## Benchmark comparison" > bench-report.md
           echo '```' >> bench-report.md
-          benchstat old.txt new.txt >> bench-report.md 2>&1 || true
+          go tool benchstat old.txt new.txt >> bench-report.md 2>&1 || true
           echo '```' >> bench-report.md
           cat bench-report.md
 
@@ -238,7 +232,7 @@ jobs:
             echo '<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}'
             echo 'pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;line-height:1.6;border:1px solid #0f3460}</style>'
             echo '</head><body><h1 style="color:#00d4ff">Benchmark Comparison</h1><pre>'
-            benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
+            go tool benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
             echo '</pre></body></html>'
           } > bench-comparison.html
 

@@ -123,10 +123,11 @@
   доступ к Podman socket исправлен через `security_opt: label=disable`.
 - CI workflow теперь использует read-only token policy на уровне workflow и
   именованные задачи, согласованные с локальными quality gates.
-- Установка инструментов в CI и release workflow теперь закрепляет версии
-  `gotestsum`, `benchstat`, `markdownlint-cli2`, `cspell`, `commitlint`,
-  `yamllint` и `junit2html`, а также использует package-manager controls для
-  scripts и binary-only installs согласно supply-chain scanners.
+- Go tools в CI и release workflow теперь запускаются через Go `tool`
+  directives, записанные в `go.mod`/`go.sum`: `gotestsum`, `benchstat` и
+  `golangci-lint`; Node и Python analyzer installs закрепляют версии
+  `markdownlint-cli2`, `cspell`, `commitlint`, `yamllint` и `junit2html`, а
+  также используют package-manager controls согласно supply-chain scanners.
 - Форматирование `gobfdctl` list/show/event теперь отображает advanced session
   families вместо `unknown`.
 - Политика покрытия SonarCloud и Codecov теперь исключает command entrypoints

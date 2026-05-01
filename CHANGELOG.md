@@ -120,10 +120,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Podman socket access fixed via `security_opt: label=disable`.
 - CI workflow now uses a workflow-level read-only token policy and named jobs
   aligned with the local quality gates.
-- CI and release workflow tool installation now pins `gotestsum`, `benchstat`,
-  `markdownlint-cli2`, `cspell`, `commitlint`, `yamllint`, and `junit2html`
-  versions, and uses package-manager script/binary controls required by
-  supply-chain scanners.
+- CI and release workflow Go tools now run `gotestsum`, `benchstat`, and
+  `golangci-lint` through Go `tool` directives recorded in `go.mod`/`go.sum`;
+  Node and Python analyzer installs pin `markdownlint-cli2`, `cspell`,
+  `commitlint`, `yamllint`, and `junit2html` and use package-manager controls
+  required by supply-chain scanners.
 - GitHub Actions pins now track current upstream release tags for checkout,
   cache, setup, CodeQL, GoReleaser, Trivy, gosec, Codecov, Buf, GitHub Script,
   SonarQube, and artifact actions.
