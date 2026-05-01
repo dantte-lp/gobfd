@@ -55,7 +55,19 @@ Canonical plan for the S10 evidence sprint.
 | Example integrations | `make int-bgp-failover`, `make int-haproxy`, `make int-observability`, `make int-exabgp-anycast`, `make int-k8s` | Scenario-level deployment evidence. |
 | Benchmark comparison | GitHub Actions `Benchmark comparison` | Hot-path regression guard; no expansion needed for docs-only changes. |
 
-## 4. Target Evidence Architecture
+## 4. Test Foundation Decision
+
+| Area | Decision |
+|---|---|
+| Stack lifecycle | Keep the existing shell and `podman-compose` model for multi-container topology lifecycle. |
+| Assertion layer | Keep Go tests as the protocol assertion layer. |
+| Podman control | Add a shared Go helper for Podman REST API operations before expanding E2E assertions. |
+| Artifact model | Standardize every S10 target on `reports/e2e/<target>/<timestamp>/`. |
+| Worktree safety | Require validation that the dev/test container is mounted to the active checkout before evidence is accepted. |
+| Host Go | Do not use host `go test` in S10 gates. |
+| `testcontainers-go` | Defer to isolated daemon-to-daemon S10.2 scenarios only; do not replace existing compose/vendor topologies in S10.1. |
+
+## 5. Target Evidence Architecture
 
 ```mermaid
 graph TD
@@ -82,14 +94,14 @@ graph TD
     style CI fill:#6f42c1,color:#fff
 ```
 
-## 5. Sprint Breakdown
+## 6. Sprint Breakdown
 
 ### S10.1 -- Harness Inventory and Contract
 
 | Field | Value |
 |---|---|
 | Output | Unified E2E contract and artifact layout. |
-| Files | `Makefile`, `test/e2e/README.md`, `docs/en/18-s10-extended-e2e-interop.md`, `docs/ru/18-s10-extended-e2e-interop.md`. |
+| Files | `Makefile`, `test/e2e/README.md`, `test/e2e/targets.md`, `docs/en/19-s10-s1-harness-contract-plan.md`, `docs/ru/19-s10-s1-harness-contract-plan.md`. |
 | Required target | `make e2e-help`. |
 | Acceptance | All existing interop targets are documented with owner, runtime, inputs, outputs, cleanup, and artifact paths. |
 | Commit | `test(interop): define extended evidence harness` |
@@ -161,7 +173,7 @@ graph TD
 | Benchmark rule | Existing hot-path benchmark comparison remains stable; S10 adds E2E artifacts, not noisy interop microbenchmarks. |
 | Commit | `ci(interop): publish extended evidence artifacts` |
 
-## 6. Acceptance Matrix
+## 7. Acceptance Matrix
 
 | Gate | Required Before S10 Close | Notes |
 |---|---|---|
@@ -176,7 +188,7 @@ graph TD
 | `make e2e-linux` | Yes | Required when Podman and kernel capabilities are available; skipped only with recorded host capability gap. |
 | `make e2e-vendor` | Optional | Manual/vendor-image profile. |
 
-## 7. Feature Decision After S10
+## 8. Feature Decision After S10
 
 | Candidate | S10 Decision | Reason |
 |---|---|---|
@@ -187,7 +199,7 @@ graph TD
 | NSX backend | Defer. | NSX requires product API ownership and external lab access. |
 | Expanded vendor profiles | Candidate after S10. | Vendor profile value depends on repeatable containerlab Podman evidence. |
 
-## 8. Risk Register
+## 9. Risk Register
 
 | ID | Risk | Impact | Mitigation |
 |---|---|---|---|
@@ -198,7 +210,7 @@ graph TD
 | S10-R5 | Benchmark comparison becomes noisy. | False performance regression signal. | Keep hot-path benchmarks stable; collect E2E timing as artifacts, not gating microbenchmarks. |
 | S10-R6 | Documentation overclaims feature readiness. | Incorrect pkg.go.dev and README expectations. | Keep backend status as implemented, partial, optional, or future in every S10 artifact. |
 
-## 9. Close Criteria
+## 10. Close Criteria
 
 1. S10 plan exists in `docs/en/` and `docs/ru/`.
 2. `docs/en/README.md`, `docs/ru/README.md`, and `docs/README.md` list the S10 plan.

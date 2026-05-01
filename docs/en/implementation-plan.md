@@ -132,7 +132,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S10** | Extended E2E and interoperability evidence. | Planned: `docs/en/18-s10-extended-e2e-interop.md` defines the Podman-only evidence matrix, source validation, sprint breakdown, benchmark policy, and close criteria. Commit: `docs(interop): plan s10 extended interop evidence`. |
+| **S10** | Extended E2E and interoperability evidence. | Planned: `docs/en/18-s10-extended-e2e-interop.md` defines the Podman-only evidence matrix, source validation, sprint breakdown, benchmark policy, and close criteria; `docs/en/19-s10-s1-harness-contract-plan.md` defines S10.1. Commit: `docs(interop): plan s10 extended interop evidence`. |
 
 ## 5. Definition of Done
 
