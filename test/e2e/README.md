@@ -25,7 +25,7 @@ optional vendor profiles.
 | `make e2e-routing` | Implemented S10.3 | FRR/BIRD3 BFD interop, GoBGP/ExaBGP BGP+BFD coupling, merged routing artifacts. |
 | `make e2e-rfc` | Implemented S10.4 | RFC 7419, RFC 9384, RFC 9468, RFC 9747 interop stack. |
 | `make e2e-overlay` | Implemented S10.4 | VXLAN/Geneve userspace packet-shape checks and reserved backend fail-closed tests. |
-| `make e2e-linux` | Planned S10.5 | rtnetlink, kernel-bond, OVSDB, NetworkManager isolated tests. |
+| `make e2e-linux` | Implemented S10.5 | Isolated rtnetlink/veth, kernel-bond, OVS, NetworkManager ownership checks. |
 | `make e2e-vendor` | Planned S10.6 | `make interop-clab` and vendor-specific profiles. |
 
 ## Artifact Layout
@@ -85,6 +85,13 @@ The `e2e-overlay` target also writes:
 
 ```text
 packets.csv
+```
+
+The `e2e-linux` target also writes:
+
+```text
+link-events.json
+lag-backends.json
 ```
 
 ## HTML Report Backlog

@@ -149,9 +149,10 @@ graph TD
 |---|---|
 | Output | Linux netns/veth и owned-backend dataplane checks. |
 | Files | `test/e2e/linux/`, `internal/netio` tests as needed. |
-| Scenarios | rtnetlink link-down event, link-up recovery, kernel-bond dry-run/enforce in isolated namespace, OVSDB bonded-port update in OVS container, NetworkManager D-Bus optional profile test. |
+| Scenarios | rtnetlink veth link-down event, link-up recovery, kernel-bond fake sysfs remove/add, OVS owner-policy guard, NetworkManager D-Bus owner-policy guard. |
 | Required target | `make e2e-linux`. |
-| Acceptance | Host interface не изменяется; destructive operations ограничены disposable namespaces или containers. |
+| Acceptance | `make e2e-linux` пишет `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, `link-events.json` и `lag-backends.json`; host interface не изменяется; destructive operations ограничены disposable `--network none` Podman namespace или fake sysfs tree. |
+| Status | Implemented. |
 | Commit | `test(netio): add linux dataplane ownership checks` |
 
 ### S10.6 -- Vendor Optional Profiles

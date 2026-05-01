@@ -25,9 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10.4 RFC and overlay E2E targets `make e2e-rfc` and `make e2e-overlay`
   with normalized RFC interop evidence, VXLAN/Geneve packet-shape checks, and
   reserved overlay backend fail-closed validation.
+- S10.5 Linux dataplane E2E target `make e2e-linux` with isolated
+  `--network none` rtnetlink virtual Ethernet evidence, kernel-bond fake
+  sysfs checks, OVS owner-policy guard checks, and NetworkManager D-Bus policy
+  checks.
 
 ### Fixed
 
+- Linux rtnetlink interface monitor shutdown is now bounded by a receive
+  timeout, so cancellation exits deterministically even when closing the
+  netlink file descriptor does not interrupt the receive system call
+  immediately.
 - Authenticated BFD sessions now serialize the authentication section into the
   cached transmit packet before sending, so declarative RFC 5880 auth sessions
   can establish with peers that require authentication.

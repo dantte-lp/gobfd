@@ -122,7 +122,7 @@ S10 E2E targets
   e2e-routing   implemented: FRR/BIRD3/GoBGP/ExaBGP aggregate
   e2e-rfc       implemented: RFC 7419/9384/9468/9747 aggregate
   e2e-overlay   implemented: VXLAN/Geneve backend boundary checks
-  e2e-linux     planned: rtnetlink/kernel-bond/OVSDB/NM ownership checks
+  e2e-linux     implemented: rtnetlink/kernel-bond/OVSDB/NM ownership checks
   e2e-vendor    planned: optional containerlab vendor profiles
 ```
 
@@ -131,13 +131,13 @@ S10 E2E targets
 Required behavior:
 
 ```bash
-make e2e-linux
+make e2e-vendor
 ```
 
 Expected:
 
 ```text
-e2e-linux: planned in S10.5; not implemented in S10.1
+e2e-vendor: planned in S10.6; not implemented in S10.1
 ```
 
 Exit code:

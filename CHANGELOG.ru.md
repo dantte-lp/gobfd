@@ -24,9 +24,15 @@
 - S10.4 RFC и overlay E2E targets `make e2e-rfc` и `make e2e-overlay`:
   normalized RFC interop evidence, VXLAN/Geneve packet-shape checks и reserved
   overlay backend fail-closed validation.
+- S10.5 Linux dataplane E2E target `make e2e-linux`: isolated `--network none`
+  rtnetlink virtual Ethernet evidence, kernel-bond fake sysfs checks,
+  OVS owner-policy guard checks и NetworkManager D-Bus policy checks.
 
 ### Исправлено
 
+- Linux rtnetlink interface monitor shutdown теперь ограничен receive timeout,
+  поэтому cancellation завершается детерминированно, даже если закрытие netlink
+  file descriptor не прерывает receive syscall сразу.
 - Authenticated BFD sessions теперь сериализуют authentication section в
   cached transmit packet перед отправкой, поэтому declarative RFC 5880 auth
   sessions могут устанавливаться с peers, требующими authentication.
