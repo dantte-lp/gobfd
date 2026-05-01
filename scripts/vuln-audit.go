@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	govulncheckVersion = "v1.2.0"
+	govulncheckVersion = "v1.3.0"
 	osvScannerVersion  = "v2.3.5"
 	scannerTimeout     = 10 * time.Minute
 )

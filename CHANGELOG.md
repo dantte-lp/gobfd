@@ -118,6 +118,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Podman socket access fixed via `security_opt: label=disable`.
 - CI workflow now uses a workflow-level read-only token policy and named jobs
   aligned with the local quality gates.
+- GitHub Actions pins now track current upstream release tags for checkout,
+  cache, setup, CodeQL, GoReleaser, Trivy, gosec, Codecov, Buf, GitHub Script,
+  SonarQube, and artifact actions.
+- `golangci-lint` now enables 93 validated analyzers under the v2
+  configuration model, with `snake_case` JSON/YAML tag policy preserved for
+  public API and CLI contracts.
+- Vulnerability audit now runs `govulncheck v1.3.0`; OSV Scanner remains on
+  `v2.3.5` because `v2.3.6` is not usable through `go run` as a versioned tool
+  module.
+- GoReleaser now publishes immutable release artifacts with Debian `trixie-slim`
+  and Oracle Linux `10-slim` OCI image variants for `linux/amd64` and
+  `linux/arm64`.
 - `gobfdctl` list/show/event formatting now renders advanced session families
   instead of collapsing them to `unknown`.
 

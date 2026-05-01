@@ -13,6 +13,7 @@
 ### Содержание
 
 - [Требования](#требования)
+- [Матрица release-артефактов](#матрица-release-артефактов)
 - [Способы установки](#способы-установки)
 - [systemd-сервис](#systemd-сервис)
 - [Podman Compose](#podman-compose)
@@ -25,6 +26,25 @@
 - **Linux** (сырые сокеты требуют Linux-специфичных API)
 - Capability **CAP_NET_RAW** и **CAP_NET_ADMIN** (для UDP-сокетов с TTL=255)
 - Go 1.26+ (только для сборки из исходников)
+
+### Матрица release-артефактов
+
+| Артефакт | Целевые системы | Архитектуры | Базовый образ / формат пакета |
+|---|---|---|---|
+| Статические бинарные файлы | Linux-дистрибутивы с glibc или musl user space | `amd64`, `arm64` | Архив `tar.gz` |
+| Debian-пакет | Debian 13 `trixie`, Ubuntu-compatible системы | `amd64`, `arm64` | `.deb`, systemd-юнит |
+| RPM-пакет | Oracle Linux 10, RHEL-compatible системы, Fedora-compatible системы | `amd64`, `arm64` | `.rpm`, systemd-юнит |
+| OCI-образ по умолчанию | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
+| Oracle Linux OCI-образ | Docker, Podman, Kubernetes CRI runtimes, требующие Oracle Linux user space | `linux/amd64`, `linux/arm64` | `docker.io/library/oraclelinux:10-slim` |
+
+| Тег образа | База |
+|---|---|
+| `ghcr.io/dantte-lp/gobfd:<version>` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:latest` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:<version>-debian-trixie` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:debian-trixie` | Debian `trixie-slim` |
+| `ghcr.io/dantte-lp/gobfd:<version>-oraclelinux10` | Oracle Linux `10-slim` |
+| `ghcr.io/dantte-lp/gobfd:oraclelinux10` | Oracle Linux `10-slim` |
 
 ### Способы установки
 
@@ -189,6 +209,10 @@ podman build -f deployments/docker/Containerfile -t gobfd .
 # Multi-arch сборка (через GoReleaser)
 goreleaser release --snapshot --clean
 ```
+
+Release-образы содержат четыре бинарных файла GoBFD и не содержат development toolchain:
+`gobfd`, `gobfdctl`, `gobfd-haproxy-agent` и
+`gobfd-exabgp-bridge`.
 
 Контейнер требует:
 - Capability `CAP_NET_RAW` и `CAP_NET_ADMIN`

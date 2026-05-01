@@ -1,8 +1,9 @@
-FROM docker.io/library/debian:trixie-slim
+FROM docker.io/library/oraclelinux:10-slim
 
-RUN groupadd -r gobfd && useradd -r -g gobfd -s /usr/sbin/nologin gobfd \
-    && apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN microdnf install -y ca-certificates shadow-utils \
+    && microdnf clean all \
+    && groupadd -r gobfd \
+    && useradd -r -g gobfd -s /sbin/nologin gobfd
 
 ARG TARGETPLATFORM
 

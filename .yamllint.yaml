@@ -24,6 +24,9 @@ ignore: |
   node_modules/
   vendor/
   reports/
+  dist/
+  build/
+  bin/
   .worktrees/
   docs/rfc/
   docs/tmp/

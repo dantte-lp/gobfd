@@ -145,7 +145,8 @@ When preparing a release:
    - Runs the full test suite.
    - Extracts the release notes from CHANGELOG.md for version 0.5.0.
    - Builds binaries (linux/amd64, linux/arm64), .deb, .rpm packages.
-   - Publishes Docker image to `ghcr.io/dantte-lp/gobfd:0.5.0`.
+   - Publishes Debian-based and Oracle Linux-based OCI images to
+     `ghcr.io/dantte-lp/gobfd`.
    - Creates a GitHub Release with the changelog content as the release body.
 
 ### Semantic Versioning

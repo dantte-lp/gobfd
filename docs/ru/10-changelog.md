@@ -145,7 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    - Запускает полный набор тестов.
    - Извлекает release notes из CHANGELOG.md для версии 0.5.0.
    - Собирает бинарники (linux/amd64, linux/arm64), .deb, .rpm пакеты.
-   - Публикует Docker-образ в `ghcr.io/dantte-lp/gobfd:0.5.0`.
+   - Публикует OCI-образы на базе Debian и Oracle Linux в
+     `ghcr.io/dantte-lp/gobfd`.
    - Создаёт GitHub Release с содержимым changelog в качестве описания.
 
 ### Семантическое версионирование

@@ -53,8 +53,11 @@ linters:
     - durationcheck       # Two durations multiplied together
     - fatcontext          # Nested contexts in loops
     - copyloopvar         # Loop variable copies
+    - dogsled             # Too many blank identifiers
     - predeclared         # Shadows predeclared identifiers (true, len, etc.)
     - recvcheck           # Receiver type consistency (pointer vs value)
+    - rowserrcheck        # Database rows error checks
+    - sqlclosecheck       # SQL rows/statements close checks
     - gocheckcompilerdirectives  # Valid //go: directives
     - protogetter         # Enforce proto message getters
     - iface               # Incorrect interface usage patterns
@@ -62,6 +65,7 @@ linters:
     - gochecksumtype      # Exhaustive sum type checks
     - gochecknoinits      # No init() — explicit initialization
     - iotamixing          # Catch mixed explicit/implicit iota values
+    - unqueryvet          # Detect SELECT * SQL query patterns
 
     # ── Обработка ошибок / Error handling ──
     - errorlint           # Error wrapping style (Go 1.13+)
@@ -88,6 +92,7 @@ linters:
     - inamedparam         # Named interface method parameters
     - decorder            # Consistent declaration ordering
     - embeddedstructfieldcheck # Embedded struct field pitfalls
+    - grouper             # Expression group consistency
     - nestif              # Excessive nested branching
     - goconst             # Repeated constants
     - godox               # Track TODO/FIXME/HACK/BUG debt
@@ -110,12 +115,15 @@ linters:
     - asciicheck          # ASCII-only identifiers
     - canonicalheader     # Canonical net/http.Header
     - dupword             # Duplicate words in comments
+    - gosmopolitan        # i18n/l10n anti-patterns
     - usestdlibvars       # Use stdlib variables/constants
     - loggercheck         # Logger key-value pair validation
+    - promlinter          # Prometheus metric naming checks
     - whitespace          # Unnecessary blank lines
     - godot               # Comments end with period
     - godoclint           # Godoc validation
     - tagalign            # Aligned struct tags
+    - tagliatelle         # Struct tag naming consistency
     - importas            # Enforce import aliases consistency
 
     # ── Зависимости / Dependencies ──
@@ -132,6 +140,12 @@ linters:
     - testableexamples    # Examples have expected output
     - usetesting          # Testing package replacements
     - testifylint         # Testify best practices
+    - ginkgolinter        # Ginkgo/Gomega best practices
+
+    # ── Framework-specific no-op unless dependency is present ──
+    - arangolint          # ArangoDB client best practices
+    - spancheck           # OpenTelemetry/Census span checks
+    - zerologlint         # Zerolog event dispatch checks
 
   settings:
     gosec:
@@ -226,11 +240,13 @@ linters:
               reason: "Deprecated in Go 1.16; use io / os equivalents."
     nestif:
       min-complexity: 5
-    paralleltest:
-      ignore-missing: false
-      ignore-missing-subtests: false
     embeddedstructfieldcheck:
       forbid-mutex: true
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          yaml: snake
   exclusions:
     generated: strict
     presets:
@@ -249,7 +265,7 @@ linters:
           - forcetypeassert
           - goconst
           - godox
-          - paralleltest
+          - dogsled
           - nestif
       - path: cmd/
         linters:
@@ -293,5 +309,5 @@ severity:
         - forbidigo
         - gomodguard
         - iotamixing
-        - paralleltest
+        - tparallel
       severity: error

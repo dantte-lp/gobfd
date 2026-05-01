@@ -170,6 +170,7 @@
     "sysfs",
     "synctest",
     "tparallel",
+    "trixie",
     "tshark",
     "unconvert",
     "Unmarshal",
