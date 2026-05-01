@@ -19,6 +19,7 @@ import (
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
 // =========================================================================
@@ -633,6 +634,107 @@ func TestConfigMicroBFDToBFD(t *testing.T) {
 				tt.check(t, cfg)
 			}
 		})
+	}
+}
+
+func TestBuildMicroBFDActuator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     config.MicroBFDActuatorConfig
+		wantNil bool
+		wantErr error
+	}{
+		{
+			name: "disabled",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeDisabled,
+				Backend:     config.MicroBFDActuatorBackendAuto,
+				OwnerPolicy: config.MicroBFDActuatorOwnerRefuseIfManaged,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+			wantNil: true,
+		},
+		{
+			name: "dry run networkmanager owner",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeDryRun,
+				Backend:     config.MicroBFDActuatorBackendNetworkManager,
+				OwnerPolicy: config.MicroBFDActuatorOwnerNetworkManagerDBus,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+		},
+		{
+			name: "enforce waits for backend implementation",
+			cfg: config.MicroBFDActuatorConfig{
+				Mode:        config.MicroBFDActuatorModeEnforce,
+				Backend:     config.MicroBFDActuatorBackendKernelBond,
+				OwnerPolicy: config.MicroBFDActuatorOwnerRefuseIfManaged,
+				DownAction:  config.MicroBFDActuatorActionRemoveMember,
+				UpAction:    config.MicroBFDActuatorActionAddMember,
+			},
+			wantErr: netio.ErrLAGActuatorBackendNil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			actuator, enabled, err := buildMicroBFDActuator(tt.cfg, slog.Default())
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("buildMicroBFDActuator error = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("buildMicroBFDActuator: %v", err)
+			}
+			if tt.wantNil && actuator != nil {
+				t.Fatal("actuator is non-nil, want nil")
+			}
+			if tt.wantNil && enabled {
+				t.Fatal("actuator enabled, want disabled")
+			}
+			if !tt.wantNil && actuator == nil {
+				t.Fatal("actuator is nil, want non-nil")
+			}
+			if !tt.wantNil && !enabled {
+				t.Fatal("actuator disabled, want enabled")
+			}
+		})
+	}
+}
+
+func TestConfigMicroBFDActuatorToNetio(t *testing.T) {
+	t.Parallel()
+
+	got := configMicroBFDActuatorToNetio(config.MicroBFDActuatorConfig{
+		Mode:        config.MicroBFDActuatorModeDryRun,
+		Backend:     config.MicroBFDActuatorBackendNetworkManager,
+		OwnerPolicy: config.MicroBFDActuatorOwnerNetworkManagerDBus,
+		DownAction:  config.MicroBFDActuatorActionRemoveMember,
+		UpAction:    config.MicroBFDActuatorActionNone,
+	})
+
+	if got.Mode != netio.LAGActuatorModeDryRun {
+		t.Errorf("Mode = %q, want %q", got.Mode, netio.LAGActuatorModeDryRun)
+	}
+	if got.Backend != netio.LAGActuatorBackendNetworkManager {
+		t.Errorf("Backend = %q, want %q", got.Backend, netio.LAGActuatorBackendNetworkManager)
+	}
+	if got.OwnerPolicy != netio.LAGOwnerPolicyNetworkManagerDBus {
+		t.Errorf("OwnerPolicy = %q, want %q", got.OwnerPolicy, netio.LAGOwnerPolicyNetworkManagerDBus)
+	}
+	if got.DownAction != netio.LAGActuatorActionRemoveMember {
+		t.Errorf("DownAction = %q, want %q", got.DownAction, netio.LAGActuatorActionRemoveMember)
+	}
+	if got.UpAction != netio.LAGActuatorActionNone {
+		t.Errorf("UpAction = %q, want %q", got.UpAction, netio.LAGActuatorActionNone)
 	}
 }
 

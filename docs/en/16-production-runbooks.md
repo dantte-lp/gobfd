@@ -196,7 +196,7 @@ Arista EOS public behavior validated through Arista MCP:
 | Gap | Planned sprint |
 |---|---|
 | Dedicated API/CLI create flows for Echo, Micro-BFD, VXLAN, and Geneve | S5b |
-| Linux bond/team/OVS actuator for Micro-BFD enforcement | S7.1 |
+| Linux bond/team/OVS/NetworkManager backend for Micro-BFD enforcement | S7.1c |
 | VXLAN/Geneve backend model for kernel/OVS dataplane coexistence | S7.2 |
 | pkg.go.dev polish and v0.5.0 release dry-run | S8 |
 

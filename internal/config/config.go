@@ -217,6 +217,47 @@ func (ec EchoPeerConfig) LocalAddr() (netip.Addr, error) {
 type MicroBFDConfig struct {
 	// Groups holds per-LAG Micro-BFD group configurations.
 	Groups []MicroBFDGroupConfig `koanf:"groups"`
+
+	// Actuator controls optional RFC 7130 LAG member enforcement.
+	Actuator MicroBFDActuatorConfig `koanf:"actuator"`
+}
+
+// Micro-BFD actuator vocabulary.
+const (
+	MicroBFDActuatorModeDisabled = "disabled"
+	MicroBFDActuatorModeDryRun   = "dry-run"
+	MicroBFDActuatorModeEnforce  = "enforce"
+
+	MicroBFDActuatorBackendAuto           = "auto"
+	MicroBFDActuatorBackendKernelBond     = "kernel-bond"
+	MicroBFDActuatorBackendOVS            = "ovs"
+	MicroBFDActuatorBackendNetworkManager = "networkmanager"
+
+	MicroBFDActuatorOwnerRefuseIfManaged    = "refuse-if-managed"
+	MicroBFDActuatorOwnerAllowExternal      = "allow-external"
+	MicroBFDActuatorOwnerNetworkManagerDBus = "networkmanager-dbus"
+
+	MicroBFDActuatorActionNone         = "none"
+	MicroBFDActuatorActionRemoveMember = "remove-member"
+	MicroBFDActuatorActionAddMember    = "add-member"
+)
+
+// MicroBFDActuatorConfig controls the optional LAG member actuator.
+type MicroBFDActuatorConfig struct {
+	// Mode controls whether actions are disabled, logged only, or enforced.
+	Mode string `koanf:"mode"`
+
+	// Backend selects the owner-specific dataplane backend.
+	Backend string `koanf:"backend"`
+
+	// OwnerPolicy controls behavior when another manager owns the interface.
+	OwnerPolicy string `koanf:"owner_policy"`
+
+	// DownAction is applied when a member transitions from Up to non-Up.
+	DownAction string `koanf:"down_action"`
+
+	// UpAction is applied when a member transitions back to Up.
+	UpAction string `koanf:"up_action"`
 }
 
 // MicroBFDGroupConfig holds the configuration for a single LAG's Micro-BFD group.
@@ -601,6 +642,15 @@ func DefaultConfig() *Config {
 			ReadBufferSize:  4 * 1024 * 1024, // 4 MiB
 			WriteBufferSize: 4 * 1024 * 1024, // 4 MiB
 		},
+		MicroBFD: MicroBFDConfig{
+			Actuator: MicroBFDActuatorConfig{
+				Mode:        MicroBFDActuatorModeDisabled,
+				Backend:     MicroBFDActuatorBackendAuto,
+				OwnerPolicy: MicroBFDActuatorOwnerRefuseIfManaged,
+				DownAction:  MicroBFDActuatorActionRemoveMember,
+				UpAction:    MicroBFDActuatorActionAddMember,
+			},
+		},
 		GoBGP: GoBGPConfig{
 			Enabled:       false,
 			Addr:          "127.0.0.1:50051",
@@ -711,6 +761,11 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
 		"bfd.align_intervals":                defaults.BFD.AlignIntervals,
+		"micro_bfd.actuator.mode":            defaults.MicroBFD.Actuator.Mode,
+		"micro_bfd.actuator.backend":         defaults.MicroBFD.Actuator.Backend,
+		"micro_bfd.actuator.owner_policy":    defaults.MicroBFD.Actuator.OwnerPolicy,
+		"micro_bfd.actuator.down_action":     defaults.MicroBFD.Actuator.DownAction,
+		"micro_bfd.actuator.up_action":       defaults.MicroBFD.Actuator.UpAction,
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,
@@ -817,6 +872,18 @@ var (
 
 	// ErrDuplicateGeneveSessionKey indicates two Geneve sessions share the same key.
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
+
+	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
+	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
+
+	// ErrInvalidMicroBFDActuatorBackend indicates an unrecognized Micro-BFD actuator backend.
+	ErrInvalidMicroBFDActuatorBackend = errors.New("micro_bfd.actuator.backend must be auto, kernel-bond, ovs, or networkmanager")
+
+	// ErrInvalidMicroBFDActuatorOwnerPolicy indicates an unrecognized interface owner policy.
+	ErrInvalidMicroBFDActuatorOwnerPolicy = errors.New("micro_bfd.actuator.owner_policy must be refuse-if-managed, allow-external, or networkmanager-dbus")
+
+	// ErrInvalidMicroBFDActuatorAction indicates an unrecognized Micro-BFD actuator action.
+	ErrInvalidMicroBFDActuatorAction = errors.New("micro_bfd.actuator action must be none, remove-member, or add-member")
 )
 
 // Validate checks the configuration for logical errors.
@@ -850,6 +917,10 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
+	if err := validateMicroBFDActuator(cfg.MicroBFD.Actuator); err != nil {
+		return err
+	}
+
 	if err := validateVXLAN(cfg.VXLAN); err != nil {
 		return err
 	}
@@ -858,6 +929,55 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
+	return nil
+}
+
+var validMicroBFDActuatorModes = map[string]bool{
+	MicroBFDActuatorModeDisabled: true,
+	MicroBFDActuatorModeDryRun:   true,
+	MicroBFDActuatorModeEnforce:  true,
+}
+
+var validMicroBFDActuatorBackends = map[string]bool{
+	MicroBFDActuatorBackendAuto:           true,
+	MicroBFDActuatorBackendKernelBond:     true,
+	MicroBFDActuatorBackendOVS:            true,
+	MicroBFDActuatorBackendNetworkManager: true,
+}
+
+var validMicroBFDActuatorOwnerPolicies = map[string]bool{
+	MicroBFDActuatorOwnerRefuseIfManaged:    true,
+	MicroBFDActuatorOwnerAllowExternal:      true,
+	MicroBFDActuatorOwnerNetworkManagerDBus: true,
+}
+
+var validMicroBFDActuatorActions = map[string]bool{
+	MicroBFDActuatorActionNone:         true,
+	MicroBFDActuatorActionRemoveMember: true,
+	MicroBFDActuatorActionAddMember:    true,
+}
+
+func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
+	if !validMicroBFDActuatorModes[cfg.Mode] {
+		return fmt.Errorf("micro_bfd.actuator.mode %q: %w",
+			cfg.Mode, ErrInvalidMicroBFDActuatorMode)
+	}
+	if !validMicroBFDActuatorBackends[cfg.Backend] {
+		return fmt.Errorf("micro_bfd.actuator.backend %q: %w",
+			cfg.Backend, ErrInvalidMicroBFDActuatorBackend)
+	}
+	if !validMicroBFDActuatorOwnerPolicies[cfg.OwnerPolicy] {
+		return fmt.Errorf("micro_bfd.actuator.owner_policy %q: %w",
+			cfg.OwnerPolicy, ErrInvalidMicroBFDActuatorOwnerPolicy)
+	}
+	if !validMicroBFDActuatorActions[cfg.DownAction] {
+		return fmt.Errorf("micro_bfd.actuator.down_action %q: %w",
+			cfg.DownAction, ErrInvalidMicroBFDActuatorAction)
+	}
+	if !validMicroBFDActuatorActions[cfg.UpAction] {
+		return fmt.Errorf("micro_bfd.actuator.up_action %q: %w",
+			cfg.UpAction, ErrInvalidMicroBFDActuatorAction)
+	}
 	return nil
 }
 

@@ -2,6 +2,7 @@ package netio_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 
@@ -99,6 +100,63 @@ func TestLAGActuatorIgnoresInitialNonUpState(t *testing.T) {
 	}
 	if got := backend.calls; len(got) != 0 {
 		t.Fatalf("backend calls = %v, want none before first Up", got)
+	}
+}
+
+func TestLAGActuatorValidatesBackendAndOwnerPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     netio.LAGActuatorConfig
+		wantErr error
+	}{
+		{
+			name: "invalid backend",
+			cfg: netio.LAGActuatorConfig{
+				Mode:        netio.LAGActuatorModeDryRun,
+				Backend:     "ifupdown",
+				OwnerPolicy: netio.LAGOwnerPolicyRefuseIfManaged,
+			},
+			wantErr: netio.ErrInvalidLAGActuatorBackend,
+		},
+		{
+			name: "invalid owner policy",
+			cfg: netio.LAGActuatorConfig{
+				Mode:        netio.LAGActuatorModeDryRun,
+				Backend:     netio.LAGActuatorBackendKernelBond,
+				OwnerPolicy: "overwrite",
+			},
+			wantErr: netio.ErrInvalidLAGOwnerPolicy,
+		},
+		{
+			name: "networkmanager backend",
+			cfg: netio.LAGActuatorConfig{
+				Mode:        netio.LAGActuatorModeDryRun,
+				Backend:     netio.LAGActuatorBackendNetworkManager,
+				OwnerPolicy: netio.LAGOwnerPolicyNetworkManagerDBus,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := netio.NewLAGActuator(tt.cfg, nil, slog.Default())
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("NewLAGActuator: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("NewLAGActuator returned nil, want error")
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("NewLAGActuator error = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

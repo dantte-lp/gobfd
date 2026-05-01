@@ -777,6 +777,13 @@ func configAuthTypeToBFD(authType string) (bfd.AuthType, error) {
 // newManager creates a BFD session manager with metrics and optional unsolicited BFD (RFC 9468).
 func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slog.Logger) (*bfd.Manager, error) {
 	opts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
+	actuator, actuatorEnabled, err := buildMicroBFDActuator(cfg.MicroBFD.Actuator, logger)
+	if err != nil {
+		return nil, fmt.Errorf("invalid micro-BFD actuator config: %w", err)
+	}
+	if actuatorEnabled {
+		opts = append(opts, bfd.WithMicroBFDActuator(actuator))
+	}
 	if cfg.Unsolicited.Enabled {
 		policy, err := buildUnsolicitedPolicy(cfg.Unsolicited)
 		if err != nil {
@@ -795,6 +802,31 @@ func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slo
 		)
 	}
 	return bfd.NewManager(logger, opts...), nil
+}
+
+func buildMicroBFDActuator(
+	cfg config.MicroBFDActuatorConfig,
+	logger *slog.Logger,
+) (bfd.MicroBFDActuator, bool, error) {
+	if cfg.Mode == config.MicroBFDActuatorModeDisabled {
+		return nil, false, nil
+	}
+	actuatorCfg := configMicroBFDActuatorToNetio(cfg)
+	actuator, err := netio.NewLAGActuator(actuatorCfg, nil, logger)
+	if err != nil {
+		return nil, false, err
+	}
+	return actuator, true, nil
+}
+
+func configMicroBFDActuatorToNetio(cfg config.MicroBFDActuatorConfig) netio.LAGActuatorConfig {
+	return netio.LAGActuatorConfig{
+		Mode:        netio.LAGActuatorMode(cfg.Mode),
+		Backend:     netio.LAGActuatorBackendType(cfg.Backend),
+		OwnerPolicy: netio.LAGOwnerPolicy(cfg.OwnerPolicy),
+		DownAction:  netio.LAGActuatorAction(cfg.DownAction),
+		UpAction:    netio.LAGActuatorAction(cfg.UpAction),
+	}
 }
 
 // buildUnsolicitedPolicy converts config.UnsolicitedConfig to bfd.UnsolicitedPolicy.

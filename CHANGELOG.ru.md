@@ -49,6 +49,8 @@
   troubleshooting и optional public Arista EOS verification notes.
 - Micro-BFD actuator hook и guarded policy layer `netio.LAGActuator` для
   будущего Linux LAG enforcement.
+- Owner-aware конфигурация `micro_bfd.actuator` и daemon dry-run wiring для
+  будущих kernel bond, OVS и NetworkManager backend-ов Micro-BFD enforcement.
 
 ### Изменено
 
@@ -56,6 +58,8 @@
   реализованное обнаружение Micro-BFD от будущего Linux bond/team/OVS
   enforcement, а также описывают ограничения ownership userspace-сокетов
   VXLAN/Geneve для kernel, OVS, Cilium и NSX dataplane.
+- S7.1 разделён на неразрушающий actuator config wiring и следующий sprint
+  owner-aware Linux backend implementation.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без
   привязки к site-specific контуру применимости.
 - Kubernetes integration manifests теперь используют согласованные app labels,

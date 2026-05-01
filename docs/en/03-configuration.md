@@ -236,14 +236,32 @@ echo:
 | `micro_bfd.groups[].required_min_rx` | duration | -- | Minimum acceptable RX interval |
 | `micro_bfd.groups[].detect_mult` | uint32 | -- | Detection time multiplier |
 | `micro_bfd.groups[].min_active_links` | int | -- | Minimum Up members for LAG Up (>= 1) |
+| `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run`, or `enforce` |
+| `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs`, or `networkmanager` |
+| `micro_bfd.actuator.owner_policy` | string | `refuse-if-managed` | Interface owner policy: refuse external ownership, allow external ownership, or use NetworkManager D-Bus |
+| `micro_bfd.actuator.down_action` | string | `remove-member` | Action after a member transitions from Up to non-Up |
+| `micro_bfd.actuator.up_action` | string | `add-member` | Action after a member transitions back to Up |
 
 Micro-BFD runs independent BFD sessions on each LAG member link (UDP port 6784) with `SO_BINDTODEVICE` per member. The aggregate LAG state is Up when `upCount >= min_active_links`.
+
+RFC 7130 enforcement is guarded by `micro_bfd.actuator`. The default
+`disabled` mode is detect/report only. `dry-run` wires the daemon into the
+policy layer and logs planned member actions. `enforce` is intentionally
+rejected until a real Linux backend is provided. Use `backend: networkmanager`
+with `owner_policy: networkmanager-dbus` only when NetworkManager owns the LAG
+or member devices; otherwise keep the default owner refusal policy.
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 
 Example:
 ```yaml
 micro_bfd:
+  actuator:
+    mode: "dry-run"
+    backend: "auto"
+    owner_policy: "refuse-if-managed"
+    down_action: "remove-member"
+    up_action: "add-member"
   groups:
     - lag_interface: "bond0"
       member_links: ["eth0", "eth1"]

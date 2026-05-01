@@ -25,17 +25,38 @@ const (
 	LAGActuatorActionAddMember    LAGActuatorAction = "add-member"
 )
 
+type LAGActuatorBackendType string
+
+const (
+	LAGActuatorBackendAuto           LAGActuatorBackendType = "auto"
+	LAGActuatorBackendKernelBond     LAGActuatorBackendType = "kernel-bond"
+	LAGActuatorBackendOVS            LAGActuatorBackendType = "ovs"
+	LAGActuatorBackendNetworkManager LAGActuatorBackendType = "networkmanager"
+)
+
+type LAGOwnerPolicy string
+
+const (
+	LAGOwnerPolicyRefuseIfManaged    LAGOwnerPolicy = "refuse-if-managed"
+	LAGOwnerPolicyAllowExternal      LAGOwnerPolicy = "allow-external"
+	LAGOwnerPolicyNetworkManagerDBus LAGOwnerPolicy = "networkmanager-dbus"
+)
+
 var (
-	ErrInvalidLAGActuatorMode   = errors.New("invalid LAG actuator mode")
-	ErrInvalidLAGActuatorAction = errors.New("invalid LAG actuator action")
-	ErrLAGActuatorBackendNil    = errors.New("LAG actuator backend is required in enforce mode")
+	ErrInvalidLAGActuatorMode    = errors.New("invalid LAG actuator mode")
+	ErrInvalidLAGActuatorAction  = errors.New("invalid LAG actuator action")
+	ErrInvalidLAGActuatorBackend = errors.New("invalid LAG actuator backend")
+	ErrInvalidLAGOwnerPolicy     = errors.New("invalid LAG owner policy")
+	ErrLAGActuatorBackendNil     = errors.New("LAG actuator backend is required in enforce mode")
 )
 
 // LAGActuatorConfig configures the policy gate for RFC 7130 member actions.
 type LAGActuatorConfig struct {
-	Mode       LAGActuatorMode
-	DownAction LAGActuatorAction
-	UpAction   LAGActuatorAction
+	Mode        LAGActuatorMode
+	Backend     LAGActuatorBackendType
+	OwnerPolicy LAGOwnerPolicy
+	DownAction  LAGActuatorAction
+	UpAction    LAGActuatorAction
 }
 
 // LAGActuatorBackend applies selected member actions to a Linux LAG backend.
@@ -86,6 +107,8 @@ func (a *LAGActuator) HandleMicroBFDMemberEvent(
 
 	a.logger.Info("micro-BFD LAG actuator decision",
 		slog.String("mode", string(a.cfg.Mode)),
+		slog.String("backend", string(a.cfg.Backend)),
+		slog.String("owner_policy", string(a.cfg.OwnerPolicy)),
 		slog.String("action", string(decision)),
 		slog.String("lag", ev.LAGInterface),
 		slog.String("member", ev.MemberInterface),
@@ -124,6 +147,12 @@ func normalizeLAGActuatorConfig(cfg LAGActuatorConfig) (LAGActuatorConfig, error
 	if cfg.Mode == "" {
 		cfg.Mode = LAGActuatorModeDisabled
 	}
+	if cfg.Backend == "" {
+		cfg.Backend = LAGActuatorBackendAuto
+	}
+	if cfg.OwnerPolicy == "" {
+		cfg.OwnerPolicy = LAGOwnerPolicyRefuseIfManaged
+	}
 	if cfg.DownAction == "" {
 		cfg.DownAction = LAGActuatorActionRemoveMember
 	}
@@ -131,6 +160,12 @@ func normalizeLAGActuatorConfig(cfg LAGActuatorConfig) (LAGActuatorConfig, error
 		cfg.UpAction = LAGActuatorActionAddMember
 	}
 	if err := validateLAGActuatorMode(cfg.Mode); err != nil {
+		return LAGActuatorConfig{}, err
+	}
+	if err := validateLAGActuatorBackend(cfg.Backend); err != nil {
+		return LAGActuatorConfig{}, err
+	}
+	if err := validateLAGOwnerPolicy(cfg.OwnerPolicy); err != nil {
 		return LAGActuatorConfig{}, err
 	}
 	if err := validateLAGActuatorAction(cfg.DownAction); err != nil {
@@ -148,6 +183,29 @@ func validateLAGActuatorMode(mode LAGActuatorMode) error {
 		return nil
 	default:
 		return fmt.Errorf("%q: %w", mode, ErrInvalidLAGActuatorMode)
+	}
+}
+
+func validateLAGActuatorBackend(backend LAGActuatorBackendType) error {
+	switch backend {
+	case LAGActuatorBackendAuto,
+		LAGActuatorBackendKernelBond,
+		LAGActuatorBackendOVS,
+		LAGActuatorBackendNetworkManager:
+		return nil
+	default:
+		return fmt.Errorf("%q: %w", backend, ErrInvalidLAGActuatorBackend)
+	}
+}
+
+func validateLAGOwnerPolicy(policy LAGOwnerPolicy) error {
+	switch policy {
+	case LAGOwnerPolicyRefuseIfManaged,
+		LAGOwnerPolicyAllowExternal,
+		LAGOwnerPolicyNetworkManagerDBus:
+		return nil
+	default:
+		return fmt.Errorf("%q: %w", policy, ErrInvalidLAGOwnerPolicy)
 	}
 }
 

@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   troubleshooting, and optional public Arista EOS verification notes.
 - Micro-BFD actuator hook and guarded `netio.LAGActuator` policy layer for
   future Linux LAG enforcement.
+- Owner-aware `micro_bfd.actuator` configuration and daemon dry-run wiring for
+  future kernel bond, OVS, and NetworkManager Micro-BFD enforcement backends.
 
 ### Changed
 
@@ -56,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implemented Micro-BFD detection from future Linux bond/team/OVS enforcement,
   and document VXLAN/Geneve userspace socket ownership limits for kernel,
   OVS, Cilium, and NSX dataplanes.
+- S7.1 is split into non-destructive actuator config wiring and a later
+  owner-aware Linux backend implementation sprint.
 - S7 roadmap now targets independent production integration assets instead of
   a site-specific applicability target.
 - Kubernetes integration manifests now use consistent app labels, named ports,

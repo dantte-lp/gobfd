@@ -70,11 +70,17 @@ bfd:
 
 # RFC 7130: Micro-BFD for LAG. Runs independent BFD sessions on each
 # LAG member link for per-link forwarding verification. Uses UDP port 6784.
-# Current Linux behavior is detect/report only: removing failed members from
-# a bond/team/OVS load-balancing table requires an external actuator until the
-# dedicated Linux LAG actuator is implemented.
+# The actuator is disabled by default. Dry-run mode plans member remove/add
+# actions without changing the host. Enforce mode is reserved for a future
+# Linux backend; current builds reject enforce without a backend implementation.
 #
 # micro_bfd:
+#   actuator:
+#     mode: "dry-run"
+#     backend: "auto"
+#     owner_policy: "refuse-if-managed"
+#     down_action: "remove-member"
+#     up_action: "add-member"
 #   groups:
 #     - lag_interface: "bond0"
 #       member_links: ["eth0", "eth1"]

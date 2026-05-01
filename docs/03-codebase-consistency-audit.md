@@ -44,7 +44,7 @@ gate to run under a Linux build context and fail on any diagnostics.
 | RFC 5880 auth | YAML, gRPC, CLI, snapshots, sequence reset, and hardening are implemented for static per-session keys. | Config and changelog describe static key material; dynamic rotation is deferred. | Consistent |
 | Single-hop / multi-hop | API and CLI create only `single-hop` and `multi-hop` sessions. | CLI docs match this behavior. | Consistent |
 | Echo / Micro-BFD / VXLAN / Geneve | Daemon, config, reconcile paths, codecs, receivers, and tests exist. | RFC/config docs describe implemented support. Previous README RFC table lagged behind. | Fixed in S4.1 |
-| Linux Micro-BFD enforcement | Per-member sessions and aggregate state tracking exist; no Linux bond/team/OVS actuator exists yet. | RFC docs now separate detection/reporting from load-balancer membership enforcement. | Partial |
+| Linux Micro-BFD enforcement | Per-member sessions, aggregate state tracking, actuator policy, and dry-run config wiring exist; no Linux bond/team/OVS/NetworkManager backend exists yet. | RFC/config docs separate detection/reporting and dry-run policy from load-balancer membership enforcement. | Partial |
 | Linux VXLAN/Geneve dataplane coexistence | Userspace UDP sockets bind `localAddr:4789` and `localAddr:6081`. | RFC/config docs now warn that kernel VXLAN/Geneve, OVS/OVN, or Cilium socket ownership needs explicit design. | Partial |
 | Advanced API vocabulary | Proto enum, server mappings, snapshots, and CLI output know Echo, Micro-BFD, VXLAN, and Geneve. Generic `AddSession` rejects these types until dedicated APIs are added. | Plan now separates vocabulary/snapshot exposure from advanced create flows. | Partial |
 | Unsolicited BFD | Manager auto-creates passive sessions behind explicit policy. | Config and RFC docs describe opt-in behavior. | Consistent |
@@ -122,7 +122,7 @@ generic examples:
 - Optional public Arista EOS notes are separated from runnable examples and
   validated through Arista MCP.
 
-Next sprint: S7.1b, `feat(netio): wire linux lag actuator backend`.
+Next sprint: S7.1c, `feat(netio): add linux lag actuator backend`.
 
 ### F5: Linux advanced BFD needs explicit dataplane ownership
 
@@ -130,10 +130,11 @@ The latest RFC/Linux review confirms that Micro-BFD, VXLAN BFD, and Geneve BFD
 are applicable to Linux, but the current implementation is not a complete
 dataplane controller.
 
-For Micro-BFD, GoBFD creates one RFC 7130 session per member link and tracks
-aggregate state. It does not yet remove a failed member from Linux bonding,
-team, or OVS load-balancing tables. This is the main gap between protocol
-detection and full RFC 7130 enforcement on Linux.
+For Micro-BFD, GoBFD creates one RFC 7130 session per member link, tracks
+aggregate state, and wires a dry-run actuator policy into the daemon. It does
+not yet remove a failed member from Linux bonding, team, OVS, or
+NetworkManager-owned load-balancing tables. This is the main gap between
+protocol detection and full RFC 7130 enforcement on Linux.
 
 For VXLAN/Geneve, GoBFD owns userspace UDP sockets on the standard outer ports.
 That works for dedicated management endpoints and labs, but production Linux
@@ -142,7 +143,7 @@ those ports. That needs a backend model rather than a blanket claim that the
 userspace socket can always coexist with the dataplane.
 
 Next sprints:
-- S7.1b, `feat(netio): wire linux lag actuator backend`
+- S7.1c, `feat(netio): add linux lag actuator backend`
 - S7.2, `feat(netio): add overlay backend model`
 
 ## Sprint Plan
@@ -154,11 +155,12 @@ Next sprints:
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
-| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, and Micro-BFD actuator policy are done; remaining work is S7.1b/S7.2 implementation. | `feat(examples): add production integration assets` |
+| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, and Micro-BFD actuator policy/config wiring are done; remaining work is S7.1c/S7.2 implementation. | `feat(examples): add production integration assets` |
 | S7a | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. | `docs(examples): add production integration runbooks` |
 | S7b | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. | `docs(examples): document bgp failover interop` |
-| S7.1 | Linux Micro-BFD enforcement. | In progress: Manager actuator hook and guarded `netio.LAGActuator` policy are done; Linux bond/team/OVS backend and YAML wiring remain. | `feat(netio): add linux lag actuator` |
-| S7.1b | Linux LAG backend wiring. | Add backend implementation, config validation, and daemon wiring for dry-run/enforce modes. | `feat(netio): wire linux lag actuator backend` |
+| S7.1 | Linux Micro-BFD enforcement. | In progress: Manager actuator hook, guarded `netio.LAGActuator` policy, config validation, and daemon dry-run wiring are done; Linux bond/team/OVS/NetworkManager backend remains. | `feat(netio): add linux lag actuator` |
+| S7.1b | Linux LAG actuator config wiring. | Add config validation and daemon wiring for disabled/dry-run/enforce policy modes without destructive Linux changes. | `feat(config): wire micro-bfd actuator config` |
+| S7.1c | Linux LAG backend implementation. | Add owner-aware kernel bond, OVS, and optional NetworkManager D-Bus backend implementation for enforce mode. | `feat(netio): add linux lag actuator backend` |
 | S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
 
@@ -169,5 +171,5 @@ Next sprints:
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 62% | Good for base sessions, auth, and advanced session observability; advanced create/update flows still missing. |
 | Linux production daemon behavior | 82% | Raw sockets, buffers, rtnetlink, systemd, metrics, serialized drain behavior, and hardened Kubernetes examples exist. |
-| Independent production applicability | 66% | Generic runbooks and BGP fast-failover examples are published; Linux LAG actuator and overlay dataplane backend are still open. |
+| Independent production applicability | 68% | Generic runbooks, BGP fast-failover examples, and Micro-BFD dry-run wiring are published; Linux LAG enforce backend and overlay dataplane backend are still open. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

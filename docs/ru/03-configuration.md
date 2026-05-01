@@ -232,14 +232,33 @@ echo:
 | `micro_bfd.groups[].required_min_rx` | duration | -- | Минимальный допустимый RX-интервал |
 | `micro_bfd.groups[].detect_mult` | uint32 | -- | Множитель времени обнаружения |
 | `micro_bfd.groups[].min_active_links` | int | -- | Минимум Up member-ов для LAG Up (>= 1) |
+| `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run` или `enforce` |
+| `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs` или `networkmanager` |
+| `micro_bfd.actuator.owner_policy` | string | `refuse-if-managed` | Политика owner: отказ при внешнем владельце, разрешение внешнего владельца или NetworkManager D-Bus |
+| `micro_bfd.actuator.down_action` | string | `remove-member` | Действие после перехода member из Up в non-Up |
+| `micro_bfd.actuator.up_action` | string | `add-member` | Действие после возврата member в Up |
 
 Micro-BFD запускает независимые BFD-сессии на каждом member link LAG (UDP порт 6784) с `SO_BINDTODEVICE` на каждый member. Агрегатное состояние LAG = Up, когда `upCount >= min_active_links`.
+
+RFC 7130 enforcement защищён блоком `micro_bfd.actuator`. Режим по умолчанию
+`disabled` означает только detect/report. `dry-run` подключает daemon к policy
+layer и логирует планируемые действия с member. `enforce` намеренно
+отклоняется, пока не появится реальный Linux backend. Используйте значение
+`networkmanager` для `backend` и `networkmanager-dbus` для `owner_policy`
+только когда NetworkManager владеет LAG или member-устройствами; в остальных
+случаях оставляйте политику отказа при внешнем владельце.
 
 Группы реконсилируются при SIGHUP. Ключ группы: `lag_interface`.
 
 Пример:
 ```yaml
 micro_bfd:
+  actuator:
+    mode: "dry-run"
+    backend: "auto"
+    owner_policy: "refuse-if-managed"
+    down_action: "remove-member"
+    up_action: "add-member"
   groups:
     - lag_interface: "bond0"
       member_links: ["eth0", "eth1"]
