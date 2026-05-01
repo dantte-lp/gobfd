@@ -249,9 +249,9 @@ jobs:
               if (pct + 0 < 10) {
                 next
               }
-              if ($1 ~ /^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-/) {
+              if ($1 ~ /^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-/ && (($2 + 0) >= 0.0000001 || ($4 + 0) >= 0.0000001)) {
                 print $1 "," $6 "," $7 >> "bench-regression/critical-regressions.csv"
-              } else if (($2 + 0) >= 0.000001 || ($4 + 0) >= 0.000001) {
+              } else if (($2 + 0) >= 0.000000001 || ($4 + 0) >= 0.000000001) {
                 print $1 "," $6 "," $7 >> "bench-regression/reported-regressions.csv"
               } else {
                 next
