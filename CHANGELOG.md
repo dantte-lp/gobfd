@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10.6 primary vendor profile set for Arista cEOS, Nokia SR Linux, SONiC-VS,
   and VyOS, with Cisco XRd retained as a deferred optional profile until an
   operator-provided image is available.
+- S10.7 E2E evidence GitHub Actions workflow with PR-safe, nightly, and manual
+  vendor gates, 30-day report artifact retention, and explicit benchmark
+  policy separation.
 - `make gopls-check` coverage for S10 E2E build tags.
 
 ### Fixed

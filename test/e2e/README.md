@@ -113,6 +113,24 @@ Future S10 report generation must add:
   evidence tables, artifact links, and collapsible logs.
 - Standalone offline rendering without external network dependencies.
 
+## CI Artifact Policy
+
+| Gate | Trigger | Target Set | Artifact Name |
+|---|---|---|---|
+| PR-safe | `pull_request`, manual `profile=pr-safe` | `make e2e-core`, `make e2e-overlay` | `e2e-pr-safe` |
+| Nightly | `schedule`, manual `profile=nightly` | `make e2e-routing`, `make e2e-rfc`, `make e2e-linux` | `e2e-nightly` |
+| Vendor | manual `profile=vendor` | `make e2e-vendor` | `e2e-vendor` |
+
+| Property | Requirement |
+|---|---|
+| Workflow | `.github/workflows/e2e.yml`. |
+| Runtime | Podman and `podman-compose`. |
+| Report root | `reports/e2e/**`. |
+| Upload condition | `if: always()`. |
+| Retention | 30 days. |
+| Missing artifacts | Warning, not workflow failure. |
+| Cleanup | `make down` runs after every CI profile. |
+
 ## Cleanup Policy
 
 | Resource | Requirement |

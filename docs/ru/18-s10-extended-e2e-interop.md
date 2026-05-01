@@ -178,7 +178,26 @@ graph TD
 | Manual gate | `make e2e-vendor`. |
 | HTML report backlog | `reports/e2e/<target>/<timestamp>/index.html` генерируется из standard JSON, CSV, PCAP metadata, summary и container artifacts. Renderer общий для всех S10 targets и использует consistent repository visual style. |
 | Benchmark rule | Existing hot-path benchmark comparison остаётся stable; S10 добавляет E2E artifacts, не noisy interop microbenchmarks. |
+| Status | Implemented. |
 | Commit | `ci(interop): publish extended evidence artifacts` |
+
+#### S10.7 CI Contract
+
+| Gate | Trigger | Commands | Artifact |
+|---|---|---|---|
+| PR-safe E2E | `pull_request`, manual `profile=pr-safe` | `make up`, `make e2e-core`, `make e2e-overlay`, `make down` | `e2e-pr-safe` |
+| Nightly E2E | `schedule`, manual `profile=nightly` | `make up`, `make e2e-routing`, `make e2e-rfc`, `make e2e-linux`, `make down` | `e2e-nightly` |
+| Vendor E2E | manual `profile=vendor` | `make up`, `make e2e-vendor`, `make down` | `e2e-vendor` |
+
+| Property | Requirement |
+|---|---|
+| Runtime | GitHub-hosted Ubuntu runner с Podman и `podman-compose`. |
+| Podman API | `/run/podman/podman.sock` обязателен по dev container contract. |
+| Upload condition | Artifacts публикуются с `if: always()`. |
+| Retention | 30 days. |
+| Missing artifacts | `if-no-files-found: warn`. |
+| Permissions | `contents: read` by default. |
+| Concurrency | One active workflow per ref and selected profile. |
 
 ## 7. Acceptance matrix
 

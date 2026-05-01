@@ -1,0 +1,208 @@
+name: E2E Evidence
+
+on:
+  pull_request:
+    branches: [master, main]
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: E2E evidence profile
+        required: true
+        default: pr-safe
+        type: choice
+        options:
+          - pr-safe
+          - nightly
+          - vendor
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.profile || github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  pr-safe:
+    name: PR-safe E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    if: >-
+      ${{
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.profile == 'pr-safe')
+      }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Podman runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman podman-compose
+          if ! command -v podman-compose >/dev/null 2>&1; then
+            python3 -m pip install --user --break-system-packages --no-cache-dir podman-compose
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Start Podman API socket
+        run: |
+          sudo install -d -m 0755 /run/podman
+          if command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl start podman.socket || true
+          fi
+          if [ ! -S /run/podman/podman.sock ]; then
+            sudo podman system service --time=0 unix:///run/podman/podman.sock \
+              >podman-system-service.log 2>&1 &
+            for _ in $(seq 1 20); do
+              [ -S /run/podman/podman.sock ] && break
+              sleep 1
+            done
+          fi
+          test -S /run/podman/podman.sock
+          sudo chmod 666 /run/podman/podman.sock
+          podman --version
+          podman-compose --version
+
+      - name: Start dev stack
+        run: make up
+
+      - name: Run core E2E
+        run: make e2e-core
+
+      - name: Run overlay E2E
+        run: make e2e-overlay
+
+      - name: Stop dev stack
+        if: always()
+        run: make down || true
+
+      - name: Upload PR-safe E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-pr-safe
+          path: reports/e2e/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  nightly:
+    name: Nightly E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    if: >-
+      ${{
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.profile == 'nightly')
+      }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Podman runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman podman-compose
+          if ! command -v podman-compose >/dev/null 2>&1; then
+            python3 -m pip install --user --break-system-packages --no-cache-dir podman-compose
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Start Podman API socket
+        run: |
+          sudo install -d -m 0755 /run/podman
+          if command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl start podman.socket || true
+          fi
+          if [ ! -S /run/podman/podman.sock ]; then
+            sudo podman system service --time=0 unix:///run/podman/podman.sock \
+              >podman-system-service.log 2>&1 &
+            for _ in $(seq 1 20); do
+              [ -S /run/podman/podman.sock ] && break
+              sleep 1
+            done
+          fi
+          test -S /run/podman/podman.sock
+          sudo chmod 666 /run/podman/podman.sock
+          podman --version
+          podman-compose --version
+
+      - name: Start dev stack
+        run: make up
+
+      - name: Run routing E2E
+        run: make e2e-routing
+
+      - name: Run RFC E2E
+        run: make e2e-rfc
+
+      - name: Run Linux dataplane E2E
+        run: make e2e-linux
+
+      - name: Stop dev stack
+        if: always()
+        run: make down || true
+
+      - name: Upload nightly E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-nightly
+          path: reports/e2e/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  vendor:
+    name: Manual vendor E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.profile == 'vendor' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Podman runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends podman podman-compose
+          if ! command -v podman-compose >/dev/null 2>&1; then
+            python3 -m pip install --user --break-system-packages --no-cache-dir podman-compose
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Start Podman API socket
+        run: |
+          sudo install -d -m 0755 /run/podman
+          if command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl start podman.socket || true
+          fi
+          if [ ! -S /run/podman/podman.sock ]; then
+            sudo podman system service --time=0 unix:///run/podman/podman.sock \
+              >podman-system-service.log 2>&1 &
+            for _ in $(seq 1 20); do
+              [ -S /run/podman/podman.sock ] && break
+              sleep 1
+            done
+          fi
+          test -S /run/podman/podman.sock
+          sudo chmod 666 /run/podman/podman.sock
+          podman --version
+          podman-compose --version
+
+      - name: Start dev stack
+        run: make up
+
+      - name: Run vendor profile evidence
+        run: make e2e-vendor
+
+      - name: Stop dev stack
+        if: always()
+        run: make down || true
+
+      - name: Upload vendor E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-vendor
+          path: reports/e2e/**
+          if-no-files-found: warn
+          retention-days: 30

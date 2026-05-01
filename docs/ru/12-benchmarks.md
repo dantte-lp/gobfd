@@ -12,6 +12,7 @@
 - [Целевые показатели](#целевые-показатели)
 - [Политика нулевых аллокаций](#политика-нулевых-аллокаций)
 - [Сравнение версий](#сравнение-версий)
+- [CI Benchmark Policy](#ci-benchmark-policy)
 - [Генерация отчётов](#генерация-отчётов)
 
 ---
@@ -228,6 +229,16 @@ FSMTransitionUpRecvUp-8      20.1n ± 1%   20.3n ± 2%       ~ (p=0.485 n=6)
 | `n=6` | Количество семплов для сравнения |
 
 Регрессия показывается как положительный процент (напр., `+12.3%`). Исследуйте любую регрессию >5% в бенчмарках горячего пути перед релизом.
+
+### CI Benchmark Policy
+
+| Gate | Requirement |
+|------|-------------|
+| Pull request benchmark gate | GitHub Actions `Benchmark comparison` запускает только stable hot-path benchmarks. |
+| E2E evidence gate | `.github/workflows/e2e.yml` публикует E2E artifacts отдельно от benchmark artifacts. |
+| S10 timing data | Diagnostic only; не performance regression gate. |
+| Vendor profile timing | Diagnostic only; не comparable между licensed или operator-provided images. |
+| Regression scope | Protocol hot paths в `internal/bfd` и `internal/netio`. |
 
 #### HTML-отчёт
 

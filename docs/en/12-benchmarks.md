@@ -12,6 +12,7 @@
 - [What "Good" Looks Like](#what-good-looks-like)
 - [Zero Allocation Policy](#zero-allocation-policy)
 - [Comparing Versions](#comparing-versions)
+- [CI Benchmark Policy](#ci-benchmark-policy)
 - [Generating Reports](#generating-reports)
 
 ---
@@ -228,6 +229,16 @@ FSMTransitionUpRecvUp-8      20.1n ± 1%   20.3n ± 2%       ~ (p=0.485 n=6)
 | `n=6` | Number of samples used for comparison |
 
 A regression shows as a positive percentage (e.g., `+12.3%`). Investigate any regression >5% in hot-path benchmarks before release.
+
+### CI Benchmark Policy
+
+| Gate | Requirement |
+|------|-------------|
+| Pull request benchmark gate | GitHub Actions `Benchmark comparison` runs stable hot-path benchmarks only. |
+| E2E evidence gate | `.github/workflows/e2e.yml` publishes E2E artifacts separately from benchmark artifacts. |
+| S10 timing data | Diagnostic only; not a performance regression gate. |
+| Vendor profile timing | Diagnostic only; not comparable across licensed or operator-provided images. |
+| Regression scope | Protocol hot paths in `internal/bfd` and `internal/netio`. |
 
 #### HTML Report
 

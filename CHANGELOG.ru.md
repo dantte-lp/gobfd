@@ -33,6 +33,9 @@
 - Primary vendor profile set S10.6 для Arista cEOS, Nokia SR Linux, SONiC-VS и
   VyOS; Cisco XRd сохранён как deferred optional profile до появления
   operator-provided image.
+- S10.7 E2E evidence GitHub Actions workflow с PR-safe, nightly и manual
+  vendor gates, 30-day report artifact retention и explicit benchmark policy
+  separation.
 - Coverage `make gopls-check` для S10 E2E build tags.
 
 ### Исправлено
