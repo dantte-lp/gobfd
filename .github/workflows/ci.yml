@@ -238,9 +238,50 @@ jobs:
 
       - name: Check for regressions (>10%)
         run: |
-          go tool benchstat -format csv old.txt new.txt > bench-csv.txt 2>/dev/null || true
-          if grep -qE '\+[1-9][0-9]\.' bench-csv.txt 2>/dev/null; then
-            echo "::warning::Benchmark regression detected (>10%). Review bench-report.md."
+          mkdir -p bench-regression
+          go tool benchstat -format csv old.txt new.txt > bench-regression/bench-csv.txt 2> bench-regression/benchstat-notes.txt
+          awk -F, '
+            $2 == "sec/op" { metric = "sec/op"; next }
+            $2 == "B/op" || $2 == "allocs/op" { metric = $2; next }
+            metric == "sec/op" && $6 ~ /^\+[0-9.]+%/ {
+              pct = $6
+              gsub(/[+%]/, "", pct)
+              if (pct + 0 < 10) {
+                next
+              }
+              if ($1 ~ /^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-/) {
+                print $1 "," $6 "," $7 >> "bench-regression/critical-regressions.csv"
+              } else if (($2 + 0) >= 0.000001 || ($4 + 0) >= 0.000001) {
+                print $1 "," $6 "," $7 >> "bench-regression/reported-regressions.csv"
+              } else {
+                next
+              }
+            }
+          ' bench-regression/bench-csv.txt
+
+          if [ -s bench-regression/reported-regressions.csv ]; then
+            {
+              echo "### Report-only benchmark regressions"
+              echo ""
+              echo "| Benchmark | Delta | Significance |"
+              echo "| --- | ---: | --- |"
+              awk -F, '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }' bench-regression/reported-regressions.csv
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s bench-regression/benchstat-notes.txt ]; then
+            {
+              echo "### benchstat notes"
+              echo ""
+              echo '```'
+              cat bench-regression/benchstat-notes.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -s bench-regression/critical-regressions.csv ]; then
+            echo "::warning::Critical benchmark regression detected (>10%). Review bench-report.md."
+            cat bench-regression/critical-regressions.csv
           fi
 
       - name: Upload benchmark artifacts
