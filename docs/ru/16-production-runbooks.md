@@ -196,7 +196,7 @@ podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd \
 | Gap | Плановый sprint |
 |---|---|
 | Dedicated API/CLI create flows для Echo, Micro-BFD, VXLAN и Geneve | S5b |
-| VXLAN/Geneve backend model для kernel/OVS dataplane coexistence | S7.2 |
+| Kernel/OVS/OVN/Cilium/NSX overlay backends beyond `userspace-udp` | Future |
 | pkg.go.dev polish и v0.5.0 release dry-run | S8 |
 
 ---

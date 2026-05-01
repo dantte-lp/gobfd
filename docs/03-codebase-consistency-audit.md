@@ -16,9 +16,10 @@ Evidence sources:
   Cilium/Calico-style BGP environments, partner edge failover, and DCI-style
   fast-failover expectations.
 - OVSDB API research note: `docs/05-ovsdb-api-research.md`.
-- MCP checks: Context7 `gopls`, NetworkManager D-Bus, and `godbus/dbus`
-  docs for build environment and D-Bus API scoping; Arista MCP EOS BFD
-  snippets for BFD interface/BGP/per-link feature context.
+- MCP checks: Context7 `gopls`, NetworkManager D-Bus, `godbus/dbus`, and
+  `cilium/ebpf` docs for build environment, D-Bus API, and future eBPF
+  backend scoping; Arista MCP EOS BFD snippets for BFD interface/BGP/per-link
+  feature context.
 - Linux advanced BFD applicability note:
   `docs/04-linux-advanced-bfd-applicability.md`.
 
@@ -47,7 +48,7 @@ gate to run under a Linux build context and fail on any diagnostics.
 | Single-hop / multi-hop | API and CLI create only `single-hop` and `multi-hop` sessions. | CLI docs match this behavior. | Consistent |
 | Echo / Micro-BFD / VXLAN / Geneve | Daemon, config, reconcile paths, codecs, receivers, and tests exist. | RFC/config docs describe implemented support. Previous README RFC table lagged behind. | Fixed in S4.1 |
 | Linux Micro-BFD enforcement | Per-member sessions, aggregate state tracking, actuator policy, dry-run config wiring, explicit kernel-bond sysfs backend, native OVSDB bonded-port backend, NetworkManager D-Bus backend, and transitional OVS CLI fallback type exist. | RFC/config docs separate detect/report, dry-run policy, kernel-bond/OVS enforcement with `allow-external`, OVSDB endpoint config, and NetworkManager D-Bus owner policy. | Partial |
-| Linux VXLAN/Geneve dataplane coexistence | Userspace UDP sockets bind `localAddr:4789` and `localAddr:6081`. | RFC/config docs now warn that kernel VXLAN/Geneve, OVS/OVN, or Cilium socket ownership needs explicit design. | Partial |
+| Linux VXLAN/Geneve dataplane coexistence | `userspace-udp` backend binds `localAddr:4789` and `localAddr:6081`; reserved kernel/OVS/OVN/Cilium/NSX backend names fail closed. | RFC/config docs describe explicit backend ownership and future non-userspace integration scope. | Partial |
 | Advanced API vocabulary | Proto enum, server mappings, snapshots, and CLI output know Echo, Micro-BFD, VXLAN, and Geneve. Generic `AddSession` rejects these types until dedicated APIs are added. | Plan now separates vocabulary/snapshot exposure from advanced create flows. | Partial |
 | Unsolicited BFD | Manager auto-creates passive sessions behind explicit policy. | Config and RFC docs describe opt-in behavior. | Consistent |
 | Interface monitor | Linux rtnetlink monitor transitions sessions on link-down. Non-Linux has stub behavior. | S4 research doc and implementation plan describe Linux scope. | Consistent |
@@ -124,7 +125,7 @@ generic examples:
 - Optional public Arista EOS notes are separated from runnable examples and
   validated through Arista MCP.
 
-Next sprint: S7.2, `feat(netio): add overlay backend model`.
+Next sprint: S8, `chore(release): prepare v0.5.0`.
 
 ### F5: Linux advanced BFD needs explicit dataplane ownership
 
@@ -143,14 +144,15 @@ factory default for `backend: ovs`. NetworkManager-owned bond ports are handled
 through D-Bus by deactivating the active slave profile and reactivating the
 remembered or available bond port profile when the member recovers.
 
-For VXLAN/Geneve, GoBFD owns userspace UDP sockets on the standard outer ports.
-That works for dedicated management endpoints and labs, but production Linux
-VTEPs often already have kernel VXLAN/Geneve, OVS/OVN, Cilium, or NSX owning
-those ports. That needs a backend model rather than a blanket claim that the
-userspace socket can always coexist with the dataplane.
+For VXLAN/Geneve, GoBFD now models the overlay transport backend explicitly.
+The implemented backend is `userspace-udp`, which owns the standard outer UDP
+socket. Reserved `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` backends fail
+closed until those dataplane integrations exist. Sender reconciliation reuses
+the runtime backend already serving the receiver, so the daemon no longer
+tries to bind duplicate VXLAN/Geneve sockets for the same local endpoint.
 
 Next sprints:
-- S7.2, `feat(netio): add overlay backend model`
+- S8, `chore(release): prepare v0.5.0`
 
 ## Sprint Plan
 
@@ -161,7 +163,7 @@ Next sprints:
 | S5.1 | Keep session state mutation paths coherent. | Done: AdminDown transition serialized through the session goroutine and covered by wire test. | `fix(bfd): serialize admin-down transition` |
 | S6 | Production security policy. | Done: mTLS/localhost policy, vulnerability allowlist expiry, secret-handling docs. | `docs(security): define production hardening policy` |
 | S6.1 | Linux advanced BFD applicability. | In progress: align RFC docs, config examples, and code comments with Micro-BFD actuator and overlay dataplane limits. | `docs(linux): document advanced bfd applicability` |
-| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, Micro-BFD actuator policy/config wiring, kernel-bond backend, OVS CLI fallback, OVSDB research, native OVSDB backend, and NetworkManager D-Bus backend are done; remaining work is S7.2 implementation. | `feat(examples): add production integration assets` |
+| S7 | Independent production integration readiness. | In progress: generic runbooks, Kubernetes manifest hardening, alert rule correction, FRR/GoBGP example documentation, public EOS verification notes, Micro-BFD actuator policy/config wiring, kernel-bond backend, OVS CLI fallback, OVSDB research, native OVSDB backend, NetworkManager D-Bus backend, and overlay backend model are done; remaining work moves to S8. | `feat(examples): add production integration assets` |
 | S7a | Production runbooks and manifest hardening. | Generic EN/RU production runbooks, Kubernetes probes/labels, and Prometheus alerts aligned with exported GoBFD metrics. | `docs(examples): add production integration runbooks` |
 | S7b | BGP failover interop documentation. | FRR/GoBGP example README, RFC packet checks, troubleshooting matrix, and optional public Arista EOS verification note. | `docs(examples): document bgp failover interop` |
 | S7.1 | Linux Micro-BFD enforcement. | In progress: Manager actuator hook, guarded `netio.LAGActuator` policy, config validation, daemon dry-run wiring, explicit kernel-bond backend, OVS CLI fallback, native OVSDB backend, and NetworkManager D-Bus backend are done. | `feat(netio): add linux lag actuator` |
@@ -171,7 +173,7 @@ Next sprints:
 | S7.1d2 | OVSDB API research. | OVSDB JSON-RPC documented as the native OVS management API and `libovsdb` selected as the preferred Go route. | `docs(netio): document ovsdb backend path` |
 | S7.1e | Native OVSDB backend. | Done: `backend: ovs` selects OVSDB-backed LAG enforcement with configurable `ovsdb_endpoint`; `OVSLAGBackend` remains fallback/diagnostics. | `feat(netio): add ovsdb lag backend` |
 | S7.1f | Optional NetworkManager backend. | Done: NetworkManager D-Bus backend deactivates active bond port profiles and reactivates remembered or available bond port profiles. | `feat(netio): add networkmanager lag backend` |
-| S7.2 | VXLAN/Geneve dataplane coexistence. | Backend abstraction for kernel/OVS/Cilium/NSX-compatible overlay BFD transport. | `feat(netio): add overlay backend model` |
+| S7.2 | VXLAN/Geneve dataplane coexistence. | Done: `userspace-udp` is explicit, reserved kernel/OVS/OVN/Cilium/NSX backend names fail closed, and reconciliation reuses the runtime overlay backend. | `feat(netio): add overlay backend model` |
 | S8 | `v0.5.0` release readiness without v1 bump. | pkg.go.dev polish, release dry-run, changelog, SemVer tag plan. | `chore(release): prepare v0.5.0` |
 
 ## Current Readiness
@@ -181,5 +183,5 @@ Next sprints:
 | Core RFC packet engine | 85% | Strong coverage for base, auth, echo, unsolicited, overlays; MPLS/PW remain stubs. |
 | API/CLI operational completeness | 62% | Good for base sessions, auth, and advanced session observability; advanced create/update flows still missing. |
 | Linux production daemon behavior | 82% | Raw sockets, buffers, rtnetlink, systemd, metrics, serialized drain behavior, and hardened Kubernetes examples exist. |
-| Independent production applicability | 79% | Generic runbooks, BGP fast-failover examples, Micro-BFD dry-run wiring, kernel-bond enforcement, OVS CLI fallback, OVSDB research, native OVSDB enforcement, and NetworkManager D-Bus enforcement are published; overlay dataplane backend is still open. |
+| Independent production applicability | 82% | Generic runbooks, BGP fast-failover examples, Micro-BFD dry-run wiring, kernel-bond enforcement, OVS CLI fallback, OVSDB research, native OVSDB enforcement, NetworkManager D-Bus enforcement, and explicit overlay backend ownership are published; non-userspace overlay integrations remain future work. |
 | Release/presentation quality | 70% | Changelog/standards/gates are improving; pkg.go.dev and README polish remain. |

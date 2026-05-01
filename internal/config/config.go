@@ -242,6 +242,15 @@ const (
 	MicroBFDActuatorActionAddMember    = "add-member"
 )
 
+const (
+	OverlayBackendUserspaceUDP = "userspace-udp"
+	OverlayBackendKernel       = "kernel"
+	OverlayBackendOVS          = "ovs"
+	OverlayBackendOVN          = "ovn"
+	OverlayBackendCilium       = "cilium"
+	OverlayBackendNSX          = "nsx"
+)
+
 // MicroBFDActuatorConfig controls the optional LAG member actuator.
 type MicroBFDActuatorConfig struct {
 	// Mode controls whether actions are disabled, logged only, or enforced.
@@ -299,6 +308,10 @@ type MicroBFDGroupConfig struct {
 type VXLANConfig struct {
 	// Enabled controls whether VXLAN BFD is available.
 	Enabled bool `koanf:"enabled"`
+
+	// Backend selects the owner-specific overlay transport backend.
+	// Only userspace-udp is implemented; other values are reserved.
+	Backend string `koanf:"backend"`
 
 	// ManagementVNI is the VXLAN Network Identifier used for BFD
 	// control messages. RFC 8971 Section 3: all BFD packets use
@@ -373,6 +386,10 @@ func (vc VXLANPeerConfig) LocalAddr() (netip.Addr, error) {
 type GeneveConfig struct {
 	// Enabled controls whether Geneve BFD is available.
 	Enabled bool `koanf:"enabled"`
+
+	// Backend selects the owner-specific overlay transport backend.
+	// Only userspace-udp is implemented; other values are reserved.
+	Backend string `koanf:"backend"`
 
 	// DefaultVNI is the default Geneve VNI for BFD sessions.
 	DefaultVNI uint32 `koanf:"default_vni"`
@@ -655,6 +672,12 @@ func DefaultConfig() *Config {
 				UpAction:      MicroBFDActuatorActionAddMember,
 			},
 		},
+		VXLAN: VXLANConfig{
+			Backend: OverlayBackendUserspaceUDP,
+		},
+		Geneve: GeneveConfig{
+			Backend: OverlayBackendUserspaceUDP,
+		},
 		GoBGP: GoBGPConfig{
 			Enabled:       false,
 			Addr:          "127.0.0.1:50051",
@@ -771,6 +794,8 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"micro_bfd.actuator.owner_policy":    defaults.MicroBFD.Actuator.OwnerPolicy,
 		"micro_bfd.actuator.down_action":     defaults.MicroBFD.Actuator.DownAction,
 		"micro_bfd.actuator.up_action":       defaults.MicroBFD.Actuator.UpAction,
+		"vxlan.backend":                      defaults.VXLAN.Backend,
+		"geneve.backend":                     defaults.Geneve.Backend,
 		"gobgp.enabled":                      defaults.GoBGP.Enabled,
 		"gobgp.addr":                         defaults.GoBGP.Addr,
 		"gobgp.strategy":                     defaults.GoBGP.Strategy,
@@ -878,6 +903,12 @@ var (
 	// ErrDuplicateGeneveSessionKey indicates two Geneve sessions share the same key.
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
 
+	// ErrInvalidOverlayBackend indicates an unrecognized overlay dataplane backend.
+	ErrInvalidOverlayBackend = errors.New("overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, or nsx")
+
+	// ErrUnsupportedOverlayBackend indicates a recognized but not yet implemented backend.
+	ErrUnsupportedOverlayBackend = errors.New("overlay backend must be userspace-udp until kernel/ovs/ovn/cilium/nsx backends are implemented")
+
 	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
 	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
 
@@ -962,6 +993,15 @@ var validMicroBFDActuatorActions = map[string]bool{
 	MicroBFDActuatorActionAddMember:    true,
 }
 
+var validOverlayBackends = map[string]bool{
+	OverlayBackendUserspaceUDP: true,
+	OverlayBackendKernel:       true,
+	OverlayBackendOVS:          true,
+	OverlayBackendOVN:          true,
+	OverlayBackendCilium:       true,
+	OverlayBackendNSX:          true,
+}
+
 func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
 	if !validMicroBFDActuatorModes[cfg.Mode] {
 		return fmt.Errorf("micro_bfd.actuator.mode %q: %w",
@@ -982,6 +1022,25 @@ func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
 	if !validMicroBFDActuatorActions[cfg.UpAction] {
 		return fmt.Errorf("micro_bfd.actuator.up_action %q: %w",
 			cfg.UpAction, ErrInvalidMicroBFDActuatorAction)
+	}
+	return nil
+}
+
+func normalizeOverlayBackend(backend string) string {
+	normalized := strings.TrimSpace(backend)
+	if normalized == "" {
+		return OverlayBackendUserspaceUDP
+	}
+	return normalized
+}
+
+func validateOverlayBackend(field string, backend string) error {
+	normalized := normalizeOverlayBackend(backend)
+	if !validOverlayBackends[normalized] {
+		return fmt.Errorf("%s %q: %w", field, backend, ErrInvalidOverlayBackend)
+	}
+	if normalized != OverlayBackendUserspaceUDP {
+		return fmt.Errorf("%s %q: %w", field, normalized, ErrUnsupportedOverlayBackend)
 	}
 	return nil
 }
@@ -1145,6 +1204,10 @@ func validateVXLAN(cfg VXLANConfig) error {
 		return nil
 	}
 
+	if err := validateOverlayBackend("vxlan.backend", cfg.Backend); err != nil {
+		return err
+	}
+
 	if cfg.ManagementVNI > vniMax {
 		return fmt.Errorf("vxlan.management_vni %d: %w", cfg.ManagementVNI, ErrInvalidVXLANVNI)
 	}
@@ -1175,6 +1238,10 @@ func validateVXLAN(cfg VXLANConfig) error {
 func validateGeneve(cfg GeneveConfig) error {
 	if !cfg.Enabled || len(cfg.Peers) == 0 {
 		return nil
+	}
+
+	if err := validateOverlayBackend("geneve.backend", cfg.Backend); err != nil {
+		return err
 	}
 
 	if cfg.DefaultVNI > vniMax {

@@ -54,6 +54,14 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("BFD.DefaultDetectMultiplier = %d, want %d", cfg.BFD.DefaultDetectMultiplier, 3)
 	}
 
+	if cfg.VXLAN.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("VXLAN.Backend = %q, want %q", cfg.VXLAN.Backend, config.OverlayBackendUserspaceUDP)
+	}
+
+	if cfg.Geneve.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("Geneve.Backend = %q, want %q", cfg.Geneve.Backend, config.OverlayBackendUserspaceUDP)
+	}
+
 	// Defaults must pass validation.
 	if err := config.Validate(cfg); err != nil {
 		t.Errorf("DefaultConfig() failed validation: %v", err)
@@ -1164,6 +1172,26 @@ func TestValidateVXLANErrors(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid vxlan backend",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Backend = "bad"
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrInvalidOverlayBackend,
+		},
+		{
+			name: "reserved vxlan backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Backend = config.OverlayBackendCilium
+				cfg.VXLAN.ManagementVNI = 100
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
+		},
+		{
 			name: "vni exceeds 24-bit",
 			modify: func(cfg *config.Config) {
 				cfg.VXLAN.Enabled = true
@@ -1247,6 +1275,26 @@ func TestValidateGeneveErrors(t *testing.T) {
 				cfg.Geneve.Enabled = false
 				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "bad"}}
 			},
+		},
+		{
+			name: "invalid geneve backend",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Backend = "bad"
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrInvalidOverlayBackend,
+		},
+		{
+			name: "reserved geneve backend not implemented",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.Backend = config.OverlayBackendOVS
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrUnsupportedOverlayBackend,
 		},
 		{
 			name: "default vni exceeds 24-bit",
@@ -1438,6 +1486,7 @@ grpc:
   addr: ":50051"
 vxlan:
   enabled: true
+  backend: "userspace-udp"
   management_vni: 100
   peers:
     - peer: "10.0.0.1"
@@ -1456,6 +1505,9 @@ vxlan:
 	if cfg.VXLAN.ManagementVNI != 100 {
 		t.Errorf("ManagementVNI = %d, want 100", cfg.VXLAN.ManagementVNI)
 	}
+	if cfg.VXLAN.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("VXLAN.Backend = %q, want %q", cfg.VXLAN.Backend, config.OverlayBackendUserspaceUDP)
+	}
 
 	if err := config.Validate(cfg); err != nil {
 		t.Errorf("valid vxlan config failed validation: %v", err)
@@ -1470,6 +1522,7 @@ grpc:
   addr: ":50051"
 geneve:
   enabled: true
+  backend: "userspace-udp"
   default_vni: 42
   peers:
     - peer: "10.0.0.1"
@@ -1488,6 +1541,9 @@ geneve:
 	}
 	if cfg.Geneve.DefaultVNI != 42 {
 		t.Errorf("DefaultVNI = %d, want 42", cfg.Geneve.DefaultVNI)
+	}
+	if cfg.Geneve.Backend != config.OverlayBackendUserspaceUDP {
+		t.Errorf("Geneve.Backend = %q, want %q", cfg.Geneve.Backend, config.OverlayBackendUserspaceUDP)
 	}
 
 	if err := config.Validate(cfg); err != nil {

@@ -755,6 +755,49 @@ func TestConfigMicroBFDActuatorToNetio(t *testing.T) {
 // 4.5 — buildOverlaySessionConfig
 // =========================================================================
 
+type stubOverlayConn struct{}
+
+func (stubOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func (stubOverlayConn) RecvDecapsulated(context.Context) ([]byte, netio.OverlayMeta, error) {
+	return nil, netio.OverlayMeta{}, errors.New("stub overlay conn")
+}
+
+func (stubOverlayConn) Close() error {
+	return nil
+}
+
+func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
+	t.Parallel()
+
+	vxlanConn := stubOverlayConn{}
+	geneveConn := stubOverlayConn{}
+	cfg := config.DefaultConfig()
+	cfg.VXLAN.Enabled = true
+	cfg.VXLAN.ManagementVNI = 100
+	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: "10.0.0.2"}}
+	cfg.Geneve.Enabled = true
+	cfg.Geneve.DefaultVNI = 200
+	cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.3", Local: "10.0.0.4"}}
+
+	params := buildOverlayTunnelParams(cfg, &overlayRuntime{
+		vxlan:  vxlanConn,
+		geneve: geneveConn,
+	}, slog.Default())
+
+	if len(params) != 2 {
+		t.Fatalf("params len = %d, want 2", len(params))
+	}
+	if params[0].conn != vxlanConn {
+		t.Fatalf("VXLAN param conn = %T, want runtime VXLAN conn", params[0].conn)
+	}
+	if params[1].conn != geneveConn {
+		t.Fatalf("Geneve param conn = %T, want runtime Geneve conn", params[1].conn)
+	}
+}
+
 func TestBuildOverlaySessionConfig(t *testing.T) {
 	t.Parallel()
 

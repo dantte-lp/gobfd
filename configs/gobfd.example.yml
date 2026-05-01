@@ -101,6 +101,9 @@ bfd:
 #
 # vxlan:
 #   enabled: true
+#   # Only "userspace-udp" is implemented today. Reserved future backends:
+#   # "kernel", "ovs", "ovn", "cilium", "nsx".
+#   backend: "userspace-udp"
 #   management_vni: 16777215
 #   default_desired_min_tx: "1s"
 #   default_required_min_rx: "1s"
@@ -119,6 +122,9 @@ bfd:
 #
 # geneve:
 #   enabled: true
+#   # Only "userspace-udp" is implemented today. Reserved future backends:
+#   # "kernel", "ovs", "ovn", "cilium", "nsx".
+#   backend: "userspace-udp"
 #   default_vni: 100
 #   default_desired_min_tx: "1s"
 #   default_required_min_rx: "1s"

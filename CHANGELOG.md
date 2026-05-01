@@ -66,6 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   networkmanager`, using `GetDeviceByIpIface`, `ActiveConnection`,
   `DeactivateConnection`, `AvailableConnections`, `GetSettings`, and
   `ActivateConnection` to control NM-owned bond port profiles.
+- VXLAN/Geneve overlay backend model with explicit `userspace-udp` ownership
+  and reserved `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` backend names.
 
 ### Changed
 
@@ -76,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S7.1 is split into non-destructive actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend,
   and NetworkManager D-Bus backend sprint.
+- Overlay sender reconciliation now reuses the runtime VXLAN/Geneve backend
+  already serving the receiver, avoiding duplicate binds on UDP 4789/6081.
 - `backend: ovs` now selects the native OVSDB implementation; the older
   `OVSLAGBackend` remains available as an explicit CLI fallback type.
 - S7 roadmap now targets independent production integration assets instead of

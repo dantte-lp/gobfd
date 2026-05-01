@@ -56,7 +56,8 @@ GoBFD implements the packet path with:
 - local demux through `OverlayReceiver`.
 
 This is suitable when GoBFD owns the VXLAN socket, such as a lab endpoint, a
-dedicated management endpoint, or a purpose-built Linux VTEP.
+dedicated management endpoint, or a purpose-built Linux VTEP. This ownership is
+now explicit through `vxlan.backend: userspace-udp`.
 
 The production risk is socket ownership. Kernel VXLAN, OVS, Cilium, or another
 dataplane can already own UDP 4789 in the same network namespace and local
@@ -65,11 +66,11 @@ the packets that the dataplane consumes.
 
 Required production work:
 
-1. Document socket ownership as a deployment precondition.
+1. Keep `userspace-udp` as the only implemented backend until a concrete
+   kernel/OVS/OVN/Cilium/NSX integration is built and tested.
 2. Add startup diagnostics for UDP 4789 bind conflicts with actionable errors.
-3. Design a pluggable overlay backend: userspace socket, kernel/AF_PACKET,
-   OVS/OVN integration, or eBPF/XDP only for a proven packet-fast-path need.
-4. Add interop tests with Linux kernel VXLAN and OVS.
+3. Add interop tests with Linux kernel VXLAN and OVS.
+4. Consider eBPF/XDP only for a proven packet-fast-path need.
 
 ## Geneve BFD on Linux
 
@@ -92,7 +93,8 @@ have provisioned BFD transmit rates to avoid congestion-driven false failures.
 
 Required production work:
 
-1. Reuse the overlay backend model from VXLAN.
+1. Keep `userspace-udp` as the only implemented backend until kernel/OVS/OVN
+   or NSX integration is built and tested.
 2. Add rate-policy documentation and config validation for aggressive timers.
 3. Add interop tests with Linux Geneve and OVS/OVN.
 
@@ -132,5 +134,5 @@ Required production work:
 | S7.1d2 | Document OVSDB as the native OVS integration path. |
 | S7.1e | Add native OVSDB bonded-port backend implementation. Done. |
 | S7.1f | Add optional NetworkManager D-Bus backend implementation. Done. |
-| S7.2 | Add overlay backend model for VXLAN/Geneve dataplane coexistence. |
+| S7.2 | Add overlay backend model for VXLAN/Geneve dataplane coexistence. Done. |
 | S8 | Ensure README and pkg.go.dev do not overclaim production readiness before release. |

@@ -135,8 +135,9 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 
 Advanced Linux modes are explicit about dataplane ownership: Micro-BFD detects
 per-member LAG state but needs a bond/team/OVS actuator for enforcement, while
-VXLAN/Geneve BFD userspace sockets must not conflict with kernel, OVS, Cilium,
-or NSX ownership of UDP 4789/6081.
+VXLAN/Geneve BFD defaults to an explicit `userspace-udp` backend. Reserved
+kernel, OVS/OVN, Cilium, and NSX backend names fail closed until owner-specific
+integrations are implemented.
 
 ## Contributing
 

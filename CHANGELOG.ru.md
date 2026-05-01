@@ -67,6 +67,8 @@
   `ActiveConnection`, `DeactivateConnection`, `AvailableConnections`,
   `GetSettings` и `ActivateConnection` для управления NM-owned bond port
   profiles.
+- Модель overlay backend для VXLAN/Geneve с явным ownership `userspace-udp`
+  и зарезервированными именами `kernel`, `ovs`, `ovn`, `cilium` и `nsx`.
 
 ### Изменено
 
@@ -77,6 +79,8 @@
 - S7.1 разделён на неразрушающий actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend
   и NetworkManager D-Bus backend.
+- Overlay sender reconciliation теперь использует runtime VXLAN/Geneve backend,
+  который уже обслуживает receiver, без повторного bind на UDP 4789/6081.
 - `backend: ovs` теперь выбирает native OVSDB implementation; прежний
   `OVSLAGBackend` остаётся explicit CLI fallback type.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без

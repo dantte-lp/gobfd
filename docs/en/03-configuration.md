@@ -288,6 +288,7 @@ micro_bfd:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `vxlan.enabled` | bool | `false` | Enable VXLAN BFD sessions |
+| `vxlan.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` are reserved and fail validation |
 | `vxlan.management_vni` | uint32 | -- | Management VNI for BFD control (24-bit, max 16777215) |
 | `vxlan.default_desired_min_tx` | duration | -- | Default TX interval for VXLAN sessions |
 | `vxlan.default_required_min_rx` | duration | -- | Default RX interval for VXLAN sessions |
@@ -298,7 +299,7 @@ micro_bfd:
 | `vxlan.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `vxlan.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
-BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers.
+BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, NSX, or another dataplane already owns the same socket.
 
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 
@@ -306,6 +307,7 @@ Example:
 ```yaml
 vxlan:
   enabled: true
+  backend: "userspace-udp"
   management_vni: 16777215
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
@@ -325,6 +327,7 @@ vxlan:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `geneve.enabled` | bool | `false` | Enable Geneve BFD sessions |
+| `geneve.backend` | string | `userspace-udp` | Overlay backend. Only `userspace-udp` is implemented; `kernel`, `ovs`, `ovn`, `cilium`, and `nsx` are reserved and fail validation |
 | `geneve.default_vni` | uint32 | -- | Default Geneve VNI (24-bit, max 16777215) |
 | `geneve.default_desired_min_tx` | duration | -- | Default TX interval for Geneve sessions |
 | `geneve.default_required_min_rx` | duration | -- | Default RX interval for Geneve sessions |
@@ -336,7 +339,7 @@ vxlan:
 | `geneve.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `geneve.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
-BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0.
+BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0. The current `userspace-udp` backend owns `local:6081`; use a future owner-specific backend rather than this mode when kernel Geneve, OVS/OVN, NSX, or another dataplane already owns the same socket.
 
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 
@@ -344,6 +347,7 @@ Example:
 ```yaml
 geneve:
   enabled: true
+  backend: "userspace-udp"
   default_vni: 100
   default_desired_min_tx: "1s"
   default_required_min_rx: "1s"
@@ -511,9 +515,11 @@ On reload:
 | Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |
 | No duplicate echo session keys | `ErrDuplicateEchoSessionKey` |
 | VXLAN `management_vni` must be <= 16777215 (24-bit) | `ErrInvalidVXLANVNI` |
+| VXLAN `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | VXLAN `peer` must be a valid IP address | `ErrInvalidVXLANPeer` |
 | No duplicate VXLAN session keys | `ErrDuplicateVXLANSessionKey` |
 | Geneve `default_vni` and per-peer `vni` must be <= 16777215 | `ErrInvalidGeneveVNI` |
+| Geneve `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | Geneve `peer` must be a valid IP address | `ErrInvalidGenevePeer` |
 | No duplicate Geneve session keys | `ErrDuplicateGeneveSessionKey` |
 
