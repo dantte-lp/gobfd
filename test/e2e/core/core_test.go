@@ -96,7 +96,7 @@ func TestCoreDaemonE2E(t *testing.T) {
 		waitSession(t, ctx, "gobfd-a", gobfdBIP, func(s sessionView) bool {
 			return s.LocalState == "Up" && s.RemoteState == "Up"
 		})
-		logs, err := podman(ctx, "logs", containerName("gobfd-a"))
+		logs, err := podmanCompose(ctx, "logs", "gobfd-a")
 		if err != nil {
 			t.Fatalf("read gobfd-a logs: %v", err)
 		}
@@ -205,18 +205,21 @@ func assertPacketCount(t *testing.T, ctx context.Context, filter, desc string) {
 }
 
 func gobfdctl(ctx context.Context, service string, args ...string) (string, error) {
-	all := []string{"exec", "-T", service, "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "--format", "json"}
+	addr := serviceGRPCAddr(service)
+	all := []string{"--addr", addr, "--format", "json"}
 	all = append(all, args...)
-	return podmanCompose(ctx, all...)
+	cmd := exec.CommandContext(ctx, gobfdctlBinary(), all...)
+	cmd.Env = os.Environ()
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.String(), err
 }
 
 func gobfdctlStream(ctx context.Context, service string, timeout time.Duration, args ...string) (string, error) {
 	timeoutSeconds := fmt.Sprintf("%ds", int(timeout.Seconds()))
-	all := []string{
-		timeoutSeconds,
-		"podman", "exec", "-i", containerName(service),
-		"/bin/gobfdctl", "--addr", "127.0.0.1:50051", "--format", "json",
-	}
+	all := []string{timeoutSeconds, gobfdctlBinary(), "--addr", serviceGRPCAddr(service), "--format", "json"}
 	all = append(all, args...)
 	cmd := exec.CommandContext(ctx, "timeout", all...)
 	cmd.Env = os.Environ()
@@ -225,6 +228,27 @@ func gobfdctlStream(ctx context.Context, service string, timeout time.Duration, 
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	return buf.String(), err
+}
+
+func gobfdctlBinary() string {
+	if binary := os.Getenv("E2E_CORE_GOBFDCTL"); binary != "" {
+		return binary
+	}
+	return "/bin/gobfdctl"
+}
+
+func serviceGRPCAddr(service string) string {
+	switch service {
+	case "gobfd-a":
+		if port := os.Getenv("E2E_CORE_A_GRPC_PORT"); port != "" {
+			return net.JoinHostPort("127.0.0.1", port)
+		}
+	case "gobfd-b":
+		if port := os.Getenv("E2E_CORE_B_GRPC_PORT"); port != "" {
+			return net.JoinHostPort("127.0.0.1", port)
+		}
+	}
+	return "127.0.0.1:50051"
 }
 
 func tshark(ctx context.Context, args ...string) (string, error) {
@@ -249,24 +273,6 @@ func mappedPort(t *testing.T, ctx context.Context, service, port string) string 
 		t.Fatalf("parse mapped port %q: %v", out, err)
 	}
 	return net.JoinHostPort("127.0.0.1", mapped)
-}
-
-func podman(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "podman", args...)
-	cmd.Env = os.Environ()
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	err := cmd.Run()
-	return buf.String(), err
-}
-
-func containerName(service string) string {
-	project := os.Getenv("E2E_CORE_PROJECT")
-	if project == "" {
-		project = "gobfd-e2e-core"
-	}
-	return project + "_" + service + "_1"
 }
 
 func podmanCompose(ctx context.Context, args ...string) (string, error) {

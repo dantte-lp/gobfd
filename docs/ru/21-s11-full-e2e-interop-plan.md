@@ -395,7 +395,7 @@ COMPOSE_PROJECT_NAME=s11-full-e2e podman-compose -p s11-full-e2e -f deployments/
 
 Expected: no diagnostics.
 
-- [ ] **Step 2: Push branch and open PR**
+- [x] **Step 2: Push branch and open PR**
 
 Run:
 
@@ -404,7 +404,13 @@ git push -u origin s10/s1-e2e-harness
 gh pr create --fill
 ```
 
-Expected: PR created or updated.
+Evidence:
+
+| Item | Result |
+|---|---|
+| PR | [#40](https://github.com/dantte-lp/gobfd/pull/40) |
+| Branch | `s10/s1-e2e-harness` |
+| Title | `test(interop): record s11 e2e release evidence` |
 
 - [ ] **Step 3: Verify PR-safe workflow**
 
@@ -416,6 +422,17 @@ gh run view <run-id> --log
 ```
 
 Expected: PR-safe profile green and artifact `e2e-pr-safe` uploaded.
+
+Current evidence:
+
+| Item | Result |
+|---|---|
+| First PR-safe run | Failed в core E2E CLI subtests на GitHub-hosted runner |
+| Passing checks in same PR run | Build/test, Go lint, docs lint, Buf, vulnerability audit, benchmark, Trivy, CodeQL, gosec |
+| Root cause | Tests внутри dev container использовали `podman exec` against topology containers; GitHub runner Podman Compose stack не предоставил эти container names для dev-container path. |
+| Fix | Core E2E builds `/tmp/gobfdctl-e2e` in dev container и запускает CLI checks против published `gobfd-a` и `gobfd-b` gRPC ports. |
+| Local verification | `make e2e-core` passes inside Podman harness after the fix. |
+| Required remote action | Push fix и verify next PR-safe workflow run. |
 
 - [ ] **Step 4: Trigger manual profiles**
 
@@ -537,12 +554,23 @@ Evidence:
 | Managed mode | `buf.gen.yaml` disables Go package prefix rewriting for `buf/validate/validate.proto`; generated Go remains unchanged. |
 | Verification | `make proto-lint`, `make proto-gen` and `make verify` pass inside Podman. |
 
-- [ ] **Step 6: Clear remaining release blockers**
+- [x] **Step 6: Clear PR-safe E2E container-exec blocker**
+
+Evidence:
+
+| Item | Result |
+|---|---|
+| Symptom | `podman exec` from dev-container test path reported `no container with name or ID "gobfd-e2e-core_gobfd-a_1" found` on GitHub runner. |
+| Scope | Только Core E2E CLI list/show/monitor checks; metrics and packet capture checks passed in same run. |
+| Fix | `gobfdctl` compiled once inside dev container and executed locally with `--addr 127.0.0.1:<published-port>`. |
+| Verification | Local Podman `make e2e-core` passes with the published-port path. |
+
+- [ ] **Step 7: Clear remaining release blockers**
 
 | Blocker | Required Action |
 |---|---|
 | Strict vulnerability gates | Remove или upgrade `github.com/osrg/gobgp/v3` после fixed upstream release; keep controlled allowlist expiry at `2026-07-31` until then. |
-| Remote CI evidence | Rerun PR-safe/nightly/manual profiles in GitHub Actions and attach artifacts. |
+| Remote CI evidence | Push PR-safe E2E fix, rerun PR-safe/nightly/manual profiles in GitHub Actions and attach artifacts. |
 
 ### Task 6: Backend Readiness Decision
 

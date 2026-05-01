@@ -144,6 +144,8 @@ trap cleanup EXIT
 
 "${DC[@]}" up --build -d
 
+"${DEV_DC[@]}" exec -T dev go build -o /tmp/gobfdctl-e2e ./cmd/gobfdctl
+
 "${DEV_DC[@]}" exec -T dev env \
     E2E_CORE_COMPOSE_FILE=/app/test/e2e/core/compose.yml \
     E2E_CORE_PROJECT="${E2E_PROJECT}" \
@@ -156,6 +158,7 @@ trap cleanup EXIT
     E2E_CORE_A_CONFIG_IN_CONTAINER="/app/${REPORT_REL}/runtime/gobfd-a.yml" \
     E2E_CORE_REPORT_DIR="/app/${REPORT_REL}" \
     E2E_CORE_CAPTURE_DIR="${CAPTURE_DIR}" \
+    E2E_CORE_GOBFDCTL=/tmp/gobfdctl-e2e \
     go test -tags e2e_core -json -v -count=1 -timeout 300s ./test/e2e/core/ \
     | tee "${REPORT_DIR}/go-test.json" "${REPORT_DIR}/go-test.log"
 

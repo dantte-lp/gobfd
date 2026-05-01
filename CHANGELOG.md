@@ -76,6 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Core E2E CLI checks now run a dev-container-built `gobfdctl` against
+  published gRPC ports instead of entering peer containers with `podman exec`,
+  making the PR-safe profile independent of old runner Podman Compose container
+  name visibility.
 - FRR JSON extraction in routing and RFC interop tests now tolerates diagnostic
   prefix and suffix text around the JSON payload.
 - Vendor NOS profile metadata now matches the current lab configurations:

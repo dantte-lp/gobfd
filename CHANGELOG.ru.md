@@ -74,6 +74,10 @@
 
 ### Исправлено
 
+- Core E2E CLI checks теперь запускают собранный в dev container `gobfdctl`
+  против published gRPC ports вместо входа в peer containers через
+  `podman exec`; PR-safe profile не зависит от visibility container names в
+  старом Podman Compose на runner.
 - FRR JSON extraction в routing и RFC interop tests теперь допускает diagnostic
   prefix и suffix text вокруг JSON payload.
 - Vendor NOS profile metadata теперь соответствует текущим lab configurations:
