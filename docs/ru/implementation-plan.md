@@ -126,7 +126,7 @@ Podman.
 
 | # | Output | Exit |
 |---|---|---|
-| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 задают и реализуют Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence и benchmark policy separation. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
+| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 задают и реализуют Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence и benchmark policy separation. Closeout: `docs/ru/20-s10-closeout-analysis.md`. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
 
 ## 5. Definition of Done
 

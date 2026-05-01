@@ -245,6 +245,7 @@ graph TD
 | S10 plan exists in `docs/en/` and `docs/ru/`. | Met. |
 | `docs/en/README.md`, `docs/ru/README.md`, and `docs/README.md` list the S10 plan. | Met. |
 | `docs/en/implementation-plan.md` and `docs/ru/implementation-plan.md` include S10. | Met. |
+| `docs/en/20-s10-closeout-analysis.md` and `docs/ru/20-s10-closeout-analysis.md` record delivered and remaining S10 work. | Met. |
 | `CHANGELOG.md` and `CHANGELOG.ru.md` record S10 implementation under Unreleased. | Met. |
 | S10 targets produce standard artifacts under `reports/e2e/<target>/<timestamp>/`. | Met. |
 | PR-safe, nightly, and manual vendor CI gates are declared in `.github/workflows/e2e.yml`. | Met. |

@@ -118,7 +118,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | **S7.1d2** | OVSDB API research. | Document OVSDB JSON-RPC as the native OVS management API and `libovsdb` as the preferred Go integration route. Commit: `docs(netio): document ovsdb backend path`. |
 | **S7.1e** | Native OVSDB backend. | Done: `backend: ovs` selects native OVSDB-backed LAG enforcement for OVS bonded ports with configurable `ovsdb_endpoint`; `OVSLAGBackend` remains a fallback/diagnostics type. Commit: `feat(netio): add ovsdb lag backend`. |
 | **S7.1f** | Optional NetworkManager backend. | Done: NetworkManager D-Bus backend deactivates active bond port profiles on member Down and activates remembered or available bond port profiles on member recovery. Commit: `feat(netio): add networkmanager lag backend`. |
-| **S7.2** | Overlay dataplane backend model. | Done: `userspace-udp` is an explicit VXLAN/Geneve backend, reserved kernel/OVS/OVN/Cilium/NSX backend names fail closed, and sender reconciliation reuses the runtime receiver backend instead of binding duplicate sockets. Commit: `feat(netio): add overlay backend model`. |
+| **S7.2** | Overlay dataplane backend model. | Done: `userspace-udp` is an explicit VXLAN/Geneve backend, reserved kernel/OVS/OVN/Cilium/Calico/NSX backend names fail closed, and sender reconciliation reuses the runtime receiver backend instead of binding duplicate sockets. Commit: `feat(netio): add overlay backend model`. |
 
 ### Phase 4 -- Release Readiness
 
@@ -132,7 +132,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 
 | # | Output | Exit |
 |---|---|---|
-| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 define and implement Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence, and benchmark policy separation. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
+| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 define and implement Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence, and benchmark policy separation. Closeout: `docs/en/20-s10-closeout-analysis.md`. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
 
 ## 5. Definition of Done
 
@@ -160,4 +160,4 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | R4 | GoBGP vulnerability allowlist becomes stale. | M | H | Track allowlist expiry and keep GoBGP gRPC on localhost/trusted networks until upstream fix. |
 | R5 | README/pkg.go.dev overclaim feature readiness. | M | M | Treat interop and API surface as source of truth before release notes. |
 | R6 | Micro-BFD is mistaken for universal Linux LAG enforcement. | M | H | Keep docs explicit: current code enforces explicit kernel-bond, native OVSDB, and NetworkManager D-Bus paths only when the operator selects the matching owner policy/backend. |
-| R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium/Calico dataplane. | M | H | `userspace-udp` is explicit and reserved backend names fail closed until kernel/OVS/OVN/Cilium/NSX/Calico integrations exist. |
+| R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium/Calico dataplane. | M | H | `userspace-udp` is explicit and reserved backend names fail closed until kernel/OVS/OVN/Cilium/Calico/NSX integrations exist. |

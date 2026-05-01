@@ -251,13 +251,13 @@ S10.2 uses the compose topology for daemon-to-daemon testing; testcontainers-go 
 
 - [x] Обновить `docs/README.md`, `docs/en/README.md` и `docs/ru/README.md`.
 
-Required count:
+Current count after S10 closeout:
 
 ```text
-Documents-25
+Documents-26
 ```
 
-- [x] Добавить S10.1 plan в EN/RU release planning tables and Mermaid maps.
+- [x] Добавить S10.1 plan и S10 closeout analysis в EN/RU release planning tables and Mermaid maps.
 
 - [x] Обновить `CHANGELOG.md` и `CHANGELOG.ru.md` в Unreleased.
 

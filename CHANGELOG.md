@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   policy separation.
 - S10 close-out documentation that marks the extended E2E evidence sprint as
   implemented and records post-S10 Podman API helper extraction as deferred.
+- S10 closeout analysis in `docs/en/20-s10-closeout-analysis.md` and
+  `docs/ru/20-s10-closeout-analysis.md`, including delivered scope, remaining
+  backlog, and RFC/MCP source validation.
+- README and protocol documentation synchronization for advanced BFD feature
+  status: Micro-BFD partial production integration, VXLAN/Geneve userspace
+  backend status, and RFC 9747 unaffiliated Echo separation from affiliated
+  RFC 5880 Echo mode.
 - `make gopls-check` coverage for S10 E2E build tags.
 
 ### Fixed

@@ -39,6 +39,13 @@
 - S10 close-out документация, которая помечает extended E2E evidence sprint
   как implemented и фиксирует post-S10 Podman API helper extraction как
   deferred.
+- S10 closeout analysis в `docs/en/20-s10-closeout-analysis.md` и
+  `docs/ru/20-s10-closeout-analysis.md`: delivered scope, remaining backlog и
+  RFC/MCP source validation.
+- Синхронизация README и protocol documentation по статусам advanced BFD:
+  Micro-BFD partial production integration, VXLAN/Geneve userspace backend
+  status и разделение RFC 9747 unaffiliated Echo от affiliated RFC 5880 Echo
+  mode.
 - Coverage `make gopls-check` для S10 E2E build tags.
 
 ### Исправлено

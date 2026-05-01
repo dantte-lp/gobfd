@@ -10,7 +10,7 @@ BFD, and RFC 9521 Geneve BFD.
 | Mode | Linux fit | Current GoBFD state | Production gap |
 |---|---:|---:|---|
 | Micro-BFD | High | Per-member sessions, aggregate state, kernel-bond, OVSDB and NetworkManager enforcement paths | Dedicated API/CLI create flows and broader interop matrix |
-| VXLAN BFD | High for VTEP/NVE checks | `userspace-udp` VXLAN socket and codec | Owner-specific kernel/OVS/OVN/Cilium/NSX/Calico integrations |
+| VXLAN BFD | High for VTEP/NVE checks | `userspace-udp` VXLAN socket and codec | Owner-specific kernel/OVS/OVN/Cilium/Calico/NSX integrations |
 | Geneve BFD | Medium-High for OVN/NSX/OVS | `userspace-udp` Geneve socket and codec | Owner-specific dataplane integrations and rate policy |
 
 GoBFD is a userspace BFD engine. It detects BFD state and executes explicitly
