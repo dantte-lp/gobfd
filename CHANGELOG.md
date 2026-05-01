@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `owner_policy: allow-external`.
 - OVSDB API research documenting OVSDB JSON-RPC as the native OVS integration
   path and `libovsdb` as the preferred Go route for the next backend.
+- Native OVSDB Micro-BFD enforcement backend for `backend: ovs`, using
+  `libovsdb` transactions against `Port.interfaces` and configurable
+  `micro_bfd.actuator.ovsdb_endpoint`.
 
 ### Changed
 
@@ -69,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S7.1 is split into non-destructive actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend,
   and a later NetworkManager backend sprint.
+- `backend: ovs` now selects the native OVSDB implementation; the older
+  `OVSLAGBackend` remains available as an explicit CLI fallback type.
 - S7 roadmap now targets independent production integration assets instead of
   a site-specific applicability target.
 - Kubernetes integration manifests now use consistent app labels, named ports,

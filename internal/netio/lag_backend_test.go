@@ -144,6 +144,9 @@ func TestNewLAGActuatorBackendSelectsOVS(t *testing.T) {
 	if backend == nil {
 		t.Fatal("NewLAGActuatorBackend returned nil backend")
 	}
+	if _, ok := backend.(*netio.OVSDBLAGBackend); !ok {
+		t.Fatalf("NewLAGActuatorBackend returned %T, want *OVSDBLAGBackend", backend)
+	}
 }
 
 func TestNewLAGActuatorBackendRejectsUnsupportedBackends(t *testing.T) {

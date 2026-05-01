@@ -71,14 +71,15 @@ bfd:
 # RFC 7130: Micro-BFD for LAG. Runs independent BFD sessions on each
 # LAG member link for per-link forwarding verification. Uses UDP port 6784.
 # The actuator is disabled by default. Dry-run mode plans member remove/add
-# actions without changing the host. Enforce mode currently supports explicit
-# backend: "kernel-bond" or "ovs" with owner_policy: "allow-external";
-# NetworkManager D-Bus backend is planned.
+# actions without changing the host. Enforce mode supports explicit
+# backend: "kernel-bond" or native OVSDB backend: "ovs" with
+# owner_policy: "allow-external"; NetworkManager D-Bus backend is planned.
 #
 # micro_bfd:
 #   actuator:
 #     mode: "dry-run"
 #     backend: "kernel-bond"
+#     ovsdb_endpoint: ""
 #     owner_policy: "refuse-if-managed"
 #     down_action: "remove-member"
 #     up_action: "add-member"

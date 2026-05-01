@@ -1503,6 +1503,7 @@ micro_bfd:
   actuator:
     mode: "dry-run"
     backend: "networkmanager"
+    ovsdb_endpoint: "unix:/run/openvswitch/db.sock"
     owner_policy: "networkmanager-dbus"
     down_action: "remove-member"
     up_action: "add-member"
@@ -1521,6 +1522,9 @@ micro_bfd:
 	}
 	if actuator.Backend != config.MicroBFDActuatorBackendNetworkManager {
 		t.Errorf("Backend = %q, want %q", actuator.Backend, config.MicroBFDActuatorBackendNetworkManager)
+	}
+	if actuator.OVSDBEndpoint != "unix:/run/openvswitch/db.sock" {
+		t.Errorf("OVSDBEndpoint = %q, want unix:/run/openvswitch/db.sock", actuator.OVSDBEndpoint)
 	}
 	if actuator.OwnerPolicy != config.MicroBFDActuatorOwnerNetworkManagerDBus {
 		t.Errorf("OwnerPolicy = %q, want %q", actuator.OwnerPolicy, config.MicroBFDActuatorOwnerNetworkManagerDBus)

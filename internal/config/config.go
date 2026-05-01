@@ -250,6 +250,9 @@ type MicroBFDActuatorConfig struct {
 	// Backend selects the owner-specific dataplane backend.
 	Backend string `koanf:"backend"`
 
+	// OVSDBEndpoint is the native OVSDB endpoint for backend: ovs.
+	OVSDBEndpoint string `koanf:"ovsdb_endpoint"`
+
 	// OwnerPolicy controls behavior when another manager owns the interface.
 	OwnerPolicy string `koanf:"owner_policy"`
 
@@ -644,11 +647,12 @@ func DefaultConfig() *Config {
 		},
 		MicroBFD: MicroBFDConfig{
 			Actuator: MicroBFDActuatorConfig{
-				Mode:        MicroBFDActuatorModeDisabled,
-				Backend:     MicroBFDActuatorBackendAuto,
-				OwnerPolicy: MicroBFDActuatorOwnerRefuseIfManaged,
-				DownAction:  MicroBFDActuatorActionRemoveMember,
-				UpAction:    MicroBFDActuatorActionAddMember,
+				Mode:          MicroBFDActuatorModeDisabled,
+				Backend:       MicroBFDActuatorBackendAuto,
+				OVSDBEndpoint: "",
+				OwnerPolicy:   MicroBFDActuatorOwnerRefuseIfManaged,
+				DownAction:    MicroBFDActuatorActionRemoveMember,
+				UpAction:      MicroBFDActuatorActionAddMember,
 			},
 		},
 		GoBGP: GoBGPConfig{
@@ -763,6 +767,7 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"bfd.align_intervals":                defaults.BFD.AlignIntervals,
 		"micro_bfd.actuator.mode":            defaults.MicroBFD.Actuator.Mode,
 		"micro_bfd.actuator.backend":         defaults.MicroBFD.Actuator.Backend,
+		"micro_bfd.actuator.ovsdb_endpoint":  defaults.MicroBFD.Actuator.OVSDBEndpoint,
 		"micro_bfd.actuator.owner_policy":    defaults.MicroBFD.Actuator.OwnerPolicy,
 		"micro_bfd.actuator.down_action":     defaults.MicroBFD.Actuator.DownAction,
 		"micro_bfd.actuator.up_action":       defaults.MicroBFD.Actuator.UpAction,

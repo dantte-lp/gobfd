@@ -723,11 +723,12 @@ func TestConfigMicroBFDActuatorToNetio(t *testing.T) {
 	t.Parallel()
 
 	got := configMicroBFDActuatorToNetio(config.MicroBFDActuatorConfig{
-		Mode:        config.MicroBFDActuatorModeDryRun,
-		Backend:     config.MicroBFDActuatorBackendNetworkManager,
-		OwnerPolicy: config.MicroBFDActuatorOwnerNetworkManagerDBus,
-		DownAction:  config.MicroBFDActuatorActionRemoveMember,
-		UpAction:    config.MicroBFDActuatorActionNone,
+		Mode:          config.MicroBFDActuatorModeDryRun,
+		Backend:       config.MicroBFDActuatorBackendNetworkManager,
+		OVSDBEndpoint: "unix:/run/openvswitch/db.sock",
+		OwnerPolicy:   config.MicroBFDActuatorOwnerNetworkManagerDBus,
+		DownAction:    config.MicroBFDActuatorActionRemoveMember,
+		UpAction:      config.MicroBFDActuatorActionNone,
 	})
 
 	if got.Mode != netio.LAGActuatorModeDryRun {
@@ -735,6 +736,9 @@ func TestConfigMicroBFDActuatorToNetio(t *testing.T) {
 	}
 	if got.Backend != netio.LAGActuatorBackendNetworkManager {
 		t.Errorf("Backend = %q, want %q", got.Backend, netio.LAGActuatorBackendNetworkManager)
+	}
+	if got.OVSDBEndpoint != "unix:/run/openvswitch/db.sock" {
+		t.Errorf("OVSDBEndpoint = %q, want unix:/run/openvswitch/db.sock", got.OVSDBEndpoint)
 	}
 	if got.OwnerPolicy != netio.LAGOwnerPolicyNetworkManagerDBus {
 		t.Errorf("OwnerPolicy = %q, want %q", got.OwnerPolicy, netio.LAGOwnerPolicyNetworkManagerDBus)

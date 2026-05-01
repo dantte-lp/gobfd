@@ -829,11 +829,12 @@ func buildMicroBFDActuator(
 
 func configMicroBFDActuatorToNetio(cfg config.MicroBFDActuatorConfig) netio.LAGActuatorConfig {
 	return netio.LAGActuatorConfig{
-		Mode:        netio.LAGActuatorMode(cfg.Mode),
-		Backend:     netio.LAGActuatorBackendType(cfg.Backend),
-		OwnerPolicy: netio.LAGOwnerPolicy(cfg.OwnerPolicy),
-		DownAction:  netio.LAGActuatorAction(cfg.DownAction),
-		UpAction:    netio.LAGActuatorAction(cfg.UpAction),
+		Mode:          netio.LAGActuatorMode(cfg.Mode),
+		Backend:       netio.LAGActuatorBackendType(cfg.Backend),
+		OVSDBEndpoint: cfg.OVSDBEndpoint,
+		OwnerPolicy:   netio.LAGOwnerPolicy(cfg.OwnerPolicy),
+		DownAction:    netio.LAGActuatorAction(cfg.DownAction),
+		UpAction:      netio.LAGActuatorAction(cfg.UpAction),
 	}
 }
 

@@ -238,6 +238,7 @@ echo:
 | `micro_bfd.groups[].min_active_links` | int | -- | Minimum Up members for LAG Up (>= 1) |
 | `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run`, or `enforce` |
 | `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs`, or `networkmanager` |
+| `micro_bfd.actuator.ovsdb_endpoint` | string | `""` | OVSDB endpoint for `backend: ovs`; empty uses `unix:/var/run/openvswitch/db.sock` |
 | `micro_bfd.actuator.owner_policy` | string | `refuse-if-managed` | Interface owner policy: refuse external ownership, allow external ownership, or use NetworkManager D-Bus |
 | `micro_bfd.actuator.down_action` | string | `remove-member` | Action after a member transitions from Up to non-Up |
 | `micro_bfd.actuator.up_action` | string | `add-member` | Action after a member transitions back to Up |
@@ -249,11 +250,12 @@ RFC 7130 enforcement is guarded by `micro_bfd.actuator`. The default
 policy layer and logs planned member actions. `enforce` currently requires
 `owner_policy: allow-external` with `backend: kernel-bond` or `backend: ovs`.
 The kernel-bond backend writes RFC 7130 remove/add commands through Linux
-bonding sysfs. The OVS backend uses `ovs-vsctl del-bond-iface` and
-`ovs-vsctl add-bond-iface` against an existing OVS bond port.
-This OVS path is a transitional CLI fallback; the production roadmap targets a
-native OVSDB backend. `backend: networkmanager` is reserved for a future D-Bus
-backend. Use `owner_policy: networkmanager-dbus` only with that future
+bonding sysfs. The OVS backend uses native OVSDB transactions against
+`Port.interfaces` on an existing OVS bond port. Set
+`micro_bfd.actuator.ovsdb_endpoint` when the local OVSDB socket differs from
+the default `unix:/var/run/openvswitch/db.sock`. `backend: networkmanager` is
+reserved for a future D-Bus backend. Use `owner_policy: networkmanager-dbus`
+only with that future
 NetworkManager backend; otherwise keep the default owner refusal policy for
 disabled and dry-run modes.
 
@@ -265,6 +267,7 @@ micro_bfd:
   actuator:
     mode: "dry-run"
     backend: "kernel-bond"
+    ovsdb_endpoint: ""
     owner_policy: "refuse-if-managed"
     down_action: "remove-member"
     up_action: "add-member"

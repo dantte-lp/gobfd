@@ -59,6 +59,9 @@
   `backend: ovs` и `owner_policy: allow-external`.
 - OVSDB API research, фиксирующий OVSDB JSON-RPC как native OVS integration
   path и `libovsdb` как предпочтительный Go route для следующего backend.
+- Native OVSDB backend для Micro-BFD enforcement с `backend: ovs`, который
+  использует `libovsdb` transactions против `Port.interfaces` и настраиваемый
+  `micro_bfd.actuator.ovsdb_endpoint`.
 
 ### Изменено
 
@@ -69,6 +72,8 @@
 - S7.1 разделён на неразрушающий actuator config wiring, explicit
   kernel-bond enforcement, transitional OVS CLI fallback, native OVSDB backend
   и следующий sprint NetworkManager backend.
+- `backend: ovs` теперь выбирает native OVSDB implementation; прежний
+  `OVSLAGBackend` остаётся explicit CLI fallback type.
 - Roadmap S7 теперь нацелен на независимые production integration assets, без
   привязки к site-specific контуру применимости.
 - Kubernetes integration manifests теперь используют согласованные app labels,

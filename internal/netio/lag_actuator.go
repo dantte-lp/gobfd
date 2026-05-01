@@ -52,11 +52,12 @@ var (
 
 // LAGActuatorConfig configures the policy gate for RFC 7130 member actions.
 type LAGActuatorConfig struct {
-	Mode        LAGActuatorMode
-	Backend     LAGActuatorBackendType
-	OwnerPolicy LAGOwnerPolicy
-	DownAction  LAGActuatorAction
-	UpAction    LAGActuatorAction
+	Mode          LAGActuatorMode
+	Backend       LAGActuatorBackendType
+	OVSDBEndpoint string
+	OwnerPolicy   LAGOwnerPolicy
+	DownAction    LAGActuatorAction
+	UpAction      LAGActuatorAction
 }
 
 // LAGActuatorBackend applies selected member actions to a Linux LAG backend.

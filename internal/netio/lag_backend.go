@@ -45,7 +45,9 @@ func NewLAGActuatorBackend(cfg LAGActuatorConfig) (LAGActuatorBackend, error) {
 			return nil, fmt.Errorf("%s with %s: %w",
 				normalized.Backend, normalized.OwnerPolicy, ErrUnsupportedLAGOwnerPolicy)
 		}
-		return NewOVSLAGBackend(OVSLAGBackendConfig{}), nil
+		return NewOVSDBLAGBackend(OVSDBLAGBackendConfig{
+			Endpoint: normalized.OVSDBEndpoint,
+		}), nil
 	case LAGActuatorBackendAuto,
 		LAGActuatorBackendNetworkManager:
 		return nil, fmt.Errorf("%s: %w",
