@@ -27,7 +27,7 @@
 |---|---|---|
 | S11.1 shared Podman API helper | Implemented | `test/internal/podmanapi`, interop wrappers, Podman-only test/lint/gopls/doc gates |
 | S11.2 full local E2E run | Implemented | Core, overlay, routing, RFC и Linux local E2E evidence recorded |
-| S11.3 vendor NOS execution | Pending | Not started |
+| S11.3 vendor NOS execution | Implemented | `make e2e-vendor` and `make interop-clab`; Arista cEOS plus FRRouting IPv4/IPv6 evidence |
 | S11.4 styled HTML reports | Pending | Not started |
 | S11.5 remote CI evidence | Pending | Not started |
 | S11.6 backend decision gate | Pending | Not started |
@@ -243,7 +243,7 @@ git commit -m "test(interop): record full local e2e evidence"
 - Modify: `docs/en/05-interop.md`
 - Modify: `docs/ru/05-interop.md`
 
-- [ ] **Step 1: Verify local image inventory**
+- [x] **Step 1: Verify local image inventory**
 
 Run:
 
@@ -254,7 +254,16 @@ make e2e-vendor
 
 Expected: `vendor-images.json` and `skip-summary.json`.
 
-- [ ] **Step 2: Execute available vendor profiles**
+Evidence:
+
+| Artifact | Value |
+|---|---|
+| Report directory | `reports/e2e/vendor/20260501T205235Z` |
+| Available images | `localhost/ceos:4.36.0.1F`, `ceos:4.36.0.1F`, `quay.io/frrouting/frr:10.2.5` |
+| Skipped images | Nokia SR Linux `missing-image`; SONiC-VS `missing-image`; VyOS `manual-only-image`; Cisco XRd `licensed-vendor-image` |
+| Podman verification | `make e2e-vendor` passed |
+
+- [x] **Step 2: Execute available vendor profiles**
 
 Run profiles where images exist:
 
@@ -264,24 +273,46 @@ make interop-clab
 
 Expected: pass for available images; documented skip for unavailable or licensed images.
 
-- [ ] **Step 3: Record profile status**
+Evidence:
+
+| Check | Result |
+|---|---|
+| Available vendors | Arista cEOS IPv4/IPv6; FRRouting IPv4/IPv6 |
+| Session establishment | 4/4 available sessions Up |
+| Failure detection | Arista IPv4/IPv6 and FRR IPv4/IPv6 transitioned Down with `ControlTimeExpired` and recovered |
+| Packet format | Captured BFDv1, UDP destination port `3784`, IPv4 TTL `255`, IPv6 Hop Limit `255` |
+| Detection timing | Arista: 973ms-1.036s; FRR: 808ms-971ms for 300ms x multiplier 3 |
+| Podman verification | `make interop-clab` passed; Go tests ran through dev Podman container |
+
+- [x] **Step 3: Record profile status**
 
 Required profile states:
 
 | Vendor | State |
 |---|---|
-| Arista cEOS | pass or missing-image |
-| Nokia SR Linux | pass or missing-image |
-| SONiC-VS | pass or missing-image |
-| VyOS | pass or missing-image |
+| Arista cEOS | pass: IPv4/IPv6 |
+| Nokia SR Linux | missing-image |
+| SONiC-VS | missing-image |
+| VyOS | manual-only-image |
 | FRR | pass |
-| Cisco XRd | deferred unless image exists |
+| Cisco XRd | licensed-vendor-image; deferred |
 
-- [ ] **Step 4: Verify RFC/vendor claims**
+- [x] **Step 4: Verify RFC/vendor claims**
 
 Arista VXLAN BFD must remain documented as EOS-specific `bfd vtep evpn`; it must not be used to claim generic Linux VXLAN backend support.
 
-- [ ] **Step 5: Commit**
+Current vendor-source validation:
+
+| Profile | Current Lab Scope | Validation Source | Result |
+|---|---|---|---|
+| Arista cEOS | Single-hop BGP+BFD на Ethernet1, IPv4/IPv6 | Arista MCP EOS User Guide: `neighbor bfd`, interface `bfd interval`, `bfd vtep evpn` под VXLAN VTI; containerlab `arista_ceos` kind | Profile must not claim RFC 8971 VXLAN BFD until a Vxlan1 `bfd vtep evpn` config exists. |
+| Nokia SR Linux | Subinterface BFD with BGP failure-detection, IPv4/IPv6 | Nokia SR Linux BFD/BGP documentation | Timer units must remain microseconds; BFD subinterface must be configured before BGP BFD. |
+| SONiC-VS | FRR-backed IPv4 BGP+BFD через post-deploy script | SONiC ConfigDB documentation; containerlab `sonic-vs` kind; FRR BFD documentation | `eth1` maps to SONiC data-plane config; native SONiC BFD claims require separate evidence. |
+| VyOS | IPv4 BGP+BFD via `config.boot` | VyOS BFD documentation; containerlab VyOS kind documentation | `set protocols bgp neighbor <neighbor> bfd` maps to current `neighbor ... bfd` config. |
+| FRRouting | IPv4/IPv6 single-hop BGP+BFD baseline | FRR BFD documentation | `peer`, `receive-interval`, `transmit-interval`, and `neighbor ... bfd` match FRR syntax. |
+| Cisco XRd | Deferred IPv4/IPv6 BGP+BFD profile | Cisco IOS XR BFD documentation; containerlab `cisco_xrd` kind | `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier` are valid BGP neighbor commands; execution remains image-gated. |
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add test/e2e/vendor test/interop-clab docs/en/05-interop.md docs/ru/05-interop.md

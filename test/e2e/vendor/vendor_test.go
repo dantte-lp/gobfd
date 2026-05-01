@@ -83,16 +83,26 @@ func TestVendorProfilesContract(t *testing.T) {
 		if !slices.Contains(p.Standards, "RFC 5880") || !slices.Contains(p.Standards, "RFC 5881") {
 			t.Fatalf("profile %s must anchor base single-hop BFD standards, got %v", p.ID, p.Standards)
 		}
-		if p.ID == "arista-ceos" && !slices.Contains(p.Standards, "RFC 8971") {
-			t.Fatalf("profile %s must include RFC 8971 for VXLAN BFD", p.ID)
+		if strings.Contains(p.Scenario, "bgp") && !slices.Contains(p.Standards, "RFC 5882") {
+			t.Fatalf("profile %s scenario %q must include RFC 5882", p.ID, p.Scenario)
 		}
 		if len(p.Evidence) == 0 {
 			t.Fatalf("profile %s has no evidence commands", p.ID)
 		}
+		var configText strings.Builder
 		for _, path := range p.ConfigPaths {
-			if _, err := os.Stat(repoPath(t, path)); err != nil {
+			data, err := os.ReadFile(repoPath(t, path))
+			if err != nil {
 				t.Fatalf("profile %s config path %s: %v", p.ID, path, err)
 			}
+			configText.Write(data)
+			configText.WriteByte('\n')
+		}
+		if slices.Contains(p.Standards, "RFC 8971") && !strings.Contains(configText.String(), "bfd vtep evpn") {
+			t.Fatalf("profile %s claims RFC 8971 but no config contains bfd vtep evpn", p.ID)
+		}
+		if p.ID == "arista-ceos" && slices.Contains(p.Evidence, "show bfd peers protocol VXLAN") {
+			t.Fatalf("profile %s evidence claims VXLAN BFD while current config is single-hop BGP BFD", p.ID)
 		}
 	}
 

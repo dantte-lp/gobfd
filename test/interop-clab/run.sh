@@ -663,8 +663,11 @@ deploy_vendors() {
 # (ASN 65001), and GoBFD propagates BFD state changes to GoBGP via gRPC
 # (RFC 5882 Section 4.3).
 generate_configs() {
-    local gobfd_config="${SCRIPT_DIR}/gobfd/gobfd.generated.yml"
-    local gobgp_config="${SCRIPT_DIR}/gobfd/gobgp.generated.toml"
+    local runtime_dir="${SCRIPT_DIR}/gobfd/.runtime"
+    local gobfd_config="${runtime_dir}/gobfd.generated.yml"
+    local gobgp_config="${runtime_dir}/gobgp.generated.toml"
+
+    mkdir -p "${runtime_dir}"
 
     # --- GoBFD config ---
     cat > "${gobfd_config}" <<'HEADER'
@@ -900,8 +903,33 @@ wait_bfd_convergence() {
 run_tests() {
     info "running Go vendor interop tests"
 
+    if [ "${GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER:-}" != "1" ]; then
+        local project_slug
+        project_slug="${COMPOSE_PROJECT_NAME:-$(basename "${PROJECT_ROOT}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')}"
+
+        set +e
+        COMPOSE_PROJECT_NAME="${project_slug}" \
+            podman-compose -p "${project_slug}" \
+            -f "${PROJECT_ROOT}/deployments/compose/compose.dev.yml" \
+            exec -T dev \
+            env GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1 \
+            go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+        local exit_code=$?
+        set -e
+
+        if [ "${exit_code}" -eq 0 ]; then
+            pass "all vendor interop tests passed"
+        else
+            fail "vendor interop tests failed (exit code: ${exit_code})"
+        fi
+
+        return "${exit_code}"
+    fi
+
+    set +e
     go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
     local exit_code=$?
+    set -e
 
     if [ "${exit_code}" -eq 0 ]; then
         pass "all vendor interop tests passed"

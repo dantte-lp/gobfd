@@ -351,7 +351,7 @@ graph TD
     NOKIA["Nokia SR Linux<br/>10.0.2.2 / fd00:0:2::1<br/>ASN 65003"]
     FRR["FRRouting<br/>10.0.6.2 / fd00:0:6::1<br/>ASN 65007"]
     ARISTA["Arista cEOS<br/>10.0.1.2 / fd00:0:1::1<br/>ASN 65002"]
-    CISCO["Cisco XRd vRouter<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
+    CISCO["Cisco XRd Control Plane<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
     SONIC["SONiC-VS<br/>10.0.4.2<br/>ASN 65005"]
     VYOS["VyOS<br/>10.0.5.2<br/>ASN 65006"]
 
@@ -461,6 +461,17 @@ make interop-clab-down   # Destroy containers and veth links
 
 **GoBGP integration**: GoBFD runs alongside GoBGP (ASN 65001) inside the GoBFD container. Vendor NOS like Nokia require BGP for protocol-triggered BFD. When a vendor container is paused/unpaused, GoBGP's BGP neighbor transitions to `Idle(Admin)` and must be explicitly re-enabled via `gobgp neighbor <ip> enable`.
 
+### Vendor Configuration Validation
+
+| Profile | Runtime Config | Official Source Constraint | Repository Status |
+|---|---|---|---|
+| Arista cEOS | `arista/startup-config.cfg` | EOS BGP uses `neighbor bfd`; interface timers use `bfd interval`; VXLAN BFD uses `bfd vtep evpn` under VTI. | Current profile is single-hop BGP+BFD. RFC 8971 is reserved for a future Vxlan1 profile. |
+| Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers are microseconds; BGP failure-detection can enable BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
+| SONiC-VS | `sonic/configure.sh` | SONiC uses ConfigDB for data-plane interface configuration; `sonic-vs` is the containerized SONiC kind; the current BFD path is FRR-backed. | Current profile starts bgpd/bfdd, configures the data-plane interface, and requires separate evidence before claiming native SONiC BFD CLI coverage. |
+| VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
+| FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
+| Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
+
 ### IPv6 Dual-Stack BFD Testing
 
 RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor interop suite tests both address families on every available vendor using dual-stack links.
@@ -543,7 +554,7 @@ Vendor interop coverage uses three tiers:
 |---|---|---|---|
 | 1 (immediate) | FRRouting | Full open-source RFC coverage | 5880, 5881, 5882, 5883 |
 | 2 (commercial) | Nokia SR Linux | Production-grade commercial NOS | 5880 (async mode) |
-| 3 (breadth) | Arista cEOS | Independent enterprise implementation | 5880, 5881, S-BFD |
+| 3 (breadth) | Arista cEOS | Independent enterprise implementation | 5880, 5881, 5882 |
 
 **Native containers** (FRR, SR Linux, cEOS) consume ~0.5 vCPU and 0.5-1.5 GB RAM each. A 3-node topology fits comfortably in a VM with 4 vCPU and 8 GB RAM.
 
@@ -551,4 +562,4 @@ Vendor interop coverage uses three tiers:
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-05-01*

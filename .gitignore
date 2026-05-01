@@ -75,4 +75,5 @@ release-notes.md
 # Containerlab generated files
 test/interop-clab/*.generated.clab.yml
 test/interop-clab/gobfd/*.generated.yml
+test/interop-clab/gobfd/.runtime/
 test/interop-clab/clab-*/

@@ -55,11 +55,19 @@
   status и разделение RFC 9747 unaffiliated Echo от affiliated RFC 5880 Echo
   mode.
 - Coverage `make gopls-check` для S10 E2E build tags.
+- Podman-only execution path для `make interop-clab`: target запускает dev
+  container, выполняет Go vendor interop tests через него и фиксирует S11.3
+  evidence для Arista cEOS и FRRouting IPv4/IPv6 BFD.
 
 ### Исправлено
 
 - FRR JSON extraction в routing и RFC interop tests теперь допускает diagnostic
   prefix и suffix text вокруг JSON payload.
+- Vendor NOS profile metadata теперь соответствует текущим lab configurations:
+  Arista cEOS documented as single-hop BGP+BFD, а VXLAN/VTEP BFD остаётся
+  future dedicated profile.
+- Runtime GoBGP generation для vendor interop больше не перезаписывает
+  checked-in full-profile example.
 
 - Linux rtnetlink interface monitor shutdown теперь ограничен receive timeout,
   поэтому cancellation завершается детерминированно, даже если закрытие netlink

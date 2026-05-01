@@ -56,11 +56,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend status, and RFC 9747 unaffiliated Echo separation from affiliated
   RFC 5880 Echo mode.
 - `make gopls-check` coverage for S10 E2E build tags.
+- Podman-only `make interop-clab` execution path that starts the dev container,
+  runs Go vendor interop tests through that container, and records Arista cEOS
+  plus FRRouting IPv4/IPv6 BFD evidence for S11.3.
 
 ### Fixed
 
 - FRR JSON extraction in routing and RFC interop tests now tolerates diagnostic
   prefix and suffix text around the JSON payload.
+- Vendor NOS profile metadata now matches the current lab configurations:
+  Arista cEOS is documented as single-hop BGP+BFD, while VXLAN/VTEP BFD remains
+  a future dedicated profile.
+- Runtime vendor interop GoBGP generation no longer overwrites the checked-in
+  full-profile example.
 
 - Linux rtnetlink interface monitor shutdown is now bounded by a receive
   timeout, so cancellation exits deterministically even when closing the

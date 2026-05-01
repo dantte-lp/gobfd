@@ -1,5 +1,5 @@
 grpc:
-  addr: ":50051"
+  addr: ":50052"
 
 metrics:
   addr: ":9100"
@@ -14,8 +14,15 @@ bfd:
   default_required_min_rx: "300ms"
   default_detect_multiplier: 3
 
+gobgp:
+  enabled: true
+  addr: "127.0.0.1:50051"
+  strategy: "disable-peer"
+  dampening:
+    enabled: false
+
 sessions:
-  # Arista cEOS (ASN 65002)
+  # Arista cEOS (ASN 65002, IPv4)
   - peer: "10.0.1.2"
     local: "10.0.1.1"
     type: single_hop
@@ -23,7 +30,15 @@ sessions:
     required_min_rx: "300ms"
     detect_mult: 3
 
-  # Nokia SR Linux (ASN 65003)
+  # Arista cEOS (ASN 65002, IPv6)
+  - peer: "fd00:0:1::1"
+    local: "fd00:0:1::"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # Nokia SR Linux (ASN 65003, IPv4)
   - peer: "10.0.2.2"
     local: "10.0.2.1"
     type: single_hop
@@ -31,9 +46,25 @@ sessions:
     required_min_rx: "300ms"
     detect_mult: 3
 
-  # Cisco XRd (ASN 65004)
+  # Nokia SR Linux (ASN 65003, IPv6)
+  - peer: "fd00:0:2::1"
+    local: "fd00:0:2::"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # Cisco XRd (ASN 65004, IPv4)
   - peer: "10.0.3.2"
     local: "10.0.3.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # Cisco XRd (ASN 65004, IPv6)
+  - peer: "fd00:0:3::1"
+    local: "fd00:0:3::"
     type: single_hop
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
@@ -50,6 +81,22 @@ sessions:
   # VyOS (ASN 65006)
   - peer: "10.0.5.2"
     local: "10.0.5.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # FRRouting (ASN 65007, IPv4)
+  - peer: "10.0.6.2"
+    local: "10.0.6.1"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
+
+  # FRRouting (ASN 65007, IPv6)
+  - peer: "fd00:0:6::1"
+    local: "fd00:0:6::"
     type: single_hop
     desired_min_tx: "300ms"
     required_min_rx: "300ms"

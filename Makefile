@@ -268,17 +268,26 @@ interop-rfc-logs:
 CLAB_TOPO := test/interop-clab/gobfd-vendors.clab.yml
 
 interop-clab:
+	$(DC) up -d --build --force-recreate dev
 	./test/interop-clab/run.sh
 
 interop-clab-test:
 	$(EXEC) go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
 
 interop-clab-up:
+	$(DC) up -d --build --force-recreate dev
 	./test/interop-clab/run.sh --up-only
 
 interop-clab-down:
 	containerlab --runtime podman destroy -t $(CLAB_TOPO) --cleanup 2>/dev/null || true
-	podman rm -f clab-gobfd-vendors-gobfd 2>/dev/null || true
+	podman rm -f clab-gobfd-vendors-gobfd clab-gobfd-vendors-arista clab-gobfd-vendors-nokia clab-gobfd-vendors-cisco clab-gobfd-vendors-sonic clab-gobfd-vendors-vyos clab-gobfd-vendors-frr 2>/dev/null || true
+	ip link del veth-eth1 2>/dev/null || true
+	ip link del veth-eth2 2>/dev/null || true
+	ip link del veth-eth3 2>/dev/null || true
+	ip link del veth-eth4 2>/dev/null || true
+	ip link del veth-eth5 2>/dev/null || true
+	ip link del veth-eth6 2>/dev/null || true
+	podman network rm gobfd-vendors-net 2>/dev/null || true
 
 # === Integration Examples ===
 

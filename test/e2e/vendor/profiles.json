@@ -21,15 +21,16 @@
         "ceos:4.35.2F"
       ],
       "skip_policy": "licensed-vendor-image",
-      "scenario": "vxlan-bfd-vtep-evpn-profile",
+      "scenario": "single-hop-dual-stack-bfd-with-bgp-trigger",
       "standards": [
         "RFC 5880",
         "RFC 5881",
-        "RFC 8971"
+        "RFC 5882"
       ],
       "evidence": [
-        "show bfd peers",
-        "show bfd peers protocol VXLAN"
+        "show bfd peers detail",
+        "show ip bgp summary",
+        "show ipv6 bgp summary"
       ]
     },
     {
@@ -148,7 +149,7 @@
         "quay.io/frrouting/frr:10.2.5"
       ],
       "skip_policy": "missing-image",
-      "scenario": "single-hop-and-multihop-bfd-baseline",
+      "scenario": "single-hop-dual-stack-bfd-baseline",
       "standards": [
         "RFC 5880",
         "RFC 5881",
