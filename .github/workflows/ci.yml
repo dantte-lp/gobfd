@@ -119,7 +119,11 @@ jobs:
         run: ~/.local/bin/yamllint -c .yamllint.yaml .
 
       - name: cspell
-        run: cspell --no-progress --no-summary --config .cspell.json README.md CONTRIBUTING.md CHANGELOG.md docs/02-implementation-plan.md
+        run: >
+          cspell --no-progress --no-summary --config .cspell.json
+          README.md CONTRIBUTING.md CHANGELOG.md
+          CODE_OF_CONDUCT.md SUPPORT.md GOVERNANCE.md MAINTAINERS.md
+          docs/en/implementation-plan.md docs/en/codebase-consistency-audit.md
 
   commitlint:
     name: Commitlint (PR title)

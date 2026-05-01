@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose a protocol, API, CLI, integration, or documentation feature.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Describe the operational or protocol scenario.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Define the expected user-visible behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: Standards or official references
+      description: Link RFC sections, upstream docs, or vendor docs when applicable.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - BFD protocol
+        - CLI
+        - API
+        - Linux networking
+        - interop
+        - documentation
+        - packaging
+        - CI/security
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: compatibility
+    attributes:
+      label: Compatibility
+      options:
+        - label: The proposal is backward compatible.
+        - label: The proposal may require a SemVer minor release.
+        - label: The proposal may require a future SemVer major release.

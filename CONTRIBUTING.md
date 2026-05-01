@@ -1,7 +1,14 @@
 # Contributing to GoBFD
 
-Thank you for your interest in contributing to GoBFD. This document explains
-the process for contributing changes and the standards we follow.
+## Contribution Policy
+
+| Area | Requirement |
+|---|---|
+| Conduct | Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). |
+| Support | Use [SUPPORT.md](SUPPORT.md) for request routing. |
+| Security | Use [SECURITY.md](SECURITY.md) for private vulnerability disclosure. |
+| Governance | Follow [GOVERNANCE.md](GOVERNANCE.md) for release and maintainer rules. |
+| Maintainers | See [MAINTAINERS.md](MAINTAINERS.md) for review ownership. |
 
 ## Getting Started
 
@@ -120,6 +127,7 @@ make lint
 4. Ensure all routine checks pass: `make verify`
 5. Update documentation if your change affects user-facing behavior
 6. Add or update tests for new functionality
+7. Request review from code owners when files match `.github/CODEOWNERS`
 
 ### PR Checklist
 

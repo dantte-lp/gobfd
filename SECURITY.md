@@ -1,5 +1,14 @@
 # Security Policy
 
+## Public Policy Files
+
+| File | Purpose |
+|---|---|
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community behavior and enforcement policy |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution workflow and validation gates |
+| [SUPPORT.md](SUPPORT.md) | Non-security support routing |
+| [GOVERNANCE.md](GOVERNANCE.md) | Maintainer and release governance |
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in GoBFD, please report it

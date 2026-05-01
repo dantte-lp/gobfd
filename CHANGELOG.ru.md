@@ -9,6 +9,10 @@
 
 ### Добавлено
 
+- Repository governance и community-health files:
+  `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`,
+  `.github/CODEOWNERS`, `.github/pull_request_template.md`, issue forms и
+  `.github/repository-settings.md`.
 - Аудит консистентности кодовой базы
   `docs/ru/codebase-consistency-audit.md`, сверяющий README/docs/API/CLI/config
   с фактической реализацией и независимой production-применимостью в сетевых
@@ -27,6 +31,8 @@
   commitlint на уровне репозитория.
 - CI-задачи для проверки документации и Conventional Commit в заголовках pull
   request.
+- CI spell-check paths теперь используют каноничные planning docs из
+  `docs/en/` и community-health files.
 - Gate `make gopls-check` на базе `gopls v0.21.1` в Podman dev-контейнере.
 - Декларативное подключение аутентификации RFC 5880 для BFD-сессий из YAML,
   включая валидацию статического хранилища ключей и отображение типа auth в

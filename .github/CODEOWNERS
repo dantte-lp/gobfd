@@ -1,0 +1,14 @@
+# Default owner.
+* @dantte-lp
+
+# High-risk areas.
+/.github/ @dantte-lp
+/api/ @dantte-lp
+/cmd/ @dantte-lp
+/internal/bfd/ @dantte-lp
+/internal/netio/ @dantte-lp
+/deployments/ @dantte-lp
+/docs/ @dantte-lp
+/CHANGELOG.md @dantte-lp
+/CHANGELOG.ru.md @dantte-lp
+/SECURITY.md @dantte-lp

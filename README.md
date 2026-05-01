@@ -142,6 +142,9 @@ integrations are implemented.
 ## Contributing
 
 See [Development](docs/en/09-development.md) for the full workflow.
+Repository participation is governed by [CONTRIBUTING.md](CONTRIBUTING.md),
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md),
+[SUPPORT.md](SUPPORT.md), and [GOVERNANCE.md](GOVERNANCE.md).
 
 ```bash
 make up && make all    # Build + test + lint

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Repository governance and community-health files:
+  `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`,
+  `.github/CODEOWNERS`, `.github/pull_request_template.md`, issue forms, and
+  `.github/repository-settings.md`.
 - Codebase consistency audit in `docs/en/codebase-consistency-audit.md`
   comparing README/docs/API/CLI/config claims against implementation status
   and independent production networking applicability.
@@ -26,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commitlint configuration files.
 - CI jobs for documentation linting and Conventional Commit validation of pull
   request titles.
+- CI documentation spell-check paths now use the canonical `docs/en/` planning
+  documents and community-health files.
 - `make gopls-check` gate backed by `gopls v0.21.1` in the Podman dev
   container.
 - Declarative RFC 5880 authentication wiring for YAML-defined BFD sessions,

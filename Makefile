@@ -377,6 +377,10 @@ lint-spell:
 	$(EXEC) cspell --no-progress --no-summary --config .cspell.json \
 		README.md \
 		CONTRIBUTING.md \
+		CODE_OF_CONDUCT.md \
+		SUPPORT.md \
+		GOVERNANCE.md \
+		MAINTAINERS.md \
 		CHANGELOG.md \
 		docs/en/implementation-plan.md \
 		docs/en/codebase-consistency-audit.md
