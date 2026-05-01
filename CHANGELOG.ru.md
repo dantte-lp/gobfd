@@ -21,6 +21,9 @@
   standardized S10 artifacts.
 - S10.3 routing E2E target `make e2e-routing`: normalized FRR/BIRD3 BFD
   interop и GoBGP/ExaBGP BGP+BFD coupling evidence в S10 artifact contract.
+- S10.4 RFC и overlay E2E targets `make e2e-rfc` и `make e2e-overlay`:
+  normalized RFC interop evidence, VXLAN/Geneve packet-shape checks и reserved
+  overlay backend fail-closed validation.
 
 ### Исправлено
 

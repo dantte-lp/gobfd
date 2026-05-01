@@ -32,7 +32,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         up down restart logs shell clean tidy \
         dev-ps dev-project \
         e2e-help e2e-core e2e-core-test e2e-core-up e2e-core-down e2e-core-logs \
-        e2e-routing e2e-routing-test e2e-rfc e2e-overlay e2e-linux e2e-vendor \
+        e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-vendor \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
@@ -74,8 +74,8 @@ e2e-help:
 		'S10 E2E targets' \
 		'  e2e-core      implemented: GoBFD daemon-to-daemon scenarios' \
 		'  e2e-routing   implemented: FRR/BIRD3/GoBGP/ExaBGP aggregate' \
-		'  e2e-rfc       planned: RFC 7419/9384/9468/9747 aggregate' \
-		'  e2e-overlay   planned: VXLAN/Geneve backend boundary checks' \
+		'  e2e-rfc       implemented: RFC 7419/9384/9468/9747 aggregate' \
+		'  e2e-overlay   implemented: VXLAN/Geneve backend boundary checks' \
 		'  e2e-linux     planned: rtnetlink/kernel-bond/OVSDB/NM ownership checks' \
 		'  e2e-vendor    planned: optional containerlab vendor profiles'
 
@@ -112,12 +112,19 @@ e2e-routing-test:
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
 e2e-rfc:
-	@echo "e2e-rfc: planned in S10.4; not implemented in S10.1"
-	@exit 2
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/rfc/run.sh
+
+e2e-rfc-test:
+	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml \
+		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 
 e2e-overlay:
-	@echo "e2e-overlay: planned in S10.4; not implemented in S10.1"
-	@exit 2
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/overlay/run.sh
+
+e2e-overlay-test:
+	$(EXEC) go test -tags e2e_overlay -v -count=1 ./test/e2e/overlay/
 
 e2e-linux:
 	@echo "e2e-linux: planned in S10.5; not implemented in S10.1"
@@ -230,7 +237,7 @@ interop-bgp-down:
 interop-bgp-logs:
 	$(INTEROP_BGP_DC) logs -f
 
-# === RFC Interop Tests (RFC 7419 + RFC 9384 + RFC 9468 — 3 scenarios) ===
+# === RFC Interop Tests (RFC 7419 + RFC 9384 + RFC 9468 + RFC 9747) ===
 
 INTEROP_RFC_COMPOSE := test/interop-rfc/compose.yml
 INTEROP_RFC_DC := podman-compose -f $(INTEROP_RFC_COMPOSE)

@@ -136,9 +136,10 @@ graph TD
 |---|---|
 | Output | RFC-specific checks and overlay backend boundary checks. |
 | Files | `test/e2e/rfc/`, `test/e2e/overlay/`, existing `test/interop-rfc/`. |
-| Scenarios | RFC 9747 Echo failure/recovery, RFC 7130 Micro-BFD session modeling, RFC 8971 VXLAN userspace ownership, RFC 9521 Geneve userspace ownership, reserved backend fail-closed behavior. |
+| Scenarios | RFC 7419 timer alignment, RFC 9384 BGP Cease/BFD Down coupling, RFC 9468 unsolicited BFD, RFC 9747 Echo failure/recovery, VXLAN userspace packet ownership, Geneve userspace packet ownership, reserved backend fail-closed behavior. |
 | Required targets | `make e2e-rfc`, `make e2e-overlay`. |
-| Acceptance | Packet captures prove UDP 3784/3785 and overlay-port behavior; reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` backend names fail closed. |
+| Acceptance | `make e2e-rfc` writes RFC interop `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, `packets.pcapng`, and `packets.csv`; `make e2e-overlay` writes overlay `go-test.json`, `go-test.log`, `containers.json`, `containers.log`, `environment.json`, `summary.md`, and `packets.csv`; reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, and `nsx` backend names fail closed. |
+| Status | Implemented. |
 | Commit | `test(interop): verify rfc and overlay boundaries` |
 
 ### S10.5 -- Linux Dataplane Ownership

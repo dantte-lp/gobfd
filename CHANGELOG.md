@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S10.3 routing E2E target `make e2e-routing` with normalized FRR/BIRD3 BFD
   interop and GoBGP/ExaBGP BGP+BFD coupling evidence under the S10 artifact
   contract.
+- S10.4 RFC and overlay E2E targets `make e2e-rfc` and `make e2e-overlay`
+  with normalized RFC interop evidence, VXLAN/Geneve packet-shape checks, and
+  reserved overlay backend fail-closed validation.
 
 ### Fixed
 

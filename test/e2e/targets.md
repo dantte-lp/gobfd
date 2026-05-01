@@ -13,7 +13,9 @@ Current test and integration targets mapped to the S10 E2E evidence model.
 | `make e2e-routing` | `e2e-routing` | Routing E2E aggregate | Podman Compose plus dev container Go test | `172.20.0.0/24`, `172.21.0.0/24` | `test/interop`, `test/interop-bgp`, tshark | Aggregate Go test JSON/log, container logs/state, merged pcapng, packet CSV, suite artifacts | `down --volumes --remove-orphans` per suite | Implemented for existing routing interop suites; shared Podman API helper extraction remains planned. |
 | `make interop` | `e2e-routing` input | BFD interop stack | Podman Compose | `172.20.0.0/24` | GoBFD, FRR, BIRD3, aiobfd, Thoro/bfd, tshark | Go test output, pcap in capture container | `down --volumes --remove-orphans` | Normalized by `make e2e-routing`. |
 | `make interop-bgp` | `e2e-routing` input | BGP+BFD interop stack | Podman Compose | `172.21.0.0/24` | GoBFD, GoBGP, FRR, BIRD3, ExaBGP, tshark | Go test output, BGP/BFD state | `down --volumes --remove-orphans` | Normalized by `make e2e-routing`; duplicated Podman API helpers remain. |
-| `make interop-rfc` | `e2e-rfc` input | RFC interop stack | Podman Compose | `172.22.0.0/24` | RFC 7419, 9384, 9468, 9747 scenarios | Go test output, pcap in capture container | `down --volumes --remove-orphans` | Runner invokes host `go test`. |
+| `make e2e-rfc` | `e2e-rfc` | RFC E2E aggregate | Podman Compose plus dev container Go test | `172.22.0.0/24` | RFC 7419, 9384, 9468, 9747 scenarios | Go test JSON/log, container logs/state, pcapng, packet CSV, summary | `down --volumes --remove-orphans` | Implemented for current RFC interop suite. |
+| `make e2e-overlay` | `e2e-overlay` | Overlay boundary E2E | Dev container Go test | In-process packet builders | VXLAN, Geneve, reserved backend matrix | Go test JSON/log, container logs/state, packet evidence CSV, summary | Go test cleanup | Implemented for userspace packet shape and fail-closed backend validation. |
+| `make interop-rfc` | `e2e-rfc` input | RFC interop stack | Podman Compose | `172.22.0.0/24` | RFC 7419, 9384, 9468, 9747 scenarios | Go test output, pcap in capture container | `down --volumes --remove-orphans` | Normalized by `make e2e-rfc`. |
 | `make interop-clab` | `e2e-vendor` input | Vendor NOS profile | Podman and containerlab | Containerlab topology | cEOS, SR Linux, XRd, SONiC-VS, VyOS, FRR where images exist | Go test output and vendor command output | containerlab destroy and Podman cleanup | Optional image/license skips need a standard summary. |
 | `make int-bgp-failover` | `e2e-routing` optional input | Integration example | Podman Compose | Example-local network | GoBFD, GoBGP, FRR, tshark | CLI/BGP output, pcap | `down --volumes --remove-orphans` | Not aggregated into S10 reports. |
 | `make int-haproxy` | `e2e-core` optional input | Integration example | Podman Compose | Example-local network | GoBFD, HAProxy, tshark | HAProxy and BFD output, pcap | `down --volumes --remove-orphans` | Not aggregated into S10 reports. |
@@ -53,8 +55,10 @@ graph TD
 | Standard artifact directory contract | Implemented in S10.1 and applied by `make e2e-core` in S10.2. |
 | Core daemon E2E | Implemented in S10.2. |
 | Routing interop aggregate | Implemented in S10.3. |
+| RFC interop aggregate | Implemented in S10.4. |
+| Overlay backend boundary checks | Implemented in S10.4. |
 | Podman API helper extraction | Planned after S10.3. |
-| Host `go test` removal from full-cycle runners | Implemented for `e2e-core` and `e2e-routing`; remaining aggregate runners are planned. |
+| Host `go test` removal from full-cycle runners | Implemented for `e2e-core`, `e2e-routing`, `e2e-rfc`, and `e2e-overlay`; remaining aggregate runners are planned. |
 
 ---
 
