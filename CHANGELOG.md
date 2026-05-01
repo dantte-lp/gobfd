@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RFC validation, Linux dataplane ownership, overlay backend boundaries,
   optional vendor profiles, and benchmark policy.
 - S10.1 harness contract plan and target inventory for extended E2E evidence.
+- Checkout-safe development Compose automation with generated container names,
+  `COMPOSE_PROJECT_NAME` scoping, `make dev-project`, and `make dev-ps`.
 
 ## [0.5.2] - 2026-05-01
 

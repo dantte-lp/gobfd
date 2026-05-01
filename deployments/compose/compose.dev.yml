@@ -3,7 +3,6 @@ services:
     build:
       context: ../..
       dockerfile: deployments/docker/Containerfile.dev
-    container_name: gobfd-dev
     volumes:
       - ../..:/app:z
       - /run/podman/podman.sock:/run/podman/podman.sock:z

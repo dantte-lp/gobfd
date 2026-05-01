@@ -30,13 +30,13 @@
 | `testcontainers-go` | Отложить для S10.1; разрешить позже только для isolated S10.2 core tests. | Context7 подтверждает Podman provider support, но текущий repo уже использует compose topologies, static IPs, packet capture containers и vendor NOS profiles. |
 | containerlab | Оставить optional/manual только для vendor profile. | Containerlab документирует Docker как default и Podman как experimental; public CI не должен зависеть от licensed NOS images. |
 | Host `go test` внутри runner scripts | Убрать из будущих S10 gates. | Project evidence требует Go commands через Podman. |
-| Fixed `container_name: gobfd-dev` for worktree checks | Считать blocker для надёжной S10 evidence. | Parallel worktrees могут выполнить проверки в dev container, смонтированном на другой checkout. |
+| Fixed `container_name: gobfd-dev` for worktree checks | Удалить. | Parallel worktrees должны использовать Compose-generated names под `COMPOSE_PROJECT_NAME`. |
 
 ## 3. Текущие findings
 
 | Область | Finding | Required S10.1 action |
 |---|---|---|
-| Worktree safety | `deployments/compose/compose.dev.yml` использует fixed `container_name: gobfd-dev`. | Добавить worktree-safe invocation pattern или задокументировать обязательный `COMPOSE_PROJECT_NAME`/override strategy до использования dev container в E2E targets. |
+| Worktree safety | `deployments/compose/compose.dev.yml` раньше использовал fixed `container_name: gobfd-dev`. | Удалить fixed name, default `COMPOSE_PROJECT_NAME` к checkout directory и добавить `make dev-project` / `make dev-ps`. |
 | Full-cycle interop runners | `test/interop-rfc/run.sh` и похожие scripts запускают `go test` напрямую. | Направить Go tests через Podman command или сделать shell runner lifecycle-only. |
 | Podman API helpers | `podman_api_test.go` logic дублируется между interop packages. | Запланировать общий `test/internal/podmanapi` helper для S10.2 или S10.3. |
 | Artifact output | Existing pcap files находятся внутри capture containers или stack-local paths. | Определить `reports/e2e/<target>/<timestamp>/` и копировать logs/pcaps/test JSON туда. |
@@ -64,7 +64,7 @@
 
 ### Task 1 -- Worktree Baseline
 
-- [ ] Проверить active branch.
+- [x] Проверить active branch.
 
 ```bash
 git status --short --branch
@@ -76,37 +76,35 @@ Expected:
 ## s10/s1-e2e-harness
 ```
 
-- [ ] Проверить mount dev container перед доверием к Makefile checks.
+- [x] Проверить dev project перед доверием к Makefile checks.
 
 ```bash
-podman inspect gobfd-dev --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' 2>/dev/null || true
+make dev-project
+make up
+make dev-ps
 ```
 
 Expected:
 
 ```text
-Mounted source path должен совпадать с current worktree path, иначе Makefile checks невалидны для этого worktree.
+Compose project name должен совпадать с active checkout slug, а `make dev-ps` должен показывать service `dev` для этого project.
 ```
 
-- [ ] Если fixed dev container указывает на другой checkout, использовать one-off Podman validation command для documentation-only S10.1 changes.
+- [x] Если legacy fixed dev container существует, остановить его до использования S10.1 Makefile checks.
 
 ```bash
-podman run --rm \
-  -v "$PWD:/app:z" \
-  -w /app \
-  localhost/compose_dev:latest \
-  markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
+podman-compose -f deployments/compose/compose.dev.yml down
 ```
 
 Expected:
 
 ```text
-Summary: 0 error(s)
+Fixed `gobfd-dev` container отсутствует.
 ```
 
 ### Task 2 -- Add `e2e-help`
 
-- [ ] Изменить `.PHONY` в `Makefile`.
+- [x] Изменить `.PHONY` в `Makefile`.
 
 Required names:
 
@@ -114,7 +112,7 @@ Required names:
 e2e-help e2e-core e2e-routing e2e-rfc e2e-overlay e2e-linux e2e-vendor
 ```
 
-- [ ] Добавить `e2e-help`.
+- [x] Добавить `e2e-help`.
 
 Required output:
 
@@ -128,7 +126,7 @@ S10 E2E targets
   e2e-vendor    planned: optional containerlab vendor profiles
 ```
 
-- [ ] Оставить non-implemented targets fail-closed.
+- [x] Оставить non-implemented targets fail-closed.
 
 Required behavior:
 
@@ -150,7 +148,7 @@ Exit code:
 
 ### Task 3 -- Create Harness Contract
 
-- [ ] Создать `test/e2e/README.md`.
+- [x] Создать `test/e2e/README.md`.
 
 Required sections:
 
@@ -168,7 +166,7 @@ Required sections:
 ## Benchmark Policy
 ```
 
-- [ ] Определить artifact layout.
+- [x] Определить artifact layout.
 
 Required path pattern:
 
@@ -189,7 +187,7 @@ environment.json
 summary.md
 ```
 
-- [ ] Определить skip classes.
+- [x] Определить skip classes.
 
 Required classes:
 
@@ -202,7 +200,7 @@ Required classes:
 
 ### Task 4 -- Inventory Current Targets
 
-- [ ] Создать `test/e2e/targets.md`.
+- [x] Создать `test/e2e/targets.md`.
 
 Required target inventory:
 
@@ -219,11 +217,11 @@ Required target inventory:
 | `make int-exabgp-anycast` | `e2e-routing` optional input | integration example |
 | `make int-k8s` | future manual profile | cluster integration |
 
-- [ ] Записать owner, runtime, network, inputs, outputs, cleanup, current gaps и planned S10 target для каждой строки.
+- [x] Записать owner, runtime, network, inputs, outputs, cleanup, current gaps и planned S10 target для каждой строки.
 
 ### Task 5 -- Document Test Foundation Decision
 
-- [ ] Обновить `docs/en/18-s10-extended-e2e-interop.md`.
+- [x] Обновить `docs/en/18-s10-extended-e2e-interop.md`.
 
 Required decision:
 
@@ -233,11 +231,11 @@ S10 improves it with a shared Podman API helper, worktree-safe execution, standa
 testcontainers-go is deferred to isolated daemon-to-daemon S10.2 scenarios only.
 ```
 
-- [ ] Обновить `docs/ru/18-s10-extended-e2e-interop.md` с тем же решением.
+- [x] Обновить `docs/ru/18-s10-extended-e2e-interop.md` с тем же решением.
 
 ### Task 6 -- Update Indexes and Changelogs
 
-- [ ] Обновить `docs/README.md`, `docs/en/README.md` и `docs/ru/README.md`.
+- [x] Обновить `docs/README.md`, `docs/en/README.md` и `docs/ru/README.md`.
 
 Required count:
 
@@ -245,9 +243,9 @@ Required count:
 Documents-25
 ```
 
-- [ ] Добавить S10.1 plan в EN/RU release planning tables and Mermaid maps.
+- [x] Добавить S10.1 plan в EN/RU release planning tables and Mermaid maps.
 
-- [ ] Обновить `CHANGELOG.md` и `CHANGELOG.ru.md` в Unreleased.
+- [x] Обновить `CHANGELOG.md` и `CHANGELOG.ru.md` в Unreleased.
 
 Required entry:
 
@@ -257,15 +255,15 @@ S10.1 harness contract plan and target inventory for extended E2E evidence.
 
 ### Task 7 -- Verification
 
-- [ ] Запустить documentation lint в Podman.
+- [x] Запустить documentation lint в Podman.
 
-Preferred command when `gobfd-dev` is mounted to this worktree:
+Preferred command:
 
 ```bash
 make lint-docs
 ```
 
-Fallback command when fixed dev container is mounted to another checkout:
+Fallback command when dev container is unavailable:
 
 ```bash
 podman run --rm \
@@ -275,13 +273,13 @@ podman run --rm \
   markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
 ```
 
-- [ ] Запустить diff whitespace check.
+- [x] Запустить diff whitespace check.
 
 ```bash
 git diff --check
 ```
 
-- [ ] Запустить commitlint.
+- [x] Запустить commitlint.
 
 ```bash
 make lint-commit MSG='test(interop): define extended evidence harness'
@@ -291,7 +289,7 @@ make lint-commit MSG='test(interop): define extended evidence harness'
 
 ### Task 8 -- Commit
 
-- [ ] Stage only S10.1 files.
+- [x] Stage only S10.1 files.
 
 ```bash
 git add \
@@ -305,7 +303,7 @@ git add \
   test/e2e/README.md test/e2e/targets.md
 ```
 
-- [ ] Commit.
+- [x] Commit.
 
 ```bash
 git commit -m 'test(interop): define extended evidence harness'

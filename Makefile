@@ -16,8 +16,10 @@
 #   make interop-down  — stop interop test stack
 #   make integration   — alias for interop
 
+PROJECT_SLUG := $(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$$//')
+COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
 COMPOSE_FILE := deployments/compose/compose.dev.yml
-DC := podman-compose -f $(COMPOSE_FILE)
+DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) podman-compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
@@ -28,6 +30,8 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         test-report report-all \
         coverage profile \
         up down restart logs shell clean tidy \
+        dev-ps dev-project \
+        e2e-help e2e-core e2e-routing e2e-rfc e2e-overlay e2e-linux e2e-vendor \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
@@ -55,6 +59,48 @@ logs:
 
 shell:
 	$(DC) exec dev bash
+
+dev-ps:
+	$(DC) ps
+
+dev-project:
+	@echo "$(COMPOSE_PROJECT_NAME)"
+
+# === S10 Extended E2E Targets ===
+
+e2e-help:
+	@printf '%s\n' \
+		'S10 E2E targets' \
+		'  e2e-core      planned: GoBFD daemon-to-daemon scenarios' \
+		'  e2e-routing   planned: FRR/BIRD3/GoBGP/ExaBGP aggregate' \
+		'  e2e-rfc       planned: RFC 7419/9384/9468/9747 aggregate' \
+		'  e2e-overlay   planned: VXLAN/Geneve backend boundary checks' \
+		'  e2e-linux     planned: rtnetlink/kernel-bond/OVSDB/NM ownership checks' \
+		'  e2e-vendor    planned: optional containerlab vendor profiles'
+
+e2e-core:
+	@echo "e2e-core: planned in S10.2; not implemented in S10.1"
+	@exit 2
+
+e2e-routing:
+	@echo "e2e-routing: planned in S10.3; not implemented in S10.1"
+	@exit 2
+
+e2e-rfc:
+	@echo "e2e-rfc: planned in S10.4; not implemented in S10.1"
+	@exit 2
+
+e2e-overlay:
+	@echo "e2e-overlay: planned in S10.4; not implemented in S10.1"
+	@exit 2
+
+e2e-linux:
+	@echo "e2e-linux: planned in S10.5; not implemented in S10.1"
+	@exit 2
+
+e2e-vendor:
+	@echo "e2e-vendor: planned in S10.6; not implemented in S10.1"
+	@exit 2
 
 # === Build ===
 

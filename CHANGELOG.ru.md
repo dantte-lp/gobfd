@@ -13,6 +13,8 @@
   RFC validation, Linux dataplane ownership, overlay backend boundaries,
   optional vendor profiles и benchmark policy.
 - План S10.1 harness contract и target inventory для extended E2E evidence.
+- Worktree-safe automation для development Compose: generated container names,
+  `COMPOSE_PROJECT_NAME`, `make dev-project` и `make dev-ps`.
 
 ## [0.5.2] - 2026-05-01
 
