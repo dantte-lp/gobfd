@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-01
+
 ### Added
 
 - Repository governance and community-health files:
@@ -118,12 +120,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Podman socket access fixed via `security_opt: label=disable`.
 - CI workflow now uses a workflow-level read-only token policy and named jobs
   aligned with the local quality gates.
+- CI and release workflow tool installation now pins `gotestsum`, `benchstat`,
+  `markdownlint-cli2`, `cspell`, `commitlint`, `yamllint`, and `junit2html`
+  versions, and uses package-manager script/binary controls required by
+  supply-chain scanners.
 - GitHub Actions pins now track current upstream release tags for checkout,
   cache, setup, CodeQL, GoReleaser, Trivy, gosec, Codecov, Buf, GitHub Script,
   SonarQube, and artifact actions.
 - `golangci-lint` now enables 93 validated analyzers under the v2
   configuration model, with `snake_case` JSON/YAML tag policy preserved for
   public API and CLI contracts.
+- SonarCloud and Codecov coverage policy now excludes command entry points and
+  host-network integration boundaries that are validated by build, lint,
+  security, and system/container checks.
 - Vulnerability audit now runs `govulncheck v1.3.0`; OSV Scanner remains on
   `v2.3.5` because `v2.3.6` is not usable through `go run` as a versioned tool
   module.
@@ -265,7 +274,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0

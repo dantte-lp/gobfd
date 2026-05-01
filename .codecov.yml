@@ -43,3 +43,9 @@ ignore:
   - "cmd/gobfd-haproxy-agent/main.go"
   # Linux raw socket option setup is validated by build/lint/security scans and integration paths.
   - "internal/netio/rawsock_linux.go"
+  # Host-network integration boundaries are validated by build, lint, security, and system checks.
+  - "internal/netio/ifmon_linux.go"
+  - "internal/netio/ifmon_other.go"
+  - "internal/netio/lag_backend.go"
+  - "internal/netio/lag_networkmanager.go"
+  - "internal/netio/lag_ovsdb.go"

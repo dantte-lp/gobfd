@@ -7,6 +7,8 @@
 
 ## [Не выпущено]
 
+## [0.5.0] - 2026-05-01
+
 ### Добавлено
 
 - Repository governance и community-health files:
@@ -121,8 +123,15 @@
   доступ к Podman socket исправлен через `security_opt: label=disable`.
 - CI workflow теперь использует read-only token policy на уровне workflow и
   именованные задачи, согласованные с локальными quality gates.
+- Установка инструментов в CI и release workflow теперь закрепляет версии
+  `gotestsum`, `benchstat`, `markdownlint-cli2`, `cspell`, `commitlint`,
+  `yamllint` и `junit2html`, а также использует package-manager controls для
+  scripts и binary-only installs согласно supply-chain scanners.
 - Форматирование `gobfdctl` list/show/event теперь отображает advanced session
   families вместо `unknown`.
+- Политика покрытия SonarCloud и Codecov теперь исключает command entrypoints
+  и host-network integration boundaries, проверяемые build, lint, security и
+  system/container checks.
 
 ### Исправлено
 
@@ -256,7 +265,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dantte-lp/gobfd/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dantte-lp/gobfd/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dantte-lp/gobfd/compare/v0.1.0...v0.2.0
