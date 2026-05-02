@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 const (
@@ -96,7 +98,7 @@ func TestCoreDaemonE2E(t *testing.T) {
 		waitSession(t, ctx, "gobfd-a", gobfdBIP, func(s sessionView) bool {
 			return s.LocalState == "Up" && s.RemoteState == "Up"
 		})
-		logs, err := podmanCompose(ctx, "logs", "gobfd-a")
+		logs, err := containerLogs(ctx, "gobfd-a", 100)
 		if err != nil {
 			t.Fatalf("read gobfd-a logs: %v", err)
 		}
@@ -249,6 +251,22 @@ func serviceGRPCAddr(service string) string {
 		}
 	}
 	return "127.0.0.1:50051"
+}
+
+func containerLogs(ctx context.Context, service string, tail int) (string, error) {
+	client, err := podmanapi.NewClientFromEnvironment()
+	if err != nil {
+		return "", err
+	}
+	return client.Logs(ctx, containerName(service), tail)
+}
+
+func containerName(service string) string {
+	project := os.Getenv("E2E_CORE_PROJECT")
+	if project == "" {
+		project = "gobfd-e2e-core"
+	}
+	return project + "_" + service + "_1"
 }
 
 func tshark(ctx context.Context, args ...string) (string, error) {

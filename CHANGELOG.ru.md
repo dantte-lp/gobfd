@@ -81,6 +81,8 @@
   против published gRPC ports вместо входа в peer containers через
   `podman exec`; PR-safe profile не зависит от visibility container names в
   старом Podman Compose на runner.
+- Core E2E reload-log validation теперь читает container logs через Podman
+  REST API helper вместо wrapper `podman-compose logs`.
 - PR-safe E2E workflow setup больше не падает, если hosted runner уже содержит
   Podman, но apt временно не может resolve Ubuntu mirrors при установке
   `podman-compose`.
