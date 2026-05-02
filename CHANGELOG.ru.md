@@ -71,6 +71,9 @@
 - Vendored Protovalidate `buf/validate/validate.proto` from
   `bufbuild/protovalidate` `v1.2.0`, чтобы `buf lint` не зависел от Buf Schema
   Registry availability.
+- Reusable GitHub Actions Podman runtime installer для E2E jobs, который pin
+  `podman-compose` `1.5.0` from PyPI и сохраняет apt package installation как
+  fallback.
 
 ### Исправлено
 
@@ -78,6 +81,9 @@
   против published gRPC ports вместо входа в peer containers через
   `podman exec`; PR-safe profile не зависит от visibility container names в
   старом Podman Compose на runner.
+- PR-safe E2E workflow setup больше не падает, если hosted runner уже содержит
+  Podman, но apt временно не может resolve Ubuntu mirrors при установке
+  `podman-compose`.
 - FRR JSON extraction в routing и RFC interop tests теперь допускает diagnostic
   prefix и suffix text вокруг JSON payload.
 - Vendor NOS profile metadata теперь соответствует текущим lab configurations:

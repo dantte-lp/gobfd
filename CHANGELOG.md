@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vendored Protovalidate `buf/validate/validate.proto` from
   `bufbuild/protovalidate` `v1.2.0` so `buf lint` does not depend on Buf Schema
   Registry availability.
+- Reusable GitHub Actions Podman runtime installer for E2E jobs, pinning
+  `podman-compose` `1.5.0` from PyPI with apt package installation retained as
+  a fallback.
 
 ### Fixed
 
@@ -80,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published gRPC ports instead of entering peer containers with `podman exec`,
   making the PR-safe profile independent of old runner Podman Compose container
   name visibility.
+- PR-safe E2E workflow setup now avoids failing the job when the hosted runner
+  already has Podman but apt temporarily cannot resolve Ubuntu mirrors while
+  installing `podman-compose`.
 - FRR JSON extraction in routing and RFC interop tests now tolerates diagnostic
   prefix and suffix text around the JSON payload.
 - Vendor NOS profile metadata now matches the current lab configurations:

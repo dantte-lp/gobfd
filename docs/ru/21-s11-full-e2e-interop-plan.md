@@ -384,7 +384,7 @@ git commit -m "test(interop): render styled e2e reports"
 - Modify: `docs/en/21-s11-full-e2e-interop-plan.md`
 - Modify: `docs/ru/21-s11-full-e2e-interop-plan.md`
 
-- [ ] **Step 1: Validate workflow syntax**
+- [x] **Step 1: Validate workflow syntax**
 
 Run:
 
@@ -393,7 +393,11 @@ make up
 COMPOSE_PROJECT_NAME=s11-full-e2e podman-compose -p s11-full-e2e -f deployments/compose/compose.dev.yml exec -T dev actionlint .github/workflows/e2e.yml
 ```
 
-Expected: no diagnostics.
+Evidence:
+
+| Check | Result |
+|---|---|
+| `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/e2e.yml` | Pass inside Podman dev container |
 
 - [x] **Step 2: Push branch and open PR**
 
@@ -432,7 +436,9 @@ Current evidence:
 | Root cause | Tests внутри dev container использовали `podman exec` against topology containers; GitHub runner Podman Compose stack не предоставил эти container names для dev-container path. |
 | Fix | Core E2E builds `/tmp/gobfdctl-e2e` in dev container и запускает CLI checks против published `gobfd-a` и `gobfd-b` gRPC ports. |
 | Local verification | `make e2e-core` passes inside Podman harness after the fix. |
-| Required remote action | Push fix и verify next PR-safe workflow run. |
+| Second PR-safe run | Failed before E2E execution while apt installed `podman-compose`; hosted runner DNS could not resolve Ubuntu mirrors. |
+| Workflow fix | `.github/scripts/install-podman-runtime.sh` installs missing `podman-compose` from PyPI `1.5.0` first and keeps apt as fallback with retries. |
+| Required remote action | Push workflow fix и verify next PR-safe workflow run. |
 
 - [ ] **Step 4: Trigger manual profiles**
 
@@ -565,12 +571,24 @@ Evidence:
 | Fix | `gobfdctl` compiled once inside dev container and executed locally with `--addr 127.0.0.1:<published-port>`. |
 | Verification | Local Podman `make e2e-core` passes with the published-port path. |
 
-- [ ] **Step 7: Clear remaining release blockers**
+- [x] **Step 7: Clear PR-safe E2E runtime-install blocker**
+
+Evidence:
+
+| Item | Result |
+|---|---|
+| Symptom | Second PR-safe run failed before E2E execution during `sudo apt-get install podman podman-compose`. |
+| Root cause | GitHub-hosted runner already had Podman `4.9.3`; apt failed only while fetching `python3-dotenv` and `podman-compose` because Ubuntu mirror DNS resolution was temporarily unavailable. |
+| Source validation | PyPI and upstream `containers/podman-compose` document pip user installation and stable `1.x` usage for modern Podman. |
+| Fix | E2E jobs call `.github/scripts/install-podman-runtime.sh`, which checks existing tools first, pins `podman-compose` `1.5.0` from PyPI, and uses apt with retries only as fallback. |
+| Verification | `bash -n .github/scripts/install-podman-runtime.sh`, `go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/e2e.yml`, and next PR-safe run. |
+
+- [ ] **Step 8: Clear remaining release blockers**
 
 | Blocker | Required Action |
 |---|---|
 | Strict vulnerability gates | Remove или upgrade `github.com/osrg/gobgp/v3` после fixed upstream release; keep controlled allowlist expiry at `2026-07-31` until then. |
-| Remote CI evidence | Push PR-safe E2E fix, rerun PR-safe/nightly/manual profiles in GitHub Actions and attach artifacts. |
+| Remote CI evidence | Push PR-safe workflow fix, rerun PR-safe/nightly/manual profiles in GitHub Actions and attach artifacts. |
 
 ### Task 6: Backend Readiness Decision
 
