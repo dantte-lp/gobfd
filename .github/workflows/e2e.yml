@@ -56,6 +56,10 @@ jobs:
           fi
           test -S /run/podman/podman.sock
           sudo chmod 666 /run/podman/podman.sock
+          {
+            echo "CONTAINER_HOST=unix:///run/podman/podman.sock"
+            echo "PODMAN_HOST=unix:///run/podman/podman.sock"
+          } >> "$GITHUB_ENV"
           podman --version
           podman-compose --version
 
@@ -112,6 +116,10 @@ jobs:
           fi
           test -S /run/podman/podman.sock
           sudo chmod 666 /run/podman/podman.sock
+          {
+            echo "CONTAINER_HOST=unix:///run/podman/podman.sock"
+            echo "PODMAN_HOST=unix:///run/podman/podman.sock"
+          } >> "$GITHUB_ENV"
           podman --version
           podman-compose --version
 
@@ -167,6 +175,10 @@ jobs:
           fi
           test -S /run/podman/podman.sock
           sudo chmod 666 /run/podman/podman.sock
+          {
+            echo "CONTAINER_HOST=unix:///run/podman/podman.sock"
+            echo "PODMAN_HOST=unix:///run/podman/podman.sock"
+          } >> "$GITHUB_ENV"
           podman --version
           podman-compose --version
 

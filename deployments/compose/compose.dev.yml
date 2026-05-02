@@ -25,3 +25,4 @@ services:
       GOCACHE: /tmp/go-cache
       GOMODCACHE: /go/pkg/mod
       CONTAINER_HOST: "unix:///run/podman/podman.sock"
+      PODMAN_HOST: "unix:///run/podman/podman.sock"
