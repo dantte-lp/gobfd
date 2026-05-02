@@ -84,8 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   making the PR-safe profile independent of old runner Podman Compose container
   name visibility.
 - Core E2E reload-log validation now resolves the compose service by Podman
-  labels through the REST API and reads logs through the same helper instead
-  of the `podman-compose logs` wrapper.
+  labels or deterministic compose names through the REST API and reads logs
+  through the same helper instead of the `podman-compose logs` wrapper.
 - PR-safe E2E workflow setup now avoids failing the job when the hosted runner
   already has Podman but apt temporarily cannot resolve Ubuntu mirrors while
   installing `podman-compose`.

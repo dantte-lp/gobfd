@@ -82,8 +82,8 @@
   `podman exec`; PR-safe profile не зависит от visibility container names в
   старом Podman Compose на runner.
 - Core E2E reload-log validation теперь получает service container ID по
-  Podman labels через REST API и читает logs через тот же helper вместо
-  wrapper `podman-compose logs`.
+  Podman labels или deterministic compose names через REST API и читает logs
+  через тот же helper вместо wrapper `podman-compose logs`.
 - PR-safe E2E workflow setup больше не падает, если hosted runner уже содержит
   Podman, но apt временно не может resolve Ubuntu mirrors при установке
   `podman-compose`.

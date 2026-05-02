@@ -274,14 +274,90 @@ func containerID(ctx context.Context, client *podmanapi.Client, service string) 
 	if err != nil {
 		return "", err
 	}
+	if id := containerIDFromSummaries(containers, project, service); id != "" {
+		return id, nil
+	}
+	return "", fmt.Errorf("podman api service %s in project %s returned no container ID; visible containers: %s",
+		service, project, summarizeContainers(containers))
+}
+
+func containerIDFromSummaries(containers []podmanapi.ContainerSummary, project, service string) string {
 	for _, container := range containers {
-		if container.Labels["io.podman.compose.project"] == project &&
-			container.Labels["io.podman.compose.service"] == service &&
-			strings.TrimSpace(container.ID) != "" {
-			return container.ID, nil
+		if containerMatchesLabels(container.Labels, project, service) && strings.TrimSpace(container.ID) != "" {
+			return container.ID
 		}
 	}
-	return "", fmt.Errorf("podman api service %s in project %s returned no container ID", service, project)
+	for _, container := range containers {
+		if containerMatchesComposeName(container.Names, project, service) && strings.TrimSpace(container.ID) != "" {
+			return container.ID
+		}
+	}
+	return ""
+}
+
+func containerMatchesLabels(labels map[string]string, project, service string) bool {
+	projectLabel := labels["io.podman.compose.project"]
+	if projectLabel == "" {
+		projectLabel = labels["com.docker.compose.project"]
+	}
+	serviceLabel := labels["io.podman.compose.service"]
+	if serviceLabel == "" {
+		serviceLabel = labels["com.docker.compose.service"]
+	}
+	return projectLabel == project && serviceLabel == service
+}
+
+func containerMatchesComposeName(names []string, project, service string) bool {
+	expected := []string{
+		project + "_" + service + "_1",
+		project + "-" + service + "-1",
+	}
+	for _, name := range names {
+		normalized := strings.TrimPrefix(strings.TrimSpace(name), "/")
+		for _, candidate := range expected {
+			if normalized == candidate {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func summarizeContainers(containers []podmanapi.ContainerSummary) string {
+	if len(containers) == 0 {
+		return "none"
+	}
+	var b strings.Builder
+	limit := len(containers)
+	if limit > 8 {
+		limit = 8
+	}
+	for i := range limit {
+		container := containers[i]
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString("id=")
+		b.WriteString(shortID(container.ID))
+		b.WriteString(" names=")
+		b.WriteString(strings.Join(container.Names, ","))
+		b.WriteString(" labels=")
+		b.WriteString(container.Labels["io.podman.compose.project"])
+		b.WriteString("/")
+		b.WriteString(container.Labels["io.podman.compose.service"])
+	}
+	if len(containers) > limit {
+		b.WriteString(fmt.Sprintf("; ... %d more", len(containers)-limit))
+	}
+	return b.String()
+}
+
+func shortID(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 func tshark(ctx context.Context, args ...string) (string, error) {
