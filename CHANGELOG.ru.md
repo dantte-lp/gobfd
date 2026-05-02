@@ -87,9 +87,10 @@
 - PR-safe E2E workflow setup больше не падает, если hosted runner уже содержит
   Podman, но apt временно не может resolve Ubuntu mirrors при установке
   `podman-compose`.
-- GitHub Actions E2E jobs теперь сохраняют `CONTAINER_HOST` и `PODMAN_HOST`
-  после запуска `/run/podman/podman.sock`, поэтому host Compose operations и
-  dev-container Podman API helpers используют один container namespace.
+- GitHub Actions E2E jobs теперь сохраняют `CONTAINER_HOST`, `PODMAN_HOST` и
+  mounted socket path после запуска Podman API service от runner user, поэтому
+  host Compose operations и dev-container Podman API helpers используют один
+  container namespace.
 - FRR JSON extraction в routing и RFC interop tests теперь допускает diagnostic
   prefix и suffix text вокруг JSON payload.
 - Vendor NOS profile metadata теперь соответствует текущим lab configurations:

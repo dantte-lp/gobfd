@@ -89,9 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PR-safe E2E workflow setup now avoids failing the job when the hosted runner
   already has Podman but apt temporarily cannot resolve Ubuntu mirrors while
   installing `podman-compose`.
-- GitHub Actions E2E jobs now persist `CONTAINER_HOST` and `PODMAN_HOST` after
-  starting `/run/podman/podman.sock`, so host Compose operations and
-  dev-container Podman API helpers use the same container namespace.
+- GitHub Actions E2E jobs now persist `CONTAINER_HOST`, `PODMAN_HOST`, and the
+  mounted socket path after starting the runner user's Podman API service, so
+  host Compose operations and dev-container Podman API helpers use the same
+  container namespace.
 - FRR JSON extraction in routing and RFC interop tests now tolerates diagnostic
   prefix and suffix text around the JSON payload.
 - Vendor NOS profile metadata now matches the current lab configurations:
