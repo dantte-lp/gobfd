@@ -1406,26 +1406,31 @@ func (s *Session) applyPendingParams() {
 // RFC 5880 Section 6.8.7 specifies all field values for transmitted packets.
 func (s *Session) rebuildCachedPacket() {
 	pkt := s.buildControlPacket()
-	n, err := MarshalControlPacket(&pkt, s.cachedPacket)
-	if err != nil {
+	// RFC 5880 Section 6.7: sign the packet if auth is configured.
+	if s.auth != nil {
+		s.signCachedPacket(&pkt)
+		return
+	}
+	if _, err := MarshalControlPacket(&pkt, s.cachedPacket); err != nil {
 		s.logger.Error("failed to marshal cached packet",
+			slog.String("error", err.Error()),
+		)
+	}
+}
+
+// signCachedPacket applies authentication and serializes the authenticated
+// packet into the cached transmit buffer.
+func (s *Session) signCachedPacket(pkt *ControlPacket) {
+	if err := s.auth.Sign(
+		s.authState, s.authKeys, pkt, s.cachedPacket, 0,
+	); err != nil {
+		s.logger.Error("auth sign failed",
 			slog.String("error", err.Error()),
 		)
 		return
 	}
-	// RFC 5880 Section 6.7: sign the packet if auth is configured.
-	if s.auth != nil {
-		s.signCachedPacket(&pkt, n)
-	}
-}
-
-// signCachedPacket applies authentication to the cached packet.
-// Sign modifies both the packet struct and the buffer in-place.
-func (s *Session) signCachedPacket(pkt *ControlPacket, n int) {
-	if err := s.auth.Sign(
-		s.authState, s.authKeys, pkt, s.cachedPacket, n,
-	); err != nil {
-		s.logger.Error("auth sign failed",
+	if _, err := MarshalControlPacket(pkt, s.cachedPacket); err != nil {
+		s.logger.Error("failed to marshal authenticated cached packet",
 			slog.String("error", err.Error()),
 		)
 	}

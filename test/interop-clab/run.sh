@@ -2,7 +2,9 @@
 # Vendor BFD interoperability test runner.
 #
 # Tests GoBFD against commercial/enterprise NOS vendors:
-#   Arista cEOS, Nokia SR Linux, Cisco XRd, SONiC-VS, VyOS, FRRouting
+#   primary: Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS
+#   baseline: FRRouting
+#   deferred: Cisco XRd
 #
 # Deploys a star topology with GoBFD in the center and point-to-point /30
 # links to each available vendor NOS. Containers and veth links are managed
@@ -15,7 +17,7 @@
 #
 # Prerequisites:
 #   - podman installed, Podman socket active
-#   - At least one vendor image available (Nokia SR Linux is freely available)
+#   - At least one vendor image available
 #
 # Exit codes:
 #   0 - all tests passed (or --up-only completed)
@@ -35,12 +37,53 @@ DEPLOYED_VENDORS=()
 
 # Vendor definitions: name:container:image:eth_idx:peer_ip:local_ip:asn
 # eth_idx determines the interface name on GoBFD side (eth${idx}).
+
+resolve_image() {
+    local fallback="$1"
+    shift
+
+    local candidate
+    for candidate in "$@"; do
+        if [ -z "${candidate}" ]; then
+            continue
+        fi
+        if podman image exists "${candidate}" 2>/dev/null; then
+            echo "${candidate}"
+            return
+        fi
+    done
+
+    echo "${fallback}"
+}
+
+ARISTA_CEOS_IMAGE="$(resolve_image "ceos:4.35.2F" \
+    "${ARISTA_CEOS_IMAGE:-}" \
+    "localhost/ceos:4.36.0.1F" \
+    "ceos:4.36.0.1F" \
+    "localhost/ceos:4.35.2F" \
+    "ceos:4.35.2F")"
+NOKIA_SRLINUX_IMAGE="$(resolve_image "ghcr.io/nokia/srlinux:25.10.2" \
+    "${NOKIA_SRLINUX_IMAGE:-}" \
+    "ghcr.io/nokia/srlinux:25.10.2" \
+    "ghcr.io/nokia/srlinux:24.10.1")"
+SONIC_VS_IMAGE="$(resolve_image "docker.io/netreplica/docker-sonic-vs:latest" \
+    "${SONIC_VS_IMAGE:-}" \
+    "docker.io/netreplica/docker-sonic-vs:latest" \
+    "netreplica/docker-sonic-vs:latest" \
+    "docker-sonic-vs:latest")"
+VYOS_IMAGE="$(resolve_image "docker.io/muruu1/vyos:latest" \
+    "${VYOS_IMAGE:-}" \
+    "localhost/vyos:latest" \
+    "docker.io/muruu1/vyos:latest" \
+    "muruu1/vyos:latest" \
+    "vyos:latest")"
+
 VENDOR_DEFS=(
-    "arista:clab-${LAB_NAME}-arista:ceos:4.35.2F:1:10.0.1.2:10.0.1.1:65002"
-    "nokia:clab-${LAB_NAME}-nokia:ghcr.io/nokia/srlinux:25.10.2:2:10.0.2.2:10.0.2.1:65003"
+    "arista:clab-${LAB_NAME}-arista:${ARISTA_CEOS_IMAGE}:1:10.0.1.2:10.0.1.1:65002"
+    "nokia:clab-${LAB_NAME}-nokia:${NOKIA_SRLINUX_IMAGE}:2:10.0.2.2:10.0.2.1:65003"
     "cisco:clab-${LAB_NAME}-cisco:CISCO_XRD_IMAGE:3:10.0.3.2:10.0.3.1:65004"
-    "sonic:clab-${LAB_NAME}-sonic:docker-sonic-vs:latest:4:10.0.4.2:10.0.4.1:65005"
-    "vyos:clab-${LAB_NAME}-vyos:vyos:latest:5:10.0.5.2:10.0.5.1:65006"
+    "sonic:clab-${LAB_NAME}-sonic:${SONIC_VS_IMAGE}:4:10.0.4.2:10.0.4.1:65005"
+    "vyos:clab-${LAB_NAME}-vyos:${VYOS_IMAGE}:5:10.0.5.2:10.0.5.1:65006"
     "frr:clab-${LAB_NAME}-frr:quay.io/frrouting/frr:10.2.5:6:10.0.6.2:10.0.6.1:65007"
 )
 
@@ -622,8 +665,11 @@ deploy_vendors() {
 # (ASN 65001), and GoBFD propagates BFD state changes to GoBGP via gRPC
 # (RFC 5882 Section 4.3).
 generate_configs() {
-    local gobfd_config="${SCRIPT_DIR}/gobfd/gobfd.generated.yml"
-    local gobgp_config="${SCRIPT_DIR}/gobfd/gobgp.generated.toml"
+    local runtime_dir="${SCRIPT_DIR}/gobfd/.runtime"
+    local gobfd_config="${runtime_dir}/gobfd.generated.yml"
+    local gobgp_config="${runtime_dir}/gobgp.generated.toml"
+
+    mkdir -p "${runtime_dir}"
 
     # --- GoBFD config ---
     cat > "${gobfd_config}" <<'HEADER'
@@ -859,8 +905,33 @@ wait_bfd_convergence() {
 run_tests() {
     info "running Go vendor interop tests"
 
+    if [ "${GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER:-}" != "1" ]; then
+        local project_slug
+        project_slug="${COMPOSE_PROJECT_NAME:-$(basename "${PROJECT_ROOT}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')}"
+
+        set +e
+        COMPOSE_PROJECT_NAME="${project_slug}" \
+            podman-compose -p "${project_slug}" \
+            -f "${PROJECT_ROOT}/deployments/compose/compose.dev.yml" \
+            exec -T dev \
+            env GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1 \
+            go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
+        local exit_code=$?
+        set -e
+
+        if [ "${exit_code}" -eq 0 ]; then
+            pass "all vendor interop tests passed"
+        else
+            fail "vendor interop tests failed (exit code: ${exit_code})"
+        fi
+
+        return "${exit_code}"
+    fi
+
+    set +e
     go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
     local exit_code=$?
+    set -e
 
     if [ "${exit_code}" -eq 0 ]; then
         pass "all vendor interop tests passed"
@@ -891,6 +962,33 @@ show_vendor_images() {
     done
 }
 
+pull_image_if_missing() {
+    local label="$1" image="$2"
+
+    if podman image exists "${image}" 2>/dev/null; then
+        info "  ${label} (${image}): already present"
+        return 0
+    fi
+
+    info "  ${label} (${image}): pulling"
+    if podman pull "${image}" >/dev/null; then
+        pass "${label} image ready: ${image}"
+        return 0
+    fi
+
+    fail "${label} image pull failed: ${image}"
+    return 1
+}
+
+prepare_public_images() {
+    info "preparing public NOS/baseline images:"
+
+    pull_image_if_missing "Nokia SR Linux" "${NOKIA_SRLINUX_IMAGE}"
+    pull_image_if_missing "SONiC-VS" "${SONIC_VS_IMAGE}"
+    pull_image_if_missing "VyOS" "${VYOS_IMAGE}"
+    pull_image_if_missing "FRRouting" "quay.io/frrouting/frr:10.2.5"
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -898,7 +996,9 @@ show_vendor_images() {
 echo ""
 echo "========================================="
 echo "  GoBFD Vendor BFD Interop Tests"
-echo "  Arista | Nokia | Cisco | SONiC | VyOS | FRR"
+echo "  Primary: Arista | Nokia | SONiC | VyOS"
+echo "  Baseline: FRR"
+echo "  Deferred: Cisco"
 echo "========================================="
 echo ""
 
@@ -908,6 +1008,7 @@ if [ "${TEST_ONLY}" = true ]; then
 fi
 
 check_prerequisites
+prepare_public_images
 show_vendor_images
 
 build_gobfd_image

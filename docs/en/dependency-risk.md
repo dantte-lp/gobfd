@@ -39,11 +39,13 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 | **Used in** | `internal/gobgp/` — optional GoBGP integration |
 | **Known advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
 | **Risk level** | High |
+| **Allowlist owner** | `maintainers` |
+| **Review deadline** | `2026-07-31` |
 
 ### Description
 
 GoBGP is affected by a denial-of-service advisory in BGP NEXT_HOP path
-attribute handling. As of 2026-04-22, the Go vulnerability database does not
+attribute handling. As of 2026-05-02, the Go vulnerability database does not
 list a fixed version.
 
 ### Mitigation
@@ -51,7 +53,9 @@ list a fixed version.
 1. **Bounded exposure**: The GoBGP path is optional and should connect only to a
    GoBGP gRPC endpoint on localhost or a trusted management network.
 2. **Controlled CI allowlist**: `scripts/vuln-audit.go` allowlists only
-   `GO-2026-4736`; any additional `govulncheck` or OSV finding fails CI.
+   `GO-2026-4736`; the entry includes owner, expiry, reason, and mitigation.
+   Any additional `govulncheck` or OSV finding, and any expired allowlist
+   entry, fails CI.
 3. **Upgrade trigger**: Remove the allowlist entry after upstream publishes a
    fixed GoBGP release and `go mod tidy` moves the module to that version.
 

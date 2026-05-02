@@ -7,6 +7,105 @@
 
 ## [Не выпущено]
 
+### Добавлено
+
+- План S10 extended E2E and interoperability для Podman-only evidence,
+  RFC validation, Linux dataplane ownership, overlay backend boundaries,
+  optional vendor profiles и benchmark policy.
+- План S10.1 harness contract и target inventory для extended E2E evidence.
+- Worktree-safe automation для development Compose: generated container names,
+  `COMPOSE_PROJECT_NAME`, `make dev-project` и `make dev-ps`.
+- S10.2 core daemon E2E target `make e2e-core`: GoBFD-to-GoBFD Podman
+  topology, static RFC 5880 authentication, CLI list/show/event checks,
+  metrics checks, SIGHUP reload, graceful AdminDown packet capture и
+  standardized S10 artifacts.
+- S10.3 routing E2E target `make e2e-routing`: normalized FRR/BIRD3 BFD
+  interop и GoBGP/ExaBGP BGP+BFD coupling evidence в S10 artifact contract.
+- S10.4 RFC и overlay E2E targets `make e2e-rfc` и `make e2e-overlay`:
+  normalized RFC interop evidence, VXLAN/Geneve packet-shape checks и reserved
+  overlay backend fail-closed validation.
+- S10.5 Linux dataplane E2E target `make e2e-linux`: isolated `--network none`
+  rtnetlink virtual Ethernet evidence, kernel-bond fake sysfs checks,
+  OVS owner-policy guard checks и NetworkManager D-Bus policy checks.
+- S10.6 vendor E2E target `make e2e-vendor`: optional NOS profile manifest,
+  Podman image availability evidence, containerlab Podman runtime contract
+  checks и explicit skips для missing или licensed vendor images.
+- Primary vendor profile set S10.6 для Arista cEOS, Nokia SR Linux, SONiC-VS и
+  VyOS; Cisco XRd сохранён как deferred optional profile до появления
+  operator-provided image.
+- S10.7 E2E evidence GitHub Actions workflow с PR-safe, nightly и manual
+  vendor gates, 30-day report artifact retention и explicit benchmark policy
+  separation.
+- S10 close-out документация, которая помечает extended E2E evidence sprint
+  как implemented и фиксирует post-S10 Podman API helper extraction как
+  deferred.
+- S10 closeout analysis в `docs/en/20-s10-closeout-analysis.md` и
+  `docs/ru/20-s10-closeout-analysis.md`: delivered scope, remaining backlog и
+  RFC/MCP source validation.
+- S11 full E2E and interoperability execution plan в
+  `docs/en/21-s11-full-e2e-interop-plan.md` и
+  `docs/ru/21-s11-full-e2e-interop-plan.md`: shared Podman API helper
+  extraction, full local E2E runs, vendor NOS evidence, styled HTML reports,
+  remote CI evidence и owner-backend decision gates.
+- Shared S11 Podman REST API helper в `test/internal/podmanapi`, который
+  заменяет duplicated container exec/logs/inspect/start/stop/pause/unpause
+  logic в routing, RFC и vendor interop test packages.
+- Синхронизация README и protocol documentation по статусам advanced BFD:
+  Micro-BFD partial production integration, VXLAN/Geneve userspace backend
+  status и разделение RFC 9747 unaffiliated Echo от affiliated RFC 5880 Echo
+  mode.
+- Coverage `make gopls-check` для S10 E2E build tags.
+- Podman-only execution path для `make interop-clab`: target запускает dev
+  container, выполняет Go vendor interop tests через него и фиксирует S11.3
+  evidence для Arista cEOS и FRRouting IPv4/IPv6 BFD.
+- Public vendor NOS image path для Nokia SR Linux, SONiC-VS и VyOS с
+  `make interop-clab` evidence для 8/10 доступных vendor BFD sessions; Cisco
+  XRd остаётся licensed/operator-provided.
+- S11.5 local release gate evidence: Podman `make verify` passes through build,
+  race tests, gopls, golangci-lint, docs lint, proto lint и controlled
+  vulnerability audit.
+- GoReleaser snapshot release evidence в Podman для binaries, archives,
+  deb/rpm packages, Syft SBOMs и Debian trixie plus Oracle Linux 10 OCI images
+  на `linux/amd64` и `linux/arm64`.
+- Semgrep Pro gate evidence для 110 Go rules по 62 Go files с 0 findings.
+- Vendored Protovalidate `buf/validate/validate.proto` from
+  `bufbuild/protovalidate` `v1.2.0`, чтобы `buf lint` не зависел от Buf Schema
+  Registry availability.
+- Reusable GitHub Actions Podman runtime installer для E2E jobs, который pin
+  `podman-compose` `1.5.0` from PyPI и сохраняет apt package installation как
+  fallback.
+
+### Исправлено
+
+- Core E2E CLI checks теперь запускают собранный в dev container `gobfdctl`
+  против published gRPC ports вместо входа в peer containers через
+  `podman exec`; PR-safe profile не зависит от visibility container names в
+  старом Podman Compose на runner.
+- Core E2E reload-log validation теперь получает service container ID по
+  Podman labels или deterministic compose names через REST API и читает logs
+  через тот же helper вместо wrapper `podman-compose logs`.
+- PR-safe E2E workflow setup больше не падает, если hosted runner уже содержит
+  Podman, но apt временно не может resolve Ubuntu mirrors при установке
+  `podman-compose`.
+- GitHub Actions E2E jobs теперь сохраняют `CONTAINER_HOST`, `PODMAN_HOST` и
+  mounted socket path после запуска Podman API service от runner user, поэтому
+  host Compose operations и dev-container Podman API helpers используют один
+  container namespace.
+- FRR JSON extraction в routing и RFC interop tests теперь допускает diagnostic
+  prefix и suffix text вокруг JSON payload.
+- Vendor NOS profile metadata теперь соответствует текущим lab configurations:
+  Arista cEOS documented as single-hop BGP+BFD, а VXLAN/VTEP BFD остаётся
+  future dedicated profile.
+- Runtime GoBGP generation для vendor interop больше не перезаписывает
+  checked-in full-profile example.
+
+- Linux rtnetlink interface monitor shutdown теперь ограничен receive timeout,
+  поэтому cancellation завершается детерминированно, даже если закрытие netlink
+  file descriptor не прерывает receive syscall сразу.
+- Authenticated BFD sessions теперь сериализуют authentication section в
+  cached transmit packet перед отправкой, поэтому declarative RFC 5880 auth
+  sessions могут устанавливаться с peers, требующими authentication.
+
 ## [0.5.2] - 2026-05-01
 
 ### Исправлено

@@ -4,7 +4,7 @@
 - **Scope:** production-oriented BFD daemon, CLI, control-plane API, and interop
   test environment for Linux networking stacks.
 - **Cadence:** 8 sprints x 2 weeks to `v0.5.0`, then release hardening,
-  Scorecard hardening, and maintenance.
+  Scorecard hardening, extended E2E evidence, and maintenance.
 - **Standards:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
   [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
   [.containerignore.5], [containers.conf.5].
@@ -66,7 +66,8 @@ are valid project evidence. Use Makefile targets backed by Podman.
 | Linux VXLAN/Geneve dataplane coexistence | Partial | GoBFD has an explicit `userspace-udp` backend for dedicated endpoints and fails closed for reserved kernel/OVS/OVN/Cilium/Calico/NSX backend names; actual non-userspace integrations remain future work. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession`, and `gobfdctl session add` now wire RFC 5880 auth into session TX/RX, expose auth type in snapshots, reject missing raw wire bytes, and reset receive sequence knowledge after 2x Detection Time. Dynamic key rotation is deferred to production hardening. |
 | pkg.go.dev command page | Green | `v0.5.2` is indexed on pkg.go.dev, Apache-2.0 is detected, and `cmd/gobfd` has command documentation. |
-| Documentation standards | Partial | Keep a Changelog, SemVer, commitlint, and doc lint gates are present; non-canonical temporary research files must not remain in the published Markdown corpus. |
+| Documentation standards | Green | Keep a Changelog, SemVer, commitlint, canonical `docs/en` and `docs/ru`, and doc lint gates are present; temporary research files are excluded from the published Markdown corpus. |
+| Extended E2E / interop evidence | Green | S10.1-S10.7 implement Podman-only evidence for core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles, and CI artifacts. |
 
 ## 4. Sprints
 
@@ -117,7 +118,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | **S7.1d2** | OVSDB API research. | Document OVSDB JSON-RPC as the native OVS management API and `libovsdb` as the preferred Go integration route. Commit: `docs(netio): document ovsdb backend path`. |
 | **S7.1e** | Native OVSDB backend. | Done: `backend: ovs` selects native OVSDB-backed LAG enforcement for OVS bonded ports with configurable `ovsdb_endpoint`; `OVSLAGBackend` remains a fallback/diagnostics type. Commit: `feat(netio): add ovsdb lag backend`. |
 | **S7.1f** | Optional NetworkManager backend. | Done: NetworkManager D-Bus backend deactivates active bond port profiles on member Down and activates remembered or available bond port profiles on member recovery. Commit: `feat(netio): add networkmanager lag backend`. |
-| **S7.2** | Overlay dataplane backend model. | Done: `userspace-udp` is an explicit VXLAN/Geneve backend, reserved kernel/OVS/OVN/Cilium/NSX backend names fail closed, and sender reconciliation reuses the runtime receiver backend instead of binding duplicate sockets. Commit: `feat(netio): add overlay backend model`. |
+| **S7.2** | Overlay dataplane backend model. | Done: `userspace-udp` is an explicit VXLAN/Geneve backend, reserved kernel/OVS/OVN/Cilium/Calico/NSX backend names fail closed, and sender reconciliation reuses the runtime receiver backend instead of binding duplicate sockets. Commit: `feat(netio): add overlay backend model`. |
 
 ### Phase 4 -- Release Readiness
 
@@ -125,7 +126,14 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 |---|---|---|
 | **S8** | `v0.5.0` release readiness. | Done: release dry-run, changelog, SemVer tag plan, docs layout, and package artifacts were prepared without a v1 bump. Commit: `chore(release): prepare v0.5.0`. |
 | **S8.1** | `v0.5.2` pkg.go.dev close-out. | Done: command package docs and canonical Apache-2.0 license text restored pkg.go.dev command and license rendering. Commits: `docs(docs): document pkg.go.dev command pages`, `fix(docs): restore pkg.go.dev license detection`. |
-| **S9** | Documentation and Scorecard hardening. | In progress: close post-release doc drift, remove non-canonical Markdown, document one-maintainer Scorecard constraints, and plan repository ruleset/token/pinning/provenance work without cutting a new release. Commit: `docs: sync scorecard and release documentation`. |
+| **S9** | Documentation and Scorecard hardening. | Done: post-release doc drift closed, non-canonical Markdown removed, one-maintainer Scorecard constraints documented, and repository hardening work split into follow-up actions without a new release. Commit: `docs: sync scorecard and release documentation`. |
+
+### Phase 5 -- Extended Evidence
+
+| # | Output | Exit |
+|---|---|---|
+| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 define and implement Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence, and benchmark policy separation. Closeout: `docs/en/20-s10-closeout-analysis.md`. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
+| **S11** | Full E2E and interoperability execution. | In progress: S11.1-S11.3 are implemented; S11.5 local Podman release gate passes after vendoring Protovalidate proto for Buf lint; strict GoBGP vulnerability gates and remote CI evidence remain release blockers. |
 
 ## 5. Definition of Done
 
@@ -153,4 +161,4 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | R4 | GoBGP vulnerability allowlist becomes stale. | M | H | Track allowlist expiry and keep GoBGP gRPC on localhost/trusted networks until upstream fix. |
 | R5 | README/pkg.go.dev overclaim feature readiness. | M | M | Treat interop and API surface as source of truth before release notes. |
 | R6 | Micro-BFD is mistaken for universal Linux LAG enforcement. | M | H | Keep docs explicit: current code enforces explicit kernel-bond, native OVSDB, and NetworkManager D-Bus paths only when the operator selects the matching owner policy/backend. |
-| R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium/Calico dataplane. | M | H | `userspace-udp` is explicit and reserved backend names fail closed until kernel/OVS/OVN/Cilium/NSX/Calico integrations exist. |
+| R7 | VXLAN/Geneve userspace sockets conflict with kernel/OVS/Cilium/Calico dataplane. | M | H | `userspace-udp` is explicit and reserved backend names fail closed until kernel/OVS/OVN/Cilium/Calico/NSX integrations exist. |

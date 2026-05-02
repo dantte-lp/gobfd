@@ -20,6 +20,7 @@
 - [Jitter](#jitter)
 - [Poll Sequence](#poll-sequence)
 - [Authentication](#authentication)
+- [Unaffiliated Echo](#unaffiliated-echo)
 - [Not Implemented](#not-implemented)
 
 ### BFD Control Packet Format
@@ -36,7 +37,7 @@ RFC 5880 Section 4.1 defines a 24-byte mandatory header:
 | 8-11 | 4 | Your Discriminator | Zero until peer discriminator is known |
 | 12-15 | 4 | Desired Min TX Interval | **Microseconds** |
 | 16-19 | 4 | Required Min RX Interval | **Microseconds** |
-| 20-23 | 4 | Required Min Echo RX Interval | **Microseconds** (always 0 -- Echo not implemented) |
+| 20-23 | 4 | Required Min Echo RX Interval | **Microseconds** (0 for affiliated Echo; RFC 9747 unaffiliated Echo is implemented separately) |
 | 24+ | var | Authentication Section | Optional, present when A bit is set |
 
 > **IMPORTANT**: All interval fields are in **microseconds** on the wire. Conversion to `time.Duration` happens at the boundary:
@@ -230,6 +231,20 @@ RFC 5880 Section 6.7. Five authentication types are supported:
 | Keyed SHA1 | Type(1) + Len(1) + KeyID(1) + Reserved(1) + SeqNum(4) + Hash(20) | 28 |
 | Meticulous SHA1 | Same as Keyed SHA1 | 28 |
 
+### Unaffiliated Echo
+
+RFC 9747 unaffiliated Echo is implemented outside the affiliated RFC 5880
+control-session Echo mode.
+
+| Field | Status |
+|---|---|
+| Session type | `SessionTypeEcho` |
+| UDP port | 3785 |
+| Packet format | BFD Control packet |
+| Timer model | Locally provisioned; no remote negotiation |
+| Demultiplexing | Returned packet `MyDiscriminator` |
+| Diagnostic on timeout | `DiagEchoFailed` |
+
 ### Not Implemented
 
 #### Demand Mode (Section 6.6)
@@ -238,11 +253,14 @@ Not implemented. The Demand (D) bit is always set to zero on transmit. `bfd.Remo
 
 **Rationale**: Demand Mode is rarely used in production ISP/DC deployments. The primary use case (reducing BFD traffic) is better served by tuning TX/RX intervals. All major implementations (FRR, Junos, IOS-XR) default to Asynchronous mode.
 
-#### Echo Mode (Section 6.4)
+#### Affiliated Echo Mode (Section 6.4)
 
-Not implemented. `RequiredMinEchoRxInterval` is always set to zero, indicating the local system does not support Echo.
+Not implemented for control sessions. `RequiredMinEchoRxInterval` remains zero
+for standard BFD control sessions.
 
-**Rationale**: Echo Mode requires kernel cooperation for reflecting echo packets. It adds complexity with minimal benefit for the typical GoBFD deployment scenario (BFD-assisted BGP failover).
+**Rationale**: Affiliated Echo Mode requires control-session coordination and
+remote echo loopback support. RFC 9747 unaffiliated Echo is implemented as the
+standalone forwarding-path echo mechanism.
 
 #### Point-to-Multipoint
 
@@ -256,4 +274,4 @@ The Multipoint (M) bit is always zero. Received packets with M=1 are rejected pe
 
 ---
 
-*Last updated: 2026-02-21*
+*Last updated: 2026-05-01*

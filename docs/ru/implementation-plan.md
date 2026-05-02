@@ -4,7 +4,7 @@
 - **Область:** production-oriented BFD daemon, CLI, control-plane API и
   interop-среда для Linux networking stacks.
 - **Каденс:** 8 спринтов по 2 недели до `v0.5.0`, затем release hardening,
-  Scorecard hardening и сопровождение.
+  Scorecard hardening, extended E2E evidence и сопровождение.
 - **Стандарты:** [Keep a Changelog 1.1.0], [Conventional Commits 1.0.0],
   [Semantic Versioning 2.0.0], [Compose Specification], [Containerfile.5],
   [.containerignore.5], [containers.conf.5].
@@ -67,7 +67,8 @@ Podman.
 | Linux VXLAN/Geneve dataplane coexistence | Partial | Реализован explicit `userspace-udp` backend для dedicated endpoints; reserved `kernel`, `ovs`, `ovn`, `cilium`, `calico`, `nsx` имена fail closed до owner-specific integrations. |
 | Auth wiring | Green for static per-session keys | YAML sessions, gRPC `AddSession` и `gobfdctl session add` подключают RFC 5880 auth в TX/RX, snapshots показывают auth type, missing raw wire bytes rejected, receive sequence knowledge resets after 2x Detection Time. Dynamic key rotation отложен. |
 | pkg.go.dev command page | Green | `v0.5.2` индексируется на pkg.go.dev, Apache-2.0 определяется, `cmd/gobfd` имеет command documentation. |
-| Documentation standards | Partial | Keep a Changelog, SemVer, commitlint и doc lint gates есть; non-canonical temporary research files не должны оставаться в published Markdown corpus. |
+| Documentation standards | Green | Keep a Changelog, SemVer, commitlint, canonical `docs/en` и `docs/ru`, а также doc lint gates присутствуют; temporary research files исключены из published Markdown corpus. |
+| Extended E2E / interop evidence | Green | S10.1-S10.7 реализуют Podman-only evidence для core daemon, routing interop, RFC behavior, Linux dataplane ownership, overlay boundaries, optional vendor profiles и CI artifacts. |
 
 ## 4. Спринты
 
@@ -119,7 +120,14 @@ Podman.
 |---|---|---|
 | **S8** | `v0.5.0` release readiness, without v1 bump. | Done: release dry-run, changelog, SemVer tag plan, docs layout and package artifacts prepared. Commit: `chore(release): prepare v0.5.0`. |
 | **S8.1** | `v0.5.2` pkg.go.dev close-out. | Done: command package docs and canonical Apache-2.0 license text restored pkg.go.dev command and license rendering. Commits: `docs(docs): document pkg.go.dev command pages`, `fix(docs): restore pkg.go.dev license detection`. |
-| **S9** | Documentation and Scorecard hardening. | In progress: close post-release doc drift, remove non-canonical Markdown, document one-maintainer Scorecard constraints, and plan repository ruleset/token/pinning/provenance work without cutting a new release. Commit: `docs: sync scorecard and release documentation`. |
+| **S9** | Documentation and Scorecard hardening. | Done: post-release doc drift закрыт, non-canonical Markdown удалён, one-maintainer Scorecard constraints задокументированы, repository hardening work разделён на follow-up actions без нового релиза. Commit: `docs: sync scorecard and release documentation`. |
+
+### Phase 5 -- Extended Evidence
+
+| # | Output | Exit |
+|---|---|---|
+| **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 задают и реализуют Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence и benchmark policy separation. Closeout: `docs/ru/20-s10-closeout-analysis.md`. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
+| **S11** | Full E2E and interoperability execution. | In progress: S11.1-S11.3 implemented; S11.5 local Podman release gate passes after vendoring Protovalidate proto for Buf lint; strict GoBGP vulnerability gates и remote CI evidence remain release blockers. |
 
 ## 5. Definition of Done
 

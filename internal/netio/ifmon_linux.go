@@ -16,7 +16,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const netlinkReadBufferSize = 8192
+const (
+	netlinkReadBufferSize    = 8192
+	netlinkReceiveTimeoutSec = 1
+)
 
 var (
 	errShortIfInfoMsg  = errors.New("short ifinfomsg")
@@ -41,6 +44,16 @@ func NewLinuxInterfaceMonitor(logger *slog.Logger) (*LinuxInterfaceMonitor, erro
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC, unix.NETLINK_ROUTE)
 	if err != nil {
 		return nil, fmt.Errorf("open netlink route socket: %w", err)
+	}
+	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &unix.Timeval{
+		Sec: netlinkReceiveTimeoutSec,
+	}); err != nil {
+		if closeErr := unix.Close(fd); closeErr != nil {
+			logger.Warn("failed to close netlink socket after timeout setup failure",
+				slog.String("error", closeErr.Error()),
+			)
+		}
+		return nil, fmt.Errorf("set netlink receive timeout: %w", err)
 	}
 
 	addr := &unix.SockaddrNetlink{
@@ -86,6 +99,9 @@ func (m *LinuxInterfaceMonitor) Run(ctx context.Context) error {
 				return nil
 			}
 			if errors.Is(err, unix.EINTR) {
+				continue
+			}
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
 				continue
 			}
 			if errors.Is(err, unix.ENOBUFS) {

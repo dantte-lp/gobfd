@@ -10,7 +10,8 @@
 // IPv6 dual-stack: RFC 5881 §5 (IPv6 single-hop BFD) is tested alongside
 // IPv4 (§4) using ULA fd00::/8 addresses with /127 prefixes per RFC 6164.
 //
-// Supported vendors: Arista cEOS, Nokia SR Linux, Cisco XRd, SONiC-VS, VyOS, FRRouting.
+// Primary vendors: Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
+// Baseline vendor: FRRouting. Deferred vendor: Cisco XRd.
 // Tests are skipped for vendors whose container images are not available.
 //
 // Container management uses the Podman REST API via unix socket

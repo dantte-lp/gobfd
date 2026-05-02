@@ -56,6 +56,9 @@ make all
 ### Make Targets
 
 All Go commands run inside Podman containers via `podman-compose exec`.
+The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
+the current checkout directory name. Parallel worktrees use distinct default
+project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 
 #### Lifecycle
 
@@ -66,6 +69,8 @@ All Go commands run inside Podman containers via `podman-compose exec`.
 | `make restart` | Restart (down + up) |
 | `make logs` | Follow development container logs |
 | `make shell` | Open bash in development container |
+| `make dev-project` | Print the active checkout Compose project name |
+| `make dev-ps` | Show the active checkout development stack |
 
 #### Build and Test
 

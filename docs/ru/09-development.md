@@ -56,6 +56,9 @@ make all
 ### Make-цели
 
 Все Go-команды выполняются внутри контейнеров Podman через `podman-compose exec`.
+Development stack изолирован через `COMPOSE_PROJECT_NAME`, который по
+умолчанию равен имени директории текущего checkout. Parallel worktrees
+используют разные default project names или явно задают `COMPOSE_PROJECT_NAME`.
 
 #### Жизненный цикл
 
@@ -66,6 +69,8 @@ make all
 | `make restart` | Перезапуск (down + up) |
 | `make logs` | Просмотр логов контейнера |
 | `make shell` | Открыть bash в контейнере |
+| `make dev-project` | Показать Compose project name active checkout |
+| `make dev-ps` | Показать development stack active checkout |
 
 #### Сборка и тесты
 

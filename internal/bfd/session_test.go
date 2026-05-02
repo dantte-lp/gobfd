@@ -1068,6 +1068,59 @@ func TestSessionCachedPacketRebuild(t *testing.T) {
 	})
 }
 
+func TestSessionCachedPacketIncludesAuthSection(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		auth, err := bfd.NewAuthenticator(bfd.AuthTypeSimplePassword)
+		if err != nil {
+			t.Fatalf("NewAuthenticator: %v", err)
+		}
+		keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+			ID:     7,
+			Type:   bfd.AuthTypeSimplePassword,
+			Secret: []byte("s10-core-auth"),
+		})
+		if err != nil {
+			t.Fatalf("NewStaticAuthKeyStore: %v", err)
+		}
+
+		sender := &mockSender{}
+		sess := mustNewSession(t, bfd.SessionConfig{
+			PeerAddr:              netip.MustParseAddr("10.0.0.2"),
+			LocalAddr:             netip.MustParseAddr("10.0.0.1"),
+			Type:                  bfd.SessionTypeSingleHop,
+			Role:                  bfd.RoleActive,
+			DesiredMinTxInterval:  100 * time.Millisecond,
+			RequiredMinRxInterval: 100 * time.Millisecond,
+			DetectMultiplier:      3,
+			Auth:                  auth,
+			AuthKeys:              keys,
+		}, 42, sender, nil, slog.Default())
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go sess.Run(ctx)
+
+		time.Sleep(2 * time.Second)
+
+		pkt := sender.lastPacket(t)
+		if !pkt.AuthPresent {
+			t.Fatal("AuthPresent = false, want true")
+		}
+		if pkt.Auth == nil {
+			t.Fatal("Auth = nil, want simple password section")
+		}
+		if pkt.Auth.Type != bfd.AuthTypeSimplePassword {
+			t.Fatalf("Auth.Type = %s, want %s", pkt.Auth.Type, bfd.AuthTypeSimplePassword)
+		}
+		if pkt.Auth.KeyID != 7 {
+			t.Fatalf("Auth.KeyID = %d, want 7", pkt.Auth.KeyID)
+		}
+		if string(pkt.Auth.AuthData) != "s10-core-auth" {
+			t.Fatalf("AuthData = %q, want s10-core-auth", string(pkt.Auth.AuthData))
+		}
+	})
+}
+
 // -------------------------------------------------------------------------
 // TestSessionPassiveRole — RFC 5880 Section 6.8.7
 // -------------------------------------------------------------------------

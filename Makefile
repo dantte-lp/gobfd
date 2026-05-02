@@ -16,8 +16,10 @@
 #   make interop-down  — stop interop test stack
 #   make integration   — alias for interop
 
+PROJECT_SLUG := $(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$$//')
+COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
 COMPOSE_FILE := deployments/compose/compose.dev.yml
-DC := podman-compose -f $(COMPOSE_FILE)
+DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) podman-compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
@@ -28,6 +30,9 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         test-report report-all \
         coverage profile \
         up down restart logs shell clean tidy \
+        dev-ps dev-project \
+        e2e-help e2e-core e2e-core-test e2e-core-up e2e-core-down e2e-core-logs \
+        e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
@@ -55,6 +60,84 @@ logs:
 
 shell:
 	$(DC) exec dev bash
+
+dev-ps:
+	$(DC) ps
+
+dev-project:
+	@echo "$(COMPOSE_PROJECT_NAME)"
+
+# === S10 Extended E2E Targets ===
+
+e2e-help:
+	@printf '%s\n' \
+		'S10 E2E targets' \
+		'  e2e-core      implemented: GoBFD daemon-to-daemon scenarios' \
+		'  e2e-routing   implemented: FRR/BIRD3/GoBGP/ExaBGP aggregate' \
+		'  e2e-rfc       implemented: RFC 7419/9384/9468/9747 aggregate' \
+		'  e2e-overlay   implemented: VXLAN/Geneve backend boundary checks' \
+		'  e2e-linux     implemented: rtnetlink/kernel-bond/OVSDB/NM ownership checks' \
+		'  e2e-vendor    implemented: optional containerlab vendor profile evidence'
+
+E2E_CORE_COMPOSE := test/e2e/core/compose.yml
+E2E_CORE_PROJECT ?= $(COMPOSE_PROJECT_NAME)-e2e-core
+E2E_CORE_DC := podman-compose -p $(E2E_CORE_PROJECT) -f $(E2E_CORE_COMPOSE)
+
+e2e-core:
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/core/run.sh
+
+e2e-core-test:
+	$(EXEC) env E2E_CORE_COMPOSE_FILE=$(E2E_CORE_COMPOSE) \
+		E2E_CORE_PROJECT=$(E2E_CORE_PROJECT) \
+		go test -tags e2e_core -v -count=1 -timeout 300s ./test/e2e/core/
+
+e2e-core-up:
+	$(E2E_CORE_DC) up --build -d
+
+e2e-core-down:
+	$(E2E_CORE_DC) down --volumes --remove-orphans
+
+e2e-core-logs:
+	$(E2E_CORE_DC) logs -f
+
+e2e-routing:
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/routing/run.sh
+
+e2e-routing-test:
+	$(EXEC) env INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
+		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
+	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
+		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
+
+e2e-rfc:
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/rfc/run.sh
+
+e2e-rfc-test:
+	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml \
+		go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
+
+e2e-overlay:
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/overlay/run.sh
+
+e2e-overlay-test:
+	$(EXEC) go test -tags e2e_overlay -v -count=1 ./test/e2e/overlay/
+
+e2e-linux:
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/linux/run.sh
+
+e2e-linux-test: e2e-linux
+
+e2e-vendor:
+	$(DC) up -d --build --force-recreate dev
+	./test/e2e/vendor/run.sh
+
+e2e-vendor-test:
+	$(EXEC) go test -tags e2e_vendor -v -count=1 -timeout 120s ./test/e2e/vendor/
 
 # === Build ===
 
@@ -159,7 +242,7 @@ interop-bgp-down:
 interop-bgp-logs:
 	$(INTEROP_BGP_DC) logs -f
 
-# === RFC Interop Tests (RFC 7419 + RFC 9384 + RFC 9468 — 3 scenarios) ===
+# === RFC Interop Tests (RFC 7419 + RFC 9384 + RFC 9468 + RFC 9747) ===
 
 INTEROP_RFC_COMPOSE := test/interop-rfc/compose.yml
 INTEROP_RFC_DC := podman-compose -f $(INTEROP_RFC_COMPOSE)
@@ -185,17 +268,26 @@ interop-rfc-logs:
 CLAB_TOPO := test/interop-clab/gobfd-vendors.clab.yml
 
 interop-clab:
+	$(DC) up -d --build --force-recreate dev
 	./test/interop-clab/run.sh
 
 interop-clab-test:
 	$(EXEC) go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
 
 interop-clab-up:
+	$(DC) up -d --build --force-recreate dev
 	./test/interop-clab/run.sh --up-only
 
 interop-clab-down:
 	containerlab --runtime podman destroy -t $(CLAB_TOPO) --cleanup 2>/dev/null || true
-	podman rm -f clab-gobfd-vendors-gobfd 2>/dev/null || true
+	podman rm -f clab-gobfd-vendors-gobfd clab-gobfd-vendors-arista clab-gobfd-vendors-nokia clab-gobfd-vendors-cisco clab-gobfd-vendors-sonic clab-gobfd-vendors-vyos clab-gobfd-vendors-frr 2>/dev/null || true
+	ip link del veth-eth1 2>/dev/null || true
+	ip link del veth-eth2 2>/dev/null || true
+	ip link del veth-eth3 2>/dev/null || true
+	ip link del veth-eth4 2>/dev/null || true
+	ip link del veth-eth5 2>/dev/null || true
+	ip link del veth-eth6 2>/dev/null || true
+	podman network rm gobfd-vendors-net 2>/dev/null || true
 
 # === Integration Examples ===
 

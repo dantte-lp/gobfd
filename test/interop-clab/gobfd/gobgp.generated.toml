@@ -1,5 +1,5 @@
-# Auto-generated GoBGP config for vendor BFD interop tests.
-# ASN 65001, used alongside GoBFD for protocol-triggered BFD sessions.
+# Checked-in full-profile GoBGP example for vendor BFD interop tests.
+# The runtime runner writes deployed-vendor-only configs under gobfd/.runtime/.
 
 [global.config]
 as = 65001
@@ -9,6 +9,34 @@ port = 179
 [global.apply-policy.config]
 default-import-policy = "accept-route"
 default-export-policy = "accept-route"
+
+# --- arista (ASN 65002, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.1.2"
+peer-as = 65002
+
+[neighbors.transport.config]
+local-address = "10.0.1.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- arista (ASN 65002, IPv6) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "fd00:0:1::1"
+peer-as = 65002
+
+[neighbors.transport.config]
+local-address = "fd00:0:1::"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv6-unicast"
 
 # --- nokia (ASN 65003, IPv4) ---
 
@@ -38,6 +66,34 @@ local-address = "fd00:0:2::"
 [neighbors.afi-safis.config]
 afi-safi-name = "ipv6-unicast"
 
+# --- cisco (ASN 65004, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.3.2"
+peer-as = 65004
+
+[neighbors.transport.config]
+local-address = "10.0.3.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- cisco (ASN 65004, IPv6) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "fd00:0:3::1"
+peer-as = 65004
+
+[neighbors.transport.config]
+local-address = "fd00:0:3::"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv6-unicast"
+
 # --- sonic (ASN 65005, IPv4) ---
 
 [[neighbors]]
@@ -47,6 +103,20 @@ peer-as = 65005
 
 [neighbors.transport.config]
 local-address = "10.0.4.1"
+
+[[neighbors.afi-safis]]
+[neighbors.afi-safis.config]
+afi-safi-name = "ipv4-unicast"
+
+# --- vyos (ASN 65006, IPv4) ---
+
+[[neighbors]]
+[neighbors.config]
+neighbor-address = "10.0.5.2"
+peer-as = 65006
+
+[neighbors.transport.config]
+local-address = "10.0.5.1"
 
 [[neighbors.afi-safis]]
 [neighbors.afi-safis.config]

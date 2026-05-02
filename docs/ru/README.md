@@ -1,7 +1,7 @@
 # Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-23-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-27-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -55,6 +55,10 @@ graph TD
         F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF research"]
         F5["ovsdb-api-research.md<br/>OVSDB API research"]
         F6["17-scorecard-hardening.md<br/>Scorecard Hardening"]
+        F7["18-s10-extended-e2e-interop.md<br/>S10 E2E Interop"]
+        F8["19-s10-s1-harness-contract-plan.md<br/>S10.1 Harness Plan"]
+        F9["20-s10-closeout-analysis.md<br/>S10 Closeout Analysis"]
+        F10["21-s11-full-e2e-interop-plan.md<br/>S11 Full E2E Plan"]
     end
 
     IDX --> A1
@@ -76,6 +80,10 @@ graph TD
     IDX --> F4
     IDX --> F5
     IDX --> F6
+    IDX --> F7
+    IDX --> F8
+    IDX --> F9
+    IDX --> F10
 
     A1 --> A2
     A2 --> D1
@@ -90,6 +98,10 @@ graph TD
     F3 --> F4
     F3 --> F5
     F2 --> F6
+    F6 --> F7
+    F7 --> F8
+    F8 --> F9
+    F9 --> F10
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -145,6 +157,10 @@ graph TD
 | [**Исследование Linux Netlink/eBPF**](./linux-netlink-ebpf-research.md) | Decision record S4 по rtnetlink и eBPF для мониторинга состояния интерфейсов |
 | [**Исследование OVSDB API**](./ovsdb-api-research.md) | Заметки по OVSDB JSON-RPC и backend на `libovsdb` |
 | [**OpenSSF Scorecard Hardening**](./17-scorecard-hardening.md) | План S9 по повышению Scorecard с одним maintainer |
+| [**S10 Extended E2E и Interoperability**](./18-s10-extended-e2e-interop.md) | План S10 для E2E, interop, Linux dataplane, overlay и vendor profiles |
+| [**S10.1 Harness Inventory and Contract Plan**](./19-s10-s1-harness-contract-plan.md) | Подробный план S10.1 для E2E harness contract |
+| [**S10 Closeout Analysis**](./20-s10-closeout-analysis.md) | Завершение S10, оставшаяся работа и backlog кандидатов следующего спринта |
+| [**S11 Full E2E and Interoperability Plan**](./21-s11-full-e2e-interop-plan.md) | План full E2E execution, vendor evidence, reports, CI artifacts и owner-backend decision |
 
 ### Исходные тексты RFC
 
@@ -157,6 +173,13 @@ graph TD
 | [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 | BFD for MPLS Label Switched Paths |
 | [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 | BFD for PW VCCV |
 | [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 | Bidirectional Forwarding Detection (BFD) on LAG |
+| [rfc7419.txt](../rfc/rfc7419.txt) | RFC 7419 | Common Interval Support |
+| [rfc9384.txt](../rfc/rfc9384.txt) | RFC 9384 | BGP Cease Notification Subcode for BFD |
+| [rfc9468.txt](../rfc/rfc9468.txt) | RFC 9468 | Unsolicited BFD for Sessionless Applications |
+| [rfc9747.txt](../rfc/rfc9747.txt) | RFC 9747 | Unaffiliated BFD Echo |
+| [rfc8971.txt](../rfc/rfc8971.txt) | RFC 8971 | BFD for VXLAN |
+| [rfc9521.txt](../rfc/rfc9521.txt) | RFC 9521 | BFD for Geneve |
+| [rfc9764.txt](../rfc/rfc9764.txt) | RFC 9764 | BFD Encapsulated in Large Packets |
 
 ---
 

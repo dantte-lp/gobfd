@@ -354,14 +354,14 @@ graph TD
     NOKIA["Nokia SR Linux<br/>10.0.2.2 / fd00:0:2::1<br/>ASN 65003"]
     FRR["FRRouting<br/>10.0.6.2 / fd00:0:6::1<br/>ASN 65007"]
     ARISTA["Arista cEOS<br/>10.0.1.2 / fd00:0:1::1<br/>ASN 65002"]
-    CISCO["Cisco XRd vRouter<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
+    CISCO["Cisco XRd Control Plane<br/>10.0.3.2 / fd00:0:3::1<br/>ASN 65004"]
     SONIC["SONiC-VS<br/>10.0.4.2<br/>ASN 65005"]
     VYOS["VyOS<br/>10.0.5.2<br/>ASN 65006"]
 
     GOBFD ---|"eth2 ↔ e1-1<br/>10.0.2.0/30 + fd00:0:2::/127"| NOKIA
     GOBFD ---|"eth6 ↔ eth1<br/>10.0.6.0/30 + fd00:0:6::/127"| FRR
     GOBFD ---|"eth1 ↔ eth1<br/>10.0.1.0/30 + fd00:0:1::/127"| ARISTA
-    GOBFD ---|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
+    GOBFD -.-|"eth3 ↔ Gi0/0/0/0<br/>10.0.3.0/30 + fd00:0:3::/127"| CISCO
     GOBFD -.-|"eth4 ↔ eth1<br/>10.0.4.0/30"| SONIC
     GOBFD -.-|"eth5 ↔ eth1<br/>10.0.5.0/30"| VYOS
 
@@ -374,18 +374,20 @@ graph TD
     style VYOS fill:#6f42c1,color:#fff
 ```
 
-> Сплошные линии = доступны и протестированы (двойной стек). Пунктирные линии = определены в топологии, пропускаются при отсутствии образа (только IPv4).
+> Сплошные линии = primary или baseline profiles. Пунктирные линии =
+> deferred profile или image-dependent profile. Image availability фиксируется
+> через `make e2e-vendor`.
 
 ### Доступность вендоров
 
 | Вендор | Образ | Подсеть IPv4 | Подсеть IPv6 | ASN | Статус | Лицензия |
 |---|---|---|---|---|---|---|
-| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Доступен | Бесплатно, без регистрации |
-| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Доступен | GPL, бесплатно |
-| **Arista cEOS** | `ceos:4.35.2F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Доступен | Бесплатный аккаунт Arista.com |
-| **Cisco XRd** | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Доступен | Сервисный контракт Cisco |
-| SONiC-VS | `docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Ручной импорт | Бесплатно |
-| VyOS | `vyos:latest` | `10.0.5.0/30` | -- | 65006 | Сборка из ISO | Бесплатно (rolling) |
+| **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Бесплатно, без регистрации |
+| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, бесплатно |
+| **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Бесплатный аккаунт Arista.com |
+| SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Бесплатно |
+| VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Бесплатный rolling/community image |
+| Cisco XRd | `ios-xr/xrd-control-plane:25.4.1` | `10.0.3.0/30` | `fd00:0:3::/127` | 65004 | Deferred | Сервисный контракт Cisco |
 
 ### Предварительные требования
 
@@ -399,13 +401,12 @@ graph TD
 Самодостаточный скрипт на Python 3.12+ автоматизирует полную подготовку образов с чистой машины:
 
 ```bash
-# Скачать все open-source образы + собрать VyOS из ISO + собрать GoBFD
+# Скачать все public образы + подготовить VyOS tag + собрать GoBFD
 python3 test/interop-clab/bootstrap.py -v
 
 # С коммерческими образами
 python3 test/interop-clab/bootstrap.py \
-    --arista-image /path/to/cEOS64-lab-4.35.2F.tar \
-    --cisco-image /path/to/xrd-control-plane-container-x64.25.4.1.tgz
+    --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Подготовка + деплой топологии
 python3 test/interop-clab/bootstrap.py --deploy
@@ -419,9 +420,9 @@ python3 test/interop-clab/bootstrap.py --dry-run
 
 Скрипт выполняет:
 - **Предварительные проверки**: podman, go, системные утилиты, свободное место
-- **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, FRRouting (+ зависимости сборки)
-- **Сборка образа VyOS**: скачивание rolling ISO, извлечение squashfs, импорт в podman
-- **Импорт коммерческих образов**: Arista cEOS (`podman load`) и Cisco XRd (распаковка вложенного архива)
+- **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ зависимости сборки)
+- **Подготовка образа VyOS**: скачивание `docker.io/muruu1/vyos:latest`, tag как `vyos:latest`; ISO build остаётся fallback
+- **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
 - **Отчёт об инвентаризации**: итоговая таблица всех образов со статусом готовности
 
@@ -438,6 +439,10 @@ make interop-clab-up     # Сборка + деплой топологии
 make interop-clab-test   # Запуск Go-тестов (топология должна работать)
 make interop-clab-down   # Уничтожение контейнеров и veth-линков
 ```
+
+`make interop-clab` скачивает public images Nokia SR Linux, SONiC-VS, VyOS и
+FRRouting до проверки availability. Cisco XRd и Arista cEOS остаются
+operator-provided images.
 
 ### Матрица соответствия RFC
 
@@ -457,11 +462,22 @@ make interop-clab-down   # Уничтожение контейнеров и veth
 
 **FRRouting**: Нативный демон `bfdd` реализует RFC 5880/5881/5882/5883. Таймеры BFD настраиваются напрямую в `frr.conf` (300мс TX/RX, множитель 3). FRR интегрирует BFD с BGP через директиву `neighbor X bfd`. Контейнер ~188МБ, запускается за секунды.
 
-**Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.35.2F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
+**Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.36.0.1F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
 
-**Cisco XRd**: XRd Control Plane выполняет тот же код IOS-XR, что и физические платформы Cisco 8000/NCS. Контейнер запускается с `--privileged` и обнаруживает Linux-интерфейсы напрямую (veth-конечные точки с именем `Gi0-0-0-0`). Время загрузки 60-180с; тестовый раннер ожидает успешного выполнения `xr_cli 'show version'`. BFD настраивается через BGP-соседа с `bfd fast-detect` и таймерами 300мс. Режим эхо явно отключён (`bfd echo disable`), так как контейнеры XRd не поддерживают аппаратный эхо-режим. **Примечание**: XRd vRouter (DPDK-датаплейн) требует PCI-проброса и несовместим с veth-топологиями — здесь может использоваться только Control Plane.
+**Cisco XRd**: XRd Control Plane является deferred optional profile. Profile определён, но не входит в primary S10.6 vendor set до появления operator-provided XRd image. XRd vRouter требует PCI passthrough и несовместим с veth-based topologies.
 
 **Интеграция с GoBGP**: GoBFD работает совместно с GoBGP (ASN 65001) внутри контейнера GoBFD. Вендорные NOS, такие как Nokia, требуют BGP для BFD, инициируемого протоколом. При паузе/возобновлении контейнера вендора BGP-сосед GoBGP переходит в состояние `Idle(Admin)` и должен быть явно перевключён через `gobgp neighbor <ip> enable`.
+
+### Проверка конфигурации вендоров
+
+| Profile | Runtime Config | Official Source Constraint | Repository Status |
+|---|---|---|---|
+| Arista cEOS | `arista/startup-config.cfg` | EOS BGP использует `neighbor bfd`; interface timers используют `bfd interval`; VXLAN BFD использует `bfd vtep evpn` под VTI. | Current profile is single-hop BGP+BFD. RFC 8971 reserved for a future Vxlan1 profile. |
+| Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers задаются в microseconds; BGP failure-detection enables BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
+| SONiC-VS | `sonic/configure.sh` | SONiC использует ConfigDB для настройки data-plane interfaces; `sonic-vs` является containerized SONiC kind; текущий BFD path основан на FRR. | Current profile starts bgpd/bfdd, configures the data-plane interface, and requires separate evidence before claiming native SONiC BFD CLI coverage. |
+| VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
+| FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
+| Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
 
 ### Тестирование BFD с двойным стеком IPv6
 
@@ -545,7 +561,7 @@ Vendor interop coverage использует три уровня:
 |---|---|---|---|
 | 1 (немедленный) | FRRouting | Полное покрытие RFC с открытым кодом | 5880, 5881, 5882, 5883 |
 | 2 (коммерческий) | Nokia SR Linux | Промышленный коммерческий NOS | 5880 (async mode) |
-| 3 (широта) | Arista cEOS | Независимая промышленная реализация | 5880, 5881, S-BFD |
+| 3 (широта) | Arista cEOS | Независимая промышленная реализация | 5880, 5881, 5882 |
 
 **Нативные контейнеры** (FRR, SR Linux, cEOS) потребляют ~0.5 vCPU и 0.5-1.5 ГБ RAM каждый. Топология из 3 узлов комфортно работает в VM с 4 vCPU и 8 ГБ RAM.
 
@@ -553,4 +569,4 @@ Vendor interop coverage использует три уровня:
 
 ---
 
-*Последнее обновление: 2026-02-24*
+*Последнее обновление: 2026-05-01*

@@ -93,7 +93,14 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 [RFC 5883](docs/rfc/rfc5883.txt) |
 [RFC 5884](docs/rfc/rfc5884.txt) |
 [RFC 5885](docs/rfc/rfc5885.txt) |
-[RFC 7130](docs/rfc/rfc7130.txt)
+[RFC 7130](docs/rfc/rfc7130.txt) |
+[RFC 7419](docs/rfc/rfc7419.txt) |
+[RFC 9384](docs/rfc/rfc9384.txt) |
+[RFC 9468](docs/rfc/rfc9468.txt) |
+[RFC 9747](docs/rfc/rfc9747.txt) |
+[RFC 8971](docs/rfc/rfc8971.txt) |
+[RFC 9521](docs/rfc/rfc9521.txt) |
+[RFC 9764](docs/rfc/rfc9764.txt)
 
 ## RFC Compliance
 
@@ -106,9 +113,9 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 7419 | Common Interval Support | Implemented |
 | RFC 9468 | Unsolicited BFD | Implemented |
 | RFC 9747 | Unaffiliated BFD Echo | Implemented |
-| RFC 7130 | Micro-BFD for LAG | Implemented |
-| RFC 8971 | BFD for VXLAN | Implemented |
-| RFC 9521 | BFD for Geneve | Implemented |
+| RFC 7130 | Micro-BFD for LAG | Protocol implemented; production integration partial |
+| RFC 8971 | BFD for VXLAN | Userspace backend implemented; owner backends planned |
+| RFC 9521 | BFD for Geneve | Userspace backend implemented; owner backends planned |
 | RFC 9764 | BFD Large Packets | Implemented |
 | RFC 5884 | BFD for MPLS LSPs | Stub |
 | RFC 5885 | BFD for PW VCCV | Stub |
@@ -125,7 +132,7 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 
 - Table-driven FSM matching RFC 5880 Section 6.8.6 (no if-else chains)
 - Five authentication modes (Simple Password, Keyed MD5/SHA1, Meticulous MD5/SHA1)
-- RFC 9747 Echo, RFC 7130 Micro-BFD, RFC 8971 VXLAN, and RFC 9521 Geneve support
+- RFC 9747 Echo, RFC 7130 Micro-BFD protocol, RFC 8971 VXLAN userspace backend, and RFC 9521 Geneve userspace backend support
 - BFD flap dampening for BGP integration (RFC 5882 Section 3.2)
 - Zero-allocation packet codec with pre-built cached packets
 - ConnectRPC/gRPC API + CLI with interactive shell
@@ -137,8 +144,8 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 Advanced Linux modes are explicit about dataplane ownership: Micro-BFD detects
 per-member LAG state but needs a bond/team/OVS actuator for enforcement, while
 VXLAN/Geneve BFD defaults to an explicit `userspace-udp` backend. Reserved
-kernel, OVS/OVN, Cilium, and NSX backend names fail closed until owner-specific
-integrations are implemented.
+kernel, OVS/OVN, Cilium, Calico, and NSX backend names fail closed until
+owner-specific integrations are implemented.
 
 ## Contributing
 

@@ -1,0 +1,167 @@
+{
+  "runtime": {
+    "containerlab_runtime": "podman",
+    "podman_required": true,
+    "public_ci_default": "skip-topology"
+  },
+  "profiles": [
+    {
+      "id": "arista-ceos",
+      "vendor": "Arista",
+      "platform": "cEOS",
+      "profile_class": "primary",
+      "topology_node": "arista",
+      "config_paths": [
+        "test/interop-clab/arista/startup-config.cfg"
+      ],
+      "images": [
+        "localhost/ceos:4.36.0.1F",
+        "ceos:4.36.0.1F",
+        "localhost/ceos:4.35.2F",
+        "ceos:4.35.2F"
+      ],
+      "skip_policy": "licensed-vendor-image",
+      "scenario": "single-hop-dual-stack-bfd-with-bgp-trigger",
+      "standards": [
+        "RFC 5880",
+        "RFC 5881",
+        "RFC 5882"
+      ],
+      "evidence": [
+        "show bfd peers detail",
+        "show ip bgp summary",
+        "show ipv6 bgp summary"
+      ]
+    },
+    {
+      "id": "nokia-srlinux",
+      "vendor": "Nokia",
+      "platform": "SR Linux",
+      "profile_class": "primary",
+      "topology_node": "nokia",
+      "config_paths": [
+        "test/interop-clab/nokia/config.cli"
+      ],
+      "images": [
+        "ghcr.io/nokia/srlinux:25.10.2",
+        "ghcr.io/nokia/srlinux:24.10.1"
+      ],
+      "skip_policy": "missing-image",
+      "scenario": "single-hop-bfd-with-bgp-trigger",
+      "standards": [
+        "RFC 5880",
+        "RFC 5881",
+        "RFC 5882"
+      ],
+      "evidence": [
+        "bfd neighbor state",
+        "bgp neighbor state"
+      ]
+    },
+    {
+      "id": "cisco-xrd",
+      "vendor": "Cisco",
+      "platform": "XRd Control Plane",
+      "profile_class": "deferred",
+      "topology_node": "cisco",
+      "config_paths": [
+        "test/interop-clab/cisco/xrd.cfg"
+      ],
+      "images": [
+        "ios-xr/xrd-control-plane:25.4.1",
+        "ios-xr/xrd-control-plane:24.3.1",
+        "ios-xr/xrd-control-plane:latest"
+      ],
+      "skip_policy": "licensed-vendor-image",
+      "scenario": "single-hop-bfd-with-bgp-trigger",
+      "standards": [
+        "RFC 5880",
+        "RFC 5881",
+        "RFC 5882"
+      ],
+      "evidence": [
+        "show bfd session",
+        "show bgp neighbor"
+      ]
+    },
+    {
+      "id": "sonic-vs",
+      "vendor": "SONiC",
+      "platform": "SONiC-VS",
+      "profile_class": "primary",
+      "topology_node": "sonic",
+      "config_paths": [
+        "test/interop-clab/sonic/configure.sh"
+      ],
+      "images": [
+        "docker.io/netreplica/docker-sonic-vs:latest",
+        "netreplica/docker-sonic-vs:latest",
+        "docker-sonic-vs:latest"
+      ],
+      "skip_policy": "missing-image",
+      "scenario": "single-hop-bfd-with-bgp-trigger",
+      "standards": [
+        "RFC 5880",
+        "RFC 5881",
+        "RFC 5882"
+      ],
+      "evidence": [
+        "show bfd summary",
+        "show ip bgp summary"
+      ]
+    },
+    {
+      "id": "vyos",
+      "vendor": "VyOS",
+      "platform": "VyOS",
+      "profile_class": "primary",
+      "topology_node": "vyos",
+      "config_paths": [
+        "test/interop-clab/vyos/config.boot"
+      ],
+      "images": [
+        "localhost/vyos:latest",
+        "docker.io/muruu1/vyos:latest",
+        "muruu1/vyos:latest",
+        "vyos:latest"
+      ],
+      "skip_policy": "missing-image",
+      "scenario": "single-hop-bfd-with-bgp-trigger",
+      "standards": [
+        "RFC 5880",
+        "RFC 5881",
+        "RFC 5882"
+      ],
+      "evidence": [
+        "show protocols bfd",
+        "show ip bgp summary"
+      ]
+    },
+    {
+      "id": "frr",
+      "vendor": "FRRouting",
+      "platform": "FRR",
+      "profile_class": "baseline",
+      "topology_node": "frr",
+      "config_paths": [
+        "test/interop-clab/frr/daemons",
+        "test/interop-clab/frr/frr.conf"
+      ],
+      "images": [
+        "quay.io/frrouting/frr:10.2.5"
+      ],
+      "skip_policy": "missing-image",
+      "scenario": "single-hop-dual-stack-bfd-baseline",
+      "standards": [
+        "RFC 5880",
+        "RFC 5881",
+        "RFC 5882",
+        "RFC 5883"
+      ],
+      "evidence": [
+        "show bfd peers",
+        "show bgp summary"
+      ]
+    }
+  ]
+}

@@ -30,6 +30,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/frrjson"
 )
 
 // =========================================================================
@@ -143,11 +145,9 @@ func frrBFDPeerStatus(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("vtysh show bfd peers json: %w: %s", err, output)
 	}
 
-	jsonStr := strings.TrimSpace(output)
-	if idx := strings.Index(output, "\n["); idx >= 0 {
-		jsonStr = strings.TrimSpace(output[idx+1:])
-	} else if !strings.HasPrefix(jsonStr, "[") {
-		return "", fmt.Errorf("no JSON array in vtysh output: %s", output)
+	jsonStr, err := frrjson.ExtractJSONArray(output)
+	if err != nil {
+		return "", err
 	}
 
 	var peers []struct {
