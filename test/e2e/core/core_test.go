@@ -254,19 +254,37 @@ func serviceGRPCAddr(service string) string {
 }
 
 func containerLogs(ctx context.Context, service string, tail int) (string, error) {
+	container, err := containerID(ctx, service)
+	if err != nil {
+		return "", err
+	}
 	client, err := podmanapi.NewClientFromEnvironment()
 	if err != nil {
 		return "", err
 	}
-	return client.Logs(ctx, containerName(service), tail)
+	return client.Logs(ctx, container, tail)
 }
 
-func containerName(service string) string {
+func containerID(ctx context.Context, service string) (string, error) {
 	project := os.Getenv("E2E_CORE_PROJECT")
 	if project == "" {
 		project = "gobfd-e2e-core"
 	}
-	return project + "_" + service + "_1"
+	out, err := podman(ctx,
+		"ps", "-a",
+		"--filter", "label=io.podman.compose.project="+project,
+		"--filter", "label=io.podman.compose.service="+service,
+		"--format", "{{.ID}}",
+	)
+	if err != nil {
+		return "", fmt.Errorf("podman ps service %s: %w: %s", service, err, out)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if id := strings.TrimSpace(line); id != "" {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("podman ps service %s returned no container ID", service)
 }
 
 func tshark(ctx context.Context, args ...string) (string, error) {
@@ -295,6 +313,16 @@ func mappedPort(t *testing.T, ctx context.Context, service, port string) string 
 
 func podmanCompose(ctx context.Context, args ...string) (string, error) {
 	return podmanComposeWithProfiles(ctx, nil, args...)
+}
+
+func podman(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "podman", args...)
+	cmd.Env = os.Environ()
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.String(), err
 }
 
 func podmanComposeWithProfiles(ctx context.Context, profiles []string, args ...string) (string, error) {
