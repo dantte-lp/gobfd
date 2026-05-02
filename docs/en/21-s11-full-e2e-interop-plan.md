@@ -593,7 +593,7 @@ Evidence:
 |---|---|
 | Symptom | The third PR-safe run passed session, CLI, metrics, and packet-capture checks, but reload-log validation failed on `podman-compose logs gobfd-a`. |
 | Root cause | The dev-container path did not provide stable visibility for the deterministic compose name `gobfd-e2e-core_gobfd-a_1` through the runner Podman API lookup, and older `podman-compose` does not accept a service argument for `ps -q`. |
-| Fix | Core E2E resolves the live service container ID by `io.podman.compose.project` and `io.podman.compose.service` labels, then uses `test/internal/podmanapi` to read logs from the Podman REST API socket. |
+| Fix | Core E2E resolves the live service container ID through `test/internal/podmanapi` by `io.podman.compose.project` and `io.podman.compose.service` labels, then reads logs from the same Podman REST API socket. |
 | Verification | Local Podman `make e2e-core`, `make verify`, and the next PR-safe run. |
 
 - [ ] **Step 9: Clear remaining release blockers**

@@ -32,6 +32,7 @@ var (
 	errExecNonZero          = errors.New("exec exited with non-zero code")
 	errLogsStatus           = errors.New("container logs returned non-success status")
 	errInspectStatus        = errors.New("container inspect returned non-success status")
+	errListContainersStatus = errors.New("container list returned non-success status")
 	errDockerFrameTooLarge  = errors.New("docker stream frame exceeds size limit")
 	errContainerActionState = errors.New("container action returned non-success status")
 	errReadResponseBody     = errors.New("read response body")
@@ -49,6 +50,13 @@ type ExecResult struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
+}
+
+// ContainerSummary captures the container fields needed by integration tests.
+type ContainerSummary struct {
+	ID     string            `json:"Id"`     //nolint:tagliatelle // Docker-compatible API field.
+	Names  []string          `json:"Names"`  //nolint:tagliatelle // Docker-compatible API field.
+	Labels map[string]string `json:"Labels"` //nolint:tagliatelle // Docker-compatible API field.
 }
 
 // NewClient creates a Podman REST API client bound to a Unix socket path.
@@ -236,6 +244,29 @@ func (c *Client) Inspect(ctx context.Context, container string) (json.RawMessage
 		return nil, fmt.Errorf("inspect %s response: %w", container, err)
 	}
 	return json.RawMessage(body), nil
+}
+
+// Containers returns all containers visible through the Podman API socket.
+func (c *Client) Containers(ctx context.Context) ([]ContainerSummary, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/containers/json?all=true")
+	if err != nil {
+		return nil, fmt.Errorf("list containers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := readBody(resp.Body, "container list error body")
+		if readErr != nil {
+			return nil, readErr
+		}
+		return nil, fmt.Errorf("%w: status %d: %s", errListContainersStatus, resp.StatusCode, body)
+	}
+
+	var containers []ContainerSummary
+	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
+		return nil, fmt.Errorf("decode container list response: %w", err)
+	}
+	return containers, nil
 }
 
 // Exists reports whether the container exists in any state.

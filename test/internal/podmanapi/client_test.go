@@ -46,6 +46,8 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 			_, _ = w.Write(appendFrame(nil, 1, "log\n"))
 		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/containers/demo/json":
 			_, _ = w.Write([]byte(`{"State":{"Status":"running"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/containers/json":
+			_, _ = w.Write([]byte(`[{"Id":"demo-id","Names":["demo"],"Labels":{"io.podman.compose.service":"demo"}}]`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v5.0.0/containers/demo/pause":
 			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && r.URL.Path == "/v5.0.0/containers/demo/unpause":
@@ -86,8 +88,16 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 		t.Fatalf("Inspect: %v", err)
 	}
 	var inspect map[string]any
-	if err := json.Unmarshal(raw, &inspect); err != nil {
-		t.Fatalf("Inspect JSON: %v", err)
+	if unmarshalErr := json.Unmarshal(raw, &inspect); unmarshalErr != nil {
+		t.Fatalf("Inspect JSON: %v", unmarshalErr)
+	}
+
+	containers, err := client.Containers(context.Background())
+	if err != nil {
+		t.Fatalf("Containers: %v", err)
+	}
+	if len(containers) != 1 || containers[0].ID != "demo-id" {
+		t.Fatalf("Containers = %+v", containers)
 	}
 
 	for name, fn := range map[string]func(context.Context, string) error{
