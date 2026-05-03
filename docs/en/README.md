@@ -1,7 +1,7 @@
 # GoBFD Documentation
 
 ![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-27-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-28-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -59,6 +59,7 @@ graph TD
         F8["19-s10-s1-harness-contract-plan.md<br/>S10.1 Harness Plan"]
         F9["20-s10-closeout-analysis.md<br/>S10 Closeout Analysis"]
         F10["21-s11-full-e2e-interop-plan.md<br/>S11 Full E2E Plan"]
+        F11["22-s10-rfc-evidence-stability-plan.md<br/>S10 RFC Evidence Stability"]
     end
 
     IDX --> A1
@@ -84,6 +85,7 @@ graph TD
     IDX --> F8
     IDX --> F9
     IDX --> F10
+    IDX --> F11
 
     A1 --> A2
     A2 --> D1
@@ -102,6 +104,7 @@ graph TD
     F7 --> F8
     F8 --> F9
     F9 --> F10
+    F10 --> F11
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -161,6 +164,7 @@ graph TD
 | [**S10.1 Harness Inventory and Contract Plan**](./19-s10-s1-harness-contract-plan.md) | Detailed S10.1 implementation plan for the E2E harness contract |
 | [**S10 Closeout Analysis**](./20-s10-closeout-analysis.md) | S10 completion, remaining work, and next-sprint candidate backlog |
 | [**S11 Full E2E and Interoperability Plan**](./21-s11-full-e2e-interop-plan.md) | Full E2E execution, vendor evidence, reports, CI artifacts, and owner-backend decision plan |
+| [**S10 RFC Evidence Stability Plan**](./22-s10-rfc-evidence-stability-plan.md) | Stabilization plan for RFC packet-evidence capture gates |
 
 ### RFC Source Files
 
@@ -201,4 +205,4 @@ See [06-deployment.md](./06-deployment.md) for production deployment and [09-dev
 
 ---
 
-*Last updated: 2026-05-01*
+*Last updated: 2026-05-03*
