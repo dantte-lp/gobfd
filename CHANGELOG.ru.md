@@ -77,6 +77,13 @@
 
 ### Исправлено
 
+- RFC E2E packet-evidence checks теперь используют bounded tshark retries
+  вместо fixed sleeps перед single pcap reads; это снижает flaky failures, где
+  BFD control-plane session уже `Up`, но capture file ещё не содержит matching
+  packet.
+- Routing interop теперь рассматривает Thoro/bfd как optional evidence, если
+  upstream peer падает на unimplemented RFC 5880 poll-sequence interval update
+  path; FRR, BIRD3 и aiobfd остаются mandatory routing peers.
 - Core E2E CLI checks теперь запускают собранный в dev container `gobfdctl`
   против published gRPC ports вместо входа в peer containers через
   `podman exec`; PR-safe profile не зависит от visibility container names в

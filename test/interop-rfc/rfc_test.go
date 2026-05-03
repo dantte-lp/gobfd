@@ -180,16 +180,26 @@ func tsharkQuery(ctx context.Context, args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return cleanTsharkOutput(output), nil
+}
+
+func cleanTsharkOutput(output string) string {
 	// tshark emits "Running as user ..." warning on stderr, which the
 	// Docker stream demuxer merges into stdout. Strip it.
 	var cleaned []string
 	for _, line := range strings.Split(output, "\n") {
-		if strings.HasPrefix(line, "Running as user") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Running as user") ||
+			strings.HasPrefix(trimmed, "Capturing on ") ||
+			strings.HasPrefix(trimmed, "tshark: ") ||
+			strings.HasPrefix(trimmed, "**") ||
+			strings.HasSuffix(trimmed, " packet captured") ||
+			strings.HasSuffix(trimmed, " packets captured") {
 			continue
 		}
 		cleaned = append(cleaned, line)
 	}
-	return strings.Join(cleaned, "\n"), nil
+	return strings.Join(cleaned, "\n")
 }
 
 // tsharkFields extracts specific fields from packets matching a display filter.
@@ -224,6 +234,51 @@ func tsharkFields(ctx context.Context, filter string, fields []string, maxCount 
 	return rows, nil
 }
 
+func tsharkLiveFields(
+	ctx context.Context,
+	captureDuration time.Duration,
+	filter string,
+	fields []string,
+	maxCount int,
+) ([][]string, error) {
+	if captureDuration < time.Second {
+		captureDuration = time.Second
+	}
+	args := []string{
+		"tshark",
+		"-i", "any",
+		"-f", "udp port 3784 or udp port 3785 or udp port 4784",
+		"-a", fmt.Sprintf("duration:%d", int(captureDuration.Seconds())),
+		"-Y", filter,
+		"-T", "fields",
+	}
+	for _, f := range fields {
+		args = append(args, "-e", f)
+	}
+	args = append(args, "-E", "separator=\t", "-E", "header=n")
+	if maxCount > 0 {
+		args = append(args, "-c", strconv.Itoa(maxCount))
+	}
+
+	output, err := containerExec(ctx, tsharkRFCContainer, args...)
+	if err != nil {
+		return nil, err
+	}
+	output = strings.TrimSpace(cleanTsharkOutput(output))
+	if output == "" {
+		return nil, nil
+	}
+
+	var rows [][]string
+	for _, line := range strings.Split(output, "\n") {
+		if line == "" {
+			continue
+		}
+		rows = append(rows, strings.Split(line, "\t"))
+	}
+	return rows, nil
+}
+
 // tsharkCount returns the number of packets matching a display filter.
 func tsharkCount(ctx context.Context, filter string) (int, error) {
 	output, err := tsharkQuery(ctx, "-Y", filter, "-T", "fields", "-e", "frame.number")
@@ -235,6 +290,85 @@ func tsharkCount(ctx context.Context, filter string) (int, error) {
 		return 0, nil
 	}
 	return len(strings.Split(output, "\n")), nil
+}
+
+type tsharkFieldsQuery func(filter string, fields []string, maxCount int) ([][]string, error)
+type tsharkCountQuery func(filter string) (int, error)
+
+func waitTsharkFields(
+	ctx context.Context,
+	filter string,
+	fields []string,
+	maxCount int,
+	timeout time.Duration,
+	interval time.Duration,
+	query tsharkFieldsQuery,
+) ([][]string, error) {
+	if interval <= 0 {
+		interval = pollInterval
+	}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+
+	for {
+		rows, err := query(filter, fields, maxCount)
+		if err != nil {
+			lastErr = err
+		}
+		if len(rows) > 0 {
+			return rows, nil
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return nil, fmt.Errorf("timed out waiting for tshark rows after %v: filter=%q: last error: %w",
+					timeout, filter, lastErr)
+			}
+			return nil, fmt.Errorf("timed out waiting for tshark rows after %v: filter=%q", timeout, filter)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("wait for tshark rows canceled: filter=%q: %w", filter, ctx.Err())
+		case <-time.After(interval):
+		}
+	}
+}
+
+func waitTsharkCount(
+	ctx context.Context,
+	filter string,
+	timeout time.Duration,
+	interval time.Duration,
+	query tsharkCountQuery,
+) (int, error) {
+	if interval <= 0 {
+		interval = pollInterval
+	}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+
+	for {
+		count, err := query(filter)
+		if err != nil {
+			lastErr = err
+		}
+		if count > 0 {
+			return count, nil
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return 0, fmt.Errorf("timed out waiting for tshark packets after %v: filter=%q: last error: %w",
+					timeout, filter, lastErr)
+			}
+			return 0, fmt.Errorf("timed out waiting for tshark packets after %v: filter=%q", timeout, filter)
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("wait for tshark packets canceled: filter=%q: %w", filter, ctx.Err())
+		case <-time.After(interval):
+		}
+	}
 }
 
 // parseHexOrDec parses a string that may be hex (0x...) or decimal.
@@ -381,21 +515,18 @@ func TestRFC7419_CommonIntervalAlignment(t *testing.T) {
 	waitFRRBFDUp(t, ctx, frrRFCContainer, gobfdRFCIP, bfdUpTimeout)
 	t.Log("BFD session Up")
 
-	// Allow tshark to accumulate some Up packets.
-	time.Sleep(5 * time.Second)
-
 	// Step 2: Extract DesiredMinTxInterval from GoBFD→FRR Up packets.
 	filter := fmt.Sprintf(
 		"bfd && ip.src == %s && ip.dst == %s && bfd.sta == 0x03",
 		gobfdRFCIP, frrRFCIP,
 	)
-	rows, err := tsharkFields(ctx, filter,
-		[]string{"bfd.desired_min_tx_interval"}, 10)
+	rows, err := waitTsharkFields(ctx, filter,
+		[]string{"bfd.desired_min_tx_interval"}, 10, 15*time.Second, 500*time.Millisecond,
+		func(filter string, fields []string, maxCount int) ([][]string, error) {
+			return tsharkLiveFields(ctx, 5*time.Second, filter, fields, maxCount)
+		})
 	if err != nil {
 		t.Fatalf("tshark field extraction: %v", err)
-	}
-	if len(rows) == 0 {
-		t.Fatal("no Up packets from GoBFD to FRR captured by tshark")
 	}
 
 	// Step 3: Assert interval == 100000 (100ms aligned from 80ms).
@@ -550,22 +681,20 @@ func TestRFC9468_UnsolicitedBFD(t *testing.T) {
 	t.Log("FRR reports BFD session Up (GoBFD auto-created session via RFC 9468)")
 
 	// Step 2: Verify tshark sees BFD Up packets from GoBFD to FRR-unsolicited.
-	// Allow some Up packets to accumulate.
-	time.Sleep(3 * time.Second)
-
 	filter := fmt.Sprintf(
 		"bfd && ip.src == %s && ip.dst == %s && bfd.sta == 0x03",
 		gobfdRFCIP, frrUnsolicitedIP,
 	)
-	count, err := tsharkCount(ctx, filter)
+	rows, err := waitTsharkFields(ctx, filter,
+		[]string{"frame.number"}, 1, 15*time.Second, 500*time.Millisecond,
+		func(filter string, fields []string, maxCount int) ([][]string, error) {
+			return tsharkLiveFields(ctx, 3*time.Second, filter, fields, maxCount)
+		})
 	if err != nil {
 		t.Fatalf("tshark count for unsolicited Up packets: %v", err)
 	}
-	if count == 0 {
-		t.Error("no BFD Up packets from GoBFD to FRR-unsolicited in tshark capture")
-	} else {
-		t.Logf("tshark captured %d BFD Up packets from GoBFD to FRR-unsolicited", count)
-	}
+	count := len(rows)
+	t.Logf("tshark captured %d BFD Up packets from GoBFD to FRR-unsolicited", count)
 
 	// Step 3: Verify gobfd-rfc logged the unsolicited session creation.
 	logs, err := containerLogs(ctx, gobfdRFCContainer, 100)
@@ -638,38 +767,42 @@ func TestRFC9747_EchoSession(t *testing.T) {
 	t.Log("echo session Up")
 
 	// Phase 2: Verify echo packets on the wire.
-	// Allow some echo packets to accumulate.
-	time.Sleep(3 * time.Second)
-
-	// Check tshark for UDP port 3785 packets from GoBFD to echo-reflector.
+	// Capture both directions in one window because reflected echo packets
+	// follow transmitted echo packets within the same scheduling slice.
 	filter := fmt.Sprintf(
-		"udp.dstport == 3785 && ip.src == %s && ip.dst == %s",
-		gobfdRFCIP, echoReflectorIP,
+		"udp.dstport == 3785 && ((ip.src == %s && ip.dst == %s) || (ip.src == %s && ip.dst == %s))",
+		gobfdRFCIP, echoReflectorIP, echoReflectorIP, gobfdRFCIP,
 	)
-	echoCount, err := tsharkCount(ctx, filter)
-	if err != nil {
-		t.Fatalf("tshark count for echo packets: %v", err)
+	var echoCount, reflectCount int
+	var rows [][]string
+	var lastErr error
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, lastErr = tsharkLiveFields(ctx, 3*time.Second, filter, []string{"ip.src", "ip.dst"}, 4)
+		echoCount, reflectCount = 0, 0
+		for _, row := range rows {
+			if len(row) < 2 {
+				continue
+			}
+			switch {
+			case row[0] == gobfdRFCIP && row[1] == echoReflectorIP:
+				echoCount++
+			case row[0] == echoReflectorIP && row[1] == gobfdRFCIP:
+				reflectCount++
+			}
+		}
+		if echoCount > 0 && reflectCount > 0 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if echoCount == 0 {
-		t.Error("no echo packets (port 3785) from GoBFD to echo-reflector in tshark capture")
-	} else {
-		t.Logf("tshark captured %d echo packets from GoBFD to echo-reflector", echoCount)
+	if echoCount == 0 || reflectCount == 0 {
+		if lastErr != nil {
+			t.Fatalf("tshark captured echo directions: outbound=%d reflected=%d last_error=%v rows=%v", echoCount, reflectCount, lastErr, rows)
+		}
+		t.Fatalf("tshark captured echo directions: outbound=%d reflected=%d rows=%v", echoCount, reflectCount, rows)
 	}
-
-	// Also check reflected echo packets coming back.
-	reflectFilter := fmt.Sprintf(
-		"udp.dstport == 3785 && ip.src == %s && ip.dst == %s",
-		echoReflectorIP, gobfdRFCIP,
-	)
-	reflectCount, err := tsharkCount(ctx, reflectFilter)
-	if err != nil {
-		t.Fatalf("tshark count for reflected echo packets: %v", err)
-	}
-	if reflectCount == 0 {
-		t.Error("no reflected echo packets from echo-reflector back to GoBFD")
-	} else {
-		t.Logf("tshark captured %d reflected echo packets", reflectCount)
-	}
+	t.Logf("tshark captured echo directions: outbound=%d reflected=%d", echoCount, reflectCount)
 
 	// Phase 3: Pause echo-reflector to trigger echo failure.
 	t.Log("Phase 3: pausing echo-reflector to trigger echo failure")

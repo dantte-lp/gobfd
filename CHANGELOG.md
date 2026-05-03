@@ -79,6 +79,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- RFC E2E packet-evidence checks now use bounded tshark retries instead of
+  fixed sleeps before single pcap reads, reducing flaky failures where the BFD
+  control-plane session is already `Up` but the capture file has not yet
+  exposed the matching packet.
+- Routing interop now treats Thoro/bfd as optional evidence when the upstream
+  peer panics on its unimplemented RFC 5880 poll-sequence interval update path;
+  FRR, BIRD3, and aiobfd remain mandatory routing peers.
 - Core E2E CLI checks now run a dev-container-built `gobfdctl` against
   published gRPC ports instead of entering peer containers with `podman exec`,
   making the PR-safe profile independent of old runner Podman Compose container
