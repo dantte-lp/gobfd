@@ -74,9 +74,15 @@
 - Reusable GitHub Actions Podman runtime installer для E2E jobs, который pin
   `podman-compose` `1.5.0` from PyPI и сохраняет apt package installation как
   fallback.
+- S11 release blocker closeout plan для Dependabot titles, SonarQube secret
+  handling, remote E2E evidence, vendor lab refresh и release-gate criteria.
 
 ### Исправлено
 
+- Prefix для Dependabot Go и Docker update titles теперь соответствует
+  repository Conventional Commit policy.
+- SonarQube CI теперь skip только для Dependabot runs без `SONAR_TOKEN`, но
+  missing token остаётся fatal для non-Dependabot scans.
 - RFC E2E packet-evidence checks теперь используют bounded tshark retries
   вместо fixed sleeps перед single pcap reads; это снижает flaky failures, где
   BFD control-plane session уже `Up`, но capture file ещё не содержит matching
