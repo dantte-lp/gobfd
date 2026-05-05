@@ -133,7 +133,7 @@ Every sprint closes with a small, reviewable commit after fresh evidence:
 | # | Output | Exit |
 |---|---|---|
 | **S10** | Extended E2E and interoperability evidence. | Done: S10.1-S10.7 define and implement Podman-only evidence targets, standard `reports/e2e/<target>/<timestamp>/` artifacts, PR-safe/nightly/manual CI gates, vendor profile skip evidence, and benchmark policy separation. Closeout: `docs/en/20-s10-closeout-analysis.md`. Commits: `docs(interop): plan s10 extended interop evidence`, `test(interop): define extended evidence harness`, `test(interop): add core daemon scenarios`, `test(interop): aggregate routing interop evidence`, `test(interop): verify rfc and overlay boundaries`, `test(netio): add linux dataplane ownership checks`, `test(interop): document vendor interop profiles`, `ci(interop): publish extended evidence artifacts`. |
-| **S11** | Full E2E and interoperability execution. | In progress: S11.1-S11.3 are implemented; S11.5 local Podman release gate passes after vendoring Protovalidate proto for Buf lint; strict GoBGP vulnerability gates and remote CI evidence remain release blockers. |
+| **S11** | Full E2E and interoperability execution. | In progress: S11.1-S11.3 are implemented; S11.5 local Podman release gate passes after vendoring Protovalidate proto for Buf lint; release blocker closeout is tracked in `docs/en/23-s11-release-blocker-closeout-plan.md`. |
 
 ## 5. Definition of Done
 

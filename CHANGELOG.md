@@ -76,9 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reusable GitHub Actions Podman runtime installer for E2E jobs, pinning
   `podman-compose` `1.5.0` from PyPI with apt package installation retained as
   a fallback.
+- S11 release blocker closeout plan covering Dependabot titles, SonarQube
+  secret handling, remote E2E evidence, vendor lab refresh, and release-gate
+  criteria.
 
 ### Fixed
 
+- Dependabot Go and Docker update title prefixes now satisfy the repository
+  Conventional Commit policy.
+- SonarQube CI now skips only Dependabot runs without `SONAR_TOKEN` while
+  keeping missing tokens fatal for non-Dependabot scans.
 - RFC E2E packet-evidence checks now use bounded tshark retries instead of
   fixed sleeps before single pcap reads, reducing flaky failures where the BFD
   control-plane session is already `Up` but the capture file has not yet

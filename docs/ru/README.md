@@ -1,7 +1,7 @@
 # Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-28-34a853?style=for-the-badge)
+![Documents](https://img.shields.io/badge/Documents-29-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -60,6 +60,7 @@ graph TD
         F9["20-s10-closeout-analysis.md<br/>S10 Closeout Analysis"]
         F10["21-s11-full-e2e-interop-plan.md<br/>S11 Full E2E Plan"]
         F11["22-s10-rfc-evidence-stability-plan.md<br/>S10 RFC Evidence Stability"]
+        F12["23-s11-release-blocker-closeout-plan.md<br/>S11 Release Blocker Closeout"]
     end
 
     IDX --> A1
@@ -86,6 +87,7 @@ graph TD
     IDX --> F9
     IDX --> F10
     IDX --> F11
+    IDX --> F12
 
     A1 --> A2
     A2 --> D1
@@ -105,6 +107,7 @@ graph TD
     F8 --> F9
     F9 --> F10
     F10 --> F11
+    F10 --> F12
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -165,6 +168,7 @@ graph TD
 | [**S10 Closeout Analysis**](./20-s10-closeout-analysis.md) | Завершение S10, оставшаяся работа и backlog кандидатов следующего спринта |
 | [**S11 Full E2E and Interoperability Plan**](./21-s11-full-e2e-interop-plan.md) | План full E2E execution, vendor evidence, reports, CI artifacts и owner-backend decision |
 | [**S10 RFC Evidence Stability Plan**](./22-s10-rfc-evidence-stability-plan.md) | План стабилизации RFC packet-evidence capture gates |
+| [**S11 Release Blocker Closeout Plan**](./23-s11-release-blocker-closeout-plan.md) | Source-backed plan для закрытия Dependabot, SonarQube, remote E2E, vendor lab и release gate |
 
 ### Исходные тексты RFC
 
@@ -205,4 +209,4 @@ make up
 
 ---
 
-*Последнее обновление: 2026-05-03*
+*Последнее обновление: 2026-05-05*
