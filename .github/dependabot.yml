@@ -12,7 +12,7 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
     commit-message:
-      prefix: "deps"
+      prefix: "chore(deps)"
     labels:
       - "dependencies"
 
@@ -22,7 +22,7 @@ updates:
       interval: "weekly"
       day: "monday"
     commit-message:
-      prefix: "deps"
+      prefix: "build(deps)"
     labels:
       - "dependencies"
 
