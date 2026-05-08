@@ -14,6 +14,12 @@ var (
 	// client is the ConnectRPC BFD service client, initialized in PersistentPreRunE.
 	client bfdv1connect.BfdServiceClient
 
+	// echoClient is the ConnectRPC EchoService client (RFC 9747).
+	echoClient bfdv1connect.EchoServiceClient
+
+	// microClient is the ConnectRPC MicroBFDService client (RFC 7130).
+	microClient bfdv1connect.MicroBFDServiceClient
+
 	// outputFormat controls the output format for all commands (table or json).
 	outputFormat string
 
@@ -27,10 +33,10 @@ var rootCmd = &cobra.Command{
 	Short: "CLI client for the GoBFD daemon",
 	Long:  "gobfdctl communicates with the gobfd daemon via ConnectRPC to manage BFD sessions.",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-		client = bfdv1connect.NewBfdServiceClient(
-			http.DefaultClient,
-			"http://"+serverAddr,
-		)
+		baseURL := "http://" + serverAddr
+		client = bfdv1connect.NewBfdServiceClient(http.DefaultClient, baseURL)
+		echoClient = bfdv1connect.NewEchoServiceClient(http.DefaultClient, baseURL)
+		microClient = bfdv1connect.NewMicroBFDServiceClient(http.DefaultClient, baseURL)
 
 		return nil
 	},
@@ -46,6 +52,8 @@ func init() {
 		"output format: table, json, yaml")
 
 	rootCmd.AddCommand(sessionCmd())
+	rootCmd.AddCommand(echoCmd())
+	rootCmd.AddCommand(microCmd())
 	rootCmd.AddCommand(monitorCmd())
 	rootCmd.AddCommand(versionCmd())
 	rootCmd.AddCommand(shellCmd())
