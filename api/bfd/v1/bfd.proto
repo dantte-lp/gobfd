@@ -166,6 +166,10 @@ message WatchSessionEventsResponse {
 //
 // Architecture follows the GoBGP pattern: daemon exposes gRPC API,
 // CLI (gobfdctl) is a thin client. All operations available via API.
+//
+// AddSession accepts SESSION_TYPE_SINGLE_HOP (RFC 5881) and
+// SESSION_TYPE_MULTI_HOP (RFC 5883). For RFC 9747 Echo see EchoService.
+// For RFC 7130 Micro-BFD see MicroBFDService.
 service BfdService {
   // AddSession creates a new BFD session with the given parameters.
   rpc AddSession(AddSessionRequest) returns (AddSessionResponse);
@@ -177,4 +181,153 @@ service BfdService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   // WatchSessionEvents streams BFD session state changes (server-side streaming).
   rpc WatchSessionEvents(WatchSessionEventsRequest) returns (stream WatchSessionEventsResponse);
+}
+
+// -----------------------------------------------------------------------
+// Echo Service — RFC 9747 unaffiliated BFD echo
+// -----------------------------------------------------------------------
+
+// EchoSession represents a single RFC 9747 unaffiliated echo session.
+message EchoSession {
+  // PeerAddress is the remote system's IP address (echo target).
+  string peer_address = 1 [(buf.validate.field).string.ip = true];
+  // LocalAddress is the local system's IP address.
+  string local_address = 2 [(buf.validate.field).string.ip = true];
+  // InterfaceName is the optional outbound interface (SO_BINDTODEVICE).
+  string interface_name = 3;
+  // TxInterval is the echo transmit interval. RFC 9747 Section 3.3:
+  // locally provisioned, not negotiated with the peer.
+  google.protobuf.Duration tx_interval = 4;
+  // DetectMultiplier sets DetectionTime = DetectMult * TxInterval.
+  uint32 detect_multiplier = 5 [(buf.validate.field).uint32 = {gte: 1, lte: 255}];
+  // LocalDiscriminator is the discriminator allocated for this session.
+  uint32 local_discriminator = 6;
+  // LocalState is the current FSM state.
+  SessionState local_state = 7;
+  // LocalDiagnostic is the latest diagnostic code (RFC 5880 Section 4.1).
+  DiagnosticCode local_diagnostic = 8;
+  // PacketsSent is the total echo packets transmitted.
+  uint64 packets_sent = 9;
+  // PacketsReceived is the total echo packets received back.
+  uint64 packets_received = 10;
+  // LastStateChange is the timestamp of the most recent FSM transition.
+  google.protobuf.Timestamp last_state_change = 11;
+}
+
+// AddEchoSessionRequest creates a new RFC 9747 echo session.
+message AddEchoSessionRequest {
+  string peer_address = 1 [(buf.validate.field).string.ip = true];
+  string local_address = 2 [(buf.validate.field).string.ip = true];
+  string interface_name = 3;
+  google.protobuf.Duration tx_interval = 4;
+  uint32 detect_multiplier = 5 [(buf.validate.field).uint32 = {gte: 1, lte: 255}];
+}
+
+// AddEchoSessionResponse returns the newly created echo session.
+message AddEchoSessionResponse {
+  EchoSession session = 1;
+}
+
+// DeleteEchoSessionRequest removes an echo session by its local discriminator.
+message DeleteEchoSessionRequest {
+  uint32 local_discriminator = 1;
+}
+
+// DeleteEchoSessionResponse is empty on success.
+message DeleteEchoSessionResponse {}
+
+// ListEchoSessionsRequest retrieves all active echo sessions.
+message ListEchoSessionsRequest {}
+
+// ListEchoSessionsResponse contains all active echo sessions.
+message ListEchoSessionsResponse {
+  repeated EchoSession sessions = 1;
+}
+
+// EchoService provides typed CRUD for RFC 9747 echo sessions.
+//
+// Echo sessions are not part of BfdService.AddSession because they have
+// distinct timer semantics: TxInterval is locally provisioned and there
+// is no required_min_rx_interval to negotiate (RFC 9747 Section 3.3).
+service EchoService {
+  rpc AddEchoSession(AddEchoSessionRequest) returns (AddEchoSessionResponse);
+  rpc DeleteEchoSession(DeleteEchoSessionRequest) returns (DeleteEchoSessionResponse);
+  rpc ListEchoSessions(ListEchoSessionsRequest) returns (ListEchoSessionsResponse);
+}
+
+// -----------------------------------------------------------------------
+// Micro-BFD Service — RFC 7130 LAG member-link sessions
+// -----------------------------------------------------------------------
+
+// MicroBFDGroup represents an RFC 7130 micro-BFD group bound to a LAG.
+message MicroBFDGroup {
+  // LagInterface is the logical LAG interface name (e.g., "bond0").
+  string lag_interface = 1;
+  // MemberLinks lists the physical member link names participating in
+  // the LAG. RFC 7130 Section 2: one micro-BFD session per member link.
+  repeated string member_links = 2;
+  // PeerAddress is the remote system's IP address for every member session.
+  string peer_address = 3 [(buf.validate.field).string.ip = true];
+  // LocalAddress is the local system's IP address.
+  string local_address = 4 [(buf.validate.field).string.ip = true];
+  // DesiredMinTxInterval is the BFD timer for member sessions. RFC 7130
+  // Section 2.2: timer values MAY differ per member but are expected to
+  // be the same within a group.
+  google.protobuf.Duration desired_min_tx_interval = 5;
+  // RequiredMinRxInterval is the minimum acceptable RX interval.
+  google.protobuf.Duration required_min_rx_interval = 6;
+  // DetectMultiplier is the detection time multiplier.
+  uint32 detect_multiplier = 7 [(buf.validate.field).uint32 = {gte: 1, lte: 255}];
+  // MinActiveLinks is the minimum number of member links that must be Up
+  // for the LAG to be considered operational. Must satisfy
+  // 1 <= MinActiveLinks <= len(MemberLinks).
+  uint32 min_active_links = 8 [(buf.validate.field).uint32.gte = 1];
+  // AggregateUp reflects whether the group's aggregate state is Up.
+  bool aggregate_up = 9;
+  // UpMemberCount is the current count of member sessions in state Up.
+  uint32 up_member_count = 10;
+}
+
+// AddMicroBFDGroupRequest creates a new RFC 7130 micro-BFD group.
+message AddMicroBFDGroupRequest {
+  string lag_interface = 1;
+  repeated string member_links = 2;
+  string peer_address = 3 [(buf.validate.field).string.ip = true];
+  string local_address = 4 [(buf.validate.field).string.ip = true];
+  google.protobuf.Duration desired_min_tx_interval = 5;
+  google.protobuf.Duration required_min_rx_interval = 6;
+  uint32 detect_multiplier = 7 [(buf.validate.field).uint32 = {gte: 1, lte: 255}];
+  uint32 min_active_links = 8 [(buf.validate.field).uint32.gte = 1];
+}
+
+// AddMicroBFDGroupResponse returns the newly created group.
+message AddMicroBFDGroupResponse {
+  MicroBFDGroup group = 1;
+}
+
+// DeleteMicroBFDGroupRequest removes a micro-BFD group by LAG interface.
+message DeleteMicroBFDGroupRequest {
+  string lag_interface = 1;
+}
+
+// DeleteMicroBFDGroupResponse is empty on success.
+message DeleteMicroBFDGroupResponse {}
+
+// ListMicroBFDGroupsRequest retrieves all active micro-BFD groups.
+message ListMicroBFDGroupsRequest {}
+
+// ListMicroBFDGroupsResponse contains all active micro-BFD groups.
+message ListMicroBFDGroupsResponse {
+  repeated MicroBFDGroup groups = 1;
+}
+
+// MicroBFDService provides typed CRUD for RFC 7130 micro-BFD groups.
+//
+// Micro-BFD is not part of BfdService.AddSession because the resource
+// being managed is a group of per-member sessions plus aggregate state,
+// not a single BFD session.
+service MicroBFDService {
+  rpc AddMicroBFDGroup(AddMicroBFDGroupRequest) returns (AddMicroBFDGroupResponse);
+  rpc DeleteMicroBFDGroup(DeleteMicroBFDGroupRequest) returns (DeleteMicroBFDGroupResponse);
+  rpc ListMicroBFDGroups(ListMicroBFDGroupsRequest) returns (ListMicroBFDGroupsResponse);
 }

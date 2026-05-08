@@ -1171,6 +1171,871 @@ func (x *WatchSessionEventsResponse) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
+// EchoSession represents a single RFC 9747 unaffiliated echo session.
+type EchoSession struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PeerAddress is the remote system's IP address (echo target).
+	PeerAddress string `protobuf:"bytes,1,opt,name=peer_address,json=peerAddress,proto3" json:"peer_address,omitempty"`
+	// LocalAddress is the local system's IP address.
+	LocalAddress string `protobuf:"bytes,2,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	// InterfaceName is the optional outbound interface (SO_BINDTODEVICE).
+	InterfaceName string `protobuf:"bytes,3,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
+	// TxInterval is the echo transmit interval. RFC 9747 Section 3.3:
+	// locally provisioned, not negotiated with the peer.
+	TxInterval *durationpb.Duration `protobuf:"bytes,4,opt,name=tx_interval,json=txInterval,proto3" json:"tx_interval,omitempty"`
+	// DetectMultiplier sets DetectionTime = DetectMult * TxInterval.
+	DetectMultiplier uint32 `protobuf:"varint,5,opt,name=detect_multiplier,json=detectMultiplier,proto3" json:"detect_multiplier,omitempty"`
+	// LocalDiscriminator is the discriminator allocated for this session.
+	LocalDiscriminator uint32 `protobuf:"varint,6,opt,name=local_discriminator,json=localDiscriminator,proto3" json:"local_discriminator,omitempty"`
+	// LocalState is the current FSM state.
+	LocalState SessionState `protobuf:"varint,7,opt,name=local_state,json=localState,proto3,enum=bfd.v1.SessionState" json:"local_state,omitempty"`
+	// LocalDiagnostic is the latest diagnostic code (RFC 5880 Section 4.1).
+	LocalDiagnostic DiagnosticCode `protobuf:"varint,8,opt,name=local_diagnostic,json=localDiagnostic,proto3,enum=bfd.v1.DiagnosticCode" json:"local_diagnostic,omitempty"`
+	// PacketsSent is the total echo packets transmitted.
+	PacketsSent uint64 `protobuf:"varint,9,opt,name=packets_sent,json=packetsSent,proto3" json:"packets_sent,omitempty"`
+	// PacketsReceived is the total echo packets received back.
+	PacketsReceived uint64 `protobuf:"varint,10,opt,name=packets_received,json=packetsReceived,proto3" json:"packets_received,omitempty"`
+	// LastStateChange is the timestamp of the most recent FSM transition.
+	LastStateChange *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=last_state_change,json=lastStateChange,proto3" json:"last_state_change,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *EchoSession) Reset() {
+	*x = EchoSession{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EchoSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EchoSession) ProtoMessage() {}
+
+func (x *EchoSession) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EchoSession.ProtoReflect.Descriptor instead.
+func (*EchoSession) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *EchoSession) GetPeerAddress() string {
+	if x != nil {
+		return x.PeerAddress
+	}
+	return ""
+}
+
+func (x *EchoSession) GetLocalAddress() string {
+	if x != nil {
+		return x.LocalAddress
+	}
+	return ""
+}
+
+func (x *EchoSession) GetInterfaceName() string {
+	if x != nil {
+		return x.InterfaceName
+	}
+	return ""
+}
+
+func (x *EchoSession) GetTxInterval() *durationpb.Duration {
+	if x != nil {
+		return x.TxInterval
+	}
+	return nil
+}
+
+func (x *EchoSession) GetDetectMultiplier() uint32 {
+	if x != nil {
+		return x.DetectMultiplier
+	}
+	return 0
+}
+
+func (x *EchoSession) GetLocalDiscriminator() uint32 {
+	if x != nil {
+		return x.LocalDiscriminator
+	}
+	return 0
+}
+
+func (x *EchoSession) GetLocalState() SessionState {
+	if x != nil {
+		return x.LocalState
+	}
+	return SessionState_SESSION_STATE_UNSPECIFIED
+}
+
+func (x *EchoSession) GetLocalDiagnostic() DiagnosticCode {
+	if x != nil {
+		return x.LocalDiagnostic
+	}
+	return DiagnosticCode_DIAGNOSTIC_CODE_UNSPECIFIED
+}
+
+func (x *EchoSession) GetPacketsSent() uint64 {
+	if x != nil {
+		return x.PacketsSent
+	}
+	return 0
+}
+
+func (x *EchoSession) GetPacketsReceived() uint64 {
+	if x != nil {
+		return x.PacketsReceived
+	}
+	return 0
+}
+
+func (x *EchoSession) GetLastStateChange() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastStateChange
+	}
+	return nil
+}
+
+// AddEchoSessionRequest creates a new RFC 9747 echo session.
+type AddEchoSessionRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PeerAddress      string                 `protobuf:"bytes,1,opt,name=peer_address,json=peerAddress,proto3" json:"peer_address,omitempty"`
+	LocalAddress     string                 `protobuf:"bytes,2,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	InterfaceName    string                 `protobuf:"bytes,3,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
+	TxInterval       *durationpb.Duration   `protobuf:"bytes,4,opt,name=tx_interval,json=txInterval,proto3" json:"tx_interval,omitempty"`
+	DetectMultiplier uint32                 `protobuf:"varint,5,opt,name=detect_multiplier,json=detectMultiplier,proto3" json:"detect_multiplier,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AddEchoSessionRequest) Reset() {
+	*x = AddEchoSessionRequest{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddEchoSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddEchoSessionRequest) ProtoMessage() {}
+
+func (x *AddEchoSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddEchoSessionRequest.ProtoReflect.Descriptor instead.
+func (*AddEchoSessionRequest) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AddEchoSessionRequest) GetPeerAddress() string {
+	if x != nil {
+		return x.PeerAddress
+	}
+	return ""
+}
+
+func (x *AddEchoSessionRequest) GetLocalAddress() string {
+	if x != nil {
+		return x.LocalAddress
+	}
+	return ""
+}
+
+func (x *AddEchoSessionRequest) GetInterfaceName() string {
+	if x != nil {
+		return x.InterfaceName
+	}
+	return ""
+}
+
+func (x *AddEchoSessionRequest) GetTxInterval() *durationpb.Duration {
+	if x != nil {
+		return x.TxInterval
+	}
+	return nil
+}
+
+func (x *AddEchoSessionRequest) GetDetectMultiplier() uint32 {
+	if x != nil {
+		return x.DetectMultiplier
+	}
+	return 0
+}
+
+// AddEchoSessionResponse returns the newly created echo session.
+type AddEchoSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Session       *EchoSession           `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddEchoSessionResponse) Reset() {
+	*x = AddEchoSessionResponse{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddEchoSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddEchoSessionResponse) ProtoMessage() {}
+
+func (x *AddEchoSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddEchoSessionResponse.ProtoReflect.Descriptor instead.
+func (*AddEchoSessionResponse) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AddEchoSessionResponse) GetSession() *EchoSession {
+	if x != nil {
+		return x.Session
+	}
+	return nil
+}
+
+// DeleteEchoSessionRequest removes an echo session by its local discriminator.
+type DeleteEchoSessionRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	LocalDiscriminator uint32                 `protobuf:"varint,1,opt,name=local_discriminator,json=localDiscriminator,proto3" json:"local_discriminator,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DeleteEchoSessionRequest) Reset() {
+	*x = DeleteEchoSessionRequest{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteEchoSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteEchoSessionRequest) ProtoMessage() {}
+
+func (x *DeleteEchoSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteEchoSessionRequest.ProtoReflect.Descriptor instead.
+func (*DeleteEchoSessionRequest) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DeleteEchoSessionRequest) GetLocalDiscriminator() uint32 {
+	if x != nil {
+		return x.LocalDiscriminator
+	}
+	return 0
+}
+
+// DeleteEchoSessionResponse is empty on success.
+type DeleteEchoSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteEchoSessionResponse) Reset() {
+	*x = DeleteEchoSessionResponse{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteEchoSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteEchoSessionResponse) ProtoMessage() {}
+
+func (x *DeleteEchoSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteEchoSessionResponse.ProtoReflect.Descriptor instead.
+func (*DeleteEchoSessionResponse) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{16}
+}
+
+// ListEchoSessionsRequest retrieves all active echo sessions.
+type ListEchoSessionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListEchoSessionsRequest) Reset() {
+	*x = ListEchoSessionsRequest{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListEchoSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListEchoSessionsRequest) ProtoMessage() {}
+
+func (x *ListEchoSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListEchoSessionsRequest.ProtoReflect.Descriptor instead.
+func (*ListEchoSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{17}
+}
+
+// ListEchoSessionsResponse contains all active echo sessions.
+type ListEchoSessionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sessions      []*EchoSession         `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListEchoSessionsResponse) Reset() {
+	*x = ListEchoSessionsResponse{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListEchoSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListEchoSessionsResponse) ProtoMessage() {}
+
+func (x *ListEchoSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListEchoSessionsResponse.ProtoReflect.Descriptor instead.
+func (*ListEchoSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListEchoSessionsResponse) GetSessions() []*EchoSession {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+// MicroBFDGroup represents an RFC 7130 micro-BFD group bound to a LAG.
+type MicroBFDGroup struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// LagInterface is the logical LAG interface name (e.g., "bond0").
+	LagInterface string `protobuf:"bytes,1,opt,name=lag_interface,json=lagInterface,proto3" json:"lag_interface,omitempty"`
+	// MemberLinks lists the physical member link names participating in
+	// the LAG. RFC 7130 Section 2: one micro-BFD session per member link.
+	MemberLinks []string `protobuf:"bytes,2,rep,name=member_links,json=memberLinks,proto3" json:"member_links,omitempty"`
+	// PeerAddress is the remote system's IP address for every member session.
+	PeerAddress string `protobuf:"bytes,3,opt,name=peer_address,json=peerAddress,proto3" json:"peer_address,omitempty"`
+	// LocalAddress is the local system's IP address.
+	LocalAddress string `protobuf:"bytes,4,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	// DesiredMinTxInterval is the BFD timer for member sessions. RFC 7130
+	// Section 2.2: timer values MAY differ per member but are expected to
+	// be the same within a group.
+	DesiredMinTxInterval *durationpb.Duration `protobuf:"bytes,5,opt,name=desired_min_tx_interval,json=desiredMinTxInterval,proto3" json:"desired_min_tx_interval,omitempty"`
+	// RequiredMinRxInterval is the minimum acceptable RX interval.
+	RequiredMinRxInterval *durationpb.Duration `protobuf:"bytes,6,opt,name=required_min_rx_interval,json=requiredMinRxInterval,proto3" json:"required_min_rx_interval,omitempty"`
+	// DetectMultiplier is the detection time multiplier.
+	DetectMultiplier uint32 `protobuf:"varint,7,opt,name=detect_multiplier,json=detectMultiplier,proto3" json:"detect_multiplier,omitempty"`
+	// MinActiveLinks is the minimum number of member links that must be Up
+	// for the LAG to be considered operational. Must satisfy
+	// 1 <= MinActiveLinks <= len(MemberLinks).
+	MinActiveLinks uint32 `protobuf:"varint,8,opt,name=min_active_links,json=minActiveLinks,proto3" json:"min_active_links,omitempty"`
+	// AggregateUp reflects whether the group's aggregate state is Up.
+	AggregateUp bool `protobuf:"varint,9,opt,name=aggregate_up,json=aggregateUp,proto3" json:"aggregate_up,omitempty"`
+	// UpMemberCount is the current count of member sessions in state Up.
+	UpMemberCount uint32 `protobuf:"varint,10,opt,name=up_member_count,json=upMemberCount,proto3" json:"up_member_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MicroBFDGroup) Reset() {
+	*x = MicroBFDGroup{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MicroBFDGroup) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MicroBFDGroup) ProtoMessage() {}
+
+func (x *MicroBFDGroup) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MicroBFDGroup.ProtoReflect.Descriptor instead.
+func (*MicroBFDGroup) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *MicroBFDGroup) GetLagInterface() string {
+	if x != nil {
+		return x.LagInterface
+	}
+	return ""
+}
+
+func (x *MicroBFDGroup) GetMemberLinks() []string {
+	if x != nil {
+		return x.MemberLinks
+	}
+	return nil
+}
+
+func (x *MicroBFDGroup) GetPeerAddress() string {
+	if x != nil {
+		return x.PeerAddress
+	}
+	return ""
+}
+
+func (x *MicroBFDGroup) GetLocalAddress() string {
+	if x != nil {
+		return x.LocalAddress
+	}
+	return ""
+}
+
+func (x *MicroBFDGroup) GetDesiredMinTxInterval() *durationpb.Duration {
+	if x != nil {
+		return x.DesiredMinTxInterval
+	}
+	return nil
+}
+
+func (x *MicroBFDGroup) GetRequiredMinRxInterval() *durationpb.Duration {
+	if x != nil {
+		return x.RequiredMinRxInterval
+	}
+	return nil
+}
+
+func (x *MicroBFDGroup) GetDetectMultiplier() uint32 {
+	if x != nil {
+		return x.DetectMultiplier
+	}
+	return 0
+}
+
+func (x *MicroBFDGroup) GetMinActiveLinks() uint32 {
+	if x != nil {
+		return x.MinActiveLinks
+	}
+	return 0
+}
+
+func (x *MicroBFDGroup) GetAggregateUp() bool {
+	if x != nil {
+		return x.AggregateUp
+	}
+	return false
+}
+
+func (x *MicroBFDGroup) GetUpMemberCount() uint32 {
+	if x != nil {
+		return x.UpMemberCount
+	}
+	return 0
+}
+
+// AddMicroBFDGroupRequest creates a new RFC 7130 micro-BFD group.
+type AddMicroBFDGroupRequest struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	LagInterface          string                 `protobuf:"bytes,1,opt,name=lag_interface,json=lagInterface,proto3" json:"lag_interface,omitempty"`
+	MemberLinks           []string               `protobuf:"bytes,2,rep,name=member_links,json=memberLinks,proto3" json:"member_links,omitempty"`
+	PeerAddress           string                 `protobuf:"bytes,3,opt,name=peer_address,json=peerAddress,proto3" json:"peer_address,omitempty"`
+	LocalAddress          string                 `protobuf:"bytes,4,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	DesiredMinTxInterval  *durationpb.Duration   `protobuf:"bytes,5,opt,name=desired_min_tx_interval,json=desiredMinTxInterval,proto3" json:"desired_min_tx_interval,omitempty"`
+	RequiredMinRxInterval *durationpb.Duration   `protobuf:"bytes,6,opt,name=required_min_rx_interval,json=requiredMinRxInterval,proto3" json:"required_min_rx_interval,omitempty"`
+	DetectMultiplier      uint32                 `protobuf:"varint,7,opt,name=detect_multiplier,json=detectMultiplier,proto3" json:"detect_multiplier,omitempty"`
+	MinActiveLinks        uint32                 `protobuf:"varint,8,opt,name=min_active_links,json=minActiveLinks,proto3" json:"min_active_links,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *AddMicroBFDGroupRequest) Reset() {
+	*x = AddMicroBFDGroupRequest{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddMicroBFDGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddMicroBFDGroupRequest) ProtoMessage() {}
+
+func (x *AddMicroBFDGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddMicroBFDGroupRequest.ProtoReflect.Descriptor instead.
+func (*AddMicroBFDGroupRequest) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *AddMicroBFDGroupRequest) GetLagInterface() string {
+	if x != nil {
+		return x.LagInterface
+	}
+	return ""
+}
+
+func (x *AddMicroBFDGroupRequest) GetMemberLinks() []string {
+	if x != nil {
+		return x.MemberLinks
+	}
+	return nil
+}
+
+func (x *AddMicroBFDGroupRequest) GetPeerAddress() string {
+	if x != nil {
+		return x.PeerAddress
+	}
+	return ""
+}
+
+func (x *AddMicroBFDGroupRequest) GetLocalAddress() string {
+	if x != nil {
+		return x.LocalAddress
+	}
+	return ""
+}
+
+func (x *AddMicroBFDGroupRequest) GetDesiredMinTxInterval() *durationpb.Duration {
+	if x != nil {
+		return x.DesiredMinTxInterval
+	}
+	return nil
+}
+
+func (x *AddMicroBFDGroupRequest) GetRequiredMinRxInterval() *durationpb.Duration {
+	if x != nil {
+		return x.RequiredMinRxInterval
+	}
+	return nil
+}
+
+func (x *AddMicroBFDGroupRequest) GetDetectMultiplier() uint32 {
+	if x != nil {
+		return x.DetectMultiplier
+	}
+	return 0
+}
+
+func (x *AddMicroBFDGroupRequest) GetMinActiveLinks() uint32 {
+	if x != nil {
+		return x.MinActiveLinks
+	}
+	return 0
+}
+
+// AddMicroBFDGroupResponse returns the newly created group.
+type AddMicroBFDGroupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Group         *MicroBFDGroup         `protobuf:"bytes,1,opt,name=group,proto3" json:"group,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddMicroBFDGroupResponse) Reset() {
+	*x = AddMicroBFDGroupResponse{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddMicroBFDGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddMicroBFDGroupResponse) ProtoMessage() {}
+
+func (x *AddMicroBFDGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddMicroBFDGroupResponse.ProtoReflect.Descriptor instead.
+func (*AddMicroBFDGroupResponse) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *AddMicroBFDGroupResponse) GetGroup() *MicroBFDGroup {
+	if x != nil {
+		return x.Group
+	}
+	return nil
+}
+
+// DeleteMicroBFDGroupRequest removes a micro-BFD group by LAG interface.
+type DeleteMicroBFDGroupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LagInterface  string                 `protobuf:"bytes,1,opt,name=lag_interface,json=lagInterface,proto3" json:"lag_interface,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMicroBFDGroupRequest) Reset() {
+	*x = DeleteMicroBFDGroupRequest{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMicroBFDGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMicroBFDGroupRequest) ProtoMessage() {}
+
+func (x *DeleteMicroBFDGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMicroBFDGroupRequest.ProtoReflect.Descriptor instead.
+func (*DeleteMicroBFDGroupRequest) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *DeleteMicroBFDGroupRequest) GetLagInterface() string {
+	if x != nil {
+		return x.LagInterface
+	}
+	return ""
+}
+
+// DeleteMicroBFDGroupResponse is empty on success.
+type DeleteMicroBFDGroupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteMicroBFDGroupResponse) Reset() {
+	*x = DeleteMicroBFDGroupResponse{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteMicroBFDGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteMicroBFDGroupResponse) ProtoMessage() {}
+
+func (x *DeleteMicroBFDGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteMicroBFDGroupResponse.ProtoReflect.Descriptor instead.
+func (*DeleteMicroBFDGroupResponse) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{23}
+}
+
+// ListMicroBFDGroupsRequest retrieves all active micro-BFD groups.
+type ListMicroBFDGroupsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMicroBFDGroupsRequest) Reset() {
+	*x = ListMicroBFDGroupsRequest{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMicroBFDGroupsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMicroBFDGroupsRequest) ProtoMessage() {}
+
+func (x *ListMicroBFDGroupsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMicroBFDGroupsRequest.ProtoReflect.Descriptor instead.
+func (*ListMicroBFDGroupsRequest) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{24}
+}
+
+// ListMicroBFDGroupsResponse contains all active micro-BFD groups.
+type ListMicroBFDGroupsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Groups        []*MicroBFDGroup       `protobuf:"bytes,1,rep,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMicroBFDGroupsResponse) Reset() {
+	*x = ListMicroBFDGroupsResponse{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMicroBFDGroupsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMicroBFDGroupsResponse) ProtoMessage() {}
+
+func (x *ListMicroBFDGroupsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMicroBFDGroupsResponse.ProtoReflect.Descriptor instead.
+func (*ListMicroBFDGroupsResponse) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ListMicroBFDGroupsResponse) GetGroups() []*MicroBFDGroup {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
 var File_bfd_v1_bfd_proto protoreflect.FileDescriptor
 
 const file_bfd_v1_bfd_proto_rawDesc = "" +
@@ -1244,7 +2109,70 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17EVENT_TYPE_STATE_CHANGE\x10\x01\x12\x1c\n" +
 	"\x18EVENT_TYPE_SESSION_ADDED\x10\x02\x12\x1e\n" +
-	"\x1aEVENT_TYPE_SESSION_DELETED\x10\x03*\x91\x01\n" +
+	"\x1aEVENT_TYPE_SESSION_DELETED\x10\x03\"\xc4\x04\n" +
+	"\vEchoSession\x12*\n" +
+	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
+	"\rlocal_address\x18\x02 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12%\n" +
+	"\x0einterface_name\x18\x03 \x01(\tR\rinterfaceName\x12:\n" +
+	"\vtx_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\n" +
+	"txInterval\x127\n" +
+	"\x11detect_multiplier\x18\x05 \x01(\rB\n" +
+	"\xbaH\a*\x05\x18\xff\x01(\x01R\x10detectMultiplier\x12/\n" +
+	"\x13local_discriminator\x18\x06 \x01(\rR\x12localDiscriminator\x125\n" +
+	"\vlocal_state\x18\a \x01(\x0e2\x14.bfd.v1.SessionStateR\n" +
+	"localState\x12A\n" +
+	"\x10local_diagnostic\x18\b \x01(\x0e2\x16.bfd.v1.DiagnosticCodeR\x0flocalDiagnostic\x12!\n" +
+	"\fpackets_sent\x18\t \x01(\x04R\vpacketsSent\x12)\n" +
+	"\x10packets_received\x18\n" +
+	" \x01(\x04R\x0fpacketsReceived\x12F\n" +
+	"\x11last_state_change\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x0flastStateChange\"\x8d\x02\n" +
+	"\x15AddEchoSessionRequest\x12*\n" +
+	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
+	"\rlocal_address\x18\x02 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12%\n" +
+	"\x0einterface_name\x18\x03 \x01(\tR\rinterfaceName\x12:\n" +
+	"\vtx_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\n" +
+	"txInterval\x127\n" +
+	"\x11detect_multiplier\x18\x05 \x01(\rB\n" +
+	"\xbaH\a*\x05\x18\xff\x01(\x01R\x10detectMultiplier\"G\n" +
+	"\x16AddEchoSessionResponse\x12-\n" +
+	"\asession\x18\x01 \x01(\v2\x13.bfd.v1.EchoSessionR\asession\"K\n" +
+	"\x18DeleteEchoSessionRequest\x12/\n" +
+	"\x13local_discriminator\x18\x01 \x01(\rR\x12localDiscriminator\"\x1b\n" +
+	"\x19DeleteEchoSessionResponse\"\x19\n" +
+	"\x17ListEchoSessionsRequest\"K\n" +
+	"\x18ListEchoSessionsResponse\x12/\n" +
+	"\bsessions\x18\x01 \x03(\v2\x13.bfd.v1.EchoSessionR\bsessions\"\x8e\x04\n" +
+	"\rMicroBFDGroup\x12#\n" +
+	"\rlag_interface\x18\x01 \x01(\tR\flagInterface\x12!\n" +
+	"\fmember_links\x18\x02 \x03(\tR\vmemberLinks\x12*\n" +
+	"\fpeer_address\x18\x03 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
+	"\rlocal_address\x18\x04 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12P\n" +
+	"\x17desired_min_tx_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x14desiredMinTxInterval\x12R\n" +
+	"\x18required_min_rx_interval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x15requiredMinRxInterval\x127\n" +
+	"\x11detect_multiplier\x18\a \x01(\rB\n" +
+	"\xbaH\a*\x05\x18\xff\x01(\x01R\x10detectMultiplier\x121\n" +
+	"\x10min_active_links\x18\b \x01(\rB\a\xbaH\x04*\x02(\x01R\x0eminActiveLinks\x12!\n" +
+	"\faggregate_up\x18\t \x01(\bR\vaggregateUp\x12&\n" +
+	"\x0fup_member_count\x18\n" +
+	" \x01(\rR\rupMemberCount\"\xcd\x03\n" +
+	"\x17AddMicroBFDGroupRequest\x12#\n" +
+	"\rlag_interface\x18\x01 \x01(\tR\flagInterface\x12!\n" +
+	"\fmember_links\x18\x02 \x03(\tR\vmemberLinks\x12*\n" +
+	"\fpeer_address\x18\x03 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
+	"\rlocal_address\x18\x04 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12P\n" +
+	"\x17desired_min_tx_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x14desiredMinTxInterval\x12R\n" +
+	"\x18required_min_rx_interval\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x15requiredMinRxInterval\x127\n" +
+	"\x11detect_multiplier\x18\a \x01(\rB\n" +
+	"\xbaH\a*\x05\x18\xff\x01(\x01R\x10detectMultiplier\x121\n" +
+	"\x10min_active_links\x18\b \x01(\rB\a\xbaH\x04*\x02(\x01R\x0eminActiveLinks\"G\n" +
+	"\x18AddMicroBFDGroupResponse\x12+\n" +
+	"\x05group\x18\x01 \x01(\v2\x15.bfd.v1.MicroBFDGroupR\x05group\"A\n" +
+	"\x1aDeleteMicroBFDGroupRequest\x12#\n" +
+	"\rlag_interface\x18\x01 \x01(\tR\flagInterface\"\x1d\n" +
+	"\x1bDeleteMicroBFDGroupResponse\"\x1b\n" +
+	"\x19ListMicroBFDGroupsRequest\"K\n" +
+	"\x1aListMicroBFDGroupsResponse\x12-\n" +
+	"\x06groups\x18\x01 \x03(\v2\x15.bfd.v1.MicroBFDGroupR\x06groups*\x91\x01\n" +
 	"\fSessionState\x12\x1d\n" +
 	"\x19SESSION_STATE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SESSION_STATE_ADMIN_DOWN\x10\x01\x12\x16\n" +
@@ -1286,7 +2214,15 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\fListSessions\x12\x1b.bfd.v1.ListSessionsRequest\x1a\x1c.bfd.v1.ListSessionsResponse\x12C\n" +
 	"\n" +
 	"GetSession\x12\x19.bfd.v1.GetSessionRequest\x1a\x1a.bfd.v1.GetSessionResponse\x12]\n" +
-	"\x12WatchSessionEvents\x12!.bfd.v1.WatchSessionEventsRequest\x1a\".bfd.v1.WatchSessionEventsResponse0\x01B\x82\x01\n" +
+	"\x12WatchSessionEvents\x12!.bfd.v1.WatchSessionEventsRequest\x1a\".bfd.v1.WatchSessionEventsResponse0\x012\x8f\x02\n" +
+	"\vEchoService\x12O\n" +
+	"\x0eAddEchoSession\x12\x1d.bfd.v1.AddEchoSessionRequest\x1a\x1e.bfd.v1.AddEchoSessionResponse\x12X\n" +
+	"\x11DeleteEchoSession\x12 .bfd.v1.DeleteEchoSessionRequest\x1a!.bfd.v1.DeleteEchoSessionResponse\x12U\n" +
+	"\x10ListEchoSessions\x12\x1f.bfd.v1.ListEchoSessionsRequest\x1a .bfd.v1.ListEchoSessionsResponse2\xa5\x02\n" +
+	"\x0fMicroBFDService\x12U\n" +
+	"\x10AddMicroBFDGroup\x12\x1f.bfd.v1.AddMicroBFDGroupRequest\x1a .bfd.v1.AddMicroBFDGroupResponse\x12^\n" +
+	"\x13DeleteMicroBFDGroup\x12\".bfd.v1.DeleteMicroBFDGroupRequest\x1a#.bfd.v1.DeleteMicroBFDGroupResponse\x12[\n" +
+	"\x12ListMicroBFDGroups\x12!.bfd.v1.ListMicroBFDGroupsRequest\x1a\".bfd.v1.ListMicroBFDGroupsResponseB\x82\x01\n" +
 	"\n" +
 	"com.bfd.v1B\bBfdProtoP\x01Z1github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1;bfdv1\xa2\x02\x03BXX\xaa\x02\x06Bfd.V1\xca\x02\x06Bfd\\V1\xe2\x02\x12Bfd\\V1\\GPBMetadata\xea\x02\aBfd::V1b\x06proto3"
 
@@ -1303,7 +2239,7 @@ func file_bfd_v1_bfd_proto_rawDescGZIP() []byte {
 }
 
 var file_bfd_v1_bfd_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_bfd_v1_bfd_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_bfd_v1_bfd_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_bfd_v1_bfd_proto_goTypes = []any{
 	(SessionState)(0),                         // 0: bfd.v1.SessionState
 	(DiagnosticCode)(0),                       // 1: bfd.v1.DiagnosticCode
@@ -1322,26 +2258,40 @@ var file_bfd_v1_bfd_proto_goTypes = []any{
 	(*GetSessionResponse)(nil),                // 14: bfd.v1.GetSessionResponse
 	(*WatchSessionEventsRequest)(nil),         // 15: bfd.v1.WatchSessionEventsRequest
 	(*WatchSessionEventsResponse)(nil),        // 16: bfd.v1.WatchSessionEventsResponse
-	(*durationpb.Duration)(nil),               // 17: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),             // 18: google.protobuf.Timestamp
+	(*EchoSession)(nil),                       // 17: bfd.v1.EchoSession
+	(*AddEchoSessionRequest)(nil),             // 18: bfd.v1.AddEchoSessionRequest
+	(*AddEchoSessionResponse)(nil),            // 19: bfd.v1.AddEchoSessionResponse
+	(*DeleteEchoSessionRequest)(nil),          // 20: bfd.v1.DeleteEchoSessionRequest
+	(*DeleteEchoSessionResponse)(nil),         // 21: bfd.v1.DeleteEchoSessionResponse
+	(*ListEchoSessionsRequest)(nil),           // 22: bfd.v1.ListEchoSessionsRequest
+	(*ListEchoSessionsResponse)(nil),          // 23: bfd.v1.ListEchoSessionsResponse
+	(*MicroBFDGroup)(nil),                     // 24: bfd.v1.MicroBFDGroup
+	(*AddMicroBFDGroupRequest)(nil),           // 25: bfd.v1.AddMicroBFDGroupRequest
+	(*AddMicroBFDGroupResponse)(nil),          // 26: bfd.v1.AddMicroBFDGroupResponse
+	(*DeleteMicroBFDGroupRequest)(nil),        // 27: bfd.v1.DeleteMicroBFDGroupRequest
+	(*DeleteMicroBFDGroupResponse)(nil),       // 28: bfd.v1.DeleteMicroBFDGroupResponse
+	(*ListMicroBFDGroupsRequest)(nil),         // 29: bfd.v1.ListMicroBFDGroupsRequest
+	(*ListMicroBFDGroupsResponse)(nil),        // 30: bfd.v1.ListMicroBFDGroupsResponse
+	(*durationpb.Duration)(nil),               // 31: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),             // 32: google.protobuf.Timestamp
 }
 var file_bfd_v1_bfd_proto_depIdxs = []int32{
 	3,  // 0: bfd.v1.BfdSession.type:type_name -> bfd.v1.SessionType
 	0,  // 1: bfd.v1.BfdSession.local_state:type_name -> bfd.v1.SessionState
 	0,  // 2: bfd.v1.BfdSession.remote_state:type_name -> bfd.v1.SessionState
 	1,  // 3: bfd.v1.BfdSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
-	17, // 4: bfd.v1.BfdSession.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	17, // 5: bfd.v1.BfdSession.required_min_rx_interval:type_name -> google.protobuf.Duration
-	17, // 6: bfd.v1.BfdSession.remote_min_rx_interval:type_name -> google.protobuf.Duration
-	17, // 7: bfd.v1.BfdSession.negotiated_tx_interval:type_name -> google.protobuf.Duration
-	17, // 8: bfd.v1.BfdSession.detection_time:type_name -> google.protobuf.Duration
+	31, // 4: bfd.v1.BfdSession.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	31, // 5: bfd.v1.BfdSession.required_min_rx_interval:type_name -> google.protobuf.Duration
+	31, // 6: bfd.v1.BfdSession.remote_min_rx_interval:type_name -> google.protobuf.Duration
+	31, // 7: bfd.v1.BfdSession.negotiated_tx_interval:type_name -> google.protobuf.Duration
+	31, // 8: bfd.v1.BfdSession.detection_time:type_name -> google.protobuf.Duration
 	2,  // 9: bfd.v1.BfdSession.auth_type:type_name -> bfd.v1.AuthenticationType
-	18, // 10: bfd.v1.BfdSession.last_state_change:type_name -> google.protobuf.Timestamp
-	18, // 11: bfd.v1.BfdSession.last_packet_received:type_name -> google.protobuf.Timestamp
+	32, // 10: bfd.v1.BfdSession.last_state_change:type_name -> google.protobuf.Timestamp
+	32, // 11: bfd.v1.BfdSession.last_packet_received:type_name -> google.protobuf.Timestamp
 	6,  // 12: bfd.v1.BfdSession.counters:type_name -> bfd.v1.SessionCounters
 	3,  // 13: bfd.v1.AddSessionRequest.type:type_name -> bfd.v1.SessionType
-	17, // 14: bfd.v1.AddSessionRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	17, // 15: bfd.v1.AddSessionRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
+	31, // 14: bfd.v1.AddSessionRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	31, // 15: bfd.v1.AddSessionRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
 	2,  // 16: bfd.v1.AddSessionRequest.auth_type:type_name -> bfd.v1.AuthenticationType
 	5,  // 17: bfd.v1.AddSessionResponse.session:type_name -> bfd.v1.BfdSession
 	5,  // 18: bfd.v1.ListSessionsResponse.sessions:type_name -> bfd.v1.BfdSession
@@ -1349,22 +2299,47 @@ var file_bfd_v1_bfd_proto_depIdxs = []int32{
 	4,  // 20: bfd.v1.WatchSessionEventsResponse.type:type_name -> bfd.v1.WatchSessionEventsResponse.EventType
 	5,  // 21: bfd.v1.WatchSessionEventsResponse.session:type_name -> bfd.v1.BfdSession
 	0,  // 22: bfd.v1.WatchSessionEventsResponse.previous_state:type_name -> bfd.v1.SessionState
-	18, // 23: bfd.v1.WatchSessionEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
-	7,  // 24: bfd.v1.BfdService.AddSession:input_type -> bfd.v1.AddSessionRequest
-	9,  // 25: bfd.v1.BfdService.DeleteSession:input_type -> bfd.v1.DeleteSessionRequest
-	11, // 26: bfd.v1.BfdService.ListSessions:input_type -> bfd.v1.ListSessionsRequest
-	13, // 27: bfd.v1.BfdService.GetSession:input_type -> bfd.v1.GetSessionRequest
-	15, // 28: bfd.v1.BfdService.WatchSessionEvents:input_type -> bfd.v1.WatchSessionEventsRequest
-	8,  // 29: bfd.v1.BfdService.AddSession:output_type -> bfd.v1.AddSessionResponse
-	10, // 30: bfd.v1.BfdService.DeleteSession:output_type -> bfd.v1.DeleteSessionResponse
-	12, // 31: bfd.v1.BfdService.ListSessions:output_type -> bfd.v1.ListSessionsResponse
-	14, // 32: bfd.v1.BfdService.GetSession:output_type -> bfd.v1.GetSessionResponse
-	16, // 33: bfd.v1.BfdService.WatchSessionEvents:output_type -> bfd.v1.WatchSessionEventsResponse
-	29, // [29:34] is the sub-list for method output_type
-	24, // [24:29] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	32, // 23: bfd.v1.WatchSessionEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
+	31, // 24: bfd.v1.EchoSession.tx_interval:type_name -> google.protobuf.Duration
+	0,  // 25: bfd.v1.EchoSession.local_state:type_name -> bfd.v1.SessionState
+	1,  // 26: bfd.v1.EchoSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
+	32, // 27: bfd.v1.EchoSession.last_state_change:type_name -> google.protobuf.Timestamp
+	31, // 28: bfd.v1.AddEchoSessionRequest.tx_interval:type_name -> google.protobuf.Duration
+	17, // 29: bfd.v1.AddEchoSessionResponse.session:type_name -> bfd.v1.EchoSession
+	17, // 30: bfd.v1.ListEchoSessionsResponse.sessions:type_name -> bfd.v1.EchoSession
+	31, // 31: bfd.v1.MicroBFDGroup.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	31, // 32: bfd.v1.MicroBFDGroup.required_min_rx_interval:type_name -> google.protobuf.Duration
+	31, // 33: bfd.v1.AddMicroBFDGroupRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	31, // 34: bfd.v1.AddMicroBFDGroupRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
+	24, // 35: bfd.v1.AddMicroBFDGroupResponse.group:type_name -> bfd.v1.MicroBFDGroup
+	24, // 36: bfd.v1.ListMicroBFDGroupsResponse.groups:type_name -> bfd.v1.MicroBFDGroup
+	7,  // 37: bfd.v1.BfdService.AddSession:input_type -> bfd.v1.AddSessionRequest
+	9,  // 38: bfd.v1.BfdService.DeleteSession:input_type -> bfd.v1.DeleteSessionRequest
+	11, // 39: bfd.v1.BfdService.ListSessions:input_type -> bfd.v1.ListSessionsRequest
+	13, // 40: bfd.v1.BfdService.GetSession:input_type -> bfd.v1.GetSessionRequest
+	15, // 41: bfd.v1.BfdService.WatchSessionEvents:input_type -> bfd.v1.WatchSessionEventsRequest
+	18, // 42: bfd.v1.EchoService.AddEchoSession:input_type -> bfd.v1.AddEchoSessionRequest
+	20, // 43: bfd.v1.EchoService.DeleteEchoSession:input_type -> bfd.v1.DeleteEchoSessionRequest
+	22, // 44: bfd.v1.EchoService.ListEchoSessions:input_type -> bfd.v1.ListEchoSessionsRequest
+	25, // 45: bfd.v1.MicroBFDService.AddMicroBFDGroup:input_type -> bfd.v1.AddMicroBFDGroupRequest
+	27, // 46: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:input_type -> bfd.v1.DeleteMicroBFDGroupRequest
+	29, // 47: bfd.v1.MicroBFDService.ListMicroBFDGroups:input_type -> bfd.v1.ListMicroBFDGroupsRequest
+	8,  // 48: bfd.v1.BfdService.AddSession:output_type -> bfd.v1.AddSessionResponse
+	10, // 49: bfd.v1.BfdService.DeleteSession:output_type -> bfd.v1.DeleteSessionResponse
+	12, // 50: bfd.v1.BfdService.ListSessions:output_type -> bfd.v1.ListSessionsResponse
+	14, // 51: bfd.v1.BfdService.GetSession:output_type -> bfd.v1.GetSessionResponse
+	16, // 52: bfd.v1.BfdService.WatchSessionEvents:output_type -> bfd.v1.WatchSessionEventsResponse
+	19, // 53: bfd.v1.EchoService.AddEchoSession:output_type -> bfd.v1.AddEchoSessionResponse
+	21, // 54: bfd.v1.EchoService.DeleteEchoSession:output_type -> bfd.v1.DeleteEchoSessionResponse
+	23, // 55: bfd.v1.EchoService.ListEchoSessions:output_type -> bfd.v1.ListEchoSessionsResponse
+	26, // 56: bfd.v1.MicroBFDService.AddMicroBFDGroup:output_type -> bfd.v1.AddMicroBFDGroupResponse
+	28, // 57: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:output_type -> bfd.v1.DeleteMicroBFDGroupResponse
+	30, // 58: bfd.v1.MicroBFDService.ListMicroBFDGroups:output_type -> bfd.v1.ListMicroBFDGroupsResponse
+	48, // [48:59] is the sub-list for method output_type
+	37, // [37:48] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_bfd_v1_bfd_proto_init() }
@@ -1382,9 +2357,9 @@ func file_bfd_v1_bfd_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bfd_v1_bfd_proto_rawDesc), len(file_bfd_v1_bfd_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   12,
+			NumMessages:   26,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   3,
 		},
 		GoTypes:           file_bfd_v1_bfd_proto_goTypes,
 		DependencyIndexes: file_bfd_v1_bfd_proto_depIdxs,

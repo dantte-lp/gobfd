@@ -23,6 +23,10 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// BfdServiceName is the fully-qualified name of the BfdService service.
 	BfdServiceName = "bfd.v1.BfdService"
+	// EchoServiceName is the fully-qualified name of the EchoService service.
+	EchoServiceName = "bfd.v1.EchoService"
+	// MicroBFDServiceName is the fully-qualified name of the MicroBFDService service.
+	MicroBFDServiceName = "bfd.v1.MicroBFDService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -45,6 +49,24 @@ const (
 	// BfdServiceWatchSessionEventsProcedure is the fully-qualified name of the BfdService's
 	// WatchSessionEvents RPC.
 	BfdServiceWatchSessionEventsProcedure = "/bfd.v1.BfdService/WatchSessionEvents"
+	// EchoServiceAddEchoSessionProcedure is the fully-qualified name of the EchoService's
+	// AddEchoSession RPC.
+	EchoServiceAddEchoSessionProcedure = "/bfd.v1.EchoService/AddEchoSession"
+	// EchoServiceDeleteEchoSessionProcedure is the fully-qualified name of the EchoService's
+	// DeleteEchoSession RPC.
+	EchoServiceDeleteEchoSessionProcedure = "/bfd.v1.EchoService/DeleteEchoSession"
+	// EchoServiceListEchoSessionsProcedure is the fully-qualified name of the EchoService's
+	// ListEchoSessions RPC.
+	EchoServiceListEchoSessionsProcedure = "/bfd.v1.EchoService/ListEchoSessions"
+	// MicroBFDServiceAddMicroBFDGroupProcedure is the fully-qualified name of the MicroBFDService's
+	// AddMicroBFDGroup RPC.
+	MicroBFDServiceAddMicroBFDGroupProcedure = "/bfd.v1.MicroBFDService/AddMicroBFDGroup"
+	// MicroBFDServiceDeleteMicroBFDGroupProcedure is the fully-qualified name of the MicroBFDService's
+	// DeleteMicroBFDGroup RPC.
+	MicroBFDServiceDeleteMicroBFDGroupProcedure = "/bfd.v1.MicroBFDService/DeleteMicroBFDGroup"
+	// MicroBFDServiceListMicroBFDGroupsProcedure is the fully-qualified name of the MicroBFDService's
+	// ListMicroBFDGroups RPC.
+	MicroBFDServiceListMicroBFDGroupsProcedure = "/bfd.v1.MicroBFDService/ListMicroBFDGroups"
 )
 
 // BfdServiceClient is a client for the bfd.v1.BfdService service.
@@ -245,4 +267,272 @@ func (UnimplementedBfdServiceHandler) GetSession(context.Context, *v1.GetSession
 
 func (UnimplementedBfdServiceHandler) WatchSessionEvents(context.Context, *v1.WatchSessionEventsRequest, *connect.ServerStream[v1.WatchSessionEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.BfdService.WatchSessionEvents is not implemented"))
+}
+
+// EchoServiceClient is a client for the bfd.v1.EchoService service.
+type EchoServiceClient interface {
+	AddEchoSession(context.Context, *v1.AddEchoSessionRequest) (*v1.AddEchoSessionResponse, error)
+	DeleteEchoSession(context.Context, *v1.DeleteEchoSessionRequest) (*v1.DeleteEchoSessionResponse, error)
+	ListEchoSessions(context.Context, *v1.ListEchoSessionsRequest) (*v1.ListEchoSessionsResponse, error)
+}
+
+// NewEchoServiceClient constructs a client for the bfd.v1.EchoService service. By default, it uses
+// the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewEchoServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) EchoServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	echoServiceMethods := v1.File_bfd_v1_bfd_proto.Services().ByName("EchoService").Methods()
+	return &echoServiceClient{
+		addEchoSession: connect.NewClient[v1.AddEchoSessionRequest, v1.AddEchoSessionResponse](
+			httpClient,
+			baseURL+EchoServiceAddEchoSessionProcedure,
+			connect.WithSchema(echoServiceMethods.ByName("AddEchoSession")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteEchoSession: connect.NewClient[v1.DeleteEchoSessionRequest, v1.DeleteEchoSessionResponse](
+			httpClient,
+			baseURL+EchoServiceDeleteEchoSessionProcedure,
+			connect.WithSchema(echoServiceMethods.ByName("DeleteEchoSession")),
+			connect.WithClientOptions(opts...),
+		),
+		listEchoSessions: connect.NewClient[v1.ListEchoSessionsRequest, v1.ListEchoSessionsResponse](
+			httpClient,
+			baseURL+EchoServiceListEchoSessionsProcedure,
+			connect.WithSchema(echoServiceMethods.ByName("ListEchoSessions")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// echoServiceClient implements EchoServiceClient.
+type echoServiceClient struct {
+	addEchoSession    *connect.Client[v1.AddEchoSessionRequest, v1.AddEchoSessionResponse]
+	deleteEchoSession *connect.Client[v1.DeleteEchoSessionRequest, v1.DeleteEchoSessionResponse]
+	listEchoSessions  *connect.Client[v1.ListEchoSessionsRequest, v1.ListEchoSessionsResponse]
+}
+
+// AddEchoSession calls bfd.v1.EchoService.AddEchoSession.
+func (c *echoServiceClient) AddEchoSession(ctx context.Context, req *v1.AddEchoSessionRequest) (*v1.AddEchoSessionResponse, error) {
+	response, err := c.addEchoSession.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// DeleteEchoSession calls bfd.v1.EchoService.DeleteEchoSession.
+func (c *echoServiceClient) DeleteEchoSession(ctx context.Context, req *v1.DeleteEchoSessionRequest) (*v1.DeleteEchoSessionResponse, error) {
+	response, err := c.deleteEchoSession.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// ListEchoSessions calls bfd.v1.EchoService.ListEchoSessions.
+func (c *echoServiceClient) ListEchoSessions(ctx context.Context, req *v1.ListEchoSessionsRequest) (*v1.ListEchoSessionsResponse, error) {
+	response, err := c.listEchoSessions.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// EchoServiceHandler is an implementation of the bfd.v1.EchoService service.
+type EchoServiceHandler interface {
+	AddEchoSession(context.Context, *v1.AddEchoSessionRequest) (*v1.AddEchoSessionResponse, error)
+	DeleteEchoSession(context.Context, *v1.DeleteEchoSessionRequest) (*v1.DeleteEchoSessionResponse, error)
+	ListEchoSessions(context.Context, *v1.ListEchoSessionsRequest) (*v1.ListEchoSessionsResponse, error)
+}
+
+// NewEchoServiceHandler builds an HTTP handler from the service implementation. It returns the path
+// on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewEchoServiceHandler(svc EchoServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	echoServiceMethods := v1.File_bfd_v1_bfd_proto.Services().ByName("EchoService").Methods()
+	echoServiceAddEchoSessionHandler := connect.NewUnaryHandlerSimple(
+		EchoServiceAddEchoSessionProcedure,
+		svc.AddEchoSession,
+		connect.WithSchema(echoServiceMethods.ByName("AddEchoSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	echoServiceDeleteEchoSessionHandler := connect.NewUnaryHandlerSimple(
+		EchoServiceDeleteEchoSessionProcedure,
+		svc.DeleteEchoSession,
+		connect.WithSchema(echoServiceMethods.ByName("DeleteEchoSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	echoServiceListEchoSessionsHandler := connect.NewUnaryHandlerSimple(
+		EchoServiceListEchoSessionsProcedure,
+		svc.ListEchoSessions,
+		connect.WithSchema(echoServiceMethods.ByName("ListEchoSessions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/bfd.v1.EchoService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case EchoServiceAddEchoSessionProcedure:
+			echoServiceAddEchoSessionHandler.ServeHTTP(w, r)
+		case EchoServiceDeleteEchoSessionProcedure:
+			echoServiceDeleteEchoSessionHandler.ServeHTTP(w, r)
+		case EchoServiceListEchoSessionsProcedure:
+			echoServiceListEchoSessionsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedEchoServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedEchoServiceHandler struct{}
+
+func (UnimplementedEchoServiceHandler) AddEchoSession(context.Context, *v1.AddEchoSessionRequest) (*v1.AddEchoSessionResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.EchoService.AddEchoSession is not implemented"))
+}
+
+func (UnimplementedEchoServiceHandler) DeleteEchoSession(context.Context, *v1.DeleteEchoSessionRequest) (*v1.DeleteEchoSessionResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.EchoService.DeleteEchoSession is not implemented"))
+}
+
+func (UnimplementedEchoServiceHandler) ListEchoSessions(context.Context, *v1.ListEchoSessionsRequest) (*v1.ListEchoSessionsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.EchoService.ListEchoSessions is not implemented"))
+}
+
+// MicroBFDServiceClient is a client for the bfd.v1.MicroBFDService service.
+type MicroBFDServiceClient interface {
+	AddMicroBFDGroup(context.Context, *v1.AddMicroBFDGroupRequest) (*v1.AddMicroBFDGroupResponse, error)
+	DeleteMicroBFDGroup(context.Context, *v1.DeleteMicroBFDGroupRequest) (*v1.DeleteMicroBFDGroupResponse, error)
+	ListMicroBFDGroups(context.Context, *v1.ListMicroBFDGroupsRequest) (*v1.ListMicroBFDGroupsResponse, error)
+}
+
+// NewMicroBFDServiceClient constructs a client for the bfd.v1.MicroBFDService service. By default,
+// it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and
+// sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC()
+// or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewMicroBFDServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MicroBFDServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	microBFDServiceMethods := v1.File_bfd_v1_bfd_proto.Services().ByName("MicroBFDService").Methods()
+	return &microBFDServiceClient{
+		addMicroBFDGroup: connect.NewClient[v1.AddMicroBFDGroupRequest, v1.AddMicroBFDGroupResponse](
+			httpClient,
+			baseURL+MicroBFDServiceAddMicroBFDGroupProcedure,
+			connect.WithSchema(microBFDServiceMethods.ByName("AddMicroBFDGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteMicroBFDGroup: connect.NewClient[v1.DeleteMicroBFDGroupRequest, v1.DeleteMicroBFDGroupResponse](
+			httpClient,
+			baseURL+MicroBFDServiceDeleteMicroBFDGroupProcedure,
+			connect.WithSchema(microBFDServiceMethods.ByName("DeleteMicroBFDGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		listMicroBFDGroups: connect.NewClient[v1.ListMicroBFDGroupsRequest, v1.ListMicroBFDGroupsResponse](
+			httpClient,
+			baseURL+MicroBFDServiceListMicroBFDGroupsProcedure,
+			connect.WithSchema(microBFDServiceMethods.ByName("ListMicroBFDGroups")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// microBFDServiceClient implements MicroBFDServiceClient.
+type microBFDServiceClient struct {
+	addMicroBFDGroup    *connect.Client[v1.AddMicroBFDGroupRequest, v1.AddMicroBFDGroupResponse]
+	deleteMicroBFDGroup *connect.Client[v1.DeleteMicroBFDGroupRequest, v1.DeleteMicroBFDGroupResponse]
+	listMicroBFDGroups  *connect.Client[v1.ListMicroBFDGroupsRequest, v1.ListMicroBFDGroupsResponse]
+}
+
+// AddMicroBFDGroup calls bfd.v1.MicroBFDService.AddMicroBFDGroup.
+func (c *microBFDServiceClient) AddMicroBFDGroup(ctx context.Context, req *v1.AddMicroBFDGroupRequest) (*v1.AddMicroBFDGroupResponse, error) {
+	response, err := c.addMicroBFDGroup.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// DeleteMicroBFDGroup calls bfd.v1.MicroBFDService.DeleteMicroBFDGroup.
+func (c *microBFDServiceClient) DeleteMicroBFDGroup(ctx context.Context, req *v1.DeleteMicroBFDGroupRequest) (*v1.DeleteMicroBFDGroupResponse, error) {
+	response, err := c.deleteMicroBFDGroup.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// ListMicroBFDGroups calls bfd.v1.MicroBFDService.ListMicroBFDGroups.
+func (c *microBFDServiceClient) ListMicroBFDGroups(ctx context.Context, req *v1.ListMicroBFDGroupsRequest) (*v1.ListMicroBFDGroupsResponse, error) {
+	response, err := c.listMicroBFDGroups.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// MicroBFDServiceHandler is an implementation of the bfd.v1.MicroBFDService service.
+type MicroBFDServiceHandler interface {
+	AddMicroBFDGroup(context.Context, *v1.AddMicroBFDGroupRequest) (*v1.AddMicroBFDGroupResponse, error)
+	DeleteMicroBFDGroup(context.Context, *v1.DeleteMicroBFDGroupRequest) (*v1.DeleteMicroBFDGroupResponse, error)
+	ListMicroBFDGroups(context.Context, *v1.ListMicroBFDGroupsRequest) (*v1.ListMicroBFDGroupsResponse, error)
+}
+
+// NewMicroBFDServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewMicroBFDServiceHandler(svc MicroBFDServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	microBFDServiceMethods := v1.File_bfd_v1_bfd_proto.Services().ByName("MicroBFDService").Methods()
+	microBFDServiceAddMicroBFDGroupHandler := connect.NewUnaryHandlerSimple(
+		MicroBFDServiceAddMicroBFDGroupProcedure,
+		svc.AddMicroBFDGroup,
+		connect.WithSchema(microBFDServiceMethods.ByName("AddMicroBFDGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	microBFDServiceDeleteMicroBFDGroupHandler := connect.NewUnaryHandlerSimple(
+		MicroBFDServiceDeleteMicroBFDGroupProcedure,
+		svc.DeleteMicroBFDGroup,
+		connect.WithSchema(microBFDServiceMethods.ByName("DeleteMicroBFDGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	microBFDServiceListMicroBFDGroupsHandler := connect.NewUnaryHandlerSimple(
+		MicroBFDServiceListMicroBFDGroupsProcedure,
+		svc.ListMicroBFDGroups,
+		connect.WithSchema(microBFDServiceMethods.ByName("ListMicroBFDGroups")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/bfd.v1.MicroBFDService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case MicroBFDServiceAddMicroBFDGroupProcedure:
+			microBFDServiceAddMicroBFDGroupHandler.ServeHTTP(w, r)
+		case MicroBFDServiceDeleteMicroBFDGroupProcedure:
+			microBFDServiceDeleteMicroBFDGroupHandler.ServeHTTP(w, r)
+		case MicroBFDServiceListMicroBFDGroupsProcedure:
+			microBFDServiceListMicroBFDGroupsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedMicroBFDServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedMicroBFDServiceHandler struct{}
+
+func (UnimplementedMicroBFDServiceHandler) AddMicroBFDGroup(context.Context, *v1.AddMicroBFDGroupRequest) (*v1.AddMicroBFDGroupResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.MicroBFDService.AddMicroBFDGroup is not implemented"))
+}
+
+func (UnimplementedMicroBFDServiceHandler) DeleteMicroBFDGroup(context.Context, *v1.DeleteMicroBFDGroupRequest) (*v1.DeleteMicroBFDGroupResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.MicroBFDService.DeleteMicroBFDGroup is not implemented"))
+}
+
+func (UnimplementedMicroBFDServiceHandler) ListMicroBFDGroups(context.Context, *v1.ListMicroBFDGroupsRequest) (*v1.ListMicroBFDGroupsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("bfd.v1.MicroBFDService.ListMicroBFDGroups is not implemented"))
 }
