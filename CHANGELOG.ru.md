@@ -56,8 +56,24 @@
 - `.golangci.yml` мигрирован с устаревшего `gomodguard` на `gomodguard_v2`
   с новой схемой module-list.
 
+### Безопасность
+
+- Toolchain Go поднят до `1.26.3` в `go.mod`, dev-контейнере,
+  runtime-контейнерах и GitHub Actions. Закрывает
+  [GO-2026-4986 / CVE-2026-39820](https://pkg.go.dev/vuln/GO-2026-4986)
+  в `html/template`.
+
 ### Исправлено
 
+- Новая Make-цель `dev-ensure` пересобирает dev-контейнер, если его
+  bind-mount source не совпадает с `$(CURDIR)`. Устраняет ошибку
+  `crun: getcwd: Operation not permitted`, всплывавшую после удаления
+  worktree без пересборки dev-контейнера.
+- Цель `lint-spell` больше не ссылается на документы, перенесённые в
+  `.archive/sprints/`; теперь линтит каноничный `roadmap.md`.
+- `lint-yaml` исключает каталоги `.archive/` и `.serena/`.
+- В dev-контейнере `golangci-lint` поднят до `v2.12.1`, чтобы
+  соответствовать миграции на `gomodguard_v2` на хосте.
 - Linux rtnetlink interface monitor shutdown теперь ограничен receive
   timeout, поэтому cancellation завершается детерминированно, даже если
   закрытие netlink file descriptor не прерывает receive syscall сразу.

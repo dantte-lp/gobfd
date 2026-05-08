@@ -55,8 +55,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.golangci.yml` migrated from deprecated `gomodguard` to `gomodguard_v2`
   with the new module-list schema.
 
+### Security
+
+- Bump Go toolchain to `1.26.3` across `go.mod`, dev container, runtime
+  containers, and GitHub Actions workflows. Closes
+  [GO-2026-4986 / CVE-2026-39820](https://pkg.go.dev/vuln/GO-2026-4986)
+  in `html/template`.
+
 ### Fixed
 
+- New `dev-ensure` Make target rebuilds the dev container when its
+  bind-mount source no longer matches `$(CURDIR)`. Eliminates
+  `crun: getcwd: Operation not permitted` errors that surfaced after
+  worktree teardown of a stale dev container.
+- `lint-spell` Make target no longer references documents archived
+  under `.archive/sprints/`; now lints the canonical `roadmap.md`.
+- `lint-yaml` excludes `.archive/` and `.serena/` directories.
+- Bump dev container `golangci-lint` to `v2.12.1` to match the host
+  configuration introduced with the `gomodguard_v2` migration.
 - Linux rtnetlink interface monitor shutdown is now bounded by a receive
   timeout, so cancellation exits deterministically even when closing the
   netlink file descriptor does not interrupt the receive syscall
