@@ -30,7 +30,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         test-report report-all \
         coverage profile \
         up down restart logs shell clean tidy \
-        dev-ps dev-project \
+        dev-ps dev-project dev-ensure \
         e2e-help e2e-core e2e-core-test e2e-core-up e2e-core-down e2e-core-logs \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
         interop interop-test interop-up interop-down interop-logs \
@@ -66,6 +66,29 @@ dev-ps:
 
 dev-project:
 	@echo "$(COMPOSE_PROJECT_NAME)"
+
+# dev-ensure guards that the gobfd dev container exists and points at the
+# current working directory. If the bind-mount source no longer matches
+# $(CURDIR) (typical after worktree teardown) the container is force-recreated.
+# This is the canonical pre-flight for build / test / lint targets.
+dev-ensure:
+	@set -e; \
+	cname="$(COMPOSE_PROJECT_NAME)_dev_1"; \
+	if ! podman inspect "$$cname" >/dev/null 2>&1; then \
+	  echo "dev-ensure: container $$cname missing, creating"; \
+	  $(DC) up -d --build dev; \
+	  exit 0; \
+	fi; \
+	src="$$(podman inspect "$$cname" --format '{{range .Mounts}}{{if eq .Destination "/app"}}{{.Source}}{{end}}{{end}}')"; \
+	if [ "$$src" != "$(CURDIR)" ]; then \
+	  echo "dev-ensure: mount source $$src != $(CURDIR), force recreating"; \
+	  $(DC) up -d --build --force-recreate dev; \
+	  exit 0; \
+	fi; \
+	if ! podman inspect "$$cname" --format '{{.State.Running}}' | grep -q true; then \
+	  echo "dev-ensure: container $$cname not running, starting"; \
+	  podman start "$$cname" >/dev/null; \
+	fi
 
 # === S10 Extended E2E Targets ===
 
@@ -159,7 +182,7 @@ LDFLAGS := -s -w \
   -X github.com/dantte-lp/gobfd/internal/version.GitCommit=$(GIT_COMMIT) \
   -X github.com/dantte-lp/gobfd/internal/version.BuildDate=$(BUILD_DATE)
 
-build:
+build: dev-ensure
 	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfd
 	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfdctl
 	$(EXEC) go build -ldflags='$(LDFLAGS)' ./cmd/gobfd-haproxy-agent
@@ -167,10 +190,10 @@ build:
 
 # === Test ===
 
-test:
+test: dev-ensure
 	$(EXEC) go test ./... -race -count=1
 
-test-v:
+test-v: dev-ensure
 	$(EXEC) go test ./... -race -count=1 -v
 
 test-run:
@@ -465,7 +488,7 @@ lint-md:
 lint-yaml:
 	$(EXEC) yamllint -c .yamllint.yaml .
 
-lint-spell:
+lint-spell: dev-ensure
 	$(EXEC) cspell --no-progress --no-summary --config .cspell.json \
 		README.md \
 		CONTRIBUTING.md \
@@ -474,8 +497,7 @@ lint-spell:
 		GOVERNANCE.md \
 		MAINTAINERS.md \
 		CHANGELOG.md \
-		docs/en/implementation-plan.md \
-		docs/en/codebase-consistency-audit.md
+		docs/en/roadmap.md
 
 lint-docs: lint-md lint-yaml lint-spell
 
