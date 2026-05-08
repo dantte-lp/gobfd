@@ -9,6 +9,19 @@
 
 ### Добавлено
 
+- gRPC сервис `EchoService` (RFC 9747) с `AddEchoSession`,
+  `DeleteEchoSession` и `ListEchoSessions`. Сервер валидирует
+  положительный `TxInterval` и `DetectMultiplier` в диапазоне
+  `[1, 255]`. Зарегистрирован на HTTP/2 ConnectRPC mux демона по пути
+  `/bfd.v1.EchoService/...` и анонсируется через `grpc.health.v1`.
+- gRPC сервис `MicroBFDService` (RFC 7130) с `AddMicroBFDGroup`,
+  `DeleteMicroBFDGroup` и `ListMicroBFDGroups`. Сервер проверяет
+  инвариант RFC 7130 `1 <= min_active_links <= len(member_links)`.
+- Подкоманды `gobfdctl echo {add, list, delete}` и
+  `gobfdctl micro {add, list, delete}` с форматами вывода table,
+  JSON и YAML.
+- Roadmap-документ `docs/en/roadmap.md` с waterfall-планом спринтов
+  S12-S20 до версии `v1.0.0`.
 - End-to-end цели `make e2e-core`, `make e2e-routing`, `make e2e-rfc`,
   `make e2e-overlay`, `make e2e-linux` и `make e2e-vendor` с Podman-only
   выполнением, packet captures и стандартизованными артефактами.

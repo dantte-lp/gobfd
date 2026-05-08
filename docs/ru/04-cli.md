@@ -14,6 +14,8 @@
 - [Обзор](#обзор)
 - [Глобальные флаги](#глобальные-флаги)
 - [Команды сессий](#команды-сессий)
+- [Команды echo](#команды-echo)
+- [Команды micro-BFD](#команды-micro-bfd)
 - [Команда мониторинга](#команда-мониторинга)
 - [Команда версии](#команда-версии)
 - [Интерактивная оболочка](#интерактивная-оболочка)
@@ -99,6 +101,88 @@ gobfdctl session add \
 
 ```bash
 gobfdctl session delete 42
+```
+
+### Команды echo
+
+Сессии RFC 9747 unaffiliated BFD echo выделены в отдельную группу
+команд: их таймерная модель отличается от RFC 5880 control sessions --
+TxInterval задаётся локально и не согласуется с peer.
+
+#### Список echo-сессий
+
+```bash
+gobfdctl echo list
+```
+
+#### Создать echo-сессию
+
+```bash
+gobfdctl echo add \
+    --peer 10.0.0.1 \
+    --local 10.0.0.2 \
+    --tx-interval 50ms \
+    --detect-mult 3
+```
+
+| Флаг | Обязательный | По умолчанию | Описание |
+|---|---|---|---|
+| `--peer` | Да | -- | IP-адрес echo target |
+| `--local` | Нет | -- | Локальный IP (fallback на default route) |
+| `--interface` | Нет | -- | Outbound интерфейс для `SO_BINDTODEVICE` |
+| `--tx-interval` | Нет | `1s` | Интервал отправки echo (RFC 9747 Section 3.3) |
+| `--detect-mult` | Нет | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
+
+#### Удалить echo-сессию
+
+```bash
+gobfdctl echo delete 42
+```
+
+### Команды micro-BFD
+
+Группы RFC 7130 micro-BFD создают по одной BFD-сессии на каждый
+member-линк LAG. CLI управляет ресурсом группы; per-member сессии
+создаются демоном при добавлении группы.
+
+#### Список micro-BFD групп
+
+```bash
+gobfdctl micro list
+```
+
+#### Создать micro-BFD группу
+
+```bash
+gobfdctl micro add \
+    --lag bond0 \
+    --members eth0,eth1,eth2 \
+    --peer 10.0.0.1 \
+    --local 10.0.0.2 \
+    --tx-interval 300ms \
+    --rx-interval 300ms \
+    --detect-mult 3 \
+    --min-active 2
+```
+
+| Флаг | Обязательный | По умолчанию | Описание |
+|---|---|---|---|
+| `--lag` | Да | -- | Имя LAG-интерфейса (`bond0`, `team0`, `port-channel1`) |
+| `--members` | Да | -- | Member-линки через запятую |
+| `--peer` | Да | -- | IP-адрес peer для всех member-сессий |
+| `--local` | Нет | -- | Локальный IP-адрес |
+| `--tx-interval` | Нет | `1s` | Desired minimum TX interval |
+| `--rx-interval` | Нет | `1s` | Required minimum RX interval |
+| `--detect-mult` | Нет | `3` | Detection multiplier (RFC 7130 Section 2.2) |
+| `--min-active` | Нет | `1` | Минимум активных members для aggregate Up |
+
+CLI отклоняет `--min-active` вне диапазона `[1, len(--members)]` до
+обращения к демону.
+
+#### Удалить micro-BFD группу
+
+```bash
+gobfdctl micro delete bond0
 ```
 
 ### Команда мониторинга

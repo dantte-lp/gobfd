@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- gRPC `EchoService` (RFC 9747) with `AddEchoSession`,
+  `DeleteEchoSession`, and `ListEchoSessions`. Server enforces
+  positive `TxInterval` and `DetectMultiplier` in `[1, 255]`.
+  Registered on the daemon's HTTP/2 ConnectRPC mux at
+  `/bfd.v1.EchoService/...` and advertised via `grpc.health.v1`.
+- gRPC `MicroBFDService` (RFC 7130) with `AddMicroBFDGroup`,
+  `DeleteMicroBFDGroup`, and `ListMicroBFDGroups`. Server enforces
+  the RFC 7130 invariant `1 <= min_active_links <= len(member_links)`.
+- `gobfdctl echo {add, list, delete}` and
+  `gobfdctl micro {add, list, delete}` subcommands with table, JSON,
+  and YAML output formats.
+- Roadmap document at `docs/en/roadmap.md` describing the S12-S20
+  waterfall plan toward `v1.0.0`.
 - End-to-end test targets `make e2e-core`, `make e2e-routing`, `make e2e-rfc`,
   `make e2e-overlay`, `make e2e-linux`, and `make e2e-vendor` with
   Podman-only execution, packet captures, and standardized artifacts.

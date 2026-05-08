@@ -14,6 +14,8 @@
 - [Overview](#overview)
 - [Global Flags](#global-flags)
 - [Session Commands](#session-commands)
+- [Echo Commands](#echo-commands)
+- [Micro-BFD Commands](#micro-bfd-commands)
 - [Monitor Command](#monitor-command)
 - [Version Command](#version-command)
 - [Interactive Shell](#interactive-shell)
@@ -102,6 +104,88 @@ gobfdctl session add \
 ```bash
 # By local discriminator
 gobfdctl session delete 42
+```
+
+### Echo Commands
+
+RFC 9747 unaffiliated BFD echo sessions live under a separate command
+group because their timer model differs from RFC 5880 control sessions:
+TxInterval is locally provisioned and not negotiated with the peer.
+
+#### List echo sessions
+
+```bash
+gobfdctl echo list
+```
+
+#### Create an echo session
+
+```bash
+gobfdctl echo add \
+    --peer 10.0.0.1 \
+    --local 10.0.0.2 \
+    --tx-interval 50ms \
+    --detect-mult 3
+```
+
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--peer` | Yes | -- | Echo target IP address |
+| `--local` | No | -- | Local IP address (fallback to default route) |
+| `--interface` | No | -- | Outbound interface for `SO_BINDTODEVICE` |
+| `--tx-interval` | No | `1s` | Echo transmit interval (RFC 9747 Section 3.3) |
+| `--detect-mult` | No | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
+
+#### Delete an echo session
+
+```bash
+gobfdctl echo delete 42
+```
+
+### Micro-BFD Commands
+
+RFC 7130 micro-BFD groups bind one BFD session per LAG member link.
+The CLI manages the group resource; per-member sessions are created
+in the daemon when the group is added.
+
+#### List micro-BFD groups
+
+```bash
+gobfdctl micro list
+```
+
+#### Create a micro-BFD group
+
+```bash
+gobfdctl micro add \
+    --lag bond0 \
+    --members eth0,eth1,eth2 \
+    --peer 10.0.0.1 \
+    --local 10.0.0.2 \
+    --tx-interval 300ms \
+    --rx-interval 300ms \
+    --detect-mult 3 \
+    --min-active 2
+```
+
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--lag` | Yes | -- | LAG interface name (`bond0`, `team0`, `port-channel1`) |
+| `--members` | Yes | -- | Comma-separated member link names |
+| `--peer` | Yes | -- | Peer IP address shared by every member session |
+| `--local` | No | -- | Local IP address |
+| `--tx-interval` | No | `1s` | Desired minimum TX interval |
+| `--rx-interval` | No | `1s` | Required minimum RX interval |
+| `--detect-mult` | No | `3` | Detection multiplier (RFC 7130 Section 2.2) |
+| `--min-active` | No | `1` | Minimum active members for aggregate Up |
+
+The CLI rejects `--min-active` outside `[1, len(--members)]` before
+contacting the daemon.
+
+#### Delete a micro-BFD group
+
+```bash
+gobfdctl micro delete bond0
 ```
 
 ### Monitor Command
