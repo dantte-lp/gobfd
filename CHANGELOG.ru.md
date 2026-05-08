@@ -7,6 +7,16 @@
 
 ## [Не выпущено]
 
+## [0.6.1] - 2026-05-09
+
+### Исправлено
+
+- Обновлена пиннинг-версия `github.com/golangci/golangci-lint/v2` с
+  `v2.11.4` до `v2.12.1` в `go.mod`. Релизный workflow вызывает
+  `go tool golangci-lint`, который использует именно эту пиннинг-версию;
+  v2.11.4 не знала линтера `gomodguard_v2`, добавленного в `v0.6.0`,
+  из-за чего release CI на теге `v0.6.0` падал на шаге Lint.
+
 ## [0.6.0] - 2026-05-09
 
 ### Добавлено
@@ -367,7 +377,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...v0.5.1

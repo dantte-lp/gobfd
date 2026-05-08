@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-09
+
+### Fixed
+
+- Bump pinned `github.com/golangci/golangci-lint/v2` from `v2.11.4` to
+  `v2.12.1` in `go.mod` so the release workflow (`go tool golangci-lint`)
+  recognizes the `gomodguard_v2` linter introduced for `v0.6.0`. Without
+  this bump, the release CI on tag `v0.6.0` failed at the lint step.
+
 ## [0.6.0] - 2026-05-09
 
 ### Added
@@ -376,7 +385,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...v0.5.1
