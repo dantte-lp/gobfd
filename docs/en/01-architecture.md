@@ -10,7 +10,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [System Overview](#system-overview)
 - [Package Dependency Diagram](#package-dependency-diagram)

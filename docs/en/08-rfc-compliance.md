@@ -20,7 +20,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Compliance Matrix](#compliance-matrix)
 - [RFC 5880 Implementation Notes](#rfc-5880-implementation-notes)

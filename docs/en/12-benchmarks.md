@@ -1,10 +1,15 @@
 # Benchmark Guide
 
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Bench](https://img.shields.io/badge/go_test-bench-1a73e8?style=for-the-badge)
+![Allocs](https://img.shields.io/badge/Hot_Path-0_allocs-34a853?style=for-the-badge)
+![Reports](https://img.shields.io/badge/Reports-Reproducible-ffc107?style=for-the-badge)
+
 > How to run, read, and interpret GoBFD benchmark results.
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Running Benchmarks](#running-benchmarks)
 - [Understanding Go Benchmark Output](#understanding-go-benchmark-output)
@@ -236,7 +241,7 @@ A regression shows as a positive percentage (e.g., `+12.3%`). Investigate any re
 |------|-------------|
 | Pull request benchmark gate | GitHub Actions `Benchmark comparison` runs stable hot-path benchmarks only. |
 | E2E evidence gate | `.github/workflows/e2e.yml` publishes E2E artifacts separately from benchmark artifacts. |
-| S10 timing data | Diagnostic only; not a performance regression gate. |
+| E2E timing data | Diagnostic only; not a performance regression gate. |
 | Vendor profile timing | Diagnostic only; not comparable across licensed or operator-provided images. |
 | Regression scope | Protocol hot paths in `internal/bfd` and `internal/netio`. |
 

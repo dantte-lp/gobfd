@@ -9,7 +9,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Configuration Sources](#configuration-sources)
 - [Full Configuration Example](#full-configuration-example)

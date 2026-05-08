@@ -9,7 +9,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Prometheus Metrics](#prometheus-metrics)
 - [Grafana Dashboard](#grafana-dashboard)

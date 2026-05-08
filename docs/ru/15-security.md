@@ -1,8 +1,13 @@
 # Политика безопасности
 
-Документ задаёт production baseline безопасности для развёртываний GoBFD.
-Формат намеренно эксплуатационный: каждый пункт является настройкой демона,
-границей развёртывания или проверкой.
+![Scorecard](https://img.shields.io/badge/OpenSSF-Scorecard-1a73e8?style=for-the-badge)
+![CodeQL](https://img.shields.io/badge/CodeQL-SAST-34a853?style=for-the-badge)
+![govulncheck](https://img.shields.io/badge/govulncheck-Required-ea4335?style=for-the-badge)
+![Capabilities](https://img.shields.io/badge/CAP__NET__RAW-Required-ffc107?style=for-the-badge)
+
+> Production baseline безопасности для развёртываний GoBFD. Каждый пункт -- настройка демона, граница развёртывания либо проверка.
+
+---
 
 ## Область
 

@@ -10,7 +10,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Requirements](#requirements)
 - [Release Artifact Matrix](#release-artifact-matrix)

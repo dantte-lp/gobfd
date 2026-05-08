@@ -1,7 +1,11 @@
 # Production Integration Runbooks
 
-> Generic runbooks for deploying and validating GoBFD in independent Linux,
-> Kubernetes, BGP, and overlay-network environments.
+![Linux](https://img.shields.io/badge/Linux-Hosts-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
+![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
+![Overlay](https://img.shields.io/badge/Overlay-VXLAN%20%7C%20Geneve-6f42c1?style=for-the-badge)
+
+> Runbooks for deploying and validating GoBFD in Linux, Kubernetes, BGP, and overlay-network environments.
 
 ---
 
@@ -190,11 +194,11 @@ Arista EOS public behavior:
 
 ## Open Production Gaps
 
-| Gap | Planned sprint |
+| Gap | Status |
 |---|---|
-| Dedicated API/CLI create flows for Echo, Micro-BFD, VXLAN, and Geneve | S5b |
+| Dedicated API/CLI create flows for Echo, Micro-BFD, VXLAN, and Geneve | Planned |
 | Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
-| Release signatures, provenance, and Scorecard hardening | S9 |
+| Release signatures, provenance, and Scorecard hardening | Implemented |
 
 ---
 

@@ -1,10 +1,15 @@
 # Конкурентный анализ: реализации BFD
 
-> Сравнение GoBFD с open-source и вендорскими реализациями BFD.
+![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
+![BIRD](https://img.shields.io/badge/BIRD-2%2F3-28a745?style=for-the-badge)
+![aiobfd](https://img.shields.io/badge/aiobfd-Python-ffc107?style=for-the-badge)
+![Hardware](https://img.shields.io/badge/Hardware-Reference-1a73e8?style=for-the-badge)
+
+> Сравнение GoBFD с open-source и вендорскими реализациями BFD: матрица фич, обработка пакетов, масштабирование сессий и production-таймеры.
 
 ---
 
-### Содержание
+## Содержание
 
 - [Программные реализации](#программные-реализации)
   - [FRR bfdd](#frr-bfdd)
@@ -168,7 +173,7 @@
 - Числа aiobfd — из README и тестовых отчётов
 - Аппаратные числа — из вендорских даташитов и руководств по конфигурации
 
-**Что мы НЕ утверждаем**:
+**Вне области применимости**:
 
 - Мы не проводили сравнительных тестов лоб-в-лоб между GoBFD и FRR/BIRD/aiobfd
 - Пропускная способность микро-бенчмарков (нс/оп) не переводится напрямую в системную производительность

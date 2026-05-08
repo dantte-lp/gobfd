@@ -1,10 +1,15 @@
 # Руководство по бенчмаркам
 
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Bench](https://img.shields.io/badge/go_test-bench-1a73e8?style=for-the-badge)
+![Allocs](https://img.shields.io/badge/Hot_Path-0_allocs-34a853?style=for-the-badge)
+![Reports](https://img.shields.io/badge/Reports-Reproducible-ffc107?style=for-the-badge)
+
 > Как запускать, читать и интерпретировать результаты бенчмарков GoBFD.
 
 ---
 
-### Содержание
+## Содержание
 
 - [Запуск бенчмарков](#запуск-бенчмарков)
 - [Формат вывода Go-бенчмарков](#формат-вывода-go-бенчмарков)
@@ -236,7 +241,7 @@ FSMTransitionUpRecvUp-8      20.1n ± 1%   20.3n ± 2%       ~ (p=0.485 n=6)
 |------|-------------|
 | Pull request benchmark gate | GitHub Actions `Benchmark comparison` запускает только stable hot-path benchmarks. |
 | E2E evidence gate | `.github/workflows/e2e.yml` публикует E2E artifacts отдельно от benchmark artifacts. |
-| S10 timing data | Diagnostic only; не performance regression gate. |
+| E2E timing data | Diagnostic only; не performance regression gate. |
 | Vendor profile timing | Diagnostic only; не comparable между licensed или operator-provided images. |
 | Regression scope | Protocol hot paths в `internal/bfd` и `internal/netio`. |
 

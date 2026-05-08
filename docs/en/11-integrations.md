@@ -11,7 +11,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [BGP Fast Failover](#bgp-fast-failover)

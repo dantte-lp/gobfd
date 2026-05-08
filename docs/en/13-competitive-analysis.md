@@ -1,10 +1,15 @@
 # Competitive Analysis: BFD Implementations
 
-> Comparison of GoBFD with open-source and vendor BFD implementations.
+![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
+![BIRD](https://img.shields.io/badge/BIRD-2%2F3-28a745?style=for-the-badge)
+![aiobfd](https://img.shields.io/badge/aiobfd-Python-ffc107?style=for-the-badge)
+![Hardware](https://img.shields.io/badge/Hardware-Reference-1a73e8?style=for-the-badge)
+
+> Comparison of GoBFD with open-source and vendor BFD implementations: feature matrix, packet processing, session scaling, and production timer targets.
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Software Implementations](#software-implementations)
   - [FRR bfdd](#frr-bfdd)
@@ -92,7 +97,7 @@
 
 ### Performance Comparison
 
-> All GoBFD numbers are from micro-benchmarks (`go test -bench`). FRR and BIRD numbers are from public documentation, issue trackers, and third-party reports. These are **not** head-to-head benchmarks — different languages, architectures, and measurement methodologies make direct comparison imprecise. We present them for context, not as definitive rankings.
+> All GoBFD numbers are from micro-benchmarks (`go test -bench`). FRR and BIRD numbers are from public documentation, issue trackers, and third-party reports. These are **not** head-to-head benchmarks — different languages, architectures, and measurement methodologies make direct comparison imprecise. The numbers below are presented for context, not as definitive rankings.
 
 #### Packet Processing
 
@@ -122,7 +127,7 @@ At 64 ns/op full receive path, GoBFD can theoretically process **15.6 million pa
 
 ### Hardware Reference
 
-Vendor BFD implementations use dedicated hardware (ASIC/NPU) for packet processing. This is **fundamentally different** from software BFD and not directly comparable. We include this table as a reference point for understanding the BFD landscape.
+Vendor BFD implementations use dedicated hardware (ASIC/NPU) for packet processing. This is **fundamentally different** from software BFD and not directly comparable. The table below is included as a reference point for understanding the BFD landscape.
 
 | Platform | Max Sessions | Min Timer | Hardware Offload |
 |----------|-------------:|----------:|:----------------:|
@@ -168,9 +173,9 @@ Reference table for BFD timer configurations in real deployments:
 - aiobfd numbers are from its README and test reports
 - Hardware numbers are from vendor datasheets and configuration guides
 
-**What we do NOT claim**:
+**Out of scope**:
 
-- We have not run head-to-head benchmarks between GoBFD and FRR/BIRD/aiobfd
+- No head-to-head benchmarks have been run between GoBFD and FRR/BIRD/aiobfd
 - Micro-benchmark throughput (ns/op) does not directly translate to system-level performance
 - Different languages (Go vs C vs Python) have fundamentally different performance characteristics
 - Memory measurements from benchmarks (B/op) are per-operation, not total daemon footprint
@@ -186,4 +191,4 @@ make benchmark-save BENCH_VERSION=v0.4.0
 cat testdata/benchmarks/v0.4.0/meta.json    # commit, Go version, date
 ```
 
-We encourage independent verification and welcome corrections to any claims in this document.
+Independent verification is encouraged. Corrections to claims in this document are accepted via pull request.

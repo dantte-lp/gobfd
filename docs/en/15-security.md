@@ -1,8 +1,13 @@
 # Security Policy
 
-This document defines the production security baseline for GoBFD deployments.
-It is intentionally operational: every item is either a daemon setting, a
-deployment boundary, or a verification gate.
+![Scorecard](https://img.shields.io/badge/OpenSSF-Scorecard-1a73e8?style=for-the-badge)
+![CodeQL](https://img.shields.io/badge/CodeQL-SAST-34a853?style=for-the-badge)
+![govulncheck](https://img.shields.io/badge/govulncheck-Required-ea4335?style=for-the-badge)
+![Capabilities](https://img.shields.io/badge/CAP__NET__RAW-Required-ffc107?style=for-the-badge)
+
+> Production security baseline for GoBFD deployments. Each item is a daemon setting, a deployment boundary, or a verification gate.
+
+---
 
 ## Scope
 

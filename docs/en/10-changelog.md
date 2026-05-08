@@ -7,7 +7,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Format](#format)
 - [When to Add Entries](#when-to-add-entries)

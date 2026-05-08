@@ -1,7 +1,11 @@
 # Production runbooks интеграций
 
-> Универсальные runbooks для развёртывания и проверки GoBFD в независимых
-> Linux, Kubernetes, BGP и overlay-network окружениях.
+![Linux](https://img.shields.io/badge/Linux-Hosts-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
+![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
+![Overlay](https://img.shields.io/badge/Overlay-VXLAN%20%7C%20Geneve-6f42c1?style=for-the-badge)
+
+> Runbooks для развёртывания и проверки GoBFD в Linux, Kubernetes, BGP и overlay-network окружениях.
 
 ---
 
@@ -189,11 +193,11 @@ vendor-документации.
 
 ## Открытые production gaps
 
-| Gap | Плановый sprint |
+| Gap | Статус |
 |---|---|
-| Dedicated API/CLI create flows для Echo, Micro-BFD, VXLAN и Geneve | S5b |
+| Dedicated API/CLI create flows для Echo, Micro-BFD, VXLAN и Geneve | Planned |
 | Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
-| Release signatures, provenance и Scorecard hardening | S9 |
+| Release signatures, provenance и Scorecard hardening | Implemented |
 
 ---
 

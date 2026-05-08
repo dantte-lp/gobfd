@@ -10,7 +10,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Prerequisites](#prerequisites)
 - [Development Setup](#development-setup)

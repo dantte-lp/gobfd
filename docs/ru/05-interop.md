@@ -10,7 +10,7 @@
 
 ---
 
-### Содержание
+## Содержание
 
 - [Обзор](#обзор)
 - [Топология тестирования](#топология-тестирования)
@@ -464,7 +464,7 @@ operator-provided images.
 
 **Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.36.0.1F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
 
-**Cisco XRd**: XRd Control Plane является deferred optional profile. Profile определён, но не входит в primary S10.6 vendor set до появления operator-provided XRd image. XRd vRouter требует PCI passthrough и несовместим с veth-based topologies.
+**Cisco XRd**: XRd Control Plane является deferred optional profile. Profile определён, но не входит в primary vendor set до появления operator-provided XRd image. XRd vRouter требует PCI passthrough и несовместим с veth-based topologies.
 
 **Интеграция с GoBGP**: GoBFD работает совместно с GoBGP (ASN 65001) внутри контейнера GoBFD. Вендорные NOS, такие как Nokia, требуют BGP для BFD, инициируемого протоколом. При паузе/возобновлении контейнера вендора BGP-сосед GoBGP переходит в состояние `Idle(Admin)` и должен быть явно перевключён через `gobgp neighbor <ip> enable`.
 

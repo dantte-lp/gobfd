@@ -1,10 +1,15 @@
 # Performance Analysis: GoBFD vs C Implementations
 
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
+![BIRD3](https://img.shields.io/badge/BIRD3-BFD-28a745?style=for-the-badge)
+![Podman](https://img.shields.io/badge/Podman-Reproducible-892CA0?style=for-the-badge&logo=podman)
+
 > Cross-implementation benchmark analysis comparing GoBFD (Go 1.26) with FRR bfdd and BIRD3 (C), covering codec operations, FSM transitions, full-path latency, session scaling, and behavior under CPU load. All numbers are from reproducible micro-benchmarks run in Podman containers.
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [Executive Summary](#executive-summary)
 - [Test Methodology](#test-methodology)
@@ -92,7 +97,7 @@ Marshal, unmarshal, and round-trip (marshal + unmarshal) of a 24-byte BFD Contro
 2. **RFC validation depth**: Go's unmarshal performs 7 field validations per RFC 5880 (version, diagnostic, length, detect multiplier range, discriminator non-zero, interval sanity, state enum). FRR's `bfd_pkt_get()` validates 3 fields.
 3. **Function call overhead**: Go's calling convention passes arguments on the stack (until Go 1.17 register ABI, now register-based but still includes frame pointer setup). C with `-O2` inlines the entire codec.
 
-At 5.96 ns/op, GoBFD can marshal **167 million packets per second** on a single core. BFD at 1,000 sessions with 100ms intervals requires 10,000 packets/sec -- we have 16,700x headroom.
+At 5.96 ns/op, GoBFD can marshal **167 million packets per second** on a single core. BFD at 1,000 sessions with 100ms intervals requires 10,000 packets/sec -- 16,700x headroom.
 
 #### 3.2 FSM Transitions
 
@@ -188,7 +193,7 @@ Operations on a session manager with 1,000 active sessions.
 
 The remaining ~35 ns (channel + goroutine wake) is the concurrency isolation cost -- the same architectural trade-off as in FullRecvPath.
 
-At 52.94 ns/op, GoBFD can demux **18.9 million packets per second**. At 1,000 sessions with 100ms intervals, the actual load is 10,000 packets/sec -- we have 1,890x headroom.
+At 52.94 ns/op, GoBFD can demux **18.9 million packets per second**. At 1,000 sessions with 100ms intervals, the actual load is 10,000 packets/sec -- 1,890x headroom.
 
 ---
 

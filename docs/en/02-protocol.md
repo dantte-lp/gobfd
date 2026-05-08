@@ -10,7 +10,7 @@
 
 ---
 
-### Table of Contents
+## Table of Contents
 
 - [BFD Control Packet Format](#bfd-control-packet-format)
 - [FSM State Machine](#fsm-state-machine)
