@@ -7,6 +7,8 @@
 
 ## [Не выпущено]
 
+## [0.6.0] - 2026-05-09
+
 ### Добавлено
 
 - gRPC сервис `EchoService` (RFC 9747) с `AddEchoSession`,
@@ -365,7 +367,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0

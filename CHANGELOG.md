@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-09
+
 ### Added
 
 - gRPC `EchoService` (RFC 9747) with `AddEchoSession`,
@@ -374,7 +376,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
