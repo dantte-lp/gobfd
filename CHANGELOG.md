@@ -9,119 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- S10 extended E2E and interoperability plan covering Podman-only evidence,
-  RFC validation, Linux dataplane ownership, overlay backend boundaries,
-  optional vendor profiles, and benchmark policy.
-- S10.1 harness contract plan and target inventory for extended E2E evidence.
-- Checkout-safe development Compose automation with generated container names,
+- End-to-end test targets `make e2e-core`, `make e2e-routing`, `make e2e-rfc`,
+  `make e2e-overlay`, `make e2e-linux`, and `make e2e-vendor` with
+  Podman-only execution, packet captures, and standardized artifacts.
+- `make e2e-help` and `make gopls-check` for E2E build-tag coverage.
+- `make interop-clab` Podman-only path for vendor NOS interop with Arista
+  cEOS and FRRouting IPv4/IPv6 BFD evidence.
+- Public-image vendor profile set for Arista cEOS, Nokia SR Linux, SONiC-VS,
+  and VyOS. Cisco XRd remains an operator-provided optional profile.
+- Checkout-safe development Compose automation: generated container names,
   `COMPOSE_PROJECT_NAME` scoping, `make dev-project`, and `make dev-ps`.
-- S10.2 core daemon E2E target `make e2e-core` with GoBFD-to-GoBFD Podman
-  topology, static RFC 5880 authentication, CLI list/show/event checks,
-  metrics checks, SIGHUP reload, graceful AdminDown packet capture, and
-  standardized S10 artifacts.
-- S10.3 routing E2E target `make e2e-routing` with normalized FRR/BIRD3 BFD
-  interop and GoBGP/ExaBGP BGP+BFD coupling evidence under the S10 artifact
-  contract.
-- S10.4 RFC and overlay E2E targets `make e2e-rfc` and `make e2e-overlay`
-  with normalized RFC interop evidence, VXLAN/Geneve packet-shape checks, and
-  reserved overlay backend fail-closed validation.
-- S10.5 Linux dataplane E2E target `make e2e-linux` with isolated
-  `--network none` rtnetlink virtual Ethernet evidence, kernel-bond fake
-  sysfs checks, OVS owner-policy guard checks, and NetworkManager D-Bus policy
-  checks.
-- S10.6 vendor E2E target `make e2e-vendor` with an optional NOS profile
-  manifest, Podman image availability evidence, containerlab Podman runtime
-  contract checks, and explicit skips for missing or licensed vendor images.
-- S10.6 primary vendor profile set for Arista cEOS, Nokia SR Linux, SONiC-VS,
-  and VyOS, with Cisco XRd retained as a deferred optional profile until an
-  operator-provided image is available.
-- S10.7 E2E evidence GitHub Actions workflow with PR-safe, nightly, and manual
-  vendor gates, 30-day report artifact retention, and explicit benchmark
-  policy separation.
-- S10 close-out documentation that marks the extended E2E evidence sprint as
-  implemented and records post-S10 Podman API helper extraction as deferred.
-- S10 closeout analysis in `docs/en/20-s10-closeout-analysis.md` and
-  `docs/ru/20-s10-closeout-analysis.md`, including delivered scope, remaining
-  backlog, and RFC/MCP source validation.
-- S11 full E2E and interoperability execution plan in
-  `docs/en/21-s11-full-e2e-interop-plan.md` and
-  `docs/ru/21-s11-full-e2e-interop-plan.md`, covering shared Podman API helper
-  extraction, full local E2E runs, vendor NOS evidence, styled HTML reports,
-  remote CI evidence, and owner-backend decision gates.
-- Shared S11 Podman REST API helper under `test/internal/podmanapi`, replacing
-  duplicated container exec/logs/inspect/start/stop/pause/unpause logic in
-  routing, RFC, and vendor interop test packages.
-- README and protocol documentation synchronization for advanced BFD feature
-  status: Micro-BFD partial production integration, VXLAN/Geneve userspace
-  backend status, and RFC 9747 unaffiliated Echo separation from affiliated
-  RFC 5880 Echo mode.
-- `make gopls-check` coverage for S10 E2E build tags.
-- Podman-only `make interop-clab` execution path that starts the dev container,
-  runs Go vendor interop tests through that container, and records Arista cEOS
-  plus FRRouting IPv4/IPv6 BFD evidence for S11.3.
-- Public vendor NOS image path for Nokia SR Linux, SONiC-VS, and VyOS, with
-  `make interop-clab` evidence for 8/10 available vendor BFD sessions; Cisco
-  XRd remains licensed/operator-provided.
-- S11.5 local release gate evidence: Podman `make verify` passes through build,
-  race tests, gopls, golangci-lint, docs lint, proto lint, and controlled
-  vulnerability audit.
-- GoReleaser snapshot release evidence in Podman for binaries, archives,
-  deb/rpm packages, Syft SBOMs, and Debian trixie plus Oracle Linux 10 OCI
-  images on `linux/amd64` and `linux/arm64`.
-- Semgrep Pro gate evidence for 110 Go rules across 62 Go files with 0
-  findings.
-- Vendored Protovalidate `buf/validate/validate.proto` from
-  `bufbuild/protovalidate` `v1.2.0` so `buf lint` does not depend on Buf Schema
-  Registry availability.
-- Reusable GitHub Actions Podman runtime installer for E2E jobs, pinning
-  `podman-compose` `1.5.0` from PyPI with apt package installation retained as
-  a fallback.
-- S11 release blocker closeout plan covering Dependabot titles, SonarQube
-  secret handling, remote E2E evidence, vendor lab refresh, and release-gate
-  criteria.
+- GoReleaser snapshot pipeline produces `linux/amd64` and `linux/arm64`
+  OCI images on Debian trixie and Oracle Linux 10, deb/rpm packages, and
+  Syft SBOMs.
+- Vendored `buf/validate/validate.proto` from `bufbuild/protovalidate`
+  `v1.2.0` so `buf lint` runs without Buf Schema Registry connectivity.
+- Reusable GitHub Actions Podman installer pinning `podman-compose` `1.5.0`.
+- E2E evidence GitHub Actions workflow with PR-safe, nightly, and manual
+  vendor gates and 30-day report artifact retention.
+
+### Changed
+
+- Documentation reorganized: canonical reference docs under `docs/en/01..16-*.md`
+  only; sprint planning records moved to `.archive/sprints/`; architecture
+  decision records introduced under `docs/en/adr/`; auxiliary references
+  under `docs/en/reference/`. RU mirrors EN file-for-file.
+- Header template unified across `docs/en/12..16-*.md`: badge row,
+  declarative summary, level-2 Table of Contents heading.
+- Per-package `doc.go` files added across `internal/` packages (`bfd`,
+  `gobgp`, `sdnotify`, `version`); existing inline package comments
+  removed from logic files.
+- `.golangci.yml` migrated from deprecated `gomodguard` to `gomodguard_v2`
+  with the new module-list schema.
 
 ### Fixed
 
-- Dependabot Go and Docker update title prefixes now satisfy the repository
-  Conventional Commit policy.
-- SonarQube CI now skips only Dependabot runs without `SONAR_TOKEN` while
-  keeping missing tokens fatal for non-Dependabot scans.
-- RFC E2E packet-evidence checks now use bounded tshark retries instead of
-  fixed sleeps before single pcap reads, reducing flaky failures where the BFD
-  control-plane session is already `Up` but the capture file has not yet
-  exposed the matching packet.
-- Routing interop now treats Thoro/bfd as optional evidence when the upstream
-  peer panics on its unimplemented RFC 5880 poll-sequence interval update path;
-  FRR, BIRD3, and aiobfd remain mandatory routing peers.
-- Core E2E CLI checks now run a dev-container-built `gobfdctl` against
-  published gRPC ports instead of entering peer containers with `podman exec`,
-  making the PR-safe profile independent of old runner Podman Compose container
-  name visibility.
-- Core E2E reload-log validation now resolves the compose service by Podman
-  labels or deterministic compose names through the REST API and reads logs
-  through the same helper instead of the `podman-compose logs` wrapper.
-- PR-safe E2E workflow setup now avoids failing the job when the hosted runner
-  already has Podman but apt temporarily cannot resolve Ubuntu mirrors while
-  installing `podman-compose`.
-- GitHub Actions E2E jobs now persist `CONTAINER_HOST`, `PODMAN_HOST`, and the
-  mounted socket path after starting the runner user's Podman API service, so
-  host Compose operations and dev-container Podman API helpers use the same
-  container namespace.
-- FRR JSON extraction in routing and RFC interop tests now tolerates diagnostic
-  prefix and suffix text around the JSON payload.
-- Vendor NOS profile metadata now matches the current lab configurations:
-  Arista cEOS is documented as single-hop BGP+BFD, while VXLAN/VTEP BFD remains
-  a future dedicated profile.
-- Runtime vendor interop GoBGP generation no longer overwrites the checked-in
-  full-profile example.
-
 - Linux rtnetlink interface monitor shutdown is now bounded by a receive
   timeout, so cancellation exits deterministically even when closing the
-  netlink file descriptor does not interrupt the receive system call
+  netlink file descriptor does not interrupt the receive syscall
   immediately.
-- Authenticated BFD sessions now serialize the authentication section into the
-  cached transmit packet before sending, so declarative RFC 5880 auth sessions
-  can establish with peers that require authentication.
+- Authenticated BFD sessions now serialize the authentication section into
+  the cached transmit packet before sending, so declarative RFC 5880 auth
+  sessions can establish with peers that require authentication.
+- `goconst` violations resolved by extracting `single-hop`/`multi-hop`
+  literals into `cmd/gobfdctl/commands` constants and `_uuid` into
+  `internal/netio.ovsdbUUIDColumn`.
+- Stale `//nolint:gosec` directives removed from `internal/bfd/manager.go`,
+  `internal/netio/rawsock_linux.go`, `internal/netio/sender.go`, and
+  `test/interop-rfc/echo-reflector/main.go`.
 
 ## [0.5.2] - 2026-05-01
 
