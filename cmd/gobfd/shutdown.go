@@ -10,6 +10,7 @@ import (
 	"runtime/trace"
 	"time"
 
+	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -161,18 +162,30 @@ func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
 func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFactory, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 
-	// BFD service handler.
-	path, handler := server.New(mgr, sf, logger,
+	interceptors := []connect.HandlerOption{
 		server.LoggingInterceptorOption(logger),
 		server.RecoveryInterceptorOption(logger),
-	)
+	}
+
+	// BFD service handler.
+	path, handler := server.New(mgr, sf, logger, interceptors...)
 	mux.Handle(path, handler)
 
+	// Echo service handler (RFC 9747).
+	echoPath, echoHandler := server.NewEcho(mgr, sf, logger, interceptors...)
+	mux.Handle(echoPath, echoHandler)
+
+	// Micro-BFD service handler (RFC 7130).
+	microPath, microHandler := server.NewMicroBFD(mgr, logger, interceptors...)
+	mux.Handle(microPath, microHandler)
+
 	// gRPC health check handler (grpc.health.v1).
-	// Reports SERVING for the overall server and the BFD service.
+	// Reports SERVING for the overall server and the registered BFD services.
 	checker := grpchealth.NewStaticChecker(
 		grpchealth.HealthV1ServiceName,
 		"bfd.v1.BfdService",
+		"bfd.v1.EchoService",
+		"bfd.v1.MicroBFDService",
 	)
 	mux.Handle(grpchealth.NewHandler(checker))
 
