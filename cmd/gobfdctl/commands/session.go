@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -14,10 +13,16 @@ import (
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
 
+// Session-type literals used by both CLI parsing and human-readable output.
+const (
+	sessionTypeSingleHop = "single-hop"
+	sessionTypeMultiHop  = "multi-hop"
+)
+
 // Sentinel errors for CLI validation.
 var (
 	errPeerRequired               = errors.New("--peer flag is required")
-	errUnknownSessionType         = errors.New("unknown session type, expected single-hop or multi-hop")
+	errUnknownSessionType         = errors.New("unknown session type, expected " + sessionTypeSingleHop + " or " + sessionTypeMultiHop)
 	errUnknownAuthType            = errors.New("unknown auth type")
 	errAuthSecretRequired         = errors.New("--auth-secret is required when --auth-type is enabled")
 	errAuthKeyMaterialWithoutType = errors.New("--auth-key-id or --auth-secret requires --auth-type")
@@ -44,8 +49,8 @@ func sessionListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all BFD sessions",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			resp, err := client.ListSessions(context.Background(), &bfdv1.ListSessionsRequest{})
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			resp, err := client.ListSessions(cmd.Context(), &bfdv1.ListSessionsRequest{})
 			if err != nil {
 				return fmt.Errorf("list sessions: %w", err)
 			}
@@ -69,10 +74,10 @@ func sessionShowCmd() *cobra.Command {
 		Use:   "show <peer-address-or-discriminator>",
 		Short: "Show details of a BFD session",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			req := buildGetSessionRequest(args[0])
 
-			resp, err := client.GetSession(context.Background(), req)
+			resp, err := client.GetSession(cmd.Context(), req)
 			if err != nil {
 				return fmt.Errorf("get session: %w", err)
 			}
@@ -114,7 +119,7 @@ func buildGetSessionRequest(identifier string) *bfdv1.GetSessionRequest {
 
 func sessionAddCmd() *cobra.Command {
 	opts := addSessionOptions{
-		sessType:   "single-hop",
+		sessType:   sessionTypeSingleHop,
 		txInterval: time.Second,
 		rxInterval: time.Second,
 		detectMult: 3,
@@ -125,13 +130,13 @@ func sessionAddCmd() *cobra.Command {
 		Use:   "add",
 		Short: "Create a new BFD session",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			req, err := buildAddSessionRequest(opts)
 			if err != nil {
 				return err
 			}
 
-			resp, err := client.AddSession(context.Background(), req)
+			resp, err := client.AddSession(cmd.Context(), req)
 			if err != nil {
 				return fmt.Errorf("add session: %w", err)
 			}
@@ -157,7 +162,7 @@ func bindSessionAddFlags(cmd *cobra.Command, opts *addSessionOptions) {
 	flags.StringVar(&opts.peer, "peer", "", "peer IP address (required)")
 	flags.StringVar(&opts.local, "local", "", "local IP address")
 	flags.StringVar(&opts.iface, "interface", "", "network interface name")
-	flags.StringVar(&opts.sessType, "type", opts.sessType, "session type: single-hop or multi-hop")
+	flags.StringVar(&opts.sessType, "type", opts.sessType, "session type: "+sessionTypeSingleHop+" or "+sessionTypeMultiHop)
 	flags.DurationVar(&opts.txInterval, "tx-interval", opts.txInterval, "desired minimum TX interval")
 	flags.DurationVar(&opts.rxInterval, "rx-interval", opts.rxInterval, "required minimum RX interval")
 	flags.Uint32Var(&opts.detectMult, "detect-mult", opts.detectMult, "detection multiplier (RFC 5880 Section 6.1)")
@@ -219,9 +224,9 @@ func buildAddSessionRequest(opts addSessionOptions) (*bfdv1.AddSessionRequest, e
 // parseSessionType converts a CLI string to the protobuf SessionType enum.
 func parseSessionType(s string) (bfdv1.SessionType, error) {
 	switch s {
-	case "single-hop":
+	case sessionTypeSingleHop:
 		return bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, nil
-	case "multi-hop":
+	case sessionTypeMultiHop:
 		return bfdv1.SessionType_SESSION_TYPE_MULTI_HOP, nil
 	default:
 		return bfdv1.SessionType_SESSION_TYPE_UNSPECIFIED,
@@ -260,13 +265,13 @@ func sessionDeleteCmd() *cobra.Command {
 		Use:   "delete <discriminator>",
 		Short: "Delete a BFD session by local discriminator",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			discr, err := strconv.ParseUint(args[0], 10, 32)
 			if err != nil {
 				return fmt.Errorf("parse discriminator %q: %w", args[0], err)
 			}
 
-			_, err = client.DeleteSession(context.Background(), &bfdv1.DeleteSessionRequest{
+			_, err = client.DeleteSession(cmd.Context(), &bfdv1.DeleteSessionRequest{
 				LocalDiscriminator: uint32(discr),
 			})
 			if err != nil {
