@@ -28,6 +28,8 @@ ignore: |
   build/
   bin/
   .worktrees/
+  .archive/
+  .serena/
   docs/rfc/
   docs/tmp/
   test/interop-clab/clab-gobfd-vendors/

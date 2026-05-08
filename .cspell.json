@@ -189,6 +189,26 @@
     "VTEPs",
     "vulncheck",
     "VXLAN",
-    "yamllint"
+    "yamllint",
+    "goconst",
+    "gomodguard",
+    "rawsock",
+    "syscall",
+    "criticals",
+    "distros",
+    "htmlhint",
+    "htmlreport",
+    "Pkgfile",
+    "recvmsg",
+    "REUSEPORT",
+    "RTNL",
+    "sbfd",
+    "sendmsg",
+    "siderolabs",
+    "talosctl",
+    "CURDIR",
+    "crun",
+    "getcwd",
+    "worktree"
   ]
 }

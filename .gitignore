@@ -28,6 +28,7 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+.serena/
 *.swp
 *.swo
 *~
