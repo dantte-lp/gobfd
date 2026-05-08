@@ -24,17 +24,28 @@ GoBFD is a production-oriented [Bidirectional Forwarding Detection](https://data
 
 Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (HAProxy bridge), **gobfd-exabgp-bridge** (ExaBGP bridge).
 
+## Why GoBFD
+
+- **Standalone daemon, decoupled from any control plane.** GoBFD watches BFD state and drives external actuators (GoBGP `DisablePeer/EnablePeer`, HAProxy agent-check, ExaBGP route announcements) over a typed gRPC API. A daemon restart does not flap the routing control plane.
+- **Zero-allocation hot path.** Packet codec, FSM transitions, timer dispatch, and session demultiplexing run at 0 B/op, 0 allocs/op (28 micro-benchmarks enforce the policy). GC pauses cannot cause BFD session flapping.
+- **RFC coverage beyond the basics.** RFC 5880/5881/5882/5883/7419/9384/9468/9747/9764 implemented; RFC 7130 (Micro-BFD), RFC 8971 (VXLAN), RFC 9521 (Geneve) ship with userspace backends. See [RFC Compliance](docs/en/08-rfc-compliance.md).
+- **Production-ready surfaces.** ConnectRPC/gRPC API, Prometheus metrics, structured `slog` logging, systemd `Type=notify` with watchdog and SIGHUP hot reload, Go 1.26 flight recorder for post-mortem.
+- **Verified interop.** 4-peer interop suite (FRR, BIRD3, aiobfd, Thoro/bfd) and BGP+BFD coupling tests against FRR, BIRD3, ExaBGP. Containerlab profiles for Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
+
+Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysis.md) and [Performance Analysis](docs/en/14-performance-analysis.md).
+
 ## Quick Start
 
 ```bash
-# Build
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
-make build
+make build                       # builds all 4 binaries with version ldflags
+sudo ./gobfd -config configs/example.yml
+```
 
-# Run tests
+Local Podman stack with Prometheus + Grafana:
+
+```bash
 make test
-
-# Start production stack (gobfd + Prometheus + Grafana)
 podman-compose -f deployments/compose/compose.yml up -d
 ```
 
