@@ -16,6 +16,7 @@ const (
 	ovsdbPortTable          = "Port"
 	ovsdbInterfaceTable     = "Interface"
 	ovsdbMemberInterfaceRef = "gobfd_member_interface"
+	ovsdbUUIDColumn         = "_uuid"
 )
 
 var (
@@ -176,7 +177,7 @@ func (c *libOVSDBLAGClient) requirePort(ctx context.Context, tx ovsdbTransactor,
 	results, err := runCheckedOVSDBOperations(ctx, tx, ovsdb.Operation{
 		Op:      ovsdb.OperationSelect,
 		Table:   ovsdbPortTable,
-		Columns: []string{"_uuid"},
+		Columns: []string{ovsdbUUIDColumn},
 		Where: []ovsdb.Condition{
 			ovsdb.NewCondition("name", ovsdb.ConditionEqual, name),
 		},
@@ -198,7 +199,7 @@ func (c *libOVSDBLAGClient) interfaceUUID(
 	results, err := runCheckedOVSDBOperations(ctx, tx, ovsdb.Operation{
 		Op:      ovsdb.OperationSelect,
 		Table:   ovsdbInterfaceTable,
-		Columns: []string{"_uuid"},
+		Columns: []string{ovsdbUUIDColumn},
 		Where: []ovsdb.Condition{
 			ovsdb.NewCondition("name", ovsdb.ConditionEqual, name),
 		},
@@ -290,7 +291,7 @@ func buildMutatePortInterfacesOp(
 }
 
 func rowUUID(row ovsdb.Row) (string, error) {
-	value, ok := row["_uuid"]
+	value, ok := row[ovsdbUUIDColumn]
 	if !ok {
 		return "", ErrOVSDBRowMissingUUID
 	}

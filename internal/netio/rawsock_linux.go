@@ -274,7 +274,6 @@ func setSocketOpts(c syscall.RawConn, ifName string, multiHop, isIPv6 bool) erro
 	var sockErr error
 
 	err := c.Control(func(fd uintptr) {
-		//nolint:gosec // G115: fd uintptr->int is safe; kernel FDs are always small positive integers.
 		intFD := int(fd)
 		if isIPv6 {
 			sockErr = applySockOptsV6(intFD, ifName, multiHop)

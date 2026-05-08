@@ -181,7 +181,6 @@ func setSenderOpts(c syscall.RawConn, isIPv6 bool, dfBit bool, bindDevice string
 	var sockErr error
 
 	err := c.Control(func(fd uintptr) {
-		//nolint:gosec // G115: fd uintptr->int is safe; kernel FDs are always small positive integers.
 		intFD := int(fd)
 
 		sockErr = setSenderSockOpts(intFD, isIPv6, dfBit, bindDevice)

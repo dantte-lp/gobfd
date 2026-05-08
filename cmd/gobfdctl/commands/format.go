@@ -305,9 +305,9 @@ func shortState(s bfdv1.SessionState) string {
 func shortSessionType(t bfdv1.SessionType) string {
 	switch t {
 	case bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP:
-		return "single-hop"
+		return sessionTypeSingleHop
 	case bfdv1.SessionType_SESSION_TYPE_MULTI_HOP:
-		return "multi-hop"
+		return sessionTypeMultiHop
 	case bfdv1.SessionType_SESSION_TYPE_ECHO:
 		return "echo"
 	case bfdv1.SessionType_SESSION_TYPE_MICRO_BFD:

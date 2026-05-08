@@ -129,7 +129,7 @@ linters:
     # ── Зависимости / Dependencies ──
     - depguard            # Forbidden package imports
     - gomoddirectives     # Catch stray replace/retract in go.mod
-    - gomodguard          # Block deprecated dependency modules
+    - gomodguard_v2       # Block deprecated dependency modules
 
     # ── Дисциплина / Discipline ──
     - nolintlint          # Nolint directive quality
@@ -225,19 +225,18 @@ linters:
         - XXX
         - BUG
         - OPTIMIZE
-    gomodguard:
+    gomodguard_v2:
       blocked:
-        modules:
-          - github.com/pkg/errors:
-              recommendations:
-                - errors
-                - fmt
-              reason: "Standard library has covered errors.Is / errors.As since Go 1.13."
-          - io/ioutil:
-              recommendations:
-                - io
-                - os
-              reason: "Deprecated in Go 1.16; use io / os equivalents."
+        - module: github.com/pkg/errors
+          recommendations:
+            - errors
+            - fmt
+          reason: Standard library has covered errors.Is / errors.As since Go 1.13.
+        - module: io/ioutil
+          recommendations:
+            - io
+            - os
+          reason: Deprecated in Go 1.16; use io / os equivalents.
     nestif:
       min-complexity: 5
     embeddedstructfieldcheck:
@@ -307,7 +306,7 @@ severity:
         - nilnil
         - reassign
         - forbidigo
-        - gomodguard
+        - gomodguard_v2
         - iotamixing
         - tparallel
       severity: error

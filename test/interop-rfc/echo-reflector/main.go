@@ -63,7 +63,6 @@ func setUDPTTL(conn *net.UDPConn, ttl int) error {
 
 	var sockErr error
 	if err := rawConn.Control(func(fd uintptr) {
-		//nolint:gosec // G115: kernel file descriptors are small non-negative integers.
 		sockErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TTL, ttl)
 	}); err != nil {
 		return err
