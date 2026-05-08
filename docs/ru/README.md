@@ -1,7 +1,6 @@
 # Документация GoBFD
 
 ![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
-![Documents](https://img.shields.io/badge/Documents-29-34a853?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -13,54 +12,40 @@
 
 ```mermaid
 graph TD
-    IDX["docs/ru/README.md<br/>"]
+    IDX["docs/ru/README.md"]
 
     subgraph "Архитектура"
-        A1["01-architecture.md<br/>Архитектура системы"]
-        A2["02-protocol.md<br/>Протокол BFD"]
+        A1["01-architecture.md"]
+        A2["02-protocol.md"]
     end
 
     subgraph "Операции"
-        B1["03-configuration.md<br/>Конфигурация"]
-        B2["04-cli.md<br/>Справочник CLI"]
-        B3["06-deployment.md<br/>Развёртывание"]
-        B4["15-security.md<br/>Политика безопасности"]
-        B5["16-production-runbooks.md<br/>Production Runbooks"]
+        B1["03-configuration.md"]
+        B2["04-cli.md"]
+        B3["06-deployment.md"]
+        B4["15-security.md"]
+        B5["16-production-runbooks.md"]
     end
 
     subgraph "Тестирование и качество"
-        C1["05-interop.md<br/>Тесты совместимости"]
-        C2["07-monitoring.md<br/>Мониторинг"]
-        C3["09-development.md<br/>Разработка"]
+        C1["05-interop.md"]
+        C2["07-monitoring.md"]
+        C3["09-development.md"]
     end
 
     subgraph "Производительность"
-        E1["12-benchmarks.md<br/>Бенчмарки"]
-        E2["13-competitive-analysis.md<br/>Конкурентный анализ"]
-        E3["14-performance-analysis.md<br/>Анализ производительности"]
+        E1["12-benchmarks.md"]
+        E2["13-competitive-analysis.md"]
+        E3["14-performance-analysis.md"]
     end
 
     subgraph "Справочник"
-        D1["08-rfc-compliance.md<br/>Соответствие RFC"]
-        D2["rfc/<br/>Тексты RFC"]
-        D3["10-changelog.md<br/>Руководство по Changelog"]
-        D4["11-integrations.md<br/>Интеграции"]
-        D5["dependency-risk.md<br/>Риски зависимостей"]
-    end
-
-    subgraph "Планирование релиза"
-        F1["implementation-plan.md<br/>План S8"]
-        F2["codebase-consistency-audit.md<br/>Аудит консистентности"]
-        F3["linux-advanced-bfd-applicability.md<br/>Linux Advanced BFD"]
-        F4["linux-netlink-ebpf-research.md<br/>Netlink/eBPF research"]
-        F5["ovsdb-api-research.md<br/>OVSDB API research"]
-        F6["17-scorecard-hardening.md<br/>Scorecard Hardening"]
-        F7["18-s10-extended-e2e-interop.md<br/>S10 E2E Interop"]
-        F8["19-s10-s1-harness-contract-plan.md<br/>S10.1 Harness Plan"]
-        F9["20-s10-closeout-analysis.md<br/>S10 Closeout Analysis"]
-        F10["21-s11-full-e2e-interop-plan.md<br/>S11 Full E2E Plan"]
-        F11["22-s10-rfc-evidence-stability-plan.md<br/>S10 RFC Evidence Stability"]
-        F12["23-s11-release-blocker-closeout-plan.md<br/>S11 Release Blocker Closeout"]
+        D1["08-rfc-compliance.md"]
+        D2["10-changelog.md"]
+        D3["11-integrations.md"]
+        D4["adr/"]
+        D5["reference/"]
+        D6["rfc/"]
     end
 
     IDX --> A1
@@ -74,40 +59,23 @@ graph TD
     IDX --> C2
     IDX --> C3
     IDX --> D1
+    IDX --> D2
+    IDX --> D3
+    IDX --> D4
     IDX --> D5
+    IDX --> D6
     IDX --> E1
-    IDX --> F1
-    IDX --> F2
-    IDX --> F3
-    IDX --> F4
-    IDX --> F5
-    IDX --> F6
-    IDX --> F7
-    IDX --> F8
-    IDX --> F9
-    IDX --> F10
-    IDX --> F11
-    IDX --> F12
+    IDX --> E2
+    IDX --> E3
 
     A1 --> A2
     A2 --> D1
     B1 --> B2
     B3 --> C2
     C1 --> C3
-    D1 --> D2
+    D1 --> D6
     E1 --> E2
     E2 --> E3
-    F1 --> F2
-    F2 --> F3
-    F3 --> F4
-    F3 --> F5
-    F2 --> F6
-    F6 --> F7
-    F7 --> F8
-    F8 --> F9
-    F9 --> F10
-    F10 --> F11
-    F10 --> F12
 
     style IDX fill:#1a73e8,color:#fff
 ```
@@ -128,12 +96,12 @@ graph TD
 | # | Документ | Описание |
 |---|---|---|
 | 03 | [**Конфигурация**](./03-configuration.md) | Справочник YAML-конфига, переменные окружения, горячая перезагрузка |
-| 04 | [**Справочник CLI**](./04-cli.md) | Команды gobfdctl, интерактивная оболочка, форматы вывода |
+| 04 | [**Справочник CLI**](./04-cli.md) | Команды `gobfdctl`, интерактивная оболочка, форматы вывода |
 | 05 | [**Тесты совместимости**](./05-interop.md) | Наборы тестов: 4-пировый, BGP+BFD, RFC-специфичный, вендорные NOS |
 | 06 | [**Развёртывание**](./06-deployment.md) | systemd, Podman Compose, контейнерный образ, production |
 | 07 | [**Мониторинг**](./07-monitoring.md) | Метрики Prometheus, дашборд Grafana, алертинг |
-| 15 | [**Политика безопасности**](./15-security.md) | Production policy для API, GoBGP, BFD auth, контейнеров и vulnerability gate |
-| 16 | [**Production Runbooks**](./16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification и failure drills |
+| 15 | [**Политика безопасности**](./15-security.md) | API, GoBGP, BFD auth, контейнеры, vulnerability gate |
+| 16 | [**Production Runbooks**](./16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, failure drills |
 
 ### Справочник
 
@@ -143,7 +111,6 @@ graph TD
 | 09 | [**Разработка**](./09-development.md) | Рабочий процесс, Make-цели, тестирование, линтинг |
 | 10 | [**Руководство по Changelog**](./10-changelog.md) | Ведение CHANGELOG.md, процесс релиза, семантическое версионирование |
 | 11 | [**Интеграции**](./11-integrations.md) | BGP failover, HAProxy, наблюдаемость, ExaBGP, Kubernetes |
-| -- | [**Риски зависимостей**](./dependency-risk.md) | Текущие риски зависимостей и меры снижения |
 
 ### Производительность
 
@@ -153,22 +120,16 @@ graph TD
 | 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, aiobfd, аппаратными платформами |
 | 14 | [**Анализ производительности**](./14-performance-analysis.md) | GoBFD vs реализации на C: бенчмарки, архитектура, поведение при нагрузке |
 
-### Планирование релиза и исследования
+### Architecture Decision Records
 
-| Документ | Описание |
-|---|---|
-| [**План реализации**](./implementation-plan.md) | Каноничный поэтапный план спринтов до `v0.5.2` |
-| [**Аудит консистентности кодовой базы**](./codebase-consistency-audit.md) | Аудит кода, API, CLI, конфигурации, документации и production-применимости |
-| [**Применимость Linux Advanced BFD**](./linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux |
-| [**Исследование Linux Netlink/eBPF**](./linux-netlink-ebpf-research.md) | Decision record S4 по rtnetlink и eBPF для мониторинга состояния интерфейсов |
-| [**Исследование OVSDB API**](./ovsdb-api-research.md) | Заметки по OVSDB JSON-RPC и backend на `libovsdb` |
-| [**OpenSSF Scorecard Hardening**](./17-scorecard-hardening.md) | План S9 по повышению Scorecard с одним maintainer |
-| [**S10 Extended E2E и Interoperability**](./18-s10-extended-e2e-interop.md) | План S10 для E2E, interop, Linux dataplane, overlay и vendor profiles |
-| [**S10.1 Harness Inventory and Contract Plan**](./19-s10-s1-harness-contract-plan.md) | Подробный план S10.1 для E2E harness contract |
-| [**S10 Closeout Analysis**](./20-s10-closeout-analysis.md) | Завершение S10, оставшаяся работа и backlog кандидатов следующего спринта |
-| [**S11 Full E2E and Interoperability Plan**](./21-s11-full-e2e-interop-plan.md) | План full E2E execution, vendor evidence, reports, CI artifacts и owner-backend decision |
-| [**S10 RFC Evidence Stability Plan**](./22-s10-rfc-evidence-stability-plan.md) | План стабилизации RFC packet-evidence capture gates |
-| [**S11 Release Blocker Closeout Plan**](./23-s11-release-blocker-closeout-plan.md) | Source-backed plan для закрытия Dependabot, SonarQube, remote E2E, vendor lab и release gate |
+Живые decision-записи под [`adr/`](./adr/README.md). Каждая запись фиксирует
+контекст, решение и последствия. Запись несёт неизменяемую дату и
+переходит в статус `Superseded` при замене.
+
+### Справочные материалы
+
+Живые технические справочники под [`reference/`](./reference/README.md):
+реестр рисков зависимостей и прочие вспомогательные материалы.
 
 ### Исходные тексты RFC
 
@@ -194,19 +155,11 @@ graph TD
 ## Быстрый старт
 
 ```bash
-# Клонирование и сборка
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
 make build
-
-# Запуск тестов
 make test
-
-# Запуск среды разработки
 make up
 ```
 
-См. [06-deployment.md](./06-deployment.md) для развёртывания в production и [09-development.md](./09-development.md) для полного рабочего процесса разработки.
-
----
-
-*Последнее обновление: 2026-05-05*
+См. [06-deployment.md](./06-deployment.md) для развёртывания в production и
+[09-development.md](./09-development.md) для полного рабочего процесса разработки.
