@@ -427,5 +427,5 @@ Performance baseline captured. Security audit pass.
 
 - [ ] No `// Deprecated:` API in `pkg/bfdpb/` at the time of tagging.
 - [ ] CHANGELOG `## [1.0.0]` lists every backward-incompatible change.
-- [ ] All sprints S12-S19 closed with archived sprint notes under
-      `.archive/sprints/`.
+- [ ] All sprints S12-S19 closed; planning records live in git history
+      and in CHANGELOG entries, not in repository files.

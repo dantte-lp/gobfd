@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- `.archive/` directory removed from the repository. Sprint planning
+  records, the cleanup plan, and promo drafts are no longer tracked.
+  The directory remains in `.gitignore` so a maintainer can keep
+  scratch artifacts locally without re-introducing them to git.
+  Commit history (`git log -- .archive/`) preserves the prior content
+  for audit.
+
 ## [0.6.1] - 2026-05-09
 
 ### Fixed

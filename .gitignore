@@ -36,6 +36,9 @@ __pycache__/
 *.swo
 *~
 
+# Local-only archive (sprint logs, promo drafts) — not part of the repo
+.archive/
+
 # OS
 .DS_Store
 Thumbs.db
