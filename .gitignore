@@ -16,6 +16,9 @@
 coverage.html
 coverage.txt
 
+# Local benchmark scratchpad — versioned snapshots live in testdata/benchmarks/
+/benchmark.txt
+
 # Go
 vendor/
 !test/e2e/vendor/
