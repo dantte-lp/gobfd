@@ -445,6 +445,8 @@ When enabled, BFD state changes are propagated to a GoBGP instance via its gRPC 
 - **BFD Down** --> Disable BGP peer (`DisablePeer()`) or withdraw routes (`DeletePath()`)
 - **BFD Up** --> Enable BGP peer (`EnablePeer()`) or restore routes (`AddPath()`)
 
+> **Compatibility Notice**: GoBFD requires GoBGP v4.0.0 or higher. GoBGP v4 exposes the `/api.GoBgpService/*` gRPC endpoints and does not register legacy `/apipb.GobgpApi/*` services. When upgrading from GoBGP v3 deployments, upgrade external `gobgpd` daemons to v4+ before pointing GoBFD to them.
+
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `gobgp.enabled` | bool | `false` | Enable/disable GoBGP integration |

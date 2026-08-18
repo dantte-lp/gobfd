@@ -14,8 +14,6 @@ import (
 	"connectrpc.com/grpchealth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -156,8 +154,8 @@ func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
 }
 
 // newGRPCServer creates an HTTP server for the ConnectRPC gRPC endpoint.
-// The handler is wrapped with h2c to support HTTP/2 without TLS, which is
-// required for gRPC clients that connect over plaintext (e.g., gobfdctl).
+// Unencrypted HTTP/2 (h2c) is enabled via http.Protocols so that gRPC clients
+// connecting over plaintext (e.g., gobfdctl) can communicate over HTTP/2.
 // Includes standard gRPC health checking (grpc.health.v1).
 func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFactory, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
@@ -189,9 +187,14 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFact
 	)
 	mux.Handle(grpchealth.NewHandler(checker))
 
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	return &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           h2c.NewHandler(mux, &http2.Server{}),
+		Handler:           mux,
+		Protocols:         protocols,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 }

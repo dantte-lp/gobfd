@@ -41,7 +41,7 @@ OPEN_SOURCE_IMAGES: dict[str, str] = {
     "sonic": "docker.io/netreplica/docker-sonic-vs:{sonic_tag}",
     "vyos": "docker.io/muruu1/vyos:{vyos_tag}",
     "frr": "quay.io/frrouting/frr:{frr_tag}",
-    "gobgp": "docker.io/jauderho/gobgp:v3.33.0",
+    "gobgp": "docker.io/jauderho/gobgp:v4.8.0",
     "golang": "docker.io/golang:1.26-trixie",
     "alpine": "docker.io/library/alpine:3.21",
 }

@@ -3,7 +3,7 @@
 // RFC 9384 defines Cease subcode 10 ("BFD Down") for BGP NOTIFICATION
 // messages when a BFD session failure triggers BGP session teardown.
 //
-// GoBGP v3 does not expose per-subcode control in its DisablePeer API;
+// GoBGP v4 does not expose per-subcode control in its DisablePeer API;
 // it uses Administrative Shutdown (subcode 2) with a communication string
 // per RFC 8203. This package enriches the communication string with
 // RFC 9384-compliant context so that operators can identify BFD-triggered

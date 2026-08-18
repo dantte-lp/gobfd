@@ -76,12 +76,12 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpRFCContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// GoBGP v3 session state enum values (PeerState_SessionState protobuf).
+// GoBGP v4 session state enum values (PeerState_SessionState protobuf).
 const (
 	bgpStateEstablished = 6
 )
 
-// bgpSessionStateName maps GoBGP v3 protobuf session_state numbers to names.
+// bgpSessionStateName maps GoBGP v4 protobuf session_state numbers to names.
 var bgpSessionStateName = map[int]string{
 	0: "unspecified",
 	1: "idle",

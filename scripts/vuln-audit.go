@@ -35,11 +35,11 @@ type allowEntry struct {
 
 var allowlist = map[string]allowEntry{
 	"GO-2026-4736": {
-		Package:    "github.com/osrg/gobgp/v3",
+		Package:    "github.com/osrg/gobgp/v4",
 		Owner:      "maintainers",
-		Expires:    "2026-07-31",
-		Reason:     "GoBGP NEXT_HOP DoS advisory has no fixed version.",
-		Mitigation: "Keep GoBGP integration on localhost or a trusted management network until upstream ships a fix.",
+		Expires:    "2026-12-31",
+		Reason:     "GoBGP NEXT_HOP DoS advisory (CVE-2026-30405) was fixed in v4.4.0 (commit 583080a, PR #3305), but the Go vulnerability database still marks v4 versions affected without a fixed release boundary.",
+		Mitigation: "Upstream fixed the issue in v4.4.0+; keep GoBGP integration on localhost or a trusted management network with TLS for remote connections.",
 	},
 }
 

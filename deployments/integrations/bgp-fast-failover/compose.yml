@@ -34,7 +34,7 @@ services:
   # === GoBGP (BGP daemon, shared netns with gobfd) ===
 
   gobgp:
-    image: docker.io/jauderho/gobgp:v3.33.0
+    image: docker.io/jauderho/gobgp:v4.8.0
     container_name: gobgp-bgp-failover
     user: "0:0"
     cap_add:

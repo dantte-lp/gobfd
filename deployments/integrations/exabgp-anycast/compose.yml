@@ -17,7 +17,7 @@ services:
   # === GoBGP (route receiver) at 172.24.0.10 ===
 
   gobgp:
-    image: docker.io/jauderho/gobgp:v3.33.0
+    image: docker.io/jauderho/gobgp:v4.8.0
     container_name: gobgp-anycast
     user: "0:0"
     cap_add:

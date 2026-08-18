@@ -156,6 +156,7 @@ Graceful shutdown отправляет AdminDown с Diag=7, ожидает 2x TX
   - BFD Down --> `DisablePeer()` (или `DeletePath()` по стратегии)
   - BFD Up --> `EnablePeer()` (или `AddPath()`)
   - Каждый вызов GoBGP API ограничен `gobgp.action_timeout`, чтобы медленный внешний API не блокировал обработку изменений состояния бесконечно
+- **Контракт совместимости**: GoBFD работает с GoBGP v4+ gRPC-сервисом (`api.GoBgpService`). Внешние инстансы `gobgpd` должны быть версии v4.0.0 или новее. Устаревший сервис GoBGP v3 (`/apipb.GobgpApi`) не поддерживается.
 
 ### Заметки по RFC 5883
 

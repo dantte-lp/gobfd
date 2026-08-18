@@ -57,12 +57,6 @@ GoBFD can connect to GoBGP through `gobgp.addr`. Plaintext mode is acceptable
 only for loopback or trusted management networks. Enable `gobgp.tls.enabled`
 for remote or non-loopback GoBGP endpoints.
 
-The current GoBGP module has allowlisted advisory `GO-2026-4736`. The
-mitigation is to keep the GoBGP API on localhost or a trusted management
-network until upstream ships a fixed release. The allowlist entry in
-`scripts/vuln-audit.go` has an owner, expiry, reason, and mitigation; expiry
-turns the vulnerability gate into a failure.
-
 ## Secrets
 
 RFC 5880 auth secrets may be supplied through YAML or gRPC `AddSession`.
