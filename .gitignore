@@ -60,6 +60,10 @@ Thumbs.db
 CLAUDE.local.md
 .mcp.json
 
+# Beads local task database and process lock
+/.beads/
+/.beads.gate.lock
+
 # Internal planning/research docs (not for public repo)
 docs/tmp/
 
@@ -84,3 +88,10 @@ test/interop-clab/*.generated.clab.yml
 test/interop-clab/gobfd/*.generated.yml
 test/interop-clab/gobfd/.runtime/
 test/interop-clab/clab-*/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
