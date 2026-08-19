@@ -31,7 +31,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         coverage profile \
         up down restart logs shell clean tidy \
         dev-ps dev-project dev-ensure \
-        e2e-help e2e-core e2e-core-test e2e-core-up e2e-core-down e2e-core-logs \
+        e2e-help e2e-core e2e-core-test e2e-core-testcontainers e2e-core-up e2e-core-down e2e-core-logs \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
         interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
@@ -114,6 +114,14 @@ e2e-core-test:
 	$(EXEC) env E2E_CORE_COMPOSE_FILE=$(E2E_CORE_COMPOSE) \
 		E2E_CORE_PROJECT=$(E2E_CORE_PROJECT) \
 		go test -tags e2e_core -v -count=1 -timeout 300s ./test/e2e/core/
+
+e2e-core-testcontainers: dev-ensure
+	$(EXEC) golangci-lint run --build-tags e2e_core_testcontainers \
+		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
+	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
+		GOBFD_REQUIRE_PODMAN=1 \
+		go test -tags e2e_core_testcontainers ./test/e2e/core \
+		-race -count=1 -v -timeout 5m
 
 e2e-core-up:
 	$(E2E_CORE_DC) up --build -d

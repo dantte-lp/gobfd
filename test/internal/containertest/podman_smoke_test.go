@@ -11,22 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/containerd/errdefs"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-
-	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 const smokeImage = "docker.io/library/alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
 
 func TestPodmanSmoke(t *testing.T) {
 	endpoint := RequirePodman(t)
-
-	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
-	if err != nil {
-		t.Fatalf("create cleanup verification client: %v", err)
-	}
 
 	t.Run("network creation failure", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -111,66 +103,8 @@ func TestPodmanSmoke(t *testing.T) {
 		t.Fatal("smoke lifecycle subtest failed")
 	}
 
-	waitContainerRemoved(t, client, containerID)
-	assertNetworkRemoved(t, networkName)
-}
-
-func waitContainerRemoved(t *testing.T, client *podmanapi.Client, containerID string) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		containers, err := client.Containers(ctx)
-		if err != nil {
-			t.Fatalf("list containers while verifying cleanup: %v", err)
-		}
-		found := false
-		for _, container := range containers {
-			if container.ID == containerID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return
-		}
-
-		select {
-		case <-ctx.Done():
-			t.Fatalf("container %s still exists after test cleanup: %v", containerID, ctx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
-func assertNetworkRemoved(t *testing.T, networkName string) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	provider, err := testcontainers.ProviderPodman.GetProvider()
-	if err != nil {
-		t.Fatalf("create Podman provider for network cleanup verification: %v", err)
-	}
-	defer func() {
-		if closeErr := provider.Close(); closeErr != nil {
-			t.Errorf("close Podman provider after network cleanup verification: %v", closeErr)
-		}
-	}()
-
-	// NetworkRequest is the only v0.44.0 lookup API.
-	//nolint:staticcheck // upstream replacement does not yet expose inspection
-	_, err = provider.GetNetwork(ctx, testcontainers.NetworkRequest{Name: networkName})
-	if err == nil {
-		t.Fatalf("network %s still exists after test cleanup", networkName)
-	}
-	if !errdefs.IsNotFound(err) {
-		t.Fatalf("inspect removed network %s: %v", networkName, err)
-	}
+	AssertContainerRemoved(t, endpoint, containerID)
+	AssertNetworkRemoved(t, networkName)
 }
 
 func contains(values []string, want string) bool {

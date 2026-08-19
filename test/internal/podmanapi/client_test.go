@@ -46,6 +46,14 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 			_, _ = w.Write(appendFrame(nil, 1, "log\n"))
 		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/containers/demo/json":
 			_, _ = w.Write([]byte(`{"State":{"Status":"running"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/libpod/containers/demo/json":
+			_, _ = w.Write([]byte(`{"EffectiveCaps":["CAP_NET_ADMIN","CAP_NET_RAW"]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/images/demo-image/json":
+			_, _ = w.Write([]byte(`{"Id":"sha256:demo"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/images/missing-image/json":
+			http.NotFound(w, r)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v5.0.0/images/demo-image":
+			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/containers/json":
 			_, _ = w.Write([]byte(`[{"Id":"demo-id","Names":["demo"],"Labels":{"io.podman.compose.service":"demo"}}]`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v5.0.0/containers/demo/pause":
@@ -90,6 +98,26 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 	var inspect map[string]any
 	if unmarshalErr := json.Unmarshal(raw, &inspect); unmarshalErr != nil {
 		t.Fatalf("Inspect JSON: %v", unmarshalErr)
+	}
+
+	capabilities, err := client.EffectiveCapabilities(context.Background(), "demo")
+	if err != nil {
+		t.Fatalf("EffectiveCapabilities: %v", err)
+	}
+	if len(capabilities) != 2 || capabilities[0] != "CAP_NET_ADMIN" || capabilities[1] != "CAP_NET_RAW" {
+		t.Fatalf("EffectiveCapabilities = %v", capabilities)
+	}
+
+	exists, err := client.ImageExists(context.Background(), "demo-image")
+	if err != nil || !exists {
+		t.Fatalf("ImageExists(demo-image) = %t, %v", exists, err)
+	}
+	exists, err = client.ImageExists(context.Background(), "missing-image")
+	if err != nil || exists {
+		t.Fatalf("ImageExists(missing-image) = %t, %v", exists, err)
+	}
+	if removeErr := client.RemoveImage(context.Background(), "demo-image"); removeErr != nil {
+		t.Fatalf("RemoveImage: %v", removeErr)
 	}
 
 	containers, err := client.Containers(context.Background())

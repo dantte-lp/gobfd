@@ -24,6 +24,7 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 		"contents: read",
 		"concurrency:",
 		"make e2e-core",
+		"make e2e-core-testcontainers",
 		"make e2e-overlay",
 		"make e2e-routing",
 		"make e2e-rfc",

@@ -32,6 +32,9 @@ var (
 	errExecNonZero          = errors.New("exec exited with non-zero code")
 	errLogsStatus           = errors.New("container logs returned non-success status")
 	errInspectStatus        = errors.New("container inspect returned non-success status")
+	errLibpodInspectStatus  = errors.New("libpod container inspect returned non-success status")
+	errImageInspectStatus   = errors.New("image inspect returned non-success status")
+	errImageRemoveStatus    = errors.New("image remove returned non-success status")
 	errListContainersStatus = errors.New("container list returned non-success status")
 	errDockerFrameTooLarge  = errors.New("docker stream frame exceeds size limit")
 	errContainerActionState = errors.New("container action returned non-success status")
@@ -244,6 +247,73 @@ func (c *Client) Inspect(ctx context.Context, container string) (json.RawMessage
 		return nil, fmt.Errorf("inspect %s response: %w", container, err)
 	}
 	return json.RawMessage(body), nil
+}
+
+// EffectiveCapabilities returns the process capabilities reported by Podman's
+// native inspect endpoint. The Docker-compatible inspect response omits them.
+func (c *Client) EffectiveCapabilities(ctx context.Context, container string) ([]string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/libpod/containers/"+url.PathEscape(container)+"/json")
+	if err != nil {
+		return nil, fmt.Errorf("libpod inspect %s: %w", container, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := readBody(resp.Body, "libpod inspect error body")
+		if readErr != nil {
+			return nil, readErr
+		}
+		return nil, fmt.Errorf("%w: container %s status %d: %s", errLibpodInspectStatus, container, resp.StatusCode, body)
+	}
+	var inspected struct {
+		EffectiveCaps []string `json:"EffectiveCaps"` //nolint:tagliatelle // Podman API field
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&inspected); err != nil {
+		return nil, fmt.Errorf("decode libpod inspect %s response: %w", container, err)
+	}
+	return inspected.EffectiveCaps, nil
+}
+
+// ImageExists checks image presence and distinguishes not-found from API
+// failures so cleanup assertions fail closed.
+func (c *Client) ImageExists(ctx context.Context, image string) (bool, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(image)+"/json")
+	if err != nil {
+		return false, fmt.Errorf("inspect image %s: %w", image, err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		body, readErr := readBody(resp.Body, "image inspect error body")
+		if readErr != nil {
+			return false, readErr
+		}
+		return false, fmt.Errorf("%w: image %s status %d: %s", errImageInspectStatus, image, resp.StatusCode, body)
+	}
+}
+
+// RemoveImage removes an image owned by a test without forcing removal of
+// images that still have consumers.
+func (c *Client) RemoveImage(ctx context.Context, image string) error {
+	resp, err := c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(image)+"?force=false")
+	if err != nil {
+		return fmt.Errorf("remove image %s: %w", image, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, readErr := readBody(resp.Body, "image remove error body")
+		if readErr != nil {
+			return readErr
+		}
+		return fmt.Errorf("%w: image %s status %d: %s", errImageRemoveStatus, image, resp.StatusCode, body)
+	}
+	return nil
 }
 
 // Containers returns all containers visible through the Podman API socket.

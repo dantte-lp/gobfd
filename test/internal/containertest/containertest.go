@@ -9,9 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/containerd/errdefs"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
+
+	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 const rootfulPodmanSocket = "/run/podman/podman.sock"
@@ -95,6 +99,102 @@ func Exec(
 		return exitCode, "", fmt.Errorf("read test container exec output: %w", err)
 	}
 	return exitCode, string(outputBytes), nil
+}
+
+// AssertContainerRemoved proves that a container is absent from the exact
+// Podman endpoint. API errors fail the assertion instead of masquerading as
+// successful cleanup.
+func AssertContainerRemoved(tb testing.TB, endpoint, containerID string) {
+	tb.Helper()
+
+	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
+	if err != nil {
+		tb.Fatalf("create cleanup verification client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		containers, err := client.Containers(ctx)
+		if err != nil {
+			tb.Fatalf("list containers while verifying cleanup: %v", err)
+		}
+		found := false
+		for _, container := range containers {
+			if container.ID == containerID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			tb.Fatalf("container %s still exists after test cleanup: %v", containerID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// AssertNetworkRemoved proves that a network is absent from the configured
+// Podman endpoint and fails closed on errors other than not-found.
+func AssertNetworkRemoved(tb testing.TB, networkName string) {
+	tb.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	provider, err := testcontainers.ProviderPodman.GetProvider()
+	if err != nil {
+		tb.Fatalf("create Podman provider for network cleanup verification: %v", err)
+	}
+	defer func() {
+		if closeErr := provider.Close(); closeErr != nil {
+			tb.Errorf("close Podman provider after network cleanup verification: %v", closeErr)
+		}
+	}()
+
+	//nolint:staticcheck // upstream replacement does not yet expose inspection
+	_, err = provider.GetNetwork(ctx, testcontainers.NetworkRequest{Name: networkName})
+	if err == nil {
+		tb.Fatalf("network %s still exists after test cleanup", networkName)
+	}
+	if !errdefs.IsNotFound(err) {
+		tb.Fatalf("inspect removed network %s: %v", networkName, err)
+	}
+}
+
+// AssertImageRemoved proves that a test-owned image is absent from the exact
+// Podman endpoint and fails closed on API errors.
+func AssertImageRemoved(tb testing.TB, endpoint, imageName string) {
+	tb.Helper()
+
+	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
+	if err != nil {
+		tb.Fatalf("create image cleanup verification client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		exists, err := client.ImageExists(ctx, imageName)
+		if err != nil {
+			tb.Fatalf("inspect image while verifying cleanup: %v", err)
+		}
+		if !exists {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			tb.Fatalf("image %s still exists after test cleanup: %v", imageName, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func resolvePodmanEndpoint(getenv func(string) string, socketExists func(string) bool) (string, bool) {
