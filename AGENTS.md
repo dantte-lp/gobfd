@@ -54,6 +54,53 @@ make int-k8s                                       # integration: Kubernetes Dae
 - No duplication: extract shared logic into reusable functions; session types share packet codec, timer, FSM infrastructure via composition and interfaces
 - Go 1.26 best practices: use `testing/synctest` for timer tests, `runtime/trace.FlightRecorder` for debugging, `os.Root` for sandboxed I/O, `GOMEMLIMIT`+`GOGC=off` for bounded memory, `weak.Pointer` for caches, range-over-func iterators, `slices`/`maps`/`cmp` stdlib packages
 
+## Go 1.27 migration guardrails
+The current baseline remains Go 1.26.3. Do not use Go 1.27 syntax or APIs until
+the `go` and `toolchain` directives plus every first-party compiler pin in
+Containerfiles, CI, release workflows, and test harnesses move together and the
+full quality gates pass. Use the official
+[Go 1.27 release notes](https://go.dev/doc/go1.27) as the source of truth.
+
+- Remove `GOEXPERIMENT=goroutineleakprofile` before switching toolchains; the
+  `goroutineleak` pprof profile is generally available in Go 1.27. Keep
+  `go.uber.org/goleak` test coverage and never expose all `net/http/pprof`
+  handlers on the public metrics listener.
+- Keep the default `go test` `stdversion` vet check enabled. Do not use
+  `-vet=off` to bypass APIs newer than the module or file build constraint.
+- Audit every repository `GODEBUG` value before the upgrade. Removed settings
+  no longer accept historical values in Go 1.27; never keep a removed setting
+  merely to silence the startup failure.
+- During the toolchain upgrade, compatibility-test all existing `encoding/json`
+  v1 consumers in the CLI, Podman, FRR, and audit code because Go 1.27 backs v1
+  with the v2 implementation. Cover duplicate object members, invalid UTF-8,
+  and error compatibility without matching exact error text. Adopt the
+  `encoding/json/v2` API only deliberately; use `GOEXPERIMENT=nojsonv2` only for
+  diagnosis, never in shipped builds.
+- In a `synctest` bubble, replace only adjacent `time.Sleep(d)` plus
+  `synctest.Wait()` calls with `synctest.Sleep(d)`. E2E and interoperability
+  waits use real time and must remain context-bounded wall-clock waits.
+- After adopting Go 1.27, configure and test one named `MaxHeaderValueCount`
+  bound on both the ConnectRPC and metrics HTTP servers; retain the existing
+  `ReadHeaderTimeout` defense.
+- Prefer `httptest.NewTestServer(t, handler)` after the upgrade when a test does
+  not require real socket behavior. Retain explicit loopback or Unix listeners
+  when the listener itself is under test.
+- Benchmark packet codec, FSM, timers, and session event loop before and after
+  the upgrade; preserve 0 allocs/op and compare binary size. Use
+  `GOEXPERIMENT=nosizespecializedmalloc` only to diagnose allocator changes,
+  never in release artifacts.
+- Use generic methods only on concrete internal types when they remove an
+  existing abstraction cost. Do not churn public protobuf APIs or interfaces;
+  interface methods still cannot declare type parameters.
+- Do not adopt experimental `simd` or `simd/archsimd`, and never use `unsafe`.
+  Reconsider SIMD only after its API is stable and both linux/amd64 and
+  linux/arm64 benchmarks prove a material codec benefit.
+- Expect `go mod tidy` under a Go 1.27 module to consolidate `require` blocks.
+  Preserve dependency comments and require `go mod tidy -diff` to be clean.
+- Treat goroutine labels, tracebacks, traces, and profiles as sensitive data.
+  Keep analysis HTTP UIs on loopback and never put secrets or peer addresses
+  into goroutine labels.
+
 ## Git
 - Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
 - Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard
