@@ -128,7 +128,6 @@ services:
       - gobfd-exabgp
     volumes:
       - ./exabgp/exabgp.conf:/etc/exabgp/exabgp.conf:ro,z
-      - ./exabgp/announce.py:/etc/exabgp/announce.py:ro,z
     environment:
       - exabgp.daemon.daemonize=false
       - exabgp.log.all=true
