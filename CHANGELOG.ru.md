@@ -7,6 +7,42 @@
 
 ## [Не выпущено]
 
+### Добавлено
+
+- Compatibility-тесты Go 1.27 для duplicate members в JSON, замены
+  некорректного UTF-8, границы количества HTTP header values и реальных
+  Podman build contexts.
+
+### Изменено
+
+- First-party toolchain baseline переведён на Go 1.27.0 в `go.mod`, GitHub
+  Actions, development/release images и test harness builders. Compiler images
+  закреплены по immutable multi-platform OCI indexes. Go 1.27 включает
+  исправление `net/http` `ReadHeaderTimeout`, также выпущенное в Go 1.26.7.
+- Timer tests используют `testing/synctest.Sleep`, а HTTP tests — новый в Go
+  1.27 helper `httptest.NewTestServer(t, handler)`, когда custom listener не
+  требуется.
+- Строгий набор `golangci-lint` сохранён под Go 1.27 через upstream-обновление
+  `honnef.co/go/tools`; `staticcheck` остаётся включённым.
+- OSV Scanner обновлён с `v2.3.5` до `v2.5.1`; его Go analysis stack
+  поддерживает синтаксис Go 1.27.
+- Временное исключение для GoBGP v3 NEXT_HOP denial-of-service продлено только
+  до 2026-09-30; переход на v4 остаётся отслеживаемым исправлением.
+- Security fixes обновляют gRPC до `v1.83.1`, `moby/go-archive` до `v0.3.3`,
+  `klauspost/compress` до `v1.19.2` и `x/mod` до `v0.40.0`. Исключение для
+  module-only advisory `x/crypto/openpgp` ограничено по времени: этот пакет
+  отсутствует в build graph.
+
+### Исправлено
+
+- На metrics и ConnectRPC servers ограничено количество повторяющихся HTTP
+  header values; parser-level test проверяет ответ HTTP 431 на 129-е значение.
+- Vulnerability allowlist теперь fail closed проверяет scanner, package и
+  reachable symbol; module-only exception не может разрешить import
+  затронутого пакета.
+- Удалены устаревшие эксперименты `goroutineleakprofile` и `noswissmap`,
+  отсутствующие в Go 1.27.
+
 ### Удалено
 
 - Каталог `.archive/` удалён из репозитория. Sprint planning records,

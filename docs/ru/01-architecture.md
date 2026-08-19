@@ -1,6 +1,6 @@
 # Архитектура
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
 ![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
@@ -289,7 +289,7 @@ gobfd/
 
 | Компонент | Технология | Назначение |
 |---|---|---|
-| Язык | Go 1.26 | Green Tea GC, `testing/synctest`, flight recorder |
+| Язык | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
 | Сетевой I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Сырые сокеты, управление TTL, `SO_BINDTODEVICE` |
 | RPC-сервер | ConnectRPC | gRPC + Connect + gRPC-Web из одного обработчика |
 | RPC-клиент | `google.golang.org/grpc` | Интеграция с GoBGP (gRPC-клиент) |

@@ -62,14 +62,14 @@ network. Security-relevant areas include:
   for loopback or trusted management networks, and plaintext non-loopback
   endpoints emit a startup warning
 
-## Known Dependency Advisory
+## Known Dependency Advisories
 
 ### GO-2026-4736 — GoBGP NEXT_HOP denial of service
 
 `github.com/osrg/gobgp/v3 v3.37.0` is affected by
 [GO-2026-4736](https://pkg.go.dev/vuln/GO-2026-4736), a denial-of-service
 advisory in GoBGP's handling of the BGP NEXT_HOP path attribute. As of
-2026-04-22, the advisory does not list a fixed version.
+2026-08-20, the advisory does not list a fixed GoBGP v3 version.
 
 GoBFD uses GoBGP only for the optional GoBGP integration path. Until an upstream
 fix is available, operators should keep the GoBGP gRPC endpoint bound to
@@ -77,9 +77,26 @@ localhost or another trusted management network. For remote GoBGP API endpoints,
 enable `gobgp.tls.enabled` and configure `gobgp.tls.ca_file` / `server_name`.
 Do not expose plaintext GoBGP gRPC to untrusted peers.
 
-CI allowlists only `GO-2026-4736` in `scripts/vuln-audit.go`. Any additional
-advisory reported by `govulncheck` or `osv-scanner` fails the vulnerability
-audit. Remove the allowlist entry after upgrading GoBGP to a fixed release.
+The allowlist entry expires on 2026-09-30. Remove it after upgrading GoBGP to a
+fixed release.
+
+### GO-2026-5932 — x/crypto/openpgp denial of service
+
+`golang.org/x/crypto v0.55.0` is reported at module level for
+[GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932). The advisory affects the
+unmaintained `golang.org/x/crypto/openpgp` package, which is absent from GoBFD's
+build dependency graph.
+
+The module-inventory exception expires on 2026-09-30. It accepts only findings
+for the exact `golang.org/x/crypto` module from `govulncheck` or `osv-scanner`.
+A reachable symbol, an `openpgp` package finding, a package mismatch, or an
+unknown scanner fails the audit. Do not add an `openpgp` import; remove the
+exception when the module no longer produces the inventory finding.
+
+CI allowlists only `GO-2026-4736` and the module-only `GO-2026-5932` exception
+in `scripts/vuln-audit.go`. Any other advisory, expired entry, package mismatch,
+unknown scanner, or disallowed reachability reported by the scanners fails the
+vulnerability audit.
 
 ## Accepted Protocol Exceptions
 

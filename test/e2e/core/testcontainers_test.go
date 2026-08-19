@@ -45,6 +45,11 @@ type coreDaemon struct {
 }
 
 func TestCoreDaemonTestcontainers(t *testing.T) {
+	// The public builder image needs no credentials. Isolate the test from
+	// unrelated host credential helpers so a broken private-registry login
+	// cannot make the Podman lifecycle nondeterministic.
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
+
 	endpoint := containertest.RequirePodman(t)
 	var containerIDs []string
 	var imageName string
@@ -185,8 +190,8 @@ func prepareBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.26.6-trixie@sha256:` +
-		`b75d466dd608587fd66cca705a307ba65b889827d06ad61d6a75f0482b51b7c7
+	const containerfile = `FROM docker.io/library/golang:1.27.0-trixie@sha256:` +
+		`22b64c486d44847387a2d9591bb705dc4b3a1227bb393d76a9d4ae176d046327
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -245,6 +250,9 @@ func buildCoreImage(
 	if !found {
 		t.Fatalf("split e2e-core image name %q", imageName)
 	}
+	// ContainerRequest, unlike the embedded FromDockerfile, implements
+	// ImageBuildInfo because the latter's BuildLogWriter field shadows the method.
+	//nolint:modernize // FromDockerfile alone does not implement ImageBuildInfo.
 	builtImage, err := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    buildContext,

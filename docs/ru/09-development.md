@@ -1,6 +1,6 @@
 # Разработка
 
-![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![golangci--lint](https://img.shields.io/badge/golangci--lint-v2-1a73e8?style=for-the-badge)
 ![buf](https://img.shields.io/badge/buf-Protobuf-4353FF?style=for-the-badge)
 ![Podman](https://img.shields.io/badge/Podman-Dev_Container-892CA0?style=for-the-badge&logo=podman)
@@ -18,7 +18,7 @@
 - [Стратегия тестирования](#стратегия-тестирования)
 - [Линтинг](#линтинг)
 - [Рабочий процесс Protobuf](#рабочий-процесс-protobuf)
-- [Возможности Go 1.26](#возможности-go-126)
+- [Baseline Go 1.27](#baseline-go-127)
 - [Конвенции кода](#конвенции-кода)
 - [Вклад в проект](#вклад-в-проект)
 
@@ -26,7 +26,7 @@
 
 - **Podman** + **Podman Compose** (все команды выполняются в контейнерах)
 - **Git** для управления версиями
-- Go 1.26 (нужен только для поддержки IDE; сборка в контейнерах)
+- Go 1.27 (нужен только для поддержки IDE; сборка в контейнерах)
 
 > **Важно**: Все тестирование, сборка и линтинг выполняются внутри контейнеров Podman. Локальный Go-тулчейн не требуется для CI-эквивалентных сборок.
 
@@ -154,11 +154,15 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 - **Table-driven** тесты для всех пакетов
 - **`t.Parallel()`** где безопасно (нет общего изменяемого состояния)
 - **Всегда** с `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** в каждом пакете для обнаружения утечек горутин
+- **`goleak.VerifyTestMain(m)`** в шести concurrency-heavy пакетах, которые
+  владеют жизненным циклом демона, протокола, сети, метрик, конфигурации и
+  интеграционных тестов
 
 #### Тесты FSM (`testing/synctest`)
 
-Go 1.26 `testing/synctest` обеспечивает детерминированное тестирование на основе виртуального времени:
+Go 1.27 `testing/synctest` обеспечивает детерминированное тестирование на
+основе виртуального времени и добавляет `synctest.Sleep` для операции
+advance-time-and-settle:
 
 ```go
 func TestFSMDetectionTimeout(t *testing.T) {
@@ -175,8 +179,7 @@ func TestFSMDetectionTimeout(t *testing.T) {
         require.Equal(t, StateUp, sess.State())
 
         // Таймаут обнаружения = 3 x 100ms = 300ms
-        time.Sleep(350 * time.Millisecond) // виртуальное время
-        synctest.Wait()
+        synctest.Sleep(350 * time.Millisecond)
         require.Equal(t, StateDown, sess.State())
     })
 }
@@ -285,13 +288,17 @@ make proto-breaking  # Проверка на несовместимые изме
 
 > **НИКОГДА** не редактируйте файлы в `pkg/bfdpb/` вручную -- они генерируются через `buf generate`.
 
-### Возможности Go 1.26
+### Baseline Go 1.27
 
-GoBFD использует возможности Go 1.26 для безопасности, производительности и отладки:
+GoBFD использует Go 1.27, сохраняя нужные API безопасности,
+производительности и отладки из Go 1.26.
 
 #### `testing/synctest` -- Детерминированные тесты таймеров
 
-Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest` для выполнения с виртуальным временем. Тесты выполняются мгновенно (без реальных sleep) и полностью детерминированы. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
+Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest`
+с виртуальным временем. Соседние `time.Sleep` и `synctest.Wait` записываются
+как `synctest.Sleep`; реальные ожидания E2E и interop остаются ограниченными
+контекстом wall-clock waits. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
 
 #### `os.Root` -- Песочница для доступа к файлам
 
@@ -317,9 +324,12 @@ if connectErr, ok := errors.AsType[*connect.Error](err); ok {
 }
 ```
 
-#### `GOEXPERIMENT=goroutineleakprofile`
+#### Диагностика утечек горутин
 
-Dev-контейнер (`Containerfile.dev`) включает эксперимент профилирования утечек горутин. В сочетании с `goleak.VerifyTestMain(m)` в тестовых пакетах это обеспечивает обнаружение утечек горутин в runtime во время разработки.
+В Go 1.27 runtime-профиль `goroutineleak` доступен без experiment flag.
+Автоматические тесты продолжают использовать `go.uber.org/goleak` в шести
+concurrency-heavy пакетах. Это разные механизмы; GoBFD не регистрирует полный
+набор обработчиков `net/http/pprof` на публичном metrics mux.
 
 #### `runtime/trace.FlightRecorder`
 
@@ -327,7 +337,20 @@ HTTP-endpoint предоставляет flight recorder для посмертн
 
 #### Swiss Tables
 
-Go 1.26 использует Swiss tables как реализацию `map` по умолчанию. Поиск дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD выигрывают от улучшенной локальности кэша. См. [BENCHMARKS.md](../../BENCHMARKS.md) для сравнения с `GOEXPERIMENT=noswissmap`.
+Go 1.26 ввёл Swiss tables как реализацию `map` по умолчанию. Поиск
+дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD
+выигрывают от улучшенной локальности кэша. Go 1.27 удаляет прежний
+диагностический experiment `noswissmap`, поэтому он не должен появляться в
+командах сборки и бенчмарков.
+
+#### Совместимость HTTP и JSON
+
+Оба публичных HTTP-сервера используют один явный `MaxHeaderValueCount`,
+сохраняя `ReadHeaderTimeout`; parser-level тесты проверяют разрешённую и
+запрещённую границы. В Go 1.27 существующий API `encoding/json` работает на
+реализации v2; compatibility-тесты покрывают duplicate object members и
+invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнения точного
+текста ошибок.
 
 ### Конвенции кода
 
@@ -372,8 +395,8 @@ make proto-lint   # Линтинг proto-определений
 
 - [01-architecture.md](./01-architecture.md) -- Архитектура и структура пакетов
 - [05-interop.md](./05-interop.md) -- Тестирование совместимости
-- [CLAUDE.md](../../CLAUDE.md) -- Полные конвенции кода и команды
+- [AGENTS.md](../../AGENTS.md) -- Полные конвенции кода и команды
 
 ---
 
-*Последнее обновление: 2026-02-24*
+*Последнее обновление: 2026-08-19*

@@ -1,6 +1,6 @@
 # Руководство по бенчмаркам
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![Bench](https://img.shields.io/badge/go_test-bench-1a73e8?style=for-the-badge)
 ![Allocs](https://img.shields.io/badge/Hot_Path-0_allocs-34a853?style=for-the-badge)
 ![Reports](https://img.shields.io/badge/Reports-Reproducible-ffc107?style=for-the-badge)
@@ -77,7 +77,7 @@ BenchmarkControlPacketMarshal-8    195605820    5.869 ns/op    0 B/op    0 alloc
 
 ### Категории бенчмарков
 
-GoBFD содержит 28 бенчмарков в 7 категориях в двух пакетах (`internal/bfd` и `internal/netio`).
+GoBFD содержит 33 бенчмарка в 7 категориях в двух пакетах (`internal/bfd` и `internal/netio`).
 
 #### 1. Кодек пакетов (`internal/bfd`)
 

@@ -40,12 +40,12 @@
 | **Известный advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
 | **Уровень риска** | Высокий |
 | **Владелец allowlist** | `maintainers` |
-| **Срок пересмотра** | `2026-07-31` |
+| **Срок пересмотра** | `2026-09-30` |
 
 ### Описание
 
 GoBGP затронут denial-of-service advisory в обработке BGP path attribute
-NEXT_HOP. По состоянию на 2026-05-02 база Go vulnerability database не указывает
+NEXT_HOP. По состоянию на 2026-08-20 база Go vulnerability database не указывает
 исправленную версию.
 
 ### Митигация
@@ -53,12 +53,35 @@ NEXT_HOP. По состоянию на 2026-05-02 база Go vulnerability data
 1. **Ограниченная экспозиция**: путь GoBGP является опциональным и должен
    подключаться только к GoBGP gRPC endpoint на localhost или в доверенной
    management-сети.
-2. **Контролируемый CI allowlist**: `scripts/vuln-audit.go` разрешает только
-   `GO-2026-4736`; запись содержит owner, expiry, reason и mitigation. Любой
-   дополнительный finding из `govulncheck` или OSV, а также expired allowlist
-   entry, ломает CI.
+2. **Контролируемый CI allowlist**: запись `GO-2026-4736` содержит owner,
+   expiry, reason и mitigation и принимает только findings внутри точного пути
+   модуля GoBGP v3. Package mismatch, неизвестный scanner, дополнительный
+   advisory или expired allowlist entry ломает CI.
 3. **Триггер обновления**: удалить allowlist-запись после публикации
    исправленного релиза GoBGP и обновления модуля через `go mod tidy`.
+
+---
+
+## x/crypto/openpgp — Advisory только на уровне модуля
+
+| Поле | Значение |
+|------|----------|
+| **Модуль** | `golang.org/x/crypto v0.55.0` (непрямая зависимость) |
+| **Затронутый пакет** | `golang.org/x/crypto/openpgp` (отсутствует в build graph) |
+| **Известный advisory** | `GO-2026-5932` |
+| **Режим allowlist** | Только inventory findings точного модуля |
+| **Срок пересмотра** | `2026-09-30` |
+
+### Митигация
+
+1. **Нет затронутого import**: вывод `go list -deps ./...` не должен содержать
+   `golang.org/x/crypto/openpgp`.
+2. **Fail-closed reachability**: аудит принимает только недостижимые findings
+   точного модуля `golang.org/x/crypto` от `govulncheck` или `osv-scanner`.
+   Reachable symbol, затронутый subpackage, package mismatch или неизвестный
+   scanner ломает CI даже при совпадении advisory ID.
+3. **Триггер удаления**: удалить исключение, когда module inventory finding
+   исчезнет; никогда не добавлять import `openpgp`.
 
 ---
 

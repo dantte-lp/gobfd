@@ -1,6 +1,9 @@
 package frrjson
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestExtractJSONArray(t *testing.T) {
 	t.Parallel()
@@ -50,5 +53,28 @@ func TestExtractJSONArrayRejectsMissingArray(t *testing.T) {
 
 	if _, err := ExtractJSONArray("% no json\n"); err == nil {
 		t.Fatal("ExtractJSONArray returned nil error")
+	}
+}
+
+func TestExtractJSONArrayPreservesEncodingJSONV1Compatibility(t *testing.T) {
+	t.Parallel()
+
+	input := append([]byte(`% warning
+[{"peer":"old","peer":"bad`), 0xff)
+	input = append(input, []byte(`"}]
+% suffix`)...)
+	extracted, err := ExtractJSONArray(string(input))
+	if err != nil {
+		t.Fatalf("ExtractJSONArray: %v", err)
+	}
+
+	var peers []struct {
+		Peer string `json:"peer"`
+	}
+	if err := json.Unmarshal([]byte(extracted), &peers); err != nil {
+		t.Fatalf("decode extracted FRR JSON: %v", err)
+	}
+	if len(peers) != 1 || peers[0].Peer != "bad\ufffd" {
+		t.Fatalf("decoded peers = %+v, want duplicate-key last value with replacement character", peers)
 	}
 }

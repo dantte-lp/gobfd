@@ -25,7 +25,7 @@
 
 - **Linux** kernel (raw sockets require Linux-specific APIs)
 - **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
-- Go 1.26+ (for building from source only)
+- Go 1.27+ (for building from source only)
 
 ### Release Artifact Matrix
 

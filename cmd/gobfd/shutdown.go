@@ -74,10 +74,10 @@ func gracefulShutdown(
 }
 
 // -------------------------------------------------------------------------
-// Flight Recorder — Go 1.26 runtime/trace
+// Flight Recorder — runtime/trace
 // -------------------------------------------------------------------------
 
-// startFlightRecorder initializes and starts the Go 1.26 FlightRecorder
+// startFlightRecorder initializes and starts the runtime FlightRecorder
 // for post-mortem debugging of BFD session failures. The recorder maintains
 // a rolling window of execution trace data that can be dumped on demand.
 func startFlightRecorder(logger *slog.Logger) *trace.FlightRecorder {
@@ -104,6 +104,11 @@ func startFlightRecorder(logger *slog.Logger) *trace.FlightRecorder {
 // -------------------------------------------------------------------------
 // Server Setup
 // -------------------------------------------------------------------------
+
+// maxHTTPHeaderValueCount bounds repeated HTTP header values on both public
+// server surfaces. BFD's ConnectRPC and metrics requests need far fewer than
+// the net/http default of 500.
+const maxHTTPHeaderValueCount = 128
 
 // listenAndServe creates a TCP listener using the ListenConfig (for noctx
 // compliance) and serves HTTP requests until the server is shut down.
@@ -133,9 +138,10 @@ func newMetricsServer(
 	}
 
 	return &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		Addr:                cfg.Addr,
+		Handler:             mux,
+		ReadHeaderTimeout:   10 * time.Second,
+		MaxHeaderValueCount: maxHTTPHeaderValueCount,
 	}
 }
 
@@ -191,9 +197,10 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFact
 	protocols.SetUnencryptedHTTP2(true)
 
 	return &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           mux,
-		Protocols:         protocols,
-		ReadHeaderTimeout: 10 * time.Second,
+		Addr:                cfg.Addr,
+		Handler:             mux,
+		Protocols:           protocols,
+		ReadHeaderTimeout:   10 * time.Second,
+		MaxHeaderValueCount: maxHTTPHeaderValueCount,
 	}
 }

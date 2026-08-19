@@ -3,9 +3,9 @@
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
 ![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?style=for-the-badge&logo=grafana)
 ![slog](https://img.shields.io/badge/log%2Fslog-Structured-00ADD8?style=for-the-badge)
-![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.26-34a853?style=for-the-badge)
+![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.27-34a853?style=for-the-badge)
 
-> Метрики Prometheus, дашборд Grafana, структурированное логирование и flight recorder Go 1.26 для наблюдаемости в production.
+> Метрики Prometheus, дашборд Grafana, структурированное логирование и runtime flight recorder для наблюдаемости в production.
 
 ---
 
@@ -171,7 +171,7 @@ sudo systemctl reload gobfd
 
 ### Flight Recorder
 
-Go 1.26 `runtime/trace.FlightRecorder` захватывает скользящее окно трассировок выполнения для post-mortem отладки:
+`runtime/trace.FlightRecorder` захватывает скользящее окно трассировок выполнения для post-mortem отладки:
 
 | Параметр | Значение |
 |---|---|

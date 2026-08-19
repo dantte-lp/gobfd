@@ -40,24 +40,47 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 | **Known advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
 | **Risk level** | High |
 | **Allowlist owner** | `maintainers` |
-| **Review deadline** | `2026-07-31` |
+| **Review deadline** | `2026-09-30` |
 
 ### Description
 
 GoBGP is affected by a denial-of-service advisory in BGP NEXT_HOP path
-attribute handling. As of 2026-05-02, the Go vulnerability database does not
+attribute handling. As of 2026-08-20, the Go vulnerability database does not
 list a fixed version.
 
 ### Mitigation
 
 1. **Bounded exposure**: The GoBGP path is optional and should connect only to a
    GoBGP gRPC endpoint on localhost or a trusted management network.
-2. **Controlled CI allowlist**: `scripts/vuln-audit.go` allowlists only
-   `GO-2026-4736`; the entry includes owner, expiry, reason, and mitigation.
-   Any additional `govulncheck` or OSV finding, and any expired allowlist
-   entry, fails CI.
+2. **Controlled CI allowlist**: the `GO-2026-4736` entry includes owner,
+   expiry, reason, and mitigation and accepts only findings under the exact
+   GoBGP v3 module path. Any package mismatch, unknown scanner, additional
+   advisory, or expired allowlist entry fails CI.
 3. **Upgrade trigger**: Remove the allowlist entry after upstream publishes a
    fixed GoBGP release and `go mod tidy` moves the module to that version.
+
+---
+
+## x/crypto/openpgp — Module-only Advisory
+
+| Field | Value |
+|-------|-------|
+| **Module** | `golang.org/x/crypto v0.55.0` (indirect) |
+| **Affected package** | `golang.org/x/crypto/openpgp` (absent from the build graph) |
+| **Known advisory** | `GO-2026-5932` |
+| **Allowlist mode** | Exact-module inventory findings only |
+| **Review deadline** | `2026-09-30` |
+
+### Mitigation
+
+1. **No affected import**: `go list -deps ./...` must not contain
+   `golang.org/x/crypto/openpgp`.
+2. **Fail-closed reachability**: the audit accepts only non-reachable findings
+   for the exact `golang.org/x/crypto` module from `govulncheck` or
+   `osv-scanner`. A reachable symbol, affected subpackage, package mismatch, or
+   unknown scanner fails CI even when the advisory ID matches.
+3. **Removal trigger**: remove the exception when the module no longer produces
+   the inventory finding; never introduce an `openpgp` import.
 
 ---
 

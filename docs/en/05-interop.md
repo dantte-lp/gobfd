@@ -30,7 +30,7 @@ GoBFD is tested against four independent BFD implementations to verify protocol 
 ```mermaid
 graph LR
     subgraph "10.99.0.0/24 (podman network)"
-        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.26"]
+        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.27"]
         FRR["FRR<br/>10.99.0.2<br/>bfdd"]
         BIRD["BIRD3<br/>10.99.0.3<br/>BFD proto"]
         AIOBFD["aiobfd<br/>10.99.0.4<br/>Python"]

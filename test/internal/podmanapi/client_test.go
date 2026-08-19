@@ -172,6 +172,35 @@ func TestClientLogsFallsBackToPlainText(t *testing.T) {
 	}
 }
 
+func TestClientContainersPreservesEncodingJSONV1Compatibility(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "podman.sock")
+	server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v5.0.0/containers/json" {
+			http.NotFound(w, r)
+			return
+		}
+		response := append([]byte(`[{"Id":"stale","Id":"current","Names":["bad`), 0xff)
+		response = append(response, []byte(`"]}]`)...)
+		_, _ = w.Write(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(socket)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	containers, err := client.Containers(context.Background())
+	if err != nil {
+		t.Fatalf("Containers: %v", err)
+	}
+	if len(containers) != 1 || containers[0].ID != "current" {
+		t.Fatalf("Containers = %+v, want duplicate-key last ID", containers)
+	}
+	if len(containers[0].Names) != 1 || containers[0].Names[0] != "bad\ufffd" {
+		t.Fatalf("Names = %q, want replacement character", containers[0].Names)
+	}
+}
+
 func TestNewClientFromEnvironmentUsesPodmanHostSocket(t *testing.T) {
 	tmp := t.TempDir()
 	socketDir := filepath.Join(tmp, "podman")

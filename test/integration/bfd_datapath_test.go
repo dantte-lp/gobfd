@@ -133,8 +133,7 @@ func TestDatapathTwoSessions(t *testing.T) {
 		// Advance virtual time. Slow TX rate = 1s with jitter.
 		// Three-way handshake takes ~3 rounds.
 		for range 30 {
-			time.Sleep(time.Second)
-			synctest.Wait()
+			synctest.Sleep(time.Second)
 			if sessA.State() == bfd.StateUp &&
 				sessB.State() == bfd.StateUp {
 				break
@@ -209,8 +208,8 @@ func createPeerSessions(
 // waitForState polls the session state at intervals until it matches
 // the desired state or the maximum number of iterations is exceeded.
 //
-// Uses time.Sleep to yield to synctest's virtual time scheduler,
-// allowing session goroutines to make progress between checks.
+// Uses synctest.Sleep to advance virtual time and wait for session goroutines
+// to settle between checks.
 func waitForState(
 	t *testing.T,
 	sess *bfd.Session,
@@ -224,8 +223,7 @@ func waitForState(
 	iterations := int(timeout / pollInterval)
 
 	for range iterations {
-		time.Sleep(pollInterval)
-		synctest.Wait() // Ensure session goroutines have settled after timer fires.
+		synctest.Sleep(pollInterval)
 		if sess.State() == want {
 			return
 		}
@@ -298,8 +296,7 @@ func TestDatapathDetectionTimeout(t *testing.T) {
 		// update remoteDesiredMinTxInterval from slow-rate (1s) to the
 		// configured 100ms. Without this, detection time may still be
 		// 3 * 1s = 3s if the last received packet used slow-rate.
-		time.Sleep(2 * time.Second)
-		synctest.Wait()
+		synctest.Sleep(2 * time.Second)
 
 		// Disconnect B's sender (A stops receiving from B).
 		senderBtoA.setTarget(nil)

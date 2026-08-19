@@ -30,7 +30,7 @@ GoBFD тестируется с четырьмя независимыми реа
 ```mermaid
 graph LR
     subgraph "10.99.0.0/24 (podman network)"
-        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.26"]
+        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.27"]
         FRR["FRR<br/>10.99.0.2<br/>bfdd"]
         BIRD["BIRD3<br/>10.99.0.3<br/>BFD proto"]
         AIOBFD["aiobfd<br/>10.99.0.4<br/>Python"]
@@ -55,7 +55,7 @@ graph LR
 
 | Контейнер | IP | Реализация | Язык |
 |---|---|---|---|
-| GoBFD | 10.99.0.10 | gobfd | Go 1.26 |
+| GoBFD | 10.99.0.10 | gobfd | Go 1.27 |
 | FRR | 10.99.0.2 | bfdd | C |
 | BIRD3 | 10.99.0.3 | BFD protocol | C |
 | aiobfd | 10.99.0.4 | AsyncIO daemon | Python |

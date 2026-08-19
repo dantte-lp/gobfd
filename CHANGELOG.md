@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Go 1.27 compatibility coverage for duplicate JSON object members, invalid
+  UTF-8 replacement, the HTTP header-value boundary, and real Podman build
+  contexts.
+
+### Changed
+
+- The first-party toolchain baseline is Go 1.27.0 across `go.mod`, GitHub
+  Actions, development and release images, and test harness builders. Compiler
+  images are pinned to immutable multi-platform OCI indexes. Go 1.27 includes
+  the `net/http` `ReadHeaderTimeout` fix also released in Go 1.26.7.
+- Timer tests use `testing/synctest.Sleep`, and HTTP tests use the Go 1.27
+  `httptest.NewTestServer(t, handler)` helper where no custom listener is
+  required.
+- `golangci-lint` keeps the strict linter set under Go 1.27 through the
+  upstream `honnef.co/go/tools` compatibility update; `staticcheck` remains
+  enabled.
+- OSV Scanner is updated from `v2.3.5` to `v2.5.1`, whose Go analysis stack
+  understands Go 1.27 syntax.
+- The temporary GoBGP v3 NEXT_HOP denial-of-service exception is renewed only
+  through 2026-09-30; the v4 migration remains the tracked remediation.
+- Security fixes update gRPC to `v1.83.1`, `moby/go-archive` to `v0.3.3`,
+  `klauspost/compress` to `v1.19.2`, and `x/mod` to `v0.40.0`. The module-only
+  `x/crypto/openpgp` advisory is time-bounded because that package is not in
+  the build graph.
+
+### Fixed
+
+- Bound repeated HTTP header values on both the metrics and ConnectRPC servers
+  and verify the parser rejects the 129th value with HTTP 431.
+- Make vulnerability allowlist matching fail closed on scanner, package, and
+  reachable-symbol mismatches; module-only exceptions cannot admit affected
+  package imports.
+- Removed the obsolete `goroutineleakprofile` and `noswissmap` experiments,
+  which no longer exist in Go 1.27.
+
 ### Removed
 
 - `.archive/` directory removed from the repository. Sprint planning

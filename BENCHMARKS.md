@@ -2,7 +2,9 @@
 
 ## Overview
 
-GoBFD maintains 28 micro-benchmarks covering every hot path in the BFD protocol implementation. All benchmarks enforce **zero heap allocations** on the critical packet processing paths, ensuring predictable sub-millisecond latency for production BFD deployments.
+GoBFD maintains 33 micro-benchmarks covering the BFD protocol hot paths and
+their known allocation boundaries. The direct packet-processing path remains
+**zero allocation**, preserving predictable sub-millisecond latency.
 
 Benchmarks live in `internal/bfd/bench_test.go` and run automatically in CI via `benchstat` to catch performance regressions (>10% threshold).
 
@@ -73,14 +75,16 @@ The full receive path processes ~16M packets/sec with zero allocations. This inc
 
 | Benchmark | ns/op | B/op | allocs/op | Description |
 |-----------|------:|-----:|----------:|-------------|
-| `BuildInnerPacket` | ~120 | 0 | 0 | Assemble Ethernet+IP+UDP inner packet for overlay encapsulation |
+| `BuildInnerPacket` | ~40 | 80 | 1 | Assemble Ethernet+IP+UDP inner packet for overlay encapsulation |
 | `StripInnerPacket` | ~25 | 0 | 0 | Parse inner packet headers and extract BFD payload |
 | `VXLANHeaderMarshal` | ~8 | 0 | 0 | Serialize 8-byte VXLAN header (RFC 8971) |
 | `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Parse 8-byte VXLAN header from wire format |
 | `GeneveHeaderMarshal` | ~10 | 0 | 0 | Serialize 8-byte Geneve header (RFC 9521) |
 | `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Parse 8-byte Geneve header from wire format |
 
-All overlay codec operations achieve zero allocations, critical for VXLAN/Geneve BFD hot paths where packets are assembled and parsed at protocol timer frequency.
+Overlay header marshal/unmarshal and in-place parsing are zero allocation.
+`BuildInnerPacket` currently allocates its result buffer once; eliminating that
+allocation is tracked separately.
 
 ### Session Scaling
 
@@ -102,7 +106,10 @@ All hot paths (packet codec, FSM transitions, timer operations, session event lo
 3. Pre-allocated buffers via `sync.Pool` for receive paths
 4. Value types (`ControlPacket` struct) instead of pointer indirection
 
-The single exception is `UnmarshalWithAuth` (1 alloc, 64 bytes) — the SHA1 digest must be copied from the receive buffer to prevent use-after-free when the buffer is returned to the pool.
+Known exceptions are `UnmarshalWithAuth` (1 alloc, 64 bytes), which copies the
+SHA1 digest so it outlives the receive buffer, and `BuildInnerPacket` (1 alloc,
+80 bytes), which owns its returned slice. Session create/reconcile benchmarks
+measure lifecycle work and are not packet hot paths.
 
 ## Competitive Context
 
@@ -112,13 +119,9 @@ FRR bfdd (C implementation) processes BFD packets with similar latency character
 
 Go 1.26 uses Swiss tables as the default `map` implementation. All benchmarks above reflect Swiss table performance — the FSM transition map, discriminator lookup, and session demuxing benefit from improved cache locality and group probing.
 
-To compare against the legacy map implementation:
-
-```sh
-GOEXPERIMENT=noswissmap make benchmark
-```
-
-No code changes were required to adopt Swiss tables — the runtime switch is transparent. Existing benchmarks capture the performance delta automatically.
+No code changes were required to adopt Swiss tables. Go 1.27 removed the
+former `noswissmap` diagnostic experiment, so legacy-map A/B runs are no longer
+supported; the Go 1.26 measurements above remain historical provenance.
 
 ---
 
@@ -126,7 +129,9 @@ No code changes were required to adopt Swiss tables — the runtime switch is tr
 
 ## Обзор
 
-GoBFD содержит 28 микробенчмарков, покрывающих все горячие пути реализации протокола BFD. Все бенчмарки обеспечивают **ноль аллокаций в куче** на критических путях обработки пакетов, гарантируя предсказуемую задержку менее миллисекунды для промышленных развёртываний BFD.
+GoBFD содержит 33 микробенчмарка для горячих путей BFD и известных границ
+аллокаций. Прямой путь обработки пакетов остаётся **без аллокаций**, обеспечивая
+предсказуемую задержку менее миллисекунды.
 
 Бенчмарки расположены в `internal/bfd/bench_test.go` и автоматически запускаются в CI через `benchstat` для обнаружения регрессий производительности (порог >10%).
 
@@ -191,14 +196,16 @@ make profile            # Генерация CPU-профиля pprof
 
 | Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
 |----------|------:|-----:|----------:|----------|
-| `BuildInnerPacket` | ~120 | 0 | 0 | Сборка Ethernet+IP+UDP внутреннего пакета для overlay-инкапсуляции |
+| `BuildInnerPacket` | ~40 | 80 | 1 | Сборка Ethernet+IP+UDP внутреннего пакета для overlay-инкапсуляции |
 | `StripInnerPacket` | ~25 | 0 | 0 | Разбор заголовков внутреннего пакета и извлечение BFD-полезной нагрузки |
 | `VXLANHeaderMarshal` | ~8 | 0 | 0 | Сериализация 8-байтного заголовка VXLAN (RFC 8971) |
 | `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Разбор 8-байтного заголовка VXLAN |
 | `GeneveHeaderMarshal` | ~10 | 0 | 0 | Сериализация 8-байтного заголовка Geneve (RFC 9521) |
 | `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Разбор 8-байтного заголовка Geneve |
 
-Все операции overlay-кодеков достигают нулевых аллокаций, что критично для горячих путей VXLAN/Geneve BFD.
+Маршалинг заголовков overlay и in-place parsing не создают аллокаций.
+`BuildInnerPacket` пока один раз выделяет результирующий буфер; устранение этой
+аллокации отслеживается отдельно.
 
 ### Масштабирование сессий
 
@@ -220,16 +227,16 @@ make profile            # Генерация CPU-профиля pprof
 3. Предвыделенными буферами через `sync.Pool`
 4. Value types (`ControlPacket` struct) вместо указателей
 
-Единственное исключение — `UnmarshalWithAuth` (1 аллокация, 64 байта) — дайджест SHA1 копируется из буфера приёма для предотвращения use-after-free.
+Известные исключения: `UnmarshalWithAuth` (1 аллокация, 64 байта), где дайджест
+SHA1 копируется из буфера приёма, и `BuildInnerPacket` (1 аллокация, 80 байт),
+который владеет возвращаемым slice. Бенчмарки создания и reconcile сессий
+измеряют lifecycle, а не пакетный hot path.
 
 ## Swiss Tables в Go 1.26
 
 Go 1.26 использует Swiss tables как реализацию `map` по умолчанию. Все бенчмарки выше отражают производительность Swiss tables — таблица переходов FSM, поиск дискриминаторов и демультиплексирование сессий выигрывают от улучшенной локальности кэша и группового зондирования.
 
-Для сравнения с устаревшей реализацией map:
-
-```sh
-GOEXPERIMENT=noswissmap make benchmark
-```
-
-Изменения кода не потребовались — переключение runtime прозрачно. Существующие бенчмарки автоматически фиксируют разницу производительности.
+Изменения кода для Swiss tables не потребовались. Go 1.27 удалил прежний
+диагностический experiment `noswissmap`, поэтому A/B-прогоны со старой
+реализацией map больше не поддерживаются; приведённые выше измерения Go 1.26
+сохраняются как историческое подтверждение.

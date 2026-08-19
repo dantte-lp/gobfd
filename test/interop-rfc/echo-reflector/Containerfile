@@ -1,6 +1,6 @@
 # Echo reflector for RFC 9747 BFD echo interop testing.
 # Listens on UDP 3785 and reflects packets back to the sender.
-FROM docker.io/library/golang:1.24-alpine AS build
+FROM docker.io/library/golang:1.27.0-alpine@sha256:7d5cbf6833f7331dafd25a2e8b9673477f559759ff8ed4ca8efabe6795ad08db AS build
 WORKDIR /src
 RUN go mod init echo-reflector
 COPY main.go .

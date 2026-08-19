@@ -3,9 +3,9 @@
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
 ![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?style=for-the-badge&logo=grafana)
 ![slog](https://img.shields.io/badge/log%2Fslog-Structured-00ADD8?style=for-the-badge)
-![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.26-34a853?style=for-the-badge)
+![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.27-34a853?style=for-the-badge)
 
-> Prometheus metrics, Grafana dashboard, structured logging, and Go 1.26 flight recorder for production observability.
+> Prometheus metrics, Grafana dashboard, structured logging, and the runtime flight recorder for production observability.
 
 ---
 
@@ -184,7 +184,7 @@ sudo systemctl reload gobfd
 
 ### Flight Recorder
 
-Go 1.26 `runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:
+`runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:
 
 | Parameter | Value |
 |---|---|

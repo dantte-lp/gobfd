@@ -730,7 +730,7 @@ const envPrefix = "GOBFD_"
 //
 // Uses koanf/v2 with file + env providers and YAML parser.
 func Load(path string) (*Config, error) {
-	// Go 1.26 os.Root: sandboxed file access to prevent path traversal.
+	// os.Root provides sandboxed file access to prevent path traversal.
 	// Validate that the config file is within the expected directory
 	// before allowing koanf to read it.
 	dir := filepath.Dir(path)

@@ -45,8 +45,7 @@ func setupServerWithInterceptors(
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	srv := httptest.NewTestServer(t, mux)
 
 	return bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
 }
@@ -63,8 +62,7 @@ func setupPanicServer(
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	srv := httptest.NewTestServer(t, mux)
 
 	return bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
 }

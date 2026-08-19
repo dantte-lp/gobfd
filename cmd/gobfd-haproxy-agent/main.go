@@ -265,7 +265,7 @@ type agentConfig struct {
 }
 
 func loadConfig(path string) (*agentConfig, error) {
-	// Go 1.26 os.Root: sandboxed file access to prevent path traversal.
+	// os.Root provides sandboxed file access to prevent path traversal.
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	root, err := os.OpenRoot(dir)

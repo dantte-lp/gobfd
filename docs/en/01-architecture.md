@@ -1,6 +1,6 @@
 # Architecture
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
 ![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
@@ -272,7 +272,7 @@ gobfd/
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Language | Go 1.26 | Green Tea GC, `testing/synctest`, flight recorder |
+| Language | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
 | Network I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Raw sockets, TTL control, `SO_BINDTODEVICE` |
 | RPC Server | ConnectRPC | gRPC + Connect + gRPC-Web from one handler |
 | RPC Client | `google.golang.org/grpc` | GoBGP integration (gRPC client) |

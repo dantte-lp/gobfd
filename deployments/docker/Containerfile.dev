@@ -1,20 +1,16 @@
-ARG GO_VERSION=1.26.3
-ARG GOLANGCI_LINT_VERSION=v2.12.2
 ARG GOPLS_VERSION=v0.21.1
 ARG GOVULNCHECK_VERSION=v1.3.0
-ARG OSV_SCANNER_VERSION=v2.3.5
+ARG OSV_SCANNER_VERSION=v2.5.1
 ARG NODE_MAJOR=22
 
-FROM docker.io/golang:${GO_VERSION}-trixie AS dev
+FROM docker.io/library/golang:1.27.0-trixie@sha256:22b64c486d44847387a2d9591bb705dc4b3a1227bb393d76a9d4ae176d046327 AS dev
 
-ARG GOLANGCI_LINT_VERSION
 ARG GOPLS_VERSION
 ARG GOVULNCHECK_VERSION
 ARG OSV_SCANNER_VERSION
 ARG NODE_MAJOR
 
-ENV GOEXPERIMENT=goroutineleakprofile \
-    GOFLAGS="-buildvcs=false" \
+ENV GOFLAGS="-buildvcs=false" \
     GOCACHE=/tmp/go-cache \
     GOMODCACHE=/go/pkg/mod \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
@@ -63,8 +59,13 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 # protoc-gen-connect-go — ConnectRPC code generator
 RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
 
-# golangci-lint v2 — strict linting
-RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+# golangci-lint v2 — build through the project module so Go 1.27 uses the
+# temporary honnef.co/go/tools compatibility pin tracked in go.mod.
+WORKDIR /tmp/gobfd-tools
+COPY go.mod go.sum ./
+RUN go mod download \
+    && go build -o /go/bin/golangci-lint \
+        github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 # gopls — official Go language server diagnostics for editor-parity checks
 RUN go install golang.org/x/tools/gopls@${GOPLS_VERSION}

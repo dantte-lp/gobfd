@@ -64,7 +64,7 @@
 |---|---|---|---|---|
 | R8 | Talos / Cilium API drift breaks integrations. | M | M | Integrations live in `deployments/integrations/`, not `internal/`. CI matrix targets stable upstream tags. |
 | R9 | Podman-only CI forces Docker users to docker compatibility shim. | L | L | Document `docker compose -f deployments/...` as community-supported alternative; do not ship as primary. |
-| R10 | Go 1.26 too fresh for downstream distros. | M | M | Re-evaluate before `v1.0.0`. Possible relax to Go 1.24 LTS. |
+| R10 | Go 1.27 unavailable in downstream distros. | M | M | Build with the pinned Go 1.27 OCI toolchain; do not relax the module baseline without a separate compatibility decision. |
 | R11 | mTLS adds onboarding friction. | L | M | Ship in optional mode; default loopback bind preserves current UX. |
 | R12 | New RPCs break early API consumers. | M | H | Old `AddSession` keeps current semantics with a `Deprecated:` comment; new RPCs ship alongside, removable in v2. |
 

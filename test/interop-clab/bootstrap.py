@@ -42,7 +42,7 @@ OPEN_SOURCE_IMAGES: dict[str, str] = {
     "vyos": "docker.io/muruu1/vyos:{vyos_tag}",
     "frr": "quay.io/frrouting/frr:{frr_tag}",
     "gobgp": "docker.io/jauderho/gobgp:v3.33.0",
-    "golang": "docker.io/golang:1.26-trixie",
+    "golang": "docker.io/library/golang:1.27.0-trixie@sha256:22b64c486d44847387a2d9591bb705dc4b3a1227bb393d76a9d4ae176d046327",
     "alpine": "docker.io/library/alpine:3.21",
 }
 

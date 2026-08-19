@@ -26,8 +26,7 @@ func TestServerSessionLifecycle(t *testing.T) {
 	path, handler := server.New(mgr, nil, logger)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	srv := httptest.NewTestServer(t, mux)
 
 	client := bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
 	ctx := t.Context()
