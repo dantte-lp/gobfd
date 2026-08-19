@@ -1,6 +1,7 @@
 # GoBFD v1.0 Production Contract Design
 
-**Status:** Approved direction; implementation not started
+**Status:** Revised proposal after final-recommendations audit; implementation
+not started
 
 **Compatibility decision:** preserve `bfd.v1` and the current YAML schema;
 evolve them additively
@@ -33,8 +34,9 @@ default-off even if their API messages already exist.
   the selected fixed compatible v4. Users requiring GoBGP v3.37.0 remain on
   the maintained v0.6.x line; the v1 binary does not carry two generated
   GoBGP APIs.
-- Operational defaults may become safer: management binds to loopback, remote
-  plaintext management fails closed, and incomplete extensions are preview.
+- Operational defaults may become safer: fresh local management uses a Unix
+  socket, remote plaintext management fails closed, metrics bind to loopback,
+  and incomplete extensions are preview.
 
 ## Stable and preview capabilities
 
@@ -43,7 +45,8 @@ default-off even if their API messages already exist.
 | RFC 5880 asynchronous core | stable | Poll/Final, timers, auth, diagnostics, demux, and AdminDown gates pass |
 | RFC 5881 numbered multiaccess single-hop | stable | IPv4/IPv6, ports, source binding, and TTL tests pass |
 | RFC 7419 common intervals | stable | existing unit tests plus FRR/BIRD timer interop pass |
-| RFC 5883 multihop | stable, scoped | configurable hop/security policy and 1/2/5-hop tests pass |
+| RFC 5883 multihop | stable, scoped | configurable hop/security policy, Echo prohibition, authentication guidance, and 1/2/5-hop tests pass |
+| Remote Demand-bit handling | stable core behavior | periodic-control cessation, Poll, and failure semantics pass; local Demand initiation remains unsupported |
 | Passive configured role | stable vendor mode for multihop only | active/passive FRR/BIRD tests pass; excluded from RFC 5881 claims |
 | RFC 9764 large packets | stable only with cross-feature gate | authenticated and unauthenticated padded packets pass |
 | RFC 9468 unsolicited BFD | preview until graduated | real interface-subnet validation and cleanup gates pass |
@@ -105,11 +108,12 @@ the last claim sends AdminDown and destroys the wire session.
 Status exposes configured values, effective values, owner sources, desired
 generation, applied generation, and pending or failed state. User-supplied API
 owner strings are not trusted as authorization identities. The server derives
-a stable transport principal: the shared `api:local` trust domain for default
-unauthenticated loopback TCP, peer UID for a Unix socket, or configured
-SAN/SPIFFE identity for mTLS. Claims survive a reconnect by the same principal;
-a connection instance is never an owner and one principal cannot release
-another principal's claims.
+a stable transport principal: peer UID for the default Unix socket, configured
+identity for an authenticated loopback compatibility listener, or configured
+SAN/SPIFFE identity for mTLS. A transitional anonymous loopback mutation mode,
+when explicitly enabled, shares the visibly unsafe `api:local` trust domain.
+Claims survive a reconnect by the same principal; a connection instance is
+never an owner and one principal cannot release another principal's claims.
 
 ## Configuration and reconciliation
 
@@ -134,10 +138,15 @@ never logged as success.
 
 Named profiles are additive YAML/API objects with presence-aware fields.
 Explicit `false`, zero-like defaults, and inheritance remain distinguishable.
-Change handling is field-specific:
+Change handling is field-specific. RFC 5880 timer updates use the normative
+four-way matrix rather than a blanket "apply after Final" rule:
 
-- desired TX and required RX intervals use Poll/Final and preserve the wire
-  session;
+- while Up, an increase in Desired Min TX and a decrease in Required Min RX
+  advertise through Poll/Final and delay only the corresponding effect until
+  Final;
+- a decrease in Desired Min TX and an increase in Required Min RX take their
+  RFC-defined immediate effect while the advertised value and Poll state remain
+  internally consistent;
 - minimum TTL applies in place at a defined received-packet boundary. Detect
   multiplier does so outside remote Demand mode; while remote Demand is active,
   it changes through a Poll Sequence because the next Control packet changes;
@@ -163,18 +172,38 @@ The stable core requires these corrections before v1:
   immediate control packet when the RFC requires it;
 - order diagnostic updates before logs, notifications, metrics, and immediate
   packets so consumers receive the causal diagnostic;
+- implement RFC 5880 Held Erratum 5205: a detection timeout while already Down
+  keeps the Down state but changes the diagnostic to Control Detection Time
+  Expired; preserve the local diagnostic across transitions to Up as specified
+  by Held Erratum 7240;
 - reset `RemoteDiscr` and authentication receive state on every required
   timeout path;
 - preserve a pending Final until transmission succeeds or the session ends;
 - keep the stable RFC 5881 scope explicitly limited to numbered multiaccess
   interfaces; point-to-point source-independent initial demux is deferred;
 - verify authenticated RFC 9764 padding over the correct BFD PDU length;
+- reject authenticated configured padding below the RFC 9764 minimum of 26
+  octets and prove zero padding, unchanged BFD Length, and IPv4 DF on the real
+  UDP path;
 - retry AdminDown transmission until it succeeds or the shutdown deadline
-  expires, then keep the socket available for
-  `min(Detection Time, remaining shutdown deadline)` before closing it;
+  expires, and continue Control transmission for at least each session's
+  negotiated Detection Time when the caller's explicit shutdown deadline
+  permits it; a shortened drain is reported as incomplete rather than success;
+- commit every requested AdminDown through the session event loop and return an
+  acknowledgement or explicit timeout/error; remove the atomic-only fallback so
+  cached state, timers, packets, notifications, and exported state cannot split;
 - when both systems are Up and the peer sets Demand mode, suppress periodic
   control packets and perform the required Poll behavior; GoBFD never sets its
   local Demand bit, and local Demand mode remains unsupported.
+
+The hot path has a separate delivery contract. Demultiplexing returns a typed
+outcome (`accepted`, parser/auth/TTL rejection, unknown session, queue full, or
+closed session) instead of treating an enqueue drop as success. Every outcome
+increments a bounded reason counter. Bounded overload may shed packets, but it
+may not do so invisibly or claim successful delivery. State notifications are
+versioned facts: slow Watch clients receive a generation-gap marker and resync
+from a snapshot. Routing actuation never relies on best-effort edges; it
+reconciles current desired and applied levels until they converge.
 
 RFC source files under `docs/rfc/` match the RFC Editor byte-for-byte. The
 compliance matrix is generated from passing capability gates, not from file or
@@ -267,12 +296,22 @@ route ownership; both are projections of daemon facts. Each has unit tests,
 version/help smoke tests, a lost-Watch/reconnect test using generation gaps,
 and its existing pinned integration topology as a v1 release gate.
 
+The ExaBGP bridge persists desired and applied announcement state across Watch
+reconnects, withdraws a previously announced route when the resync snapshot is
+Down, and treats stdout write failure as failed actuation. The HAProxy bridge
+reconnects its Watch stream with bounded backoff and exposes an explicit bind
+address instead of always listening on every interface. Both bridge defaults
+are generated from the daemon's management endpoint contract; the current
+`50052` versus `50051` mismatch is removed.
+
 ## Management security
 
-- The control API defaults to loopback TCP. Anonymous reads are allowed there;
-  mutations share the explicit `api:local` trust domain unless stronger
-  authentication is configured. Unix sockets map mutation ownership to peer
-  UID for same-host deployments.
+- Fresh local installations default to a Unix socket whose peer UID becomes the
+  mutation principal. Loopback TCP remains an explicit compatibility listener;
+  anonymous reads may be enabled there, while anonymous mutations require a
+  separately named transitional unsafe opt-in and are reported in readiness
+  and status. Upgrades retain a documented migration path rather than silently
+  changing a configured listener.
 - Non-loopback management requires TLS and authenticated mutation; mTLS maps
   configured SAN/SPIFFE identities to read-only or mutating roles and stable
   owner principals.
@@ -300,17 +339,33 @@ does not depend on peers. Default readiness means listeners are active and the
 latest configuration generation has no failed reconciliation. Optional
 policies may require any, all, or named critical sessions to be Up.
 
-Metrics include current session state, transitions, packet and validation
-drops, authentication failures, config generation/staleness, reconciliation
-results, action retries/failures, and dropped subscriber events. Labels use
-bounded dimensions; free-form errors and secrets never become labels.
+Metrics include current session state, transitions, packet delivery and
+validation outcomes, authentication failures, config generation/staleness,
+reconciliation results, action retries/failures, generation gaps, event-loop
+delay, and timer error. Labels use bounded dimensions; free-form errors,
+secrets, and peer addresses never become histogram labels. Per-peer details
+remain in the API/status snapshot. Kernel-receive-to-FSM latency uses software
+kernel timestamps only after explicit clock-domain conversion; raw hardware
+PHC timestamps are not subtracted from Go monotonic time. Detection deadlines
+remain based on the monotonic accepted-packet commit unless a separately tested
+late-delivery design proves equivalent protocol behavior.
 
 ## Execution and scale contract
 
-Permanent `runtime.LockOSThread` per control or echo session is removed. v1
-retains goroutine-per-session scheduling unless measurements require a sharded
-timer loop. This is smaller and safer than rewriting the engine around an FRR
-or BIRD-style C event loop.
+Permanent `runtime.LockOSThread` per control or echo session is removed after an
+A/B benchmark confirms no regression. Thread pinning provides neither CPU
+affinity nor real-time scheduling. Go 1.26's container-aware `GOMAXPROCS` is the
+default; status records its effective value and CPU-throttling evidence rather
+than introducing another scheduler control. v1 retains goroutine-per-session
+scheduling unless measurements require a sharded timer loop.
+
+Control sockets set configurable IPv4 DSCP/IPv6 Traffic Class with CS6 as the
+operational default, matching FRR/BIRD practice, plus configurable
+`SO_PRIORITY`; `SO_MARK` defaults to zero. These are deployment policy, not RFC
+requirements, and packet captures verify both address families. v1 retains a
+stable per-session UDP source port. A common connected TX socket is rejected;
+socket pools, `SO_REUSEPORT`, `recvmmsg`, or a timing wheel require a measured
+post-core ADR that preserves discriminator and source-port affinity.
 
 The supported v1 envelope is qualified on a reference runner with 8 vCPU,
 8 GiB RAM, `GOMAXPROCS=8`, and Go 1.26.6. It runs 1,000 mixed IPv4/IPv6 Up
@@ -325,18 +380,24 @@ later than plus 50 ms. Resource bounds, measured against the settled baseline,
 are OS threads no more than `2*GOMAXPROCS+32`, file descriptors no more than
 `2*sessions+256`, goroutines no more than `3*sessions+256`, RSS no more than
 512 MiB, and less than 5% RSS growth between the first and final six-hour
-windows. No authoritative session or actuator event may be lost; a slow Watch
-subscriber receives an explicit generation-gap signal.
+windows. No authoritative session or actuator state may permanently diverge;
+a slow Watch subscriber receives an explicit generation-gap signal. This means
+eventual level convergence and complete accounting, not an impossible promise
+that a bounded packet queue never drops under overload.
 
 A 5,000-session, 300 ms, 30-minute test with the same observability is an
 engineering gate, not a support promise. No 10,000-session claim is published
-without separate evidence.
+without separate evidence. More aggressive p99.9 jitter goals proposed for
+100/50/10 ms intervals (10/5/1 ms) are exploratory optimization targets until
+the corrected UDP-to-FSM harness establishes a reproducible baseline; they are
+not substituted for the qualification thresholds above.
 
 ## Independent RFC, FRR, and BIRD cross-check
 
 | Reference | Independent finding | v1 decision |
 |---|---|---|
 | RFC 5880 | Poll initiation and several timer/discriminator paths are incomplete | stable core gate before operational work |
+| RFC 5880 errata | timeout while already Down does not update the diagnostic | implement Held Erratum 5205 and test Held Erratum 7240 behavior |
 | RFC 5881 | p2p initial demux cannot rely on source address | stable scope is numbered multiaccess; p2p remains deferred |
 | RFC 5882 | dampening may suppress failure indefinitely; AdminDown is not failure | replace suppression with bounded hysteresis and cause-aware actions |
 | RFC 5883 | `TTL >= 254` is not a protocol requirement | add configurable hop/security policy |
@@ -348,6 +409,8 @@ without separate evidence.
 | RFC 9764 | authenticated padding uses inconsistent hashed length | fix before stable graduation |
 | FRR 10.7.0 | shared sessions, owner refcounts, profiles, cause-aware BGP, status | adopt concepts, not FRR wildcard keys or JSON schema |
 | BIRD 3.3.2 | request-owned shared sessions, Poll sequencing, bounded event loop | adopt concepts, not first-requester parameters or broad jitter |
+| GoBGP v4.8.0 | native BFD can conflict with external UDP/3784 ownership | preflight-reject dual ownership per peer and namespace |
+| Cilium 1.20.1 | independent TC/XDP attachment can be removed or clobber another program | any future acceleration uses a Cilium-owned hook/plugin contract |
 
 ## Release sequence
 
@@ -357,6 +420,8 @@ without separate evidence.
 - Introduce canonical keys, owner claims, additive status fields, and config
   generations.
 - Fix Poll/Final, timer updates, diagnostic ordering, and core demux paths.
+- Make packet delivery typed and observable; add versioned snapshots and
+  level-triggered actuator reconciliation.
 - Remove permanent OS-thread pinning.
 
 ### v1.0.0-beta.1 — operations and GoBGP v4
@@ -366,6 +431,8 @@ without separate evidence.
 - Migrate to the GoBGP v4 API, initially v4.8.0, with mTLS, retries, ownership
   receipts, and native BFD conflict checks.
 - Secure management defaults and secret-file inputs.
+- Fix ExaBGP desired/applied state across reconnect, HAProxy Watch reconnect and
+  bind policy, and the companion endpoint-default mismatch.
 
 ### v1.0.0-rc.1 — evidence and packaging
 
@@ -389,13 +456,45 @@ does not report `GO-2026-4736`.
   queued local changes, loss and retry, non-responsive peers, unchanged
   discriminator, and no Up-state flap. Every crossed-Poll response is
   `P=0,F=1`, no packet is `P=1,F=1`, and the local Poll resumes and completes.
+- Timer tests cover increases and decreases of both Desired Min TX and Required
+  Min RX in Up and non-Up states and assert the RFC four-way immediate/deferred
+  effect matrix rather than only the advertised fields.
 - Detect-multiplier changes outside remote Demand apply at the defined packet
   boundary; the same change under remote Demand completes through Poll/Final.
+- A remote Demand bit while both sides are Up stops periodic Control traffic,
+  preserves required Poll/failure behavior, and cannot enter a partially
+  supported state. GoBFD never advertises local Demand mode.
+- `Down + detection timeout` remains Down and updates the diagnostic to Control
+  Detection Time Expired; every packet, event, log, metric, and snapshot observes
+  the same diagnostic for each transition.
 - Negative tests cover wrong TTL, source, interface, discriminator, port,
   length, auth type, key, digest, replay window, and padded auth.
-- SIGTERM retries AdminDown until a confirmed send or deadline and keeps the
-  socket open for the specified bounded drain; SIGKILL produces a detection
-  timeout.
+- A saturated control queue cannot produce a partial AdminDown: the caller gets
+  an event-loop commit acknowledgement or an explicit timeout/error, and every
+  cached/exported representation remains consistent.
+- SIGTERM retries AdminDown until a confirmed send or deadline. Packet capture
+  proves repeated AdminDown Control transmission for each session's negotiated
+  Detection Time; a shorter caller deadline yields an explicit incomplete
+  result. SIGKILL produces a detection timeout.
+- Multihop configuration rejects Echo, documents cryptographic authentication
+  as the RFC 5883 recommendation, and tests both the authenticated policy and
+  explicit operator exceptions.
+- Authenticated padded packets below 26 octets fail validation. Wire tests prove
+  the digest covers the BFD PDU rather than zero padding and verify IPv4 DF.
+
+### Delivery and observability
+
+- Saturating every packet and event queue yields typed, reasoned counters; an
+  enqueue refusal is never returned as successful delivery.
+- Slow or disconnected Watch clients receive a generation gap and converge from
+  a snapshot; GoBGP desired/applied state converges after an RPC outage without
+  requiring a new BFD edge.
+- End-to-end benchmarks count packets committed by the FSM, report kernel RX to
+  FSM latency, event-loop delay, timer error, false Down transitions, and kernel
+  and userspace drops. Enqueue-only throughput is labelled as a microbenchmark.
+- Timestamp tests identify the kernel clock source and conversion. Hardware PHC
+  timestamps cannot influence a monotonic detection deadline without a proven
+  conversion and late-packet policy.
 
 ### Ownership and reload
 
@@ -406,8 +505,9 @@ does not report `GO-2026-4736`.
 - Invalid candidates mutate nothing; unavailable resources become pending;
   conflicts return deterministic errors.
 - Reconnect by the same API principal preserves its claims; a different
-  principal cannot modify them. Default loopback mutations share only the
-  documented `api:local` trust domain.
+  principal cannot modify them. Unix peer UIDs and authenticated loopback/mTLS
+  identities remain distinct; transitional anonymous loopback mutation is
+  visibly unsafe and never the fresh-install default.
 - Equal outer addresses with different backend, VNI, or VAP create distinct
   sessions and never alias in lookup or cleanup.
 - Timer-only profile changes preserve the discriminator and Up state. Identity
@@ -440,8 +540,9 @@ does not report `GO-2026-4736`.
 - Unix-socket peer UID and mTLS SAN/SPIFFE identities produce stable, isolated
   owner principals across reconnects; unauthorized mutations and cross-owner
   release attempts fail closed and are audited.
-- Loopback `api:local` behavior is explicit in status and cannot be confused
-  with an authenticated identity.
+- Loopback compatibility-listener behavior is explicit in status and cannot be
+  confused with an authenticated identity. Fresh defaults expose only the Unix
+  control socket and loopback metrics; debug remains disabled.
 - Test secrets and authentication keys never appear in logs, status, traces,
   metrics, error details, apply receipts, crash reports, or debug captures.
 - Debug and flight-recorder endpoints are unreachable by default. When
@@ -464,6 +565,15 @@ does not report `GO-2026-4736`.
   active 1/2/5-hop cases, with preserved pcaps, logs, status, and metrics.
 - `gobfdctl`, the HAProxy agent, and the ExaBGP bridge pass unit, version/help,
   generation-gap reconnect, and pinned integration compatibility gates.
+- ExaBGP reconnect after an announced route followed by a Down snapshot emits a
+  withdraw; stdout EPIPE is reported and retried according to policy. HAProxy
+  survives Watch interruption and binds only to its configured address. All
+  companion defaults connect to the daemon without an undocumented port edit.
+- Packet captures prove RFC 5881 source ports are in 49152-65535, stable per
+  session, and unique until actual port exhaustion; exhaustion causes explicit
+  controlled reuse or failure. Captures also prove configured CS6/Traffic Class
+  in both address families. `SO_PRIORITY` and optional `SO_MARK` failures are
+  surfaced according to their configured required/optional policy.
 - The 1,000-session qualification meets every numeric latency, loss, and
   resource threshold in the execution contract; the 5,000-session engineering
   gate completes without false flaps, event loss, or unbounded growth.
@@ -482,6 +592,14 @@ does not report `GO-2026-4736`.
 - Stable Micro-BFD, VXLAN, and Geneve ownership until their RFC gates pass.
 - Multi-VRF in one process, distributed dataplane, hardware offload,
   active/active clustering, and a 10,000-session support claim.
+- Sharded/timing-wheel execution, `SO_REUSEPORT`, `recvmmsg`, io_uring,
+  `systemd` FDSTORE warm restart, AF_XDP, and kernel-resident FSM offload until
+  the corrected baseline and a separate ADR justify them.
+- Independent TC/XDP attachment in Cilium-managed namespaces. Any future fast
+  path must use a versioned Cilium-owned hook or plugin contract.
+- RFC 9985/9986 cryptographic authentication; both are Experimental and require
+  the completed Poll engine, significant-change classification, and periodic
+  meticulous-keyed reauthentication.
 - OSPF, IS-IS, static-route, or arbitrary RIB actuation.
 
 ## Alternatives considered
