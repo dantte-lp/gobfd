@@ -1150,6 +1150,25 @@ func TestNewMetricsServerRegistersFlightRecorderEndpoint(t *testing.T) {
 	}
 }
 
+func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+
+	srv := newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger)
+	if srv.Protocols == nil {
+		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
+	}
+	if !srv.Protocols.HTTP1() {
+		t.Error("HTTP/1 is disabled; Connect clients require HTTP/1.1 compatibility")
+	}
+	if !srv.Protocols.UnencryptedHTTP2() {
+		t.Error("unencrypted HTTP/2 is disabled; plaintext gRPC requires h2c")
+	}
+}
+
 func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))

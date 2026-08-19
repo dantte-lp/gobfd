@@ -25,7 +25,7 @@ SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all verify build test lint lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
+.PHONY: all verify build test testcontainers-smoke lint lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
@@ -195,6 +195,11 @@ test: dev-ensure
 
 test-v: dev-ensure
 	$(EXEC) go test ./... -race -count=1 -v
+
+testcontainers-smoke: dev-ensure
+	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
+		GOBFD_REQUIRE_PODMAN=1 \
+		go test -tags testcontainers ./test/internal/containertest -race -count=1 -v
 
 test-run:
 	@test -n "$(RUN)" || (echo "Usage: make test-run RUN=TestFSMTransition PKG=./internal/bfd"; exit 1)
