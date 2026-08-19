@@ -77,7 +77,7 @@ func TestPodmanSmoke(t *testing.T) {
 		if !contains(networks, networkName) {
 			t.Fatalf("container networks = %v, want %s", networks, networkName)
 		}
-		assertNetworkLabel(t, ctx, networkName, "io.gobfd.test", "podman-smoke")
+		assertNetworkLabel(ctx, t, networkName, "io.gobfd.test", "podman-smoke")
 
 		logs, err := container.Logs(ctx)
 		if err != nil {
@@ -111,7 +111,7 @@ func contains(values []string, want string) bool {
 	return slices.Contains(values, want)
 }
 
-func assertNetworkLabel(t *testing.T, ctx context.Context, networkName, key, want string) {
+func assertNetworkLabel(ctx context.Context, t *testing.T, networkName, key, want string) {
 	t.Helper()
 
 	provider, err := testcontainers.ProviderPodman.GetProvider()

@@ -9,45 +9,67 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
+// LAGActuatorMode controls whether LAG member actions are disabled, logged, or enforced.
 type LAGActuatorMode string
 
 const (
+	// LAGActuatorModeDisabled suppresses all LAG member actions.
 	LAGActuatorModeDisabled LAGActuatorMode = "disabled"
-	LAGActuatorModeDryRun   LAGActuatorMode = "dry-run"
-	LAGActuatorModeEnforce  LAGActuatorMode = "enforce"
+	// LAGActuatorModeDryRun logs LAG member actions without applying them.
+	LAGActuatorModeDryRun LAGActuatorMode = "dry-run"
+	// LAGActuatorModeEnforce applies LAG member actions through the configured backend.
+	LAGActuatorModeEnforce LAGActuatorMode = "enforce"
 )
 
+// LAGActuatorAction identifies an action to apply to a LAG member.
 type LAGActuatorAction string
 
 const (
-	LAGActuatorActionNone         LAGActuatorAction = "none"
+	// LAGActuatorActionNone leaves the LAG member unchanged.
+	LAGActuatorActionNone LAGActuatorAction = "none"
+	// LAGActuatorActionRemoveMember removes the member from its LAG.
 	LAGActuatorActionRemoveMember LAGActuatorAction = "remove-member"
-	LAGActuatorActionAddMember    LAGActuatorAction = "add-member"
+	// LAGActuatorActionAddMember adds the member to its LAG.
+	LAGActuatorActionAddMember LAGActuatorAction = "add-member"
 )
 
+// LAGActuatorBackendType identifies a backend that manages LAG membership.
 type LAGActuatorBackendType string
 
 const (
-	LAGActuatorBackendAuto           LAGActuatorBackendType = "auto"
-	LAGActuatorBackendKernelBond     LAGActuatorBackendType = "kernel-bond"
-	LAGActuatorBackendOVS            LAGActuatorBackendType = "ovs"
+	// LAGActuatorBackendAuto defers backend selection and is not enforceable by itself.
+	LAGActuatorBackendAuto LAGActuatorBackendType = "auto"
+	// LAGActuatorBackendKernelBond manages Linux bonding through sysfs.
+	LAGActuatorBackendKernelBond LAGActuatorBackendType = "kernel-bond"
+	// LAGActuatorBackendOVS manages an Open vSwitch bond through OVSDB.
+	LAGActuatorBackendOVS LAGActuatorBackendType = "ovs"
+	// LAGActuatorBackendNetworkManager manages a bond through NetworkManager D-Bus.
 	LAGActuatorBackendNetworkManager LAGActuatorBackendType = "networkmanager"
 )
 
+// LAGOwnerPolicy controls whether the actuator may modify externally managed interfaces.
 type LAGOwnerPolicy string
 
 const (
-	LAGOwnerPolicyRefuseIfManaged    LAGOwnerPolicy = "refuse-if-managed"
-	LAGOwnerPolicyAllowExternal      LAGOwnerPolicy = "allow-external"
+	// LAGOwnerPolicyRefuseIfManaged rejects changes when another manager owns the interface.
+	LAGOwnerPolicyRefuseIfManaged LAGOwnerPolicy = "refuse-if-managed"
+	// LAGOwnerPolicyAllowExternal permits direct changes to externally managed interfaces.
+	LAGOwnerPolicyAllowExternal LAGOwnerPolicy = "allow-external"
+	// LAGOwnerPolicyNetworkManagerDBus requires ownership through NetworkManager D-Bus.
 	LAGOwnerPolicyNetworkManagerDBus LAGOwnerPolicy = "networkmanager-dbus"
 )
 
 var (
-	ErrInvalidLAGActuatorMode    = errors.New("invalid LAG actuator mode")
-	ErrInvalidLAGActuatorAction  = errors.New("invalid LAG actuator action")
+	// ErrInvalidLAGActuatorMode indicates an unrecognized actuator mode.
+	ErrInvalidLAGActuatorMode = errors.New("invalid LAG actuator mode")
+	// ErrInvalidLAGActuatorAction indicates an unrecognized member action.
+	ErrInvalidLAGActuatorAction = errors.New("invalid LAG actuator action")
+	// ErrInvalidLAGActuatorBackend indicates an unrecognized actuator backend.
 	ErrInvalidLAGActuatorBackend = errors.New("invalid LAG actuator backend")
-	ErrInvalidLAGOwnerPolicy     = errors.New("invalid LAG owner policy")
-	ErrLAGActuatorBackendNil     = errors.New("LAG actuator backend is required in enforce mode")
+	// ErrInvalidLAGOwnerPolicy indicates an unrecognized interface owner policy.
+	ErrInvalidLAGOwnerPolicy = errors.New("invalid LAG owner policy")
+	// ErrLAGActuatorBackendNil indicates that enforce mode has no backend.
+	ErrLAGActuatorBackendNil = errors.New("LAG actuator backend is required in enforce mode")
 )
 
 // LAGActuatorConfig configures the policy gate for RFC 7130 member actions.
@@ -123,12 +145,18 @@ func (a *LAGActuator) HandleMicroBFDMemberEvent(
 
 	switch decision {
 	case LAGActuatorActionRemoveMember:
-		return a.backend.RemoveMember(ctx, ev.LAGInterface, ev.MemberInterface)
+		if err := a.backend.RemoveMember(ctx, ev.LAGInterface, ev.MemberInterface); err != nil {
+			return fmt.Errorf("remove member %q from LAG %q: %w", ev.MemberInterface, ev.LAGInterface, err)
+		}
 	case LAGActuatorActionAddMember:
-		return a.backend.AddMember(ctx, ev.LAGInterface, ev.MemberInterface)
+		if err := a.backend.AddMember(ctx, ev.LAGInterface, ev.MemberInterface); err != nil {
+			return fmt.Errorf("add member %q to LAG %q: %w", ev.MemberInterface, ev.LAGInterface, err)
+		}
 	default:
 		return nil
 	}
+
+	return nil
 }
 
 func (a *LAGActuator) decision(ev bfd.MicroBFDMemberEvent) LAGActuatorAction {

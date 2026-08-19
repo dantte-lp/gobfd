@@ -152,7 +152,7 @@ func microBFDConfigFromProto(req *bfdv1.AddMicroBFDGroupRequest) (bfd.MicroBFDCo
 	if mult == 0 {
 		return bfd.MicroBFDConfig{}, ErrMicroDetectMultZero
 	}
-	if mult > 255 {
+	if mult > maxBFDWireUint8 {
 		return bfd.MicroBFDConfig{}, fmt.Errorf("value %d: %w", mult, ErrDetectMultOverflow)
 	}
 
@@ -183,7 +183,8 @@ func microGroupSnapshotToProto(snap bfd.MicroBFDGroupSnapshot, cfg bfd.MicroBFDC
 		AggregateUp:  snap.AggregateUp,
 	}
 	if snap.UpCount >= 0 {
-		out.UpMemberCount = uint32(snap.UpCount) //nolint:gosec // G115: snap.UpCount is bounded by len(MemberLinks), guarded above.
+		//nolint:gosec // G115: UpCount is bounded by len(MemberLinks), guarded above.
+		out.UpMemberCount = uint32(snap.UpCount)
 	}
 	if snap.MinActiveLinks >= 0 {
 		out.MinActiveLinks = uint32(snap.MinActiveLinks) //nolint:gosec // G115: validated >= 1 in microBFDConfigFromProto.

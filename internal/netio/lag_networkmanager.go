@@ -20,8 +20,10 @@ const (
 )
 
 var (
+	// ErrNetworkManagerConnectionNotFound indicates that no matching bond-port connection exists.
 	ErrNetworkManagerConnectionNotFound = errors.New("NetworkManager bond port connection not found")
-	ErrNetworkManagerSettingsInvalid    = errors.New("NetworkManager connection settings are invalid")
+	// ErrNetworkManagerSettingsInvalid indicates that required connection settings are missing.
+	ErrNetworkManagerSettingsInvalid = errors.New("NetworkManager connection settings are invalid")
 )
 
 // NetworkManagerLAGBackendConfig configures NetworkManager D-Bus enforcement.
@@ -118,7 +120,7 @@ func newDBusNetworkManagerLAGClient() *dbusNetworkManagerLAGClient {
 		newDBus: func(context.Context) (networkManagerDBus, error) {
 			conn, err := dbus.ConnectSystemBus()
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("connect NetworkManager system bus: %w", err)
 			}
 			return dbusNetworkManager{conn: conn}, nil
 		},
@@ -133,28 +135,32 @@ func (c *dbusNetworkManagerLAGClient) RemoveBondInterface(
 ) error {
 	nm, err := c.newDBus(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("open NetworkManager D-Bus client: %w", err)
 	}
 	defer nm.Close()
 
 	device, err := nm.DeviceByIPInterface(ctx, iface)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve NetworkManager device for interface %q: %w", iface, err)
 	}
 	active, err := nm.DeviceActiveConnection(ctx, device)
 	if err != nil {
-		return err
+		return fmt.Errorf("read active NetworkManager connection for interface %q: %w", iface, err)
 	}
 	if isNoObjectPath(active) {
 		return nil
 	}
 	connection, err := nm.ActiveConnectionConnection(ctx, active)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve NetworkManager settings connection for interface %q: %w", iface, err)
 	}
 
 	c.rememberConnection(bond, iface, connection)
-	return nm.DeactivateConnection(ctx, active)
+	if err := nm.DeactivateConnection(ctx, active); err != nil {
+		return fmt.Errorf("deactivate NetworkManager connection for interface %q: %w", iface, err)
+	}
+
+	return nil
 }
 
 func (c *dbusNetworkManagerLAGClient) AddBondInterface(
@@ -164,17 +170,17 @@ func (c *dbusNetworkManagerLAGClient) AddBondInterface(
 ) error {
 	nm, err := c.newDBus(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("open NetworkManager D-Bus client: %w", err)
 	}
 	defer nm.Close()
 
 	device, err := nm.DeviceByIPInterface(ctx, iface)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve NetworkManager device for interface %q: %w", iface, err)
 	}
 	active, err := nm.DeviceActiveConnection(ctx, device)
 	if err != nil {
-		return err
+		return fmt.Errorf("read active NetworkManager connection for interface %q: %w", iface, err)
 	}
 	if !isNoObjectPath(active) {
 		return nil
@@ -188,7 +194,11 @@ func (c *dbusNetworkManagerLAGClient) AddBondInterface(
 		}
 	}
 	_, err = nm.ActivateConnection(ctx, connection, device)
-	return err
+	if err != nil {
+		return fmt.Errorf("activate NetworkManager connection for interface %q: %w", iface, err)
+	}
+
+	return nil
 }
 
 func (c *dbusNetworkManagerLAGClient) rememberConnection(
@@ -220,12 +230,12 @@ func (c *dbusNetworkManagerLAGClient) findBondPortConnection(
 ) (dbus.ObjectPath, error) {
 	available, err := nm.DeviceAvailableConnections(ctx, device)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("list available NetworkManager connections for interface %q: %w", iface, err)
 	}
 	for _, connection := range available {
 		settings, err := nm.ConnectionSettings(ctx, connection)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("read NetworkManager connection settings for interface %q: %w", iface, err)
 		}
 		if networkManagerSettingsMatchBondPort(settings, bond, iface) {
 			c.rememberConnection(bond, iface, connection)
@@ -290,7 +300,11 @@ func (c dbusNetworkManager) DeviceByIPInterface(
 		0,
 		iface,
 	).Store(&device)
-	return device, err
+	if err != nil {
+		return "", fmt.Errorf("call NetworkManager GetDeviceByIpIface for %q: %w", iface, err)
+	}
+
+	return device, nil
 }
 
 func (c dbusNetworkManager) DeviceActiveConnection(
@@ -299,7 +313,11 @@ func (c dbusNetworkManager) DeviceActiveConnection(
 ) (dbus.ObjectPath, error) {
 	var active dbus.ObjectPath
 	err := c.object(device).StoreProperty(networkManagerDeviceInterface+".ActiveConnection", &active)
-	return active, err
+	if err != nil {
+		return "", fmt.Errorf("read NetworkManager device %q active connection: %w", device, err)
+	}
+
+	return active, nil
 }
 
 func (c dbusNetworkManager) DeviceAvailableConnections(
@@ -308,7 +326,11 @@ func (c dbusNetworkManager) DeviceAvailableConnections(
 ) ([]dbus.ObjectPath, error) {
 	var connections []dbus.ObjectPath
 	err := c.object(device).StoreProperty(networkManagerDeviceInterface+".AvailableConnections", &connections)
-	return connections, err
+	if err != nil {
+		return nil, fmt.Errorf("read NetworkManager device %q available connections: %w", device, err)
+	}
+
+	return connections, nil
 }
 
 func (c dbusNetworkManager) ActiveConnectionConnection(
@@ -317,19 +339,27 @@ func (c dbusNetworkManager) ActiveConnectionConnection(
 ) (dbus.ObjectPath, error) {
 	var connection dbus.ObjectPath
 	err := c.object(active).StoreProperty(networkManagerActiveInterface+".Connection", &connection)
-	return connection, err
+	if err != nil {
+		return "", fmt.Errorf("read NetworkManager active connection %q settings path: %w", active, err)
+	}
+
+	return connection, nil
 }
 
 func (c dbusNetworkManager) DeactivateConnection(
 	ctx context.Context,
 	active dbus.ObjectPath,
 ) error {
-	return c.managerObject().CallWithContext(
+	if err := c.managerObject().CallWithContext(
 		ctx,
 		networkManagerInterface+".DeactivateConnection",
 		0,
 		active,
-	).Err
+	).Err; err != nil {
+		return fmt.Errorf("call NetworkManager DeactivateConnection for %q: %w", active, err)
+	}
+
+	return nil
 }
 
 func (c dbusNetworkManager) ActivateConnection(
@@ -346,7 +376,11 @@ func (c dbusNetworkManager) ActivateConnection(
 		device,
 		dbusNoObjectPath,
 	).Store(&active)
-	return active, err
+	if err != nil {
+		return "", fmt.Errorf("call NetworkManager ActivateConnection for %q: %w", connection, err)
+	}
+
+	return active, nil
 }
 
 func (c dbusNetworkManager) ConnectionSettings(
@@ -360,7 +394,7 @@ func (c dbusNetworkManager) ConnectionSettings(
 		0,
 	).Store(&settings)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("call NetworkManager GetSettings for %q: %w", connection, err)
 	}
 	if _, ok := settings["connection"]; !ok {
 		return nil, ErrNetworkManagerSettingsInvalid
@@ -369,7 +403,11 @@ func (c dbusNetworkManager) ConnectionSettings(
 }
 
 func (c dbusNetworkManager) Close() error {
-	return c.conn.Close()
+	if err := c.conn.Close(); err != nil {
+		return fmt.Errorf("close NetworkManager D-Bus connection: %w", err)
+	}
+
+	return nil
 }
 
 func (c dbusNetworkManager) managerObject() dbus.BusObject {

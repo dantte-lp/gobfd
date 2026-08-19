@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -243,13 +244,22 @@ const (
 )
 
 const (
+	maxBFDWireUint8 = math.MaxUint8
+
+	// OverlayBackendUserspaceUDP selects the implemented userspace UDP backend.
 	OverlayBackendUserspaceUDP = "userspace-udp"
-	OverlayBackendKernel       = "kernel"
-	OverlayBackendOVS          = "ovs"
-	OverlayBackendOVN          = "ovn"
-	OverlayBackendCilium       = "cilium"
-	OverlayBackendCalico       = "calico"
-	OverlayBackendNSX          = "nsx"
+	// OverlayBackendKernel selects the reserved Linux kernel backend.
+	OverlayBackendKernel = "kernel"
+	// OverlayBackendOVS selects the reserved Open vSwitch backend.
+	OverlayBackendOVS = "ovs"
+	// OverlayBackendOVN selects the reserved OVN backend.
+	OverlayBackendOVN = "ovn"
+	// OverlayBackendCilium selects the reserved Cilium backend.
+	OverlayBackendCilium = "cilium"
+	// OverlayBackendCalico selects the reserved Calico backend.
+	OverlayBackendCalico = "calico"
+	// OverlayBackendNSX selects the reserved NSX backend.
+	OverlayBackendNSX = "nsx"
 )
 
 // MicroBFDActuatorConfig controls the optional LAG member actuator.
@@ -905,19 +915,27 @@ var (
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
 
 	// ErrInvalidOverlayBackend indicates an unrecognized overlay dataplane backend.
-	ErrInvalidOverlayBackend = errors.New("overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, calico, or nsx")
+	ErrInvalidOverlayBackend = errors.New(
+		"overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, calico, or nsx",
+	)
 
 	// ErrUnsupportedOverlayBackend indicates a recognized but not yet implemented backend.
-	ErrUnsupportedOverlayBackend = errors.New("overlay backend must be userspace-udp until kernel/ovs/ovn/cilium/calico/nsx backends are implemented")
+	ErrUnsupportedOverlayBackend = errors.New(
+		"overlay backend must be userspace-udp until kernel/ovs/ovn/cilium/calico/nsx backends are implemented",
+	)
 
 	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
 	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
 
 	// ErrInvalidMicroBFDActuatorBackend indicates an unrecognized Micro-BFD actuator backend.
-	ErrInvalidMicroBFDActuatorBackend = errors.New("micro_bfd.actuator.backend must be auto, kernel-bond, ovs, or networkmanager")
+	ErrInvalidMicroBFDActuatorBackend = errors.New(
+		"micro_bfd.actuator.backend must be auto, kernel-bond, ovs, or networkmanager",
+	)
 
 	// ErrInvalidMicroBFDActuatorOwnerPolicy indicates an unrecognized interface owner policy.
-	ErrInvalidMicroBFDActuatorOwnerPolicy = errors.New("micro_bfd.actuator.owner_policy must be refuse-if-managed, allow-external, or networkmanager-dbus")
+	ErrInvalidMicroBFDActuatorOwnerPolicy = errors.New(
+		"micro_bfd.actuator.owner_policy must be refuse-if-managed, allow-external, or networkmanager-dbus",
+	)
 
 	// ErrInvalidMicroBFDActuatorAction indicates an unrecognized Micro-BFD actuator action.
 	ErrInvalidMicroBFDActuatorAction = errors.New("micro_bfd.actuator action must be none, remove-member, or add-member")
@@ -1152,7 +1170,7 @@ func validateSessionAuth(auth AuthConfig) error {
 	if !ValidAuthTypes[authType] {
 		return fmt.Errorf("auth.type %q: %w", auth.Type, ErrInvalidSessionAuthType)
 	}
-	if auth.KeyID > 255 {
+	if auth.KeyID > maxBFDWireUint8 {
 		return fmt.Errorf("auth.key_id %d: %w", auth.KeyID, ErrInvalidSessionAuthKeyID)
 	}
 
@@ -1221,7 +1239,7 @@ func validateVXLAN(cfg VXLANConfig) error {
 			return fmt.Errorf("vxlan.peers[%d]: %w: %w", i, ErrInvalidVXLANPeer, err)
 		}
 
-		if peer.DetectMult > 255 {
+		if peer.DetectMult > maxBFDWireUint8 {
 			return fmt.Errorf("vxlan.peers[%d] detect_mult %d: %w",
 				i, peer.DetectMult, ErrInvalidSessionDetectMult)
 		}
@@ -1261,7 +1279,7 @@ func validateGeneve(cfg GeneveConfig) error {
 			return fmt.Errorf("geneve.peers[%d] vni %d: %w", i, peer.VNI, ErrInvalidGeneveVNI)
 		}
 
-		if peer.DetectMult > 255 {
+		if peer.DetectMult > maxBFDWireUint8 {
 			return fmt.Errorf("geneve.peers[%d] detect_mult %d: %w",
 				i, peer.DetectMult, ErrInvalidSessionDetectMult)
 		}

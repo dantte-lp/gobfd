@@ -31,7 +31,7 @@
 | Build | `go build ./...` | 0 errors |
 | Vet | `go vet ./...` | 0 issues |
 | Race tests | `go test -race -count=1 ./...` | all PASS |
-| Lint | `golangci-lint run` | 0 issues |
+| Lint | `make lint` | v2 schema, 92 signal-bearing linters, default and all build tags: 0 issues |
 | Coverage | `go test -cover ./...` | per-package not lower than baseline |
 | Proto lint | `buf lint` | 0 issues |
 | Proto break | `buf breaking --against '.git#branch=master'` | none unless explicit major bump |

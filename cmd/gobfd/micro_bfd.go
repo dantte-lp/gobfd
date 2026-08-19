@@ -186,7 +186,7 @@ func buildMemberSessions(
 	}
 
 	detectMult := group.DetectMult
-	if detectMult > 255 {
+	if detectMult > maxBFDWireUint8 {
 		logger.Error("micro-BFD detect_mult exceeds uint8 range, skipping",
 			slog.String("lag", group.LAGInterface),
 			slog.Uint64("detect_mult", uint64(detectMult)),
@@ -276,7 +276,7 @@ func configMicroBFDToBFD(gc config.MicroBFDGroupConfig) (bfd.MicroBFDConfig, err
 		return bfd.MicroBFDConfig{}, fmt.Errorf("parse micro-BFD local address %q: %w", gc.LocalAddr, err)
 	}
 
-	if gc.DetectMult > 255 {
+	if gc.DetectMult > maxBFDWireUint8 {
 		return bfd.MicroBFDConfig{}, fmt.Errorf("micro-BFD detect_mult %d: %w", gc.DetectMult, errDetectMultOverflow)
 	}
 

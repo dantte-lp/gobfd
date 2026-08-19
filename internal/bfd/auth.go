@@ -584,11 +584,15 @@ func copyDigest(buf []byte, p hashParams) []byte {
 // computeDigest computes MD5 or SHA1 hash over the given data.
 func computeDigest(data []byte, p hashParams) []byte {
 	if p.digestSize == md5DigestSize {
-		sum := md5.Sum(data) //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5 -- MD5 required by RFC 5880 Section 6.7.3
+		//nolint:gosec // MD5 is required by RFC 5880 Section 6.7.3.
+		// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
+		sum := md5.Sum(data)
 		return sum[:]
 	}
 
-	sum := sha1.Sum(data) //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1 -- SHA1 required by RFC 5880 Section 6.7.4
+	//nolint:gosec // SHA1 is required by RFC 5880 Section 6.7.4.
+	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
+	sum := sha1.Sum(data)
 	return sum[:]
 }
 

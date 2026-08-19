@@ -17,8 +17,11 @@ func TestResolvePodmanEndpoint(t *testing.T) {
 		wantFound bool
 	}{
 		{
-			name:      "docker host has precedence",
-			env:       map[string]string{"DOCKER_HOST": "unix:///custom/docker.sock", "PODMAN_HOST": "unix:///custom/podman.sock"},
+			name: "docker host has precedence",
+			env: map[string]string{
+				"DOCKER_HOST": "unix:///custom/docker.sock",
+				"PODMAN_HOST": "unix:///custom/podman.sock",
+			},
 			sockets:   map[string]bool{"/custom/docker.sock": true, "/custom/podman.sock": true},
 			want:      "unix:///custom/docker.sock",
 			wantFound: true,

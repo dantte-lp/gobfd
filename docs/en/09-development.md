@@ -229,17 +229,26 @@ See [05-interop.md](./05-interop.md) for the 4-peer interop testing framework.
 
 ### Linting
 
-golangci-lint v2 with a strict curated configuration:
+golangci-lint v2.12.2 with a maximum-by-default configuration:
 
 ```bash
 make lint
 ```
 
-Configuration in `.golangci.yml`. Key linters enabled:
+The tool is pinned by the `go.mod` `tool` directive. `.golangci.yml` uses
+`linters.default: all`: 92 signal-bearing linters are enabled, while 20
+maintained linters with no project inputs, duplicate coverage, or documented
+semantic conflicts and two deprecated linters are disabled.
+The CI contract validates the v2 schema, the enabled-linter count, the normal
+build, and every repository-specific build tag independently. Key checks include:
+
 - `gosec` (with `audit: true`) -- security analysis
 - `govet`, `staticcheck`, `errcheck` -- standard Go checks
 - `noctx` -- context propagation checks
 - `exhaustive` -- exhaustive switch/map checks
+- `cyclop`, `gocognit`, `maintidx` -- complexity limits
+- `revive`, `wrapcheck`, `gochecknoglobals`, `mnd`, `lll` -- API, error,
+  state, and source-discipline checks
 - `depguard`, `gomoddirectives` -- dependency hygiene
 - `nolintlint` -- quality of `//nolint` directives
 
@@ -338,9 +347,9 @@ Go 1.26 uses Swiss tables as the default `map` implementation. GoBFD's discrimin
 ### Contributing
 
 1. Open an issue to discuss the change before submitting a PR
-2. Follow the existing code style (see `CLAUDE.md` for conventions)
+2. Follow the existing code style (see `AGENTS.md` for conventions)
 3. Add tests for new functionality (`go test ./... -race -count=1`)
-4. Ensure `golangci-lint run ./...` passes
+4. Ensure `make lint` passes
 5. Run `buf lint` if proto files are modified
 6. Keep commit messages descriptive and concise
 

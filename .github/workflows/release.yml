@@ -40,7 +40,7 @@ jobs:
         run: go test -buildvcs=false ./... -race -count=1
 
       - name: Lint
-        run: go tool golangci-lint run ./...
+        run: make lint-ci
 
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go

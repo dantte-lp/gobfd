@@ -384,7 +384,12 @@ func DemuxDockerStream(r io.Reader) (string, string, error) {
 			continue
 		}
 		if size > maxDockerFrameSize {
-			return out.String(), errOut.String(), fmt.Errorf("%w: size %d limit %d", errDockerFrameTooLarge, size, maxDockerFrameSize)
+			return out.String(), errOut.String(), fmt.Errorf(
+				"%w: size %d limit %d",
+				errDockerFrameTooLarge,
+				size,
+				maxDockerFrameSize,
+			)
 		}
 
 		payload := make([]byte, size)
@@ -419,24 +424,41 @@ func (c *Client) containerAction(ctx context.Context, container, action string, 
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("%w: action %s container %s status %d: %s", errContainerActionState, action, container, resp.StatusCode, body)
+	return fmt.Errorf(
+		"%w: action %s container %s status %d: %s",
+		errContainerActionState,
+		action,
+		container,
+		resp.StatusCode,
+		body,
+	)
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create %s JSON request for %s: %w", method, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send %s JSON request to %s: %w", method, path, err)
+	}
+
+	return resp, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create %s request for %s: %w", method, path, err)
 	}
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send %s request to %s: %w", method, path, err)
+	}
+
+	return resp, nil
 }
 
 func readBody(r io.Reader, context string) (string, error) {

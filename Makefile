@@ -25,7 +25,7 @@ SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all verify build test testcontainers-smoke lint lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
+.PHONY: all verify build test testcontainers-smoke lint lint-ci lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict \
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
@@ -116,7 +116,7 @@ e2e-core-test:
 		go test -tags e2e_core -v -count=1 -timeout 300s ./test/e2e/core/
 
 e2e-core-testcontainers: dev-ensure
-	$(EXEC) golangci-lint run --build-tags e2e_core_testcontainers \
+	$(EXEC) go tool golangci-lint run --build-tags e2e_core_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
 	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
 		GOBFD_REQUIRE_PODMAN=1 \
@@ -486,11 +486,57 @@ benchmark-report:
 
 # === Quality ===
 
-lint:
-	$(EXEC) golangci-lint run ./...
+LINT_ENABLED_COUNT := 92
+
+define run_lint_tag
+	@tag='$(1)'; \
+		files="$$(grep -RIl --include='*.go' "^//go:build .*\\<$$tag\\>" .)"; \
+		constrained="$$(printf '%s\n' "$$files" | sed '/^$$/d' | wc -l)"; \
+		inputs="$$(go list -tags "$$tag" -f '{{range .GoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' $(2))"; \
+		input_count="$$(printf '%s\n' "$$inputs" | sed '/^$$/d' | wc -l)"; \
+		test "$$constrained" -gt 0 || { echo "lint-ci: tag $$tag has no constrained source files"; exit 1; }; \
+		test "$$input_count" -gt 0 || { echo "lint-ci: tag $$tag produced no Go inputs"; exit 1; }; \
+		echo "lint-ci: tag $$tag ($$constrained constrained files, $$input_count Go inputs)"
+	go tool golangci-lint run --build-tags '$(1)' ./...
+endef
+
+lint: dev-ensure
+	$(EXEC) make lint-ci
+
+# lint-ci deliberately has no Podman dependency so the exact same contract runs
+# inside the pinned development container and GitHub's Go job container.
+lint-ci:
+	go tool golangci-lint config verify
+	@module_version="$$(go list -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)"; \
+		binary_version="v$$(go tool golangci-lint version --short)"; \
+		test "$$module_version" = "$$binary_version" || { \
+			echo "lint-ci: module $$module_version != binary $$binary_version"; exit 1; \
+		}; \
+		linters="$$(go tool golangci-lint linters)"; \
+		enabled="$$(printf '%s\n' "$$linters" | awk '/^Enabled by your configuration/{active=1;next}/^Disabled by your configuration/{active=0} active && /^[a-z0-9_]+:/{count++} END{print count+0}')"; \
+		deprecated="$$(printf '%s\n' "$$linters" | awk '/^Enabled by your configuration/{active=1;next}/^Disabled by your configuration/{active=0} active && /\[deprecated\]/{count++} END{print count+0}')"; \
+		test "$$enabled" -eq "$(LINT_ENABLED_COUNT)" || { \
+			echo "lint-ci: enabled $$enabled linters, expected $(LINT_ENABLED_COUNT)"; exit 1; \
+		}; \
+		test "$$deprecated" -eq 0 || { \
+			echo "lint-ci: $$deprecated deprecated linters are enabled"; exit 1; \
+		}; \
+		echo "lint-ci: $$enabled linters enabled, 0 deprecated, version $$binary_version"
+	go tool golangci-lint run ./...
+	$(call run_lint_tag,integration,./test/integration/...)
+	$(call run_lint_tag,testcontainers,./test/internal/containertest/...)
+	$(call run_lint_tag,e2e_core,./test/e2e/core/...)
+	$(call run_lint_tag,e2e_core_testcontainers,./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...)
+	$(call run_lint_tag,e2e_linux,./test/e2e/linux/...)
+	$(call run_lint_tag,e2e_overlay,./test/e2e/overlay/...)
+	$(call run_lint_tag,e2e_vendor,./test/e2e/vendor/...)
+	$(call run_lint_tag,interop,./test/interop/...)
+	$(call run_lint_tag,interop_bgp,./test/interop-bgp/...)
+	$(call run_lint_tag,interop_clab,./test/interop-clab/...)
+	$(call run_lint_tag,interop_rfc,./test/interop-rfc/...)
 
 lint-fix:
-	$(EXEC) golangci-lint run --fix ./...
+	$(EXEC) go tool golangci-lint run --fix ./...
 
 gopls-check:
 	$(EXEC) sh ./scripts/gopls-check.sh
@@ -571,5 +617,5 @@ clean:
 versions:
 	@echo "=== Go ===" && $(EXEC) go version
 	@echo "=== Buf ===" && $(EXEC) buf --version
-	@echo "=== golangci-lint ===" && $(EXEC) golangci-lint version --short
+	@echo "=== golangci-lint ===" && $(EXEC) go tool golangci-lint version --short
 	@echo "=== govulncheck ===" && $(EXEC) govulncheck -version 2>/dev/null || echo "installed"

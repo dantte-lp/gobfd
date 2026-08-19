@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
+	"os/exec" //nolint:depguard // Interop harness invokes fixed Podman binaries with explicit argument vectors.
 	"strconv"
 	"strings"
 	"testing"
@@ -73,7 +73,8 @@ func frrVtysh(ctx context.Context, command string) (string, error) {
 // frrVtyshConfig runs a sequence of vtysh commands (e.g., configure terminal,
 // bfd, peer ..., shutdown) in a single vtysh session.
 func frrVtyshConfig(ctx context.Context, commands ...string) (string, error) {
-	args := []string{"exec", "-T", "frr", "vtysh"}
+	args := make([]string, 0, 4+2*len(commands))
+	args = append(args, "exec", "-T", "frr", "vtysh")
 	for _, cmd := range commands {
 		args = append(args, "-c", cmd)
 	}
@@ -146,7 +147,7 @@ func waitForCondition(t *testing.T, desc string, timeout time.Duration, fn func(
 }
 
 // waitFRRUp waits for the FRR BFD session to reach Up state.
-func waitFRRUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+func waitFRRUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "FRR BFD session Up", timeout, func() (bool, error) {
 		status, err := frrBFDPeerStatus(ctx)
@@ -158,7 +159,7 @@ func waitFRRUp(t *testing.T, ctx context.Context, timeout time.Duration) {
 }
 
 // waitBIRD3Up waits for the BIRD3 BFD session to reach Up state.
-func waitBIRD3Up(t *testing.T, ctx context.Context, timeout time.Duration) {
+func waitBIRD3Up(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "BIRD3 BFD session Up", timeout, func() (bool, error) {
 		return bird3BFDSessionUp(ctx)
@@ -177,7 +178,7 @@ func aiobfdSessionUp(ctx context.Context) (bool, error) {
 }
 
 // waitAiobfdUp waits for the aiobfd BFD session to reach Up state.
-func waitAiobfdUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+func waitAiobfdUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "aiobfd BFD session Up", timeout, func() (bool, error) {
 		return aiobfdSessionUp(ctx)
@@ -213,7 +214,7 @@ func thoroUnsupportedPollSequenceCrash(ctx context.Context) (bool, error) {
 }
 
 // waitThoroUp waits for the Thoro/bfd BFD session to reach Up state.
-func waitThoroUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+func waitThoroUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	var lastErr error
@@ -249,8 +250,10 @@ func waitThoroUp(t *testing.T, ctx context.Context, timeout time.Duration) {
 
 // tsharkQuery runs tshark on the captured pcapng file and returns stdout.
 func tsharkQuery(ctx context.Context, args ...string) (string, error) {
-	cmdArgs := append([]string{"exec", "tshark-interop", "tshark",
-		"-r", "/captures/bfd.pcapng"}, args...)
+	cmdArgs := append(
+		[]string{"exec", "tshark-interop", "tshark", "-r", "/captures/bfd.pcapng"},
+		args...,
+	)
 	cmd := exec.CommandContext(ctx, "podman", cmdArgs...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -284,7 +287,7 @@ func tsharkFields(ctx context.Context, filter string, fields []string, maxCount 
 	}
 
 	var rows [][]string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if line == "" {
 			continue
 		}
@@ -308,7 +311,7 @@ func tsharkCount(ctx context.Context, filter string) (int, error) {
 
 // assertNoPackets fails the test if any packets match the display filter.
 // Used for negative assertions (e.g., "no packets with TTL != 255").
-func assertNoPackets(t *testing.T, ctx context.Context, filter, desc string) {
+func assertNoPackets(ctx context.Context, t *testing.T, filter, desc string) {
 	t.Helper()
 	count, err := tsharkCount(ctx, filter)
 	if err != nil {
@@ -320,7 +323,7 @@ func assertNoPackets(t *testing.T, ctx context.Context, filter, desc string) {
 }
 
 // assertHasPackets fails the test if no packets match the display filter.
-func assertHasPackets(t *testing.T, ctx context.Context, filter, desc string) {
+func assertHasPackets(ctx context.Context, t *testing.T, filter, desc string) {
 	t.Helper()
 	count, err := tsharkCount(ctx, filter)
 	if err != nil {
@@ -344,7 +347,7 @@ func dumpTsharkCapture(t *testing.T, count int) {
 
 	cmd := exec.CommandContext(ctx, "podman", "exec", "tshark-interop",
 		"tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd",
-		"-c", fmt.Sprintf("%d", count),
+		"-c", strconv.Itoa(count),
 		"-T", "fields",
 		"-e", "frame.time_relative",
 		"-e", "ip.src",
@@ -388,7 +391,7 @@ func TestFRRHandshake(t *testing.T) {
 			dumpTsharkCapture(t, 50)
 		}
 	})
-	waitFRRUp(t, t.Context(), 60*time.Second)
+	waitFRRUp(t.Context(), t, 60*time.Second)
 }
 
 // TestBIRD3Handshake verifies that the BFD three-way handshake completes
@@ -399,7 +402,7 @@ func TestBIRD3Handshake(t *testing.T) {
 			dumpTsharkCapture(t, 50)
 		}
 	})
-	waitBIRD3Up(t, t.Context(), 60*time.Second)
+	waitBIRD3Up(t.Context(), t, 60*time.Second)
 }
 
 // TestAiobfdHandshake verifies that the BFD three-way handshake completes
@@ -410,7 +413,7 @@ func TestAiobfdHandshake(t *testing.T) {
 			dumpTsharkCapture(t, 50)
 		}
 	})
-	waitAiobfdUp(t, t.Context(), 60*time.Second)
+	waitAiobfdUp(t.Context(), t, 60*time.Second)
 }
 
 // TestThoroHandshake verifies that the BFD three-way handshake completes
@@ -423,7 +426,7 @@ func TestThoroHandshake(t *testing.T) {
 			dumpTsharkCapture(t, 50)
 		}
 	})
-	waitThoroUp(t, t.Context(), 60*time.Second)
+	waitThoroUp(t.Context(), t, 60*time.Second)
 }
 
 // =========================================================================
@@ -443,10 +446,10 @@ func TestRFCCompliance(t *testing.T) {
 	ctx := t.Context()
 
 	// Prerequisite: all sessions must be Up.
-	waitFRRUp(t, ctx, 60*time.Second)
-	waitBIRD3Up(t, ctx, 60*time.Second)
-	waitAiobfdUp(t, ctx, 60*time.Second)
-	waitThoroUp(t, ctx, 60*time.Second)
+	waitFRRUp(ctx, t, 60*time.Second)
+	waitBIRD3Up(ctx, t, 60*time.Second)
+	waitAiobfdUp(ctx, t, 60*time.Second)
+	waitThoroUp(ctx, t, 60*time.Second)
 
 	// Allow tshark capture to accumulate data before read-only analysis.
 	time.Sleep(3 * time.Second)
@@ -462,7 +465,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_4.1_Version", func(t *testing.T) {
 		// RFC 5880 §4.1: "The version number of the protocol. This
 		// document defines protocol version 1."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.version != 1",
 			"all GoBFD packets must have version=1")
 	})
@@ -470,14 +473,14 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_4.1_MultipointZero", func(t *testing.T) {
 		// RFC 5880 §4.1: "This bit is reserved for future
 		// point-to-multipoint extensions. It MUST be zero."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.flags.m == 1",
 			"multipoint bit must always be 0")
 	})
 
 	t.Run("RFC5880_4.1_DemandZero", func(t *testing.T) {
 		// Demand mode not implemented; D bit must always be 0.
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.flags.d == 1",
 			"demand bit must be 0 (not implemented)")
 	})
@@ -485,7 +488,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5881_4_EchoIntervalZero", func(t *testing.T) {
 		// RFC 5881 §4: "If a BFD implementation does not support the
 		// Echo function, it MUST set Required Min Echo RX Interval to 0."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.required_min_echo_interval != 0",
 			"echo not implemented: RequiredMinEchoRxInterval must be 0")
 	})
@@ -493,14 +496,14 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_6.8.7_MyDiscrNonZero", func(t *testing.T) {
 		// RFC 5880 §6.8.7: "The transmitting system MUST set My
 		// Discriminator to a unique, nonzero discriminator value."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.my_discriminator == 0x00000000",
 			"My Discriminator must be nonzero in all packets")
 	})
 
 	t.Run("RFC5880_4.1_PacketLength", func(t *testing.T) {
 		// Without authentication, BFD Control is exactly 24 bytes.
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.message_length != 24",
 			"packet length must be 24 (no auth)")
 	})
@@ -508,14 +511,14 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5881_5_TTL255", func(t *testing.T) {
 		// RFC 5881 §5: "BFD Control packets MUST be transmitted with
 		// a TTL/Hop Limit value of 255."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && ip.ttl != 255",
 			"all single-hop packets must have TTL=255 (GTSM)")
 	})
 
 	t.Run("RFC5881_4_DstPort3784", func(t *testing.T) {
 		// RFC 5881 §4: single-hop BFD uses destination port 3784.
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && udp.dstport != 3784",
 			"destination port must be 3784")
 	})
@@ -523,7 +526,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5881_4_SrcPortEphemeral", func(t *testing.T) {
 		// RFC 5881 §4: "BFD Control packets MUST be transmitted with
 		// a source port in the range 49152 through 65535."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && (udp.srcport < 49152 || udp.srcport > 65535)",
 			"source port must be in 49152-65535")
 	})
@@ -549,17 +552,17 @@ func TestRFCCompliance(t *testing.T) {
 		}
 		for _, p := range peers {
 			t.Run(p.name+"_Version1", func(t *testing.T) {
-				assertNoPackets(t, ctx,
+				assertNoPackets(ctx, t,
 					"bfd && ip.src == "+p.ip+" && bfd.version != 1",
 					p.name+" packets must have version=1")
 			})
 			t.Run(p.name+"_TTL255", func(t *testing.T) {
-				assertNoPackets(t, ctx,
+				assertNoPackets(ctx, t,
 					"bfd && ip.src == "+p.ip+" && ip.ttl != 255",
 					p.name+" packets must have TTL=255 (GTSM)")
 			})
 			t.Run(p.name+"_DstPort3784", func(t *testing.T) {
-				assertNoPackets(t, ctx,
+				assertNoPackets(ctx, t,
 					"bfd && ip.src == "+p.ip+" && udp.dstport != 3784",
 					p.name+" packets must use dst port 3784")
 			})
@@ -567,7 +570,7 @@ func TestRFCCompliance(t *testing.T) {
 				if p.skipSrcPort {
 					t.Skipf("%s uses a fixed source port (known RFC 5881 §4 deviation)", p.name)
 				}
-				assertNoPackets(t, ctx,
+				assertNoPackets(ctx, t,
 					"bfd && ip.src == "+p.ip+" && (udp.srcport < 49152 || udp.srcport > 65535)",
 					p.name+" packets must use ephemeral src port")
 			})
@@ -586,8 +589,10 @@ func TestRFCCompliance(t *testing.T) {
 			ip   string
 		}
 		peers := []peer{
-			{"FRR", frrIP}, {"BIRD3", bird3IP},
-			{"aiobfd", aiobfdIP}, {"Thoro", thoroIP},
+			{"FRR", frrIP},
+			{"BIRD3", bird3IP},
+			{"aiobfd", aiobfdIP},
+			{"Thoro", thoroIP},
 		}
 		for _, p := range peers {
 			t.Run(p.name, func(t *testing.T) {
@@ -628,7 +633,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_6.8.6_DiscrLearning", func(t *testing.T) {
 		// RFC 5880 §6.8.6: YourDiscriminator=0 only valid in Down
 		// state before learning remote discriminator.
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && bfd.your_discriminator == 0x00000000 && bfd.sta != 0x01 && bfd.sta != 0x00",
 			"YourDiscriminator=0 only valid in Down/AdminDown state")
 	})
@@ -694,7 +699,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_6.8.3_SlowTxWhenNotUp", func(t *testing.T) {
 		// RFC 5880 §6.8.3: "When bfd.SessionState is not Up, the system
 		// MUST set bfd.DesiredMinTxInterval to not less than one second."
-		assertNoPackets(t, ctx,
+		assertNoPackets(ctx, t,
 			gobfdPkts+" && (bfd.sta == 0x01 || bfd.sta == 0x02) && bfd.desired_min_tx_interval < 1000000",
 			"DesiredMinTxInterval must be >= 1s (1000000us) when not Up")
 	})
@@ -791,7 +796,7 @@ func TestRFCCompliance(t *testing.T) {
 		}
 		t.Cleanup(func() {
 			// Always restart FRR.
-			podmanCompose(ctx, "start", "frr") //nolint:errcheck
+			podmanCompose(ctx, "start", "frr") //nolint:errcheck // Cleanup is best effort.
 		})
 
 		// Wait for detection time + margin.
@@ -831,7 +836,7 @@ func TestRFCCompliance(t *testing.T) {
 	t.Run("RFC5880_6.8.4_DiagTimeExpired", func(t *testing.T) {
 		// RFC 5880 §6.8.4: After detection timeout, LocalDiag = 1
 		// (Control Detection Time Expired).
-		assertHasPackets(t, ctx,
+		assertHasPackets(ctx, t,
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x01 && bfd.diag == 0x01",
 			"GoBFD must send Down with Diag=1 after detection timeout")
 	})
@@ -885,7 +890,7 @@ func TestRFCCompliance(t *testing.T) {
 	})
 
 	// Wait for FRR session to re-establish after the stop/start.
-	waitFRRUp(t, ctx, 60*time.Second)
+	waitFRRUp(ctx, t, 60*time.Second)
 
 	t.Run("RFC5880_6.2_SessionRecovery", func(t *testing.T) {
 		// After FRR restart, session must recover to Up through the
@@ -943,12 +948,12 @@ func TestRFCCompliance(t *testing.T) {
 		time.Sleep(3 * time.Second)
 
 		// Verify FRR sent AdminDown packets.
-		assertHasPackets(t, ctx,
+		assertHasPackets(ctx, t,
 			"bfd && ip.src == "+frrIP+" && bfd.sta == 0x00",
 			"FRR must send AdminDown (state=0) packets after shutdown")
 
 		// Verify GoBFD transitioned to Down with Diag=3 (Neighbor Signaled).
-		assertHasPackets(t, ctx,
+		assertHasPackets(ctx, t,
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x01 && bfd.diag == 0x03",
 			"GoBFD must set Diag=3 (Neighbor Signaled) when receiving AdminDown")
 	})
@@ -962,7 +967,7 @@ func TestRFCCompliance(t *testing.T) {
 		}
 
 		// Wait for full handshake recovery.
-		waitFRRUp(t, ctx, 30*time.Second)
+		waitFRRUp(ctx, t, 30*time.Second)
 
 		t.Log("FRR session recovered after AdminDown cleared")
 	})
@@ -1046,8 +1051,10 @@ func TestRFCCompliance(t *testing.T) {
 			ip   string
 		}
 		peers := []peer{
-			{"FRR", frrIP}, {"BIRD3", bird3IP},
-			{"aiobfd", aiobfdIP}, {"Thoro", thoroIP},
+			{"FRR", frrIP},
+			{"BIRD3", bird3IP},
+			{"aiobfd", aiobfdIP},
+			{"Thoro", thoroIP},
 		}
 		for _, p := range peers {
 			t.Run(p.name, func(t *testing.T) {
@@ -1122,7 +1129,7 @@ func TestFRRDetectionTimeout(t *testing.T) {
 	})
 	ctx := t.Context()
 
-	waitFRRUp(t, ctx, 60*time.Second)
+	waitFRRUp(ctx, t, 60*time.Second)
 
 	output, err := podmanCompose(ctx, "stop", "frr")
 	if err != nil {
@@ -1221,7 +1228,7 @@ func TestGracefulShutdown(t *testing.T) {
 	})
 	ctx := t.Context()
 
-	waitFRRUp(t, ctx, 60*time.Second)
+	waitFRRUp(ctx, t, 60*time.Second)
 
 	// Record AdminDown packet count before shutdown.
 	adminDownBefore, _ := tsharkCount(ctx,
@@ -1237,11 +1244,12 @@ func TestGracefulShutdown(t *testing.T) {
 	// Verify AdminDown packets were sent (diag=7, state=0).
 	adminDownAfter, err := tsharkCount(ctx,
 		"bfd && ip.src == "+gobfdIP+" && bfd.sta == 0x00 && bfd.diag == 0x07")
-	if err != nil {
+	switch {
+	case err != nil:
 		t.Logf("tshark query for AdminDown packets: %v", err)
-	} else if adminDownAfter <= adminDownBefore {
+	case adminDownAfter <= adminDownBefore:
 		t.Error("GoBFD did not send AdminDown (state=0, diag=7) packets on SIGTERM")
-	} else {
+	default:
 		t.Logf("GoBFD sent %d AdminDown packets on graceful shutdown",
 			adminDownAfter-adminDownBefore)
 	}
@@ -1251,13 +1259,15 @@ func TestGracefulShutdown(t *testing.T) {
 		name string
 		ip   string
 	}{
-		{"FRR", frrIP}, {"BIRD3", bird3IP},
+		{"FRR", frrIP},
+		{"BIRD3", bird3IP},
 		{"aiobfd", aiobfdIP},
 	}
-	if crashed, err := thoroUnsupportedPollSequenceCrash(ctx); err != nil {
-		t.Logf("Thoro/bfd status lookup failed: %v", err)
+	if crashed, statusErr := thoroUnsupportedPollSequenceCrash(ctx); statusErr != nil {
+		t.Logf("Thoro/bfd status lookup failed: %v", statusErr)
 	} else if crashed {
-		t.Log("Thoro/bfd AdminDown verification skipped: upstream peer panicked on unimplemented RFC 5880 poll-sequence interval update")
+		t.Log("Thoro/bfd AdminDown verification skipped: upstream peer panicked on " +
+			"unimplemented RFC 5880 poll-sequence interval update")
 	} else {
 		peers = append(peers, struct {
 			name string
@@ -1265,11 +1275,11 @@ func TestGracefulShutdown(t *testing.T) {
 		}{"Thoro", thoroIP})
 	}
 	for _, peer := range peers {
-		count, err := tsharkCount(ctx,
+		count, countErr := tsharkCount(ctx,
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+peer.ip+
 				" && bfd.sta == 0x00 && bfd.diag == 0x07")
-		if err != nil {
-			t.Logf("tshark query for %s AdminDown: %v", peer.name, err)
+		if countErr != nil {
+			t.Logf("tshark query for %s AdminDown: %v", peer.name, countErr)
 			continue
 		}
 		if count == 0 {

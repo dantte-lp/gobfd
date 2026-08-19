@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"os/exec" //nolint:depguard // Audit runner invokes pinned scanners with explicit argument vectors.
 	"sort"
 	"strings"
 	"time"
@@ -75,7 +75,15 @@ func main() {
 		failures = append(failures, fmt.Sprintf("govulncheck failed with exit code %d: %v", govuln.Code, govuln.Err))
 	}
 
-	osv := runGo("run", "github.com/google/osv-scanner/v2/cmd/osv-scanner@"+osvScannerVersion, "scan", "-r", "--format", "json", ".")
+	osv := runGo(
+		"run",
+		"github.com/google/osv-scanner/v2/cmd/osv-scanner@"+osvScannerVersion,
+		"scan",
+		"-r",
+		"--format",
+		"json",
+		".",
+	)
 	printStderr("osv-scanner", osv.Stderr)
 	osvFindings, err := parseOSVScanner(osv.Stdout)
 	if err != nil {
@@ -117,8 +125,7 @@ func runGo(args ...string) commandResult {
 	code := 0
 	if err != nil {
 		code = 1
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			code = exitErr.ExitCode()
 		}
 	}
@@ -163,7 +170,7 @@ func parseGovulncheck(data []byte) ([]finding, error) {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode govulncheck JSON: %w", err)
 		}
 		if message.Finding == nil || message.Finding.OSV == "" {
 			continue
@@ -212,7 +219,7 @@ func parseOSVScanner(data []byte) ([]finding, error) {
 		return nil, nil
 	}
 	if err := json.Unmarshal(data, &report); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode osv-scanner JSON: %w", err)
 	}
 
 	seen := map[string]finding{}

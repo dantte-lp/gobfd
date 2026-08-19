@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -18,9 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/netio"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -40,7 +40,7 @@ type observedLinkEvent struct {
 func TestRTNetlinkVethDownUpInIsolatedNamespace(t *testing.T) {
 	assertNetworkNoneIsolation(t)
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	mon, err := netio.NewLinuxInterfaceMonitor(logger)
 	if err != nil {
 		t.Fatalf("NewLinuxInterfaceMonitor: %v", err)
@@ -145,7 +145,7 @@ func TestLinuxLAGBackendsStayPolicyGated(t *testing.T) {
 		Backend:    netio.LAGActuatorBackendKernelBond,
 		DownAction: netio.LAGActuatorActionRemoveMember,
 		UpAction:   netio.LAGActuatorActionAddMember,
-	}, rec, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, rec, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewLAGActuator dry-run: %v", err)
 	}

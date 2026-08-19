@@ -12,7 +12,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
+	"os/exec" //nolint:depguard // E2E harness invokes fixed binaries with explicit argument vectors.
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,14 +43,14 @@ func TestCoreDaemonE2E(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("sessions reach up with static auth", func(t *testing.T) {
-		waitSession(t, ctx, "gobfd-a", gobfdBIP, func(s sessionView) bool {
+		waitSession(ctx, t, "gobfd-a", gobfdBIP, func(s sessionView) bool {
 			return s.LocalState == "Up" &&
 				s.RemoteState == "Up" &&
 				s.AuthType == "SimplePassword" &&
 				s.LocalDiscriminator != 0 &&
 				s.RemoteDiscriminator != 0
 		})
-		waitSession(t, ctx, "gobfd-b", gobfdAIP, func(s sessionView) bool {
+		waitSession(ctx, t, "gobfd-b", gobfdAIP, func(s sessionView) bool {
 			return s.LocalState == "Up" &&
 				s.RemoteState == "Up" &&
 				s.AuthType == "SimplePassword" &&
@@ -59,7 +60,7 @@ func TestCoreDaemonE2E(t *testing.T) {
 	})
 
 	t.Run("cli list show and monitor return current state", func(t *testing.T) {
-		sessions := listSessions(t, ctx, "gobfd-a")
+		sessions := listSessions(ctx, t, "gobfd-a")
 		if len(sessions) != 1 {
 			t.Fatalf("gobfd-a sessions = %d, want 1", len(sessions))
 		}
@@ -67,7 +68,7 @@ func TestCoreDaemonE2E(t *testing.T) {
 			t.Fatalf("gobfd-a session = %+v, want peer %s Up", sessions[0], gobfdBIP)
 		}
 
-		shown := showSession(t, ctx, "gobfd-a", gobfdBIP)
+		shown := showSession(ctx, t, "gobfd-a", gobfdBIP)
 		if shown.PeerAddress != gobfdBIP || shown.LocalState != "Up" {
 			t.Fatalf("shown session = %+v, want peer %s Up", shown, gobfdBIP)
 		}
@@ -82,8 +83,8 @@ func TestCoreDaemonE2E(t *testing.T) {
 	})
 
 	t.Run("metrics endpoints expose session metrics", func(t *testing.T) {
-		assertMetrics(t, ctx, "gobfd-a")
-		assertMetrics(t, ctx, "gobfd-b")
+		assertMetrics(ctx, t, "gobfd-a")
+		assertMetrics(ctx, t, "gobfd-b")
 	})
 
 	t.Run("sighup reload keeps session up and records reload", func(t *testing.T) {
@@ -95,7 +96,7 @@ func TestCoreDaemonE2E(t *testing.T) {
 		if _, err := podmanCompose(ctx, "kill", "-s", "HUP", "gobfd-a"); err != nil {
 			t.Fatalf("send SIGHUP: %v", err)
 		}
-		waitSession(t, ctx, "gobfd-a", gobfdBIP, func(s sessionView) bool {
+		waitSession(ctx, t, "gobfd-a", gobfdBIP, func(s sessionView) bool {
 			return s.LocalState == "Up" && s.RemoteState == "Up"
 		})
 		logs, err := containerLogs(ctx, "gobfd-a", 100)
@@ -108,7 +109,7 @@ func TestCoreDaemonE2E(t *testing.T) {
 	})
 
 	t.Run("packet capture records up and graceful admindown packets", func(t *testing.T) {
-		assertPacketCount(t, ctx,
+		assertPacketCount(ctx, t,
 			"bfd && ip.src == "+gobfdAIP+" && ip.dst == "+gobfdBIP+" && bfd.sta == 0x03",
 			"Up packets from gobfd-a to gobfd-b",
 		)
@@ -116,14 +117,14 @@ func TestCoreDaemonE2E(t *testing.T) {
 			t.Fatalf("stop gobfd-a: %v", err)
 		}
 		time.Sleep(2 * time.Second)
-		assertPacketCount(t, ctx,
+		assertPacketCount(ctx, t,
 			"bfd && ip.src == "+gobfdAIP+" && ip.dst == "+gobfdBIP+" && bfd.sta == 0x00 && bfd.diag == 0x07",
 			"AdminDown packets from gobfd-a to gobfd-b",
 		)
 	})
 }
 
-func listSessions(t *testing.T, ctx context.Context, service string) []sessionView {
+func listSessions(ctx context.Context, t *testing.T, service string) []sessionView {
 	t.Helper()
 	out, err := gobfdctl(ctx, service, "session", "list")
 	if err != nil {
@@ -136,7 +137,7 @@ func listSessions(t *testing.T, ctx context.Context, service string) []sessionVi
 	return sessions
 }
 
-func showSession(t *testing.T, ctx context.Context, service, peer string) sessionView {
+func showSession(ctx context.Context, t *testing.T, service, peer string) sessionView {
 	t.Helper()
 	out, err := gobfdctl(ctx, service, "session", "show", peer)
 	if err != nil {
@@ -149,12 +150,12 @@ func showSession(t *testing.T, ctx context.Context, service, peer string) sessio
 	return session
 }
 
-func waitSession(t *testing.T, ctx context.Context, service, peer string, ok func(sessionView) bool) {
+func waitSession(ctx context.Context, t *testing.T, service, peer string, ok func(sessionView) bool) {
 	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	var last []sessionView
 	for time.Now().Before(deadline) {
-		last = listSessions(t, ctx, service)
+		last = listSessions(ctx, t, service)
 		for _, session := range last {
 			if session.PeerAddress == peer && ok(session) {
 				return
@@ -165,9 +166,9 @@ func waitSession(t *testing.T, ctx context.Context, service, peer string, ok fun
 	t.Fatalf("%s session with peer %s did not reach expected state; last=%+v", service, peer, last)
 }
 
-func assertMetrics(t *testing.T, ctx context.Context, service string) {
+func assertMetrics(ctx context.Context, t *testing.T, service string) {
 	t.Helper()
-	addr := mappedPort(t, ctx, service, "9100")
+	addr := mappedPort(ctx, t, service, "9100")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/metrics", nil)
 	if err != nil {
 		t.Fatalf("build metrics request: %v", err)
@@ -189,14 +190,14 @@ func assertMetrics(t *testing.T, ctx context.Context, service string) {
 	}
 }
 
-func assertPacketCount(t *testing.T, ctx context.Context, filter, desc string) {
+func assertPacketCount(ctx context.Context, t *testing.T, filter, desc string) {
 	t.Helper()
 	out, err := tshark(ctx, "-r", "/captures/bfd.pcapng", "-Y", filter, "-T", "fields", "-e", "frame.number")
 	if err != nil {
 		t.Fatalf("%s: tshark failed: %v: %s", desc, err, out)
 	}
 	count := 0
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if strings.TrimSpace(line) != "" {
 			count++
 		}
@@ -208,7 +209,8 @@ func assertPacketCount(t *testing.T, ctx context.Context, filter, desc string) {
 
 func gobfdctl(ctx context.Context, service string, args ...string) (string, error) {
 	addr := serviceGRPCAddr(service)
-	all := []string{"--addr", addr, "--format", "json"}
+	all := make([]string, 0, 4+len(args))
+	all = append(all, "--addr", addr, "--format", "json")
 	all = append(all, args...)
 	cmd := exec.CommandContext(ctx, gobfdctlBinary(), all...)
 	cmd.Env = os.Environ()
@@ -221,7 +223,8 @@ func gobfdctl(ctx context.Context, service string, args ...string) (string, erro
 
 func gobfdctlStream(ctx context.Context, service string, timeout time.Duration, args ...string) (string, error) {
 	timeoutSeconds := fmt.Sprintf("%ds", int(timeout.Seconds()))
-	all := []string{timeoutSeconds, gobfdctlBinary(), "--addr", serviceGRPCAddr(service), "--format", "json"}
+	all := make([]string, 0, 6+len(args))
+	all = append(all, timeoutSeconds, gobfdctlBinary(), "--addr", serviceGRPCAddr(service), "--format", "json")
 	all = append(all, args...)
 	cmd := exec.CommandContext(ctx, "timeout", all...)
 	cmd.Env = os.Environ()
@@ -314,10 +317,8 @@ func containerMatchesComposeName(names []string, project, service string) bool {
 	}
 	for _, name := range names {
 		normalized := strings.TrimPrefix(strings.TrimSpace(name), "/")
-		for _, candidate := range expected {
-			if normalized == candidate {
-				return true
-			}
+		if slices.Contains(expected, normalized) {
+			return true
 		}
 	}
 	return false
@@ -328,10 +329,7 @@ func summarizeContainers(containers []podmanapi.ContainerSummary) string {
 		return "none"
 	}
 	var b strings.Builder
-	limit := len(containers)
-	if limit > 8 {
-		limit = 8
-	}
+	limit := min(len(containers), 8)
 	for i := range limit {
 		container := containers[i]
 		if i > 0 {
@@ -347,7 +345,7 @@ func summarizeContainers(containers []podmanapi.ContainerSummary) string {
 		b.WriteString(container.Labels["io.podman.compose.service"])
 	}
 	if len(containers) > limit {
-		b.WriteString(fmt.Sprintf("; ... %d more", len(containers)-limit))
+		fmt.Fprintf(&b, "; ... %d more", len(containers)-limit)
 	}
 	return b.String()
 }
@@ -365,7 +363,7 @@ func tshark(ctx context.Context, args ...string) (string, error) {
 	return podmanComposeWithProfiles(ctx, []string{"tools"}, all...)
 }
 
-func mappedPort(t *testing.T, ctx context.Context, service, port string) string {
+func mappedPort(ctx context.Context, t *testing.T, service, port string) string {
 	t.Helper()
 	out, err := podmanCompose(ctx, "port", service, port)
 	if err != nil {
@@ -397,7 +395,8 @@ func podmanComposeWithProfiles(ctx context.Context, profiles []string, args ...s
 	if composeFile == "" {
 		composeFile = "test/e2e/core/compose.yml"
 	}
-	all := []string{"-p", project, "-f", composeFile}
+	all := make([]string, 0, 4+2*len(profiles)+len(args))
+	all = append(all, "-p", project, "-f", composeFile)
 	for _, profile := range profiles {
 		all = append(all, "--profile", profile)
 	}

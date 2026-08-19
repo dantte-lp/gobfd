@@ -10,6 +10,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"syscall"
@@ -58,14 +59,18 @@ func main() {
 func setUDPTTL(conn *net.UDPConn, ttl int) error {
 	rawConn, err := conn.SyscallConn()
 	if err != nil {
-		return err
+		return fmt.Errorf("get UDP socket control connection: %w", err)
 	}
 
 	var sockErr error
 	if err := rawConn.Control(func(fd uintptr) {
 		sockErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TTL, ttl)
 	}); err != nil {
-		return err
+		return fmt.Errorf("control UDP socket: %w", err)
 	}
-	return sockErr
+	if sockErr != nil {
+		return fmt.Errorf("set UDP socket TTL to %d: %w", ttl, sockErr)
+	}
+
+	return nil
 }

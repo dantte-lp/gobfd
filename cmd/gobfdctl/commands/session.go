@@ -21,8 +21,10 @@ const (
 
 // Sentinel errors for CLI validation.
 var (
-	errPeerRequired               = errors.New("--peer flag is required")
-	errUnknownSessionType         = errors.New("unknown session type, expected " + sessionTypeSingleHop + " or " + sessionTypeMultiHop)
+	errPeerRequired       = errors.New("--peer flag is required")
+	errUnknownSessionType = errors.New(
+		"unknown session type, expected " + sessionTypeSingleHop + " or " + sessionTypeMultiHop,
+	)
 	errUnknownAuthType            = errors.New("unknown auth type")
 	errAuthSecretRequired         = errors.New("--auth-secret is required when --auth-type is enabled")
 	errAuthKeyMaterialWithoutType = errors.New("--auth-key-id or --auth-secret requires --auth-type")
@@ -162,7 +164,12 @@ func bindSessionAddFlags(cmd *cobra.Command, opts *addSessionOptions) {
 	flags.StringVar(&opts.peer, "peer", "", "peer IP address (required)")
 	flags.StringVar(&opts.local, "local", "", "local IP address")
 	flags.StringVar(&opts.iface, "interface", "", "network interface name")
-	flags.StringVar(&opts.sessType, "type", opts.sessType, "session type: "+sessionTypeSingleHop+" or "+sessionTypeMultiHop)
+	flags.StringVar(
+		&opts.sessType,
+		"type",
+		opts.sessType,
+		"session type: "+sessionTypeSingleHop+" or "+sessionTypeMultiHop,
+	)
 	flags.DurationVar(&opts.txInterval, "tx-interval", opts.txInterval, "desired minimum TX interval")
 	flags.DurationVar(&opts.rxInterval, "rx-interval", opts.rxInterval, "required minimum RX interval")
 	flags.Uint32Var(&opts.detectMult, "detect-mult", opts.detectMult, "detection multiplier (RFC 5880 Section 6.1)")

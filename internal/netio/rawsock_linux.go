@@ -526,7 +526,7 @@ func (a *SourcePortAllocator) Allocate() (uint16, error) {
 func randomPortOffset(portSpan int) (int, error) {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(portSpan)))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("generate random source port offset: %w", err)
 	}
 	return int(n.Int64()), nil
 }

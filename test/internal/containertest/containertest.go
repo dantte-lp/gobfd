@@ -28,9 +28,15 @@ func RequirePodman(tb testing.TB) string {
 	endpoint, found := resolvePodmanEndpoint(os.Getenv, isSocket)
 	if !found {
 		if envTrue(os.Getenv("GOBFD_REQUIRE_PODMAN")) {
-			tb.Fatal("Podman socket is required but was not found; start podman.socket or set DOCKER_HOST, PODMAN_HOST, or CONTAINER_HOST to an existing unix:// socket")
+			tb.Fatal(
+				"Podman socket is required but was not found; start podman.socket or set " +
+					"DOCKER_HOST, PODMAN_HOST, or CONTAINER_HOST to an existing unix:// socket",
+			)
 		}
-		tb.Skip("Podman socket not found; start podman.socket or set DOCKER_HOST, PODMAN_HOST, or CONTAINER_HOST to an existing unix:// socket")
+		tb.Skip(
+			"Podman socket not found; start podman.socket or set DOCKER_HOST, PODMAN_HOST, " +
+				"or CONTAINER_HOST to an existing unix:// socket",
+		)
 		return ""
 	}
 	if os.Getenv("DOCKER_HOST") != endpoint {

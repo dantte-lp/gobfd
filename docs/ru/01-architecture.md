@@ -298,7 +298,7 @@ gobfd/
 | Метрики | Prometheus `client_golang` | Счётчики, gauge, гистограммы |
 | Логирование | `log/slog` (stdlib) | Структурированное JSON/text логирование |
 | Protobuf | buf CLI | Линтинг, проверка совместимости, генерация кода |
-| Линтинг | golangci-lint v2 | 35+ линтеров, строгая конфигурация |
+| Линтинг | golangci-lint v2.12.2 | 92 значимых линтера, проверка схемы и матрицы build tags |
 | Релизы | GoReleaser v2 | Бинарники + deb/rpm + контейнерные образы |
 | Контейнеры | Podman + Podman Compose | Разработка и тестирование |
 | systemd | Type=notify, watchdog | Жизненный цикл production-демона |

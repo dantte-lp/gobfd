@@ -84,8 +84,9 @@ func startCoreTopology(t *testing.T, endpoint string) *coreTopology {
 	networkName := fmt.Sprintf("gobfd-e2e-core-%d", time.Now().UnixNano())
 	imageName := fmt.Sprintf("localhost/gobfd-e2e-core:test-%d", time.Now().UnixNano())
 	buildContext := prepareBuildContext(t, root)
-	builtImage := buildCoreImage(t, ctx, endpoint, buildContext, imageName)
-	_, err := containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{ //nolint:staticcheck // explicit provider and IPAM require the v0.44 API
+	builtImage := buildCoreImage(ctx, t, endpoint, buildContext, imageName)
+	//nolint:staticcheck // Explicit provider and IPAM require the v0.44 API.
+	_, err := containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
 		Name:   networkName,
 		Driver: "bridge",
 		Labels: map[string]string{"io.gobfd.test": "e2e-core"},
@@ -99,8 +100,8 @@ func startCoreTopology(t *testing.T, endpoint string) *coreTopology {
 	}
 
 	topology := &coreTopology{daemons: make(map[string]coreDaemon, 2), imageName: builtImage, networkName: networkName}
-	daemonA := startCoreDaemon(t, ctx, builtImage, networkName, "gobfd-a", gobfdAIP, gobfdBIP)
-	assertDaemonIsolation(t, ctx, endpoint, daemonA.container, networkName, gobfdAIP)
+	daemonA := startCoreDaemon(ctx, t, builtImage, networkName, "gobfd-a", gobfdAIP, gobfdBIP)
+	assertDaemonIsolation(ctx, t, endpoint, daemonA.container, networkName, gobfdAIP)
 	topology.daemons["gobfd-a"] = daemonA
 	inspection, err := daemonA.container.Inspect(ctx)
 	if err != nil {
@@ -109,15 +110,15 @@ func startCoreTopology(t *testing.T, endpoint string) *coreTopology {
 	if inspection.Image == "" {
 		t.Fatal("gobfd-a inspection returned an empty image ID")
 	}
-	daemonB := startCoreDaemon(t, ctx, inspection.Image, networkName, "gobfd-b", gobfdBIP, gobfdAIP)
-	assertDaemonIsolation(t, ctx, endpoint, daemonB.container, networkName, gobfdBIP)
+	daemonB := startCoreDaemon(ctx, t, inspection.Image, networkName, "gobfd-b", gobfdBIP, gobfdAIP)
+	assertDaemonIsolation(ctx, t, endpoint, daemonB.container, networkName, gobfdBIP)
 	topology.daemons["gobfd-b"] = daemonB
 	return topology
 }
 
 func startCoreDaemon(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	imageName string,
 	networkName, name, localIP, peerIP string,
 ) coreDaemon {
@@ -154,7 +155,7 @@ func startCoreDaemon(
 		},
 	}
 	daemon, err := containertest.Run(ctx, t, request)
-	captureContainerLogsOnFailure(t, ctx, daemon, name)
+	captureContainerLogsOnFailure(ctx, t, daemon, name)
 	if err != nil {
 		t.Fatalf("start %s: %v", name, err)
 	}
@@ -184,7 +185,8 @@ func prepareBuildContext(t *testing.T, root string) string {
 			t.Fatalf("copy %s into bounded build context: %v", name, err)
 		}
 	}
-	const containerfile = `FROM docker.io/library/golang:1.26.6-trixie@sha256:b75d466dd608587fd66cca705a307ba65b889827d06ad61d6a75f0482b51b7c7
+	const containerfile = `FROM docker.io/library/golang:1.26.6-trixie@sha256:` +
+		`b75d466dd608587fd66cca705a307ba65b889827d06ad61d6a75f0482b51b7c7
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -221,8 +223,8 @@ func copyBuildFile(source, destination string) error {
 }
 
 func buildCoreImage(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	endpoint, buildContext, imageName string,
 ) string {
 	t.Helper()
@@ -266,8 +268,8 @@ func buildCoreImage(
 }
 
 func assertDaemonIsolation(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	podmanEndpoint string,
 	daemon testcontainers.Container,
 	networkName, wantIP string,
@@ -292,7 +294,7 @@ func assertDaemonIsolation(
 	if !slices.Equal(gotCaps, wantCaps) {
 		t.Fatalf("daemon CapAdd = %v, want exactly %v", gotCaps, wantCaps)
 	}
-	assertEffectiveCapabilities(t, ctx, podmanEndpoint, daemon.GetContainerID())
+	assertEffectiveCapabilities(ctx, t, podmanEndpoint, daemon.GetContainerID())
 	if inspection.NetworkSettings == nil {
 		t.Fatal("daemon inspection has nil NetworkSettings")
 	}
@@ -305,7 +307,7 @@ func assertDaemonIsolation(
 	}
 }
 
-func assertEffectiveCapabilities(t *testing.T, ctx context.Context, endpoint, containerID string) {
+func assertEffectiveCapabilities(ctx context.Context, t *testing.T, endpoint, containerID string) {
 	t.Helper()
 
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
@@ -397,8 +399,8 @@ func (topology *coreTopology) requireSessionUp(t *testing.T, name, peerIP string
 }
 
 func captureContainerLogsOnFailure(
-	t *testing.T,
 	parent context.Context,
+	t *testing.T,
 	daemon testcontainers.Container,
 	name string,
 ) {

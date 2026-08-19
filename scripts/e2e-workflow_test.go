@@ -1,3 +1,4 @@
+// Package main tests the end-to-end workflow validation helper.
 package main
 
 import (

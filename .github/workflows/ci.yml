@@ -92,7 +92,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: golangci-lint v2
-        run: go tool golangci-lint run ./...
+        run: make lint-ci
 
   lint-docs:
     name: Lint (docs)

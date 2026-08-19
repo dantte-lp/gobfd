@@ -281,7 +281,7 @@ gobfd/
 | Metrics | Prometheus `client_golang` | Counters, gauges, histograms |
 | Logging | `log/slog` (stdlib) | Structured JSON/text logging |
 | Protobuf | buf CLI | Lint, breaking detection, code generation |
-| Lint | golangci-lint v2 | 35+ linters, strict configuration |
+| Lint | golangci-lint v2.12.2 | 92 signal-bearing linters, schema and build-tag matrix gates |
 | Release | GoReleaser v2 | Binaries + deb/rpm + container images |
 | Containers | Podman + Podman Compose | Development and testing |
 | systemd | Type=notify, watchdog | Production daemon lifecycle |

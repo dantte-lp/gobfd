@@ -25,6 +25,8 @@ import (
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 )
 
+const systemdWatchdogTickDivisor = 2
+
 // shutdownTimeout is the maximum time to wait for HTTP servers to drain
 // active connections during graceful shutdown.
 const shutdownTimeout = 10 * time.Second
@@ -296,7 +298,7 @@ func runWatchdog(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	// Send keepalive at half the watchdog interval.
-	tickInterval := interval / 2
+	tickInterval := interval / systemdWatchdogTickDivisor
 	logger.Info("systemd watchdog enabled",
 		slog.Duration("watchdog_sec", interval),
 		slog.Duration("keepalive_interval", tickInterval),
