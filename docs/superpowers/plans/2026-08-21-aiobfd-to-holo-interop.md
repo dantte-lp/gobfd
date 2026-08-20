@@ -4,7 +4,7 @@
 
 **Goal:** Remove aiobfd and its Python benchmark surface, then preserve the four-peer BFD interoperability gate with immutable Holo v0.9.0 and fresh lifecycle evidence.
 
-**Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`; Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
+**Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`. The shell runner starts Holo in a separate bounded phase and requires the loader's inspected exit status to be exactly zero before starting GoBFD because podman-compose 1.5.0 and 1.6.0 reduce `service_completed_successfully` to the `stopped` state without checking the exit code. Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
 
 **Tech Stack:** Go 1.27, Go test/race, gopls, golangci-lint v2, Podman, the repository's pinned `podman-compose` provider, Docker Compose semantics, Holo v0.9.0, RFC 5880/5881, RFC 9314 YANG, tshark.
 
@@ -13,11 +13,13 @@
 ## File Map
 
 - Create `test/interop/topology_contract_test.go`: ordinary Go contract tests for the Compose and Holo configuration surfaces.
+- Create `test/interop/topology_contract_negative_test.go`: fail-closed malformed Compose and noncanonical Holo configuration cases.
+- Create `test/interop/runner_startup_contract_test.go`: controlled fake-command proof that loader failure cannot start GoBFD.
 - Create `test/interop/holo/holod.toml`: test-only Holo daemon, logging, and northbound configuration.
 - Create `test/interop/holo/holo.startup`: IETF interface and BFD YANG commands applied by `holo-cli`.
 - Modify `test/interop/compose.yml`: replace aiobfd with `holo` and one-shot `holo-config` services.
 - Modify `test/interop/interop_test.go`: rename peer helpers and add fresh Holo lifecycle/API evidence.
-- Modify `test/interop/run.sh`: retain the legacy shell gate with Holo names, readiness, diagnostics, and bounded cleanup.
+- Modify `test/interop/run.sh`: enforce fail-closed two-phase startup, then retain the legacy shell gate with Holo names and diagnostics.
 - Modify `test/e2e/routing/run.sh`, `test/e2e/targets.md`, and `Makefile`: correct service inventories, project ownership, and gate names.
 - Delete `test/interop/aiobfd/Containerfile`: remove the abandoned peer build.
 - Delete `bench/Containerfile.python` and `bench/python/`: remove repo-owned Python/bitstring benchmarks.
@@ -39,16 +41,21 @@ Never use broad directory staging.
 
 **Files:**
 - Create: `test/interop/topology_contract_test.go`
+- Create: `test/interop/topology_contract_negative_test.go`
+- Create: `test/interop/runner_startup_contract_test.go`
 - Create: `test/interop/holo/holod.toml`
 - Create: `test/interop/holo/holo.startup`
 - Modify: `test/interop/compose.yml`
+- Modify: `test/interop/run.sh`
+- Modify: `docs/superpowers/plans/2026-08-21-aiobfd-to-holo-interop.md`
 - Delete: `test/interop/aiobfd/Containerfile`
 
 - [ ] **Step 1: Write the failing topology contract test**
 
-Add an untagged `interop_test` test file. Resolve the repository root from
-`runtime.Caller`, decode `test/interop/compose.yml` with the existing
-`go.yaml.in/yaml/v3` dependency, and assert:
+Add untagged `interop_test` contract files. Resolve the repository root by
+walking upward from the working directory to a validated `go.mod`, including
+under `go test -trimpath`. Decode the selected Compose nodes strictly with the
+existing `go.yaml.in/yaml/v3` dependency and assert:
 
 ```go
 const holoImage = "ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a"
@@ -164,8 +171,15 @@ command: ["--address", "http://holo:50051", "--file", "/etc/holo.startup"]
 ```
 
 Make `gobfd` depend on `holo-config` with
-`condition: service_completed_successfully`. This prevents any daemon or test
-from treating the topology as ready when the YANG loader has not exited zero.
+`condition: service_completed_successfully` for standards-compliant Compose
+providers. podman-compose 1.5.0 and 1.6.0 translate that condition to `stopped`
+and do not inspect the exit code, so the repository runner must not treat the
+declarative edge as a success gate. It builds first, starts only `holo` and
+`holo-config`, waits with a bounded `podman wait`, parses and cross-checks the
+exact status from bounded `podman inspect`, and prints both services'
+diagnostics on any wait, parse, mismatch, or non-zero failure. Only an exact
+zero permits a second `up --no-deps` command to start GoBFD and the remaining
+peers.
 
 Delete the aiobfd Containerfile with `apply_patch`; do not use filesystem-wide
 delete commands.
@@ -175,11 +189,14 @@ delete commands.
 Run:
 
 ```bash
+bash -n test/interop/run.sh
 podman-compose -f test/interop/compose.yml config
 go test -race -count=1 ./test/interop/
+go test -trimpath -race -count=1 ./test/interop/
 ```
 
-Expected: Compose renders both Holo services and the Go contract test passes.
+Expected: the runner parses, Compose renders both Holo services, and both Go
+contract variants pass.
 
 - [ ] **Step 6: Commit the topology slice**
 
@@ -192,6 +209,20 @@ git commit -m "test: replace aiobfd topology with Holo"
 ```
 
 Expected staged paths are only the five topology paths above.
+
+- [ ] **Step 7: Commit the provider-contract correction**
+
+```bash
+git add test/interop/topology_contract_negative_test.go test/interop/runner_startup_contract_test.go
+git add -p -- test/interop/topology_contract_test.go test/interop/run.sh docs/superpowers/plans/2026-08-21-aiobfd-to-holo-interop.md
+git diff --cached --name-only
+git diff --cached
+git commit -m "test: fail closed on Holo configuration"
+```
+
+Expected staged paths are the two new contract files plus the three partially
+staged correction files. The existing dependency-refresh edits in `run.sh`
+remain unstaged.
 
 ### Task 2: Add Fresh Holo Lifecycle Evidence to the Go Suite
 
@@ -290,9 +321,10 @@ failure against the old runner.
 Rename the shell constants, handshake functions, tshark filters, discriminator
 variables, peer loops, banners, service lists, and E2E container inventory.
 When readiness or handshake fails, print `holo`, `holo-config`, and
-`/tmp/holod.err` diagnostics. After Compose startup, inspect `holo-config` and
-require exit code zero before entering any handshake test even though the
-Compose dependency graph also gates `gobfd` on successful completion.
+`/tmp/holod.err` diagnostics. Retain the Task 1 two-phase startup and exact
+zero-exit check. Task 3 may add project ownership and broader diagnostics
+around it, but must not collapse it back into a single Compose startup or rely
+on the declarative dependency.
 
 - [ ] **Step 3: Define and enforce exact project ownership**
 
@@ -523,6 +555,13 @@ uses a new post-boundary packet.
 
 The E2E runner's Task 3 guard must reject a zero-test JSON stream inside
 `make e2e-routing`; confirm the guard executed from the saved suite artifacts.
+
+Before accepting the successful interop run, execute a live negative case with
+a temporary Compose override that mounts an invalid Holo startup file. Require
+the runner to exit non-zero, verify `gobfd-interop` was never created or
+started, capture Holo and loader diagnostics, and clean up the exact test
+project. This validates the real Podman lifecycle in addition to the
+deterministic fake-command contract test.
 
 - [ ] **Step 4: Verify post-run cleanup**
 

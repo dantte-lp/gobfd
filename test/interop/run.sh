@@ -253,11 +253,57 @@ wait_thoro_up() {
 # Build & Start
 # ---------------------------------------------------------------------------
 
-info "building container images"
-${DC} build --no-cache
+dump_holo_startup_diagnostics() {
+    info "=== Holo startup diagnostics ==="
+    timeout 10s podman-compose -f "${COMPOSE_FILE}" ps 2>&1 || true
+    timeout 10s podman-compose -f "${COMPOSE_FILE}" logs --tail 100 holo holo-config 2>&1 || true
+    timeout 10s podman inspect holo-config-interop 2>&1 || true
+}
 
-info "starting interop test stack"
-${DC} up -d
+fail_holo_startup() {
+    fail "$1"
+    dump_holo_startup_diagnostics
+    exit 1
+}
+
+info "building container images"
+timeout 10m podman-compose -f "${COMPOSE_FILE}" build --no-cache
+
+info "starting Holo daemon and one-shot configuration loader"
+if ! timeout 2m podman-compose -f "${COMPOSE_FILE}" up -d holo holo-config; then
+    fail_holo_startup "failed to start Holo configuration phase"
+fi
+
+holo_wait_status=""
+if ! holo_wait_status="$(timeout 45s podman wait holo-config-interop 2>&1)"; then
+    fail_holo_startup "timed out or failed waiting for holo-config-interop"
+fi
+holo_wait_status="${holo_wait_status#"${holo_wait_status%%[![:space:]]*}"}"
+holo_wait_status="${holo_wait_status%"${holo_wait_status##*[![:space:]]}"}"
+
+holo_inspect_status=""
+if ! holo_inspect_status="$(timeout 10s podman inspect --format '{{.State.ExitCode}}' holo-config-interop 2>&1)"; then
+    fail_holo_startup "failed to inspect holo-config-interop exit status"
+fi
+holo_inspect_status="${holo_inspect_status#"${holo_inspect_status%%[![:space:]]*}"}"
+holo_inspect_status="${holo_inspect_status%"${holo_inspect_status##*[![:space:]]}"}"
+
+if [[ ! "${holo_wait_status}" =~ ^[0-9]+$ ]]; then
+    fail_holo_startup "invalid holo-config wait status: ${holo_wait_status}"
+fi
+if [[ ! "${holo_inspect_status}" =~ ^[0-9]+$ ]]; then
+    fail_holo_startup "invalid holo-config inspect status: ${holo_inspect_status}"
+fi
+if [[ "${holo_wait_status}" != "${holo_inspect_status}" ]]; then
+    fail_holo_startup \
+        "holo-config status mismatch: wait=${holo_wait_status}, inspect=${holo_inspect_status}"
+fi
+if [[ "${holo_inspect_status}" != "0" ]]; then
+    fail_holo_startup "holo-config exited with status ${holo_inspect_status}"
+fi
+
+info "starting GoBFD and remaining interop peers"
+timeout 2m podman-compose -f "${COMPOSE_FILE}" up -d --no-deps gobfd frr bird3 tshark thoro
 
 info "waiting for containers to start (10s)"
 sleep 10
