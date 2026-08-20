@@ -1,8 +1,8 @@
 //go:build interop
 
 // Package interop_test provides Go-driven interoperability tests for GoBFD
-// against FRR (bfdd) and BIRD3, with comprehensive RFC 5880/5881 validation
-// via tshark packet capture analysis.
+// against FRR (bfdd), BIRD3, Holo, and Thoro/bfd, with comprehensive RFC
+// 5880/5881 validation via tshark packet capture analysis.
 //
 // Run with:
 //
@@ -10,13 +10,14 @@
 //
 // Prerequisites:
 //   - podman-compose -f test/interop/compose.yml up --build -d
-//   - All four containers (gobfd, frr, bird3, tshark) must be running.
+//   - The gobfd, frr, bird3, Holo, Thoro/bfd, and tshark services must be ready.
 package interop_test
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -30,20 +31,38 @@ import (
 )
 
 const (
-	gobfdIP  = "172.20.0.10"
-	frrIP    = "172.20.0.20"
-	bird3IP  = "172.20.0.30"
-	scapyIP  = "172.20.0.40"
-	aiobfdIP = "172.20.0.50"
-	thoroIP  = "172.20.0.60"
+	gobfdIP = "172.20.0.10"
+	frrIP   = "172.20.0.20"
+	bird3IP = "172.20.0.30"
+	scapyIP = "172.20.0.40"
+	holoIP  = "172.20.0.50"
+	thoroIP = "172.20.0.60"
 
 	pollInterval = 2 * time.Second
+	holoTraffic  = "bfd && ((ip.src == " + holoIP + " && ip.dst == " + gobfdIP +
+		") || (ip.src == " + gobfdIP + " && ip.dst == " + holoIP + "))"
+	holoUpPackets = "bfd && ip.src == " + holoIP + " && ip.dst == " + gobfdIP +
+		" && bfd.sta == 0x03"
 
 	// scapyImage is the image name for the Scapy BFD fuzzer.
 	// Built with podman build (not compose) to avoid compose's "run"
 	// behavior that tears down and recreates the entire stack.
 	scapyImage = "gobfd-scapy-fuzz:latest"
 )
+
+var (
+	errSessionStateNotFound   = errors.New("session state not found")
+	errHoloFrameNotFound      = errors.New("holo BFD frame not found")
+	errHoloConfigExitMismatch = errors.New("holo config exit status mismatch")
+	errHoloConfigFailed       = errors.New("holo config failed")
+)
+
+type sessionState struct {
+	PeerAddress     string `json:"peer_address"`
+	LocalState      string `json:"local_state"`
+	RemoteState     string `json:"remote_state"`
+	LocalDiagnostic string `json:"local_diagnostic"`
+}
 
 // =========================================================================
 // Infrastructure helpers
@@ -56,6 +75,26 @@ func composeFile() string {
 	return "test/interop/compose.yml"
 }
 
+func parseSessionState(data []byte, peer string) (sessionState, error) {
+	var state sessionState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return sessionState{}, fmt.Errorf("decode gobfdctl session state for peer %s: %w", peer, err)
+	}
+	if state.PeerAddress != peer {
+		return sessionState{}, fmt.Errorf(
+			"gobfdctl output contains peer %q, want %q: %w",
+			state.PeerAddress,
+			peer,
+			errSessionStateNotFound,
+		)
+	}
+	return state, nil
+}
+
+func frameBoundary(filter string, baseline uint64) string {
+	return fmt.Sprintf("(%s) && frame.number > %d", filter, baseline)
+}
+
 func podmanCompose(ctx context.Context, args ...string) (string, error) {
 	allArgs := append([]string{"-f", composeFile()}, args...)
 	cmd := exec.CommandContext(ctx, "podman-compose", allArgs...)
@@ -64,6 +103,195 @@ func podmanCompose(ctx context.Context, args ...string) (string, error) {
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	return buf.String(), err
+}
+
+func podmanCommand(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "podman", args...)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.String(), err
+}
+
+func gobfdSessionState(ctx context.Context, peer string) (sessionState, error) {
+	output, err := podmanCompose(
+		ctx,
+		"exec", "-T", "gobfd",
+		"/bin/gobfdctl", "--addr", "127.0.0.1:50051",
+		"session", "show", peer, "--format", "json",
+	)
+	if err != nil {
+		return sessionState{}, fmt.Errorf(
+			"show current GoBFD session for Holo peer %s: %w: %s",
+			peer,
+			err,
+			strings.TrimSpace(output),
+		)
+	}
+
+	state, err := parseSessionState([]byte(output), peer)
+	if err != nil {
+		return sessionState{}, fmt.Errorf("parse current GoBFD session for Holo peer %s: %w", peer, err)
+	}
+	return state, nil
+}
+
+func waitForSessionState(
+	ctx context.Context,
+	peer string,
+	timeout time.Duration,
+	accept func(sessionState) bool,
+) (sessionState, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var (
+		last    sessionState
+		lastErr error
+	)
+	for {
+		state, err := gobfdSessionState(waitCtx, peer)
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = nil
+			last = state
+			if accept(state) {
+				return state, nil
+			}
+		}
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				waitErr := errors.Join(waitCtx.Err(), lastErr)
+				return last, fmt.Errorf(
+					"wait for current GoBFD session state for peer %s: %w",
+					peer,
+					waitErr,
+				)
+			}
+			return last, fmt.Errorf(
+				"wait for current GoBFD session state for peer %s; last state=%+v: %w",
+				peer,
+				last,
+				waitCtx.Err(),
+			)
+		case <-timer.C:
+		}
+	}
+}
+
+func waitForHoloHealth(ctx context.Context, timeout time.Duration) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var (
+		lastStatus string
+		lastErr    error
+	)
+	for {
+		output, err := podmanCommand(
+			waitCtx,
+			"inspect", "--format", "{{.State.Health.Status}}", "holo-interop",
+		)
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = nil
+			lastStatus = strings.TrimSpace(output)
+			if lastStatus == "healthy" {
+				return nil
+			}
+		}
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				waitErr := errors.Join(waitCtx.Err(), lastErr)
+				return fmt.Errorf(
+					"wait for Holo health: %w",
+					waitErr,
+				)
+			}
+			return fmt.Errorf(
+				"wait for Holo health; last status=%q: %w",
+				lastStatus,
+				waitCtx.Err(),
+			)
+		case <-timer.C:
+		}
+	}
+}
+
+func parseContainerExitCode(output string) (uint64, error) {
+	status, err := strconv.ParseUint(strings.TrimSpace(output), 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("parse container exit code %q: %w", strings.TrimSpace(output), err)
+	}
+	return status, nil
+}
+
+func startAndConfigureHolo(ctx context.Context) error {
+	startCtx, cancelStart := context.WithTimeout(ctx, 30*time.Second)
+	output, err := podmanCompose(startCtx, "start", "holo")
+	cancelStart()
+	if err != nil {
+		return fmt.Errorf("start Holo service: %w: %s", err, strings.TrimSpace(output))
+	}
+	if healthErr := waitForHoloHealth(ctx, 30*time.Second); healthErr != nil {
+		return fmt.Errorf("Holo service did not become ready: %w", healthErr)
+	}
+
+	configCtx, cancelConfig := context.WithTimeout(ctx, 2*time.Minute)
+	output, err = podmanCompose(configCtx, "up", "-d", "--no-deps", "--force-recreate", "holo-config")
+	cancelConfig()
+	if err != nil {
+		return fmt.Errorf("recreate Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(output))
+	}
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 45*time.Second)
+	waitOutput, err := podmanCommand(waitCtx, "wait", "holo-config-interop")
+	cancelWait()
+	if err != nil {
+		return fmt.Errorf("wait for Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(waitOutput))
+	}
+	waitStatus, err := parseContainerExitCode(waitOutput)
+	if err != nil {
+		return fmt.Errorf("read Holo configuration wait status: %w", err)
+	}
+
+	inspectCtx, cancelInspect := context.WithTimeout(ctx, 10*time.Second)
+	inspectOutput, err := podmanCommand(
+		inspectCtx,
+		"inspect", "--format", "{{.State.ExitCode}}", "holo-config-interop",
+	)
+	cancelInspect()
+	if err != nil {
+		return fmt.Errorf("inspect Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(inspectOutput))
+	}
+	inspectStatus, err := parseContainerExitCode(inspectOutput)
+	if err != nil {
+		return fmt.Errorf("read Holo configuration inspect status: %w", err)
+	}
+
+	if waitStatus != inspectStatus {
+		return fmt.Errorf(
+			"Holo configuration wait status %d differs from inspect status %d: %w",
+			waitStatus,
+			inspectStatus,
+			errHoloConfigExitMismatch,
+		)
+	}
+	if inspectStatus != 0 {
+		return fmt.Errorf("Holo configuration exited with status %d: %w", inspectStatus, errHoloConfigFailed)
+	}
+	return nil
 }
 
 func frrVtysh(ctx context.Context, command string) (string, error) {
@@ -124,33 +352,48 @@ func bird3BFDSessionUp(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func waitForCondition(t *testing.T, desc string, timeout time.Duration, fn func() (bool, error)) {
+func waitForCondition(
+	ctx context.Context,
+	t *testing.T,
+	desc string,
+	timeout time.Duration,
+	fn func(context.Context) (bool, error),
+) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	var lastErr error
 
-	for time.Now().Before(deadline) {
-		ok, err := fn()
+	for {
+		ok, err := fn(waitCtx)
 		if err != nil {
 			lastErr = err
+		} else {
+			lastErr = nil
 		}
 		if ok {
 			return
 		}
-		time.Sleep(pollInterval)
-	}
 
-	if lastErr != nil {
-		t.Fatalf("condition %q not met within %v: last error: %v", desc, timeout, lastErr)
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				t.Fatalf("condition %q not met within %v: last error: %v", desc, timeout, lastErr)
+			}
+			t.Fatalf("condition %q not met within %v: %v", desc, timeout, waitCtx.Err())
+		case <-timer.C:
+		}
 	}
-	t.Fatalf("condition %q not met within %v", desc, timeout)
 }
 
 // waitFRRUp waits for the FRR BFD session to reach Up state.
 func waitFRRUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
-	waitForCondition(t, "FRR BFD session Up", timeout, func() (bool, error) {
-		status, err := frrBFDPeerStatus(ctx)
+	waitForCondition(ctx, t, "FRR BFD session Up", timeout, func(pollCtx context.Context) (bool, error) {
+		status, err := frrBFDPeerStatus(pollCtx)
 		if err != nil {
 			return false, err
 		}
@@ -161,28 +404,22 @@ func waitFRRUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 // waitBIRD3Up waits for the BIRD3 BFD session to reach Up state.
 func waitBIRD3Up(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
-	waitForCondition(t, "BIRD3 BFD session Up", timeout, func() (bool, error) {
-		return bird3BFDSessionUp(ctx)
-	})
+	waitForCondition(ctx, t, "BIRD3 BFD session Up", timeout, bird3BFDSessionUp)
 }
 
-// aiobfdSessionUp checks if the GoBFD <-> aiobfd session is Up
-// by looking for Up packets from aiobfd in the tshark capture.
-func aiobfdSessionUp(ctx context.Context) (bool, error) {
-	count, err := tsharkCount(ctx,
-		"bfd && ip.src == "+aiobfdIP+" && ip.dst == "+gobfdIP+" && bfd.sta == 0x03")
+// holoSessionUp checks the current GoBFD API view of the GoBFD <-> Holo session.
+func holoSessionUp(ctx context.Context) (bool, error) {
+	state, err := gobfdSessionState(ctx, holoIP)
 	if err != nil {
 		return false, err
 	}
-	return count > 0, nil
+	return state.LocalState == "Up" && state.RemoteState == "Up", nil
 }
 
-// waitAiobfdUp waits for the aiobfd BFD session to reach Up state.
-func waitAiobfdUp(ctx context.Context, t *testing.T, timeout time.Duration) {
+// waitHoloUp waits for the Holo BFD session to reach Up state.
+func waitHoloUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
-	waitForCondition(t, "aiobfd BFD session Up", timeout, func() (bool, error) {
-		return aiobfdSessionUp(ctx)
-	})
+	waitForCondition(ctx, t, "Holo BFD session Up", timeout, holoSessionUp)
 }
 
 // thoroSessionUp checks if the GoBFD <-> Thoro/bfd session is Up
@@ -309,6 +546,78 @@ func tsharkCount(ctx context.Context, filter string) (int, error) {
 	return len(strings.Split(output, "\n")), nil
 }
 
+func lastHoloFrame(ctx context.Context) (uint64, error) {
+	rows, err := tsharkFields(ctx, holoTraffic, []string{"frame.number"}, 0)
+	if err != nil {
+		return 0, fmt.Errorf("read captured Holo BFD frame numbers: %w", err)
+	}
+
+	var last uint64
+	for i, row := range rows {
+		if len(row) == 0 || strings.TrimSpace(row[0]) == "" {
+			continue
+		}
+		frame, err := strconv.ParseUint(strings.TrimSpace(row[0]), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse captured Holo BFD frame number at row %d: %w", i, err)
+		}
+		if frame > last {
+			last = frame
+		}
+	}
+	if last == 0 {
+		return 0, fmt.Errorf("filter %q: %w", holoTraffic, errHoloFrameNotFound)
+	}
+	return last, nil
+}
+
+func waitForNewHoloUpPacket(ctx context.Context, baseline uint64, timeout time.Duration) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	filter := frameBoundary(holoUpPackets, baseline)
+	var lastErr error
+	for {
+		count, err := tsharkCount(waitCtx, filter)
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = nil
+			if count > 0 {
+				return nil
+			}
+		}
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				waitErr := errors.Join(waitCtx.Err(), lastErr)
+				return fmt.Errorf(
+					"wait for new Holo-originated Up packet after frame %d: %w",
+					baseline,
+					waitErr,
+				)
+			}
+			return fmt.Errorf(
+				"wait for new Holo-originated Up packet after frame %d with filter %q: %w",
+				baseline,
+				filter,
+				waitCtx.Err(),
+			)
+		case <-timer.C:
+		}
+	}
+}
+
+func requireNewHoloUpPacket(ctx context.Context, t *testing.T, baseline uint64, timeout time.Duration) {
+	t.Helper()
+	if err := waitForNewHoloUpPacket(ctx, baseline, timeout); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // assertNoPackets fails the test if any packets match the display filter.
 // Used for negative assertions (e.g., "no packets with TTL != 255").
 func assertNoPackets(ctx context.Context, t *testing.T, filter, desc string) {
@@ -379,6 +688,160 @@ func lastNLines(s string, n int) string {
 	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
+func TestParseSessionState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		json []byte
+		peer string
+		want sessionState
+	}{
+		{
+			name: "up",
+			json: []byte(`{
+				"peer_address": "172.20.0.50",
+				"local_address": "172.20.0.10",
+				"type": "single-hop",
+				"local_state": "Up",
+				"remote_state": "Up",
+				"local_diagnostic": "None",
+				"local_discriminator": 101,
+				"remote_discriminator": 202
+			}`),
+			peer: "172.20.0.50",
+			want: sessionState{
+				PeerAddress:     "172.20.0.50",
+				LocalState:      "Up",
+				RemoteState:     "Up",
+				LocalDiagnostic: "None",
+			},
+		},
+		{
+			name: "control detection time expired",
+			json: []byte(`{
+				"peer_address": "172.20.0.50",
+				"local_state": "Down",
+				"remote_state": "Up",
+				"local_diagnostic": "ControlTimeExpired"
+			}`),
+			peer: "172.20.0.50",
+			want: sessionState{
+				PeerAddress:     "172.20.0.50",
+				LocalState:      "Down",
+				RemoteState:     "Up",
+				LocalDiagnostic: "ControlTimeExpired",
+			},
+		},
+		{
+			name: "duplicate field keeps last value",
+			json: []byte(`{
+				"peer_address": "172.20.0.50",
+				"local_state": "Down",
+				"local_state": "Up",
+				"remote_state": "Up",
+				"local_diagnostic": "None"
+			}`),
+			peer: "172.20.0.50",
+			want: sessionState{
+				PeerAddress:     "172.20.0.50",
+				LocalState:      "Up",
+				RemoteState:     "Up",
+				LocalDiagnostic: "None",
+			},
+		},
+		{
+			name: "invalid UTF-8 uses replacement character",
+			json: []byte(
+				"{\"peer_address\":\"172.20.0.\xff\"," +
+					"\"local_state\":\"Down\",\"remote_state\":\"Down\"," +
+					"\"local_diagnostic\":\"None\"}",
+			),
+			peer: "172.20.0.\ufffd",
+			want: sessionState{
+				PeerAddress:     "172.20.0.\ufffd",
+				LocalState:      "Down",
+				RemoteState:     "Down",
+				LocalDiagnostic: "None",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseSessionState(tt.json, tt.peer)
+			if err != nil {
+				t.Fatalf("parseSessionState() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("parseSessionState() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("malformed JSON preserves syntax error", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := parseSessionState([]byte(`{"peer_address":`), "172.20.0.50")
+		if err == nil {
+			t.Fatal("parseSessionState() error = nil, want syntax error")
+		}
+		if _, ok := errors.AsType[*json.SyntaxError](err); !ok {
+			t.Errorf("parseSessionState() error type = %T, want wrapped *json.SyntaxError", err)
+		}
+	})
+
+	t.Run("different peer is not found", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := parseSessionState([]byte(`{
+			"peer_address": "172.20.0.60",
+			"local_state": "Up",
+			"remote_state": "Up",
+			"local_diagnostic": "None"
+		}`), "172.20.0.50")
+		if !errors.Is(err, errSessionStateNotFound) {
+			t.Errorf("parseSessionState() error = %v, want errSessionStateNotFound", err)
+		}
+	})
+}
+
+func TestFrameBoundary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filter   string
+		baseline uint64
+		want     string
+	}{
+		{
+			name:     "zero baseline",
+			filter:   "bfd && ip.src == 172.20.0.50",
+			baseline: 0,
+			want:     "(bfd && ip.src == 172.20.0.50) && frame.number > 0",
+		},
+		{
+			name:     "captured baseline",
+			filter:   "bfd && ip.src == 172.20.0.50 && ip.dst == 172.20.0.10 && bfd.sta == 0x03",
+			baseline: 412,
+			want:     "(bfd && ip.src == 172.20.0.50 && ip.dst == 172.20.0.10 && bfd.sta == 0x03) && frame.number > 412",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := frameBoundary(tt.filter, tt.baseline); got != tt.want {
+				t.Errorf("frameBoundary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // =========================================================================
 // Test 1-2: Baseline handshake (existing)
 // =========================================================================
@@ -405,15 +868,15 @@ func TestBIRD3Handshake(t *testing.T) {
 	waitBIRD3Up(t.Context(), t, 60*time.Second)
 }
 
-// TestAiobfdHandshake verifies that the BFD three-way handshake completes
-// between GoBFD and aiobfd (Python asyncio BFD daemon, RFC 5880/5881).
-func TestAiobfdHandshake(t *testing.T) {
+// TestHoloHandshake verifies that the BFD three-way handshake completes
+// between GoBFD and Holo, resulting in both sides reporting session Up.
+func TestHoloHandshake(t *testing.T) {
 	t.Cleanup(func() {
 		if t.Failed() {
 			dumpTsharkCapture(t, 50)
 		}
 	})
-	waitAiobfdUp(t.Context(), t, 60*time.Second)
+	waitHoloUp(t.Context(), t, 60*time.Second)
 }
 
 // TestThoroHandshake verifies that the BFD three-way handshake completes
@@ -448,7 +911,7 @@ func TestRFCCompliance(t *testing.T) {
 	// Prerequisite: all sessions must be Up.
 	waitFRRUp(ctx, t, 60*time.Second)
 	waitBIRD3Up(ctx, t, 60*time.Second)
-	waitAiobfdUp(ctx, t, 60*time.Second)
+	waitHoloUp(ctx, t, 60*time.Second)
 	waitThoroUp(ctx, t, 60*time.Second)
 
 	// Allow tshark capture to accumulate data before read-only analysis.
@@ -547,7 +1010,7 @@ func TestRFCCompliance(t *testing.T) {
 		peers := []peer{
 			{"FRR", frrIP, false},
 			{"BIRD3", bird3IP, true},
-			{"aiobfd", aiobfdIP, false},
+			{"Holo", holoIP, false},
 			{"Thoro", thoroIP, false},
 		}
 		for _, p := range peers {
@@ -591,7 +1054,7 @@ func TestRFCCompliance(t *testing.T) {
 		peers := []peer{
 			{"FRR", frrIP},
 			{"BIRD3", bird3IP},
-			{"aiobfd", aiobfdIP},
+			{"Holo", holoIP},
 			{"Thoro", thoroIP},
 		}
 		for _, p := range peers {
@@ -668,9 +1131,9 @@ func TestRFCCompliance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BIRD3: %v", err)
 		}
-		aiobfdDiscr, err := findUpDiscr(aiobfdIP)
+		holoDiscr, err := findUpDiscr(holoIP)
 		if err != nil {
-			t.Fatalf("aiobfd: %v", err)
+			t.Fatalf("Holo: %v", err)
 		}
 		thoroDiscr, err := findUpDiscr(thoroIP)
 		if err != nil {
@@ -678,10 +1141,10 @@ func TestRFCCompliance(t *testing.T) {
 		}
 
 		discrs := map[string]string{
-			"FRR":    frrDiscr,
-			"BIRD3":  birdDiscr,
-			"aiobfd": aiobfdDiscr,
-			"Thoro":  thoroDiscr,
+			"FRR":   frrDiscr,
+			"BIRD3": birdDiscr,
+			"Holo":  holoDiscr,
+			"Thoro": thoroDiscr,
 		}
 		seen := make(map[string]string)
 		for peer, d := range discrs {
@@ -811,13 +1274,13 @@ func TestRFCCompliance(t *testing.T) {
 			t.Error("BIRD3 session went Down when only FRR was stopped — sessions are not independent")
 		}
 
-		// aiobfd session must also remain Up.
-		aiobfdUp, err := aiobfdSessionUp(ctx)
+		// Holo session must also remain Up.
+		holoUp, err := holoSessionUp(ctx)
 		if err != nil {
-			t.Fatalf("check aiobfd: %v", err)
+			t.Fatalf("check Holo: %v", err)
 		}
-		if !aiobfdUp {
-			t.Error("aiobfd session went Down when only FRR was stopped — sessions are not independent")
+		if !holoUp {
+			t.Error("Holo session went Down when only FRR was stopped — sessions are not independent")
 		}
 
 		// Thoro/bfd session must also remain Up.
@@ -912,13 +1375,13 @@ func TestRFCCompliance(t *testing.T) {
 			t.Error("BIRD3 session not Up after FRR recovery cycle")
 		}
 
-		// Verify aiobfd is still Up.
-		aiobfdUp, err := aiobfdSessionUp(ctx)
+		// Verify Holo is still Up.
+		holoUp, err := holoSessionUp(ctx)
 		if err != nil {
-			t.Fatalf("check aiobfd: %v", err)
+			t.Fatalf("check Holo: %v", err)
 		}
-		if !aiobfdUp {
-			t.Error("aiobfd session not Up after FRR recovery cycle")
+		if !holoUp {
+			t.Error("Holo session not Up after FRR recovery cycle")
 		}
 
 		// Verify Thoro/bfd is still Up.
@@ -1053,7 +1516,7 @@ func TestRFCCompliance(t *testing.T) {
 		peers := []peer{
 			{"FRR", frrIP},
 			{"BIRD3", bird3IP},
-			{"aiobfd", aiobfdIP},
+			{"Holo", holoIP},
 			{"Thoro", thoroIP},
 		}
 		for _, p := range peers {
@@ -1113,6 +1576,99 @@ func TestRFCCompliance(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestHoloFailureRecoveryLifecycle verifies fresh RFC 5880 failure and recovery
+// evidence without accepting state or packets captured before the failure.
+// This test is intentionally serial because it mutates the shared Holo service.
+func TestHoloFailureRecoveryLifecycle(t *testing.T) {
+	ctx := t.Context()
+	waitHoloUp(ctx, t, 60*time.Second)
+
+	mutated := false
+	recoveryReady := false
+	t.Cleanup(func() {
+		if !mutated || recoveryReady {
+			return
+		}
+
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 90*time.Second)
+		defer cancel()
+		if err := startAndConfigureHolo(cleanupCtx); err != nil {
+			t.Logf("best-effort Holo/config recovery failed: %v", err)
+			return
+		}
+		if _, err := waitForSessionState(
+			cleanupCtx,
+			holoIP,
+			60*time.Second,
+			func(state sessionState) bool {
+				return state.LocalState == "Up" && state.RemoteState == "Up"
+			},
+		); err != nil {
+			t.Logf("best-effort Holo session recovery did not reach Up/Up: %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpTsharkCapture(t, 100)
+		}
+	})
+
+	mutated = true
+	output, err := podmanCompose(ctx, "stop", "holo")
+	if err != nil {
+		t.Fatalf("stop only Holo service: %v: %s", err, strings.TrimSpace(output))
+	}
+
+	down, err := waitForSessionState(
+		ctx,
+		holoIP,
+		30*time.Second,
+		func(state sessionState) bool {
+			return state.LocalState == "Down" && state.LocalDiagnostic == "ControlTimeExpired"
+		},
+	)
+	if err != nil {
+		t.Fatalf("wait for current Holo timeout state: %v", err)
+	}
+	t.Logf(
+		"current Holo session after stop: local=%s remote=%s diagnostic=%s",
+		down.LocalState,
+		down.RemoteState,
+		down.LocalDiagnostic,
+	)
+
+	baseline, err := lastHoloFrame(ctx)
+	if err != nil {
+		t.Fatalf("record post-Down Holo packet baseline: %v", err)
+	}
+	t.Logf("post-Down Holo packet baseline: frame.number=%d", baseline)
+
+	if recoveryErr := startAndConfigureHolo(ctx); recoveryErr != nil {
+		t.Fatalf("restart and configure Holo: %v", recoveryErr)
+	}
+
+	up, err := waitForSessionState(
+		ctx,
+		holoIP,
+		60*time.Second,
+		func(state sessionState) bool {
+			return state.LocalState == "Up" && state.RemoteState == "Up"
+		},
+	)
+	if err != nil {
+		t.Fatalf("wait for current Holo recovery state: %v", err)
+	}
+	recoveryReady = true
+	t.Logf(
+		"current Holo session after recovery: local=%s remote=%s diagnostic=%s",
+		up.LocalState,
+		up.RemoteState,
+		up.LocalDiagnostic,
+	)
+
+	requireNewHoloUpPacket(ctx, t, baseline, 30*time.Second)
 }
 
 // =========================================================================
@@ -1261,7 +1817,7 @@ func TestGracefulShutdown(t *testing.T) {
 	}{
 		{"FRR", frrIP},
 		{"BIRD3", bird3IP},
-		{"aiobfd", aiobfdIP},
+		{"Holo", holoIP},
 	}
 	if crashed, statusErr := thoroUnsupportedPollSequenceCrash(ctx); statusErr != nil {
 		t.Logf("Thoro/bfd status lookup failed: %v", statusErr)
