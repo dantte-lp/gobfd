@@ -25,13 +25,13 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		inspectExit    string
 		wantDiagnostic string
 		wantInspect    bool
-		wantGobfdStart bool
+		wantSecondUp   bool
 	}{
 		"zero success": {
-			waitStatus:     "0",
-			inspectStatus:  "0",
-			wantInspect:    true,
-			wantGobfdStart: true,
+			waitStatus:    "0",
+			inspectStatus: "0",
+			wantInspect:   true,
+			wantSecondUp:  true,
 		},
 		"non-zero status": {
 			waitStatus:     "7",
@@ -125,8 +125,16 @@ exit 0
 			if test.wantDiagnostic != "" && !strings.Contains(string(output), test.wantDiagnostic) {
 				t.Fatalf("runner output is missing diagnostic %q; output:\n%s", test.wantDiagnostic, output)
 			}
-			if got := runnerStartedGoBFD(string(commands)); got != test.wantGobfdStart {
-				t.Fatalf("runner gobfd start = %v, want %v; commands:\n%s", got, test.wantGobfdStart, commands)
+			secondUp := secondComposeUpCommands(string(commands))
+			if !test.wantSecondUp && len(secondUp) != 0 {
+				t.Fatalf("runner issued a second Compose up after Holo failure: %q", secondUp)
+			}
+			if test.wantSecondUp {
+				want := "-f " + filepath.Join(root, "test", "interop", "compose.yml") +
+					" up -d --no-deps gobfd frr bird3 tshark thoro"
+				if len(secondUp) != 1 || secondUp[0] != want {
+					t.Fatalf("runner second-phase commands = %q, want [%q]", secondUp, want)
+				}
 			}
 		})
 	}
@@ -155,6 +163,39 @@ func assertHoloStartupSequence(t *testing.T, root, commandLog string, wantInspec
 	}
 }
 
+func TestSecondComposeUpCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		commandLog string
+		want       []string
+	}{
+		"Holo phase only": {
+			commandLog: "-f compose.yml up -d holo holo-config\n",
+		},
+		"different service after Holo": {
+			commandLog: "-f compose.yml up -d holo holo-config\n" +
+				"-f compose.yml up -d frr\n",
+			want: []string{"-f compose.yml up -d frr"},
+		},
+		"repeated Holo phase": {
+			commandLog: "-f compose.yml up -d holo holo-config\n" +
+				"-f compose.yml up -d holo holo-config\n",
+			want: []string{"-f compose.yml up -d holo holo-config"},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := secondComposeUpCommands(test.commandLog)
+			if strings.Join(got, "\n") != strings.Join(test.want, "\n") {
+				t.Fatalf("second Compose up commands = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func writeExecutable(path, contents string) error {
 	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
 		return fmt.Errorf("write executable %s: %w", path, err)
@@ -162,7 +203,9 @@ func writeExecutable(path, contents string) error {
 	return nil
 }
 
-func runnerStartedGoBFD(commandLog string) bool {
+func secondComposeUpCommands(commandLog string) []string {
+	holoPhaseSeen := false
+	var commands []string
 	for line := range strings.Lines(commandLog) {
 		fields := strings.Fields(line)
 		upIndex := -1
@@ -175,20 +218,13 @@ func runnerStartedGoBFD(commandLog string) bool {
 		if upIndex == -1 {
 			continue
 		}
-
-		hasExplicitService := false
-		for _, field := range fields[upIndex+1:] {
-			if strings.HasPrefix(field, "-") {
-				continue
-			}
-			hasExplicitService = true
-			if field == "gobfd" {
-				return true
-			}
+		if !holoPhaseSeen && strings.Join(fields[upIndex:], " ") == "up -d holo holo-config" {
+			holoPhaseSeen = true
+			continue
 		}
-		if !hasExplicitService {
-			return true
+		if holoPhaseSeen {
+			commands = append(commands, strings.TrimSpace(line))
 		}
 	}
-	return false
+	return commands
 }
