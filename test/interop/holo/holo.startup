@@ -1,0 +1,12 @@
+interfaces interface eth0
+ type iana-if-type:ethernetCsmacd
+ ipv4
+!
+routing control-plane-protocols control-plane-protocol ietf-bfd-types:bfdv1 main
+ bfd ip-sh sessions session eth0 172.20.0.10
+  source-addr 172.20.0.50
+  local-multiplier 3
+  desired-min-tx-interval 300000
+  required-min-rx-interval 300000
+ !
+!
