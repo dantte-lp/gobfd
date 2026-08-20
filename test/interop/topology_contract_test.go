@@ -114,6 +114,9 @@ func TestHoloTopologyContract(t *testing.T) {
 	if !ok {
 		t.Fatal("holo-config service is missing")
 	}
+	if _, attached := holoConfig.Networks["bfdnet"]; !attached {
+		t.Fatal("holo-config is not attached to bfdnet")
+	}
 	assertEqual(t, "holo-config image", holoConfig.Image, holoImage)
 	assertEqual(t, "holo-config mounts", holoConfig.Volumes, []string{"./holo/holo.startup:/etc/holo.startup:ro,z"})
 	assertEqual(t, "holo-config entrypoint", holoConfig.Entrypoint, "holo-cli")

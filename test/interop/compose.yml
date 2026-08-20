@@ -111,6 +111,8 @@ services:
         condition: service_healthy
     entrypoint: holo-cli
     command: ["--address", "http://holo:50051", "--file", "/etc/holo.startup"]
+    networks:
+      bfdnet:
 
   thoro:
     build:
