@@ -73,14 +73,15 @@ The full receive path processes ~16M packets/sec with zero allocations. This inc
 
 | Benchmark | ns/op | B/op | allocs/op | Description |
 |-----------|------:|-----:|----------:|-------------|
-| `BuildInnerPacket` | ~120 | 0 | 0 | Assemble Ethernet+IP+UDP inner packet for overlay encapsulation |
+| `BuildInnerPacketInto` | ~— | 0 | 0 | Assemble inner packet into caller-owned TX buffer |
+| `BuildInnerPacket` | ~— | 80 | 1 | Compatibility wrapper that allocates an owned packet |
 | `StripInnerPacket` | ~25 | 0 | 0 | Parse inner packet headers and extract BFD payload |
 | `VXLANHeaderMarshal` | ~8 | 0 | 0 | Serialize 8-byte VXLAN header (RFC 8971) |
 | `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Parse 8-byte VXLAN header from wire format |
 | `GeneveHeaderMarshal` | ~10 | 0 | 0 | Serialize 8-byte Geneve header (RFC 9521) |
 | `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Parse 8-byte Geneve header from wire format |
 
-All overlay codec operations achieve zero allocations, critical for VXLAN/Geneve BFD hot paths where packets are assembled and parsed at protocol timer frequency.
+The production VXLAN/Geneve TX paths use `BuildInnerPacketInto` with a connection-owned buffer and enforce zero allocations for inner assembly. `BuildInnerPacket` intentionally remains an allocating compatibility wrapper for standalone callers and tests.
 
 ### Session Scaling
 
@@ -191,14 +192,15 @@ make profile            # Генерация CPU-профиля pprof
 
 | Бенчмарк | нс/оп | Б/оп | аллок/оп | Описание |
 |----------|------:|-----:|----------:|----------|
-| `BuildInnerPacket` | ~120 | 0 | 0 | Сборка Ethernet+IP+UDP внутреннего пакета для overlay-инкапсуляции |
+| `BuildInnerPacketInto` | ~— | 0 | 0 | Сборка внутреннего пакета в caller-owned TX буфер |
+| `BuildInnerPacket` | ~— | 80 | 1 | Совместимая обёртка с выделением собственного буфера |
 | `StripInnerPacket` | ~25 | 0 | 0 | Разбор заголовков внутреннего пакета и извлечение BFD-полезной нагрузки |
 | `VXLANHeaderMarshal` | ~8 | 0 | 0 | Сериализация 8-байтного заголовка VXLAN (RFC 8971) |
 | `VXLANHeaderUnmarshal` | ~6 | 0 | 0 | Разбор 8-байтного заголовка VXLAN |
 | `GeneveHeaderMarshal` | ~10 | 0 | 0 | Сериализация 8-байтного заголовка Geneve (RFC 9521) |
 | `GeneveHeaderUnmarshal` | ~7 | 0 | 0 | Разбор 8-байтного заголовка Geneve |
 
-Все операции overlay-кодеков достигают нулевых аллокаций, что критично для горячих путей VXLAN/Geneve BFD.
+Production TX-пути VXLAN/Geneve используют `BuildInnerPacketInto` с буфером, принадлежащим соединению, и не выделяют память при сборке inner-пакета. `BuildInnerPacket` остаётся allocating-обёрткой для автономных вызывающих сторон и тестов.
 
 ### Масштабирование сессий
 

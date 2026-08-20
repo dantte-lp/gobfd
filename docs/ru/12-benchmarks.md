@@ -135,7 +135,8 @@ GoBFD содержит 28 бенчмарков в 7 категориях в дв
 
 | Бенчмарк | Что измеряет | Почему важно |
 |-----------|-------------|--------------|
-| `BuildInnerPacket` | Сборка внутреннего пакета Ethernet + IPv4 + UDP + BFD | Необходимо для инкапсуляции VXLAN/Geneve |
+| `BuildInnerPacketInto` | Сборка внутреннего пакета в буфер вызывающей стороны | Production TX-путь VXLAN/Geneve |
+| `BuildInnerPacket` | Сборка внутреннего пакета Ethernet + IPv4 + UDP + BFD | Совместимая обёртка с аллокацией |
 | `StripInnerPacket` | Извлечение BFD payload из внутреннего пакета | RX-путь для оверлейных сессий |
 | `VXLANHeaderMarshal` | Сериализация заголовка VXLAN (RFC 7348) | TX overhead на пакет для VXLAN BFD |
 | `VXLANHeaderUnmarshal` | Парсинг заголовка VXLAN | RX overhead на пакет для VXLAN BFD |
@@ -199,7 +200,8 @@ GoBFD использует `GOMEMLIMIT` + `GOGC=off` в production для мин
 #### Известные исключения
 
 - `ControlPacketUnmarshalWithAuth`: 1 аллокация (64 Б) — копирование дайджеста аутентификации для HMAC-верификации. Это намеренно: дайджест должен пережить входной буфер.
-- `BuildInnerPacket`: 1 аллокация (80 Б) — выделение буфера внутреннего пакета. Оверлейные пути менее критичны к задержкам, чем прямой BFD.
+- `BuildInnerPacketInto`: 0 аллокаций — записывает внутренний пакет в буфер TX, принадлежащий соединению и используемый production-путями VXLAN/Geneve.
+- `BuildInnerPacket`: 1 аллокация (80 Б) — совместимый allocating-wrapper для автономных вызывающих сторон и тестов.
 - `ManagerCreate*` / `ManagerReconcile`: аллокации ожидаемы — операции жизненного цикла сессий не являются горячим путём.
 
 ---

@@ -31,6 +31,21 @@ func BenchmarkBuildInnerPacket(b *testing.B) {
 	}
 }
 
+// BenchmarkBuildInnerPacketInto measures the production caller-owned TX path.
+// Target: 0 allocs/op; VXLANConn and GeneveConn reuse this buffer per send.
+func BenchmarkBuildInnerPacketInto(b *testing.B) {
+	bfdPayload := make([]byte, 24)
+	srcIP := netip.MustParseAddr("10.0.0.1")
+	dstIP := netip.MustParseAddr("10.0.0.2")
+	buf := make([]byte, netio.InnerOverheadIPv4+len(bfdPayload))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = netio.BuildInnerPacketInto(buf, bfdPayload, srcIP, dstIP, 49152)
+	}
+}
+
 // -------------------------------------------------------------------------
 // StripInnerPacket — disassembly hot path
 // -------------------------------------------------------------------------
