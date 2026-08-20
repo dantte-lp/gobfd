@@ -544,6 +544,18 @@ vulnerability policy is accepted.
 
 - [ ] **Step 3: Prove both live interop gates**
 
+After the Task 3 runner completes the exact two-phase Holo/config startup, run
+the lifecycle alone before the broader suite so its 180-second lifecycle plus
+75-second cleanup reservation fits honestly within the package timeout:
+
+```bash
+go test -tags interop -v -count=1 -timeout 300s \
+  -run '^TestHoloFailureRecoveryLifecycle$' ./test/interop/
+```
+
+Require this targeted invocation to execute and pass, not skip. Then run the
+broader live gates:
+
 ```bash
 make interop
 make e2e-routing

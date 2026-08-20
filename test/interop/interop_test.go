@@ -41,8 +41,19 @@ const (
 	pollInterval = 2 * time.Second
 	holoTraffic  = "bfd && ((ip.src == " + holoIP + " && ip.dst == " + gobfdIP +
 		") || (ip.src == " + gobfdIP + " && ip.dst == " + holoIP + "))"
+	holoDownPackets = "bfd && ip.src == " + gobfdIP + " && ip.dst == " + holoIP +
+		" && bfd.sta == 0x01 && bfd.diag == 0x01"
 	holoUpPackets = "bfd && ip.src == " + holoIP + " && ip.dst == " + gobfdIP +
 		" && bfd.sta == 0x03"
+
+	holoLifecycleBudget    = 180 * time.Second
+	holoCleanupBudget      = 75 * time.Second
+	holoTestDeadlineMargin = 10 * time.Second
+	holoStartTimeout       = 10 * time.Second
+	holoHealthTimeout      = 20 * time.Second
+	holoConfigStartTimeout = 15 * time.Second
+	holoConfigWaitTimeout  = 10 * time.Second
+	holoInspectTimeout     = 5 * time.Second
 
 	// scapyImage is the image name for the Scapy BFD fuzzer.
 	// Built with podman build (not compose) to avoid compose's "run"
@@ -51,10 +62,11 @@ const (
 )
 
 var (
-	errSessionStateNotFound   = errors.New("session state not found")
-	errHoloFrameNotFound      = errors.New("holo BFD frame not found")
-	errHoloConfigExitMismatch = errors.New("holo config exit status mismatch")
-	errHoloConfigFailed       = errors.New("holo config failed")
+	errSessionStateNotFound      = errors.New("session state not found")
+	errHoloFrameNotFound         = errors.New("holo BFD frame not found")
+	errHoloConfigExitMismatch    = errors.New("holo config exit status mismatch")
+	errHoloConfigFailed          = errors.New("holo config failed")
+	errInsufficientLifecycleTime = errors.New("insufficient time for Holo lifecycle and cleanup")
 )
 
 type sessionState struct {
@@ -62,6 +74,11 @@ type sessionState struct {
 	LocalState      string `json:"local_state"`
 	RemoteState     string `json:"remote_state"`
 	LocalDiagnostic string `json:"local_diagnostic"`
+}
+
+type holoLifecycleSchedule struct {
+	lifecycleDeadline time.Time
+	cleanupDeadline   time.Time
 }
 
 // =========================================================================
@@ -95,13 +112,90 @@ func frameBoundary(filter string, baseline uint64) string {
 	return fmt.Sprintf("(%s) && frame.number > %d", filter, baseline)
 }
 
+func holoDownBoundary(preStopBaseline uint64) string {
+	return frameBoundary(holoDownPackets, preStopBaseline)
+}
+
+func planHoloLifecycle(now, testDeadline time.Time, hasTestDeadline bool) (holoLifecycleSchedule, error) {
+	schedule := holoLifecycleSchedule{
+		lifecycleDeadline: now.Add(holoLifecycleBudget),
+		cleanupDeadline:   now.Add(holoLifecycleBudget + holoCleanupBudget),
+	}
+	if hasTestDeadline && schedule.cleanupDeadline.After(testDeadline.Add(-holoTestDeadlineMargin)) {
+		return holoLifecycleSchedule{}, fmt.Errorf(
+			"need %v lifecycle plus cleanup budget before test deadline %s: %w",
+			holoLifecycleBudget+holoCleanupBudget+holoTestDeadlineMargin,
+			testDeadline.Format(time.RFC3339Nano),
+			errInsufficientLifecycleTime,
+		)
+	}
+	return schedule, nil
+}
+
+func boundedDetachedDeadline(
+	now time.Time,
+	maxDuration time.Duration,
+	latestDeadline time.Time,
+	hasLatestDeadline bool,
+) time.Time {
+	deadline := now.Add(maxDuration)
+	if hasLatestDeadline && latestDeadline.Before(deadline) {
+		return latestDeadline
+	}
+	return deadline
+}
+
+func boundedDetachedContext(
+	parent context.Context,
+	maxDuration time.Duration,
+	latestDeadline time.Time,
+	hasLatestDeadline bool,
+) (context.Context, context.CancelFunc) {
+	deadline := boundedDetachedDeadline(time.Now(), maxDuration, latestDeadline, hasLatestDeadline)
+	return context.WithDeadline(context.WithoutCancel(parent), deadline)
+}
+
+func pollUntil[T any](
+	ctx context.Context,
+	interval time.Duration,
+	check func(context.Context) (T, bool, error),
+) (T, error) {
+	var (
+		last    T
+		lastErr error
+	)
+	for {
+		value, accepted, err := check(ctx)
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = nil
+			last = value
+			if accepted {
+				return value, nil
+			}
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if lastErr != nil {
+				return last, errors.Join(ctx.Err(), lastErr)
+			}
+			return last, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func podmanCompose(ctx context.Context, args ...string) (string, error) {
 	allArgs := append([]string{"-f", composeFile()}, args...)
 	cmd := exec.CommandContext(ctx, "podman-compose", allArgs...)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	err := cmd.Run()
+	err := commandContextError(ctx, cmd.Run())
 	return buf.String(), err
 }
 
@@ -110,8 +204,15 @@ func podmanCommand(ctx context.Context, args ...string) (string, error) {
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	err := cmd.Run()
+	err := commandContextError(ctx, cmd.Run())
 	return buf.String(), err
+}
+
+func commandContextError(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil {
+		return errors.Join(err, ctx.Err())
+	}
+	return err
 }
 
 func gobfdSessionState(ctx context.Context, peer string) (sessionState, error) {
@@ -146,87 +247,43 @@ func waitForSessionState(
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var (
-		last    sessionState
-		lastErr error
-	)
-	for {
-		state, err := gobfdSessionState(waitCtx, peer)
+	last, err := pollUntil(waitCtx, pollInterval, func(pollCtx context.Context) (sessionState, bool, error) {
+		state, err := gobfdSessionState(pollCtx, peer)
 		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = nil
-			last = state
-			if accept(state) {
-				return state, nil
-			}
+			return sessionState{}, false, err
 		}
-
-		timer := time.NewTimer(pollInterval)
-		select {
-		case <-waitCtx.Done():
-			timer.Stop()
-			if lastErr != nil {
-				waitErr := errors.Join(waitCtx.Err(), lastErr)
-				return last, fmt.Errorf(
-					"wait for current GoBFD session state for peer %s: %w",
-					peer,
-					waitErr,
-				)
-			}
-			return last, fmt.Errorf(
-				"wait for current GoBFD session state for peer %s; last state=%+v: %w",
-				peer,
-				last,
-				waitCtx.Err(),
-			)
-		case <-timer.C:
-		}
+		return state, accept(state), nil
+	})
+	if err != nil {
+		return last, fmt.Errorf(
+			"wait for current GoBFD session state for peer %s; last state=%+v: %w",
+			peer,
+			last,
+			err,
+		)
 	}
+	return last, nil
 }
 
 func waitForHoloHealth(ctx context.Context, timeout time.Duration) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var (
-		lastStatus string
-		lastErr    error
-	)
-	for {
+	lastStatus, err := pollUntil(waitCtx, pollInterval, func(pollCtx context.Context) (string, bool, error) {
 		output, err := podmanCommand(
-			waitCtx,
+			pollCtx,
 			"inspect", "--format", "{{.State.Health.Status}}", "holo-interop",
 		)
 		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = nil
-			lastStatus = strings.TrimSpace(output)
-			if lastStatus == "healthy" {
-				return nil
-			}
+			return "", false, err
 		}
-
-		timer := time.NewTimer(pollInterval)
-		select {
-		case <-waitCtx.Done():
-			timer.Stop()
-			if lastErr != nil {
-				waitErr := errors.Join(waitCtx.Err(), lastErr)
-				return fmt.Errorf(
-					"wait for Holo health: %w",
-					waitErr,
-				)
-			}
-			return fmt.Errorf(
-				"wait for Holo health; last status=%q: %w",
-				lastStatus,
-				waitCtx.Err(),
-			)
-		case <-timer.C:
-		}
+		status := strings.TrimSpace(output)
+		return status, status == "healthy", nil
+	})
+	if err != nil {
+		return fmt.Errorf("wait for Holo health; last status=%q: %w", lastStatus, err)
 	}
+	return nil
 }
 
 func parseContainerExitCode(output string) (uint64, error) {
@@ -238,24 +295,24 @@ func parseContainerExitCode(output string) (uint64, error) {
 }
 
 func startAndConfigureHolo(ctx context.Context) error {
-	startCtx, cancelStart := context.WithTimeout(ctx, 30*time.Second)
+	startCtx, cancelStart := context.WithTimeout(ctx, holoStartTimeout)
 	output, err := podmanCompose(startCtx, "start", "holo")
 	cancelStart()
 	if err != nil {
 		return fmt.Errorf("start Holo service: %w: %s", err, strings.TrimSpace(output))
 	}
-	if healthErr := waitForHoloHealth(ctx, 30*time.Second); healthErr != nil {
+	if healthErr := waitForHoloHealth(ctx, holoHealthTimeout); healthErr != nil {
 		return fmt.Errorf("Holo service did not become ready: %w", healthErr)
 	}
 
-	configCtx, cancelConfig := context.WithTimeout(ctx, 2*time.Minute)
+	configCtx, cancelConfig := context.WithTimeout(ctx, holoConfigStartTimeout)
 	output, err = podmanCompose(configCtx, "up", "-d", "--no-deps", "--force-recreate", "holo-config")
 	cancelConfig()
 	if err != nil {
 		return fmt.Errorf("recreate Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(output))
 	}
 
-	waitCtx, cancelWait := context.WithTimeout(ctx, 45*time.Second)
+	waitCtx, cancelWait := context.WithTimeout(ctx, holoConfigWaitTimeout)
 	waitOutput, err := podmanCommand(waitCtx, "wait", "holo-config-interop")
 	cancelWait()
 	if err != nil {
@@ -266,7 +323,7 @@ func startAndConfigureHolo(ctx context.Context) error {
 		return fmt.Errorf("read Holo configuration wait status: %w", err)
 	}
 
-	inspectCtx, cancelInspect := context.WithTimeout(ctx, 10*time.Second)
+	inspectCtx, cancelInspect := context.WithTimeout(ctx, holoInspectTimeout)
 	inspectOutput, err := podmanCommand(
 		inspectCtx,
 		"inspect", "--format", "{{.State.ExitCode}}", "holo-config-interop",
@@ -546,12 +603,7 @@ func tsharkCount(ctx context.Context, filter string) (int, error) {
 	return len(strings.Split(output, "\n")), nil
 }
 
-func lastHoloFrame(ctx context.Context) (uint64, error) {
-	rows, err := tsharkFields(ctx, holoTraffic, []string{"frame.number"}, 0)
-	if err != nil {
-		return 0, fmt.Errorf("read captured Holo BFD frame numbers: %w", err)
-	}
-
+func lastFrameNumber(rows [][]string) (uint64, error) {
 	var last uint64
 	for i, row := range rows {
 		if len(row) == 0 || strings.TrimSpace(row[0]) == "" {
@@ -566,49 +618,70 @@ func lastHoloFrame(ctx context.Context) (uint64, error) {
 		}
 	}
 	if last == 0 {
-		return 0, fmt.Errorf("filter %q: %w", holoTraffic, errHoloFrameNotFound)
+		return 0, fmt.Errorf("captured frame rows: %w", errHoloFrameNotFound)
 	}
 	return last, nil
 }
 
-func waitForNewHoloUpPacket(ctx context.Context, baseline uint64, timeout time.Duration) error {
+func lastFrameForFilter(ctx context.Context, filter string) (uint64, error) {
+	rows, err := tsharkFields(ctx, filter, []string{"frame.number"}, 0)
+	if err != nil {
+		return 0, fmt.Errorf("read captured frame numbers for filter %q: %w", filter, err)
+	}
+	frame, err := lastFrameNumber(rows)
+	if err != nil {
+		return 0, fmt.Errorf("parse captured frame numbers for filter %q: %w", filter, err)
+	}
+	return frame, nil
+}
+
+func lastHoloFrame(ctx context.Context) (uint64, error) {
+	frame, err := lastFrameForFilter(ctx, holoTraffic)
+	if err != nil {
+		return 0, fmt.Errorf("read last bidirectional Holo BFD frame: %w", err)
+	}
+	return frame, nil
+}
+
+func waitForFrame(ctx context.Context, filter string, timeout time.Duration) (uint64, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	filter := frameBoundary(holoUpPackets, baseline)
-	var lastErr error
-	for {
-		count, err := tsharkCount(waitCtx, filter)
+	frame, err := pollUntil(waitCtx, pollInterval, func(pollCtx context.Context) (uint64, bool, error) {
+		frame, err := lastFrameForFilter(pollCtx, filter)
 		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = nil
-			if count > 0 {
-				return nil
+			if errors.Is(err, errHoloFrameNotFound) {
+				return 0, false, nil
 			}
+			return 0, false, err
 		}
-
-		timer := time.NewTimer(pollInterval)
-		select {
-		case <-waitCtx.Done():
-			timer.Stop()
-			if lastErr != nil {
-				waitErr := errors.Join(waitCtx.Err(), lastErr)
-				return fmt.Errorf(
-					"wait for new Holo-originated Up packet after frame %d: %w",
-					baseline,
-					waitErr,
-				)
-			}
-			return fmt.Errorf(
-				"wait for new Holo-originated Up packet after frame %d with filter %q: %w",
-				baseline,
-				filter,
-				waitCtx.Err(),
-			)
-		case <-timer.C:
-		}
+		return frame, true, nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("wait for captured frame with filter %q: %w", filter, err)
 	}
+	return frame, nil
+}
+
+func waitForHoloDownFrame(ctx context.Context, preStopBaseline uint64, timeout time.Duration) (uint64, error) {
+	filter := holoDownBoundary(preStopBaseline)
+	frame, err := waitForFrame(ctx, filter, timeout)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"wait for GoBFD Down/ControlTimeExpired frame after pre-stop baseline %d: %w",
+			preStopBaseline,
+			err,
+		)
+	}
+	return frame, nil
+}
+
+func waitForNewHoloUpPacket(ctx context.Context, baseline uint64, timeout time.Duration) error {
+	filter := frameBoundary(holoUpPackets, baseline)
+	if _, err := waitForFrame(ctx, filter, timeout); err != nil {
+		return fmt.Errorf("wait for Holo-originated Up frame after Down baseline %d: %w", baseline, err)
+	}
+	return nil
 }
 
 func requireNewHoloUpPacket(ctx context.Context, t *testing.T, baseline uint64, timeout time.Duration) {
@@ -651,10 +724,15 @@ func parseHexOrDec(s string) (uint64, error) {
 
 func dumpTsharkCapture(t *testing.T, count int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	testDeadline, hasTestDeadline := t.Deadline()
+	if hasTestDeadline {
+		testDeadline = testDeadline.Add(-time.Second)
+	}
+	ctx, cancel := boundedDetachedContext(t.Context(), 10*time.Second, testDeadline, hasTestDeadline)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "podman", "exec", "tshark-interop",
+	cmd := exec.CommandContext(
+		ctx, "podman", "exec", "tshark-interop",
 		"tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd",
 		"-c", strconv.Itoa(count),
 		"-T", "fields",
@@ -840,6 +918,180 @@ func TestFrameBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHoloDownBoundary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("filter is strictly after pre-stop baseline", func(t *testing.T) {
+		t.Parallel()
+
+		got := holoDownBoundary(41)
+		want := "(bfd && ip.src == 172.20.0.10 && ip.dst == 172.20.0.50 && " +
+			"bfd.sta == 0x01 && bfd.diag == 0x01) && frame.number > 41"
+		if got != want {
+			t.Errorf("holoDownBoundary() = %q, want %q", got, want)
+		}
+	})
+
+	tests := []struct {
+		name    string
+		rows    [][]string
+		want    uint64
+		wantErr func(error) bool
+	}{
+		{
+			name: "returns greatest frame",
+			rows: [][]string{{"38"}, {"42"}, {"41"}},
+			want: 42,
+		},
+		{
+			name: "malformed frame",
+			rows: [][]string{{"not-a-frame"}},
+			wantErr: func(err error) bool {
+				_, ok := errors.AsType[*strconv.NumError](err)
+				return ok
+			},
+		},
+		{
+			name: "no frame",
+			rows: [][]string{{}, {"  "}},
+			wantErr: func(err error) bool {
+				return errors.Is(err, errHoloFrameNotFound)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := lastFrameNumber(tt.rows)
+			if tt.wantErr != nil {
+				if !tt.wantErr(err) {
+					t.Fatalf("lastFrameNumber() error = %v, want matching error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("lastFrameNumber() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("lastFrameNumber() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLifecycleDeadline(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 21, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name         string
+		testDeadline time.Time
+		hasDeadline  bool
+		wantErr      bool
+	}{
+		{
+			name:        "no test deadline uses fixed budgets",
+			hasDeadline: false,
+		},
+		{
+			name:         "300 second test deadline reserves cleanup and margin",
+			testDeadline: now.Add(300 * time.Second),
+			hasDeadline:  true,
+		},
+		{
+			name:         "exact required budget",
+			testDeadline: now.Add(265 * time.Second),
+			hasDeadline:  true,
+		},
+		{
+			name:         "insufficient time before mutation",
+			testDeadline: now.Add(264 * time.Second),
+			hasDeadline:  true,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			schedule, err := planHoloLifecycle(now, tt.testDeadline, tt.hasDeadline)
+			if tt.wantErr {
+				if !errors.Is(err, errInsufficientLifecycleTime) {
+					t.Fatalf("planHoloLifecycle() error = %v, want errInsufficientLifecycleTime", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("planHoloLifecycle() error = %v", err)
+			}
+			if got := schedule.lifecycleDeadline.Sub(now); got != 180*time.Second {
+				t.Errorf("lifecycle budget = %v, want 180s", got)
+			}
+			if got := schedule.cleanupDeadline.Sub(now); got != 255*time.Second {
+				t.Errorf("cleanup deadline offset = %v, want 255s", got)
+			}
+			if tt.hasDeadline && schedule.cleanupDeadline.After(tt.testDeadline.Add(-10*time.Second)) {
+				t.Errorf(
+					"cleanup deadline %v exceeds test deadline margin %v",
+					schedule.cleanupDeadline,
+					tt.testDeadline.Add(-10*time.Second),
+				)
+			}
+		})
+	}
+
+	t.Run("detached diagnostics use the earlier deadline", func(t *testing.T) {
+		t.Parallel()
+
+		got := boundedDetachedDeadline(now, 10*time.Second, now.Add(4*time.Second), true)
+		if want := now.Add(4 * time.Second); !got.Equal(want) {
+			t.Errorf("boundedDetachedDeadline() = %v, want %v", got, want)
+		}
+	})
+}
+
+func TestPoll(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns first accepted value", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		attempts := 0
+		got, err := pollUntil(ctx, 0, func(context.Context) (int, bool, error) {
+			attempts++
+			return attempts, attempts == 2, nil
+		})
+		if err != nil {
+			t.Fatalf("pollUntil() error = %v", err)
+		}
+		if got != 2 {
+			t.Errorf("pollUntil() = %d, want 2", got)
+		}
+	})
+
+	t.Run("preserves context and last poll error", func(t *testing.T) {
+		t.Parallel()
+
+		pollErr := errors.New("poll failed")
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := pollUntil(ctx, time.Hour, func(context.Context) (int, bool, error) {
+			return 0, false, pollErr
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("pollUntil() error = %v, want context.Canceled", err)
+		}
+		if !errors.Is(err, pollErr) {
+			t.Errorf("pollUntil() error = %v, want poll error", err)
+		}
+	})
 }
 
 // =========================================================================
@@ -1582,8 +1834,30 @@ func TestRFCCompliance(t *testing.T) {
 // evidence without accepting state or packets captured before the failure.
 // This test is intentionally serial because it mutates the shared Holo service.
 func TestHoloFailureRecoveryLifecycle(t *testing.T) {
-	ctx := t.Context()
-	waitHoloUp(ctx, t, 60*time.Second)
+	now := time.Now()
+	testDeadline, hasTestDeadline := t.Deadline()
+	schedule, err := planHoloLifecycle(now, testDeadline, hasTestDeadline)
+	if err != nil {
+		t.Skipf("Holo lifecycle needs a targeted 300s test invocation before mutation: %v", err)
+	}
+
+	lifecycleCtx, cancelLifecycle := context.WithDeadline(t.Context(), schedule.lifecycleDeadline)
+	defer cancelLifecycle()
+	t.Logf(
+		"Holo lifecycle budgets: lifecycle=%v cleanup=%v test-margin=%v",
+		holoLifecycleBudget,
+		holoCleanupBudget,
+		holoTestDeadlineMargin,
+	)
+	waitHoloUp(lifecycleCtx, t, 30*time.Second)
+
+	preStopCtx, cancelPreStop := context.WithTimeout(lifecycleCtx, 5*time.Second)
+	preStopBaseline, err := lastHoloFrame(preStopCtx)
+	cancelPreStop()
+	if err != nil {
+		t.Fatalf("record pre-stop Holo packet baseline: %v", err)
+	}
+	t.Logf("pre-stop Holo packet baseline: frame.number=%d", preStopBaseline)
 
 	mutated := false
 	recoveryReady := false
@@ -1592,21 +1866,26 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 			return
 		}
 
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 90*time.Second)
+		cleanupCtx, cancel := boundedDetachedContext(
+			t.Context(),
+			holoCleanupBudget,
+			schedule.cleanupDeadline,
+			true,
+		)
 		defer cancel()
-		if err := startAndConfigureHolo(cleanupCtx); err != nil {
-			t.Logf("best-effort Holo/config recovery failed: %v", err)
+		if recoveryErr := startAndConfigureHolo(cleanupCtx); recoveryErr != nil {
+			t.Logf("best-effort Holo/config recovery failed: %v", recoveryErr)
 			return
 		}
-		if _, err := waitForSessionState(
+		if _, waitErr := waitForSessionState(
 			cleanupCtx,
 			holoIP,
-			60*time.Second,
+			15*time.Second,
 			func(state sessionState) bool {
 				return state.LocalState == "Up" && state.RemoteState == "Up"
 			},
-		); err != nil {
-			t.Logf("best-effort Holo session recovery did not reach Up/Up: %v", err)
+		); waitErr != nil {
+			t.Logf("best-effort Holo session recovery did not reach Up/Up: %v", waitErr)
 		}
 	})
 	t.Cleanup(func() {
@@ -1616,15 +1895,17 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 	})
 
 	mutated = true
-	output, err := podmanCompose(ctx, "stop", "holo")
+	stopCtx, cancelStop := context.WithTimeout(lifecycleCtx, 10*time.Second)
+	output, err := podmanCompose(stopCtx, "stop", "holo")
+	cancelStop()
 	if err != nil {
 		t.Fatalf("stop only Holo service: %v: %s", err, strings.TrimSpace(output))
 	}
 
 	down, err := waitForSessionState(
-		ctx,
+		lifecycleCtx,
 		holoIP,
-		30*time.Second,
+		15*time.Second,
 		func(state sessionState) bool {
 			return state.LocalState == "Down" && state.LocalDiagnostic == "ControlTimeExpired"
 		},
@@ -1639,20 +1920,20 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 		down.LocalDiagnostic,
 	)
 
-	baseline, err := lastHoloFrame(ctx)
+	downFrame, err := waitForHoloDownFrame(lifecycleCtx, preStopBaseline, 10*time.Second)
 	if err != nil {
-		t.Fatalf("record post-Down Holo packet baseline: %v", err)
+		t.Fatalf("prove post-stop GoBFD Down packet boundary: %v", err)
 	}
-	t.Logf("post-Down Holo packet baseline: frame.number=%d", baseline)
+	t.Logf("proven post-Down packet baseline: frame.number=%d", downFrame)
 
-	if recoveryErr := startAndConfigureHolo(ctx); recoveryErr != nil {
+	if recoveryErr := startAndConfigureHolo(lifecycleCtx); recoveryErr != nil {
 		t.Fatalf("restart and configure Holo: %v", recoveryErr)
 	}
 
 	up, err := waitForSessionState(
-		ctx,
+		lifecycleCtx,
 		holoIP,
-		60*time.Second,
+		25*time.Second,
 		func(state sessionState) bool {
 			return state.LocalState == "Up" && state.RemoteState == "Up"
 		},
@@ -1668,7 +1949,7 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 		up.LocalDiagnostic,
 	)
 
-	requireNewHoloUpPacket(ctx, t, baseline, 30*time.Second)
+	requireNewHoloUpPacket(lifecycleCtx, t, downFrame, 10*time.Second)
 }
 
 // =========================================================================
