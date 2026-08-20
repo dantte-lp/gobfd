@@ -240,10 +240,13 @@ fixture must cover `Up/Up` and `Down/ControlTimeExpired`.
 Run:
 
 ```bash
-go test -race -count=1 -tags interop -run 'Test(ParseSessionState|FrameBoundary)' ./test/interop/
+go test -race -count=1 -tags interop \
+  -run 'Test(ParseSessionState|FrameBoundary|HoloDownBoundary|LifecycleDeadline|Poll)' \
+  ./test/interop/
 ```
 
-Expected: FAIL because the parsing and boundary helpers do not exist.
+Expected: FAIL because the parsing, boundary, lifecycle-deadline, and polling
+helpers do not exist.
 
 - [ ] **Step 3: Implement minimal helpers**
 
@@ -260,8 +263,10 @@ type sessionState struct {
 
 Run `/bin/gobfdctl --addr 127.0.0.1:50051 session show <peer> --format json`
 inside `gobfd-interop`, wrap command and JSON errors with context, and keep every
-poll bounded by the test context. Add helpers for the last captured frame and a
-new Holo `Up` packet strictly after that frame.
+poll bounded by the test context. Add helpers for a pre-stop bidirectional Holo
+frame baseline, a new GoBFD-originated `Down`/`ControlTimeExpired` frame strictly
+after that baseline, and a new Holo-originated `Up` packet strictly after the
+proven Down frame.
 
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 
@@ -269,12 +274,17 @@ Rename constants, helpers, test names, log messages, packet filters,
 discriminator maps, and peer tables from aiobfd to Holo. Add a serial Holo
 lifecycle subtest that:
 
-1. stops only `holo`;
-2. waits for GoBFD `Down` plus `ControlTimeExpired`;
-3. records the last Holo packet frame after `Down` and immediately before restart;
-4. starts `holo` and reruns the one-shot `holo-config` service when its persisted configuration is unavailable;
-5. requires GoBFD `Up/Up` and a new Holo `Up` packet after the post-Down frame;
-6. registers best-effort recovery cleanup before the first mutation.
+1. registers best-effort recovery cleanup before the first mutation;
+2. records the current last bidirectional Holo frame as the pre-stop baseline;
+3. stops only `holo`;
+4. waits for current GoBFD state `Down` plus `ControlTimeExpired`;
+5. requires a new GoBFD-originated `Down`/diagnostic-1 packet whose frame number
+   is strictly greater than the pre-stop baseline and retains that proven Down
+   frame as the recovery boundary;
+6. starts `holo` and reruns the one-shot `holo-config` service when its persisted
+   configuration is unavailable;
+7. requires current GoBFD state `Up/Up` and a new Holo-originated `Up` packet
+   whose frame number is strictly greater than the proven Down frame.
 
 - [ ] **Step 5: Run unit, tagged compile, gopls, and tagged lint gates**
 

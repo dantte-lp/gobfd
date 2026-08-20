@@ -22,6 +22,7 @@ import (
 	"math"
 	"os"
 	"os/exec" //nolint:depguard // Interop harness invokes fixed Podman binaries with explicit argument vectors.
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -552,7 +553,7 @@ func tsharkQuery(ctx context.Context, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := commandContextError(ctx, cmd.Run()); err != nil {
 		return "", fmt.Errorf("tshark: %w: %s", err, stderr.String())
 	}
 	return stdout.String(), nil
@@ -1092,6 +1093,56 @@ func TestPoll(t *testing.T) {
 			t.Errorf("pollUntil() error = %v, want poll error", err)
 		}
 	})
+}
+
+func TestTsharkQueryContextError(t *testing.T) {
+	tempDir := t.TempDir()
+	podmanPath := filepath.Join(tempDir, "podman")
+	startedPath := filepath.Join(tempDir, "started")
+	if err := os.WriteFile(
+		podmanPath,
+		[]byte("#!/bin/sh\n: > \"$TSHARK_QUERY_STARTED\"\nexec /bin/sleep 10\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fake podman command: %v", err)
+	}
+	t.Setenv("PATH", tempDir)
+	t.Setenv("TSHARK_QUERY_STARTED", startedPath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := tsharkQuery(ctx)
+		errCh <- err
+	}()
+
+	startDeadline := time.NewTimer(time.Second)
+	defer startDeadline.Stop()
+	for {
+		_, err := os.Stat(startedPath)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("check fake podman start marker: %v", err)
+		}
+		select {
+		case <-startDeadline.C:
+			t.Fatal("fake podman command did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("tsharkQuery() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tsharkQuery() did not return after context cancellation")
+	}
 }
 
 // =========================================================================
