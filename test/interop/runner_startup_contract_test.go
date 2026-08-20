@@ -11,15 +11,60 @@ import (
 	"time"
 )
 
-func TestInteropRunnerRejectsUnsuccessfulHoloConfig(t *testing.T) {
+func TestInteropRunnerHoloConfigGate(t *testing.T) {
 	t.Parallel()
 
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	for _, loaderStatus := range []string{"7", "invalid"} {
-		t.Run(loaderStatus, func(t *testing.T) {
+	tests := map[string]struct {
+		waitStatus     string
+		inspectStatus  string
+		waitExit       string
+		inspectExit    string
+		wantDiagnostic string
+		wantInspect    bool
+		wantGobfdStart bool
+	}{
+		"zero success": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			wantInspect:    true,
+			wantGobfdStart: true,
+		},
+		"non-zero status": {
+			waitStatus:     "7",
+			inspectStatus:  "7",
+			wantDiagnostic: "holo-config exited with status 7",
+			wantInspect:    true,
+		},
+		"invalid status": {
+			waitStatus:     "invalid",
+			inspectStatus:  "invalid",
+			wantDiagnostic: "invalid holo-config wait status: invalid",
+			wantInspect:    true,
+		},
+		"wait inspect mismatch": {
+			waitStatus:     "0",
+			inspectStatus:  "7",
+			wantDiagnostic: "holo-config status mismatch: wait=0, inspect=7",
+			wantInspect:    true,
+		},
+		"wait command failure": {
+			waitExit:       "9",
+			wantDiagnostic: "timed out or failed waiting for holo-config-interop",
+		},
+		"inspect command failure": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			inspectExit:    "9",
+			wantDiagnostic: "failed to inspect holo-config-interop exit status",
+			wantInspect:    true,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			fakeBin := t.TempDir()
@@ -31,7 +76,16 @@ exit 0
 			podmanFake := `#!/usr/bin/env bash
 printf 'podman %s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
 case "${1:-}" in
-    wait|inspect) printf '%s\n' "${INTEROP_FAKE_LOADER_STATUS}" ;;
+    wait)
+        printf '%s\n' "${INTEROP_FAKE_WAIT_STATUS:-}"
+        exit "${INTEROP_FAKE_WAIT_EXIT:-0}"
+        ;;
+    inspect)
+        if [[ "${2:-}" == "--format" ]]; then
+            printf '%s\n' "${INTEROP_FAKE_INSPECT_STATUS:-}"
+            exit "${INTEROP_FAKE_INSPECT_EXIT:-0}"
+        fi
+        ;;
 esac
 exit 0
 `
@@ -54,24 +108,50 @@ exit 0
 			cmd.Env = append(os.Environ(),
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
-				"INTEROP_FAKE_LOADER_STATUS="+loaderStatus,
+				"INTEROP_FAKE_WAIT_STATUS="+test.waitStatus,
+				"INTEROP_FAKE_INSPECT_STATUS="+test.inspectStatus,
+				"INTEROP_FAKE_WAIT_EXIT="+test.waitExit,
+				"INTEROP_FAKE_INSPECT_EXIT="+test.inspectExit,
 			)
-			output, err := cmd.CombinedOutput()
-			if err == nil {
-				t.Fatalf("runner accepted holo-config exit status %q; output:\n%s", loaderStatus, output)
-			}
+			output, runErr := cmd.CombinedOutput()
 			commands, readErr := os.ReadFile(commandLog)
 			if readErr != nil {
 				t.Fatalf("read fake command log: %v", readErr)
 			}
-			if runnerStartedGoBFD(string(commands)) {
-				t.Fatalf(
-					"runner started gobfd before rejecting holo-config exit status %q; commands:\n%s",
-					loaderStatus,
-					commands,
-				)
+			assertHoloStartupSequence(t, root, string(commands), test.wantInspect)
+			if test.wantDiagnostic != "" && runErr == nil {
+				t.Fatalf("runner reported loader failure but exited successfully; output:\n%s", output)
+			}
+			if test.wantDiagnostic != "" && !strings.Contains(string(output), test.wantDiagnostic) {
+				t.Fatalf("runner output is missing diagnostic %q; output:\n%s", test.wantDiagnostic, output)
+			}
+			if got := runnerStartedGoBFD(string(commands)); got != test.wantGobfdStart {
+				t.Fatalf("runner gobfd start = %v, want %v; commands:\n%s", got, test.wantGobfdStart, commands)
 			}
 		})
+	}
+}
+
+func assertHoloStartupSequence(t *testing.T, root, commandLog string, wantInspect bool) {
+	t.Helper()
+
+	lines := strings.Split(strings.TrimSpace(commandLog), "\n")
+	composePrefix := "-f " + filepath.Join(root, "test", "interop", "compose.yml") + " "
+	want := []string{
+		composePrefix + "build --no-cache",
+		composePrefix + "up -d holo holo-config",
+		"podman wait holo-config-interop",
+	}
+	if wantInspect {
+		want = append(want, "podman inspect --format {{.State.ExitCode}} holo-config-interop")
+	}
+	if len(lines) < len(want) {
+		t.Fatalf("runner logged %d prerequisite commands, want at least %d; commands:\n%s", len(lines), len(want), commandLog)
+	}
+	for i, command := range want {
+		if lines[i] != command {
+			t.Fatalf("runner prerequisite command %d = %q, want %q", i+1, lines[i], command)
+		}
 	}
 }
 

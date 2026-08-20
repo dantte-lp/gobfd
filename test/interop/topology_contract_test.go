@@ -73,7 +73,7 @@ routing control-plane-protocols control-plane-protocol ietf-bfd-types:bfdv1 main
 !
 `
 
-type composeFile struct {
+type topologyCompose struct {
 	Gobfd         composeGobfdService
 	Holo          composeHoloService
 	HoloConfig    composeHoloConfigService
@@ -167,6 +167,7 @@ func TestHoloTopologyContract(t *testing.T) {
 	if holo.Image != holoImage {
 		t.Fatalf("holo image = %q, want immutable %q", holo.Image, holoImage)
 	}
+	assertEqual(t, "holo container name", holo.ContainerName, "holo-interop")
 	if compose.AiobfdPresent {
 		t.Fatal("obsolete aiobfd service remains")
 	}
@@ -193,6 +194,7 @@ func TestHoloTopologyContract(t *testing.T) {
 	assertEqual(t, "holo healthcheck start period", holo.Health.StartPeriod, "2s")
 
 	holoConfig := compose.HoloConfig
+	assertEqual(t, "holo-config container name", holoConfig.ContainerName, "holo-config-interop")
 	assertEqual(t, "holo-config networks", holoConfig.Networks, map[string]composeAttachment{
 		"bfdnet": {},
 	})
@@ -224,59 +226,59 @@ func TestHoloTopologyContract(t *testing.T) {
 	}
 }
 
-func loadCompose(root string) (composeFile, error) {
+func loadCompose(root string) (topologyCompose, error) {
 	path := filepath.Join(root, "test", "interop", "compose.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return composeFile{}, fmt.Errorf("read Compose file %s: %w", path, err)
+		return topologyCompose{}, fmt.Errorf("read Compose file %s: %w", path, err)
 	}
 	compose, err := decodeCompose(data)
 	if err != nil {
-		return composeFile{}, fmt.Errorf("decode Compose file %s: %w", path, err)
+		return topologyCompose{}, fmt.Errorf("decode Compose file %s: %w", path, err)
 	}
 	return compose, nil
 }
 
-func decodeCompose(data []byte) (composeFile, error) {
+func decodeCompose(data []byte) (topologyCompose, error) {
 	raw, err := decodeKnownFields[composeRaw](data, "Compose root")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	gobfdNode, err := requiredComposeNode(raw.Services, "gobfd", "Compose services")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	holoNode, err := requiredComposeNode(raw.Services, "holo", "Compose services")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	holoConfigNode, err := requiredComposeNode(raw.Services, "holo-config", "Compose services")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	bfdnetNode, err := requiredComposeNode(raw.Networks, "bfdnet", "Compose networks")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 
 	gobfd, err := decodeComposeNode[composeGobfdService](gobfdNode, "gobfd service")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	holo, err := decodeComposeNode[composeHoloService](holoNode, "holo service")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	holoConfig, err := decodeComposeNode[composeHoloConfigService](holoConfigNode, "holo-config service")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	bfdnet, err := decodeComposeNode[composeTopNetwork](bfdnetNode, "bfdnet network")
 	if err != nil {
-		return composeFile{}, err
+		return topologyCompose{}, err
 	}
 	_, aiobfdPresent := raw.Services["aiobfd"]
-	return composeFile{
+	return topologyCompose{
 		Gobfd:         gobfd,
 		Holo:          holo,
 		HoloConfig:    holoConfig,
