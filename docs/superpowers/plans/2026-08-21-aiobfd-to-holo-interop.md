@@ -241,12 +241,13 @@ Run:
 
 ```bash
 go test -race -count=1 -tags interop \
-  -run 'Test(ParseSessionState|FrameBoundary|HoloDownBoundary|LifecycleDeadline|Poll)' \
+  -run 'Test(ParseSessionState|FrameBoundary|HoloDownBoundary|LifecycleDeadline|Poll|TsharkQueryContextError)' \
   ./test/interop/
 ```
 
 Expected: FAIL because the parsing, boundary, lifecycle-deadline, and polling
-helpers do not exist.
+helpers do not exist and tshark queries do not yet preserve canceled or expired
+context identity.
 
 - [ ] **Step 3: Implement minimal helpers**
 
