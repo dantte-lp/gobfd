@@ -100,6 +100,43 @@ func TestInnerPacketRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildInnerPacketIntoReusesBuffer(t *testing.T) {
+	payload := makePayload(24)
+	src := netip.MustParseAddr("10.0.0.1")
+	dst := netip.MustParseAddr("10.0.0.2")
+	buf := make([]byte, netio.InnerOverheadIPv4+len(payload))
+
+	packet, err := netio.BuildInnerPacketInto(buf, payload, src, dst, 49152)
+	if err != nil {
+		t.Fatalf("BuildInnerPacketInto: %v", err)
+	}
+	if &packet[0] != &buf[0] {
+		t.Fatal("BuildInnerPacketInto returned a different backing buffer")
+	}
+	if got := testing.AllocsPerRun(100, func() {
+		if _, err := netio.BuildInnerPacketInto(buf, payload, src, dst, 49152); err != nil {
+			t.Fatalf("BuildInnerPacketInto: %v", err)
+		}
+	}); got != 0 {
+		t.Fatalf("BuildInnerPacketInto allocations = %v, want 0", got)
+	}
+}
+
+func TestBuildInnerPacketIntoRejectsShortBuffer(t *testing.T) {
+	t.Parallel()
+
+	_, err := netio.BuildInnerPacketInto(
+		make([]byte, netio.InnerOverheadIPv4-1),
+		makePayload(24),
+		netip.MustParseAddr("10.0.0.1"),
+		netip.MustParseAddr("10.0.0.2"),
+		49152,
+	)
+	if err == nil {
+		t.Fatal("BuildInnerPacketInto accepted a short buffer")
+	}
+}
+
 // -------------------------------------------------------------------------
 // Inner Ethernet Header Validation
 // -------------------------------------------------------------------------

@@ -135,7 +135,8 @@ GoBFD has 33 benchmarks across 7 categories in two packages (`internal/bfd` and 
 
 | Benchmark | What It Measures | Why It Matters |
 |-----------|-----------------|----------------|
-| `BuildInnerPacket` | Assemble Ethernet + IPv4 + UDP + BFD inner packet | Required for VXLAN/Geneve encapsulation |
+| `BuildInnerPacketInto` | Assemble inner packet in a caller-owned buffer | Production VXLAN/Geneve TX path |
+| `BuildInnerPacket` | Assemble Ethernet + IPv4 + UDP + BFD inner packet | Allocating compatibility wrapper |
 | `StripInnerPacket` | Extract BFD payload from inner packet | RX path for overlay sessions |
 | `VXLANHeaderMarshal` | VXLAN header serialization (RFC 7348) | Per-packet TX overhead for VXLAN BFD |
 | `VXLANHeaderUnmarshal` | VXLAN header parsing | Per-packet RX overhead for VXLAN BFD |
@@ -199,7 +200,8 @@ GoBFD uses `GOMEMLIMIT` + `GOGC=off` in production to minimize GC cycles, but ze
 #### Known Exceptions
 
 - `ControlPacketUnmarshalWithAuth`: 1 alloc/op (64 B) — copies the authentication digest for HMAC verification. This is intentional: the digest must outlive the input buffer.
-- `BuildInnerPacket`: 1 alloc/op (80 B) — allocates the inner packet buffer. Overlay paths are less latency-sensitive than direct BFD.
+- `BuildInnerPacketInto`: 0 alloc/op — writes the inner packet into the connection-owned TX buffer used by production VXLAN/Geneve paths.
+- `BuildInnerPacket`: 1 alloc/op (80 B) — allocating compatibility wrapper for standalone callers and tests.
 - `ManagerCreate*` / `ManagerReconcile`: allocations expected — session lifecycle operations are not hot path.
 
 ---

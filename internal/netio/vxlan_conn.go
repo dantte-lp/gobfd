@@ -45,6 +45,8 @@ type VXLANConn struct {
 	localAddr     netip.Addr
 	srcPort       uint16 // Ephemeral source port for inner UDP header
 	readBuf       []byte
+	sendBuf       []byte
+	sendMu        sync.Mutex
 	logger        *slog.Logger
 	mu            sync.Mutex
 	closed        bool
@@ -81,6 +83,7 @@ func NewVXLANConn(
 		localAddr:     localAddr,
 		srcPort:       srcPort,
 		readBuf:       make([]byte, vxlanBufSize),
+		sendBuf:       make([]byte, vxlanBufSize),
 		logger: logger.With(
 			slog.String("component", "netio.vxlan_conn"),
 			slog.String("local", localAddr.String()),
@@ -110,31 +113,36 @@ func (c *VXLANConn) SendEncapsulated(
 		return fmt.Errorf("vxlan send to %s: %w", dstAddr, ErrOverlayRecvClosed)
 	}
 	c.mu.Unlock()
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 
-	// Build inner packet: Ethernet + IPv4 + UDP + BFD.
-	innerPkt, err := BuildInnerPacket(bfdPayload, c.localAddr, dstAddr, c.srcPort)
+	if len(bfdPayload)+VXLANHeaderSize+InnerOverheadIPv4 > len(c.sendBuf) {
+		return fmt.Errorf("vxlan build packet: payload=%d: %w",
+			len(bfdPayload), ErrInnerPacketBufferTooShort)
+	}
+	buf := c.sendBuf
+	// Build inner packet: Ethernet + IPv4 + UDP + BFD in the owned buffer.
+	innerPkt, err := BuildInnerPacketInto(
+		buf[VXLANHeaderSize:], bfdPayload, c.localAddr, dstAddr, c.srcPort,
+	)
 	if err != nil {
 		return fmt.Errorf("vxlan build inner: %w", err)
 	}
 
 	// Build complete VXLAN packet: VXLAN header + inner packet.
 	totalLen := VXLANHeaderSize + len(innerPkt)
-	buf := make([]byte, totalLen)
 
 	// Marshal VXLAN header with Management VNI.
 	if _, err := MarshalVXLANHeader(buf[:VXLANHeaderSize], c.managementVNI); err != nil {
 		return fmt.Errorf("vxlan marshal header: %w", err)
 	}
 
-	// Append inner packet after VXLAN header.
-	copy(buf[VXLANHeaderSize:], innerPkt)
-
 	// Send to remote VTEP on port 4789.
 	dst := &net.UDPAddr{
 		IP:   dstAddr.AsSlice(),
 		Port: int(VXLANPort),
 	}
-	if _, err := c.conn.WriteToUDP(buf, dst); err != nil {
+	if _, err := c.conn.WriteToUDP(buf[:totalLen], dst); err != nil {
 		return fmt.Errorf("vxlan send to %s:%d: %w", dstAddr, VXLANPort, err)
 	}
 
