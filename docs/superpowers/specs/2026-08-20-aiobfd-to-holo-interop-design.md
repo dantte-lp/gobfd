@@ -163,7 +163,9 @@ the Holo handshake fails. Before startup, the runner resolves the exact Compose
 project and fails closed if containers, networks, or volumes with that project
 label already exist. Cleanup removes only resources carrying that recorded
 project label, then verifies that its containers, networks, and volumes are
-absent.
+absent. If Compose cleanup partially fails, the runner resolves the remaining
+exact IDs from that label and removes only those labelled resources before the
+final verification.
 
 Pulled and built images are cache inputs, not ephemeral task ownership. The gate
 does not delete them because they may predate the run or be shared by another
@@ -174,8 +176,9 @@ responsibility of the audit that created them.
 
 - Operational source, configuration, tests, benchmarks, reports, and reference
   documentation contain no `aiobfd` or `bitstring` reference. A repository scan
-  may match only `CHANGELOG.md`, `CHANGELOG.ru.md`, `.cspell.json`, and this
-  migration design; every other match fails the gate.
+  may match only `CHANGELOG.md`, `CHANGELOG.ru.md`, `.cspell.json`, this
+  migration design, and its approved implementation plan; every other match
+  fails the gate.
 - Holo is pinned by the exact approved digest and exposes no floating tag.
 - The Holo configuration matches the RFC/YANG microsecond interval contract.
 - The tagged Go interop tests compile and strict golangci-lint receives the
