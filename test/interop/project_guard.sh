@@ -486,6 +486,38 @@ interop_verify_labelled_containers_absent() {
     fi
 }
 
+interop_validate_project_container_snapshot() {
+    local project_name="$1"
+    shift
+    local container_id inspect_json
+
+    for container_id in "$@"; do
+        if ! inspect_json="$(timeout 30s podman inspect --type container "${container_id}" 2>/dev/null)"; then
+            printf 'failed to inspect exact container ID %s before cleanup\n' \
+                "${container_id}" >&2
+            return 1
+        fi
+        if ! jq -e \
+            --arg container_id "${container_id}" \
+            --arg project_name "${project_name}" '
+                type == "array"
+                and length == 1
+                and (.[0] | type) == "object"
+                and .[0].Id == $container_id
+                and (.[0].Config.Labels | type) == "object"
+                and .[0].Config.Labels["com.docker.compose.project"] == $project_name
+                and (.[0].Mounts | type) == "array"
+                and all(.[0].Mounts[];
+                    type == "object" and (.Type | type) == "string")
+                and all(.[0].Mounts[]; .Type != "volume")
+            ' >/dev/null 2>&1 <<<"${inspect_json}"; then
+            printf 'container ownership or volume-mount preflight failed for exact ID %s\n' \
+                "${container_id}" >&2
+            return 1
+        fi
+    done
+}
+
 interop_remove_project_resources() {
     local project_name="$1"
     local resources kind resource_id
@@ -516,6 +548,8 @@ interop_remove_project_resources() {
         printf '\n' >&2
         return 1
     fi
+    interop_validate_project_container_snapshot \
+        "${project_name}" "${container_ids[@]}" || return 1
     interop_remove_container_snapshot "${container_ids[@]}" || return 1
     for resource_id in "${network_ids[@]}"; do
         timeout 30s podman network rm -- "${resource_id}" >/dev/null || true

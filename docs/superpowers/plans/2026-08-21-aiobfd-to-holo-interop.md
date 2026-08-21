@@ -370,10 +370,14 @@ successful label revalidation has a name-swap TOCTOU window. Compose is
 therefore limited to image build and container creation while the project lock
 is held. On every owned-project exit, query all three resource classes and
 fail before mutation if a labelled volume exists because Podman exposes only
-its mutable name. Otherwise snapshot immutable container and network IDs,
-remove only those recorded IDs, re-query all three classes, and fail if any
-exact-labelled resource remains. Never invoke Compose `down`, remove an image,
-or mutate a resource absent from the snapshot.
+its mutable name. Otherwise snapshot immutable container and network IDs, then
+inspect every initial full container ID before the first mutation. Each inspect
+must return that exact ID, the expected project label, a valid mounts array, and
+no `Type=volume` mount; this catches anonymous or unlabelled volumes that a
+labelled volume query cannot see. Remove only the validated recorded IDs,
+re-query all three classes, and fail if any exact-labelled resource remains.
+Never invoke Compose `down`, remove an image, or mutate a resource absent from
+the snapshot.
 
 Use bounded commands and preserve the original test exit status unless cleanup
 itself proves an owned-resource leak.
@@ -846,14 +850,18 @@ printf 'Task 6 retained evidence in %s\n' "${TASK6_ARTIFACT_DIR}"
 
 Project cleanup snapshots immutable container and network identifiers exactly
 once. It refuses to mutate anything if the initial exact-project query finds a
-labelled volume, because Podman exposes only its mutable name; guarded projects
-must use container storage or bind mounts. It removes the container snapshot in
-bounded repeated passes so a child deleted later in the initial order can
-unblock its parent, then removes only the original network snapshot. A non-zero
-container removal is not sticky when `podman container exists <exact-ID>`
-returns 1 afterward; any other existence-check error fails closed. A pass with
-no absent exact ID fails without touching networks, and no later label query may
-introduce a new mutation target. There is no `podman volume rm` cleanup path.
+labelled volume, because Podman exposes only its mutable name. Before mutation,
+it also inspects every initial full container ID and requires the inspected ID,
+exact project label, and mounts schema to match while rejecting every
+`Type=volume` mount, including anonymous or unlabelled volumes invisible to
+`podman volume ls --filter label=...`; guarded projects must use container
+storage or bind mounts. It removes the validated container snapshot in bounded
+repeated passes so a child deleted later in the initial order can unblock its
+parent, then removes only the original network snapshot. A non-zero container
+removal is not sticky when `podman container exists <exact-ID>` returns 1
+afterward; any other existence-check error fails closed. A pass with no absent
+exact ID fails without touching networks, and no later label query may introduce
+a new mutation target. There is no `podman volume rm` cleanup path.
 
 Retain that exact temporary directory until its commands, versions, test
 counts, event proof, and cleanup proof are appended to Beads. Remove only the

@@ -508,6 +508,23 @@ func TestInteropOperationalContract(t *testing.T) {
 			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
 		}
 	}
+	containerPreflight := shellFunctionBody(t, projectGuard, "interop_validate_project_container_snapshot")
+	assertContainsAll(t, "project cleanup exact container preflight", containerPreflight, []string{
+		`podman inspect --type container "${container_id}"`,
+		`.[0].Id == $container_id`,
+		`.[0].Config.Labels["com.docker.compose.project"] == $project_name`,
+		`(.[0].Mounts | type) == "array"`,
+		`all(.[0].Mounts[];`,
+		`.Type != "volume"`,
+		`container ownership or volume-mount preflight failed`,
+	})
+	projectRemoval := shellFunctionBody(t, projectGuard, "interop_remove_project_resources")
+	assertOrdered(t, "project cleanup preflight before mutation", projectRemoval, []string{
+		`[[ "${#volume_names[@]}" -ne 0 ]]`,
+		`interop_validate_project_container_snapshot`,
+		`interop_remove_container_snapshot`,
+		`podman network rm`,
+	})
 	runSuite := shellFunctionBody(t, routing, "run_suite")
 	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{
 		`acquire_project_lock "${project_name}"`,

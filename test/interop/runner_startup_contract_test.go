@@ -1121,6 +1121,16 @@ label="label=com.docker.compose.project=gobfd-interop"
         ;;
 	    "volume ls --filter ${label} --format {{.Name}}")
 	        ;;
+	"inspect --type container immutable-parent-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-parent-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+		;;
+	"inspect --type container immutable-child-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-child-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+		;;
     "rm -f -- immutable-parent-id")
         if [[ ! -f "${INTEROP_FAKE_STATE_DIR}/child-removed" ]]; then
             exit 17
@@ -1166,6 +1176,8 @@ interop_cleanup_project_resources gobfd-interop
 		t.Fatalf("read fake podman log: %v", err)
 	}
 	assertCommandSubsequence(t, string(commands), []string{
+		"inspect --type container immutable-parent-id",
+		"inspect --type container immutable-child-id",
 		"rm -f -- immutable-parent-id",
 		"container exists immutable-parent-id",
 		"rm -f -- immutable-child-id",
@@ -1227,6 +1239,191 @@ interop_remove_project_resources gobfd-interop
 	}
 }
 
+func TestProjectResourceCleanupRejectsAnonymousVolumeMountBeforeMutation(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
+    "volume ls --filter ${label} --format {{.Name}}") ;;
+    "inspect --type container immutable-container-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-container-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},'\
+'"Mounts":[{"Type":"volume","Name":"anonymous-volume"}]}]'
+        ;;
+    *) exit 9 ;;
+esac
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-anonymous-volume",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("cleanup accepted a container with an anonymous volume mount; output:\n%s", output)
+	}
+	if !strings.Contains(string(output), "container ownership or volume-mount preflight failed") {
+		t.Fatalf("cleanup output is missing anonymous-volume diagnostic; output:\n%s", output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
+		if strings.Contains(string(commands), mutation) {
+			t.Fatalf("cleanup mutated resources after finding an anonymous volume: %q\ncommands:\n%s", mutation, commands)
+		}
+	}
+}
+
+func TestProjectResourceCleanupRejectsMismatchedInspectLabelBeforeMutation(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
+    "volume ls --filter ${label} --format {{.Name}}") ;;
+    "inspect --type container immutable-container-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-container-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"foreign-project"}},"Mounts":[]}]'
+        ;;
+    *) exit 9 ;;
+esac
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-mismatched-label",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("cleanup accepted an exact ID whose inspected project label changed; output:\n%s", output)
+	}
+	if !strings.Contains(string(output), "container ownership or volume-mount preflight failed") {
+		t.Fatalf("cleanup output is missing ownership diagnostic; output:\n%s", output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
+		if strings.Contains(string(commands), mutation) {
+			t.Fatalf("cleanup mutated resources after an inspect-label mismatch: %q\ncommands:\n%s", mutation, commands)
+		}
+	}
+}
+
+func TestProjectResourceCleanupFailsClosedOnInvalidInspect(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	testCases := map[string]struct {
+		inspectJSON string
+		inspectFail string
+		diagnostic  string
+	}{
+		"inspect command failure": {
+			inspectFail: "true",
+			diagnostic:  "failed to inspect exact container ID immutable-container-id before cleanup",
+		},
+		"malformed inspect JSON": {
+			inspectJSON: `{not-json`,
+			diagnostic:  "container ownership or volume-mount preflight failed",
+		},
+		"malformed mounts schema": {
+			inspectJSON: `[{"Id":"immutable-container-id",` +
+				`"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},` +
+				`"Mounts":[{}]}]`,
+			diagnostic: "container ownership or volume-mount preflight failed",
+		},
+	}
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fakeBin := t.TempDir()
+			commandLog := filepath.Join(t.TempDir(), "podman.log")
+			fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
+    "volume ls --filter ${label} --format {{.Name}}") ;;
+    "inspect --type container immutable-container-id")
+        [[ "${INTEROP_FAKE_INSPECT_FAIL}" == "true" ]] && exit 125
+        printf '%s\n' "${INTEROP_FAKE_INSPECT_JSON}"
+        ;;
+    *) exit 9 ;;
+esac
+`
+			if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+				t.Fatalf("write fake podman: %v", writeErr)
+			}
+			script := `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+			cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-invalid-inspect",
+				filepath.Join(root, "test", "interop", "project_guard.sh"))
+			cmd.Env = append(os.Environ(),
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+				"INTEROP_FAKE_INSPECT_JSON="+testCase.inspectJSON,
+				"INTEROP_FAKE_INSPECT_FAIL="+testCase.inspectFail,
+			)
+			output, runErr := cmd.CombinedOutput()
+			if runErr == nil {
+				t.Fatalf("cleanup accepted invalid exact-ID inspect evidence; output:\n%s", output)
+			}
+			if !strings.Contains(string(output), testCase.diagnostic) {
+				t.Fatalf("cleanup output is missing fail-closed inspect diagnostic; output:\n%s", output)
+			}
+			commands, readErr := os.ReadFile(commandLog)
+			if readErr != nil {
+				t.Fatalf("read fake podman log: %v", readErr)
+			}
+			for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
+				if strings.Contains(string(commands), mutation) {
+					t.Fatalf("cleanup mutated resources after invalid inspect evidence: %q\ncommands:\n%s", mutation, commands)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectResourceCleanupNeverMutatesNewlyAppearingID(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
@@ -1247,6 +1444,11 @@ case "$*" in
         fi
         ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}"|"volume ls --filter ${label} --format {{.Name}}") ;;
+	"inspect --type container immutable-initial-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-initial-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+		;;
     "rm -f -- immutable-initial-id") : > "${INTEROP_FAKE_STATE_DIR}/initial-removed" ;;
     "container exists immutable-initial-id") exit 1 ;;
     *) exit 9 ;;
@@ -1293,6 +1495,16 @@ case "$*" in
     "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-parent-id immutable-child-id ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
     "volume ls --filter ${label} --format {{.Name}}") ;;
+	"inspect --type container immutable-parent-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-parent-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+		;;
+	"inspect --type container immutable-child-id")
+		printf '%s\n' \
+			'[{"Id":"immutable-child-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+		;;
     "rm -f -- immutable-parent-id"|"rm -f -- immutable-child-id") exit 17 ;;
     "container exists immutable-parent-id"|"container exists immutable-child-id") exit 0 ;;
     *) exit 9 ;;
