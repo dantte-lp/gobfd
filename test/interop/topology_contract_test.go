@@ -706,6 +706,22 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 		`bfdjitter.Evaluate(strings.NewReader(output))`,
 		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0`,
 	})
+	assertOrdered(t, "legacy jitter before mutations", runner, []string{
+		`assert_pass test_rfc5880_jitter_compliance`,
+		`assert_pass test_rfc5880_session_independence`,
+		`assert_pass test_rfc5880_frr_admin_down`,
+		`assert_pass test_rfc5880_poll_final_parameter_change`,
+		`assert_pass test_gobfd_graceful_shutdown`,
+	})
+	assertOrdered(t, "tagged jitter before mutations", tagged, []string{
+		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
+		`t.Run("RFC5880_6.8.1_SessionIndependence"`,
+		`projectContainerCommand(ctx, "frr-interop", "stop")`,
+		`t.Run("RFC5880_6.8.6_FRRAdminDown"`,
+		`"peer "+gobfdIP, "shutdown"`,
+		`t.Run("RFC5880_6.5_PollFinalParameterChange"`,
+		`"peer "+gobfdIP, "transmit-interval 200"`,
+	})
 }
 
 func TestInteropJitterTsharkFailureIsFatal(t *testing.T) {

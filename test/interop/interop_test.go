@@ -1899,6 +1899,55 @@ func TestRFCCompliance(t *testing.T) {
 	})
 
 	// -----------------------------------------------------------------
+	// Group A (continued): Jitter compliance (RFC 5880 §6.8.7)
+	// -----------------------------------------------------------------
+
+	t.Run("RFC5880_6.8.7_JitterCompliance", func(t *testing.T) {
+		// RFC 5880 §6.8.7: "the interval MUST be reduced by a random
+		// value of 0 to 25%." So actual TX interval is 75-100% of the
+		// negotiated interval. For 300ms: [225ms, 300ms].
+		// Verify jitter compliance for all 4 peers.
+		type peer struct {
+			name string
+			ip   string
+		}
+		peers := []peer{
+			{"FRR", frrIP},
+			{"BIRD3", bird3IP},
+			{"Holo", holoIP},
+			{"Thoro", thoroIP},
+		}
+		for _, p := range peers {
+			t.Run(p.name, func(t *testing.T) {
+				output, err := tsharkFieldStream(ctx,
+					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
+					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0)
+				if err != nil {
+					t.Fatalf("read jitter packet fields for %s: %v", p.name, err)
+				}
+				report, err := bfdjitter.Evaluate(strings.NewReader(output))
+				if err != nil {
+					t.Fatalf("analyze jitter packet fields for %s: %v", p.name, err)
+				}
+
+				switch report.Status {
+				case bfdjitter.StatusSkip:
+					t.Skipf("%s jitter analysis skipped: %s (Up packets=%d, samples=%d)",
+						p.name, report.Reason, report.UpPackets, report.Samples)
+				case bfdjitter.StatusFail:
+					t.Errorf("%s jitter %s: min=%.3fs max=%.3fs samples=%d",
+						p.name, report.Reason, report.MinDelta, report.MaxDelta, report.Samples)
+				case bfdjitter.StatusPass:
+					t.Logf("%s inter-packet timing: min=%.3fs max=%.3fs samples=%d",
+						p.name, report.MinDelta, report.MaxDelta, report.Samples)
+				default:
+					t.Fatalf("%s jitter analyzer returned unknown status %q", p.name, report.Status)
+				}
+			})
+		}
+	})
+
+	// -----------------------------------------------------------------
 	// Group E: Session independence (RFC 5880 §6.8.1)
 	// Stop FRR, verify BIRD3 unaffected, measure detection time,
 	// then verify recovery.
@@ -2151,55 +2200,6 @@ func TestRFCCompliance(t *testing.T) {
 			t.Logf("warning: failed to restore FRR interval: %v", err)
 		}
 		time.Sleep(3 * time.Second)
-	})
-
-	// -----------------------------------------------------------------
-	// Group A (continued): Jitter compliance (RFC 5880 §6.8.7)
-	// -----------------------------------------------------------------
-
-	t.Run("RFC5880_6.8.7_JitterCompliance", func(t *testing.T) {
-		// RFC 5880 §6.8.7: "the interval MUST be reduced by a random
-		// value of 0 to 25%." So actual TX interval is 75-100% of the
-		// negotiated interval. For 300ms: [225ms, 300ms].
-		// Verify jitter compliance for all 4 peers.
-		type peer struct {
-			name string
-			ip   string
-		}
-		peers := []peer{
-			{"FRR", frrIP},
-			{"BIRD3", bird3IP},
-			{"Holo", holoIP},
-			{"Thoro", thoroIP},
-		}
-		for _, p := range peers {
-			t.Run(p.name, func(t *testing.T) {
-				output, err := tsharkFieldStream(ctx,
-					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
-					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0)
-				if err != nil {
-					t.Fatalf("read jitter packet fields for %s: %v", p.name, err)
-				}
-				report, err := bfdjitter.Evaluate(strings.NewReader(output))
-				if err != nil {
-					t.Fatalf("analyze jitter packet fields for %s: %v", p.name, err)
-				}
-
-				switch report.Status {
-				case bfdjitter.StatusSkip:
-					t.Skipf("%s jitter analysis skipped: %s (Up packets=%d, samples=%d)",
-						p.name, report.Reason, report.UpPackets, report.Samples)
-				case bfdjitter.StatusFail:
-					t.Errorf("%s jitter %s: min=%.3fs max=%.3fs samples=%d",
-						p.name, report.Reason, report.MinDelta, report.MaxDelta, report.Samples)
-				case bfdjitter.StatusPass:
-					t.Logf("%s inter-packet timing: min=%.3fs max=%.3fs samples=%d",
-						p.name, report.MinDelta, report.MaxDelta, report.Samples)
-				default:
-					t.Fatalf("%s jitter analyzer returned unknown status %q", p.name, report.Status)
-				}
-			})
-		}
 	})
 }
 

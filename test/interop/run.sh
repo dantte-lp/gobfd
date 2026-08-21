@@ -1322,6 +1322,9 @@ info "=== Phase 2: Initial Diagnostic & Poll/Final ==="
 assert_pass test_rfc5880_diag_zero_initial
 assert_pass test_rfc5880_poll_final_handshake
 
+info "=== Phase 2: Jitter Analysis ==="
+assert_pass test_rfc5880_jitter_compliance
+
 # --- Phase 3: State-changing tests ---
 info "=== Phase 3: Session Independence ==="
 assert_pass test_rfc5880_session_independence
@@ -1339,9 +1342,6 @@ assert_pass test_rfc5880_frr_admin_down_recovery
 
 info "=== Phase 3: Poll/Final Parameter Change ==="
 assert_pass test_rfc5880_poll_final_parameter_change
-
-info "=== Phase 3: Jitter Analysis ==="
-assert_pass test_rfc5880_jitter_compliance
 
 # --- Phase 4: Detection timeout (original) ---
 info "=== Phase 4: Detection Timeout ==="

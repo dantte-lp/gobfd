@@ -328,6 +328,19 @@ verified zero exact-project containers, networks, and volumes and all fixed
 container names absent. This is negative parser evidence, not a successful
 interop acceptance run.
 
+Live `interop-full-v3` after the Boolean fix proved that parsing now works:
+BIRD3, Holo, and Thoro remained within 0.225--0.301 seconds, while FRR failed
+with maximum 0.498653 seconds across 142 samples. The failure is orchestration
+contamination, not justification to widen the threshold or discard the gap:
+the read-only jitter gate ran after the same capture had recorded FRR
+stop/restart, AdminDown/recovery, and a 200 ms transmit-interval change followed
+by restoration to 300 ms. Both the shell Phase 2 and tagged RFC test must run
+jitter before Session Independence, stop/restart, AdminDown, and parameter
+change mutations while preserving the existing explicit insufficient-sample
+contract. The live v3 cleanup again verified zero exact-project containers,
+networks, and volumes. A fresh full live pass is still required after this
+ordering correction.
+
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 
 Rename constants, helpers, test names, log messages, packet filters,
