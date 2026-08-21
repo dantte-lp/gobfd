@@ -673,15 +673,26 @@ test "${negative_status}" -ne 0
 grep -Fq '=== Holo daemon logs ===' "${NEGATIVE_LOG}"
 grep -Fq '=== Holo daemon /tmp/holod.err ===' "${NEGATIVE_LOG}"
 grep -Fq '=== Holo configuration loader logs ===' "${NEGATIVE_LOG}"
-podman events --stream=false --since "${negative_started}" \
+"${PODMAN[@]}" events --stream=false --since "${negative_started}" \
   --until "${negative_finished}" --format json >"${NEGATIVE_EVENTS}"
 jq -s -e --arg project gobfd-interop-negative '
-  [.[] | select(
+  def owned:
     .Type == "container"
+    and .Attributes["com.docker.compose.project"] == $project;
+  any(.[]; owned and .Name == "holo-interop" and .Status == "create")
+  and any(.[]; owned and .Name == "holo-interop" and .Status == "start")
+  and any(.[]; owned and .Name == "holo-config-interop" and .Status == "create")
+  and any(.[]; owned and .Name == "holo-config-interop" and .Status == "start")
+  and any(.[];
+    owned
+    and .Name == "holo-config-interop" and .Status == "died"
+    and .ContainerExitCode != 0
+  )
+  and (any(.[];
+    owned
     and .Name == "gobfd-interop"
-    and .Attributes["com.docker.compose.project"] == $project
     and (.Status == "create" or .Status == "start")
-  )] | length == 0
+  ) | not)
 ' "${NEGATIVE_EVENTS}"
 interop_verify_project_absent gobfd-interop-negative
 ```
