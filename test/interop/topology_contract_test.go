@@ -508,12 +508,12 @@ func TestInteropOperationalContract(t *testing.T) {
 			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
 		}
 	}
-	containerPreflight := shellFunctionBody(t, projectGuard, "interop_validate_project_container_snapshot")
-	assertContainsAll(t, "project cleanup exact container preflight", containerPreflight, []string{
+	containerPreflight := shellFunctionBody(t, projectGuard, "interop_validate_container_snapshot")
+	assertContainsAll(t, "generic exact container preflight", containerPreflight, []string{
 		`podman inspect --type container`,
 		`--format '{{json .}}' "${container_id}"`,
 		`.Id == $container_id`,
-		`.Config.Labels["com.docker.compose.project"] == $project_name`,
+		`.Config.Labels[$label_key] == $label_value`,
 		`(.Mounts | type) == "array"`,
 		`all(.Mounts[];`,
 		`.Type != "volume"`,
@@ -522,9 +522,15 @@ func TestInteropOperationalContract(t *testing.T) {
 	projectRemoval := shellFunctionBody(t, projectGuard, "interop_remove_project_resources")
 	assertOrdered(t, "project cleanup preflight before mutation", projectRemoval, []string{
 		`[[ "${#volume_names[@]}" -ne 0 ]]`,
-		`interop_validate_project_container_snapshot`,
+		`interop_validate_container_snapshot`,
 		`interop_remove_container_snapshot`,
 		`podman network rm`,
+	})
+	labelledRemoval := shellFunctionBody(t, projectGuard, "interop_remove_labelled_containers")
+	assertOrdered(t, "merge-owner cleanup preflight before mutation", labelledRemoval, []string{
+		`snapshot+=("${container_id}")`,
+		`interop_validate_container_snapshot`,
+		`interop_remove_container_snapshot`,
 	})
 	runSuite := shellFunctionBody(t, routing, "run_suite")
 	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{

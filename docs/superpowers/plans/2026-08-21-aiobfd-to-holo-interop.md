@@ -425,8 +425,10 @@ guard as the full runners.
 
 Artifact merging uses a collision-resistant per-run
 `io.gobfd.e2e.merge-owner` label rather than a Compose project label. Preflight
-that label, run `mergecap`, then snapshot and remove only exact labelled
-container IDs and verify absence even when `podman run` times out or fails.
+that label, run `mergecap`, then snapshot the exact labelled container IDs.
+Before removal, apply the same full-ID, exact-label, and no-volume-mount inspect
+validation used for project containers, then remove only that validated
+snapshot and verify absence even when `podman run` times out or fails.
 Create the routing report/run ID before acquiring either project lock from UTC
 nanoseconds plus the runner PID, and derive the merge ownership value from that
 same validated ID so concurrent starts within one second cannot share a report
@@ -851,17 +853,20 @@ printf 'Task 6 retained evidence in %s\n' "${TASK6_ARTIFACT_DIR}"
 Project cleanup snapshots immutable container and network identifiers exactly
 once. It refuses to mutate anything if the initial exact-project query finds a
 labelled volume, because Podman exposes only its mutable name. Before mutation,
-it also inspects every initial full container ID and requires the inspected ID,
-exact project label, and mounts schema to match while rejecting every
+the generic container-snapshot validator inspects every initial full container
+ID and requires the inspected ID, requested label key/value, and mounts schema
+to match while rejecting every
 `Type=volume` mount, including anonymous or unlabelled volumes invisible to
 `podman volume ls --filter label=...`; guarded projects must use container
-storage or bind mounts. It removes the validated container snapshot in bounded
-repeated passes so a child deleted later in the initial order can unblock its
-parent, then removes only the original network snapshot. A non-zero container
-removal is not sticky when `podman container exists <exact-ID>` returns 1
-afterward; any other existence-check error fails closed. A pass with no absent
-exact ID fails without touching networks, and no later label query may introduce
-a new mutation target. There is no `podman volume rm` cleanup path.
+storage or bind mounts. Project and merge-owner cleanup both invoke this
+validator before their first removal. Project cleanup removes the validated
+container snapshot in bounded repeated passes so a child deleted later in the
+initial order can unblock its parent, then removes only the original network
+snapshot. A non-zero container removal is not sticky when
+`podman container exists <exact-ID>` returns 1 afterward; any other
+existence-check error fails closed. A pass with no absent exact ID fails without
+touching networks, and no later label query may introduce a new mutation target.
+There is no `podman volume rm` cleanup path.
 
 Retain that exact temporary directory until its commands, versions, test
 counts, event proof, and cleanup proof are appended to Beads. Remove only the

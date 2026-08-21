@@ -470,6 +470,8 @@ interop_remove_labelled_containers() {
         [[ -n "${container_id}" ]] || continue
         snapshot+=("${container_id}")
     done <<<"${container_ids}"
+    interop_validate_container_snapshot \
+        "${label_key}" "${label_value}" "${snapshot[@]}" || return 1
     interop_remove_container_snapshot "${snapshot[@]}"
 }
 
@@ -486,9 +488,10 @@ interop_verify_labelled_containers_absent() {
     fi
 }
 
-interop_validate_project_container_snapshot() {
-    local project_name="$1"
-    shift
+interop_validate_container_snapshot() {
+    local label_key="$1"
+    local label_value="$2"
+    shift 2
     local container_id inspect_json
 
     for container_id in "$@"; do
@@ -500,11 +503,12 @@ interop_validate_project_container_snapshot() {
         fi
         if ! jq -e \
             --arg container_id "${container_id}" \
-            --arg project_name "${project_name}" '
+            --arg label_key "${label_key}" \
+            --arg label_value "${label_value}" '
                 type == "object"
                 and .Id == $container_id
                 and (.Config.Labels | type) == "object"
-                and .Config.Labels["com.docker.compose.project"] == $project_name
+                and .Config.Labels[$label_key] == $label_value
                 and (.Mounts | type) == "array"
                 and all(.Mounts[];
                     type == "object" and (.Type | type) == "string")
@@ -547,8 +551,8 @@ interop_remove_project_resources() {
         printf '\n' >&2
         return 1
     fi
-    interop_validate_project_container_snapshot \
-        "${project_name}" "${container_ids[@]}" || return 1
+    interop_validate_container_snapshot \
+        com.docker.compose.project "${project_name}" "${container_ids[@]}" || return 1
     interop_remove_container_snapshot "${container_ids[@]}" || return 1
     for resource_id in "${network_ids[@]}"; do
         timeout 30s podman network rm -- "${resource_id}" >/dev/null || true

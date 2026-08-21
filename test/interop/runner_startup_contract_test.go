@@ -1047,6 +1047,12 @@ if [[ "$*" == "ps -a --no-trunc --filter label=io.gobfd.e2e.merge-owner=run-123 
     [[ -f "${INTEROP_FAKE_STATE_DIR}/removed" ]] || printf '%s\n' immutable-merge-container-id
     exit 0
 fi
+if [[ "$*" == "inspect --type container --format {{json .}} immutable-merge-container-id" ]]; then
+    printf '%s\n' \
+        '{"Id":"immutable-merge-container-id",'\
+'"Config":{"Labels":{"io.gobfd.e2e.merge-owner":"run-123"}},"Mounts":[]}'
+    exit 0
+fi
 if [[ "$*" == "rm -f -- immutable-merge-container-id" ]]; then
     : > "${INTEROP_FAKE_STATE_DIR}/removed"
     exit 0
@@ -1079,8 +1085,83 @@ interop_verify_labelled_containers_absent io.gobfd.e2e.merge-owner run-123
 	if err != nil {
 		t.Fatalf("read fake podman log: %v", err)
 	}
-	if !strings.Contains(string(commands), "rm -f -- immutable-merge-container-id") {
-		t.Fatalf("merge cleanup did not remove immutable snapshot ID; commands:\n%s", commands)
+	assertCommandSubsequence(t, string(commands), []string{
+		"inspect --type container --format {{json .}} immutable-merge-container-id",
+		"rm -f -- immutable-merge-container-id",
+	})
+}
+
+func TestLabelledContainerCleanupRejectsInvalidInspectBeforeMutation(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	testCases := map[string]struct {
+		inspectJSON string
+		inspectFail string
+	}{
+		"mismatched merge-owner label": {
+			inspectJSON: `{"Id":"immutable-merge-container-id",` +
+				`"Config":{"Labels":{"io.gobfd.e2e.merge-owner":"foreign-run"}},"Mounts":[]}`,
+		},
+		"anonymous volume mount": {
+			inspectJSON: `{"Id":"immutable-merge-container-id",` +
+				`"Config":{"Labels":{"io.gobfd.e2e.merge-owner":"run-123"}},` +
+				`"Mounts":[{"Type":"volume","Name":"anonymous-volume"}]}`,
+		},
+		"malformed inspect JSON": {
+			inspectJSON: `{not-json`,
+		},
+		"inspect command failure": {
+			inspectFail: "true",
+		},
+	}
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fakeBin := t.TempDir()
+			commandLog := filepath.Join(t.TempDir(), "podman.log")
+			fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+case "$*" in
+    "ps -a --no-trunc --filter label=io.gobfd.e2e.merge-owner=run-123 --format {{.ID}}")
+        printf '%s\n' immutable-merge-container-id
+        ;;
+    "inspect --type container --format {{json .}} immutable-merge-container-id")
+        [[ "${INTEROP_FAKE_INSPECT_FAIL}" == "true" ]] && exit 125
+        printf '%s\n' "${INTEROP_FAKE_INSPECT_JSON}"
+        ;;
+    "rm -f -- immutable-merge-container-id") exit 0 ;;
+    "container exists immutable-merge-container-id") exit 1 ;;
+    *) exit 9 ;;
+esac
+`
+			if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+				t.Fatalf("write fake podman: %v", writeErr)
+			}
+			script := `set -euo pipefail
+source "$1"
+interop_remove_labelled_containers io.gobfd.e2e.merge-owner run-123
+`
+			cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "merge-cleanup-invalid-inspect",
+				filepath.Join(root, "test", "interop", "project_guard.sh"))
+			cmd.Env = append(os.Environ(),
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+				"INTEROP_FAKE_INSPECT_JSON="+testCase.inspectJSON,
+				"INTEROP_FAKE_INSPECT_FAIL="+testCase.inspectFail,
+			)
+			output, runErr := cmd.CombinedOutput()
+			if runErr == nil {
+				t.Fatalf("merge cleanup accepted invalid exact-ID inspect evidence; output:\n%s", output)
+			}
+			commands, readErr := os.ReadFile(commandLog)
+			if readErr != nil {
+				t.Fatalf("read fake podman log: %v", readErr)
+			}
+			if strings.Contains(string(commands), "rm -f --") {
+				t.Fatalf("merge cleanup mutated a container after invalid inspect evidence; commands:\n%s", commands)
+			}
+		})
 	}
 }
 
