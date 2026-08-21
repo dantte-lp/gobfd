@@ -80,6 +80,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import tempfile
 
 
 def read_regular_nonempty(path_text, label, *, optional=False):
@@ -210,9 +211,20 @@ def load_metadata(path_text):
         raise ValueError(f"{path_text}: malformed benchmark metadata JSON: {error}") from error
     if not isinstance(metadata, dict):
         raise ValueError(f"{path_text}: benchmark metadata JSON must be an object")
+
+    def optional_non_empty_string(key):
+        if key not in metadata:
+            return "unknown"
+        value = metadata[key]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"{path_text}: benchmark metadata {key!r} must be a non-empty string"
+            )
+        return value
+
     return {
-        "version": str(metadata.get("version", "unknown")),
-        "go": str(metadata.get("go", "unknown")),
+        "version": optional_non_empty_string("version"),
+        "go": optional_non_empty_string("go"),
     }
 
 
@@ -315,9 +327,15 @@ def build_report(go_entries, frr_data, bird_data, metadata):
         if benchmark["name"] in annotations:
             benchmark["annotation"] = annotations[benchmark["name"]]
 
-    go_marshal = go_average.get("ControlPacketMarshal", {}).get("ns_op", 0)
-    frr_marshal = frr_data.get("Marshal", 0)
-    bird_marshal = bird_data.get("Marshal", 0)
+    if "ControlPacketMarshal" not in go_average:
+        raise ValueError("Go benchmark input is missing required ControlPacketMarshal headline")
+    if "Marshal" not in frr_data:
+        raise ValueError("FRR benchmark input is missing required FRR Marshal headline")
+    if "Marshal" not in bird_data:
+        raise ValueError("BIRD benchmark input is missing required BIRD Marshal headline")
+    go_marshal = go_average["ControlPacketMarshal"]["ns_op"]
+    frr_marshal = frr_data["Marshal"]
+    bird_marshal = bird_data["Marshal"]
     return {
         "meta": {
             "generated": os.environ.get("GENERATED", ""),
@@ -365,7 +383,29 @@ def write_report(template_path_text, output_path_text, report):
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise ValueError(f"report output must be a regular file path: {output_path}")
     encoded = json.dumps(report, separators=(",", ":"), allow_nan=False)
-    output_path.write_text(template.replace(marker, encoded), encoding="utf-8")
+    rendered = template.replace(marker, encoded)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            dir=output_path.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(rendered)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, output_path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def main():

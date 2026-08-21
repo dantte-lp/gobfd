@@ -540,6 +540,10 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	assertContainsAll(t, "benchmark report generator", generator, []string{
 		`python3 - "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}"`,
 		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}" <<'PY'`,
+		"tempfile.NamedTemporaryFile(",
+		"os.fsync(temporary.fileno())",
+		"os.replace(temporary_path, output_path)",
+		"temporary_path.unlink()",
 	})
 	if strings.Contains(generator, "python3 -c") {
 		t.Error("benchmark report generator interpolates shell paths into Python source")
@@ -578,9 +582,26 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
 	assertContainsAll(t, "benchmark Make contract", makefile, []string{
 		"BENCH_RESULTS := $(CURDIR)/bench-results",
+		`@mkdir -p "$(BENCH_RESULTS)"`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) build`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-c`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go`,
+		`./scripts/gen-report.sh "$(BENCH_RESULTS)"`,
+	})
+	spaceResults := filepath.Join(t.TempDir(), "benchmark results with spaces")
+	dryRun := exec.CommandContext(
+		t.Context(), "make", "--no-print-directory", "-n", "benchmark-cross", "benchmark-report",
+		"BENCH_RESULTS="+spaceResults,
+	)
+	dryRun.Dir = root
+	dryRunOutput, err := dryRun.CombinedOutput()
+	if err != nil {
+		t.Fatalf("render benchmark Make recipes: %v\n%s", err, dryRunOutput)
+	}
+	assertContainsAll(t, "benchmark Make recipes with spaces", string(dryRunOutput), []string{
+		`mkdir -p "` + spaceResults + `"`,
+		`BENCH_RESULTS_DIR="` + spaceResults + `" podman-compose -f bench/compose.yml build`,
+		`./scripts/gen-report.sh "` + spaceResults + `"`,
 	})
 }
 
@@ -594,7 +615,9 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		results := t.TempDir()
 		writeBenchmarkFixtures(t, results)
-		output := filepath.Join(t.TempDir(), "report.html")
+		outputDir := t.TempDir()
+		output := filepath.Join(outputDir, "report.html")
+		writeFixture(t, output, "pre-existing report\n")
 		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
 		if runErr != nil {
 			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
@@ -605,6 +628,73 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 			got = append(got, implementation.ID)
 		}
 		assertEqual(t, "report implementations", got, []string{"go", "frr", "bird"})
+		rendered, readErr := os.ReadFile(output)
+		if readErr != nil {
+			t.Fatalf("read replaced report: %v", readErr)
+		}
+		if bytes.Contains(rendered, []byte("__BENCHMARK_DATA__")) {
+			t.Error("successful report retains the template marker")
+		}
+		if !bytes.HasSuffix(rendered, []byte("</html>\n")) {
+			t.Error("successful report is incomplete")
+		}
+		entries, readDirErr := os.ReadDir(outputDir)
+		if readDirErr != nil {
+			t.Fatalf("read report output directory: %v", readDirErr)
+		}
+		if len(entries) != 1 || entries[0].Name() != "report.html" {
+			t.Errorf("report output directory entries = %v, want only report.html", entries)
+		}
+		outputInfo, statErr := os.Stat(output)
+		if statErr != nil {
+			t.Fatalf("stat replaced report: %v", statErr)
+		}
+		if outputInfo.Mode().Perm() != 0o600 {
+			t.Errorf("replaced report mode = %o, want 600", outputInfo.Mode().Perm())
+		}
+	})
+
+	t.Run("optional metadata defaults", func(t *testing.T) {
+		results := t.TempDir()
+		writeBenchmarkFixtures(t, results)
+		meta := filepath.Join(t.TempDir(), "meta.json")
+		writeFixture(t, meta, "{}\n")
+		output := filepath.Join(t.TempDir(), "report.html")
+		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
+		if runErr != nil {
+			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
+		}
+		data := readReportData(t, output)
+		assertEqual(t, "default report metadata", data.Meta, benchmarkReportMetadata{
+			Version: "unknown",
+			Go:      "unknown",
+		})
+	})
+
+	t.Run("output symlink", func(t *testing.T) {
+		results := t.TempDir()
+		writeBenchmarkFixtures(t, results)
+		target := filepath.Join(t.TempDir(), "target.html")
+		const targetContents = "existing target\n"
+		writeFixture(t, target, targetContents)
+		output := filepath.Join(t.TempDir(), "report.html")
+		if err := os.Symlink(target, output); err != nil {
+			t.Fatalf("create output symlink: %v", err)
+		}
+		_, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
+		if runErr == nil {
+			t.Fatal("generator accepted a symlink output target")
+		}
+		if !strings.Contains(stderr, "regular file path") {
+			t.Errorf("stderr = %q, want output target rejection", stderr)
+		}
+		preserved, readErr := os.ReadFile(target)
+		if readErr != nil {
+			t.Fatalf("read symlink target: %v", readErr)
+		}
+		if string(preserved) != targetContents {
+			t.Errorf("symlink target changed: %q", preserved)
+		}
 	})
 
 	tests := []struct {
@@ -672,6 +762,36 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 			wantErr: "non-negative",
 		},
 		{
+			name: "missing Go headline",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-go.txt"),
+					"BenchmarkControlPacketUnmarshal-8 1000 5 ns/op 0 B/op 0 allocs/op\n")
+				return ""
+			},
+			wantErr: "ControlPacketMarshal",
+		},
+		{
+			name: "missing FRR headline",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-c-frr.txt"),
+					"BENCH\tfrr\tUnmarshal\t8.0\t1000\n")
+				return ""
+			},
+			wantErr: "FRR Marshal",
+		},
+		{
+			name: "missing BIRD headline",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-c-bird.txt"),
+					"BENCH\tbird\tUnmarshal\t7.0\t1000\n")
+				return ""
+			},
+			wantErr: "BIRD Marshal",
+		},
+		{
 			name: "malformed metadata JSON",
 			mutate: func(t *testing.T, _ string) string {
 				t.Helper()
@@ -681,6 +801,36 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 			},
 			wantErr: "meta.json",
 		},
+		{
+			name:    "metadata version boolean",
+			mutate:  invalidMetadataMutation(`{"version":true}`),
+			wantErr: "version",
+		},
+		{
+			name:    "metadata go number",
+			mutate:  invalidMetadataMutation(`{"go":127}`),
+			wantErr: "go",
+		},
+		{
+			name:    "metadata version list",
+			mutate:  invalidMetadataMutation(`{"version":[]}`),
+			wantErr: "version",
+		},
+		{
+			name:    "metadata go object",
+			mutate:  invalidMetadataMutation(`{"go":{}}`),
+			wantErr: "go",
+		},
+		{
+			name:    "metadata version null",
+			mutate:  invalidMetadataMutation(`{"version":null}`),
+			wantErr: "version",
+		},
+		{
+			name:    "metadata go empty",
+			mutate:  invalidMetadataMutation(`{"go":""}`),
+			wantErr: "go",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -688,12 +838,21 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 			writeBenchmarkFixtures(t, results)
 			meta := test.mutate(t, results)
 			output := filepath.Join(t.TempDir(), "report.html")
+			const previousReport = "previous complete report\n"
+			writeFixture(t, output, previousReport)
 			stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
 			if runErr == nil {
 				t.Fatalf("generator accepted invalid input\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 			}
 			if !strings.Contains(stderr, test.wantErr) {
 				t.Errorf("stderr = %q, want actionable reference %q", stderr, test.wantErr)
+			}
+			preserved, readErr := os.ReadFile(output)
+			if readErr != nil {
+				t.Fatalf("read preserved report: %v", readErr)
+			}
+			if string(preserved) != previousReport {
+				t.Errorf("invalid input changed the existing report: %q", preserved)
 			}
 		})
 	}
@@ -749,9 +908,15 @@ func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
 const maxOperationalFileSize = 2 << 20
 
 type benchmarkReport struct {
+	Meta            benchmarkReportMetadata `json:"meta"`
 	Implementations []struct {
 		ID string `json:"id"`
 	} `json:"implementations"`
+}
+
+type benchmarkReportMetadata struct {
+	Version string `json:"gobfd_version"`
+	Go      string `json:"go_version"`
 }
 
 func writeBenchmarkFixtures(t *testing.T, results string) {
@@ -768,6 +933,15 @@ func writeFixture(t *testing.T, path, contents string) {
 
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write fixture %s: %v", path, err)
+	}
+}
+
+func invalidMetadataMutation(contents string) func(*testing.T, string) string {
+	return func(t *testing.T, _ string) string {
+		t.Helper()
+		meta := filepath.Join(t.TempDir(), "meta.json")
+		writeFixture(t, meta, contents+"\n")
+		return meta
 	}
 }
 

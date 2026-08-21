@@ -495,14 +495,14 @@ BENCH_DC := podman-compose -f $(BENCH_COMPOSE)
 BENCH_RESULTS := $(CURDIR)/bench-results
 
 benchmark-cross:
-	@mkdir -p $(BENCH_RESULTS)
+	@mkdir -p "$(BENCH_RESULTS)"
 	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) build
 	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-c
 	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go
 	@echo "=== All benchmarks completed. Results in $(BENCH_RESULTS)/ ==="
 
 benchmark-report:
-	./scripts/gen-report.sh $(BENCH_RESULTS)
+	./scripts/gen-report.sh "$(BENCH_RESULTS)"
 
 # === Quality ===
 
