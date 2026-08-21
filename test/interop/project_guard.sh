@@ -492,7 +492,8 @@ interop_validate_project_container_snapshot() {
     local container_id inspect_json
 
     for container_id in "$@"; do
-        if ! inspect_json="$(timeout 30s podman inspect --type container "${container_id}" 2>/dev/null)"; then
+        if ! inspect_json="$(timeout 30s podman inspect --type container \
+            --format '{{json .}}' "${container_id}" 2>/dev/null)"; then
             printf 'failed to inspect exact container ID %s before cleanup\n' \
                 "${container_id}" >&2
             return 1
@@ -500,16 +501,14 @@ interop_validate_project_container_snapshot() {
         if ! jq -e \
             --arg container_id "${container_id}" \
             --arg project_name "${project_name}" '
-                type == "array"
-                and length == 1
-                and (.[0] | type) == "object"
-                and .[0].Id == $container_id
-                and (.[0].Config.Labels | type) == "object"
-                and .[0].Config.Labels["com.docker.compose.project"] == $project_name
-                and (.[0].Mounts | type) == "array"
-                and all(.[0].Mounts[];
+                type == "object"
+                and .Id == $container_id
+                and (.Config.Labels | type) == "object"
+                and .Config.Labels["com.docker.compose.project"] == $project_name
+                and (.Mounts | type) == "array"
+                and all(.Mounts[];
                     type == "object" and (.Type | type) == "string")
-                and all(.[0].Mounts[]; .Type != "volume")
+                and all(.Mounts[]; .Type != "volume")
             ' >/dev/null 2>&1 <<<"${inspect_json}"; then
             printf 'container ownership or volume-mount preflight failed for exact ID %s\n' \
                 "${container_id}" >&2

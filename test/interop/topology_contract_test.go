@@ -510,11 +510,12 @@ func TestInteropOperationalContract(t *testing.T) {
 	}
 	containerPreflight := shellFunctionBody(t, projectGuard, "interop_validate_project_container_snapshot")
 	assertContainsAll(t, "project cleanup exact container preflight", containerPreflight, []string{
-		`podman inspect --type container "${container_id}"`,
-		`.[0].Id == $container_id`,
-		`.[0].Config.Labels["com.docker.compose.project"] == $project_name`,
-		`(.[0].Mounts | type) == "array"`,
-		`all(.[0].Mounts[];`,
+		`podman inspect --type container`,
+		`--format '{{json .}}' "${container_id}"`,
+		`.Id == $container_id`,
+		`.Config.Labels["com.docker.compose.project"] == $project_name`,
+		`(.Mounts | type) == "array"`,
+		`all(.Mounts[];`,
 		`.Type != "volume"`,
 		`container ownership or volume-mount preflight failed`,
 	})

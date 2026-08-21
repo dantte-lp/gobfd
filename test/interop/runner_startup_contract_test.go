@@ -1121,15 +1121,15 @@ label="label=com.docker.compose.project=gobfd-interop"
         ;;
 	    "volume ls --filter ${label} --format {{.Name}}")
 	        ;;
-	"inspect --type container immutable-parent-id")
+	"inspect --type container --format {{json .}} immutable-parent-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-parent-id",'\
-'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+			'{"Id":"immutable-parent-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}'
 		;;
-	"inspect --type container immutable-child-id")
+	"inspect --type container --format {{json .}} immutable-child-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-child-id",'\
-'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+			'{"Id":"immutable-child-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}'
 		;;
     "rm -f -- immutable-parent-id")
         if [[ ! -f "${INTEROP_FAKE_STATE_DIR}/child-removed" ]]; then
@@ -1176,8 +1176,8 @@ interop_cleanup_project_resources gobfd-interop
 		t.Fatalf("read fake podman log: %v", err)
 	}
 	assertCommandSubsequence(t, string(commands), []string{
-		"inspect --type container immutable-parent-id",
-		"inspect --type container immutable-child-id",
+		"inspect --type container --format {{json .}} immutable-parent-id",
+		"inspect --type container --format {{json .}} immutable-child-id",
 		"rm -f -- immutable-parent-id",
 		"container exists immutable-parent-id",
 		"rm -f -- immutable-child-id",
@@ -1253,11 +1253,11 @@ case "$*" in
     "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
     "volume ls --filter ${label} --format {{.Name}}") ;;
-    "inspect --type container immutable-container-id")
+    "inspect --type container --format {{json .}} immutable-container-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-container-id",'\
+			'{"Id":"immutable-container-id",'\
 '"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},'\
-'"Mounts":[{"Type":"volume","Name":"anonymous-volume"}]}]'
+'"Mounts":[{"Type":"volume","Name":"anonymous-volume"}]}'
         ;;
     *) exit 9 ;;
 esac
@@ -1307,10 +1307,10 @@ case "$*" in
     "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
     "volume ls --filter ${label} --format {{.Name}}") ;;
-    "inspect --type container immutable-container-id")
+    "inspect --type container --format {{json .}} immutable-container-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-container-id",'\
-'"Config":{"Labels":{"com.docker.compose.project":"foreign-project"}},"Mounts":[]}]'
+			'{"Id":"immutable-container-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"foreign-project"}},"Mounts":[]}'
         ;;
     *) exit 9 ;;
 esac
@@ -1365,9 +1365,9 @@ func TestProjectResourceCleanupFailsClosedOnInvalidInspect(t *testing.T) {
 			diagnostic:  "container ownership or volume-mount preflight failed",
 		},
 		"malformed mounts schema": {
-			inspectJSON: `[{"Id":"immutable-container-id",` +
+			inspectJSON: `{"Id":"immutable-container-id",` +
 				`"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},` +
-				`"Mounts":[{}]}]`,
+				`"Mounts":[{}]}`,
 			diagnostic: "container ownership or volume-mount preflight failed",
 		},
 	}
@@ -1382,7 +1382,7 @@ case "$*" in
     "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
     "volume ls --filter ${label} --format {{.Name}}") ;;
-    "inspect --type container immutable-container-id")
+    "inspect --type container --format {{json .}} immutable-container-id")
         [[ "${INTEROP_FAKE_INSPECT_FAIL}" == "true" ]] && exit 125
         printf '%s\n' "${INTEROP_FAKE_INSPECT_JSON}"
         ;;
@@ -1444,10 +1444,10 @@ case "$*" in
         fi
         ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}"|"volume ls --filter ${label} --format {{.Name}}") ;;
-	"inspect --type container immutable-initial-id")
+	"inspect --type container --format {{json .}} immutable-initial-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-initial-id",'\
-'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+			'{"Id":"immutable-initial-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}'
 		;;
     "rm -f -- immutable-initial-id") : > "${INTEROP_FAKE_STATE_DIR}/initial-removed" ;;
     "container exists immutable-initial-id") exit 1 ;;
@@ -1495,15 +1495,15 @@ case "$*" in
     "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-parent-id immutable-child-id ;;
     "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
     "volume ls --filter ${label} --format {{.Name}}") ;;
-	"inspect --type container immutable-parent-id")
+	"inspect --type container --format {{json .}} immutable-parent-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-parent-id",'\
-'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+			'{"Id":"immutable-parent-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}'
 		;;
-	"inspect --type container immutable-child-id")
+	"inspect --type container --format {{json .}} immutable-child-id")
 		printf '%s\n' \
-			'[{"Id":"immutable-child-id",'\
-'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}]'
+			'{"Id":"immutable-child-id",'\
+'"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},"Mounts":[]}'
 		;;
     "rm -f -- immutable-parent-id"|"rm -f -- immutable-child-id") exit 17 ;;
     "container exists immutable-parent-id"|"container exists immutable-child-id") exit 0 ;;
