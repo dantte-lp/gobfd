@@ -6,13 +6,16 @@ import (
 	"testing"
 )
 
+//nolint:dupword // Exact tshark fixtures legitimately contain adjacent False flag fields.
 func TestRun(t *testing.T) {
 	t.Parallel()
 	t.Run("report", func(t *testing.T) {
 		t.Parallel()
 		input := strings.Join([]string{
-			"0.000\t3\t0\t0", "0.225\t3\t0\t0", "0.475\t3\t0\t0", "0.750\t3\t0\t0", "1.050\t3\t0\t0",
-			"1.275\t3\t0\t0", "1.525\t3\t0\t0", "1.800\t3\t0\t0", "2.100\t3\t0\t0", "2.325\t3\t0\t0",
+			"0.000\t3\tFalse\tFalse", "0.225\t3\tFalse\tFalse", "0.475\t3\tFalse\tFalse",
+			"0.750\t3\tFalse\tFalse", "1.050\t3\tFalse\tFalse", "1.275\t3\tFalse\tFalse",
+			"1.525\t3\tFalse\tFalse", "1.800\t3\tFalse\tFalse", "2.100\t3\tFalse\tFalse",
+			"2.325\t3\tFalse\tFalse",
 		}, "\n")
 		var output bytes.Buffer
 		var errorOutput bytes.Buffer

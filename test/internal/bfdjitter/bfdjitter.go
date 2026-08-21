@@ -122,14 +122,14 @@ func parseRow(line string, lineNumber int) (packet, error) {
 }
 
 func parseFlag(raw, name string, lineNumber int) (bool, error) {
-	value, err := strconv.ParseUint(strings.TrimSpace(raw), 0, 8)
-	if err != nil {
-		return false, fmt.Errorf("parse BFD %s flag at row %d: %q: %w", name, lineNumber, raw, err)
-	}
-	if value > 1 {
+	switch raw {
+	case "False", "0":
+		return false, nil
+	case "True", "1":
+		return true, nil
+	default:
 		return false, fmt.Errorf("parse BFD %s flag at row %d: %q: %w", name, lineNumber, raw, errInvalidFlag)
 	}
-	return value == 1, nil
 }
 
 func (analysis *analyzer) add(parsed packet, lineNumber int) error {

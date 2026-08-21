@@ -310,13 +310,23 @@ continuous-`Up` delta over 400 ms still fails, and fewer than ten `Up` packets
 or five eligible samples retains the existing explicit skip. Poll packets stay
 in the periodic sequence because RFC 5880 section 6.5 requires Poll Sequence
 packets to use scheduled transmissions; therefore an ordinary or Poll 50 ms
-`Up` interval remains a failure and advances the baseline. Only an exact
-numeric Final flag of one receives the section 6.8.7 timer exemption and does
-not advance the last periodic `Up` baseline, so it cannot hide a long gap. A
-packet with both Poll and Final set violates section 6.5 and fails closed. The
-shell runner invokes the analyzer with `go -C` so direct execution is
-independent of the caller's working directory and contains no inline Python
-jitter logic.
+`Up` interval remains a failure and advances the baseline. Only a Final flag
+set by canonical tshark `True` or the exact numeric compatibility value `1`
+receives the section 6.8.7 timer exemption and does not advance the last
+periodic `Up` baseline, so it cannot hide a long gap. Flag parsing accepts only
+canonical `False`/`True` and exact compatibility `0`/`1`; lowercase, padded,
+hex, missing, and other values fail closed. A packet with both Poll and Final
+set in any accepted encoding violates section 6.5 and fails closed. The shell
+runner invokes the analyzer with `go -C` so direct execution is independent of
+the caller's working directory and contains no inline Python jitter logic.
+
+Live `make interop` after commit `2e294f3` reached this gate and then failed
+closed on every live tshark 4.4.16 row because its Boolean fields are emitted
+as exact `False`/`True`, while the first parser accepted only numeric values.
+The retained `interop-full-v2.log` records those Poll diagnostics. Cleanup then
+verified zero exact-project containers, networks, and volumes and all fixed
+container names absent. This is negative parser evidence, not a successful
+interop acceptance run.
 
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 

@@ -768,7 +768,7 @@ func TestInteropJitterConsumesCompleteTsharkStream(t *testing.T) {
 		`tshark_fields() {
   local index=0
   while [ "${index}" -lt 250 ]; do
-    printf '%d.000\t3\t0\t0\n' "${index}"
+    printf '%d.000\t3\tFalse\tFalse\n' "${index}"
     index=$((index + 1))
   done
 }`,
