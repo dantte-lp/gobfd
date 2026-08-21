@@ -2,8 +2,10 @@ package interop_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec" //nolint:depguard // Contract tests execute fixed repository tools with explicit argument vectors.
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -524,28 +526,8 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	}
 	removedReferences := []string{"aio" + "bfd", "bit" + "string"}
 	for _, path := range paths {
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			t.Errorf("stat benchmark/report surface %s: %v", path, statErr)
-			continue
-		}
-		if !info.IsDir() {
-			assertNoRemovedBenchmarkReferences(t, root, path, removedReferences)
-			continue
-		}
-
-		walkErr := filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() {
-				return nil
-			}
-			assertNoRemovedBenchmarkReferences(t, root, candidate, removedReferences)
-			return nil
-		})
-		if walkErr != nil {
-			t.Errorf("scan benchmark/report surface %s: %v", path, walkErr)
+		if err := validateOperationalSurface(path, removedReferences); err != nil {
+			t.Errorf("scan benchmark/report surface %s: %v", path, err)
 		}
 	}
 
@@ -553,27 +535,339 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	if strings.Contains(strings.ToLower(makefile), "bench-"+"python") {
 		t.Error("benchmark-cross retains the removed benchmark service")
 	}
+	generatorPath := filepath.Join(root, "scripts", "gen-report.sh")
+	generator := readContractFile(t, "benchmark report generator", generatorPath)
+	assertContainsAll(t, "benchmark report generator", generator, []string{
+		`python3 - "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}"`,
+		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}" <<'PY'`,
+	})
+	if strings.Contains(generator, "python3 -c") {
+		t.Error("benchmark report generator interpolates shell paths into Python source")
+	}
 }
 
-func assertNoRemovedBenchmarkReferences(t *testing.T, root, path string, removedReferences []string) {
+func TestBenchmarkResultMountContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	compose := readContractFile(t, "benchmark Compose", filepath.Join(root, "bench", "compose.yml"))
+	const resultMount = "${BENCH_RESULTS_DIR:-../bench-results}:/results:z"
+	if got := strings.Count(compose, resultMount); got != 2 {
+		t.Errorf("benchmark Compose result mount count = %d, want 2", got)
+	}
+	if strings.Contains(compose, "\nvolumes:\n  bench-results:") {
+		t.Error("benchmark Compose retains the obsolete named result volume")
+	}
+	defaultSource := filepath.Clean(filepath.Join(root, "bench", "..", "bench-results"))
+	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
+	render := exec.CommandContext(t.Context(), "podman-compose", "-f", "bench/compose.yml", "config")
+	render.Dir = root
+	render.Env = append(os.Environ(), "BENCH_RESULTS_DIR="+defaultSource)
+	rendered, err := render.CombinedOutput()
+	if err != nil {
+		t.Fatalf("render benchmark Compose: %v\n%s", err, rendered)
+	}
+	renderedMount := defaultSource + ":/results:z"
+	if got := strings.Count(string(rendered), renderedMount); got != 2 {
+		t.Errorf("rendered benchmark result mount %q count = %d, want 2\n%s", renderedMount, got, rendered)
+	}
+
+	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
+	assertContainsAll(t, "benchmark Make contract", makefile, []string{
+		"BENCH_RESULTS := $(CURDIR)/bench-results",
+		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) build`,
+		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-c`,
+		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go`,
+	})
+}
+
+func TestBenchmarkReportGenerator(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	script := filepath.Join(root, "scripts", "gen-report.sh")
+
+	t.Run("success", func(t *testing.T) {
+		results := t.TempDir()
+		writeBenchmarkFixtures(t, results)
+		output := filepath.Join(t.TempDir(), "report.html")
+		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
+		if runErr != nil {
+			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
+		}
+		data := readReportData(t, output)
+		got := make([]string, 0, len(data.Implementations))
+		for _, implementation := range data.Implementations {
+			got = append(got, implementation.ID)
+		}
+		assertEqual(t, "report implementations", got, []string{"go", "frr", "bird"})
+	})
+
+	tests := []struct {
+		name    string
+		mutate  func(*testing.T, string) string
+		wantErr string
+	}{
+		{
+			name: "missing input",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				if err := os.Remove(filepath.Join(results, "bench-c-bird.txt")); err != nil {
+					t.Fatalf("remove BIRD fixture: %v", err)
+				}
+				return ""
+			},
+			wantErr: "bench-c-bird.txt",
+		},
+		{
+			name: "malformed record",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-c-frr.txt"), "BENCH\tfrr\tMarshal\tbad\t1000\n")
+				return ""
+			},
+			wantErr: "bench-c-frr.txt",
+		},
+		{
+			name: "malformed Go output",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-go.txt"),
+					"BenchmarkControlPacketMarshal-8 1000 5 ns/op 0 B/op 0 allocs/op\n{bad-json}\n")
+				return ""
+			},
+			wantErr: "malformed Go benchmark output",
+		},
+		{
+			name: "not finite",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-c-bird.txt"), "BENCH\tbird\tMarshal\tNaN\t1000\n")
+				return ""
+			},
+			wantErr: "finite",
+		},
+		{
+			name: "negative duration",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-go.txt"),
+					"BenchmarkControlPacketMarshal-8 1000 -1 ns/op 0 B/op 0 allocs/op\n")
+				return ""
+			},
+			wantErr: "non-negative",
+		},
+		{
+			name: "negative allocation metric",
+			mutate: func(t *testing.T, results string) string {
+				t.Helper()
+				writeFixture(t, filepath.Join(results, "bench-go.txt"),
+					"BenchmarkControlPacketMarshal-8 1000 5 ns/op -1 B/op 0 allocs/op\n")
+				return ""
+			},
+			wantErr: "non-negative",
+		},
+		{
+			name: "malformed metadata JSON",
+			mutate: func(t *testing.T, _ string) string {
+				t.Helper()
+				meta := filepath.Join(t.TempDir(), "meta.json")
+				writeFixture(t, meta, "{not-json}\n")
+				return meta
+			},
+			wantErr: "meta.json",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results := t.TempDir()
+			writeBenchmarkFixtures(t, results)
+			meta := test.mutate(t, results)
+			output := filepath.Join(t.TempDir(), "report.html")
+			stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
+			if runErr == nil {
+				t.Fatalf("generator accepted invalid input\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Errorf("stderr = %q, want actionable reference %q", stderr, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*testing.T, string)
+	}{
+		{
+			name: "symlink",
+			setup: func(t *testing.T, surface string) {
+				t.Helper()
+				target := filepath.Join(t.TempDir(), "outside.txt")
+				writeFixture(t, target, "safe\n")
+				if err := os.Symlink(target, filepath.Join(surface, "link.txt")); err != nil {
+					t.Fatalf("create symlink fixture: %v", err)
+				}
+			},
+		},
+		{
+			name: "binary",
+			setup: func(t *testing.T, surface string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(surface, "binary.dat"), []byte{'a', 0, 'b'}, 0o600); err != nil {
+					t.Fatalf("write binary fixture: %v", err)
+				}
+			},
+		},
+		{
+			name: "oversize",
+			setup: func(t *testing.T, surface string) {
+				t.Helper()
+				contents := bytes.Repeat([]byte{'a'}, maxOperationalFileSize+1)
+				if err := os.WriteFile(filepath.Join(surface, "large.txt"), contents, 0o600); err != nil {
+					t.Fatalf("write oversize fixture: %v", err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			surface := t.TempDir()
+			test.setup(t, surface)
+			if err := validateOperationalSurface(surface, []string{"removed"}); err == nil {
+				t.Fatal("unsafe operational surface entry was accepted")
+			}
+		})
+	}
+}
+
+const maxOperationalFileSize = 2 << 20
+
+type benchmarkReport struct {
+	Implementations []struct {
+		ID string `json:"id"`
+	} `json:"implementations"`
+}
+
+func writeBenchmarkFixtures(t *testing.T, results string) {
+	t.Helper()
+
+	writeFixture(t, filepath.Join(results, "bench-go.txt"),
+		"goos: linux\nBenchmarkControlPacketMarshal-8 1000 5.5 ns/op 0 B/op 0 allocs/op\nPASS\n")
+	writeFixture(t, filepath.Join(results, "bench-c-frr.txt"), "BENCH\tfrr\tMarshal\t8.0\t1000\n")
+	writeFixture(t, filepath.Join(results, "bench-c-bird.txt"), "BENCH\tbird\tMarshal\t7.0\t1000\n")
+}
+
+func writeFixture(t *testing.T, path, contents string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write fixture %s: %v", path, err)
+	}
+}
+
+func runBenchmarkReport(t *testing.T, script, results, output, meta string) (string, string, error) {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), script, results)
+	cmd.Env = append(os.Environ(), "BENCH_REPORT_OUTPUT="+output)
+	if meta != "" {
+		cmd.Env = append(cmd.Env, "BENCH_META_JSON="+meta)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func readReportData(t *testing.T, path string) benchmarkReport {
 	t.Helper()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Errorf("read benchmark/report surface %s: %v", path, err)
-		return
+		t.Fatalf("read generated report %s: %v", path, err)
 	}
-	relative, err := filepath.Rel(root, path)
+	const prefix = "const REPORT_DATA = "
+	start := bytes.Index(data, []byte(prefix))
+	if start < 0 {
+		t.Fatal("generated report has no embedded benchmark data")
+	}
+	start += len(prefix)
+	end := bytes.IndexByte(data[start:], ';')
+	if end < 0 {
+		t.Fatal("generated report benchmark data is unterminated")
+	}
+	var report benchmarkReport
+	if err := json.Unmarshal(data[start:start+end], &report); err != nil {
+		t.Fatalf("decode generated report data: %v", err)
+	}
+	return report
+}
+
+func validateOperationalSurface(path string, removedReferences []string) error {
+	info, err := os.Lstat(path)
 	if err != nil {
-		t.Errorf("resolve benchmark/report path %s: %v", path, err)
-		return
+		return fmt.Errorf("lstat %s: %w", path, err)
 	}
-	lower := strings.ToLower(relative + "\n" + string(data))
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("operational surface %s is a symlink", path)
+	}
+	if info.Mode().IsRegular() {
+		return validateOperationalFile(path, info, removedReferences)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("operational surface %s is not a regular file or directory", path)
+	}
+
+	return filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("walk %s: %w", candidate, walkErr)
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", candidate, err)
+		}
+		if entryInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("operational surface entry %s is a symlink", candidate)
+		}
+		if entryInfo.IsDir() {
+			return nil
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return fmt.Errorf("operational surface entry %s is not a regular file", candidate)
+		}
+		return validateOperationalFile(candidate, entryInfo, removedReferences)
+	})
+}
+
+func validateOperationalFile(path string, info os.FileInfo, removedReferences []string) error {
+	if info.Size() > maxOperationalFileSize {
+		return fmt.Errorf("operational surface file %s is %d bytes, limit is %d", path, info.Size(), maxOperationalFileSize)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read operational surface file %s: %w", path, err)
+	}
+	if len(data) > maxOperationalFileSize {
+		return fmt.Errorf("operational surface file %s grew beyond %d bytes", path, maxOperationalFileSize)
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
+		return fmt.Errorf("operational surface file %s contains binary NUL data", path)
+	}
+	lower := strings.ToLower(path + "\n" + string(data))
 	for _, removed := range removedReferences {
 		if strings.Contains(lower, removed) {
-			t.Errorf("%s retains active removed reference %q", relative, removed)
+			return fmt.Errorf("operational surface file %s retains active removed reference %q", path, removed)
 		}
 	}
+	return nil
 }
 
 func shellFunctionBody(t *testing.T, script, name string) string {

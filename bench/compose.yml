@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: Containerfile.c
     volumes:
-      - bench-results:/results:z
+      - ${BENCH_RESULTS_DIR:-../bench-results}:/results:z
 
   bench-go:
     build:
@@ -22,13 +22,10 @@ services:
       dockerfile: deployments/docker/Containerfile.dev
     volumes:
       - ..:/app:z
-      - bench-results:/results:z
+      - ${BENCH_RESULTS_DIR:-../bench-results}:/results:z
     working_dir: /app
     command: >-
       sh -c "go test -buildvcs=false -bench=. -benchmem -count=6
              -run='^$$' -timeout=120s ./internal/bfd/
              | tee /results/bench-go.txt
              && echo 'Go benchmarks complete'"
-
-volumes:
-  bench-results:

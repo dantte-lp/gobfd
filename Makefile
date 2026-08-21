@@ -492,13 +492,13 @@ report-all: test-report benchmark-save benchmark-compare
 
 BENCH_COMPOSE := bench/compose.yml
 BENCH_DC := podman-compose -f $(BENCH_COMPOSE)
-BENCH_RESULTS := bench-results
+BENCH_RESULTS := $(CURDIR)/bench-results
 
 benchmark-cross:
 	@mkdir -p $(BENCH_RESULTS)
-	$(BENCH_DC) build
-	$(BENCH_DC) run --rm bench-c
-	$(BENCH_DC) run --rm bench-go
+	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) build
+	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-c
+	BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go
 	@echo "=== All benchmarks completed. Results in $(BENCH_RESULTS)/ ==="
 
 benchmark-report:
