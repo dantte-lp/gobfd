@@ -318,62 +318,60 @@ interop_verify_holo_running_configuration() {
         printf 'failed to inspect Holo running configuration\n' >&2
         return 1
     fi
-    if ! jq -e . >/dev/null 2>&1 <<<"${running_config}"; then
-        printf 'Holo running configuration is not valid JSON\n' >&2
-        return 1
-    fi
-    if ! jq -e '
-        [
-          .["ietf-interfaces:interfaces"]?
-          | select(type == "object")
-          | .interface?
-          | select(type == "array")
-          | .[]
-          | select(
-              type == "object"
-              and .name == "eth0"
-              and .type == "iana-if-type:ethernetCsmacd"
-              and (.["ietf-ip:ipv4"] | type) == "object"
-            )
-        ] as $interfaces
-        | [
-            .["ietf-routing:routing"]?
-            | select(type == "object")
-            | .["control-plane-protocols"]?
-            | select(type == "object")
-            | .["control-plane-protocol"]?
-            | select(type == "array")
-            | .[]
-            | select(
-                type == "object"
-                and .type == "ietf-bfd-types:bfdv1"
-                and .name == "main"
-              )
-          ] as $protocols
-        | [
-            $protocols[]?
-            | .["ietf-bfd:bfd"]?
-            | select(type == "object")
-            | .["ietf-bfd-ip-sh:ip-sh"]?
-            | select(type == "object")
-            | .sessions?
-            | select(type == "object")
-            | .session?
-            | select(type == "array")
-            | .[]
-            | select(
-                type == "object"
-                and .interface == "eth0"
-                and .["dest-addr"] == "172.20.0.10"
-                and .["source-addr"] == "172.20.0.50"
-                and .["local-multiplier"] == 3
-                and .["desired-min-tx-interval"] == 300000
-                and .["required-min-rx-interval"] == 300000
-              )
-          ] as $sessions
-        | ($interfaces | length) == 1
-          and ($protocols | length) == 1
-          and ($sessions | length) == 1
+    if ! jq -s -e '
+        length == 1
+        and (.[0]
+          | [
+              .["ietf-interfaces:interfaces"]?
+              | select(type == "object")
+              | .interface?
+              | select(type == "array")
+              | .[]
+              | select(
+                  type == "object"
+                  and .name == "eth0"
+                  and .type == "iana-if-type:ethernetCsmacd"
+                  and (.["ietf-ip:ipv4"] | type) == "object"
+                )
+            ] as $interfaces
+          | [
+              .["ietf-routing:routing"]?
+              | select(type == "object")
+              | .["control-plane-protocols"]?
+              | select(type == "object")
+              | .["control-plane-protocol"]?
+              | select(type == "array")
+              | .[]
+              | select(
+                  type == "object"
+                  and .type == "ietf-bfd-types:bfdv1"
+                  and .name == "main"
+                )
+            ] as $protocols
+          | [
+              $protocols[]?
+              | .["ietf-bfd:bfd"]?
+              | select(type == "object")
+              | .["ietf-bfd-ip-sh:ip-sh"]?
+              | select(type == "object")
+              | .sessions?
+              | select(type == "object")
+              | .session?
+              | select(type == "array")
+              | .[]
+              | select(
+                  type == "object"
+                  and .interface == "eth0"
+                  and .["dest-addr"] == "172.20.0.10"
+                  and .["source-addr"] == "172.20.0.50"
+                  and .["local-multiplier"] == 3
+                  and .["desired-min-tx-interval"] == 300000
+                  and .["required-min-rx-interval"] == 300000
+                )
+            ] as $sessions
+          | ($interfaces | length) == 1
+            and ($protocols | length) == 1
+            and ($sessions | length) == 1)
     ' >/dev/null 2>&1 <<<"${running_config}"; then
         printf 'Holo running configuration is missing the required BFD session\n' >&2
         return 1
@@ -501,18 +499,20 @@ interop_validate_container_snapshot() {
                 "${container_id}" >&2
             return 1
         fi
-        if ! jq -e \
+        if ! jq -s -e \
             --arg container_id "${container_id}" \
             --arg label_key "${label_key}" \
             --arg label_value "${label_value}" '
-                type == "object"
-                and .Id == $container_id
-                and (.Config.Labels | type) == "object"
-                and .Config.Labels[$label_key] == $label_value
-                and (.Mounts | type) == "array"
-                and all(.Mounts[];
-                    type == "object" and (.Type | type) == "string")
-                and all(.Mounts[]; .Type != "volume")
+                length == 1
+                and (.[0]
+                  | type == "object"
+                    and .Id == $container_id
+                    and (.Config.Labels | type) == "object"
+                    and .Config.Labels[$label_key] == $label_value
+                    and (.Mounts | type) == "array"
+                    and all(.Mounts[];
+                        type == "object" and (.Type | type) == "string")
+                    and all(.Mounts[]; .Type != "volume"))
             ' >/dev/null 2>&1 <<<"${inspect_json}"; then
             printf 'container ownership or volume-mount preflight failed for exact ID %s\n' \
                 "${container_id}" >&2

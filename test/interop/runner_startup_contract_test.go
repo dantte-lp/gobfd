@@ -146,7 +146,16 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 			waitStatus:     "0",
 			inspectStatus:  "0",
 			semanticConfig: "not-json",
-			wantDiagnostic: "Holo running configuration is not valid JSON",
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"multiple running configuration JSON documents": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: "{}\n" + validHoloRunningConfig,
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
 			wantInspect:    true,
 			wantLoaderLog:  true,
 			wantSemantic:   true,
@@ -1115,6 +1124,10 @@ func TestLabelledContainerCleanupRejectsInvalidInspectBeforeMutation(t *testing.
 		"inspect command failure": {
 			inspectFail: "true",
 		},
+		"extra document before valid inspect": {
+			inspectJSON: "{}\n" + `{"Id":"immutable-merge-container-id",` +
+				`"Config":{"Labels":{"io.gobfd.e2e.merge-owner":"run-123"}},"Mounts":[]}`,
+		},
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -1449,6 +1462,12 @@ func TestProjectResourceCleanupFailsClosedOnInvalidInspect(t *testing.T) {
 			inspectJSON: `{"Id":"immutable-container-id",` +
 				`"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},` +
 				`"Mounts":[{}]}`,
+			diagnostic: "container ownership or volume-mount preflight failed",
+		},
+		"extra document before valid inspect": {
+			inspectJSON: "{}\n" + `{"Id":"immutable-container-id",` +
+				`"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},` +
+				`"Mounts":[]}`,
 			diagnostic: "container ownership or volume-mount preflight failed",
 		},
 	}

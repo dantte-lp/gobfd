@@ -4,7 +4,7 @@
 
 **Goal:** Remove aiobfd and its Python benchmark surface, then preserve the four-peer BFD interoperability gate with immutable Holo v0.9.0 and fresh lifecycle evidence.
 
-**Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`. The legacy runner, guarded `make interop-up`, and routing E2E runner all start Holo in a separate bounded phase, require the loader's inspected exit status to be exactly zero, require its exact-ID log to be whitespace-only, verify the immutable Holo container reports exactly `Holo command-line interface 0.5.0`, and then run `--command 'show running format json'` before starting GoBFD. That semantic result must contain exactly one matching `eth0` interface, one `bfdv1/main` protocol, and one exact session. The gate is mandatory because Holo CLI v0.5.0 reports startup-file parse errors but continues, commits the remaining candidate, and exits zero; podman-compose 1.5.0 and 1.6.0 also reduce `service_completed_successfully` to the `stopped` state without checking the exit code. tshark capture files live only in the exact container writable layer and are copied before cleanup; no mutable named or anonymous capture volume is part of either base or BGP topology. Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
+**Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`. The legacy runner, guarded `make interop-up`, and routing E2E runner all start Holo in a separate bounded phase, require the loader's inspected exit status to be exactly zero, require its exact-ID log to be whitespace-only, verify the immutable Holo container reports exactly `Holo command-line interface 0.5.0`, and then run `--command 'show running format json'` before starting GoBFD. That semantic result must be exactly one JSON document containing exactly one matching `eth0` interface, one `bfdv1/main` protocol, and one exact session. The gate is mandatory because Holo CLI v0.5.0 reports startup-file parse errors but continues, commits the remaining candidate, and exits zero; podman-compose 1.5.0 and 1.6.0 also reduce `service_completed_successfully` to the `stopped` state without checking the exit code. tshark capture files live only in the exact container writable layer and are copied before cleanup; no mutable named or anonymous capture volume is part of either base or BGP topology. Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
 
 **Tech Stack:** Go 1.27, Go test/race, gopls, golangci-lint v2, Podman, the repository's pinned `podman-compose` provider, Docker Compose semantics, Holo v0.9.0, RFC 5880/5881, RFC 9314 YANG, tshark.
 
@@ -754,35 +754,37 @@ subshell so `make interop-down` always executes:
     "${INTEROP_PROJECT_NAME}" "${HOLO_VERSION_TXT}" \
     >"${HOLO_RUNNING_JSON}"
   grep -Fxq 'Holo command-line interface 0.5.0' "${HOLO_VERSION_TXT}"
-  jq -e '
-    [
-      .["ietf-interfaces:interfaces"].interface[]?
-      | select(
-          .name == "eth0"
-          and .type == "iana-if-type:ethernetCsmacd"
-          and (.["ietf-ip:ipv4"] | type) == "object"
-        )
-    ] as $interfaces
-    | [
-        .["ietf-routing:routing"]["control-plane-protocols"]
-          ["control-plane-protocol"][]?
-        | select(.type == "ietf-bfd-types:bfdv1" and .name == "main")
-      ] as $protocols
-    | [
-        $protocols[]?
-        | .["ietf-bfd:bfd"]["ietf-bfd-ip-sh:ip-sh"].sessions.session[]?
-        | select(
-            .interface == "eth0"
-            and .["dest-addr"] == "172.20.0.10"
-            and .["source-addr"] == "172.20.0.50"
-            and .["local-multiplier"] == 3
-            and .["desired-min-tx-interval"] == 300000
-            and .["required-min-rx-interval"] == 300000
-          )
-      ] as $sessions
-    | ($interfaces | length) == 1
-      and ($protocols | length) == 1
-      and ($sessions | length) == 1
+  jq -s -e '
+    length == 1
+    and (.[0]
+      | [
+          .["ietf-interfaces:interfaces"].interface[]?
+          | select(
+              .name == "eth0"
+              and .type == "iana-if-type:ethernetCsmacd"
+              and (.["ietf-ip:ipv4"] | type) == "object"
+            )
+        ] as $interfaces
+      | [
+          .["ietf-routing:routing"]["control-plane-protocols"]
+            ["control-plane-protocol"][]?
+          | select(.type == "ietf-bfd-types:bfdv1" and .name == "main")
+        ] as $protocols
+      | [
+          $protocols[]?
+          | .["ietf-bfd:bfd"]["ietf-bfd-ip-sh:ip-sh"].sessions.session[]?
+          | select(
+              .interface == "eth0"
+              and .["dest-addr"] == "172.20.0.10"
+              and .["source-addr"] == "172.20.0.50"
+              and .["local-multiplier"] == 3
+              and .["desired-min-tx-interval"] == 300000
+              and .["required-min-rx-interval"] == 300000
+            )
+        ] as $sessions
+      | ($interfaces | length) == 1
+        and ($protocols | length) == 1
+        and ($sessions | length) == 1)
   ' "${HOLO_RUNNING_JSON}"
   ./test/interop/projectctl.sh lock-run -- \
     go test -json -tags interop -count=1 -timeout 300s \

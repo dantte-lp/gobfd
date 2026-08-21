@@ -499,10 +499,15 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertContainsAll(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
 		`Holo command-line interface 0.5.0`,
 		`Holo configuration loader produced unexpected output`,
+		`jq -s -e`,
+		`length == 1`,
 		`($interfaces | length) == 1`,
 		`($protocols | length) == 1`,
 		`($sessions | length) == 1`,
 	})
+	if got := strings.Count(sharedHoloVerifier, "jq -s -e"); got != 1 {
+		t.Errorf("shared Holo semantic verifier jq call count = %d, want 1", got)
+	}
 	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
 		if got := strings.Count(contents[name], "interop_verify_holo_running_configuration"); got != 1 {
 			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
@@ -512,6 +517,8 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertContainsAll(t, "generic exact container preflight", containerPreflight, []string{
 		`podman inspect --type container`,
 		`--format '{{json .}}' "${container_id}"`,
+		`jq -s -e`,
+		`length == 1`,
 		`.Id == $container_id`,
 		`.Config.Labels[$label_key] == $label_value`,
 		`(.Mounts | type) == "array"`,
