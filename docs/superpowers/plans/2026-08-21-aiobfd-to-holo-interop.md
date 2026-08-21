@@ -343,6 +343,15 @@ zero-exit check. Task 3 may add project ownership and broader diagnostics
 around it, but must not collapse it back into a single Compose startup or rely
 on the declarative dependency.
 
+Apply the same provider-contract gate to the base suite in
+`test/e2e/routing/run.sh`: after preflight and build, start only `holo` and
+`holo-config`, run bounded `podman wait` and bounded `podman inspect`, require
+both results to be numeric, equal, and exactly zero, and only then run
+`up -d --no-deps gobfd frr bird3 tshark thoro`. Keep the BGP suite on its
+generic startup path. On every base-suite startup or test failure, continue
+through artifact collection and save bounded `holo` and `holo-config` logs plus
+`/tmp/holod.err` read with `podman exec holo-interop` when the container exists.
+
 - [ ] **Step 3: Define and enforce exact project ownership**
 
 Use `INTEROP_PROJECT_NAME` with a deterministic default in the Make target,
@@ -363,6 +372,11 @@ and enter the preserved two-phase Holo startup. On every owned-project exit:
 
 Use bounded commands and preserve the original test exit status unless cleanup
 itself proves an owned-resource leak.
+
+The fake collision cases for containers, networks, and volumes must reject
+every Compose invocation, including `down`, and reject `podman rm`,
+`podman network rm`, and `podman volume rm`. A collided project was never
+acquired by the run and must not enter either normal or fallback cleanup.
 
 After each tagged suite writes its JSON stream, enforce a non-zero test count
 inside `test/e2e/routing/run.sh`:

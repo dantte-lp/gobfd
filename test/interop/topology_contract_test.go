@@ -311,12 +311,56 @@ func TestInteropOperationalContract(t *testing.T) {
 		`-p "${project_name}"`,
 		`"INTEROP_PROJECT_NAME=${project_name}"`,
 		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
+		"start_holo_interop_suite",
+		"start_generic_suite",
+		"collect_holo_diagnostics",
 		"holo-interop",
 		"holo-config-interop",
+	})
+	holoStartup := shellFunctionBody(t, routing, "start_holo_interop_suite")
+	assertOrdered(t, "routing Holo provider gate", holoStartup, []string{
+		"up -d holo holo-config",
+		"podman wait holo-config-interop",
+		"podman inspect --format '{{.State.ExitCode}}' holo-config-interop",
+		"up -d --no-deps gobfd frr bird3 tshark thoro",
+	})
+	assertContainsAll(t, "routing Holo provider gate", holoStartup, []string{
+		`[[ ! "${wait_status}" =~ ^[0-9]+$ ]]`,
+		`[[ ! "${inspect_status}" =~ ^[0-9]+$ ]]`,
+		`[ "${wait_status}" != "${inspect_status}" ]`,
+		`[ "${wait_status}" -ne 0 ]`,
+		`fail_holo_suite_startup`,
+	})
+	runSuite := shellFunctionBody(t, routing, "run_suite")
+	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{
+		`assert_project_available "${project_name}"`,
+		`build --no-cache`,
+		`start_holo_interop_suite`,
+	})
+	assertContainsAll(t, "routing suite startup modes", routing, []string{
+		`"holo" "${INTEROP_PROJECT_NAME}"`,
+		`"generic" "${INTEROP_BGP_PROJECT_NAME}"`,
+	})
+	holoDiagnostics := shellFunctionBody(t, routing, "collect_holo_diagnostics")
+	assertContainsAll(t, "routing Holo artifact diagnostics", holoDiagnostics, []string{
+		`logs --tail 100 holo`,
+		`logs --tail 100 holo-config`,
+		`container exists holo-interop`,
+		`exec holo-interop sh -c`,
+		`/tmp/holod.err`,
+		`"${suite_dir}/holo.log"`,
+		`"${suite_dir}/holo-config.log"`,
+		`"${suite_dir}/holod.err"`,
+	})
+	failHoloStartup := shellFunctionBody(t, routing, "fail_holo_suite_startup")
+	assertContainsAll(t, "routing Holo failure diagnostics", failHoloStartup, []string{
+		`collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}"`,
+		`for artifact in holo.log holo-config.log holod.err`,
 	})
 	assertOrdered(t, "routing non-zero test guard", routing, []string{
 		`>"${suite_dir}/go-test.json"`,
 		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
+		`collect_holo_diagnostics`,
 		`collect_pcap "${suite}"`,
 	})
 
@@ -325,6 +369,22 @@ func TestInteropOperationalContract(t *testing.T) {
 		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Scapy fuzzer",
 		"Exact Compose project label",
 	})
+}
+
+func shellFunctionBody(t *testing.T, script, name string) string {
+	t.Helper()
+
+	startMarker := name + "() {\n"
+	start := strings.Index(script, startMarker)
+	if start < 0 {
+		t.Fatalf("shell function %s is missing", name)
+	}
+	start += len(startMarker)
+	end := strings.Index(script[start:], "\n}\n")
+	if end < 0 {
+		t.Fatalf("shell function %s has no closing brace", name)
+	}
+	return script[start : start+end]
 }
 
 func TestInteropComposeServiceInventory(t *testing.T) {

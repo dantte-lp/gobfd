@@ -150,7 +150,7 @@ exit 0
 			}
 			assertProjectPreflight(t, string(commands))
 			if test.collisionClass != "" {
-				assertNoComposeMutation(t, string(commands))
+				assertNoProjectMutation(t, string(commands))
 			} else {
 				assertHoloStartupSequence(t, root, string(commands), test.wantInspect)
 			}
@@ -220,14 +220,72 @@ func assertProjectPreflight(t *testing.T, commandLog string) {
 	}
 }
 
-func assertNoComposeMutation(t *testing.T, commandLog string) {
+func TestForbiddenProjectMutation(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		commandLog string
+		want       string
+	}{
+		"exact label queries are read only": {
+			commandLog: "podman ps -a --filter label=project --format {{.ID}}\n" +
+				"podman network ls --filter label=project --format {{.ID}}\n" +
+				"podman volume ls --filter label=project --format {{.Name}}\n",
+		},
+		"Compose build": {
+			commandLog: "-p gobfd-interop -f compose.yml build\n",
+			want:       "-p gobfd-interop -f compose.yml build",
+		},
+		"Compose down": {
+			commandLog: "-p gobfd-interop -f compose.yml down --volumes --remove-orphans\n",
+			want:       "-p gobfd-interop -f compose.yml down --volumes --remove-orphans",
+		},
+		"container removal": {
+			commandLog: "podman rm -f -- owned-container\n",
+			want:       "podman rm -f -- owned-container",
+		},
+		"network removal": {
+			commandLog: "podman network rm -- owned-network\n",
+			want:       "podman network rm -- owned-network",
+		},
+		"volume removal": {
+			commandLog: "podman volume rm -- owned-volume\n",
+			want:       "podman volume rm -- owned-volume",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := forbiddenProjectMutation(test.commandLog); got != test.want {
+				t.Fatalf("forbiddenProjectMutation() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func assertNoProjectMutation(t *testing.T, commandLog string) {
 	t.Helper()
 
+	if command := forbiddenProjectMutation(commandLog); command != "" {
+		t.Fatalf("runner mutated resources after detecting a project collision: %q", command)
+	}
+}
+
+func forbiddenProjectMutation(commandLog string) string {
 	for line := range strings.Lines(commandLog) {
-		if strings.HasPrefix(line, "-p ") {
-			t.Fatalf("runner invoked Compose after detecting a project collision: %q", strings.TrimSpace(line))
+		command := strings.TrimSpace(line)
+		for _, forbidden := range []string{
+			"-p ",
+			"podman rm ",
+			"podman network rm ",
+			"podman volume rm ",
+		} {
+			if strings.HasPrefix(command, forbidden) {
+				return command
+			}
 		}
 	}
+	return ""
 }
 
 func TestSecondComposeUpCommands(t *testing.T) {

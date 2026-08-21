@@ -90,6 +90,110 @@ collect_pcap() {
     append_csv "${suite}" "${suite_dir}/packets.csv"
 }
 
+collect_holo_diagnostics() {
+    local project_name="$1"
+    local compose_file="$2"
+    local suite_dir="$3"
+    local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
+    local status=0
+
+    "${dc[@]}" logs --tail 100 holo >"${suite_dir}/holo.log" \
+        2>"${suite_dir}/holo-log.err" || status=1
+    "${dc[@]}" logs --tail 100 holo-config >"${suite_dir}/holo-config.log" \
+        2>"${suite_dir}/holo-config-log.err" || status=1
+    local exists_status=0
+    "${PODMAN[@]}" container exists holo-interop || exists_status=$?
+    if [ "${exists_status}" -eq 0 ]; then
+        "${PODMAN[@]}" exec holo-interop sh -c \
+            'if [ -f /tmp/holod.err ]; then cat /tmp/holod.err; else printf "%s\n" "/tmp/holod.err is absent"; fi' \
+            >"${suite_dir}/holod.err" 2>"${suite_dir}/holod-exec.err" || status=1
+    elif [ "${exists_status}" -eq 1 ]; then
+        printf '%s\n' 'holo-interop container is absent' >"${suite_dir}/holod.err"
+        : >"${suite_dir}/holod-exec.err"
+    else
+        printf 'failed to check holo-interop container (status %s)\n' "${exists_status}" \
+            >"${suite_dir}/holod-exec.err"
+        : >"${suite_dir}/holod.err"
+        status=1
+    fi
+    return "${status}"
+}
+
+fail_holo_suite_startup() {
+    local project_name="$1"
+    local compose_file="$2"
+    local suite_dir="$3"
+    local message="$4"
+
+    printf '%s\n' "${message}" >&2
+    collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}" || true
+    local artifact
+    for artifact in holo.log holo-config.log holod.err holo-log.err holo-config-log.err holod-exec.err; do
+        if [ -s "${suite_dir}/${artifact}" ]; then
+            printf '\n===== %s =====\n' "${artifact}" >&2
+            sed -n '1,100p' "${suite_dir}/${artifact}" >&2
+        fi
+    done
+    return 1
+}
+
+start_holo_interop_suite() {
+    local project_name="$1"
+    local compose_file="$2"
+    local suite_dir="$3"
+    local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
+    local wait_status inspect_status
+
+    if ! "${dc[@]}" up -d holo holo-config; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "failed to start Holo configuration phase"
+        return 1
+    fi
+    if ! wait_status="$(timeout 30s podman wait holo-config-interop)"; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "timed out or failed waiting for holo-config-interop"
+        return 1
+    fi
+    if [[ ! "${wait_status}" =~ ^[0-9]+$ ]]; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "invalid holo-config wait status: ${wait_status}"
+        return 1
+    fi
+    if ! inspect_status="$(timeout 30s podman inspect --format '{{.State.ExitCode}}' holo-config-interop)"; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "failed to inspect holo-config-interop exit status"
+        return 1
+    fi
+    if [[ ! "${inspect_status}" =~ ^[0-9]+$ ]]; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "invalid holo-config inspect status: ${inspect_status}"
+        return 1
+    fi
+    if [ "${wait_status}" != "${inspect_status}" ]; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "holo-config status mismatch: wait=${wait_status}, inspect=${inspect_status}"
+        return 1
+    fi
+    if [ "${wait_status}" -ne 0 ]; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "holo-config exited with status ${wait_status}"
+        return 1
+    fi
+    if ! "${dc[@]}" up -d --no-deps gobfd frr bird3 tshark thoro; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "failed to start GoBFD interop services after Holo configuration"
+        return 1
+    fi
+}
+
+start_generic_suite() {
+    local project_name="$1"
+    local compose_file="$2"
+    local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
+
+    "${dc[@]}" up -d
+}
+
 merge_artifacts() {
     local merge_status=0
     python3 - "${REPORT_DIR}" <<'PY' || merge_status=1
@@ -235,26 +339,50 @@ run_suite() {
     local tag="$4"
     local package="$5"
     local tshark_container="$6"
-    local project_name="$7"
-    shift 7
+    local startup_mode="$7"
+    local project_name="$8"
+    shift 8
     local containers=("$@")
     local suite_dir="${REPORT_DIR}/${suite}"
     local dc=(podman-compose -p "${project_name}" -f "${compose_file}")
+    local test_status=0
 
     assert_project_available "${project_name}"
     OWNED_PROJECTS+=("${project_name}:${compose_file}")
-    timeout 10m "${dc[@]}" build --no-cache
-    timeout 2m "${dc[@]}" up -d
-    sleep 15
+    if ! timeout 10m "${dc[@]}" build --no-cache; then
+        printf 'suite %s image build failed\n' "${suite}" >&2
+        test_status=1
+    fi
+    if [ "${test_status}" -eq 0 ]; then
+        case "${startup_mode}" in
+            holo)
+                start_holo_interop_suite "${project_name}" "${compose_file}" "${suite_dir}" || test_status=1
+                ;;
+            generic)
+                start_generic_suite "${project_name}" "${compose_file}" || test_status=1
+                ;;
+            *)
+                printf 'unknown routing suite startup mode %q\n' "${startup_mode}" >&2
+                test_status=1
+                ;;
+        esac
+    fi
+    if [ "${test_status}" -eq 0 ]; then
+        sleep 15
+    fi
 
-    set +e
-    "${DEV_DC[@]}" exec -T dev env \
-        "INTEROP_PROJECT_NAME=${project_name}" \
-        "${env_name}=/app/${compose_file#"${ROOT_DIR}/"}" \
-        go test -tags "${tag}" -json -v -count=1 -timeout 300s "${package}" \
-        | tee -a "${REPORT_DIR}/go-test.json" "${REPORT_DIR}/go-test.log" >"${suite_dir}/go-test.json"
-    local test_status="${PIPESTATUS[0]}"
-    set -e
+    if [ "${test_status}" -eq 0 ]; then
+        set +e
+        "${DEV_DC[@]}" exec -T dev env \
+            "INTEROP_PROJECT_NAME=${project_name}" \
+            "${env_name}=/app/${compose_file#"${ROOT_DIR}/"}" \
+            go test -tags "${tag}" -json -v -count=1 -timeout 300s "${package}" \
+            | tee -a "${REPORT_DIR}/go-test.json" "${REPORT_DIR}/go-test.log" >"${suite_dir}/go-test.json"
+        test_status="${PIPESTATUS[0]}"
+        set -e
+    else
+        : >"${suite_dir}/go-test.json"
+    fi
 
     if ! jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0' \
         "${suite_dir}/go-test.json" >/dev/null; then
@@ -267,6 +395,9 @@ run_suite() {
         printf '\n===== %s containers =====\n' "${suite}"
         timeout 2m "${dc[@]}" logs
     } >>"${REPORT_DIR}/containers.log" 2>&1 || true
+    if [ "${startup_mode}" = "holo" ]; then
+        collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}" || true
+    fi
     collect_pcap "${suite}" "${tshark_container}"
     record_containers "${suite}" "${containers[@]}"
     cleanup_project "${project_name}" "${compose_file}" || test_status=1
@@ -293,9 +424,9 @@ cleanup() {
 trap cleanup EXIT
 
 run_suite "interop" "${ROOT_DIR}/test/interop/compose.yml" "INTEROP_COMPOSE_FILE" "interop" "./test/interop/" "tshark-interop" \
-    "${INTEROP_PROJECT_NAME}" gobfd-interop frr-interop bird3-interop tshark-interop holo-interop holo-config-interop thoro-interop
+    "holo" "${INTEROP_PROJECT_NAME}" gobfd-interop frr-interop bird3-interop tshark-interop holo-interop holo-config-interop thoro-interop
 
 run_suite "interop-bgp" "${ROOT_DIR}/test/interop-bgp/compose.yml" "INTEROP_BGP_COMPOSE_FILE" "interop_bgp" "./test/interop-bgp/" "tshark-bgp-interop" \
-    "${INTEROP_BGP_PROJECT_NAME}" gobfd-bgp-interop gobgp-interop frr-bgp-interop bird3-bgp-interop gobfd-exabgp-interop exabgp-interop tshark-bgp-interop
+    "generic" "${INTEROP_BGP_PROJECT_NAME}" gobfd-bgp-interop gobgp-interop frr-bgp-interop bird3-bgp-interop gobfd-exabgp-interop exabgp-interop tshark-bgp-interop
 
 printf 'S10.3 routing E2E artifacts: %s\n' "${REPORT_DIR}"
