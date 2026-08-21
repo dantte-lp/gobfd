@@ -1293,7 +1293,7 @@ func TestTrackedOperationalTextAllowlistDoesNotBypassGeneratedMarker(t *testing.
 	}
 }
 
-func TestTrackedOperationalTextRejectsSymlinkSwapAfterLstat(t *testing.T) {
+func TestTrackedOperationalTextRejectsRegularReplacementAfterLstat(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -1314,13 +1314,13 @@ func TestTrackedOperationalTextRejectsSymlinkSwapAfterLstat(t *testing.T) {
 	if renameErr := os.Rename(path, path+".original"); renameErr != nil {
 		t.Fatalf("move original fixture after lstat: %v", renameErr)
 	}
-	if symlinkErr := os.Symlink("replacement.txt", path); symlinkErr != nil {
-		t.Skipf("symlink swap fixture is unavailable: %v", symlinkErr)
+	if renameErr := os.Rename(filepath.Join(root, "replacement.txt"), path); renameErr != nil {
+		t.Fatalf("replace tracked path with another regular inode: %v", renameErr)
 	}
 
 	_, err = readTrackedOperationalFile(rooted, relative, initial)
 	if err == nil || !strings.Contains(err.Error(), "changed after lstat") {
-		t.Fatalf("symlink-swap error = %v, want changed-after-lstat diagnostic", err)
+		t.Fatalf("regular replacement error = %v, want changed-after-lstat diagnostic", err)
 	}
 }
 
@@ -1341,14 +1341,35 @@ func TestTrackedOperationalTextRejectsGrowthAfterLstat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lstat small fixture: %v", err)
 	}
-	contents := bytes.Repeat([]byte{'a'}, maxOperationalFileSize+1)
-	if writeErr := os.WriteFile(path, contents, 0o600); writeErr != nil {
-		t.Fatalf("grow fixture after lstat: %v", writeErr)
-	}
-
-	_, err = readTrackedOperationalFile(rooted, relative, initial)
-	if err == nil || !strings.Contains(err.Error(), "limit is") {
-		t.Fatalf("post-lstat growth error = %v, want size-limit diagnostic", err)
+	_, err = readTrackedOperationalFileWithHook(rooted, relative, initial, func(opened *os.File) error {
+		openedInfo, statErr := opened.Stat()
+		if statErr != nil {
+			return fmt.Errorf("stat opened fixture in growth hook: %w", statErr)
+		}
+		writer, openErr := rooted.OpenFile(relative, os.O_WRONLY, 0)
+		if openErr != nil {
+			return fmt.Errorf("open same inode for growth: %w", openErr)
+		}
+		writerInfo, statErr := writer.Stat()
+		if statErr != nil {
+			_ = writer.Close()
+			return fmt.Errorf("stat writer in growth hook: %w", statErr)
+		}
+		if !os.SameFile(openedInfo, writerInfo) {
+			_ = writer.Close()
+			return errors.New("growth hook did not open the same inode")
+		}
+		if truncateErr := writer.Truncate(int64(maxOperationalFileSize) + 1); truncateErr != nil {
+			_ = writer.Close()
+			return fmt.Errorf("grow opened inode after identity checks: %w", truncateErr)
+		}
+		if closeErr := writer.Close(); closeErr != nil {
+			return fmt.Errorf("close growth writer: %w", closeErr)
+		}
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "grew beyond") {
+		t.Fatalf("post-identity growth error = %v, want grew-beyond diagnostic", err)
 	}
 }
 
@@ -2112,6 +2133,15 @@ func validateTrackedOperationalPath(
 }
 
 func readTrackedOperationalFile(rooted *os.Root, relative string, initial os.FileInfo) ([]byte, error) {
+	return readTrackedOperationalFileWithHook(rooted, relative, initial, nil)
+}
+
+func readTrackedOperationalFileWithHook(
+	rooted *os.Root,
+	relative string,
+	initial os.FileInfo,
+	afterIdentity func(*os.File) error,
+) ([]byte, error) {
 	file, err := rooted.Open(relative)
 	if err != nil {
 		return nil, fmt.Errorf("open rooted file: %w", err)
@@ -2141,6 +2171,12 @@ func readTrackedOperationalFile(rooted *os.Root, relative string, initial os.Fil
 	if !os.SameFile(initial, opened) || !os.SameFile(current, opened) {
 		_ = file.Close()
 		return nil, errors.New("path changed after lstat")
+	}
+	if afterIdentity != nil {
+		if hookErr := afterIdentity(file); hookErr != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("run post-identity read hook: %w", hookErr)
+		}
 	}
 
 	data, readErr := io.ReadAll(io.LimitReader(file, int64(maxOperationalFileSize)+1))

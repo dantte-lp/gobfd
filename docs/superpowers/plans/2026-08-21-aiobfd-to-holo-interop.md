@@ -932,10 +932,14 @@ returned before every structural check and that `Lstat` followed by
 `os.ReadFile` left a replacement/growth window with unbounded allocation.
 Git-first and forced-fallback fixtures must therefore prove allowlisted
 symlink, non-regular, oversized, and invalid-generated entries still fail.
-Deterministic post-`Lstat` replacement and growth fixtures must also prove the
-rooted opened-handle identity and bounded-read checks above. This correction is
-required before the fresh E2E run; the rejected implementation is not Task 6
-acceptance evidence.
+A deterministic post-`Lstat` replacement with another regular inode must reach
+the `os.SameFile` identity mismatch rather than stopping at the symlink branch.
+A test-only hook placed after opened-handle `Stat`, the second `Root.Lstat`, and
+both identity comparisons must then grow that same opened inode beyond the
+limit before reading, proving the `io.LimitReader(max+1)` and post-read size
+failure branch. The normal wrapper always supplies a nil hook. This correction
+is required before the fresh E2E run; the rejected implementation is not Task
+6 acceptance evidence.
 
 - [ ] **Step 4: Verify post-run cleanup**
 
