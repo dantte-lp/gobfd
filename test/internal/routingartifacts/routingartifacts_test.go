@@ -109,11 +109,24 @@ func TestMergeWritesExactModeUnderRestrictiveUmaskChild(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	writeArtifactFixture(t, filepath.Join(root, "input.json"), "[]\n")
+	input := filepath.Join(root, "input.json")
+	output := filepath.Join(root, "output.json")
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatalf("chmod restrictive-umask fixture directory: %v", err)
+	}
+	writeArtifactFixture(t, input, "[]\n")
+	if err := os.Chmod(input, 0o600); err != nil {
+		t.Fatalf("chmod restrictive-umask input fixture: %v", err)
+	}
+	assertArtifactFixtureMode(t, root, 0o700)
+	assertArtifactFixtureMode(t, input, 0o600)
+	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restrictive-umask output exists before merge: %v", err)
+	}
 	if err := Merge(root, "output.json", []Input{{Name: "interop", Path: "input.json"}}); err != nil {
 		t.Fatalf("merge artifact under restrictive umask: %v", err)
 	}
-	info, err := os.Lstat(filepath.Join(root, "output.json"))
+	info, err := os.Lstat(output)
 	if err != nil {
 		t.Fatalf("lstat restrictive-umask output: %v", err)
 	}
@@ -121,6 +134,17 @@ func TestMergeWritesExactModeUnderRestrictiveUmaskChild(t *testing.T) {
 		t.Fatalf("restrictive-umask output mode = %04o, want 0600", info.Mode().Perm())
 	}
 	t.Log("restrictive-umask child verified exact mode 0600")
+}
+
+func assertArtifactFixtureMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("lstat restrictive-umask fixture %s: %v", path, err)
+	}
+	if info.Mode().Perm() != want {
+		t.Fatalf("restrictive-umask fixture %s mode = %04o, want %04o", path, info.Mode().Perm(), want)
+	}
 }
 
 func TestReadLimitedInputJoinsReadAndCloseErrors(t *testing.T) {

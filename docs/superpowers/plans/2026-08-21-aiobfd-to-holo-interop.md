@@ -1031,6 +1031,16 @@ read and close errors with contextual wrappers joined through `errors.Join`;
 a local injected `io.ReadCloser` test requires both causes through `errors.Is`
 without mutable production hooks.
 
+Quality re-review found the child setup itself was root-dependent: umask 0777
+also reduced `t.TempDir` and fixture-input permissions to mode 000, which root
+could traverse and read but an unprivileged test process could not. The child
+must immediately `Chmod` its owned fixture directory to 0700, create the input,
+`Chmod` that file to 0600, and assert both modes before calling `Merge`. It must
+also assert that the output path is absent before merge, so the exact-0600
+result can only come from runtime artifact creation. These executable
+preconditions remove reliance on root permission bypass without mutating users
+or requiring a privileged/container topology test.
+
 - [ ] **Step 4: Verify post-run cleanup**
 
 Query containers, networks, and volumes by every exact preflight-recorded
