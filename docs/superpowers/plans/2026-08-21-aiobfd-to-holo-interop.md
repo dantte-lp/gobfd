@@ -61,22 +61,22 @@ existing `go.yaml.in/yaml/v3` dependency and assert:
 const holoImage = "ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a"
 
 func TestHoloTopologyContract(t *testing.T) {
-	t.Parallel()
+    t.Parallel()
 
-	compose := loadCompose(t)
-	holo, ok := compose.Services["holo"]
-	if !ok {
-		t.Fatal("holo service is missing")
-	}
-	if holo.Image != holoImage {
-		t.Fatalf("holo image = %q, want immutable %q", holo.Image, holoImage)
-	}
-	if _, ok := compose.Services["aiobfd"]; ok {
-		t.Fatal("obsolete aiobfd service remains")
-	}
-	// Assert NET_RAW, NET_ADMIN, read-only holod.toml and holo.startup
-	// mounts, 172.20.0.50, healthcheck, and the mandatory successful
-	// holo-config dependency.
+    compose := loadCompose(t)
+    holo, ok := compose.Services["holo"]
+    if !ok {
+        t.Fatal("holo service is missing")
+    }
+    if holo.Image != holoImage {
+        t.Fatalf("holo image = %q, want immutable %q", holo.Image, holoImage)
+    }
+    if _, ok := compose.Services["aiobfd"]; ok {
+        t.Fatal("obsolete aiobfd service remains")
+    }
+    // Assert NET_RAW, NET_ADMIN, read-only holod.toml and holo.startup
+    // mounts, 172.20.0.50, healthcheck, and the mandatory successful
+    // holo-config dependency.
 }
 ```
 
@@ -255,10 +255,10 @@ Add a typed view matching current CLI JSON:
 
 ```go
 type sessionState struct {
-	PeerAddress     string `json:"peer_address"`
-	LocalState      string `json:"local_state"`
-	RemoteState     string `json:"remote_state"`
-	LocalDiagnostic string `json:"local_diagnostic"`
+    PeerAddress     string `json:"peer_address"`
+    LocalState      string `json:"local_state"`
+    RemoteState     string `json:"remote_state"`
+    LocalDiagnostic string `json:"local_diagnostic"`
 }
 ```
 
