@@ -19,8 +19,12 @@
 //	go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 //
 // Prerequisites:
-//   - podman-compose -f test/interop-bgp/compose.yml up --build -d
+//   - Set INTEROP_PROJECT_NAME to the validated project used to create the stack.
+//   - podman-compose -p "$INTEROP_PROJECT_NAME" -f test/interop-bgp/compose.yml up --build -d
 //   - All containers must be running.
+//
+// Every runtime operation resolves the fixed name to an exact project-labelled
+// immutable container ID before using the Podman API.
 package interop_bgp_test
 
 import (

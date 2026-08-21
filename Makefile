@@ -149,10 +149,12 @@ e2e-routing-test: interop-project-validate
 		env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
 		INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
-	INTEROP_PROJECT_NAME="$${INTEROP_PROJECT_NAME}-bgp" INTEROP_PROJECT_KIND=bgp \
+	@bgp_project="$${INTEROP_PROJECT_NAME}-bgp"; \
+	INTEROP_PROJECT_NAME="$${bgp_project}" INTEROP_PROJECT_KIND=bgp \
 		$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
 		$(INTEROP_CTL) dev-exec -- \
-		env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
+		env "INTEROP_PROJECT_NAME=$${bgp_project}" \
+		INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
 e2e-rfc:

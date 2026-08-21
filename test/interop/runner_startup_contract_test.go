@@ -219,7 +219,7 @@ exec /usr/bin/flock "$@"
 				fmt.Sprintf("INTEROP_FAKE_OWNERSHIP_SWAP=%t", test.ownershipSwap),
 				fmt.Sprintf("INTEROP_FAKE_LOCK_FAILURE=%t", test.lockFailure),
 				"INTEROP_FAKE_STATE_DIR="+stateDir,
-				"XDG_RUNTIME_DIR="+t.TempDir(),
+				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
 			)
 			output, runErr := cmd.CombinedOutput()
 			commands, readErr := os.ReadFile(commandLog)
@@ -353,24 +353,92 @@ interop_validate_fallback_lock_base "$2"
 	}
 }
 
-func TestProjectControlLockRunRequiresExistingExactProject(t *testing.T) {
+func TestProjectControlLockRunRejectsArbitraryLabelledResource(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	fakeBin := t.TempDir()
-	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	marker := filepath.Join(t.TempDir(), "command-ran")
-	fakePodman := `#!/usr/bin/env bash
+	for _, resourceKind := range []string{"container", "network", "volume"} {
+		t.Run(resourceKind, func(t *testing.T) {
+			fakeBin := t.TempDir()
+			commandLog := filepath.Join(t.TempDir(), "podman.log")
+			marker := filepath.Join(t.TempDir(), "command-ran")
+			fakePodman := `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
 if [[ "$*" == "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
-    printf '%s\n' immutable-project-container-id
+    [[ "${INTEROP_FAKE_RESOURCE_KIND}" == container ]] && printf '%s\n' arbitrary-container-id
+    exit 0
+fi
+if [[ "$*" == "network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
+    [[ "${INTEROP_FAKE_RESOURCE_KIND}" == network ]] && printf '%s\n' arbitrary-network-id
+    exit 0
+fi
+if [[ "$*" == "volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}" ]]; then
+    [[ "${INTEROP_FAKE_RESOURCE_KIND}" == volume ]] && printf '%s\n' arbitrary-volume-name
     exit 0
 fi
 if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
     exit 1
 fi
 exit 0
+`
+			if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+				t.Fatalf("write fake podman: %v", writeErr)
+			}
+			cmd := exec.CommandContext(
+				t.Context(),
+				filepath.Join(root, "test", "interop", "projectctl.sh"),
+				"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
+			)
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(),
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+				"INTEROP_FAKE_RESOURCE_KIND="+resourceKind,
+				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+			)
+			if output, runErr := cmd.CombinedOutput(); runErr == nil {
+				t.Fatalf("arbitrary exact-labelled %s authorized command; output:\n%s", resourceKind, output)
+			}
+			if _, markerErr := os.Stat(marker); !os.IsNotExist(markerErr) {
+				t.Fatalf("unauthorized locked command created marker: %v", markerErr)
+			}
+			commands, readErr := os.ReadFile(commandLog)
+			if readErr != nil {
+				t.Fatalf("read fake podman log: %v", readErr)
+			}
+			if !strings.Contains(string(commands), "label=com.docker.compose.project=gobfd-interop") {
+				t.Fatalf("lock-run did not query exact project resources; commands:\n%s", commands)
+			}
+		})
+	}
+}
+
+func TestProjectControlLockRunRequiresAllMandatoryContainers(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "command-ran")
+	fakePodman := `#!/usr/bin/env bash
+if [[ "$*" == "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
+    printf '%s\n' immutable-gobfd-id
+    exit 0
+fi
+if [[ "${1:-}" == "network" || "${1:-}" == "volume" ]]; then
+    exit 0
+fi
+if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
+    [[ "${3:-}" == "scapy-interop" ]] && exit 1
+    exit 0
+fi
+if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
+    name="${@: -1}"
+    printf 'immutable-%s-id|gobfd-interop\n' "${name%-interop}"
+    exit 0
+fi
+exit 9
 `
 	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
 		t.Fatalf("write fake podman: %v", writeErr)
@@ -383,21 +451,115 @@ exit 0
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
-		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
-		"XDG_RUNTIME_DIR="+t.TempDir(),
+		"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
 	)
 	if output, runErr := cmd.CombinedOutput(); runErr != nil {
-		t.Fatalf("run command under exact project lock: %v; output:\n%s", runErr, output)
+		t.Fatalf("run command with all mandatory containers: %v; output:\n%s", runErr, output)
 	}
-	if contents, readErr := os.ReadFile(marker); readErr != nil || string(contents) != "ran" {
+	contents, readErr := os.ReadFile(marker)
+	if readErr != nil || string(contents) != "ran" {
 		t.Fatalf("locked command marker = %q, %v", contents, readErr)
 	}
-	commands, err := os.ReadFile(commandLog)
+}
+
+func TestProjectControlLockRunRejectsEveryMissingMandatoryContainer(t *testing.T) {
+	root, err := repositoryRoot()
 	if err != nil {
-		t.Fatalf("read fake podman log: %v", err)
+		t.Fatalf("resolve repository root: %v", err)
 	}
-	if !strings.Contains(string(commands), "label=com.docker.compose.project=gobfd-interop") {
-		t.Fatalf("lock-run did not prove an existing exact project; commands:\n%s", commands)
+	testCases := []struct {
+		kind       string
+		project    string
+		containers []string
+	}{
+		{
+			kind:    "base",
+			project: "gobfd-interop",
+			containers: []string{
+				"gobfd-interop", "frr-interop", "bird3-interop", "tshark-interop",
+				"holo-interop", "holo-config-interop", "thoro-interop",
+			},
+		},
+		{
+			kind:    "bgp",
+			project: "gobfd-interop-bgp",
+			containers: []string{
+				"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop",
+				"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop",
+			},
+		},
+	}
+	fakePodman := `#!/usr/bin/env bash
+if [[ "${1:-}" == "ps" && "$*" == *"label=com.docker.compose.project=${INTEROP_PROJECT_NAME}"* ]]; then
+    printf '%s\n' arbitrary-project-container-id
+    exit 0
+fi
+if [[ "${1:-}" == "network" || "${1:-}" == "volume" ]]; then
+    exit 0
+fi
+if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
+    [[ "${3:-}" == "${INTEROP_FAKE_MISSING_CONTAINER}" ]] && exit 1
+    exit 0
+fi
+if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
+    name="${@: -1}"
+    printf 'immutable-%s-id|%s\n' "${name}" "${INTEROP_PROJECT_NAME}"
+    exit 0
+fi
+exit 9
+`
+	for _, testCase := range testCases {
+		for _, missingContainer := range testCase.containers {
+			t.Run(testCase.kind+"/"+missingContainer, func(t *testing.T) {
+				fakeBin := t.TempDir()
+				marker := filepath.Join(t.TempDir(), "command-ran")
+				if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+					t.Fatalf("write fake podman: %v", writeErr)
+				}
+				cmd := exec.CommandContext(
+					t.Context(),
+					filepath.Join(root, "test", "interop", "projectctl.sh"),
+					"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
+				)
+				cmd.Dir = root
+				cmd.Env = append(os.Environ(),
+					"PATH="+fakeBin+":"+os.Getenv("PATH"),
+					"INTEROP_PROJECT_KIND="+testCase.kind,
+					"INTEROP_PROJECT_NAME="+testCase.project,
+					"INTEROP_FAKE_MISSING_CONTAINER="+missingContainer,
+					"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+				)
+				if output, runErr := cmd.CombinedOutput(); runErr == nil {
+					t.Fatalf("missing mandatory container %s authorized command; output:\n%s", missingContainer, output)
+				}
+				if _, markerErr := os.Stat(marker); !os.IsNotExist(markerErr) {
+					t.Fatalf("unauthorized locked command created marker: %v", markerErr)
+				}
+			})
+		}
+	}
+}
+
+func TestInteropProjectLockRejectsUnsafePreferredBase(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	unsafeBase := filepath.Join(t.TempDir(), "unsafe-preferred")
+	if err := os.Mkdir(unsafeBase, 0o700); err != nil {
+		t.Fatalf("create preferred base: %v", err)
+	}
+	if err := os.Chmod(unsafeBase, 0o777); err != nil {
+		t.Fatalf("set unsafe preferred mode: %v", err)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_validate_preferred_lock_base "$2"
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "preferred-check",
+		filepath.Join(root, "test", "interop", "project_guard.sh"), unsafeBase)
+	if output, runErr := cmd.CombinedOutput(); runErr == nil {
+		t.Fatalf("accepted group/world-writable preferred lock base; output:\n%s", output)
 	}
 }
 
@@ -456,7 +618,7 @@ func TestInteropProjectLockSerializesRunners(t *testing.T) {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	guard := filepath.Join(root, "test", "interop", "project_guard.sh")
-	runtimeDir := t.TempDir()
+	runtimeDir := secureRuntimeDir(t)
 	ready := filepath.Join(t.TempDir(), "holder-ready")
 	holderScript := `set -euo pipefail
 source "$1"
@@ -546,7 +708,7 @@ func TestInteropProjectLockRejectsUnsafeDirectory(t *testing.T) {
 	for name, prepare := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			runtimeDir := t.TempDir()
+			runtimeDir := secureRuntimeDir(t)
 			lockDir := filepath.Join(runtimeDir, fmt.Sprintf("gobfd-interop-%d.locks", os.Getuid()))
 			prepare(t, lockDir)
 			script := `set -euo pipefail
@@ -769,6 +931,15 @@ func TestSecondComposeUpCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func secureRuntimeDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("secure runtime directory: %v", err)
+	}
+	return dir
 }
 
 func writeExecutable(path, contents string) error {

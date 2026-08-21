@@ -244,6 +244,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "target inventory", path: filepath.Join(root, "test", "e2e", "targets.md")},
 		{name: "Makefile", path: filepath.Join(root, "Makefile")},
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
+		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
 		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
 		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
 	}
@@ -311,6 +312,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		"INTEROP_CTL := ./test/interop/projectctl.sh",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
+		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
+		`env "INTEROP_PROJECT_NAME=$${bgp_project}"`,
 		"FRR + BIRD3 + Holo + Thoro/bfd",
 	})
 	for _, forbidden := range []string{
@@ -354,6 +357,17 @@ func TestInteropOperationalContract(t *testing.T) {
 		`lock-run)`,
 		`"$@"`,
 		`interop_assert_existing_project`,
+		`REQUIRED_CONTAINER_NAMES`,
+		`OPTIONAL_CONTAINER_NAMES`,
+	})
+	assertContainsAll(t, "direct base mandatory containers", projectControl, []string{
+		`gobfd-interop frr-interop bird3-interop tshark-interop`,
+		`holo-interop holo-config-interop thoro-interop`,
+		`OPTIONAL_CONTAINER_NAMES=(scapy-interop)`,
+	})
+	assertContainsAll(t, "direct BGP mandatory containers", projectControl, []string{
+		`gobfd-bgp-interop gobgp-interop tshark-bgp-interop frr-bgp-interop`,
+		`bird3-bgp-interop gobfd-exabgp-interop exabgp-interop`,
 	})
 
 	taggedGo := contents["tagged Go helper"]
@@ -367,9 +381,19 @@ func TestInteropOperationalContract(t *testing.T) {
 	if strings.Contains(taggedGo, "podmanCompose(") {
 		t.Error("tagged Go helper retains name-based Compose runtime operations")
 	}
+	bgpAPI := contents["tagged BGP API helper"]
+	assertContainsAll(t, "tagged BGP exact ownership", bgpAPI, []string{
+		`defaultInteropBGPProjectName = "gobfd-interop-bgp"`,
+		`errForeignProjectContainer`,
+		`resolveProjectContainerID`,
+		`client.Inspect`,
+	})
 
 	routing := contents["routing runner"]
 	assertContainsAll(t, "routing runner", routing, []string{
+		`date -u +%Y%m%dT%H%M%S%NZ`,
+		`RUN_ID="${RUN_TIMESTAMP}-$$"`,
+		`MERGE_OWNER_LABEL_VALUE="${RUN_ID}"`,
 		`INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"`,
 		`-p "${project_name}"`,
 		`"INTEROP_PROJECT_NAME=${project_name}"`,

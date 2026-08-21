@@ -22,6 +22,23 @@ interop_validate_lock_directory() {
     fi
 }
 
+interop_validate_preferred_lock_base() {
+    local runtime_base="$1"
+    local mode
+
+    if [[ -L "${runtime_base}" || ! -d "${runtime_base}" || ! -O "${runtime_base}" || ! -w "${runtime_base}" ]]; then
+        printf 'unsafe preferred interop lock base %s: require owned writable non-symlink directory\n' \
+            "${runtime_base}" >&2
+        return 1
+    fi
+    mode="$(stat -c '%a' -- "${runtime_base}")" || return 1
+    if [[ "${mode}" != "700" ]]; then
+        printf 'unsafe preferred interop lock base %s mode %s: require 700\n' \
+            "${runtime_base}" "${mode}" >&2
+        return 1
+    fi
+}
+
 interop_validate_fallback_lock_base() {
     local fallback_base="$1"
     local owner mode mode_value
@@ -50,10 +67,10 @@ interop_lock_directory() {
     local fallback_base="${TMPDIR:-/tmp}"
     local lock_dir
 
-    if [[ -L "${runtime_base}" || ! -d "${runtime_base}" || ! -O "${runtime_base}" || ! -w "${runtime_base}" ]]; then
+    if ! interop_validate_preferred_lock_base "${runtime_base}" >/dev/null 2>&1; then
         runtime_base="${user_runtime_base}"
     fi
-    if [[ -L "${runtime_base}" || ! -d "${runtime_base}" || ! -O "${runtime_base}" || ! -w "${runtime_base}" ]]; then
+    if ! interop_validate_preferred_lock_base "${runtime_base}" >/dev/null 2>&1; then
         runtime_base="${fallback_base}"
         interop_validate_fallback_lock_base "${runtime_base}" || return 1
     fi
@@ -184,15 +201,30 @@ interop_assert_existing_fixed_names_owned() {
 interop_assert_existing_project() {
     local project_name="$1"
     shift
-    local resources
+    local required_count="$1"
+    shift
+    local resources container_name index
 
     resources="$(interop_query_project_resources "${project_name}")" || return 1
     if [[ -z "${resources}" ]]; then
         printf 'Compose project %s has no exact-labelled resources\n' "${project_name}" >&2
         return 1
     fi
-    # Some optional one-shot/test containers (for example Scapy) may be absent.
-    # Every fixed name that does exist must still carry the exact project label.
+    if [[ ! "${required_count}" =~ ^[0-9]+$ || "${required_count}" -gt "$#" ]]; then
+        printf 'invalid required container count %q for project %s\n' \
+            "${required_count}" "${project_name}" >&2
+        return 1
+    fi
+    for ((index = 0; index < required_count; index++)); do
+        container_name="$1"
+        shift
+        if ! interop_resolve_project_container_id "${project_name}" "${container_name}" >/dev/null; then
+            printf 'required container %s is absent or foreign for Compose project %s\n' \
+                "${container_name}" "${project_name}" >&2
+            return 1
+        fi
+    done
+    # Optional one-shot/test containers (currently only Scapy) may be absent.
     interop_assert_existing_fixed_names_owned "${project_name}" "$@"
 }
 

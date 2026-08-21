@@ -377,16 +377,18 @@ Use bounded commands and preserve the original test exit status unless cleanup
 itself proves an owned-resource leak.
 
 The fake collision cases for containers, networks, and volumes must reject
-every Compose invocation, including `down`, and reject `podman rm`,
+every Compose invocation and reject `podman rm`,
 `podman network rm`, and `podman volume rm`. A collided project was never
 acquired by the run and must not enter either normal or fallback cleanup.
 
 Serialize acquisition of each validated project with a nonblocking `flock`
 held from before exact-label and fixed-name preflight through final cleanup
 verification. Prefer an owned, writable, non-symlink XDG runtime directory or
-`/run/user/$UID`. A fallback base must either be owned and not group/world
-writable, or be root-owned with the sticky bit; its dedicated lock directory
-must be owned, mode `0700`, writable, and not a symlink. Keep the mode `0600` lock file
+`/run/user/$UID`, and require preferred bases to have mode `0700`. Reject either
+preferred base when it is group/world writable. A fallback base must either be
+owned and not group/world writable, or be root-owned with the sticky bit; its
+dedicated lock directory must be owned, mode `0700`, writable, and not a
+symlink. Keep the mode `0600` lock file
 after release so two contenders can never split onto different inodes. The E2E
 runner holds a separate descriptor for each acquired project and closes it only
 after that project's exact cleanup. A runner that cannot acquire the lock must
@@ -396,9 +398,15 @@ Before startup, reject every configured fixed `container_name` that already
 exists, even when the exact project-label query is empty. Container inventory,
 diagnostics, and every runtime `logs`, `exec`, `stop`, or `start` operation must
 resolve the exact project label to an immutable container ID and must never act
-on a foreign container through a fixed name. Direct tagged test targets use a
-`lock-run -- <argv>` guard that requires an existing exact-labelled project;
-the E2E runner invokes its tagged tests under the lock it already holds.
+on a foreign container through a fixed name. This includes every tagged BGP
+Podman API `exec`, `stop`, `start`, `pause`, `unpause`, and `logs` operation;
+the dedicated ownership error must preserve `errors.Is` identity. Direct tagged
+test targets use a `lock-run -- <argv>` guard that requires every mandatory
+base or BGP container to exist with the exact project label. An arbitrary
+labelled container, network, or volume is insufficient; only Scapy is optional
+for the base suite. The E2E runner invokes its tagged tests under the lock it
+already holds, and the direct BGP target propagates the derived BGP project name
+into the dev-container test environment.
 
 Freeze the raw command-line `INTEROP_PROJECT_NAME` with GNU Make `value` before
 the first `shell` expansion, reject nested Make function syntax before export,
@@ -413,6 +421,10 @@ Artifact merging uses a collision-resistant per-run
 `io.gobfd.e2e.merge-owner` label rather than a Compose project label. Preflight
 that label, run `mergecap`, then snapshot and remove only exact labelled
 container IDs and verify absence even when `podman run` times out or fails.
+Create the routing report/run ID before acquiring either project lock from UTC
+nanoseconds plus the runner PID, and derive the merge ownership value from that
+same validated ID so concurrent starts within one second cannot share a report
+path or merge label.
 
 After each tagged suite writes its JSON stream, enforce a non-zero test count
 inside `test/e2e/routing/run.sh`:

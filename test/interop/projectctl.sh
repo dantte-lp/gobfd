@@ -17,16 +17,18 @@ DC=(timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
 source "${SCRIPT_DIR}/project_guard.sh"
 case "${INTEROP_PROJECT_KIND:-base}" in
     base)
-        FIXED_CONTAINER_NAMES=(
+        REQUIRED_CONTAINER_NAMES=(
             gobfd-interop frr-interop bird3-interop tshark-interop
-            holo-interop holo-config-interop thoro-interop scapy-interop
+            holo-interop holo-config-interop thoro-interop
         )
+        OPTIONAL_CONTAINER_NAMES=(scapy-interop)
         ;;
     bgp)
-        FIXED_CONTAINER_NAMES=(
+        REQUIRED_CONTAINER_NAMES=(
             gobfd-bgp-interop gobgp-interop tshark-bgp-interop frr-bgp-interop
             bird3-bgp-interop gobfd-exabgp-interop exabgp-interop
         )
+        OPTIONAL_CONTAINER_NAMES=()
         ;;
     *)
         printf 'invalid INTEROP_PROJECT_KIND %q: use base or bgp\n' \
@@ -64,7 +66,8 @@ assert_empty_project() {
             "${INTEROP_PROJECT_NAME}" "${resources}" >&2
         return 1
     fi
-    interop_assert_fixed_names_available "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
+    interop_assert_fixed_names_available "${INTEROP_PROJECT_NAME}" \
+        "${REQUIRED_CONTAINER_NAMES[@]}" "${OPTIONAL_CONTAINER_NAMES[@]}"
 }
 
 start_project() {
@@ -104,7 +107,8 @@ lock_run() {
     shift
     acquire_lock
     interop_assert_existing_project \
-        "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
+        "${INTEROP_PROJECT_NAME}" "${#REQUIRED_CONTAINER_NAMES[@]}" \
+        "${REQUIRED_CONTAINER_NAMES[@]}" "${OPTIONAL_CONTAINER_NAMES[@]}"
     "$@"
 }
 
@@ -128,7 +132,7 @@ dev_exec() {
 logs_project() {
     local container_name container_id
     acquire_lock
-    for container_name in "${FIXED_CONTAINER_NAMES[@]}"; do
+    for container_name in "${REQUIRED_CONTAINER_NAMES[@]}" "${OPTIONAL_CONTAINER_NAMES[@]}"; do
         if container_id="$(interop_resolve_project_container_id "${INTEROP_PROJECT_NAME}" "${container_name}")"; then
             printf '\n===== %s =====\n' "${container_name}"
             "${PODMAN[@]}" logs "${container_id}"

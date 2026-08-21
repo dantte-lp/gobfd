@@ -5,7 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_TIMESTAMP="$(date -u +%Y%m%dT%H%M%S%NZ)"
+RUN_ID="${RUN_TIMESTAMP}-$$"
 REPORT_REL="reports/e2e/routing/${RUN_ID}"
 REPORT_DIR="${ROOT_DIR}/${REPORT_REL}"
 DEV_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "${ROOT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')}"
@@ -13,8 +14,8 @@ INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"
 INTEROP_BGP_PROJECT_NAME="${INTEROP_BGP_PROJECT_NAME:-${INTEROP_PROJECT_NAME}-bgp}"
 TSHARK_IMAGE="localhost/interop_tshark:latest"
 MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"
-MERGE_OWNER_LABEL_VALUE="${RUN_ID}-$$"
-if [[ ! "${MERGE_OWNER_LABEL_VALUE}" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]]; then
+MERGE_OWNER_LABEL_VALUE="${RUN_ID}"
+if [[ ! "${MERGE_OWNER_LABEL_VALUE}" =~ ^[0-9]{8}T[0-9]{15}Z-[0-9]+$ ]]; then
     printf 'invalid merge ownership label value %q\n' "${MERGE_OWNER_LABEL_VALUE}" >&2
     exit 2
 fi
