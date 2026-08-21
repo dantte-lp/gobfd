@@ -970,6 +970,39 @@ bounded handle read. Image-ID output uses the same atomic writer and requires
 exactly 64 lowercase hex characters plus one newline. A fresh E2E run remains
 required after this correction.
 
+Spec review of the first artifact correction found two additional fail-open
+paths. `run_suite` ignored every `collect_pcap` error, and the copy/decode
+commands themselves used `|| true`; later, `merge_artifacts` treated a missing
+or empty suite capture as a reason to skip `mergecap` and still returned zero.
+Execution RED fixtures must cover image inspect, capture copy, and tshark
+decode failures through the complete suite status, plus missing and empty base
+and BGP image-ID/capture artifacts through merge cleanup. Collection now
+preserves producer stderr, adds a stable diagnostic, and returns nonzero;
+`run_suite` records that failure. Merge independently requires both valid suite
+image-ID artifacts and both nonempty regular, non-symlink captures before the
+exact-ID `mergecap` run. Merge-owner collision performs no mutation, while
+mergecap, exact removal, and final absence failures all remain nonzero and the
+exact cleanup sequence runs for every post-collision failure.
+
+The helper's security boundary is one trusted, owned, absolute report
+directory passed to `os.OpenRoot`. The report-root path itself is explicitly
+trusted before opening; `os.OpenRoot` may follow a symlink in that root name,
+so the contract does not claim otherwise. Every artifact argument after that
+boundary is a clean local relative path. Each internal directory component is
+individually `Lstat`-checked as a non-symlink directory, opened as a nested
+`os.Root`, identity-checked with `os.SameFile`, retained by descriptor, and
+rechecked before bounded reads or atomic rename. Final inputs retain the
+initial/opened/second-`Lstat` identity and `LimitReader(max+1)` growth checks.
+Outputs use rooted `OpenFile(O_CREATE|O_EXCL)` for a mode-0600 temporary,
+sync/close it, reject ancestor or destination replacement, and use rooted
+`Rename` in the pinned directory. After rename, the ancestor chain is checked
+again and the final rooted `Lstat` must identify the inode recorded from the
+temporary handle; a deterministic post-snapshot directory swap must therefore
+return nonzero even if the rename reached the pinned former directory. Tests
+include traversal, absolute paths,
+internal component symlinks, same-inode growth, regular replacement, ancestor
+directory replacement, and destination symlink swaps.
+
 - [ ] **Step 4: Verify post-run cleanup**
 
 Query containers, networks, and volumes by every exact preflight-recorded

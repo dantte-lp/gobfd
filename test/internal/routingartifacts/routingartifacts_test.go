@@ -20,7 +20,10 @@ func TestMergeWritesSuiteArraysAtomically(t *testing.T) {
 	writeArtifactFixture(t, base, `[{"Id":"base"}]`+"\n")
 	writeArtifactFixture(t, bgp, `[{"Id":"bgp"}]`+"\n")
 
-	err := Merge(output, []Input{{Name: "interop", Path: base}, {Name: "interop-bgp", Path: bgp}})
+	err := Merge(root, "containers.json", []Input{
+		{Name: "interop", Path: "base.json"},
+		{Name: "interop-bgp", Path: "bgp.json"},
+	})
 	if err != nil {
 		t.Fatalf("merge routing artifacts: %v", err)
 	}
@@ -78,7 +81,7 @@ func TestMergeRejectsInvalidInputWithoutReplacingOutput(t *testing.T) {
 			writeArtifactFixture(t, input, test.contents)
 			writeArtifactFixture(t, output, "preserve\n")
 
-			err := Merge(output, []Input{{Name: "interop", Path: input}})
+			err := Merge(root, "containers.json", []Input{{Name: "interop", Path: "input.json"}})
 			if err == nil {
 				t.Fatal("invalid JSON input was accepted")
 			}
@@ -149,7 +152,7 @@ func TestMergeRejectsUnsafeInputs(t *testing.T) {
 			root := t.TempDir()
 			input := filepath.Join(root, "input.json")
 			test.setup(t, input)
-			err := Merge(filepath.Join(root, "output.json"), []Input{{Name: "interop", Path: input}})
+			err := Merge(root, "output.json", []Input{{Name: "interop", Path: "input.json"}})
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("unsafe input error = %v, want %q", err, test.wantErr)
 			}
@@ -170,7 +173,7 @@ func TestMergeRejectsUnsafeOutput(t *testing.T) {
 		t.Skipf("symlink fixture unavailable: %v", err)
 	}
 
-	err := Merge(output, []Input{{Name: "interop", Path: input}})
+	err := Merge(root, "output.json", []Input{{Name: "interop", Path: "input.json"}})
 	if err == nil || !strings.Contains(err.Error(), "output") || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("unsafe output error = %v, want output symlink diagnostic", err)
 	}
@@ -194,7 +197,7 @@ func TestMergeRejectsNonregularOutput(t *testing.T) {
 		t.Fatalf("create nonregular output fixture: %v", err)
 	}
 
-	err := Merge(output, []Input{{Name: "interop", Path: input}})
+	err := Merge(root, "output.json", []Input{{Name: "interop", Path: "input.json"}})
 	if err == nil || !strings.Contains(err.Error(), "output") || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("nonregular output error = %v, want output type diagnostic", err)
 	}
@@ -205,10 +208,11 @@ func TestImageIDArtifactRoundTrip(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "tshark-image-id")
 	const imageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	if err := WriteImageID(path, imageID); err != nil {
+	root := filepath.Dir(path)
+	if err := WriteImageID(root, filepath.Base(path), imageID); err != nil {
 		t.Fatalf("write image ID artifact: %v", err)
 	}
-	got, err := ReadImageID(path)
+	got, err := ReadImageID(root, filepath.Base(path))
 	if err != nil {
 		t.Fatalf("read image ID artifact: %v", err)
 	}
@@ -235,7 +239,7 @@ func TestImageIDArtifactRejectsUnsafeOrInvalidData(t *testing.T) {
 
 			path := filepath.Join(t.TempDir(), "tshark-image-id")
 			writeArtifactFixture(t, path, test.contents)
-			if _, err := ReadImageID(path); err == nil {
+			if _, err := ReadImageID(filepath.Dir(path), filepath.Base(path)); err == nil {
 				t.Fatal("invalid image ID artifact was accepted")
 			}
 		})
@@ -253,10 +257,10 @@ func TestImageIDArtifactRejectsSymlinks(t *testing.T) {
 	if err := os.Symlink(filepath.Base(target), path); err != nil {
 		t.Skipf("symlink fixture unavailable: %v", err)
 	}
-	if _, err := ReadImageID(path); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := ReadImageID(root, "tshark-image-id"); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("image ID symlink read error = %v, want symlink diagnostic", err)
 	}
-	if err := WriteImageID(path, imageID); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if err := WriteImageID(root, "tshark-image-id", imageID); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("image ID symlink write error = %v, want symlink diagnostic", err)
 	}
 }
@@ -270,7 +274,7 @@ func TestBoundedInputRejectsRegularReplacementAfterOpen(t *testing.T) {
 	writeArtifactFixture(t, path, "[]\n")
 	writeArtifactFixture(t, replacement, "[]\n")
 
-	_, err := readBoundedInputWithHook(path, maxArtifactInputSize, func() error {
+	_, err := readBoundedInputWithHook(root, "input.json", func() error {
 		if renameErr := os.Rename(path, path+".original"); renameErr != nil {
 			return renameErr
 		}
@@ -278,6 +282,194 @@ func TestBoundedInputRejectsRegularReplacementAfterOpen(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "changed after open") {
 		t.Fatalf("replacement error = %v, want changed-after-open diagnostic", err)
+	}
+}
+
+func TestBoundedInputReadsOneRootedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeArtifactFixture(t, filepath.Join(root, "input.json"), "[]\n")
+	data, err := readBoundedInputWithHook(root, "input.json", nil)
+	if err != nil {
+		t.Fatalf("read rooted snapshot: %v", err)
+	}
+	if string(data) != "[]\n" {
+		t.Fatalf("rooted snapshot = %q, want exact input", data)
+	}
+}
+
+func TestBoundedInputRejectsSameInodeGrowthAfterOpen(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "input.json")
+	writeArtifactFixture(t, path, "[]\n")
+
+	_, err := readBoundedInputWithHook(root, "input.json", func() error {
+		return os.Truncate(path, maxArtifactInputSize+1)
+	})
+	if err == nil || !strings.Contains(err.Error(), "grew beyond") {
+		t.Fatalf("growth error = %v, want grew-beyond diagnostic", err)
+	}
+}
+
+func TestMergeRejectsNonlocalAndSymlinkAncestorPaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	writeArtifactFixture(t, outside, "[]\n")
+	realDirectory := filepath.Join(root, "real")
+	if err := os.Mkdir(realDirectory, 0o750); err != nil {
+		t.Fatalf("create real input directory: %v", err)
+	}
+	writeArtifactFixture(t, filepath.Join(realDirectory, "input.json"), "[]\n")
+	if err := os.Symlink("real", filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink fixture unavailable: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "absolute", path: outside},
+		{name: "traversal", path: "../outside.json"},
+		{name: "symlink ancestor", path: "linked/input.json"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := Merge(root, "output.json", []Input{{Name: "interop", Path: test.path}})
+			if err == nil {
+				t.Fatalf("unsafe rooted path %q was accepted", test.path)
+			}
+		})
+	}
+}
+
+func TestBoundedInputRejectsAncestorDirectoryReplacement(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	directory := filepath.Join(root, "suite")
+	if err := os.Mkdir(directory, 0o750); err != nil {
+		t.Fatalf("create suite directory: %v", err)
+	}
+	writeArtifactFixture(t, filepath.Join(directory, "input.json"), "[]\n")
+
+	_, err := readBoundedInputWithHook(root, "suite/input.json", func() error {
+		if renameErr := os.Rename(directory, filepath.Join(root, "suite-original")); renameErr != nil {
+			return renameErr
+		}
+		return os.Mkdir(directory, 0o750)
+	})
+	if err == nil || !strings.Contains(err.Error(), "ancestor") {
+		t.Fatalf("directory replacement error = %v, want ancestor diagnostic", err)
+	}
+}
+
+func TestAtomicOutputRejectsSymlinkAncestor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeArtifactFixture(t, filepath.Join(root, "input.json"), "[]\n")
+	if err := os.Mkdir(filepath.Join(root, "real"), 0o750); err != nil {
+		t.Fatalf("create real output directory: %v", err)
+	}
+	if err := os.Symlink("real", filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink fixture unavailable: %v", err)
+	}
+
+	err := Merge(root, "linked/output.json", []Input{{Name: "interop", Path: "input.json"}})
+	if err == nil || !strings.Contains(err.Error(), "ancestor") {
+		t.Fatalf("symlink output ancestor error = %v, want ancestor diagnostic", err)
+	}
+}
+
+func TestAtomicOutputRejectsAncestorAndDestinationSwap(t *testing.T) {
+	t.Parallel()
+
+	const outputContents = "safe\n"
+	tests := []struct {
+		name               string
+		hook               func(*testing.T, string, string) func() error
+		afterSnapshot      bool
+		wantPublishedInOld bool
+	}{
+		{
+			name: "ancestor directory replacement",
+			hook: func(t *testing.T, root, directory string) func() error {
+				t.Helper()
+				return func() error {
+					if err := os.Rename(directory, filepath.Join(root, "suite-original")); err != nil {
+						return err
+					}
+					return os.Mkdir(directory, 0o750)
+				}
+			},
+		},
+		{
+			name: "ancestor replacement after snapshot",
+			hook: func(t *testing.T, root, directory string) func() error {
+				t.Helper()
+				return func() error {
+					if err := os.Rename(directory, filepath.Join(root, "suite-original")); err != nil {
+						return err
+					}
+					return os.Mkdir(directory, 0o750)
+				}
+			},
+			afterSnapshot:      true,
+			wantPublishedInOld: true,
+		},
+		{
+			name: "destination symlink swap",
+			hook: func(t *testing.T, root, _ string) func() error {
+				t.Helper()
+				target := filepath.Join(root, "target")
+				writeArtifactFixture(t, target, "preserve\n")
+				return func() error {
+					return os.Symlink("../target", filepath.Join(root, "suite", "output.json"))
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			directory := filepath.Join(root, "suite")
+			if err := os.Mkdir(directory, 0o750); err != nil {
+				t.Fatalf("create output directory: %v", err)
+			}
+			hook := test.hook(t, root, directory)
+			var beforeSnapshot func() error
+			var beforeRename func() error
+			if test.afterSnapshot {
+				beforeRename = hook
+			} else {
+				beforeSnapshot = hook
+			}
+			err := writeAtomicDataWithHooks(
+				root,
+				"suite/output.json",
+				[]byte(outputContents),
+				beforeSnapshot,
+				beforeRename,
+			)
+			if err == nil {
+				t.Fatal("output path swap was accepted")
+			}
+			if test.wantPublishedInOld {
+				published := filepath.Join(root, "suite-original", "output.json")
+				info, statErr := os.Lstat(published)
+				if statErr != nil || !info.Mode().IsRegular() {
+					t.Fatalf("post-snapshot fixture did not reach rooted rename: info=%v error=%v", info, statErr)
+				}
+			}
+		})
 	}
 }
 

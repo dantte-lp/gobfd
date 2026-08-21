@@ -19,7 +19,7 @@ func TestRunMergesFixedRoutingSuites(t *testing.T) {
 	writeCLIArtifactFixture(t, base, `[{"Id":"base"}]`+"\n")
 	writeCLIArtifactFixture(t, bgp, `[{"Id":"bgp"}]`+"\n")
 
-	if err := run([]string{"merge", output, base, bgp}, &bytes.Buffer{}); err != nil {
+	if err := run([]string{"merge", root, "containers.json", "base.json", "bgp.json"}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("run artifact merge CLI: %v", err)
 	}
 	data, err := os.ReadFile(output)
@@ -40,7 +40,7 @@ func TestRunMergesFixedRoutingSuites(t *testing.T) {
 func TestRunRejectsWrongArgumentCount(t *testing.T) {
 	t.Parallel()
 
-	err := run([]string{"merge", "output", "base"}, &bytes.Buffer{})
+	err := run([]string{"merge", "root", "output", "base"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "usage") {
 		t.Fatalf("argument error = %v, want usage diagnostic", err)
 	}
@@ -51,11 +51,12 @@ func TestRunReadsAndWritesImageIDArtifact(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "tshark-image-id")
 	const imageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	if err := run([]string{"write-image-id", path, imageID}, &bytes.Buffer{}); err != nil {
+	root := filepath.Dir(path)
+	if err := run([]string{"write-image-id", root, filepath.Base(path), imageID}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("write image ID through CLI: %v", err)
 	}
 	var stdout bytes.Buffer
-	if err := run([]string{"read-image-id", path}, &stdout); err != nil {
+	if err := run([]string{"read-image-id", root, filepath.Base(path)}, &stdout); err != nil {
 		t.Fatalf("read image ID through CLI: %v", err)
 	}
 	if stdout.String() != imageID+"\n" {

@@ -590,9 +590,16 @@ func TestInteropOperationalContract(t *testing.T) {
 		`^[0-9a-f]{64}$`,
 		`image exists "${tshark_image_id}"`,
 		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
-		`write-image-id "/app/${REPORT_REL}/${suite}/tshark-image-id"`,
+		`write-image-id "/app/${REPORT_REL}" "${suite}/tshark-image-id"`,
 		`exec "${tshark_id}" cat /captures/bfd.pcapng`,
+		`failed to copy tshark packet capture`,
+		`exec "${tshark_id}" tshark`,
+		`failed to decode tshark packet capture`,
+		`append_csv "${suite}" "${suite_dir}/packets.csv"`,
 	})
+	if strings.Contains(collectPcap, "|| true") {
+		t.Error("routing packet collection still swallows a producer failure")
+	}
 	assertContainsAll(t, "routing merge ownership", routing, []string{
 		`MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"`,
 	})
@@ -605,9 +612,12 @@ func TestInteropOperationalContract(t *testing.T) {
 		`interop_query_labelled_container_ids`,
 		`merge ownership label collision`,
 		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
-		`read-image-id "/app/${REPORT_REL}/interop/tshark-image-id"`,
+		`read-image-id "/app/${REPORT_REL}" "interop/tshark-image-id"`,
 		`image exists "${tshark_image_id}"`,
-		`"/app/${REPORT_REL}/containers.json"`,
+		`read-image-id "/app/${REPORT_REL}" "interop-bgp/tshark-image-id"`,
+		`image exists "${bgp_tshark_image_id}"`,
+		`"containers.json"`,
+		`required packet capture is missing, empty, or unsafe`,
 		`"${PODMAN[@]}" run`,
 		`interop_remove_labelled_containers`,
 		`interop_verify_labelled_containers_absent`,
@@ -633,6 +643,12 @@ func TestInteropOperationalContract(t *testing.T) {
 		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
 		`collect_holo_diagnostics`,
 		`collect_pcap "${suite}"`,
+	})
+	assertOrdered(t, "routing packet collection failure propagation", runSuite, []string{
+		`if ! collect_pcap "${suite}" "${project_name}" "${tshark_container}"; then`,
+		`suite %s packet collection failed`,
+		`test_status=1`,
+		`return "${test_status}"`,
 	})
 	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
 		if strings.Contains(contents[name], "down --volumes --remove-orphans") {

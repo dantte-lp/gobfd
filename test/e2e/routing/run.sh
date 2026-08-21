@@ -135,15 +135,26 @@ collect_pcap() {
     fi
     if ! "${PODMAN[@]}" exec "${dev_id}" \
         go -C /app run ./test/e2e/routing/scripts/artifactmerge \
-        write-image-id "/app/${REPORT_REL}/${suite}/tshark-image-id" \
+        write-image-id "/app/${REPORT_REL}" "${suite}/tshark-image-id" \
         "${tshark_image_id}" 2>"${suite_dir}/packets.err"; then
         printf 'failed to persist immutable tshark image ID\n' >>"${suite_dir}/packets.err"
         : >"${suite_dir}/packets.pcapng"
         : >"${suite_dir}/packets.csv"
         return 1
     fi
-    "${PODMAN[@]}" exec "${tshark_id}" cat /captures/bfd.pcapng >"${suite_dir}/packets.pcapng" 2>"${suite_dir}/packets.err" || true
-    "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng -Y bfd \
+    if ! "${PODMAN[@]}" exec "${tshark_id}" cat /captures/bfd.pcapng \
+        >"${suite_dir}/packets.pcapng" 2>"${suite_dir}/packets.err"; then
+        printf 'failed to copy tshark packet capture\n' >>"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if [[ ! -s "${suite_dir}/packets.pcapng" ]]; then
+        printf 'copied tshark packet capture is empty\n' >>"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if ! "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng -Y bfd \
         -T fields \
         -e frame.time_relative \
         -e ip.src \
@@ -155,8 +166,19 @@ collect_pcap() {
         -e bfd.my_discriminator \
         -e bfd.your_discriminator \
         -E header=y \
-        -E separator=, >"${suite_dir}/packets.csv" 2>"${suite_dir}/packets-csv.err" || true
-    append_csv "${suite}" "${suite_dir}/packets.csv"
+        -E separator=, >"${suite_dir}/packets.csv" 2>"${suite_dir}/packets-csv.err"; then
+        printf 'failed to decode tshark packet capture\n' >>"${suite_dir}/packets-csv.err"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if [[ ! -s "${suite_dir}/packets.csv" ]]; then
+        printf 'decoded tshark packet CSV is empty\n' >>"${suite_dir}/packets-csv.err"
+        return 1
+    fi
+    if ! append_csv "${suite}" "${suite_dir}/packets.csv"; then
+        printf 'failed to append tshark packet CSV\n' >>"${suite_dir}/packets-csv.err"
+        return 1
+    fi
 }
 
 collect_holo_diagnostics() {
@@ -295,8 +317,11 @@ merge_artifacts() {
     local merge_status=0
     local merge_ids
     local tshark_image_file="${REPORT_DIR}/interop/tshark-image-id"
+    local bgp_tshark_image_file="${REPORT_DIR}/interop-bgp/tshark-image-id"
     local tshark_image_id=""
+    local bgp_tshark_image_id=""
     local dev_id=""
+    local pcap_file
 
     merge_ids="$(interop_query_labelled_container_ids \
         "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}")" || return 1
@@ -310,7 +335,7 @@ merge_artifacts() {
         merge_status=1
     elif ! tshark_image_id="$("${PODMAN[@]}" exec "${dev_id}" \
         go -C /app run ./test/e2e/routing/scripts/artifactmerge \
-        read-image-id "/app/${REPORT_REL}/interop/tshark-image-id")"; then
+        read-image-id "/app/${REPORT_REL}" "interop/tshark-image-id")"; then
         printf 'failed to read base tshark image ID artifact: %s\n' \
             "${tshark_image_file}" >&2
         merge_status=1
@@ -324,20 +349,46 @@ merge_artifacts() {
             merge_status=1
         fi
     fi
+    if [[ -n "${dev_id}" ]]; then
+        if ! bgp_tshark_image_id="$("${PODMAN[@]}" exec "${dev_id}" \
+            go -C /app run ./test/e2e/routing/scripts/artifactmerge \
+            read-image-id "/app/${REPORT_REL}" "interop-bgp/tshark-image-id")"; then
+            printf 'failed to read BGP tshark image ID artifact: %s\n' \
+                "${bgp_tshark_image_file}" >&2
+            merge_status=1
+        elif [[ ! "${bgp_tshark_image_id}" =~ ^[0-9a-f]{64}$ ]]; then
+            printf 'BGP tshark image ID artifact is invalid: %s\n' \
+                "${bgp_tshark_image_file}" >&2
+            merge_status=1
+        elif ! "${PODMAN[@]}" image exists "${bgp_tshark_image_id}"; then
+            printf 'BGP tshark image ID is unavailable: %s\n' \
+                "${bgp_tshark_image_id}" >&2
+            merge_status=1
+        fi
+    fi
 
     if [[ -n "${dev_id}" ]] && ! "${PODMAN[@]}" exec "${dev_id}" \
         go -C /app run ./test/e2e/routing/scripts/artifactmerge \
         merge \
-        "/app/${REPORT_REL}/containers.json" \
-        "/app/${REPORT_REL}/interop/containers.json" \
-        "/app/${REPORT_REL}/interop-bgp/containers.json"; then
+        "/app/${REPORT_REL}" \
+        "containers.json" \
+        "interop/containers.json" \
+        "interop-bgp/containers.json"; then
         printf 'routing container inventory merge failed\n' >&2
         merge_status=1
     fi
 
-    if [ "${merge_status}" -eq 0 ] && \
-        [ -s "${REPORT_DIR}/interop/packets.pcapng" ] && \
-        [ -s "${REPORT_DIR}/interop-bgp/packets.pcapng" ]; then
+    for pcap_file in \
+        "${REPORT_DIR}/interop/packets.pcapng" \
+        "${REPORT_DIR}/interop-bgp/packets.pcapng"; do
+        if [[ -L "${pcap_file}" || ! -f "${pcap_file}" || ! -s "${pcap_file}" ]]; then
+            printf 'required packet capture is missing, empty, or unsafe: %s\n' \
+                "${pcap_file}" >&2
+            merge_status=1
+        fi
+    done
+
+    if [ "${merge_status}" -eq 0 ]; then
         if ! "${PODMAN[@]}" run \
             --label "${MERGE_OWNER_LABEL_KEY}=${MERGE_OWNER_LABEL_VALUE}" \
             --entrypoint /usr/bin/mergecap \
@@ -517,7 +568,10 @@ run_suite() {
     if [ "${startup_mode}" = "holo" ]; then
         collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}" || true
     fi
-    collect_pcap "${suite}" "${project_name}" "${tshark_container}" || true
+    if ! collect_pcap "${suite}" "${project_name}" "${tshark_container}"; then
+        printf 'suite %s packet collection failed\n' "${suite}" >&2
+        test_status=1
+    fi
     record_containers "${suite}" "${project_name}" "${containers[@]}"
     cleanup_project "${project_name}" || test_status=1
     release_project_lock "${project_name}" || test_status=1

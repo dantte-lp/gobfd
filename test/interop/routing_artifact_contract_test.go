@@ -109,12 +109,96 @@ collect_pcap interop gobfd-interop tshark-interop
 				"inspect --type container --format {{.Image}} immutable-tshark-id\n",
 				"image exists " + fakeTsharkImageID + "\n",
 				"exec immutable-dev-id go -C /app run ./test/e2e/routing/scripts/artifactmerge " +
-					"write-image-id /app/reports/e2e/routing/fake-run/interop/tshark-image-id " +
+					"write-image-id /app/reports/e2e/routing/fake-run interop/tshark-image-id " +
 					fakeTsharkImageID + "\n",
 			} {
 				if !strings.Contains(logText, exact) {
 					t.Fatalf("Podman log missing %q:\n%s", exact, logText)
 				}
+			}
+		})
+	}
+}
+
+func TestRoutingRunSuitePropagatesPacketCollectionFailure(t *testing.T) {
+	routing := readRoutingRunner(t)
+	collectBody := shellFunctionBody(t, routing, "collect_pcap")
+	runSuiteBody := shellFunctionBody(t, routing, "run_suite")
+
+	tests := []struct {
+		name        string
+		environment string
+		wantErr     string
+	}{
+		{name: "image inspect", environment: "FAKE_INSPECT_FAIL=1", wantErr: "inspect immutable tshark image"},
+		{name: "pcap copy", environment: "FAKE_CAPTURE_FAIL=1", wantErr: "copy tshark packet capture"},
+		{name: "tshark decode", environment: "FAKE_TSHARK_FAIL=1", wantErr: "decode tshark packet capture"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			report := filepath.Join(root, "report")
+			if err := os.MkdirAll(filepath.Join(report, "interop"), 0o750); err != nil {
+				t.Fatalf("create run-suite report fixture: %v", err)
+			}
+			fakePodman := filepath.Join(root, "podman")
+			commandLog := filepath.Join(root, "podman.log")
+			writeRoutingFakePodman(t, fakePodman)
+			harness := filepath.Join(root, "run-suite-harness")
+			writeRoutingHarness(t, harness, `
+PODMAN=("${FAKE_PODMAN:?}")
+ROOT_DIR=/app
+REPORT_DIR="${TEST_REPORT_DIR:?}"
+REPORT_REL=reports/e2e/routing/fake-run
+DEV_PROJECT=v062-testcontainers
+declare -a OWNED_PROJECTS=()
+acquire_project_lock() { :; }
+assert_project_available() { :; }
+assert_fixed_names_available() { :; }
+release_project_lock() { :; }
+cleanup_project() { :; }
+timeout() { :; }
+start_holo_interop_suite() { :; }
+start_generic_suite() { :; }
+sleep() { :; }
+interop_resolve_project_service_container_id() { printf '%s\n' immutable-dev-id; }
+resolve_project_container_id() { printf '%s\n' immutable-tshark-id; }
+collect_container_logs() { :; }
+collect_holo_diagnostics() { :; }
+record_containers() { :; }
+append_csv() { :; }
+collect_pcap() {
+`+collectBody+`
+}
+run_suite() {
+`+runSuiteBody+`
+}
+run_suite interop /app/test/interop/compose.yml INTEROP_COMPOSE_FILE interop \
+    ./test/interop/ tshark-interop generic gobfd-interop tshark-interop
+`)
+
+			command := exec.CommandContext(t.Context(), harness)
+			command.Env = append(os.Environ(),
+				"FAKE_PODMAN="+fakePodman,
+				"FAKE_COMMAND_LOG="+commandLog,
+				"FAKE_IMAGE_ID="+fakeTsharkImageID,
+				"TEST_REPORT_DIR="+report,
+				test.environment,
+			)
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatalf("run_suite swallowed packet collection failure\n%s", output)
+			}
+			packetDiagnostics, readErr := os.ReadFile(filepath.Join(report, "interop", "packets.err"))
+			if readErr != nil {
+				t.Fatalf("read packet collection diagnostic: %v", readErr)
+			}
+			csvDiagnostics, readErr := os.ReadFile(filepath.Join(report, "interop", "packets-csv.err"))
+			if readErr != nil && !os.IsNotExist(readErr) {
+				t.Fatalf("read packet CSV diagnostic: %v", readErr)
+			}
+			if diagnostics := string(packetDiagnostics) + string(csvDiagnostics); !strings.Contains(diagnostics, test.wantErr) {
+				t.Fatalf("packet diagnostics = %q, want %q", diagnostics, test.wantErr)
 			}
 		})
 	}
@@ -126,14 +210,47 @@ func TestRoutingMergeArtifactsUsesPersistedImageIDAndOwnedCleanup(t *testing.T) 
 
 	tests := []struct {
 		name        string
-		imageFile   string
+		omit        string
+		empty       string
+		invalid     string
+		unsafe      string
 		environment []string
 		wantSuccess bool
+		wantRun     bool
+		wantCleanup bool
 	}{
-		{name: "missing image ID"},
-		{name: "invalid image ID", imageFile: "sha256:invalid\n"},
-		{name: "image absent", imageFile: fakeTsharkImageID + "\n", environment: []string{"FAKE_IMAGE_EXISTS_FAIL=1"}},
-		{name: "success", imageFile: fakeTsharkImageID + "\n", wantSuccess: true},
+		{name: "merge owner collision", environment: []string{"FAKE_MERGE_COLLISION=1"}},
+		{name: "missing base image ID", omit: "base-image", wantCleanup: true},
+		{name: "empty base image ID", empty: "base-image", wantCleanup: true},
+		{name: "invalid base image ID", invalid: "base-image", wantCleanup: true},
+		{name: "missing BGP image ID", omit: "bgp-image", wantCleanup: true},
+		{name: "empty BGP image ID", empty: "bgp-image", wantCleanup: true},
+		{name: "image absent", environment: []string{"FAKE_IMAGE_EXISTS_FAIL=1"}, wantCleanup: true},
+		{name: "missing base pcap", omit: "base-pcap", wantCleanup: true},
+		{name: "empty base pcap", empty: "base-pcap", wantCleanup: true},
+		{name: "missing BGP pcap", omit: "bgp-pcap", wantCleanup: true},
+		{name: "empty BGP pcap", empty: "bgp-pcap", wantCleanup: true},
+		{name: "symlink base pcap", unsafe: "base-pcap", wantCleanup: true},
+		{name: "symlink BGP pcap", unsafe: "bgp-pcap", wantCleanup: true},
+		{
+			name:        "mergecap failure",
+			environment: []string{"FAKE_RUN_FAIL=1"},
+			wantRun:     true,
+			wantCleanup: true,
+		},
+		{
+			name:        "cleanup removal failure",
+			environment: []string{"FAKE_REMOVE_FAIL=1"},
+			wantRun:     true,
+			wantCleanup: true,
+		},
+		{
+			name:        "cleanup verification failure",
+			environment: []string{"FAKE_VERIFY_FAIL=1"},
+			wantRun:     true,
+			wantCleanup: true,
+		},
+		{name: "success", wantSuccess: true, wantRun: true, wantCleanup: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -147,16 +264,30 @@ func TestRoutingMergeArtifactsUsesPersistedImageIDAndOwnedCleanup(t *testing.T) 
 				if err := os.WriteFile(filepath.Join(suiteDir, "containers.json"), []byte("[]\n"), 0o600); err != nil {
 					t.Fatalf("write container fixture: %v", err)
 				}
-				if err := os.WriteFile(filepath.Join(suiteDir, "packets.pcapng"), []byte("pcap\n"), 0o600); err != nil {
-					t.Fatalf("write pcap fixture: %v", err)
+				prefix := "base"
+				if suite == "interop-bgp" {
+					prefix = "bgp"
 				}
-			}
-			if test.imageFile != "" {
-				if err := os.WriteFile(
-					filepath.Join(report, "interop", "tshark-image-id"), []byte(test.imageFile), 0o600,
-				); err != nil {
-					t.Fatalf("write image ID fixture: %v", err)
-				}
+				writeRoutingArtifactUnlessOmitted(
+					t,
+					filepath.Join(suiteDir, "packets.pcapng"),
+					prefix+"-pcap",
+					"pcap\n",
+					test.omit,
+					test.empty,
+					test.invalid,
+					test.unsafe,
+				)
+				writeRoutingArtifactUnlessOmitted(
+					t,
+					filepath.Join(suiteDir, "tshark-image-id"),
+					prefix+"-image",
+					fakeTsharkImageID+"\n",
+					test.omit,
+					test.empty,
+					test.invalid,
+					test.unsafe,
+				)
 			}
 
 			fakePodman := filepath.Join(root, "podman")
@@ -171,10 +302,18 @@ REPORT_REL=reports/e2e/routing/fake-run
 DEV_PROJECT=v062-testcontainers
 MERGE_OWNER_LABEL_KEY=io.gobfd.e2e.merge-owner
 MERGE_OWNER_LABEL_VALUE=20260821T000000000000000Z-1
-interop_query_labelled_container_ids() { :; }
+interop_query_labelled_container_ids() {
+    if [[ "${FAKE_MERGE_COLLISION:-0}" == 1 ]]; then printf '%s\n' foreign-merge-id; fi
+}
 interop_resolve_project_service_container_id() { printf '%s\n' immutable-dev-id; }
-interop_remove_labelled_containers() { printf 'remove %s=%s\n' "$1" "$2" >>"${FAKE_CLEANUP_LOG:?}"; }
-interop_verify_labelled_containers_absent() { printf 'verify %s=%s\n' "$1" "$2" >>"${FAKE_CLEANUP_LOG:?}"; }
+interop_remove_labelled_containers() {
+    printf 'remove %s=%s\n' "$1" "$2" >>"${FAKE_CLEANUP_LOG:?}"
+    if [[ "${FAKE_REMOVE_FAIL:-0}" == 1 ]]; then return 1; fi
+}
+interop_verify_labelled_containers_absent() {
+    printf 'verify %s=%s\n' "$1" "$2" >>"${FAKE_CLEANUP_LOG:?}"
+    if [[ "${FAKE_VERIFY_FAIL:-0}" == 1 ]]; then return 1; fi
+}
 merge_artifacts() {
 `+body+`
 }
@@ -201,42 +340,86 @@ merge_artifacts
 				t.Fatalf("read merge Podman log: %v", readErr)
 			}
 			logText := string(logData)
-			if !test.wantSuccess {
+			if !test.wantRun {
 				for line := range strings.Lines(logText) {
 					if strings.HasPrefix(line, "run ") {
 						t.Fatalf("invalid image state reached Podman run:\n%s", logText)
 					}
 				}
-				return
 			}
-			if strings.Contains(logText, "localhost/interop_tshark") {
+			if test.wantRun && !strings.Contains(logText, "run --label ") {
+				t.Fatalf("valid artifacts did not reach exact mergecap run:\n%s", logText)
+			}
+			if test.wantSuccess && strings.Contains(logText, "localhost/interop_tshark") {
 				t.Fatalf("merge reused mutable tshark tag:\n%s", logText)
 			}
-			for _, exact := range []string{
-				"image exists " + fakeTsharkImageID + "\n",
-				"exec immutable-dev-id go -C /app run ./test/e2e/routing/scripts/artifactmerge " +
-					"read-image-id /app/reports/e2e/routing/fake-run/interop/tshark-image-id\n",
-				"exec immutable-dev-id go -C /app run ./test/e2e/routing/scripts/artifactmerge " +
-					"merge /app/reports/e2e/routing/fake-run/containers.json " +
-					"/app/reports/e2e/routing/fake-run/interop/containers.json " +
-					"/app/reports/e2e/routing/fake-run/interop-bgp/containers.json\n",
-				"run --label io.gobfd.e2e.merge-owner=20260821T000000000000000Z-1 --entrypoint /usr/bin/mergecap",
-				fakeTsharkImageID + " -w /reports/packets.pcapng",
-			} {
-				if !strings.Contains(logText, exact) {
-					t.Fatalf("merge Podman log missing %q:\n%s", exact, logText)
+			if test.wantSuccess {
+				for _, exact := range []string{
+					"image exists " + fakeTsharkImageID + "\n",
+					"exec immutable-dev-id go -C /app run ./test/e2e/routing/scripts/artifactmerge " +
+						"read-image-id /app/reports/e2e/routing/fake-run interop/tshark-image-id\n",
+					"exec immutable-dev-id go -C /app run ./test/e2e/routing/scripts/artifactmerge " +
+						"read-image-id /app/reports/e2e/routing/fake-run interop-bgp/tshark-image-id\n",
+					"exec immutable-dev-id go -C /app run ./test/e2e/routing/scripts/artifactmerge " +
+						"merge /app/reports/e2e/routing/fake-run containers.json " +
+						"interop/containers.json interop-bgp/containers.json\n",
+					"run --label io.gobfd.e2e.merge-owner=20260821T000000000000000Z-1 --entrypoint /usr/bin/mergecap",
+					fakeTsharkImageID + " -w /reports/packets.pcapng",
+				} {
+					if !strings.Contains(logText, exact) {
+						t.Fatalf("merge Podman log missing %q:\n%s", exact, logText)
+					}
 				}
 			}
 			cleanupData, readErr := os.ReadFile(cleanupLog)
-			if readErr != nil {
+			if readErr != nil && !os.IsNotExist(readErr) {
 				t.Fatalf("read cleanup log: %v", readErr)
 			}
 			wantCleanup := "remove io.gobfd.e2e.merge-owner=20260821T000000000000000Z-1\n" +
 				"verify io.gobfd.e2e.merge-owner=20260821T000000000000000Z-1\n"
-			if string(cleanupData) != wantCleanup {
+			if test.wantCleanup && string(cleanupData) != wantCleanup {
 				t.Fatalf("cleanup log = %q, want %q", cleanupData, wantCleanup)
 			}
+			if !test.wantCleanup && len(cleanupData) != 0 {
+				t.Fatalf("collision path mutated merge ownership: %q", cleanupData)
+			}
 		})
+	}
+}
+
+func writeRoutingArtifactUnlessOmitted(
+	t *testing.T,
+	path string,
+	artifact string,
+	validContents string,
+	omit string,
+	empty string,
+	invalid string,
+	unsafe string,
+) {
+	t.Helper()
+	if artifact == omit {
+		return
+	}
+	contents := validContents
+	if artifact == empty {
+		contents = ""
+	}
+	if artifact == invalid {
+		contents = "sha256:invalid\n"
+	}
+	if artifact == unsafe {
+		target := path + ".target"
+		if err := os.WriteFile(target, []byte(contents), 0o600); err != nil {
+			t.Fatalf("write %s symlink target: %v", artifact, err)
+		}
+		if err := os.Symlink(filepath.Base(target), path); err != nil {
+			t.Skipf("create %s symlink fixture: %v", artifact, err)
+		}
+		return
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write %s fixture: %v", artifact, err)
 	}
 }
 
@@ -271,18 +454,37 @@ case "${1:-} ${2:-}" in
     ;;
   "exec immutable-tshark-id")
     if [[ " $* " == *" cat /captures/bfd.pcapng "* ]]; then
+	  if [[ "${FAKE_CAPTURE_FAIL:-0}" == 1 ]]; then
+	    printf 'capture copy failed\n' >&2
+	    exit 43
+	  fi
       printf 'pcap\n'
     else
+	  if [[ "${FAKE_TSHARK_FAIL:-0}" == 1 ]]; then
+	    printf 'tshark decode failed\n' >&2
+	    exit 44
+	  fi
       printf 'frame.time_relative,ip.src\n0.1,172.20.0.10\n'
     fi
     ;;
   "exec immutable-dev-id")
     case " $* " in
+	  *" go test "*)
+	    printf '{"Action":"pass","Test":"TestRouting"}\n'
+	    ;;
       *" write-image-id "*)
-        printf '%s\n' "${!#}" >"${TEST_REPORT_DIR:?}/interop/tshark-image-id"
+		if [[ " $* " == *"interop-bgp/tshark-image-id"* ]]; then
+		  printf '%s\n' "${!#}" >"${TEST_REPORT_DIR:?}/interop-bgp/tshark-image-id"
+		else
+		  printf '%s\n' "${!#}" >"${TEST_REPORT_DIR:?}/interop/tshark-image-id"
+		fi
         ;;
       *" read-image-id "*)
-        cat "${TEST_REPORT_DIR:?}/interop/tshark-image-id"
+		if [[ " $* " == *"interop-bgp/tshark-image-id"* ]]; then
+		  cat "${TEST_REPORT_DIR:?}/interop-bgp/tshark-image-id"
+		else
+		  cat "${TEST_REPORT_DIR:?}/interop/tshark-image-id"
+		fi
         ;;
       *" merge "*)
         printf '{"suites":{"interop":[],"interop-bgp":[]}}\n' >"${TEST_REPORT_DIR:?}/containers.json"
@@ -294,6 +496,7 @@ case "${1:-} ${2:-}" in
     esac
     ;;
   "run --label")
+	if [[ "${FAKE_RUN_FAIL:-0}" == 1 ]]; then exit 45; fi
     ;;
   *)
     printf 'unexpected fake Podman command: %s\n' "$*" >&2
