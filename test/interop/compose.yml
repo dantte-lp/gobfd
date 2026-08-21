@@ -13,8 +13,8 @@
 # RFC 5881: destination port 3784, source port 49152-65535, TTL=255.
 #
 # tshark captures all BFD traffic to /captures/ for offline analysis.
-# Live decode:  podman exec tshark-interop tshark -r /captures/bfd.pcapng -V -Y bfd
-# Live capture: podman exec tshark-interop tshark -i any -f "udp port 3784" -V
+# Decode saved packets: make interop-pcap
+# Start a guarded live capture: make interop-capture
 #
 # Usage (project ownership and cleanup are enforced by projectctl.sh):
 #   make interop

@@ -239,9 +239,6 @@ Each scenario tests three phases:
 ### Running BGP+BFD Tests
 
 ```bash
-# Dedicated full cycle
-make interop-bgp
-
 # Authoritative routing aggregate with owned artifacts and cleanup
 make e2e-routing
 ```
@@ -323,9 +320,6 @@ graph LR
 ### Running RFC Interop Tests
 
 ```bash
-# Dedicated full cycle
-make interop-rfc
-
 # Authoritative RFC aggregate with owned artifacts and cleanup
 make e2e-rfc
 ```

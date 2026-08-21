@@ -253,6 +253,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
 		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
 		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
+		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
+		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
 	}
 	contents := make(map[string]string, len(files))
 	for _, file := range files {
@@ -326,6 +328,16 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertContainsAll(t, "Compose topology", contents["Compose topology"], []string{
 		"quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68",
 	})
+	if strings.Contains(contents["Compose topology"], "podman exec") {
+		t.Error("Compose topology documents unguarded fixed-name Podman access")
+	}
+	for _, name := range []string{"English interop guide", "Russian interop guide"} {
+		for _, command := range []string{"make interop-bgp\n", "make interop-rfc\n", "podman logs ", "podman exec "} {
+			if strings.Contains(contents[name], command) {
+				t.Errorf("%s documents unsafe legacy lifecycle command %q", name, command)
+			}
+		}
+	}
 	assertContainsAll(t, "FRR configuration", contents["FRR configuration"], []string{
 		"frr version 10.7.0",
 	})

@@ -235,9 +235,6 @@ graph LR
 ### Запуск тестов BGP+BFD
 
 ```bash
-# Отдельный полный цикл
-make interop-bgp
-
 # Авторитетный routing aggregate с owned artifacts и cleanup
 make e2e-routing
 ```
@@ -319,9 +316,6 @@ graph LR
 ### Запуск RFC Interop тестов
 
 ```bash
-# Отдельный полный цикл
-make interop-rfc
-
 # Авторитетный RFC aggregate с owned artifacts и cleanup
 make e2e-rfc
 ```
