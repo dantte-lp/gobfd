@@ -585,6 +585,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`.Name == "holo-config-interop" and .Status == "create"`,
 		`.Name == "holo-config-interop" and .Status == "start"`,
 		`.Name == "holo-config-interop" and .Status == "died"`,
+		`(.ContainerExitCode | type) == "number"`,
 		`.ContainerExitCode != 0`,
 		"source ./test/interop/project_guard.sh",
 		"interop_verify_project_absent",

@@ -686,6 +686,7 @@ jq -s -e --arg project gobfd-interop-negative '
   and any(.[];
     owned
     and .Name == "holo-config-interop" and .Status == "died"
+    and (.ContainerExitCode | type) == "number"
     and .ContainerExitCode != 0
   )
   and (any(.[];
