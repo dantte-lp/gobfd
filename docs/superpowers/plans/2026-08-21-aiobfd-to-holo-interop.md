@@ -651,7 +651,14 @@ worktree metadata is unavailable, use a bounded standard-library working-tree
 walk that skips only the top-level `.git`, `.beads`, and `reports` metadata or
 artifact trees. Both modes reject symlinks, non-regular and oversized entries,
 validate exact generated-file markers, skip NUL-bearing binary content, and
-fail on every other match.
+fail on every other match. The historical allowlist exempts only the final
+removed-reference comparison; it never bypasses path normalization, file type,
+size, bounded reading, or generated-marker validation. Open the repository with
+Go 1.27 `os.OpenRoot`, perform the initial `Root.Lstat`, read only from a rooted
+opened handle through `io.LimitReader(max+1)`, and compare both the opened file
+and a second `Root.Lstat` with `os.SameFile`. This rejects in-root symlink swaps
+despite `Root.Open` following symlinks and prevents an initial-size check from
+leading to an unbounded allocation if the file grows or is replaced.
 
 - [ ] **Step 5: Make the operational-reference test GREEN**
 
@@ -919,6 +926,16 @@ worked. This is negative E2E acceptance evidence. The operational scanner must
 fall back only on Git metadata failure to the bounded fail-closed walk above,
 and the benchmark Compose contract must use the absolute repository path. A
 fresh complete E2E run remains required after this correction.
+
+Review of the first portability correction found that an allowlisted path
+returned before every structural check and that `Lstat` followed by
+`os.ReadFile` left a replacement/growth window with unbounded allocation.
+Git-first and forced-fallback fixtures must therefore prove allowlisted
+symlink, non-regular, oversized, and invalid-generated entries still fail.
+Deterministic post-`Lstat` replacement and growth fixtures must also prove the
+rooted opened-handle identity and bounded-read checks above. This correction is
+required before the fresh E2E run; the rejected implementation is not Task 6
+acceptance evidence.
 
 - [ ] **Step 4: Verify post-run cleanup**
 
