@@ -277,6 +277,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`release_project_lock`,
 		`assert_fixed_names_available`,
 		`HOLO_IP="172.20.0.50"`,
+		`docker.io/debian:trixie-slim (for BIRD 3.3.2 source build)`,
 		`holo-interop`,
 		`holo-config`,
 		`/tmp/holod.err`,

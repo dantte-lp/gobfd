@@ -13,7 +13,7 @@
 # Prerequisites:
 #   - podman and podman-compose installed
 #   - Access to quay.io/frrouting/frr:10.7.0
-#   - Access to docker.io/debian:trixie-slim (for BIRD3 build)
+#   - Access to docker.io/debian:trixie-slim (for BIRD 3.3.2 source build)
 #
 # Exit codes:
 #   0 - all tests passed
