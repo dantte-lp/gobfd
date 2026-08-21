@@ -319,13 +319,19 @@ Expected staged path is only `test/interop/interop_test.go`.
 - Modify: `test/e2e/targets.md`
 - Modify: `Makefile`
 - Modify: `test/interop/topology_contract_test.go`
+- Modify: `test/interop/runner_startup_contract_test.go`
+- Modify: `docs/superpowers/plans/2026-08-21-aiobfd-to-holo-interop.md`
 
 - [ ] **Step 1: Extend the contract test and verify RED**
 
 Add assertions that operational runners and inventories contain `holo` and
 `holo-interop`, contain neither removed peer name, and use a deterministic
-Compose project. Run the ordinary interop package and confirm the expected
-failure against the old runner.
+Compose project. Extend the fake-command runner contract with exact-label
+queries for containers, networks, and volumes. Assert that all three preflight
+queries precede build and startup, that a collision in any class prevents every
+Compose mutation, and that a collision is never cleaned as though this run
+owned it. Run the ordinary interop package and confirm the expected failure
+against the old runner.
 
 - [ ] **Step 2: Replace peer names and diagnostics mechanically**
 
@@ -342,8 +348,11 @@ on the declarative dependency.
 Use `INTEROP_PROJECT_NAME` with a deterministic default in the Make target,
 shell runner, tagged Go `podmanCompose` helper, and E2E environment. Derive the
 Scapy network as `${INTEROP_PROJECT_NAME}_bfdnet` in both Go and shell instead
-of retaining `interop_bfdnet`. Before startup, query containers, networks, and volumes carrying
-`com.docker.compose.project=<project>` and fail if any exist. On every exit:
+of retaining `interop_bfdnet`. Before any build or startup command, query
+containers, networks, and volumes carrying
+`com.docker.compose.project=<project>` and fail if any exist. Only after all
+three queries prove the project empty may the runner record ownership, build,
+and enter the preserved two-phase Holo startup. On every owned-project exit:
 
 1. run `compose down --volumes --remove-orphans` for that exact project;
 2. query those three resource classes again;
@@ -379,13 +388,13 @@ health-gated one-shot loader.
 - [ ] **Step 5: Commit the runner slice**
 
 ```bash
-git add -p -- Makefile test/interop/run.sh test/interop/interop_test.go test/e2e/routing/run.sh test/e2e/targets.md test/interop/topology_contract_test.go
+git add -p -- Makefile test/interop/run.sh test/interop/interop_test.go test/e2e/routing/run.sh test/e2e/targets.md test/interop/topology_contract_test.go test/interop/runner_startup_contract_test.go docs/superpowers/plans/2026-08-21-aiobfd-to-holo-interop.md
 git diff --cached --name-only
 git diff --cached
 git commit -m "test: harden Holo interop orchestration"
 ```
 
-Expected staged paths are exactly the six paths listed above.
+Expected staged paths are exactly the eight paths listed above.
 
 ### Task 4: Remove the aiobfd Python Benchmark and Report Surface
 

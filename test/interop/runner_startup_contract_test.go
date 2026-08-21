@@ -23,6 +23,7 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		inspectStatus  string
 		waitExit       string
 		inspectExit    string
+		collisionClass string
 		wantDiagnostic string
 		wantInspect    bool
 		wantSecondUp   bool
@@ -62,6 +63,18 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 			wantDiagnostic: "failed to inspect holo-config-interop exit status",
 			wantInspect:    true,
 		},
+		"container collision": {
+			collisionClass: "container",
+			wantDiagnostic: "Compose project gobfd-interop already owns resources",
+		},
+		"network collision": {
+			collisionClass: "network",
+			wantDiagnostic: "Compose project gobfd-interop already owns resources",
+		},
+		"volume collision": {
+			collisionClass: "volume",
+			wantDiagnostic: "Compose project gobfd-interop already owns resources",
+		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -75,7 +88,23 @@ exit 0
 `
 			podmanFake := `#!/usr/bin/env bash
 printf 'podman %s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+if [[ "$*" == "ps -a --no-trunc --filter ${label} --format {{.ID}}" ]]; then
+    [[ "${INTEROP_FAKE_COLLISION_CLASS:-}" == "container" ]] && printf '%s\n' owned-container
+    exit 0
+fi
+if [[ "$*" == "network ls --no-trunc --filter ${label} --format {{.ID}}" ]]; then
+    [[ "${INTEROP_FAKE_COLLISION_CLASS:-}" == "network" ]] && printf '%s\n' owned-network
+    exit 0
+fi
+if [[ "$*" == "volume ls --filter ${label} --format {{.Name}}" ]]; then
+    [[ "${INTEROP_FAKE_COLLISION_CLASS:-}" == "volume" ]] && printf '%s\n' owned-volume
+    exit 0
+fi
 case "${1:-}" in
+    ps)
+        printf '%s\n' gobfd-interop frr-interop bird3-interop holo-interop thoro-interop tshark-interop
+        ;;
     wait)
         printf '%s\n' "${INTEROP_FAKE_WAIT_STATUS:-}"
         exit "${INTEROP_FAKE_WAIT_EXIT:-0}"
@@ -112,13 +141,19 @@ exit 0
 				"INTEROP_FAKE_INSPECT_STATUS="+test.inspectStatus,
 				"INTEROP_FAKE_WAIT_EXIT="+test.waitExit,
 				"INTEROP_FAKE_INSPECT_EXIT="+test.inspectExit,
+				"INTEROP_FAKE_COLLISION_CLASS="+test.collisionClass,
 			)
 			output, runErr := cmd.CombinedOutput()
 			commands, readErr := os.ReadFile(commandLog)
 			if readErr != nil {
 				t.Fatalf("read fake command log: %v", readErr)
 			}
-			assertHoloStartupSequence(t, root, string(commands), test.wantInspect)
+			assertProjectPreflight(t, string(commands))
+			if test.collisionClass != "" {
+				assertNoComposeMutation(t, string(commands))
+			} else {
+				assertHoloStartupSequence(t, root, string(commands), test.wantInspect)
+			}
 			if test.wantDiagnostic != "" && runErr == nil {
 				t.Fatalf("runner reported loader failure but exited successfully; output:\n%s", output)
 			}
@@ -130,7 +165,7 @@ exit 0
 				t.Fatalf("runner issued a second Compose up after Holo failure: %q", secondUp)
 			}
 			if test.wantSecondUp {
-				want := "-f " + filepath.Join(root, "test", "interop", "compose.yml") +
+				want := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml") +
 					" up -d --no-deps gobfd frr bird3 tshark thoro"
 				if len(secondUp) != 1 || secondUp[0] != want {
 					t.Fatalf("runner second-phase commands = %q, want [%q]", secondUp, want)
@@ -144,8 +179,11 @@ func assertHoloStartupSequence(t *testing.T, root, commandLog string, wantInspec
 	t.Helper()
 
 	lines := strings.Split(strings.TrimSpace(commandLog), "\n")
-	composePrefix := "-f " + filepath.Join(root, "test", "interop", "compose.yml") + " "
+	composePrefix := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml") + " "
 	want := []string{
+		"podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
+		"podman network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
+		"podman volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}",
 		composePrefix + "build --no-cache",
 		composePrefix + "up -d holo holo-config",
 		"podman wait holo-config-interop",
@@ -159,6 +197,35 @@ func assertHoloStartupSequence(t *testing.T, root, commandLog string, wantInspec
 	for i, command := range want {
 		if lines[i] != command {
 			t.Fatalf("runner prerequisite command %d = %q, want %q", i+1, lines[i], command)
+		}
+	}
+}
+
+func assertProjectPreflight(t *testing.T, commandLog string) {
+	t.Helper()
+
+	want := []string{
+		"podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
+		"podman network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
+		"podman volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}",
+	}
+	lines := strings.Split(strings.TrimSpace(commandLog), "\n")
+	if len(lines) < len(want) {
+		t.Fatalf("runner logged %d preflight commands, want at least %d; commands:\n%s", len(lines), len(want), commandLog)
+	}
+	for i, command := range want {
+		if lines[i] != command {
+			t.Fatalf("runner preflight command %d = %q, want %q", i+1, lines[i], command)
+		}
+	}
+}
+
+func assertNoComposeMutation(t *testing.T, commandLog string) {
+	t.Helper()
+
+	for line := range strings.Lines(commandLog) {
+		if strings.HasPrefix(line, "-p ") {
+			t.Fatalf("runner invoked Compose after detecting a project collision: %q", strings.TrimSpace(line))
 		}
 	}
 }

@@ -9,7 +9,7 @@
 //	go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 //
 // Prerequisites:
-//   - podman-compose -f test/interop/compose.yml up --build -d
+//   - podman-compose -p gobfd-interop -f test/interop/compose.yml up --build -d
 //   - The gobfd, frr, bird3, Holo, Thoro/bfd, and tshark services must be ready.
 package interop_test
 
@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec" //nolint:depguard // Interop harness invokes fixed Podman binaries with explicit argument vectors.
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,6 +33,8 @@ import (
 )
 
 const (
+	defaultInteropProjectName = "gobfd-interop"
+
 	gobfdIP = "172.20.0.10"
 	frrIP   = "172.20.0.20"
 	bird3IP = "172.20.0.30"
@@ -64,11 +67,14 @@ const (
 
 var (
 	errSessionStateNotFound      = errors.New("session state not found")
+	errInvalidInteropProjectName = errors.New("invalid interop Compose project name")
 	errHoloFrameNotFound         = errors.New("holo BFD frame not found")
 	errHoloConfigExitMismatch    = errors.New("holo config exit status mismatch")
 	errHoloConfigFailed          = errors.New("holo config failed")
 	errInsufficientLifecycleTime = errors.New("insufficient time for Holo lifecycle and cleanup")
 )
+
+var interopProjectNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type sessionState struct {
 	PeerAddress     string `json:"peer_address"`
@@ -91,6 +97,82 @@ func composeFile() string {
 		return f
 	}
 	return "test/interop/compose.yml"
+}
+
+func resolveInteropProjectName(raw string) (string, error) {
+	projectName := raw
+	if projectName == "" {
+		projectName = defaultInteropProjectName
+	}
+	if !interopProjectNamePattern.MatchString(projectName) {
+		return "", fmt.Errorf("validate INTEROP_PROJECT_NAME %q: %w", projectName, errInvalidInteropProjectName)
+	}
+	return projectName, nil
+}
+
+func interopProjectName() (string, error) {
+	return resolveInteropProjectName(os.Getenv("INTEROP_PROJECT_NAME"))
+}
+
+func interopNetworkName(projectName string) string {
+	return projectName + "_bfdnet"
+}
+
+func TestResolveInteropProjectName(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		"default": {
+			want: defaultInteropProjectName,
+		},
+		"explicit": {
+			raw:  "gobfd-interop_2",
+			want: "gobfd-interop_2",
+		},
+		"uppercase": {
+			raw:     "GoBFD-interop",
+			wantErr: true,
+		},
+		"leading separator": {
+			raw:     "-gobfd-interop",
+			wantErr: true,
+		},
+		"empty after whitespace": {
+			raw:     " ",
+			wantErr: true,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := resolveInteropProjectName(test.raw)
+			if test.wantErr {
+				if !errors.Is(err, errInvalidInteropProjectName) {
+					t.Fatalf("resolveInteropProjectName(%q) error = %v, want errInvalidInteropProjectName", test.raw, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveInteropProjectName(%q): %v", test.raw, err)
+			}
+			if got != test.want {
+				t.Fatalf("resolveInteropProjectName(%q) = %q, want %q", test.raw, got, test.want)
+			}
+		})
+	}
+}
+
+func TestInteropNetworkName(t *testing.T) {
+	t.Parallel()
+
+	if got, want := interopNetworkName("custom-name"), "custom-name_bfdnet"; got != want {
+		t.Fatalf("interopNetworkName() = %q, want %q", got, want)
+	}
 }
 
 func parseSessionState(data []byte, peer string) (sessionState, error) {
@@ -191,12 +273,16 @@ func pollUntil[T any](
 }
 
 func podmanCompose(ctx context.Context, args ...string) (string, error) {
-	allArgs := append([]string{"-f", composeFile()}, args...)
+	projectName, err := interopProjectName()
+	if err != nil {
+		return "", err
+	}
+	allArgs := append([]string{"-p", projectName, "-f", composeFile()}, args...)
 	cmd := exec.CommandContext(ctx, "podman-compose", allArgs...)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	err := commandContextError(ctx, cmd.Run())
+	err = commandContextError(ctx, cmd.Run())
 	return buf.String(), err
 }
 
@@ -2058,8 +2144,10 @@ func TestScapyFuzzing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	// Clean up leftover container from a previous failed run.
-	_ = exec.CommandContext(ctx, "podman", "rm", "-f", "scapy-interop").Run()
+	projectName, err := interopProjectName()
+	if err != nil {
+		t.Fatalf("resolve interop Compose project: %v", err)
+	}
 
 	// Build the scapy image directly.
 	// Go test runs from the package directory (test/interop/),
@@ -2078,7 +2166,8 @@ func TestScapyFuzzing(t *testing.T) {
 	runOut, err := exec.CommandContext(ctx,
 		"podman", "run", "--rm",
 		"--name", "scapy-interop",
-		"--network", "interop_bfdnet",
+		"--label", "com.docker.compose.project="+projectName,
+		"--network", interopNetworkName(projectName),
 		"--ip", scapyIP,
 		"--cap-add", "NET_RAW",
 		"--cap-add", "NET_ADMIN",

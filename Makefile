@@ -18,6 +18,7 @@
 
 PROJECT_SLUG := $(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$$//')
 COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
+INTEROP_PROJECT_NAME ?= gobfd-interop
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) podman-compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
@@ -134,10 +135,11 @@ e2e-core-logs:
 
 e2e-routing:
 	$(DC) up -d --build --force-recreate dev
-	./test/e2e/routing/run.sh
+	INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) ./test/e2e/routing/run.sh
 
 e2e-routing-test:
-	$(EXEC) env INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
+	$(EXEC) env INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) \
+		INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
@@ -220,16 +222,17 @@ fuzz:
 test-integration:
 	$(EXEC) go test -tags integration ./test/integration/ -race -count=1 -v
 
-# === Interop Tests (FRR + BIRD3 + aiobfd + Thoro/bfd — 4-peer topology) ===
+# === Interop Tests (FRR + BIRD3 + Holo + Thoro/bfd — 4-peer topology) ===
 
 INTEROP_COMPOSE := test/interop/compose.yml
-INTEROP_DC := podman-compose -f $(INTEROP_COMPOSE)
+INTEROP_DC := podman-compose -p $(INTEROP_PROJECT_NAME) -f $(INTEROP_COMPOSE)
 
 interop:
-	./test/interop/run.sh
+	INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) ./test/interop/run.sh
 
 interop-test:
-	$(EXEC) env INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) \
+	$(EXEC) env INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) \
+		INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 
 interop-up:
