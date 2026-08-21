@@ -956,8 +956,11 @@ container ID, accept only one lowercase 64-hex image ID, prove that exact image
 exists, and persist it in the suite artifact directory through the exact owned
 dev container and Go helper. Merge reads the base ID through that same helper,
 rechecks the image, and passes only that ID to the merge-owner-labelled
-`podman run`; no shell redirection or repeated path read may follow an artifact
-symlink, and no tag or image name is a mutation target.
+`podman run`; image-ID and JSON reads/writes use only the rooted helper, so they
+do not rely on shell redirection or repeated path reads, and no tag or image
+name is a mutation target. Pcap redirection is limited to freshly created,
+trusted, unique-`RUN_ID` suite directories; before bind/merge, both capture
+paths must independently be regular, non-symlink, and nonempty.
 Replace the touched inline Python inventory merge with the stdlib-only
 `test/internal/routingartifacts` package and thin routing CLI. Each input is a
 bounded, regular, non-symlink file containing exactly one JSON array. Output
@@ -994,14 +997,27 @@ individually `Lstat`-checked as a non-symlink directory, opened as a nested
 rechecked before bounded reads or atomic rename. Final inputs retain the
 initial/opened/second-`Lstat` identity and `LimitReader(max+1)` growth checks.
 Outputs use rooted `OpenFile(O_CREATE|O_EXCL)` for a mode-0600 temporary,
-sync/close it, reject ancestor or destination replacement, and use rooted
-`Rename` in the pinned directory. After rename, the ancestor chain is checked
-again and the final rooted `Lstat` must identify the inode recorded from the
-temporary handle; a deterministic post-snapshot directory swap must therefore
-return nonzero even if the rename reached the pinned former directory. Tests
-include traversal, absolute paths,
+sync/close it, reject ancestor or destination replacement observed before the
+final snapshot, and use descriptor-relative `Rename` in the pinned directory.
+A final-entry symlink introduced after that snapshot is safely replaced by
+rename rather than followed; its target stays unchanged. After rename, the
+ancestor chain is checked again and final rooted `Lstat` must identify the
+inode recorded from the temporary handle. A deterministic post-snapshot
+directory swap must therefore return nonzero even if rename reached the pinned
+former directory. Tests include traversal, absolute paths,
 internal component symlinks, same-inode growth, regular replacement, ancestor
-directory replacement, and destination symlink swaps.
+directory replacement, rejected pre-snapshot destination swaps, and safe
+post-snapshot final-entry replacement.
+
+Spec re-review also proved that `Root.OpenFile(..., 0600)` alone does not
+guarantee exact mode because the process umask is still applied. Running the
+artifact test binary under umask `0777` produced a mode-000 merged artifact.
+The opened temporary handle must therefore be `Chmod(0600)` before any write,
+with close and rooted removal errors preserved if chmod fails. Post-rename
+validation additionally requires the published inode mode to be exactly 0600.
+The restrictive-umask regression must wrap test-binary execution through
+`go test -exec`; applying the umask only while compiling would not exercise
+runtime artifact creation.
 
 - [ ] **Step 4: Verify post-run cleanup**
 

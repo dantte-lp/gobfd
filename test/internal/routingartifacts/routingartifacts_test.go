@@ -473,6 +473,45 @@ func TestAtomicOutputRejectsAncestorAndDestinationSwap(t *testing.T) {
 	}
 }
 
+func TestAtomicOutputSafelyReplacesDestinationSwapAfterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	directory := filepath.Join(root, "suite")
+	if err := os.Mkdir(directory, 0o750); err != nil {
+		t.Fatalf("create output directory: %v", err)
+	}
+	target := filepath.Join(root, "target")
+	writeArtifactFixture(t, target, "preserve\n")
+
+	err := writeAtomicDataWithHooks(
+		root,
+		"suite/output.json",
+		[]byte("safe\n"),
+		nil,
+		func() error {
+			return os.Symlink("../target", filepath.Join(directory, "output.json"))
+		},
+	)
+	if err != nil {
+		t.Fatalf("descriptor-relative rename rejected safe destination replacement: %v", err)
+	}
+	published, err := os.ReadFile(filepath.Join(directory, "output.json"))
+	if err != nil {
+		t.Fatalf("read published output: %v", err)
+	}
+	if string(published) != "safe\n" {
+		t.Fatalf("published output = %q, want safe data", published)
+	}
+	preserved, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read symlink target: %v", err)
+	}
+	if string(preserved) != "preserve\n" {
+		t.Fatalf("destination swap followed symlink target: %q", preserved)
+	}
+}
+
 func writeArtifactFixture(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {

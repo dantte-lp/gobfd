@@ -209,17 +209,22 @@ func TestRoutingMergeArtifactsUsesPersistedImageIDAndOwnedCleanup(t *testing.T) 
 	body := shellFunctionBody(t, routing, "merge_artifacts")
 
 	tests := []struct {
-		name        string
-		omit        string
-		empty       string
-		invalid     string
-		unsafe      string
-		environment []string
-		wantSuccess bool
-		wantRun     bool
-		wantCleanup bool
+		name         string
+		omit         string
+		empty        string
+		invalid      string
+		unsafe       string
+		environment  []string
+		wantSuccess  bool
+		wantRun      bool
+		wantCleanup  bool
+		wantNoPodman bool
 	}{
-		{name: "merge owner collision", environment: []string{"FAKE_MERGE_COLLISION=1"}},
+		{
+			name:         "merge owner collision",
+			environment:  []string{"FAKE_MERGE_COLLISION=1"},
+			wantNoPodman: true,
+		},
 		{name: "missing base image ID", omit: "base-image", wantCleanup: true},
 		{name: "empty base image ID", empty: "base-image", wantCleanup: true},
 		{name: "invalid base image ID", invalid: "base-image", wantCleanup: true},
@@ -340,6 +345,9 @@ merge_artifacts
 				t.Fatalf("read merge Podman log: %v", readErr)
 			}
 			logText := string(logData)
+			if test.wantNoPodman && len(logData) != 0 {
+				t.Fatalf("merge owner collision reached fake Podman:\n%s", logText)
+			}
 			if !test.wantRun {
 				for line := range strings.Lines(logText) {
 					if strings.HasPrefix(line, "run ") {

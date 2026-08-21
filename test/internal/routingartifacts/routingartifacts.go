@@ -19,6 +19,7 @@ const (
 	imageIDLength        = 64
 	imageIDArtifactSize  = imageIDLength + 1
 	maximumTempAttempts  = 100
+	artifactFileMode     = os.FileMode(0o600)
 )
 
 var (
@@ -570,6 +571,14 @@ func validatePublishedOutput(pinned *pinnedParent, path string, temporaryInfo os
 		!os.SameFile(temporaryInfo, published) {
 		return fmt.Errorf("%w: published output %s is not the rooted temporary file", errUnsafeOutput, path)
 	}
+	if published.Mode().Perm() != artifactFileMode {
+		return fmt.Errorf(
+			"%w: published output %s mode is %04o, want 0600",
+			errUnsafeOutput,
+			path,
+			published.Mode().Perm(),
+		)
+	}
 	return nil
 }
 
@@ -612,12 +621,19 @@ func createRootTemp(root *os.Root, base string) (*os.File, string, error) {
 			return nil, "", fmt.Errorf("generate temporary output name: %w", err)
 		}
 		name := "." + base + ".tmp-" + hex.EncodeToString(random[:])
-		file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, artifactFileMode)
 		if errors.Is(err, os.ErrExist) {
 			continue
 		}
 		if err != nil {
 			return nil, "", fmt.Errorf("create rooted temporary output: %w", err)
+		}
+		if err := file.Chmod(artifactFileMode); err != nil {
+			return nil, "", errors.Join(
+				fmt.Errorf("chmod rooted temporary output: %w", err),
+				closeFile(file, "temporary output after chmod failure"),
+				removeRootFile(root, name, "temporary output after chmod failure"),
+			)
 		}
 		return file, name, nil
 	}
@@ -626,6 +642,13 @@ func createRootTemp(root *os.Root, base string) (*os.File, string, error) {
 		maximumTempAttempts,
 		errTempAttempts,
 	)
+}
+
+func removeRootFile(root *os.Root, name, description string) error {
+	if err := root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove %s %s: %w", description, name, err)
+	}
+	return nil
 }
 
 func closeFile(file *os.File, description string) error {
