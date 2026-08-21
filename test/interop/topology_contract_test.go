@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec" //nolint:depguard // Contract tests execute fixed repository tools with explicit argument vectors.
 	"path/filepath"
@@ -946,6 +947,215 @@ func TestTrackedOperationalTextScansNonGeneratedPublicAPIFile(t *testing.T) {
 	}
 }
 
+func TestTrackedOperationalTextFallsBackWithoutGitMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		path     func(string, string) string
+		contents func(string) []byte
+	}{
+		{
+			name: "removed content",
+			path: func(root, _ string) string {
+				return filepath.Join(root, "docs", "notes.md")
+			},
+			contents: func(removed string) []byte {
+				return []byte("obsolete peer: " + removed + "\n")
+			},
+		},
+		{
+			name: "removed path",
+			path: func(root, removed string) string {
+				return filepath.Join(root, "test", removed, "notes.md")
+			},
+			contents: func(string) []byte {
+				return []byte("safe\n")
+			},
+		},
+		{
+			name: "nested metadata name is not skipped",
+			path: func(root, _ string) string {
+				return filepath.Join(root, "nested", "reports", "notes.md")
+			},
+			contents: func(removed string) []byte {
+				return []byte("obsolete peer: " + removed + "\n")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			removed := "aio" + "bfd"
+			if err := os.WriteFile(
+				filepath.Join(root, ".git"),
+				[]byte("gitdir: /inaccessible-host-common-directory\n"),
+				0o600,
+			); err != nil {
+				t.Fatalf("write inaccessible worktree metadata fixture: %v", err)
+			}
+			path := test.path(root, removed)
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatalf("create fallback fixture directory: %v", err)
+			}
+			if err := os.WriteFile(path, test.contents(removed), 0o600); err != nil {
+				t.Fatalf("write fallback fixture: %v", err)
+			}
+
+			err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed})
+			if err == nil || !strings.Contains(err.Error(), "retains removed reference") {
+				t.Fatalf("fallback error = %v, want removed-reference diagnostic", err)
+			}
+		})
+	}
+}
+
+func TestTrackedOperationalTextFallbackSkipsOnlyRepositoryMetadataAndBinary(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	removed := "aio" + "bfd"
+	for _, relative := range []string{
+		filepath.Join(".git", "config"),
+		filepath.Join(".beads", "issues.jsonl"),
+		filepath.Join("reports", "e2e", "report.txt"),
+	} {
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("create metadata fixture directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(removed+"\n"), 0o600); err != nil {
+			t.Fatalf("write metadata fixture: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "binary.dat"), []byte(removed+"\x00"), 0o600); err != nil {
+		t.Fatalf("write binary fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "safe.txt"), []byte("safe\n"), 0o600); err != nil {
+		t.Fatalf("write safe fixture: %v", err)
+	}
+
+	if err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed}); err != nil {
+		t.Fatalf("fallback rejected exact metadata or binary skips: %v", err)
+	}
+}
+
+func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantErr string
+		setup   func(*testing.T, string)
+	}{
+		{
+			name:    "symlink",
+			wantErr: "is a symlink",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				target := filepath.Join(root, "target.txt")
+				writeFixture(t, target, "safe\n")
+				if err := os.Symlink(target, filepath.Join(root, "link.txt")); err != nil {
+					t.Fatalf("create symlink fixture: %v", err)
+				}
+			},
+		},
+		{
+			name:    "nonregular",
+			wantErr: "is not a regular file",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				var listenConfig net.ListenConfig
+				listener, err := listenConfig.Listen(t.Context(), "unix", filepath.Join(root, "socket"))
+				if err != nil {
+					t.Skipf("Unix socket fixture is unavailable: %v", err)
+				}
+				t.Cleanup(func() { _ = listener.Close() })
+			},
+		},
+		{
+			name:    "oversize",
+			wantErr: "limit is",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				contents := bytes.Repeat([]byte{'a'}, maxOperationalFileSize+1)
+				if err := os.WriteFile(filepath.Join(root, "large.txt"), contents, 0o600); err != nil {
+					t.Fatalf("write oversize fixture: %v", err)
+				}
+			},
+		},
+		{
+			name:    "generated marker",
+			wantErr: "lacks its exact generator marker",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				path := filepath.Join(root, "pkg", "bfdpb", "bfd", "v1", "bfd.pb.go")
+				if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+					t.Fatalf("create generated fixture directory: %v", err)
+				}
+				writeFixture(t, path, "package bfdv1\n")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			test.setup(t, root)
+			err := validateTrackedOperationalText(t.Context(), root, nil, []string{"removed"})
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("fallback error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestTrackedOperationalTextPrefersGitTrackedList(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFixture(t, filepath.Join(root, "tracked.txt"), "safe\n")
+	removed := "aio" + "bfd"
+	writeFixture(t, filepath.Join(root, "untracked.txt"), removed+"\n")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "--", "tracked.txt"}} {
+		command := exec.CommandContext(t.Context(), "git", append([]string{"-C", root}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("prepare tracked-list preference fixture: %v\n%s", err, output)
+		}
+	}
+
+	if err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed}); err != nil {
+		t.Fatalf("tracked-list preference scanned untracked content: %v", err)
+	}
+}
+
+func TestTrackedOperationalTextFallbackIsBounded(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFixture(t, filepath.Join(root, "first.txt"), "safe\n")
+	writeFixture(t, filepath.Join(root, "second.txt"), "safe\n")
+
+	_, err := walkOperationalPathsBounded(t.Context(), root, 1)
+	if err == nil || !strings.Contains(err.Error(), "fallback entry limit 1") {
+		t.Fatalf("bounded fallback error = %v, want entry-limit diagnostic", err)
+	}
+}
+
+func TestTrackedOperationalTextFallbackPreservesContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := validateTrackedOperationalText(ctx, t.TempDir(), nil, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("fallback error = %v, want context cancellation", err)
+	}
+}
+
 func TestBenchmarkReportOperationalContract(t *testing.T) {
 	t.Parallel()
 
@@ -1002,8 +1212,7 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	}
 	defaultSource := filepath.Clean(filepath.Join(root, "bench", "..", "bench-results"))
 	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
-	render := exec.CommandContext(t.Context(), "podman-compose", "-f", "bench/compose.yml", "config")
-	render.Dir = root
+	render := benchmarkComposeConfigCommand(t.Context(), root)
 	render.Env = append(os.Environ(), "BENCH_RESULTS_DIR="+defaultSource)
 	rendered, err := render.CombinedOutput()
 	if err != nil {
@@ -1038,6 +1247,55 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 		`BENCH_RESULTS_DIR="` + spaceResults + `" podman-compose -f bench/compose.yml build`,
 		`./scripts/gen-report.sh "` + spaceResults + `"`,
 	})
+}
+
+func TestBenchmarkComposeConfigCommandUsesAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bench"), 0o750); err != nil {
+		t.Fatalf("create benchmark fixture directory: %v", err)
+	}
+	writeFixture(t, filepath.Join(root, "bench", "compose.yml"), "services: {}\n")
+
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman-compose.log")
+	if err := writeExecutable(filepath.Join(fakeBin, "podman-compose"), `#!/usr/bin/env bash
+set -euo pipefail
+test "$#" -eq 3
+test "$1" = "-f"
+case "$2" in
+  /*) ;;
+  *) exit 41 ;;
+esac
+test "$3" = "config"
+printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
+`); err != nil {
+		t.Fatalf("write fake podman-compose: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	command := benchmarkComposeConfigCommand(t.Context(), root)
+	wantArgs := []string{"podman-compose", "-f", filepath.Join(root, "bench", "compose.yml"), "config"}
+	if !slices.Equal(command.Args, wantArgs) {
+		t.Fatalf("benchmark Compose argv = %q, want %q", command.Args, wantArgs)
+	}
+	if !filepath.IsAbs(command.Args[2]) {
+		t.Fatalf("benchmark Compose file argument is not absolute: %q", command.Args[2])
+	}
+	if command.Dir != root {
+		t.Fatalf("benchmark Compose working directory = %q, want %q", command.Dir, root)
+	}
+	command.Env = append(os.Environ(), "BENCH_COMMAND_LOG="+commandLog)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("execute benchmark Compose command: %v\n%s", err, output)
+	}
+	logged, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read benchmark Compose command log: %v", err)
+	}
+	wantLog := "-f " + filepath.Join(root, "bench", "compose.yml") + " config\n"
+	if string(logged) != wantLog {
+		t.Fatalf("benchmark Compose command log = %q, want %q", logged, wantLog)
+	}
 }
 
 func TestBenchmarkReportGenerator(t *testing.T) {
@@ -1340,7 +1598,10 @@ func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
 	}
 }
 
-const maxOperationalFileSize = 2 << 20
+const (
+	maxOperationalFileSize = 2 << 20
+	maxOperationalEntries  = 10_000
+)
 
 type benchmarkReport struct {
 	Meta            benchmarkReportMetadata `json:"meta"`
@@ -1485,76 +1746,168 @@ func validateTrackedOperationalText(
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
-	command := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z")
-	output, err := command.Output()
+	paths, err := trackedOperationalPaths(ctx, root)
 	if err != nil {
-		return fmt.Errorf("list tracked repository files: %w", err)
+		return err
 	}
 
-	for pathBytes := range bytes.SplitSeq(output, []byte{0}) {
-		if len(pathBytes) == 0 {
-			continue
-		}
-		relative := filepath.ToSlash(string(pathBytes))
-		if _, ok := allowed[relative]; ok {
-			continue
-		}
-		if relative == ".beads" || strings.HasPrefix(relative, ".beads/") {
-			continue
-		}
-		for _, removed := range removedReferences {
-			if strings.Contains(strings.ToLower(relative), removed) {
-				return fmt.Errorf("tracked operational path %s retains removed reference %q", relative, removed)
-			}
-		}
-
-		clean := filepath.Clean(filepath.FromSlash(relative))
-		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("tracked path %q escapes repository root", relative)
-		}
-		path := filepath.Join(root, clean)
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("lstat tracked operational file %s: %w", relative, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("tracked operational path %s is a symlink", relative)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("tracked operational path %s is not a regular file", relative)
-		}
-		if info.Size() > maxOperationalFileSize {
-			return fmt.Errorf(
-				"tracked operational file %s is %d bytes, limit is %d",
-				relative,
-				info.Size(),
-				maxOperationalFileSize,
-			)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read tracked operational file %s: %w", relative, err)
-		}
-		if len(data) > maxOperationalFileSize {
-			return fmt.Errorf("tracked operational file %s grew beyond %d bytes", relative, maxOperationalFileSize)
-		}
-		if marker, generated := trackedGeneratedMarker(relative); generated {
-			if !bytes.HasPrefix(data, []byte(marker+"\n")) {
-				return fmt.Errorf("tracked generated file %s lacks its exact generator marker", relative)
-			}
-			continue
-		}
-		if bytes.IndexByte(data, 0) >= 0 {
-			continue
-		}
-		lower := strings.ToLower(string(data))
-		for _, removed := range removedReferences {
-			if strings.Contains(lower, removed) {
-				return fmt.Errorf("tracked operational file %s retains removed reference %q", relative, removed)
-			}
+	for _, relative := range paths {
+		if err := validateTrackedOperationalPath(root, relative, allowed, removedReferences); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func trackedOperationalPaths(ctx context.Context, root string) ([]string, error) {
+	command := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z")
+	output, gitErr := command.Output()
+	if gitErr == nil {
+		paths := make([]string, 0, bytes.Count(output, []byte{0}))
+		for pathBytes := range bytes.SplitSeq(output, []byte{0}) {
+			if len(pathBytes) == 0 {
+				continue
+			}
+			paths = append(paths, filepath.ToSlash(string(pathBytes)))
+		}
+		return paths, nil
+	}
+
+	paths, err := walkOperationalPaths(ctx, root)
+	if err != nil {
+		return nil, fmt.Errorf("list tracked repository files: %w; then walk working tree: %w", gitErr, err)
+	}
+	return paths, nil
+}
+
+func walkOperationalPaths(ctx context.Context, root string) ([]string, error) {
+	return walkOperationalPathsBounded(ctx, root, maxOperationalEntries)
+}
+
+func walkOperationalPathsBounded(ctx context.Context, root string, maxEntries int) ([]string, error) {
+	paths := make([]string, 0, 512)
+	entries := 0
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("visit %s: %w", path, walkErr)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return fmt.Errorf("resolve working-tree path %s: %w", path, err)
+		}
+		if relative == "." {
+			return nil
+		}
+		relative = filepath.ToSlash(relative)
+		if fallbackMetadataPath(relative) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		entries++
+		if entries > maxEntries {
+			return fmt.Errorf("working tree exceeds fallback entry limit %d", maxEntries)
+		}
+		if !entry.IsDir() {
+			paths = append(paths, relative)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
+func fallbackMetadataPath(relative string) bool {
+	for _, metadata := range []string{".git", ".beads", "reports"} {
+		if relative == metadata || strings.HasPrefix(relative, metadata+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func validateTrackedOperationalPath(
+	root string,
+	relative string,
+	allowed map[string]struct{},
+	removedReferences []string,
+) error {
+	if _, ok := allowed[relative]; ok {
+		return nil
+	}
+	if relative == ".beads" || strings.HasPrefix(relative, ".beads/") {
+		return nil
+	}
+	for _, removed := range removedReferences {
+		if strings.Contains(strings.ToLower(relative), removed) {
+			return fmt.Errorf("tracked operational path %s retains removed reference %q", relative, removed)
+		}
+	}
+
+	clean := filepath.Clean(filepath.FromSlash(relative))
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("tracked path %q escapes repository root", relative)
+	}
+	path := filepath.Join(root, clean)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("lstat tracked operational file %s: %w", relative, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("tracked operational path %s is a symlink", relative)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("tracked operational path %s is not a regular file", relative)
+	}
+	if info.Size() > maxOperationalFileSize {
+		return fmt.Errorf(
+			"tracked operational file %s is %d bytes, limit is %d",
+			relative,
+			info.Size(),
+			maxOperationalFileSize,
+		)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read tracked operational file %s: %w", relative, err)
+	}
+	if len(data) > maxOperationalFileSize {
+		return fmt.Errorf("tracked operational file %s grew beyond %d bytes", relative, maxOperationalFileSize)
+	}
+	if marker, generated := trackedGeneratedMarker(relative); generated {
+		if !bytes.HasPrefix(data, []byte(marker+"\n")) {
+			return fmt.Errorf("tracked generated file %s lacks its exact generator marker", relative)
+		}
+		return nil
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
+		return nil
+	}
+	lower := strings.ToLower(string(data))
+	for _, removed := range removedReferences {
+		if strings.Contains(lower, removed) {
+			return fmt.Errorf("tracked operational file %s retains removed reference %q", relative, removed)
+		}
+	}
+	return nil
+}
+
+func benchmarkComposeConfigCommand(ctx context.Context, root string) *exec.Cmd {
+	command := exec.CommandContext(
+		ctx,
+		"podman-compose",
+		"-f", filepath.Join(root, "bench", "compose.yml"),
+		"config",
+	)
+	command.Dir = root
+	return command
 }
 
 func trackedGeneratedMarker(path string) (string, bool) {

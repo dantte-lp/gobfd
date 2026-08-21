@@ -584,6 +584,12 @@ go test -race -count=1 ./test/interop/
 Expected: no Python benchmark service renders, the report script parses, and
 the focused benchmark/report reference test passes.
 
+The Go contract test must invoke the Compose provider with the absolute
+`filepath.Join(root, "bench", "compose.yml")` path. The development image uses
+podman-compose 1.3.0, which does not reliably resolve a relative `-f` path from
+`Cmd.Dir`; an executable fake-provider fixture verifies the exact absolute
+argument vector without changing the benchmark lifecycle.
+
 Also remove `$(BENCH_DC) run --rm bench-python` from `benchmark-cross`; the
 target must invoke only services that remain in `bench/compose.yml`.
 
@@ -640,8 +646,12 @@ entries untouched.
 
 Extend the focused scan to tracked operational text. The exact allowlist is
 `CHANGELOG.md`, `CHANGELOG.ru.md`, `.cspell.json`, the approved migration design,
-and this implementation plan. The test skips Git/Beads metadata and binary or
-generated artifacts, and fails on every other match.
+and this implementation plan. Prefer the Git tracked-file list. When mounted
+worktree metadata is unavailable, use a bounded standard-library working-tree
+walk that skips only the top-level `.git`, `.beads`, and `reports` metadata or
+artifact trees. Both modes reject symlinks, non-regular and oversized entries,
+validate exact generated-file markers, skip NUL-bearing binary content, and
+fail on every other match.
 
 - [ ] **Step 5: Make the operational-reference test GREEN**
 
@@ -897,6 +907,18 @@ The E2E runner's Task 3 guard must reject a zero-test JSON stream inside
 `interop-bgp/go-test.json` contain a non-zero number of passed named tests and
 record the exact counts. Save the E2E run ID so the corresponding
 `io.gobfd.e2e.merge-owner` label can be verified absent.
+
+Live `make e2e-routing` report
+`reports/e2e/routing/20260821T061833542286517Z-1360406` proved the protocol
+tests themselves pass, but the enclosing ordinary contract suite still failed
+portability checks. Its mounted worktree `.git` file pointed to an inaccessible
+host common directory, so `git ls-files` could not enumerate operational text;
+the same development environment's podman-compose 1.3.0 failed to resolve the
+relative `-f bench/compose.yml` despite `Cmd.Dir=/app`, while the absolute path
+worked. This is negative E2E acceptance evidence. The operational scanner must
+fall back only on Git metadata failure to the bounded fail-closed walk above,
+and the benchmark Compose contract must use the absolute repository path. A
+fresh complete E2E run remains required after this correction.
 
 - [ ] **Step 4: Verify post-run cleanup**
 
