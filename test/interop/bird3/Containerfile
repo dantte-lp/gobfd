@@ -1,18 +1,44 @@
 # BIRD3 container for BFD interoperability testing with GoBFD.
 #
-# BIRD3 is available in Debian Trixie's official repositories as the
-# "bird3" package. No external PPA or third-party repo is needed.
+# Build the current stable BIRD 3.3.2 source at its immutable tag commit.
 
-FROM docker.io/debian:trixie-slim
+FROM docker.io/library/debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       bird3 \
-       iproute2 \
+       autoconf \
+       bison \
+       build-essential \
+       flex \
+       libncurses-dev \
+       libreadline-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# BIRD3 expects its configuration at /etc/bird/bird.conf.
-# The config file is bind-mounted from the host at runtime via compose.
-RUN mkdir -p /run/bird
+ARG BIRD_COMMIT=e66773c42f115d80aaaef3b7246953b276a88065
+ARG BIRD_SOURCE_SHA256=ad74ac8bc970f97a137f5df4e0c96777dfc7137b9773b1f95badec3d93e18754
+
+WORKDIR /src
+
+ADD --checksum=sha256:${BIRD_SOURCE_SHA256} \
+    https://codeload.github.com/CZ-NIC/bird/tar.gz/${BIRD_COMMIT} \
+    /tmp/bird.tar.gz
+
+RUN tar -xzf /tmp/bird.tar.gz --strip-components=1 \
+    && autoreconf \
+    && ./configure --prefix=/usr --sysconfdir=/etc/bird --runstatedir=/run/bird \
+    && make -j"$(nproc)" \
+    && make DESTDIR=/out install
+
+FROM docker.io/library/debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       iproute2 \
+       libncurses6 \
+       libreadline8t64 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/bird
+
+COPY --from=builder /out/ /
 
 ENTRYPOINT ["bird", "-f", "-c", "/etc/bird/bird.conf"]

@@ -235,7 +235,7 @@ fuzz:
 test-integration:
 	$(EXEC) go test -tags integration ./test/integration/ -race -count=1 -v
 
-# === Interop Tests (FRR + BIRD3 + Holo + Thoro/bfd — 4-peer topology) ===
+# === Interop Tests (FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd — 4-peer topology) ===
 
 INTEROP_COMPOSE := test/interop/compose.yml
 INTEROP_CTL := ./test/interop/projectctl.sh

@@ -170,14 +170,10 @@ make interop-pcap-summary
 | Containers fail to start | Check `podman network inspect` for IP conflicts |
 | Sessions stuck in Down | Verify `CAP_NET_RAW` is available in containers |
 | tshark no data | Ensure the shared network interface is configured |
-| Tests timeout | Increase timeout: `make interop-test TIMEOUT=600s` |
 
 ```bash
-# View all container logs
+# View project-owned container logs through the guarded target
 make interop-logs
-
-# Inspect a specific container
-podman logs gobfd-interop
 ```
 
 ---
@@ -243,16 +239,11 @@ Each scenario tests three phases:
 ### Running BGP+BFD Tests
 
 ```bash
-# Full cycle (recommended)
+# Dedicated full cycle
 make interop-bgp
 
-# Step by step
-make interop-bgp-up       # Start the BGP+BFD topology
-make interop-bgp-test     # Run Go tests
-make interop-bgp-down     # Cleanup
-
-# View logs
-make interop-bgp-logs
+# Authoritative routing aggregate with owned artifacts and cleanup
+make e2e-routing
 ```
 
 ### Key Design: Shared Network Namespaces
@@ -332,16 +323,11 @@ graph LR
 ### Running RFC Interop Tests
 
 ```bash
-# Full cycle (recommended)
+# Dedicated full cycle
 make interop-rfc
 
-# Step by step
-make interop-rfc-up       # Start 7-container topology
-make interop-rfc-test     # Run Go tests
-make interop-rfc-down     # Cleanup
-
-# View logs
-make interop-rfc-logs
+# Authoritative RFC aggregate with owned artifacts and cleanup
+make e2e-rfc
 ```
 
 ---

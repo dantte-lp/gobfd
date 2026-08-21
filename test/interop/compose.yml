@@ -43,7 +43,7 @@ services:
         ipv4_address: 172.20.0.10
 
   frr:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-interop
     cap_add:
       - NET_RAW

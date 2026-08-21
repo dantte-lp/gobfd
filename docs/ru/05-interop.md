@@ -166,14 +166,10 @@ make interop-capture
 | Контейнеры не запускаются | Проверьте `podman network inspect` на конфликты IP |
 | Сессии застряли в Down | Убедитесь, что `CAP_NET_RAW` доступен в контейнерах |
 | tshark без данных | Проверьте конфигурацию общего сетевого интерфейса |
-| Таймаут тестов | Увеличьте таймаут: `make interop-test TIMEOUT=600s` |
 
 ```bash
-# Просмотр логов всех контейнеров
+# Просмотр логов принадлежащих проекту контейнеров через guarded target
 make interop-logs
-
-# Просмотр конкретного контейнера
-podman logs gobfd-interop
 ```
 
 ---
@@ -239,16 +235,11 @@ graph LR
 ### Запуск тестов BGP+BFD
 
 ```bash
-# Полный цикл (рекомендуется)
+# Отдельный полный цикл
 make interop-bgp
 
-# Пошагово
-make interop-bgp-up       # Запуск топологии BGP+BFD
-make interop-bgp-test     # Запуск Go-тестов
-make interop-bgp-down     # Очистка
-
-# Просмотр логов
-make interop-bgp-logs
+# Авторитетный routing aggregate с owned artifacts и cleanup
+make e2e-routing
 ```
 
 ### Ключевое решение: общие сетевые пространства имён
@@ -328,16 +319,11 @@ graph LR
 ### Запуск RFC Interop тестов
 
 ```bash
-# Полный цикл (рекомендуется)
+# Отдельный полный цикл
 make interop-rfc
 
-# Пошагово
-make interop-rfc-up       # Запуск топологии из 7 контейнеров
-make interop-rfc-test     # Запуск Go-тестов
-make interop-rfc-down     # Очистка
-
-# Просмотр логов
-make interop-rfc-logs
+# Авторитетный RFC aggregate с owned artifacts и cleanup
+make e2e-rfc
 ```
 
 ---

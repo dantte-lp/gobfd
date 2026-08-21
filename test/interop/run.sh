@@ -12,7 +12,7 @@
 #
 # Prerequisites:
 #   - podman and podman-compose installed
-#   - Access to quay.io/frrouting/frr:10.2.5
+#   - Access to quay.io/frrouting/frr:10.7.0
 #   - Access to docker.io/debian:trixie-slim (for BIRD3 build)
 #
 # Exit codes:
@@ -1260,7 +1260,7 @@ test_gobfd_graceful_shutdown() {
 echo ""
 echo "========================================="
 echo "  GoBFD Interoperability Tests"
-echo "  FRR 10.2.5 + BIRD3 + Holo 0.9.0 + Thoro/bfd"
+echo "  FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd"
 echo "  RFC 5880/5881 Compliance Suite"
 echo "========================================="
 echo ""
