@@ -13,10 +13,8 @@
 #   - tshark-rfc shares gobfd-rfc's netns → packet capture
 #   - gobgp-rfc shares gobfd-rfc9384's netns → both at 172.22.0.30
 #
-# Usage:
-#   podman-compose -f test/interop-rfc/compose.yml up --build -d
-#   podman-compose -f test/interop-rfc/compose.yml logs -f
-#   podman-compose -f test/interop-rfc/compose.yml down
+# The live lifecycle is awaiting exact project-ownership migration. Do not
+# invoke Compose directly for this fixed-name topology.
 
 services:
   # === RFC 7419 + RFC 9468: gobfd-rfc at 172.22.0.10 ===

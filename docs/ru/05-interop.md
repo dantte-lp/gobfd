@@ -315,9 +315,12 @@ graph LR
 
 ### Запуск RFC Interop тестов
 
+Live-топология RFC ожидает миграции на exact project ownership. Не
+запускайте локально её legacy lifecycle targets. Проверяйте tagged-
+исходники без создания ресурсов:
+
 ```bash
-# Авторитетный RFC aggregate с owned artifacts и cleanup
-make e2e-rfc
+go test -race -count=1 -run '^$' -tags interop_rfc ./test/interop-rfc/...
 ```
 
 ---

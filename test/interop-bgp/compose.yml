@@ -19,10 +19,8 @@
 # This ensures BFD peer addresses match BGP neighbor addresses, so the
 # GoBGP handler's DisablePeer(bfd_peer_addr) correctly targets the BGP peer.
 #
-# Usage:
-#   podman-compose -f test/interop-bgp/compose.yml up --build -d
-#   podman-compose -f test/interop-bgp/compose.yml logs -f
-#   podman-compose -f test/interop-bgp/compose.yml down
+# Lifecycle is owned by the guarded E2E routing runner. Do not invoke Compose
+# directly for this fixed-name topology.
 
 services:
   # === GoBGP side: gobfd (BFD) + gobgp (BGP) at 172.21.0.10 ===

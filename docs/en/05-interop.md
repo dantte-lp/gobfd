@@ -319,9 +319,12 @@ graph LR
 
 ### Running RFC Interop Tests
 
+The live RFC topology is awaiting exact project-ownership migration. Do not
+run its legacy lifecycle targets locally. Validate the tagged sources without
+creating resources:
+
 ```bash
-# Authoritative RFC aggregate with owned artifacts and cleanup
-make e2e-rfc
+go test -race -count=1 -run '^$' -tags interop_rfc ./test/interop-rfc/...
 ```
 
 ---

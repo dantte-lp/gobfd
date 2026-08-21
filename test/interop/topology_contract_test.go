@@ -255,6 +255,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
 		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
 		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
+		{name: "BGP Compose topology", path: filepath.Join(root, "test", "interop-bgp", "compose.yml")},
+		{name: "RFC Compose topology", path: filepath.Join(root, "test", "interop-rfc", "compose.yml")},
 	}
 	contents := make(map[string]string, len(files))
 	for _, file := range files {
@@ -332,10 +334,17 @@ func TestInteropOperationalContract(t *testing.T) {
 		t.Error("Compose topology documents unguarded fixed-name Podman access")
 	}
 	for _, name := range []string{"English interop guide", "Russian interop guide"} {
-		for _, command := range []string{"make interop-bgp\n", "make interop-rfc\n", "podman logs ", "podman exec "} {
+		for _, command := range []string{
+			"make interop-bgp\n", "make interop-rfc\n", "make e2e-rfc\n", "podman logs ", "podman exec ",
+		} {
 			if strings.Contains(contents[name], command) {
 				t.Errorf("%s documents unsafe legacy lifecycle command %q", name, command)
 			}
+		}
+	}
+	for _, name := range []string{"BGP Compose topology", "RFC Compose topology"} {
+		if strings.Contains(contents[name], "podman-compose") {
+			t.Errorf("%s documents unguarded raw Compose lifecycle commands", name)
 		}
 	}
 	assertContainsAll(t, "FRR configuration", contents["FRR configuration"], []string{
