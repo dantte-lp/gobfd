@@ -235,13 +235,18 @@ Add table-driven tests for parsing `gobfdctl session show --format json` and for
 constructing a tshark filter that requires `frame.number > baseline`. The JSON
 fixture must cover `Up/Up` and `Down/ControlTimeExpired`.
 
+Add an execution fixture where exact-ID Podman exec succeeds with numeric tshark
+rows on stdout while tshark writes its root-user warning on stderr. The parsed
+rows must contain stdout only. A failing exec must retain stderr in the returned
+diagnostic and preserve context cancellation identity.
+
 - [ ] **Step 2: Run targeted tests and verify RED**
 
 Run:
 
 ```bash
 go test -race -count=1 -tags interop \
-  -run 'Test(ParseSessionState|FrameBoundary|HoloDownBoundary|LifecycleDeadline|Poll|TsharkQueryContextError)' \
+  -run 'Test(ParseSessionState|FrameBoundary|HoloDownBoundary|LifecycleDeadline|Poll|TsharkQuery)' \
   ./test/interop/
 ```
 
@@ -268,6 +273,13 @@ poll bounded by the test context. Add helpers for a pre-stop bidirectional Holo
 frame baseline, a new GoBFD-originated `Down`/`ControlTimeExpired` frame strictly
 after that baseline, and a new Holo-originated `Up` packet strictly after the
 proven Down frame.
+
+Keep the shared Podman helper's combined-output behavior for stop, inspect,
+logs, and their diagnostics. At the tshark query boundary only, resolve the
+owned container to its immutable ID, capture stdout and stderr separately,
+return only stdout after a successful exec, and include stderr when exec fails.
+This prevents `Running as user "root"...` from becoming a fake frame row while
+retaining bounded context and `errors.Is` behavior.
 
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 

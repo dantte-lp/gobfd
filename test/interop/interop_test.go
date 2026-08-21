@@ -702,12 +702,27 @@ func waitThoroUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 
 // tsharkQuery runs tshark on the captured pcapng file and returns stdout.
 func tsharkQuery(ctx context.Context, args ...string) (string, error) {
-	commandArgs := append([]string{"tshark", "-r", "/captures/bfd.pcapng"}, args...)
-	output, err := projectContainerCommand(ctx, "tshark-interop", "exec", commandArgs...)
+	containerID, err := resolveProjectContainerID(ctx, "tshark-interop")
 	if err != nil {
-		return "", fmt.Errorf("tshark: %w: %s", err, output)
+		return "", fmt.Errorf("tshark: resolve capture container: %w", err)
 	}
-	return output, nil
+	commandArgs := append([]string{"tshark", "-r", "/captures/bfd.pcapng"}, args...)
+	commandArgs = append([]string{"exec", containerID}, commandArgs...)
+	cmd := exec.CommandContext(ctx, "podman", commandArgs...)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = commandContextError(ctx, cmd.Run())
+	if err != nil {
+		return "", fmt.Errorf(
+			"tshark: %w: stdout: %s; stderr: %s",
+			err,
+			strings.TrimSpace(stdout.String()),
+			strings.TrimSpace(stderr.String()),
+		)
+	}
+	return stdout.String(), nil
 }
 
 // tsharkFields extracts specific fields from packets matching a display filter.
@@ -1290,6 +1305,60 @@ func TestTsharkQueryContextError(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("tsharkQuery() did not return after context cancellation")
+	}
+}
+
+func TestTsharkQueryKeepsSuccessfulStderrOutOfRows(t *testing.T) {
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
+    printf '%s\n' 'immutable-tshark-id|gobfd-interop'
+    exit 0
+fi
+if [[ "${1:-}" == "exec" && "${2:-}" == "immutable-tshark-id" ]]; then
+    printf '%s\n' 'Running as user "root" and group "root". This could be dangerous.' >&2
+    if [[ "${INTEROP_FAKE_TSHARK_FAIL:-}" == "true" ]]; then
+        printf '%s\n' 'capture read failed' >&2
+        exit 17
+    fi
+    printf '41\t300000\n42\t300000\n'
+    exit 0
+fi
+exit 9
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
+		t.Fatalf("write fake podman: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
+	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
+
+	rows, err := tsharkFields(t.Context(), "bfd", []string{"frame.number", "bfd.min_rx"}, 0)
+	if err != nil {
+		t.Fatalf("query successful tshark rows: %v", err)
+	}
+	wantRows := [][]string{{"41", "300000"}, {"42", "300000"}}
+	if fmt.Sprint(rows) != fmt.Sprint(wantRows) {
+		t.Fatalf("tshark rows = %v, want stdout-only %v", rows, wantRows)
+	}
+
+	t.Setenv("INTEROP_FAKE_TSHARK_FAIL", "true")
+	_, err = tsharkQuery(t.Context(), "-Y", "bfd")
+	if err == nil || !strings.Contains(err.Error(), "capture read failed") {
+		t.Fatalf("failed tshark query error = %v, want stderr diagnostic", err)
+	}
+
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if !strings.Contains(string(commands), "exec immutable-tshark-id tshark") {
+		t.Fatalf("tshark query did not use exact owned ID; commands:\n%s", commands)
+	}
+	if strings.Contains(string(commands), "exec tshark-interop") {
+		t.Fatalf("tshark query used mutable container name; commands:\n%s", commands)
 	}
 }
 
