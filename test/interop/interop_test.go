@@ -1262,15 +1262,31 @@ func TestTsharkQueryContextError(t *testing.T) {
 	tempDir := t.TempDir()
 	podmanPath := filepath.Join(tempDir, "podman")
 	startedPath := filepath.Join(tempDir, "started")
+	commandLog := filepath.Join(tempDir, "podman.log")
+	fakePodman := `#!/bin/sh
+printf '%s\n' "$*" >> "${TSHARK_QUERY_COMMAND_LOG}"
+case "$*" in
+    "inspect --type container --format "*" tshark-interop")
+        printf '%s\n' 'immutable-tshark-id|gobfd-interop'
+        ;;
+    "exec immutable-tshark-id tshark -r /captures/bfd.pcapng")
+        : > "${TSHARK_QUERY_STARTED}"
+        exec /bin/sleep 10
+        ;;
+    *) exit 9 ;;
+esac
+`
 	if err := os.WriteFile(
 		podmanPath,
-		[]byte("#!/bin/sh\n: > \"$TSHARK_QUERY_STARTED\"\nexec /bin/sleep 10\n"),
+		[]byte(fakePodman),
 		0o700,
 	); err != nil {
 		t.Fatalf("write fake podman command: %v", err)
 	}
 	t.Setenv("PATH", tempDir)
 	t.Setenv("TSHARK_QUERY_STARTED", startedPath)
+	t.Setenv("TSHARK_QUERY_COMMAND_LOG", commandLog)
+	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1305,6 +1321,17 @@ func TestTsharkQueryContextError(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("tsharkQuery() did not return after context cancellation")
+	}
+
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman command log: %v", err)
+	}
+	if !strings.Contains(string(commands), "exec immutable-tshark-id tshark -r /captures/bfd.pcapng") {
+		t.Fatalf("context test did not cancel exact-ID tshark exec; commands:\n%s", commands)
+	}
+	if strings.Contains(string(commands), "exec tshark-interop") {
+		t.Fatalf("context test used mutable tshark container name; commands:\n%s", commands)
 	}
 }
 
