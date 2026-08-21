@@ -558,13 +558,13 @@ lint-ci:
 lint-fix:
 	$(EXEC) go tool golangci-lint run --fix ./...
 
-gopls-check:
+gopls-check: dev-ensure
 	$(EXEC) sh ./scripts/gopls-check.sh
 
-lint-md:
+lint-md: dev-ensure
 	$(EXEC) markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#docs/rfc"
 
-lint-yaml:
+lint-yaml: dev-ensure
 	$(EXEC) yamllint -c .yamllint.yaml .
 
 lint-spell: dev-ensure
@@ -609,7 +609,7 @@ osv-scan-strict:
 proto-gen:
 	$(EXEC) buf generate
 
-proto-lint:
+proto-lint: dev-ensure
 	$(EXEC) buf lint
 
 proto-breaking:

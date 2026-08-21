@@ -604,7 +604,11 @@ already contains dependency-refresh edits, never use broad `git add docs` or
 
 Record Podman version, Compose provider/version, socket endpoint, and resources
 for the exact interop project label. Stop if matching resources predate this
-run. Do not remove unrelated resources.
+run. Record the same exact-label state for `gobfd-interop-negative`,
+`gobfd-interop-bgp`, and the dev project `v062-testcontainers`, plus existing
+container, network, volume, and image IDs. Record free space before building
+the Go 1.27 dev image. Stop on any project or fixed-name collision; do not
+remove unrelated resources.
 
 - [ ] **Step 2: Run the complete static Go gate**
 
@@ -626,21 +630,112 @@ vulnerability policy is accepted.
 
 - [ ] **Step 3: Prove both live interop gates**
 
-After the Task 3 runner completes the exact two-phase Holo/config startup, run
-the lifecycle alone before the broader suite so its 180-second lifecycle plus
-75-second cleanup reservation fits honestly within the package timeout:
+Before the positive gates, execute a live negative case under the unique
+`gobfd-interop-negative` project. Create an absolute regular non-symlink
+temporary Compose override that replaces the `/etc/holo.startup` mount with an
+invalid startup file. Pass it only through the validated
+`INTEROP_COMPOSE_OVERRIDE_FILE` environment variable. Bracket the runner with
+nanosecond UTC timestamps and save exact Podman events:
 
 ```bash
-go test -tags interop -v -count=1 -timeout 300s \
-  -run '^TestHoloFailureRecoveryLifecycle$' ./test/interop/
+set -euo pipefail
+TASK6_ARTIFACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gobfd-task6.XXXXXXXX")"
+INVALID_STARTUP="${TASK6_ARTIFACT_DIR}/invalid-holo.startup"
+INVALID_OVERRIDE="${TASK6_ARTIFACT_DIR}/invalid-holo.override.yml"
+NEGATIVE_LOG="${TASK6_ARTIFACT_DIR}/negative.log"
+NEGATIVE_EVENTS="${TASK6_ARTIFACT_DIR}/negative-events.json"
+LIFECYCLE_JSON="${TASK6_ARTIFACT_DIR}/lifecycle.json"
+E2E_LOG="${TASK6_ARTIFACT_DIR}/e2e-routing.log"
+PODMAN=(timeout 2m podman)
+source ./test/interop/project_guard.sh
+
+printf '%s\n' 'this is deliberately invalid Holo CLI input' >"${INVALID_STARTUP}"
+printf '%s\n' \
+  'services:' \
+  '  holo-config:' \
+  '    volumes:' \
+  "      - ${INVALID_STARTUP}:/etc/holo.startup:ro,z" \
+  >"${INVALID_OVERRIDE}"
+test -f "${INVALID_OVERRIDE}"
+test ! -L "${INVALID_OVERRIDE}"
+test -r "${INVALID_OVERRIDE}"
+
+negative_started="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+set +e
+INTEROP_PROJECT_NAME=gobfd-interop-negative \
+INTEROP_COMPOSE_OVERRIDE_FILE="${INVALID_OVERRIDE}" \
+  ./test/interop/run.sh >"${NEGATIVE_LOG}" 2>&1
+negative_status="$?"
+set -e
+negative_finished="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+
+test "${negative_status}" -ne 0
+grep -Fq '=== Holo daemon logs ===' "${NEGATIVE_LOG}"
+grep -Fq '=== Holo daemon /tmp/holod.err ===' "${NEGATIVE_LOG}"
+grep -Fq '=== Holo configuration loader logs ===' "${NEGATIVE_LOG}"
+podman events --stream=false --since "${negative_started}" \
+  --until "${negative_finished}" --format json >"${NEGATIVE_EVENTS}"
+jq -s -e --arg project gobfd-interop-negative '
+  [.[] | select(
+    .Type == "container"
+    and .Name == "gobfd-interop"
+    and .Attributes["com.docker.compose.project"] == $project
+    and (.Status == "create" or .Status == "start")
+  )] | length == 0
+' "${NEGATIVE_EVENTS}"
+interop_verify_project_absent gobfd-interop-negative
 ```
 
-Require this targeted invocation to execute and pass, not skip. Then run the
-broader live gates:
+Require the log to contain Holo daemon, loader, and `/tmp/holod.err`
+diagnostics. Verify the exact negative project has no remaining containers,
+networks, or volumes. Absence after cleanup is not evidence that GoBFD never
+started; the exact Podman event assertion above supplies that evidence.
+
+Then start the base topology explicitly and run the lifecycle alone under the
+project lock so its 180-second lifecycle plus 75-second cleanup reservation
+fits honestly within the package timeout. Run this block in a dedicated Bash
+subshell so `make interop-down` always executes:
+
+```bash
+(
+  set -euo pipefail
+  export INTEROP_PROJECT_NAME=gobfd-interop
+  lifecycle_owned=false
+  cleanup_lifecycle() {
+    if [ "${lifecycle_owned}" = true ]; then
+      make interop-down
+    fi
+  }
+  trap cleanup_lifecycle EXIT
+  make interop-up
+  lifecycle_owned=true
+  ./test/interop/projectctl.sh lock-run -- \
+    go test -json -tags interop -count=1 -timeout 300s \
+      -run '^TestHoloFailureRecoveryLifecycle$' ./test/interop/ \
+      >"${LIFECYCLE_JSON}"
+  jq -s -e '
+    any(.[]; select(.Action == "pass" and .Test == "TestHoloFailureRecoveryLifecycle"))
+    and (any(.[]; select(.Action == "skip" and .Test == "TestHoloFailureRecoveryLifecycle")) | not)
+  ' "${LIFECYCLE_JSON}"
+)
+interop_verify_project_absent gobfd-interop
+```
+
+Require the targeted invocation to execute and pass, not skip, and verify
+exact-label cleanup after the trap. Then run the broader live gates:
 
 ```bash
 make interop
-make e2e-routing
+make e2e-routing | tee "${E2E_LOG}"
+E2E_REPORT_DIR="$(sed -n 's/^S10.3 routing E2E artifacts: //p' \
+  "${E2E_LOG}" | tail -n 1)"
+test -d "${E2E_REPORT_DIR}"
+for suite in interop interop-bgp; do
+  jq -s -e \
+    '([.[] | select(.Action == "pass" and (.Test // "") != "")] | length) > 0' \
+    "${E2E_REPORT_DIR}/${suite}/go-test.json"
+done
+MERGE_OWNER_VALUE="$(jq -er '.run_id' "${E2E_REPORT_DIR}/environment.json")"
 ```
 
 Expected: both gates pass, the tagged Go output has a non-zero test count,
@@ -648,26 +743,48 @@ Holo reaches `Up/Up`, failure becomes `Down/ControlTimeExpired`, and recovery
 uses a new post-boundary packet.
 
 The E2E runner's Task 3 guard must reject a zero-test JSON stream inside
-`make e2e-routing`; confirm the guard executed from the saved suite artifacts.
-
-Before accepting the successful interop run, execute a live negative case with
-a temporary Compose override that mounts an invalid Holo startup file. Require
-the runner to exit non-zero, verify `gobfd-interop` was never created or
-started, capture Holo and loader diagnostics, and clean up the exact test
-project. This validates the real Podman lifecycle in addition to the
-deterministic fake-command contract test.
+`make e2e-routing`; confirm both `interop/go-test.json` and
+`interop-bgp/go-test.json` contain a non-zero number of passed named tests and
+record the exact counts. Save the E2E run ID so the corresponding
+`io.gobfd.e2e.merge-owner` label can be verified absent.
 
 - [ ] **Step 4: Verify post-run cleanup**
 
-Query containers, networks, and volumes by the exact preflight-recorded Compose
-project label. Expected: none. Confirm unrelated resources and images were not
-removed. Remove only uniquely labelled audit resources created by this task.
+Query containers, networks, and volumes by every exact preflight-recorded
+Compose project label: `gobfd-interop-negative`, `gobfd-interop`,
+`gobfd-interop-bgp`, and `v062-testcontainers`. Expected: none. Use the shared
+exact-label cleanup helper only for a project proven empty before this run and
+acquired by this task; never use Compose down. Query the recorded
+`io.gobfd.e2e.merge-owner` value and require zero containers. Stop and remove
+the exact dev container and other dev project resources created by the Go 1.27
+gates. Confirm all unrelated preflight resource and image IDs remain; do not
+prune or remove shared images.
+
+Use the already loaded exact-label helpers for the fail-closed postcondition;
+do not substitute name matching or an unlocked Compose lifecycle:
+
+```bash
+interop_cleanup_project_resources v062-testcontainers
+for project in \
+  gobfd-interop-negative gobfd-interop gobfd-interop-bgp v062-testcontainers
+do
+  interop_verify_project_absent "${project}"
+done
+interop_verify_labelled_containers_absent \
+  io.gobfd.e2e.merge-owner "${MERGE_OWNER_VALUE}"
+printf 'Task 6 retained evidence in %s\n' "${TASK6_ARTIFACT_DIR}"
+```
+
+Retain that exact temporary directory until its commands, versions, test
+counts, event proof, and cleanup proof are appended to Beads. Remove only the
+printed `TASK6_ARTIFACT_DIR` path during the final user-authorized cleanup;
+never use a wildcard or delete it before the evidence is recorded.
 
 - [ ] **Step 5: Run final repository gates**
 
 ```bash
 make lint-docs
-buf lint
+make proto-lint
 git diff --check
 git status --short --branch
 bd preflight

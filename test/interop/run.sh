@@ -29,6 +29,26 @@ if [[ ! "${INTEROP_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
         "${INTEROP_PROJECT_NAME}" >&2
     exit 2
 fi
+INTEROP_COMPOSE_OVERRIDE_FILE="${INTEROP_COMPOSE_OVERRIDE_FILE:-}"
+COMPOSE_ARGS=(-p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
+if [[ -n "${INTEROP_COMPOSE_OVERRIDE_FILE}" ]]; then
+    if [[ "${INTEROP_COMPOSE_OVERRIDE_FILE}" != /* ]]; then
+        printf 'invalid INTEROP_COMPOSE_OVERRIDE_FILE %q: must be absolute\n' \
+            "${INTEROP_COMPOSE_OVERRIDE_FILE}" >&2
+        exit 2
+    fi
+    if [[ -L "${INTEROP_COMPOSE_OVERRIDE_FILE}" ]]; then
+        printf 'invalid INTEROP_COMPOSE_OVERRIDE_FILE %q: must not be a symlink\n' \
+            "${INTEROP_COMPOSE_OVERRIDE_FILE}" >&2
+        exit 2
+    fi
+    if [[ ! -f "${INTEROP_COMPOSE_OVERRIDE_FILE}" || ! -r "${INTEROP_COMPOSE_OVERRIDE_FILE}" ]]; then
+        printf 'invalid INTEROP_COMPOSE_OVERRIDE_FILE %q: must be an existing regular readable file\n' \
+            "${INTEROP_COMPOSE_OVERRIDE_FILE}" >&2
+        exit 2
+    fi
+    COMPOSE_ARGS+=(-f "${INTEROP_COMPOSE_OVERRIDE_FILE}")
+fi
 PROJECT_LABEL="com.docker.compose.project=${INTEROP_PROJECT_NAME}"
 PROJECT_OWNED=false
 PROJECT_LOCK_FD=""
@@ -366,12 +386,17 @@ dump_holo_startup_diagnostics() {
     local holo_id loader_id
     info "=== Holo startup diagnostics ==="
     timeout 10s podman ps -a --filter "label=${PROJECT_LABEL}" 2>&1 || true
+    info "=== Holo daemon logs ==="
     if holo_id="$(resolve_project_container_id holo-interop)"; then
         timeout 10s podman logs --tail 100 "${holo_id}" 2>&1 || true
+    fi
+    info "=== Holo daemon /tmp/holod.err ==="
+    if [[ -n "${holo_id:-}" ]]; then
         timeout 10s podman exec "${holo_id}" sh -c \
             'if [ -f /tmp/holod.err ]; then cat /tmp/holod.err; else echo "/tmp/holod.err is absent"; fi' \
             2>&1 || true
     fi
+    info "=== Holo configuration loader logs ==="
     if loader_id="$(resolve_project_container_id holo-config-interop)"; then
         timeout 10s podman logs --tail 100 "${loader_id}" 2>&1 || true
         timeout 10s podman inspect --type container "${loader_id}" 2>&1 || true
@@ -390,10 +415,10 @@ assert_fixed_names_available
 PROJECT_OWNED=true
 
 info "building container images"
-timeout 10m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" build --no-cache
+timeout 10m podman-compose "${COMPOSE_ARGS[@]}" build --no-cache
 
 info "starting Holo daemon and one-shot configuration loader"
-if ! timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" up -d holo holo-config; then
+if ! timeout 2m podman-compose "${COMPOSE_ARGS[@]}" up -d holo holo-config; then
     fail_holo_startup "failed to start Holo configuration phase"
 fi
 
@@ -430,7 +455,7 @@ if [[ "${holo_inspect_status}" != "0" ]]; then
 fi
 
 info "starting GoBFD and remaining interop peers"
-timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" \
+timeout 2m podman-compose "${COMPOSE_ARGS[@]}" \
     up -d --no-deps gobfd frr bird3 tshark thoro
 
 info "waiting for containers to start (10s)"

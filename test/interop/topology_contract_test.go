@@ -253,6 +253,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
 		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
 		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
+		{name: "gopls gate", path: filepath.Join(root, "scripts", "gopls-check.sh")},
 		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
 		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
 		{name: "BGP Compose topology", path: filepath.Join(root, "test", "interop-bgp", "compose.yml")},
@@ -287,6 +288,11 @@ func TestInteropOperationalContract(t *testing.T) {
 		`/tmp/holod.err`,
 		`${INTEROP_PROJECT_NAME}_bfdnet`,
 		`for svc in gobfd frr bird3 holo thoro`,
+		`INTEROP_COMPOSE_OVERRIDE_FILE`,
+		`COMPOSE_ARGS`,
+		`=== Holo daemon logs ===`,
+		`=== Holo daemon /tmp/holod.err ===`,
+		`=== Holo configuration loader logs ===`,
 	})
 	assertOrdered(t, "legacy runner preflight and startup", runner, []string{
 		"acquire_project_lock",
@@ -326,7 +332,20 @@ func TestInteropOperationalContract(t *testing.T) {
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
 		`env "INTEROP_PROJECT_NAME=$${bgp_project}"`,
 		"FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd",
+		"gopls-check: dev-ensure",
+		"lint-md: dev-ensure",
+		"lint-yaml: dev-ensure",
+		"proto-lint: dev-ensure",
 	})
+	assertContainsAll(t, "gopls gate", contents["gopls gate"], []string{
+		"testcontainers",
+		"e2e_core_testcontainers",
+		"gopls-check: no packages discovered",
+		"gopls-check: no Go inputs discovered",
+	})
+	if strings.Contains(contents["gopls gate"], "e2e_core,e2e_core_testcontainers") {
+		t.Error("gopls gate combines mutually exclusive core test backends in one tag profile")
+	}
 	assertContainsAll(t, "Compose topology", contents["Compose topology"], []string{
 		"quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68",
 	})
@@ -546,6 +565,39 @@ func TestInteropOperationalContract(t *testing.T) {
 		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Scapy fuzzer",
 		"Exact Compose project label",
 	})
+
+	implementationPlan := readContractFile(
+		t,
+		"Holo implementation plan",
+		filepath.Join(root, "docs", "superpowers", "plans", "2026-08-21-"+"aio"+"bfd-to-holo-interop.md"),
+	)
+	assertContainsAll(t, "Holo Task 6 plan", implementationPlan, []string{
+		`TASK6_ARTIFACT_DIR="$(mktemp -d`,
+		"INVALID_STARTUP=",
+		"PODMAN=(timeout 2m podman)",
+		"INTEROP_COMPOSE_OVERRIDE_FILE",
+		`grep -Fq '=== Holo daemon logs ==='`,
+		`grep -Fq '=== Holo daemon /tmp/holod.err ==='`,
+		`grep -Fq '=== Holo configuration loader logs ==='`,
+		"podman events",
+		"source ./test/interop/project_guard.sh",
+		"interop_verify_project_absent",
+		"interop_verify_labelled_containers_absent",
+		"make interop-up",
+		"./test/interop/projectctl.sh lock-run --",
+		"go test -json -tags interop",
+		`select(.Action == "pass" and .Test == "TestHoloFailureRecoveryLifecycle")`,
+		`select(.Action == "skip" and .Test == "TestHoloFailureRecoveryLifecycle")`,
+		"make interop-down",
+		"make proto-lint",
+		"gobfd-interop-negative",
+		"gobfd-interop-bgp",
+		"v062-testcontainers",
+		"io.gobfd.e2e.merge-owner",
+	})
+	if strings.Contains(implementationPlan, "\nbuf lint\n") {
+		t.Error("Holo Task 6 plan invokes an unpinned host buf binary")
+	}
 }
 
 func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {

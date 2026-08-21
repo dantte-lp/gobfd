@@ -31,12 +31,20 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		wantDiagnostic string
 		wantInspect    bool
 		wantSecondUp   bool
+		useOverride    bool
 	}{
 		"zero success": {
 			waitStatus:    "0",
 			inspectStatus: "0",
 			wantInspect:   true,
 			wantSecondUp:  true,
+		},
+		"zero success with override": {
+			waitStatus:    "0",
+			inspectStatus: "0",
+			wantInspect:   true,
+			wantSecondUp:  true,
+			useOverride:   true,
 		},
 		"non-zero status": {
 			waitStatus:     "7",
@@ -109,6 +117,13 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 			fakeBin := t.TempDir()
 			commandLog := filepath.Join(t.TempDir(), "commands.log")
 			stateDir := t.TempDir()
+			overrideFile := ""
+			if test.useOverride {
+				overrideFile = filepath.Join(t.TempDir(), "compose.override.yml")
+				if err := os.WriteFile(overrideFile, []byte("services: {}\n"), 0o600); err != nil {
+					t.Fatalf("write Compose override: %v", err)
+				}
+			}
 			composeFake := `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
 if [[ "$*" == *" up -d holo holo-config" ]]; then
@@ -221,6 +236,9 @@ exec /usr/bin/flock "$@"
 				"INTEROP_FAKE_STATE_DIR="+stateDir,
 				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
 			)
+			if overrideFile != "" {
+				cmd.Env = append(cmd.Env, "INTEROP_COMPOSE_OVERRIDE_FILE="+overrideFile)
+			}
 			output, runErr := cmd.CombinedOutput()
 			commands, readErr := os.ReadFile(commandLog)
 			if readErr != nil {
@@ -234,7 +252,7 @@ exec /usr/bin/flock "$@"
 			if test.collisionClass != "" || test.foreignName != "" {
 				assertNoProjectMutation(t, string(commands))
 			} else if !test.lockFailure {
-				assertHoloStartupSequence(t, root, string(commands), test.wantInspect)
+				assertHoloStartupSequence(t, root, overrideFile, string(commands), test.wantInspect)
 			}
 			if test.foreignCleanup != "" {
 				assertForeignCleanupIsLabelOnly(t, string(commands))
@@ -252,11 +270,142 @@ exec /usr/bin/flock "$@"
 				t.Fatalf("runner issued a second Compose up after Holo failure: %q", secondUp)
 			}
 			if test.wantSecondUp {
-				want := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml") +
-					" up -d --no-deps gobfd frr bird3 tshark thoro"
+				want := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml")
+				if overrideFile != "" {
+					want += " -f " + overrideFile
+				}
+				want += " up -d --no-deps gobfd frr bird3 tshark thoro"
 				if len(secondUp) != 1 || secondUp[0] != want {
 					t.Fatalf("runner second-phase commands = %q, want [%q]", secondUp, want)
 				}
+			}
+		})
+	}
+}
+
+func TestInteropRunnerRejectsInvalidComposeOverride(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "compose.override.yml")
+	if err := os.WriteFile(target, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatalf("write symlink target: %v", err)
+	}
+	symlink := filepath.Join(t.TempDir(), "compose.override.yml")
+	if err := os.Symlink(target, symlink); err != nil {
+		t.Fatalf("create Compose override symlink: %v", err)
+	}
+
+	tests := map[string]struct {
+		override string
+		want     string
+	}{
+		"relative": {
+			override: "compose.override.yml",
+			want:     "must be absolute",
+		},
+		"missing": {
+			override: filepath.Join(t.TempDir(), "missing.override.yml"),
+			want:     "must be an existing regular readable file",
+		},
+		"symlink": {
+			override: symlink,
+			want:     "must not be a symlink",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fakeBin := t.TempDir()
+			commandMarker := filepath.Join(t.TempDir(), "podman-command")
+			fake := "#!/usr/bin/env bash\nprintf '%s\\n' \"$0 $*\" > \"${INTEROP_FAKE_COMMAND_MARKER}\"\nexit 1\n"
+			for _, command := range []string{"podman", "podman-compose"} {
+				if err := writeExecutable(filepath.Join(fakeBin, command), fake); err != nil {
+					t.Fatalf("write fake %s: %v", command, err)
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "bash", filepath.Join(root, "test", "interop", "run.sh"))
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(),
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_COMPOSE_OVERRIDE_FILE="+test.override,
+				"INTEROP_FAKE_COMMAND_MARKER="+commandMarker,
+				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+			)
+			output, runErr := cmd.CombinedOutput()
+			if runErr == nil {
+				t.Fatalf("runner accepted invalid Compose override %q; output:\n%s", test.override, output)
+			}
+			if !strings.Contains(string(output), test.want) {
+				t.Fatalf("runner output is missing %q; output:\n%s", test.want, output)
+			}
+			if _, statErr := os.Stat(commandMarker); !os.IsNotExist(statErr) {
+				t.Fatalf("invalid Compose override reached Podman or Compose: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestGoplsCheckRejectsEmptyDiscovery(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	tests := map[string]struct {
+		goCommand string
+		want      string
+	}{
+		"no packages": {
+			goCommand: "exit 0",
+			want:      "gopls-check: no packages discovered",
+		},
+		"no Go inputs": {
+			goCommand: `
+if [[ "$*" == "list -f {{.ImportPath}} ./..." ]]; then
+    printf '%s\n' example.invalid/empty
+fi
+exit 0`,
+			want: "gopls-check: no Go inputs discovered",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fakeBin := t.TempDir()
+			goplsMarker := filepath.Join(t.TempDir(), "gopls-called")
+			if err := writeExecutable(filepath.Join(fakeBin, "go"), "#!/usr/bin/env bash\n"+test.goCommand+"\n"); err != nil {
+				t.Fatalf("write fake go: %v", err)
+			}
+			goplsFake := "#!/usr/bin/env bash\nprintf called > \"${GOPLS_FAKE_MARKER}\"\n"
+			if err := writeExecutable(filepath.Join(fakeBin, "gopls"), goplsFake); err != nil {
+				t.Fatalf("write fake gopls: %v", err)
+			}
+
+			cmd := exec.CommandContext(t.Context(), "sh", filepath.Join(root, "scripts", "gopls-check.sh"))
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(),
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"GOPLS_FAKE_MARKER="+goplsMarker,
+			)
+			output, runErr := cmd.CombinedOutput()
+			if runErr == nil {
+				t.Fatalf("gopls gate accepted empty discovery; output:\n%s", output)
+			}
+			if !strings.Contains(string(output), test.want) {
+				t.Fatalf("gopls gate output is missing %q; output:\n%s", test.want, output)
+			}
+			if _, statErr := os.Stat(goplsMarker); !os.IsNotExist(statErr) {
+				t.Fatalf("gopls ran after empty discovery: %v", statErr)
 			}
 		})
 	}
@@ -728,10 +877,14 @@ interop_acquire_project_lock gobfd-interop
 	}
 }
 
-func assertHoloStartupSequence(t *testing.T, root, commandLog string, wantInspect bool) {
+func assertHoloStartupSequence(t *testing.T, root, overrideFile, commandLog string, wantInspect bool) {
 	t.Helper()
 
-	composePrefix := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml") + " "
+	composePrefix := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml")
+	if overrideFile != "" {
+		composePrefix += " -f " + overrideFile
+	}
+	composePrefix += " "
 	want := []string{
 		"flock -n ",
 		"podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
