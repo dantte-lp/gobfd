@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec" //nolint:depguard // Contract tests execute fixed repository tools with explicit argument vectors.
@@ -690,18 +691,115 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
 	assertContainsAll(t, "legacy jitter analyzer", jitterFunction, []string{
 		`go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter`,
-		`"frame.time_epoch" "bfd.sta"`,
+		`if ! jitter_tsv="$(tshark_fields`,
+		`"frame.time_epoch" "bfd.sta" "bfd.flags.p" "bfd.flags.f"`,
 	})
-	if strings.Contains(jitterFunction, "python3") {
-		t.Error("legacy jitter analyzer retains inline Python")
+	for _, forbidden := range []string{"python3", "head -200"} {
+		if strings.Contains(jitterFunction, forbidden) {
+			t.Errorf("legacy jitter analyzer retains forbidden command %q", forbidden)
+		}
 	}
 
 	tagged := readContractFile(t, "tagged Go helper", filepath.Join(root, "test", "interop", "interop_test.go"))
 	assertContainsAll(t, "tagged jitter analyzer", tagged, []string{
 		`"github.com/dantte-lp/gobfd/test/internal/bfdjitter"`,
 		`bfdjitter.Evaluate(strings.NewReader(output))`,
-		`[]string{"frame.time_epoch", "bfd.sta"}`,
+		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0`,
 	})
+}
+
+func TestInteropJitterTsharkFailureIsFatal(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
+	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
+	goCallLog := filepath.Join(t.TempDir(), "go-called")
+	script := strings.Join([]string{
+		"set -uo pipefail",
+		`info() { :; }`,
+		`fail() { printf '%s\n' "$*" >&2; }`,
+		`pass() { :; }`,
+		`tshark_fields() { return 42; }`,
+		`go() { printf 'skip\tinsufficient-up-packets\t0\t0.000000\t0.000000\t0\n'; printf called >"${GO_CALL_LOG}"; }`,
+		`SCRIPT_DIR=/tmp/repository/test/interop`,
+		`GOBFD_IP=172.20.0.10`,
+		`FRR_IP=172.20.0.20`,
+		`BIRD3_IP=172.20.0.30`,
+		`HOLO_IP=172.20.0.50`,
+		`THORO_IP=172.20.0.60`,
+		"test_rfc5880_jitter_compliance() {\n" + jitterFunction + "\n}",
+		`if test_rfc5880_jitter_compliance; then status=0; else status=$?; fi`,
+		`exit "${status}"`,
+	}, "\n")
+	command := exec.CommandContext(t.Context(), "bash", "-c", script)
+	command.Env = append(os.Environ(), "GO_CALL_LOG="+goCallLog)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatalf("jitter check skipped failed tshark query: %s", output)
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != 1 {
+		t.Fatalf("jitter check status = %v, want 1: %s", err, output)
+	}
+	if _, err := os.Stat(goCallLog); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("native analyzer ran after tshark failure: %v", err)
+	}
+}
+
+func TestInteropJitterConsumesCompleteTsharkStream(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
+	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
+	countLog := filepath.Join(t.TempDir(), "analyzer-counts")
+	script := strings.Join([]string{
+		"set -uo pipefail",
+		`info() { :; }`,
+		`fail() { printf '%s\n' "$*" >&2; }`,
+		`pass() { :; }`,
+		`tshark_fields() {
+  local index=0
+  while [ "${index}" -lt 250 ]; do
+    printf '%d.000\t3\t0\t0\n' "${index}"
+    index=$((index + 1))
+  done
+}`,
+		`go() {
+  local count
+  count="$(awk 'END { print NR }')"
+  printf '%s\n' "${count}" >>"${COUNT_LOG}"
+  [ "${count}" -eq 250 ] || return 9
+  printf 'pass\twithin-bounds\t250\t0.225000\t0.300000\t249\n'
+}`,
+		`SCRIPT_DIR=/tmp/repository/test/interop`,
+		`GOBFD_IP=172.20.0.10`,
+		`FRR_IP=172.20.0.20`,
+		`BIRD3_IP=172.20.0.30`,
+		`HOLO_IP=172.20.0.50`,
+		`THORO_IP=172.20.0.60`,
+		"test_rfc5880_jitter_compliance() {\n" + jitterFunction + "\n}",
+		`test_rfc5880_jitter_compliance`,
+	}, "\n")
+	command := exec.CommandContext(t.Context(), "bash", "-c", script)
+	command.Env = append(os.Environ(), "COUNT_LOG="+countLog)
+	if output, runErr := command.CombinedOutput(); runErr != nil {
+		t.Fatalf("jitter check truncated tshark stream: %v: %s", runErr, output)
+	}
+	counts, err := os.ReadFile(countLog)
+	if err != nil {
+		t.Fatalf("read analyzer row counts: %v", err)
+	}
+	if got, want := strings.Fields(string(counts)), []string{"250", "250", "250", "250"}; !slices.Equal(got, want) {
+		t.Fatalf("native analyzer row counts = %v, want %v", got, want)
+	}
 }
 
 func TestInteropCaptureStorageContract(t *testing.T) {

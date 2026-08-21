@@ -11,8 +11,8 @@ func TestRun(t *testing.T) {
 	t.Run("report", func(t *testing.T) {
 		t.Parallel()
 		input := strings.Join([]string{
-			"0.000\t3", "0.225\t3", "0.475\t3", "0.750\t3", "1.050\t3",
-			"1.275\t3", "1.525\t3", "1.800\t3", "2.100\t3", "2.325\t3",
+			"0.000\t3\t0\t0", "0.225\t3\t0\t0", "0.475\t3\t0\t0", "0.750\t3\t0\t0", "1.050\t3\t0\t0",
+			"1.275\t3\t0\t0", "1.525\t3\t0\t0", "1.800\t3\t0\t0", "2.100\t3\t0\t0", "2.325\t3\t0\t0",
 		}, "\n")
 		var output bytes.Buffer
 		var errorOutput bytes.Buffer

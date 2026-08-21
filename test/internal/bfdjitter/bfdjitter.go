@@ -12,14 +12,12 @@ import (
 )
 
 const (
-	fieldCount       = 2
+	fieldCount       = 4
 	minimumUpPackets = 10
 	minimumSamples   = 5
-	// RFC 5880 section 6.8.7 exempts a Final response from the periodic timer.
-	minimumPeriodicDelta = 0.100
-	minimumDelta         = 0.150
-	maximumDelta         = 0.400
-	upState              = 3
+	minimumDelta     = 0.150
+	maximumDelta     = 0.400
+	upState          = 3
 )
 
 var (
@@ -27,6 +25,7 @@ var (
 	errInvalidEpoch       = errors.New("invalid jitter epoch")
 	errNonIncreasingEpoch = errors.New("jitter epoch is not increasing")
 	errInvalidState       = errors.New("invalid BFD state")
+	errInvalidFlag        = errors.New("invalid BFD flag")
 )
 
 // Status describes the jitter assessment outcome.
@@ -52,24 +51,31 @@ type Report struct {
 }
 
 type analyzer struct {
-	report            Report
-	previousEpoch     float64
-	previousUpEpoch   float64
-	havePreviousEpoch bool
-	havePreviousUp    bool
+	report                 Report
+	previousEpoch          float64
+	previousRegularUpEpoch float64
+	havePreviousEpoch      bool
+	havePreviousRegularUp  bool
 }
 
-// Evaluate parses one frame.time_epoch,bfd.sta TSV stream and assesses jitter.
+type packet struct {
+	epoch float64
+	state uint64
+	poll  bool
+	final bool
+}
+
+// Evaluate parses one frame.time_epoch,bfd.sta,bfd.flags.p,bfd.flags.f TSV stream and assesses jitter.
 func Evaluate(input io.Reader) (Report, error) {
 	var analysis analyzer
 
 	scanner := bufio.NewScanner(input)
 	for lineNumber := 1; scanner.Scan(); lineNumber++ {
-		epoch, state, err := parseRow(scanner.Text(), lineNumber)
+		parsed, err := parseRow(scanner.Text(), lineNumber)
 		if err != nil {
 			return Report{}, err
 		}
-		if err := analysis.add(epoch, state, lineNumber); err != nil {
+		if err := analysis.add(parsed, lineNumber); err != nil {
 			return Report{}, err
 		}
 	}
@@ -79,55 +85,74 @@ func Evaluate(input io.Reader) (Report, error) {
 	return analysis.finish(), nil
 }
 
-func parseRow(line string, lineNumber int) (float64, uint64, error) {
+func parseRow(line string, lineNumber int) (packet, error) {
 	fields := strings.Split(line, "\t")
 	if len(fields) != fieldCount {
-		return 0, 0, fmt.Errorf(
+		return packet{}, fmt.Errorf(
 			"parse jitter TSV row %d: got %d fields, want %d: %w",
 			lineNumber, len(fields), fieldCount, errMalformedRow,
 		)
 	}
 	epoch, err := strconv.ParseFloat(strings.TrimSpace(fields[0]), 64)
 	if err != nil {
-		return 0, 0, fmt.Errorf("parse jitter epoch at row %d: %q: %w", lineNumber, fields[0], err)
+		return packet{}, fmt.Errorf("parse jitter epoch at row %d: %q: %w", lineNumber, fields[0], err)
 	}
 	if math.IsNaN(epoch) || math.IsInf(epoch, 0) || epoch < 0 {
-		return 0, 0, fmt.Errorf("parse jitter epoch at row %d: %q: %w", lineNumber, fields[0], errInvalidEpoch)
+		return packet{}, fmt.Errorf("parse jitter epoch at row %d: %q: %w", lineNumber, fields[0], errInvalidEpoch)
 	}
 	state, err := strconv.ParseUint(strings.TrimSpace(fields[1]), 0, 8)
 	if err != nil {
-		return 0, 0, fmt.Errorf("parse BFD state at row %d: %q: %w", lineNumber, fields[1], err)
+		return packet{}, fmt.Errorf("parse BFD state at row %d: %q: %w", lineNumber, fields[1], err)
 	}
 	if state > upState {
-		return 0, 0, fmt.Errorf("parse BFD state at row %d: %q: %w", lineNumber, fields[1], errInvalidState)
+		return packet{}, fmt.Errorf("parse BFD state at row %d: %q: %w", lineNumber, fields[1], errInvalidState)
 	}
-	return epoch, state, nil
+	poll, err := parseFlag(fields[2], "Poll", lineNumber)
+	if err != nil {
+		return packet{}, err
+	}
+	final, err := parseFlag(fields[3], "Final", lineNumber)
+	if err != nil {
+		return packet{}, err
+	}
+	return packet{epoch: epoch, state: state, poll: poll, final: final}, nil
 }
 
-func (analysis *analyzer) add(epoch float64, state uint64, lineNumber int) error {
-	if analysis.havePreviousEpoch && epoch <= analysis.previousEpoch {
+func parseFlag(raw, name string, lineNumber int) (bool, error) {
+	value, err := strconv.ParseUint(strings.TrimSpace(raw), 0, 8)
+	if err != nil {
+		return false, fmt.Errorf("parse BFD %s flag at row %d: %q: %w", name, lineNumber, raw, err)
+	}
+	if value > 1 {
+		return false, fmt.Errorf("parse BFD %s flag at row %d: %q: %w", name, lineNumber, raw, errInvalidFlag)
+	}
+	return value == 1, nil
+}
+
+func (analysis *analyzer) add(parsed packet, lineNumber int) error {
+	if analysis.havePreviousEpoch && parsed.epoch <= analysis.previousEpoch {
 		return fmt.Errorf(
 			"parse jitter epoch at row %d: %.9f is not after %.9f: %w",
-			lineNumber, epoch, analysis.previousEpoch, errNonIncreasingEpoch,
+			lineNumber, parsed.epoch, analysis.previousEpoch, errNonIncreasingEpoch,
 		)
 	}
-	analysis.previousEpoch = epoch
+	analysis.previousEpoch = parsed.epoch
 	analysis.havePreviousEpoch = true
-	if state != upState {
-		analysis.havePreviousUp = false
+	if parsed.state != upState {
+		analysis.havePreviousRegularUp = false
 		return nil
 	}
 	analysis.report.UpPackets++
-	if !analysis.havePreviousUp {
-		analysis.previousUpEpoch = epoch
-		analysis.havePreviousUp = true
+	if parsed.poll || parsed.final {
 		return nil
 	}
-	delta := epoch - analysis.previousUpEpoch
-	analysis.previousUpEpoch = epoch
-	if delta < minimumPeriodicDelta {
+	if !analysis.havePreviousRegularUp {
+		analysis.previousRegularUpEpoch = parsed.epoch
+		analysis.havePreviousRegularUp = true
 		return nil
 	}
+	delta := parsed.epoch - analysis.previousRegularUpEpoch
+	analysis.previousRegularUpEpoch = parsed.epoch
 	analysis.addSample(delta)
 	return nil
 }

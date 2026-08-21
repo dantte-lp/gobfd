@@ -1155,9 +1155,13 @@ test_rfc5880_jitter_compliance() {
         local ip="${peer_name_ip##*:}"
 
         local jitter_tsv result
-        jitter_tsv="$(tshark_fields \
+        if ! jitter_tsv="$(tshark_fields \
             "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip}" \
-            "frame.time_epoch" "bfd.sta" | head -200)"
+            "frame.time_epoch" "bfd.sta" "bfd.flags.p" "bfd.flags.f")"; then
+            fail "${name}: tshark failed to read jitter packet fields"
+            ok=false
+            continue
+        fi
         if ! result="$(printf '%s' "${jitter_tsv}" | \
             go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter)"; then
             fail "${name}: native jitter analyzer rejected tshark TSV"

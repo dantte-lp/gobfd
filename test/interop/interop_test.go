@@ -2176,7 +2176,7 @@ func TestRFCCompliance(t *testing.T) {
 			t.Run(p.name, func(t *testing.T) {
 				output, err := tsharkFieldStream(ctx,
 					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
-					[]string{"frame.time_epoch", "bfd.sta"}, 200)
+					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0)
 				if err != nil {
 					t.Fatalf("read jitter packet fields for %s: %v", p.name, err)
 				}

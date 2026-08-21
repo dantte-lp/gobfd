@@ -300,17 +300,20 @@ Live `make interop` lifecycle-v4 evidence subsequently passed the Holo lifecycle
 but exposed a false FRR jitter failure: a 4.438-second pause was the intentional
 stop/restart and `AdminDown` boundary, while both old consumers discarded every
 non-`Up` row before calculating deltas and therefore joined two separate `Up`
-segments. Both consumers must instead pass one strict
-`frame.time_epoch,bfd.sta` TSV stream to the same native Go analyzer. Any
-non-`Up` state resets the previous `Up` timestamp, so only consecutive packets
-inside an uninterrupted `Up` segment contribute samples. Malformed rows fail
-closed, a continuous-`Up` delta over 400 ms still fails, and fewer than ten
-`Up` packets or five eligible samples retains the existing explicit skip.
-Continuous-`Up` deltas below 100 ms remain excluded from periodic samples
-because RFC 5880 section 6.8.7 exempts a Final response from the transmission
-timer; later periodic samples in that same segment remain eligible. The shell
-runner invokes the analyzer with `go -C` so direct execution is independent of
-the caller's working directory and contains no inline Python jitter logic.
+segments. Both consumers must instead pass the same complete display-filtered
+stream as strict `frame.time_epoch,bfd.sta,bfd.flags.p,bfd.flags.f` TSV to one
+native Go analyzer; neither a shell `head` pipeline nor tshark's pre-display
+filter packet count may truncate it. Any non-`Up` state resets the previous
+ordinary `Up` timestamp, so only packets inside an uninterrupted `Up` segment
+contribute samples. Malformed rows and tshark producer failures fail closed, a
+continuous-`Up` delta over 400 ms still fails, and fewer than ten `Up` packets
+or five eligible samples retains the existing explicit skip. Only packets with
+an exact numeric Poll or Final flag of one receive the RFC 5880 section 6.8.7
+control-response exemption; an ordinary 50 ms `Up` interval remains a failure.
+A Poll/Final packet does not advance the last ordinary `Up` baseline, so it
+cannot hide a long periodic gap. The shell runner invokes the analyzer with
+`go -C` so direct execution is independent of the caller's working directory
+and contains no inline Python jitter logic.
 
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 

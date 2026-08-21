@@ -1,4 +1,4 @@
-// Command bfdjitter evaluates a tshark BFD epoch/state TSV stream.
+// Command bfdjitter evaluates a tshark BFD epoch/state/Poll/Final TSV stream.
 package main
 
 import (
