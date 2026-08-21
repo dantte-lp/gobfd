@@ -583,6 +583,16 @@ func TestInteropOperationalContract(t *testing.T) {
 		`verify_project_absent "${project_name}"`,
 	})
 	mergeArtifacts := shellFunctionBody(t, routing, "merge_artifacts")
+	collectPcap := shellFunctionBody(t, routing, "collect_pcap")
+	assertOrdered(t, "routing tshark image identity collection", collectPcap, []string{
+		`resolve_project_container_id "${project_name}" "${tshark_container}"`,
+		`inspect --type container --format '{{.Image}}'`,
+		`^[0-9a-f]{64}$`,
+		`image exists "${tshark_image_id}"`,
+		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
+		`write-image-id "/app/${REPORT_REL}/${suite}/tshark-image-id"`,
+		`exec "${tshark_id}" cat /captures/bfd.pcapng`,
+	})
 	assertContainsAll(t, "routing merge ownership", routing, []string{
 		`MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"`,
 	})
@@ -594,6 +604,10 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertOrdered(t, "routing merge ownership lifecycle", mergeArtifacts, []string{
 		`interop_query_labelled_container_ids`,
 		`merge ownership label collision`,
+		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
+		`read-image-id "/app/${REPORT_REL}/interop/tshark-image-id"`,
+		`image exists "${tshark_image_id}"`,
+		`"/app/${REPORT_REL}/containers.json"`,
 		`"${PODMAN[@]}" run`,
 		`interop_remove_labelled_containers`,
 		`interop_verify_labelled_containers_absent`,
@@ -603,6 +617,11 @@ func TestInteropOperationalContract(t *testing.T) {
 	}
 	if strings.Contains(mergeArtifacts, "run --rm") {
 		t.Error("merge_artifacts delegates cleanup to name-based or implicit removal")
+	}
+	for _, forbidden := range []string{"TSHARK_IMAGE", "localhost/interop_tshark", "python3"} {
+		if strings.Contains(routing, forbidden) {
+			t.Errorf("routing runner retains forbidden artifact merge dependency %q", forbidden)
+		}
 	}
 	failHoloStartup := shellFunctionBody(t, routing, "fail_holo_suite_startup")
 	assertContainsAll(t, "routing Holo failure diagnostics", failHoloStartup, []string{

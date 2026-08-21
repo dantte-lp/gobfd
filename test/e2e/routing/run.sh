@@ -12,7 +12,6 @@ REPORT_DIR="${ROOT_DIR}/${REPORT_REL}"
 DEV_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "${ROOT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')}"
 INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"
 INTEROP_BGP_PROJECT_NAME="${INTEROP_BGP_PROJECT_NAME:-${INTEROP_PROJECT_NAME}-bgp}"
-TSHARK_IMAGE="localhost/interop_tshark:latest"
 MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"
 MERGE_OWNER_LABEL_VALUE="${RUN_ID}"
 if [[ ! "${MERGE_OWNER_LABEL_VALUE}" =~ ^[0-9]{8}T[0-9]{15}Z-[0-9]+$ ]]; then
@@ -96,10 +95,49 @@ collect_pcap() {
     local tshark_container="$3"
     local suite_dir="${REPORT_DIR}/${suite}"
     local tshark_id
+    local tshark_image_id
+    local dev_id
 
     if ! tshark_id="$(resolve_project_container_id "${project_name}" "${tshark_container}")"; then
         printf 'tshark container %s is absent or foreign\n' "${tshark_container}" \
             >"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if ! tshark_image_id="$("${PODMAN[@]}" inspect --type container --format '{{.Image}}' \
+        "${tshark_id}" 2>"${suite_dir}/packets.err")"; then
+        printf 'failed to inspect immutable tshark image ID\n' >>"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if [[ ! "${tshark_image_id}" =~ ^[0-9a-f]{64}$ ]]; then
+        printf 'invalid immutable tshark image ID %q\n' "${tshark_image_id}" \
+            >"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if ! "${PODMAN[@]}" image exists "${tshark_image_id}" 2>"${suite_dir}/packets.err"; then
+        printf 'immutable tshark image ID is unavailable: %s\n' "${tshark_image_id}" \
+            >>"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if ! dev_id="$(interop_resolve_project_service_container_id "${DEV_PROJECT}" dev)"; then
+        printf 'failed to resolve exact dev container for tshark image ID persistence\n' \
+            >"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    if ! "${PODMAN[@]}" exec "${dev_id}" \
+        go -C /app run ./test/e2e/routing/scripts/artifactmerge \
+        write-image-id "/app/${REPORT_REL}/${suite}/tshark-image-id" \
+        "${tshark_image_id}" 2>"${suite_dir}/packets.err"; then
+        printf 'failed to persist immutable tshark image ID\n' >>"${suite_dir}/packets.err"
         : >"${suite_dir}/packets.pcapng"
         : >"${suite_dir}/packets.csv"
         return 1
@@ -256,6 +294,9 @@ start_generic_suite() {
 merge_artifacts() {
     local merge_status=0
     local merge_ids
+    local tshark_image_file="${REPORT_DIR}/interop/tshark-image-id"
+    local tshark_image_id=""
+    local dev_id=""
 
     merge_ids="$(interop_query_labelled_container_ids \
         "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}")" || return 1
@@ -264,27 +305,43 @@ merge_artifacts() {
             "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}" >&2
         return 1
     fi
-    python3 - "${REPORT_DIR}" <<'PY' || merge_status=1
-import json
-import pathlib
-import sys
+    if ! dev_id="$(interop_resolve_project_service_container_id "${DEV_PROJECT}" dev)"; then
+        printf 'routing artifact merge cannot resolve the exact owned dev container\n' >&2
+        merge_status=1
+    elif ! tshark_image_id="$("${PODMAN[@]}" exec "${dev_id}" \
+        go -C /app run ./test/e2e/routing/scripts/artifactmerge \
+        read-image-id "/app/${REPORT_REL}/interop/tshark-image-id")"; then
+        printf 'failed to read base tshark image ID artifact: %s\n' \
+            "${tshark_image_file}" >&2
+        merge_status=1
+    elif [[ ! "${tshark_image_id}" =~ ^[0-9a-f]{64}$ ]]; then
+        printf 'base tshark image ID artifact is invalid: %s\n' \
+            "${tshark_image_file}" >&2
+        merge_status=1
+    else
+        if ! "${PODMAN[@]}" image exists "${tshark_image_id}"; then
+            printf 'base tshark image ID is unavailable: %s\n' "${tshark_image_id}" >&2
+            merge_status=1
+        fi
+    fi
 
-report = pathlib.Path(sys.argv[1])
-suites = {}
-for name in ("interop", "interop-bgp"):
-    path = report / name / "containers.json"
-    if path.exists() and path.stat().st_size:
-        suites[name] = json.loads(path.read_text())
-    else:
-        suites[name] = []
-(report / "containers.json").write_text(json.dumps({"suites": suites}, indent=2) + "\n")
-PY
+    if [[ -n "${dev_id}" ]] && ! "${PODMAN[@]}" exec "${dev_id}" \
+        go -C /app run ./test/e2e/routing/scripts/artifactmerge \
+        merge \
+        "/app/${REPORT_REL}/containers.json" \
+        "/app/${REPORT_REL}/interop/containers.json" \
+        "/app/${REPORT_REL}/interop-bgp/containers.json"; then
+        printf 'routing container inventory merge failed\n' >&2
+        merge_status=1
+    fi
 
-    if [ -s "${REPORT_DIR}/interop/packets.pcapng" ] && [ -s "${REPORT_DIR}/interop-bgp/packets.pcapng" ]; then
+    if [ "${merge_status}" -eq 0 ] && \
+        [ -s "${REPORT_DIR}/interop/packets.pcapng" ] && \
+        [ -s "${REPORT_DIR}/interop-bgp/packets.pcapng" ]; then
         if ! "${PODMAN[@]}" run \
             --label "${MERGE_OWNER_LABEL_KEY}=${MERGE_OWNER_LABEL_VALUE}" \
             --entrypoint /usr/bin/mergecap \
-            -v "${REPORT_DIR}:/reports:z" "${TSHARK_IMAGE}" \
+            -v "${REPORT_DIR}:/reports:z" "${tshark_image_id}" \
             -w /reports/packets.pcapng \
             /reports/interop/packets.pcapng \
             /reports/interop-bgp/packets.pcapng >/dev/null 2>"${REPORT_DIR}/mergecap.err"; then

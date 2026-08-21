@@ -941,6 +941,35 @@ failure branch. The normal wrapper always supplies a nil hook. This correction
 is required before the fresh E2E run; the rejected implementation is not Task
 6 acceptance evidence.
 
+Live routing E2E report
+`reports/e2e/routing/20260821T065957096714731Z-1606785` proved both protocol
+suites green: base interop recorded 257 named passes and zero failures, while
+BGP+BFD recorded five named passes and zero failures. Exact cleanup verified
+the base project, BGP project, and merge-owner container set empty. The overall
+gate still failed during artifact merge because the runner used the mutable,
+nonexistent `localhost/interop_tshark:latest` tag even though the exact owned
+tshark container exposed its immutable image ID. This is protocol-positive but
+artifact-negative evidence, not complete Task 6 acceptance.
+
+Artifact collection must inspect `{{.Image}}` from each exact owned tshark
+container ID, accept only one lowercase 64-hex image ID, prove that exact image
+exists, and persist it in the suite artifact directory through the exact owned
+dev container and Go helper. Merge reads the base ID through that same helper,
+rechecks the image, and passes only that ID to the merge-owner-labelled
+`podman run`; no shell redirection or repeated path read may follow an artifact
+symlink, and no tag or image name is a mutation target.
+Replace the touched inline Python inventory merge with the stdlib-only
+`test/internal/routingartifacts` package and thin routing CLI. Each input is a
+bounded, regular, non-symlink file containing exactly one JSON array. Output
+rejects symlink/non-regular destinations and is published mode 0600 through a
+same-directory temporary file, sync, close, and atomic rename. Invoke the CLI
+with exact argv through the exact owned dev container so shell data never
+becomes program source. Both JSON and image-ID reads compare the initial
+`Lstat`, opened handle, and a second `Lstat` with `os.SameFile` before one
+bounded handle read. Image-ID output uses the same atomic writer and requires
+exactly 64 lowercase hex characters plus one newline. A fresh E2E run remains
+required after this correction.
+
 - [ ] **Step 4: Verify post-run cleanup**
 
 Query containers, networks, and volumes by every exact preflight-recorded
