@@ -3,12 +3,18 @@ package routingartifacts
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"os"
+	"os/exec" //nolint:depguard // The umask regression executes the current test binary with fixed arguments.
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+const restrictiveUmaskChildEnvironment = "GOBFD_ROUTING_ARTIFACT_UMASK_CHILD"
 
 func TestMergeWritesSuiteArraysAtomically(t *testing.T) {
 	t.Parallel()
@@ -57,6 +63,92 @@ func TestMergeWritesSuiteArraysAtomically(t *testing.T) {
 	if len(temporaryFiles) != 0 {
 		t.Fatalf("atomic merge retained temporary files: %v", temporaryFiles)
 	}
+}
+
+func TestMergeWritesExactModeUnderRestrictiveUmask(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("restrictive-umask artifact mode regression is authoritative on Linux")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve current routingartifacts test binary: %v", err)
+	}
+	command := exec.CommandContext(
+		t.Context(),
+		"sh",
+		"-c",
+		`umask 0777; exec "$@"`,
+		"--",
+		executable,
+		"-test.run=^TestMergeWritesExactModeUnderRestrictiveUmaskChild$",
+		"-test.v",
+	)
+	childEnvironment := make([]string, 0, len(os.Environ())+1)
+	guardPrefix := restrictiveUmaskChildEnvironment + "="
+	for _, variable := range os.Environ() {
+		if !strings.HasPrefix(variable, guardPrefix) {
+			childEnvironment = append(childEnvironment, variable)
+		}
+	}
+	childEnvironment = append(childEnvironment, guardPrefix+"1")
+	command.Env = childEnvironment
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run current test binary under restrictive umask: %v\n%s", err, output)
+	}
+	if !bytes.Contains(output, []byte("restrictive-umask child verified exact mode 0600")) {
+		t.Fatalf("restrictive-umask child omitted success marker:\n%s", output)
+	}
+}
+
+func TestMergeWritesExactModeUnderRestrictiveUmaskChild(t *testing.T) {
+	if os.Getenv(restrictiveUmaskChildEnvironment) != "1" {
+		t.Skip("helper runs only in the guarded restrictive-umask child process")
+	}
+
+	root := t.TempDir()
+	writeArtifactFixture(t, filepath.Join(root, "input.json"), "[]\n")
+	if err := Merge(root, "output.json", []Input{{Name: "interop", Path: "input.json"}}); err != nil {
+		t.Fatalf("merge artifact under restrictive umask: %v", err)
+	}
+	info, err := os.Lstat(filepath.Join(root, "output.json"))
+	if err != nil {
+		t.Fatalf("lstat restrictive-umask output: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("restrictive-umask output mode = %04o, want 0600", info.Mode().Perm())
+	}
+	t.Log("restrictive-umask child verified exact mode 0600")
+}
+
+func TestReadLimitedInputJoinsReadAndCloseErrors(t *testing.T) {
+	t.Parallel()
+
+	input := &injectedReadCloser{readErr: io.ErrUnexpectedEOF, closeErr: os.ErrClosed}
+	_, err := readLimitedInput(input, "injected.json", maxArtifactInputSize)
+	if !errors.Is(err, io.ErrUnexpectedEOF) || !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("joined input error = %v, want read and close causes", err)
+	}
+	for _, diagnostic := range []string{"read bounded input injected.json", "close input injected.json"} {
+		if !strings.Contains(err.Error(), diagnostic) {
+			t.Fatalf("joined input error = %v, want diagnostic %q", err, diagnostic)
+		}
+	}
+}
+
+type injectedReadCloser struct {
+	readErr  error
+	closeErr error
+}
+
+func (input *injectedReadCloser) Read([]byte) (int, error) {
+	return 0, input.readErr
+}
+
+func (input *injectedReadCloser) Close() error {
+	return input.closeErr
 }
 
 func TestMergeRejectsInvalidInputWithoutReplacingOutput(t *testing.T) {

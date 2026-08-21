@@ -1019,6 +1019,18 @@ The restrictive-umask regression must wrap test-binary execution through
 `go test -exec`; applying the umask only while compiling would not exercise
 runtime artifact creation.
 
+Quality review requires that restrictive-umask proof to be an automated Linux
+test rather than only a recorded command. The parent test resolves its current
+test executable and launches a separately named, environment-guarded child
+through exact `sh -c 'umask 0777; exec "$@"'` argv. The child performs the
+merge, requires mode 0600, and emits a marker that the parent must observe;
+the separate test name prevents recursion. Non-Linux platforms report an
+explicit skip while Linux treats missing shell, child failure, missing marker,
+or wrong mode as failure. Bounded input reading also preserves simultaneous
+read and close errors with contextual wrappers joined through `errors.Join`;
+a local injected `io.ReadCloser` test requires both causes through `errors.Is`
+without mutable production hooks.
+
 - [ ] **Step 4: Verify post-run cleanup**
 
 Query containers, networks, and volumes by every exact preflight-recorded

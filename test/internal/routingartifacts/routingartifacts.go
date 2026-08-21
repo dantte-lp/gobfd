@@ -319,13 +319,21 @@ func readOpenedInput(
 }
 
 func readLimitedFile(file *os.File, path string, limit int) ([]byte, error) {
-	data, readErr := io.ReadAll(io.LimitReader(file, int64(limit)+1))
-	closeErr := file.Close()
+	return readLimitedInput(file, path, limit)
+}
+
+func readLimitedInput(input io.ReadCloser, path string, limit int) ([]byte, error) {
+	data, readErr := io.ReadAll(io.LimitReader(input, int64(limit)+1))
+	closeErr := input.Close()
+	var operationErr error
 	if readErr != nil {
-		return nil, fmt.Errorf("read bounded input %s: %w", path, readErr)
+		operationErr = errors.Join(operationErr, fmt.Errorf("read bounded input %s: %w", path, readErr))
 	}
 	if closeErr != nil {
-		return nil, fmt.Errorf("close input %s: %w", path, closeErr)
+		operationErr = errors.Join(operationErr, fmt.Errorf("close input %s: %w", path, closeErr))
+	}
+	if operationErr != nil {
+		return nil, operationErr
 	}
 	if len(data) > limit {
 		return nil, fmt.Errorf("%w: input %s grew beyond %d bytes", errUnsafeInput, path, limit)
