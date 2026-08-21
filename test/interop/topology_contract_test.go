@@ -269,7 +269,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		`acquire_project_lock`,
 		`release_project_lock`,
 		`assert_fixed_names_available`,
-		`fixed_names_match_project`,
 		`HOLO_IP="172.20.0.50"`,
 		`holo-interop`,
 		`holo-config`,
@@ -290,8 +289,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		"up -d --no-deps gobfd frr bird3 tshark thoro",
 	})
 	assertOrdered(t, "legacy runner cleanup", runner, []string{
-		"fixed_names_match_project",
-		"down --volumes --remove-orphans",
 		"remove_project_resources",
 		"verify_project_absent",
 		"release_project_lock",
@@ -309,6 +306,7 @@ func TestInteropOperationalContract(t *testing.T) {
 	makefile := contents["Makefile"]
 	assertContainsAll(t, "Makefile", makefile, []string{
 		"INTEROP_PROJECT_NAME ?= gobfd-interop",
+		"override INTEROP_PROJECT_NAME := $(value INTEROP_PROJECT_NAME)",
 		"export INTEROP_PROJECT_NAME",
 		"INTEROP_CTL := ./test/interop/projectctl.sh",
 		"interop-project-validate",
@@ -334,6 +332,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"interop-pcap-summary: interop-project-validate",
 		"e2e-routing: interop-project-validate",
 		"e2e-routing-test: interop-project-validate",
+		`$(INTEROP_CTL) lock-run --`,
 	})
 	projectControl := contents["project control"]
 	startProject := shellFunctionBody(t, projectControl, "start_project")
@@ -349,19 +348,25 @@ func TestInteropOperationalContract(t *testing.T) {
 	stopProject := shellFunctionBody(t, projectControl, "stop_project")
 	assertOrdered(t, "direct interop down ownership", stopProject, []string{
 		"acquire_lock",
-		"interop_fixed_names_match_project",
-		"down --volumes --remove-orphans",
-		"interop_remove_project_resources",
-		"interop_verify_project_absent",
+		"interop_cleanup_project_resources",
+	})
+	assertContainsAll(t, "direct locked test runner", projectControl, []string{
+		`lock-run)`,
+		`"$@"`,
+		`interop_assert_existing_project`,
 	})
 
 	taggedGo := contents["tagged Go helper"]
 	assertContainsAll(t, "tagged Go helper", taggedGo, []string{
 		`defaultInteropProjectName = "gobfd-interop"`,
-		`[]string{"-p", projectName, "-f", composeFile()}`,
 		`return projectName + "_bfdnet"`,
 		`"--network", interopNetworkName(projectName)`,
+		`projectContainerCommand`,
+		`resolveProjectContainerID`,
 	})
+	if strings.Contains(taggedGo, "podmanCompose(") {
+		t.Error("tagged Go helper retains name-based Compose runtime operations")
+	}
 
 	routing := contents["routing runner"]
 	assertContainsAll(t, "routing runner", routing, []string{
@@ -375,7 +380,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		"acquire_project_lock",
 		"release_project_lock",
 		"assert_fixed_names_available",
-		"fixed_names_match_project",
 		"resolve_project_container_id",
 		"holo-interop",
 		"holo-config-interop",
@@ -432,11 +436,31 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 	cleanupProject := shellFunctionBody(t, routing, "cleanup_project")
 	assertOrdered(t, "routing label-safe cleanup", cleanupProject, []string{
-		`fixed_names_match_project "${project_name}"`,
-		"down --volumes --remove-orphans",
 		`remove_project_resources "${project_name}"`,
 		`verify_project_absent "${project_name}"`,
 	})
+	mergeArtifacts := shellFunctionBody(t, routing, "merge_artifacts")
+	assertContainsAll(t, "routing merge ownership", routing, []string{
+		`MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"`,
+	})
+	assertContainsAll(t, "routing merge ownership", mergeArtifacts, []string{
+		`query_labelled_container_ids`,
+		`remove_labelled_containers`,
+		`verify_labelled_containers_absent`,
+	})
+	assertOrdered(t, "routing merge ownership lifecycle", mergeArtifacts, []string{
+		`interop_query_labelled_container_ids`,
+		`merge ownership label collision`,
+		`"${PODMAN[@]}" run`,
+		`interop_remove_labelled_containers`,
+		`interop_verify_labelled_containers_absent`,
+	})
+	if strings.Contains(mergeArtifacts, "com.docker.compose.project") {
+		t.Error("merge_artifacts reuses a Compose project ownership label")
+	}
+	if strings.Contains(mergeArtifacts, "run --rm") {
+		t.Error("merge_artifacts delegates cleanup to name-based or implicit removal")
+	}
 	failHoloStartup := shellFunctionBody(t, routing, "fail_holo_suite_startup")
 	assertContainsAll(t, "routing Holo failure diagnostics", failHoloStartup, []string{
 		`collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}"`,
@@ -448,6 +472,11 @@ func TestInteropOperationalContract(t *testing.T) {
 		`collect_holo_diagnostics`,
 		`collect_pcap "${suite}"`,
 	})
+	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
+		if strings.Contains(contents[name], "down --volumes --remove-orphans") {
+			t.Errorf("%s retains name-based Compose cleanup", name)
+		}
+	}
 
 	inventory := contents["target inventory"]
 	assertContainsAll(t, "target inventory", inventory, []string{

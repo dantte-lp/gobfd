@@ -16,10 +16,15 @@
 #   make interop-down  — stop interop test stack
 #   make integration   — alias for interop
 
+INTEROP_PROJECT_NAME ?= gobfd-interop
+override INTEROP_PROJECT_NAME := $(value INTEROP_PROJECT_NAME)
+_INTEROP_PROJECT_NAME_RAW := $(value INTEROP_PROJECT_NAME)
+ifneq ($(findstring $$,$(_INTEROP_PROJECT_NAME_RAW)),)
+$(error invalid INTEROP_PROJECT_NAME: Make function syntax is forbidden)
+endif
+export INTEROP_PROJECT_NAME
 PROJECT_SLUG := $(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$$//')
 COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
-INTEROP_PROJECT_NAME ?= gobfd-interop
-export INTEROP_PROJECT_NAME
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) podman-compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
@@ -139,10 +144,15 @@ e2e-routing: interop-project-validate
 	./test/e2e/routing/run.sh
 
 e2e-routing-test: interop-project-validate
-	$(EXEC) env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
+	$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
+		$(INTEROP_CTL) dev-exec -- \
+		env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
 		INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
-	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
+	INTEROP_PROJECT_NAME="$${INTEROP_PROJECT_NAME}-bgp" INTEROP_PROJECT_KIND=bgp \
+		$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
+		$(INTEROP_CTL) dev-exec -- \
+		env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
 		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 
 e2e-rfc:
@@ -240,7 +250,9 @@ interop: interop-project-validate
 	./test/interop/run.sh
 
 interop-test: interop-project-validate
-	$(EXEC) env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
+	$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
+		$(INTEROP_CTL) dev-exec -- \
+		env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
 		INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 

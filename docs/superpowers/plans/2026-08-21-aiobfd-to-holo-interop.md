@@ -355,20 +355,23 @@ through artifact collection and save bounded `holo` and `holo-config` logs plus
 - [ ] **Step 3: Define and enforce exact project ownership**
 
 Use `INTEROP_PROJECT_NAME` with a deterministic default in the Make target,
-shell runner, tagged Go `podmanCompose` helper, and E2E environment. Derive the
+shell runner, tagged Go exact-container helper, and E2E environment. Derive the
 Scapy network as `${INTEROP_PROJECT_NAME}_bfdnet` in both Go and shell instead
 of retaining `interop_bfdnet`. Before any build or startup command, query
 containers, networks, and volumes carrying
 `com.docker.compose.project=<project>` and fail if any exist. Only after all
 three queries prove the project empty may the runner record ownership, build,
-and enter the preserved two-phase Holo startup. On every owned-project exit:
+and enter the preserved two-phase Holo startup.
 
-1. run `compose down --volumes --remove-orphans` for that exact project;
-2. query those three resource classes again;
-3. resolve remaining exact IDs from that label and remove only those labelled
-   containers, networks, or volumes if Compose cleanup partially failed;
-4. verify the label query is empty and fail cleanup if a resource remains;
-5. never remove images or resources without the recorded project label.
+The implementation intentionally deviates from the original Compose-down-first
+cleanup contract. Local provider evidence shows that installed
+`podman-compose down` acts on configured `container_name` values, so even a
+successful label revalidation has a name-swap TOCTOU window. Compose is
+therefore limited to image build and container creation while the project lock
+is held. On every owned-project exit, take exact-label snapshots, remove only
+the recorded immutable container/network IDs and volume names, re-query all
+three classes, and fail if any exact-labelled resource remains. Never invoke
+Compose `down`, remove an image, or mutate a resource absent from the snapshot.
 
 Use bounded commands and preserve the original test exit status unless cleanup
 itself proves an owned-resource leak.
@@ -381,28 +384,35 @@ acquired by the run and must not enter either normal or fallback cleanup.
 Serialize acquisition of each validated project with a nonblocking `flock`
 held from before exact-label and fixed-name preflight through final cleanup
 verification. Prefer an owned, writable, non-symlink XDG runtime directory or
-`/run/user/$UID`; a fallback directory under `TMPDIR` or `/tmp` must itself be
-owned, mode `0700`, writable, and not a symlink. Keep the mode `0600` lock file
+`/run/user/$UID`. A fallback base must either be owned and not group/world
+writable, or be root-owned with the sticky bit; its dedicated lock directory
+must be owned, mode `0700`, writable, and not a symlink. Keep the mode `0600` lock file
 after release so two contenders can never split onto different inodes. The E2E
 runner holds a separate descriptor for each acquired project and closes it only
 after that project's exact cleanup. A runner that cannot acquire the lock must
 perform no Podman or Compose mutation.
 
 Before startup, reject every configured fixed `container_name` that already
-exists, even when the exact project-label query is empty. Immediately before
-Compose `down`, revalidate every existing fixed name against
-`com.docker.compose.project=<project>`; if any name is absent from that exact
-ownership set, skip Compose `down` and run only the exact-label fallback.
-Container inventory and diagnostics must resolve the exact project label to a
-container ID before any `inspect`, `logs`, or `exec`, and must never read a
-foreign container through a fixed name.
+exists, even when the exact project-label query is empty. Container inventory,
+diagnostics, and every runtime `logs`, `exec`, `stop`, or `start` operation must
+resolve the exact project label to an immutable container ID and must never act
+on a foreign container through a fixed name. Direct tagged test targets use a
+`lock-run -- <argv>` guard that requires an existing exact-labelled project;
+the E2E runner invokes its tagged tests under the lock it already holds.
 
-Export `INTEROP_PROJECT_NAME` from Make. Every base interop and routing target
+Freeze the raw command-line `INTEROP_PROJECT_NAME` with GNU Make `value` before
+the first `shell` expansion, reject nested Make function syntax before export,
+and then export it. Every base interop and routing target
 must depend on one shared validation prerequisite. Recipes pass the exported
 value only through quoted shell expansion (`$${INTEROP_PROJECT_NAME}`); they
 must never inject `$(INTEROP_PROJECT_NAME)` into shell source. Direct up, down,
 logs, capture, and pcap targets use the same lock, fixed-name, and exact-label
 guard as the full runners.
+
+Artifact merging uses a collision-resistant per-run
+`io.gobfd.e2e.merge-owner` label rather than a Compose project label. Preflight
+that label, run `mergecap`, then snapshot and remove only exact labelled
+container IDs and verify absence even when `podman run` times out or fails.
 
 After each tagged suite writes its JSON stream, enforce a non-zero test count
 inside `test/e2e/routing/run.sh`:

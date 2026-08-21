@@ -15,10 +15,25 @@ PODMAN=(timeout 2m podman)
 DC=(timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
 # shellcheck source=test/interop/project_guard.sh
 source "${SCRIPT_DIR}/project_guard.sh"
-FIXED_CONTAINER_NAMES=(
-    gobfd-interop frr-interop bird3-interop tshark-interop
-    holo-interop holo-config-interop thoro-interop scapy-interop
-)
+case "${INTEROP_PROJECT_KIND:-base}" in
+    base)
+        FIXED_CONTAINER_NAMES=(
+            gobfd-interop frr-interop bird3-interop tshark-interop
+            holo-interop holo-config-interop thoro-interop scapy-interop
+        )
+        ;;
+    bgp)
+        FIXED_CONTAINER_NAMES=(
+            gobfd-bgp-interop gobgp-interop tshark-bgp-interop frr-bgp-interop
+            bird3-bgp-interop gobfd-exabgp-interop exabgp-interop
+        )
+        ;;
+    *)
+        printf 'invalid INTEROP_PROJECT_KIND %q: use base or bgp\n' \
+            "${INTEROP_PROJECT_KIND}" >&2
+        exit 2
+        ;;
+esac
 LOCK_FD=""
 MUTATION_STARTED=false
 KEEP_PROJECT=false
@@ -27,13 +42,7 @@ release_lock() {
     local status="$?"
     trap - EXIT
     if [[ "${MUTATION_STARTED}" == true && "${KEEP_PROJECT}" != true ]]; then
-        if interop_fixed_names_match_project "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"; then
-            if ! "${DC[@]}" down --volumes --remove-orphans >/dev/null 2>&1; then
-                printf 'Compose cleanup was partial; resolving exact labelled resources\n' >&2
-            fi
-        fi
-        interop_remove_project_resources "${INTEROP_PROJECT_NAME}" || status=1
-        interop_verify_project_absent "${INTEROP_PROJECT_NAME}" || status=1
+        interop_cleanup_project_resources "${INTEROP_PROJECT_NAME}" || status=1
     fi
     if [[ -n "${LOCK_FD}" ]]; then
         interop_release_project_lock "${LOCK_FD}" || status=1
@@ -82,16 +91,38 @@ start_project() {
 stop_project() {
     local status=0
     acquire_lock
-    if interop_fixed_names_match_project "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"; then
-        if ! "${DC[@]}" down --volumes --remove-orphans >/dev/null 2>&1; then
-            printf 'Compose cleanup was partial; resolving exact labelled resources\n' >&2
-        fi
-    else
-        printf 'skipping Compose down because a fixed container name is foreign\n' >&2
-    fi
-    interop_remove_project_resources "${INTEROP_PROJECT_NAME}" || status=1
-    interop_verify_project_absent "${INTEROP_PROJECT_NAME}" || status=1
+    interop_cleanup_project_resources "${INTEROP_PROJECT_NAME}" || status=1
     return "${status}"
+}
+
+lock_run() {
+    shift
+    if [[ "${1:-}" != "--" || "$#" -lt 2 ]]; then
+        printf 'usage: %s lock-run -- command [args...]\n' "$0" >&2
+        return 2
+    fi
+    shift
+    acquire_lock
+    interop_assert_existing_project \
+        "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
+    "$@"
+}
+
+dev_exec() {
+    shift
+    if [[ "${1:-}" != "--" || "$#" -lt 2 ]]; then
+        printf 'usage: %s dev-exec -- command [args...]\n' "$0" >&2
+        return 2
+    fi
+    shift
+    local dev_project="${COMPOSE_PROJECT_NAME:-}"
+    local dev_id
+    if [[ ! "${dev_project}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+        printf 'invalid COMPOSE_PROJECT_NAME %q for dev exec\n' "${dev_project}" >&2
+        return 2
+    fi
+    dev_id="$(interop_resolve_project_service_container_id "${dev_project}" dev)" || return 1
+    "${PODMAN[@]}" exec "${dev_id}" "$@"
 }
 
 logs_project() {
@@ -133,8 +164,10 @@ case "${1:-}" in
     down) stop_project ;;
     logs) logs_project ;;
     capture|pcap|summary) tshark_project "$1" ;;
+    lock-run) lock_run "$@" ;;
+    dev-exec) dev_exec "$@" ;;
     *)
-        printf 'usage: %s {up|down|logs|capture|pcap|summary}\n' "$0" >&2
+        printf 'usage: %s {up|down|logs|capture|pcap|summary|lock-run|dev-exec}\n' "$0" >&2
         exit 2
         ;;
 esac

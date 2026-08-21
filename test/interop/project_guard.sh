@@ -22,6 +22,28 @@ interop_validate_lock_directory() {
     fi
 }
 
+interop_validate_fallback_lock_base() {
+    local fallback_base="$1"
+    local owner mode mode_value
+
+    if [[ -L "${fallback_base}" || ! -d "${fallback_base}" || ! -w "${fallback_base}" ]]; then
+        printf 'unsafe interop fallback lock base %s: require writable non-symlink directory\n' \
+            "${fallback_base}" >&2
+        return 1
+    fi
+    read -r owner mode < <(stat -c '%u %a' -- "${fallback_base}") || return 1
+    mode_value=$((8#${mode}))
+    if [[ "${owner}" == "${UID}" ]] && (( (mode_value & 0022) == 0 )); then
+        return 0
+    fi
+    if [[ "${owner}" == "0" ]] && (( (mode_value & 01000) != 0 )); then
+        return 0
+    fi
+    printf 'unsafe interop fallback lock base %s owner %s mode %s\n' \
+        "${fallback_base}" "${owner}" "${mode}" >&2
+    return 1
+}
+
 interop_lock_directory() {
     local runtime_base="${XDG_RUNTIME_DIR:-}"
     local user_runtime_base="/run/user/${UID}"
@@ -33,10 +55,7 @@ interop_lock_directory() {
     fi
     if [[ -L "${runtime_base}" || ! -d "${runtime_base}" || ! -O "${runtime_base}" || ! -w "${runtime_base}" ]]; then
         runtime_base="${fallback_base}"
-    fi
-    if [[ -L "${runtime_base}" || ! -d "${runtime_base}" || ! -w "${runtime_base}" ]]; then
-        printf 'no writable runtime directory for interop project locks\n' >&2
-        return 1
+        interop_validate_fallback_lock_base "${runtime_base}" || return 1
     fi
     lock_dir="${runtime_base}/gobfd-interop-${UID}.locks"
     if [[ ! -e "${lock_dir}" && ! -L "${lock_dir}" ]]; then
@@ -134,7 +153,7 @@ interop_assert_fixed_names_available() {
     done
 }
 
-interop_fixed_names_match_project() {
+interop_assert_existing_fixed_names_owned() {
     local project_name="$1"
     shift
     local container_name exists_status label
@@ -146,7 +165,7 @@ interop_fixed_names_match_project() {
             continue
         fi
         if [[ "${exists_status}" -ne 0 ]]; then
-            printf 'failed to revalidate fixed container name %s before cleanup\n' \
+            printf 'failed to verify existing fixed container name %s\n' \
                 "${container_name}" >&2
             return 1
         fi
@@ -155,11 +174,26 @@ interop_fixed_names_match_project() {
             "${container_name}")" || return 1
         if [[ "${label}" != "${project_name}" ]]; then
             [[ -n "${label}" && "${label}" != "<no value>" ]] || label="<unlabelled>"
-            printf 'fixed container name %s changed ownership to Compose project %s; skipping Compose down\n' \
+            printf 'fixed container name %s belongs to Compose project %s, not the locked project\n' \
                 "${container_name}" "${label}" >&2
             return 1
         fi
     done
+}
+
+interop_assert_existing_project() {
+    local project_name="$1"
+    shift
+    local resources
+
+    resources="$(interop_query_project_resources "${project_name}")" || return 1
+    if [[ -z "${resources}" ]]; then
+        printf 'Compose project %s has no exact-labelled resources\n' "${project_name}" >&2
+        return 1
+    fi
+    # Some optional one-shot/test containers (for example Scapy) may be absent.
+    # Every fixed name that does exist must still carry the exact project label.
+    interop_assert_existing_fixed_names_owned "${project_name}" "$@"
 }
 
 interop_resolve_project_container_id() {
@@ -192,6 +226,28 @@ interop_resolve_project_container_id() {
     printf '%s\n' "${container_id}"
 }
 
+interop_resolve_project_service_container_id() {
+    local project_name="$1"
+    local service_name="$2"
+    local container_ids container_id resolved_id count=0
+
+    container_ids="$(timeout 30s podman ps -a --no-trunc \
+        --filter "label=com.docker.compose.project=${project_name}" \
+        --filter "label=com.docker.compose.service=${service_name}" \
+        --format '{{.ID}}')" || return 1
+    while IFS= read -r container_id; do
+        [[ -n "${container_id}" ]] || continue
+        count=$((count + 1))
+        resolved_id="${container_id}"
+    done <<<"${container_ids}"
+    if [[ "${count}" -ne 1 ]]; then
+        printf 'resolve Compose project %s service %s: found %s exact-labelled containers\n' \
+            "${project_name}" "${service_name}" "${count}" >&2
+        return 1
+    fi
+    printf '%s\n' "${resolved_id}"
+}
+
 interop_query_project_resources() {
     local project_name="$1"
     local project_label="com.docker.compose.project=${project_name}"
@@ -210,6 +266,40 @@ interop_query_project_resources() {
         [[ -n "${id}" ]] && printf 'volume:%s\n' "${id}"
     done <<<"${volumes}"
     return 0
+}
+
+interop_query_labelled_container_ids() {
+    local label_key="$1"
+    local label_value="$2"
+
+    timeout 30s podman ps -a --no-trunc \
+        --filter "label=${label_key}=${label_value}" --format '{{.ID}}'
+}
+
+interop_remove_labelled_containers() {
+    local label_key="$1"
+    local label_value="$2"
+    local container_ids container_id status=0
+
+    container_ids="$(interop_query_labelled_container_ids "${label_key}" "${label_value}")" || return 1
+    while IFS= read -r container_id; do
+        [[ -n "${container_id}" ]] || continue
+        timeout 30s podman rm -f -- "${container_id}" >/dev/null || status=1
+    done <<<"${container_ids}"
+    return "${status}"
+}
+
+interop_verify_labelled_containers_absent() {
+    local label_key="$1"
+    local label_value="$2"
+    local container_ids
+
+    container_ids="$(interop_query_labelled_container_ids "${label_key}" "${label_value}")" || return 1
+    if [[ -n "${container_ids}" ]]; then
+        printf 'owned-container leak for label %s=%s:\n%s\n' \
+            "${label_key}" "${label_value}" "${container_ids}" >&2
+        return 1
+    fi
 }
 
 interop_remove_project_resources() {
@@ -244,4 +334,13 @@ interop_verify_project_absent() {
             "${project_name}" "${resources}" >&2
         return 1
     fi
+}
+
+interop_cleanup_project_resources() {
+    local project_name="$1"
+    local status=0
+
+    interop_remove_project_resources "${project_name}" || status=1
+    interop_verify_project_absent "${project_name}" || status=1
+    return "${status}"
 }

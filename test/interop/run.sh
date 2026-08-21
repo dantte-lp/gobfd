@@ -31,7 +31,6 @@ fi
 PROJECT_LABEL="com.docker.compose.project=${INTEROP_PROJECT_NAME}"
 PROJECT_OWNED=false
 PROJECT_LOCK_FD=""
-DC=(timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
 PODMAN=(timeout 2m podman)
 # shellcheck source=test/interop/project_guard.sh
 source "${SCRIPT_DIR}/project_guard.sh"
@@ -118,12 +117,39 @@ assert_fixed_names_available() {
     interop_assert_fixed_names_available "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
 }
 
-fixed_names_match_project() {
-    interop_fixed_names_match_project "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
-}
-
 resolve_project_container_id() {
     interop_resolve_project_container_id "${INTEROP_PROJECT_NAME}" "$1"
+}
+
+podman_container_exec() {
+    local container_name="$1"
+    shift
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" exec "${container_id}" "$@"
+}
+
+podman_container_logs() {
+    local container_name="$1"
+    shift
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" logs "$@" "${container_id}"
+}
+
+podman_container_state() {
+    local container_name="$1"
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" inspect --format '{{.State.Running}}' "${container_id}"
+}
+
+podman_container_lifecycle() {
+    local action="$1"
+    local container_name="$2"
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" "${action}" "${container_id}"
 }
 
 query_project_resources() {
@@ -160,12 +186,6 @@ cleanup() {
     fi
     if [ "${PROJECT_OWNED}" = true ]; then
         info "cleaning exact Compose project ${INTEROP_PROJECT_NAME}"
-        if fixed_names_match_project; then
-            "${DC[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || \
-                info "Compose cleanup was partial; resolving exact labelled resources"
-        else
-            info "skipping Compose down because a fixed container name is foreign"
-        fi
         remove_project_resources || status=1
         verify_project_absent || status=1
     fi
@@ -239,7 +259,7 @@ assert_has_packets() {
 
 frr_bfd_peer_status() {
     local peer_ip="$1"
-    "${DC[@]}" exec -T frr vtysh -c "show bfd peers json" 2>/dev/null \
+    podman_container_exec frr-interop vtysh -c "show bfd peers json" 2>/dev/null \
         | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -259,7 +279,7 @@ bird3_bfd_session_status() {
     local peer_ip="$1"
     # BIRD3 output: IP Interface State Since Interval Timeout
     # State is column 3, not the last field.
-    "${DC[@]}" exec -T bird3 birdc "show bfd sessions" 2>/dev/null \
+    podman_container_exec bird3-interop birdc "show bfd sessions" 2>/dev/null \
         | grep -F "${peer_ip}" \
         | awk '{print $3}' \
         || echo "not-found"
@@ -417,9 +437,9 @@ sleep 10
 
 # Verify all containers are running.
 for svc in gobfd frr bird3 holo thoro; do
-    if ! "${DC[@]}" ps | grep -q "${svc}-interop"; then
+    if [[ "$(podman_container_state "${svc}-interop" 2>/dev/null || true)" != "true" ]]; then
         fail "container ${svc}-interop is not running"
-        "${DC[@]}" logs "${svc}" 2>&1 | tail -20
+        podman_container_logs "${svc}-interop" 2>&1 | tail -20 || true
         dump_holo_startup_diagnostics
         exit 1
     fi
@@ -438,8 +458,8 @@ test_frr_handshake() {
         return 0
     fi
     fail "FRR BFD session did not reach Up state within 60s"
-    "${DC[@]}" exec -T frr vtysh -c "show bfd peers" 2>&1 || true
-    "${DC[@]}" logs --tail 30 gobfd 2>&1 || true
+    podman_container_exec frr-interop vtysh -c "show bfd peers" 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
     dump_holo_startup_diagnostics
     return 1
 }
@@ -455,8 +475,8 @@ test_bird3_handshake() {
         return 0
     fi
     fail "BIRD3 BFD session did not reach Up state within 60s"
-    "${DC[@]}" exec -T bird3 birdc "show bfd sessions" 2>&1 || true
-    "${DC[@]}" logs --tail 30 gobfd 2>&1 || true
+    podman_container_exec bird3-interop birdc "show bfd sessions" 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
     dump_holo_startup_diagnostics
     return 1
 }
@@ -473,7 +493,7 @@ test_holo_handshake() {
     fi
     fail "Holo BFD session did not reach Up state within 60s"
     dump_holo_startup_diagnostics
-    "${DC[@]}" logs --tail 30 gobfd 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
     return 1
 }
 
@@ -488,8 +508,8 @@ test_thoro_handshake() {
         return 0
     fi
     fail "Thoro/bfd BFD session did not reach Up state within 60s"
-    "${DC[@]}" logs --tail 30 thoro 2>&1 || true
-    "${DC[@]}" logs --tail 30 gobfd 2>&1 || true
+    podman_container_logs thoro-interop --tail 30 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
     return 1
 }
 
@@ -814,7 +834,7 @@ test_rfc5880_poll_final_handshake() {
 test_rfc5880_session_independence() {
     info "test: RFC 5880 §6.8.1 — session independence (stop FRR, check BIRD3 + Holo)"
 
-    "${DC[@]}" stop frr
+    podman_container_lifecycle stop frr-interop
 
     sleep 3
 
@@ -847,7 +867,7 @@ test_rfc5880_session_independence() {
         ok=false
     fi
 
-    "${DC[@]}" start frr
+    podman_container_lifecycle start frr-interop
 
     if [ "${ok}" = true ]; then
         return 0
@@ -994,7 +1014,7 @@ test_rfc5880_session_recovery() {
 test_rfc5880_frr_admin_down() {
     info "test: RFC 5880 §6.8.6 — FRR AdminDown via shutdown"
 
-    "${DC[@]}" exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -1023,7 +1043,7 @@ test_rfc5880_frr_admin_down() {
 test_rfc5880_frr_admin_down_recovery() {
     info "test: RFC 5880 §6.8.16 — recovery after FRR AdminDown cleared"
 
-    "${DC[@]}" exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -1050,7 +1070,7 @@ test_rfc5880_poll_final_parameter_change() {
     final_before="$(tshark_count "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${FRR_IP} && bfd.flags.f == 1")"
 
     # Change FRR transmit interval to trigger Poll Sequence.
-    "${DC[@]}" exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -1075,7 +1095,7 @@ test_rfc5880_poll_final_parameter_change() {
     fi
 
     # Restore FRR interval.
-    "${DC[@]}" exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -1171,18 +1191,18 @@ print(f'{mn:.3f} {mx:.3f} {len(deltas)}')
 test_frr_detection_timeout() {
     info "test: detection timeout — stop FRR"
 
-    "${DC[@]}" stop frr
+    podman_container_lifecycle stop frr-interop
     sleep 5
 
-    if "${DC[@]}" logs gobfd 2>&1 | grep -q "session state changed.*new_state=Down"; then
+    if podman_container_logs gobfd-interop 2>&1 | grep -q "session state changed.*new_state=Down"; then
         pass "GoBFD detected FRR peer failure (session transitioned to Down)"
     else
         fail "GoBFD did not detect FRR peer failure"
-        "${DC[@]}" logs --tail 30 gobfd 2>&1 || true
+        podman_container_logs gobfd-interop --tail 30 2>&1 || true
         return 1
     fi
 
-    "${DC[@]}" start frr
+    podman_container_lifecycle start frr-interop
     sleep 5
 
     return 0
@@ -1205,7 +1225,7 @@ test_gobfd_graceful_shutdown() {
     local before
     before="$(tshark_count "bfd && ip.src == ${GOBFD_IP} && bfd.sta == 0x00 && bfd.diag == 0x07")"
 
-    "${DC[@]}" stop gobfd
+    podman_container_lifecycle stop gobfd-interop
     sleep 5
 
     # Verify AdminDown packets (state=0, diag=7) were sent.

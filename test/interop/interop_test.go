@@ -9,7 +9,7 @@
 //	go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 //
 // Prerequisites:
-//   - podman-compose -p gobfd-interop -f test/interop/compose.yml up --build -d
+//   - test/interop/projectctl.sh up
 //   - The gobfd, frr, bird3, Holo, Thoro/bfd, and tshark services must be ready.
 package interop_test
 
@@ -68,6 +68,7 @@ const (
 var (
 	errSessionStateNotFound      = errors.New("session state not found")
 	errInvalidInteropProjectName = errors.New("invalid interop Compose project name")
+	errForeignProjectContainer   = errors.New("container is not owned by the interop Compose project")
 	errHoloFrameNotFound         = errors.New("holo BFD frame not found")
 	errHoloConfigExitMismatch    = errors.New("holo config exit status mismatch")
 	errHoloConfigFailed          = errors.New("holo config failed")
@@ -91,13 +92,6 @@ type holoLifecycleSchedule struct {
 // =========================================================================
 // Infrastructure helpers
 // =========================================================================
-
-func composeFile() string {
-	if f := os.Getenv("INTEROP_COMPOSE_FILE"); f != "" {
-		return f
-	}
-	return "test/interop/compose.yml"
-}
 
 func resolveInteropProjectName(raw string) (string, error) {
 	projectName := raw
@@ -272,20 +266,6 @@ func pollUntil[T any](
 	}
 }
 
-func podmanCompose(ctx context.Context, args ...string) (string, error) {
-	projectName, err := interopProjectName()
-	if err != nil {
-		return "", err
-	}
-	allArgs := append([]string{"-p", projectName, "-f", composeFile()}, args...)
-	cmd := exec.CommandContext(ctx, "podman-compose", allArgs...)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	err = commandContextError(ctx, cmd.Run())
-	return buf.String(), err
-}
-
 func podmanCommand(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "podman", args...)
 	var buf bytes.Buffer
@@ -293,6 +273,103 @@ func podmanCommand(ctx context.Context, args ...string) (string, error) {
 	cmd.Stderr = &buf
 	err := commandContextError(ctx, cmd.Run())
 	return buf.String(), err
+}
+
+func resolveProjectContainerID(ctx context.Context, containerName string) (string, error) {
+	projectName, err := interopProjectName()
+	if err != nil {
+		return "", err
+	}
+	output, err := podmanCommand(
+		ctx,
+		"inspect", "--type", "container",
+		"--format", `{{.ID}}|{{ index .Config.Labels "com.docker.compose.project" }}`,
+		containerName,
+	)
+	if err != nil {
+		return "", fmt.Errorf("resolve container %s ownership: %w: %s", containerName, err, strings.TrimSpace(output))
+	}
+	containerID, label, ok := strings.Cut(strings.TrimSpace(output), "|")
+	if !ok || containerID == "" || label != projectName {
+		return "", fmt.Errorf(
+			"resolve container %s: id=%q project=%q, want project %q: %w",
+			containerName,
+			containerID,
+			label,
+			projectName,
+			errForeignProjectContainer,
+		)
+	}
+	return containerID, nil
+}
+
+func projectContainerCommand(
+	ctx context.Context,
+	containerName string,
+	action string,
+	args ...string,
+) (string, error) {
+	containerID, err := resolveProjectContainerID(ctx, containerName)
+	if err != nil {
+		return "", err
+	}
+	commandArgs := append([]string{action, containerID}, args...)
+	return podmanCommand(ctx, commandArgs...)
+}
+
+func projectContainerInspect(ctx context.Context, containerName, format string) (string, error) {
+	containerID, err := resolveProjectContainerID(ctx, containerName)
+	if err != nil {
+		return "", err
+	}
+	return podmanCommand(ctx, "inspect", "--format", format, containerID)
+}
+
+func projectContainerLogs(ctx context.Context, containerName string, args ...string) (string, error) {
+	containerID, err := resolveProjectContainerID(ctx, containerName)
+	if err != nil {
+		return "", err
+	}
+	commandArgs := append([]string{"logs"}, args...)
+	commandArgs = append(commandArgs, containerID)
+	return podmanCommand(ctx, commandArgs...)
+}
+
+func TestProjectContainerCommandUsesExactOwnedID(t *testing.T) {
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
+    case "${@: -1}" in
+        foreign-interop) printf '%s\n' 'foreign-id|foreign-project' ;;
+        *) printf '%s\n' 'immutable-owned-id|gobfd-interop' ;;
+    esac
+fi
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
+		t.Fatalf("write fake podman: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
+	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
+
+	if _, err := resolveProjectContainerID(t.Context(), "foreign-interop"); !errors.Is(err, errForeignProjectContainer) {
+		t.Fatalf("resolve foreign container error = %v, want errForeignProjectContainer", err)
+	}
+	if _, err := projectContainerCommand(t.Context(), "frr-interop", "stop"); err != nil {
+		t.Fatalf("stop exact owned container: %v", err)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if !strings.Contains(string(commands), "stop immutable-owned-id") {
+		t.Fatalf("runtime command did not use immutable owned ID; commands:\n%s", commands)
+	}
+	if strings.Contains(string(commands), "stop frr-interop") {
+		t.Fatalf("runtime command used mutable service name; commands:\n%s", commands)
+	}
 }
 
 func commandContextError(ctx context.Context, err error) error {
@@ -303,9 +380,9 @@ func commandContextError(ctx context.Context, err error) error {
 }
 
 func gobfdSessionState(ctx context.Context, peer string) (sessionState, error) {
-	output, err := podmanCompose(
+	output, err := projectContainerCommand(
 		ctx,
-		"exec", "-T", "gobfd",
+		"gobfd-interop", "exec",
 		"/bin/gobfdctl", "--addr", "127.0.0.1:50051",
 		"session", "show", peer, "--format", "json",
 	)
@@ -357,10 +434,7 @@ func waitForHoloHealth(ctx context.Context, timeout time.Duration) error {
 	defer cancel()
 
 	lastStatus, err := pollUntil(waitCtx, pollInterval, func(pollCtx context.Context) (string, bool, error) {
-		output, err := podmanCommand(
-			pollCtx,
-			"inspect", "--format", "{{.State.Health.Status}}", "holo-interop",
-		)
+		output, err := projectContainerInspect(pollCtx, "holo-interop", "{{.State.Health.Status}}")
 		if err != nil {
 			return "", false, err
 		}
@@ -383,7 +457,7 @@ func parseContainerExitCode(output string) (uint64, error) {
 
 func startAndConfigureHolo(ctx context.Context) error {
 	startCtx, cancelStart := context.WithTimeout(ctx, holoStartTimeout)
-	output, err := podmanCompose(startCtx, "start", "holo")
+	output, err := projectContainerCommand(startCtx, "holo-interop", "start")
 	cancelStart()
 	if err != nil {
 		return fmt.Errorf("start Holo service: %w: %s", err, strings.TrimSpace(output))
@@ -393,14 +467,14 @@ func startAndConfigureHolo(ctx context.Context) error {
 	}
 
 	configCtx, cancelConfig := context.WithTimeout(ctx, holoConfigStartTimeout)
-	output, err = podmanCompose(configCtx, "up", "-d", "--no-deps", "--force-recreate", "holo-config")
+	output, err = projectContainerCommand(configCtx, "holo-config-interop", "start")
 	cancelConfig()
 	if err != nil {
-		return fmt.Errorf("recreate Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(output))
+		return fmt.Errorf("restart Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(output))
 	}
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, holoConfigWaitTimeout)
-	waitOutput, err := podmanCommand(waitCtx, "wait", "holo-config-interop")
+	waitOutput, err := projectContainerCommand(waitCtx, "holo-config-interop", "wait")
 	cancelWait()
 	if err != nil {
 		return fmt.Errorf("wait for Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(waitOutput))
@@ -411,10 +485,7 @@ func startAndConfigureHolo(ctx context.Context) error {
 	}
 
 	inspectCtx, cancelInspect := context.WithTimeout(ctx, holoInspectTimeout)
-	inspectOutput, err := podmanCommand(
-		inspectCtx,
-		"inspect", "--format", "{{.State.ExitCode}}", "holo-config-interop",
-	)
+	inspectOutput, err := projectContainerInspect(inspectCtx, "holo-config-interop", "{{.State.ExitCode}}")
 	cancelInspect()
 	if err != nil {
 		return fmt.Errorf("inspect Holo one-shot configuration service: %w: %s", err, strings.TrimSpace(inspectOutput))
@@ -439,18 +510,18 @@ func startAndConfigureHolo(ctx context.Context) error {
 }
 
 func frrVtysh(ctx context.Context, command string) (string, error) {
-	return podmanCompose(ctx, "exec", "-T", "frr", "vtysh", "-c", command)
+	return projectContainerCommand(ctx, "frr-interop", "exec", "vtysh", "-c", command)
 }
 
 // frrVtyshConfig runs a sequence of vtysh commands (e.g., configure terminal,
 // bfd, peer ..., shutdown) in a single vtysh session.
 func frrVtyshConfig(ctx context.Context, commands ...string) (string, error) {
 	args := make([]string, 0, 4+2*len(commands))
-	args = append(args, "exec", "-T", "frr", "vtysh")
+	args = append(args, "vtysh")
 	for _, cmd := range commands {
 		args = append(args, "-c", cmd)
 	}
-	return podmanCompose(ctx, args...)
+	return projectContainerCommand(ctx, "frr-interop", "exec", args...)
 }
 
 func frrBFDPeerStatus(ctx context.Context) (string, error) {
@@ -482,7 +553,7 @@ func frrBFDPeerStatus(ctx context.Context) (string, error) {
 }
 
 func bird3BFDSessionUp(ctx context.Context) (bool, error) {
-	output, err := podmanCompose(ctx, "exec", "-T", "bird3", "birdc", "show bfd sessions")
+	output, err := projectContainerCommand(ctx, "bird3-interop", "exec", "birdc", "show bfd sessions")
 	if err != nil {
 		return false, fmt.Errorf("birdc show bfd sessions: %w: %s", err, output)
 	}
@@ -578,7 +649,7 @@ func thoroSessionUp(ctx context.Context) (bool, error) {
 }
 
 func thoroLogs(ctx context.Context) (string, error) {
-	return podmanCompose(ctx, "logs", "--tail", "200", "thoro")
+	return projectContainerLogs(ctx, "thoro-interop", "--tail", "200")
 }
 
 func isThoroUnsupportedPollSequenceCrash(logs string) bool {
@@ -631,18 +702,12 @@ func waitThoroUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 
 // tsharkQuery runs tshark on the captured pcapng file and returns stdout.
 func tsharkQuery(ctx context.Context, args ...string) (string, error) {
-	cmdArgs := append(
-		[]string{"exec", "tshark-interop", "tshark", "-r", "/captures/bfd.pcapng"},
-		args...,
-	)
-	cmd := exec.CommandContext(ctx, "podman", cmdArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := commandContextError(ctx, cmd.Run()); err != nil {
-		return "", fmt.Errorf("tshark: %w: %s", err, stderr.String())
+	commandArgs := append([]string{"tshark", "-r", "/captures/bfd.pcapng"}, args...)
+	output, err := projectContainerCommand(ctx, "tshark-interop", "exec", commandArgs...)
+	if err != nil {
+		return "", fmt.Errorf("tshark: %w: %s", err, output)
 	}
-	return stdout.String(), nil
+	return output, nil
 }
 
 // tsharkFields extracts specific fields from packets matching a display filter.
@@ -818,8 +883,8 @@ func dumpTsharkCapture(t *testing.T, count int) {
 	ctx, cancel := boundedDetachedContext(t.Context(), 10*time.Second, testDeadline, hasTestDeadline)
 	defer cancel()
 
-	cmd := exec.CommandContext(
-		ctx, "podman", "exec", "tshark-interop",
+	output, err := projectContainerCommand(
+		ctx, "tshark-interop", "exec",
 		"tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd",
 		"-c", strconv.Itoa(count),
 		"-T", "fields",
@@ -835,14 +900,11 @@ func dumpTsharkCapture(t *testing.T, count int) {
 		"-E", "header=y",
 		"-E", "separator=\t",
 	)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	if err := cmd.Run(); err != nil {
+	if err != nil {
 		t.Logf("tshark dump unavailable: %v", err)
 		return
 	}
-	t.Logf("BFD packet capture (last %d packets):\n%s", count, buf.String())
+	t.Logf("BFD packet capture (last %d packets):\n%s", count, output)
 }
 
 func lastNLines(s string, n int) string {
@@ -1642,13 +1704,13 @@ func TestRFCCompliance(t *testing.T) {
 
 	t.Run("RFC5880_6.8.1_SessionIndependence", func(t *testing.T) {
 		// Stop FRR to trigger detection timeout on gobfd→FRR session.
-		output, err := podmanCompose(ctx, "stop", "frr")
+		output, err := projectContainerCommand(ctx, "frr-interop", "stop")
 		if err != nil {
 			t.Fatalf("stop FRR: %v: %s", err, output)
 		}
 		t.Cleanup(func() {
 			// Always restart FRR.
-			podmanCompose(ctx, "start", "frr") //nolint:errcheck // Cleanup is best effort.
+			projectContainerCommand(ctx, "frr-interop", "start") //nolint:errcheck // Cleanup is best effort.
 		})
 
 		// Wait for detection time + margin.
@@ -2033,7 +2095,7 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 
 	mutated = true
 	stopCtx, cancelStop := context.WithTimeout(lifecycleCtx, 10*time.Second)
-	output, err := podmanCompose(stopCtx, "stop", "holo")
+	output, err := projectContainerCommand(stopCtx, "holo-interop", "stop")
 	cancelStop()
 	if err != nil {
 		t.Fatalf("stop only Holo service: %v: %s", err, strings.TrimSpace(output))
@@ -2105,14 +2167,14 @@ func TestFRRDetectionTimeout(t *testing.T) {
 
 	waitFRRUp(ctx, t, 60*time.Second)
 
-	output, err := podmanCompose(ctx, "stop", "frr")
+	output, err := projectContainerCommand(ctx, "frr-interop", "stop")
 	if err != nil {
 		t.Fatalf("stop FRR: %v: %s", err, output)
 	}
 
 	time.Sleep(5 * time.Second)
 
-	logs, err := podmanCompose(ctx, "logs", "gobfd")
+	logs, err := projectContainerLogs(ctx, "gobfd-interop")
 	if err != nil {
 		t.Fatalf("get gobfd logs: %v", err)
 	}
@@ -2122,7 +2184,7 @@ func TestFRRDetectionTimeout(t *testing.T) {
 		t.Logf("gobfd logs (tail):\n%s", lastNLines(logs, 30))
 	}
 
-	output, err = podmanCompose(ctx, "start", "frr")
+	output, err = projectContainerCommand(ctx, "frr-interop", "start")
 	if err != nil {
 		t.Fatalf("restart FRR: %v: %s", err, output)
 	}
@@ -2181,10 +2243,8 @@ func TestScapyFuzzing(t *testing.T) {
 	t.Logf("Scapy fuzzer output:\n%s", string(runOut))
 
 	// Verify gobfd is still running after fuzzing.
-	out, err := exec.CommandContext(ctx,
-		"podman", "ps", "--filter", "name=gobfd-interop",
-		"--format", "{{.Names}}").CombinedOutput()
-	if err != nil || !strings.Contains(string(out), "gobfd-interop") {
+	out, err := projectContainerInspect(ctx, "gobfd-interop", "{{.State.Running}}")
+	if err != nil || strings.TrimSpace(out) != "true" {
 		t.Fatal("gobfd crashed after Scapy fuzzing")
 	}
 
@@ -2211,7 +2271,7 @@ func TestGracefulShutdown(t *testing.T) {
 	adminDownBefore, _ := tsharkCount(ctx,
 		"bfd && ip.src == "+gobfdIP+" && bfd.sta == 0x00 && bfd.diag == 0x07")
 
-	output, err := podmanCompose(ctx, "stop", "gobfd")
+	output, err := projectContainerCommand(ctx, "gobfd-interop", "stop")
 	if err != nil {
 		t.Fatalf("stop gobfd: %v: %s", err, output)
 	}

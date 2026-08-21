@@ -11,8 +11,13 @@ REPORT_DIR="${ROOT_DIR}/${REPORT_REL}"
 DEV_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "${ROOT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')}"
 INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"
 INTEROP_BGP_PROJECT_NAME="${INTEROP_BGP_PROJECT_NAME:-${INTEROP_PROJECT_NAME}-bgp}"
-DEV_COMPOSE="${ROOT_DIR}/deployments/compose/compose.dev.yml"
 TSHARK_IMAGE="localhost/interop_tshark:latest"
+MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"
+MERGE_OWNER_LABEL_VALUE="${RUN_ID}-$$"
+if [[ ! "${MERGE_OWNER_LABEL_VALUE}" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9]+$ ]]; then
+    printf 'invalid merge ownership label value %q\n' "${MERGE_OWNER_LABEL_VALUE}" >&2
+    exit 2
+fi
 
 for project_name in "${DEV_PROJECT}" "${INTEROP_PROJECT_NAME}" "${INTEROP_BGP_PROJECT_NAME}"; do
     if [[ ! "${project_name}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
@@ -27,13 +32,11 @@ mkdir -p "${REPORT_DIR}/interop" "${REPORT_DIR}/interop-bgp"
 : >"${REPORT_DIR}/go-test.log"
 : >"${REPORT_DIR}/containers.log"
 
-DEV_DC=(timeout 7m podman-compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
 PODMAN=(timeout 2m podman)
 # shellcheck source=test/interop/project_guard.sh
 source "${ROOT_DIR}/test/interop/project_guard.sh"
 OWNED_PROJECTS=()
 declare -A PROJECT_LOCK_FDS=()
-declare -A PROJECT_FIXED_NAMES=()
 
 write_environment() {
     cat >"${REPORT_DIR}/environment.json" <<EOF_ENV
@@ -244,6 +247,15 @@ start_generic_suite() {
 
 merge_artifacts() {
     local merge_status=0
+    local merge_ids
+
+    merge_ids="$(interop_query_labelled_container_ids \
+        "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}")" || return 1
+    if [[ -n "${merge_ids}" ]]; then
+        printf 'merge ownership label collision %s=%s\n' \
+            "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}" >&2
+        return 1
+    fi
     python3 - "${REPORT_DIR}" <<'PY' || merge_status=1
 import json
 import pathlib
@@ -261,14 +273,20 @@ for name in ("interop", "interop-bgp"):
 PY
 
     if [ -s "${REPORT_DIR}/interop/packets.pcapng" ] && [ -s "${REPORT_DIR}/interop-bgp/packets.pcapng" ]; then
-        "${PODMAN[@]}" run --rm \
-            --label "com.docker.compose.project=${INTEROP_PROJECT_NAME}" \
+        if ! "${PODMAN[@]}" run \
+            --label "${MERGE_OWNER_LABEL_KEY}=${MERGE_OWNER_LABEL_VALUE}" \
             --entrypoint /usr/bin/mergecap \
             -v "${REPORT_DIR}:/reports:z" "${TSHARK_IMAGE}" \
             -w /reports/packets.pcapng \
             /reports/interop/packets.pcapng \
-            /reports/interop-bgp/packets.pcapng >/dev/null 2>"${REPORT_DIR}/mergecap.err" || true
+            /reports/interop-bgp/packets.pcapng >/dev/null 2>"${REPORT_DIR}/mergecap.err"; then
+            merge_status=1
+        fi
     fi
+    interop_remove_labelled_containers \
+        "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}" || merge_status=1
+    interop_verify_labelled_containers_absent \
+        "${MERGE_OWNER_LABEL_KEY}" "${MERGE_OWNER_LABEL_VALUE}" || merge_status=1
     return "${merge_status}"
 }
 
@@ -298,12 +316,6 @@ assert_fixed_names_available() {
     local project_name="$1"
     shift
     interop_assert_fixed_names_available "${project_name}" "$@"
-}
-
-fixed_names_match_project() {
-    local project_name="$1"
-    shift
-    interop_fixed_names_match_project "${project_name}" "$@"
 }
 
 resolve_project_container_id() {
@@ -337,19 +349,7 @@ verify_project_absent() {
 
 cleanup_project() {
     local project_name="$1"
-    local compose_file="$2"
-    shift 2
-    local fixed_names=("$@")
     local status=0
-    if fixed_names_match_project "${project_name}" "${fixed_names[@]}"; then
-        timeout 2m podman-compose -p "${project_name}" -f "${compose_file}" \
-            down --volumes --remove-orphans >/dev/null 2>&1 || \
-            printf 'Compose cleanup was partial for project %s; resolving exact labelled resources\n' \
-                "${project_name}" >&2
-    else
-        printf 'skipping Compose down for project %s because a fixed container name is foreign\n' \
-            "${project_name}" >&2
-    fi
     remove_project_resources "${project_name}" || status=1
     verify_project_absent "${project_name}" || status=1
     return "${status}"
@@ -400,8 +400,7 @@ run_suite() {
         release_project_lock "${project_name}" || true
         return 1
     fi
-    OWNED_PROJECTS+=("${project_name}:${compose_file}")
-    PROJECT_FIXED_NAMES["${project_name}"]="${containers[*]}"
+    OWNED_PROJECTS+=("${project_name}")
     if ! timeout 10m "${dc[@]}" build --no-cache; then
         printf 'suite %s image build failed\n' "${suite}" >&2
         test_status=1
@@ -425,8 +424,12 @@ run_suite() {
     fi
 
     if [ "${test_status}" -eq 0 ]; then
+        local dev_id
+        dev_id="$(interop_resolve_project_service_container_id "${DEV_PROJECT}" dev)" || test_status=1
+    fi
+    if [ "${test_status}" -eq 0 ]; then
         set +e
-        "${DEV_DC[@]}" exec -T dev env \
+        "${PODMAN[@]}" exec "${dev_id}" env \
             "INTEROP_PROJECT_NAME=${project_name}" \
             "${env_name}=/app/${compose_file#"${ROOT_DIR}/"}" \
             go test -tags "${tag}" -json -v -count=1 -timeout 300s "${package}" \
@@ -451,9 +454,8 @@ run_suite() {
     fi
     collect_pcap "${suite}" "${project_name}" "${tshark_container}" || true
     record_containers "${suite}" "${project_name}" "${containers[@]}"
-    cleanup_project "${project_name}" "${compose_file}" "${containers[@]}" || test_status=1
+    cleanup_project "${project_name}" || test_status=1
     release_project_lock "${project_name}" || test_status=1
-    unset "PROJECT_FIXED_NAMES[${project_name}]"
     unset "OWNED_PROJECTS[${owned_index}]"
     return "${test_status}"
 }
@@ -461,17 +463,14 @@ run_suite() {
 cleanup() {
     local status="$?"
     trap - EXIT
-    local owned project_name compose_file fixed_names_text
-    local fixed_names=()
+    local owned project_name
     if ! merge_artifacts; then
-        printf 'routing artifact merge failed; preserving suite and cleanup status\n' >&2
+        printf 'routing artifact merge failed\n' >&2
+        status=1
     fi
     for owned in "${OWNED_PROJECTS[@]}"; do
-        project_name="${owned%%:*}"
-        compose_file="${owned#*:}"
-        fixed_names_text="${PROJECT_FIXED_NAMES[${project_name}]:-}"
-        read -r -a fixed_names <<<"${fixed_names_text}"
-        cleanup_project "${project_name}" "${compose_file}" "${fixed_names[@]}" || status=1
+        project_name="${owned}"
+        cleanup_project "${project_name}" || status=1
         release_project_lock "${project_name}" || status=1
     done
     write_environment

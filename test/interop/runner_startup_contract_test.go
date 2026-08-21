@@ -26,6 +26,7 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		collisionClass string
 		foreignName    string
 		foreignCleanup string
+		ownershipSwap  bool
 		lockFailure    bool
 		wantDiagnostic string
 		wantInspect    bool
@@ -93,6 +94,13 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 			wantInspect:    true,
 			wantSecondUp:   true,
 		},
+		"ownership swap after successful fixed-name inspection": {
+			waitStatus:    "0",
+			inspectStatus: "0",
+			ownershipSwap: true,
+			wantInspect:   true,
+			wantSecondUp:  true,
+		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -108,6 +116,9 @@ if [[ "$*" == *" up -d holo holo-config" ]]; then
 fi
 if [[ "$*" == *" up -d --no-deps gobfd frr bird3 tshark thoro" ]]; then
     : > "${INTEROP_FAKE_STATE_DIR}/phase2"
+fi
+if [[ "$*" == *" down --volumes --remove-orphans" && "${INTEROP_FAKE_OWNERSHIP_SWAP:-}" == "true" ]]; then
+    printf '%s\n' 'podman rm -f foreign-swapped-container-name' >> "${INTEROP_FAKE_COMMAND_LOG}"
 fi
 exit 0
 `
@@ -152,7 +163,7 @@ fi
 		    name="${@: -1}"
 		    prefix=""
 		    if [[ "$*" == *"{{.ID}}|"* ]]; then
-		        prefix="owned-${name}|"
+		        prefix="immutable-${name%-interop}-id|"
 		    fi
 		    if [[ "${INTEROP_FAKE_FOREIGN_NAME:-}" == "${name}" ]] || \
 		       { [[ -f "${INTEROP_FAKE_STATE_DIR}/phase2" ]] && \
@@ -205,6 +216,7 @@ exec /usr/bin/flock "$@"
 				"INTEROP_FAKE_COLLISION_CLASS="+test.collisionClass,
 				"INTEROP_FAKE_FOREIGN_NAME="+test.foreignName,
 				"INTEROP_FAKE_FOREIGN_CLEANUP="+test.foreignCleanup,
+				fmt.Sprintf("INTEROP_FAKE_OWNERSHIP_SWAP=%t", test.ownershipSwap),
 				fmt.Sprintf("INTEROP_FAKE_LOCK_FAILURE=%t", test.lockFailure),
 				"INTEROP_FAKE_STATE_DIR="+stateDir,
 				"XDG_RUNTIME_DIR="+t.TempDir(),
@@ -227,6 +239,8 @@ exec /usr/bin/flock "$@"
 			if test.foreignCleanup != "" {
 				assertForeignCleanupIsLabelOnly(t, string(commands))
 			}
+			assertNoComposeCleanup(t, string(commands))
+			assertNoNameBasedRuntimeMutation(t, string(commands))
 			if test.wantDiagnostic != "" && runErr == nil {
 				t.Fatalf("runner reported loader failure but exited successfully; output:\n%s", output)
 			}
@@ -277,6 +291,160 @@ func TestMakeRejectsInvalidInteropProjectBeforeCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(commandMarker); !os.IsNotExist(err) {
 		t.Fatalf("invalid project name reached podman-compose: %v", err)
+	}
+}
+
+func TestMakeDoesNotExpandNestedProjectFunctions(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	commandMarker := filepath.Join(t.TempDir(), "podman-compose-called")
+	composeFake := "#!/usr/bin/env bash\nprintf '%s\\n' called > \"${INTEROP_FAKE_MAKE_MARKER}\"\n"
+	if err := writeExecutable(filepath.Join(fakeBin, "podman-compose"), composeFake); err != nil {
+		t.Fatalf("write fake podman-compose: %v", err)
+	}
+	shellMarker := filepath.Join(t.TempDir(), "make-shell-expanded")
+	projectName := "$(info MAKE-INFO-EXPANDED)$(shell printf expanded > " + shellMarker + ")safe"
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "make", "--no-print-directory", "interop-up", "INTEROP_PROJECT_NAME="+projectName)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "INTEROP_FAKE_MAKE_MARKER="+commandMarker)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("make accepted nested-function INTEROP_PROJECT_NAME; output:\n%s", output)
+	}
+	for line := range strings.Lines(string(output)) {
+		if strings.TrimSpace(line) == "MAKE-INFO-EXPANDED" {
+			t.Fatalf("make expanded nested info function; output:\n%s", output)
+		}
+	}
+	if _, err := os.Stat(shellMarker); !os.IsNotExist(err) {
+		t.Fatalf("make expanded nested shell function: %v", err)
+	}
+	if _, err := os.Stat(commandMarker); !os.IsNotExist(err) {
+		t.Fatalf("nested-function project name reached podman-compose: %v", err)
+	}
+}
+
+func TestInteropProjectLockRejectsUnsafeFallbackBase(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	unsafeBase := filepath.Join(t.TempDir(), "unsafe-fallback")
+	if err := os.Mkdir(unsafeBase, 0o777); err != nil {
+		t.Fatalf("create unsafe fallback base: %v", err)
+	}
+	if err := os.Chmod(unsafeBase, 0o777); err != nil {
+		t.Fatalf("set unsafe fallback mode: %v", err)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_validate_fallback_lock_base "$2"
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "fallback-check",
+		filepath.Join(root, "test", "interop", "project_guard.sh"), unsafeBase)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("accepted group/world-writable non-sticky fallback base; output:\n%s", output)
+	}
+}
+
+func TestProjectControlLockRunRequiresExistingExactProject(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	marker := filepath.Join(t.TempDir(), "command-ran")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+if [[ "$*" == "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
+    printf '%s\n' immutable-project-container-id
+    exit 0
+fi
+if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
+    exit 1
+fi
+exit 0
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	cmd := exec.CommandContext(
+		t.Context(),
+		filepath.Join(root, "test", "interop", "projectctl.sh"),
+		"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
+	)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+		"XDG_RUNTIME_DIR="+t.TempDir(),
+	)
+	if output, runErr := cmd.CombinedOutput(); runErr != nil {
+		t.Fatalf("run command under exact project lock: %v; output:\n%s", runErr, output)
+	}
+	if contents, readErr := os.ReadFile(marker); readErr != nil || string(contents) != "ran" {
+		t.Fatalf("locked command marker = %q, %v", contents, readErr)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if !strings.Contains(string(commands), "label=com.docker.compose.project=gobfd-interop") {
+		t.Fatalf("lock-run did not prove an existing exact project; commands:\n%s", commands)
+	}
+}
+
+func TestLabelledContainerCleanupUsesExactSnapshotID(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	stateDir := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+if [[ "$*" == "ps -a --no-trunc --filter label=io.gobfd.e2e.merge-owner=run-123 --format {{.ID}}" ]]; then
+    [[ -f "${INTEROP_FAKE_STATE_DIR}/removed" ]] || printf '%s\n' immutable-merge-container-id
+    exit 0
+fi
+if [[ "$*" == "rm -f -- immutable-merge-container-id" ]]; then
+    : > "${INTEROP_FAKE_STATE_DIR}/removed"
+    exit 0
+fi
+exit 9
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_labelled_containers io.gobfd.e2e.merge-owner run-123
+interop_verify_labelled_containers_absent io.gobfd.e2e.merge-owner run-123
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "merge-cleanup",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+		"INTEROP_FAKE_STATE_DIR="+stateDir,
+	)
+	if output, runErr := cmd.CombinedOutput(); runErr != nil {
+		t.Fatalf("cleanup merge-labelled container: %v; output:\n%s", runErr, output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if !strings.Contains(string(commands), "rm -f -- immutable-merge-container-id") {
+		t.Fatalf("merge cleanup did not remove immutable snapshot ID; commands:\n%s", commands)
 	}
 }
 
@@ -420,10 +588,10 @@ func assertHoloStartupSequence(t *testing.T, root, commandLog string, wantInspec
 		"podman container exists holo-config-interop",
 		"podman inspect --type container --format {{.ID}}|" +
 			"{{ index .Config.Labels \"com.docker.compose.project\" }} holo-config-interop",
-		"podman wait owned-holo-config-interop",
+		"podman wait immutable-holo-config-id",
 	}
 	if wantInspect {
-		want = append(want, "podman inspect --format {{.State.ExitCode}} owned-holo-config-interop")
+		want = append(want, "podman inspect --format {{.State.ExitCode}} immutable-holo-config-id")
 	}
 	assertCommandSubsequence(t, commandLog, want)
 }
@@ -526,6 +694,30 @@ func assertForeignCleanupIsLabelOnly(t *testing.T, commandLog string) {
 	query := "podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}"
 	if strings.Count(commandLog, query) < 2 {
 		t.Fatalf("runner did not re-query exact project labels during fallback cleanup; commands:\n%s", commandLog)
+	}
+}
+
+func assertNoComposeCleanup(t *testing.T, commandLog string) {
+	t.Helper()
+
+	for line := range strings.Lines(commandLog) {
+		command := strings.TrimSpace(line)
+		if strings.HasPrefix(command, "-p ") && strings.Contains(command, " down ") {
+			t.Fatalf("runner invoked name-based Compose cleanup: %q", command)
+		}
+	}
+}
+
+func assertNoNameBasedRuntimeMutation(t *testing.T, commandLog string) {
+	t.Helper()
+
+	for line := range strings.Lines(commandLog) {
+		command := strings.TrimSpace(line)
+		for _, action := range []string{"podman rm ", "podman stop ", "podman start "} {
+			if strings.HasPrefix(command, action) && strings.Contains(command, "-interop") {
+				t.Fatalf("runner used a mutable container name for runtime mutation: %q", command)
+			}
+		}
 	}
 }
 
