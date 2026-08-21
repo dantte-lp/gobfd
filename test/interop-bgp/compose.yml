@@ -65,8 +65,6 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    volumes:
-      - captures:/captures:z
 
   # === FRR: bgpd + bfdd at 172.21.0.20 (ASN 65002) ===
 
@@ -134,9 +132,6 @@ services:
       - exabgp.api.ack=false
       - exabgp.api.cli=false
     command: ["server", "/etc/exabgp/exabgp.conf"]
-
-volumes:
-  captures:
 
 networks:
   bgpbfdnet:

@@ -16,8 +16,6 @@ RUN apt-get update \
 
 RUN mkdir -p /captures
 
-VOLUME /captures
-
 # Capture BFD control packets (port 3784), echo packets (port 3785), and
 # multihop packets (port 4784) on all interfaces. Autostop after 100MB to
 # prevent disk exhaustion.

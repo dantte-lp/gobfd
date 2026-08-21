@@ -11,6 +11,44 @@ import (
 	"time"
 )
 
+const holoInterfaceConfig = `{"name":"eth0","type":"iana-if-type:ethernetCsmacd","ietf-ip:ipv4":{}}`
+
+const holoSessionConfig = `{"interface":"eth0","dest-addr":"172.20.0.10",` +
+	`"source-addr":"172.20.0.50","local-multiplier":3,` +
+	`"desired-min-tx-interval":300000,"required-min-rx-interval":300000}`
+
+const holoProtocolConfig = `{"type":"ietf-bfd-types:bfdv1","name":"main",` +
+	`"ietf-bfd:bfd":{"ietf-bfd-ip-sh:ip-sh":{"sessions":{"session":[` +
+	holoSessionConfig + `]}}}}`
+
+const validHoloRunningConfig = `{"ietf-interfaces:interfaces":{"interface":[` +
+	holoInterfaceConfig + `]},"ietf-routing:routing":{"control-plane-protocols":` +
+	`{"control-plane-protocol":[` + holoProtocolConfig + `]}}}`
+
+const holoRunningConfigWithoutInterface = `{"ietf-routing:routing":{"control-plane-protocols":` +
+	`{"control-plane-protocol":[` + holoProtocolConfig + `]}}}`
+
+const holoRunningConfigDuplicateInterface = `{"ietf-interfaces:interfaces":{"interface":[` +
+	holoInterfaceConfig + `,` + holoInterfaceConfig + `]},"ietf-routing:routing":` +
+	`{"control-plane-protocols":{"control-plane-protocol":[` + holoProtocolConfig + `]}}}`
+
+const holoRunningConfigDuplicateProtocol = `{"ietf-interfaces:interfaces":{"interface":[` +
+	holoInterfaceConfig + `]},"ietf-routing:routing":{"control-plane-protocols":` +
+	`{"control-plane-protocol":[` + holoProtocolConfig + `,` + holoProtocolConfig + `]}}}`
+
+const holoProtocolDuplicateSessionConfig = `{"type":"ietf-bfd-types:bfdv1","name":"main",` +
+	`"ietf-bfd:bfd":{"ietf-bfd-ip-sh:ip-sh":{"sessions":{"session":[` +
+	holoSessionConfig + `,` + holoSessionConfig + `]}}}}`
+
+const holoRunningConfigDuplicateSession = `{"ietf-interfaces:interfaces":{"interface":[` +
+	holoInterfaceConfig + `]},"ietf-routing:routing":{"control-plane-protocols":` +
+	`{"control-plane-protocol":[` + holoProtocolDuplicateSessionConfig + `]}}}`
+
+const holoSemanticPodmanArgs = "exec immutable-holo-id holo-cli --no-colors --no-pager " +
+	"--address http://127.0.0.1:50051 --command show running format json"
+
+const holoSemanticCommandLog = "podman " + holoSemanticPodmanArgs
+
 func TestInteropRunnerHoloConfigGate(t *testing.T) {
 	t.Parallel()
 
@@ -23,6 +61,10 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		inspectStatus  string
 		waitExit       string
 		inspectExit    string
+		semanticConfig string
+		semanticExit   string
+		loaderLog      string
+		holoVersion    string
 		collisionClass string
 		foreignName    string
 		foreignCleanup string
@@ -30,21 +72,123 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		lockFailure    bool
 		wantDiagnostic string
 		wantInspect    bool
+		wantLoaderLog  bool
+		wantVersion    bool
+		wantSemantic   bool
 		wantSecondUp   bool
 		useOverride    bool
 	}{
 		"zero success": {
-			waitStatus:    "0",
-			inspectStatus: "0",
-			wantInspect:   true,
-			wantSecondUp:  true,
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+			wantSecondUp:   true,
 		},
 		"zero success with override": {
-			waitStatus:    "0",
-			inspectStatus: "0",
-			wantInspect:   true,
-			wantSecondUp:  true,
-			useOverride:   true,
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+			wantSecondUp:   true,
+			useOverride:    true,
+		},
+		"missing BFD running configuration": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: `{"ietf-routing:routing":{"control-plane-protocols":{"control-plane-protocol":[]}}}`,
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"missing interface running configuration": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: holoRunningConfigWithoutInterface,
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"duplicate interface running configuration": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: holoRunningConfigDuplicateInterface,
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"duplicate BFD protocol running configuration": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: holoRunningConfigDuplicateProtocol,
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"duplicate BFD session running configuration": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: holoRunningConfigDuplicateSession,
+			wantDiagnostic: "Holo running configuration is missing the required BFD session",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"invalid running configuration JSON": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: "not-json",
+			wantDiagnostic: "Holo running configuration is not valid JSON",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"running configuration probe failure": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticExit:   "17",
+			wantDiagnostic: "failed to inspect Holo running configuration",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"partial invalid loader log": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
+			loaderLog:      "% failed to parse one startup line",
+			wantDiagnostic: "Holo configuration loader reported parser or commit errors",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"unexpected nonempty loader log": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
+			loaderLog:      "configuration committed with warning",
+			wantDiagnostic: "Holo configuration loader produced unexpected output",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+		},
+		"unexpected Holo CLI version": {
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
+			holoVersion:    "Holo command-line interface 0.6.0",
+			wantDiagnostic: "unexpected Holo CLI version: Holo command-line interface 0.6.0",
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantVersion:    true,
 		},
 		"non-zero status": {
 			waitStatus:     "7",
@@ -98,16 +242,22 @@ func TestInteropRunnerHoloConfigGate(t *testing.T) {
 		"foreign fixed name before cleanup": {
 			waitStatus:     "0",
 			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
 			foreignCleanup: "scapy-interop",
 			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
 			wantSecondUp:   true,
 		},
 		"ownership swap after successful fixed-name inspection": {
-			waitStatus:    "0",
-			inspectStatus: "0",
-			ownershipSwap: true,
-			wantInspect:   true,
-			wantSecondUp:  true,
+			waitStatus:     "0",
+			inspectStatus:  "0",
+			semanticConfig: validHoloRunningConfig,
+			ownershipSwap:  true,
+			wantInspect:    true,
+			wantLoaderLog:  true,
+			wantSemantic:   true,
+			wantSecondUp:   true,
 		},
 	}
 	for name, test := range tests {
@@ -165,7 +315,7 @@ if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
     fi
     exit 1
 fi
-	case "${1:-}" in
+		case "${1:-}" in
     ps)
         printf '%s\n' gobfd-interop frr-interop bird3-interop holo-interop thoro-interop tshark-interop
         ;;
@@ -173,7 +323,7 @@ fi
         printf '%s\n' "${INTEROP_FAKE_WAIT_STATUS:-}"
         exit "${INTEROP_FAKE_WAIT_EXIT:-0}"
         ;;
-	    inspect)
+		    inspect)
 		if [[ "$*" == *"index .Config.Labels"* ]]; then
 		    name="${@: -1}"
 		    prefix=""
@@ -192,9 +342,27 @@ fi
         if [[ "${2:-}" == "--format" ]]; then
             printf '%s\n' "${INTEROP_FAKE_INSPECT_STATUS:-}"
             exit "${INTEROP_FAKE_INSPECT_EXIT:-0}"
-        fi
-        ;;
-esac
+	        fi
+	        ;;
+	    exec)
+	        if [[ "$*" == "exec immutable-holo-id holo-cli --version" ]]; then
+	            printf '%s\n' "${INTEROP_FAKE_HOLO_VERSION:-}"
+	            exit "${INTEROP_FAKE_VERSION_EXIT:-0}"
+	        fi
+	        semantic_command="exec immutable-holo-id holo-cli --no-colors --no-pager "
+	        semantic_command+="--address http://127.0.0.1:50051 --command show running format json"
+	        if [[ "$*" == "${semantic_command}" ]]; then
+	            printf '%s\n' "${INTEROP_FAKE_SEMANTIC_CONFIG:-}"
+	            exit "${INTEROP_FAKE_SEMANTIC_EXIT:-0}"
+	        fi
+	        ;;
+	    logs)
+	        if [[ "${2:-}" == "immutable-holo-config-id" ]]; then
+	            printf '%s' "${INTEROP_FAKE_LOADER_LOG:-}"
+	            exit 0
+	        fi
+	        ;;
+	esac
 exit 0
 `
 			flockFake := `#!/usr/bin/env bash
@@ -219,6 +387,10 @@ exec /usr/bin/flock "$@"
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			runner := filepath.Join(root, "test", "interop", "run.sh")
+			holoVersion := test.holoVersion
+			if holoVersion == "" {
+				holoVersion = "Holo command-line interface 0.5.0"
+			}
 			cmd := exec.CommandContext(ctx, "bash", runner)
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(),
@@ -228,6 +400,10 @@ exec /usr/bin/flock "$@"
 				"INTEROP_FAKE_INSPECT_STATUS="+test.inspectStatus,
 				"INTEROP_FAKE_WAIT_EXIT="+test.waitExit,
 				"INTEROP_FAKE_INSPECT_EXIT="+test.inspectExit,
+				"INTEROP_FAKE_SEMANTIC_CONFIG="+test.semanticConfig,
+				"INTEROP_FAKE_SEMANTIC_EXIT="+test.semanticExit,
+				"INTEROP_FAKE_LOADER_LOG="+test.loaderLog,
+				"INTEROP_FAKE_HOLO_VERSION="+holoVersion,
 				"INTEROP_FAKE_COLLISION_CLASS="+test.collisionClass,
 				"INTEROP_FAKE_FOREIGN_NAME="+test.foreignName,
 				"INTEROP_FAKE_FOREIGN_CLEANUP="+test.foreignCleanup,
@@ -252,7 +428,13 @@ exec /usr/bin/flock "$@"
 			if test.collisionClass != "" || test.foreignName != "" {
 				assertNoProjectMutation(t, string(commands))
 			} else if !test.lockFailure {
-				assertHoloStartupSequence(t, root, overrideFile, string(commands), test.wantInspect)
+				assertHoloStartupSequence(
+					t, root, overrideFile, string(commands), test.wantInspect, test.wantLoaderLog,
+					test.wantVersion || test.wantSemantic, test.wantSemantic, test.wantSecondUp,
+				)
+			}
+			if !test.wantSemantic && strings.Contains(string(commands), holoSemanticCommandLog) {
+				t.Fatalf("runner probed Holo semantics before a successful loader wait/inspect gate; commands:\n%s", commands)
 			}
 			if test.foreignCleanup != "" {
 				assertForeignCleanupIsLabelOnly(t, string(commands))
@@ -348,6 +530,145 @@ func TestInteropRunnerRejectsInvalidComposeOverride(t *testing.T) {
 			}
 			if _, statErr := os.Stat(commandMarker); !os.IsNotExist(statErr) {
 				t.Fatalf("invalid Compose override reached Podman or Compose: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestProjectControlHoloSemanticGate(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	tests := map[string]struct {
+		loaderLog    string
+		wantSecondUp bool
+		want         string
+	}{
+		"valid exact configuration": {wantSecondUp: true},
+		"partial invalid loader log": {
+			loaderLog: "% failed to parse one startup line",
+			want:      "Holo configuration loader reported parser or commit errors",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fakeBin := t.TempDir()
+			stateDir := t.TempDir()
+			commandLog := filepath.Join(t.TempDir(), "commands.log")
+			composeFake := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
+if [[ "$*" == *" up -d holo holo-config" ]]; then
+    : > "${INTEROP_FAKE_STATE_DIR}/started"
+fi
+if [[ "$*" == *" up -d --no-deps gobfd frr bird3 tshark thoro" ]]; then
+    : > "${INTEROP_FAKE_STATE_DIR}/phase2"
+fi
+`
+			podmanFake := `#!/usr/bin/env bash
+printf 'podman %s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}")
+        if [[ -f "${INTEROP_FAKE_STATE_DIR}/started" ]]; then
+            [[ -f "${INTEROP_FAKE_STATE_DIR}/holo-removed" ]] || printf '%s\n' immutable-holo-id
+            [[ -f "${INTEROP_FAKE_STATE_DIR}/loader-removed" ]] || printf '%s\n' immutable-holo-config-id
+        fi
+        ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}"|"volume ls --filter ${label} --format {{.Name}}") ;;
+    "container exists immutable-holo-id")
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/holo-removed" ]] && exit 1
+        ;;
+    "container exists immutable-holo-config-id")
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/loader-removed" ]] && exit 1
+        ;;
+    "rm -f -- immutable-holo-id") : > "${INTEROP_FAKE_STATE_DIR}/holo-removed" ;;
+    "rm -f -- immutable-holo-config-id") : > "${INTEROP_FAKE_STATE_DIR}/loader-removed" ;;
+    "wait immutable-holo-config-id") printf '%s\n' 0 ;;
+    "inspect --format {{.State.ExitCode}} immutable-holo-config-id") printf '%s\n' 0 ;;
+    "logs immutable-holo-config-id") printf '%s' "${INTEROP_FAKE_LOADER_LOG:-}" ;;
+    "exec immutable-holo-id holo-cli --version") printf '%s\n' 'Holo command-line interface 0.5.0' ;;
+    "${semantic_command}")
+        printf '%s\n' "${INTEROP_FAKE_SEMANTIC_CONFIG}"
+        ;;
+    *)
+        if [[ "${1:-}" == container && "${2:-}" == exists ]]; then
+            [[ -f "${INTEROP_FAKE_STATE_DIR}/started" ]] && exit 0
+            exit 1
+        fi
+        if [[ "${1:-}" == inspect && "$*" == *"index .Config.Labels"* ]]; then
+            container_name="${@: -1}"
+            printf 'immutable-%s-id|gobfd-interop\n' "${container_name%-interop}"
+            exit 0
+        fi
+        exit 9
+        ;;
+esac
+`
+			podmanFake = strings.Replace(
+				podmanFake,
+				"label=\"label=com.docker.compose.project=gobfd-interop\"",
+				"label=\"label=com.docker.compose.project=gobfd-interop\"\n"+
+					"semantic_command=\""+holoSemanticPodmanArgs+"\"",
+				1,
+			)
+			for command, contents := range map[string]string{
+				"podman":         podmanFake,
+				"podman-compose": composeFake,
+			} {
+				if writeErr := writeExecutable(filepath.Join(fakeBin, command), contents); writeErr != nil {
+					t.Fatalf("write fake %s: %v", command, writeErr)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "test", "interop", "projectctl.sh"), "up")
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(),
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
+				"INTEROP_FAKE_STATE_DIR="+stateDir,
+				"INTEROP_FAKE_LOADER_LOG="+test.loaderLog,
+				"INTEROP_FAKE_SEMANTIC_CONFIG="+validHoloRunningConfig,
+				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+			)
+			output, runErr := cmd.CombinedOutput()
+			if test.want != "" {
+				if runErr == nil {
+					t.Fatalf("project control accepted invalid Holo loader output; output:\n%s", output)
+				}
+				if !strings.Contains(string(output), test.want) {
+					t.Fatalf("project control output is missing %q; output:\n%s", test.want, output)
+				}
+			} else if runErr != nil {
+				t.Fatalf("project control rejected valid Holo configuration: %v; output:\n%s", runErr, output)
+			}
+			commands, readErr := os.ReadFile(commandLog)
+			if readErr != nil {
+				t.Fatalf("read fake command log: %v", readErr)
+			}
+			sharedSequence := []string{
+				"podman wait immutable-holo-config-id",
+				"podman inspect --format {{.State.ExitCode}} immutable-holo-config-id",
+				"podman logs immutable-holo-config-id",
+				"podman container exists holo-interop",
+				"podman inspect --type container --format {{.ID}}|" +
+					"{{ index .Config.Labels \"com.docker.compose.project\" }} holo-interop",
+				"podman exec immutable-holo-id holo-cli --version",
+				holoSemanticCommandLog,
+			}
+			if test.wantSecondUp {
+				sharedSequence = append(sharedSequence,
+					"-p gobfd-interop -f "+filepath.Join(root, "test", "interop", "compose.yml")+
+						" up -d --no-deps gobfd frr bird3 tshark thoro",
+				)
+			}
+			assertCommandSubsequence(t, string(commands), sharedSequence)
+			secondUp := strings.Contains(string(commands), "up -d --no-deps gobfd frr bird3 tshark thoro")
+			if secondUp != test.wantSecondUp {
+				t.Fatalf("project control second phase = %t, want %t; commands:\n%s", secondUp, test.wantSecondUp, commands)
 			}
 		})
 	}
@@ -730,6 +1051,10 @@ if [[ "$*" == "rm -f -- immutable-merge-container-id" ]]; then
     : > "${INTEROP_FAKE_STATE_DIR}/removed"
     exit 0
 fi
+if [[ "$*" == "container exists immutable-merge-container-id" ]]; then
+    [[ -f "${INTEROP_FAKE_STATE_DIR}/removed" ]] && exit 1
+    exit 0
+fi
 exit 9
 `
 	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
@@ -756,6 +1081,254 @@ interop_verify_labelled_containers_absent io.gobfd.e2e.merge-owner run-123
 	}
 	if !strings.Contains(string(commands), "rm -f -- immutable-merge-container-id") {
 		t.Fatalf("merge cleanup did not remove immutable snapshot ID; commands:\n%s", commands)
+	}
+}
+
+func TestEmptyContainerSnapshotCleanupSucceeds(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_container_snapshot
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "empty-snapshot-cleanup",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	if output, runErr := cmd.CombinedOutput(); runErr != nil {
+		t.Fatalf("empty exact container snapshot was not a successful no-op: %v; output:\n%s", runErr, output)
+	}
+}
+
+func TestProjectResourceCleanupRetriesExactSnapshotDependencies(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	stateDir := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+	case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}")
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/parent-removed" ]] || printf '%s\n' immutable-parent-id
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/child-removed" ]] || printf '%s\n' immutable-child-id
+        ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}")
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/network-removed" ]] || printf '%s\n' immutable-network-id
+        ;;
+	    "volume ls --filter ${label} --format {{.Name}}")
+	        ;;
+    "rm -f -- immutable-parent-id")
+        if [[ ! -f "${INTEROP_FAKE_STATE_DIR}/child-removed" ]]; then
+            exit 17
+        fi
+        : > "${INTEROP_FAKE_STATE_DIR}/parent-removed"
+        ;;
+    "rm -f -- immutable-child-id")
+        : > "${INTEROP_FAKE_STATE_DIR}/child-removed"
+        exit 17
+        ;;
+    "container exists immutable-parent-id")
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/parent-removed" ]] && exit 1
+        ;;
+    "container exists immutable-child-id")
+        [[ -f "${INTEROP_FAKE_STATE_DIR}/child-removed" ]] && exit 1
+        ;;
+    "network rm -- immutable-network-id")
+        : > "${INTEROP_FAKE_STATE_DIR}/network-removed"
+        ;;
+	    *) exit 9 ;;
+esac
+exit 0
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_cleanup_project_resources gobfd-interop
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+		"INTEROP_FAKE_STATE_DIR="+stateDir,
+	)
+	if output, runErr := cmd.CombinedOutput(); runErr != nil {
+		t.Fatalf("cleanup dependent exact snapshots: %v; output:\n%s", runErr, output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	assertCommandSubsequence(t, string(commands), []string{
+		"rm -f -- immutable-parent-id",
+		"container exists immutable-parent-id",
+		"rm -f -- immutable-child-id",
+		"container exists immutable-child-id",
+		"rm -f -- immutable-parent-id",
+		"container exists immutable-parent-id",
+		"network rm -- immutable-network-id",
+	})
+	if strings.Contains(string(commands), "rm -f -- newly-appearing-id") {
+		t.Fatalf("cleanup mutated an ID outside its initial immutable snapshot; commands:\n%s", commands)
+	}
+}
+
+func TestProjectResourceCleanupRejectsLabelledVolumesBeforeMutation(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-container-id ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
+    "volume ls --filter ${label} --format {{.Name}}") printf '%s\n' mutable-volume-name ;;
+    *) exit 9 ;;
+esac
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-volume",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("cleanup accepted a mutable labelled volume; output:\n%s", output)
+	}
+	if !strings.Contains(string(output), "guarded interop projects must use container storage or bind mounts") {
+		t.Fatalf("cleanup output is missing labelled-volume diagnostic; output:\n%s", output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
+		if strings.Contains(string(commands), mutation) {
+			t.Fatalf("cleanup mutated resources after finding a mutable labelled volume: %q\ncommands:\n%s", mutation, commands)
+		}
+	}
+}
+
+func TestProjectResourceCleanupNeverMutatesNewlyAppearingID(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	stateDir := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}")
+        if [[ -f "${INTEROP_FAKE_STATE_DIR}/initial-removed" ]]; then
+            printf '%s\n' newly-appearing-id
+        else
+            printf '%s\n' immutable-initial-id
+        fi
+        ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}"|"volume ls --filter ${label} --format {{.Name}}") ;;
+    "rm -f -- immutable-initial-id") : > "${INTEROP_FAKE_STATE_DIR}/initial-removed" ;;
+    "container exists immutable-initial-id") exit 1 ;;
+    *) exit 9 ;;
+esac
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-new-id",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+		"INTEROP_FAKE_STATE_DIR="+stateDir,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("cleanup accepted a newly appearing exact-labelled ID; output:\n%s", output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if strings.Contains(string(commands), "rm -f -- newly-appearing-id") {
+		t.Fatalf("cleanup mutated an ID outside its initial immutable snapshot; commands:\n%s", commands)
+	}
+}
+
+func TestProjectResourceCleanupFailsOnNoProgress(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+label="label=com.docker.compose.project=gobfd-interop"
+case "$*" in
+    "ps -a --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-parent-id immutable-child-id ;;
+    "network ls --no-trunc --filter ${label} --format {{.ID}}") printf '%s\n' immutable-network-id ;;
+    "volume ls --filter ${label} --format {{.Name}}") ;;
+    "rm -f -- immutable-parent-id"|"rm -f -- immutable-child-id") exit 17 ;;
+    "container exists immutable-parent-id"|"container exists immutable-child-id") exit 0 ;;
+    *) exit 9 ;;
+esac
+`
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	script := `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-c", script, "project-cleanup-no-progress",
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("cleanup accepted a pass with no exact-ID progress; output:\n%s", output)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("cleanup did not terminate after a bounded no-progress pass: %v", ctx.Err())
+	}
+	if !strings.Contains(string(output), "no progress removing exact container snapshot") {
+		t.Fatalf("cleanup output is missing no-progress diagnostic; output:\n%s", output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if strings.Contains(string(commands), "network rm ") || strings.Contains(string(commands), "volume rm ") {
+		t.Fatalf("cleanup mutated networks or volumes before removing all exact container IDs; commands:\n%s", commands)
 	}
 }
 
@@ -877,7 +1450,11 @@ interop_acquire_project_lock gobfd-interop
 	}
 }
 
-func assertHoloStartupSequence(t *testing.T, root, overrideFile, commandLog string, wantInspect bool) {
+func assertHoloStartupSequence(
+	t *testing.T,
+	root, overrideFile, commandLog string,
+	wantInspect, wantLoaderLog, wantVersion, wantSemantic, wantSecondUp bool,
+) {
 	t.Helper()
 
 	composePrefix := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml")
@@ -907,6 +1484,25 @@ func assertHoloStartupSequence(t *testing.T, root, overrideFile, commandLog stri
 	}
 	if wantInspect {
 		want = append(want, "podman inspect --format {{.State.ExitCode}} immutable-holo-config-id")
+	}
+	if wantLoaderLog {
+		want = append(want, "podman logs immutable-holo-config-id")
+	}
+	if wantVersion {
+		want = append(want,
+			"podman container exists holo-interop",
+			"podman inspect --type container --format {{.ID}}|"+
+				"{{ index .Config.Labels \"com.docker.compose.project\" }} holo-interop",
+			"podman exec immutable-holo-id holo-cli --version",
+		)
+	}
+	if wantSemantic {
+		want = append(want,
+			holoSemanticCommandLog,
+		)
+	}
+	if wantSecondUp {
+		want = append(want, composePrefix+"up -d --no-deps gobfd frr bird3 tshark thoro")
 	}
 	assertCommandSubsequence(t, commandLog, want)
 }

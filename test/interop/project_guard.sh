@@ -280,6 +280,110 @@ interop_resolve_project_service_container_id() {
     printf '%s\n' "${resolved_id}"
 }
 
+interop_verify_holo_running_configuration() {
+    local project_name="$1"
+    local loader_id="$2"
+    local loader_logs holo_id holo_version running_config
+    local loader_error=""
+
+    if ! loader_logs="$("${PODMAN[@]}" logs "${loader_id}" 2>&1)"; then
+        printf 'failed to inspect Holo configuration loader logs\n' >&2
+        return 1
+    fi
+    if grep -q '^% ' <<<"${loader_logs}"; then
+        loader_error="Holo configuration loader reported parser or commit errors"
+    elif [[ "${loader_logs}" =~ [^[:space:]] ]]; then
+        loader_error="Holo configuration loader produced unexpected output"
+    fi
+
+    if ! holo_id="$(interop_resolve_project_container_id "${project_name}" holo-interop)"; then
+        printf 'holo-interop is absent or not owned by %s\n' "${project_name}" >&2
+        return 1
+    fi
+    if ! holo_version="$("${PODMAN[@]}" exec "${holo_id}" holo-cli --version 2>&1)"; then
+        printf 'failed to inspect Holo CLI version\n' >&2
+        return 1
+    fi
+    holo_version="${holo_version#"${holo_version%%[![:space:]]*}"}"
+    holo_version="${holo_version%"${holo_version##*[![:space:]]}"}"
+    if [[ "${holo_version}" != "Holo command-line interface 0.5.0" ]]; then
+        printf 'unexpected Holo CLI version: %s\n' "${holo_version}" >&2
+        return 1
+    fi
+
+    if ! running_config="$("${PODMAN[@]}" exec "${holo_id}" \
+        holo-cli --no-colors --no-pager \
+        --address http://127.0.0.1:50051 \
+        --command 'show running format json' 2>&1)"; then
+        printf 'failed to inspect Holo running configuration\n' >&2
+        return 1
+    fi
+    if ! jq -e . >/dev/null 2>&1 <<<"${running_config}"; then
+        printf 'Holo running configuration is not valid JSON\n' >&2
+        return 1
+    fi
+    if ! jq -e '
+        [
+          .["ietf-interfaces:interfaces"]?
+          | select(type == "object")
+          | .interface?
+          | select(type == "array")
+          | .[]
+          | select(
+              type == "object"
+              and .name == "eth0"
+              and .type == "iana-if-type:ethernetCsmacd"
+              and (.["ietf-ip:ipv4"] | type) == "object"
+            )
+        ] as $interfaces
+        | [
+            .["ietf-routing:routing"]?
+            | select(type == "object")
+            | .["control-plane-protocols"]?
+            | select(type == "object")
+            | .["control-plane-protocol"]?
+            | select(type == "array")
+            | .[]
+            | select(
+                type == "object"
+                and .type == "ietf-bfd-types:bfdv1"
+                and .name == "main"
+              )
+          ] as $protocols
+        | [
+            $protocols[]?
+            | .["ietf-bfd:bfd"]?
+            | select(type == "object")
+            | .["ietf-bfd-ip-sh:ip-sh"]?
+            | select(type == "object")
+            | .sessions?
+            | select(type == "object")
+            | .session?
+            | select(type == "array")
+            | .[]
+            | select(
+                type == "object"
+                and .interface == "eth0"
+                and .["dest-addr"] == "172.20.0.10"
+                and .["source-addr"] == "172.20.0.50"
+                and .["local-multiplier"] == 3
+                and .["desired-min-tx-interval"] == 300000
+                and .["required-min-rx-interval"] == 300000
+              )
+          ] as $sessions
+        | ($interfaces | length) == 1
+          and ($protocols | length) == 1
+          and ($sessions | length) == 1
+    ' >/dev/null 2>&1 <<<"${running_config}"; then
+        printf 'Holo running configuration is missing the required BFD session\n' >&2
+        return 1
+    fi
+    if [[ -n "${loader_error}" ]]; then
+        printf '%s\n' "${loader_error}" >&2
+        return 1
+    fi
+}
+
 interop_query_project_resources() {
     local project_name="$1"
     local project_label="com.docker.compose.project=${project_name}"
@@ -308,17 +412,65 @@ interop_query_labelled_container_ids() {
         --filter "label=${label_key}=${label_value}" --format '{{.ID}}'
 }
 
+interop_remove_container_snapshot() {
+    local -a remaining=("$@")
+    local -a next=()
+    local container_id exists_status progress pass
+    local max_passes="${#remaining[@]}"
+
+    for ((pass = 1; pass <= max_passes && ${#remaining[@]} > 0; pass++)); do
+        next=()
+        progress=0
+        for container_id in "${remaining[@]}"; do
+            timeout 30s podman rm -f -- "${container_id}" >/dev/null || true
+            exists_status=0
+            timeout 30s podman container exists "${container_id}" || exists_status=$?
+            case "${exists_status}" in
+                0)
+                    next+=("${container_id}")
+                    ;;
+                1)
+                    progress=1
+                    ;;
+                *)
+                    printf 'failed to verify exact container ID %s after removal attempt\n' \
+                        "${container_id}" >&2
+                    return 1
+                    ;;
+            esac
+        done
+        if [[ "${#next[@]}" -eq 0 ]]; then
+            return 0
+        fi
+        if [[ "${progress}" -eq 0 ]]; then
+            printf 'no progress removing exact container snapshot; remaining IDs:' >&2
+            printf ' %s' "${next[@]}" >&2
+            printf '\n' >&2
+            return 1
+        fi
+        remaining=("${next[@]}")
+    done
+
+    if [[ "${#remaining[@]}" -ne 0 ]]; then
+        printf 'bounded exact container cleanup exhausted; remaining IDs:' >&2
+        printf ' %s' "${remaining[@]}" >&2
+        printf '\n' >&2
+        return 1
+    fi
+}
+
 interop_remove_labelled_containers() {
     local label_key="$1"
     local label_value="$2"
-    local container_ids container_id status=0
+    local container_ids container_id
+    local -a snapshot=()
 
     container_ids="$(interop_query_labelled_container_ids "${label_key}" "${label_value}")" || return 1
     while IFS= read -r container_id; do
         [[ -n "${container_id}" ]] || continue
-        timeout 30s podman rm -f -- "${container_id}" >/dev/null || status=1
+        snapshot+=("${container_id}")
     done <<<"${container_ids}"
-    return "${status}"
+    interop_remove_container_snapshot "${snapshot[@]}"
 }
 
 interop_verify_labelled_containers_absent() {
@@ -336,24 +488,39 @@ interop_verify_labelled_containers_absent() {
 
 interop_remove_project_resources() {
     local project_name="$1"
-    local resources kind resource_id status=0
+    local resources kind resource_id
+    local -a container_ids=()
+    local -a network_ids=()
+    local -a volume_names=()
 
     resources="$(interop_query_project_resources "${project_name}")" || return 1
     while IFS=: read -r kind resource_id; do
         [[ -n "${kind}" ]] || continue
         case "${kind}" in
             container)
-                timeout 30s podman rm -f -- "${resource_id}" >/dev/null || status=1
+                container_ids+=("${resource_id}")
                 ;;
             network)
-                timeout 30s podman network rm -- "${resource_id}" >/dev/null || status=1
+                network_ids+=("${resource_id}")
                 ;;
             volume)
-                timeout 30s podman volume rm -- "${resource_id}" >/dev/null || status=1
+                volume_names+=("${resource_id}")
                 ;;
         esac
     done <<<"${resources}"
-    return "${status}"
+
+    if [[ "${#volume_names[@]}" -ne 0 ]]; then
+        printf 'guarded interop projects must use container storage or bind mounts; refusing mutable labelled volumes for Compose project %s:' \
+            "${project_name}" >&2
+        printf ' %s' "${volume_names[@]}" >&2
+        printf '\n' >&2
+        return 1
+    fi
+    interop_remove_container_snapshot "${container_ids[@]}" || return 1
+    for resource_id in "${network_ids[@]}"; do
+        timeout 30s podman network rm -- "${resource_id}" >/dev/null || true
+    done
+    interop_verify_project_absent "${project_name}"
 }
 
 interop_verify_project_absent() {

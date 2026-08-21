@@ -258,6 +258,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
 		{name: "BGP Compose topology", path: filepath.Join(root, "test", "interop-bgp", "compose.yml")},
 		{name: "RFC Compose topology", path: filepath.Join(root, "test", "interop-rfc", "compose.yml")},
+		{name: "tshark image", path: filepath.Join(root, "test", "interop", "tshark", "Containerfile")},
 	}
 	contents := make(map[string]string, len(files))
 	for _, file := range files {
@@ -293,6 +294,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`=== Holo daemon logs ===`,
 		`=== Holo daemon /tmp/holod.err ===`,
 		`=== Holo configuration loader logs ===`,
+		`interop_verify_holo_running_configuration`,
 	})
 	assertOrdered(t, "legacy runner preflight and startup", runner, []string{
 		"acquire_project_lock",
@@ -304,6 +306,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"resolve_project_container_id holo-config-interop",
 		`podman wait "${holo_config_id}"`,
 		`podman inspect --format '{{.State.ExitCode}}' "${holo_config_id}"`,
+		`interop_verify_holo_running_configuration`,
 		"up -d --no-deps gobfd frr bird3 tshark thoro",
 	})
 	assertOrdered(t, "legacy runner cleanup", runner, []string{
@@ -404,6 +407,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"up -d holo holo-config",
 		"podman wait",
 		"podman inspect --format '{{.State.ExitCode}}'",
+		"interop_verify_holo_running_configuration",
 		"up -d --no-deps gobfd frr bird3 tshark thoro",
 	})
 	stopProject := shellFunctionBody(t, projectControl, "stop_project")
@@ -465,6 +469,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"resolve_project_container_id",
 		"holo-interop",
 		"holo-config-interop",
+		"interop_verify_holo_running_configuration",
 	})
 	holoStartup := shellFunctionBody(t, routing, "start_holo_interop_suite")
 	assertOrdered(t, "routing Holo provider gate", holoStartup, []string{
@@ -472,6 +477,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`resolve_project_container_id "${project_name}" holo-config-interop`,
 		`podman wait "${loader_id}"`,
 		`podman inspect --format '{{.State.ExitCode}}' "${loader_id}"`,
+		`interop_verify_holo_running_configuration`,
 		"up -d --no-deps gobfd frr bird3 tshark thoro",
 	})
 	assertContainsAll(t, "routing Holo provider gate", holoStartup, []string{
@@ -481,6 +487,27 @@ func TestInteropOperationalContract(t *testing.T) {
 		`[ "${wait_status}" -ne 0 ]`,
 		`fail_holo_suite_startup`,
 	})
+	projectGuard := contents["project guard"]
+	sharedHoloVerifier := shellFunctionBody(t, projectGuard, "interop_verify_holo_running_configuration")
+	assertOrdered(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
+		`"${PODMAN[@]}" logs "${loader_id}"`,
+		`grep -q '^% '`,
+		`interop_resolve_project_container_id "${project_name}" holo-interop`,
+		`holo-cli --version`,
+		`--command 'show running format json'`,
+	})
+	assertContainsAll(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
+		`Holo command-line interface 0.5.0`,
+		`Holo configuration loader produced unexpected output`,
+		`($interfaces | length) == 1`,
+		`($protocols | length) == 1`,
+		`($sessions | length) == 1`,
+	})
+	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
+		if got := strings.Count(contents[name], "interop_verify_holo_running_configuration"); got != 1 {
+			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
+		}
+	}
 	runSuite := shellFunctionBody(t, routing, "run_suite")
 	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{
 		`acquire_project_lock "${project_name}"`,
@@ -586,7 +613,17 @@ func TestInteropOperationalContract(t *testing.T) {
 		`.Name == "holo-config-interop" and .Status == "start"`,
 		`.Name == "holo-config-interop" and .Status == "died"`,
 		`(.ContainerExitCode | type) == "number"`,
-		`.ContainerExitCode != 0`,
+		`.ContainerExitCode == 0`,
+		`grep -Fq 'Holo running configuration is missing the required BFD session'`,
+		`--command 'show running format json'`,
+		`Holo command-line interface 0.5.0`,
+		`holo-version.txt`,
+		`.["ietf-interfaces:interfaces"].interface[]?`,
+		`.type == "iana-if-type:ethernetCsmacd"`,
+		`.["ietf-ip:ipv4"] | type`,
+		`.type == "ietf-bfd-types:bfdv1"`,
+		`.["dest-addr"] == "172.20.0.10"`,
+		`.["source-addr"] == "172.20.0.50"`,
 		"source ./test/interop/project_guard.sh",
 		"interop_verify_project_absent",
 		"interop_verify_labelled_containers_absent",
@@ -601,10 +638,96 @@ func TestInteropOperationalContract(t *testing.T) {
 		"gobfd-interop-bgp",
 		"v062-testcontainers",
 		"io.gobfd.e2e.merge-owner",
+		"There is no `podman volume rm` cleanup path.",
 	})
+	if strings.Contains(implementationPlan, `.ContainerExitCode != 0`) {
+		t.Error("Holo Task 6 plan retains the impossible non-zero loader assertion")
+	}
 	if strings.Contains(implementationPlan, "\nbuf lint\n") {
 		t.Error("Holo Task 6 plan invokes an unpinned host buf binary")
 	}
+}
+
+func TestInteropCaptureStorageContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	topologies := []struct {
+		name    string
+		path    string
+		service string
+	}{
+		{name: "base", path: filepath.Join(root, "test", "interop", "compose.yml"), service: "tshark"},
+		{name: "BGP", path: filepath.Join(root, "test", "interop-bgp", "compose.yml"), service: "tshark-bgp"},
+	}
+	for _, topology := range topologies {
+		t.Run(topology.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, readErr := os.ReadFile(topology.path)
+			if readErr != nil {
+				t.Fatalf("read Compose topology: %v", readErr)
+			}
+			raw, decodeErr := decodeKnownFields[composeRaw](data, "Compose root")
+			if decodeErr != nil {
+				t.Fatalf("decode Compose topology: %v", decodeErr)
+			}
+			assertCaptureStorage(t, topology.service, raw)
+
+			render := exec.CommandContext(
+				t.Context(), "podman-compose", "-p", "gobfd-storage-contract",
+				"-f", topology.path, "config",
+			)
+			render.Dir = root
+			rendered, renderErr := render.CombinedOutput()
+			if renderErr != nil {
+				t.Fatalf("render Compose topology: %v\n%s", renderErr, rendered)
+			}
+			var renderedRaw composeRaw
+			if decodeErr := yaml.Unmarshal(rendered, &renderedRaw); decodeErr != nil {
+				t.Fatalf("decode rendered Compose topology: %v", decodeErr)
+			}
+			assertCaptureStorage(t, topology.service, renderedRaw)
+		})
+	}
+
+	tsharkImage := readContractFile(t, "tshark image", filepath.Join(root, "test", "interop", "tshark", "Containerfile"))
+	if strings.Contains(tsharkImage, "\nVOLUME ") || strings.Contains(tsharkImage, "\nVOLUME\t") {
+		t.Error("tshark image declares anonymous or named volume storage")
+	}
+}
+
+func assertCaptureStorage(t *testing.T, serviceName string, raw composeRaw) {
+	t.Helper()
+
+	if len(raw.Volumes) != 0 {
+		t.Fatalf("Compose topology declares mutable named volumes: %v", mapsKeys(raw.Volumes))
+	}
+	serviceNode, ok := raw.Services[serviceName]
+	if !ok {
+		t.Fatalf("Compose topology is missing service %s", serviceName)
+	}
+	var storage struct {
+		Volumes []string `yaml:"volumes"`
+	}
+	if err := serviceNode.Decode(&storage); err != nil {
+		t.Fatalf("decode %s storage: %v", serviceName, err)
+	}
+	if len(storage.Volumes) != 0 {
+		t.Fatalf("service %s mounts capture storage: %v", serviceName, storage.Volumes)
+	}
+}
+
+func mapsKeys[V any](input map[string]V) []string {
+	keys := make([]string, 0, len(input))
+	for key := range input {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {

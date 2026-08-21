@@ -81,8 +81,6 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    volumes:
-      - captures:/captures:z
 
   holo:
     image: ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a
@@ -148,9 +146,6 @@ services:
         ipv4_address: 172.20.0.40
     profiles:
       - fuzz
-
-volumes:
-  captures:
 
 networks:
   bfdnet:

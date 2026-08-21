@@ -454,6 +454,12 @@ if [[ "${holo_inspect_status}" != "0" ]]; then
     fail_holo_startup "holo-config exited with status ${holo_inspect_status}"
 fi
 
+holo_semantic_error=""
+if ! holo_semantic_error="$(interop_verify_holo_running_configuration \
+    "${INTEROP_PROJECT_NAME}" "${holo_config_id}" 2>&1)"; then
+    fail_holo_startup "${holo_semantic_error:-failed to verify Holo running configuration}"
+fi
+
 info "starting GoBFD and remaining interop peers"
 timeout 2m podman-compose "${COMPOSE_ARGS[@]}" \
     up -d --no-deps gobfd frr bird3 tshark thoro

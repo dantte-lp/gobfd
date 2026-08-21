@@ -4,7 +4,7 @@
 
 **Goal:** Remove aiobfd and its Python benchmark surface, then preserve the four-peer BFD interoperability gate with immutable Holo v0.9.0 and fresh lifecycle evidence.
 
-**Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`. The shell runner starts Holo in a separate bounded phase and requires the loader's inspected exit status to be exactly zero before starting GoBFD because podman-compose 1.5.0 and 1.6.0 reduce `service_completed_successfully` to the `stopped` state without checking the exit code. Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
+**Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`. The legacy runner, guarded `make interop-up`, and routing E2E runner all start Holo in a separate bounded phase, require the loader's inspected exit status to be exactly zero, require its exact-ID log to be whitespace-only, verify the immutable Holo container reports exactly `Holo command-line interface 0.5.0`, and then run `--command 'show running format json'` before starting GoBFD. That semantic result must contain exactly one matching `eth0` interface, one `bfdv1/main` protocol, and one exact session. The gate is mandatory because Holo CLI v0.5.0 reports startup-file parse errors but continues, commits the remaining candidate, and exits zero; podman-compose 1.5.0 and 1.6.0 also reduce `service_completed_successfully` to the `stopped` state without checking the exit code. tshark capture files live only in the exact container writable layer and are copied before cleanup; no mutable named or anonymous capture volume is part of either base or BGP topology. Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
 
 **Tech Stack:** Go 1.27, Go test/race, gopls, golangci-lint v2, Podman, the repository's pinned `podman-compose` provider, Docker Compose semantics, Holo v0.9.0, RFC 5880/5881, RFC 9314 YANG, tshark.
 
@@ -368,10 +368,12 @@ cleanup contract. Local provider evidence shows that installed
 `podman-compose down` acts on configured `container_name` values, so even a
 successful label revalidation has a name-swap TOCTOU window. Compose is
 therefore limited to image build and container creation while the project lock
-is held. On every owned-project exit, take exact-label snapshots, remove only
-the recorded immutable container/network IDs and volume names, re-query all
-three classes, and fail if any exact-labelled resource remains. Never invoke
-Compose `down`, remove an image, or mutate a resource absent from the snapshot.
+is held. On every owned-project exit, query all three resource classes and
+fail before mutation if a labelled volume exists because Podman exposes only
+its mutable name. Otherwise snapshot immutable container and network IDs,
+remove only those recorded IDs, re-query all three classes, and fail if any
+exact-labelled resource remains. Never invoke Compose `down`, remove an image,
+or mutate a resource absent from the snapshot.
 
 Use bounded commands and preserve the original test exit status unless cleanup
 itself proves an owned-resource leak.
@@ -644,6 +646,8 @@ INVALID_STARTUP="${TASK6_ARTIFACT_DIR}/invalid-holo.startup"
 INVALID_OVERRIDE="${TASK6_ARTIFACT_DIR}/invalid-holo.override.yml"
 NEGATIVE_LOG="${TASK6_ARTIFACT_DIR}/negative.log"
 NEGATIVE_EVENTS="${TASK6_ARTIFACT_DIR}/negative-events.json"
+HOLO_RUNNING_JSON="${TASK6_ARTIFACT_DIR}/holo-running.json"
+HOLO_VERSION_TXT="${TASK6_ARTIFACT_DIR}/holo-version.txt"
 LIFECYCLE_JSON="${TASK6_ARTIFACT_DIR}/lifecycle.json"
 E2E_LOG="${TASK6_ARTIFACT_DIR}/e2e-routing.log"
 PODMAN=(timeout 2m podman)
@@ -673,6 +677,8 @@ test "${negative_status}" -ne 0
 grep -Fq '=== Holo daemon logs ===' "${NEGATIVE_LOG}"
 grep -Fq '=== Holo daemon /tmp/holod.err ===' "${NEGATIVE_LOG}"
 grep -Fq '=== Holo configuration loader logs ===' "${NEGATIVE_LOG}"
+grep -Fq 'Holo running configuration is missing the required BFD session' \
+  "${NEGATIVE_LOG}"
 "${PODMAN[@]}" events --stream=false --since "${negative_started}" \
   --until "${negative_finished}" --format json >"${NEGATIVE_EVENTS}"
 jq -s -e --arg project gobfd-interop-negative '
@@ -687,7 +693,7 @@ jq -s -e --arg project gobfd-interop-negative '
     owned
     and .Name == "holo-config-interop" and .Status == "died"
     and (.ContainerExitCode | type) == "number"
-    and .ContainerExitCode != 0
+    and .ContainerExitCode == 0
   )
   and (any(.[];
     owned
@@ -698,8 +704,13 @@ jq -s -e --arg project gobfd-interop-negative '
 interop_verify_project_absent gobfd-interop-negative
 ```
 
-Require the log to contain Holo daemon, loader, and `/tmp/holod.err`
-diagnostics. Verify the exact negative project has no remaining containers,
+Require the log to contain Holo daemon, loader, `/tmp/holod.err`, and the stable
+semantic-configuration diagnostic. The deliberately invalid file is expected
+to create and start both Holo containers and produce a numeric loader
+`ContainerExitCode` of exactly zero: Holo CLI v0.5.0 treats individual parse
+errors as non-fatal and commits the remaining empty candidate. The runner must
+therefore fail on the empty running configuration, before any GoBFD create or
+start event. Verify the exact negative project has no remaining containers,
 networks, or volumes. Absence after cleanup is not evidence that GoBFD never
 started; the exact Podman event assertion above supplies that evidence.
 
@@ -721,6 +732,52 @@ subshell so `make interop-down` always executes:
   trap cleanup_lifecycle EXIT
   make interop-up
   lifecycle_owned=true
+  ./test/interop/projectctl.sh lock-run -- bash -c '
+    set -euo pipefail
+    PODMAN=(timeout 2m podman)
+    source "$1"
+    holo_id="$(interop_resolve_project_container_id "$2" holo-interop)"
+    holo_version="$("${PODMAN[@]}" exec "${holo_id}" holo-cli --version)"
+    test "${holo_version}" = "Holo command-line interface 0.5.0"
+    printf "%s\n" "${holo_version}" >"$3"
+    "${PODMAN[@]}" exec "${holo_id}" \
+      holo-cli --no-colors --no-pager \
+      --address http://127.0.0.1:50051 \
+      --command '\''show running format json'\''
+  ' task6-running-config ./test/interop/project_guard.sh \
+    "${INTEROP_PROJECT_NAME}" "${HOLO_VERSION_TXT}" \
+    >"${HOLO_RUNNING_JSON}"
+  grep -Fxq 'Holo command-line interface 0.5.0' "${HOLO_VERSION_TXT}"
+  jq -e '
+    [
+      .["ietf-interfaces:interfaces"].interface[]?
+      | select(
+          .name == "eth0"
+          and .type == "iana-if-type:ethernetCsmacd"
+          and (.["ietf-ip:ipv4"] | type) == "object"
+        )
+    ] as $interfaces
+    | [
+        .["ietf-routing:routing"]["control-plane-protocols"]
+          ["control-plane-protocol"][]?
+        | select(.type == "ietf-bfd-types:bfdv1" and .name == "main")
+      ] as $protocols
+    | [
+        $protocols[]?
+        | .["ietf-bfd:bfd"]["ietf-bfd-ip-sh:ip-sh"].sessions.session[]?
+        | select(
+            .interface == "eth0"
+            and .["dest-addr"] == "172.20.0.10"
+            and .["source-addr"] == "172.20.0.50"
+            and .["local-multiplier"] == 3
+            and .["desired-min-tx-interval"] == 300000
+            and .["required-min-rx-interval"] == 300000
+          )
+      ] as $sessions
+    | ($interfaces | length) == 1
+      and ($protocols | length) == 1
+      and ($sessions | length) == 1
+  ' "${HOLO_RUNNING_JSON}"
   ./test/interop/projectctl.sh lock-run -- \
     go test -json -tags interop -count=1 -timeout 300s \
       -run '^TestHoloFailureRecoveryLifecycle$' ./test/interop/ \
@@ -786,6 +843,17 @@ interop_verify_labelled_containers_absent \
   io.gobfd.e2e.merge-owner "${MERGE_OWNER_VALUE}"
 printf 'Task 6 retained evidence in %s\n' "${TASK6_ARTIFACT_DIR}"
 ```
+
+Project cleanup snapshots immutable container and network identifiers exactly
+once. It refuses to mutate anything if the initial exact-project query finds a
+labelled volume, because Podman exposes only its mutable name; guarded projects
+must use container storage or bind mounts. It removes the container snapshot in
+bounded repeated passes so a child deleted later in the initial order can
+unblock its parent, then removes only the original network snapshot. A non-zero
+container removal is not sticky when `podman container exists <exact-ID>`
+returns 1 afterward; any other existence-check error fails closed. A pass with
+no absent exact ID fails without touching networks, and no later label query may
+introduce a new mutation target. There is no `podman volume rm` cleanup path.
 
 Retain that exact temporary directory until its commands, versions, test
 counts, event proof, and cleanup proof are appended to Beads. Remove only the

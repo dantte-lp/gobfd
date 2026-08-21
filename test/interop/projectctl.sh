@@ -71,7 +71,7 @@ assert_empty_project() {
 }
 
 start_project() {
-    local loader_id wait_status inspect_status
+    local loader_id wait_status inspect_status semantic_error
 
     acquire_lock
     assert_empty_project
@@ -85,6 +85,12 @@ start_project() {
           "${wait_status}" != "${inspect_status}" || "${wait_status}" != "0" ]]; then
         printf 'holo-config provider gate failed: wait=%s inspect=%s\n' \
             "${wait_status}" "${inspect_status}" >&2
+        return 1
+    fi
+    semantic_error=""
+    if ! semantic_error="$(interop_verify_holo_running_configuration \
+        "${INTEROP_PROJECT_NAME}" "${loader_id}" 2>&1)"; then
+        printf '%s\n' "${semantic_error:-failed to verify Holo running configuration}" >&2
         return 1
     fi
     "${DC[@]}" up -d --no-deps gobfd frr bird3 tshark thoro

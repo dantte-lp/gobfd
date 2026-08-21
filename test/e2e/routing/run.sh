@@ -189,7 +189,7 @@ start_holo_interop_suite() {
     local compose_file="$2"
     local suite_dir="$3"
     local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
-    local wait_status inspect_status loader_id
+    local wait_status inspect_status loader_id semantic_error
 
     if ! "${dc[@]}" up -d holo holo-config; then
         fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
@@ -229,6 +229,13 @@ start_holo_interop_suite() {
     if [ "${wait_status}" -ne 0 ]; then
         fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
             "holo-config exited with status ${wait_status}"
+        return 1
+    fi
+    semantic_error=""
+    if ! semantic_error="$(interop_verify_holo_running_configuration \
+        "${project_name}" "${loader_id}" 2>&1)"; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "${semantic_error:-failed to verify Holo running configuration}"
         return 1
     fi
     if ! "${dc[@]}" up -d --no-deps gobfd frr bird3 tshark thoro; then
