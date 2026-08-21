@@ -30,8 +30,21 @@ if [[ ! "${INTEROP_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
 fi
 PROJECT_LABEL="com.docker.compose.project=${INTEROP_PROJECT_NAME}"
 PROJECT_OWNED=false
+PROJECT_LOCK_FD=""
 DC=(timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
 PODMAN=(timeout 2m podman)
+# shellcheck source=test/interop/project_guard.sh
+source "${SCRIPT_DIR}/project_guard.sh"
+FIXED_CONTAINER_NAMES=(
+    gobfd-interop
+    frr-interop
+    bird3-interop
+    tshark-interop
+    holo-interop
+    holo-config-interop
+    thoro-interop
+    scapy-interop
+)
 
 GOBFD_IP="172.20.0.10"
 FRR_IP="172.20.0.20"
@@ -77,9 +90,10 @@ assert_pass() {
 # ---------------------------------------------------------------------------
 
 dump_tshark() {
-    if "${PODMAN[@]}" ps --format '{{.Names}}' 2>/dev/null | grep -q tshark-interop; then
+    local tshark_id
+    if tshark_id="$(resolve_project_container_id tshark-interop)"; then
         info "=== BFD packet capture (last 50 packets) ==="
-        "${PODMAN[@]}" exec tshark-interop tshark -r /captures/bfd.pcapng -Y bfd -c 50 \
+        "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng -Y bfd -c 50 \
             -T fields -e frame.time_relative -e ip.src -e ip.dst \
             -e bfd.sta -e bfd.flags -e bfd.my_discriminator \
             -e bfd.your_discriminator -e bfd.desired_min_tx_interval \
@@ -88,32 +102,32 @@ dump_tshark() {
     fi
 }
 
-query_project_resources() {
-    local containers networks volumes
-    if ! containers="$(timeout 30s podman ps -a --no-trunc --filter "label=${PROJECT_LABEL}" --format '{{.ID}}')"; then
-        fail "query containers for exact project label ${PROJECT_LABEL}" >&2
-        return 1
-    fi
-    if ! networks="$(timeout 30s podman network ls --no-trunc --filter "label=${PROJECT_LABEL}" --format '{{.ID}}')"; then
-        fail "query networks for exact project label ${PROJECT_LABEL}" >&2
-        return 1
-    fi
-    if ! volumes="$(timeout 30s podman volume ls --filter "label=${PROJECT_LABEL}" --format '{{.Name}}')"; then
-        fail "query volumes for exact project label ${PROJECT_LABEL}" >&2
-        return 1
-    fi
+acquire_project_lock() {
+    interop_acquire_project_lock "${INTEROP_PROJECT_NAME}" || return 1
+    PROJECT_LOCK_FD="${INTEROP_ACQUIRED_LOCK_FD}"
+}
 
-    local id
-    while IFS= read -r id; do
-        [ -n "${id}" ] && printf 'container:%s\n' "${id}"
-    done <<<"${containers}"
-    while IFS= read -r id; do
-        [ -n "${id}" ] && printf 'network:%s\n' "${id}"
-    done <<<"${networks}"
-    while IFS= read -r id; do
-        [ -n "${id}" ] && printf 'volume:%s\n' "${id}"
-    done <<<"${volumes}"
-    return 0
+release_project_lock() {
+    if [[ -n "${PROJECT_LOCK_FD}" ]]; then
+        interop_release_project_lock "${PROJECT_LOCK_FD}" || return 1
+        PROJECT_LOCK_FD=""
+    fi
+}
+
+assert_fixed_names_available() {
+    interop_assert_fixed_names_available "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
+}
+
+fixed_names_match_project() {
+    interop_fixed_names_match_project "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
+}
+
+resolve_project_container_id() {
+    interop_resolve_project_container_id "${INTEROP_PROJECT_NAME}" "$1"
+}
+
+query_project_resources() {
+    interop_query_project_resources "${INTEROP_PROJECT_NAME}"
 }
 
 assert_project_available() {
@@ -131,43 +145,11 @@ assert_project_available() {
 }
 
 remove_project_resources() {
-    local resources
-    if ! resources="$(query_project_resources)"; then
-        return 1
-    fi
-
-    local kind id
-    while IFS=: read -r kind id; do
-        [ -z "${kind}" ] && continue
-        case "${kind}" in
-            container)
-                timeout 30s podman rm -f -- "${id}" >/dev/null || \
-                    info "exactly labelled container ${id} could not be removed"
-                ;;
-            network)
-                timeout 30s podman network rm -- "${id}" >/dev/null || \
-                    info "exactly labelled network ${id} could not be removed"
-                ;;
-            volume)
-                timeout 30s podman volume rm -- "${id}" >/dev/null || \
-                    info "exactly labelled volume ${id} could not be removed"
-                ;;
-        esac
-    done <<<"${resources}"
-    return 0
+    interop_remove_project_resources "${INTEROP_PROJECT_NAME}"
 }
 
 verify_project_absent() {
-    local resources
-    if ! resources="$(query_project_resources)"; then
-        return 1
-    fi
-    if [ -n "${resources}" ]; then
-        fail "owned-resource leak for Compose project ${INTEROP_PROJECT_NAME}" >&2
-        printf '%s\n' "${resources}" >&2
-        return 1
-    fi
-    return 0
+    interop_verify_project_absent "${INTEROP_PROJECT_NAME}"
 }
 
 cleanup() {
@@ -178,11 +160,16 @@ cleanup() {
     fi
     if [ "${PROJECT_OWNED}" = true ]; then
         info "cleaning exact Compose project ${INTEROP_PROJECT_NAME}"
-        "${DC[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || \
-            info "Compose cleanup was partial; resolving exact labelled resources"
+        if fixed_names_match_project; then
+            "${DC[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || \
+                info "Compose cleanup was partial; resolving exact labelled resources"
+        else
+            info "skipping Compose down because a fixed container name is foreign"
+        fi
         remove_project_resources || status=1
         verify_project_absent || status=1
     fi
+    release_project_lock || status=1
     exit "${status}"
 }
 
@@ -195,8 +182,9 @@ trap cleanup EXIT
 # tshark_count — return number of packets matching a display filter.
 tshark_count() {
     local filter="$1"
-    local count
-    count="$("${PODMAN[@]}" exec tshark-interop tshark -r /captures/bfd.pcapng \
+    local count tshark_id
+    tshark_id="$(resolve_project_container_id tshark-interop)" || return 1
+    count="$("${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng \
         -Y "${filter}" -T fields -e frame.number 2>/dev/null | wc -l)"
     echo "${count}"
 }
@@ -207,11 +195,12 @@ tshark_count() {
 tshark_fields() {
     local filter="$1"
     shift
-    local field_args=()
+    local field_args=() tshark_id
     for f in "$@"; do
         field_args+=("-e" "$f")
     done
-    "${PODMAN[@]}" exec tshark-interop tshark -r /captures/bfd.pcapng \
+    tshark_id="$(resolve_project_container_id tshark-interop)" || return 1
+    "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng \
         -Y "${filter}" -T fields "${field_args[@]}" \
         -E separator='	' -E header=n 2>/dev/null
 }
@@ -353,14 +342,19 @@ wait_thoro_up() {
 # ---------------------------------------------------------------------------
 
 dump_holo_startup_diagnostics() {
+    local holo_id loader_id
     info "=== Holo startup diagnostics ==="
-    timeout 10s podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" ps 2>&1 || true
-    timeout 10s podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" \
-        logs --tail 100 holo holo-config 2>&1 || true
-    timeout 10s podman inspect holo-config-interop 2>&1 || true
-    timeout 10s podman exec holo-interop sh -c \
-        'if [ -f /tmp/holod.err ]; then cat /tmp/holod.err; else echo "/tmp/holod.err is absent"; fi' \
-        2>&1 || true
+    timeout 10s podman ps -a --filter "label=${PROJECT_LABEL}" 2>&1 || true
+    if holo_id="$(resolve_project_container_id holo-interop)"; then
+        timeout 10s podman logs --tail 100 "${holo_id}" 2>&1 || true
+        timeout 10s podman exec "${holo_id}" sh -c \
+            'if [ -f /tmp/holod.err ]; then cat /tmp/holod.err; else echo "/tmp/holod.err is absent"; fi' \
+            2>&1 || true
+    fi
+    if loader_id="$(resolve_project_container_id holo-config-interop)"; then
+        timeout 10s podman logs --tail 100 "${loader_id}" 2>&1 || true
+        timeout 10s podman inspect --type container "${loader_id}" 2>&1 || true
+    fi
 }
 
 fail_holo_startup() {
@@ -369,7 +363,9 @@ fail_holo_startup() {
     exit 1
 }
 
+acquire_project_lock
 assert_project_available
+assert_fixed_names_available
 PROJECT_OWNED=true
 
 info "building container images"
@@ -380,15 +376,19 @@ if ! timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}"
     fail_holo_startup "failed to start Holo configuration phase"
 fi
 
+holo_config_id=""
+if ! holo_config_id="$(resolve_project_container_id holo-config-interop)"; then
+    fail_holo_startup "holo-config-interop is absent or not owned by ${INTEROP_PROJECT_NAME}"
+fi
 holo_wait_status=""
-if ! holo_wait_status="$(timeout 45s podman wait holo-config-interop 2>&1)"; then
+if ! holo_wait_status="$(timeout 45s podman wait "${holo_config_id}" 2>&1)"; then
     fail_holo_startup "timed out or failed waiting for holo-config-interop"
 fi
 holo_wait_status="${holo_wait_status#"${holo_wait_status%%[![:space:]]*}"}"
 holo_wait_status="${holo_wait_status%"${holo_wait_status##*[![:space:]]}"}"
 
 holo_inspect_status=""
-if ! holo_inspect_status="$(timeout 10s podman inspect --format '{{.State.ExitCode}}' holo-config-interop 2>&1)"; then
+if ! holo_inspect_status="$(timeout 10s podman inspect --format '{{.State.ExitCode}}' "${holo_config_id}" 2>&1)"; then
     fail_holo_startup "failed to inspect holo-config-interop exit status"
 fi
 holo_inspect_status="${holo_inspect_status#"${holo_inspect_status%%[![:space:]]*}"}"

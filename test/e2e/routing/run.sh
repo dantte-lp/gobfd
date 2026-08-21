@@ -29,7 +29,11 @@ mkdir -p "${REPORT_DIR}/interop" "${REPORT_DIR}/interop-bgp"
 
 DEV_DC=(timeout 7m podman-compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
 PODMAN=(timeout 2m podman)
+# shellcheck source=test/interop/project_guard.sh
+source "${ROOT_DIR}/test/interop/project_guard.sh"
 OWNED_PROJECTS=()
+declare -A PROJECT_LOCK_FDS=()
+declare -A PROJECT_FIXED_NAMES=()
 
 write_environment() {
     cat >"${REPORT_DIR}/environment.json" <<EOF_ENV
@@ -62,19 +66,42 @@ append_csv() {
 
 record_containers() {
     local suite="$1"
-    shift
+    local project_name="$2"
+    shift 2
     local suite_dir="${REPORT_DIR}/${suite}"
+    local container_name container_id
+    local container_ids=()
 
-    "${PODMAN[@]}" inspect "$@" >"${suite_dir}/containers.json" 2>"${suite_dir}/containers.err" || true
+    for container_name in "$@"; do
+        if container_id="$(resolve_project_container_id "${project_name}" "${container_name}")"; then
+            container_ids+=("${container_id}")
+        fi
+    done
+    if [[ "${#container_ids[@]}" -eq 0 ]]; then
+        printf '[]\n' >"${suite_dir}/containers.json"
+        : >"${suite_dir}/containers.err"
+        return 0
+    fi
+    "${PODMAN[@]}" inspect "${container_ids[@]}" >"${suite_dir}/containers.json" \
+        2>"${suite_dir}/containers.err" || true
 }
 
 collect_pcap() {
     local suite="$1"
-    local tshark_container="$2"
+    local project_name="$2"
+    local tshark_container="$3"
     local suite_dir="${REPORT_DIR}/${suite}"
+    local tshark_id
 
-    "${PODMAN[@]}" exec "${tshark_container}" cat /captures/bfd.pcapng >"${suite_dir}/packets.pcapng" 2>"${suite_dir}/packets.err" || true
-    "${PODMAN[@]}" exec "${tshark_container}" tshark -r /captures/bfd.pcapng -Y bfd \
+    if ! tshark_id="$(resolve_project_container_id "${project_name}" "${tshark_container}")"; then
+        printf 'tshark container %s is absent or foreign\n' "${tshark_container}" \
+            >"${suite_dir}/packets.err"
+        : >"${suite_dir}/packets.pcapng"
+        : >"${suite_dir}/packets.csv"
+        return 1
+    fi
+    "${PODMAN[@]}" exec "${tshark_id}" cat /captures/bfd.pcapng >"${suite_dir}/packets.pcapng" 2>"${suite_dir}/packets.err" || true
+    "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng -Y bfd \
         -T fields \
         -e frame.time_relative \
         -e ip.src \
@@ -94,29 +121,45 @@ collect_holo_diagnostics() {
     local project_name="$1"
     local compose_file="$2"
     local suite_dir="$3"
-    local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
-    local status=0
+    local status=0 holo_id loader_id
 
-    "${dc[@]}" logs --tail 100 holo >"${suite_dir}/holo.log" \
-        2>"${suite_dir}/holo-log.err" || status=1
-    "${dc[@]}" logs --tail 100 holo-config >"${suite_dir}/holo-config.log" \
-        2>"${suite_dir}/holo-config-log.err" || status=1
-    local exists_status=0
-    "${PODMAN[@]}" container exists holo-interop || exists_status=$?
-    if [ "${exists_status}" -eq 0 ]; then
-        "${PODMAN[@]}" exec holo-interop sh -c \
+    if holo_id="$(resolve_project_container_id "${project_name}" holo-interop)"; then
+        "${PODMAN[@]}" logs --tail 100 "${holo_id}" >"${suite_dir}/holo.log" \
+            2>"${suite_dir}/holo-log.err" || status=1
+        "${PODMAN[@]}" exec "${holo_id}" sh -c \
             'if [ -f /tmp/holod.err ]; then cat /tmp/holod.err; else printf "%s\n" "/tmp/holod.err is absent"; fi' \
             >"${suite_dir}/holod.err" 2>"${suite_dir}/holod-exec.err" || status=1
-    elif [ "${exists_status}" -eq 1 ]; then
+    else
+        : >"${suite_dir}/holo.log"
+        printf '%s\n' 'holo-interop container is absent or foreign' >"${suite_dir}/holo-log.err"
         printf '%s\n' 'holo-interop container is absent' >"${suite_dir}/holod.err"
         : >"${suite_dir}/holod-exec.err"
+        status=1
+    fi
+    if loader_id="$(resolve_project_container_id "${project_name}" holo-config-interop)"; then
+        "${PODMAN[@]}" logs --tail 100 "${loader_id}" >"${suite_dir}/holo-config.log" \
+            2>"${suite_dir}/holo-config-log.err" || status=1
     else
-        printf 'failed to check holo-interop container (status %s)\n' "${exists_status}" \
-            >"${suite_dir}/holod-exec.err"
-        : >"${suite_dir}/holod.err"
+        : >"${suite_dir}/holo-config.log"
+        printf '%s\n' 'holo-config-interop container is absent or foreign' \
+            >"${suite_dir}/holo-config-log.err"
         status=1
     fi
     return "${status}"
+}
+
+collect_container_logs() {
+    local suite="$1"
+    local project_name="$2"
+    shift 2
+    local container_name container_id
+
+    for container_name in "$@"; do
+        if container_id="$(resolve_project_container_id "${project_name}" "${container_name}")"; then
+            printf '\n===== %s container %s =====\n' "${suite}" "${container_name}"
+            "${PODMAN[@]}" logs "${container_id}" || true
+        fi
+    done
 }
 
 fail_holo_suite_startup() {
@@ -142,14 +185,19 @@ start_holo_interop_suite() {
     local compose_file="$2"
     local suite_dir="$3"
     local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
-    local wait_status inspect_status
+    local wait_status inspect_status loader_id
 
     if ! "${dc[@]}" up -d holo holo-config; then
         fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
             "failed to start Holo configuration phase"
         return 1
     fi
-    if ! wait_status="$(timeout 30s podman wait holo-config-interop)"; then
+    if ! loader_id="$(resolve_project_container_id "${project_name}" holo-config-interop)"; then
+        fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
+            "holo-config-interop is absent or not owned by ${project_name}"
+        return 1
+    fi
+    if ! wait_status="$(timeout 30s podman wait "${loader_id}")"; then
         fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
             "timed out or failed waiting for holo-config-interop"
         return 1
@@ -159,7 +207,7 @@ start_holo_interop_suite() {
             "invalid holo-config wait status: ${wait_status}"
         return 1
     fi
-    if ! inspect_status="$(timeout 30s podman inspect --format '{{.State.ExitCode}}' holo-config-interop)"; then
+    if ! inspect_status="$(timeout 30s podman inspect --format '{{.State.ExitCode}}' "${loader_id}")"; then
         fail_holo_suite_startup "${project_name}" "${compose_file}" "${suite_dir}" \
             "failed to inspect holo-config-interop exit status"
         return 1
@@ -226,23 +274,40 @@ PY
 
 query_project_resources() {
     local project_name="$1"
-    local project_label="com.docker.compose.project=${project_name}"
-    local containers networks volumes
-    containers="$(timeout 30s podman ps -a --no-trunc --filter "label=${project_label}" --format '{{.ID}}')" || return 1
-    networks="$(timeout 30s podman network ls --no-trunc --filter "label=${project_label}" --format '{{.ID}}')" || return 1
-    volumes="$(timeout 30s podman volume ls --filter "label=${project_label}" --format '{{.Name}}')" || return 1
+    interop_query_project_resources "${project_name}"
+}
 
-    local id
-    while IFS= read -r id; do
-        [ -n "${id}" ] && printf 'container:%s\n' "${id}"
-    done <<<"${containers}"
-    while IFS= read -r id; do
-        [ -n "${id}" ] && printf 'network:%s\n' "${id}"
-    done <<<"${networks}"
-    while IFS= read -r id; do
-        [ -n "${id}" ] && printf 'volume:%s\n' "${id}"
-    done <<<"${volumes}"
-    return 0
+acquire_project_lock() {
+    local project_name="$1"
+
+    interop_acquire_project_lock "${project_name}" || return 1
+    PROJECT_LOCK_FDS["${project_name}"]="${INTEROP_ACQUIRED_LOCK_FD}"
+}
+
+release_project_lock() {
+    local project_name="$1"
+    local lock_fd="${PROJECT_LOCK_FDS[${project_name}]:-}"
+
+    if [[ -n "${lock_fd}" ]]; then
+        interop_release_project_lock "${lock_fd}" || return 1
+        unset "PROJECT_LOCK_FDS[${project_name}]"
+    fi
+}
+
+assert_fixed_names_available() {
+    local project_name="$1"
+    shift
+    interop_assert_fixed_names_available "${project_name}" "$@"
+}
+
+fixed_names_match_project() {
+    local project_name="$1"
+    shift
+    interop_fixed_names_match_project "${project_name}" "$@"
+}
+
+resolve_project_container_id() {
+    interop_resolve_project_container_id "$1" "$2"
 }
 
 assert_project_available() {
@@ -262,53 +327,32 @@ assert_project_available() {
 
 remove_project_resources() {
     local project_name="$1"
-    local resources
-    resources="$(query_project_resources "${project_name}")" || return 1
-
-    local kind id
-    while IFS=: read -r kind id; do
-        [ -z "${kind}" ] && continue
-        case "${kind}" in
-            container)
-                if ! timeout 30s podman rm -f -- "${id}" >/dev/null; then
-                    printf 'exactly labelled container %s could not be removed\n' "${id}" >&2
-                fi
-                ;;
-            network)
-                if ! timeout 30s podman network rm -- "${id}" >/dev/null; then
-                    printf 'exactly labelled network %s could not be removed\n' "${id}" >&2
-                fi
-                ;;
-            volume)
-                if ! timeout 30s podman volume rm -- "${id}" >/dev/null; then
-                    printf 'exactly labelled volume %s could not be removed\n' "${id}" >&2
-                fi
-                ;;
-        esac
-    done <<<"${resources}"
-    return 0
+    interop_remove_project_resources "${project_name}"
 }
 
 verify_project_absent() {
     local project_name="$1"
-    local resources
-    resources="$(query_project_resources "${project_name}")" || return 1
-    if [ -n "${resources}" ]; then
-        printf 'owned-resource leak for Compose project %s:\n%s\n' "${project_name}" "${resources}" >&2
-        return 1
-    fi
-    return 0
+    interop_verify_project_absent "${project_name}"
 }
 
 cleanup_project() {
     local project_name="$1"
     local compose_file="$2"
-    timeout 2m podman-compose -p "${project_name}" -f "${compose_file}" \
-        down --volumes --remove-orphans >/dev/null 2>&1 || \
-        printf 'Compose cleanup was partial for project %s; resolving exact labelled resources\n' \
+    shift 2
+    local fixed_names=("$@")
+    local status=0
+    if fixed_names_match_project "${project_name}" "${fixed_names[@]}"; then
+        timeout 2m podman-compose -p "${project_name}" -f "${compose_file}" \
+            down --volumes --remove-orphans >/dev/null 2>&1 || \
+            printf 'Compose cleanup was partial for project %s; resolving exact labelled resources\n' \
+                "${project_name}" >&2
+    else
+        printf 'skipping Compose down for project %s because a fixed container name is foreign\n' \
             "${project_name}" >&2
-    remove_project_resources "${project_name}" || return 1
-    verify_project_absent "${project_name}"
+    fi
+    remove_project_resources "${project_name}" || status=1
+    verify_project_absent "${project_name}" || status=1
+    return "${status}"
 }
 
 write_summary() {
@@ -346,9 +390,18 @@ run_suite() {
     local suite_dir="${REPORT_DIR}/${suite}"
     local dc=(podman-compose -p "${project_name}" -f "${compose_file}")
     local test_status=0
+    local owned_index="${#OWNED_PROJECTS[@]}"
 
-    assert_project_available "${project_name}"
+    if ! acquire_project_lock "${project_name}"; then
+        return 1
+    fi
+    if ! assert_project_available "${project_name}" || \
+       ! assert_fixed_names_available "${project_name}" "${containers[@]}"; then
+        release_project_lock "${project_name}" || true
+        return 1
+    fi
     OWNED_PROJECTS+=("${project_name}:${compose_file}")
+    PROJECT_FIXED_NAMES["${project_name}"]="${containers[*]}"
     if ! timeout 10m "${dc[@]}" build --no-cache; then
         printf 'suite %s image build failed\n' "${suite}" >&2
         test_status=1
@@ -391,30 +444,35 @@ run_suite() {
     fi
 
     cp "${suite_dir}/go-test.json" "${suite_dir}/go-test.log"
-    {
-        printf '\n===== %s containers =====\n' "${suite}"
-        timeout 2m "${dc[@]}" logs
-    } >>"${REPORT_DIR}/containers.log" 2>&1 || true
+    collect_container_logs "${suite}" "${project_name}" "${containers[@]}" \
+        >>"${REPORT_DIR}/containers.log" 2>&1 || true
     if [ "${startup_mode}" = "holo" ]; then
         collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}" || true
     fi
-    collect_pcap "${suite}" "${tshark_container}"
-    record_containers "${suite}" "${containers[@]}"
-    cleanup_project "${project_name}" "${compose_file}" || test_status=1
+    collect_pcap "${suite}" "${project_name}" "${tshark_container}" || true
+    record_containers "${suite}" "${project_name}" "${containers[@]}"
+    cleanup_project "${project_name}" "${compose_file}" "${containers[@]}" || test_status=1
+    release_project_lock "${project_name}" || test_status=1
+    unset "PROJECT_FIXED_NAMES[${project_name}]"
+    unset "OWNED_PROJECTS[${owned_index}]"
     return "${test_status}"
 }
 
 cleanup() {
     local status="$?"
     trap - EXIT
-    local owned project_name compose_file
+    local owned project_name compose_file fixed_names_text
+    local fixed_names=()
     if ! merge_artifacts; then
         printf 'routing artifact merge failed; preserving suite and cleanup status\n' >&2
     fi
     for owned in "${OWNED_PROJECTS[@]}"; do
         project_name="${owned%%:*}"
         compose_file="${owned#*:}"
-        cleanup_project "${project_name}" "${compose_file}" || status=1
+        fixed_names_text="${PROJECT_FIXED_NAMES[${project_name}]:-}"
+        read -r -a fixed_names <<<"${fixed_names_text}"
+        cleanup_project "${project_name}" "${compose_file}" "${fixed_names[@]}" || status=1
+        release_project_lock "${project_name}" || status=1
     done
     write_environment
     write_summary "${status}"
@@ -424,7 +482,7 @@ cleanup() {
 trap cleanup EXIT
 
 run_suite "interop" "${ROOT_DIR}/test/interop/compose.yml" "INTEROP_COMPOSE_FILE" "interop" "./test/interop/" "tshark-interop" \
-    "holo" "${INTEROP_PROJECT_NAME}" gobfd-interop frr-interop bird3-interop tshark-interop holo-interop holo-config-interop thoro-interop
+    "holo" "${INTEROP_PROJECT_NAME}" gobfd-interop frr-interop bird3-interop tshark-interop holo-interop holo-config-interop thoro-interop scapy-interop
 
 run_suite "interop-bgp" "${ROOT_DIR}/test/interop-bgp/compose.yml" "INTEROP_BGP_COMPOSE_FILE" "interop_bgp" "./test/interop-bgp/" "tshark-bgp-interop" \
     "generic" "${INTEROP_BGP_PROJECT_NAME}" gobfd-bgp-interop gobgp-interop frr-bgp-interop bird3-bgp-interop gobfd-exabgp-interop exabgp-interop tshark-bgp-interop

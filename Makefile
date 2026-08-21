@@ -19,6 +19,7 @@
 PROJECT_SLUG := $(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$$//')
 COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
 INTEROP_PROJECT_NAME ?= gobfd-interop
+export INTEROP_PROJECT_NAME
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) podman-compose -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
@@ -34,7 +35,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         dev-ps dev-project dev-ensure \
         e2e-help e2e-core e2e-core-test e2e-core-testcontainers e2e-core-up e2e-core-down e2e-core-logs \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
-        interop interop-test interop-up interop-down interop-logs \
+        interop-project-validate interop interop-test interop-up interop-down interop-logs \
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-up interop-bgp-down interop-bgp-logs \
         interop-rfc interop-rfc-test interop-rfc-up interop-rfc-down interop-rfc-logs \
@@ -133,12 +134,12 @@ e2e-core-down:
 e2e-core-logs:
 	$(E2E_CORE_DC) logs -f
 
-e2e-routing:
+e2e-routing: interop-project-validate
 	$(DC) up -d --build --force-recreate dev
-	INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) ./test/e2e/routing/run.sh
+	./test/e2e/routing/run.sh
 
-e2e-routing-test:
-	$(EXEC) env INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) \
+e2e-routing-test: interop-project-validate
+	$(EXEC) env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
 		INTEROP_COMPOSE_FILE=/app/test/interop/compose.yml \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=/app/test/interop-bgp/compose.yml \
@@ -225,38 +226,41 @@ test-integration:
 # === Interop Tests (FRR + BIRD3 + Holo + Thoro/bfd — 4-peer topology) ===
 
 INTEROP_COMPOSE := test/interop/compose.yml
-INTEROP_DC := podman-compose -p $(INTEROP_PROJECT_NAME) -f $(INTEROP_COMPOSE)
+INTEROP_CTL := ./test/interop/projectctl.sh
 
-interop:
-	INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) ./test/interop/run.sh
+interop-project-validate:
+	@case "$${INTEROP_PROJECT_NAME}" in \
+	  ''|[!a-z0-9]*|*[!a-z0-9_-]*) \
+	    printf 'invalid INTEROP_PROJECT_NAME %s: use lowercase letters, digits, dashes, and underscores\n' \
+	      "$${INTEROP_PROJECT_NAME}" >&2; \
+	    exit 2 ;; \
+	esac
 
-interop-test:
-	$(EXEC) env INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME) \
+interop: interop-project-validate
+	./test/interop/run.sh
+
+interop-test: interop-project-validate
+	$(EXEC) env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}" \
 		INTEROP_COMPOSE_FILE=$(INTEROP_COMPOSE) \
 		go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 
-interop-up:
-	$(INTEROP_DC) up --build -d
+interop-up: interop-project-validate
+	$(INTEROP_CTL) up
 
-interop-down:
-	$(INTEROP_DC) down --volumes --remove-orphans
+interop-down: interop-project-validate
+	$(INTEROP_CTL) down
 
-interop-logs:
-	$(INTEROP_DC) logs -f
+interop-logs: interop-project-validate
+	$(INTEROP_CTL) logs
 
-interop-capture:
-	podman exec tshark-interop tshark -i any -f "udp port 3784" -V
+interop-capture: interop-project-validate
+	$(INTEROP_CTL) capture
 
-interop-pcap:
-	podman exec tshark-interop tshark -r /captures/bfd.pcapng -V -Y bfd
+interop-pcap: interop-project-validate
+	$(INTEROP_CTL) pcap
 
-interop-pcap-summary:
-	podman exec tshark-interop tshark -r /captures/bfd.pcapng -Y bfd \
-		-T fields -e frame.time_relative -e ip.src -e ip.dst \
-		-e bfd.version -e bfd.diag -e bfd.sta -e bfd.flags \
-		-e bfd.detect_time_multiplier -e bfd.my_discriminator \
-		-e bfd.your_discriminator -e bfd.desired_min_tx_interval \
-		-e bfd.required_min_rx_interval -E header=y -E separator=,
+interop-pcap-summary: interop-project-validate
+	$(INTEROP_CTL) summary
 
 integration: interop
 

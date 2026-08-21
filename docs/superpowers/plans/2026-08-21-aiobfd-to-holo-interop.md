@@ -378,6 +378,32 @@ every Compose invocation, including `down`, and reject `podman rm`,
 `podman network rm`, and `podman volume rm`. A collided project was never
 acquired by the run and must not enter either normal or fallback cleanup.
 
+Serialize acquisition of each validated project with a nonblocking `flock`
+held from before exact-label and fixed-name preflight through final cleanup
+verification. Prefer an owned, writable, non-symlink XDG runtime directory or
+`/run/user/$UID`; a fallback directory under `TMPDIR` or `/tmp` must itself be
+owned, mode `0700`, writable, and not a symlink. Keep the mode `0600` lock file
+after release so two contenders can never split onto different inodes. The E2E
+runner holds a separate descriptor for each acquired project and closes it only
+after that project's exact cleanup. A runner that cannot acquire the lock must
+perform no Podman or Compose mutation.
+
+Before startup, reject every configured fixed `container_name` that already
+exists, even when the exact project-label query is empty. Immediately before
+Compose `down`, revalidate every existing fixed name against
+`com.docker.compose.project=<project>`; if any name is absent from that exact
+ownership set, skip Compose `down` and run only the exact-label fallback.
+Container inventory and diagnostics must resolve the exact project label to a
+container ID before any `inspect`, `logs`, or `exec`, and must never read a
+foreign container through a fixed name.
+
+Export `INTEROP_PROJECT_NAME` from Make. Every base interop and routing target
+must depend on one shared validation prerequisite. Recipes pass the exported
+value only through quoted shell expansion (`$${INTEROP_PROJECT_NAME}`); they
+must never inject `$(INTEROP_PROJECT_NAME)` into shell source. Direct up, down,
+logs, capture, and pcap targets use the same lock, fixed-name, and exact-label
+guard as the full runners.
+
 After each tagged suite writes its JSON stream, enforce a non-zero test count
 inside `test/e2e/routing/run.sh`:
 

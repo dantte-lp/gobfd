@@ -244,6 +244,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "target inventory", path: filepath.Join(root, "test", "e2e", "targets.md")},
 		{name: "Makefile", path: filepath.Join(root, "Makefile")},
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
+		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
+		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
 	}
 	contents := make(map[string]string, len(files))
 	for _, file := range files {
@@ -264,6 +266,10 @@ func TestInteropOperationalContract(t *testing.T) {
 		`assert_project_available`,
 		`remove_project_resources`,
 		`verify_project_absent`,
+		`acquire_project_lock`,
+		`release_project_lock`,
+		`assert_fixed_names_available`,
+		`fixed_names_match_project`,
 		`HOLO_IP="172.20.0.50"`,
 		`holo-interop`,
 		`holo-config`,
@@ -272,29 +278,81 @@ func TestInteropOperationalContract(t *testing.T) {
 		`for svc in gobfd frr bird3 holo thoro`,
 	})
 	assertOrdered(t, "legacy runner preflight and startup", runner, []string{
+		"acquire_project_lock",
 		"assert_project_available",
+		"assert_fixed_names_available",
 		"PROJECT_OWNED=true",
 		"build --no-cache",
 		"up -d holo holo-config",
-		"podman wait holo-config-interop",
-		"podman inspect --format '{{.State.ExitCode}}' holo-config-interop",
+		"resolve_project_container_id holo-config-interop",
+		`podman wait "${holo_config_id}"`,
+		`podman inspect --format '{{.State.ExitCode}}' "${holo_config_id}"`,
 		"up -d --no-deps gobfd frr bird3 tshark thoro",
 	})
 	assertOrdered(t, "legacy runner cleanup", runner, []string{
+		"fixed_names_match_project",
 		"down --volumes --remove-orphans",
 		"remove_project_resources",
 		"verify_project_absent",
+		"release_project_lock",
 	})
 	if strings.Contains(runner, "podman rm -f scapy-interop") {
 		t.Error("legacy runner removes an unlabelled Scapy container by name")
+	}
+	for _, name := range []string{"legacy runner", "routing runner"} {
+		if strings.Contains(contents[name], "podman network ls --no-trunc") ||
+			strings.Contains(contents[name], "podman volume rm --") {
+			t.Errorf("%s duplicates exact-label query/removal implementation outside project_guard.sh", name)
+		}
 	}
 
 	makefile := contents["Makefile"]
 	assertContainsAll(t, "Makefile", makefile, []string{
 		"INTEROP_PROJECT_NAME ?= gobfd-interop",
-		"podman-compose -p $(INTEROP_PROJECT_NAME) -f $(INTEROP_COMPOSE)",
-		"INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME)",
+		"export INTEROP_PROJECT_NAME",
+		"INTEROP_CTL := ./test/interop/projectctl.sh",
+		"interop-project-validate",
+		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		"FRR + BIRD3 + Holo + Thoro/bfd",
+	})
+	for _, forbidden := range []string{
+		"-p $(INTEROP_PROJECT_NAME)",
+		"INTEROP_PROJECT_NAME=$(INTEROP_PROJECT_NAME)",
+	} {
+		if strings.Contains(makefile, forbidden) {
+			t.Errorf("Makefile interpolates INTEROP_PROJECT_NAME into shell source: %q", forbidden)
+		}
+	}
+	assertContainsAll(t, "Make interop validation prerequisites", makefile, []string{
+		"interop: interop-project-validate",
+		"interop-test: interop-project-validate",
+		"interop-up: interop-project-validate",
+		"interop-down: interop-project-validate",
+		"interop-logs: interop-project-validate",
+		"interop-capture: interop-project-validate",
+		"interop-pcap: interop-project-validate",
+		"interop-pcap-summary: interop-project-validate",
+		"e2e-routing: interop-project-validate",
+		"e2e-routing-test: interop-project-validate",
+	})
+	projectControl := contents["project control"]
+	startProject := shellFunctionBody(t, projectControl, "start_project")
+	assertOrdered(t, "direct interop up ownership", startProject, []string{
+		"acquire_lock",
+		"assert_empty_project",
+		"build",
+		"up -d holo holo-config",
+		"podman wait",
+		"podman inspect --format '{{.State.ExitCode}}'",
+		"up -d --no-deps gobfd frr bird3 tshark thoro",
+	})
+	stopProject := shellFunctionBody(t, projectControl, "stop_project")
+	assertOrdered(t, "direct interop down ownership", stopProject, []string{
+		"acquire_lock",
+		"interop_fixed_names_match_project",
+		"down --volumes --remove-orphans",
+		"interop_remove_project_resources",
+		"interop_verify_project_absent",
 	})
 
 	taggedGo := contents["tagged Go helper"]
@@ -314,14 +372,20 @@ func TestInteropOperationalContract(t *testing.T) {
 		"start_holo_interop_suite",
 		"start_generic_suite",
 		"collect_holo_diagnostics",
+		"acquire_project_lock",
+		"release_project_lock",
+		"assert_fixed_names_available",
+		"fixed_names_match_project",
+		"resolve_project_container_id",
 		"holo-interop",
 		"holo-config-interop",
 	})
 	holoStartup := shellFunctionBody(t, routing, "start_holo_interop_suite")
 	assertOrdered(t, "routing Holo provider gate", holoStartup, []string{
 		"up -d holo holo-config",
-		"podman wait holo-config-interop",
-		"podman inspect --format '{{.State.ExitCode}}' holo-config-interop",
+		`resolve_project_container_id "${project_name}" holo-config-interop`,
+		`podman wait "${loader_id}"`,
+		`podman inspect --format '{{.State.ExitCode}}' "${loader_id}"`,
 		"up -d --no-deps gobfd frr bird3 tshark thoro",
 	})
 	assertContainsAll(t, "routing Holo provider gate", holoStartup, []string{
@@ -333,7 +397,9 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 	runSuite := shellFunctionBody(t, routing, "run_suite")
 	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{
+		`acquire_project_lock "${project_name}"`,
 		`assert_project_available "${project_name}"`,
+		`assert_fixed_names_available "${project_name}"`,
 		`build --no-cache`,
 		`start_holo_interop_suite`,
 	})
@@ -341,16 +407,35 @@ func TestInteropOperationalContract(t *testing.T) {
 		`"holo" "${INTEROP_PROJECT_NAME}"`,
 		`"generic" "${INTEROP_BGP_PROJECT_NAME}"`,
 	})
+	assertOrdered(t, "routing lock lifecycle", runSuite, []string{
+		`acquire_project_lock "${project_name}"`,
+		`assert_project_available "${project_name}"`,
+		`cleanup_project "${project_name}"`,
+		`release_project_lock "${project_name}"`,
+	})
 	holoDiagnostics := shellFunctionBody(t, routing, "collect_holo_diagnostics")
 	assertContainsAll(t, "routing Holo artifact diagnostics", holoDiagnostics, []string{
-		`logs --tail 100 holo`,
-		`logs --tail 100 holo-config`,
-		`container exists holo-interop`,
-		`exec holo-interop sh -c`,
+		`resolve_project_container_id "${project_name}" holo-interop`,
+		`resolve_project_container_id "${project_name}" holo-config-interop`,
+		`logs --tail 100 "${holo_id}"`,
+		`logs --tail 100 "${loader_id}"`,
+		`exec "${holo_id}" sh -c`,
 		`/tmp/holod.err`,
 		`"${suite_dir}/holo.log"`,
 		`"${suite_dir}/holo-config.log"`,
 		`"${suite_dir}/holod.err"`,
+	})
+	recordContainers := shellFunctionBody(t, routing, "record_containers")
+	assertContainsAll(t, "routing container inventory ownership", recordContainers, []string{
+		`resolve_project_container_id "${project_name}" "${container_name}"`,
+		`inspect "${container_ids[@]}"`,
+	})
+	cleanupProject := shellFunctionBody(t, routing, "cleanup_project")
+	assertOrdered(t, "routing label-safe cleanup", cleanupProject, []string{
+		`fixed_names_match_project "${project_name}"`,
+		"down --volumes --remove-orphans",
+		`remove_project_resources "${project_name}"`,
+		`verify_project_absent "${project_name}"`,
 	})
 	failHoloStartup := shellFunctionBody(t, routing, "fail_holo_suite_startup")
 	assertContainsAll(t, "routing Holo failure diagnostics", failHoloStartup, []string{
