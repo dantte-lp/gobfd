@@ -679,6 +679,31 @@ func TestInteropOperationalContract(t *testing.T) {
 	}
 }
 
+func TestInteropJitterAnalyzerContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
+	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
+	assertContainsAll(t, "legacy jitter analyzer", jitterFunction, []string{
+		`go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter`,
+		`"frame.time_epoch" "bfd.sta"`,
+	})
+	if strings.Contains(jitterFunction, "python3") {
+		t.Error("legacy jitter analyzer retains inline Python")
+	}
+
+	tagged := readContractFile(t, "tagged Go helper", filepath.Join(root, "test", "interop", "interop_test.go"))
+	assertContainsAll(t, "tagged jitter analyzer", tagged, []string{
+		`"github.com/dantte-lp/gobfd/test/internal/bfdjitter"`,
+		`bfdjitter.Evaluate(strings.NewReader(output))`,
+		`[]string{"frame.time_epoch", "bfd.sta"}`,
+	})
+}
+
 func TestInteropCaptureStorageContract(t *testing.T) {
 	t.Parallel()
 

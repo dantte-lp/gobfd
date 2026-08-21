@@ -20,6 +20,8 @@
 - Modify `test/interop/compose.yml`: replace aiobfd with `holo` and one-shot `holo-config` services.
 - Modify `test/interop/interop_test.go`: rename peer helpers and add fresh Holo lifecycle/API evidence.
 - Modify `test/interop/run.sh`: enforce fail-closed two-phase startup, then retain the legacy shell gate with Holo names and diagnostics.
+- Create `test/internal/bfdjitter/` and `test/interop/scripts/bfdjitter/`:
+  share one native Go parser between the tagged and shell jitter gates.
 - Modify `test/e2e/routing/run.sh`, `test/e2e/targets.md`, and `Makefile`: correct service inventories, project ownership, and gate names.
 - Delete `test/interop/aiobfd/Containerfile`: remove the abandoned peer build.
 - Delete `bench/Containerfile.python` and `bench/python/`: remove repo-owned Python/bitstring benchmarks.
@@ -293,6 +295,22 @@ then failed at about ten seconds with `stop only Holo service: signal: killed`;
 best-effort restart consequently found the container in an improper state. The
 former ten-second outer context equalled Podman's default ten-second stop grace,
 so this explicit nested timeout contract is required before rerunning live.
+
+Live `make interop` lifecycle-v4 evidence subsequently passed the Holo lifecycle
+but exposed a false FRR jitter failure: a 4.438-second pause was the intentional
+stop/restart and `AdminDown` boundary, while both old consumers discarded every
+non-`Up` row before calculating deltas and therefore joined two separate `Up`
+segments. Both consumers must instead pass one strict
+`frame.time_epoch,bfd.sta` TSV stream to the same native Go analyzer. Any
+non-`Up` state resets the previous `Up` timestamp, so only consecutive packets
+inside an uninterrupted `Up` segment contribute samples. Malformed rows fail
+closed, a continuous-`Up` delta over 400 ms still fails, and fewer than ten
+`Up` packets or five eligible samples retains the existing explicit skip.
+Continuous-`Up` deltas below 100 ms remain excluded from periodic samples
+because RFC 5880 section 6.8.7 exempts a Final response from the transmission
+timer; later periodic samples in that same segment remain eligible. The shell
+runner invokes the analyzer with `go -C` so direct execution is independent of
+the caller's working directory and contains no inline Python jitter logic.
 
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 

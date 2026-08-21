@@ -1154,59 +1154,46 @@ test_rfc5880_jitter_compliance() {
         local name="${peer_name_ip%%:*}"
         local ip="${peer_name_ip##*:}"
 
-        local epochs
-        epochs="$(tshark_fields \
-            "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip} && bfd.sta == 0x03" \
-            "frame.time_epoch" | head -200)"
-
-        local count
-        count="$(echo "${epochs}" | grep -c '[0-9]' || true)"
-
-        if [ "${count}" -lt 10 ]; then
-            info "${name}: SKIP — insufficient Up packets for jitter analysis (${count})"
+        local jitter_tsv result
+        jitter_tsv="$(tshark_fields \
+            "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip}" \
+            "frame.time_epoch" "bfd.sta" | head -200)"
+        if ! result="$(printf '%s' "${jitter_tsv}" | \
+            go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter)"; then
+            fail "${name}: native jitter analyzer rejected tshark TSV"
+            ok=false
             continue
         fi
 
-        local result
-        result="$(echo "${epochs}" | python3 -c "
-import sys
-times = [float(line.strip()) for line in sys.stdin if line.strip()]
-if len(times) < 2:
-    print('skip')
-    sys.exit(0)
-# Filter out sub-100ms deltas: state transition artifacts, not steady-state jitter.
-deltas = [times[i+1] - times[i] for i in range(len(times)-1) if times[i+1] - times[i] >= 0.100]
-if len(deltas) < 5:
-    print('skip')
-    sys.exit(0)
-mn, mx = min(deltas), max(deltas)
-print(f'{mn:.3f} {mx:.3f} {len(deltas)}')
-")"
-
-        if [ "${result}" = "skip" ]; then
-            info "${name}: SKIP — insufficient steady-state data"
+        local status reason up_packets min_delta max_delta n_samples extra
+        if [[ "${result}" == *$'\n'* ]]; then
+            fail "${name}: native jitter analyzer returned multiple records"
+            ok=false
+            continue
+        fi
+        IFS=$'\t' read -r status reason up_packets min_delta max_delta n_samples extra <<<"${result}"
+        if [ -n "${extra}" ] || [ -z "${n_samples}" ]; then
+            fail "${name}: native jitter analyzer returned a malformed report"
+            ok=false
             continue
         fi
 
-        local min_delta max_delta n_samples
-        min_delta="$(echo "${result}" | awk '{print $1}')"
-        max_delta="$(echo "${result}" | awk '{print $2}')"
-        n_samples="$(echo "${result}" | awk '{print $3}')"
-
-        info "${name}: inter-packet timing: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
-
-        local min_ok max_ok
-        min_ok="$(python3 -c "print('yes' if ${min_delta} >= 0.150 else 'no')")"
-        max_ok="$(python3 -c "print('yes' if ${max_delta} <= 0.400 else 'no')")"
-
-        if [ "${min_ok}" != "yes" ]; then
-            fail "${name}: min inter-packet interval ${min_delta}s too short (< 150ms)"
-            ok=false
-        fi
-        if [ "${max_ok}" != "yes" ]; then
-            fail "${name}: max inter-packet interval ${max_delta}s too long (> 400ms)"
-            ok=false
-        fi
+        case "${status}" in
+            skip)
+                info "${name}: SKIP — ${reason} (Up packets=${up_packets}, samples=${n_samples})"
+                ;;
+            pass)
+                info "${name}: inter-packet timing: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
+                ;;
+            fail)
+                fail "${name}: jitter ${reason}: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
+                ok=false
+                ;;
+            *)
+                fail "${name}: native jitter analyzer returned unknown status ${status}"
+                ok=false
+                ;;
+        esac
     done
 
     if [ "${ok}" = true ]; then

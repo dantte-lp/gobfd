@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"os/exec" //nolint:depguard // Interop harness invokes fixed Podman binaries with explicit argument vectors.
 	"path/filepath"
@@ -29,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dantte-lp/gobfd/test/internal/bfdjitter"
 	"github.com/dantte-lp/gobfd/test/internal/frrjson"
 )
 
@@ -830,16 +830,7 @@ func tsharkQuery(ctx context.Context, args ...string) (string, error) {
 // tsharkFields extracts specific fields from packets matching a display filter.
 // Returns [][]string where each row is one packet's field values.
 func tsharkFields(ctx context.Context, filter string, fields []string, maxCount int) ([][]string, error) {
-	args := []string{"-Y", filter, "-T", "fields"}
-	for _, f := range fields {
-		args = append(args, "-e", f)
-	}
-	args = append(args, "-E", "separator=\t", "-E", "header=n")
-	if maxCount > 0 {
-		args = append(args, "-c", strconv.Itoa(maxCount))
-	}
-
-	output, err := tsharkQuery(ctx, args...)
+	output, err := tsharkFieldStream(ctx, filter, fields, maxCount)
 	if err != nil {
 		return nil, err
 	}
@@ -857,6 +848,19 @@ func tsharkFields(ctx context.Context, filter string, fields []string, maxCount 
 		rows = append(rows, strings.Split(line, "\t"))
 	}
 	return rows, nil
+}
+
+func tsharkFieldStream(ctx context.Context, filter string, fields []string, maxCount int) (string, error) {
+	args := []string{"-Y", filter, "-T", "fields"}
+	for _, f := range fields {
+		args = append(args, "-e", f)
+	}
+	args = append(args, "-E", "separator=\t", "-E", "header=n")
+	if maxCount > 0 {
+		args = append(args, "-c", strconv.Itoa(maxCount))
+	}
+
+	return tsharkQuery(ctx, args...)
 }
 
 // tsharkCount returns the number of packets matching a display filter.
@@ -2170,57 +2174,29 @@ func TestRFCCompliance(t *testing.T) {
 		}
 		for _, p := range peers {
 			t.Run(p.name, func(t *testing.T) {
-				rows, err := tsharkFields(ctx,
-					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip+" && bfd.sta == 0x03",
-					[]string{"frame.time_epoch"}, 200)
-				if err != nil || len(rows) < 10 {
-					t.Skipf("insufficient Up packets to %s for jitter analysis: %d", p.name, len(rows))
+				output, err := tsharkFieldStream(ctx,
+					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
+					[]string{"frame.time_epoch", "bfd.sta"}, 200)
+				if err != nil {
+					t.Fatalf("read jitter packet fields for %s: %v", p.name, err)
+				}
+				report, err := bfdjitter.Evaluate(strings.NewReader(output))
+				if err != nil {
+					t.Fatalf("analyze jitter packet fields for %s: %v", p.name, err)
 				}
 
-				var deltas []float64
-				var prev float64
-				for i, row := range rows {
-					ts, err := strconv.ParseFloat(strings.TrimSpace(row[0]), 64)
-					if err != nil {
-						t.Fatalf("parse epoch at row %d: %v", i, err)
-					}
-					if i > 0 {
-						delta := ts - prev
-						// Filter out sub-100ms deltas: these are state
-						// transition artifacts (session cycles, P/F bursts)
-						// not steady-state jitter.
-						if delta >= 0.100 {
-							deltas = append(deltas, delta)
-						}
-					}
-					prev = ts
-				}
-
-				if len(deltas) < 5 {
-					t.Skipf("insufficient steady-state deltas to %s: %d", p.name, len(deltas))
-				}
-
-				var minDelta, maxDelta float64
-				minDelta = math.MaxFloat64
-				for _, d := range deltas {
-					if d < minDelta {
-						minDelta = d
-					}
-					if d > maxDelta {
-						maxDelta = d
-					}
-				}
-
-				t.Logf("%s inter-packet timing: min=%.3fs max=%.3fs samples=%d",
-					p.name, minDelta, maxDelta, len(deltas))
-
-				// Expected: 75-100% of 300ms = 0.225-0.300s.
-				// Allow slack for container scheduling: 0.150-0.400s.
-				if minDelta < 0.150 {
-					t.Errorf("min inter-packet interval %.3fs is too short (< 150ms)", minDelta)
-				}
-				if maxDelta > 0.400 {
-					t.Errorf("max inter-packet interval %.3fs is too long (> 400ms)", maxDelta)
+				switch report.Status {
+				case bfdjitter.StatusSkip:
+					t.Skipf("%s jitter analysis skipped: %s (Up packets=%d, samples=%d)",
+						p.name, report.Reason, report.UpPackets, report.Samples)
+				case bfdjitter.StatusFail:
+					t.Errorf("%s jitter %s: min=%.3fs max=%.3fs samples=%d",
+						p.name, report.Reason, report.MinDelta, report.MaxDelta, report.Samples)
+				case bfdjitter.StatusPass:
+					t.Logf("%s inter-packet timing: min=%.3fs max=%.3fs samples=%d",
+						p.name, report.MinDelta, report.MaxDelta, report.Samples)
+				default:
+					t.Fatalf("%s jitter analyzer returned unknown status %q", p.name, report.Status)
 				}
 			})
 		}
