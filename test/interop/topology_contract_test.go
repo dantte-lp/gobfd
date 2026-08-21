@@ -509,6 +509,73 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 }
 
+func TestBenchmarkReportOperationalContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+
+	paths := []string{
+		filepath.Join(root, "bench"),
+		filepath.Join(root, "scripts", "gen-report.sh"),
+		filepath.Join(root, "scripts", "report-template.html"),
+	}
+	removedReferences := []string{"aio" + "bfd", "bit" + "string"}
+	for _, path := range paths {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Errorf("stat benchmark/report surface %s: %v", path, statErr)
+			continue
+		}
+		if !info.IsDir() {
+			assertNoRemovedBenchmarkReferences(t, root, path, removedReferences)
+			continue
+		}
+
+		walkErr := filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			assertNoRemovedBenchmarkReferences(t, root, candidate, removedReferences)
+			return nil
+		})
+		if walkErr != nil {
+			t.Errorf("scan benchmark/report surface %s: %v", path, walkErr)
+		}
+	}
+
+	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
+	if strings.Contains(strings.ToLower(makefile), "bench-"+"python") {
+		t.Error("benchmark-cross retains the removed benchmark service")
+	}
+}
+
+func assertNoRemovedBenchmarkReferences(t *testing.T, root, path string, removedReferences []string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Errorf("read benchmark/report surface %s: %v", path, err)
+		return
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Errorf("resolve benchmark/report path %s: %v", path, err)
+		return
+	}
+	lower := strings.ToLower(relative + "\n" + string(data))
+	for _, removed := range removedReferences {
+		if strings.Contains(lower, removed) {
+			t.Errorf("%s retains active removed reference %q", relative, removed)
+		}
+	}
+}
+
 func shellFunctionBody(t *testing.T, script, name string) string {
 	t.Helper()
 

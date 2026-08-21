@@ -9,8 +9,6 @@
 #   bench-go.txt           — Go benchmark output (go test -bench format)
 #   bench-c-frr.txt        — C FRR-style (BENCH format)
 #   bench-c-bird.txt       — C BIRD-style (BENCH format)
-#   bench-python-aiobfd.txt — Python aiobfd-style (BENCH format)
-#   bench-python-struct.txt — Python struct-style (BENCH format)
 #
 # Output:
 #   reports/benchmarks/cross-comparison.html
@@ -58,7 +56,7 @@ parse_go() {
 }
 
 # -----------------------------------------------------------------------
-# Parse C/Python BENCH format
+# Parse C BENCH format
 # Input:  BENCH<tab>impl<tab>name<tab>ns_per_op<tab>iterations
 # Output: JSON fragments (averaged over repeats)
 # -----------------------------------------------------------------------
@@ -112,7 +110,6 @@ GENERATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 GOBFD_VERSION="unknown"
 GO_VERSION="unknown"
 GCC_VERSION="unknown"
-PYTHON_VERSION="unknown"
 PLATFORM="unknown"
 GOMAXPROCS="8"
 
@@ -131,23 +128,21 @@ if [ -f "$META_JSON" ]; then
     GO_VERSION=$(python3 -c "import json; print(json.load(open('${META_JSON}'))['go'])" 2>/dev/null || echo "unknown")
 fi
 
-# GCC version from C benchmark stderr (or from container)
+# GCC version from C benchmark stderr (or from container).
 GCC_VERSION="gcc (Alpine)"
-PYTHON_VERSION="Python 3.12"
 
 # -----------------------------------------------------------------------
 # Build JSON data structure
 # -----------------------------------------------------------------------
 
 # Collect all benchmark results and export for Python
-export GO_DATA=$(parse_go)
-export FRR_DATA=$(parse_bench "${RESULTS_DIR}/bench-c-frr.txt")
-export BIRD_DATA=$(parse_bench "${RESULTS_DIR}/bench-c-bird.txt")
-export AIOBFD_DATA=$(parse_bench "${RESULTS_DIR}/bench-python-aiobfd.txt")
-export STRUCT_DATA=$(parse_bench "${RESULTS_DIR}/bench-python-struct.txt")
+GO_DATA=$(parse_go)
+FRR_DATA=$(parse_bench "${RESULTS_DIR}/bench-c-frr.txt")
+BIRD_DATA=$(parse_bench "${RESULTS_DIR}/bench-c-bird.txt")
+export GO_DATA FRR_DATA BIRD_DATA
 
 # Export metadata for Python
-export GENERATED GOBFD_VERSION GO_VERSION GCC_VERSION PYTHON_VERSION PLATFORM GOMAXPROCS
+export GENERATED GOBFD_VERSION GO_VERSION GCC_VERSION PLATFORM GOMAXPROCS
 
 # Build the complete JSON using Python (robust JSON construction)
 JSON=$(python3 -c "
@@ -158,8 +153,6 @@ from collections import defaultdict
 go_data = []    # list of {name, ns_op, b_op, allocs_op}
 frr_data = {}   # name -> ns_op (already averaged by parse_bench)
 bird_data = {}
-aiobfd_data = {}
-pystruct_data = {}
 
 def parse_json_lines(text):
     results = []
@@ -178,8 +171,6 @@ import os
 go_raw = os.environ.get('GO_DATA', '')
 frr_raw = os.environ.get('FRR_DATA', '')
 bird_raw = os.environ.get('BIRD_DATA', '')
-aiobfd_raw = os.environ.get('AIOBFD_DATA', '')
-struct_raw = os.environ.get('STRUCT_DATA', '')
 
 # Parse Go data (multiple runs per benchmark — need to average)
 go_entries = parse_json_lines(go_raw)
@@ -200,9 +191,8 @@ for name, v in go_sum.items():
         'allocs_op': v['allocs_op'],
     }
 
-# Parse C/Python data (already averaged by parse_bench)
-for raw, target in [(frr_raw, frr_data), (bird_raw, bird_data),
-                     (aiobfd_raw, aiobfd_data), (struct_raw, pystruct_data)]:
+# Parse C data (already averaged by parse_bench)
+for raw, target in [(frr_raw, frr_data), (bird_raw, bird_data)]:
     for e in parse_json_lines(raw):
         target[e['name']] = e['ns_op']
 
@@ -252,8 +242,8 @@ for e in go_entries:
     if c not in seen:
         seen.add(c)
         ordered_names.append(c)
-# Then C/Python benchmarks
-for d in [frr_data, bird_data, aiobfd_data, pystruct_data]:
+# Then C benchmarks
+for d in [frr_data, bird_data]:
     for name in d:
         if name not in seen:
             seen.add(name)
@@ -268,23 +258,17 @@ for cname in ordered_names:
     if go_orig in go_avg:
         g = go_avg[go_orig]
         entry['go'] = {'ns_op': g['ns_op'], 'b_op': g['b_op'], 'allocs_op': g['allocs_op']}
-    # C/Python data
+    # C data
     if cname in frr_data:
         entry['frr'] = {'ns_op': frr_data[cname]}
     if cname in bird_data:
         entry['bird'] = {'ns_op': bird_data[cname]}
-    if cname in aiobfd_data:
-        entry['aiobfd'] = {'ns_op': aiobfd_data[cname]}
-    if cname in pystruct_data:
-        entry['pystruct'] = {'ns_op': pystruct_data[cname]}
     benchmarks.append(entry)
 
 # Get headline values (Marshal ns/op for each impl)
 go_marshal = go_avg.get('ControlPacketMarshal', {}).get('ns_op', 0)
 frr_marshal = frr_data.get('Marshal', 0)
 bird_marshal = bird_data.get('Marshal', 0)
-aiobfd_marshal = aiobfd_data.get('Marshal', 0)
-pystruct_marshal = pystruct_data.get('Marshal', 0)
 
 # Build final JSON
 meta = {
@@ -292,7 +276,6 @@ meta = {
     'gobfd_version': os.environ.get('GOBFD_VERSION', ''),
     'go_version': os.environ.get('GO_VERSION', ''),
     'gcc_version': os.environ.get('GCC_VERSION', ''),
-    'python_version': os.environ.get('PYTHON_VERSION', ''),
     'platform': os.environ.get('PLATFORM', ''),
     'gomaxprocs': os.environ.get('GOMAXPROCS', '8'),
 }
@@ -307,28 +290,22 @@ implementations = [
     {'id': 'bird', 'name': 'C (BIRD BFD)', 'short_name': 'C-BIRD', 'color': '#fbbf24',
      'has_allocs': False, 'headline_value': f'{bird_marshal:.1f}',
      'headline_unit': 'ns/op', 'headline_label': 'Marshal (pre-alloc)'},
-    {'id': 'aiobfd', 'name': 'Python (aiobfd)', 'short_name': 'Py-aiobfd', 'color': '#f472b6',
-     'has_allocs': False, 'headline_value': f'{aiobfd_marshal:.0f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Marshal (bitstring)'},
-    {'id': 'pystruct', 'name': 'Python (struct)', 'short_name': 'Py-struct', 'color': '#a78bfa',
-     'has_allocs': False, 'headline_value': f'{pystruct_marshal:.0f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Marshal (struct.pack)'},
 ]
 
 features = [
-    {'name': 'RFC 5880 (BFD Base)', 'go': True, 'frr': True, 'bird': True, 'aiobfd': 'partial'},
-    {'name': 'RFC 5881 (IPv4/IPv6)', 'go': True, 'frr': True, 'bird': True, 'aiobfd': True},
-    {'name': 'Keyed SHA1 Auth', 'go': True, 'frr': True, 'bird': True, 'aiobfd': False},
-    {'name': 'Keyed MD5 Auth', 'go': True, 'frr': True, 'bird': True, 'aiobfd': False},
-    {'name': 'VXLAN BFD (RFC 8971)', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'Geneve BFD (RFC 9521)', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'Multihop (RFC 5883)', 'go': True, 'frr': True, 'bird': True, 'aiobfd': False},
-    {'name': 'Micro-BFD (RFC 7130)', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'CPI Bit', 'go': True, 'frr': 'partial', 'bird': False, 'aiobfd': False},
-    {'name': 'Zero-alloc Hot Path', 'go': True, 'frr': 'n/a', 'bird': 'n/a', 'aiobfd': False},
-    {'name': 'Goroutine-per-Session', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'gRPC / ConnectRPC API', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'Prometheus Metrics', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
+    {'name': 'RFC 5880 (BFD Base)', 'go': True, 'frr': True, 'bird': True},
+    {'name': 'RFC 5881 (IPv4/IPv6)', 'go': True, 'frr': True, 'bird': True},
+    {'name': 'Keyed SHA1 Auth', 'go': True, 'frr': True, 'bird': True},
+    {'name': 'Keyed MD5 Auth', 'go': True, 'frr': True, 'bird': True},
+    {'name': 'VXLAN BFD (RFC 8971)', 'go': True, 'frr': False, 'bird': False},
+    {'name': 'Geneve BFD (RFC 9521)', 'go': True, 'frr': False, 'bird': False},
+    {'name': 'Multihop (RFC 5883)', 'go': True, 'frr': True, 'bird': True},
+    {'name': 'Micro-BFD (RFC 7130)', 'go': True, 'frr': False, 'bird': False},
+    {'name': 'CPI Bit', 'go': True, 'frr': 'partial', 'bird': False},
+    {'name': 'Zero-alloc Hot Path', 'go': True, 'frr': 'n/a', 'bird': 'n/a'},
+    {'name': 'Goroutine-per-Session', 'go': True, 'frr': False, 'bird': False},
+    {'name': 'gRPC / ConnectRPC API', 'go': True, 'frr': False, 'bird': False},
+    {'name': 'Prometheus Metrics', 'go': True, 'frr': False, 'bird': False},
 ]
 
 # Annotations for benchmarks: explanations for Go-only benchmarks
@@ -336,13 +313,13 @@ features = [
 annotations = {
     'MarshalWithAuth': {'go_only': 'Requires crypto (SHA1 HMAC) not in bench container'},
     'UnmarshalWithAuth': {'go_only': 'Requires crypto (SHA1 HMAC) not in bench container'},
-    'PacketPool': {'go_only': 'sync.Pool is Go GC-specific; C has no GC, Python has no explicit pool'},
-    'SessionRecvPacket': {'go_only': 'Measures goroutine channel send; C uses poll(), Python uses asyncio'},
+    'PacketPool': {'go_only': 'sync.Pool is Go GC-specific; C has no GC'},
+    'SessionRecvPacket': {'go_only': 'Measures goroutine channel send; C uses poll()'},
     'SessionApplyJitter': {'go_only': 'Session-local PCG PRNG optimization; unique to Go goroutine model'},
     'JitterDetectMultOne': {'go_only': 'DetectMult=1 variant of global jitter'},
     'ManagerReconcile': {'go_only': 'Config reconciliation pattern unique to Go Manager'},
-    'ManagerCreate100Sessions': {'go_only': 'Go Manager with goroutine-per-session; not comparable to C/Python'},
-    'ManagerCreate1000Sessions': {'go_only': 'Go Manager with goroutine-per-session; not comparable to C/Python'},
+    'ManagerCreate100Sessions': {'go_only': 'Go Manager with goroutine-per-session; not comparable to C'},
+    'ManagerCreate1000Sessions': {'go_only': 'Go Manager with goroutine-per-session; not comparable to C'},
     'ManagerDemux1000Sessions': {'go_only': 'Go Manager discriminator map + channel send'},
     'DetectionTimeCalcHot': {'go_only': 'Uses cachedState (goroutine-confined); no atomic load'},
     'CalcTxIntervalHot': {'go_only': 'Uses cachedState (goroutine-confined); no atomic load'},

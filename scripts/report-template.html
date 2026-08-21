@@ -21,8 +21,6 @@
                         'impl-go':     '#00d4ff',
                         'impl-frr':    '#4ade80',
                         'impl-bird':   '#fbbf24',
-                        'impl-aiobfd': '#f472b6',
-                        'impl-struct': '#a78bfa',
                     }
                 }
             }
@@ -82,7 +80,7 @@
                         <span class="font-normal text-bfd-text/80">Benchmark Comparison</span>
                     </h1>
                     <p class="text-bfd-muted text-sm mt-1">
-                        BFD protocol performance &mdash; Go vs C (FRR) vs C (BIRD) vs Python (aiobfd)
+                        BFD protocol performance &mdash; Go vs C (FRR) vs C (BIRD)
                     </p>
                 </div>
                 <div class="text-right text-xs text-bfd-muted space-y-0.5 font-mono">
@@ -100,7 +98,7 @@
         <!-- Summary Cards                                                -->
         <!-- ============================================================ -->
         <section>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <template x-for="impl in data.implementations" :key="impl.id">
                     <div class="bg-bfd-card rounded-xl p-4 border border-bfd-border hover:border-opacity-60 transition-colors"
                          :style="'border-color: ' + impl.color + '33'">
@@ -161,14 +159,6 @@
                                     style="color: #fbbf24" @click="toggleSort('bird')">
                                     C-BIRD <span class="text-xs" x-text="sortArrow('bird')"></span>
                                 </th>
-                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
-                                    style="color: #f472b6" @click="toggleSort('aiobfd')">
-                                    Py-aiobfd <span class="text-xs" x-text="sortArrow('aiobfd')"></span>
-                                </th>
-                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
-                                    style="color: #a78bfa" @click="toggleSort('pystruct')">
-                                    Py-struct <span class="text-xs" x-text="sortArrow('pystruct')"></span>
-                                </th>
                             </tr>
                         </thead>
                         <tbody>
@@ -188,7 +178,7 @@
                                     </td>
                                     <td class="px-4 py-2.5 text-right font-mono text-xs"
                                         style="color: #00d4ff" x-text="fmtNs(row.go?.ns_op)"></td>
-                                    <template x-for="implKey in ['frr','bird','aiobfd','pystruct']" :key="implKey">
+                                    <template x-for="implKey in ['frr','bird']" :key="implKey">
                                         <td class="px-4 py-2.5 text-right font-mono text-xs"
                                             :style="'color:' + implColors[implKey]">
                                             <template x-if="row[implKey]?.ns_op != null">
@@ -305,7 +295,6 @@
                                 <th class="px-4 py-3 text-center font-medium" style="color:#00d4ff">GoBFD</th>
                                 <th class="px-4 py-3 text-center font-medium" style="color:#4ade80">FRR</th>
                                 <th class="px-4 py-3 text-center font-medium" style="color:#fbbf24">BIRD</th>
-                                <th class="px-4 py-3 text-center font-medium" style="color:#f472b6">aiobfd</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -315,7 +304,6 @@
                                     <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.go)"></td>
                                     <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.frr)"></td>
                                     <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.bird)"></td>
-                                    <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.aiobfd)"></td>
                                 </tr>
                             </template>
                         </tbody>
@@ -354,12 +342,6 @@
                        replicate the exact code patterns (packet fill, FSM switch, jitter calculation) extracted
                        from FRR bfdd and BIRD BFD source code. They are NOT the full FRR/BIRD programs &mdash;
                        they isolate the hot-path operations for apples-to-apples comparison of code patterns.</p>
-                    <p><strong class="text-bfd-text">Python benchmarks (aiobfd)</strong> replicate the
-                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">bitstring.pack()</code> and
-                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">ConstBitStream.unpack()</code>
-                       patterns from aiobfd. The "struct" variant uses
-                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">struct.pack()/unpack()</code>
-                       as an optimized Python baseline.</p>
                     <p class="text-xs italic">These benchmarks measure isolated operations, not end-to-end system performance.
                        Real-world performance depends on OS scheduling, network stack, socket I/O, and many other factors.</p>
                 </div>
@@ -389,8 +371,6 @@
                                 <td class="font-mono text-xs" x-text="data.meta.go_version"></td></tr>
                             <tr><td class="py-1 pr-4 font-medium text-bfd-text">GCC</td>
                                 <td class="font-mono text-xs" x-text="data.meta.gcc_version"></td></tr>
-                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">Python</td>
-                                <td class="font-mono text-xs" x-text="data.meta.python_version"></td></tr>
                             <tr><td class="py-1 pr-4 font-medium text-bfd-text">GOMAXPROCS</td>
                                 <td class="font-mono text-xs" x-text="data.meta.gomaxprocs"></td></tr>
                         </tbody>
@@ -504,7 +484,7 @@ make benchmark-compare OLD=v0.4.0 NEW=v0.5.0</pre>
 function benchApp() {
     return {
         data: REPORT_DATA,
-        implColors: { frr: '#4ade80', bird: '#fbbf24', aiobfd: '#f472b6', pystruct: '#a78bfa' },
+        implColors: { frr: '#4ade80', bird: '#fbbf24' },
 
         activeTab: 'comparison',
         sortCol: 'name',
@@ -556,8 +536,6 @@ function benchApp() {
                 { id: 'go', label: 'Go', color: '#00d4ff' },
                 { id: 'frr', label: 'C-FRR', color: '#4ade80' },
                 { id: 'bird', label: 'C-BIRD', color: '#fbbf24' },
-                { id: 'aiobfd', label: 'Py-aio', color: '#f472b6' },
-                { id: 'pystruct', label: 'Py-str', color: '#a78bfa' },
             ];
             return impls
                 .filter(i => row[i.id] && row[i.id].ns_op != null)
@@ -566,7 +544,7 @@ function benchApp() {
 
         maxNsForRow(row) {
             let max = 0;
-            for (const k of ['go', 'frr', 'bird', 'aiobfd', 'pystruct']) {
+            for (const k of ['go', 'frr', 'bird']) {
                 if (row[k]?.ns_op > max) max = row[k].ns_op;
             }
             return max || 1;

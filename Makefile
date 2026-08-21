@@ -498,7 +498,6 @@ benchmark-cross:
 	@mkdir -p $(BENCH_RESULTS)
 	$(BENCH_DC) build
 	$(BENCH_DC) run --rm bench-c
-	$(BENCH_DC) run --rm bench-python
 	$(BENCH_DC) run --rm bench-go
 	@echo "=== All benchmarks completed. Results in $(BENCH_RESULTS)/ ==="
 
