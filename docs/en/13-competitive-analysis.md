@@ -101,7 +101,10 @@ the performance tables below do not assign it numbers.
 
 ### Performance Comparison
 
-> All GoBFD numbers are from micro-benchmarks (`go test -bench`). FRR and BIRD numbers are from public documentation, issue trackers, and third-party reports. These are **not** head-to-head benchmarks — different languages, architectures, and measurement methodologies make direct comparison imprecise. The numbers below are presented for context, not as definitive rankings.
+> GoBFD numbers come from micro-benchmarks (`go test -bench`). FRR and BIRD
+> numbers come from public documentation, issue trackers, and third-party
+> reports. The sources and methods differ, so these numbers provide context,
+> not a ranking.
 
 #### Packet Processing
 
