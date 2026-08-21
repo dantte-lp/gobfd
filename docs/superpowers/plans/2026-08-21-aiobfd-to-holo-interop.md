@@ -307,13 +307,16 @@ filter packet count may truncate it. Any non-`Up` state resets the previous
 ordinary `Up` timestamp, so only packets inside an uninterrupted `Up` segment
 contribute samples. Malformed rows and tshark producer failures fail closed, a
 continuous-`Up` delta over 400 ms still fails, and fewer than ten `Up` packets
-or five eligible samples retains the existing explicit skip. Only packets with
-an exact numeric Poll or Final flag of one receive the RFC 5880 section 6.8.7
-control-response exemption; an ordinary 50 ms `Up` interval remains a failure.
-A Poll/Final packet does not advance the last ordinary `Up` baseline, so it
-cannot hide a long periodic gap. The shell runner invokes the analyzer with
-`go -C` so direct execution is independent of the caller's working directory
-and contains no inline Python jitter logic.
+or five eligible samples retains the existing explicit skip. Poll packets stay
+in the periodic sequence because RFC 5880 section 6.5 requires Poll Sequence
+packets to use scheduled transmissions; therefore an ordinary or Poll 50 ms
+`Up` interval remains a failure and advances the baseline. Only an exact
+numeric Final flag of one receives the section 6.8.7 timer exemption and does
+not advance the last periodic `Up` baseline, so it cannot hide a long gap. A
+packet with both Poll and Final set violates section 6.5 and fails closed. The
+shell runner invokes the analyzer with `go -C` so direct execution is
+independent of the caller's working directory and contains no inline Python
+jitter logic.
 
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 

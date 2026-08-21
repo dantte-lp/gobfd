@@ -35,10 +35,22 @@ func TestEvaluateSegments(t *testing.T) {
 			wantMin:     0.050,
 			wantMax:     0.050,
 		},
-		"Poll and Final packets do not advance periodic baseline": {
+		"Poll at 50ms is a periodic sample and fails": {
 			input: strings.Join([]string{
-				"0.000\t3\t0\t0", "0.050\t3\t1\t0", "0.225\t3\t0\t0",
-				"0.275\t3\t0\t1", "0.475\t3\t0\t0", "0.750\t3\t0\t0",
+				"0.000\t3\t0\t0", "0.050\t3\t1\t0", "0.100\t3\t0\t0",
+				"0.150\t3\t0\t0", "0.200\t3\t0\t0", "0.250\t3\t0\t0",
+				"0.300\t3\t0\t0", "0.350\t3\t0\t0", "0.400\t3\t0\t0",
+				"0.450\t3\t0\t0",
+			}, "\n"),
+			wantStatus:  StatusFail,
+			wantSamples: 9,
+			wantMin:     0.050,
+			wantMax:     0.050,
+		},
+		"Poll counts while Final does not advance periodic baseline": {
+			input: strings.Join([]string{
+				"0.000\t3\t0\t0", "0.225\t3\t1\t0", "0.275\t3\t0\t1",
+				"0.475\t3\t0\t0", "0.750\t3\t0\t0",
 				"1.050\t3\t0\t0", "1.275\t3\t0\t0", "1.525\t3\t0\t0",
 				"1.800\t3\t0\t0", "2.100\t3\t0\t0", "2.325\t3\t0\t0",
 			}, "\n"),
@@ -121,6 +133,7 @@ func TestEvaluateRejectsMalformedTSV(t *testing.T) {
 		"out of range state":        "0.000\t4\t0\t0",
 		"invalid Poll flag":         "0.000\t3\t2\t0",
 		"invalid Final flag":        "0.000\t3\t0\t2",
+		"Poll and Final both set":   "0.000\t3\t1\t1",
 		"empty Poll flag":           "0.000\t3\t\t0",
 		"non-increasing time":       "1.000\t3\t0\t0\n0.999\t3\t0\t0",
 		"blank record":              "0.000\t3\t0\t0\n\n0.225\t3\t0\t0",

@@ -26,6 +26,7 @@ var (
 	errNonIncreasingEpoch = errors.New("jitter epoch is not increasing")
 	errInvalidState       = errors.New("invalid BFD state")
 	errInvalidFlag        = errors.New("invalid BFD flag")
+	errInvalidFlags       = errors.New("invalid BFD flag combination")
 )
 
 // Status describes the jitter assessment outcome.
@@ -61,7 +62,6 @@ type analyzer struct {
 type packet struct {
 	epoch float64
 	state uint64
-	poll  bool
 	final bool
 }
 
@@ -115,7 +115,10 @@ func parseRow(line string, lineNumber int) (packet, error) {
 	if err != nil {
 		return packet{}, err
 	}
-	return packet{epoch: epoch, state: state, poll: poll, final: final}, nil
+	if poll && final {
+		return packet{}, fmt.Errorf("parse BFD flags at row %d: Poll and Final are both set: %w", lineNumber, errInvalidFlags)
+	}
+	return packet{epoch: epoch, state: state, final: final}, nil
 }
 
 func parseFlag(raw, name string, lineNumber int) (bool, error) {
@@ -143,7 +146,7 @@ func (analysis *analyzer) add(parsed packet, lineNumber int) error {
 		return nil
 	}
 	analysis.report.UpPackets++
-	if parsed.poll || parsed.final {
+	if parsed.final {
 		return nil
 	}
 	if !analysis.havePreviousRegularUp {
