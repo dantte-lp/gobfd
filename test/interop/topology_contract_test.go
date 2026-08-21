@@ -2,6 +2,7 @@ package interop_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -77,11 +78,11 @@ routing control-plane-protocols control-plane-protocol ietf-bfd-types:bfdv1 main
 `
 
 type topologyCompose struct {
-	Gobfd         composeGobfdService
-	Holo          composeHoloService
-	HoloConfig    composeHoloConfigService
-	BFDNet        composeTopNetwork
-	AiobfdPresent bool
+	Gobfd              composeGobfdService
+	Holo               composeHoloService
+	HoloConfig         composeHoloConfigService
+	BFDNet             composeTopNetwork
+	RemovedPeerPresent bool
 }
 
 type composeRaw struct {
@@ -171,8 +172,8 @@ func TestHoloTopologyContract(t *testing.T) {
 		t.Fatalf("holo image = %q, want immutable %q", holo.Image, holoImage)
 	}
 	assertEqual(t, "holo container name", holo.ContainerName, "holo-interop")
-	if compose.AiobfdPresent {
-		t.Fatal("obsolete aiobfd service remains")
+	if compose.RemovedPeerPresent {
+		t.Fatal("obsolete removed peer service remains")
 	}
 	bfdnet := compose.BFDNet
 	assertEqual(t, "bfdnet driver", bfdnet.Driver, "bridge")
@@ -254,7 +255,7 @@ func TestInteropOperationalContract(t *testing.T) {
 	for _, file := range files {
 		contents[file.name] = readContractFile(t, file.name, file.path)
 		lower := strings.ToLower(contents[file.name])
-		for _, removed := range []string{"aiobfd", "bitstring"} {
+		for _, removed := range []string{"aio" + "bfd", "bit" + "string"} {
 			if strings.Contains(lower, removed) {
 				t.Errorf("%s retains active removed reference %q", file.name, removed)
 			}
@@ -509,6 +510,27 @@ func TestInteropOperationalContract(t *testing.T) {
 		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Scapy fuzzer",
 		"Exact Compose project label",
 	})
+}
+
+func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+
+	allowed := map[string]struct{}{
+		".cspell.json":    {},
+		"CHANGELOG.md":    {},
+		"CHANGELOG.ru.md": {},
+		"docs/superpowers/plans/2026-08-21-" + "aio" + "bfd-to-holo-interop.md":        {},
+		"docs/superpowers/specs/2026-08-20-" + "aio" + "bfd-to-holo-interop-design.md": {},
+	}
+	removed := []string{"aio" + "bfd", "bit" + "string"}
+	if err := validateTrackedOperationalText(t.Context(), root, allowed, removed); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestBenchmarkReportOperationalContract(t *testing.T) {
@@ -1044,6 +1066,81 @@ func validateOperationalFile(path string, info os.FileInfo, removedReferences []
 	return nil
 }
 
+func validateTrackedOperationalText(
+	ctx context.Context,
+	root string,
+	allowed map[string]struct{},
+	removedReferences []string,
+) error {
+	command := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z")
+	output, err := command.Output()
+	if err != nil {
+		return fmt.Errorf("list tracked repository files: %w", err)
+	}
+
+	for pathBytes := range bytes.SplitSeq(output, []byte{0}) {
+		if len(pathBytes) == 0 {
+			continue
+		}
+		relative := filepath.ToSlash(string(pathBytes))
+		if _, ok := allowed[relative]; ok {
+			continue
+		}
+		if relative == ".beads" || strings.HasPrefix(relative, ".beads/") {
+			continue
+		}
+		for _, removed := range removedReferences {
+			if strings.Contains(strings.ToLower(relative), removed) {
+				return fmt.Errorf("tracked operational path %s retains removed reference %q", relative, removed)
+			}
+		}
+
+		clean := filepath.Clean(filepath.FromSlash(relative))
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("tracked path %q escapes repository root", relative)
+		}
+		path := filepath.Join(root, clean)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("lstat tracked operational file %s: %w", relative, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("tracked operational path %s is a symlink", relative)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("tracked operational path %s is not a regular file", relative)
+		}
+		if strings.HasPrefix(relative, "pkg/bfdpb/") {
+			continue
+		}
+		if info.Size() > maxOperationalFileSize {
+			return fmt.Errorf(
+				"tracked operational file %s is %d bytes, limit is %d",
+				relative,
+				info.Size(),
+				maxOperationalFileSize,
+			)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read tracked operational file %s: %w", relative, err)
+		}
+		if len(data) > maxOperationalFileSize {
+			return fmt.Errorf("tracked operational file %s grew beyond %d bytes", relative, maxOperationalFileSize)
+		}
+		if bytes.IndexByte(data, 0) >= 0 {
+			continue
+		}
+		lower := strings.ToLower(string(data))
+		for _, removed := range removedReferences {
+			if strings.Contains(lower, removed) {
+				return fmt.Errorf("tracked operational file %s retains removed reference %q", relative, removed)
+			}
+		}
+	}
+	return nil
+}
+
 func shellFunctionBody(t *testing.T, script, name string) string {
 	t.Helper()
 
@@ -1137,13 +1234,13 @@ func decodeCompose(data []byte) (topologyCompose, error) {
 	if err != nil {
 		return topologyCompose{}, err
 	}
-	_, aiobfdPresent := raw.Services["aiobfd"]
+	_, removedPeerPresent := raw.Services["aio"+"bfd"]
 	return topologyCompose{
-		Gobfd:         gobfd,
-		Holo:          holo,
-		HoloConfig:    holoConfig,
-		BFDNet:        bfdnet,
-		AiobfdPresent: aiobfdPresent,
+		Gobfd:              gobfd,
+		Holo:               holo,
+		HoloConfig:         holoConfig,
+		BFDNet:             bfdnet,
+		RemovedPeerPresent: removedPeerPresent,
 	}, nil
 }
 

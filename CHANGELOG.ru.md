@@ -15,6 +15,10 @@
 
 ### Изменено
 
+- Обязательная матрица совместимости четырёх BFD-пиров использует FRR 10.7.0,
+  BIRD 3.3.2, immutable Holo 0.9.0 и Thoro/bfd. Holo настраивается через
+  healthy-gated одноразовый YANG loader; lifecycle tests требуют свежих
+  подтверждений отказа и восстановления из пакетов и состояния демона.
 - First-party toolchain baseline переведён на Go 1.27.0 в `go.mod`, GitHub
   Actions, development/release images и test harness builders. Compiler images
   закреплены по immutable multi-platform OCI indexes. Go 1.27 включает
@@ -45,6 +49,9 @@
 
 ### Удалено
 
+- Удалены заброшенный пир aiobfd, его зависимость bitstring и repository-owned
+  Python benchmark service со сравнениями. Cross-language отчёты теперь
+  содержат результаты GoBFD, FRR-style C и BIRD-style C.
 - Каталог `.archive/` удалён из репозитория. Sprint planning records,
   cleanup plan и промо-черновики больше не трекаются. Каталог остаётся
   в `.gitignore`, чтобы maintainer мог держать локальные scratch-файлы

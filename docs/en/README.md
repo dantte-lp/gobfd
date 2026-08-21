@@ -117,7 +117,7 @@ graph TD
 | # | Document | Description |
 |---|---|---|
 | 12 | [**Benchmarks**](./12-benchmarks.md) | How to run, read, and interpret benchmark results |
-| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, aiobfd, hardware platforms |
+| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, Holo, hardware platforms |
 | 14 | [**Performance Analysis**](./14-performance-analysis.md) | GoBFD vs C implementations: benchmarks, architecture, CPU load behavior |
 
 ### Architecture Decision Records

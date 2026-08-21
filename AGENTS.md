@@ -11,7 +11,7 @@ go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
 golangci-lint run                                  # линтер (v2, строгий)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
-make interop                                       # interop tests (FRR + BIRD3 + aiobfd + Thoro, 4 peers)
+make interop                                       # interop tests (FRR + BIRD3 + Holo + Thoro/bfd, 4 peers)
 make interop-bgp                                   # BGP+BFD tests (FRR, BIRD3, ExaBGP)
 make int-bgp-failover                              # integration: BGP fast failover demo
 make int-haproxy                                   # integration: HAProxy agent-check bridge
@@ -34,7 +34,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - `cmd/gobfd-exabgp-bridge/` — ExaBGP process API bridge (BFD state → route announcements)
 - `pkg/bfdpb/` — generated protobuf types (public API for external consumers)
 - `api/v1/` — proto definitions (buf managed)
-- `test/interop/` — 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro/bfd) with tshark capture
+- `test/interop/` — 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd) with tshark capture
 - `test/interop-bgp/` — BGP+BFD interop tests (GoBGP + FRR, BIRD3, ExaBGP)
 - `test/interop-clab/` — Containerlab vendor NOS interop tests (Nokia, Arista, FRR)
 - `deployments/integrations/` — 5 integration examples (BGP failover, HAProxy, observability, ExaBGP, k8s)

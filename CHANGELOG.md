@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The mandatory four-peer BFD interoperability matrix now uses FRR 10.7.0,
+  BIRD 3.3.2, immutable Holo 0.9.0, and Thoro/bfd. Holo is configured by a
+  healthy-gated one-shot YANG loader, and lifecycle tests require fresh packet
+  and daemon-state evidence for failure and recovery.
 - The first-party toolchain baseline is Go 1.27.0 across `go.mod`, GitHub
   Actions, development and release images, and test harness builders. Compiler
   images are pinned to immutable multi-platform OCI indexes. Go 1.27 includes
@@ -46,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the abandoned aiobfd peer, its bitstring dependency, and the
+  repository-owned Python benchmark service and comparisons. Cross-language
+  benchmark reports now contain GoBFD, FRR-style C, and BIRD-style C results.
 - `.archive/` directory removed from the repository. Sprint planning
   records, the cleanup plan, and promo drafts are no longer tracked.
   The directory remains in `.gitignore` so a maintainer can keep

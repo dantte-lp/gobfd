@@ -253,7 +253,7 @@ gobfd/
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro)
++-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
 +-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
 +-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
 +-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)

@@ -1,12 +1,13 @@
 # Interoperability Testing
 
-![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
-![BIRD3](https://img.shields.io/badge/BIRD3-BFD-28a745?style=for-the-badge)
-![aiobfd](https://img.shields.io/badge/aiobfd-Python-ffc107?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
+![BIRD3](https://img.shields.io/badge/BIRD3-3.3.2-28a745?style=for-the-badge)
+![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
 ![Thoro](https://img.shields.io/badge/Thoro%2Fbfd-Go-6f42c1?style=for-the-badge)
 ![tshark](https://img.shields.io/badge/tshark-Capture-1a73e8?style=for-the-badge)
 
-> 4-peer interoperability testing with FRR, BIRD3, aiobfd, and Thoro/bfd in a containerized Podman topology with packet capture.
+> Mandatory four-peer interoperability testing with FRR 10.7.0, BIRD 3.3.2,
+> Holo 0.9.0, and Thoro/bfd in a Podman topology with packet capture.
 
 ---
 
@@ -23,42 +24,55 @@
 
 ### Overview
 
-GoBFD is tested against four independent BFD implementations to verify protocol compliance and interoperability. All peers run in a containerized Podman network, enabling reproducible automated testing.
+GoBFD is tested against four independent BFD implementations. The mandatory
+base gate runs on `linux/amd64` because Holo publishes an official amd64 image
+but no multi-architecture manifest. GoBGP and ExaBGP belong to the separate
+BGP+BFD suite and are not counted as base peers.
 
 ### Test Topology
 
 ```mermaid
 graph LR
-    subgraph "10.99.0.0/24 (podman network)"
-        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.27"]
-        FRR["FRR<br/>10.99.0.2<br/>bfdd"]
-        BIRD["BIRD3<br/>10.99.0.3<br/>BFD proto"]
-        AIOBFD["aiobfd<br/>10.99.0.4<br/>Python"]
-        THORO["Thoro/bfd<br/>10.99.0.5<br/>Go"]
+    subgraph "172.20.0.0/24 (Podman network)"
+        GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
+        FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
+        BIRD["BIRD 3.3.2<br/>172.20.0.30<br/>BFD protocol"]
+        HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
+        LOADER["holo-config<br/>one-shot YANG loader"]
+        THORO["Thoro/bfd<br/>172.20.0.60<br/>Go"]
         TSHARK["tshark<br/>capture"]
     end
 
     GOBFD <--> FRR
     GOBFD <--> BIRD
-    GOBFD <--> AIOBFD
+    GOBFD <--> HOLO
     GOBFD <--> THORO
+    LOADER -.->|holo-cli over gRPC| HOLO
     TSHARK -.->|monitor| GOBFD
 
     style GOBFD fill:#1a73e8,color:#fff
     style FRR fill:#dc3545,color:#fff
     style BIRD fill:#28a745,color:#fff
-    style AIOBFD fill:#ffc107,color:#000
+    style HOLO fill:#fc8d62,color:#000
+    style LOADER fill:#fc8d62,color:#000
     style THORO fill:#6f42c1,color:#fff
 ```
 
 ### Peer Implementations
 
-| Peer | Implementation | Language | BFD Support | RFC |
-|---|---|---|---|---|
-| [FRR](https://frrouting.org/) | bfdd | C | Full | 5880, 5881, 5883 |
-| [BIRD3](https://bird.network.cz/) | BFD protocol | C | Core | 5880, 5881 |
-| [aiobfd](https://github.com/netedgeplus/aiobfd) | AsyncIO daemon | Python | Core | 5880, 5881 |
-| [Thoro/bfd](https://github.com/Thoro/bfd) | gRPC daemon | Go | Core | 5880, 5881 |
+| Peer | Version | Implementation | Language | Documented RFC coverage |
+|---|---:|---|---|---|
+| [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
+| [BIRD3](https://bird.network.cz/) | 3.3.2 | BFD protocol | C | 5880, 5881, 5882, 5883 |
+| [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
+| [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
+
+Holo uses the immutable official image digest recorded in `compose.yml`. The
+daemon starts with `holo/holod.toml`; a healthy-gated, one-shot `holo-config`
+service then applies `holo/holo.startup` through `holo-cli`. The YANG values are
+microseconds: `300000` for both transmit and receive intervals with multiplier
+`3`, producing the negotiated 300 ms interval and 900 ms detection time. The
+loader has no fixed address and is not a fifth peer.
 
 ### Running Interop Tests
 
@@ -69,7 +83,9 @@ graph LR
 make interop
 ```
 
-This runs `test/interop/run.sh` which handles the complete lifecycle.
+This runs `test/interop/run.sh`, which validates exact project ownership,
+requires the Holo loader to exit with status zero, runs the tests, and removes
+only resources carrying that project label.
 
 #### Step by Step
 
@@ -111,10 +127,10 @@ The interop tests (`test/interop/interop_test.go`) verify:
 ```mermaid
 sequenceDiagram
     participant T as Test Runner
-    participant G as GoBFD (10.99.0.10)
-    participant F as FRR (10.99.0.2)
+    participant G as GoBFD (172.20.0.10)
+    participant F as FRR (172.20.0.20)
 
-    T->>G: Create session (peer=10.99.0.2)
+    T->>G: Create session (peer=172.20.0.20)
     G->>F: Control(State=Down)
     F->>G: Control(State=Down)
     Note over G: Down -> Init

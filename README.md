@@ -30,7 +30,10 @@ Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (
 - **Zero-allocation hot path.** Packet codec, FSM transitions, timer dispatch, and session demultiplexing run at 0 B/op, 0 allocs/op (33 micro-benchmarks enforce the policy). GC pauses cannot cause BFD session flapping.
 - **RFC coverage beyond the basics.** RFC 5880/5881/5882/5883/7419/9384/9468/9747/9764 implemented; RFC 7130 (Micro-BFD), RFC 8971 (VXLAN), RFC 9521 (Geneve) ship with userspace backends. See [RFC Compliance](docs/en/08-rfc-compliance.md).
 - **Production-ready surfaces.** ConnectRPC/gRPC API, Prometheus metrics, structured `slog` logging, systemd `Type=notify` with watchdog and SIGHUP hot reload, and a runtime flight recorder for post-mortem diagnostics.
-- **Verified interop.** 4-peer interop suite (FRR, BIRD3, aiobfd, Thoro/bfd) and BGP+BFD coupling tests against FRR, BIRD3, ExaBGP. Containerlab profiles for Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
+- **Verified interop.** The base suite covers FRR 10.7.0, BIRD 3.3.2,
+  immutable Holo 0.9.0, and Thoro/bfd. Separate BGP+BFD coupling tests cover
+  GoBGP, FRR, BIRD3, and ExaBGP. Containerlab profiles cover Arista cEOS,
+  Nokia SR Linux, SONiC-VS, and VyOS.
 
 Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysis.md) and [Performance Analysis](docs/en/14-performance-analysis.md).
 
@@ -84,7 +87,7 @@ Full documentation is available in [`docs/`](docs/README.md):
 | 02 | [BFD Protocol](docs/en/02-protocol.md) | FSM, timers, jitter, packet format, authentication |
 | 03 | [Configuration](docs/en/03-configuration.md) | YAML config, env vars, GoBGP integration, hot reload |
 | 04 | [CLI Reference](docs/en/04-cli.md) | gobfdctl commands, interactive shell |
-| 05 | [Interop Testing](docs/en/05-interop.md) | 4-peer testing: FRR, BIRD3, aiobfd, Thoro |
+| 05 | [Interop Testing](docs/en/05-interop.md) | 4-peer testing: FRR, BIRD3, Holo, Thoro/bfd |
 | 06 | [Deployment](docs/en/06-deployment.md) | systemd, Podman Compose, packages, production |
 | 07 | [Monitoring](docs/en/07-monitoring.md) | Prometheus metrics, Grafana dashboard, alerting |
 | 08 | [RFC Compliance](docs/en/08-rfc-compliance.md) | RFC compliance matrix, implementation notes |
@@ -151,7 +154,7 @@ allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
 - ConnectRPC/gRPC API + CLI with interactive shell
 - Prometheus metrics + Grafana dashboard
 - systemd integration (Type=notify, watchdog, SIGHUP hot reload)
-- 4-peer interop testing (FRR, BIRD3, aiobfd, Thoro/bfd) + 5 integration examples
+- 4-peer interop testing (FRR, BIRD3, Holo, Thoro/bfd) + 5 integration examples
 - Runtime flight recorder for post-mortem debugging
 
 Advanced Linux modes are explicit about dataplane ownership: Micro-BFD detects

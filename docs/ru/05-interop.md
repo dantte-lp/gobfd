@@ -1,12 +1,13 @@
 # Тестирование совместимости
 
-![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
-![BIRD3](https://img.shields.io/badge/BIRD3-BFD-28a745?style=for-the-badge)
-![aiobfd](https://img.shields.io/badge/aiobfd-Python-ffc107?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
+![BIRD3](https://img.shields.io/badge/BIRD3-3.3.2-28a745?style=for-the-badge)
+![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
 ![Thoro](https://img.shields.io/badge/Thoro%2Fbfd-Go-6f42c1?style=for-the-badge)
 ![tshark](https://img.shields.io/badge/tshark-Capture-1a73e8?style=for-the-badge)
 
-> 4-пировое тестирование совместимости с FRR, BIRD3, aiobfd и Thoro/bfd в контейнеризованной топологии Podman с захватом пакетов.
+> Обязательное тестирование четырёх пиров: FRR 10.7.0, BIRD 3.3.2,
+> Holo 0.9.0 и Thoro/bfd в топологии Podman с захватом пакетов.
 
 ---
 
@@ -23,51 +24,55 @@
 
 ### Обзор
 
-GoBFD тестируется с четырьмя независимыми реализациями BFD для проверки соответствия протоколу и совместимости. Все пиры работают в контейнеризованной сети Podman, обеспечивая воспроизводимое автоматизированное тестирование.
+GoBFD тестируется с четырьмя независимыми реализациями BFD. Обязательный
+базовый gate работает на `linux/amd64`: Holo публикует официальный amd64-образ,
+но не multi-architecture manifest. GoBGP и ExaBGP входят в отдельный BGP+BFD
+набор и не считаются базовыми пирами.
 
 ### Топология тестирования
 
 ```mermaid
 graph LR
-    subgraph "10.99.0.0/24 (podman network)"
-        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.27"]
-        FRR["FRR<br/>10.99.0.2<br/>bfdd"]
-        BIRD["BIRD3<br/>10.99.0.3<br/>BFD proto"]
-        AIOBFD["aiobfd<br/>10.99.0.4<br/>Python"]
-        THORO["Thoro/bfd<br/>10.99.0.5<br/>Go"]
+    subgraph "172.20.0.0/24 (сеть Podman)"
+        GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
+        FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
+        BIRD["BIRD 3.3.2<br/>172.20.0.30<br/>BFD protocol"]
+        HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
+        LOADER["holo-config<br/>одноразовый YANG loader"]
+        THORO["Thoro/bfd<br/>172.20.0.60<br/>Go"]
         TSHARK["tshark<br/>capture"]
     end
 
     GOBFD <--> FRR
     GOBFD <--> BIRD
-    GOBFD <--> AIOBFD
+    GOBFD <--> HOLO
     GOBFD <--> THORO
+    LOADER -.->|holo-cli через gRPC| HOLO
     TSHARK -.->|monitor| GOBFD
 
     style GOBFD fill:#1a73e8,color:#fff
     style FRR fill:#dc3545,color:#fff
     style BIRD fill:#28a745,color:#fff
-    style AIOBFD fill:#ffc107,color:#000
+    style HOLO fill:#fc8d62,color:#000
+    style LOADER fill:#fc8d62,color:#000
     style THORO fill:#6f42c1,color:#fff
 ```
 
-Все контейнеры находятся в сети `10.99.0.0/24`:
-
-| Контейнер | IP | Реализация | Язык |
-|---|---|---|---|
-| GoBFD | 10.99.0.10 | gobfd | Go 1.27 |
-| FRR | 10.99.0.2 | bfdd | C |
-| BIRD3 | 10.99.0.3 | BFD protocol | C |
-| aiobfd | 10.99.0.4 | AsyncIO daemon | Python |
-| Thoro/bfd | 10.99.0.5 | gRPC daemon | Go |
-| tshark | -- | Захват пакетов | -- |
-
 ### Реализации пиров
 
-- **FRR** -- полнофункциональный маршрутизатор с поддержкой BFD single-hop и multihop
-- **BIRD3** -- облегчённый маршрутизатор с BFD-протоколом
-- **aiobfd** -- Python AsyncIO-реализация BFD (легковесная)
-- **Thoro/bfd** -- Go-реализация BFD с gRPC API
+| Пир | Версия | Реализация | Язык | Документированное покрытие RFC |
+|---|---:|---|---|---|
+| [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
+| [BIRD3](https://bird.network.cz/) | 3.3.2 | BFD protocol | C | 5880, 5881, 5882, 5883 |
+| [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
+| [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
+
+Holo использует immutable digest официального образа из `compose.yml`. Демон
+запускается с `holo/holod.toml`, после чего healthy-gated одноразовый сервис
+`holo-config` применяет `holo/holo.startup` через `holo-cli`. Значения YANG
+указаны в микросекундах: `300000` для интервалов передачи и приёма с
+множителем `3`, что даёт согласованный интервал 300 мс и detection time 900 мс.
+У loader нет фиксированного адреса, и он не является пятым пиром.
 
 ### Запуск тестов совместимости
 
@@ -77,6 +82,10 @@ graph LR
 # Сборка, запуск топологии, тесты, очистка -- всё в одном
 make interop
 ```
+
+Команда запускает `test/interop/run.sh`: проверяет точное владение проектом,
+требует нулевой exit status у Holo loader, выполняет тесты и удаляет только
+ресурсы с label этого проекта.
 
 #### Пошагово
 
@@ -118,10 +127,10 @@ make interop-capture
 ```mermaid
 sequenceDiagram
     participant T as Test Runner
-    participant G as GoBFD (10.99.0.10)
-    participant F as FRR (10.99.0.2)
+    participant G as GoBFD (172.20.0.10)
+    participant F as FRR (172.20.0.20)
 
-    T->>G: Create session (peer=10.99.0.2)
+    T->>G: Create session (peer=172.20.0.20)
     G->>F: Control(State=Down)
     F->>G: Control(State=Down)
     Note over G: Down -> Init

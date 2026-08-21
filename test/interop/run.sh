@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Interoperability test runner for GoBFD <-> FRR and GoBFD <-> BIRD3.
+# Four-peer interoperability runner for GoBFD with FRR, BIRD3, Holo, and
+# Thoro/bfd.
 #
 # This script builds the container images, starts the test stack,
 # verifies BFD sessions reach Up state, runs comprehensive RFC 5880/5881

@@ -16,10 +16,11 @@
 # Live decode:  podman exec tshark-interop tshark -r /captures/bfd.pcapng -V -Y bfd
 # Live capture: podman exec tshark-interop tshark -i any -f "udp port 3784" -V
 #
-# Usage:
-#   podman-compose -f test/interop/compose.yml up --build -d
-#   podman-compose -f test/interop/compose.yml logs -f
-#   podman-compose -f test/interop/compose.yml down
+# Usage (project ownership and cleanup are enforced by projectctl.sh):
+#   make interop
+#   make interop-up
+#   make interop-logs
+#   make interop-down
 
 services:
   gobfd:
