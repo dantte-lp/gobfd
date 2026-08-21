@@ -281,6 +281,19 @@ return only stdout after a successful exec, and include stderr when exec fails.
 This prevents `Running as user "root"...` from becoming a fake frame row while
 retaining bounded context and `errors.Is` behavior.
 
+Stop Holo through a narrow exact-ownership helper that resolves
+`holo-interop` to its immutable ID and invokes
+`podman stop --time 5 <exact-ID>`. Bound that command with a 15-second outer
+context so Podman's five-second grace period cannot race an equal outer
+deadline. Treat any stop error as a lifecycle failure and preserve its output;
+do not silently continue into packet/state assertions.
+
+Live `lifecycle-v3.json` evidence reached the valid pre-stop frame baseline 50,
+then failed at about ten seconds with `stop only Holo service: signal: killed`;
+best-effort restart consequently found the container in an improper state. The
+former ten-second outer context equalled Podman's default ten-second stop grace,
+so this explicit nested timeout contract is required before rerunning live.
+
 - [ ] **Step 4: Rename peer-specific tests and add failure/recovery behavior**
 
 Rename constants, helpers, test names, log messages, packet filters,
@@ -289,7 +302,8 @@ lifecycle subtest that:
 
 1. registers best-effort recovery cleanup before the first mutation;
 2. records the current last bidirectional Holo frame as the pre-stop baseline;
-3. stops only `holo`;
+3. stops only `holo` with the exact-ID five-second Podman grace period inside
+   the 15-second outer bound;
 4. waits for current GoBFD state `Down` plus `ControlTimeExpired`;
 5. requires a new GoBFD-originated `Down`/diagnostic-1 packet whose frame number
    is strictly greater than the pre-stop baseline and retains that proven Down

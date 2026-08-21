@@ -53,6 +53,8 @@ const (
 	holoLifecycleBudget    = 180 * time.Second
 	holoCleanupBudget      = 75 * time.Second
 	holoTestDeadlineMargin = 10 * time.Second
+	holoStopTimeout        = 15 * time.Second
+	holoStopGraceSeconds   = 5
 	holoStartTimeout       = 10 * time.Second
 	holoHealthTimeout      = 20 * time.Second
 	holoConfigStartTimeout = 15 * time.Second
@@ -335,6 +337,17 @@ func projectContainerLogs(ctx context.Context, containerName string, args ...str
 	return podmanCommand(ctx, commandArgs...)
 }
 
+func stopHoloContainer(ctx context.Context) (string, error) {
+	containerID, err := resolveProjectContainerID(ctx, "holo-interop")
+	if err != nil {
+		return "", fmt.Errorf("resolve Holo container for bounded stop: %w", err)
+	}
+	return podmanCommand(
+		ctx,
+		"stop", "--time", strconv.Itoa(holoStopGraceSeconds), containerID,
+	)
+}
+
 func TestProjectContainerCommandUsesExactOwnedID(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
@@ -369,6 +382,95 @@ fi
 	}
 	if strings.Contains(string(commands), "stop frr-interop") {
 		t.Fatalf("runtime command used mutable service name; commands:\n%s", commands)
+	}
+}
+
+func TestStopHoloContainerUsesBoundedExactCommand(t *testing.T) {
+	gracePeriod := time.Duration(holoStopGraceSeconds) * time.Second
+	if holoStopTimeout <= gracePeriod {
+		t.Fatalf("Holo stop outer timeout %v must exceed Podman grace %v", holoStopTimeout, gracePeriod)
+	}
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	startedPath := filepath.Join(t.TempDir(), "stop-started")
+	fakePodman := `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
+if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
+    printf '%s\n' 'immutable-holo-id|gobfd-interop'
+    exit 0
+fi
+if [[ "$*" == "stop --time 5 immutable-holo-id" ]]; then
+    case "${INTEROP_FAKE_STOP_MODE:-success}" in
+        success) printf '%s\n' immutable-holo-id ;;
+        failure) printf '%s\n' 'daemon refused bounded stop' >&2; exit 17 ;;
+        block) : > "${INTEROP_FAKE_STOP_STARTED}"; exec /bin/sleep 10 ;;
+    esac
+    exit 0
+fi
+exit 9
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
+		t.Fatalf("write fake podman: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
+	t.Setenv("INTEROP_FAKE_STOP_STARTED", startedPath)
+	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
+
+	output, err := stopHoloContainer(t.Context())
+	if err != nil || strings.TrimSpace(output) != "immutable-holo-id" {
+		t.Fatalf("bounded exact Holo stop output=%q error=%v", output, err)
+	}
+
+	t.Setenv("INTEROP_FAKE_STOP_MODE", "failure")
+	output, err = stopHoloContainer(t.Context())
+	if err == nil || !strings.Contains(output, "daemon refused bounded stop") {
+		t.Fatalf("failed bounded Holo stop output=%q error=%v", output, err)
+	}
+
+	t.Setenv("INTEROP_FAKE_STOP_MODE", "block")
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, stopErr := stopHoloContainer(ctx)
+		errCh <- stopErr
+	}()
+	startDeadline := time.NewTimer(time.Second)
+	defer startDeadline.Stop()
+	for {
+		_, statErr := os.Stat(startedPath)
+		if statErr == nil {
+			break
+		}
+		if !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("check bounded Holo stop marker: %v", statErr)
+		}
+		select {
+		case <-startDeadline.C:
+			t.Fatal("bounded Holo stop did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case err = <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled bounded Holo stop error=%v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bounded Holo stop did not return after context cancellation")
+	}
+
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	if !strings.Contains(string(commands), "stop --time 5 immutable-holo-id") {
+		t.Fatalf("Holo stop did not use bounded exact-ID argv; commands:\n%s", commands)
+	}
+	if strings.Contains(string(commands), "stop immutable-holo-id --time") ||
+		strings.Contains(string(commands), "stop holo-interop") {
+		t.Fatalf("Holo stop used unsafe argv ordering or mutable name; commands:\n%s", commands)
 	}
 }
 
@@ -2190,8 +2292,8 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 	})
 
 	mutated = true
-	stopCtx, cancelStop := context.WithTimeout(lifecycleCtx, 10*time.Second)
-	output, err := projectContainerCommand(stopCtx, "holo-interop", "stop")
+	stopCtx, cancelStop := context.WithTimeout(lifecycleCtx, holoStopTimeout)
+	output, err := stopHoloContainer(stopCtx)
 	cancelStop()
 	if err != nil {
 		t.Fatalf("stop only Holo service: %v: %s", err, strings.TrimSpace(output))
