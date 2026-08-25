@@ -3,13 +3,13 @@
 #
 # Demonstrates: BFD-controlled anycast route announcement/withdrawal.
 #
-# Prerequisites: podman, podman-compose
+# Prerequisites: podman, podman compose
 # Usage: ./run.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DC="podman-compose -f ${SCRIPT_DIR}/compose.yml"
+DC="podman compose -f ${SCRIPT_DIR}/compose.yml"
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'

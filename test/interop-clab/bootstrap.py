@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --frozen --no-default-groups -- python
 """Bootstrap the GoBFD vendor interop lab from a clean machine.
 
 Automates full image preparation: pulls public NOS images, prepares a VyOS
@@ -16,15 +16,23 @@ import json
 import logging
 import os
 import shutil
-import subprocess
+
+# All subprocess calls use a fixed argv and an allowlisted executable resolved
+# to an absolute path before execution; shell execution is never enabled.
+import subprocess  # nosec B404
 import sys
 import tarfile
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 from urllib.error import URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+if TYPE_CHECKING:
+    from http.client import HTTPMessage
+    from typing import IO
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -42,7 +50,7 @@ OPEN_SOURCE_IMAGES: dict[str, str] = {
     "vyos": "docker.io/muruu1/vyos:{vyos_tag}",
     "frr": "quay.io/frrouting/frr:{frr_tag}",
     "gobgp": "docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37",
-    "golang": "docker.io/library/golang:1.27.0-trixie@sha256:6212da3924947f4b6a939df02ea627c13f338f1a41d6c3fcb0dd9d076eef46c4",
+    "golang": "docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a",
     "debian": "docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
 }
 
@@ -85,14 +93,31 @@ INVENTORY: list[dict[str, str]] = [
     },
 ]
 
-VYOS_GITHUB_API = (
-    "https://api.github.com/repos/vyos/vyos-rolling-nightly-builds/releases"
+VYOS_GITHUB_API = "https://api.github.com/repos/vyos/vyos-rolling-nightly-builds/releases"
+VYOS_DOWNLOAD_BASE = "https://github.com/vyos/vyos-rolling-nightly-builds/releases/download"
+
+_ALLOWED_HTTPS_HOSTS = frozenset({"api.github.com", "github.com"})
+_ALLOWED_EXECUTABLES = frozenset(
+    {
+        "7z",
+        "go",
+        "podman",
+        "tar",
+        "unsquashfs",
+        "xorriso",
+    },
 )
-VYOS_DOWNLOAD_BASE = (
-    "https://github.com/vyos/vyos-rolling-nightly-builds/releases/download"
-)
+_RUN_SCRIPT = (SCRIPT_DIR / "run.sh").resolve()
 
 _log = logging.getLogger("bootstrap")
+
+
+class _BootstrapSecurityError(ValueError):
+    """Report a rejected outbound URL or executable boundary."""
+
+
+class _ExecutableNotFoundError(FileNotFoundError):
+    """Report an unavailable executable after allowlist validation."""
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +169,67 @@ class _Formatter(logging.Formatter):
 # ---------------------------------------------------------------------------
 
 
+def _validated_https_url(url: str) -> str:
+    """Return *url* only when it uses the exact outbound HTTPS allowlist."""
+    parsed = urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        message = f"invalid outbound URL port: {url!r}"
+        raise _BootstrapSecurityError(message) from exc
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in _ALLOWED_HTTPS_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        message = f"outbound URL is not allowlisted: {url!r}"
+        raise _BootstrapSecurityError(message)
+    return url
+
+
+class _AllowlistedRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects outside the exact outbound HTTPS allowlist."""
+
+    @override
+    def redirect_request(
+        self,
+        req: Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> Request | None:
+        """Validate the redirect target before constructing its request."""
+        _validated_https_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _resolve_executable(command: str) -> str:
+    """Resolve an allowlisted command to an absolute executable path."""
+    candidate = Path(command)
+    if candidate.is_absolute():
+        if candidate.resolve() != _RUN_SCRIPT:
+            message = f"executable is not allowlisted: {command!r}"
+            raise _BootstrapSecurityError(message)
+        resolved = candidate
+    else:
+        if command not in _ALLOWED_EXECUTABLES:
+            message = f"executable is not allowlisted: {command!r}"
+            raise _BootstrapSecurityError(message)
+        found = shutil.which(command)
+        if found is None:
+            message = f"allowlisted executable not found: {command}"
+            raise _ExecutableNotFoundError(message)
+        resolved = Path(found)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        message = f"allowlisted executable is not executable: {resolved}"
+        raise _ExecutableNotFoundError(message)
+    return str(resolved.absolute())
+
+
 def _run(
     cmd: list[str],
     *,
@@ -153,12 +239,23 @@ def _run(
     cwd: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a command, returning its CompletedProcess."""
+    if not cmd:
+        message = "command must not be empty"
+        raise _BootstrapSecurityError(message)
     _log.debug("exec: %s", " ".join(cmd))
     if dry_run:
+        if Path(cmd[0]).is_absolute():
+            if Path(cmd[0]).resolve() != _RUN_SCRIPT:
+                message = f"executable is not allowlisted: {cmd[0]!r}"
+                raise _BootstrapSecurityError(message)
+        elif cmd[0] not in _ALLOWED_EXECUTABLES:
+            message = f"executable is not allowlisted: {cmd[0]!r}"
+            raise _BootstrapSecurityError(message)
         _log.info("[dry-run] %s", " ".join(cmd))
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-    return subprocess.run(
-        cmd,
+    resolved_cmd = [_resolve_executable(cmd[0]), *cmd[1:]]
+    return subprocess.run(  # nosec B603  # noqa: S603
+        resolved_cmd,
         check=check,
         text=True,
         capture_output=capture,
@@ -200,8 +297,7 @@ def _preflight(dry_run: bool) -> list[str]:
 
     if sys.version_info < MIN_PYTHON:
         sys.exit(
-            f"Python >= {'.'.join(map(str, MIN_PYTHON))} required "
-            f"(running {sys.version})",
+            f"Python >= {'.'.join(map(str, MIN_PYTHON))} required (running {sys.version})",
         )
     _log.info("Python %s", sys.version.split()[0])
 
@@ -337,15 +433,17 @@ def _pull_images(
 def _latest_vyos_version() -> str:
     """Fetch the latest VyOS rolling release tag from GitHub API."""
     _log.info("querying GitHub for latest VyOS rolling release …")
-    req = Request(
-        f"{VYOS_GITHUB_API}/latest",
+    # The request URL is restricted to the exact HTTPS GitHub host allowlist.
+    req = Request(  # noqa: S310
+        _validated_https_url(f"{VYOS_GITHUB_API}/latest"),
         headers={
             "Accept": "application/vnd.github+json",
             "User-Agent": "gobfd-bootstrap",
         },
     )
     try:
-        with urlopen(req, timeout=30) as resp:
+        opener = build_opener(_AllowlistedRedirectHandler())
+        with opener.open(req, timeout=30) as resp:
             data: dict[str, Any] = json.loads(resp.read())
             tag: str = data.get("tag_name", "")
             if not tag:
@@ -365,9 +463,14 @@ def _download_vyos_iso(version: str, dest: Path) -> Path:
     target = dest / filename
 
     _log.info("downloading VyOS ISO: %s", url)
-    req = Request(url, headers={"User-Agent": "gobfd-bootstrap"})
+    # The request URL is restricted to the exact HTTPS GitHub host allowlist.
+    req = Request(  # noqa: S310
+        _validated_https_url(url),
+        headers={"User-Agent": "gobfd-bootstrap"},
+    )
     try:
-        with urlopen(req, timeout=600) as resp:
+        opener = build_opener(_AllowlistedRedirectHandler())
+        with opener.open(req, timeout=600) as resp:
             total = int(resp.headers.get("Content-Length", 0))
             downloaded = 0
             with open(target, "wb") as f:
@@ -461,12 +564,12 @@ def _import_vyos_rootfs(rootfs: Path) -> bool:
     """Tar a rootfs and pipe into podman import. Returns success."""
     _log.info("importing rootfs as vyos:latest …")
     with (
-        subprocess.Popen(
-            ["tar", "-C", str(rootfs), "-c", "."],
+        subprocess.Popen(  # nosec B603  # noqa: S603
+            [_resolve_executable("tar"), "-C", str(rootfs), "-c", "."],
             stdout=subprocess.PIPE,
         ) as tar_proc,
-        subprocess.Popen(
-            ["podman", "import", "-", "vyos:latest"],
+        subprocess.Popen(  # nosec B603  # noqa: S603
+            [_resolve_executable("podman"), "import", "-", "vyos:latest"],
             stdin=tar_proc.stdout,
         ) as import_proc,
     ):
@@ -898,7 +1001,7 @@ def _parse_args() -> argparse.Namespace:
     g.add_argument(
         "--frr-tag",
         metavar="TAG",
-        default="10.2.5",
+        default="10.7.0",
         help="FRR tag (default: %(default)s)",
     )
     g.add_argument(

@@ -248,7 +248,7 @@ start_holo_interop_suite() {
     local project_name="$1"
     local compose_file="$2"
     local suite_dir="$3"
-    local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
+    local dc=(timeout 2m podman compose -p "${project_name}" -f "${compose_file}")
     local wait_status inspect_status loader_id semantic_error
 
     if ! "${dc[@]}" up -d holo holo-config; then
@@ -308,7 +308,7 @@ start_holo_interop_suite() {
 start_generic_suite() {
     local project_name="$1"
     local compose_file="$2"
-    local dc=(timeout 2m podman-compose -p "${project_name}" -f "${compose_file}")
+    local dc=(timeout 2m podman compose -p "${project_name}" -f "${compose_file}")
 
     "${dc[@]}" up -d
 }
@@ -504,7 +504,7 @@ run_suite() {
     shift 8
     local containers=("$@")
     local suite_dir="${REPORT_DIR}/${suite}"
-    local dc=(podman-compose -p "${project_name}" -f "${compose_file}")
+    local dc=(podman compose -p "${project_name}" -f "${compose_file}")
     local test_status=0
     local owned_index="${#OWNED_PROJECTS[@]}"
 

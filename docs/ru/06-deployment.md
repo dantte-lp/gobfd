@@ -27,6 +27,10 @@
 - Capability **CAP_NET_RAW** и **CAP_NET_ADMIN** (для UDP-сокетов с TTL=255)
 - Go 1.27+ (только для сборки из исходников)
 
+Для non-Linux целей поддерживается только compile-time совместимость.
+Конструкторы транспорта `internal/netio` возвращают `ErrUnsupportedPlatform`;
+GoBFD не публикует и не поддерживает dataplane runtime для non-Linux систем.
+
 ### Матрица release-артефактов
 
 | Артефакт | Целевые системы | Архитектуры | Базовый образ / формат пакета |
@@ -162,21 +166,36 @@ sudo systemctl status gobfd      # Статус
 
 ### Podman Compose
 
+GoBFD использует внешний Compose provider Podman с официальным Go-бинарником
+Docker Compose v5.5.0. Установите checksum-pinned provider и выберите его явно;
+Python `podman-compose` не поддерживается:
+
+```bash
+scripts/install-compose-provider.sh
+export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
+export PODMAN_COMPOSE_WARNING_LOGS=false
+export DOCKER_BUILDKIT=0
+podman compose version
+```
+
+`DOCKER_BUILDKIT=0` оставляет сборку на совместимом с Podman classic Docker API;
+Docker Buildx/Bake не входит в runtime-контракт проекта.
+
 #### Стек разработки
 
 ```bash
 # Запуск среды разработки
-podman-compose -f deployments/compose/compose.dev.yml up -d --build
+podman compose -f deployments/compose/compose.dev.yml up -d --build
 
 # Доступ к контейнеру разработки
-podman-compose -f deployments/compose/compose.dev.yml exec dev bash
+podman compose -f deployments/compose/compose.dev.yml exec dev bash
 ```
 
 #### Production-стек
 
 ```bash
 # Запуск gobfd с Prometheus и Grafana
-podman-compose -f deployments/compose/compose.yml up -d
+podman compose -f deployments/compose/compose.yml up -d
 
 # Сервисы:
 #   gobfd gRPC API:   localhost:50051

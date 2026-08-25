@@ -10,7 +10,7 @@
 #   ./test/interop-rfc/run.sh
 #
 # Prerequisites:
-#   - podman and podman-compose installed
+#   - podman and podman compose installed
 #   - Access to required container images (FRR, GoBGP)
 #
 # Exit codes:
@@ -21,7 +21,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yml"
-DC="podman-compose -f ${COMPOSE_FILE}"
+PROJECT_NAME="${INTEROP_RFC_PROJECT:-gobfd-interop-rfc}"
+DC=(podman compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}")
 
 # Colors for test output (disabled if not a terminal).
 if [ -t 1 ]; then
@@ -46,7 +47,7 @@ info() { echo -e "${YELLOW}INFO${NC}: $1"; }
 
 cleanup() {
     info "cleaning up containers and network"
-    ${DC} down --volumes --remove-orphans 2>/dev/null || true
+    "${DC[@]}" down --volumes --remove-orphans 2>/dev/null || true
 }
 
 trap cleanup EXIT
@@ -56,10 +57,10 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 
 info "building container images"
-${DC} build --no-cache
+"${DC[@]}" build --no-cache
 
 info "starting RFC interop test stack"
-${DC} up -d
+"${DC[@]}" up -d
 
 info "waiting for containers to start (15s)"
 sleep 15
@@ -81,7 +82,8 @@ info "all containers are running"
 
 info "running Go RFC interop tests"
 
-INTEROP_RFC_COMPOSE_FILE="${COMPOSE_FILE}" \
+INTEROP_PROJECT_NAME="${PROJECT_NAME}" \
+    INTEROP_RFC_COMPOSE_FILE="${COMPOSE_FILE}" \
     go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 TEST_EXIT=$?
 

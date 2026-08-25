@@ -7,7 +7,7 @@
 #   Version, Diagnostic, State, Flags (P/F/C/A/D/M),
 #   Detect Mult, Length, My/Your Discriminator, intervals.
 
-FROM docker.io/debian:trixie-slim
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

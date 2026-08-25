@@ -55,7 +55,7 @@ make all
 
 ### Make Targets
 
-All Go commands run inside Podman containers via `podman-compose exec`.
+All Go commands run inside Podman containers via `podman compose exec`.
 The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
 the current checkout directory name. Parallel worktrees use distinct default
 project names and can override `COMPOSE_PROJECT_NAME` explicitly.
@@ -109,7 +109,7 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 
 | Target | Description |
 |---|---|
-| `make int-bgp-failover` | BGP fast failover demo (GoBFD + GoBGP + FRR) |
+| `make int-bgp-failover` | Go testcontainers BGP fast-failover gate; the operational Compose example remains available through `-up`, `-logs`, and `-down` |
 | `make int-haproxy` | HAProxy agent-check bridge demo |
 | `make int-observability` | Prometheus + Grafana observability stack |
 | `make int-exabgp-anycast` | ExaBGP anycast service announcement |
@@ -128,6 +128,11 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 | `make osv-scan` | Alias for the controlled vulnerability audit |
 | `make vulncheck-strict` | Run raw `govulncheck ./...` without the project allowlist |
 | `make osv-scan-strict` | Run raw `osv-scanner scan -r .` without the project allowlist |
+
+The controlled audit treats `go.mod` and `tools/go.mod` as separate OSV
+inputs. CI retains the runtime govulncheck/OSV JSON, tools OSV JSON, and
+separate runtime/tools CycloneDX SBOMs in the
+`dependency-security-reports` artifact.
 
 #### Protobuf
 
@@ -231,13 +236,28 @@ See [05-interop.md](./05-interop.md) for the 4-peer interop testing framework.
 
 ### Linting
 
-golangci-lint v2.12.2 with a maximum-by-default configuration:
+golangci-lint v2.13.1 with a maximum-by-default configuration:
 
 ```bash
 make lint
 ```
 
-The tool is pinned by the `go.mod` `tool` directive. `.golangci.yml` uses
+The tool is pinned by the `tool` directive in the isolated `tools/go.mod` module.
+Local linting is container-only: `make lint` reconciles the dev service and
+runs the prebuilt pinned binary inside it. `make lint-ci` is the inner contract
+for CI containers and deliberately refuses to run on the host. The dev service
+defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go runtime soft limit,
+no swap beyond that hard limit, and 1,024 PIDs. Go and golangci-lint caches are
+kept in the disposable container layer. The image includes the C compiler and
+runtime headers required by the Linux Go race detector, so race gates never
+install packages at runtime. All commands built with `go install` use the
+absolute `GOBIN=/go/bin`, and `/go/bin` is part of `PATH`. Override the limits
+only when needed with
+`GOBFD_DEV_CPUS`, `GOBFD_DEV_MEMORY_LIMIT`,
+`GOBFD_DEV_MEMORY_RESERVATION`, `GOBFD_DEV_GOMEMLIMIT`, and
+`GOBFD_DEV_PIDS_LIMIT`.
+
+`.golangci.yml` uses
 `linters.default: all`: 92 signal-bearing linters are enabled, while 20
 maintained linters with no project inputs, duplicate coverage, or documented
 semantic conflicts and two deprecated linters are disabled.
@@ -253,6 +273,49 @@ build, and every repository-specific build tag independently. Key checks include
   state, and source-discipline checks
 - `depguard`, `gomoddirectives` -- dependency hygiene
 - `nolintlint` -- quality of `//nolint` directives
+
+### Python Tooling
+
+The repository has one non-package Python 3.14.7 environment. uv 0.12.6 reads
+the root `.python-version`, `pyproject.toml`, and `uv.lock`; no requirements
+file, pip bootstrap, or independent uv tool environment is supported.
+
+The lock separates Scapy (`peer`), an intentionally empty `runtime` group, and
+the Ruff, ty, Bandit, yamllint, junit2html, and pip-audit toolchain (`quality`)
+while retaining one resolution. Docker Compose is not a Python dependency: the
+official v5.5.0 Go binary is checksum-pinned and selected by `podman compose`.
+
+```bash
+make python-sync
+make python-check
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help
+```
+
+`make python-check` asserts Python 3.14.7, checks the lock and frozen sync, then
+runs lint, type, security, and vulnerability checks over both owned Python
+files. ExaBGP remains an external immutable interop image and is not duplicated
+in the lock.
+
+### Dependency Inventory
+
+The machine-readable supply-chain snapshot lives in
+`docs/supply-chain/dependency-inventory.json`. It covers the complete selected
+runtime and isolated-tool module graphs plus repository-declared tools, GitHub
+Actions, OCI images, and interop daemons. Regenerate it only after completing
+the corresponding release-note, security, license, archive, and pin review:
+
+```bash
+make dependency-inventory
+make dependency-inventory-check
+```
+
+Generation resolves each exact selected Go module version through the stable
+deps.dev v3 API and records exact-commit GitHub evidence where deps.dev has no
+license expression. Immutable OCI records keep registry availability separate
+from their canonical build-source commit and hashed license file. The check is
+offline and fails if either Go module graph, a declared component, a source
+location, evidence binding, or the Go package count drifts from the reviewed
+snapshot.
 
 ### Semgrep
 

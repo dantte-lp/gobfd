@@ -81,7 +81,7 @@ The dashboard provides:
 | **Error Rates** | Auth failures, dropped packets |
 
 To import:
-1. Start the production stack: `podman-compose -f deployments/compose/compose.yml up -d`
+1. Start the production stack: `podman compose -f deployments/compose/compose.yml up -d`
 2. Open Grafana at `http://localhost:3000` (default: admin/admin)
 3. The dashboard auto-provisions from the JSON file
 

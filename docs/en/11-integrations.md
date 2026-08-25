@@ -29,7 +29,7 @@
 
 GoBFD integrates with routing, load balancing, monitoring, and orchestration systems to provide sub-second failure detection. Each integration example is a self-contained, runnable stack under `deployments/integrations/`.
 
-All stacks use **podman-compose** with OCI containers and include a **tshark** sidecar for BFD packet capture and RFC compliance verification.
+All stacks use **podman compose** with OCI containers and include a **tshark** sidecar for BFD packet capture and RFC compliance verification.
 
 | # | Integration | Components | Subnet | New Code |
 |---|------------|-----------|--------|----------|
@@ -80,10 +80,10 @@ graph LR
 ### Quick Start
 
 ```bash
-# Full demo (build, start, test failover, cleanup)
+# Automated Go testcontainers gate with evidence and exact cleanup
 make int-bgp-failover
 
-# Step by step
+# Operational Compose example, step by step
 make int-bgp-failover-up     # Start topology
 make int-bgp-failover-logs   # View logs
 make int-bgp-failover-down   # Cleanup

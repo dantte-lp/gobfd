@@ -1,4 +1,4 @@
-//go:build interop_bgp
+//go:build interop_bgp || interop_bgp_testcontainers
 
 // Package interop_bgp_test provides BGP+BFD full-cycle interoperability tests
 // for GoBFD integrated with GoBGP.
@@ -20,7 +20,7 @@
 //
 // Prerequisites:
 //   - Set INTEROP_PROJECT_NAME to the validated project used to create the stack.
-//   - podman-compose -p "$INTEROP_PROJECT_NAME" -f test/interop-bgp/compose.yml up --build -d
+//   - podman compose -p "$INTEROP_PROJECT_NAME" -f test/interop-bgp/compose.yml up --build -d
 //   - All containers must be running.
 //
 // Every runtime operation resolves the fixed name to an exact project-labelled

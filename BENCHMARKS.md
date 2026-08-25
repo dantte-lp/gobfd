@@ -2,11 +2,13 @@
 
 ## Overview
 
-GoBFD maintains 33 micro-benchmarks covering the BFD protocol hot paths and
+GoBFD maintains 34 micro-benchmarks covering the BFD protocol hot paths and
 their known allocation boundaries. The direct packet-processing path remains
 **zero allocation**, preserving predictable sub-millisecond latency.
 
-Benchmarks live in `internal/bfd/bench_test.go` and run automatically in CI via `benchstat` to catch performance regressions (>10% threshold).
+Benchmarks live in `internal/bfd/bench_test.go`,
+`internal/bfd/bench_scaling_test.go`, and `internal/netio/bench_test.go`; CI
+runs them through `benchstat` to catch performance regressions (>10% threshold).
 
 ## Running Benchmarks
 
@@ -128,11 +130,14 @@ supported; the Go 1.26 measurements above remain historical provenance.
 
 ## Обзор
 
-GoBFD содержит 33 микробенчмарка для горячих путей BFD и известных границ
+GoBFD содержит 34 микробенчмарка для горячих путей BFD и известных границ
 аллокаций. Прямой путь обработки пакетов остаётся **без аллокаций**, обеспечивая
 предсказуемую задержку менее миллисекунды.
 
-Бенчмарки расположены в `internal/bfd/bench_test.go` и автоматически запускаются в CI через `benchstat` для обнаружения регрессий производительности (порог >10%).
+Бенчмарки расположены в `internal/bfd/bench_test.go`,
+`internal/bfd/bench_scaling_test.go` и `internal/netio/bench_test.go`; CI
+запускает их через `benchstat` для обнаружения регрессий производительности
+(порог >10%).
 
 ## Запуск бенчмарков
 

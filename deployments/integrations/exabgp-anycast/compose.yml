@@ -9,15 +9,15 @@
 #   172.24.0.20 — gobfd + exabgp (AS 65002, shared netns, announces 198.51.100.1/32)
 #
 # Usage:
-#   podman-compose up --build -d
+#   podman compose up --build -d
 #   podman exec gobgp-anycast gobgp global rib
-#   podman-compose down --volumes --remove-orphans
+#   podman compose down --volumes --remove-orphans
 
 services:
   # === GoBGP (route receiver) at 172.24.0.10 ===
 
   gobgp:
-    image: docker.io/jauderho/gobgp:v3.33.0
+    image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
     container_name: gobgp-anycast
     user: "0:0"
     cap_add:

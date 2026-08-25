@@ -12,7 +12,7 @@ if [[ ! "${INTEROP_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
 fi
 
 PODMAN=(timeout 2m podman)
-DC=(timeout 2m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
+DC=(timeout 2m podman compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
 # shellcheck source=test/interop/project_guard.sh
 source "${SCRIPT_DIR}/project_guard.sh"
 case "${INTEROP_PROJECT_KIND:-base}" in
@@ -76,7 +76,7 @@ start_project() {
     acquire_lock
     assert_empty_project
     MUTATION_STARTED=true
-    timeout 10m podman-compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" build
+    timeout 10m podman compose -p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}" build
     "${DC[@]}" up -d holo holo-config
     loader_id="$(interop_resolve_project_container_id "${INTEROP_PROJECT_NAME}" holo-config-interop)" || return 1
     wait_status="$(timeout 45s podman wait "${loader_id}")" || return 1

@@ -98,6 +98,11 @@ in `scripts/vuln-audit.go`. Any other advisory, expired entry, package mismatch,
 unknown scanner, or disallowed reachability reported by the scanners fails the
 vulnerability audit.
 
+CI scans `go.mod` and the isolated `tools/go.mod` as separate OSV inputs. It
+retains raw runtime/tools vulnerability JSON and separate CycloneDX SBOMs in
+the `dependency-security-reports` artifact so tool-only findings are not
+attributed to the shipped daemon.
+
 ## Accepted Protocol Exceptions
 
 ### MD5 and SHA1 in BFD authentication

@@ -368,7 +368,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"BGP Compose topology", "RFC Compose topology"} {
-		if strings.Contains(contents[name], "podman-compose") {
+		if strings.Contains(contents[name], "podman compose") {
 			t.Errorf("%s documents unguarded raw Compose lifecycle commands", name)
 		}
 	}
@@ -885,10 +885,11 @@ func TestInteropCaptureStorageContract(t *testing.T) {
 			assertCaptureStorage(t, topology.service, raw)
 
 			render := exec.CommandContext(
-				t.Context(), "podman-compose", "-p", "gobfd-storage-contract",
+				t.Context(), "podman", "compose", "-p", "gobfd-storage-contract",
 				"-f", topology.path, "config",
 			)
 			render.Dir = root
+			render.Env = append(os.Environ(), "PODMAN_COMPOSE_WARNING_LOGS=false")
 			rendered, renderErr := render.CombinedOutput()
 			if renderErr != nil {
 				t.Fatalf("render Compose topology: %v\n%s", renderErr, rendered)
@@ -1435,14 +1436,14 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	generatorPath := filepath.Join(root, "scripts", "gen-report.sh")
 	generator := readContractFile(t, "benchmark report generator", generatorPath)
 	assertContainsAll(t, "benchmark report generator", generator, []string{
-		`python3 - "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}"`,
+		`uv run --project "${PROJECT_DIR}" --frozen --no-default-groups -- python -`,
 		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}" <<'PY'`,
 		"tempfile.NamedTemporaryFile(",
 		"os.fsync(temporary.fileno())",
 		"os.replace(temporary_path, output_path)",
 		"temporary_path.unlink()",
 	})
-	if strings.Contains(generator, "python3 -c") {
+	if strings.Contains(generator, "python3") {
 		t.Error("benchmark report generator interpolates shell paths into Python source")
 	}
 }
@@ -1465,14 +1466,54 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	defaultSource := filepath.Clean(filepath.Join(root, "bench", "..", "bench-results"))
 	assertEqual(t, "default rendered benchmark result source", defaultSource, filepath.Join(root, "bench-results"))
 	render := benchmarkComposeConfigCommand(t.Context(), root)
-	render.Env = append(os.Environ(), "BENCH_RESULTS_DIR="+defaultSource)
+	render.Env = append(render.Env, "BENCH_RESULTS_DIR="+defaultSource)
 	rendered, err := render.CombinedOutput()
 	if err != nil {
 		t.Fatalf("render benchmark Compose: %v\n%s", err, rendered)
 	}
-	renderedMount := defaultSource + ":/results:z"
-	if got := strings.Count(string(rendered), renderedMount); got != 2 {
-		t.Errorf("rendered benchmark result mount %q count = %d, want 2\n%s", renderedMount, got, rendered)
+	type renderedBind struct {
+		SELinux string `yaml:"selinux"`
+	}
+	type renderedMount struct {
+		Type   string       `yaml:"type"`
+		Source string       `yaml:"source"`
+		Target string       `yaml:"target"`
+		Bind   renderedBind `yaml:"bind"`
+	}
+	type renderedService struct {
+		Volumes []renderedMount `yaml:"volumes"`
+	}
+	var renderedConfig struct {
+		Services map[string]renderedService `yaml:"services"`
+	}
+	if decodeErr := yaml.Unmarshal(rendered, &renderedConfig); decodeErr != nil {
+		t.Fatalf("decode rendered benchmark Compose: %v\n%s", decodeErr, rendered)
+	}
+	wantMount := renderedMount{
+		Type:   "bind",
+		Source: defaultSource,
+		Target: "/results",
+		Bind:   renderedBind{SELinux: "z"},
+	}
+	for _, serviceName := range []string{"bench-c", "bench-go"} {
+		service, ok := renderedConfig.Services[serviceName]
+		if !ok {
+			t.Errorf("rendered benchmark Compose is missing service %q", serviceName)
+			continue
+		}
+		resultMounts := 0
+		for _, mount := range service.Volumes {
+			if mount.Target != wantMount.Target {
+				continue
+			}
+			resultMounts++
+			if mount != wantMount {
+				t.Errorf("rendered %s result mount = %+v, want %+v", serviceName, mount, wantMount)
+			}
+		}
+		if resultMounts != 1 {
+			t.Errorf("rendered %s result mount count = %d, want 1", serviceName, resultMounts)
+		}
 	}
 
 	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
@@ -1496,7 +1537,7 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	}
 	assertContainsAll(t, "benchmark Make recipes with spaces", string(dryRunOutput), []string{
 		`mkdir -p "` + spaceResults + `"`,
-		`BENCH_RESULTS_DIR="` + spaceResults + `" podman-compose -f bench/compose.yml build`,
+		`BENCH_RESULTS_DIR="` + spaceResults + `" podman compose -f bench/compose.yml build`,
 		`./scripts/gen-report.sh "` + spaceResults + `"`,
 	})
 }
@@ -1509,34 +1550,35 @@ func TestBenchmarkComposeConfigCommandUsesAbsolutePath(t *testing.T) {
 	writeFixture(t, filepath.Join(root, "bench", "compose.yml"), "services: {}\n")
 
 	fakeBin := t.TempDir()
-	commandLog := filepath.Join(t.TempDir(), "podman-compose.log")
-	if err := writeExecutable(filepath.Join(fakeBin, "podman-compose"), `#!/usr/bin/env bash
+	commandLog := filepath.Join(t.TempDir(), "compose-provider.log")
+	if err := writeExecutable(filepath.Join(fakeBin, "podman"), `#!/usr/bin/env bash
 set -euo pipefail
-test "$#" -eq 3
-test "$1" = "-f"
-case "$2" in
+test "$#" -eq 4
+test "$1" = "compose"
+test "$2" = "-f"
+case "$3" in
   /*) ;;
   *) exit 41 ;;
 esac
-test "$3" = "config"
+test "$4" = "config"
 printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
 `); err != nil {
-		t.Fatalf("write fake podman-compose: %v", err)
+		t.Fatalf("write fake podman compose: %v", err)
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	command := benchmarkComposeConfigCommand(t.Context(), root)
-	wantArgs := []string{"podman-compose", "-f", filepath.Join(root, "bench", "compose.yml"), "config"}
+	wantArgs := []string{"podman", "compose", "-f", filepath.Join(root, "bench", "compose.yml"), "config"}
 	if !slices.Equal(command.Args, wantArgs) {
 		t.Fatalf("benchmark Compose argv = %q, want %q", command.Args, wantArgs)
 	}
-	if !filepath.IsAbs(command.Args[2]) {
-		t.Fatalf("benchmark Compose file argument is not absolute: %q", command.Args[2])
+	if !filepath.IsAbs(command.Args[3]) {
+		t.Fatalf("benchmark Compose file argument is not absolute: %q", command.Args[3])
 	}
 	if command.Dir != root {
 		t.Fatalf("benchmark Compose working directory = %q, want %q", command.Dir, root)
 	}
-	command.Env = append(os.Environ(), "BENCH_COMMAND_LOG="+commandLog)
+	command.Env = append(command.Env, "BENCH_COMMAND_LOG="+commandLog)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("execute benchmark Compose command: %v\n%s", err, output)
 	}
@@ -1544,9 +1586,66 @@ printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
 	if err != nil {
 		t.Fatalf("read benchmark Compose command log: %v", err)
 	}
-	wantLog := "-f " + filepath.Join(root, "bench", "compose.yml") + " config\n"
+	wantLog := "compose -f " + filepath.Join(root, "bench", "compose.yml") + " config\n"
 	if string(logged) != wantLog {
 		t.Fatalf("benchmark Compose command log = %q, want %q", logged, wantLog)
+	}
+}
+
+func TestDevEnsureUsesComposeServiceID(t *testing.T) {
+	root, rootErr := repositoryRoot()
+	if rootErr != nil {
+		t.Fatalf("resolve repository root: %v", rootErr)
+	}
+
+	fakeBin := t.TempDir()
+	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	if err := writeExecutable(filepath.Join(fakeBin, "podman"), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${PODMAN_COMMAND_LOG:?}"
+case "$*" in
+  "compose -p dev-contract -f deployments/compose/compose.dev.yml ps --all --quiet dev")
+    printf '%s\n' immutable-dev-id
+    ;;
+  "inspect immutable-dev-id --format "*Mounts*)
+    printf '%s\n' "${EXPECTED_ROOT:?}"
+    ;;
+  "compose -p dev-contract -f deployments/compose/compose.dev.yml up -d --no-build dev")
+    ;;
+  *)
+    exit 97
+    ;;
+esac
+`); err != nil {
+		t.Fatalf("write fake podman: %v", err)
+	}
+
+	command := exec.CommandContext(
+		t.Context(),
+		"make", "--no-print-directory", "dev-ensure", "COMPOSE_PROJECT_NAME=dev-contract",
+	)
+	command.Dir = root
+	command.Env = append(os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PODMAN_COMMAND_LOG="+commandLog,
+		"EXPECTED_ROOT="+root,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("run dev-ensure contract: %v\n%s", err, output)
+	}
+
+	logged, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake Podman command log: %v", err)
+	}
+	commands := string(logged)
+	assertContainsAll(t, "dev-ensure Podman commands", commands, []string{
+		"compose -p dev-contract -f deployments/compose/compose.dev.yml ps --all --quiet dev",
+		"inspect immutable-dev-id --format",
+		"compose -p dev-contract -f deployments/compose/compose.dev.yml up -d --no-build dev",
+	})
+	if strings.Contains(commands, "--build") || strings.Contains(commands, "--force-recreate") {
+		t.Fatalf("dev-ensure rebuilt an existing Compose v5 service container:\n%s", commands)
 	}
 }
 
@@ -2040,12 +2139,26 @@ func trackedOperationalPaths(ctx context.Context, root string) ([]string, error)
 	command := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z")
 	output, gitErr := command.Output()
 	if gitErr == nil {
+		deletedCommand := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--deleted")
+		deletedOutput, deletedErr := deletedCommand.Output()
+		if deletedErr != nil {
+			return nil, fmt.Errorf("list deleted tracked repository files: %w", deletedErr)
+		}
+		deleted := make(map[string]struct{}, bytes.Count(deletedOutput, []byte{0}))
+		for pathBytes := range bytes.SplitSeq(deletedOutput, []byte{0}) {
+			if len(pathBytes) != 0 {
+				deleted[filepath.ToSlash(string(pathBytes))] = struct{}{}
+			}
+		}
 		paths := make([]string, 0, bytes.Count(output, []byte{0}))
 		for pathBytes := range bytes.SplitSeq(output, []byte{0}) {
 			if len(pathBytes) == 0 {
 				continue
 			}
-			paths = append(paths, filepath.ToSlash(string(pathBytes)))
+			path := filepath.ToSlash(string(pathBytes))
+			if _, isDeleted := deleted[path]; !isDeleted {
+				paths = append(paths, path)
+			}
 		}
 		return paths, nil
 	}
@@ -2102,7 +2215,7 @@ func walkOperationalPathsBounded(ctx context.Context, root string, maxEntries in
 }
 
 func fallbackMetadataPath(relative string) bool {
-	for _, metadata := range []string{".git", ".beads", "reports"} {
+	for _, metadata := range []string{".git", ".beads", ".venv", "reports"} {
 		if relative == metadata || strings.HasPrefix(relative, metadata+"/") {
 			return true
 		}
@@ -2231,11 +2344,11 @@ func readTrackedOperationalFileWithHook(
 func benchmarkComposeConfigCommand(ctx context.Context, root string) *exec.Cmd {
 	command := exec.CommandContext(
 		ctx,
-		"podman-compose",
-		"-f", filepath.Join(root, "bench", "compose.yml"),
+		"podman", "compose", "-f", filepath.Join(root, "bench", "compose.yml"),
 		"config",
 	)
 	command.Dir = root
+	command.Env = append(os.Environ(), "PODMAN_COMPOSE_WARNING_LOGS=false")
 	return command
 }
 

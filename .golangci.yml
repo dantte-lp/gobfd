@@ -2,6 +2,8 @@ version: "2"
 
 run:
   timeout: 10m
+  # Keep package loading bounded even when the CI container exposes more CPUs.
+  concurrency: 4
   relative-path-mode: gomod
   tests: true
 
@@ -46,11 +48,12 @@ linters:
     - unqueryvet
     - zerologlint
     # Redundant or semantically conflicting rules.
-    - exhaustruct # Conflicts with intentional Go zero-value/options APIs.
+    - exhaustruct_v5 # Conflicts with intentional Go zero-value/options APIs.
     - funcorder # Moving declarations apart harms consumer-locality without finding defects.
     - gocyclo # Duplicates cyclop's metric; gocognit is the retained complexity gate.
     - goheader # The repository has no approved per-file copyright owner/header contract.
     - ireturn # Consumer-defined interfaces and factories are deliberate architecture boundaries.
+    - exhaustruct # Deprecated predecessor of exhaustruct_v5.
     - gomodguard # Deprecated in v2.12; gomodguard_v2 is enabled.
     - nlreturn # Cosmetic blank-line policy overlaps gofumpt/whitespace.
     - noinlineerr # Rejects the idiomatic scoped `if err := ...` form.

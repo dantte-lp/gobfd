@@ -1,4 +1,4 @@
-FROM docker.io/library/oraclelinux:10-slim
+FROM docker.io/library/oraclelinux:10-slim@sha256:965eb786602f98a4bc9ca449295d44468e5c8f2ee9175ae04c29f21bf1a9809d
 
 RUN microdnf install -y ca-certificates shadow-utils \
     && microdnf clean all \

@@ -68,7 +68,7 @@ deployments/compose/configs/grafana/dashboards/bfd.json
 | **Ошибки** | Ошибки auth, отброшенные пакеты |
 
 Для импорта:
-1. Запустите production-стек: `podman-compose -f deployments/compose/compose.yml up -d`
+1. Запустите production-стек: `podman compose -f deployments/compose/compose.yml up -d`
 2. Откройте Grafana: `http://localhost:3000` (admin/admin)
 3. Дашборд автоматически провизионируется из JSON-файла
 

@@ -27,6 +27,10 @@
 - **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
 - Go 1.27+ (for building from source only)
 
+Non-Linux targets are compile-only compatibility surfaces. The `internal/netio`
+transport constructors return `ErrUnsupportedPlatform`; GoBFD does not publish
+or support a non-Linux dataplane runtime.
+
 ### Release Artifact Matrix
 
 | Artifact | Target systems | Architectures | Base image / package format |
@@ -170,16 +174,31 @@ sudo systemctl status gobfd
 
 ### Podman Compose
 
+GoBFD uses Podman's external Compose-provider wrapper with the official Docker
+Compose v5.5.0 Go binary. Install the checksum-pinned provider and select it
+explicitly; Python `podman-compose` is unsupported:
+
+```bash
+scripts/install-compose-provider.sh
+export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
+export PODMAN_COMPOSE_WARNING_LOGS=false
+export DOCKER_BUILDKIT=0
+podman compose version
+```
+
+`DOCKER_BUILDKIT=0` keeps builds on the Podman-compatible classic Docker API;
+Docker Buildx/Bake is not part of the repository's Podman runtime.
+
 #### Development Stack
 
 `deployments/compose/compose.dev.yml` -- development environment with hot reload:
 
 ```bash
 # Start development environment
-podman-compose -f deployments/compose/compose.dev.yml up -d --build
+podman compose -f deployments/compose/compose.dev.yml up -d --build
 
 # Access the dev container
-podman-compose -f deployments/compose/compose.dev.yml exec dev bash
+podman compose -f deployments/compose/compose.dev.yml exec dev bash
 
 # Build and test inside container
 make build && make test
@@ -191,7 +210,7 @@ make build && make test
 
 ```bash
 # Start production stack
-podman-compose -f deployments/compose/compose.yml up -d
+podman compose -f deployments/compose/compose.yml up -d
 
 # Services:
 #   gobfd gRPC API:   localhost:50051
@@ -243,7 +262,7 @@ GoBFD follows the principle of least privilege:
 |---|---|
 | **Capabilities** | Only `CAP_NET_RAW` + `CAP_NET_ADMIN` (no root) |
 | **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
-| **Code** | No `unsafe` package, all socket errors handled |
+| **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
 | **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
 

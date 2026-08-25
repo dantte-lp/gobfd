@@ -36,14 +36,16 @@ update latency.
 
 ## Run
 
-Use the repository Make targets so the example stays consistent with the
-project's Podman-only validation workflow:
+Use the authoritative Go testcontainers gate for automated validation. It
+writes packet, container, and JSON test evidence under
+`reports/e2e/bgp-fast-failover/<UTC run>/` and removes its exact test-owned
+resources:
 
 ```bash
 make int-bgp-failover
 ```
 
-For manual inspection:
+The operational Compose example remains available for manual inspection:
 
 ```bash
 make int-bgp-failover-up

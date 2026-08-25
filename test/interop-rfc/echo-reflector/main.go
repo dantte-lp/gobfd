@@ -10,38 +10,52 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
+	"os"
 	"syscall"
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("echo reflector stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	addr, err := net.ResolveUDPAddr("udp4", ":3785")
 	if err != nil {
-		log.Fatalf("resolve address: %v", err)
+		return fmt.Errorf("resolve address: %w", err)
 	}
 
 	conn, err := net.ListenUDP("udp4", addr)
 	if err != nil {
-		log.Fatalf("listen UDP :3785: %v", err)
+		return fmt.Errorf("listen UDP :3785: %w", err)
 	}
 
 	if err := setUDPTTL(conn, 254); err != nil {
 		if closeErr := conn.Close(); closeErr != nil {
-			log.Printf("close UDP socket after TTL setup error: %v", closeErr)
+			return errors.Join(fmt.Errorf("set reflected packet TTL: %w", err),
+				fmt.Errorf("close UDP socket after TTL setup error: %w", closeErr))
 		}
-		log.Fatalf("set reflected packet TTL: %v", err)
+		return fmt.Errorf("set reflected packet TTL: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			slog.Error("close UDP socket", "error", closeErr)
+		}
+	}()
 
-	log.Println("echo reflector listening on :3785")
+	slog.Info("echo reflector listening", "address", ":3785")
 
 	buf := make([]byte, 9000)
 	for {
 		n, remote, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Printf("read error: %v", err)
+			slog.Warn("read echo packet", "error", err)
 			continue
 		}
 
@@ -51,7 +65,7 @@ func main() {
 			Port: 3785,
 		}
 		if _, err := conn.WriteToUDP(buf[:n], dst); err != nil {
-			log.Printf("write error to %s: %v", dst, err)
+			slog.Warn("write echo packet", "destination", dst, "error", err)
 		}
 	}
 }

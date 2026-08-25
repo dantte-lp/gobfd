@@ -14,7 +14,10 @@ import (
 	"testing"
 )
 
-const restrictiveUmaskChildEnvironment = "GOBFD_ROUTING_ARTIFACT_UMASK_CHILD"
+const (
+	restrictiveUmaskChildEnvironment = "GOBFD_ROUTING_ARTIFACT_UMASK_CHILD"
+	restrictiveUmaskRootEnvironment  = "GOBFD_ROUTING_ARTIFACT_UMASK_ROOT"
+)
 
 func TestMergeWritesSuiteArraysAtomically(t *testing.T) {
 	t.Parallel()
@@ -75,6 +78,15 @@ func TestMergeWritesExactModeUnderRestrictiveUmask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve current routingartifacts test binary: %v", err)
 	}
+	root := t.TempDir()
+	if chmodErr := os.Chmod(root, 0o700); chmodErr != nil {
+		t.Fatalf("chmod restrictive-umask fixture directory: %v", chmodErr)
+	}
+	input := filepath.Join(root, "input.json")
+	writeArtifactFixture(t, input, "[]\n")
+	if chmodErr := os.Chmod(input, 0o600); chmodErr != nil {
+		t.Fatalf("chmod restrictive-umask input fixture: %v", chmodErr)
+	}
 	command := exec.CommandContext(
 		t.Context(),
 		"sh",
@@ -85,14 +97,15 @@ func TestMergeWritesExactModeUnderRestrictiveUmask(t *testing.T) {
 		"-test.run=^TestMergeWritesExactModeUnderRestrictiveUmaskChild$",
 		"-test.v",
 	)
-	childEnvironment := make([]string, 0, len(os.Environ())+1)
+	childEnvironment := make([]string, 0, len(os.Environ())+2)
 	guardPrefix := restrictiveUmaskChildEnvironment + "="
+	rootPrefix := restrictiveUmaskRootEnvironment + "="
 	for _, variable := range os.Environ() {
-		if !strings.HasPrefix(variable, guardPrefix) {
+		if !strings.HasPrefix(variable, guardPrefix) && !strings.HasPrefix(variable, rootPrefix) {
 			childEnvironment = append(childEnvironment, variable)
 		}
 	}
-	childEnvironment = append(childEnvironment, guardPrefix+"1")
+	childEnvironment = append(childEnvironment, guardPrefix+"1", rootPrefix+root)
 	command.Env = childEnvironment
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -108,16 +121,12 @@ func TestMergeWritesExactModeUnderRestrictiveUmaskChild(t *testing.T) {
 		t.Skip("helper runs only in the guarded restrictive-umask child process")
 	}
 
-	root := t.TempDir()
+	root := os.Getenv(restrictiveUmaskRootEnvironment)
+	if root == "" {
+		t.Fatal("restrictive-umask fixture root is empty")
+	}
 	input := filepath.Join(root, "input.json")
 	output := filepath.Join(root, "output.json")
-	if err := os.Chmod(root, 0o700); err != nil {
-		t.Fatalf("chmod restrictive-umask fixture directory: %v", err)
-	}
-	writeArtifactFixture(t, input, "[]\n")
-	if err := os.Chmod(input, 0o600); err != nil {
-		t.Fatalf("chmod restrictive-umask input fixture: %v", err)
-	}
 	assertArtifactFixtureMode(t, root, 0o700)
 	assertArtifactFixtureMode(t, input, 0o600)
 	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {

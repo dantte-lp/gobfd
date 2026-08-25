@@ -1,4 +1,4 @@
-//go:build interop_rfc
+//go:build interop_rfc || interop_rfc_testcontainers
 
 // Package interop_rfc_test provides RFC-specific interoperability tests
 // for GoBFD against FRR peers and echo reflectors.
@@ -18,7 +18,7 @@
 //	go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 //
 // Prerequisites:
-//   - podman-compose -f test/interop-rfc/compose.yml up --build -d
+//   - podman compose -f test/interop-rfc/compose.yml up --build -d
 //   - All containers must be running.
 package interop_rfc_test
 

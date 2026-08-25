@@ -1,4 +1,4 @@
-FROM docker.io/library/debian:trixie-slim
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 RUN groupadd -r gobfd && useradd -r -g gobfd -s /usr/sbin/nologin gobfd \
     && apt-get update && apt-get install -y --no-install-recommends ca-certificates \

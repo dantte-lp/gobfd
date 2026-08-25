@@ -74,7 +74,7 @@ spec:
               memory: 64Mi
 
         - name: gobgp
-          image: docker.io/jauderho/gobgp:v3.33.0
+          image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
           args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
           ports:
             - name: bgp

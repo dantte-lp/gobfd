@@ -5,17 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec" //nolint:depguard // Audit runner invokes pinned scanners with explicit argument vectors.
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	govulncheckVersion = "v1.3.0"
+	govulncheckVersion = "v1.7.0"
 	osvScannerVersion  = "v2.5.1"
 	scannerTimeout     = 10 * time.Minute
 	govulncheckName    = "govulncheck"
@@ -25,6 +27,7 @@ const (
 var (
 	errAllowEntryIncomplete = errors.New("allowlist entry missing package, owner, reason, or mitigation")
 	errAllowEntryExpired    = errors.New("allowlist entry expired")
+	errScannerReportEmpty   = errors.New("scanner returned an empty report")
 )
 
 type allowEntry struct {
@@ -80,41 +83,18 @@ type commandResult struct {
 }
 
 func main() {
-	var failures []string
-
-	govuln := runGo("run", "golang.org/x/vuln/cmd/govulncheck@"+govulncheckVersion, "-format", "json", "./...")
-	printStderr(govulncheckName, govuln.Stderr)
-	govulnFindings, err := parseGovulncheck(govuln.Stdout)
-	if err != nil {
-		failures = append(failures, fmt.Sprintf("govulncheck JSON parse failed: %v", err))
-	}
-	if govuln.TimedOut {
-		failures = append(failures, "govulncheck timed out")
-	}
-	if govuln.Err != nil && len(govulnFindings) == 0 {
-		failures = append(failures, fmt.Sprintf("govulncheck failed with exit code %d: %v", govuln.Code, govuln.Err))
+	reportDir := flag.String("report-dir", "", "write separate raw runtime and tools scanner reports")
+	flag.Parse()
+	if flag.NArg() != 0 {
+		fmt.Fprintf(os.Stderr, "vulnerability audit: unexpected arguments: %s\n", strings.Join(flag.Args(), " "))
+		os.Exit(2)
 	}
 
-	osv := runGo(
-		"run",
-		"github.com/google/osv-scanner/v2/cmd/osv-scanner@"+osvScannerVersion,
-		"scan",
-		"-r",
-		"--format",
-		"json",
-		".",
-	)
-	printStderr(osvScannerName, osv.Stderr)
-	osvFindings, err := parseOSVScanner(osv.Stdout)
-	if err != nil {
-		failures = append(failures, fmt.Sprintf("osv-scanner JSON parse failed: %v", err))
-	}
-	if osv.TimedOut {
-		failures = append(failures, "osv-scanner timed out")
-	}
-	if osv.Err != nil && len(osvFindings) == 0 {
-		failures = append(failures, fmt.Sprintf("osv-scanner failed with exit code %d: %v", osv.Code, osv.Err))
-	}
+	govulnFindings, failures := auditGovulncheck(*reportDir)
+	runtimeOSVFindings, runtimeFailures := auditOSV(*reportDir, "runtime", "go.mod")
+	toolsOSVFindings, toolsFailures := auditOSV(*reportDir, "tools", "tools/go.mod")
+	failures = append(failures, runtimeFailures...)
+	failures = append(failures, toolsFailures...)
 
 	if len(failures) > 0 {
 		for _, failure := range failures {
@@ -123,10 +103,82 @@ func main() {
 		os.Exit(2)
 	}
 
-	all := make([]finding, 0, len(govulnFindings)+len(osvFindings))
+	all := make([]finding, 0, len(govulnFindings)+len(runtimeOSVFindings)+len(toolsOSVFindings))
 	all = append(all, govulnFindings...)
-	all = append(all, osvFindings...)
+	all = append(all, runtimeOSVFindings...)
+	all = append(all, toolsOSVFindings...)
 	report(all)
+}
+
+func auditGovulncheck(reportDir string) ([]finding, []string) {
+	result := runGo("run", "golang.org/x/vuln/cmd/govulncheck@"+govulncheckVersion, "-format", "json", "./...")
+	printStderr(govulncheckName, result.Stderr)
+
+	var failures []string
+	reportErr := writeScannerReport(reportDir, "runtime-govulncheck.json", result.Stdout)
+	if reportErr != nil {
+		failures = append(failures, reportErr.Error())
+	}
+	findings, parseErr := parseGovulncheck(result.Stdout)
+	if parseErr != nil {
+		failures = append(failures, fmt.Sprintf("govulncheck JSON parse failed: %v", parseErr))
+	}
+	if result.TimedOut {
+		failures = append(failures, "govulncheck timed out")
+	}
+	if result.Err != nil && len(findings) == 0 {
+		failures = append(failures, fmt.Sprintf("govulncheck failed with exit code %d: %v", result.Code, result.Err))
+	}
+	return findings, failures
+}
+
+func auditOSV(reportDir, scope, manifest string) ([]finding, []string) {
+	result := runGo(
+		"run",
+		"github.com/google/osv-scanner/v2/cmd/osv-scanner@"+osvScannerVersion,
+		"scan",
+		"--lockfile="+manifest,
+		"--format",
+		"json",
+		"--all-packages",
+		"--no-call-analysis=go",
+	)
+	printStderr(scope+" "+osvScannerName, result.Stderr)
+
+	var failures []string
+	reportErr := writeScannerReport(reportDir, scope+"-osv.json", result.Stdout)
+	if reportErr != nil {
+		failures = append(failures, reportErr.Error())
+	}
+	findings, parseErr := parseOSVScanner(result.Stdout)
+	if parseErr != nil {
+		failures = append(failures, fmt.Sprintf("%s osv-scanner JSON parse failed: %v", scope, parseErr))
+	}
+	if result.TimedOut {
+		failures = append(failures, scope+" osv-scanner timed out")
+	}
+	if result.Err != nil && len(findings) == 0 {
+		failures = append(failures,
+			fmt.Sprintf("%s osv-scanner failed with exit code %d: %v", scope, result.Code, result.Err))
+	}
+	return findings, failures
+}
+
+func writeScannerReport(reportDir, name string, data []byte) error {
+	if reportDir == "" {
+		return nil
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return fmt.Errorf("write %s: %w", name, errScannerReportEmpty)
+	}
+	if err := os.MkdirAll(reportDir, 0o750); err != nil {
+		return fmt.Errorf("create scanner report directory %s: %w", reportDir, err)
+	}
+	path := filepath.Join(reportDir, name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write scanner report %s: %w", path, err)
+	}
+	return nil
 }
 
 func runGo(args ...string) commandResult {

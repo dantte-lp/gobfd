@@ -11,7 +11,7 @@
 #   ./test/interop/run.sh
 #
 # Prerequisites:
-#   - podman and podman-compose installed
+#   - podman and podman compose installed
 #   - Access to quay.io/frrouting/frr:10.7.0
 #   - Access to docker.io/debian:trixie-slim (for BIRD 3.3.2 source build)
 #
@@ -23,6 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yml"
+UV_PYTHON=(uv run --project "${SCRIPT_DIR}/../.." --frozen --no-default-groups -- python)
 INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"
 if [[ ! "${INTEROP_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
     printf 'invalid INTEROP_PROJECT_NAME %q: use lowercase letters, digits, dashes, and underscores\n' \
@@ -281,7 +282,7 @@ assert_has_packets() {
 frr_bfd_peer_status() {
     local peer_ip="$1"
     podman_container_exec frr-interop vtysh -c "show bfd peers json" 2>/dev/null \
-        | python3 -c "
+        | "${UV_PYTHON[@]}" -c "
 import sys, json
 data = json.load(sys.stdin)
 for peer in data:
@@ -415,10 +416,10 @@ assert_fixed_names_available
 PROJECT_OWNED=true
 
 info "building container images"
-timeout 10m podman-compose "${COMPOSE_ARGS[@]}" build --no-cache
+timeout 10m podman compose "${COMPOSE_ARGS[@]}" build --no-cache
 
 info "starting Holo daemon and one-shot configuration loader"
-if ! timeout 2m podman-compose "${COMPOSE_ARGS[@]}" up -d holo holo-config; then
+if ! timeout 2m podman compose "${COMPOSE_ARGS[@]}" up -d holo holo-config; then
     fail_holo_startup "failed to start Holo configuration phase"
 fi
 
@@ -461,7 +462,7 @@ if ! holo_semantic_error="$(interop_verify_holo_running_configuration \
 fi
 
 info "starting GoBFD and remaining interop peers"
-timeout 2m podman-compose "${COMPOSE_ARGS[@]}" \
+timeout 2m podman compose "${COMPOSE_ARGS[@]}" \
     up -d --no-deps gobfd frr bird3 tshark thoro
 
 info "waiting for containers to start (10s)"
@@ -951,7 +952,7 @@ test_rfc5880_detection_precision() {
     fi
 
     local result
-    result="$(echo "${all_frr_epochs}" | python3 -c "
+    result="$(echo "${all_frr_epochs}" | "${UV_PYTHON[@]}" -c "
 import sys
 down = ${first_down_epoch}
 last_before = None
@@ -975,7 +976,7 @@ else:
     info "detection gap: last FRR packet → first Down = ${result}s"
 
     local gap_ok
-    gap_ok="$(python3 -c "print('yes' if 0 <= ${result} <= 3.0 else 'no')")"
+    gap_ok="$("${UV_PYTHON[@]}" -c "print('yes' if 0 <= ${result} <= 3.0 else 'no')")"
 
     if [ "${gap_ok}" = "yes" ]; then
         pass "detection time ${result}s is within acceptable range (< 3.0s)"
@@ -1354,10 +1355,10 @@ test_scapy_fuzzing() {
     local desc="Scapy BFD fuzzing — gobfd survives all invalid packets"
     local scapy_image="gobfd-scapy-fuzz:latest"
 
-    # Build scapy image directly (podman-compose "run" tears down the stack).
+    # Build scapy image directly (podman compose "run" tears down the stack).
     if ! timeout 10m podman build -t "${scapy_image}" \
         -f "${SCRIPT_DIR}/scapy/Containerfile" \
-        "${SCRIPT_DIR}/scapy/" 2>&1; then
+        "${SCRIPT_DIR}/../.." 2>&1; then
         fail "${desc} — scapy image build failed"
         return 1
     fi

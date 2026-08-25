@@ -35,7 +35,7 @@ PODMAN_NETWORK="${LAB_NAME}-net"
 # Deployed vendor tracking (populated by deploy_vendors).
 DEPLOYED_VENDORS=()
 
-# Vendor definitions: name:container:image:eth_idx:peer_ip:local_ip:asn
+# Vendor definitions: name|container|image|eth_idx|peer_ip|local_ip|asn
 # eth_idx determines the interface name on GoBFD side (eth${idx}).
 
 resolve_image() {
@@ -79,12 +79,12 @@ VYOS_IMAGE="$(resolve_image "docker.io/muruu1/vyos:latest" \
     "vyos:latest")"
 
 VENDOR_DEFS=(
-    "arista:clab-${LAB_NAME}-arista:${ARISTA_CEOS_IMAGE}:1:10.0.1.2:10.0.1.1:65002"
-    "nokia:clab-${LAB_NAME}-nokia:${NOKIA_SRLINUX_IMAGE}:2:10.0.2.2:10.0.2.1:65003"
-    "cisco:clab-${LAB_NAME}-cisco:CISCO_XRD_IMAGE:3:10.0.3.2:10.0.3.1:65004"
-    "sonic:clab-${LAB_NAME}-sonic:${SONIC_VS_IMAGE}:4:10.0.4.2:10.0.4.1:65005"
-    "vyos:clab-${LAB_NAME}-vyos:${VYOS_IMAGE}:5:10.0.5.2:10.0.5.1:65006"
-    "frr:clab-${LAB_NAME}-frr:quay.io/frrouting/frr:10.2.5:6:10.0.6.2:10.0.6.1:65007"
+    "arista|clab-${LAB_NAME}-arista|${ARISTA_CEOS_IMAGE}|1|10.0.1.2|10.0.1.1|65002"
+    "nokia|clab-${LAB_NAME}-nokia|${NOKIA_SRLINUX_IMAGE}|2|10.0.2.2|10.0.2.1|65003"
+    "cisco|clab-${LAB_NAME}-cisco|CISCO_XRD_IMAGE|3|10.0.3.2|10.0.3.1|65004"
+    "sonic|clab-${LAB_NAME}-sonic|${SONIC_VS_IMAGE}|4|10.0.4.2|10.0.4.1|65005"
+    "vyos|clab-${LAB_NAME}-vyos|${VYOS_IMAGE}|5|10.0.5.2|10.0.5.1|65006"
+    "frr|clab-${LAB_NAME}-frr|quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68|6|10.0.6.2|10.0.6.1|65007"
 )
 
 # Resolve Cisco XRd image: prefer Control Plane (supports linux veth interfaces)
@@ -116,19 +116,15 @@ fi
 VENDOR_DEFS=("${VENDOR_DEFS[@]//CISCO_XRD_IMAGE/${CISCO_XRD_IMAGE}}")
 
 # IPv6 dual-stack addresses (RFC 4193 ULA, /127 per RFC 6164).
-declare -A VENDOR_IPV6_PEER VENDOR_IPV6_LOCAL VENDOR_IPV6_ROUTE
+declare -A VENDOR_IPV6_PEER VENDOR_IPV6_LOCAL
 VENDOR_IPV6_PEER[arista]="fd00:0:1::1"
 VENDOR_IPV6_LOCAL[arista]="fd00:0:1::"
-VENDOR_IPV6_ROUTE[arista]="fd00:20:1::/48"
 VENDOR_IPV6_PEER[nokia]="fd00:0:2::1"
 VENDOR_IPV6_LOCAL[nokia]="fd00:0:2::"
-VENDOR_IPV6_ROUTE[nokia]="fd00:20:2::/48"
 VENDOR_IPV6_PEER[cisco]="fd00:0:3::1"
 VENDOR_IPV6_LOCAL[cisco]="fd00:0:3::"
-VENDOR_IPV6_ROUTE[cisco]="fd00:20:3::/48"
 VENDOR_IPV6_PEER[frr]="fd00:0:6::1"
 VENDOR_IPV6_LOCAL[frr]="fd00:0:6::"
-VENDOR_IPV6_ROUTE[frr]="fd00:20:6::/48"
 
 # Parse flags.
 UP_ONLY=false
@@ -186,13 +182,15 @@ check_prerequisites() {
 
 vendor_field() {
     local def="$1" field="$2"
-    echo "${def}" | cut -d: -f"${field}"
+    echo "${def}" | cut -d'|' -f"${field}"
 }
 
 # ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
 cleanup() {
     info "cleaning up topology"
 
@@ -209,7 +207,7 @@ cleanup() {
     # Remove veth pairs (auto-removed when container is destroyed, but clean up orphans).
     for vdef in "${VENDOR_DEFS[@]}"; do
         local idx
-        idx="$(vendor_field "${vdef}" 5)"
+        idx="$(vendor_field "${vdef}" 4)"
         ip link del "veth-eth${idx}" 2>/dev/null || true
     done
 
@@ -532,10 +530,10 @@ deploy_vendors() {
         local name cname image eth_idx peer_ip local_ip
         name="$(vendor_field "${vdef}" 1)"
         cname="$(vendor_field "${vdef}" 2)"
-        image="$(vendor_field "${vdef}" 3):$(vendor_field "${vdef}" 4)"
-        eth_idx="$(vendor_field "${vdef}" 5)"
-        peer_ip="$(vendor_field "${vdef}" 6)"
-        local_ip="$(vendor_field "${vdef}" 7)"
+        image="$(vendor_field "${vdef}" 3)"
+        eth_idx="$(vendor_field "${vdef}" 4)"
+        peer_ip="$(vendor_field "${vdef}" 5)"
+        local_ip="$(vendor_field "${vdef}" 6)"
 
         # Check if image exists.
         if ! podman image exists "${image}" 2>/dev/null; then
@@ -702,8 +700,8 @@ HEADER
     for vdef in "${DEPLOYED_VENDORS[@]}"; do
         local name peer_ip local_ip
         name="$(vendor_field "${vdef}" 1)"
-        peer_ip="$(vendor_field "${vdef}" 6)"
-        local_ip="$(vendor_field "${vdef}" 7)"
+        peer_ip="$(vendor_field "${vdef}" 5)"
+        local_ip="$(vendor_field "${vdef}" 6)"
 
         cat >> "${gobfd_config}" <<EOF
   # ${name} (IPv4)
@@ -749,9 +747,9 @@ HEADER
     for vdef in "${DEPLOYED_VENDORS[@]}"; do
         local name peer_ip local_ip asn
         name="$(vendor_field "${vdef}" 1)"
-        peer_ip="$(vendor_field "${vdef}" 6)"
-        local_ip="$(vendor_field "${vdef}" 7)"
-        asn="$(vendor_field "${vdef}" 8)"
+        peer_ip="$(vendor_field "${vdef}" 5)"
+        local_ip="$(vendor_field "${vdef}" 6)"
+        asn="$(vendor_field "${vdef}" 7)"
 
         cat >> "${gobgp_config}" <<EOF
 
@@ -911,7 +909,7 @@ run_tests() {
 
         set +e
         COMPOSE_PROJECT_NAME="${project_slug}" \
-            podman-compose -p "${project_slug}" \
+            podman compose -p "${project_slug}" \
             -f "${PROJECT_ROOT}/deployments/compose/compose.dev.yml" \
             exec -T dev \
             env GOBFD_INTEROP_CLAB_TEST_IN_CONTAINER=1 \
@@ -952,7 +950,7 @@ show_vendor_images() {
     for vdef in "${VENDOR_DEFS[@]}"; do
         local name image
         name="$(vendor_field "${vdef}" 1)"
-        image="$(vendor_field "${vdef}" 3):$(vendor_field "${vdef}" 4)"
+        image="$(vendor_field "${vdef}" 3)"
 
         if podman image exists "${image}" 2>/dev/null; then
             info "  ${name} (${image}): AVAILABLE"
@@ -986,7 +984,7 @@ prepare_public_images() {
     pull_image_if_missing "Nokia SR Linux" "${NOKIA_SRLINUX_IMAGE}"
     pull_image_if_missing "SONiC-VS" "${SONIC_VS_IMAGE}"
     pull_image_if_missing "VyOS" "${VYOS_IMAGE}"
-    pull_image_if_missing "FRRouting" "quay.io/frrouting/frr:10.2.5"
+    pull_image_if_missing "FRRouting" "quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
 }
 
 # ===========================================================================

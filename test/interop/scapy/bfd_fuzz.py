@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --frozen --no-default-groups -- python
 """BFD protocol fuzzer using Scapy (RFC 5880 Section 6.8.6 validation).
 
 Sends crafted/invalid BFD packets to GoBFD and verifies the daemon
@@ -20,7 +20,7 @@ import time
 # Scapy setup: disable interactive prompts and reduce noise.
 os.environ["SCAPY_USE_LIBPCAP"] = "0"
 
-from scapy.all import IP, UDP, Raw, send, conf  # noqa: E402
+from scapy.all import IP, UDP, Raw, conf, send  # ty: ignore[unresolved-import]
 
 # Suppress Scapy warnings.
 conf.verb = 0

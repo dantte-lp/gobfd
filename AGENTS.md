@@ -8,11 +8,14 @@ Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProx
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
 go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
-golangci-lint run                                  # линтер (v2, строгий)
+go tool -modfile=tools/go.mod golangci-lint run ./... # линтер (v2, строгий)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
 make interop                                       # interop tests (FRR + BIRD3 + Holo + Thoro/bfd, 4 peers)
+make interop-testcontainers                        # Go-owned Podman lifecycle for the same 4-peer gate
 make interop-bgp                                   # BGP+BFD tests (FRR, BIRD3, ExaBGP)
+make interop-bgp-testcontainers                    # Go-owned Podman lifecycle for the BGP+BFD gate
+make interop-rfc-testcontainers                    # Go-owned Podman lifecycle for RFC 7419/9384/9468/9747
 make int-bgp-failover                              # integration: BGP fast failover demo
 make int-haproxy                                   # integration: HAProxy agent-check bridge
 make int-observability                             # integration: Prometheus + Grafana
@@ -33,11 +36,12 @@ make int-k8s                                       # integration: Kubernetes Dae
 - `cmd/gobfd-haproxy-agent/` — HAProxy agent-check bridge (BFD state → agent TCP responses)
 - `cmd/gobfd-exabgp-bridge/` — ExaBGP process API bridge (BFD state → route announcements)
 - `pkg/bfdpb/` — generated protobuf types (public API for external consumers)
-- `api/v1/` — proto definitions (buf managed)
+- `api/bfd/v1/` — proto definitions (buf managed)
 - `test/interop/` — 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd) with tshark capture
 - `test/interop-bgp/` — BGP+BFD interop tests (GoBGP + FRR, BIRD3, ExaBGP)
 - `test/interop-clab/` — Containerlab vendor NOS interop tests (Nokia, Arista, FRR)
 - `deployments/integrations/` — 5 integration examples (BGP failover, HAProxy, observability, ExaBGP, k8s)
+- `tools/` — isolated Go tool module; never add developer tools to the runtime `go.mod`
 
 ## Code style
 - Errors: always wrap with `%w` and context: `fmt.Errorf("send control packet to %s: %w", peer, err)`
@@ -99,6 +103,36 @@ that exact toolchain. Use the official
 - Treat goroutine labels, tracebacks, traces, and profiles as sensitive data.
   Keep analysis HTTP UIs on loopback and never put secrets or peer addresses
   into goroutine labels.
+
+## Python tooling rules
+
+The only supported Python environment is Python 3.14.7 managed by uv 0.12.6
+from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
+
+- Keep one lock. Use the `peer`, `runtime`, and `quality` dependency groups;
+  never add a second requirements or lock file.
+- Never use `pip`, `pipx`, or `uv tool install`. Bootstrap uv from the
+  checksum-pinned release archive or digest-pinned OCI image.
+- Run repository Python entrypoints as `uv run --frozen`; CI and image builds
+  must use `uv sync --frozen`.
+- Run `make python-check` after changing Python code, pins, or invocation
+  paths. It executes Ruff, ty, Bandit, and pip-audit over the two owned Python
+  files and verifies the exact interpreter.
+- ExaBGP is an external immutable interop image, not a dependency of the
+  repository Python lock.
+
+## Podman Compose rules
+
+- Use only `podman compose` with the checksum-pinned Docker Compose v5 Go
+  provider. Never call `docker-compose` directly and never reintroduce Python
+  `podman-compose`.
+- Keep `PODMAN_COMPOSE_PROVIDER` explicit in CI and the development image so
+  Podman cannot fall back to another provider from the host.
+- Keep `DOCKER_BUILDKIT=0` for Podman-backed Compose builds. Compose v5
+  delegates BuildKit builds to Docker Buildx/Bake, which is not part of the
+  Podman runtime contract.
+- Run the provider version check and render every tracked Compose file before
+  live topology validation.
 
 ## Git
 - Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages

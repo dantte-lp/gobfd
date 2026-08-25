@@ -131,6 +131,10 @@ var (
 	// ErrSocketClosed indicates an operation on a closed socket.
 	ErrSocketClosed = errors.New("socket closed")
 
+	// ErrUnsupportedPlatform indicates that the Linux-specific BFD transport
+	// cannot run on the current operating system.
+	ErrUnsupportedPlatform = errors.New("netio transport requires linux")
+
 	// ErrPoolType indicates the packet pool returned an unexpected type.
 	ErrPoolType = errors.New("packet pool returned unexpected type")
 )

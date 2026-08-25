@@ -113,7 +113,8 @@ graph TB
 
 - `internal/bfd` has **zero** dependency on `internal/server`, `internal/netio`, or `internal/config`
 - `internal/server` depends on `internal/bfd` (Manager, Session, types) and `pkg/bfdpb`
-- `internal/netio` depends on `internal/bfd` only for the `PacketSender` interface and `ControlPacket`
+- `internal/netio` reuses the BFD packet codec, pool, packet metadata, sender
+  interface, and Micro-BFD state/event types from `internal/bfd`
 - `pkg/bfdpb` is generated code -- never edited manually
 
 ### Packet RX Flow
@@ -250,6 +251,7 @@ gobfd/
 |   +-- gobgp/                    # GoBGP gRPC client + flap dampening
 |   +-- metrics/                  # Prometheus collectors
 |   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
+|   +-- sdnotify/                 # systemd readiness/watchdog notifications
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
@@ -281,7 +283,7 @@ gobfd/
 | Metrics | Prometheus `client_golang` | Counters, gauges, histograms |
 | Logging | `log/slog` (stdlib) | Structured JSON/text logging |
 | Protobuf | buf CLI | Lint, breaking detection, code generation |
-| Lint | golangci-lint v2.12.2 | 92 signal-bearing linters, schema and build-tag matrix gates |
+| Lint | golangci-lint v2.13.1 | 92 signal-bearing linters, schema and build-tag matrix gates |
 | Release | GoReleaser v2 | Binaries + deb/rpm + container images |
 | Containers | Podman + Podman Compose | Development and testing |
 | systemd | Type=notify, watchdog | Production daemon lifecycle |

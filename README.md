@@ -49,7 +49,7 @@ Local Podman stack with Prometheus + Grafana:
 
 ```bash
 make test
-podman-compose -f deployments/compose/compose.yml up -d
+podman compose -f deployments/compose/compose.yml up -d
 ```
 
 > **Requires** Linux with `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities. See [Deployment](docs/en/06-deployment.md).

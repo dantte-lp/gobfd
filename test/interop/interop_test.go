@@ -1,4 +1,4 @@
-//go:build interop
+//go:build interop || interop_testcontainers
 
 // Package interop_test provides Go-driven interoperability tests for GoBFD
 // against FRR (bfdd), BIRD3, Holo, and Thoro/bfd, with comprehensive RFC
@@ -2373,8 +2373,8 @@ func TestFRRDetectionTimeout(t *testing.T) {
 // crafted/invalid BFD packets to GoBFD and verifies it survives.
 // Tests RFC 5880 Section 6.8.6 validation robustness.
 //
-// Uses podman build + podman run directly (NOT podman-compose run) because
-// podman-compose's "run" subcommand tears down and recreates the entire
+// Uses podman build + podman run directly (NOT podman compose run) because
+// podman compose's "run" subcommand tears down and recreates the entire
 // compose stack, destroying frr-interop and other containers.
 func TestScapyFuzzing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -2385,14 +2385,13 @@ func TestScapyFuzzing(t *testing.T) {
 		t.Fatalf("resolve interop Compose project: %v", err)
 	}
 
-	// Build the scapy image directly.
-	// Go test runs from the package directory (test/interop/),
-	// so the scapy build context is relative to that.
+	// Build the Scapy image directly from the repository root so the image
+	// consumes the single checked-in uv lock.
 	buildOut, err := exec.CommandContext(ctx,
 		"podman", "build",
 		"-t", scapyImage,
 		"-f", "scapy/Containerfile",
-		"scapy/",
+		"../..",
 	).CombinedOutput()
 	if err != nil {
 		t.Fatalf("podman build scapy: %v\n%s", err, buildOut)

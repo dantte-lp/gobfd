@@ -34,12 +34,33 @@
   1.27 helper `httptest.NewTestServer(t, handler)`, когда custom listener не
   требуется.
 - Строгий набор `golangci-lint` сохранён под Go 1.27 через upstream-обновление
-  `honnef.co/go/tools`; `staticcheck` остаётся включённым.
+  `honnef.co/go/tools`; используется `golangci-lint v2.13.1` и стабильный
+  Staticcheck 2026.2, `staticcheck` остаётся включённым.
+- Runtime-модули обновлены до актуальных совместимых релизов, включая
+  ConnectRPC `v1.20.0`, gRPC health `v1.5.0`, koanf `v2.3.6`, Prometheus client
+  `v1.24.1`, console `v0.5.0` и protobuf `v1.36.12`. First-party YAML imports
+  переведены на поддерживаемый путь `go.yaml.in/yaml/v3 v3.0.5`.
+- Development tooling воспроизводимо закреплён: Buf `v1.72.0`, gopls
+  `v0.23.0`, govulncheck `v1.7.0`, gotestsum `v1.13.0`, Node.js `v24.19.0`, а
+  также точные версии npm- и uv-managed Python-инструментов для lint, type,
+  security, YAML и отчётов. Единый Python 3.14.7 `uv.lock` заменяет pip-bootstrap
+  и независимые tool-окружения в CI, development-образах и Scapy peer.
+  Containerlab устанавливается из проверенных архивов `v0.79.0`; CI использует
+  Docker Compose `v5.5.0` как checksum-pinned Go provider для
+  `podman compose`, Syft `v1.51.0` и GoReleaser `v2.18.0`.
+- Изолированный граф lint-инструментов использует MIT-licensed revision
+  `github.com/tenntenn/text/transform`, не изменяя runtime-зависимости. CI
+  публикует раздельные runtime/tools vulnerability JSON и CycloneDX SBOM.
+- CSpell обновлён до `10.1.1`. GitHub Actions обновлены до актуальных релизов
+  и immutable commit SHA.
+  Interop/integration peers используют digest-pinned FRR `10.7.0`, GoBGP
+  `v3.37.0`, ExaBGP `5.0.13`, Prometheus `v3.14.0` и Grafana `13.2.0`.
+  Переход на GoBGP v4 остаётся отдельной несовместимой миграцией для v1.0.0.
 - OSV Scanner обновлён с `v2.3.5` до `v2.5.1`; его Go analysis stack
   поддерживает синтаксис Go 1.27.
 - Временное исключение для GoBGP v3 NEXT_HOP denial-of-service продлено только
   до 2026-09-30; переход на v4 остаётся отслеживаемым исправлением.
-- Security fixes обновляют gRPC до `v1.83.1`, `moby/go-archive` до `v0.3.3`,
+- Security fixes обновляют gRPC до `v1.83.2`, `moby/go-archive` до `v0.3.3`,
   `klauspost/compress` до `v1.19.2` и `x/mod` до `v0.40.0`. Исключение для
   module-only advisory `x/crypto/openpgp` ограничено по времени: этот пакет
   отсутствует в build graph.

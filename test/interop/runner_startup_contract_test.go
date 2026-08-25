@@ -297,6 +297,10 @@ fi
 exit 0
 `
 			podmanFake := `#!/usr/bin/env bash
+if [[ "${1:-}" == "compose" ]]; then
+    shift
+    exec docker-compose "$@"
+fi
 printf 'podman %s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
 label="label=com.docker.compose.project=gobfd-interop"
 if [[ "$*" == "ps -a --no-trunc --filter ${label} --format {{.ID}}" ]]; then
@@ -383,7 +387,7 @@ exec /usr/bin/flock "$@"
 `
 			sleepFake := "#!/usr/bin/env bash\nexit 0\n"
 			for name, contents := range map[string]string{
-				"podman-compose": composeFake,
+				"docker-compose": composeFake,
 				"podman":         podmanFake,
 				"flock":          flockFake,
 				"sleep":          sleepFake,
@@ -514,7 +518,7 @@ func TestInteropRunnerRejectsInvalidComposeOverride(t *testing.T) {
 			fakeBin := t.TempDir()
 			commandMarker := filepath.Join(t.TempDir(), "podman-command")
 			fake := "#!/usr/bin/env bash\nprintf '%s\\n' \"$0 $*\" > \"${INTEROP_FAKE_COMMAND_MARKER}\"\nexit 1\n"
-			for _, command := range []string{"podman", "podman-compose"} {
+			for _, command := range []string{"podman"} {
 				if err := writeExecutable(filepath.Join(fakeBin, command), fake); err != nil {
 					t.Fatalf("write fake %s: %v", command, err)
 				}
@@ -579,6 +583,10 @@ if [[ "$*" == *" up -d --no-deps gobfd frr bird3 tshark thoro" ]]; then
 fi
 `
 			podmanFake := `#!/usr/bin/env bash
+if [[ "${1:-}" == "compose" ]]; then
+    shift
+    exec docker-compose "$@"
+fi
 printf 'podman %s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
 label="label=com.docker.compose.project=gobfd-interop"
 case "$*" in
@@ -627,7 +635,7 @@ esac
 			)
 			for command, contents := range map[string]string{
 				"podman":         podmanFake,
-				"podman-compose": composeFake,
+				"docker-compose": composeFake,
 			} {
 				if writeErr := writeExecutable(filepath.Join(fakeBin, command), contents); writeErr != nil {
 					t.Fatalf("write fake %s: %v", command, writeErr)
@@ -749,10 +757,10 @@ func TestMakeRejectsInvalidInteropProjectBeforeCommand(t *testing.T) {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	fakeBin := t.TempDir()
-	commandMarker := filepath.Join(t.TempDir(), "podman-compose-called")
+	commandMarker := filepath.Join(t.TempDir(), "compose-provider-called")
 	composeFake := "#!/usr/bin/env bash\nprintf '%s\\n' called > \"${INTEROP_FAKE_MAKE_MARKER}\"\n"
-	if err := writeExecutable(filepath.Join(fakeBin, "podman-compose"), composeFake); err != nil {
-		t.Fatalf("write fake podman-compose: %v", err)
+	if err := writeExecutable(filepath.Join(fakeBin, "podman"), composeFake); err != nil {
+		t.Fatalf("write fake podman compose: %v", err)
 	}
 	injectionMarker := filepath.Join(t.TempDir(), "injected")
 	projectName := "safe; printf injected > " + injectionMarker + "; #"
@@ -769,7 +777,7 @@ func TestMakeRejectsInvalidInteropProjectBeforeCommand(t *testing.T) {
 		t.Fatalf("invalid project name reached injected shell command: %v", err)
 	}
 	if _, err := os.Stat(commandMarker); !os.IsNotExist(err) {
-		t.Fatalf("invalid project name reached podman-compose: %v", err)
+		t.Fatalf("invalid project name reached podman compose: %v", err)
 	}
 }
 
@@ -779,10 +787,10 @@ func TestMakeDoesNotExpandNestedProjectFunctions(t *testing.T) {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	fakeBin := t.TempDir()
-	commandMarker := filepath.Join(t.TempDir(), "podman-compose-called")
+	commandMarker := filepath.Join(t.TempDir(), "compose-provider-called")
 	composeFake := "#!/usr/bin/env bash\nprintf '%s\\n' called > \"${INTEROP_FAKE_MAKE_MARKER}\"\n"
-	if err := writeExecutable(filepath.Join(fakeBin, "podman-compose"), composeFake); err != nil {
-		t.Fatalf("write fake podman-compose: %v", err)
+	if err := writeExecutable(filepath.Join(fakeBin, "podman"), composeFake); err != nil {
+		t.Fatalf("write fake podman compose: %v", err)
 	}
 	shellMarker := filepath.Join(t.TempDir(), "make-shell-expanded")
 	projectName := "$(info MAKE-INFO-EXPANDED)$(shell printf expanded > " + shellMarker + ")safe"
@@ -804,7 +812,7 @@ func TestMakeDoesNotExpandNestedProjectFunctions(t *testing.T) {
 		t.Fatalf("make expanded nested shell function: %v", err)
 	}
 	if _, err := os.Stat(commandMarker); !os.IsNotExist(err) {
-		t.Fatalf("nested-function project name reached podman-compose: %v", err)
+		t.Fatalf("nested-function project name reached podman compose: %v", err)
 	}
 }
 

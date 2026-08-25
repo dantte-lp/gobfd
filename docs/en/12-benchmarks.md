@@ -77,7 +77,7 @@ With `-count=6`, each benchmark line appears 6 times. The `benchstat` tool compu
 
 ### Benchmark Categories
 
-GoBFD has 33 benchmarks across 7 categories in two packages (`internal/bfd` and `internal/netio`).
+GoBFD has 34 benchmarks across 7 categories in two packages (`internal/bfd` and `internal/netio`).
 
 #### 1. Packet Codec (`internal/bfd`)
 

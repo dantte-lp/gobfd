@@ -6,10 +6,10 @@ This document tracks external dependencies that carry non-trivial risk due to ma
 
 | Field | Value |
 |-------|-------|
-| **Module** | `github.com/reeflective/console v0.1.25` |
+| **Module** | `github.com/reeflective/console v0.5.0` |
 | **Used in** | `cmd/gobfdctl/commands/shell.go` — interactive REPL shell |
 | **Risk level** | Medium |
-| **Reason** | Pre-1.0 library, single maintainer, 6 transitive dependencies |
+| **Reason** | Pre-1.0 library and single-maintainer bus-factor risk |
 
 ### Description
 
@@ -19,12 +19,14 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 
 - **Pre-1.0 API**: The library has not reached v1.0, meaning breaking API changes are possible between minor versions.
 - **Single maintainer**: The project is maintained by a single developer. Bus factor = 1.
-- **Transitive dependencies**: Pulls in 6 additional dependencies (readline, completions, etc.).
+- **Transitive dependencies**: Pulls in readline, completion, and terminal UI modules.
 - **No stdlib alternative**: Go's standard library does not include a Cobra-compatible REPL framework.
 
 ### Mitigation
 
-1. **Pin version**: The dependency is pinned to `v0.1.25` in `go.mod`. Upgrades should be tested before adoption.
+1. **Pin version**: The dependency is pinned to `v0.5.0` in `go.mod`. The
+   `v0.1.25` to `v0.5.0` release-note range and CLI/race tests were reviewed
+   before adoption.
 2. **Vendoring**: If the project becomes unmaintained, vendor the source into `internal/console/`.
 3. **Graceful degradation**: The non-interactive CLI (`gobfdctl <command>`) works without this dependency. The interactive shell is a convenience feature only.
 4. **Bounded scope**: The dependency is isolated to a single file (`shell.go`) and does not affect the daemon or protocol implementation.
@@ -84,27 +86,36 @@ list a fixed version.
 
 ---
 
-## gopkg.in/yaml.v3 — Low Risk
+## YAML v3 module-path transition — Low Risk
 
 | Field | Value |
 |-------|-------|
-| **Module** | `gopkg.in/yaml.v3 v3.0.1` (direct) |
-| **Successor** | `go.yaml.in/yaml/v3 v3.0.4` (already indirect dep) |
-| **Used by** | `koanf/parsers/yaml` — YAML configuration parsing |
+| **First-party module** | `go.yaml.in/yaml/v3 v3.0.5` (direct) |
+| **Legacy module** | `gopkg.in/yaml.v3 v3.0.1` (transitive only) |
+| **Used by** | CLI output, HAProxy configuration, integration tests, and transitive console code |
 | **Risk level** | Low |
 
 ### Description
 
-The `gopkg.in/yaml.v3` module was archived by its maintainer in April 2025. The successor module `go.yaml.in/yaml/v3` is API-compatible and already present as an indirect dependency through other packages.
+The `gopkg.in/yaml.v3` module was archived by its maintainer in April 2025.
+All GoBFD-owned imports now use its maintained, API-compatible successor,
+`go.yaml.in/yaml/v3`. The legacy path remains only in the transitive
+`reeflective/console`/Carapace graph.
 
 ### Risk Factors
 
 - **Archived repository**: No further bug fixes or security patches will be released for the `gopkg.in` path.
-- **Upstream migration pending**: GoBFD uses yaml.v3 through `koanf/parsers/yaml`. The koanf maintainers have not yet migrated to the successor path.
+- **Transitive migration pending**: GoBFD cannot remove the legacy module from
+  the complete MVS graph until console/Carapace migrate their internal imports.
 
 ### Mitigation
 
-1. **No code changes needed**: The successor `go.yaml.in/yaml/v3` is API-compatible. When koanf migrates, GoBFD's `go.mod` will automatically switch during `go mod tidy`.
-2. **Already indirect**: GoBFD does not import yaml.v3 directly in application code — it flows through the koanf configuration parser.
-3. **Monitor upstream**: Track the koanf issue for yaml.v3 migration. When resolved, run `go mod tidy` to complete the switch.
-4. **No security concern**: The archived module `v3.0.1` has no known vulnerabilities. The successor is maintained by the same author under a new module path.
+1. **First-party migration complete**: GoBFD code imports only
+   `go.yaml.in/yaml/v3`; `go mod why` identifies console/Carapace as the sole
+   remaining path to the archived module.
+2. **Monitor upstream**: Remove the transitive legacy module when
+   console/Carapace complete their migration and `go mod tidy` permits it.
+3. **Regression gate**: New first-party imports of `gopkg.in/yaml.v3` are not
+   permitted.
+4. **No known advisory**: The archived module `v3.0.1` has no known
+   vulnerability; the maintained successor is pinned to `v3.0.5`.

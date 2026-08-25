@@ -131,8 +131,8 @@ services:
 
   scapy:
     build:
-      context: ./scapy
-      dockerfile: Containerfile
+      context: ../..
+      dockerfile: test/interop/scapy/Containerfile
     container_name: scapy-interop
     depends_on:
       - gobfd

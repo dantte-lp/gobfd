@@ -55,7 +55,7 @@ make all
 
 ### Make-цели
 
-Все Go-команды выполняются внутри контейнеров Podman через `podman-compose exec`.
+Все Go-команды выполняются внутри контейнеров Podman через `podman compose exec`.
 Development stack изолирован через `COMPOSE_PROJECT_NAME`, который по
 умолчанию равен имени директории текущего checkout. Parallel worktrees
 используют разные default project names или явно задают `COMPOSE_PROJECT_NAME`.
@@ -109,7 +109,7 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 
 | Цель | Описание |
 |---|---|
-| `make int-bgp-failover` | Демо BGP fast failover (GoBFD + GoBGP + FRR) |
+| `make int-bgp-failover` | Go testcontainers gate для BGP fast failover; операционный Compose-пример доступен через `-up`, `-logs` и `-down` |
 | `make int-haproxy` | Демо HAProxy agent-check bridge |
 | `make int-observability` | Стек наблюдаемости Prometheus + Grafana |
 | `make int-exabgp-anycast` | Анонсирование anycast-сервиса ExaBGP |
@@ -128,6 +128,10 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 | `make osv-scan` | Алиас для контролируемого vulnerability audit |
 | `make vulncheck-strict` | Raw `govulncheck ./...` без project allowlist |
 | `make osv-scan-strict` | Raw `osv-scanner scan -r .` без project allowlist |
+
+Контролируемый audit использует `go.mod` и `tools/go.mod` как раздельные входы
+OSV. CI сохраняет runtime govulncheck/OSV JSON, tools OSV JSON и раздельные
+runtime/tools CycloneDX SBOM в артефакте `dependency-security-reports`.
 
 #### Protobuf
 
@@ -232,13 +236,29 @@ make test-integration
 
 ### Линтинг
 
-golangci-lint v2.12.2 с конфигурацией maximum-by-default:
+golangci-lint v2.13.1 с конфигурацией maximum-by-default:
 
 ```bash
 make lint
 ```
 
-Инструмент закреплён директивой `tool` в `go.mod`. В `.golangci.yml` используется
+Инструмент закреплён директивой `tool` в изолированном модуле `tools/go.mod`.
+Локальный lint выполняется только в контейнере: `make lint` приводит dev-сервис
+к актуальной конфигурации и запускает в нём заранее собранный закреплённый
+бинарник. `make lint-ci` является внутренним контрактом для CI-контейнеров и
+намеренно отказывается запускаться на хосте. По умолчанию dev-сервис ограничен
+4 CPU, жёстким лимитом памяти 8 GiB, мягким лимитом Go runtime 6 GiB, без swap
+сверх жёсткого лимита и 1 024 PID. Кэши Go и golangci-lint остаются в удаляемом
+слое контейнера. Образ содержит C-компилятор и runtime-заголовки, необходимые
+Linux race detector Go, поэтому race-гейты не устанавливают пакеты во время
+выполнения. Все команды, собранные через `go install`, используют абсолютный
+`GOBIN=/go/bin`, а `/go/bin` входит в `PATH`. При необходимости лимиты
+переопределяются через `GOBFD_DEV_CPUS`,
+`GOBFD_DEV_MEMORY_LIMIT`,
+`GOBFD_DEV_MEMORY_RESERVATION`, `GOBFD_DEV_GOMEMLIMIT` и
+`GOBFD_DEV_PIDS_LIMIT`.
+
+В `.golangci.yml` используется
 `linters.default: all`: включены 92 значимых линтера, отключены 20
 поддерживаемых линтеров без входных данных проекта, с дублирующими проверками или
 документированными семантическими конфликтами, а также два deprecated.
@@ -254,6 +274,50 @@ CI проверяет v2-схему, точное число активных л
   ошибок, состояния и дисциплины исходного кода
 - `depguard`, `gomoddirectives` -- гигиена зависимостей
 - `nolintlint` -- качество директив `//nolint`
+
+### Python-инструменты
+
+В репозитории используется одно non-package окружение Python 3.14.7. uv 0.12.6
+читает корневые `.python-version`, `pyproject.toml` и `uv.lock`; requirements,
+pip-bootstrap и отдельные окружения `uv tool` не поддерживаются.
+
+Единый lock разделяет Scapy (`peer`), намеренно пустую группу `runtime` и набор
+Ruff, ty, Bandit, yamllint, junit2html и pip-audit (`quality`). Docker Compose
+не является Python-зависимостью: официальный Go-бинарник v5.5.0 закреплён по
+checksum и выбирается командой `podman compose`.
+
+```bash
+make python-sync
+make python-check
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help
+```
+
+`make python-check` проверяет Python 3.14.7, lock и frozen sync, затем запускает
+lint, type, security и vulnerability проверки обоих принадлежащих репозиторию
+Python-файлов. ExaBGP остаётся внешним immutable interop-образом и не
+дублируется в lock.
+
+### Инвентаризация зависимостей
+
+Машиночитаемый snapshot цепочки поставки находится в
+`docs/supply-chain/dependency-inventory.json`. Он охватывает полные выбранные
+графы runtime и изолированных инструментов, а также объявленные в репозитории
+инструменты, GitHub Actions, OCI-образы и interop-демоны. Перегенерируйте его
+только после проверки release notes, безопасности, лицензий, archive status и
+неизменяемых pin:
+
+```bash
+make dependency-inventory
+make dependency-inventory-check
+```
+
+Генерация разрешает каждую точную выбранную версию Go-модуля через стабильный
+API deps.dev v3 и записывает GitHub evidence точного commit там, где deps.dev
+не возвращает license expression. Для immutable OCI registry availability
+хранится отдельно от точного commit канонического build-source и hash его
+license-файла. Offline-проверка завершается ошибкой при drift любого Go module
+graph, объявленного компонента, source location, evidence binding или числа
+Go-пакетов относительно проверенного snapshot.
 
 ### Semgrep
 

@@ -203,6 +203,36 @@ func AssertImageRemoved(tb testing.TB, endpoint, imageName string) {
 	}
 }
 
+// AssertVolumeRemoved proves that an exact test-owned volume is absent from
+// the selected Podman endpoint and fails closed on API errors.
+func AssertVolumeRemoved(tb testing.TB, endpoint, volumeName string) {
+	tb.Helper()
+
+	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
+	if err != nil {
+		tb.Fatalf("create volume cleanup verification client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		exists, err := client.VolumeExists(ctx, volumeName)
+		if err != nil {
+			tb.Fatalf("inspect volume while verifying cleanup: %v", err)
+		}
+		if !exists {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			tb.Fatalf("volume %s still exists after test cleanup: %v", volumeName, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func resolvePodmanEndpoint(getenv func(string) string, socketExists func(string) bool) (string, bool) {
 	for _, key := range []string{"DOCKER_HOST", "PODMAN_HOST", "CONTAINER_HOST"} {
 		if endpoint := validUnixEndpoint(getenv(key), socketExists); endpoint != "" {

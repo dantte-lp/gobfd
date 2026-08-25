@@ -264,6 +264,11 @@ All commands support three output formats via the `--format` flag:
 | `json` | Machine-parseable, scripting, piping to `jq` |
 | `yaml` | Human-readable structured output |
 
+JSON field names and values form the machine-readable CLI contract. YAML keeps
+the same data model, but whitespace, indentation, and scalar presentation are
+not byte-stable across compatible serializer updates; automation should parse
+YAML rather than compare its rendered bytes.
+
 ```bash
 # JSON output for scripting
 gobfdctl session list --format json

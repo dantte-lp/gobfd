@@ -70,7 +70,8 @@ export GENERATED PLATFORM
 export GCC_VERSION="gcc (Debian trixie)"
 export GOMAXPROCS="${GOMAXPROCS:-8}"
 
-python3 - "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}" \
+uv run --project "${PROJECT_DIR}" --frozen --no-default-groups -- python - \
+    "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}" \
     "${META_JSON}" "${TEMPLATE}" "${OUTPUT}" <<'PY'
 import json
 import math

@@ -1,4 +1,4 @@
-//go:build interop_bgp
+//go:build interop_bgp || interop_bgp_testcontainers
 
 package interop_bgp_test
 

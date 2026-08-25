@@ -15,18 +15,27 @@
 #     This is compensated by timer negotiation: actual TX uses
 #     max(local.desired, remote.required) so behavior is correct.
 
-FROM docker.io/golang:1.26-trixie AS builder
+FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
 
 WORKDIR /src
 
-# Clone and build Thoro/bfd from source.
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+# Download and build the immutable upstream default-branch commit. Thoro/bfd
+# has no release tags; this commit is the repository's current upstream head.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth=1 https://github.com/Thoro/bfd.git . \
+ARG THORO_COMMIT=5d09e296fbf694a3cf4e185c5f46c2432325c752
+ARG THORO_SOURCE_SHA256=f7fc73bfdea430c3da54bc53b7dfcc8a1b65b71189835448fc9db9e52c71ca18
+
+RUN curl --fail --location --silent --show-error \
+        "https://codeload.github.com/Thoro/bfd/tar.gz/${THORO_COMMIT}" \
+        --output /tmp/thoro-bfd.tar.gz \
+    && printf '%s  %s\n' "${THORO_SOURCE_SHA256}" /tmp/thoro-bfd.tar.gz \
+        | sha256sum --check --status \
+    && tar -xzf /tmp/thoro-bfd.tar.gz --strip-components=1 \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /bin/bfdd ./cmd/bfdd
 
-FROM docker.io/debian:trixie-slim
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 COPY --from=builder /bin/bfdd /bin/bfdd
 

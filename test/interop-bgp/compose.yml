@@ -42,7 +42,7 @@ services:
         ipv4_address: 172.21.0.10
 
   gobgp:
-    image: docker.io/jauderho/gobgp:v3.33.0
+    image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
     container_name: gobgp-interop
     user: "0:0"
     cap_add:
@@ -69,7 +69,7 @@ services:
   # === FRR: bgpd + bfdd at 172.21.0.20 (ASN 65002) ===
 
   frr-bgp:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-bgp-interop
     cap_add:
       - NET_RAW
@@ -117,7 +117,7 @@ services:
         ipv4_address: 172.21.0.40
 
   exabgp:
-    image: ghcr.io/exa-networks/exabgp:5.0.1
+    image: ghcr.io/exa-networks/exabgp:5.0.13@sha256:80f64719841fe6192f5b5a3b46edc27270215521438fae8a704f28d221a4680b
     container_name: exabgp-interop
     network_mode: "service:gobfd-exabgp"
     depends_on:

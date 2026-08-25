@@ -6,7 +6,9 @@
 
 **Architecture:** The base Compose topology keeps peer address `172.20.0.50` but assigns it to Holo. `holod` receives a test TOML configuration while a healthy-gated one-shot `holo-config` service applies the IETF BFD YANG commands through `holo-cli`. The legacy runner, guarded `make interop-up`, and routing E2E runner all start Holo in a separate bounded phase, require the loader's inspected exit status to be exactly zero, require its exact-ID log to be whitespace-only, verify the immutable Holo container reports exactly `Holo command-line interface 0.5.0`, and then run `--command 'show running format json'` before starting GoBFD. That semantic result must be exactly one JSON document containing exactly one matching `eth0` interface, one `bfdv1/main` protocol, and one exact session. The gate is mandatory because Holo CLI v0.5.0 reports startup-file parse errors but continues, commits the remaining candidate, and exits zero; podman-compose 1.5.0 and 1.6.0 also reduce `service_completed_successfully` to the `stopped` state without checking the exit code. tshark capture files live only in the exact container writable layer and are copied before cleanup; no mutable named or anonymous capture volume is part of either base or BGP topology. Go tests prove current daemon state and post-event packets rather than accepting stale capture history. Beads issue `gobfd-qj0.8.1.5.3` remains the durable source of task status.
 
-**Tech Stack:** Go 1.27, Go test/race, gopls, golangci-lint v2, Podman, the repository's pinned `podman-compose` provider, Docker Compose semantics, Holo v0.9.0, RFC 5880/5881, RFC 9314 YANG, tshark.
+**Tech Stack:** Go 1.27, Go test/race, gopls, golangci-lint v2, Podman,
+Docker Compose v5.5.0 selected through `podman compose`, Holo v0.9.0,
+RFC 5880/5881, RFC 9314 YANG, tshark.
 
 ---
 
@@ -192,7 +194,7 @@ Run:
 
 ```bash
 bash -n test/interop/run.sh
-podman-compose -f test/interop/compose.yml config
+podman compose -f test/interop/compose.yml config
 go test -race -count=1 ./test/interop/
 go test -trimpath -race -count=1 ./test/interop/
 ```
@@ -438,7 +440,7 @@ and enter the preserved two-phase Holo startup.
 
 The implementation intentionally deviates from the original Compose-down-first
 cleanup contract. Local provider evidence shows that installed
-`podman-compose down` acts on configured `container_name` values, so even a
+`podman compose down` acts on configured `container_name` values, so even a
 successful label revalidation has a name-swap TOCTOU window. Compose is
 therefore limited to image build and container creation while the project lock
 is held. On every owned-project exit, query all three resource classes and
@@ -522,7 +524,7 @@ Treat a false result as a suite failure before artifact collection.
 ```bash
 bash -n test/interop/run.sh test/e2e/routing/run.sh
 go test -race -count=1 ./test/interop/
-podman-compose -p gobfd-interop -f test/interop/compose.yml config
+podman compose -p gobfd-interop -f test/interop/compose.yml config
 ```
 
 Expected: scripts parse, contract tests pass, and rendered Compose contains the
@@ -577,7 +579,7 @@ unchanged.
 
 ```bash
 bash -n scripts/gen-report.sh
-podman-compose -f bench/compose.yml config
+podman compose -f bench/compose.yml config
 go test -race -count=1 ./test/interop/
 ```
 

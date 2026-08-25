@@ -1,0 +1,68 @@
+[project]
+name = "gobfd-python-tools"
+version = "0.0.0"
+requires-python = "==3.14.7"
+dependencies = []
+
+[dependency-groups]
+peer = [
+  "scapy==2.7.0",
+]
+runtime = []
+quality = [
+  "bandit==1.9.4",
+  "junit2html==31.1.4",
+  "pip-audit==2.10.1",
+  "ruff==0.16.4",
+  "ty==0.0.74",
+  "yamllint==1.38.0",
+]
+
+[tool.uv]
+default-groups = []
+package = false
+required-version = "==0.12.6"
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+ignore = ["COM812", "D203", "D213"]
+select = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"test/interop-clab/bootstrap.py" = [
+  "CPY001",
+  "E501",
+  "FBT001",
+  "PERF401",
+  "PLR0911",
+  "PTH123",
+  "TRY300",
+]
+"test/interop/scapy/bfd_fuzz.py" = [
+  "ANN001",
+  "ANN201",
+  "BLE001",
+  "CPY001",
+  "D103",
+  "FBT002",
+  "PLC0415",
+  "PLR0913",
+  "PLR0917",
+  "PLR2004",
+  "S104",
+  "SIM105",
+  "T201",
+  "TRY300",
+  "UP041",
+]
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.bandit]
+# The fuzzer intentionally uses non-cryptographic pseudo-random bytes. Security
+# boundaries in bootstrap.py use exact-line suppressions after validation.
+skips = ["B311"]

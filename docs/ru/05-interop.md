@@ -87,6 +87,19 @@ make interop
 требует нулевой exit status у Holo loader, выполняет тесты и удаляет только
 ресурсы с label этого проекта.
 
+#### Go testcontainers lifecycle gate
+
+```bash
+make interop-testcontainers
+```
+
+Этот миграционный gate создаёт сеть со статическими адресами, GoBFD, FRR,
+BIRD3, Holo, Thoro/bfd и tshark напрямую через Podman provider библиотеки
+testcontainers. Он выполняет те же Go-проверки, сохраняет захват пакетов в
+`reports/e2e/interop-testcontainers` и проверяет удаление каждого тестового
+контейнера, сети и образа. Старый full-cycle runner остаётся доступным до
+завершения независимой проверки parity нового пути.
+
 #### Пошагово
 
 ```bash
@@ -237,7 +250,17 @@ graph LR
 ```bash
 # Авторитетный routing aggregate с owned artifacts и cleanup
 make e2e-routing
+
+# Миграционный gate: Go управляет Podman lifecycle через testcontainers
+make interop-bgp-testcontainers
 ```
+
+Миграционный gate напрямую через Podman provider создаёт статическую сеть,
+оба экземпляра GoBFD, GoBGP v3.37.0, FRR 10.7.0, BIRD 3.3.2, ExaBGP 5.0.13
+и tshark. Он выполняет те же проверки установления сессий, отказа, отзыва
+маршрутов и восстановления, сохраняет непустой packet capture и доказывает
+удаление всех test-owned контейнеров, сети и локально собранных образов.
+Legacy runner сохраняется до независимой проверки паритета и remote CI.
 
 ### Ключевое решение: общие сетевые пространства имён
 
@@ -293,7 +316,7 @@ graph LR
     style TSHARK fill:#6c757d,color:#fff
 ```
 
-### Контейнеры (7)
+### Контейнеры (8)
 
 | Контейнер | IP | Роль |
 |---|---|---|
@@ -304,6 +327,7 @@ graph LR
 | `gobgp-rfc` | (общий netns) | GoBGP ASN 65101 для тестирования BGP Cease |
 | `frr-rfc-bgp` | 172.22.0.40 | FRR BGP+BFD пир для RFC 9384 |
 | `frr-rfc-unsolicited` | 172.22.0.50 | FRR BFD пир без предварительно настроенной сессии на GoBFD |
+| `echo-reflector` | 172.22.0.60 | Независимый UDP echo-reflector для RFC 9747 |
 
 ### Результаты тестов
 
@@ -312,15 +336,16 @@ graph LR
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD настроен на 80мс; с `align_intervals: true` интервал должен быть выровнен до 100мс. Верифицируется через tshark-захват поля `DesiredMinTxInterval`. | **PASS** |
 | `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. В логах GoBGP: "BFD Down (RFC 9384 Cease/10)". | **PASS** |
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) отправляет BFD-пакеты к GoBFD. Предварительно настроенной сессии нет. GoBFD автоматически создаёт пассивную сессию по unsolicited-политике. Сессия достигает Up. Пауза FRR → сессия Down → очистка. | **PASS** |
+| `TestRFC9747_EchoSession` | 9747 | Echo-сессия GoBFD достигает Up через независимый reflector; пауза и восстановление доказывают обнаружение отказа и возврат сессии. | **PASS** |
 
 ### Запуск RFC Interop тестов
 
-Live-топология RFC ожидает миграции на exact project ownership. Не
-запускайте локально её legacy lifecycle targets. Проверяйте tagged-
-исходники без создания ресурсов:
+Для live-проверки используйте Go-owned Podman lifecycle. Каждая runtime-
+операция разрешается в immutable container ID; legacy runner сохранён только
+для проверки parity на время миграции:
 
 ```bash
-go test -race -count=1 -run '^$' -tags interop_rfc ./test/interop-rfc/...
+make interop-rfc-testcontainers
 ```
 
 ---
@@ -328,10 +353,10 @@ go test -race -count=1 -run '^$' -tags interop_rfc ./test/interop-rfc/...
 ## Совместимость с вендорными NOS (Containerlab)
 
 ![Nokia](https://img.shields.io/badge/Nokia-SR_Linux-124191?style=for-the-badge)
-![FRR](https://img.shields.io/badge/FRR-10.2.5-dc3545?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
 ![Arista](https://img.shields.io/badge/Arista-cEOS-2962FF?style=for-the-badge)
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
-![containerlab](https://img.shields.io/badge/containerlab-0.73-1a73e8?style=for-the-badge)
+![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
 
 > Мультивендорное тестирование совместимости BFD с коммерческими/промышленными NOS-контейнерами. Проверка соответствия RFC 5880/5881/5882 на независимых, промышленных реализациях BFD. Двойной стек: IPv4 (RFC 5881 Section 4) и IPv6 (RFC 5881 Section 5) тестируются на каждом доступном вендоре.
 
@@ -375,7 +400,7 @@ graph TD
 | Вендор | Образ | Подсеть IPv4 | Подсеть IPv6 | ASN | Статус | Лицензия |
 |---|---|---|---|---|---|---|
 | **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Бесплатно, без регистрации |
-| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, бесплатно |
+| **FRRouting** | `quay.io/frrouting/frr:10.7.0` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, бесплатно |
 | **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Бесплатный аккаунт Arista.com |
 | SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Бесплатно |
 | VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Бесплатный rolling/community image |
@@ -394,20 +419,20 @@ graph TD
 
 ```bash
 # Скачать все public образы + подготовить VyOS tag + собрать GoBFD
-python3 test/interop-clab/bootstrap.py -v
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py -v
 
 # С коммерческими образами
-python3 test/interop-clab/bootstrap.py \
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py \
     --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Подготовка + деплой топологии
-python3 test/interop-clab/bootstrap.py --deploy
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --deploy
 
 # Подготовка + полный прогон тестов
-python3 test/interop-clab/bootstrap.py --test
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --test
 
 # Пробный запуск (показать что будет сделано)
-python3 test/interop-clab/bootstrap.py --dry-run
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --dry-run
 ```
 
 Скрипт выполняет:
@@ -418,7 +443,8 @@ python3 test/interop-clab/bootstrap.py --dry-run
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
 - **Отчёт об инвентаризации**: итоговая таблица всех образов со статусом готовности
 
-Выполните `python3 test/interop-clab/bootstrap.py --help` для просмотра всех опций.
+Выполните `uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help`
+для просмотра всех опций.
 
 ### Запуск вендорных тестов
 
@@ -538,12 +564,15 @@ netlab автоматически управляет IP-адресацией, н
 ### План миграции
 
 1. Установить Python 3.8+ и Ansible на тестовый хост
-2. Установить netlab: `pip install networklab`
+2. Отдельно оценить netlab до добавления в группы зависимостей единого Python
+   lock-файла проекта.
 3. Установить Docker (основной runtime netlab)
 4. Преобразовать топологию из ручного run.sh в YAML netlab
 5. Для VM-вендоров (Cisco IOS-XR, Juniper vMX) включить вложенный KVM на хосте
 
-> **Примечание**: netlab требует зависимости, недоступные на текущем CI-хосте (нет Python pip, нет Ansible, нет KVM). Документируется как перспективное направление для расширения покрытия вендоров за пределы нативных контейнерных платформ.
+> **Примечание**: netlab не входит в поддерживаемый uv lock и требует Ansible
+> и KVM. Это перспективное направление для расширения покрытия вендоров за
+> пределы нативных контейнерных платформ.
 
 ### Трёхуровневая стратегия тестирования
 
