@@ -27,6 +27,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         ca-certificates \
         tzdata \
         make \
+        gcc \
+        libc6-dev \
         bash \
         curl \
         jq \
