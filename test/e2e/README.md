@@ -11,8 +11,8 @@ optional vendor profiles.
 | Rule | Requirement |
 |---|---|
 | Container runtime | Podman. |
-| Go toolchain | Go commands run through the dev container or a target-specific Go container. |
-| Host Go | Not valid as S10 evidence. |
+| Go toolchain | `make e2e-core` uses the repository-pinned Go 1.27 host/CI toolchain; other targets use the dev container or a target-specific Go container. |
+| Host Go | Valid for the Go-owned `e2e-core` and BGP fast-failover testcontainers lifecycles. |
 | Compose project | Every dev stack uses `COMPOSE_PROJECT_NAME`; no fixed dev `container_name` is allowed. |
 | Vendor NOS | Optional/manual unless public images and licenses allow CI execution. |
 | Packet capture | Required when a target claims wire behavior. |
@@ -21,7 +21,8 @@ optional vendor profiles.
 
 | Target | Status | Input |
 |---|---|---|
-| `make e2e-core` | Implemented S10.2 | GoBFD-to-GoBFD Podman topology, static auth, CLI, metrics, reload, packet capture. |
+| `make e2e-core` | Implemented S10.2 | Go-owned testcontainers Podman topology, static auth, CLI, metrics, reload, packet capture. The retained `make e2e-core-testcontainers` compatibility target is the underlying gate. |
+| `make int-bgp-failover` | Implemented S10.2 | Go-owned testcontainers GoBFD/GoBGP/FRR lifecycle, exact route withdrawal/restoration, packet evidence, and exact cleanup. The operational Compose example remains available through its `-up`, `-logs`, and `-down` targets. |
 | `make e2e-routing` | Implemented S10.3 | FRR/BIRD3 BFD interop, GoBGP/ExaBGP BGP+BFD coupling, merged routing artifacts. |
 | `make e2e-rfc` | Implemented S10.4 | RFC 7419, RFC 9384, RFC 9468, RFC 9747 interop stack. |
 | `make e2e-overlay` | Implemented S10.4 | VXLAN/Geneve userspace packet-shape checks and reserved backend fail-closed tests. |
@@ -60,7 +61,10 @@ The `e2e-core` target also writes:
 runtime/gobfd-a.yml
 runtime/gobfd-b.yml
 captures/bfd.pcapng
+containers.err
 pcap-summary.tsv
+pcap-summary.err
+packets.err
 ```
 
 The `e2e-routing` target also writes:
@@ -117,14 +121,14 @@ Future S10 report generation must add:
 
 | Gate | Trigger | Target Set | Artifact Name |
 |---|---|---|---|
-| PR-safe | `pull_request`, manual `profile=pr-safe` | `make e2e-core`, `make e2e-overlay` | `e2e-pr-safe` |
+| PR-safe | `pull_request`, manual `profile=pr-safe` | `make e2e-core`, `make interop-testcontainers`, `make interop-bgp-testcontainers`, `make interop-rfc-testcontainers`, `make e2e-overlay` | `e2e-pr-safe` |
 | Nightly | `schedule`, manual `profile=nightly` | `make e2e-routing`, `make e2e-rfc`, `make e2e-linux` | `e2e-nightly` |
 | Vendor | manual `profile=vendor` | `make e2e-vendor` | `e2e-vendor` |
 
 | Property | Requirement |
 |---|---|
 | Workflow | `.github/workflows/e2e.yml`. |
-| Runtime | Podman and `podman-compose`. |
+| Runtime | Podman through testcontainers-go for `e2e-core`; Podman and `podman compose` for retained targets. |
 | Report root | `reports/e2e/**`. |
 | Upload condition | `if: always()`. |
 | Retention | 30 days. |
@@ -135,7 +139,7 @@ Future S10 report generation must add:
 
 | Resource | Requirement |
 |---|---|
-| Compose stacks | Full-cycle targets clean with `down --volumes --remove-orphans`. |
+| Compose stacks | Compose-backed full-cycle targets clean with `down --volumes --remove-orphans`. |
 | Containers | Test-owned containers use deterministic names scoped by project or target. |
 | Networks | Test-owned networks are removed by the target cleanup phase. |
 | Host interfaces | No S10 target may modify a host interface directly. |

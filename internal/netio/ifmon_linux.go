@@ -94,21 +94,15 @@ func (m *LinuxInterfaceMonitor) Run(ctx context.Context) error {
 	for {
 		n, _, err := unix.Recvfrom(m.fd, buf, 0)
 		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, unix.EBADF) {
-				m.logger.Info("linux netlink interface monitor stopped")
+			continueReading, recvErr := m.handleReceiveError(ctx, err)
+			if recvErr != nil {
+				return recvErr
+			}
+			if !continueReading {
 				return nil
 			}
-			if errors.Is(err, unix.EINTR) {
-				continue
-			}
-			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
-				continue
-			}
-			if errors.Is(err, unix.ENOBUFS) {
-				m.logger.Warn("netlink receive buffer overflow; interface state may need resync")
-				continue
-			}
-			return fmt.Errorf("receive netlink link event: %w", err)
+
+			continue
 		}
 
 		if err := m.handleNetlinkBuffer(buf[:n]); err != nil {
@@ -116,6 +110,23 @@ func (m *LinuxInterfaceMonitor) Run(ctx context.Context) error {
 				slog.String("error", err.Error()),
 			)
 		}
+	}
+}
+
+func (m *LinuxInterfaceMonitor) handleReceiveError(ctx context.Context, err error) (bool, error) {
+	switch {
+	case ctx.Err() != nil || errors.Is(err, unix.EBADF):
+		m.logger.Info("linux netlink interface monitor stopped")
+
+		return false, nil //nolint:nilerr // Cancellation and EBADF are normal monitor shutdown signals.
+	case errors.Is(err, unix.EINTR), errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EWOULDBLOCK):
+		return true, nil
+	case errors.Is(err, unix.ENOBUFS):
+		m.logger.Warn("netlink receive buffer overflow; interface state may need resync")
+
+		return true, nil
+	default:
+		return false, fmt.Errorf("receive netlink link event: %w", err)
 	}
 }
 
@@ -130,13 +141,17 @@ func (m *LinuxInterfaceMonitor) Close() error {
 	m.closeOnce.Do(func() {
 		err = unix.Close(m.fd)
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("close netlink route socket: %w", err)
+	}
+
+	return nil
 }
 
 func (m *LinuxInterfaceMonitor) handleNetlinkBuffer(buf []byte) error {
 	msgs, err := syscall.ParseNetlinkMessage(buf)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse netlink messages: %w", err)
 	}
 	for _, msg := range msgs {
 		ev, ok, err := linkEventFromNetlinkMessage(msg)
@@ -210,7 +225,7 @@ func parseIfInfomsg(buf []byte) (syscall.IfInfomsg, error) {
 func linkNameFromAttrs(msg syscall.NetlinkMessage) (string, error) {
 	attrs, err := syscall.ParseNetlinkRouteAttr(&msg)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse netlink route attributes: %w", err)
 	}
 	for _, attr := range attrs {
 		if attr.Attr.Type == syscall.IFLA_IFNAME {

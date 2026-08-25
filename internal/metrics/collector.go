@@ -142,6 +142,9 @@ func newMetrics() *Collector {
 // RegisterSession increments the active sessions gauge for the given peer.
 // Called when a new BFD session is created by the Manager.
 func (c *Collector) RegisterSession(peer, local netip.Addr, sessionType string) {
+	// Publish the alert-critical counter at zero before its first transition.
+	// PromQL increase() requires a baseline sample to observe the first Up->Down.
+	c.StateTransitions.WithLabelValues(peer.String(), local.String(), "Up", "Down").Add(0)
 	c.Sessions.WithLabelValues(peer.String(), local.String(), sessionType).Inc()
 }
 

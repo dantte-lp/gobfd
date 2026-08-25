@@ -1,388 +1,433 @@
 #!/usr/bin/env bash
-# gen-report.sh — Collect cross-implementation benchmark results and generate
+# gen-report.sh — Validate cross-implementation benchmark results and generate
 # an interactive Alpine.js HTML report.
 #
 # Usage:
 #   ./scripts/gen-report.sh [RESULTS_DIR]
 #
-# Input files (in RESULTS_DIR):
-#   bench-go.txt           — Go benchmark output (go test -bench format)
-#   bench-c-frr.txt        — C FRR-style (BENCH format)
-#   bench-c-bird.txt       — C BIRD-style (BENCH format)
-#   bench-python-aiobfd.txt — Python aiobfd-style (BENCH format)
-#   bench-python-struct.txt — Python struct-style (BENCH format)
+# Required input files:
+#   bench-go.txt      — Go benchmark output (go test -bench format)
+#   bench-c-frr.txt   — C FRR-style records (BENCH format)
+#   bench-c-bird.txt  — C BIRD-style records (BENCH format)
 #
-# Output:
-#   reports/benchmarks/cross-comparison.html
+# Optional environment:
+#   BENCH_REPORT_OUTPUT — output HTML path
+#   BENCH_META_JSON     — benchmark metadata JSON path
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RESULTS_DIR="${1:-${PROJECT_DIR}/bench-results}"
 TEMPLATE="${SCRIPT_DIR}/report-template.html"
-OUTPUT_DIR="${PROJECT_DIR}/reports/benchmarks"
-OUTPUT="${OUTPUT_DIR}/cross-comparison.html"
+OUTPUT="${BENCH_REPORT_OUTPUT:-${PROJECT_DIR}/reports/benchmarks/cross-comparison.html}"
+META_JSON="${BENCH_META_JSON:-${PROJECT_DIR}/testdata/benchmarks/v0.4.0/meta.json}"
 
+GO_INPUT="${RESULTS_DIR}/bench-go.txt"
+FRR_INPUT="${RESULTS_DIR}/bench-c-frr.txt"
+BIRD_INPUT="${RESULTS_DIR}/bench-c-bird.txt"
+
+require_regular_nonempty() {
+    local label="$1"
+    local path="$2"
+    if [ -L "${path}" ]; then
+        printf 'gen-report: %s must not be a symlink: %s\n' "${label}" "${path}" >&2
+        return 1
+    fi
+    if [ ! -f "${path}" ]; then
+        printf 'gen-report: required %s is not a regular file: %s\n' "${label}" "${path}" >&2
+        return 1
+    fi
+    if [ ! -s "${path}" ]; then
+        printf 'gen-report: required %s is empty: %s\n' "${label}" "${path}" >&2
+        return 1
+    fi
+}
+
+require_regular_nonempty "Go benchmark input" "${GO_INPUT}"
+require_regular_nonempty "FRR benchmark input" "${FRR_INPUT}"
+require_regular_nonempty "BIRD benchmark input" "${BIRD_INPUT}"
+require_regular_nonempty "report template" "${TEMPLATE}"
+
+OUTPUT_DIR="$(dirname -- "${OUTPUT}")"
 mkdir -p "${OUTPUT_DIR}"
 
-# -----------------------------------------------------------------------
-# Parse Go benchmark output
-# Input:  BenchmarkControlPacketMarshal-8   195605820   5.869 ns/op   0 B/op   0 allocs/op
-# Output: JSON fragments
-# -----------------------------------------------------------------------
-parse_go() {
-    local file="${RESULTS_DIR}/bench-go.txt"
-    if [ ! -f "$file" ]; then echo "[]"; return; fi
-
-    awk '
-    /^Benchmark[A-Z]/ {
-        name = $1
-        sub(/-[0-9]+$/, "", name)    # strip -8
-        sub(/^Benchmark/, "", name)   # strip Benchmark prefix
-
-        ns = ""
-        bop = ""
-        allocs = ""
-        for (i = 2; i <= NF; i++) {
-            if ($(i+1) == "ns/op") ns = $i
-            if ($(i+1) == "B/op") bop = $i
-            if ($(i+1) == "allocs/op") allocs = $i
-        }
-        if (ns != "") {
-            printf "{\"name\":\"%s\",\"ns_op\":%s", name, ns
-            if (bop != "") printf ",\"b_op\":%s", bop
-            if (allocs != "") printf ",\"allocs_op\":%s", allocs
-            printf "}\n"
-        }
-    }' "$file"
-}
-
-# -----------------------------------------------------------------------
-# Parse C/Python BENCH format
-# Input:  BENCH<tab>impl<tab>name<tab>ns_per_op<tab>iterations
-# Output: JSON fragments (averaged over repeats)
-# -----------------------------------------------------------------------
-parse_bench() {
-    local file="$1"
-    if [ ! -f "$file" ]; then echo ""; return; fi
-
-    awk -F'\t' '
-    $1 == "BENCH" {
-        sum[$3] += $4
-        count[$3]++
-    }
-    END {
-        for (name in sum) {
-            avg = sum[name] / count[name]
-            printf "{\"name\":\"%s\",\"ns_op\":%.3f}\n", name, avg
-        }
-    }' "$file"
-}
-
-# -----------------------------------------------------------------------
-# Normalize Go benchmark names to canonical names
-# ControlPacketMarshal → Marshal, FSMTransitionUpRecvUp → FSMUpRecvUp, etc.
-# -----------------------------------------------------------------------
-normalize_go_name() {
-    local name="$1"
-    case "$name" in
-        ControlPacketMarshal)            echo "Marshal" ;;
-        ControlPacketMarshalWithAuth)    echo "MarshalWithAuth" ;;
-        ControlPacketUnmarshal)          echo "Unmarshal" ;;
-        ControlPacketUnmarshalWithAuth)  echo "UnmarshalWithAuth" ;;
-        ControlPacketRoundTrip)          echo "RoundTrip" ;;
-        FSMTransitionUpRecvUp)           echo "FSMUpRecvUp" ;;
-        FSMTransitionDownRecvDown)       echo "FSMDownRecvDown" ;;
-        FSMTransitionUpTimerExpired)     echo "FSMUpTimerExpired" ;;
-        FSMTransitionIgnored)            echo "FSMIgnored" ;;
-        ApplyJitter)                     echo "Jitter" ;;
-        ApplyJitterDetectMultOne)        echo "JitterDetectMultOne" ;;
-        PacketPool)                      echo "PacketPool" ;;
-        SessionApplyJitter)              echo "SessionApplyJitter" ;;
-        DetectionTimeCalcHot)            echo "DetectionTimeCalcHot" ;;
-        CalcTxIntervalHot)               echo "CalcTxIntervalHot" ;;
-        *)                               echo "$name" ;;
-    esac
-}
-
-# -----------------------------------------------------------------------
-# Collect metadata
-# -----------------------------------------------------------------------
 GENERATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-GOBFD_VERSION="unknown"
-GO_VERSION="unknown"
-GCC_VERSION="unknown"
-PYTHON_VERSION="unknown"
-PLATFORM="unknown"
-GOMAXPROCS="8"
-
-# Try to read Go benchmark header for platform info
-if [ -f "${RESULTS_DIR}/bench-go.txt" ]; then
-    PLATFORM=$(awk '/^cpu:/ { $1=""; print substr($0,2) }' "${RESULTS_DIR}/bench-go.txt" | head -1)
-    GOARCH=$(awk '/^goarch:/ { print $2 }' "${RESULTS_DIR}/bench-go.txt" | head -1)
-    GOOS=$(awk '/^goos:/ { print $2 }' "${RESULTS_DIR}/bench-go.txt" | head -1)
-    [ -n "$GOARCH" ] && [ -n "$GOOS" ] && PLATFORM="${PLATFORM:+$PLATFORM, }${GOOS}/${GOARCH}"
+PLATFORM=""
+GOARCH="$(awk '/^goarch:/ { print $2; exit }' "${GO_INPUT}")"
+GOOS="$(awk '/^goos:/ { print $2; exit }' "${GO_INPUT}")"
+CPU="$(awk '/^cpu:/ { $1=""; print substr($0,2); exit }' "${GO_INPUT}")"
+if [ -n "${CPU}" ]; then
+    PLATFORM="${CPU}"
+fi
+if [ -n "${GOARCH}" ] && [ -n "${GOOS}" ]; then
+    PLATFORM="${PLATFORM:+${PLATFORM}, }${GOOS}/${GOARCH}"
+fi
+if [ -z "${PLATFORM}" ]; then
+    PLATFORM="unknown"
 fi
 
-# Try to read meta.json for version info
-META_JSON="${PROJECT_DIR}/testdata/benchmarks/v0.4.0/meta.json"
-if [ -f "$META_JSON" ]; then
-    GOBFD_VERSION=$(python3 -c "import json; print(json.load(open('${META_JSON}'))['version'])" 2>/dev/null || echo "unknown")
-    GO_VERSION=$(python3 -c "import json; print(json.load(open('${META_JSON}'))['go'])" 2>/dev/null || echo "unknown")
-fi
+export GENERATED PLATFORM
+export GCC_VERSION="gcc (Debian trixie)"
+export GOMAXPROCS="${GOMAXPROCS:-8}"
 
-# GCC version from C benchmark stderr (or from container)
-GCC_VERSION="gcc (Alpine)"
-PYTHON_VERSION="Python 3.12"
-
-# -----------------------------------------------------------------------
-# Build JSON data structure
-# -----------------------------------------------------------------------
-
-# Collect all benchmark results and export for Python
-export GO_DATA=$(parse_go)
-export FRR_DATA=$(parse_bench "${RESULTS_DIR}/bench-c-frr.txt")
-export BIRD_DATA=$(parse_bench "${RESULTS_DIR}/bench-c-bird.txt")
-export AIOBFD_DATA=$(parse_bench "${RESULTS_DIR}/bench-python-aiobfd.txt")
-export STRUCT_DATA=$(parse_bench "${RESULTS_DIR}/bench-python-struct.txt")
-
-# Export metadata for Python
-export GENERATED GOBFD_VERSION GO_VERSION GCC_VERSION PYTHON_VERSION PLATFORM GOMAXPROCS
-
-# Build the complete JSON using Python (robust JSON construction)
-JSON=$(python3 -c "
-import json, sys, re
-from collections import defaultdict
-
-# Read tagged benchmark lines from stdin
-go_data = []    # list of {name, ns_op, b_op, allocs_op}
-frr_data = {}   # name -> ns_op (already averaged by parse_bench)
-bird_data = {}
-aiobfd_data = {}
-pystruct_data = {}
-
-def parse_json_lines(text):
-    results = []
-    for line in text.strip().split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            results.append(json.loads(line))
-        except json.JSONDecodeError:
-            pass
-    return results
-
-# Read from environment (passed as shell variables)
+uv run --project "${PROJECT_DIR}" --frozen --no-default-groups -- python - \
+    "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}" \
+    "${META_JSON}" "${TEMPLATE}" "${OUTPUT}" <<'PY'
+import json
+import math
 import os
-go_raw = os.environ.get('GO_DATA', '')
-frr_raw = os.environ.get('FRR_DATA', '')
-bird_raw = os.environ.get('BIRD_DATA', '')
-aiobfd_raw = os.environ.get('AIOBFD_DATA', '')
-struct_raw = os.environ.get('STRUCT_DATA', '')
+from collections import defaultdict
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
 
-# Parse Go data (multiple runs per benchmark — need to average)
-go_entries = parse_json_lines(go_raw)
-go_sum = defaultdict(lambda: {'ns_sum': 0.0, 'count': 0, 'b_op': 0, 'allocs_op': 0})
-for e in go_entries:
-    name = e['name']
-    go_sum[name]['ns_sum'] += float(e['ns_op'])
-    go_sum[name]['count'] += 1
-    if 'b_op' in e:
-        go_sum[name]['b_op'] = int(e['b_op'])
-    if 'allocs_op' in e:
-        go_sum[name]['allocs_op'] = int(e['allocs_op'])
-go_avg = {}
-for name, v in go_sum.items():
-    go_avg[name] = {
-        'ns_op': round(v['ns_sum'] / v['count'], 3),
-        'b_op': v['b_op'],
-        'allocs_op': v['allocs_op'],
+
+def read_regular_nonempty(path_text, label, *, optional=False):
+    path = Path(path_text)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if optional:
+            return None
+        raise ValueError(f"required {label} does not exist: {path}") from None
+    if stat.S_ISLNK(info.st_mode):
+        raise ValueError(f"{label} must not be a symlink: {path}")
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"{label} is not a regular file: {path}")
+    if info.st_size == 0:
+        raise ValueError(f"{label} is empty: {path}")
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeError as error:
+        raise ValueError(f"{label} is not valid UTF-8: {path}: {error}") from error
+
+
+def non_negative_float(value, location):
+    try:
+        number = float(value)
+    except ValueError as error:
+        raise ValueError(f"{location}: invalid number {value!r}") from error
+    if not math.isfinite(number):
+        raise ValueError(f"{location}: value must be finite, got {value!r}")
+    if number < 0:
+        raise ValueError(f"{location}: value must be non-negative, got {value!r}")
+    return number
+
+
+def positive_integer(value, location):
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise ValueError(f"{location}: invalid integer {value!r}") from error
+    if number <= 0:
+        raise ValueError(f"{location}: value must be positive, got {value!r}")
+    return number
+
+
+def allocation_metric(value, location):
+    number = non_negative_float(value, location)
+    if not number.is_integer():
+        raise ValueError(f"{location}: allocation metric must be an integer, got {value!r}")
+    return int(number)
+
+
+def parse_go(path_text):
+    text = read_regular_nonempty(path_text, "Go benchmark input")
+    entries = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped.startswith("Benchmark"):
+            if not stripped or stripped == "PASS" or stripped.startswith(
+                ("goos:", "goarch:", "pkg:", "cpu:", "ok\t", "ok  ")
+            ):
+                continue
+            raise ValueError(f"{path_text}:{line_number}: malformed Go benchmark output")
+        fields = stripped.split()
+        location = f"{path_text}:{line_number}"
+        if len(fields) < 4 or (len(fields) - 2) % 2 != 0:
+            raise ValueError(f"{location}: malformed Go benchmark record")
+        positive_integer(fields[1], f"{location} iterations")
+        metrics = {}
+        for index in range(2, len(fields), 2):
+            unit = fields[index + 1]
+            if unit in metrics:
+                raise ValueError(f"{location}: duplicate metric {unit!r}")
+            metrics[unit] = non_negative_float(fields[index], f"{location} {unit}")
+        if "ns/op" not in metrics:
+            raise ValueError(f"{location}: missing ns/op metric")
+
+        name = re.sub(r"-[0-9]+$", "", fields[0]).removeprefix("Benchmark")
+        if not name:
+            raise ValueError(f"{location}: benchmark name is empty")
+        entry = {"name": name, "ns_op": metrics["ns/op"]}
+        if "B/op" in metrics:
+            entry["b_op"] = allocation_metric(
+                fields[fields.index("B/op") - 1], f"{location} B/op"
+            )
+        if "allocs/op" in metrics:
+            entry["allocs_op"] = allocation_metric(
+                fields[fields.index("allocs/op") - 1], f"{location} allocs/op"
+            )
+        entries.append(entry)
+    if not entries:
+        raise ValueError(f"{path_text}: no valid Go benchmark records")
+    return entries
+
+
+def parse_c(path_text, implementation):
+    text = read_regular_nonempty(path_text, f"{implementation} benchmark input")
+    sums = defaultdict(float)
+    counts = defaultdict(int)
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        location = f"{path_text}:{line_number}"
+        if not line:
+            raise ValueError(f"{location}: empty benchmark record")
+        fields = line.split("\t")
+        if len(fields) != 5 or fields[0] != "BENCH":
+            raise ValueError(f"{location}: malformed BENCH record")
+        if fields[1] != implementation:
+            raise ValueError(
+                f"{location}: implementation is {fields[1]!r}, expected {implementation!r}"
+            )
+        if not fields[2]:
+            raise ValueError(f"{location}: benchmark name is empty")
+        duration = non_negative_float(fields[3], f"{location} ns/op")
+        positive_integer(fields[4], f"{location} iterations")
+        sums[fields[2]] += duration
+        counts[fields[2]] += 1
+    if not counts:
+        raise ValueError(f"{path_text}: no valid {implementation} benchmark records")
+    return {name: round(sums[name] / counts[name], 3) for name in sums}
+
+
+def load_metadata(path_text):
+    text = read_regular_nonempty(path_text, "benchmark metadata JSON", optional=True)
+    if text is None:
+        return {"version": "unknown", "go": "unknown"}
+    try:
+        metadata = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path_text}: malformed benchmark metadata JSON: {error}") from error
+    if not isinstance(metadata, dict):
+        raise ValueError(f"{path_text}: benchmark metadata JSON must be an object")
+
+    def optional_non_empty_string(key):
+        if key not in metadata:
+            return "unknown"
+        value = metadata[key]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"{path_text}: benchmark metadata {key!r} must be a non-empty string"
+            )
+        return value
+
+    return {
+        "version": optional_non_empty_string("version"),
+        "go": optional_non_empty_string("go"),
     }
 
-# Parse C/Python data (already averaged by parse_bench)
-for raw, target in [(frr_raw, frr_data), (bird_raw, bird_data),
-                     (aiobfd_raw, aiobfd_data), (struct_raw, pystruct_data)]:
-    for e in parse_json_lines(raw):
-        target[e['name']] = e['ns_op']
 
-# Go name -> canonical name mapping
-canon = {
-    'ControlPacketMarshal': 'Marshal',
-    'ControlPacketMarshalWithAuth': 'MarshalWithAuth',
-    'ControlPacketUnmarshal': 'Unmarshal',
-    'ControlPacketUnmarshalWithAuth': 'UnmarshalWithAuth',
-    'ControlPacketRoundTrip': 'RoundTrip',
-    'FSMTransitionUpRecvUp': 'FSMUpRecvUp',
-    'FSMTransitionDownRecvDown': 'FSMDownRecvDown',
-    'FSMTransitionUpTimerExpired': 'FSMUpTimerExpired',
-    'FSMTransitionIgnored': 'FSMIgnored',
-    'ApplyJitter': 'Jitter',
-    'ApplyJitterDetectMultOne': 'JitterDetectMultOne',
-    'PacketPool': 'PacketPool',
-    'RecvStateToEvent': 'RecvStateToEvent',
-    'FullRecvPath': 'FullRxPath',
-    'FullTxPath': 'FullTxPath',
-    'SessionRecvPacket': 'SessionRecvPacket',
-    'DetectionTimeCalc': 'DetectionTimeCalc',
-    'CalcTxInterval': 'CalcTxInterval',
-    'ManagerCreate100Sessions': 'ManagerCreate100Sessions',
-    'ManagerCreate1000Sessions': 'ManagerCreate1000Sessions',
-    'ManagerDemux1000Sessions': 'ManagerDemux1000Sessions',
-    'ManagerReconcile': 'ManagerReconcile',
-    'SessionApplyJitter': 'SessionApplyJitter',
-    'DetectionTimeCalcHot': 'DetectionTimeCalcHot',
-    'CalcTxIntervalHot': 'CalcTxIntervalHot',
-    'FullRecvPathCodec': 'FullRxPathCodec',
-    'ManagerLookup1000Sessions': 'SessionLookup1000',
-}
+def build_report(go_entries, frr_data, bird_data, metadata):
+    go_sum = defaultdict(lambda: {"ns_sum": 0.0, "count": 0, "b_op": 0, "allocs_op": 0})
+    for entry in go_entries:
+        value = go_sum[entry["name"]]
+        value["ns_sum"] += entry["ns_op"]
+        value["count"] += 1
+        value["b_op"] = entry.get("b_op", 0)
+        value["allocs_op"] = entry.get("allocs_op", 0)
+    go_average = {
+        name: {
+            "ns_op": round(value["ns_sum"] / value["count"], 3),
+            "b_op": value["b_op"],
+            "allocs_op": value["allocs_op"],
+        }
+        for name, value in go_sum.items()
+    }
 
-# Reverse map: canonical -> go_original
-canon_rev = {}
-for orig, c in canon.items():
-    if orig in go_avg:
-        canon_rev[c] = orig
-
-# Collect all canonical benchmark names (preserving order)
-seen = set()
-ordered_names = []
-# Go benchmarks first (in order they appear)
-for e in go_entries:
-    c = canon.get(e['name'], e['name'])
-    if c not in seen:
-        seen.add(c)
-        ordered_names.append(c)
-# Then C/Python benchmarks
-for d in [frr_data, bird_data, aiobfd_data, pystruct_data]:
-    for name in d:
+    canonical = {
+        "ControlPacketMarshal": "Marshal",
+        "ControlPacketMarshalWithAuth": "MarshalWithAuth",
+        "ControlPacketUnmarshal": "Unmarshal",
+        "ControlPacketUnmarshalWithAuth": "UnmarshalWithAuth",
+        "ControlPacketRoundTrip": "RoundTrip",
+        "FSMTransitionUpRecvUp": "FSMUpRecvUp",
+        "FSMTransitionDownRecvDown": "FSMDownRecvDown",
+        "FSMTransitionUpTimerExpired": "FSMUpTimerExpired",
+        "FSMTransitionIgnored": "FSMIgnored",
+        "ApplyJitter": "Jitter",
+        "ApplyJitterDetectMultOne": "JitterDetectMultOne",
+        "PacketPool": "PacketPool",
+        "RecvStateToEvent": "RecvStateToEvent",
+        "FullRecvPath": "FullRxPath",
+        "FullTxPath": "FullTxPath",
+        "SessionRecvPacket": "SessionRecvPacket",
+        "DetectionTimeCalc": "DetectionTimeCalc",
+        "CalcTxInterval": "CalcTxInterval",
+        "ManagerCreate100Sessions": "ManagerCreate100Sessions",
+        "ManagerCreate1000Sessions": "ManagerCreate1000Sessions",
+        "ManagerDemux1000Sessions": "ManagerDemux1000Sessions",
+        "ManagerReconcile": "ManagerReconcile",
+        "SessionApplyJitter": "SessionApplyJitter",
+        "DetectionTimeCalcHot": "DetectionTimeCalcHot",
+        "CalcTxIntervalHot": "CalcTxIntervalHot",
+        "FullRecvPathCodec": "FullRxPathCodec",
+        "ManagerLookup1000Sessions": "SessionLookup1000",
+    }
+    reverse = {canonical.get(original, original): original for original in go_average}
+    ordered_names = []
+    seen = set()
+    for entry in go_entries:
+        name = canonical.get(entry["name"], entry["name"])
         if name not in seen:
             seen.add(name)
             ordered_names.append(name)
+    for implementation in (frr_data, bird_data):
+        for name in implementation:
+            if name not in seen:
+                seen.add(name)
+                ordered_names.append(name)
 
-# Build benchmarks array
-benchmarks = []
-for cname in ordered_names:
-    entry = {'name': cname}
-    # Go data
-    go_orig = canon_rev.get(cname, cname)
-    if go_orig in go_avg:
-        g = go_avg[go_orig]
-        entry['go'] = {'ns_op': g['ns_op'], 'b_op': g['b_op'], 'allocs_op': g['allocs_op']}
-    # C/Python data
-    if cname in frr_data:
-        entry['frr'] = {'ns_op': frr_data[cname]}
-    if cname in bird_data:
-        entry['bird'] = {'ns_op': bird_data[cname]}
-    if cname in aiobfd_data:
-        entry['aiobfd'] = {'ns_op': aiobfd_data[cname]}
-    if cname in pystruct_data:
-        entry['pystruct'] = {'ns_op': pystruct_data[cname]}
-    benchmarks.append(entry)
+    benchmarks = []
+    for name in ordered_names:
+        benchmark = {"name": name}
+        original = reverse.get(name, name)
+        if original in go_average:
+            benchmark["go"] = go_average[original]
+        if name in frr_data:
+            benchmark["frr"] = {"ns_op": frr_data[name]}
+        if name in bird_data:
+            benchmark["bird"] = {"ns_op": bird_data[name]}
+        benchmarks.append(benchmark)
 
-# Get headline values (Marshal ns/op for each impl)
-go_marshal = go_avg.get('ControlPacketMarshal', {}).get('ns_op', 0)
-frr_marshal = frr_data.get('Marshal', 0)
-bird_marshal = bird_data.get('Marshal', 0)
-aiobfd_marshal = aiobfd_data.get('Marshal', 0)
-pystruct_marshal = pystruct_data.get('Marshal', 0)
+    annotations = {
+        "MarshalWithAuth": {"go_only": "Requires crypto (SHA1 HMAC) not in bench container"},
+        "UnmarshalWithAuth": {"go_only": "Requires crypto (SHA1 HMAC) not in bench container"},
+        "PacketPool": {"go_only": "sync.Pool is Go GC-specific; C has no GC"},
+        "SessionRecvPacket": {"go_only": "Measures goroutine channel send; C uses poll()"},
+        "SessionApplyJitter": {"go_only": "Session-local PCG PRNG optimization; unique to Go goroutine model"},
+        "JitterDetectMultOne": {"go_only": "DetectMult=1 variant of global jitter"},
+        "ManagerReconcile": {"go_only": "Config reconciliation pattern unique to Go Manager"},
+        "ManagerCreate100Sessions": {"go_only": "Go Manager with goroutine-per-session; not comparable to C"},
+        "ManagerCreate1000Sessions": {"go_only": "Go Manager with goroutine-per-session; not comparable to C"},
+        "ManagerDemux1000Sessions": {"go_only": "Go Manager discriminator map + channel send"},
+        "DetectionTimeCalcHot": {"go_only": "Uses cachedState (goroutine-confined); no atomic load"},
+        "CalcTxIntervalHot": {"go_only": "Uses cachedState (goroutine-confined); no atomic load"},
+        "Unmarshal": {"note": "Go: 7 RFC 5880 \u00a76.8.6 validation checks; C: 3 checks"},
+        "DetectionTimeCalc": {"note": "Go uses atomic State() load; hot path uses cachedState"},
+        "CalcTxInterval": {"note": "Go uses atomic State() load; hot path uses cachedState"},
+        "Jitter": {"note": "Go global PRNG (atomic); session-local PRNG avoids contention"},
+        "FullRxPath": {"note": "UNFAIR: Go = unmarshal + RWMutex + map + channel send; C = unmarshal + FSM (no IPC). See FullRxPathCodec for fair comparison"},
+        "FullRxPathCodec": {"go_only": "Codec-only RX path (unmarshal + FSM); fair comparison with C FullRxPath"},
+        "SessionDemux1000": {"note": "UNFAIR: Go = RWMutex + map + channel send; C = hashmap lookup only. See SessionLookup1000 for fair comparison"},
+        "SessionCreate1000": {"note": "DIFFERENT OPS: Go creates goroutines + channels + context; C allocates structs + hashmap insert"},
+        "SessionLookup1000": {"go_only": "Pure RWMutex + map lookup (no channel send); fair comparison with C SessionDemux1000"},
+    }
+    for benchmark in benchmarks:
+        if benchmark["name"] in annotations:
+            benchmark["annotation"] = annotations[benchmark["name"]]
 
-# Build final JSON
-meta = {
-    'generated': os.environ.get('GENERATED', ''),
-    'gobfd_version': os.environ.get('GOBFD_VERSION', ''),
-    'go_version': os.environ.get('GO_VERSION', ''),
-    'gcc_version': os.environ.get('GCC_VERSION', ''),
-    'python_version': os.environ.get('PYTHON_VERSION', ''),
-    'platform': os.environ.get('PLATFORM', ''),
-    'gomaxprocs': os.environ.get('GOMAXPROCS', '8'),
-}
+    if "ControlPacketMarshal" not in go_average:
+        raise ValueError("Go benchmark input is missing required ControlPacketMarshal headline")
+    if "Marshal" not in frr_data:
+        raise ValueError("FRR benchmark input is missing required FRR Marshal headline")
+    if "Marshal" not in bird_data:
+        raise ValueError("BIRD benchmark input is missing required BIRD Marshal headline")
+    go_marshal = go_average["ControlPacketMarshal"]["ns_op"]
+    frr_marshal = frr_data["Marshal"]
+    bird_marshal = bird_data["Marshal"]
+    return {
+        "meta": {
+            "generated": os.environ.get("GENERATED", ""),
+            "gobfd_version": metadata["version"],
+            "go_version": metadata["go"],
+            "gcc_version": os.environ.get("GCC_VERSION", ""),
+            "platform": os.environ.get("PLATFORM", ""),
+            "gomaxprocs": os.environ.get("GOMAXPROCS", "8"),
+        },
+        "implementations": [
+            {"id": "go", "name": "GoBFD (Go)", "short_name": "Go", "color": "#00d4ff", "has_allocs": True, "headline_value": f"{go_marshal:.1f}", "headline_unit": "ns/op", "headline_label": "Packet Marshal"},
+            {"id": "frr", "name": "C (FRR bfdd)", "short_name": "C-FRR", "color": "#4ade80", "has_allocs": False, "headline_value": f"{frr_marshal:.1f}", "headline_unit": "ns/op", "headline_label": "Marshal (stack alloc)"},
+            {"id": "bird", "name": "C (BIRD BFD)", "short_name": "C-BIRD", "color": "#fbbf24", "has_allocs": False, "headline_value": f"{bird_marshal:.1f}", "headline_unit": "ns/op", "headline_label": "Marshal (pre-alloc)"},
+        ],
+        "benchmarks": benchmarks,
+        "features": [
+            {"name": "RFC 5880 (BFD Base)", "go": True, "frr": True, "bird": True},
+            {"name": "RFC 5881 (IPv4/IPv6)", "go": True, "frr": True, "bird": True},
+            {"name": "Keyed SHA1 Auth", "go": True, "frr": True, "bird": True},
+            {"name": "Keyed MD5 Auth", "go": True, "frr": True, "bird": True},
+            {"name": "VXLAN BFD (RFC 8971)", "go": True, "frr": False, "bird": False},
+            {"name": "Geneve BFD (RFC 9521)", "go": True, "frr": False, "bird": False},
+            {"name": "Multihop (RFC 5883)", "go": True, "frr": True, "bird": True},
+            {"name": "Micro-BFD (RFC 7130)", "go": True, "frr": False, "bird": False},
+            {"name": "CPI Bit", "go": True, "frr": "partial", "bird": False},
+            {"name": "Zero-alloc Hot Path", "go": True, "frr": "n/a", "bird": "n/a"},
+            {"name": "Goroutine-per-Session", "go": True, "frr": False, "bird": False},
+            {"name": "gRPC / ConnectRPC API", "go": True, "frr": False, "bird": False},
+            {"name": "Prometheus Metrics", "go": True, "frr": False, "bird": False},
+        ],
+    }
 
-implementations = [
-    {'id': 'go', 'name': 'GoBFD (Go)', 'short_name': 'Go', 'color': '#00d4ff',
-     'has_allocs': True, 'headline_value': f'{go_marshal:.1f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Packet Marshal'},
-    {'id': 'frr', 'name': 'C (FRR bfdd)', 'short_name': 'C-FRR', 'color': '#4ade80',
-     'has_allocs': False, 'headline_value': f'{frr_marshal:.1f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Marshal (stack alloc)'},
-    {'id': 'bird', 'name': 'C (BIRD BFD)', 'short_name': 'C-BIRD', 'color': '#fbbf24',
-     'has_allocs': False, 'headline_value': f'{bird_marshal:.1f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Marshal (pre-alloc)'},
-    {'id': 'aiobfd', 'name': 'Python (aiobfd)', 'short_name': 'Py-aiobfd', 'color': '#f472b6',
-     'has_allocs': False, 'headline_value': f'{aiobfd_marshal:.0f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Marshal (bitstring)'},
-    {'id': 'pystruct', 'name': 'Python (struct)', 'short_name': 'Py-struct', 'color': '#a78bfa',
-     'has_allocs': False, 'headline_value': f'{pystruct_marshal:.0f}',
-     'headline_unit': 'ns/op', 'headline_label': 'Marshal (struct.pack)'},
-]
 
-features = [
-    {'name': 'RFC 5880 (BFD Base)', 'go': True, 'frr': True, 'bird': True, 'aiobfd': 'partial'},
-    {'name': 'RFC 5881 (IPv4/IPv6)', 'go': True, 'frr': True, 'bird': True, 'aiobfd': True},
-    {'name': 'Keyed SHA1 Auth', 'go': True, 'frr': True, 'bird': True, 'aiobfd': False},
-    {'name': 'Keyed MD5 Auth', 'go': True, 'frr': True, 'bird': True, 'aiobfd': False},
-    {'name': 'VXLAN BFD (RFC 8971)', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'Geneve BFD (RFC 9521)', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'Multihop (RFC 5883)', 'go': True, 'frr': True, 'bird': True, 'aiobfd': False},
-    {'name': 'Micro-BFD (RFC 7130)', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'CPI Bit', 'go': True, 'frr': 'partial', 'bird': False, 'aiobfd': False},
-    {'name': 'Zero-alloc Hot Path', 'go': True, 'frr': 'n/a', 'bird': 'n/a', 'aiobfd': False},
-    {'name': 'Goroutine-per-Session', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'gRPC / ConnectRPC API', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-    {'name': 'Prometheus Metrics', 'go': True, 'frr': False, 'bird': False, 'aiobfd': False},
-]
+def write_report(template_path_text, output_path_text, report):
+    template = read_regular_nonempty(template_path_text, "report template")
+    marker = "__BENCHMARK_DATA__"
+    if template.count(marker) != 1:
+        raise ValueError(f"{template_path_text}: report template must contain exactly one data marker")
+    output_path = Path(output_path_text)
+    try:
+        info = output_path.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"report output must be a regular file path: {output_path}")
+    encoded = json.dumps(report, separators=(",", ":"), allow_nan=False)
+    rendered = template.replace(marker, encoded)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            dir=output_path.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(rendered)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, output_path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
 
-# Annotations for benchmarks: explanations for Go-only benchmarks
-# and notes about performance differences
-annotations = {
-    'MarshalWithAuth': {'go_only': 'Requires crypto (SHA1 HMAC) not in bench container'},
-    'UnmarshalWithAuth': {'go_only': 'Requires crypto (SHA1 HMAC) not in bench container'},
-    'PacketPool': {'go_only': 'sync.Pool is Go GC-specific; C has no GC, Python has no explicit pool'},
-    'SessionRecvPacket': {'go_only': 'Measures goroutine channel send; C uses poll(), Python uses asyncio'},
-    'SessionApplyJitter': {'go_only': 'Session-local PCG PRNG optimization; unique to Go goroutine model'},
-    'JitterDetectMultOne': {'go_only': 'DetectMult=1 variant of global jitter'},
-    'ManagerReconcile': {'go_only': 'Config reconciliation pattern unique to Go Manager'},
-    'ManagerCreate100Sessions': {'go_only': 'Go Manager with goroutine-per-session; not comparable to C/Python'},
-    'ManagerCreate1000Sessions': {'go_only': 'Go Manager with goroutine-per-session; not comparable to C/Python'},
-    'ManagerDemux1000Sessions': {'go_only': 'Go Manager discriminator map + channel send'},
-    'DetectionTimeCalcHot': {'go_only': 'Uses cachedState (goroutine-confined); no atomic load'},
-    'CalcTxIntervalHot': {'go_only': 'Uses cachedState (goroutine-confined); no atomic load'},
-    'Unmarshal': {'note': 'Go: 7 RFC 5880 \\u00a76.8.6 validation checks; C: 3 checks'},
-    'DetectionTimeCalc': {'note': 'Go uses atomic State() load; hot path uses cachedState'},
-    'CalcTxInterval': {'note': 'Go uses atomic State() load; hot path uses cachedState'},
-    'Jitter': {'note': 'Go global PRNG (atomic); session-local PRNG avoids contention'},
-    'FullRxPath': {'note': 'UNFAIR: Go = unmarshal + RWMutex + map + channel send; C = unmarshal + FSM (no IPC). See FullRxPathCodec for fair comparison'},
-    'FullRxPathCodec': {'go_only': 'Codec-only RX path (unmarshal + FSM); fair comparison with C FullRxPath'},
-    'SessionDemux1000': {'note': 'UNFAIR: Go = RWMutex + map + channel send; C = hashmap lookup only. See SessionLookup1000 for fair comparison'},
-    'SessionCreate1000': {'note': 'DIFFERENT OPS: Go creates goroutines + channels + context; C allocates structs + hashmap insert'},
-    'SessionLookup1000': {'go_only': 'Pure RWMutex + map lookup (no channel send); fair comparison with C SessionDemux1000'},
-}
 
-# Add annotations to benchmark entries
-for b in benchmarks:
-    if b['name'] in annotations:
-        b['annotation'] = annotations[b['name']]
+def main():
+    if len(sys.argv) != 7:
+        raise ValueError("internal argument contract requires six paths")
+    go_path, frr_path, bird_path, meta_path, template_path, output_path = sys.argv[1:]
+    report = build_report(
+        parse_go(go_path),
+        parse_c(frr_path, "frr"),
+        parse_c(bird_path, "bird"),
+        load_metadata(meta_path),
+    )
+    write_report(template_path, output_path, report)
 
-result = {
-    'meta': meta,
-    'implementations': implementations,
-    'benchmarks': benchmarks,
-    'features': features,
-}
 
-print(json.dumps(result, separators=(',', ':')))
-")
+try:
+    main()
+except (OSError, ValueError) as error:
+    print(f"gen-report: {error}", file=sys.stderr)
+    raise SystemExit(1) from None
+PY
 
-# -----------------------------------------------------------------------
-# Inject JSON into template
-# -----------------------------------------------------------------------
-# Use a Python one-liner for safe JSON injection (avoids sed issues with special chars)
-python3 -c "
-import sys
-template = open('${TEMPLATE}').read()
-data = sys.stdin.read()
-result = template.replace('__BENCHMARK_DATA__', data)
-open('${OUTPUT}', 'w').write(result)
-" <<< "$JSON"
-
-echo "=== Cross-comparison report: ${OUTPUT} ==="
-echo "=== Open in browser to view interactive results ==="
+printf '=== Cross-comparison report: %s ===\n' "${OUTPUT}"
+printf '%s\n' '=== Open in browser to view interactive results ==='

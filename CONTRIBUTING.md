@@ -15,7 +15,7 @@
 1. Fork the repository and clone it locally
 2. Set up the development environment:
    ```bash
-   podman-compose -f deployments/compose/compose.dev.yml up -d --build
+   podman compose -f deployments/compose/compose.dev.yml up -d --build
    ```
 3. Make your changes on a feature branch
 4. Submit a pull request

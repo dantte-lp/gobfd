@@ -1,6 +1,9 @@
 package frrjson
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestExtractJSONArray(t *testing.T) {
 	t.Parallel()
@@ -14,16 +17,20 @@ func TestExtractJSONArray(t *testing.T) {
 			want:   `[{"peer":"172.21.0.10","status":"up"}]`,
 		},
 		"warning suffix": {
-			output: "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]\n% Can't open configuration file /etc/frr/vtysh.conf\nConfiguration file[/etc/frr/frr.conf] processing failure: 11\n",
-			want:   "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]",
+			output: "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]\n" +
+				"% Can't open configuration file /etc/frr/vtysh.conf\n" +
+				"Configuration file[/etc/frr/frr.conf] processing failure: 11\n",
+			want: "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]",
 		},
 		"warning prefix and suffix": {
 			output: "% warning\n[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]\n% suffix\n",
 			want:   "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]",
 		},
 		"diagnostic bracket before json": {
-			output: "% Can't open configuration file /etc/frr/vtysh.conf\nConfiguration file[/etc/frr/frr.conf] processing failure: 11\n[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]\n",
-			want:   "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]",
+			output: "% Can't open configuration file /etc/frr/vtysh.conf\n" +
+				"Configuration file[/etc/frr/frr.conf] processing failure: 11\n" +
+				"[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]\n",
+			want: "[\n  {\"peer\":\"172.21.0.10\",\"status\":\"up\"}\n]",
 		},
 	}
 
@@ -46,5 +53,28 @@ func TestExtractJSONArrayRejectsMissingArray(t *testing.T) {
 
 	if _, err := ExtractJSONArray("% no json\n"); err == nil {
 		t.Fatal("ExtractJSONArray returned nil error")
+	}
+}
+
+func TestExtractJSONArrayPreservesEncodingJSONV1Compatibility(t *testing.T) {
+	t.Parallel()
+
+	input := append([]byte(`% warning
+[{"peer":"old","peer":"bad`), 0xff)
+	input = append(input, []byte(`"}]
+% suffix`)...)
+	extracted, err := ExtractJSONArray(string(input))
+	if err != nil {
+		t.Fatalf("ExtractJSONArray: %v", err)
+	}
+
+	var peers []struct {
+		Peer string `json:"peer"`
+	}
+	if err := json.Unmarshal([]byte(extracted), &peers); err != nil {
+		t.Fatalf("decode extracted FRR JSON: %v", err)
+	}
+	if len(peers) != 1 || peers[0].Peer != "bad\ufffd" {
+		t.Fatalf("decoded peers = %+v, want duplicate-key last value with replacement character", peers)
 	}
 }

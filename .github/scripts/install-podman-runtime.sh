@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PODMAN_COMPOSE_VERSION="${PODMAN_COMPOSE_VERSION:-1.5.0}"
+DOCKER_COMPOSE_VERSION="${DOCKER_COMPOSE_VERSION:-5.5.0}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 apt_update() {
     sudo apt-get -o Acquire::Retries=3 update
@@ -20,42 +22,35 @@ ensure_podman() {
     apt_install podman
 }
 
-add_user_bin_to_path() {
+configure_compose_provider() {
     export PATH="${HOME}/.local/bin:${PATH}"
+    export PODMAN_COMPOSE_PROVIDER="${HOME}/.local/bin/docker-compose"
+    export PODMAN_COMPOSE_WARNING_LOGS=false
+    export DOCKER_BUILDKIT=0
     if [ -n "${GITHUB_PATH:-}" ]; then
         printf '%s\n' "${HOME}/.local/bin" >>"${GITHUB_PATH}"
     fi
-}
-
-install_podman_compose_from_pip() {
-    if ! command -v python3 >/dev/null 2>&1; then
-        return 1
+    if [ -n "${GITHUB_ENV:-}" ]; then
+        {
+            printf 'PODMAN_COMPOSE_PROVIDER=%s\n' "${PODMAN_COMPOSE_PROVIDER}"
+            printf 'PODMAN_COMPOSE_WARNING_LOGS=false\n'
+            printf 'DOCKER_BUILDKIT=0\n'
+        } >>"${GITHUB_ENV}"
     fi
-    if ! python3 -m pip --version >/dev/null 2>&1; then
-        return 1
-    fi
-
-    python3 -m pip install --user --break-system-packages --no-cache-dir \
-        "podman-compose==${PODMAN_COMPOSE_VERSION}"
-    add_user_bin_to_path
-}
-
-ensure_podman_compose() {
-    if command -v podman-compose >/dev/null 2>&1; then
-        return
-    fi
-
-    if install_podman_compose_from_pip; then
-        return
-    fi
-
-    apt_update
-    apt_install python3-pip podman-compose
-    add_user_bin_to_path
 }
 
 ensure_podman
-ensure_podman_compose
+DOCKER_COMPOSE_VERSION="${DOCKER_COMPOSE_VERSION}" \
+    COMPOSE_INSTALL_DIR="${HOME}/.local/bin" \
+    "${PROJECT_DIR}/scripts/install-compose-provider.sh"
+configure_compose_provider
+
+actual_version="$(podman compose version --short)"
+if [ "${actual_version}" != "${DOCKER_COMPOSE_VERSION}" ]; then
+    printf 'Podman Compose provider version %s, want %s\n' \
+        "${actual_version}" "${DOCKER_COMPOSE_VERSION}" >&2
+    exit 1
+fi
 
 podman --version
-podman-compose --version
+podman compose version

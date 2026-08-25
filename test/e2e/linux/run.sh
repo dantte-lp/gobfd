@@ -22,7 +22,7 @@ mkdir -p "${REPORT_DIR}"
 : >"${REPORT_DIR}/go-test.json"
 : >"${REPORT_DIR}/go-test.log"
 
-DEV_DC=(podman-compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
+DEV_DC=(podman compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
 
 write_environment() {
     cat >"${REPORT_DIR}/environment.json" <<EOF_ENV

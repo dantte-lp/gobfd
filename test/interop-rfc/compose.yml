@@ -13,10 +13,8 @@
 #   - tshark-rfc shares gobfd-rfc's netns → packet capture
 #   - gobgp-rfc shares gobfd-rfc9384's netns → both at 172.22.0.30
 #
-# Usage:
-#   podman-compose -f test/interop-rfc/compose.yml up --build -d
-#   podman-compose -f test/interop-rfc/compose.yml logs -f
-#   podman-compose -f test/interop-rfc/compose.yml down
+# The live lifecycle is awaiting exact project-ownership migration. Do not
+# invoke Compose directly for this fixed-name topology.
 
 services:
   # === RFC 7419 + RFC 9468: gobfd-rfc at 172.22.0.10 ===
@@ -54,7 +52,7 @@ services:
   # === RFC 7419: FRR BFD-only peer at 172.22.0.20 ===
 
   frr-rfc:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-rfc-interop
     cap_add:
       - NET_RAW
@@ -86,7 +84,7 @@ services:
         ipv4_address: 172.22.0.30
 
   gobgp-rfc:
-    image: docker.io/jauderho/gobgp:v3.33.0
+    image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
     container_name: gobgp-rfc-interop
     user: "0:0"
     cap_add:
@@ -101,7 +99,7 @@ services:
   # === RFC 9384: FRR BGP+BFD peer at 172.22.0.40 ===
 
   frr-rfc-bgp:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-rfc-bgp-interop
     cap_add:
       - NET_RAW
@@ -128,7 +126,7 @@ services:
   # === RFC 9468: FRR BFD-only peer at 172.22.0.50 (unsolicited) ===
 
   frr-rfc-unsolicited:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-rfc-unsolicited-interop
     cap_add:
       - NET_RAW

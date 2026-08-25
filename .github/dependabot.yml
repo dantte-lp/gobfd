@@ -34,4 +34,4 @@ updates:
     commit-message:
       prefix: "ci"
     labels:
-      - "ci"
+      - "github_actions"

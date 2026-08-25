@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/reeflective/console"
 )
 
 // TestVersionCmd_Output verifies that `gobfdctl version` prints the
@@ -24,6 +26,16 @@ func TestVersionCmd_Output(t *testing.T) {
 	// error and accepts no args.
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("versionCmd Execute: %v", err)
+	}
+}
+
+func TestInteractiveShellCommandSmoke(t *testing.T) {
+	app := console.New("gobfdctl")
+	menu := app.ActiveMenu()
+	menu.SetCommands(makeShellCommands)
+
+	if err := menu.RunCommandLine(t.Context(), "version"); err != nil {
+		t.Fatalf("run interactive version command: %v", err)
 	}
 }
 

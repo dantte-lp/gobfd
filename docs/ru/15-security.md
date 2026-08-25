@@ -63,6 +63,11 @@ endpoints включайте `gobgp.tls.enabled`.
 содержит owner, expiry, reason и mitigation; после expiry vulnerability gate
 падает.
 
+CI проверяет runtime manifest и manifest изолированного tool-модуля раздельно.
+Raw runtime/tools vulnerability reports и их раздельные CycloneDX SBOM
+сохраняются в артефакте `dependency-security-reports`, поэтому tool-only
+findings не приписываются поставляемому daemon.
+
 ## Секреты
 
 RFC 5880 auth secrets можно передавать через YAML или gRPC `AddSession`.

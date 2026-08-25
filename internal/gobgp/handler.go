@@ -34,6 +34,7 @@ const (
 	StrategyWithdrawRoutes Strategy = "withdraw-routes"
 )
 
+// DefaultActionTimeout is the maximum duration of a GoBGP action when no timeout is configured.
 const DefaultActionTimeout = 5 * time.Second
 
 // ValidStrategies lists all recognized strategy strings.

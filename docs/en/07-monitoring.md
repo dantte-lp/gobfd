@@ -3,9 +3,9 @@
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
 ![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?style=for-the-badge&logo=grafana)
 ![slog](https://img.shields.io/badge/log%2Fslog-Structured-00ADD8?style=for-the-badge)
-![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.26-34a853?style=for-the-badge)
+![FlightRecorder](https://img.shields.io/badge/Flight_Recorder-Go_1.27-34a853?style=for-the-badge)
 
-> Prometheus metrics, Grafana dashboard, structured logging, and Go 1.26 flight recorder for production observability.
+> Prometheus metrics, Grafana dashboard, structured logging, and the runtime flight recorder for production observability.
 
 ---
 
@@ -81,7 +81,7 @@ The dashboard provides:
 | **Error Rates** | Auth failures, dropped packets |
 
 To import:
-1. Start the production stack: `podman-compose -f deployments/compose/compose.yml up -d`
+1. Start the production stack: `podman compose -f deployments/compose/compose.yml up -d`
 2. Open Grafana at `http://localhost:3000` (default: admin/admin)
 3. The dashboard auto-provisions from the JSON file
 
@@ -184,7 +184,7 @@ sudo systemctl reload gobfd
 
 ### Flight Recorder
 
-Go 1.26 `runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:
+`runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:
 
 | Parameter | Value |
 |---|---|

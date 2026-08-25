@@ -3,7 +3,7 @@
 # BFD sessions are configured:
 #   1. FRR peer at 172.20.0.20 (single-hop, 300ms intervals, detect-mult 3)
 #   2. BIRD3 peer at 172.20.0.30 (single-hop, 300ms intervals, detect-mult 3)
-#   3. aiobfd peer at 172.20.0.50 (single-hop, 300ms intervals, detect-mult 3)
+#   3. Holo peer at 172.20.0.50 (single-hop, 300ms intervals, detect-mult 3)
 #   4. Thoro/bfd peer at 172.20.0.60 (single-hop, 300ms intervals, detect-mult 3, no auth)
 #
 # Detection time = detect_mult * max(RequiredMinRxInterval, RemoteDesiredMinTxInterval)

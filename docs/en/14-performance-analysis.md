@@ -1,11 +1,11 @@
 # Performance Analysis: GoBFD vs C Implementations
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-BFD-28a745?style=for-the-badge)
 ![Podman](https://img.shields.io/badge/Podman-Reproducible-892CA0?style=for-the-badge&logo=podman)
 
-> Cross-implementation benchmark analysis comparing GoBFD (Go 1.26) with FRR bfdd and BIRD3 (C), covering codec operations, FSM transitions, full-path latency, session scaling, and behavior under CPU load. All numbers are from reproducible micro-benchmarks run in Podman containers.
+> Cross-implementation benchmark analysis comparing GoBFD (Go 1.27) with FRR bfdd and BIRD3 (C), covering codec operations, FSM transitions, full-path latency, session scaling, and behavior under CPU load. All numbers are from reproducible micro-benchmarks run in Podman containers.
 
 ---
 
@@ -55,7 +55,7 @@ Key findings from cross-implementation benchmarks:
 
 ### Test Methodology
 
-**Environment**: All benchmarks run inside Podman containers on identical hardware. Go benchmarks use `go test -bench -benchmem -count=6`. C benchmarks use an identical `bench_harness.h` macro framework with the same iteration counts. Python benchmarks use `timeit` with equivalent methodology.
+**Environment**: All benchmarks run inside Podman containers on identical hardware. Go benchmarks use `go test -bench -benchmem -count=6`. C benchmarks use an identical `bench_harness.h` macro framework with the same iteration counts.
 
 **Statistical analysis**: 6 runs per benchmark, medians computed via `benchstat`. Medians are reported (not means) to eliminate outlier sensitivity.
 
@@ -72,7 +72,7 @@ make benchmark-save BENCH_VERSION=v0.4.0
 
 # Results in bench-results/
 ls bench-results/
-# bench-go.txt  bench-c-frr.txt  bench-c-bird.txt  bench-python-aiobfd.txt
+# bench-go.txt  bench-c-frr.txt  bench-c-bird.txt
 ```
 
 See [12-benchmarks.md](./12-benchmarks.md) for the full benchmark guide.
@@ -85,11 +85,11 @@ See [12-benchmarks.md](./12-benchmarks.md) for the full benchmark guide.
 
 Marshal, unmarshal, and round-trip (marshal + unmarshal) of a 24-byte BFD Control Packet.
 
-| Operation | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Python (ns/op) | Go/FRR Ratio |
-|-----------|----------:|---------------:|----------------:|----------------:|-------------:|
-| Marshal | 5.96 | 4.98 | 6.05 | 225,145 | 1.20x |
-| Unmarshal | 6.55 | 4.78 | 4.78 | 23,290 | 1.37x |
-| RoundTrip | 12.82 | 9.67 | 9.74 | 259,741 | 1.33x |
+| Operation | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Go/FRR Ratio |
+|-----------|----------:|---------------:|----------------:|-------------:|
+| Marshal | 5.96 | 4.98 | 6.05 | 1.20x |
+| Unmarshal | 6.55 | 4.78 | 4.78 | 1.37x |
+| RoundTrip | 12.82 | 9.67 | 9.74 | 1.33x |
 
 **Analysis**: Go codec operations run at 1.2-1.4x the cost of C. The gap is accounted for by:
 
@@ -103,12 +103,12 @@ At 5.96 ns/op, GoBFD can marshal **167 million packets per second** on a single 
 
 State machine transitions for the BFD FSM (RFC 5880 section 6.8.6).
 
-| Transition | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Python (ns/op) | Go/FRR Ratio |
-|------------|----------:|---------------:|----------------:|----------------:|-------------:|
-| UpRecvUp | 0.37 | 0.59 | 0.30 | 117.66 | **0.63x** |
-| DownRecvDown | 0.65 | 0.57 | 0.30 | 71.24 | 1.14x |
-| UpTimerExpired | 0.35 | 0.29 | 0.57 | 85.79 | 1.21x |
-| Ignored | 0.66 | 0.29 | 0.30 | 52.63 | 2.28x |
+| Transition | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Go/FRR Ratio |
+|------------|----------:|---------------:|----------------:|-------------:|
+| UpRecvUp | 0.37 | 0.59 | 0.30 | **0.63x** |
+| DownRecvDown | 0.65 | 0.57 | 0.30 | 1.14x |
+| UpTimerExpired | 0.35 | 0.29 | 0.57 | 1.21x |
+| Ignored | 0.66 | 0.29 | 0.30 | 2.28x |
 
 **Analysis**: FSM transitions are at native parity. Both Go and C implementations use an array-indexed lookup table (`[state][event] -> newState`), which compiles to a single memory load instruction. The sub-nanosecond timings are at the noise floor of CPU measurement -- variations between Go and C are within the ±0.3ns margin of `rdtsc` precision.
 
@@ -118,13 +118,13 @@ Go's UpRecvUp is **1.6x faster** than FRR's. This is not because Go is faster th
 
 Pure arithmetic operations for BFD timer negotiation and jitter.
 
-| Operation | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Python (ns/op) | Go/FRR Ratio |
-|-----------|----------:|---------------:|----------------:|----------------:|-------------:|
-| DetectionTimeCalc | 0.74 | 0.31 | 0.56 | 228.30 | 2.39x |
-| CalcTxInterval | 0.68 | 0.60 | 0.31 | 149.92 | 1.13x |
-| DetectionTimeCalcHot | 0.69 | -- | -- | -- | -- |
-| CalcTxIntervalHot | 0.53 | -- | -- | -- | -- |
-| Jitter | 8.95 | 5.01 | 4.81 | 240.69 | 1.79x |
+| Operation | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Go/FRR Ratio |
+|-----------|----------:|---------------:|----------------:|-------------:|
+| DetectionTimeCalc | 0.74 | 0.31 | 0.56 | 2.39x |
+| CalcTxInterval | 0.68 | 0.60 | 0.31 | 1.13x |
+| DetectionTimeCalcHot | 0.69 | -- | -- | -- |
+| CalcTxIntervalHot | 0.53 | -- | -- | -- |
+| Jitter | 8.95 | 5.01 | 4.81 | 1.79x |
 
 **Analysis**: Sub-nanosecond arithmetic at parity with C. The `DetectionTimeCalc` 2.4x ratio is explained by `atomic.LoadUint32` in Go's implementation -- the hot-path variant reads from a local variable and closes to 0.69 ns (2.2x FRR). Jitter calculation includes PRNG (`math/rand`) which is slightly slower than C's `rand()` due to Go's thread-safe FastRand.
 

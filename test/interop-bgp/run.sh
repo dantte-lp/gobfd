@@ -13,7 +13,7 @@
 #   ./test/interop-bgp/run.sh
 #
 # Prerequisites:
-#   - podman and podman-compose installed
+#   - podman and podman compose installed
 #   - Access to required container images (FRR, GoBGP, ExaBGP, BIRD3)
 #
 # Exit codes:
@@ -24,7 +24,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yml"
-DC="podman-compose -f ${COMPOSE_FILE}"
+DC="podman compose -f ${COMPOSE_FILE}"
+UV_PYTHON=(uv run --project "${SCRIPT_DIR}/../.." --frozen --no-default-groups -- python)
 
 # Colors for test output (disabled if not a terminal).
 if [ -t 1 ]; then
@@ -61,7 +62,7 @@ trap cleanup EXIT
 gobgp_neighbor_state() {
     local peer_ip="$1"
     podman exec gobgp-interop gobgp neighbor -j 2>/dev/null \
-        | python3 -c "
+        | "${UV_PYTHON[@]}" -c "
 import sys, json
 data = json.load(sys.stdin)
 for n in data:

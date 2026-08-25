@@ -20,11 +20,16 @@ const (
 )
 
 var (
-	ErrOVSDBPortNotFound       = errors.New("OVSDB port not found")
+	// ErrOVSDBPortNotFound indicates that the requested OVS bond port does not exist.
+	ErrOVSDBPortNotFound = errors.New("OVSDB port not found")
+	// ErrOVSDBInterfaceAmbiguity indicates that an interface name matched multiple OVSDB rows.
 	ErrOVSDBInterfaceAmbiguity = errors.New("OVSDB interface query returned multiple rows")
-	ErrOVSDBPortNotMutated     = errors.New("OVSDB port interfaces set was not mutated")
-	ErrOVSDBRowMissingUUID     = errors.New("OVSDB row is missing _uuid")
-	ErrOVSDBRowInvalidUUID     = errors.New("OVSDB row _uuid has unsupported type")
+	// ErrOVSDBPortNotMutated indicates that an OVSDB mutation changed no port rows.
+	ErrOVSDBPortNotMutated = errors.New("OVSDB port interfaces set was not mutated")
+	// ErrOVSDBRowMissingUUID indicates that an OVSDB row has no UUID column.
+	ErrOVSDBRowMissingUUID = errors.New("OVSDB row is missing _uuid")
+	// ErrOVSDBRowInvalidUUID indicates that an OVSDB row contains an unsupported UUID value.
+	ErrOVSDBRowInvalidUUID = errors.New("OVSDB row _uuid has unsupported type")
 )
 
 // OVSDBLAGBackendConfig configures native OVSDB LAG enforcement.
@@ -106,14 +111,14 @@ func newLibOVSDBLAGClient(endpoint string) *libOVSDBLAGClient {
 		newTransactor: func(ctx context.Context) (ovsdbTransactor, error) {
 			dbModel, err := newOpenVSwitchClientDBModel()
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("create Open vSwitch client database model: %w", err)
 			}
 			ovs, err := client.NewOVSDBClient(dbModel, client.WithEndpoint(endpoint))
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("create OVSDB client for %q: %w", endpoint, err)
 			}
 			if err := ovs.Connect(ctx); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("connect OVSDB client to %q: %w", endpoint, err)
 			}
 			return ovs, nil
 		},
@@ -152,10 +157,10 @@ func (c *libOVSDBLAGClient) AddBondInterface(ctx context.Context, bond string, i
 		}
 		results, err := tx.Transact(ctx, ops...)
 		if err != nil {
-			return err
+			return fmt.Errorf("insert OVS interface %q and mutate bond %q: %w", iface, bond, err)
 		}
 		if _, err := ovsdb.CheckOperationResults(results, ops); err != nil {
-			return err
+			return fmt.Errorf("check OVS interface insertion for %q: %w", iface, err)
 		}
 		return checkPortMutationCount(results[len(results)-1])
 	})
@@ -244,10 +249,10 @@ func runCheckedOVSDBOperations(
 ) ([]ovsdb.OperationResult, error) {
 	results, err := tx.Transact(ctx, ops...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("execute OVSDB transaction: %w", err)
 	}
 	if _, err := ovsdb.CheckOperationResults(results, ops); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("check OVSDB transaction results: %w", err)
 	}
 	return results, nil
 }
@@ -276,7 +281,7 @@ func buildMutatePortInterfacesOp(
 ) (ovsdb.Operation, error) {
 	ifaceSet, err := ovsdb.NewOvsSet([]ovsdb.UUID{{GoUUID: ifaceUUID}})
 	if err != nil {
-		return ovsdb.Operation{}, err
+		return ovsdb.Operation{}, fmt.Errorf("create OVSDB interface UUID set for %q: %w", ifaceUUID, err)
 	}
 	return ovsdb.Operation{
 		Op:    ovsdb.OperationMutate,
@@ -324,8 +329,13 @@ type ovsdbInterfaceModel struct {
 }
 
 func newOpenVSwitchClientDBModel() (model.ClientDBModel, error) {
-	return model.NewClientDBModel(ovsdbDatabaseName, map[string]model.Model{
+	dbModel, err := model.NewClientDBModel(ovsdbDatabaseName, map[string]model.Model{
 		ovsdbPortTable:      &ovsdbPortModel{},
 		ovsdbInterfaceTable: &ovsdbInterfaceModel{},
 	})
+	if err != nil {
+		return model.ClientDBModel{}, fmt.Errorf("create %s OVSDB model: %w", ovsdbDatabaseName, err)
+	}
+
+	return dbModel, nil
 }

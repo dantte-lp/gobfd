@@ -83,7 +83,7 @@ topology:
     # RFC coverage: 5880 (base), 5881 (single-hop), 5882 (BGP-BFD), 5883 (multihop)
     frr:
       kind: linux
-      image: quay.io/frrouting/frr:10.2.5
+      image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
       binds:
         - frr/daemons:/etc/frr/daemons:ro
         - frr/frr.conf:/etc/frr/frr.conf:ro

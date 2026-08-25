@@ -4,7 +4,7 @@
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-> Русский перевод каноничной технической документации **GoBFD** -- production-oriented демона протокола BFD (RFC 5880/5881) на Go 1.26.
+> Русский перевод каноничной технической документации **GoBFD** -- production-oriented демона протокола BFD (RFC 5880/5881) на Go 1.27.
 
 ---
 
@@ -117,7 +117,7 @@ graph TD
 | # | Документ | Описание |
 |---|---|---|
 | 12 | [**Бенчмарки**](./12-benchmarks.md) | Как запускать, читать и интерпретировать результаты бенчмарков |
-| 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, aiobfd, аппаратными платформами |
+| 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, Holo, аппаратными платформами |
 | 14 | [**Анализ производительности**](./14-performance-analysis.md) | GoBFD vs реализации на C: бенчмарки, архитектура, поведение при нагрузке |
 
 ### Architecture Decision Records

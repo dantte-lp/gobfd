@@ -14,8 +14,6 @@ import (
 	"connectrpc.com/grpchealth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -76,10 +74,10 @@ func gracefulShutdown(
 }
 
 // -------------------------------------------------------------------------
-// Flight Recorder — Go 1.26 runtime/trace
+// Flight Recorder — runtime/trace
 // -------------------------------------------------------------------------
 
-// startFlightRecorder initializes and starts the Go 1.26 FlightRecorder
+// startFlightRecorder initializes and starts the runtime FlightRecorder
 // for post-mortem debugging of BFD session failures. The recorder maintains
 // a rolling window of execution trace data that can be dumped on demand.
 func startFlightRecorder(logger *slog.Logger) *trace.FlightRecorder {
@@ -106,6 +104,11 @@ func startFlightRecorder(logger *slog.Logger) *trace.FlightRecorder {
 // -------------------------------------------------------------------------
 // Server Setup
 // -------------------------------------------------------------------------
+
+// maxHTTPHeaderValueCount bounds repeated HTTP header values on both public
+// server surfaces. BFD's ConnectRPC and metrics requests need far fewer than
+// the net/http default of 500.
+const maxHTTPHeaderValueCount = 128
 
 // listenAndServe creates a TCP listener using the ListenConfig (for noctx
 // compliance) and serves HTTP requests until the server is shut down.
@@ -135,9 +138,10 @@ func newMetricsServer(
 	}
 
 	return &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		Addr:                cfg.Addr,
+		Handler:             mux,
+		ReadHeaderTimeout:   10 * time.Second,
+		MaxHeaderValueCount: maxHTTPHeaderValueCount,
 	}
 }
 
@@ -156,8 +160,8 @@ func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
 }
 
 // newGRPCServer creates an HTTP server for the ConnectRPC gRPC endpoint.
-// The handler is wrapped with h2c to support HTTP/2 without TLS, which is
-// required for gRPC clients that connect over plaintext (e.g., gobfdctl).
+// The server explicitly enables h2c, which is required for gRPC clients that
+// connect over plaintext (for example, gobfdctl), alongside HTTP/1.1.
 // Includes standard gRPC health checking (grpc.health.v1).
 func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFactory, logger *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
@@ -188,10 +192,15 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFact
 		"bfd.v1.MicroBFDService",
 	)
 	mux.Handle(grpchealth.NewHandler(checker))
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 
 	return &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           h2c.NewHandler(mux, &http2.Server{}),
-		ReadHeaderTimeout: 10 * time.Second,
+		Addr:                cfg.Addr,
+		Handler:             mux,
+		Protocols:           protocols,
+		ReadHeaderTimeout:   10 * time.Second,
+		MaxHeaderValueCount: maxHTTPHeaderValueCount,
 	}
 }

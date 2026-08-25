@@ -1737,7 +1737,7 @@ grpc:
 }
 
 // =========================================================================
-// os.Root Config Sandboxing Tests — Go 1.26
+// os.Root Config Sandboxing Tests
 // =========================================================================
 
 func TestLoadRejectsPathTraversal(t *testing.T) {

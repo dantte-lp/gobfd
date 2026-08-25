@@ -1,6 +1,6 @@
 # Architecture
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
 ![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
@@ -113,7 +113,8 @@ graph TB
 
 - `internal/bfd` has **zero** dependency on `internal/server`, `internal/netio`, or `internal/config`
 - `internal/server` depends on `internal/bfd` (Manager, Session, types) and `pkg/bfdpb`
-- `internal/netio` depends on `internal/bfd` only for the `PacketSender` interface and `ControlPacket`
+- `internal/netio` reuses the BFD packet codec, pool, packet metadata, sender
+  interface, and Micro-BFD state/event types from `internal/bfd`
 - `pkg/bfdpb` is generated code -- never edited manually
 
 ### Packet RX Flow
@@ -250,10 +251,11 @@ gobfd/
 |   +-- gobgp/                    # GoBGP gRPC client + flap dampening
 |   +-- metrics/                  # Prometheus collectors
 |   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
+|   +-- sdnotify/                 # systemd readiness/watchdog notifications
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro)
++-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
 +-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
 +-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
 +-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
@@ -272,7 +274,7 @@ gobfd/
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Language | Go 1.26 | Green Tea GC, `testing/synctest`, flight recorder |
+| Language | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
 | Network I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Raw sockets, TTL control, `SO_BINDTODEVICE` |
 | RPC Server | ConnectRPC | gRPC + Connect + gRPC-Web from one handler |
 | RPC Client | `google.golang.org/grpc` | GoBGP integration (gRPC client) |
@@ -281,7 +283,7 @@ gobfd/
 | Metrics | Prometheus `client_golang` | Counters, gauges, histograms |
 | Logging | `log/slog` (stdlib) | Structured JSON/text logging |
 | Protobuf | buf CLI | Lint, breaking detection, code generation |
-| Lint | golangci-lint v2 | 35+ linters, strict configuration |
+| Lint | golangci-lint v2.13.1 | 92 signal-bearing linters, schema and build-tag matrix gates |
 | Release | GoReleaser v2 | Binaries + deb/rpm + container images |
 | Containers | Podman + Podman Compose | Development and testing |
 | systemd | Type=notify, watchdog | Production daemon lifecycle |

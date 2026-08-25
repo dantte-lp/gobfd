@@ -1,6 +1,6 @@
 # Архитектура
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
 ![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
@@ -125,7 +125,8 @@ graph TB
 
 - `internal/bfd` **не зависит** от `internal/server`, `internal/netio` или `internal/config`
 - `internal/server` зависит от `internal/bfd` (Manager, Session, типы) и `pkg/bfdpb`
-- `internal/netio` зависит от `internal/bfd` только через интерфейс `PacketSender` и `ControlPacket`
+- `internal/netio` переиспользует кодек и пул пакетов, метаданные пакетов,
+  интерфейс отправки и типы состояния/событий Micro-BFD из `internal/bfd`
 - `pkg/bfdpb` -- сгенерированный код, никогда не редактируется вручную
 
 ### Путь приёма пакета (RX)
@@ -267,10 +268,11 @@ gobfd/
 |   +-- gobgp/                    # GoBGP gRPC client + flap dampening
 |   +-- metrics/                  # Prometheus collectors
 |   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
+|   +-- sdnotify/                 # уведомления systemd readiness/watchdog
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro)
++-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
 +-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
 +-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
 +-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
@@ -289,7 +291,7 @@ gobfd/
 
 | Компонент | Технология | Назначение |
 |---|---|---|
-| Язык | Go 1.26 | Green Tea GC, `testing/synctest`, flight recorder |
+| Язык | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
 | Сетевой I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Сырые сокеты, управление TTL, `SO_BINDTODEVICE` |
 | RPC-сервер | ConnectRPC | gRPC + Connect + gRPC-Web из одного обработчика |
 | RPC-клиент | `google.golang.org/grpc` | Интеграция с GoBGP (gRPC-клиент) |
@@ -298,7 +300,7 @@ gobfd/
 | Метрики | Prometheus `client_golang` | Счётчики, gauge, гистограммы |
 | Логирование | `log/slog` (stdlib) | Структурированное JSON/text логирование |
 | Protobuf | buf CLI | Линтинг, проверка совместимости, генерация кода |
-| Линтинг | golangci-lint v2 | 35+ линтеров, строгая конфигурация |
+| Линтинг | golangci-lint v2.13.1 | 92 значимых линтера, проверка схемы и матрицы build tags |
 | Релизы | GoReleaser v2 | Бинарники + deb/rpm + контейнерные образы |
 | Контейнеры | Podman + Podman Compose | Разработка и тестирование |
 | systemd | Type=notify, watchdog | Жизненный цикл production-демона |

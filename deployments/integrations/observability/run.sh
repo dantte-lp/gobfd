@@ -3,13 +3,14 @@
 #
 # Demonstrates: metrics collection, alerting rules, Grafana dashboard.
 #
-# Prerequisites: podman, podman-compose
+# Prerequisites: podman, podman compose
 # Usage: ./run.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DC="podman-compose -f ${SCRIPT_DIR}/compose.yml"
+DC="podman compose -f ${SCRIPT_DIR}/compose.yml"
+UV_PYTHON=(uv run --project "${SCRIPT_DIR}/../../.." --frozen --no-default-groups -- python)
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -49,7 +50,7 @@ done
 # --- Step 4: Verify metrics ---
 info "Step 4: Querying GoBFD metrics from Prometheus..."
 curl -s 'http://localhost:9090/api/v1/query?query=gobfd_bfd_sessions' 2>/dev/null | \
-    python3 -m json.tool 2>/dev/null || \
+    "${UV_PYTHON[@]}" -m json.tool 2>/dev/null || \
     curl -s 'http://localhost:9090/api/v1/query?query=gobfd_bfd_sessions' 2>/dev/null || \
     warn "Could not query Prometheus API."
 echo ""
@@ -71,7 +72,7 @@ sleep 30
 
 info "Checking active alerts..."
 curl -s 'http://localhost:9090/api/v1/alerts' 2>/dev/null | \
-    python3 -m json.tool 2>/dev/null || \
+    "${UV_PYTHON[@]}" -m json.tool 2>/dev/null || \
     curl -s 'http://localhost:9090/api/v1/alerts' 2>/dev/null || \
     warn "Could not query Prometheus alerts API."
 echo ""
@@ -84,7 +85,7 @@ sleep 15
 
 info "Checking alerts after recovery..."
 curl -s 'http://localhost:9090/api/v1/alerts' 2>/dev/null | \
-    python3 -m json.tool 2>/dev/null || true
+    "${UV_PYTHON[@]}" -m json.tool 2>/dev/null || true
 echo ""
 
 # --- Step 8: tshark post-analysis ---

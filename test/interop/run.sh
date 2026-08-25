@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Interoperability test runner for GoBFD <-> FRR and GoBFD <-> BIRD3.
+# Four-peer interoperability runner for GoBFD with FRR, BIRD3, Holo, and
+# Thoro/bfd.
 #
 # This script builds the container images, starts the test stack,
 # verifies BFD sessions reach Up state, runs comprehensive RFC 5880/5881
@@ -10,9 +11,9 @@
 #   ./test/interop/run.sh
 #
 # Prerequisites:
-#   - podman and podman-compose installed
-#   - Access to quay.io/frrouting/frr:10.2.5
-#   - Access to docker.io/debian:trixie-slim (for BIRD3 build)
+#   - podman and podman compose installed
+#   - Access to quay.io/frrouting/frr:10.7.0
+#   - Access to docker.io/debian:trixie-slim (for BIRD 3.3.2 source build)
 #
 # Exit codes:
 #   0 - all tests passed
@@ -22,12 +23,54 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yml"
-DC="podman-compose -f ${COMPOSE_FILE}"
+UV_PYTHON=(uv run --project "${SCRIPT_DIR}/../.." --frozen --no-default-groups -- python)
+INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"
+if [[ ! "${INTEROP_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+    printf 'invalid INTEROP_PROJECT_NAME %q: use lowercase letters, digits, dashes, and underscores\n' \
+        "${INTEROP_PROJECT_NAME}" >&2
+    exit 2
+fi
+INTEROP_COMPOSE_OVERRIDE_FILE="${INTEROP_COMPOSE_OVERRIDE_FILE:-}"
+COMPOSE_ARGS=(-p "${INTEROP_PROJECT_NAME}" -f "${COMPOSE_FILE}")
+if [[ -n "${INTEROP_COMPOSE_OVERRIDE_FILE}" ]]; then
+    if [[ "${INTEROP_COMPOSE_OVERRIDE_FILE}" != /* ]]; then
+        printf 'invalid INTEROP_COMPOSE_OVERRIDE_FILE %q: must be absolute\n' \
+            "${INTEROP_COMPOSE_OVERRIDE_FILE}" >&2
+        exit 2
+    fi
+    if [[ -L "${INTEROP_COMPOSE_OVERRIDE_FILE}" ]]; then
+        printf 'invalid INTEROP_COMPOSE_OVERRIDE_FILE %q: must not be a symlink\n' \
+            "${INTEROP_COMPOSE_OVERRIDE_FILE}" >&2
+        exit 2
+    fi
+    if [[ ! -f "${INTEROP_COMPOSE_OVERRIDE_FILE}" || ! -r "${INTEROP_COMPOSE_OVERRIDE_FILE}" ]]; then
+        printf 'invalid INTEROP_COMPOSE_OVERRIDE_FILE %q: must be an existing regular readable file\n' \
+            "${INTEROP_COMPOSE_OVERRIDE_FILE}" >&2
+        exit 2
+    fi
+    COMPOSE_ARGS+=(-f "${INTEROP_COMPOSE_OVERRIDE_FILE}")
+fi
+PROJECT_LABEL="com.docker.compose.project=${INTEROP_PROJECT_NAME}"
+PROJECT_OWNED=false
+PROJECT_LOCK_FD=""
+PODMAN=(timeout 2m podman)
+# shellcheck source=test/interop/project_guard.sh
+source "${SCRIPT_DIR}/project_guard.sh"
+FIXED_CONTAINER_NAMES=(
+    gobfd-interop
+    frr-interop
+    bird3-interop
+    tshark-interop
+    holo-interop
+    holo-config-interop
+    thoro-interop
+    scapy-interop
+)
 
 GOBFD_IP="172.20.0.10"
 FRR_IP="172.20.0.20"
 BIRD3_IP="172.20.0.30"
-AIOBFD_IP="172.20.0.50"
+HOLO_IP="172.20.0.50"
 THORO_IP="172.20.0.60"
 
 # Colors for test output (disabled if not a terminal).
@@ -68,9 +111,10 @@ assert_pass() {
 # ---------------------------------------------------------------------------
 
 dump_tshark() {
-    if podman ps --format '{{.Names}}' 2>/dev/null | grep -q tshark-interop; then
+    local tshark_id
+    if tshark_id="$(resolve_project_container_id tshark-interop)"; then
         info "=== BFD packet capture (last 50 packets) ==="
-        podman exec tshark-interop tshark -r /captures/bfd.pcapng -Y bfd -c 50 \
+        "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng -Y bfd -c 50 \
             -T fields -e frame.time_relative -e ip.src -e ip.dst \
             -e bfd.sta -e bfd.flags -e bfd.my_discriminator \
             -e bfd.your_discriminator -e bfd.desired_min_tx_interval \
@@ -79,12 +123,96 @@ dump_tshark() {
     fi
 }
 
+acquire_project_lock() {
+    interop_acquire_project_lock "${INTEROP_PROJECT_NAME}" || return 1
+    PROJECT_LOCK_FD="${INTEROP_ACQUIRED_LOCK_FD}"
+}
+
+release_project_lock() {
+    if [[ -n "${PROJECT_LOCK_FD}" ]]; then
+        interop_release_project_lock "${PROJECT_LOCK_FD}" || return 1
+        PROJECT_LOCK_FD=""
+    fi
+}
+
+assert_fixed_names_available() {
+    interop_assert_fixed_names_available "${INTEROP_PROJECT_NAME}" "${FIXED_CONTAINER_NAMES[@]}"
+}
+
+resolve_project_container_id() {
+    interop_resolve_project_container_id "${INTEROP_PROJECT_NAME}" "$1"
+}
+
+podman_container_exec() {
+    local container_name="$1"
+    shift
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" exec "${container_id}" "$@"
+}
+
+podman_container_logs() {
+    local container_name="$1"
+    shift
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" logs "$@" "${container_id}"
+}
+
+podman_container_state() {
+    local container_name="$1"
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" inspect --format '{{.State.Running}}' "${container_id}"
+}
+
+podman_container_lifecycle() {
+    local action="$1"
+    local container_name="$2"
+    local container_id
+    container_id="$(resolve_project_container_id "${container_name}")" || return 1
+    "${PODMAN[@]}" "${action}" "${container_id}"
+}
+
+query_project_resources() {
+    interop_query_project_resources "${INTEROP_PROJECT_NAME}"
+}
+
+assert_project_available() {
+    local resources
+    if ! resources="$(query_project_resources)"; then
+        return 1
+    fi
+    if [ -n "${resources}" ]; then
+        printf 'FAIL: Compose project %s already owns resources; refusing collision\n' \
+            "${INTEROP_PROJECT_NAME}" >&2
+        printf '%s\n' "${resources}" >&2
+        return 1
+    fi
+    return 0
+}
+
+remove_project_resources() {
+    interop_remove_project_resources "${INTEROP_PROJECT_NAME}"
+}
+
+verify_project_absent() {
+    interop_verify_project_absent "${INTEROP_PROJECT_NAME}"
+}
+
 cleanup() {
+    local status="$?"
+    trap - EXIT
     if [ "${TESTS_FAILED}" -gt 0 ]; then
         dump_tshark
     fi
-    info "cleaning up containers and network"
-    ${DC} down --volumes --remove-orphans 2>/dev/null || true
+    if [ "${PROJECT_OWNED}" = true ]; then
+        info "cleaning exact Compose project ${INTEROP_PROJECT_NAME}"
+        remove_project_resources || status=1
+        verify_project_absent || status=1
+    fi
+    release_project_lock || status=1
+    exit "${status}"
 }
 
 trap cleanup EXIT
@@ -96,8 +224,9 @@ trap cleanup EXIT
 # tshark_count — return number of packets matching a display filter.
 tshark_count() {
     local filter="$1"
-    local count
-    count="$(podman exec tshark-interop tshark -r /captures/bfd.pcapng \
+    local count tshark_id
+    tshark_id="$(resolve_project_container_id tshark-interop)" || return 1
+    count="$("${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng \
         -Y "${filter}" -T fields -e frame.number 2>/dev/null | wc -l)"
     echo "${count}"
 }
@@ -108,11 +237,12 @@ tshark_count() {
 tshark_fields() {
     local filter="$1"
     shift
-    local field_args=()
+    local field_args=() tshark_id
     for f in "$@"; do
         field_args+=("-e" "$f")
     done
-    podman exec tshark-interop tshark -r /captures/bfd.pcapng \
+    tshark_id="$(resolve_project_container_id tshark-interop)" || return 1
+    "${PODMAN[@]}" exec "${tshark_id}" tshark -r /captures/bfd.pcapng \
         -Y "${filter}" -T fields "${field_args[@]}" \
         -E separator='	' -E header=n 2>/dev/null
 }
@@ -151,8 +281,8 @@ assert_has_packets() {
 
 frr_bfd_peer_status() {
     local peer_ip="$1"
-    ${DC} exec -T frr vtysh -c "show bfd peers json" 2>/dev/null \
-        | python3 -c "
+    podman_container_exec frr-interop vtysh -c "show bfd peers json" 2>/dev/null \
+        | "${UV_PYTHON[@]}" -c "
 import sys, json
 data = json.load(sys.stdin)
 for peer in data:
@@ -171,7 +301,7 @@ bird3_bfd_session_status() {
     local peer_ip="$1"
     # BIRD3 output: IP Interface State Since Interval Timeout
     # State is column 3, not the last field.
-    ${DC} exec -T bird3 birdc "show bfd sessions" 2>/dev/null \
+    podman_container_exec bird3-interop birdc "show bfd sessions" 2>/dev/null \
         | grep -F "${peer_ip}" \
         | awk '{print $3}' \
         || echo "not-found"
@@ -215,14 +345,14 @@ wait_bird3_up() {
     return 1
 }
 
-wait_aiobfd_up() {
+wait_holo_up() {
     local max_wait="${1:-30}"
     local interval=2
     local waited=0
 
     while [ "${waited}" -lt "${max_wait}" ]; do
         local count
-        count="$(tshark_count "bfd && ip.src == ${AIOBFD_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+        count="$(tshark_count "bfd && ip.src == ${HOLO_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
         if [ "${count}" -gt 0 ]; then
             return 0
         fi
@@ -253,20 +383,97 @@ wait_thoro_up() {
 # Build & Start
 # ---------------------------------------------------------------------------
 
-info "building container images"
-${DC} build --no-cache
+dump_holo_startup_diagnostics() {
+    local holo_id loader_id
+    info "=== Holo startup diagnostics ==="
+    timeout 10s podman ps -a --filter "label=${PROJECT_LABEL}" 2>&1 || true
+    info "=== Holo daemon logs ==="
+    if holo_id="$(resolve_project_container_id holo-interop)"; then
+        timeout 10s podman logs --tail 100 "${holo_id}" 2>&1 || true
+    fi
+    info "=== Holo daemon /tmp/holod.err ==="
+    if [[ -n "${holo_id:-}" ]]; then
+        timeout 10s podman exec "${holo_id}" sh -c \
+            'if [ -f /tmp/holod.err ]; then cat /tmp/holod.err; else echo "/tmp/holod.err is absent"; fi' \
+            2>&1 || true
+    fi
+    info "=== Holo configuration loader logs ==="
+    if loader_id="$(resolve_project_container_id holo-config-interop)"; then
+        timeout 10s podman logs --tail 100 "${loader_id}" 2>&1 || true
+        timeout 10s podman inspect --type container "${loader_id}" 2>&1 || true
+    fi
+}
 
-info "starting interop test stack"
-${DC} up -d
+fail_holo_startup() {
+    fail "$1"
+    dump_holo_startup_diagnostics
+    exit 1
+}
+
+acquire_project_lock
+assert_project_available
+assert_fixed_names_available
+PROJECT_OWNED=true
+
+info "building container images"
+timeout 10m podman compose "${COMPOSE_ARGS[@]}" build --no-cache
+
+info "starting Holo daemon and one-shot configuration loader"
+if ! timeout 2m podman compose "${COMPOSE_ARGS[@]}" up -d holo holo-config; then
+    fail_holo_startup "failed to start Holo configuration phase"
+fi
+
+holo_config_id=""
+if ! holo_config_id="$(resolve_project_container_id holo-config-interop)"; then
+    fail_holo_startup "holo-config-interop is absent or not owned by ${INTEROP_PROJECT_NAME}"
+fi
+holo_wait_status=""
+if ! holo_wait_status="$(timeout 45s podman wait "${holo_config_id}" 2>&1)"; then
+    fail_holo_startup "timed out or failed waiting for holo-config-interop"
+fi
+holo_wait_status="${holo_wait_status#"${holo_wait_status%%[![:space:]]*}"}"
+holo_wait_status="${holo_wait_status%"${holo_wait_status##*[![:space:]]}"}"
+
+holo_inspect_status=""
+if ! holo_inspect_status="$(timeout 10s podman inspect --format '{{.State.ExitCode}}' "${holo_config_id}" 2>&1)"; then
+    fail_holo_startup "failed to inspect holo-config-interop exit status"
+fi
+holo_inspect_status="${holo_inspect_status#"${holo_inspect_status%%[![:space:]]*}"}"
+holo_inspect_status="${holo_inspect_status%"${holo_inspect_status##*[![:space:]]}"}"
+
+if [[ ! "${holo_wait_status}" =~ ^[0-9]+$ ]]; then
+    fail_holo_startup "invalid holo-config wait status: ${holo_wait_status}"
+fi
+if [[ ! "${holo_inspect_status}" =~ ^[0-9]+$ ]]; then
+    fail_holo_startup "invalid holo-config inspect status: ${holo_inspect_status}"
+fi
+if [[ "${holo_wait_status}" != "${holo_inspect_status}" ]]; then
+    fail_holo_startup \
+        "holo-config status mismatch: wait=${holo_wait_status}, inspect=${holo_inspect_status}"
+fi
+if [[ "${holo_inspect_status}" != "0" ]]; then
+    fail_holo_startup "holo-config exited with status ${holo_inspect_status}"
+fi
+
+holo_semantic_error=""
+if ! holo_semantic_error="$(interop_verify_holo_running_configuration \
+    "${INTEROP_PROJECT_NAME}" "${holo_config_id}" 2>&1)"; then
+    fail_holo_startup "${holo_semantic_error:-failed to verify Holo running configuration}"
+fi
+
+info "starting GoBFD and remaining interop peers"
+timeout 2m podman compose "${COMPOSE_ARGS[@]}" \
+    up -d --no-deps gobfd frr bird3 tshark thoro
 
 info "waiting for containers to start (10s)"
 sleep 10
 
 # Verify all containers are running.
-for svc in gobfd frr bird3 aiobfd thoro; do
-    if ! ${DC} ps | grep -q "${svc}-interop"; then
+for svc in gobfd frr bird3 holo thoro; do
+    if [[ "$(podman_container_state "${svc}-interop" 2>/dev/null || true)" != "true" ]]; then
         fail "container ${svc}-interop is not running"
-        ${DC} logs "${svc}" 2>&1 | tail -20
+        podman_container_logs "${svc}-interop" 2>&1 | tail -20 || true
+        dump_holo_startup_diagnostics
         exit 1
     fi
 done
@@ -284,8 +491,9 @@ test_frr_handshake() {
         return 0
     fi
     fail "FRR BFD session did not reach Up state within 60s"
-    ${DC} exec -T frr vtysh -c "show bfd peers" 2>&1 || true
-    ${DC} logs --tail 30 gobfd 2>&1 || true
+    podman_container_exec frr-interop vtysh -c "show bfd peers" 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
+    dump_holo_startup_diagnostics
     return 1
 }
 
@@ -300,24 +508,25 @@ test_bird3_handshake() {
         return 0
     fi
     fail "BIRD3 BFD session did not reach Up state within 60s"
-    ${DC} exec -T bird3 birdc "show bfd sessions" 2>&1 || true
-    ${DC} logs --tail 30 gobfd 2>&1 || true
+    podman_container_exec bird3-interop birdc "show bfd sessions" 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
+    dump_holo_startup_diagnostics
     return 1
 }
 
 # ===========================================================================
-# Test 3: BFD three-way handshake — GoBFD <-> aiobfd
+# Test 3: BFD three-way handshake — GoBFD <-> Holo
 # ===========================================================================
 
-test_aiobfd_handshake() {
-    info "test: BFD handshake GoBFD <-> aiobfd"
-    if wait_aiobfd_up 60; then
-        pass "aiobfd BFD session with gobfd (${GOBFD_IP}) is Up"
+test_holo_handshake() {
+    info "test: BFD handshake GoBFD <-> Holo"
+    if wait_holo_up 60; then
+        pass "Holo BFD session with gobfd (${GOBFD_IP}) is Up"
         return 0
     fi
-    fail "aiobfd BFD session did not reach Up state within 60s"
-    ${DC} logs --tail 30 aiobfd 2>&1 || true
-    ${DC} logs --tail 30 gobfd 2>&1 || true
+    fail "Holo BFD session did not reach Up state within 60s"
+    dump_holo_startup_diagnostics
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
     return 1
 }
 
@@ -332,8 +541,8 @@ test_thoro_handshake() {
         return 0
     fi
     fail "Thoro/bfd BFD session did not reach Up state within 60s"
-    ${DC} logs --tail 30 thoro 2>&1 || true
-    ${DC} logs --tail 30 gobfd 2>&1 || true
+    podman_container_logs thoro-interop --tail 30 2>&1 || true
+    podman_container_logs gobfd-interop --tail 30 2>&1 || true
     return 1
 }
 
@@ -417,7 +626,7 @@ test_peer_packet_invariants() {
 
     local ok=true
 
-    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "aiobfd:${AIOBFD_IP}" "Thoro:${THORO_IP}"; do
+    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "Holo:${HOLO_IP}" "Thoro:${THORO_IP}"; do
         local name="${peer_name_ip%%:*}"
         local ip="${peer_name_ip##*:}"
         local peer_pkts="bfd && ip.src == ${ip}"
@@ -476,7 +685,7 @@ test_rfc5880_handshake_sequence() {
 
     local ok=true
 
-    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "aiobfd:${AIOBFD_IP}" "Thoro:${THORO_IP}"; do
+    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "Holo:${HOLO_IP}" "Thoro:${THORO_IP}"; do
         local name="${peer_name_ip%%:*}"
         local ip="${peer_name_ip##*:}"
 
@@ -530,36 +739,36 @@ test_rfc5880_discr_learning() {
 test_rfc5880_discr_uniqueness() {
     info "test: RFC 5880 §6.8.1 — unique discriminators per session"
 
-    local frr_discr bird3_discr aiobfd_discr thoro_discr
+    local frr_discr bird3_discr holo_discr thoro_discr
     frr_discr="$(tshark_fields \
         "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${FRR_IP} && bfd.sta == 0x03" \
         "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
     bird3_discr="$(tshark_fields \
         "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${BIRD3_IP} && bfd.sta == 0x03" \
         "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
-    aiobfd_discr="$(tshark_fields \
-        "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${AIOBFD_IP} && bfd.sta == 0x03" \
+    holo_discr="$(tshark_fields \
+        "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${HOLO_IP} && bfd.sta == 0x03" \
         "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
     thoro_discr="$(tshark_fields \
         "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${THORO_IP} && bfd.sta == 0x03" \
         "bfd.my_discriminator" | head -1 | tr -d '[:space:]')"
 
-    if [ -z "${frr_discr}" ] || [ -z "${bird3_discr}" ] || [ -z "${aiobfd_discr}" ] || [ -z "${thoro_discr}" ]; then
-        fail "could not extract discriminators (frr=${frr_discr:-empty}, bird3=${bird3_discr:-empty}, aiobfd=${aiobfd_discr:-empty}, thoro=${thoro_discr:-empty})"
+    if [ -z "${frr_discr}" ] || [ -z "${bird3_discr}" ] || [ -z "${holo_discr}" ] || [ -z "${thoro_discr}" ]; then
+        fail "could not extract discriminators (frr=${frr_discr:-empty}, bird3=${bird3_discr:-empty}, holo=${holo_discr:-empty}, thoro=${thoro_discr:-empty})"
         return 1
     fi
 
     # Check all pairs for uniqueness.
-    local all_discrs="${frr_discr} ${bird3_discr} ${aiobfd_discr} ${thoro_discr}"
+    local all_discrs="${frr_discr} ${bird3_discr} ${holo_discr} ${thoro_discr}"
     local unique_count
     unique_count="$(echo "${all_discrs}" | tr ' ' '\n' | sort -u | wc -l)"
 
     if [ "${unique_count}" -ne 4 ]; then
-        fail "discriminators not unique (FRR=${frr_discr}, BIRD3=${bird3_discr}, aiobfd=${aiobfd_discr}, Thoro=${thoro_discr})"
+        fail "discriminators not unique (FRR=${frr_discr}, BIRD3=${bird3_discr}, Holo=${holo_discr}, Thoro=${thoro_discr})"
         return 1
     fi
 
-    pass "discriminators are unique (FRR=${frr_discr}, BIRD3=${bird3_discr}, aiobfd=${aiobfd_discr}, Thoro=${thoro_discr})"
+    pass "discriminators are unique (FRR=${frr_discr}, BIRD3=${bird3_discr}, Holo=${holo_discr}, Thoro=${thoro_discr})"
     return 0
 }
 
@@ -656,9 +865,9 @@ test_rfc5880_poll_final_handshake() {
 # ===========================================================================
 
 test_rfc5880_session_independence() {
-    info "test: RFC 5880 §6.8.1 — session independence (stop FRR, check BIRD3 + aiobfd)"
+    info "test: RFC 5880 §6.8.1 — session independence (stop FRR, check BIRD3 + Holo)"
 
-    ${DC} stop frr
+    podman_container_lifecycle stop frr-interop
 
     sleep 3
 
@@ -673,12 +882,12 @@ test_rfc5880_session_independence() {
         ok=false
     fi
 
-    local aiobfd_count
-    aiobfd_count="$(tshark_count "bfd && ip.src == ${AIOBFD_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
-    if [ "${aiobfd_count}" -gt 0 ]; then
-        pass "aiobfd session remained Up when FRR was stopped"
+    local holo_count
+    holo_count="$(tshark_count "bfd && ip.src == ${HOLO_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+    if [ "${holo_count}" -gt 0 ]; then
+        pass "Holo session remained Up when FRR was stopped"
     else
-        fail "aiobfd session went Down when only FRR was stopped"
+        fail "Holo session went Down when only FRR was stopped"
         ok=false
     fi
 
@@ -691,7 +900,7 @@ test_rfc5880_session_independence() {
         ok=false
     fi
 
-    ${DC} start frr
+    podman_container_lifecycle start frr-interop
 
     if [ "${ok}" = true ]; then
         return 0
@@ -743,7 +952,7 @@ test_rfc5880_detection_precision() {
     fi
 
     local result
-    result="$(echo "${all_frr_epochs}" | python3 -c "
+    result="$(echo "${all_frr_epochs}" | "${UV_PYTHON[@]}" -c "
 import sys
 down = ${first_down_epoch}
 last_before = None
@@ -767,7 +976,7 @@ else:
     info "detection gap: last FRR packet → first Down = ${result}s"
 
     local gap_ok
-    gap_ok="$(python3 -c "print('yes' if 0 <= ${result} <= 3.0 else 'no')")"
+    gap_ok="$("${UV_PYTHON[@]}" -c "print('yes' if 0 <= ${result} <= 3.0 else 'no')")"
 
     if [ "${gap_ok}" = "yes" ]; then
         pass "detection time ${result}s is within acceptable range (< 3.0s)"
@@ -805,13 +1014,13 @@ test_rfc5880_session_recovery() {
         ok=false
     fi
 
-    # Verify aiobfd still Up.
-    local aiobfd_count
-    aiobfd_count="$(tshark_count "bfd && ip.src == ${AIOBFD_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
-    if [ "${aiobfd_count}" -gt 0 ]; then
-        pass "aiobfd session still Up after FRR recovery cycle"
+    # Verify Holo still Up.
+    local holo_count
+    holo_count="$(tshark_count "bfd && ip.src == ${HOLO_IP} && ip.dst == ${GOBFD_IP} && bfd.sta == 0x03")"
+    if [ "${holo_count}" -gt 0 ]; then
+        pass "Holo session still Up after FRR recovery cycle"
     else
-        fail "aiobfd session not Up after FRR recovery"
+        fail "Holo session not Up after FRR recovery"
         ok=false
     fi
 
@@ -838,7 +1047,7 @@ test_rfc5880_session_recovery() {
 test_rfc5880_frr_admin_down() {
     info "test: RFC 5880 §6.8.6 — FRR AdminDown via shutdown"
 
-    ${DC} exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -867,7 +1076,7 @@ test_rfc5880_frr_admin_down() {
 test_rfc5880_frr_admin_down_recovery() {
     info "test: RFC 5880 §6.8.16 — recovery after FRR AdminDown cleared"
 
-    ${DC} exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -894,7 +1103,7 @@ test_rfc5880_poll_final_parameter_change() {
     final_before="$(tshark_count "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${FRR_IP} && bfd.flags.f == 1")"
 
     # Change FRR transmit interval to trigger Poll Sequence.
-    ${DC} exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -919,7 +1128,7 @@ test_rfc5880_poll_final_parameter_change() {
     fi
 
     # Restore FRR interval.
-    ${DC} exec -T frr vtysh \
+    podman_container_exec frr-interop vtysh \
         -c "configure terminal" \
         -c "bfd" \
         -c "peer ${GOBFD_IP}" \
@@ -942,63 +1151,54 @@ test_rfc5880_jitter_compliance() {
 
     local ok=true
 
-    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "aiobfd:${AIOBFD_IP}" "Thoro:${THORO_IP}"; do
+    for peer_name_ip in "FRR:${FRR_IP}" "BIRD3:${BIRD3_IP}" "Holo:${HOLO_IP}" "Thoro:${THORO_IP}"; do
         local name="${peer_name_ip%%:*}"
         local ip="${peer_name_ip##*:}"
 
-        local epochs
-        epochs="$(tshark_fields \
-            "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip} && bfd.sta == 0x03" \
-            "frame.time_epoch" | head -200)"
-
-        local count
-        count="$(echo "${epochs}" | grep -c '[0-9]' || true)"
-
-        if [ "${count}" -lt 10 ]; then
-            info "${name}: SKIP — insufficient Up packets for jitter analysis (${count})"
+        local jitter_tsv result
+        if ! jitter_tsv="$(tshark_fields \
+            "bfd && ip.src == ${GOBFD_IP} && ip.dst == ${ip}" \
+            "frame.time_epoch" "bfd.sta" "bfd.flags.p" "bfd.flags.f")"; then
+            fail "${name}: tshark failed to read jitter packet fields"
+            ok=false
+            continue
+        fi
+        if ! result="$(printf '%s' "${jitter_tsv}" | \
+            go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter)"; then
+            fail "${name}: native jitter analyzer rejected tshark TSV"
+            ok=false
             continue
         fi
 
-        local result
-        result="$(echo "${epochs}" | python3 -c "
-import sys
-times = [float(line.strip()) for line in sys.stdin if line.strip()]
-if len(times) < 2:
-    print('skip')
-    sys.exit(0)
-# Filter out sub-100ms deltas: state transition artifacts, not steady-state jitter.
-deltas = [times[i+1] - times[i] for i in range(len(times)-1) if times[i+1] - times[i] >= 0.100]
-if len(deltas) < 5:
-    print('skip')
-    sys.exit(0)
-mn, mx = min(deltas), max(deltas)
-print(f'{mn:.3f} {mx:.3f} {len(deltas)}')
-")"
-
-        if [ "${result}" = "skip" ]; then
-            info "${name}: SKIP — insufficient steady-state data"
+        local status reason up_packets min_delta max_delta n_samples extra
+        if [[ "${result}" == *$'\n'* ]]; then
+            fail "${name}: native jitter analyzer returned multiple records"
+            ok=false
+            continue
+        fi
+        IFS=$'\t' read -r status reason up_packets min_delta max_delta n_samples extra <<<"${result}"
+        if [ -n "${extra}" ] || [ -z "${n_samples}" ]; then
+            fail "${name}: native jitter analyzer returned a malformed report"
+            ok=false
             continue
         fi
 
-        local min_delta max_delta n_samples
-        min_delta="$(echo "${result}" | awk '{print $1}')"
-        max_delta="$(echo "${result}" | awk '{print $2}')"
-        n_samples="$(echo "${result}" | awk '{print $3}')"
-
-        info "${name}: inter-packet timing: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
-
-        local min_ok max_ok
-        min_ok="$(python3 -c "print('yes' if ${min_delta} >= 0.150 else 'no')")"
-        max_ok="$(python3 -c "print('yes' if ${max_delta} <= 0.400 else 'no')")"
-
-        if [ "${min_ok}" != "yes" ]; then
-            fail "${name}: min inter-packet interval ${min_delta}s too short (< 150ms)"
-            ok=false
-        fi
-        if [ "${max_ok}" != "yes" ]; then
-            fail "${name}: max inter-packet interval ${max_delta}s too long (> 400ms)"
-            ok=false
-        fi
+        case "${status}" in
+            skip)
+                info "${name}: SKIP — ${reason} (Up packets=${up_packets}, samples=${n_samples})"
+                ;;
+            pass)
+                info "${name}: inter-packet timing: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
+                ;;
+            fail)
+                fail "${name}: jitter ${reason}: min=${min_delta}s max=${max_delta}s samples=${n_samples}"
+                ok=false
+                ;;
+            *)
+                fail "${name}: native jitter analyzer returned unknown status ${status}"
+                ok=false
+                ;;
+        esac
     done
 
     if [ "${ok}" = true ]; then
@@ -1015,18 +1215,18 @@ print(f'{mn:.3f} {mx:.3f} {len(deltas)}')
 test_frr_detection_timeout() {
     info "test: detection timeout — stop FRR"
 
-    ${DC} stop frr
+    podman_container_lifecycle stop frr-interop
     sleep 5
 
-    if ${DC} logs gobfd 2>&1 | grep -q "session state changed.*new_state=Down"; then
+    if podman_container_logs gobfd-interop 2>&1 | grep -q "session state changed.*new_state=Down"; then
         pass "GoBFD detected FRR peer failure (session transitioned to Down)"
     else
         fail "GoBFD did not detect FRR peer failure"
-        ${DC} logs --tail 30 gobfd 2>&1 || true
+        podman_container_logs gobfd-interop --tail 30 2>&1 || true
         return 1
     fi
 
-    ${DC} start frr
+    podman_container_lifecycle start frr-interop
     sleep 5
 
     return 0
@@ -1049,7 +1249,7 @@ test_gobfd_graceful_shutdown() {
     local before
     before="$(tshark_count "bfd && ip.src == ${GOBFD_IP} && bfd.sta == 0x00 && bfd.diag == 0x07")"
 
-    ${DC} stop gobfd
+    podman_container_lifecycle stop gobfd-interop
     sleep 5
 
     # Verify AdminDown packets (state=0, diag=7) were sent.
@@ -1083,7 +1283,7 @@ test_gobfd_graceful_shutdown() {
 echo ""
 echo "========================================="
 echo "  GoBFD Interoperability Tests"
-echo "  FRR 10.2.5 + BIRD3 + aiobfd 0.2 + Thoro/bfd"
+echo "  FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd"
 echo "  RFC 5880/5881 Compliance Suite"
 echo "========================================="
 echo ""
@@ -1092,7 +1292,7 @@ echo ""
 info "=== Phase 1: Handshake ==="
 assert_pass test_frr_handshake
 assert_pass test_bird3_handshake
-assert_pass test_aiobfd_handshake
+assert_pass test_holo_handshake
 assert_pass test_thoro_handshake
 
 # --- Phase 2: Read-only tshark analysis (Groups A, B, C, D-initial, F-handshake) ---
@@ -1123,6 +1323,9 @@ info "=== Phase 2: Initial Diagnostic & Poll/Final ==="
 assert_pass test_rfc5880_diag_zero_initial
 assert_pass test_rfc5880_poll_final_handshake
 
+info "=== Phase 2: Jitter Analysis ==="
+assert_pass test_rfc5880_jitter_compliance
+
 # --- Phase 3: State-changing tests ---
 info "=== Phase 3: Session Independence ==="
 assert_pass test_rfc5880_session_independence
@@ -1141,9 +1344,6 @@ assert_pass test_rfc5880_frr_admin_down_recovery
 info "=== Phase 3: Poll/Final Parameter Change ==="
 assert_pass test_rfc5880_poll_final_parameter_change
 
-info "=== Phase 3: Jitter Analysis ==="
-assert_pass test_rfc5880_jitter_compliance
-
 # --- Phase 4: Detection timeout (original) ---
 info "=== Phase 4: Detection Timeout ==="
 assert_pass test_frr_detection_timeout
@@ -1155,21 +1355,19 @@ test_scapy_fuzzing() {
     local desc="Scapy BFD fuzzing — gobfd survives all invalid packets"
     local scapy_image="gobfd-scapy-fuzz:latest"
 
-    # Clean up leftover container from a previous failed run.
-    podman rm -f scapy-interop 2>/dev/null || true
-
-    # Build scapy image directly (podman-compose "run" tears down the stack).
-    if ! podman build -t "${scapy_image}" \
+    # Build scapy image directly (podman compose "run" tears down the stack).
+    if ! timeout 10m podman build -t "${scapy_image}" \
         -f "${SCRIPT_DIR}/scapy/Containerfile" \
-        "${SCRIPT_DIR}/scapy/" 2>&1; then
+        "${SCRIPT_DIR}/../.." 2>&1; then
         fail "${desc} — scapy image build failed"
         return 1
     fi
 
     # Run on the existing compose network without disturbing other services.
-    if ! podman run --rm \
+    if ! timeout 2m podman run --rm \
         --name scapy-interop \
-        --network interop_bfdnet \
+        --label "${PROJECT_LABEL}" \
+        --network "${INTEROP_PROJECT_NAME}_bfdnet" \
         --ip 172.20.0.40 \
         --cap-add NET_RAW \
         --cap-add NET_ADMIN \
@@ -1180,7 +1378,7 @@ test_scapy_fuzzing() {
     fi
 
     # Verify gobfd is still running after fuzzing.
-    if ! podman ps --format '{{.Names}}' | grep -q gobfd-interop; then
+    if ! "${PODMAN[@]}" ps --format '{{.Names}}' | grep -q gobfd-interop; then
         fail "${desc} — gobfd crashed after scapy fuzzing"
         return 1
     fi

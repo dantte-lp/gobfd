@@ -11,18 +11,28 @@ import (
 type OverlayBackendType string
 
 const (
+	// OverlayBackendUserspaceUDP selects the implemented userspace UDP backend.
 	OverlayBackendUserspaceUDP OverlayBackendType = "userspace-udp"
-	OverlayBackendKernel       OverlayBackendType = "kernel"
-	OverlayBackendOVS          OverlayBackendType = "ovs"
-	OverlayBackendOVN          OverlayBackendType = "ovn"
-	OverlayBackendCilium       OverlayBackendType = "cilium"
-	OverlayBackendCalico       OverlayBackendType = "calico"
-	OverlayBackendNSX          OverlayBackendType = "nsx"
+	// OverlayBackendKernel selects the reserved Linux kernel backend.
+	OverlayBackendKernel OverlayBackendType = "kernel"
+	// OverlayBackendOVS selects the reserved Open vSwitch backend.
+	OverlayBackendOVS OverlayBackendType = "ovs"
+	// OverlayBackendOVN selects the reserved OVN backend.
+	OverlayBackendOVN OverlayBackendType = "ovn"
+	// OverlayBackendCilium selects the reserved Cilium backend.
+	OverlayBackendCilium OverlayBackendType = "cilium"
+	// OverlayBackendCalico selects the reserved Calico backend.
+	OverlayBackendCalico OverlayBackendType = "calico"
+	// OverlayBackendNSX selects the reserved NSX backend.
+	OverlayBackendNSX OverlayBackendType = "nsx"
 )
 
 var (
-	ErrInvalidOverlayBackend      = errors.New("invalid overlay backend")
-	ErrUnsupportedOverlayBackend  = errors.New("unsupported overlay backend")
+	// ErrInvalidOverlayBackend indicates an unrecognized overlay backend.
+	ErrInvalidOverlayBackend = errors.New("invalid overlay backend")
+	// ErrUnsupportedOverlayBackend indicates a recognized backend that is not implemented.
+	ErrUnsupportedOverlayBackend = errors.New("unsupported overlay backend")
+	// ErrInvalidOverlayBackendInput indicates invalid input for an overlay backend.
 	ErrInvalidOverlayBackendInput = errors.New("invalid overlay backend input")
 )
 

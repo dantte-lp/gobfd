@@ -89,6 +89,39 @@ func TestRegisterUnregisterSession(t *testing.T) {
 	}
 }
 
+func TestRegisterSessionPublishesUpDownTransitionBaseline(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+	c := bfdmetrics.NewCollector(reg)
+	peer, local := testPeers()
+	c.RegisterSession(peer, local, "single_hop")
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	for _, family := range families {
+		if family.GetName() != "gobfd_bfd_state_transitions_total" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			labels := make(map[string]string, len(metric.GetLabel()))
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["peer_addr"] == peer.String() && labels["local_addr"] == local.String() &&
+				labels["from_state"] == "Up" && labels["to_state"] == "Down" {
+				if value := metric.GetCounter().GetValue(); value != 0 {
+					t.Fatalf("initial Up->Down transition counter = %v, want 0", value)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("RegisterSession did not publish an initial Up->Down transition counter")
+}
+
 func TestPacketCounters(t *testing.T) {
 	t.Parallel()
 

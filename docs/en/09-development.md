@@ -1,6 +1,6 @@
 # Development
 
-![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![golangci--lint](https://img.shields.io/badge/golangci--lint-v2-1a73e8?style=for-the-badge)
 ![buf](https://img.shields.io/badge/buf-Protobuf-4353FF?style=for-the-badge)
 ![Podman](https://img.shields.io/badge/Podman-Dev_Container-892CA0?style=for-the-badge&logo=podman)
@@ -18,7 +18,7 @@
 - [Testing Strategy](#testing-strategy)
 - [Linting](#linting)
 - [Protobuf Workflow](#protobuf-workflow)
-- [Go 1.26 Features](#go-126-features)
+- [Go 1.27 Baseline](#go-127-baseline)
 - [Code Conventions](#code-conventions)
 - [Contributing](#contributing)
 
@@ -26,7 +26,7 @@
 
 - **Podman** + **Podman Compose** (all commands run inside containers)
 - **Git** for version control
-- Go 1.26 (only needed for local IDE support; builds run in containers)
+- Go 1.27 (only needed for local IDE support; builds run in containers)
 
 > **Important**: All testing, building, scanning, and linting runs inside Podman containers. No local Go toolchain is required for CI-equivalent builds.
 
@@ -55,7 +55,7 @@ make all
 
 ### Make Targets
 
-All Go commands run inside Podman containers via `podman-compose exec`.
+All Go commands run inside Podman containers via `podman compose exec`.
 The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
 the current checkout directory name. Parallel worktrees use distinct default
 project names and can override `COMPOSE_PROJECT_NAME` explicitly.
@@ -109,7 +109,7 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 
 | Target | Description |
 |---|---|
-| `make int-bgp-failover` | BGP fast failover demo (GoBFD + GoBGP + FRR) |
+| `make int-bgp-failover` | Go testcontainers BGP fast-failover gate; the operational Compose example remains available through `-up`, `-logs`, and `-down` |
 | `make int-haproxy` | HAProxy agent-check bridge demo |
 | `make int-observability` | Prometheus + Grafana observability stack |
 | `make int-exabgp-anycast` | ExaBGP anycast service announcement |
@@ -128,6 +128,11 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 | `make osv-scan` | Alias for the controlled vulnerability audit |
 | `make vulncheck-strict` | Run raw `govulncheck ./...` without the project allowlist |
 | `make osv-scan-strict` | Run raw `osv-scanner scan -r .` without the project allowlist |
+
+The controlled audit treats `go.mod` and `tools/go.mod` as separate OSV
+inputs. CI retains the runtime govulncheck/OSV JSON, tools OSV JSON, and
+separate runtime/tools CycloneDX SBOMs in the
+`dependency-security-reports` artifact.
 
 #### Protobuf
 
@@ -154,11 +159,14 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 - **Table-driven** tests for all packages
 - **`t.Parallel()`** where safe (no shared mutable state)
 - **Always** run with `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** in every package for goroutine leak detection
+- **`goleak.VerifyTestMain(m)`** in the six concurrency-heavy packages that
+  own the daemon, protocol, network, metrics, configuration, and integration
+  lifecycles
 
 #### FSM Tests (`testing/synctest`)
 
-Go 1.26 `testing/synctest` enables deterministic time-based testing:
+Go 1.27 `testing/synctest` enables deterministic time-based testing and adds
+`synctest.Sleep` for the common advance-time-and-settle operation:
 
 ```go
 func TestFSMDetectionTimeout(t *testing.T) {
@@ -175,8 +183,7 @@ func TestFSMDetectionTimeout(t *testing.T) {
         require.Equal(t, StateUp, sess.State())
 
         // Detection timeout = 3 x 100ms = 300ms
-        time.Sleep(350 * time.Millisecond) // virtual time
-        synctest.Wait()
+        synctest.Sleep(350 * time.Millisecond)
         require.Equal(t, StateDown, sess.State())
     })
 }
@@ -229,19 +236,86 @@ See [05-interop.md](./05-interop.md) for the 4-peer interop testing framework.
 
 ### Linting
 
-golangci-lint v2 with a strict curated configuration:
+golangci-lint v2.13.1 with a maximum-by-default configuration:
 
 ```bash
 make lint
 ```
 
-Configuration in `.golangci.yml`. Key linters enabled:
+The tool is pinned by the `tool` directive in the isolated `tools/go.mod` module.
+Local linting is container-only: `make lint` reconciles the dev service and
+runs the prebuilt pinned binary inside it. `make lint-ci` is the inner contract
+for CI containers and deliberately refuses to run on the host. The dev service
+defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go runtime soft limit,
+no swap beyond that hard limit, and 1,024 PIDs. Go and golangci-lint caches are
+kept in the disposable container layer. The image includes the C compiler and
+runtime headers required by the Linux Go race detector, so race gates never
+install packages at runtime. All commands built with `go install` use the
+absolute `GOBIN=/go/bin`, and `/go/bin` is part of `PATH`. Override the limits
+only when needed with
+`GOBFD_DEV_CPUS`, `GOBFD_DEV_MEMORY_LIMIT`,
+`GOBFD_DEV_MEMORY_RESERVATION`, `GOBFD_DEV_GOMEMLIMIT`, and
+`GOBFD_DEV_PIDS_LIMIT`.
+
+`.golangci.yml` uses
+`linters.default: all`: 92 signal-bearing linters are enabled, while 20
+maintained linters with no project inputs, duplicate coverage, or documented
+semantic conflicts and two deprecated linters are disabled.
+The CI contract validates the v2 schema, the enabled-linter count, the normal
+build, and every repository-specific build tag independently. Key checks include:
+
 - `gosec` (with `audit: true`) -- security analysis
 - `govet`, `staticcheck`, `errcheck` -- standard Go checks
 - `noctx` -- context propagation checks
 - `exhaustive` -- exhaustive switch/map checks
+- `cyclop`, `gocognit`, `maintidx` -- complexity limits
+- `revive`, `wrapcheck`, `gochecknoglobals`, `mnd`, `lll` -- API, error,
+  state, and source-discipline checks
 - `depguard`, `gomoddirectives` -- dependency hygiene
 - `nolintlint` -- quality of `//nolint` directives
+
+### Python Tooling
+
+The repository has one non-package Python 3.14.7 environment. uv 0.12.6 reads
+the root `.python-version`, `pyproject.toml`, and `uv.lock`; no requirements
+file, pip bootstrap, or independent uv tool environment is supported.
+
+The lock separates Scapy (`peer`), an intentionally empty `runtime` group, and
+the Ruff, ty, Bandit, yamllint, junit2html, and pip-audit toolchain (`quality`)
+while retaining one resolution. Docker Compose is not a Python dependency: the
+official v5.5.0 Go binary is checksum-pinned and selected by `podman compose`.
+
+```bash
+make python-sync
+make python-check
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help
+```
+
+`make python-check` asserts Python 3.14.7, checks the lock and frozen sync, then
+runs lint, type, security, and vulnerability checks over both owned Python
+files. ExaBGP remains an external immutable interop image and is not duplicated
+in the lock.
+
+### Dependency Inventory
+
+The machine-readable supply-chain snapshot lives in
+`docs/supply-chain/dependency-inventory.json`. It covers the complete selected
+runtime and isolated-tool module graphs plus repository-declared tools, GitHub
+Actions, OCI images, and interop daemons. Regenerate it only after completing
+the corresponding release-note, security, license, archive, and pin review:
+
+```bash
+make dependency-inventory
+make dependency-inventory-check
+```
+
+Generation resolves each exact selected Go module version through the stable
+deps.dev v3 API and records exact-commit GitHub evidence where deps.dev has no
+license expression. Immutable OCI records keep registry availability separate
+from their canonical build-source commit and hashed license file. The check is
+offline and fails if either Go module graph, a declared component, a source
+location, evidence binding, or the Go package count drifts from the reviewed
+snapshot.
 
 ### Semgrep
 
@@ -275,13 +349,17 @@ make proto-breaking  # Check for breaking changes vs master
 
 > **NEVER** edit files in `pkg/bfdpb/` manually -- they are generated by `buf generate`.
 
-### Go 1.26 Features
+### Go 1.27 Baseline
 
-GoBFD leverages several Go 1.26 features for safety, performance, and debugging:
+GoBFD uses Go 1.27 while retaining the relevant Go 1.26 safety, performance,
+and debugging APIs.
 
 #### `testing/synctest` -- Deterministic Timer Tests
 
-All BFD timer and detection timeout tests use `testing/synctest` for virtual-time execution. Tests run instantly (no real sleeps) and are fully deterministic. See [FSM Tests](#fsm-tests-testingsynctest) above.
+All BFD timer and detection timeout tests use `testing/synctest` for
+virtual-time execution. An adjacent `time.Sleep` plus `synctest.Wait` is written
+as `synctest.Sleep`; real E2E and interoperability waits remain context-bounded
+wall-clock waits. See [FSM Tests](#fsm-tests-testingsynctest) above.
 
 #### `os.Root` -- Sandboxed File Access
 
@@ -307,9 +385,12 @@ if connectErr, ok := errors.AsType[*connect.Error](err); ok {
 }
 ```
 
-#### `GOEXPERIMENT=goroutineleakprofile`
+#### Goroutine Leak Diagnostics
 
-The dev container (`Containerfile.dev`) enables the goroutine leak profiler experiment. Combined with `goleak.VerifyTestMain(m)` in test packages, this provides runtime detection of leaked goroutines during development.
+Go 1.27 provides the `goroutineleak` runtime profile without an experiment
+flag. Automated tests continue to use `go.uber.org/goleak` in six
+concurrency-heavy packages. These are separate mechanisms; GoBFD does not
+register the complete `net/http/pprof` handler set on its public metrics mux.
 
 #### `runtime/trace.FlightRecorder`
 
@@ -317,7 +398,19 @@ An HTTP endpoint exposes the flight recorder for post-mortem trace capture. When
 
 #### Swiss Tables
 
-Go 1.26 uses Swiss tables as the default `map` implementation. GoBFD's discriminator lookup, FSM transition table, and session demuxing benefit from improved cache locality. See [BENCHMARKS.md](../../BENCHMARKS.md) for comparison with `GOEXPERIMENT=noswissmap`.
+Go 1.26 introduced Swiss tables as the default `map` implementation. GoBFD's
+discriminator lookup, FSM transition table, and session demuxing benefit from
+improved cache locality. Go 1.27 removes the former `noswissmap` diagnostic
+experiment, so it must not appear in build or benchmark commands.
+
+#### HTTP and JSON Compatibility
+
+Both public HTTP servers set the same explicit `MaxHeaderValueCount` while
+retaining `ReadHeaderTimeout`, and parser-level tests cover the accepted and
+rejected boundaries. Go 1.27 backs the existing `encoding/json` API with the v2
+implementation; compatibility tests cover duplicate object members and invalid
+UTF-8 in the CLI, Podman, FRR, and vulnerability-audit paths without matching
+exact error strings.
 
 ### Code Conventions
 
@@ -338,9 +431,9 @@ Go 1.26 uses Swiss tables as the default `map` implementation. GoBFD's discrimin
 ### Contributing
 
 1. Open an issue to discuss the change before submitting a PR
-2. Follow the existing code style (see `CLAUDE.md` for conventions)
+2. Follow the existing code style (see `AGENTS.md` for conventions)
 3. Add tests for new functionality (`go test ./... -race -count=1`)
-4. Ensure `golangci-lint run ./...` passes
+4. Ensure `make lint` passes
 5. Run `buf lint` if proto files are modified
 6. Keep commit messages descriptive and concise
 
@@ -362,8 +455,8 @@ make proto-lint   # Lint proto definitions
 
 - [01-architecture.md](./01-architecture.md) -- System architecture and package structure
 - [05-interop.md](./05-interop.md) -- Interoperability testing
-- [CLAUDE.md](../../CLAUDE.md) -- Full code conventions and commands
+- [AGENTS.md](../../AGENTS.md) -- Full code conventions and commands
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-08-19*

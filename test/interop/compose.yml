@@ -1,4 +1,4 @@
-# Interoperability test stack: GoBFD <-> FRR <-> BIRD3 <-> aiobfd <-> Thoro/bfd
+# Interoperability test stack: GoBFD <-> FRR <-> BIRD3 <-> Holo <-> Thoro/bfd
 #
 # All containers share a custom bridge network (172.20.0.0/24)
 # with static IP assignments:
@@ -6,20 +6,21 @@
 #   - frr:     172.20.0.20
 #   - bird3:   172.20.0.30
 #   - scapy:   172.20.0.40  (BFD protocol fuzzer, runs once and exits)
-#   - aiobfd:  172.20.0.50  (Python asyncio BFD peer, no auth)
+#   - holo:    172.20.0.50  (Holo BFD peer, no auth)
 #   - thoro:   172.20.0.60  (Go BFD peer, no auth — auth verify not implemented)
 #
 # BFD single-hop sessions are established between gobfd and each peer.
 # RFC 5881: destination port 3784, source port 49152-65535, TTL=255.
 #
 # tshark captures all BFD traffic to /captures/ for offline analysis.
-# Live decode:  podman exec tshark-interop tshark -r /captures/bfd.pcapng -V -Y bfd
-# Live capture: podman exec tshark-interop tshark -i any -f "udp port 3784" -V
+# Decode saved packets: make interop-pcap
+# Start a guarded live capture: make interop-capture
 #
-# Usage:
-#   podman-compose -f test/interop/compose.yml up --build -d
-#   podman-compose -f test/interop/compose.yml logs -f
-#   podman-compose -f test/interop/compose.yml down
+# Usage (project ownership and cleanup are enforced by projectctl.sh):
+#   make interop
+#   make interop-up
+#   make interop-logs
+#   make interop-down
 
 services:
   gobfd:
@@ -34,12 +35,15 @@ services:
     volumes:
       - ./gobfd/gobfd.yml:/etc/gobfd/gobfd.yml:ro,z
     command: ["-config", "/etc/gobfd/gobfd.yml"]
+    depends_on:
+      holo-config:
+        condition: service_completed_successfully
     networks:
       bfdnet:
         ipv4_address: 172.20.0.10
 
   frr:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-interop
     cap_add:
       - NET_RAW
@@ -77,24 +81,37 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    volumes:
-      - captures:/captures:z
 
-  aiobfd:
-    build:
-      context: ./aiobfd
-      dockerfile: Containerfile
-    container_name: aiobfd-interop
-    depends_on:
-      - gobfd
+  holo:
+    image: ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a
+    container_name: holo-interop
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    # aiobfd <local> <remote> --rx-interval <ms> --tx-interval <ms> --detect-mult <N>
-    command: ["172.20.0.50", "172.20.0.10", "-r", "300", "-t", "300", "-m", "3", "-l", "DEBUG"]
+    volumes:
+      - ./holo/holod.toml:/etc/holod.toml:ro,z
     networks:
       bfdnet:
         ipv4_address: 172.20.0.50
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -ltn | grep -q ':50051 '"]
+      interval: 1s
+      timeout: 1s
+      retries: 15
+      start_period: 2s
+
+  holo-config:
+    image: ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a
+    container_name: holo-config-interop
+    volumes:
+      - ./holo/holo.startup:/etc/holo.startup:ro,z
+    depends_on:
+      holo:
+        condition: service_healthy
+    entrypoint: holo-cli
+    command: ["--address", "http://holo:50051", "--file", "/etc/holo.startup"]
+    networks:
+      bfdnet:
 
   thoro:
     build:
@@ -114,8 +131,8 @@ services:
 
   scapy:
     build:
-      context: ./scapy
-      dockerfile: Containerfile
+      context: ../..
+      dockerfile: test/interop/scapy/Containerfile
     container_name: scapy-interop
     depends_on:
       - gobfd
@@ -129,9 +146,6 @@ services:
         ipv4_address: 172.20.0.40
     profiles:
       - fuzz
-
-volumes:
-  captures:
 
 networks:
   bfdnet:

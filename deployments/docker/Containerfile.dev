@@ -1,25 +1,52 @@
-ARG GO_VERSION=1.26.3
-ARG GOLANGCI_LINT_VERSION=v2.12.1
-ARG GOPLS_VERSION=v0.21.1
-ARG GOVULNCHECK_VERSION=v1.3.0
-ARG OSV_SCANNER_VERSION=v2.3.5
-ARG NODE_MAJOR=22
+ARG BUF_VERSION=v1.72.0
+ARG PROTOC_GEN_GO_VERSION=v1.36.12
+ARG PROTOC_GEN_CONNECT_GO_VERSION=v1.20.0
+ARG GOPLS_VERSION=v0.23.0
+ARG GOVULNCHECK_VERSION=v1.7.0
+ARG OSV_SCANNER_VERSION=v2.5.1
+ARG BENCHSTAT_VERSION=v0.0.0-20260825160852-19be9d8e6c70
+ARG GOTESTSUM_VERSION=v1.13.0
+ARG DOCKER_COMPOSE_VERSION=5.5.0
+ARG NODE_MAJOR=24
+ARG NODE_VERSION=24.19.0
+ARG MARKDOWNLINT_VERSION=0.23.2
+ARG CSPELL_VERSION=10.1.1
+ARG COMMITLINT_VERSION=21.2.2
 
-FROM docker.io/golang:${GO_VERSION}-trixie AS dev
+FROM ghcr.io/astral-sh/uv:0.12.6@sha256:88bc6eb1ccd4b82efd0e1b530caffabddf50dc2bf612e66c14ea25b8ee8a4d3d AS uv
 
-ARG GOLANGCI_LINT_VERSION
+FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS go-toolchain
+
+FROM docker.io/library/python:3.14.7-slim-trixie@sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83 AS dev
+
+ARG BUF_VERSION
+ARG PROTOC_GEN_GO_VERSION
+ARG PROTOC_GEN_CONNECT_GO_VERSION
 ARG GOPLS_VERSION
 ARG GOVULNCHECK_VERSION
 ARG OSV_SCANNER_VERSION
+ARG BENCHSTAT_VERSION
+ARG GOTESTSUM_VERSION
+ARG DOCKER_COMPOSE_VERSION
 ARG NODE_MAJOR
+ARG NODE_VERSION
+ARG MARKDOWNLINT_VERSION
+ARG CSPELL_VERSION
+ARG COMMITLINT_VERSION
 
-ENV GOEXPERIMENT=goroutineleakprofile \
-    GOFLAGS="-buildvcs=false" \
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+ENV GOFLAGS="-buildvcs=false" \
     GOCACHE=/tmp/go-cache \
     GOMODCACHE=/go/pkg/mod \
-    NPM_CONFIG_UPDATE_NOTIFIER=false \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    DEBIAN_FRONTEND=noninteractive
+	NPM_CONFIG_UPDATE_NOTIFIER=false \
+	UV_PROJECT_ENVIRONMENT=/opt/gobfd-python/.venv \
+	PODMAN_COMPOSE_PROVIDER=/usr/local/bin/docker-compose \
+	PODMAN_COMPOSE_WARNING_LOGS=false \
+	DOCKER_BUILDKIT=0 \
+	DEBIAN_FRONTEND=noninteractive \
+	PATH=/usr/local/go/bin:/opt/gobfd-python/.venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Build tools and certificates
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -31,15 +58,21 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         ca-certificates \
         tzdata \
         make \
+        gcc \
+        libc6-dev \
         bash \
         curl \
         jq \
         podman \
-        podman-compose \
         gnupg \
-        python3 \
-        python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Docker Compose v5 Go provider for `podman compose`.
+COPY scripts/install-compose-provider.sh /tmp/install-compose-provider.sh
+RUN DOCKER_COMPOSE_VERSION="${DOCKER_COMPOSE_VERSION}" \
+        COMPOSE_INSTALL_DIR=/usr/local/bin \
+        /tmp/install-compose-provider.sh \
+    && unlink /tmp/install-compose-provider.sh
 
 # Node.js (npm-based documentation linters and commitlint).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -51,20 +84,29 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
         > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends "nodejs=${NODE_VERSION}-1nodesource1" \
     && rm -rf /var/lib/apt/lists/*
 
+# Keep every Go-installed development command in one shared, discoverable path.
+ENV GOBIN=/go/bin
+ENV PATH=/go/bin:${PATH}
+
 # buf CLI — protobuf toolchain
-RUN go install github.com/bufbuild/buf/cmd/buf@latest
+RUN go install github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}
 
 # protoc-gen-go — Go protobuf code generator
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}
 
 # protoc-gen-connect-go — ConnectRPC code generator
-RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest
+RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO_VERSION}
 
-# golangci-lint v2 — strict linting
-RUN go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+# golangci-lint v2 — build through the isolated tools module so its analyzer
+# closure cannot change the GoBFD runtime module's Minimal Version Selection.
+WORKDIR /tmp/gobfd-tools
+COPY tools/go.mod tools/go.sum ./
+RUN go mod download \
+    && go build -o /go/bin/golangci-lint \
+        github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 # gopls — official Go language server diagnostics for editor-parity checks
 RUN go install golang.org/x/tools/gopls@${GOPLS_VERSION}
@@ -76,24 +118,25 @@ RUN go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 RUN go install github.com/google/osv-scanner/v2/cmd/osv-scanner@${OSV_SCANNER_VERSION}
 
 # benchstat — statistical comparison of Go benchmarks
-RUN go install golang.org/x/perf/cmd/benchstat@latest
+RUN go install golang.org/x/perf/cmd/benchstat@${BENCHSTAT_VERSION}
 
 # gotestsum — Go test runner with JUnit XML / JSON output
-RUN go install gotest.tools/gotestsum@latest
+RUN go install gotest.tools/gotestsum@${GOTESTSUM_VERSION}
 
 # npm-based documentation linters.
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g \
-        markdownlint-cli2@latest \
-        cspell@latest \
-        @commitlint/cli@latest \
-        @commitlint/config-conventional@latest
+        markdownlint-cli2@${MARKDOWNLINT_VERSION} \
+        cspell@${CSPELL_VERSION} \
+        @commitlint/cli@${COMMITLINT_VERSION} \
+        @commitlint/config-conventional@${COMMITLINT_VERSION}
 
-# Python tooling: yamllint and JUnit XML to standalone HTML report.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --break-system-packages --no-cache-dir \
-        yamllint \
-        junit2html
+# Python tooling uses the repository's single frozen lock. Compose is the
+# separately checksum-pinned Go provider installed above.
+WORKDIR /opt/gobfd-python
+COPY pyproject.toml uv.lock .python-version ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-default-groups --group quality
 
 # Module cache warm-up happens on first `go mod download`
 WORKDIR /app

@@ -11,12 +11,12 @@ jobs:
     permissions:
       contents: read
     container:
-      image: golang:1.26.3-trixie
+      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Cache Go modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -40,7 +40,7 @@ jobs:
         run: go test -buildvcs=false ./... -race -count=1
 
       - name: Lint
-        run: go tool golangci-lint run ./...
+        run: make lint-ci
 
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go
@@ -51,32 +51,34 @@ jobs:
     permissions:
       contents: read
     container:
-      image: golang:1.26.3-trixie
+      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Cache Go modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Install report tools
         run: |
-          apt-get update && apt-get install -y --no-install-recommends python3-pip
-          pip install --break-system-packages --no-cache-dir --only-binary=:all: junit2html==31.0.5
+          apt-get update && apt-get install -y --no-install-recommends ca-certificates coreutils curl tar
+          UV_INSTALL_DIR=/usr/local/bin .github/scripts/install-uv.sh
+          uv sync --frozen --no-default-groups --group quality
 
       - name: Run tests with JUnit output
         run: |
           mkdir -p reports/tests
-          go tool gotestsum \
+          go tool -modfile=tools/go.mod gotestsum \
             --junitfile reports/tests/unit-report.xml \
             --jsonfile reports/tests/unit-report.json \
             --format short-verbose \
             -- -buildvcs=false ./... -race -count=1
-          junit2html reports/tests/unit-report.xml reports/tests/unit-report.html
+          uv run --frozen --no-default-groups --group quality -- \
+            junit2html reports/tests/unit-report.xml reports/tests/unit-report.html
 
       - name: Run benchmarks
         run: |
@@ -103,7 +105,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
           if [ -f testdata/benchmarks/baseline.txt ]; then
-            go tool benchstat testdata/benchmarks/baseline.txt \
+            go tool -modfile=tools/go.mod benchstat testdata/benchmarks/baseline.txt \
               "testdata/benchmarks/${VERSION}/benchmark.txt" \
               | tee reports/benchmarks/comparison-vs-baseline.txt
             {
@@ -141,14 +143,14 @@ jobs:
       contents: write
       packages: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.3"
+          go-version: "1.27.0"
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -181,13 +183,13 @@ jobs:
           cat release-notes.md
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -197,7 +199,7 @@ jobs:
         id: syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          syft-version: v1.43.0
+          syft-version: v1.51.0
 
       - name: Add Syft to PATH
         run: |
@@ -206,10 +208,10 @@ jobs:
           echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: v2.18.0
           args: release --clean --parallelism=1 --release-notes=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

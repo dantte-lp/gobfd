@@ -29,7 +29,7 @@
 
 GoBFD интегрируется с системами маршрутизации, балансировки нагрузки, мониторинга и оркестрации для обеспечения обнаружения сбоев за доли секунды. Каждый пример интеграции — самодостаточный запускаемый стек в директории `deployments/integrations/`.
 
-Все стеки используют **podman-compose** с OCI-контейнерами и включают sidecar-контейнер **tshark** для захвата BFD-пакетов и проверки соответствия RFC.
+Все стеки используют **podman compose** с OCI-контейнерами и включают sidecar-контейнер **tshark** для захвата BFD-пакетов и проверки соответствия RFC.
 
 | # | Интеграция | Компоненты | Подсеть | Новый код |
 |---|-----------|-----------|---------|-----------|
@@ -80,10 +80,10 @@ graph LR
 ### Быстрый старт
 
 ```bash
-# Полное демо (сборка, запуск, тест переключения, очистка)
+# Автоматизированный Go testcontainers gate с артефактами и точной очисткой
 make int-bgp-failover
 
-# Пошагово
+# Операционный Compose-пример, пошагово
 make int-bgp-failover-up     # Запуск топологии
 make int-bgp-failover-logs   # Просмотр логов
 make int-bgp-failover-down   # Очистка
@@ -377,7 +377,7 @@ podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
 | Наблюдаемость | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | Anycast ExaBGP | 172.24.0.0/24 | gobgp, gobfd, exabgp, tshark | — |
 | Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
-| **Interop: Базовый** | 10.99.0.0/24 | gobfd, frr, bird3, aiobfd, thoro, tshark | — |
+| **Interop: Базовый** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
 | **Interop: Вендоры** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco deferred | — |

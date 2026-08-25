@@ -31,7 +31,7 @@
 | Build | `go build ./...` | 0 errors |
 | Vet | `go vet ./...` | 0 issues |
 | Race tests | `go test -race -count=1 ./...` | all PASS |
-| Lint | `golangci-lint run` | 0 issues |
+| Lint | `make lint` | v2 schema, 92 signal-bearing linters, default and all build tags: 0 issues |
 | Coverage | `go test -cover ./...` | per-package not lower than baseline |
 | Proto lint | `buf lint` | 0 issues |
 | Proto break | `buf breaking --against '.git#branch=master'` | none unless explicit major bump |
@@ -64,7 +64,7 @@
 |---|---|---|---|---|
 | R8 | Talos / Cilium API drift breaks integrations. | M | M | Integrations live in `deployments/integrations/`, not `internal/`. CI matrix targets stable upstream tags. |
 | R9 | Podman-only CI forces Docker users to docker compatibility shim. | L | L | Document `docker compose -f deployments/...` as community-supported alternative; do not ship as primary. |
-| R10 | Go 1.26 too fresh for downstream distros. | M | M | Re-evaluate before `v1.0.0`. Possible relax to Go 1.24 LTS. |
+| R10 | Go 1.27 unavailable in downstream distros. | M | M | Build with the pinned Go 1.27 OCI toolchain; do not relax the module baseline without a separate compatibility decision. |
 | R11 | mTLS adds onboarding friction. | L | M | Ship in optional mode; default loopback bind preserves current UX. |
 | R12 | New RPCs break early API consumers. | M | H | Old `AddSession` keeps current semantics with a `Deprecated:` comment; new RPCs ship alongside, removable in v2. |
 
@@ -119,7 +119,7 @@ graph LR
 | Phase | 6 — API completeness |
 | Target version | `v0.6.0-rc.1` |
 | RFC sources | RFC 5880 §6.8.1 (timer/discriminator init), RFC 7130 (Micro-BFD), RFC 8971 (VXLAN BFD), RFC 9521 (Geneve BFD), RFC 9747 (unaffiliated Echo) |
-| Internal sources | `api/v1/bfd.proto`, `internal/server/server.go`, `internal/bfd/manager_*.go`, `cmd/gobfdctl/commands/` |
+| Internal sources | `api/bfd/v1/bfd.proto`, `internal/server/server.go`, `internal/bfd/manager_*.go`, `cmd/gobfdctl/commands/` |
 | External sources | ConnectRPC service patterns (context7), Cobra subcommand patterns (context7), Buf v2 lint rules |
 
 ### Goal
@@ -130,7 +130,7 @@ service surfaces the parameters required by its own RFC.
 
 ### Deliverables
 
-1. `api/v1/bfd.proto` — three new services: `EchoService`,
+1. `api/bfd/v1/bfd.proto` — three new services: `EchoService`,
    `MicroBFDService`, `OverlayService` (with `Vxlan` and `Geneve`
    methods).
 2. `pkg/bfdpb/` — regenerated via `buf generate`.
@@ -157,7 +157,7 @@ service surfaces the parameters required by its own RFC.
 | # | Task | Output |
 |---|---|---|
 | S12.1 | Audit proto surface and reject logic. | Sprint notes; baseline understanding. |
-| S12.2 | Design `EchoService.AddEchoSession` etc. | Updated `api/v1/bfd.proto`. |
+| S12.2 | Design `EchoService.AddEchoSession` etc. | Updated `api/bfd/v1/bfd.proto`. |
 | S12.3 | `buf generate`. | Regenerated `pkg/bfdpb/`. |
 | S12.4 | Server handlers. | `internal/server/echo.go`, `internal/server/micro.go`, `internal/server/overlay.go`. |
 | S12.5 | CLI commands. | `cmd/gobfdctl/commands/echo.go`, `micro.go`, `overlay.go`. |

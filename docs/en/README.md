@@ -4,7 +4,7 @@
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-> Canonical technical documentation for **GoBFD** -- a production-oriented BFD protocol daemon (RFC 5880/5881) written in Go 1.26.
+> Canonical technical documentation for **GoBFD** -- a production-oriented BFD protocol daemon (RFC 5880/5881) written in Go 1.27.
 
 ---
 
@@ -117,7 +117,7 @@ graph TD
 | # | Document | Description |
 |---|---|---|
 | 12 | [**Benchmarks**](./12-benchmarks.md) | How to run, read, and interpret benchmark results |
-| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, aiobfd, hardware platforms |
+| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, Holo, hardware platforms |
 | 14 | [**Performance Analysis**](./14-performance-analysis.md) | GoBFD vs C implementations: benchmarks, architecture, CPU load behavior |
 
 ### Architecture Decision Records

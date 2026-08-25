@@ -16,8 +16,8 @@ mkdir -p "${REPORT_DIR}"
 : >"${REPORT_DIR}/go-test.json"
 : >"${REPORT_DIR}/go-test.log"
 
-DC=(podman-compose -f "${COMPOSE_FILE}")
-DEV_DC=(podman-compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
+DC=(podman compose -f "${COMPOSE_FILE}")
+DEV_DC=(podman compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
 
 collect_artifacts() {
     "${DC[@]}" logs >"${REPORT_DIR}/containers.log" 2>&1 || true

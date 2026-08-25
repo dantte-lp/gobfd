@@ -3,9 +3,16 @@ services:
     build:
       context: ../..
       dockerfile: deployments/docker/Containerfile.dev
+    # Keep repository quality gates from competing with unrelated host jobs.
+    # Go 1.27 derives its default GOMAXPROCS from this cgroup CPU quota.
+    cpus: "${GOBFD_DEV_CPUS:-4.0}"
+    mem_limit: "${GOBFD_DEV_MEMORY_LIMIT:-8g}"
+    mem_reservation: "${GOBFD_DEV_MEMORY_RESERVATION:-4g}"
+    memswap_limit: "${GOBFD_DEV_MEMORY_LIMIT:-8g}"
+    pids_limit: ${GOBFD_DEV_PIDS_LIMIT:-1024}
     volumes:
       - ../..:/app:z
-      - ${PODMAN_SOCKET_PATH:-/run/podman/podman.sock}:/run/podman/podman.sock:z
+      - ${PODMAN_SOCKET_PATH:-/run/podman/podman.sock}:/run/podman/podman.sock
     working_dir: /app
     command: sleep infinity
     # BFD requires raw sockets for UDP with IP headers
@@ -24,5 +31,9 @@ services:
       GOFLAGS: "-buildvcs=false"
       GOCACHE: /tmp/go-cache
       GOMODCACHE: /go/pkg/mod
+      GOMEMLIMIT: "${GOBFD_DEV_GOMEMLIMIT:-6GiB}"
+      GOLANGCI_LINT: /go/bin/golangci-lint
+      GOLANGCI_LINT_CACHE: /tmp/golangci-lint-cache
       CONTAINER_HOST: "unix:///run/podman/podman.sock"
+      DOCKER_HOST: "unix:///run/podman/podman.sock"
       PODMAN_HOST: "unix:///run/podman/podman.sock"

@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
@@ -265,7 +265,7 @@ type agentConfig struct {
 }
 
 func loadConfig(path string) (*agentConfig, error) {
-	// Go 1.26 os.Root: sandboxed file access to prevent path traversal.
+	// os.Root provides sandboxed file access to prevent path traversal.
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 	root, err := os.OpenRoot(dir)

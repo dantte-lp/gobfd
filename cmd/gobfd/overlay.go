@@ -361,7 +361,7 @@ func buildOverlaySessionConfig(
 	if detectMult == 0 {
 		detectMult = defaults.detectMult
 	}
-	if detectMult > 255 {
+	if detectMult > maxBFDWireUint8 {
 		return bfd.SessionConfig{}, fmt.Errorf("detect_mult %d: %w", detectMult, errDetectMultOverflow)
 	}
 

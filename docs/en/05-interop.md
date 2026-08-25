@@ -1,12 +1,13 @@
 # Interoperability Testing
 
-![FRR](https://img.shields.io/badge/FRR-bfdd-dc3545?style=for-the-badge)
-![BIRD3](https://img.shields.io/badge/BIRD3-BFD-28a745?style=for-the-badge)
-![aiobfd](https://img.shields.io/badge/aiobfd-Python-ffc107?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
+![BIRD3](https://img.shields.io/badge/BIRD3-3.3.2-28a745?style=for-the-badge)
+![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
 ![Thoro](https://img.shields.io/badge/Thoro%2Fbfd-Go-6f42c1?style=for-the-badge)
 ![tshark](https://img.shields.io/badge/tshark-Capture-1a73e8?style=for-the-badge)
 
-> 4-peer interoperability testing with FRR, BIRD3, aiobfd, and Thoro/bfd in a containerized Podman topology with packet capture.
+> Mandatory four-peer interoperability testing with FRR 10.7.0, BIRD 3.3.2,
+> Holo 0.9.0, and Thoro/bfd in a Podman topology with packet capture.
 
 ---
 
@@ -23,42 +24,55 @@
 
 ### Overview
 
-GoBFD is tested against four independent BFD implementations to verify protocol compliance and interoperability. All peers run in a containerized Podman network, enabling reproducible automated testing.
+GoBFD is tested against four independent BFD implementations. The mandatory
+base gate runs on `linux/amd64` because Holo publishes an official amd64 image
+but no multi-architecture manifest. GoBGP and ExaBGP belong to the separate
+BGP+BFD suite and are not counted as base peers.
 
 ### Test Topology
 
 ```mermaid
 graph LR
-    subgraph "10.99.0.0/24 (podman network)"
-        GOBFD["GoBFD<br/>10.99.0.10<br/>Go 1.26"]
-        FRR["FRR<br/>10.99.0.2<br/>bfdd"]
-        BIRD["BIRD3<br/>10.99.0.3<br/>BFD proto"]
-        AIOBFD["aiobfd<br/>10.99.0.4<br/>Python"]
-        THORO["Thoro/bfd<br/>10.99.0.5<br/>Go"]
+    subgraph "172.20.0.0/24 (Podman network)"
+        GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
+        FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
+        BIRD["BIRD 3.3.2<br/>172.20.0.30<br/>BFD protocol"]
+        HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
+        LOADER["holo-config<br/>one-shot YANG loader"]
+        THORO["Thoro/bfd<br/>172.20.0.60<br/>Go"]
         TSHARK["tshark<br/>capture"]
     end
 
     GOBFD <--> FRR
     GOBFD <--> BIRD
-    GOBFD <--> AIOBFD
+    GOBFD <--> HOLO
     GOBFD <--> THORO
+    LOADER -.->|holo-cli over gRPC| HOLO
     TSHARK -.->|monitor| GOBFD
 
     style GOBFD fill:#1a73e8,color:#fff
     style FRR fill:#dc3545,color:#fff
     style BIRD fill:#28a745,color:#fff
-    style AIOBFD fill:#ffc107,color:#000
+    style HOLO fill:#fc8d62,color:#000
+    style LOADER fill:#fc8d62,color:#000
     style THORO fill:#6f42c1,color:#fff
 ```
 
 ### Peer Implementations
 
-| Peer | Implementation | Language | BFD Support | RFC |
-|---|---|---|---|---|
-| [FRR](https://frrouting.org/) | bfdd | C | Full | 5880, 5881, 5883 |
-| [BIRD3](https://bird.network.cz/) | BFD protocol | C | Core | 5880, 5881 |
-| [aiobfd](https://github.com/netedgeplus/aiobfd) | AsyncIO daemon | Python | Core | 5880, 5881 |
-| [Thoro/bfd](https://github.com/Thoro/bfd) | gRPC daemon | Go | Core | 5880, 5881 |
+| Peer | Version | Implementation | Language | Documented RFC coverage |
+|---|---:|---|---|---|
+| [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
+| [BIRD3](https://bird.network.cz/) | 3.3.2 | BFD protocol | C | 5880, 5881, 5882, 5883 |
+| [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
+| [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
+
+Holo uses the immutable official image digest recorded in `compose.yml`. The
+daemon starts with `holo/holod.toml`; a healthy-gated, one-shot `holo-config`
+service then applies `holo/holo.startup` through `holo-cli`. The YANG values are
+microseconds: `300000` for both transmit and receive intervals with multiplier
+`3`, producing the negotiated 300 ms interval and 900 ms detection time. The
+loader has no fixed address and is not a fifth peer.
 
 ### Running Interop Tests
 
@@ -69,7 +83,22 @@ graph LR
 make interop
 ```
 
-This runs `test/interop/run.sh` which handles the complete lifecycle.
+This runs `test/interop/run.sh`, which validates exact project ownership,
+requires the Holo loader to exit with status zero, runs the tests, and removes
+only resources carrying that project label.
+
+#### Go testcontainers Lifecycle Gate
+
+```bash
+make interop-testcontainers
+```
+
+This migration gate creates the static-IP network, GoBFD, FRR, BIRD3, Holo,
+Thoro/bfd, and tshark directly through the Podman testcontainers provider. It
+runs the same Go assertions, retains the packet capture under
+`reports/e2e/interop-testcontainers`, and verifies removal of every test-owned
+container, network, and image. The legacy full-cycle runner remains available
+until the testcontainers path completes independent parity review.
 
 #### Step by Step
 
@@ -111,10 +140,10 @@ The interop tests (`test/interop/interop_test.go`) verify:
 ```mermaid
 sequenceDiagram
     participant T as Test Runner
-    participant G as GoBFD (10.99.0.10)
-    participant F as FRR (10.99.0.2)
+    participant G as GoBFD (172.20.0.10)
+    participant F as FRR (172.20.0.20)
 
-    T->>G: Create session (peer=10.99.0.2)
+    T->>G: Create session (peer=172.20.0.20)
     G->>F: Control(State=Down)
     F->>G: Control(State=Down)
     Note over G: Down -> Init
@@ -154,14 +183,10 @@ make interop-pcap-summary
 | Containers fail to start | Check `podman network inspect` for IP conflicts |
 | Sessions stuck in Down | Verify `CAP_NET_RAW` is available in containers |
 | tshark no data | Ensure the shared network interface is configured |
-| Tests timeout | Increase timeout: `make interop-test TIMEOUT=600s` |
 
 ```bash
-# View all container logs
+# View project-owned container logs through the guarded target
 make interop-logs
-
-# Inspect a specific container
-podman logs gobfd-interop
 ```
 
 ---
@@ -227,17 +252,19 @@ Each scenario tests three phases:
 ### Running BGP+BFD Tests
 
 ```bash
-# Full cycle (recommended)
-make interop-bgp
+# Authoritative routing aggregate with owned artifacts and cleanup
+make e2e-routing
 
-# Step by step
-make interop-bgp-up       # Start the BGP+BFD topology
-make interop-bgp-test     # Run Go tests
-make interop-bgp-down     # Cleanup
-
-# View logs
-make interop-bgp-logs
+# Migration gate: Go owns the Podman lifecycle through testcontainers
+make interop-bgp-testcontainers
 ```
+
+The migration gate creates the static network, both GoBFD instances, GoBGP
+v3.37.0, FRR 10.7.0, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
+the Podman provider. It runs the same establish, failure, route-withdrawal, and
+recovery assertions, saves a non-empty packet capture, and proves removal of
+all test-owned containers, network, and locally built images. The legacy
+runner remains available until independent parity review and remote CI pass.
 
 ### Key Design: Shared Network Namespaces
 
@@ -293,7 +320,7 @@ graph LR
     style TSHARK fill:#6c757d,color:#fff
 ```
 
-### Containers (7)
+### Containers (8)
 
 | Container | IP | Role |
 |---|---|---|
@@ -304,6 +331,7 @@ graph LR
 | `gobgp-rfc` | (shared netns) | GoBGP ASN 65101 for BGP Cease testing |
 | `frr-rfc-bgp` | 172.22.0.40 | FRR BGP+BFD peer for RFC 9384 |
 | `frr-rfc-unsolicited` | 172.22.0.50 | FRR BFD peer with no pre-configured session on GoBFD |
+| `echo-reflector` | 172.22.0.60 | Independent UDP echo reflector for RFC 9747 |
 
 ### Test Results
 
@@ -312,20 +340,16 @@ graph LR
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD configures 80ms timers; with `align_intervals: true`, negotiated interval should be aligned to 100ms. Verified via tshark capture of `DesiredMinTxInterval` field on the wire. | **PASS** |
 | `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. GoBGP logs contain "BFD Down (RFC 9384 Cease/10)". | **PASS** |
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) sends BFD packets to GoBFD. No pre-configured session exists. GoBFD auto-creates a passive session per unsolicited policy. Session reaches Up. Pause FRR → session goes Down → cleanup. | **PASS** |
+| `TestRFC9747_EchoSession` | 9747 | GoBFD echo reaches Up through the independent reflector; pause and recovery prove echo failure detection and restoration. | **PASS** |
 
 ### Running RFC Interop Tests
 
+Use the Go-owned Podman lifecycle for live validation. It resolves every
+runtime operation to an immutable container ID and retains the legacy runner
+only for parity during the migration:
+
 ```bash
-# Full cycle (recommended)
-make interop-rfc
-
-# Step by step
-make interop-rfc-up       # Start 7-container topology
-make interop-rfc-test     # Run Go tests
-make interop-rfc-down     # Cleanup
-
-# View logs
-make interop-rfc-logs
+make interop-rfc-testcontainers
 ```
 
 ---
@@ -333,10 +357,10 @@ make interop-rfc-logs
 ## Vendor NOS Interoperability (Containerlab)
 
 ![Nokia](https://img.shields.io/badge/Nokia-SR_Linux-124191?style=for-the-badge)
-![FRR](https://img.shields.io/badge/FRR-10.2.5-dc3545?style=for-the-badge)
+![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
 ![Arista](https://img.shields.io/badge/Arista-cEOS-2962FF?style=for-the-badge)
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
-![containerlab](https://img.shields.io/badge/containerlab-0.73-1a73e8?style=for-the-badge)
+![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
 
 > Multi-vendor BFD interoperability testing against commercial/enterprise NOS containers. Validates RFC 5880/5881/5882 compliance against independent, production-oriented BFD implementations. Dual-stack: IPv4 (RFC 5881 Section 4) and IPv6 (RFC 5881 Section 5) tested on every available vendor.
 
@@ -380,7 +404,7 @@ graph TD
 | Vendor | Image | IPv4 Subnet | IPv6 Subnet | ASN | Status | License |
 |---|---|---|---|---|---|---|
 | **Nokia SR Linux** | `ghcr.io/nokia/srlinux:25.10.2` | `10.0.2.0/30` | `fd00:0:2::/127` | 65003 | Primary, public image | Free, no registration |
-| **FRRouting** | `quay.io/frrouting/frr:10.2.5` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, free |
+| **FRRouting** | `quay.io/frrouting/frr:10.7.0` | `10.0.6.0/30` | `fd00:0:6::/127` | 65007 | Baseline | GPL, free |
 | **Arista cEOS** | `ceos:4.36.0.1F` | `10.0.1.0/30` | `fd00:0:1::/127` | 65002 | Primary, operator image | Free Arista.com account |
 | SONiC-VS | `docker.io/netreplica/docker-sonic-vs:latest` | `10.0.4.0/30` | -- | 65005 | Primary, public image | Free |
 | VyOS | `docker.io/muruu1/vyos:latest` | `10.0.5.0/30` | -- | 65006 | Primary, public mirror; ISO build fallback | Free rolling/community image |
@@ -399,20 +423,20 @@ A self-contained Python 3.12+ script automates full image preparation from a cle
 
 ```bash
 # Pull all public images + prepare VyOS tag + build GoBFD
-python3 test/interop-clab/bootstrap.py -v
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py -v
 
 # With commercial images
-python3 test/interop-clab/bootstrap.py \
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py \
     --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Prepare + deploy topology
-python3 test/interop-clab/bootstrap.py --deploy
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --deploy
 
 # Prepare + full test run
-python3 test/interop-clab/bootstrap.py --test
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --test
 
 # Dry run (show what would be done)
-python3 test/interop-clab/bootstrap.py --dry-run
+uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --dry-run
 ```
 
 The script handles:
@@ -423,7 +447,8 @@ The script handles:
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
 - **Inventory report**: final table of all images with ready/missing status
 
-Run `python3 test/interop-clab/bootstrap.py --help` for all options.
+Run `uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help`
+for all options.
 
 ### Running Vendor Tests
 
@@ -543,12 +568,15 @@ netlab automatically handles IP addressing, BGP AS assignment, and BFD session c
 ### Migration Path
 
 1. Install Python 3.8+ and Ansible on the test host
-2. Install netlab: `pip install networklab`
+2. Evaluate netlab separately before adding it to the repository's locked
+   Python dependency groups.
 3. Install Docker (netlab's primary runtime)
 4. Convert topology from manual run.sh to netlab YAML
 5. For VM-based vendors (Cisco IOS-XR, Juniper vMX), enable nested KVM on the host
 
-> **Note**: netlab requires dependencies not available on the current CI host (no Python pip, no Ansible, no KVM). It is documented as a future direction for expanding vendor coverage beyond native container platforms.
+> **Note**: netlab is not part of the supported uv lock and requires Ansible
+> and KVM. It remains a future direction for expanding vendor coverage beyond
+> native container platforms.
 
 ### Three-Tier Testing Strategy
 

@@ -57,6 +57,16 @@ docs/
 **/*.md
 **/*.markdown
 
+# The Scapy image uses the repository root for the single uv lock while
+# retaining only its one Python entrypoint from the otherwise excluded tests.
+!test/
+test/*
+!test/interop/
+test/interop/*
+!test/interop/scapy/
+test/interop/scapy/*
+!test/interop/scapy/bfd_fuzz.py
+
 # Container infra is not copied into release images.
 deployments/
 **/Containerfile*

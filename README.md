@@ -7,7 +7,7 @@
   <a href="https://github.com/dantte-lp/gobfd/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dantte-lp/gobfd/ci.yml?branch=master&style=for-the-badge&label=CI" alt="CI"></a>
   <a href="https://pkg.go.dev/github.com/dantte-lp/gobfd"><img src="https://img.shields.io/badge/pkg.go.dev-reference-007d9c?style=for-the-badge&logo=go&logoColor=white" alt="pkg.go.dev"></a>
   <a href="https://goreportcard.com/report/github.com/dantte-lp/gobfd"><img src="https://img.shields.io/badge/Go_Report-A+-00ADD8?style=for-the-badge" alt="Go Report Card"></a>
-  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26">
+  <img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.27">
   <img src="https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge" alt="RFC 5880">
   <img src="https://img.shields.io/badge/RFC-5881-1a73e8?style=for-the-badge" alt="RFC 5881">
   <a href="https://github.com/dantte-lp/gobfd/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge" alt="License"></a>
@@ -20,17 +20,20 @@
 
 ---
 
-GoBFD is a production-oriented [Bidirectional Forwarding Detection](https://datatracker.ietf.org/doc/html/rfc5880) (BFD) protocol daemon written in Go 1.26. It detects forwarding path failures between adjacent systems in milliseconds, enabling fast convergence for BGP, OSPF, and other routing protocols.
+GoBFD is a production-oriented [Bidirectional Forwarding Detection](https://datatracker.ietf.org/doc/html/rfc5880) (BFD) protocol daemon written in Go 1.27. It detects forwarding path failures between adjacent systems in milliseconds, enabling fast convergence for BGP, OSPF, and other routing protocols.
 
 Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (HAProxy bridge), **gobfd-exabgp-bridge** (ExaBGP bridge).
 
 ## Why GoBFD
 
 - **Standalone daemon, decoupled from any control plane.** GoBFD watches BFD state and drives external actuators (GoBGP `DisablePeer/EnablePeer`, HAProxy agent-check, ExaBGP route announcements) over a typed gRPC API. A daemon restart does not flap the routing control plane.
-- **Zero-allocation hot path.** Packet codec, FSM transitions, timer dispatch, and session demultiplexing run at 0 B/op, 0 allocs/op (28 micro-benchmarks enforce the policy). GC pauses cannot cause BFD session flapping.
+- **Zero-allocation hot path.** Packet codec, FSM transitions, timer dispatch, and session demultiplexing run at 0 B/op, 0 allocs/op (33 micro-benchmarks enforce the policy). GC pauses cannot cause BFD session flapping.
 - **RFC coverage beyond the basics.** RFC 5880/5881/5882/5883/7419/9384/9468/9747/9764 implemented; RFC 7130 (Micro-BFD), RFC 8971 (VXLAN), RFC 9521 (Geneve) ship with userspace backends. See [RFC Compliance](docs/en/08-rfc-compliance.md).
-- **Production-ready surfaces.** ConnectRPC/gRPC API, Prometheus metrics, structured `slog` logging, systemd `Type=notify` with watchdog and SIGHUP hot reload, Go 1.26 flight recorder for post-mortem.
-- **Verified interop.** 4-peer interop suite (FRR, BIRD3, aiobfd, Thoro/bfd) and BGP+BFD coupling tests against FRR, BIRD3, ExaBGP. Containerlab profiles for Arista cEOS, Nokia SR Linux, SONiC-VS, VyOS.
+- **Production-ready surfaces.** ConnectRPC/gRPC API, Prometheus metrics, structured `slog` logging, systemd `Type=notify` with watchdog and SIGHUP hot reload, and a runtime flight recorder for post-mortem diagnostics.
+- **Verified interop.** The base suite covers FRR 10.7.0, BIRD 3.3.2,
+  immutable Holo 0.9.0, and Thoro/bfd. Separate BGP+BFD coupling tests cover
+  GoBGP, FRR, BIRD3, and ExaBGP. Containerlab profiles cover Arista cEOS,
+  Nokia SR Linux, SONiC-VS, and VyOS.
 
 Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysis.md) and [Performance Analysis](docs/en/14-performance-analysis.md).
 
@@ -46,7 +49,7 @@ Local Podman stack with Prometheus + Grafana:
 
 ```bash
 make test
-podman-compose -f deployments/compose/compose.yml up -d
+podman compose -f deployments/compose/compose.yml up -d
 ```
 
 > **Requires** Linux with `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities. See [Deployment](docs/en/06-deployment.md).
@@ -84,7 +87,7 @@ Full documentation is available in [`docs/`](docs/README.md):
 | 02 | [BFD Protocol](docs/en/02-protocol.md) | FSM, timers, jitter, packet format, authentication |
 | 03 | [Configuration](docs/en/03-configuration.md) | YAML config, env vars, GoBGP integration, hot reload |
 | 04 | [CLI Reference](docs/en/04-cli.md) | gobfdctl commands, interactive shell |
-| 05 | [Interop Testing](docs/en/05-interop.md) | 4-peer testing: FRR, BIRD3, aiobfd, Thoro |
+| 05 | [Interop Testing](docs/en/05-interop.md) | 4-peer testing: FRR, BIRD3, Holo, Thoro/bfd |
 | 06 | [Deployment](docs/en/06-deployment.md) | systemd, Podman Compose, packages, production |
 | 07 | [Monitoring](docs/en/07-monitoring.md) | Prometheus metrics, Grafana dashboard, alerting |
 | 08 | [RFC Compliance](docs/en/08-rfc-compliance.md) | RFC compliance matrix, implementation notes |
@@ -137,7 +140,9 @@ Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
 GoBFD processes **~16M packets/sec** on the full receive path with **zero heap allocations**. O(1) session demultiplexing via Swiss table maps scales linearly -- demux latency is ~60 ns/op whether managing 1 or 1000 concurrent sessions.
 
-28 micro-benchmarks enforce the zero-allocation policy across all hot paths: packet codec, FSM transitions, timer operations, overlay encapsulation (VXLAN/Geneve), and session management. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
+33 micro-benchmarks cover packet codec, FSM transitions, timer operations,
+overlay encapsulation (VXLAN/Geneve), session management, and the documented
+allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
 
 ## Key Features
 
@@ -149,8 +154,8 @@ GoBFD processes **~16M packets/sec** on the full receive path with **zero heap a
 - ConnectRPC/gRPC API + CLI with interactive shell
 - Prometheus metrics + Grafana dashboard
 - systemd integration (Type=notify, watchdog, SIGHUP hot reload)
-- 4-peer interop testing (FRR, BIRD3, aiobfd, Thoro/bfd) + 5 integration examples
-- Go 1.26 flight recorder for post-mortem debugging
+- 4-peer interop testing (FRR, BIRD3, Holo, Thoro/bfd) + 5 integration examples
+- Runtime flight recorder for post-mortem debugging
 
 Advanced Linux modes are explicit about dataplane ownership: Micro-BFD detects
 per-member LAG state but needs a bond/team/OVS actuator for enforcement, while

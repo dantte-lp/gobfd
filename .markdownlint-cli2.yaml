@@ -30,6 +30,7 @@ ignores:
   - build
   - bin
   - .worktrees
+  - .venv
   - docs/rfc
   - docs/tmp
   - coverage.html

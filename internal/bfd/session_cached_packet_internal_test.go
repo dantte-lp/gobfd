@@ -33,13 +33,13 @@ func (oversizedCachedPacketAuth) Verify(*AuthState, AuthKeyStore, *ControlPacket
 	return nil
 }
 
-func TestRebuildCachedPacketLogsMarshalError(t *testing.T) {
+func TestRebuildCachedPacketLogsMarshalError(_ *testing.T) {
 	sess := newCachedPacketTestSession(HeaderSize - 1)
 
 	sess.rebuildCachedPacket()
 }
 
-func TestSignCachedPacketLogsAuthSignError(t *testing.T) {
+func TestSignCachedPacketLogsAuthSignError(_ *testing.T) {
 	sess := newCachedPacketTestSession(MaxPacketSize)
 	sess.auth = failingCachedPacketAuth{}
 
@@ -47,7 +47,7 @@ func TestSignCachedPacketLogsAuthSignError(t *testing.T) {
 	sess.signCachedPacket(&pkt)
 }
 
-func TestSignCachedPacketLogsAuthenticatedMarshalError(t *testing.T) {
+func TestSignCachedPacketLogsAuthenticatedMarshalError(_ *testing.T) {
 	sess := newCachedPacketTestSession(MaxPacketSize)
 	sess.auth = oversizedCachedPacketAuth{}
 

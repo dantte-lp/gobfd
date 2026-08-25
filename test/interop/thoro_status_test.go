@@ -1,4 +1,4 @@
-//go:build interop
+//go:build interop || interop_testcontainers
 
 package interop_test
 
