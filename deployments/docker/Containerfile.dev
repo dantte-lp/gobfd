@@ -52,6 +52,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Keep every Go-installed development command in one shared, discoverable path.
+ENV GOBIN=/go/bin
+ENV PATH=/go/bin:${PATH}
+
 # buf CLI — protobuf toolchain
 RUN go install github.com/bufbuild/buf/cmd/buf@latest
 
