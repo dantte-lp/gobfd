@@ -15,6 +15,13 @@
 
 ### Изменено
 
+- Alpine Linux больше не используется в first-party build, runtime, benchmark,
+  smoke, interop и integration images. Эти пути переведены на immutable OCI
+  indexes Debian trixie; единственная другая разрешённая OS baseline — Oracle
+  Linux 10.
+- `make int-bgp-failover` запускает Go 1.27 testcontainers Podman gate для
+  GoBFD, GoBGP v3.37.0 и FRR 10.7.0, сохраняет пакетные/container-артефакты и
+  доказывает точную очистку; операционный Compose-пример сохранён.
 - Обязательная матрица совместимости четырёх BFD-пиров использует FRR 10.7.0,
   BIRD 3.3.2, immutable Holo 0.9.0 и Thoro/bfd. Holo настраивается через
   healthy-gated одноразовый YANG loader; lifecycle tests требуют свежих

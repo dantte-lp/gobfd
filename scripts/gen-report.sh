@@ -67,7 +67,7 @@ if [ -z "${PLATFORM}" ]; then
 fi
 
 export GENERATED PLATFORM
-export GCC_VERSION="gcc (Alpine)"
+export GCC_VERSION="gcc (Debian trixie)"
 export GOMAXPROCS="${GOMAXPROCS:-8}"
 
 python3 - "${GO_INPUT}" "${FRR_INPUT}" "${BIRD_INPUT}" \

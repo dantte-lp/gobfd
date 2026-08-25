@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.27.0-trixie@sha256:22b64c486d44847387a2d9591bb705dc4b3a1227bb393d76a9d4ae176d046327 AS builder
+FROM docker.io/library/golang:1.27.0-trixie@sha256:6212da3924947f4b6a939df02ea627c13f338f1a41d6c3fcb0dd9d076eef46c4 AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -33,21 +33,25 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
 
-FROM docker.io/alpine:3.21 AS debug
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS debug
 
 # Install networking debug tools useful for BFD troubleshooting:
 #   tcpdump   - capture BFD packets (UDP 3784/4784)
 #   iproute2  - ip link, ip addr, ip route inspection
-#   bind-tools - dig/nslookup for DNS debugging
+#   dnsutils   - dig/nslookup for DNS debugging
 #   bash      - interactive debugging shell
 #   strace    - system call tracing for socket issues
-RUN apk add --no-cache \
-    tcpdump \
-    iproute2 \
-    bind-tools \
-    bash \
-    strace \
-    && addgroup -S gobfd && adduser -S -G gobfd -s /sbin/nologin gobfd
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        adduser \
+        bash \
+        dnsutils \
+        iproute2 \
+        strace \
+        tcpdump \
+    && addgroup --system gobfd \
+    && adduser --system --ingroup gobfd --shell /usr/sbin/nologin --no-create-home gobfd \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/gobfd-haproxy-agent /bin/gobfd-exabgp-bridge /usr/local/bin/
 

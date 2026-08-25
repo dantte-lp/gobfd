@@ -41,9 +41,9 @@ OPEN_SOURCE_IMAGES: dict[str, str] = {
     "sonic": "docker.io/netreplica/docker-sonic-vs:{sonic_tag}",
     "vyos": "docker.io/muruu1/vyos:{vyos_tag}",
     "frr": "quay.io/frrouting/frr:{frr_tag}",
-    "gobgp": "docker.io/jauderho/gobgp:v3.33.0",
-    "golang": "docker.io/library/golang:1.27.0-trixie@sha256:22b64c486d44847387a2d9591bb705dc4b3a1227bb393d76a9d4ae176d046327",
-    "alpine": "docker.io/library/alpine:3.21",
+    "gobgp": "docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37",
+    "golang": "docker.io/library/golang:1.27.0-trixie@sha256:6212da3924947f4b6a939df02ea627c13f338f1a41d6c3fcb0dd9d076eef46c4",
+    "debian": "docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
 }
 
 # Images expected by run.sh after bootstrap.

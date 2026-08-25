@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Alpine Linux is no longer used by first-party build, runtime, benchmark,
+  smoke, interop, or integration images. Those paths now use immutable Debian
+  trixie OCI indexes; the only other permitted OS baseline is Oracle Linux 10.
+- `make int-bgp-failover` now runs the Go 1.27 testcontainers Podman gate for
+  GoBFD, GoBGP v3.37.0, and FRR 10.7.0, retaining packet/container evidence and
+  proving exact cleanup; the operational Compose example remains available.
 - The mandatory four-peer BFD interoperability matrix now uses FRR 10.7.0,
   BIRD 3.3.2, immutable Holo 0.9.0, and Thoro/bfd. Holo is configured by a
   healthy-gated one-shot YANG loader, and lifecycle tests require fresh packet

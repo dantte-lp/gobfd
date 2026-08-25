@@ -15,7 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const smokeImage = "docker.io/library/alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+const smokeImage = "docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
 
 func TestPodmanSmoke(t *testing.T) {
 	endpoint := RequirePodman(t)

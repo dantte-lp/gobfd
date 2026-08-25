@@ -1,11 +1,13 @@
 # bench/Containerfile.c — Build and run BFD C benchmarks (FRR + BIRD style).
 #
-# Single-stage build: Alpine + gcc, compile and run in same container.
+# Single-stage build: Debian trixie + gcc, compile and run in same container.
 # Results are written to /results/ (mount a volume).
 
-FROM docker.io/alpine:3.21
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
-RUN apk add --no-cache gcc musl-dev make
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev make \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /bench
 COPY c/ ./
