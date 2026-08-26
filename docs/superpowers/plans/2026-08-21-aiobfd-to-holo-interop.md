@@ -819,6 +819,67 @@ contains 35 Go packages, 196 runtime modules, 387 tools modules, 72 components,
 and 1248 evidence records at SHA-256
 `d8e68b677a2e3f2f62dbb66b546a201cdbcc18f6d82f36a5314871c7d9b34bf2`.
 
+### Task 4e: Complete Declared Tool and Locked Python License Evidence
+
+**Files:**
+- Modify: `test/internal/dependencyinventory/inventory.go`
+- Modify: `test/internal/dependencyinventory/inventory_test.go`
+- Modify: `docs/supply-chain/dependency-inventory.schema.json`
+- Modify: `docs/supply-chain/dependency-inventory.json`
+- Modify: dependency-refresh design and changelogs
+
+- [x] **Step 1: Bind the corpus to authoritative package identities**
+
+Use Context7 uv documentation, Go 1.27 documentation/specification, the exact
+committed `uv.lock`, exact-version PyPI JSON, deps.dev v3, and GitHub API
+evidence. Inventory every registry-backed `[[package]]` entry as a
+`python-package`; exclude the virtual project entry. Bind each package to its
+exact normalized name, version, registry, and one SHA-256 artifact already
+present in the lock.
+
+- [x] **Step 2: Remove false declared-tool identities**
+
+Restrict Containerfile tool discovery to `*_VERSION`. Commit IDs and source
+SHA-256 values remain immutable source provenance for their owning OCI build,
+not independently delivered tools. Prove the five existing provenance
+variables no longer create `tool:*` records while genuine version variables
+remain discovered.
+
+- [x] **Step 3: Collect fail-closed per-version license evidence**
+
+Resolve locked Python releases through the exact PyPI release endpoint and
+require an exact identity plus a response artifact SHA matching the selected
+`uv.lock` artifact. Prefer PEP 639 `license_expression`; accept only a closed
+mapping of exact legacy license values/classifiers, and use explicit exact
+source-license evidence where legacy BSD metadata is ambiguous. Resolve Go
+CLI tools through exact deps.dev module versions. Resolve uv through the exact
+GitHub tag commit and both Apache-2.0/MIT license-file hashes. Reject non-2xx,
+oversized, malformed, multi-document, identity-mismatched, hash-mismatched, or
+license-ambiguous evidence.
+
+- [x] **Step 4: Regenerate, validate, commit locally, and clean owned state**
+
+Regenerate the schema-v2 inventory twice and require byte identity. Prove every
+declared tool and every locked Python package has verified exact-version
+license evidence and no license exception targeting `gobfd-qj0.8.1.12`.
+Run focused race+trimpath, inventory/check, gopls, scoped lint, and document
+gates in the bounded Debian Trixie environment with 2 CPU, 5 GiB, and 512 PID
+limits. Commit the exact slice on local `dev`, perform no remote synchronization,
+and remove only task-owned containers, images, processes, temporary files, and
+caches.
+
+The 2026-08-26 bounded Debian Trixie run used 2 CPUs, a 5 GiB hard memory
+limit, a 2 GiB reservation, `GOMEMLIMIT=4GiB`, and 512 PIDs. Two independent
+generations were byte-identical at SHA-256
+`aef242153fb9438631e6e053bdcd6909c2944d52e85c858e5f789df7c0c8a83e`.
+The snapshot contains 35 Go packages, 196 runtime modules, 387 tools modules,
+107 components (40 locked Python packages and 21 declared tools), and 1309
+evidence records. All 61 target records have verified license evidence and
+zero license exceptions. Focused race+trimpath, tagged generator compile,
+tagged gopls (36 packages/194 inputs), scoped golangci-lint v2.13.1, and the
+95-file Markdown policy gate passed sequentially inside the bounded container.
+No remote synchronization was performed.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**

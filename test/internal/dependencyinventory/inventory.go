@@ -35,6 +35,9 @@ const (
 	depsDevAPIBase          = "https://api.deps.dev/v3"
 	depsDevMaxResponseBytes = 1 << 20
 	depsDevWorkers          = 4
+	pypiAPIBase             = "https://pypi.org/pypi"
+	pypiMaxResponseBytes    = 1 << 20
+	pypiWorkers             = 4
 )
 
 const (
@@ -51,6 +54,7 @@ const (
 	KindGoModule      Kind = "go-module"
 	KindInteropDaemon Kind = "interop-daemon"
 	KindOCIImage      Kind = "oci-image"
+	KindPythonPackage Kind = "python-package"
 	KindRemoved       Kind = "removed"
 	KindTool          Kind = "tool"
 )
@@ -281,7 +285,7 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	inv := Inventory{
 		Schema:         SchemaID,
 		SchemaVersion:  currentSchemaVersion,
-		AuditedAt:      "2026-08-25T00:00:00Z",
+		AuditedAt:      "2026-08-26T00:00:00Z",
 		GoPackageCount: packageCount,
 	}
 	for _, definition := range []struct{ id, manifest, sum string }{
@@ -366,6 +370,14 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	for _, item := range declared {
 		pin := ImmutablePin{Status: PinVerified, Kind: "ecosystem-version", Value: item.Installed}
 		assessment := "tool-version-audited"
+		if item.Kind == KindPythonPackage {
+			pin = ImmutablePin{
+				Status: PinVerified,
+				Kind:   "uv-lock-artifact",
+				Value:  strings.TrimPrefix(item.ID, "python-package:") + "@" + item.Installed + "#" + item.ArtifactHash,
+			}
+			assessment = "uv-locked-python-island"
+		}
 		if item.Kind == KindGitHubAction && githubActionSHA(item.Installed) {
 			pin = ImmutablePin{Status: PinVerified, Kind: "git-commit", Value: item.Installed}
 			assessment = "github-action-audited"
@@ -424,6 +436,34 @@ type moduleLicenseResult struct {
 	SourceRepository string
 }
 
+type pythonPackageIdentity struct {
+	Name         string
+	Version      string
+	ArtifactHash string
+}
+
+type packageLicenseResult struct {
+	License          string
+	SourceRepository string
+	SourceCommit     string
+}
+
+type pypiRelease struct {
+	Info struct {
+		Name              string            `json:"name"`
+		Version           string            `json:"version"`
+		LicenseExpression string            `json:"license_expression"`
+		License           string            `json:"license"`
+		Classifiers       []string          `json:"classifiers"`
+		ProjectURLs       map[string]string `json:"project_urls"`
+	} `json:"info"`
+	URLs []struct {
+		Digests struct {
+			SHA256 string `json:"sha256"`
+		} `json:"digests"`
+	} `json:"urls"`
+}
+
 type moduleLicenseOverride struct {
 	Value            string
 	Source           string
@@ -456,6 +496,17 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			seen[identity] = struct{}{}
 			identities = append(identities, identity)
 		}
+	}
+	for _, component := range inv.Components {
+		identity, ok := declaredToolModule(component.ID, component.Installed)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[identity]; exists {
+			continue
+		}
+		seen[identity] = struct{}{}
+		identities = append(identities, identity)
 	}
 	sort.Slice(identities, func(i, j int) bool {
 		if identities[i].Path == identities[j].Path {
@@ -539,6 +590,58 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			}
 		}
 	}
+	pypiResults, err := collectPyPILicenses(ctx, inv)
+	if err != nil {
+		return err
+	}
+	for componentIndex := range inv.Components {
+		component := &inv.Components[componentIndex]
+		var result packageLicenseResult
+		var ok bool
+		switch component.Kind {
+		case KindPythonPackage:
+			result, ok = pypiResults[pythonPackageIdentity{
+				Name: strings.TrimPrefix(component.ID, "python-package:"), Version: component.Installed,
+				ArtifactHash: component.Coordinates.Digest,
+			}]
+		case KindTool:
+			if packageName, found := declaredToolPyPIName(component.ID); found {
+				result, ok = pypiResultForTool(pypiResults, packageName, component.Installed)
+			} else if identity, found := declaredToolModule(component.ID, component.Installed); found {
+				moduleResult := results[identity]
+				if len(moduleResult.Licenses) > 0 {
+					result = packageLicenseResult{
+						License: strings.Join(moduleResult.Licenses, "; "), SourceRepository: moduleResult.SourceRepository,
+					}
+					component.Coordinates.PURL = goModulePURL(identity.Path, identity.Version)
+					ok = true
+				}
+			} else if override, found := exactDeclaredToolLicense(component.ID, component.Installed); found {
+				result = packageLicenseResult{
+					License: override.Value, SourceRepository: override.SourceRepository, SourceCommit: override.SourceCommit,
+				}
+				ok = true
+			}
+		case KindGitHubAction, KindGoModule, KindInteropDaemon, KindOCIImage, KindRemoved:
+			continue
+		}
+		if !ok {
+			continue
+		}
+		component.Assessment.License = Review{Status: ReviewVerified, Value: result.License, EvidenceIDs: []string{}}
+		component.Assessment.Decision.LicenseException = nil
+		if result.SourceRepository != "" {
+			component.Coordinates.SourceRepository = result.SourceRepository
+		}
+		if result.SourceCommit != "" {
+			component.Coordinates.SourceCommit = result.SourceCommit
+		}
+		if component.Kind == KindTool {
+			if packageName, found := declaredToolPyPIName(component.ID); found {
+				component.Coordinates.PURL = "pkg:pypi/" + packageName + "@" + component.Installed
+			}
+		}
+	}
 	populateEvidence(inv)
 	return nil
 }
@@ -594,6 +697,195 @@ func fetchDepsDevLicense(
 
 func depsDevVersionURL(path, version string) string {
 	return depsDevAPIBase + "/systems/go/packages/" + url.PathEscape(path) + "/versions/" + url.PathEscape(version)
+}
+
+func collectPyPILicenses(ctx context.Context, inv *Inventory) (map[pythonPackageIdentity]packageLicenseResult, error) {
+	identities := make([]pythonPackageIdentity, 0)
+	for _, component := range inv.Components {
+		if component.Kind != KindPythonPackage {
+			continue
+		}
+		identities = append(identities, pythonPackageIdentity{
+			Name: strings.TrimPrefix(component.ID, "python-package:"), Version: component.Installed,
+			ArtifactHash: component.Coordinates.Digest,
+		})
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].Name != identities[j].Name {
+			return identities[i].Name < identities[j].Name
+		}
+		return identities[i].Version < identities[j].Version
+	})
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	results := make(map[pythonPackageIdentity]packageLicenseResult, len(identities))
+	jobs := make(chan pythonPackageIdentity)
+	errCh := make(chan error, len(identities))
+	var resultMu sync.Mutex
+	var workers sync.WaitGroup
+	for range pypiWorkers {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for identity := range jobs {
+				result, err := fetchPyPILicense(ctx, client, pypiAPIBase, identity)
+				if err != nil {
+					errCh <- err
+					continue
+				}
+				resultMu.Lock()
+				results[identity] = result
+				resultMu.Unlock()
+			}
+		}()
+	}
+	for _, identity := range identities {
+		select {
+		case jobs <- identity:
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return nil, fmt.Errorf("collect PyPI licenses: %w", ctx.Err())
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	close(errCh)
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, fmt.Errorf("collect PyPI licenses: %w", err)
+	}
+	return results, nil
+}
+
+func fetchPyPILicense(
+	ctx context.Context,
+	client *http.Client,
+	apiBase string,
+	identity pythonPackageIdentity,
+) (packageLicenseResult, error) {
+	endpoint := pypiVersionURL(apiBase, identity.Name, identity.Version)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return packageLicenseResult{}, fmt.Errorf("create PyPI request for %s@%s: %w", identity.Name, identity.Version, err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return packageLicenseResult{}, fmt.Errorf("query PyPI for %s@%s: %w", identity.Name, identity.Version, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return packageLicenseResult{}, fmt.Errorf("query PyPI for %s@%s: HTTP %s", identity.Name, identity.Version, response.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, pypiMaxResponseBytes+1))
+	if err != nil {
+		return packageLicenseResult{}, fmt.Errorf("read PyPI response for %s@%s: %w", identity.Name, identity.Version, err)
+	}
+	if len(body) > pypiMaxResponseBytes {
+		return packageLicenseResult{}, fmt.Errorf("PyPI response for %s@%s exceeds %d bytes", identity.Name, identity.Version, pypiMaxResponseBytes)
+	}
+	if err := rejectDuplicateJSONFields(body); err != nil {
+		return packageLicenseResult{}, fmt.Errorf("decode PyPI response for %s@%s: %w", identity.Name, identity.Version, err)
+	}
+	var release pypiRelease
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := decoder.Decode(&release); err != nil {
+		return packageLicenseResult{}, fmt.Errorf("decode PyPI response for %s@%s: %w", identity.Name, identity.Version, err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return packageLicenseResult{}, fmt.Errorf("PyPI response for %s@%s contains multiple JSON values", identity.Name, identity.Version)
+	}
+	if normalizePythonPackageName(release.Info.Name) != identity.Name || release.Info.Version != identity.Version {
+		return packageLicenseResult{}, fmt.Errorf("PyPI identity mismatch for %s@%s", identity.Name, identity.Version)
+	}
+	lockedHash := strings.TrimPrefix(identity.ArtifactHash, "sha256:")
+	artifactFound := false
+	for _, artifact := range release.URLs {
+		if artifact.Digests.SHA256 == lockedHash {
+			artifactFound = true
+			break
+		}
+	}
+	if !artifactFound {
+		return packageLicenseResult{}, fmt.Errorf("PyPI artifact hash mismatch for %s@%s", identity.Name, identity.Version)
+	}
+	license, ok := normalizedPyPILicense(release.Info.LicenseExpression, release.Info.License, release.Info.Classifiers)
+	if !ok {
+		if override, found := exactPyPILegacyLicense(identity.Name, identity.Version); found {
+			return packageLicenseResult{
+				License: override.Value, SourceRepository: override.SourceRepository, SourceCommit: override.SourceCommit,
+			}, nil
+		}
+		return packageLicenseResult{}, fmt.Errorf("PyPI release %s@%s has ambiguous or missing license metadata", identity.Name, identity.Version)
+	}
+	return packageLicenseResult{License: license, SourceRepository: pyPISourceRepository(release.Info.ProjectURLs)}, nil
+}
+
+func pypiVersionURL(apiBase, name, version string) string {
+	return strings.TrimSuffix(apiBase, "/") + "/" + url.PathEscape(name) + "/" + url.PathEscape(version) + "/json"
+}
+
+func normalizePythonPackageName(name string) string {
+	return pythonNameSeparator.ReplaceAllString(strings.ToLower(name), "-")
+}
+
+func normalizedPyPILicense(expression, legacy string, classifiers []string) (string, bool) {
+	expression = strings.TrimSpace(expression)
+	if expression != "" && len(expression) <= 256 && spdxExpression.MatchString(expression) {
+		return expression, true
+	}
+	legacyValues := map[string]string{
+		"Apache-2.0": "Apache-2.0", "Apache 2.0": "Apache-2.0", "BSD-2-Clause": "BSD-2-Clause",
+		"MIT": "MIT", "MPL-2.0": "MPL-2.0", "PSFL": "PSF-2.0",
+		"License :: OSI Approved :: MIT License": "MIT",
+	}
+	if value, ok := legacyValues[strings.TrimSpace(legacy)]; ok {
+		return value, true
+	}
+	classifierValues := map[string]string{
+		"License :: OSI Approved :: Apache Software License":              "Apache-2.0",
+		"License :: OSI Approved :: MIT License":                          "MIT",
+		"License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
+		"License :: OSI Approved :: Python Software Foundation License":   "PSF-2.0",
+	}
+	values := make(map[string]struct{})
+	for _, classifier := range classifiers {
+		if value, ok := classifierValues[classifier]; ok {
+			values[value] = struct{}{}
+		}
+	}
+	if len(values) != 1 {
+		return "", false
+	}
+	for value := range values {
+		return value, true
+	}
+	return "", false
+}
+
+func pyPISourceRepository(projectURLs map[string]string) string {
+	for _, key := range []string{"Source", "Source Code", "Repository", "Homepage"} {
+		value := strings.TrimSuffix(projectURLs[key], "/")
+		if strings.HasPrefix(value, "https://github.com/") {
+			return value
+		}
+	}
+	return ""
+}
+
+func pypiResultForTool(
+	results map[pythonPackageIdentity]packageLicenseResult,
+	name, version string,
+) (packageLicenseResult, bool) {
+	for identity, result := range results {
+		if identity.Name == name && identity.Version == version {
+			return result, true
+		}
+	}
+	return packageLicenseResult{}, false
 }
 
 func applyOCILicenseEvidence(inv *Inventory) {
@@ -760,6 +1052,79 @@ func exactModuleLicense(path, version string) (moduleLicenseOverride, bool) {
 		Value: value, Source: source, Command: command,
 		SourceRepository: "https://github.com/" + license.repository, SourceCommit: license.commit,
 	}, true
+}
+
+func declaredToolModule(id, version string) (moduleLicenseIdentity, bool) {
+	paths := map[string]string{
+		"tool:benchstat":             "golang.org/x/perf",
+		"tool:buf":                   "github.com/bufbuild/buf",
+		"tool:containerlab":          "github.com/srl-labs/containerlab",
+		"tool:docker_compose":        "github.com/docker/compose/v5",
+		"tool:gopls":                 "golang.org/x/tools/gopls",
+		"tool:goreleaser":            "github.com/goreleaser/goreleaser/v2",
+		"tool:gotestsum":             "gotest.tools/gotestsum",
+		"tool:govulncheck":           "golang.org/x/vuln",
+		"tool:osv_scanner":           "github.com/google/osv-scanner/v2",
+		"tool:protoc_gen_connect_go": "connectrpc.com/connect",
+		"tool:protoc_gen_go":         "google.golang.org/protobuf",
+		"tool:syft":                  "github.com/anchore/syft",
+		"tool:trivy":                 "github.com/aquasecurity/trivy",
+	}
+	path, ok := paths[id]
+	if !ok {
+		return moduleLicenseIdentity{}, false
+	}
+	if !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+	return moduleLicenseIdentity{Path: path, Version: version}, true
+}
+
+func declaredToolPyPIName(id string) (string, bool) {
+	names := map[string]string{
+		"tool:bandit":     "bandit",
+		"tool:codespell":  "codespell",
+		"tool:junit2html": "junit2html",
+		"tool:pip_audit":  "pip-audit",
+		"tool:ruff":       "ruff",
+		"tool:ty":         "ty",
+		"tool:yamllint":   "yamllint",
+	}
+	name, ok := names[id]
+	return name, ok
+}
+
+func exactDeclaredToolLicense(id, version string) (moduleLicenseOverride, bool) {
+	if id != "tool:uv" || version != "0.12.6" {
+		return moduleLicenseOverride{}, false
+	}
+	return moduleLicenseOverride{
+		Value: "Apache-2.0 OR MIT; license-source-sha256:c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4; " +
+			"second-license-source-sha256:860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c",
+		Source: "https://api.github.com/repos/astral-sh/uv/contents/LICENSE-APACHE?ref=7938ca5d53dbb9c614a4a030df406e41ff101ab9",
+		Command: "gh api 'repos/astral-sh/uv/contents/LICENSE-APACHE?ref=7938ca5d53dbb9c614a4a030df406e41ff101ab9' --jq .content | base64 -d | sha256sum && " +
+			"gh api 'repos/astral-sh/uv/contents/LICENSE-MIT?ref=7938ca5d53dbb9c614a4a030df406e41ff101ab9' --jq .content | base64 -d | sha256sum",
+		SourceRepository: "https://github.com/astral-sh/uv", SourceCommit: "7938ca5d53dbb9c614a4a030df406e41ff101ab9",
+	}, true
+}
+
+func exactPyPILegacyLicense(name, version string) (moduleLicenseOverride, bool) {
+	overrides := map[string]moduleLicenseOverride{
+		"colorama@0.4.6": {
+			Value:            "BSD-3-Clause; license-source-sha256:cac35c02686e5d04a5a7140bfb3b36e73aed496656e891102e428886d7930318",
+			Source:           "https://api.github.com/repos/tartley/colorama/contents/LICENSE.txt?ref=3de9f013df4b470069d03d250224062e8cf15c49",
+			Command:          "gh api 'repos/tartley/colorama/contents/LICENSE.txt?ref=3de9f013df4b470069d03d250224062e8cf15c49' --jq .content | base64 -d | sha256sum",
+			SourceRepository: "https://github.com/tartley/colorama", SourceCommit: "3de9f013df4b470069d03d250224062e8cf15c49",
+		},
+		"jinja2@3.1.6": {
+			Value:            "BSD-3-Clause; license-source-sha256:3b49dcee4105eb37bac10faf1be260408fe85d252b8e9df2e0979fc1e094437b",
+			Source:           "https://api.github.com/repos/pallets/jinja/contents/LICENSE.txt?ref=15206881c006c79667fe5154fe80c01c65410679",
+			Command:          "gh api 'repos/pallets/jinja/contents/LICENSE.txt?ref=15206881c006c79667fe5154fe80c01c65410679' --jq .content | base64 -d | sha256sum",
+			SourceRepository: "https://github.com/pallets/jinja", SourceCommit: "15206881c006c79667fe5154fe80c01c65410679",
+		},
+	}
+	override, ok := overrides[name+"@"+version]
+	return override, ok
 }
 
 func baseRecord(installed, channel string, sources []SourceLocation, pin ImmutablePin) Record {
@@ -963,6 +1328,8 @@ func deliveryChannel(kind Kind) string {
 		return "https://github.com"
 	case KindOCIImage:
 		return "OCI registry named by installed reference"
+	case KindPythonPackage:
+		return "https://pypi.org/simple"
 	default:
 		return "repository-declared delivery channel"
 	}
@@ -989,6 +1356,11 @@ func componentCoordinates(item declaredComponent) Coordinates {
 			coordinates.Digest = digest
 		}
 		return coordinates
+	case KindPythonPackage:
+		return Coordinates{
+			PURL:   "pkg:pypi/" + strings.TrimPrefix(item.ID, "python-package:") + "@" + item.Installed,
+			Digest: item.ArtifactHash,
+		}
 	default:
 		return Coordinates{PURL: "pkg:generic/" + strings.TrimPrefix(item.ID, "tool:") + "@" + item.Installed}
 	}
@@ -1117,6 +1489,27 @@ func evidenceContext(
 	tool EvidenceTool,
 	record *Record,
 ) (string, string, EvidenceTool) {
+	if review == "license" && strings.HasPrefix(subject, "python-package:") {
+		name := strings.TrimPrefix(subject, "python-package:")
+		if override, ok := exactPyPILegacyLicense(name, record.Installed); ok {
+			return override.Source, override.Command, EvidenceTool{Name: "gh", Version: "2.97.0"}
+		}
+		endpoint := pypiVersionURL(pypiAPIBase, name, record.Installed)
+		return endpoint, "GET " + endpoint, EvidenceTool{Name: "PyPI", Version: "JSON API"}
+	}
+	if review == "license" && strings.HasPrefix(subject, "tool:") {
+		if packageName, ok := declaredToolPyPIName(subject); ok {
+			endpoint := pypiVersionURL(pypiAPIBase, packageName, record.Installed)
+			return endpoint, "GET " + endpoint, EvidenceTool{Name: "PyPI", Version: "JSON API"}
+		}
+		if identity, ok := declaredToolModule(subject, record.Installed); ok {
+			endpoint := depsDevVersionURL(identity.Path, identity.Version)
+			return endpoint, "GET " + endpoint, EvidenceTool{Name: "deps.dev", Version: "v3"}
+		}
+		if override, ok := exactDeclaredToolLicense(subject, record.Installed); ok {
+			return override.Source, override.Command, EvidenceTool{Name: "gh", Version: "2.97.0"}
+		}
+	}
 	if (strings.HasPrefix(subject, "runtime:") || strings.HasPrefix(subject, "tools:")) && review == "license" {
 		modulePath := strings.TrimPrefix(strings.TrimPrefix(subject, "runtime:"), "tools:")
 		if override, ok := exactModuleLicense(modulePath, record.Installed); ok {
@@ -1297,7 +1690,9 @@ func Validate(inv Inventory, root string) error {
 		dependencyIDs[component.ID] = struct{}{}
 	}
 	for _, component := range inv.Components {
-		if !slices.Contains([]Kind{KindGitHubAction, KindInteropDaemon, KindOCIImage, KindRemoved, KindTool}, component.Kind) {
+		if !slices.Contains([]Kind{
+			KindGitHubAction, KindInteropDaemon, KindOCIImage, KindPythonPackage, KindRemoved, KindTool,
+		}, component.Kind) {
 			return fmt.Errorf("dependency %q has invalid kind %q", component.ID, component.Kind)
 		}
 		if err := validateRecord(component.ID, component.Kind, component.Record, evidenceByID, referencedEvidence, root); err != nil {
@@ -1353,7 +1748,9 @@ func evidenceCommandProvesReview(evidence Evidence) bool {
 		return (evidence.Tool.Name == "gh" &&
 			(strings.HasPrefix(command, "gh api repos/") || strings.HasPrefix(command, "gh api 'repos/"))) ||
 			(evidence.Tool.Name == "deps.dev" && evidence.Tool.Version == "v3" &&
-				strings.HasPrefix(evidence.Source, depsDevAPIBase+"/systems/go/packages/") && command == "GET "+evidence.Source)
+				strings.HasPrefix(evidence.Source, depsDevAPIBase+"/systems/go/packages/") && command == "GET "+evidence.Source) ||
+			(evidence.Tool.Name == "PyPI" && evidence.Tool.Version == "JSON API" &&
+				strings.HasPrefix(evidence.Source, pypiAPIBase+"/") && command == "GET "+evidence.Source)
 	case "upstream_current", "repository_archived", "release_line_eol":
 		return evidence.Tool.Name == "gh" && strings.HasPrefix(command, "gh api repos/")
 	case "release_impact":
@@ -1824,10 +2221,12 @@ func describeModuleDifference(want, got []moduleIdentity) string {
 }
 
 type declaredComponent struct {
-	ID        string
-	Kind      Kind
-	Installed string
-	Sources   []SourceLocation
+	ID           string
+	Kind         Kind
+	Installed    string
+	Sources      []SourceLocation
+	Registry     string
+	ArtifactHash string
 }
 
 var (
@@ -1835,7 +2234,7 @@ var (
 	containerPattern    = regexp.MustCompile(`^\s*FROM\s+([^\s]+)`)
 	imagePattern        = regexp.MustCompile(`\bimage:\s*([^\s#]+)`)
 	qualifiedImage      = regexp.MustCompile(`(?:docker\.io|quay\.io|ghcr\.io)/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?`)
-	declaredARGPattern  = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*(?:_VERSION|_COMMIT|_SOURCE_SHA256))=([^\s]+)`)
+	declaredARGPattern  = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*_VERSION)=([^\s]+)`)
 	versionVarPattern   = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)="?\$\{[^:}]+:-([^}"]+)}`)
 	fixedVersionVar     = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)=["']?([^"'\s]+)["']?\s*$`)
 	workflowToolVersion = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
@@ -1845,6 +2244,14 @@ var (
 	actionSHAPattern    = regexp.MustCompile(`@[0-9a-f]{40}$`)
 	sourceCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	evidenceIDPattern   = regexp.MustCompile(`^ev-[0-9a-f]{24}$`)
+	uvPackageName       = regexp.MustCompile(`(?m)^name = "([a-z0-9][a-z0-9._-]*)"$`)
+	uvPackageVersion    = regexp.MustCompile(`(?m)^version = "([^"]+)"$`)
+	uvRegistrySource    = regexp.MustCompile(`(?m)^source = \{ registry = "([^"]+)" \}$`)
+	uvVirtualSource     = regexp.MustCompile(`(?m)^source = \{ virtual = "[^"]+" \}$`)
+	uvSDistHash         = regexp.MustCompile(`(?m)^sdist = \{[^\n]* hash = "(sha256:[0-9a-f]{64})"`)
+	uvArtifactHash      = regexp.MustCompile(`hash = "(sha256:[0-9a-f]{64})"`)
+	pythonNameSeparator = regexp.MustCompile(`[-_.]+`)
+	spdxExpression      = regexp.MustCompile(`^[A-Za-z0-9.+() -]+$`)
 )
 
 func discoverDeclaredComponents(ctx context.Context, root string) ([]declaredComponent, error) {
@@ -1945,6 +2352,21 @@ func discoverDeclaredComponentsFromRoot(
 	if walkErr != nil {
 		return nil, fmt.Errorf("discover declared dependencies: %w", walkErr)
 	}
+	if _, err := repository.Lstat("uv.lock"); err == nil {
+		data, readErr := readDeclaredSource(repository, "uv.lock")
+		if readErr != nil {
+			return nil, fmt.Errorf("read dependency source uv.lock: %w", readErr)
+		}
+		packages, parseErr := parseUVLockPackages(data)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse uv.lock: %w", parseErr)
+		}
+		for _, packageRecord := range packages {
+			addDeclared(components, packageRecord)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("lstat dependency source uv.lock: %w", err)
+	}
 	result := make([]declaredComponent, 0, len(components))
 	for _, component := range components {
 		sort.Slice(component.Sources, func(i, j int) bool {
@@ -1957,6 +2379,52 @@ func discoverDeclaredComponentsFromRoot(
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
+}
+
+func parseUVLockPackages(data []byte) ([]declaredComponent, error) {
+	sections := strings.Split(string(data), "[[package]]")
+	packages := make([]declaredComponent, 0, len(sections)-1)
+	seen := make(map[string]struct{})
+	for _, section := range sections[1:] {
+		nameMatch := uvPackageName.FindStringSubmatch(section)
+		versionMatch := uvPackageVersion.FindStringSubmatch(section)
+		if nameMatch == nil || versionMatch == nil {
+			return nil, fmt.Errorf("package entry has missing name or version")
+		}
+		if uvVirtualSource.MatchString(section) {
+			continue
+		}
+		registryMatch := uvRegistrySource.FindStringSubmatch(section)
+		if registryMatch == nil {
+			return nil, fmt.Errorf("package %s@%s has unsupported or missing source", nameMatch[1], versionMatch[1])
+		}
+		if registryMatch[1] != "https://pypi.org/simple" {
+			return nil, fmt.Errorf("package %s@%s uses unsupported registry %s", nameMatch[1], versionMatch[1], registryMatch[1])
+		}
+		hashMatch := uvSDistHash.FindStringSubmatch(section)
+		if hashMatch == nil {
+			hashMatch = uvArtifactHash.FindStringSubmatch(section)
+		}
+		if hashMatch == nil {
+			return nil, fmt.Errorf("registry package %s@%s has no SHA-256 artifact", nameMatch[1], versionMatch[1])
+		}
+		normalizedName := pythonNameSeparator.ReplaceAllString(strings.ToLower(nameMatch[1]), "-")
+		id := "python-package:" + normalizedName
+		if _, exists := seen[id]; exists {
+			return nil, fmt.Errorf("duplicate locked Python package %s", id)
+		}
+		seen[id] = struct{}{}
+		packages = append(packages, declaredComponent{
+			ID: id, Kind: KindPythonPackage, Installed: versionMatch[1], Registry: registryMatch[1],
+			ArtifactHash: hashMatch[1],
+			Sources: []SourceLocation{
+				{Path: "uv.lock", Match: "name = \"" + nameMatch[1] + "\"\nversion = \"" + versionMatch[1] + "\""},
+				{Path: "uv.lock", Match: hashMatch[1]},
+			},
+		})
+	}
+	sort.Slice(packages, func(i, j int) bool { return packages[i].ID < packages[j].ID })
+	return packages, nil
 }
 
 func scanWorkflowLine(

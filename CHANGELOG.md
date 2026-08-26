@@ -71,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `github.com/tenntenn/text/transform` revision without changing runtime
   dependencies. CI publishes distinct runtime and tools vulnerability JSON and
   CycloneDX SBOM artifacts.
+- The machine-readable dependency inventory now binds all 40 registry packages
+  from `uv.lock` to exact PyPI release and artifact-hash license evidence, and
+  records per-version license evidence for all 21 declared tools. Build commit
+  and source-checksum variables are no longer misclassified as tools.
 - CSpell is updated to `10.1.1`. GitHub Actions are updated to their current
   releases and immutable commit
   SHAs. Interop and integration peers now use digest-pinned FRR `10.7.0`,

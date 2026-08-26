@@ -317,9 +317,9 @@ helper для вендорных образов. ExaBGP остаётся вне�
 Машиночитаемый snapshot цепочки поставки находится в
 `docs/supply-chain/dependency-inventory.json`. Он охватывает полные выбранные
 графы runtime и изолированных инструментов, а также объявленные в репозитории
-инструменты, GitHub Actions, OCI-образы и interop-демоны. Перегенерируйте его
-только после проверки release notes, безопасности, лицензий, archive status и
-неизменяемых pin:
+инструменты, GitHub Actions, OCI-образы, interop-демоны и все registry packages
+из `uv.lock`. Перегенерируйте его только после проверки release notes,
+безопасности, лицензий, archive status и неизменяемых pin:
 
 ```bash
 make dependency-inventory
@@ -328,11 +328,13 @@ make dependency-inventory-check
 
 Генерация разрешает каждую точную выбранную версию Go-модуля через стабильный
 API deps.dev v3 и записывает GitHub evidence точного commit там, где deps.dev
-не возвращает license expression. Для immutable OCI registry availability
-хранится отдельно от точного commit канонического build-source и hash его
-license-файла. Offline-проверка завершается ошибкой при drift любого Go module
-graph, объявленного компонента, source location, evidence binding или числа
-Go-пакетов относительно проверенного snapshot.
+не возвращает license expression. Для PyPI точный release JSON обязан совпасть
+с package identity и artifact SHA-256 из lock до принятия license metadata.
+Для immutable OCI registry availability хранится отдельно от точного commit
+канонического build-source и hash его license-файла. Offline-проверка
+завершается ошибкой при drift любого Go module graph, объявленного компонента,
+source location, evidence binding или числа Go-пакетов относительно
+проверенного snapshot.
 
 ### Semgrep
 

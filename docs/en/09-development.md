@@ -316,8 +316,9 @@ not duplicated in the lock.
 The machine-readable supply-chain snapshot lives in
 `docs/supply-chain/dependency-inventory.json`. It covers the complete selected
 runtime and isolated-tool module graphs plus repository-declared tools, GitHub
-Actions, OCI images, and interop daemons. Regenerate it only after completing
-the corresponding release-note, security, license, archive, and pin review:
+Actions, OCI images, interop daemons, and all registry packages from `uv.lock`.
+Regenerate it only after completing the corresponding release-note, security,
+license, archive, and pin review:
 
 ```bash
 make dependency-inventory
@@ -326,11 +327,12 @@ make dependency-inventory-check
 
 Generation resolves each exact selected Go module version through the stable
 deps.dev v3 API and records exact-commit GitHub evidence where deps.dev has no
-license expression. Immutable OCI records keep registry availability separate
-from their canonical build-source commit and hashed license file. The check is
-offline and fails if either Go module graph, a declared component, a source
-location, evidence binding, or the Go package count drifts from the reviewed
-snapshot.
+license expression. Exact PyPI release JSON must match the locked package
+identity and artifact SHA-256 before its license metadata is accepted.
+Immutable OCI records keep registry availability separate from their canonical
+build-source commit and hashed license file. The check is offline and fails if
+either Go module graph, a declared component, a source location, evidence
+binding, or the Go package count drifts from the reviewed snapshot.
 
 ### Semgrep
 

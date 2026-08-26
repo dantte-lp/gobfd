@@ -70,6 +70,10 @@
 - Изолированный граф lint-инструментов использует MIT-licensed revision
   `github.com/tenntenn/text/transform`, не изменяя runtime-зависимости. CI
   публикует раздельные runtime/tools vulnerability JSON и CycloneDX SBOM.
+- Машиночитаемый dependency inventory теперь связывает все 40 registry packages
+  из `uv.lock` с license evidence точного PyPI release и artifact hash, а также
+  хранит per-version license evidence для всех 21 объявленных инструментов.
+  Build commit и source checksum больше не классифицируются как инструменты.
 - CSpell обновлён до `10.1.1`. GitHub Actions обновлены до актуальных релизов
   и immutable commit SHA.
   Interop/integration peers используют digest-pinned FRR `10.7.0`, GoBGP

@@ -129,7 +129,7 @@
         {"$ref": "#/$defs/record"},
         {"type": "object", "required": ["id", "kind"], "properties": {
           "id": {"type": "string", "minLength": 1},
-          "kind": {"enum": ["github-action", "interop-daemon", "oci-image", "removed", "tool"]}
+          "kind": {"enum": ["github-action", "interop-daemon", "oci-image", "python-package", "removed", "tool"]}
         }}
       ],
       "unevaluatedProperties": false
