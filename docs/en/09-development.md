@@ -358,6 +358,10 @@ Pro Engine plus authentication.
 
 Current accepted Semgrep warnings are documented in [SECURITY.md](../../SECURITY.md):
 MD5 and SHA1 are implemented only for RFC 5880 authentication interoperability.
+The matching Sonar `go:S4790` exception is limited by
+`sonar-project.properties` to `internal/bfd/auth.go`; the rule remains active
+for every other file. Sonar in-code resolution is not used because SonarQube
+Cloud supports `sonar-resolve` only for C-family languages, not Go.
 
 ### Protobuf Workflow
 
