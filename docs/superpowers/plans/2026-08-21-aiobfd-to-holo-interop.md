@@ -902,7 +902,14 @@ Buf, vulnerability, and CI checks before integration into `dev`.
 
 Local implementation and bounded checks are complete. Repository discovery now
 also excludes `.worktrees`, so the required in-repository worktree layout cannot
-contaminate dependency evidence. Remote `dev` checks remain the completion gate.
+contaminate dependency evidence. Remote `dev` passed the build, lint, security,
+Sonar (89.3% new coverage), and Codecov patch gates. The four-peer Testcontainers
+gate then reproduced twice on the Podman API with Holo still running but its
+Docker health state never reaching `healthy`; readiness now polls the same in-container
+TCP-listener command directly through the documented Testcontainers exec wait
+strategy. The healthcheck remains part of the container contract for Compose.
+Remote validation of that narrow portability correction remains the completion
+gate.
 
 ### Task 5: Update Active Documentation and the Repository Contract
 

@@ -168,7 +168,8 @@ func startFourPeerTopology(
 			ContainerFilePath: "/etc/holod.toml",
 			FileMode:          0o644,
 		}},
-		WaitingFor: wait.ForHealthCheck().WithStartupTimeout(30 * time.Second),
+		WaitingFor: wait.ForExec([]string{"sh", "-c", "netstat -ltn | grep -q ':50051 '"}).
+			WithStartupTimeout(30 * time.Second),
 		ConfigModifier: func(config *container.Config) {
 			config.Healthcheck = &container.HealthConfig{
 				Test:        []string{"CMD-SHELL", "netstat -ltn | grep -q ':50051 '"},
