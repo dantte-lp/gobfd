@@ -1,6 +1,6 @@
 # GoBFD Documentation
 
-![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -111,6 +111,7 @@ graph TD
 | 09 | [**Development**](./09-development.md) | Dev workflow, Make targets, testing, linting, proto generation |
 | 10 | [**Changelog Guide**](./10-changelog.md) | How to maintain CHANGELOG.md, release process, semantic versioning |
 | 11 | [**Integrations**](./11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes examples |
+| -- | [**Roadmap**](./roadmap.md) | Published projection of the current Beads release plan |
 
 ### Performance
 
@@ -160,7 +161,7 @@ dependency risk register and other auxiliary material.
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
 make build
 make test
-make up
+sudo ./gobfd -config configs/gobfd.example.yml
 ```
 
 See [06-deployment.md](./06-deployment.md) for production deployment and

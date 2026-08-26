@@ -147,7 +147,10 @@ Steps 8-18 (session): auth consistency, auth verification, state variable update
 
 #### Section 6.8.16: Administrative Control
 
-Graceful shutdown sends AdminDown with Diag=7, waits 2x TX interval, then cancels goroutines. This prevents false positive detection timeouts on remote peers.
+Graceful shutdown requests AdminDown with Diag=7, waits the fixed two-second
+`drainTimeout`, then cancels session goroutines. This is best effort: the
+current path does not acknowledge transmission or prove peer receipt. Atomic
+AdminDown completion is tracked for v1.
 
 #### Not Implemented (RFC 5880)
 

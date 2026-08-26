@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documentation indexes now identify `v0.6.1` as the latest published release,
+  Quick Start uses the tracked `configs/gobfd.example.yml`, and the EN/RU
+  roadmap is a dated projection of Beads. The legacy S12 plan now records the
+  delivered Echo/Micro CRUD and the absent Overlay API instead of reporting the
+  whole sprint as pending.
+- Graceful-shutdown documentation now matches the fixed two-second drain in
+  code and describes AdminDown delivery as best effort rather than guaranteed.
 - Public RFC and performance documentation now reports RFC 9384 wire subcode
   10 as not implemented with GoBGP v3, marks incomplete RFC capabilities as
   partial or preview, and limits allocation and throughput statements to the

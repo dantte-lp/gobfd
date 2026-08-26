@@ -187,7 +187,10 @@ FSM transitions in sequence:
 
 ### Goroutine Model
 
-Each BFD session runs as an independent goroutine with its own timers and state. The goroutine lifetime is bound to a `context.Context` from the Manager.
+Each BFD session runs as an independent goroutine with its own timers and
+state. Its context is detached from the daemon signal context so SIGTERM does
+not stop it before the AdminDown drain. `Manager.Close()` cancels the
+per-session context explicitly.
 
 ```mermaid
 graph TB
@@ -226,12 +229,14 @@ graph TB
 On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
 1. `Manager.DrainAllSessions()` -- set all sessions to AdminDown with Diag = Administratively Down (7)
-2. Wait 2x TX interval for final AdminDown packets to transmit
+2. Wait the fixed two-second `drainTimeout` window for an AdminDown transmit
 3. `Manager.Close()` -- cancel all session goroutines
 4. Close listener sockets
 5. Shut down HTTP servers (gRPC, metrics)
 
-This ensures remote peers see AdminDown rather than a detection timeout, preventing unnecessary BGP route withdrawals.
+This is a best-effort notification window. The current implementation does not
+acknowledge transmission or prove that every peer received AdminDown; atomic
+AdminDown completion remains part of the v1 contract.
 
 ### Project Structure
 
@@ -316,4 +321,4 @@ gobfd/
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-08-27*

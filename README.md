@@ -52,7 +52,7 @@ Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysi
 ```bash
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
 make build                       # builds all 4 binaries with version ldflags
-sudo ./gobfd -config configs/example.yml
+sudo ./gobfd -config configs/gobfd.example.yml
 ```
 
 Local Podman stack with Prometheus + Grafana:

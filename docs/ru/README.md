@@ -1,6 +1,6 @@
 # Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -111,6 +111,7 @@ graph TD
 | 09 | [**Разработка**](./09-development.md) | Рабочий процесс, Make-цели, тестирование, линтинг |
 | 10 | [**Руководство по Changelog**](./10-changelog.md) | Ведение CHANGELOG.md, процесс релиза, семантическое версионирование |
 | 11 | [**Интеграции**](./11-integrations.md) | BGP failover, HAProxy, наблюдаемость, ExaBGP, Kubernetes |
+| -- | [**Дорожная карта**](./roadmap.md) | Публикуемая проекция актуального релизного плана Beads |
 
 ### Производительность
 
@@ -160,7 +161,7 @@ graph TD
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
 make build
 make test
-make up
+sudo ./gobfd -config configs/gobfd.example.yml
 ```
 
 См. [06-deployment.md](./06-deployment.md) для развёртывания в production и
