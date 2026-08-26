@@ -100,8 +100,11 @@ func TestMergeWritesExactModeUnderRestrictiveUmask(t *testing.T) {
 	childEnvironment := make([]string, 0, len(os.Environ())+2)
 	guardPrefix := restrictiveUmaskChildEnvironment + "="
 	rootPrefix := restrictiveUmaskRootEnvironment + "="
+	coveragePrefix := "GOCOVERDIR="
 	for _, variable := range os.Environ() {
-		if !strings.HasPrefix(variable, guardPrefix) && !strings.HasPrefix(variable, rootPrefix) {
+		if !strings.HasPrefix(variable, guardPrefix) &&
+			!strings.HasPrefix(variable, rootPrefix) &&
+			!strings.HasPrefix(variable, coveragePrefix) {
 			childEnvironment = append(childEnvironment, variable)
 		}
 	}

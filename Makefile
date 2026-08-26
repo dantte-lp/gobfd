@@ -573,7 +573,7 @@ define run_lint_tag
 	@tag='$(1)'; \
 		files="$$(grep -RIl --include='*.go' "^//go:build .*\\<$$tag\\>" .)"; \
 		constrained="$$(printf '%s\n' "$$files" | sed '/^$$/d' | wc -l)"; \
-		inputs="$$(go list -tags "$$tag" -f '{{range .GoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' $(2))"; \
+		inputs="$$(go list -buildvcs=false -tags "$$tag" -f '{{range .GoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' $(2))"; \
 		input_count="$$(printf '%s\n' "$$inputs" | sed '/^$$/d' | wc -l)"; \
 		test "$$constrained" -gt 0 || { echo "lint-ci: tag $$tag has no constrained source files"; exit 1; }; \
 		test "$$input_count" -gt 0 || { echo "lint-ci: tag $$tag produced no Go inputs"; exit 1; }; \

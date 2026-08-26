@@ -2584,7 +2584,7 @@ func githubActionSHA(value string) bool {
 }
 
 func goPackageCount(ctx context.Context, root string) (int, error) {
-	command := exec.CommandContext(ctx, "go", "list", "./...")
+	command := exec.CommandContext(ctx, "go", "list", "-buildvcs=false", "./...")
 	command.Dir = root
 	output, err := command.Output()
 	if err != nil {
