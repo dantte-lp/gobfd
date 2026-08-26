@@ -42,6 +42,10 @@ func TestNewVXLANConnLoopbackLifecycle(t *testing.T) {
 	if meta.VNI != 100 {
 		t.Fatalf("VNI = %d, want 100", meta.VNI)
 	}
+	err = conn.SendEncapsulated(context.Background(), makePayload(9000), netip.MustParseAddr("127.0.0.1"))
+	if !errors.Is(err, netio.ErrInnerPacketBufferTooShort) {
+		t.Fatalf("oversized SendEncapsulated error = %v, want ErrInnerPacketBufferTooShort", err)
+	}
 
 	err = conn.Close()
 	if err != nil {

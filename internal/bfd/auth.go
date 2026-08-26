@@ -586,15 +586,13 @@ func computeDigest(data []byte, p hashParams) []byte {
 	if p.digestSize == md5DigestSize {
 		//nolint:gosec // MD5 is required by RFC 5880 Section 6.7.3.
 		// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
-		// sonar-resolve go:S4790 "Keyed MD5 is required by RFC 5880 Section 6.7.3."
-		sum := md5.Sum(data)
+		sum := md5.Sum(data) // sonar-resolve go:S4790 "Keyed MD5 is required by RFC 5880 Section 6.7.3."
 		return sum[:]
 	}
 
 	//nolint:gosec // SHA1 is required by RFC 5880 Section 6.7.4.
 	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
-	// sonar-resolve go:S4790 "Keyed SHA1 is required by RFC 5880 Section 6.7.4."
-	sum := sha1.Sum(data)
+	sum := sha1.Sum(data) // sonar-resolve go:S4790 "Keyed SHA1 is required by RFC 5880 Section 6.7.4."
 	return sum[:]
 }
 

@@ -112,8 +112,7 @@ func NewGRPCClient(cfg GRPCClientConfig, logger *slog.Logger) (*GRPCClient, erro
 
 	conn, err := grpc.NewClient(
 		cfg.Addr,
-		// transportCreds is TLS when gobgp.tls.enabled is true; plaintext fallback is limited to trusted deployments.
-		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection
+		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection -- transportCreds is TLS when gobgp.tls.enabled is true; plaintext fallback is supported only for loopback/trusted GoBGP deployments.
 		grpc.WithTransportCredentials(transportCreds),
 	)
 	if err != nil {
@@ -139,8 +138,7 @@ func NewGRPCClient(cfg GRPCClientConfig, logger *slog.Logger) (*GRPCClient, erro
 
 func buildTransportCredentials(cfg GRPCClientTLSConfig) (credentials.TransportCredentials, error) {
 	if !cfg.Enabled {
-		// Plaintext is supported for loopback or trusted GoBGP deployments; enable gobgp.tls for remote endpoints.
-		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection
+		// nosemgrep: go.grpc.tls.grpc-client-new-insecure-connection.grpc-client-new-insecure-connection -- plaintext is supported for loopback/trusted GoBGP deployments; enable gobgp.tls for remote endpoints.
 		return insecure.NewCredentials(), nil
 	}
 
