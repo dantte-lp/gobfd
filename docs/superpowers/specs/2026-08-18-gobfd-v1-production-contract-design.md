@@ -17,6 +17,12 @@ component is revalidated against its delivery channel at the v1 release cut;
 each component must be current-compatible or carry an explicit reviewed
 exception.
 
+**2026-08-27 measurement boundary:** v0.6.2 renamed the enqueue-only receive
+benchmark to `BenchmarkRecvDecodeLookupEnqueue` and removed end-to-end packet
+rate and GC-immunity claims derived from it. This does not close the v1 gate:
+v1 still requires acknowledged UDP-to-FSM commit latency, timer error,
+false-Down, and loss accounting under the reference workload.
+
 ## Product contract
 
 GoBFD v1 is a standalone BFD daemon with a stable asynchronous BFD core,

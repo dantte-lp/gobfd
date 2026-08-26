@@ -33,7 +33,7 @@ as Experimental and remain outside the v1 stable contract.
 
 | # | Current status | Current delivery decision |
 |---:|---|---|
-| 1 | Open | `BenchmarkFullRecvPath` still ends at enqueue. Correct the public claim for v0.6.2; add committed-packet latency, timer-error, false-Down, and loss measurements for v1. |
+| 1 | Closed for v0.6.2; v1 measurement open | The benchmark is now named `BenchmarkRecvDecodeLookupEnqueue`, and public claims state that it ends at buffered-channel enqueue. Committed-packet latency, timer-error, false-Down, and loss measurements remain v1 work. |
 | 2 | Open | Control and Echo sessions still call `runtime.LockOSThread`. Measure first, then remove the permanent pin; do not add a COW registry without profile evidence. |
 | 3 | Open | No configurable `IP_TOS`/`IPV6_TCLASS`, `SO_PRIORITY`, or `SO_MARK` policy exists. Implement as P1 operational hardening with packet evidence. |
 | 4 | Decision closed | The proposed one-socket design remains rejected. Preserve the RFC 5881 source-port range, per-session stability, and uniqueness contract. |
@@ -54,8 +54,9 @@ as Experimental and remain outside the v1 stable contract.
 
 ### Current priority order
 
-1. Finish the v0.6.2 truth-and-qualification gate: independent review,
-   RFC/performance claim correction, documentation parity, and release notes.
+1. Finish the v0.6.2 qualification gate: independent review, remaining
+   documentation parity, and release notes. The RFC/performance claim
+   correction was completed locally on 2026-08-27.
 2. Implement the v1 P0 RFC and delivery core: Poll/Final/Demand, diagnostics
    and timeout reset, typed delivery and AdminDown acknowledgement, RFC
    5881/5883 transport scope, RFC 9764 authenticated padding, and explicit
@@ -74,7 +75,7 @@ as Experimental and remain outside the v1 stable contract.
 
 | # | Disposition | Independent evidence and plan decision |
 |---:|---|---|
-| 1 | Accepted | Current `BenchmarkFullRecvPath` ends at channel enqueue, not FSM commit. v0.6.2 corrects the 16M packets/s claim; v1 adds processed-packet acknowledgement, kernel-RX-to-FSM latency, timer error, false-Down, and drop accounting. |
+| 1 | Accepted | `BenchmarkRecvDecodeLookupEnqueue` names its actual boundary: channel enqueue, not FSM commit. v0.6.2 removes the 16M packets/s claim; v1 adds processed-packet acknowledgement, kernel-RX-to-FSM latency, timer error, false-Down, and drop accounting. |
 | 2 | Modified | Permanent per-session `runtime.LockOSThread` exists and provides neither CPU affinity nor real-time scheduling. Remove it after A/B measurement. Do not add a copy-on-write registry until profiles prove lock contention. |
 | 3 | Modified | FRR and BIRD set control-traffic TOS/priority; GoBFD currently sets only TTL/Hop Limit. Add configurable IPv4 DSCP/IPv6 Traffic Class with CS6 operational default and `SO_PRIORITY`; keep `SO_MARK=0` by default. This is operational policy, not an RFC MUST. |
 | 4 | Rejected | RFC 5881 requires a stable source UDP port per session and recommends uniqueness. One ordinary connected TX socket cannot preserve that contract. Keep per-session ports for v1; any measured pool must retain stable session-to-port affinity. |
@@ -102,7 +103,7 @@ as Experimental and remain outside the v1 stable contract.
 | Diagnostic is published after the state transition | Confirmed | Produce one transition result and update diagnostic before packet, log, metric, and immutable event publication. |
 | `SetAdminDown` has an atomic-only fallback | Confirmed | Replace with request/ack and explicit timeout/error; never report a partial state change as success. |
 | GoBGP actuation has no retry/reconcile loop | Confirmed | Add bounded retry, desired/applied state, process-epoch ownership receipts, and never enable a peer GoBFD did not disable. |
-| Public performance claims measure enqueue | Confirmed | Correct claims in v0.6.2; make UDP-to-FSM commit and false-Down evidence the v1 qualification source. |
+| Public performance claims measure enqueue | Closed for v0.6.2; v1 evidence open | Claims and benchmark names now identify the enqueue boundary. UDP-to-FSM commit and false-Down evidence remain the v1 qualification source. |
 | GoBGP vulnerability exception is expired | Closed for v0.6.2; open for stable v1 | The approved exact v3.37.0 exception now expires on 2026-09-30 and the local gate rejects expiry. The Go vulnerability database still lists all v4 versions affected, so stable v1 remains blocked on a fixed compatible v4 release. |
 | Multihop TTL 254 is hard-coded as if RFC-required | Confirmed | Expose a hop/security policy (`min_rx_ttl` or `max_hops`), document 254 as local GTSM policy, and test IPv4/IPv6 across 1/2/5 hops. |
 

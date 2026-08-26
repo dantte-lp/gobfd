@@ -27,9 +27,19 @@ Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (
 ## Why GoBFD
 
 - **Standalone daemon, decoupled from any control plane.** GoBFD watches BFD state and drives external actuators (GoBGP `DisablePeer/EnablePeer`, HAProxy agent-check, ExaBGP route announcements) over a typed gRPC API. A daemon restart does not flap the routing control plane.
-- **Zero-allocation hot path.** Packet codec, FSM transitions, timer dispatch, and session demultiplexing run at 0 B/op, 0 allocs/op (33 micro-benchmarks enforce the policy). GC pauses cannot cause BFD session flapping.
-- **RFC coverage beyond the basics.** RFC 5880/5881/5882/5883/7419/9384/9468/9747/9764 implemented; RFC 7130 (Micro-BFD), RFC 8971 (VXLAN), RFC 9521 (Geneve) ship with userspace backends. See [RFC Compliance](docs/en/08-rfc-compliance.md).
-- **Production-ready surfaces.** ConnectRPC/gRPC API, Prometheus metrics, structured `slog` logging, systemd `Type=notify` with watchdog and SIGHUP hot reload, and a runtime flight recorder for post-mortem diagnostics.
+- **Measured allocation boundaries.** Micro-benchmarks report zero allocations
+  for selected codec, FSM, timer, lookup, and caller-buffer paths. Allocating
+  compatibility and authenticated receive paths are documented explicitly;
+  benchmark results are not an end-to-end latency or GC guarantee.
+- **Documented RFC coverage.** The asynchronous RFC 5880 core and several
+  extensions are available with explicit partial or preview boundaries. RFC
+  9384 wire subcode 10 is not emitted by the current GoBGP v3 API. See
+  [RFC Compliance](docs/en/08-rfc-compliance.md) for the exact matrix.
+- **Operational surfaces.** ConnectRPC/gRPC API, Prometheus metrics,
+  structured `slog` logging, systemd integration, and a runtime flight
+  recorder are available. The current control and metrics defaults are
+  plaintext all-interface listeners; production deployments must isolate or
+  override them and must not expose the debug endpoint publicly.
 - **Verified interop.** The base suite covers FRR 10.7.0, BIRD 3.3.2,
   immutable Holo 0.9.0, and Thoro/bfd. Separate BGP+BFD coupling tests cover
   GoBGP, FRR, BIRD3, and ExaBGP. Containerlab profiles cover Arista cEOS,
@@ -122,17 +132,18 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 
 | RFC | Title | Status |
 |---|---|---|
-| RFC 5880 | BFD Base Protocol | Implemented |
+| RFC 5880 | BFD Base Protocol | Asynchronous core; partial |
 | RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Implemented |
 | RFC 5882 | Generic Application of BFD | Implemented |
 | RFC 5883 | BFD for Multihop Paths | Implemented |
 | RFC 7419 | Common Interval Support | Implemented |
-| RFC 9468 | Unsolicited BFD | Implemented |
-| RFC 9747 | Unaffiliated BFD Echo | Implemented |
-| RFC 7130 | Micro-BFD for LAG | Protocol implemented; production integration partial |
-| RFC 8971 | BFD for VXLAN | Userspace backend implemented; owner backends planned |
-| RFC 9521 | BFD for Geneve | Userspace backend implemented; owner backends planned |
-| RFC 9764 | BFD Large Packets | Implemented |
+| RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v3 emits Cease/2 |
+| RFC 9468 | Unsolicited BFD | Preview |
+| RFC 9747 | Unaffiliated BFD Echo | Preview |
+| RFC 7130 | Micro-BFD for LAG | Preview; owner integration partial |
+| RFC 8971 | BFD for VXLAN | Preview userspace backend |
+| RFC 9521 | BFD for Geneve | Preview userspace backend |
+| RFC 9764 | BFD Large Packets | Partial; authenticated padding incomplete |
 | RFC 5884 | BFD for MPLS LSPs | Stub |
 | RFC 5885 | BFD for PW VCCV | Stub |
 
@@ -140,9 +151,14 @@ Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
 ## Performance
 
-GoBFD processes **~16M packets/sec** on the full receive path with **zero heap allocations**. O(1) session demultiplexing via Swiss table maps scales linearly -- demux latency is ~60 ns/op whether managing 1 or 1000 concurrent sessions.
+GoBFD maintains 34 micro-benchmarks for specific pipeline stages. In
+particular, `RecvDecodeLookupEnqueue` measures wire decode, discriminator
+lookup, and attempted enqueue to the session's buffered channel. It does not
+measure UDP receive, session processing, FSM commit, timer reset, or state
+notification, so no end-to-end packet rate or supported session scale is
+inferred from it.
 
-33 micro-benchmarks cover packet codec, FSM transitions, timer operations,
+The micro-benchmarks cover packet codec, FSM transitions, timer operations,
 overlay encapsulation (VXLAN/Geneve), session management, and the documented
 allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
 

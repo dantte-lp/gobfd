@@ -72,7 +72,11 @@ the performance tables below do not assign it numbers.
 
 **google/gopacket**: Contains a BFD layer for packet parsing, not a protocol implementation.
 
-**GoBFD**: Production-oriented Go BFD implementation with zero-allocation hot path, base RFC 5880/5881 coverage, authentication, unaffiliated echo, userspace VXLAN/Geneve protocol support, and comprehensive benchmarks. Owner-specific overlay dataplane integrations remain future work.
+**GoBFD**: Production-oriented Go BFD implementation with measured
+allocation boundaries, a partial asynchronous RFC 5880 core, authentication,
+preview unaffiliated echo and userspace VXLAN/Geneve support, and a documented
+benchmark suite. Owner-specific overlay dataplane integrations remain future
+work.
 
 ---
 
@@ -112,8 +116,8 @@ the performance tables below do not assign it numbers.
 |--------|------:|----------|
 | Packet marshal | 5.9 ns/op, 0 allocs | Rebuilt every send (SONiC HLD) |
 | Packet unmarshal | 11.0 ns/op, 0 allocs | C struct cast |
-| Full RX path | 64 ns/op, 0 allocs | Not published |
-| Full TX path | 6.7 ns/op, 0 allocs | Not published |
+| Decode + lookup + enqueue stage | 64 ns/op, 0 allocs in the historical sample | Not published |
+| Marshal + jitter stage | 6.7 ns/op, 0 allocs in the historical sample | Not published |
 
 **Key insight**: GoBFD uses cached pre-built packets (copy, not rebuild). FRR rebuilds the BFD packet on every transmit. At 1000 sessions with 100ms intervals, this is 10,000 rebuilds per second in FRR vs. 10,000 memory copies in GoBFD.
 
@@ -126,9 +130,13 @@ the performance tables below do not assign it numbers.
 | Memory per session | ~3 KB (create benchmark) | malloc/free per packet |
 | Config reconciliation | 94 us/15 sessions | Full restart |
 
-#### Theoretical Throughput
+#### Throughput Boundary
 
-At 64 ns/op full receive path, GoBFD can theoretically process **15.6 million packets per second** on a single core. At 6.7 ns/op full transmit path, theoretical TX throughput is **149 million packets per second**. These are micro-benchmark numbers — real-world throughput is lower due to system call overhead, network stack latency, and context switching.
+The stage timings above cannot be converted into a supported packet rate. The
+receive benchmark stops at a buffered-channel enqueue and the transmit
+benchmark excludes the socket send. Kernel networking, session processing,
+timer and notification delivery, loss, and scheduling must be measured by the
+v1 end-to-end qualification gate.
 
 ---
 

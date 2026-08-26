@@ -86,8 +86,9 @@ func benchmarkManagerCreateDestroy(b *testing.B, count int) {
 // when 1000 sessions are active. The demux uses tier-1 discriminator
 // lookup (map access), which should be O(1) regardless of session count.
 //
-// Verification: ns/op should be approximately equal to BenchmarkFullRecvPath
-// (which uses 1 session), confirming O(1) demux.
+// Compare the lookup-and-enqueue stage with BenchmarkRecvDecodeLookupEnqueue,
+// which uses one session. This checks the expected O(1) discriminator lookup;
+// it is not a supported-scale or end-to-end throughput qualification.
 func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 	logger := slog.New(slog.DiscardHandler)
 	sender := &discardSender{}

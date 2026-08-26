@@ -279,7 +279,7 @@ GoBFD и GoBGP разделяют сетевое пространство имё
 ## Тестирование совместимости по RFC
 
 ![RFC 7419](https://img.shields.io/badge/RFC_7419-PASS-34a853?style=for-the-badge)
-![RFC 9384](https://img.shields.io/badge/RFC_9384-PASS-34a853?style=for-the-badge)
+![RFC 9384](https://img.shields.io/badge/RFC_9384-Action_Path_Only-ffc107?style=for-the-badge)
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-PASS-34a853?style=for-the-badge)
 
 > Целевые interop-тесты для RFC-расширений сверх базового протокола. Каждый тест проверяет конкретное требование RFC против FRR в топологии из 7 контейнеров с захватом пакетов (tshark).
@@ -334,7 +334,10 @@ graph LR
 | Тест | RFC | Описание | Результат |
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD настроен на 80мс; с `align_intervals: true` интервал должен быть выровнен до 100мс. Верифицируется через tshark-захват поля `DesiredMinTxInterval`. | **PASS** |
-| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. В логах GoBGP: "BFD Down (RFC 9384 Cease/10)". | **PASS** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. Annotation упоминает Cease/10, но GoBGP v3 отправляет Administrative Shutdown (Cease/2). | **Action path проходит; wire subcode RFC 9384 не реализован** |
+
+Этот тест доказывает BFD-to-BGP teardown и recovery coupling. Он не проверяет
+и не подтверждает Cease subcode 10 RFC 9384 на wire.
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) отправляет BFD-пакеты к GoBFD. Предварительно настроенной сессии нет. GoBFD автоматически создаёт пассивную сессию по unsolicited-политике. Сессия достигает Up. Пауза FRR → сессия Down → очистка. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | Echo-сессия GoBFD достигает Up через независимый reflector; пауза и восстановление доказывают обнаружение отказа и возврат сессии. | **PASS** |
 

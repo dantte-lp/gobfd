@@ -608,20 +608,24 @@ func canonicalNames() map[string]string {
 		"ApplyJitterDetectMultOne":       "JitterDetectMultOne",
 		"PacketPool":                     "PacketPool",
 		"RecvStateToEvent":               "RecvStateToEvent",
-		"FullRecvPath":                   "FullRxPath",
-		"FullTxPath":                     "FullTxPath",
-		"SessionRecvPacket":              "SessionRecvPacket",
-		"DetectionTimeCalc":              "DetectionTimeCalc",
-		"CalcTxInterval":                 "CalcTxInterval",
-		"ManagerCreate100Sessions":       "ManagerCreate100Sessions",
-		"ManagerCreate1000Sessions":      "ManagerCreate1000Sessions",
-		"ManagerDemux1000Sessions":       "ManagerDemux1000Sessions",
-		"ManagerReconcile":               "ManagerReconcile",
-		"SessionApplyJitter":             "SessionApplyJitter",
-		"DetectionTimeCalcHot":           "DetectionTimeCalcHot",
-		"CalcTxIntervalHot":              "CalcTxIntervalHot",
-		"FullRecvPathCodec":              "FullRxPathCodec",
-		"ManagerLookup1000Sessions":      "SessionLookup1000",
+		"RecvDecodeLookupEnqueue":        "RecvDecodeLookupEnqueue",
+		"RecvDecodeFSM":                  "RecvDecodeFSM",
+		"TxMarshalJitter":                "TxMarshalJitter",
+		// Historical names remain readable in archived benchmark inputs.
+		"FullRecvPath":              "FullRxPath",
+		"FullTxPath":                "FullTxPath",
+		"SessionRecvPacket":         "SessionRecvPacket",
+		"DetectionTimeCalc":         "DetectionTimeCalc",
+		"CalcTxInterval":            "CalcTxInterval",
+		"ManagerCreate100Sessions":  "ManagerCreate100Sessions",
+		"ManagerCreate1000Sessions": "ManagerCreate1000Sessions",
+		"ManagerDemux1000Sessions":  "ManagerDemux1000Sessions",
+		"ManagerReconcile":          "ManagerReconcile",
+		"SessionApplyJitter":        "SessionApplyJitter",
+		"DetectionTimeCalcHot":      "DetectionTimeCalcHot",
+		"CalcTxIntervalHot":         "CalcTxIntervalHot",
+		"FullRecvPathCodec":         "FullRxPathCodec",
+		"ManagerLookup1000Sessions": "SessionLookup1000",
 	}
 }
 
@@ -637,17 +641,26 @@ func reportAnnotations() map[string]annotation {
 		"ManagerCreate100Sessions":  {GoOnly: "Go Manager with goroutine-per-session; not comparable to C"},
 		"ManagerCreate1000Sessions": {GoOnly: "Go Manager with goroutine-per-session; not comparable to C"},
 		"ManagerDemux1000Sessions":  {GoOnly: "Go Manager discriminator map + channel send"},
-		"DetectionTimeCalcHot":      {GoOnly: "Uses cachedState (goroutine-confined); no atomic load"},
-		"CalcTxIntervalHot":         {GoOnly: "Uses cachedState (goroutine-confined); no atomic load"},
-		"Unmarshal":                 {Note: "Go: 7 RFC 5880 §6.8.6 validation checks; C: 3 checks"},
-		"DetectionTimeCalc":         {Note: "Go uses atomic State() load; hot path uses cachedState"},
-		"CalcTxInterval":            {Note: "Go uses atomic State() load; hot path uses cachedState"},
-		"Jitter":                    {Note: "Go global PRNG (atomic); session-local PRNG avoids contention"},
-		"FullRxPath": {
-			Note: "UNFAIR: Go = unmarshal + RWMutex + map + channel send; " +
-				"C = unmarshal + FSM (no IPC). See FullRxPathCodec for fair comparison",
+		"RecvDecodeLookupEnqueue": {
+			GoOnly: "Wire decode + discriminator lookup + attempted buffered-channel enqueue; no session commit",
 		},
-		"FullRxPathCodec": {GoOnly: "Codec-only RX path (unmarshal + FSM); fair comparison with C FullRxPath"},
+		"RecvDecodeFSM": {
+			GoOnly: "Wire decode + stateless FSM transition; no session validation, mutation, or timers",
+		},
+		"TxMarshalJitter": {
+			GoOnly: "Pre-built packet marshal + jitter; excludes session snapshot and socket send",
+		},
+		"DetectionTimeCalcHot": {GoOnly: "Uses cachedState (goroutine-confined); no atomic load"},
+		"CalcTxIntervalHot":    {GoOnly: "Uses cachedState (goroutine-confined); no atomic load"},
+		"Unmarshal":            {Note: "Go: 7 RFC 5880 §6.8.6 validation checks; C: 3 checks"},
+		"DetectionTimeCalc":    {Note: "Go uses atomic State() load; hot path uses cachedState"},
+		"CalcTxInterval":       {Note: "Go uses atomic State() load; hot path uses cachedState"},
+		"Jitter":               {Note: "Go global PRNG (atomic); session-local PRNG avoids contention"},
+		"FullRxPath": {
+			Note: "HISTORICAL NON-COMPARABLE NAME: Go stops at buffered-channel enqueue; " +
+				"C performs an inline FSM transition",
+		},
+		"FullRxPathCodec": {GoOnly: "Historical codec + stateless FSM stage; not a production receive path"},
 		"SessionDemux1000": {
 			Note: "UNFAIR: Go = RWMutex + map + channel send; " +
 				"C = hashmap lookup only. See SessionLookup1000 for fair comparison",

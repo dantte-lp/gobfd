@@ -5,7 +5,10 @@
 ![BIRD3](https://img.shields.io/badge/BIRD3-BFD-28a745?style=for-the-badge)
 ![Podman](https://img.shields.io/badge/Podman-Reproducible-892CA0?style=for-the-badge&logo=podman)
 
-> Cross-implementation benchmark analysis comparing GoBFD (Go 1.27) with FRR bfdd and BIRD3 (C), covering codec operations, FSM transitions, full-path latency, session scaling, and behavior under CPU load. All numbers are from reproducible micro-benchmarks run in Podman containers.
+> Historical cross-implementation micro-benchmark analysis comparing selected
+> GoBFD, FRR bfdd, and BIRD3 operations. These measurements do not include the
+> kernel network path and are not release qualification, supported scale, or
+> end-to-end latency evidence.
 
 ---
 
@@ -17,7 +20,7 @@
   - [Codec Operations](#31-codec-operations)
   - [FSM Transitions](#32-fsm-transitions)
   - [Timer Calculations](#33-timer-calculations)
-  - [Full-Path Operations](#34-full-path-operations)
+  - [Receive and Transmit Stages](#34-receive-and-transmit-stages)
   - [Session Scaling](#35-session-scaling)
 - [Architecture: Goroutine-per-Session vs Single-Threaded Event Loop](#architecture-goroutine-per-session-vs-single-threaded-event-loop)
   - [FRR/BIRD Architecture](#41-frrbird-architecture)
@@ -25,7 +28,7 @@
 - [Behavior Under CPU Load](#behavior-under-cpu-load)
   - [What Happens When Host CPU is at 100%](#51-what-happens-when-host-cpu-is-at-100)
   - [GOMAXPROCS Tuning](#52-gomaxprocs-tuning)
-  - [GC Impact and Zero-Allocation Design](#53-gc-impact-and-zero-allocation-design)
+  - [GC Impact and Measured Allocation Boundaries](#53-gc-impact-and-measured-allocation-boundaries)
   - [Timer Precision Targets](#54-timer-precision-targets)
 - [Where Go is Better Than C](#where-go-is-better-than-c)
   - [Memory Safety](#61-memory-safety)
@@ -47,9 +50,13 @@ Key findings from cross-implementation benchmarks:
 
 - **Codec parity**: GoBFD achieves 1.2-1.4x of C performance on marshal/unmarshal operations (5.96 ns vs 4.98 ns for FRR marshal), while performing 7 RFC validation checks vs 3 in C implementations
 - **FSM at native speed**: Go FSM transitions run at 0.35-0.67 ns/op, matching or beating C-FRR (0.59 ns for UpRecvUp) -- array-indexed lookup compiles to the same machine code in both languages
-- **Full-path gap is architectural, not linguistic**: FullRecvPath (50 ns) vs C-FRR (4.85 ns) is a 10x gap, but it measures goroutine isolation overhead (RWMutex + channel send), not language speed. FullRecvPathCodec (13.96 ns) -- the fair compute-only comparison -- shows a 2.9x ratio
-- **Goroutine model eliminates BFD timer starvation**: FRR's single-threaded architecture causes 1-2 second BFD blackouts under BGP load (Issue #9078). GoBFD's goroutine-per-session model with `runtime.LockOSThread` guarantees worst-case 10ms scheduling delay
-- **Zero allocation hot path**: all per-packet operations run at 0 B/op, 0 allocs/op -- GC cannot cause BFD session flapping
+- **Pipeline stages differ**: the historical `FullRecvPath` result stops at
+  buffered-channel enqueue, while the C result includes an inline FSM
+  transition. Their ratio is not an end-to-end or language comparison.
+- **Scheduling remains unqualified**: goroutine-per-session isolates ownership,
+  but `runtime.LockOSThread` provides no scheduling-delay guarantee.
+- **Allocations are stage-specific**: named benchmark bodies report their own
+  allocations; authenticated unmarshal and compatibility paths allocate.
 
 ---
 
@@ -130,27 +137,30 @@ Pure arithmetic operations for BFD timer negotiation and jitter.
 
 At 0.74 ns/op, detection time can be recalculated **1.35 billion times per second**. This is called once per parameter change, not per packet.
 
-#### 3.4 Full-Path Operations
+#### 3.4 Receive and Transmit Stages
 
-End-to-end packet processing paths that combine multiple operations.
+Historical micro-benchmark stages that combine selected operations. None is
+end to end.
 
 | Operation | Go (ns/op) | C-FRR (ns/op) | C-BIRD (ns/op) | Go/FRR Ratio |
 |-----------|----------:|---------------:|----------------:|-------------:|
-| FullRecvPath | 50.88 | 4.85 | 5.00 | **10.5x** |
-| FullRecvPathCodec | 13.96 | -- | -- | -- |
-| FullTxPath | 14.43 | 9.76 | 9.50 | 1.48x |
+| RecvDecodeLookupEnqueue (historical `FullRecvPath`) | 50.88 | 4.85 | 5.00 | Not comparable |
+| RecvDecodeFSM (historical `FullRecvPathCodec`) | 13.96 | -- | -- | -- |
+| TxMarshalJitter (historical `FullTxPath`) | 14.43 | 9.76 | 9.50 | Stage-specific |
 
-**Why FullRecvPath shows 10x and why this is misleading**:
+**Why the receive ratio is not comparable**:
 
-The Go `FullRecvPath` benchmark measures: unmarshal + RWMutex lock + map lookup + channel send + goroutine wake. The C `FullRxPath` measures: unmarshal + inline FSM transition. These are **architecturally different operations**:
+The Go benchmark measures unmarshal + map lookup + an attempted buffered
+channel send. It does not wait for the session goroutine. The C benchmark
+measures unmarshal + inline FSM transition. These are architecturally
+different operations:
 
 ```mermaid
 graph LR
-    subgraph "Go FullRecvPath (50.88 ns)"
+    subgraph "Go RecvDecodeLookupEnqueue (50.88 ns)"
         A1["Unmarshal<br/>6.55 ns"] --> A2["RWMutex.RLock<br/>~8 ns"]
         A2 --> A3["map[uint32] lookup<br/>~10 ns"]
-        A3 --> A4["channel send<br/>~16 ns"]
-        A4 --> A5["goroutine wake<br/>~10 ns"]
+        A3 --> A4["attempted buffered<br/>channel send"]
     end
 
     subgraph "C-FRR FullRxPath (4.85 ns)"
@@ -158,11 +168,11 @@ graph LR
     end
 ```
 
-The **fair comparison** is `FullRecvPathCodec` (13.96 ns), which measures unmarshal + FSM transition + field extraction -- the same computational work as the C benchmark, without goroutine isolation overhead. This gives a **2.9x ratio** (13.96 / 4.85), which is the true language overhead.
-
-The remaining ~37 ns in `FullRecvPath` is the **price of concurrency isolation**: RWMutex (session map protection) + channel send (packet delivery to session goroutine). This cost buys complete protection from the timer starvation problem described in [Section 4](#architecture-goroutine-per-session-vs-single-threaded-event-loop).
-
-**FullTxPath** (14.43 ns vs 9.76 ns, 1.48x): Go copies a cached pre-built packet. C rebuilds the packet from struct fields. Go's approach is faster at scale (no field-by-field rebuild) but the benchmark measures a single copy operation.
+`RecvDecodeFSM` measures unmarshal plus a stateless transition-table lookup. It
+still excludes session validation, mutation, diagnostics, timers, and delivery,
+so it is not a complete equivalent of a production receive path. Likewise,
+`TxMarshalJitter` excludes session snapshot construction, authentication
+updates, cached-packet publication, and socket send.
 
 #### 3.5 Session Scaling
 
@@ -191,9 +201,9 @@ Operations on a session manager with 1,000 active sessions.
 1. **RWMutex** (~8 ns): C has no lock because it's single-threaded
 2. **Swiss table map** (~10 ns): Go's runtime map vs C's `khash` -- Go's map includes hash seeding, overflow bucket checks, and pointer indirection
 
-The remaining ~35 ns (channel + goroutine wake) is the concurrency isolation cost -- the same architectural trade-off as in FullRecvPath.
-
-At 52.94 ns/op, GoBFD can demux **18.9 million packets per second**. At 1,000 sessions with 100ms intervals, the actual load is 10,000 packets/sec -- 1,890x headroom.
+The remaining stage cost includes channel delivery and scheduler variability;
+the benchmark does not acknowledge session processing. It therefore cannot be
+converted into a supported packets-per-second claim.
 
 ---
 
@@ -333,20 +343,24 @@ numactl --physcpubind=0-3 ./gobfd --config /etc/gobfd/config.yaml
 
 Pinning to a specific NUMA node avoids cross-socket memory access latency (~100ns per cross-socket hop).
 
-#### 5.3 GC Impact and Zero-Allocation Design
+#### 5.3 GC Impact and Measured Allocation Boundaries
 
-GoBFD's hot path is designed for **zero heap allocations**:
+Historical benchmark samples reported the following per-body allocations:
 
 | Hot-Path Operation | B/op | allocs/op | Notes |
 |--------------------|-----:|----------:|-------|
 | ControlPacketMarshal | 0 | 0 | Stack-allocated buffer |
 | ControlPacketUnmarshal | 0 | 0 | In-place field extraction |
 | FSMTransitionUpRecvUp | 0 | 0 | Array index lookup |
-| FullRecvPath | 0 | 0 | Entire RX path zero-alloc |
-| FullTxPath | 0 | 0 | Cached packet copy |
+| RecvDecodeLookupEnqueue | 0 | 0 | Decode + lookup + attempted enqueue only |
+| TxMarshalJitter | 0 | 0 | Pre-built packet marshal + jitter only |
 | ManagerDemux1000Sessions | 0 | 0 | Map lookup + channel send |
 | DetectionTimeCalc | 0 | 0 | Pure arithmetic |
 | ApplyJitter | 0 | 0 | PRNG + multiply |
+
+These rows are not a repository-wide allocation assertion. Authenticated
+unmarshal and compatibility wrappers have documented allocations, and the
+receive benchmark does not include session processing.
 
 **Production GC configuration**:
 
@@ -460,9 +474,10 @@ The channel send + RWMutex overhead on the RX path adds ~35 ns per packet compar
 | Channel send + goroutine wake | ~29 | 0 (inline) | +29 |
 | **Total per-packet RX cost** | **~54** | **~6** | **9x** |
 
-At 54 ns per packet, GoBFD processes **18.5 million packets per second**. BFD's maximum realistic load (10,000 sessions at 10ms intervals) is 1 million packets/sec. GoBFD has **18.5x headroom** over the most aggressive possible BFD deployment.
-
-The 9x overhead is the **price of goroutine isolation**. This cost is fixed regardless of session count and buys immunity to the timer starvation problem. For BFD workloads, this is an excellent trade-off.
+These component timings do not include kernel receive, session commit, timer
+delivery, or loss accounting and cannot establish production packet rate or
+headroom. The goroutine model is an ownership choice, not proof of immunity to
+timer starvation.
 
 #### 7.2 Memory Per Session
 
@@ -478,10 +493,10 @@ The 9x overhead is the **price of goroutine isolation**. This cost is fixed rega
 Go uses ~10x more memory per session. However:
 
 - 1,000 sessions = 3.2 MB in Go vs 0.3 MB in C
-- 10,000 sessions = 32 MB in Go vs 3 MB in C
 - A typical BFD daemon runs on a machine with 4-64 GB RAM
 
-Memory per session is irrelevant for BFD workloads. Even at 10,000 sessions (far beyond any software BFD deployment), the total memory is a rounding error.
+The 1,000-session construction fixture is not a supported-scale qualification.
+Memory acceptance is established only by the v1 scale and soak gate.
 
 #### 7.3 Startup Latency
 

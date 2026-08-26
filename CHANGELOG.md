@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Public RFC and performance documentation now reports RFC 9384 wire subcode
+  10 as not implemented with GoBGP v3, marks incomplete RFC capabilities as
+  partial or preview, and limits allocation and throughput statements to the
+  exact benchmark stages measured. Enqueue-only RX and socket-free TX
+  benchmarks now use stage-specific names.
 - The native OVS LAG backend now uses active
   `github.com/ovn-kubernetes/libovsdb` v0.8.1 instead of the archived
   `ovn-org` module, preserving the existing RFC 7130 transaction contract.

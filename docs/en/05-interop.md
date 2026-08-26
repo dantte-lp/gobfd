@@ -283,7 +283,7 @@ The same pattern applies to ExaBGP: GoBFD sidecar and ExaBGP share a netns at `1
 ## RFC-Specific Interop Testing
 
 ![RFC 7419](https://img.shields.io/badge/RFC_7419-PASS-34a853?style=for-the-badge)
-![RFC 9384](https://img.shields.io/badge/RFC_9384-PASS-34a853?style=for-the-badge)
+![RFC 9384](https://img.shields.io/badge/RFC_9384-Action_Path_Only-ffc107?style=for-the-badge)
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-PASS-34a853?style=for-the-badge)
 
 > Targeted interoperability tests for RFC extensions beyond the base protocol. Each test verifies a specific RFC requirement against FRR in a 7-container topology with packet capture (tshark).
@@ -338,7 +338,10 @@ graph LR
 | Test | RFC | Description | Result |
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD configures 80ms timers; with `align_intervals: true`, negotiated interval should be aligned to 100ms. Verified via tshark capture of `DesiredMinTxInterval` field on the wire. | **PASS** |
-| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. GoBGP logs contain "BFD Down (RFC 9384 Cease/10)". | **PASS** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. The annotation mentions Cease/10, but GoBGP v3 emits Administrative Shutdown (Cease/2). | **Action path passes; RFC 9384 wire subcode not implemented** |
+
+This test proves BFD-to-BGP teardown and recovery coupling. It does not inspect
+or prove RFC 9384 Cease subcode 10 on the wire.
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) sends BFD packets to GoBFD. No pre-configured session exists. GoBFD auto-creates a passive session per unsolicited policy. Session reaches Up. Pause FRR → session goes Down → cleanup. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | GoBFD echo reaches Up through the independent reflector; pause and recovery prove echo failure detection and restoration. | **PASS** |
 
