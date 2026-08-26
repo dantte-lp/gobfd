@@ -761,6 +761,32 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 	})
 }
 
+func TestInteropOwnedInlinePythonPortContract(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	legacy := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
+	bgp := readContractFile(t, "BGP runner", filepath.Join(root, "test", "interop-bgp", "run.sh"))
+
+	assertContainsAll(t, "legacy Go interop helper", legacy, []string{
+		`INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)`,
+		`frr-bfd-peer-status "${peer_ip}"`,
+		`detection-gap "${first_down_epoch}" 3.0`,
+	})
+	assertContainsAll(t, "BGP Go interop helper", bgp, []string{
+		`INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)`,
+		`gobgp-neighbor-state "${peer_ip}"`,
+	})
+	for name, runner := range map[string]string{"legacy": legacy, "BGP": bgp} {
+		if strings.Contains(runner, "UV_"+"PYTHON") {
+			t.Errorf("%s runner retains inline Python invocation", name)
+		}
+	}
+}
+
 func TestInteropJitterTsharkFailureIsFatal(t *testing.T) {
 	t.Parallel()
 

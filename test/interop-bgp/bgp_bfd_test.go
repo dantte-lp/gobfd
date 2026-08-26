@@ -29,13 +29,12 @@ package interop_bgp_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/dantte-lp/gobfd/test/internal/frrjson"
+	"github.com/dantte-lp/gobfd/test/internal/interopcheck"
 )
 
 // =========================================================================
@@ -77,39 +76,6 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// GoBGP v3 session state enum values (PeerState_SessionState protobuf).
-const (
-	bgpStateUnspecified = 0
-	bgpStateIdle        = 1
-	bgpStateConnect     = 2
-	bgpStateActive      = 3
-	bgpStateOpenSent    = 4
-	bgpStateOpenConfirm = 5
-	bgpStateEstablished = 6
-)
-
-// bgpSessionStateName maps a GoBGP v3 protobuf session_state number to its name.
-func bgpSessionStateName(state int) string {
-	switch state {
-	case bgpStateUnspecified:
-		return "unspecified"
-	case bgpStateIdle:
-		return "idle"
-	case bgpStateConnect:
-		return "connect"
-	case bgpStateActive:
-		return "active"
-	case bgpStateOpenSent:
-		return "opensent"
-	case bgpStateOpenConfirm:
-		return "openconfirm"
-	case bgpStateEstablished:
-		return "established"
-	default:
-		return fmt.Sprintf("unknown(%d)", state)
-	}
-}
-
 // gobgpNeighborState returns the BGP session state for a specific peer.
 // Returns lowercase state string: "established", "idle", "active", "opensent", etc.
 func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
@@ -118,25 +84,11 @@ func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
 		return "", err
 	}
 
-	// GoBGP v3 uses protobuf-style JSON with underscored field names
-	// and numeric enums for session_state.
-	var neighbors []struct {
-		State struct {
-			NeighborAddress string `json:"neighbor_address"`
-			SessionState    int    `json:"session_state"`
-		} `json:"state"`
-	}
-	if err := json.Unmarshal([]byte(output), &neighbors); err != nil {
+	state, err := interopcheck.GoBGPNeighborState([]byte(output), peerIP)
+	if err != nil {
 		return "", fmt.Errorf("parse gobgp neighbor json: %w: raw=%s", err, output)
 	}
-
-	for _, n := range neighbors {
-		if n.State.NeighborAddress == peerIP {
-			return bgpSessionStateName(n.State.SessionState), nil
-		}
-	}
-
-	return "", fmt.Errorf("peer %s not found in gobgp neighbor list", peerIP)
+	return state, nil
 }
 
 // gobgpRouteExists checks if a prefix exists in the GoBGP global RIB.
@@ -156,26 +108,11 @@ func frrBFDPeerStatus(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("vtysh show bfd peers json: %w: %s", err, output)
 	}
 
-	jsonStr, err := frrjson.ExtractJSONArray(output)
+	status, err := interopcheck.FRRBFDPeerStatus([]byte(output), gobfdBGPIP)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse FRR BFD peer JSON: %w: raw=%s", err, output)
 	}
-
-	var peers []struct {
-		Peer   string `json:"peer"`
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal([]byte(jsonStr), &peers); err != nil {
-		return "", fmt.Errorf("parse bfd peers json: %w: raw=%s", err, jsonStr)
-	}
-
-	for _, p := range peers {
-		if p.Peer == gobfdBGPIP {
-			return strings.ToLower(p.Status), nil
-		}
-	}
-
-	return "", fmt.Errorf("peer %s not found in FRR BFD peers", gobfdBGPIP)
+	return status, nil
 }
 
 // bird3BFDSessionUp checks if the BIRD3 BFD session to gobfd-bgp is Up.

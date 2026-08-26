@@ -23,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yml"
-UV_PYTHON=(uv run --project "${SCRIPT_DIR}/../.." --frozen --no-default-groups -- python)
+INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)
 INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"
 if [[ ! "${INTEROP_PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
     printf 'invalid INTEROP_PROJECT_NAME %q: use lowercase letters, digits, dashes, and underscores\n' \
@@ -282,15 +282,8 @@ assert_has_packets() {
 frr_bfd_peer_status() {
     local peer_ip="$1"
     podman_container_exec frr-interop vtysh -c "show bfd peers json" 2>/dev/null \
-        | "${UV_PYTHON[@]}" -c "
-import sys, json
-data = json.load(sys.stdin)
-for peer in data:
-    if peer.get('peer') == '${peer_ip}':
-        print(peer.get('status', 'unknown'))
-        sys.exit(0)
-print('not-found')
-" 2>/dev/null || echo "error"
+        | "${INTEROPCHECK[@]}" frr-bfd-peer-status "${peer_ip}" 2>/dev/null \
+        || echo "error"
 }
 
 # ---------------------------------------------------------------------------
@@ -951,39 +944,44 @@ test_rfc5880_detection_precision() {
         return 0
     fi
 
-    local result
-    result="$(echo "${all_frr_epochs}" | "${UV_PYTHON[@]}" -c "
-import sys
-down = ${first_down_epoch}
-last_before = None
-for line in sys.stdin:
-    ts = float(line.strip())
-    if ts < down:
-        last_before = ts
-if last_before is None:
-    print('skip')
-else:
-    gap = down - last_before
-    print(f'{gap:.3f}')
-")"
+    local gap_output
+    if ! gap_output="$(printf '%s\n' "${all_frr_epochs}" \
+        | "${INTEROPCHECK[@]}" detection-gap "${first_down_epoch}" 3.0)"; then
+        fail "detection gap analyzer rejected tshark epochs"
+        return 1
+    fi
 
-    if [ "${result}" = "skip" ]; then
+    local gap_status result extra
+    IFS=$'\t' read -r gap_status result extra <<<"${gap_output}"
+    if [ -n "${extra}" ]; then
+        fail "detection gap analyzer returned malformed output: ${gap_output}"
+        return 1
+    fi
+
+    if [ "${gap_status}" = "skip" ] && [ -z "${result}" ]; then
         info "SKIP: no FRR packets before Down"
         pass "detection precision (skipped)"
         return 0
     fi
 
+    if [ -z "${result}" ]; then
+        fail "detection gap analyzer returned malformed output: ${gap_output}"
+        return 1
+    fi
+
     info "detection gap: last FRR packet → first Down = ${result}s"
 
-    local gap_ok
-    gap_ok="$("${UV_PYTHON[@]}" -c "print('yes' if 0 <= ${result} <= 3.0 else 'no')")"
-
-    if [ "${gap_ok}" = "yes" ]; then
-        pass "detection time ${result}s is within acceptable range (< 3.0s)"
+    if [ "${gap_status}" = "pass" ]; then
+        pass "detection time ${result}s is within acceptable range (≤ 3.0s)"
         return 0
     fi
 
-    fail "detection took ${result}s, want < 3.0s"
+    if [ "${gap_status}" != "fail" ]; then
+        fail "detection gap analyzer returned unknown status: ${gap_status}"
+        return 1
+    fi
+
+    fail "detection took ${result}s, want ≤ 3.0s"
     return 1
 }
 
