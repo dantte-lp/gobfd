@@ -9,6 +9,12 @@ evolve them additively
 **GoBGP target:** prereleases develop against v4.8.0; stable v1 uses the first
 compatible v4 release that fixes `GO-2026-4736`
 
+**Delivery priority:** v1 follows the accepted v0.6.2 maintenance baseline and
+closes the documented RFC compliance and production-quality gaps. Every
+component is revalidated against its delivery channel at the v1 release cut;
+each component must be current-compatible or carry an explicit reviewed
+exception.
+
 ## Product contract
 
 GoBFD v1 is a standalone BFD daemon with a stable asynchronous BFD core,
@@ -445,6 +451,13 @@ not substituted for the qualification thresholds above.
 `v1.0.0` contains no known release-blocking RFC, ownership, security, or
 actuation defect from these gates and uses a compatible GoBGP v4 release that
 does not report `GO-2026-4736`.
+
+The release inventory is rerun after the final v0.6.2 baseline is accepted.
+Runtime and tool modules, Python lock entries, OCI images, GitHub Actions,
+generators, interop peers, and repository-owned toolchains each require a
+channel-backed current-compatible target or an explicit reviewed exception.
+No unresolved inventory item or known release-blocking RFC compliance gap is
+silently deferred from the stable v1 release.
 
 ## Acceptance gates
 
