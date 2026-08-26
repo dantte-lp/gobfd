@@ -56,7 +56,7 @@ const (
 	holoStopTimeout        = 15 * time.Second
 	holoStopGraceSeconds   = 5
 	holoStartTimeout       = 10 * time.Second
-	holoHealthTimeout      = 20 * time.Second
+	holoReadyTimeout       = 20 * time.Second
 	holoConfigStartTimeout = 15 * time.Second
 	holoConfigWaitTimeout  = 10 * time.Second
 	holoInspectTimeout     = 5 * time.Second
@@ -531,20 +531,22 @@ func waitForSessionState(
 	return last, nil
 }
 
-func waitForHoloHealth(ctx context.Context, timeout time.Duration) error {
+func waitForHoloReady(ctx context.Context, timeout time.Duration) error {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	lastStatus, err := pollUntil(waitCtx, pollInterval, func(pollCtx context.Context) (string, bool, error) {
-		output, err := projectContainerInspect(pollCtx, "holo-interop", "{{.State.Health.Status}}")
+	_, err := pollUntil(waitCtx, pollInterval, func(pollCtx context.Context) (string, bool, error) {
+		output, err := projectContainerCommand(
+			pollCtx,
+			"holo-interop", "exec", "sh", "-c", "netstat -ltn | grep -q ':50051 '",
+		)
 		if err != nil {
-			return "", false, err
+			return output, false, fmt.Errorf("probe Holo TCP listener: %w: %s", err, strings.TrimSpace(output))
 		}
-		status := strings.TrimSpace(output)
-		return status, status == "healthy", nil
+		return output, true, nil
 	})
 	if err != nil {
-		return fmt.Errorf("wait for Holo health; last status=%q: %w", lastStatus, err)
+		return fmt.Errorf("wait for Holo TCP listener: %w", err)
 	}
 	return nil
 }
@@ -564,8 +566,8 @@ func startAndConfigureHolo(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("start Holo service: %w: %s", err, strings.TrimSpace(output))
 	}
-	if healthErr := waitForHoloHealth(ctx, holoHealthTimeout); healthErr != nil {
-		return fmt.Errorf("Holo service did not become ready: %w", healthErr)
+	if readyErr := waitForHoloReady(ctx, holoReadyTimeout); readyErr != nil {
+		return fmt.Errorf("Holo service did not become ready: %w", readyErr)
 	}
 
 	configCtx, cancelConfig := context.WithTimeout(ctx, holoConfigStartTimeout)

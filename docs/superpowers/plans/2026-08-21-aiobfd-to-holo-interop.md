@@ -905,9 +905,12 @@ also excludes `.worktrees`, so the required in-repository worktree layout cannot
 contaminate dependency evidence. Remote `dev` passed the build, lint, security,
 Sonar (89.3% new coverage), and Codecov patch gates. The four-peer Testcontainers
 gate then reproduced twice on the Podman API with Holo still running but its
-Docker health state never reaching `healthy`; readiness now polls the same in-container
-TCP-listener command directly through the documented Testcontainers exec wait
-strategy. The healthcheck remains part of the container contract for Compose.
+Docker health state never reaching `healthy`; readiness now polls the same
+in-container TCP-listener command directly through the documented Testcontainers
+exec wait strategy both at initial startup and after the Holo lifecycle restart.
+The healthcheck remains part of the container contract for Compose. The complete
+four-peer Testcontainers gate passed locally under a 2-CPU/8-GiB cgroup in
+218.908 seconds, including Holo stop/restart recovery and resource cleanup.
 Remote validation of that narrow portability correction remains the completion
 gate.
 
