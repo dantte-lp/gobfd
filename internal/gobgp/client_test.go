@@ -31,6 +31,19 @@ func TestBuildTransportCredentialsUsesTLSWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildTransportCredentialsUsesPlaintextWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	creds, err := buildTransportCredentials(GRPCClientTLSConfig{})
+	if err != nil {
+		t.Fatalf("buildTransportCredentials: %v", err)
+	}
+
+	if got := creds.Info().SecurityProtocol; got != "insecure" {
+		t.Fatalf("SecurityProtocol = %q, want insecure", got)
+	}
+}
+
 func TestBuildTransportCredentialsLoadsCAFile(t *testing.T) {
 	t.Parallel()
 

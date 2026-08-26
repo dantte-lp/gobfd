@@ -8,6 +8,8 @@ codeberg.org/chavacava/garif v0.2.0 h1:F0tVjhYbuOCnvNcU3YSpO6b3Waw6Bimy4K0mM8y6M
 codeberg.org/chavacava/garif v0.2.0/go.mod h1:P2BPbVbT4QcvLZrORc2T29szK3xEOlnl0GiPTJmEqBQ=
 codeberg.org/polyfloyd/go-errorlint v1.9.0 h1:VkdEEmA1VBpH6ecQoMR4LdphVI3fA4RrCh2an7YmodI=
 codeberg.org/polyfloyd/go-errorlint v1.9.0/go.mod h1:GPRRu2LzVijNn4YkrZYJfatQIdS+TrcK8rL5Xs24qw8=
+connectrpc.com/connect v1.20.0 h1:6TNDAB+WeNd2uolWNlYczB5E0KNNaVMNUEx8JEUsPmQ=
+connectrpc.com/connect v1.20.0/go.mod h1:A2ygJrukXwWy32vkCAAHNVguZrqZ+jeZ9rGRnGR4dN4=
 dev.gaijin.team/go/exhaustruct/v4 v4.0.0 h1:873r7aNneqoBB3IaFIzhvt2RFYTuHgmMjoKfwODoI1Y=
 dev.gaijin.team/go/exhaustruct/v4 v4.0.0/go.mod h1:aZ/k2o4Y05aMJtiux15x8iXaumE88YdiB0Ai4fXOzPI=
 dev.gaijin.team/go/exhaustruct/v5 v5.0.3 h1:yOeA7DNjlT8y4yfmN6nWWYYggA13N523YAj9/TXbuTM=
@@ -570,8 +572,8 @@ golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8T
 golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
-google.golang.org/protobuf v1.36.11 h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=
-google.golang.org/protobuf v1.36.11/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
+google.golang.org/protobuf v1.36.12 h1:pJOKDDOyeXErUroCihFAd5LQuwXBSpVnKGrj5o/fwxc=
+google.golang.org/protobuf v1.36.12/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c h1:Hei/4ADfdWqJk1ZMxUNpqntNwaWcugrBjAiHlqqRiVk=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c/go.mod h1:JHkPIbrfpd72SG/EVd6muEfDQjcINNoR0C8j2r3qZ4Q=

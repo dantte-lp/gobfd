@@ -24,7 +24,8 @@ uv_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${uv_arc
 uv_tmp="$(mktemp -d "${TMPDIR:-/tmp}/gobfd-uv.XXXXXXXX")"
 trap 'rm -rf -- "${uv_tmp}"' EXIT
 
-curl --fail --location --retry 3 --output "${uv_tmp}/${uv_archive}" "${uv_url}"
+curl --fail --location --proto '=https' --proto-redir '=https' --retry 3 \
+    --output "${uv_tmp}/${uv_archive}" "${uv_url}"
 printf '%s  %s\n' "${uv_sha256}" "${uv_tmp}/${uv_archive}" | sha256sum --check --strict
 tar --no-same-owner -xzf "${uv_tmp}/${uv_archive}" -C "${uv_tmp}"
 install -d -m 0755 "${UV_INSTALL_DIR}"

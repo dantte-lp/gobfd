@@ -67,7 +67,7 @@ jobs:
         run: |
           apt-get update && apt-get install -y --no-install-recommends ca-certificates coreutils curl tar
           UV_INSTALL_DIR=/usr/local/bin .github/scripts/install-uv.sh
-          uv sync --frozen --no-default-groups --group quality
+          uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Run tests with JUnit output
         run: |
@@ -77,7 +77,7 @@ jobs:
             --jsonfile reports/tests/unit-report.json \
             --format short-verbose \
             -- -buildvcs=false ./... -race -count=1
-          uv run --frozen --no-default-groups --group quality -- \
+          uv run --frozen --no-build --no-default-groups --group quality -- \
             junit2html reports/tests/unit-report.xml reports/tests/unit-report.html
 
       - name: Run benchmarks

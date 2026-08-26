@@ -22,6 +22,8 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
 		"golang.org/x/perf/cmd/benchstat",
 		"gotest.tools/gotestsum",
+		"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+		"google.golang.org/protobuf/cmd/protoc-gen-go",
 	} {
 		if !strings.Contains(toolsModule, required) {
 			t.Errorf("tools/go.mod is missing %q", required)
@@ -48,6 +50,21 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	if !strings.Contains(makefile, "go tool -modfile=tools/go.mod golangci-lint") {
 		t.Error("Makefile does not run golangci-lint from the repository root through tools/go.mod")
 	}
+
+	workflow := readContractFile(t, "../.github/workflows/ci.yml")
+	for _, forbidden := range []string{
+		"go install google.golang.org/protobuf/cmd/protoc-gen-go",
+		"go install connectrpc.com/connect/cmd/protoc-gen-connect-go",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("CI workflow installs generator outside the isolated tools module: %q", forbidden)
+		}
+	}
+	requireContractStrings(t, "CI workflow", workflow, []string{
+		"go build -modfile=tools/go.mod -o \"$RUNNER_TEMP/bin/protoc-gen-go\" google.golang.org/protobuf/cmd/protoc-gen-go",
+		"go build -modfile=tools/go.mod -o \"$RUNNER_TEMP/bin/protoc-gen-connect-go\" " +
+			"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+	})
 }
 
 func TestDependencyInventoryHasReproducibleMakeTargets(t *testing.T) {

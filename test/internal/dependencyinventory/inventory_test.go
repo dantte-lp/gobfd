@@ -29,7 +29,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 196, "tools": 387}
+	wantGraphCounts := map[string]int{"runtime": 196, "tools": 388}
 	for _, graph := range inv.ModuleGraphs {
 		if len(graph.Modules) != wantGraphCounts[graph.ID] {
 			t.Fatalf("%s module count = %d, want %d", graph.ID, len(graph.Modules), wantGraphCounts[graph.ID])
@@ -266,6 +266,22 @@ func TestValidateRejectsAdoptedUnverifiedLicenseWithoutException(t *testing.T) {
 	err := Validate(inv, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "unverified license requires exception") {
 		t.Fatalf("Validate() error = %v, want missing license exception", err)
+	}
+}
+
+func TestValidateRejectsAdoptedUnverifiedReviewWithoutException(t *testing.T) {
+	t.Parallel()
+
+	inv := validInventory()
+	inv.Components[0].Assessment.Decision.Status = DecisionAdopted
+	inv.Components[0].Assessment.Decision.ReviewBy = ""
+	inv.Components[0].Assessment.License = Review{
+		Status: ReviewNotApplicable, Value: "fixture excludes license review", EvidenceIDs: []string{},
+	}
+
+	err := Validate(inv, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "unverified reviews require explicit exception") {
+		t.Fatalf("Validate() error = %v, want missing review exception", err)
 	}
 }
 

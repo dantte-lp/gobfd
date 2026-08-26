@@ -1,6 +1,7 @@
 package netio_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -24,6 +25,22 @@ func TestNewVXLANConnLoopbackLifecycle(t *testing.T) {
 	)
 	if err != nil {
 		t.Skipf("VXLAN loopback socket unavailable: %v", err)
+	}
+
+	payload := makePayload(24)
+	err = conn.SendEncapsulated(context.Background(), payload, netip.MustParseAddr("127.0.0.1"))
+	if err != nil {
+		t.Fatalf("SendEncapsulated: %v", err)
+	}
+	gotPayload, meta, err := conn.RecvDecapsulated(context.Background())
+	if err != nil {
+		t.Fatalf("RecvDecapsulated: %v", err)
+	}
+	if !bytes.Equal(gotPayload, payload) {
+		t.Fatalf("payload = %x, want %x", gotPayload, payload)
+	}
+	if meta.VNI != 100 {
+		t.Fatalf("VNI = %d, want 100", meta.VNI)
 	}
 
 	err = conn.Close()

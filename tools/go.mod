@@ -10,6 +10,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6 // indirect
 	codeberg.org/chavacava/garif v0.2.0 // indirect
 	codeberg.org/polyfloyd/go-errorlint v1.9.0 // indirect
+	connectrpc.com/connect v1.20.0 // indirect
 	dev.gaijin.team/go/exhaustruct/v4 v4.0.0 // indirect
 	dev.gaijin.team/go/exhaustruct/v5 v5.0.3 // indirect
 	dev.gaijin.team/go/golib v0.8.1 // indirect
@@ -215,7 +216,7 @@ require (
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
@@ -226,8 +227,10 @@ require (
 )
 
 tool (
+	connectrpc.com/connect/cmd/protoc-gen-connect-go
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	golang.org/x/perf/cmd/benchstat
+	google.golang.org/protobuf/cmd/protoc-gen-go
 	gotest.tools/gotestsum
 )
 

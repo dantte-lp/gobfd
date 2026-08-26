@@ -880,6 +880,26 @@ tagged gopls (36 packages/194 inputs), scoped golangci-lint v2.13.1, and the
 95-file Markdown policy gate passed sequentially inside the bounded container.
 No remote synchronization was performed.
 
+### Task 4f: Close v0.6.2 Sonar and Inventory Qualification Blockers
+
+**Status:** In progress on 2026-08-26 under `gobfd-qj0.8.1.7.1` through
+`gobfd-qj0.8.1.7.3`.
+
+Keep the RFC 5880-mandated keyed MD5 and SHA1 algorithms and record their exact
+Sonar dispositions. Require frozen uv commands to prohibit source builds,
+build protobuf generators from the isolated locked tool module, and enforce
+HTTPS across installer redirects. Cover the new reusable VXLAN, Geneve, and
+GoBGP branches while excluding only platform/socket boundaries owned by native
+and integration gates.
+
+Reconcile the package count to 35. Extend schema-v2 so every adopted or
+retained record explicitly owns all unresolved release-blocking review
+dimensions through a per-record, review-dated exception; do not promote those
+dimensions to verified or broadcast evidence between records. Regenerate the
+196-runtime/388-tools/107-component inventory twice, require byte identity,
+then run bounded Debian Trixie race, gopls, lint, documentation, inventory,
+Buf, vulnerability, and CI checks before integration into `dev`.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**

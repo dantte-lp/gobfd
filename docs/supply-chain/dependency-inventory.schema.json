@@ -35,6 +35,17 @@
         "reason": {"type": "string", "minLength": 1}, "tracking": {"type": "string", "minLength": 1}
       }
     },
+    "reviewException": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reviews", "owner", "review_by", "reason", "tracking"],
+      "properties": {
+        "reviews": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {
+          "enum": ["channel_current", "upstream_current", "release_impact", "security", "license", "repository_archived", "artifact_available", "release_line_eol"]
+        }},
+        "owner": {"type": "string", "minLength": 1}, "review_by": {"type": "string", "format": "date"},
+        "reason": {"type": "string", "minLength": 1}, "tracking": {"type": "string", "minLength": 1}
+      }
+    },
     "decision": {
       "type": "object", "additionalProperties": false, "required": ["status", "reason", "owner", "tracking"],
       "allOf": [{"if": {"properties": {"status": {"enum": ["deferred", "stale"]}}, "required": ["status"]}, "then": {"required": ["review_by"]}}],
@@ -42,7 +53,8 @@
         "status": {"enum": ["adopted", "retained", "stale", "deferred", "removed"]},
         "reason": {"type": "string", "minLength": 1}, "owner": {"type": "string", "minLength": 1},
         "tracking": {"type": "string", "minLength": 1}, "review_by": {"type": "string", "format": "date"},
-        "license_exception": {"$ref": "#/$defs/licenseException"}
+        "license_exception": {"$ref": "#/$defs/licenseException"},
+        "review_exception": {"$ref": "#/$defs/reviewException"}
       }
     },
     "assessment": {

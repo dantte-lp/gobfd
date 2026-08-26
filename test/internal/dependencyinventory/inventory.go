@@ -220,6 +220,7 @@ type Decision struct {
 	Tracking         string            `json:"tracking"`
 	ReviewBy         string            `json:"review_by,omitempty"`
 	LicenseException *LicenseException `json:"license_exception,omitempty"`
+	ReviewException  *ReviewException  `json:"review_exception,omitempty"`
 }
 
 // LicenseException records bounded ownership for an adopted unverified license.
@@ -228,6 +229,16 @@ type LicenseException struct {
 	ReviewBy string `json:"review_by"`
 	Reason   string `json:"reason"`
 	Tracking string `json:"tracking"`
+}
+
+// ReviewException records a per-dependency disposition for unresolved,
+// release-blocking review dimensions other than an unverified license.
+type ReviewException struct {
+	Reviews  []string `json:"reviews"`
+	Owner    string   `json:"owner"`
+	ReviewBy string   `json:"review_by"`
+	Reason   string   `json:"reason"`
+	Tracking string   `json:"tracking"`
 }
 
 // Check validates the committed inventory against the current repository.
@@ -410,7 +421,62 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	applyOCILicenseEvidence(&inv)
 	sort.Slice(inv.Components, func(i, j int) bool { return inv.Components[i].ID < inv.Components[j].ID })
 	populateEvidence(&inv)
+	applyReviewExceptions(&inv)
 	return inv, nil
+}
+
+func applyReviewExceptions(inv *Inventory) {
+	apply := func(id string, record *Record) {
+		decision := &record.Assessment.Decision
+		if decision.Status != DecisionAdopted && decision.Status != DecisionRetained {
+			decision.ReviewException = nil
+			return
+		}
+		reviews := unresolvedReviewNames(*record)
+		if len(reviews) == 0 {
+			decision.ReviewException = nil
+			return
+		}
+		decision.ReviewException = &ReviewException{
+			Reviews: reviews, Owner: "maintainers", ReviewBy: "2026-09-30",
+			Reason:   fmt.Sprintf("v0.6.2 accepts %s at %s while the listed reviews remain unresolved", id, record.Installed),
+			Tracking: "gobfd-qj0.8.1.7.3",
+		}
+	}
+	for graphIndex := range inv.ModuleGraphs {
+		graph := &inv.ModuleGraphs[graphIndex]
+		for moduleIndex := range graph.Modules {
+			module := &graph.Modules[moduleIndex]
+			apply(graph.ID+":"+module.Path, &module.Record)
+		}
+	}
+	for index := range inv.Components {
+		apply(inv.Components[index].ID, &inv.Components[index].Record)
+	}
+}
+
+func unresolvedReviewNames(record Record) []string {
+	reviews := []struct {
+		name   string
+		review Review
+	}{
+		{name: "channel_current", review: record.Assessment.ChannelCurrent},
+		{name: "upstream_current", review: record.Assessment.UpstreamCurrent},
+		{name: "release_impact", review: record.Assessment.ReleaseImpact},
+		{name: "security", review: record.Assessment.Security},
+		{name: "license", review: record.Assessment.License},
+		{name: "repository_archived", review: record.RepositoryState.RepositoryArchived},
+		{name: "artifact_available", review: record.RepositoryState.ArtifactAvailable},
+		{name: "release_line_eol", review: record.RepositoryState.ReleaseLineEOL},
+	}
+	unresolved := make([]string, 0, len(reviews))
+	for _, item := range reviews {
+		if item.review.Status == ReviewStale ||
+			(item.review.Status == ReviewUnverified && item.name != "license") {
+			unresolved = append(unresolved, item.name)
+		}
+	}
+	return unresolved
 }
 
 type depsDevVersion struct {
@@ -1911,6 +1977,9 @@ func validateRecord(
 	if err := validateRepositoryState(id, record.RepositoryState, evidenceByID, referencedEvidence); err != nil {
 		return err
 	}
+	if err := validateReviewException(id, record); err != nil {
+		return err
+	}
 	if record.ImmutablePin.Status == PinMutable && record.Assessment.Decision.Status != DecisionDeferred && record.Assessment.Decision.Status != DecisionStale {
 		return fmt.Errorf("dependency %q mutable reference lacks deferred or stale decision", id)
 	}
@@ -1928,6 +1997,49 @@ func validateRecord(
 		if err := validateSourceLocation(root, source); err != nil {
 			return fmt.Errorf("dependency %q: %w", id, err)
 		}
+	}
+	return nil
+}
+
+func validateReviewException(id string, record Record) error {
+	decision := record.Assessment.Decision
+	if decision.Status != DecisionAdopted && decision.Status != DecisionRetained {
+		if decision.ReviewException != nil {
+			return fmt.Errorf("dependency %q has review exception without an adopted or retained decision", id)
+		}
+		return nil
+	}
+
+	required := unresolvedReviewNames(record)
+	exception := decision.ReviewException
+	if len(required) == 0 {
+		if exception != nil {
+			return fmt.Errorf("dependency %q has review exception without an unresolved review", id)
+		}
+		return nil
+	}
+	if exception == nil || exception.Owner == "" || exception.Reason == "" || exception.Tracking == "" {
+		return fmt.Errorf("dependency %q unverified reviews require explicit exception owner, reason, tracking, and review date", id)
+	}
+	if _, err := time.Parse(time.DateOnly, exception.ReviewBy); err != nil {
+		return fmt.Errorf("dependency %q unverified reviews require explicit exception owner, reason, tracking, and review date", id)
+	}
+
+	covered := make(map[string]struct{}, len(exception.Reviews))
+	for _, review := range exception.Reviews {
+		if _, duplicate := covered[review]; duplicate {
+			return fmt.Errorf("dependency %q review exception repeats %q", id, review)
+		}
+		covered[review] = struct{}{}
+	}
+	for _, review := range required {
+		if _, ok := covered[review]; !ok {
+			return fmt.Errorf("dependency %q unverified review %q requires explicit exception", id, review)
+		}
+		delete(covered, review)
+	}
+	if len(covered) != 0 {
+		return fmt.Errorf("dependency %q review exception covers a resolved or unknown review", id)
 	}
 	return nil
 }

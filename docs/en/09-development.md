@@ -334,6 +334,12 @@ build-source commit and hashed license file. The check is offline and fails if
 either Go module graph, a declared component, a source location, evidence
 binding, or the Go package count drifts from the reviewed snapshot.
 
+Every adopted or retained record with an unresolved release-blocking review
+contains its own `review_exception`: exact review dimensions, owner, reason,
+tracking Bead, and review date. The offline checker rejects missing or excess
+exception coverage; deferred and stale decisions remain separately bounded by
+their decision owner and review date.
+
 ### Semgrep
 
 Semgrep is used as an additional local SAST pass:

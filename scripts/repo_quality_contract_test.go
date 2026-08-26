@@ -36,9 +36,11 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 
 	makefile := readContractFile(t, "../Makefile")
 	workflow := readContractFile(t, "../.github/workflows/ci.yml")
+	releaseWorkflow := readContractFile(t, "../.github/workflows/release.yml")
 	repositorySettings := readContractFile(t, "../.github/repository-settings.md")
 	containerfile := readContractFile(t, "../deployments/docker/Containerfile.dev")
 	pythonProject := readContractFile(t, "../pyproject.toml")
+	sonarProject := readContractFile(t, "../sonar-project.properties")
 
 	requireContractStrings(t, "Makefile", makefile, []string{
 		"go run ./test/cmd/repoquality markdown --root .",
@@ -48,7 +50,19 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	requireContractStrings(t, "CI workflow", workflow, []string{
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/repoquality commit --message \"$PR_TITLE\"",
-		"uv run --frozen --no-default-groups --group quality -- codespell",
+		"uv run --frozen --no-build --no-default-groups --group quality -- codespell",
+	})
+	if got := strings.Count(workflow, "uv run --frozen --no-build"); got != 3 {
+		t.Errorf("CI workflow has %d locked no-build uv runs, want 3", got)
+	}
+	requireContractStrings(t, "release workflow", releaseWorkflow, []string{
+		"uv sync --frozen --no-build --no-default-groups --group quality",
+		"uv run --frozen --no-build --no-default-groups --group quality",
+	})
+	requireContractStrings(t, "Sonar project", sonarProject, []string{
+		"internal/netio/listener_linux.go",
+		"internal/netio/listener_other.go",
+		"internal/netio/rawsock_other.go",
 	})
 	requireContractStrings(t, "repository settings", repositorySettings, []string{
 		"Commit policy (PR title)",
@@ -82,6 +96,16 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestUVInstallerRequiresHTTPSAcrossRedirects(t *testing.T) {
+	t.Parallel()
+
+	installer := readContractFile(t, "../.github/scripts/install-uv.sh")
+	requireContractStrings(t, "uv installer", installer, []string{
+		"--proto '=https'",
+		"--proto-redir '=https'",
+	})
 }
 
 func requireContractStrings(t *testing.T, surface string, content string, required []string) {

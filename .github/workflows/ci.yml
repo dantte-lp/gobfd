@@ -64,7 +64,7 @@ jobs:
       - name: Generate HTML test report
         if: always()
         run: >-
-          uv run --frozen --no-default-groups --group quality --
+          uv run --frozen --no-build --no-default-groups --group quality --
           junit2html unit-report.xml unit-report.html 2>/dev/null || true
 
       - name: Upload test reports
@@ -142,7 +142,7 @@ jobs:
 
       - name: yamllint
         run: >-
-          uv run --frozen --no-default-groups --group quality --
+          uv run --frozen --no-build --no-default-groups --group quality --
           yamllint -c .yamllint.yaml .
 
       - name: Python quality and security
@@ -150,7 +150,7 @@ jobs:
 
       - name: codespell
         run: >
-          uv run --frozen --no-default-groups --group quality -- codespell
+          uv run --frozen --no-build --no-default-groups --group quality -- codespell
           README.md CONTRIBUTING.md CHANGELOG.md
           CODE_OF_CONDUCT.md SUPPORT.md GOVERNANCE.md MAINTAINERS.md
           docs/en/implementation-plan.md docs/en/codebase-consistency-audit.md
@@ -232,8 +232,10 @@ jobs:
 
       - name: Verify generated protobuf code
         run: |
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
-          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.20.0
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -modfile=tools/go.mod -o "$RUNNER_TEMP/bin/protoc-gen-go" google.golang.org/protobuf/cmd/protoc-gen-go
+          go build -modfile=tools/go.mod -o "$RUNNER_TEMP/bin/protoc-gen-connect-go" connectrpc.com/connect/cmd/protoc-gen-connect-go
+          export PATH="$RUNNER_TEMP/bin:$PATH"
           buf generate
           git diff --exit-code -- pkg/bfdpb
 
