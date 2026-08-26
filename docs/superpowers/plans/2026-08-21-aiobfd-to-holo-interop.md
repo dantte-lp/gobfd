@@ -690,6 +690,60 @@ Python 3.14.7/uv 0.12.6 quality gates, shell and Markdown checks, and dry-run
 CLI parity without pulling or building images. Remove owned caches/processes,
 stage only the reviewed slice, commit on `dev`, and perform no remote sync.
 
+### Task 4c: Remove npm Quality Gates
+
+**Files:**
+- Add: `test/internal/repoquality/`
+- Add: `test/cmd/repoquality/`
+- Add: `scripts/repo_quality_contract_test.go`
+- Modify: `Makefile`, `.github/workflows/ci.yml`
+- Modify: `deployments/docker/Containerfile.dev`
+- Modify: `pyproject.toml`, `uv.lock`
+- Replace: `.cspell.json` with an exact codespell ignore-word file
+- Remove: `.commitlintrc.yaml`, `.markdownlint-cli2.yaml`
+- Modify: EN/RU development documentation, dependency-refresh design,
+  dependency inventory, and changelogs
+
+- [ ] **Step 1: Capture the current policies in RED**
+
+Use fixtures derived from the pinned commitlint 21.2.2 and markdownlint 0.41
+configuration to require exact accepted/rejected commit headers, body length,
+default ignore cases, Markdown discovery exclusions, enabled rule behavior,
+and non-empty inputs. Require the repository to expose one Go 1.27 quality
+entrypoint and prove that npm, npx, Node setup, and package manifests are
+absent from quality-gate call sites.
+
+- [ ] **Step 2: Implement the smallest Go policy checker**
+
+Implement only the committed Conventional Commit and Markdown policies in a
+stdlib-only internal package and thin command. Keep deterministic sorted
+diagnostics, bounded regular-file reads, context cancellation, exact ignore
+roots, and fail-closed empty discovery. Do not add a general Markdown parser,
+formatter, or new third-party module in this slice.
+
+- [ ] **Step 3: Move spelling and YAML checks to frozen uv**
+
+Add exact codespell 2.4.3 to the existing Python 3.14.7/uv 0.12.6 quality
+group, retain yamllint 1.38.0, and translate only the active cspell exception
+set needed by the checked files. Use explicit non-empty file lists and no
+broad directory or rule suppression.
+
+- [ ] **Step 4: Remove Node/npm from every quality surface**
+
+Switch Make and CI to the Go checker plus frozen-uv codespell/yamllint, remove
+Node and global npm installs from the Debian Trixie development image, and
+delete the obsolete Node-tool configuration files. Keep the unrelated
+browser-side Alpine.js report asset out of this tooling-only slice.
+
+- [ ] **Step 5: Verify, document, inventory, and commit locally**
+
+Regenerate the dependency inventory and prove the exact removed tool/source
+records and Go package-count change. Run fixture tests, full race+trimpath,
+gopls, scoped lint, frozen Python quality, Markdown/YAML/spelling parity, CI
+workflow contracts, and a Debian Trixie dev-image build with 2 CPU/5 GiB
+limits and task-local caches. Remove owned caches/processes, commit on `dev`,
+and perform no remote synchronization.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**
