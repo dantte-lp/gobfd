@@ -41,7 +41,7 @@ Milestone Beads: `gobfd-qj0.8.1` — **в работе**.
 | Исправление публичных RFC- и benchmark-заявлений | Готово |
 | Roadmap, Quick Start, архитектура и EN/RU parity | Готово |
 | Независимая проверка всех частей v0.6.2 | В работе |
-| Регистрация изолированного `tools/go.mod` в Dependabot | Открыто |
+| Регистрация изолированного `tools/go.mod` в Dependabot | Готово |
 
 Релиз не получает тег, пока не приняты qualification milestone
 `gobfd-qj0.8.1.7`, независимая проверка `gobfd-qj0.8.1.8` и все обязательные

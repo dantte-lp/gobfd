@@ -41,7 +41,7 @@ and test infrastructure without adding BFD protocol behavior.
 | RFC and benchmark public-claim correction | Done |
 | Roadmap, Quick Start, architecture, and EN/RU parity | Done |
 | Independent review of all v0.6.2 slices | In progress |
-| Register the isolated `tools/go.mod` with Dependabot | Open |
+| Register the isolated `tools/go.mod` with Dependabot | Done |
 
 The release remains untagged until the qualification milestone
 `gobfd-qj0.8.1.7`, independent review `gobfd-qj0.8.1.8`, and all required local
