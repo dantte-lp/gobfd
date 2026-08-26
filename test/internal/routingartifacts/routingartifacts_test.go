@@ -7,10 +7,11 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec" //nolint:depguard // The umask regression executes the current test binary with fixed arguments.
+	"os/exec" //nolint:depguard // The umask regression executes the current test binary in an isolated process.
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -89,10 +90,6 @@ func TestMergeWritesExactModeUnderRestrictiveUmask(t *testing.T) {
 	}
 	command := exec.CommandContext(
 		t.Context(),
-		"sh",
-		"-c",
-		`umask 0777; exec "$@"`,
-		"--",
 		executable,
 		"-test.run=^TestMergeWritesExactModeUnderRestrictiveUmaskChild$",
 		"-test.v",
@@ -123,6 +120,8 @@ func TestMergeWritesExactModeUnderRestrictiveUmaskChild(t *testing.T) {
 	if os.Getenv(restrictiveUmaskChildEnvironment) != "1" {
 		t.Skip("helper runs only in the guarded restrictive-umask child process")
 	}
+	originalUmask := syscall.Umask(0o777)
+	defer syscall.Umask(originalUmask)
 
 	root := os.Getenv(restrictiveUmaskRootEnvironment)
 	if root == "" {
