@@ -423,6 +423,8 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 | [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 -- BFD for MPLS LSPs |
 | [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 -- BFD for PW VCCV |
 | [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 -- BFD on LAG |
+| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 -- Optimizing BFD Authentication |
+| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 -- Meticulous Keyed ISAAC for Optimized BFD Authentication |
 
 ### Связанные документы
 

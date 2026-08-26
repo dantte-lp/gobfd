@@ -1,7 +1,7 @@
 # GoBFD Final Recommendations Audit
 
-**Status:** Complete research; decisions incorporated into the revised v0.6.2
-and v1 design proposals
+**Status:** Reconciled against `dev` on 2026-08-27; release priorities and
+Beads plan updated
 
 **Source:** secret Gist `66675b88a5fe0a66f270240f45307e0f`, revision
 `9f2ed3b80ee05205e2104356ee7f07d4fa887992`, fetched 2026-08-19
@@ -17,6 +17,59 @@ unsafe or unproven mechanism. `Deferred` requires measurement or a later
 protocol milestone. `Rejected` is incompatible with the wire contract or the
 current attachment model.
 
+## Current status reconciliation
+
+This status pass compared the Gist baseline `20eaaacd87f7a27ae446674ffec11dbce8177dc4`
+with `dev` at `0376e0f5cd90b8692010586b83854d8d4dc36b51`. It inspected the current
+implementation and tests, the Beads graph, the GitHub release and vulnerability
+state, and the byte-for-byte local RFC corpus. The original Gist remains source
+evidence; this section is the current delivery status.
+
+The local RFC corpus contains 43 text files. On 2026-08-27 every file matched
+the corresponding RFC Editor text response by SHA-256. RFC 9985 and RFC 9986
+were added from the RFC Editor after their metadata and Published state were
+resolved through the IETF Datatracker API. Both documents identify themselves
+as Experimental and remain outside the v1 stable contract.
+
+| # | Current status | Current delivery decision |
+|---:|---|---|
+| 1 | Open | `BenchmarkFullRecvPath` still ends at enqueue. Correct the public claim for v0.6.2; add committed-packet latency, timer-error, false-Down, and loss measurements for v1. |
+| 2 | Open | Control and Echo sessions still call `runtime.LockOSThread`. Measure first, then remove the permanent pin; do not add a COW registry without profile evidence. |
+| 3 | Open | No configurable `IP_TOS`/`IPV6_TCLASS`, `SO_PRIORITY`, or `SO_MARK` policy exists. Implement as P1 operational hardening with packet evidence. |
+| 4 | Decision closed | The proposed one-socket design remains rejected. Preserve the RFC 5881 source-port range, per-session stability, and uniqueness contract. |
+| 5 | Runtime closed; observability open | Go 1.27.0 supplies container-aware `GOMAXPROCS`. Runtime status and cgroup throttling evidence still belong to the v1 measurement slice. |
+| 6 | Deferred | No sharded scheduler or timing wheel is justified before the corrected measurement and delivery gates. |
+| 7 | Deferred | No `SO_REUSEPORT`/`SK_REUSEPORT` implementation is planned for stable v1. |
+| 8 | Partial | Software kernel RX timestamping remains a v1 measurement task; receive batching remains a post-baseline prototype. |
+| 9 | Decision closed | The unsafe fixed-offset cBPF TTL proposal remains rejected; ancillary IPv4/IPv6 hop validation stays authoritative. |
+| 10 | Deferred | TC/XDP remains owner-integrated R&D, not a v1 release gate. |
+| 11 | Deferred | FD retention alone cannot restore FSM/auth/ownership state; warm restart requires a later state-transfer ADR. |
+| 12 | Open P0 | Incoming Poll replies exist, but local Poll initiation, crossed Poll, timer semantics, and remote Demand behavior remain incomplete. |
+| 13 | Deferred | S-BFD is post-v1; current documentation must not describe the absent initiator/reflector as implemented. |
+| 14 | Deferred | RFC 9985/9986 sources are now local and verified, but implementation waits for a complete Poll engine and an explicit Experimental feature contract. |
+| 15 | Partial | Tool dependencies are isolated and native LAG backends exist; all four binaries are intentionally retained. Companion reconnect/default correctness remains open, while speculative module splitting is rejected. |
+| 16 | Deferred | `io_uring` remains outside the roadmap until a measured syscall bottleneck exists. |
+| 17 | Deferred | AF_XDP and kernel FSM offload remain post-v1 R&D. |
+| 18 | Open P0 | Control and metrics still default to all-interface plaintext listeners and the flight-recorder endpoint is enabled with the metrics server. |
+
+### Current priority order
+
+1. Finish the v0.6.2 truth-and-qualification gate: independent review,
+   RFC/performance claim correction, documentation parity, and release notes.
+2. Implement the v1 P0 RFC and delivery core: Poll/Final/Demand, diagnostics
+   and timeout reset, typed delivery and AdminDown acknowledgement, RFC
+   5881/5883 transport scope, RFC 9764 authenticated padding, and explicit
+   preview boundaries for incomplete extended RFCs.
+3. Implement ownership-safe configuration, secure management defaults, and
+   GoBGP v4 desired/applied reconciliation.
+4. Complete P1 measurement and low-risk hardening: committed-packet latency,
+   timer/loss accounting, A/B removal of thread pinning, and configurable BFD
+   QoS socket policy.
+5. Harden companion binaries, then run independent review and the v1 interop,
+   scale, security, upgrade, rollback, packaging, and release qualification.
+6. Reassess sharding, batching, reuseport, XDP, warm restart, S-BFD, optimized
+   authentication, io_uring, and AF_XDP only after stable v1 evidence exists.
+
 ## Recommendations 1-18
 
 | # | Disposition | Independent evidence and plan decision |
@@ -25,7 +78,7 @@ current attachment model.
 | 2 | Modified | Permanent per-session `runtime.LockOSThread` exists and provides neither CPU affinity nor real-time scheduling. Remove it after A/B measurement. Do not add a copy-on-write registry until profiles prove lock contention. |
 | 3 | Modified | FRR and BIRD set control-traffic TOS/priority; GoBFD currently sets only TTL/Hop Limit. Add configurable IPv4 DSCP/IPv6 Traffic Class with CS6 operational default and `SO_PRIORITY`; keep `SO_MARK=0` by default. This is operational policy, not an RFC MUST. |
 | 4 | Rejected | RFC 5881 requires a stable source UDP port per session and recommends uniqueness. One ordinary connected TX socket cannot preserve that contract. Keep per-session ports for v1; any measured pool must retain stable session-to-port affinity. |
-| 5 | Accepted as existing runtime behavior | Go 1.26 already applies container-aware `GOMAXPROCS` unless explicitly overridden. Expose the effective value and throttling evidence; do not build a duplicate scheduler feature. |
+| 5 | Accepted as existing runtime behavior | Go 1.27 already applies container-aware `GOMAXPROCS` unless explicitly overridden. Expose the effective value and throttling evidence; do not build a duplicate scheduler feature. |
 | 6 | Deferred | N-shards or a timing wheel may help only after invisible loss, thread pinning, and the end-to-end benchmark are corrected. FRR/BIRD architectures are reference points, not proof that Go needs the same loop. |
 | 7 | Deferred | `SO_REUSEPORT` requires discriminator/peer-to-worker affinity and a bootstrap policy while `YourDiscriminator=0`. It is not a v1 core prerequisite. |
 | 8 | Modified | Software kernel RX timestamps are useful for measurement. `recvmmsg` remains a benchmarked prototype. Hardware PHC, realtime kernel timestamps, and Go monotonic time cannot be mixed without explicit conversion; detection deadlines therefore remain monotonic accepted-packet deadlines pending proof. |
@@ -50,7 +103,7 @@ current attachment model.
 | `SetAdminDown` has an atomic-only fallback | Confirmed | Replace with request/ack and explicit timeout/error; never report a partial state change as success. |
 | GoBGP actuation has no retry/reconcile loop | Confirmed | Add bounded retry, desired/applied state, process-epoch ownership receipts, and never enable a peer GoBFD did not disable. |
 | Public performance claims measure enqueue | Confirmed | Correct claims in v0.6.2; make UDP-to-FSM commit and false-Down evidence the v1 qualification source. |
-| GoBGP vulnerability exception is expired | Confirmed with release distinction | v0.6.2 remains red until a separately approved exact exception is recorded. Stable v1 waits for a compatible fixed GoBGP v4 release. |
+| GoBGP vulnerability exception is expired | Closed for v0.6.2; open for stable v1 | The approved exact v3.37.0 exception now expires on 2026-09-30 and the local gate rejects expiry. The Go vulnerability database still lists all v4 versions affected, so stable v1 remains blocked on a fixed compatible v4 release. |
 | Multihop TTL 254 is hard-coded as if RFC-required | Confirmed | Expose a hop/security policy (`min_rx_ttl` or `max_hops`), document 254 as local GTSM policy, and test IPv4/IPv6 across 1/2/5 hops. |
 
 ## Additional blockers found independently

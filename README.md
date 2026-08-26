@@ -114,7 +114,9 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 [RFC 9747](docs/rfc/rfc9747.txt) |
 [RFC 8971](docs/rfc/rfc8971.txt) |
 [RFC 9521](docs/rfc/rfc9521.txt) |
-[RFC 9764](docs/rfc/rfc9764.txt)
+[RFC 9764](docs/rfc/rfc9764.txt) |
+[RFC 9985](docs/rfc/rfc9985.txt) |
+[RFC 9986](docs/rfc/rfc9986.txt)
 
 ## RFC Compliance
 

@@ -488,6 +488,8 @@ Full RFC text files are available in the `docs/rfc/` directory:
 | [rfc5885.txt](../rfc/rfc5885.txt) | 31 KB |
 | [rfc7130.txt](../rfc/rfc7130.txt) | 21 KB |
 | [rfc7419.txt](../rfc/rfc7419.txt) | 12 KB |
+| [rfc9985.txt](../rfc/rfc9985.txt) | 45 KB |
+| [rfc9986.txt](../rfc/rfc9986.txt) | 71 KB |
 
 ### Related Documents
 

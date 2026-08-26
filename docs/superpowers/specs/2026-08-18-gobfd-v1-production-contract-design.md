@@ -1,13 +1,15 @@
 # GoBFD v1.0 Production Contract Design
 
-**Status:** Revised proposal after final-recommendations audit; implementation
-not started
+**Status:** Reconciled on 2026-08-27 after the v0.6.2 maintenance baseline;
+implementation not started
 
 **Compatibility decision:** preserve `bfd.v1` and the current YAML schema;
 evolve them additively
 
-**GoBGP target:** prereleases develop against v4.8.0; stable v1 uses the first
-compatible v4 release that fixes `GO-2026-4736`
+**GoBGP target:** prereleases develop against v4.8.0; as revalidated through
+the GitHub API and Go vulnerability database on 2026-08-27, it remains the
+latest release and is affected by `GO-2026-4736`. Stable v1 uses the first
+compatible fixed v4 release.
 
 **Delivery priority:** v1 follows the accepted v0.6.2 maintenance baseline and
 closes the documented RFC compliance and production-quality gaps. Every
@@ -360,7 +362,7 @@ late-delivery design proves equivalent protocol behavior.
 
 Permanent `runtime.LockOSThread` per control or echo session is removed after an
 A/B benchmark confirms no regression. Thread pinning provides neither CPU
-affinity nor real-time scheduling. Go 1.26's container-aware `GOMAXPROCS` is the
+affinity nor real-time scheduling. Go 1.27's container-aware `GOMAXPROCS` is the
 default; status records its effective value and CPU-throttling evidence rather
 than introducing another scheduler control. v1 retains goroutine-per-session
 scheduling unless measurements require a sharded timer loop.
@@ -374,7 +376,7 @@ socket pools, `SO_REUSEPORT`, `recvmmsg`, or a timing wheel require a measured
 post-core ADR that preserves discriminator and source-port affinity.
 
 The supported v1 envelope is qualified on a reference runner with 8 vCPU,
-8 GiB RAM, `GOMAXPROCS=8`, and Go 1.26.6. It runs 1,000 mixed IPv4/IPv6 Up
+8 GiB RAM, `GOMAXPROCS=8`, and Go 1.27.0. It runs 1,000 mixed IPv4/IPv6 Up
 sessions for 24 hours at 100 ms TX/RX and multiplier 3, with background CPU
 load held at 80%, deterministic 0.1% random packet loss, and one intentional
 one-second blackhole every 30 minutes. Only intentional blackholes may cause a
@@ -636,6 +638,8 @@ silently deferred from the stable v1 release.
 - [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384)
 - [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468)
 - [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747)
+- [RFC 9985](../../rfc/rfc9985.txt)
+- [RFC 9986](../../rfc/rfc9986.txt)
 - [FRR 10.7.0 BFD documentation](https://github.com/FRRouting/frr/blob/frr-10.7.0/doc/user/bfd.rst)
 - [BIRD 3.3.2 BFD implementation](https://github.com/CZ-NIC/bird/tree/v3.3.2/proto/bfd)
 - [GoBGP v4.8.0 BFD documentation](https://github.com/osrg/gobgp/blob/v4.8.0/docs/sources/bfd.md)

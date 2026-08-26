@@ -149,6 +149,8 @@ dependency risk register and other auxiliary material.
 | [rfc8971.txt](../rfc/rfc8971.txt) | RFC 8971 | BFD for VXLAN |
 | [rfc9521.txt](../rfc/rfc9521.txt) | RFC 9521 | BFD for Geneve |
 | [rfc9764.txt](../rfc/rfc9764.txt) | RFC 9764 | BFD Encapsulated in Large Packets |
+| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 | Optimizing BFD Authentication |
+| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 | Meticulous Keyed ISAAC for Optimized BFD Authentication |
 
 ---
 
