@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command instead of an inline Python heredoc. Inputs are bounded and
   identity-checked, metadata is exactly one JSON document, and the mode-0600
   report is published only by same-directory atomic replacement.
+- Containerlab vendor-image bootstrap orchestration now runs through a bounded
+  Go 1.27 command. Python remains only for VyOS ISO/rootfs preparation and
+  operator-supplied Arista/Cisco archive import behind three explicit frozen-uv
+  subcommands.
 - The mandatory four-peer BFD interoperability matrix now uses FRR 10.7.0,
   BIRD 3.3.2, immutable Holo 0.9.0, and Thoro/bfd. Holo is configured by a
   healthy-gated one-shot YANG loader, and lifecycle tests require fresh packet

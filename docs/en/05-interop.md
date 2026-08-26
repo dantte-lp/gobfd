@@ -417,38 +417,41 @@ graph TD
 - Container capabilities: `NET_ADMIN`, `NET_RAW`
 - At least one vendor image available
 
-### Lab Preparation (`bootstrap.py`)
+### Lab Preparation (Go Bootstrap)
 
-A self-contained Python 3.12+ script automates full image preparation from a clean machine:
+The Go 1.27 bootstrap command owns preflight, bounded parallel pulls, build,
+inventory, and optional topology delegation. Python 3.14.7 is retained only
+behind the command for VyOS ISO/rootfs preparation and operator-supplied
+Arista/Cisco archives.
 
 ```bash
 # Pull all public images + prepare VyOS tag + build GoBFD
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py -v
+go run ./test/cmd/clabbootstrap -v
 
 # With commercial images
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py \
+go run ./test/cmd/clabbootstrap \
     --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Prepare + deploy topology
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --deploy
+go run ./test/cmd/clabbootstrap --deploy
 
 # Prepare + full test run
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --test
+go run ./test/cmd/clabbootstrap --test
 
 # Dry run (show what would be done)
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --dry-run
+go run ./test/cmd/clabbootstrap --dry-run
 ```
 
-The script handles:
-- **Preflight checks**: podman, go, host tools, disk space
+The command handles:
+- **Preflight checks**: podman and the exact Go toolchain
 - **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ build dependencies)
 - **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
-- **Inventory report**: final table of all images with ready/missing status
+- **Inventory report**: final list of all images with ready/missing status
 
-Run `uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help`
-for all options.
+Run `make interop-clab-bootstrap ARGS=--help` for all options. The retained
+`vendor_images.py` helper is an internal boundary, not an operator entrypoint.
 
 ### Running Vendor Tests
 

@@ -1,0 +1,302 @@
+package clabbootstrap
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+var errInvalidBootstrapOptions = errors.New("invalid containerlab bootstrap options")
+
+type imageReference struct {
+	name      string
+	reference string
+}
+
+type pullResult struct {
+	name string
+	err  error
+}
+
+// Run executes the Go-owned bootstrap phases through runner.
+func Run(ctx context.Context, options Options, runner Runner) error {
+	if err := validateOptions(options, runner); err != nil {
+		return err
+	}
+
+	if err := runPreflight(ctx, options, runner); err != nil {
+		return err
+	}
+
+	images := publicImages(options.Tags)
+	failures := pullImages(ctx, options, runner, images)
+	failures = append(failures, runVendorPhases(ctx, options, runner, images)...)
+	if !options.SkipBuild {
+		if err := runCommand(ctx, runner, buildCommand(options)); err != nil {
+			failures = append(failures, "gobfd-build")
+		}
+	}
+
+	inspectInventory(ctx, options, runner)
+	if len(failures) != 0 {
+		return fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
+	}
+	if err := runTopology(ctx, options, runner); err != nil {
+		return fmt.Errorf("%w: deploy/test: %w", ErrBootstrapFailed, err)
+	}
+	return nil
+}
+
+func validateOptions(options Options, runner Runner) error {
+	if runner == nil {
+		return fmt.Errorf("validate bootstrap runner: %w", errInvalidBootstrapOptions)
+	}
+	if !filepath.IsAbs(options.ProjectRoot) || options.Jobs <= 0 {
+		return fmt.Errorf(
+			"validate bootstrap root %q and jobs %d: %w",
+			options.ProjectRoot,
+			options.Jobs,
+			errInvalidBootstrapOptions,
+		)
+	}
+	if options.Deploy && options.Test {
+		return fmt.Errorf("validate mutually exclusive deploy and test flags: %w", errInvalidBootstrapOptions)
+	}
+	return nil
+}
+
+func runPreflight(ctx context.Context, options Options, runner Runner) error {
+	commands := []Command{
+		{
+			Executable: executablePodman,
+			Arguments:  []string{"version", "--format", "{{.Client.Version}}"},
+			DryRun:     options.DryRun,
+		},
+	}
+	if !options.SkipBuild {
+		commands = append(commands, Command{Executable: "go", Arguments: []string{"version"}, DryRun: options.DryRun})
+	}
+	for _, command := range commands {
+		if err := runCommand(ctx, runner, command); err != nil {
+			return fmt.Errorf("run bootstrap preflight: %w", err)
+		}
+	}
+	return nil
+}
+
+func publicImages(tags ImageTags) []imageReference {
+	return []imageReference{
+		{name: "nokia", reference: "ghcr.io/nokia/srlinux:" + tags.Nokia},
+		{name: "sonic", reference: "docker.io/netreplica/docker-sonic-vs:" + tags.Sonic},
+		{name: "vyos", reference: "docker.io/muruu1/vyos:" + tags.VyOS},
+		{name: "frr", reference: "quay.io/frrouting/frr:" + tags.FRR},
+		{
+			name: "gobgp",
+			reference: "docker.io/jauderho/gobgp:v3.37.0@sha256:" +
+				"3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37",
+		},
+		{
+			name: "golang",
+			reference: "docker.io/library/golang:1.27.0-trixie@sha256:" +
+				"ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a",
+		},
+		{
+			name: "debian",
+			reference: "docker.io/library/debian:trixie-slim@sha256:" +
+				"d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
+		},
+	}
+}
+
+func pullImages(ctx context.Context, options Options, runner Runner, images []imageReference) []string {
+	results := make([]pullResult, len(images))
+	work := make(chan int)
+	var workers sync.WaitGroup
+	workerCount := min(options.Jobs, len(images))
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for index := range work {
+				results[index] = pullImage(ctx, options, runner, images[index])
+			}
+		}()
+	}
+	for index := range images {
+		work <- index
+	}
+	close(work)
+	workers.Wait()
+
+	failures := make([]string, 0)
+	for _, result := range results {
+		if result.err != nil {
+			failures = append(failures, "pull:"+result.name)
+		}
+	}
+	return failures
+}
+
+func pullImage(ctx context.Context, options Options, runner Runner, image imageReference) pullResult {
+	exists, err := imageExists(ctx, options, runner, image.reference)
+	if err != nil {
+		return pullResult{name: image.name, err: err}
+	}
+	if exists {
+		return pullResult{name: image.name}
+	}
+	command := Command{
+		Executable: executablePodman,
+		Arguments:  []string{"pull", "--quiet", image.reference},
+		DryRun:     options.DryRun,
+	}
+	return pullResult{name: image.name, err: runCommand(ctx, runner, command)}
+}
+
+func imageExists(ctx context.Context, options Options, runner Runner, reference string) (bool, error) {
+	if options.DryRun {
+		return false, nil
+	}
+	result, err := runner.Run(ctx, Command{
+		Executable: executablePodman,
+		Arguments:  []string{"image", "exists", reference},
+	})
+	if err != nil {
+		return false, fmt.Errorf("inspect image %s: %w", reference, err)
+	}
+	switch result.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("inspect image %s: exit %d: %w", reference, result.ExitCode, ErrBootstrapFailed)
+	}
+}
+
+func runVendorPhases(ctx context.Context, options Options, runner Runner, images []imageReference) []string {
+	vyosImage := images[2].reference
+	arguments := []string{"--version", options.VyOSVersion, "--image", vyosImage}
+	if options.VyOSISO != "" {
+		arguments = append(arguments, "--iso", options.VyOSISO)
+	}
+	if options.SkipPull {
+		arguments = append(arguments, "--skip-pull")
+	}
+	if options.DryRun {
+		arguments = append(arguments, "--dry-run")
+	}
+	failures := runVendorCommand(ctx, options, runner, VendorVyOS, "vyos", arguments)
+	if options.Archives.Arista != "" {
+		failures = append(failures, runVendorCommand(ctx, options, runner, VendorArista, "arista", []string{
+			"--archive", options.Archives.Arista, "--tag", options.Tags.Arista,
+		})...)
+	}
+	if options.Archives.Cisco != "" {
+		failures = append(failures, runVendorCommand(ctx, options, runner, VendorCisco, "cisco", []string{
+			"--archive", options.Archives.Cisco, "--tag", options.Tags.Cisco,
+		})...)
+	}
+	return failures
+}
+
+func runVendorCommand(
+	ctx context.Context,
+	options Options,
+	runner Runner,
+	operation VendorOperation,
+	failure string,
+	arguments []string,
+) []string {
+	command, err := VendorCommand(options.ProjectRoot, operation, arguments...)
+	if err != nil {
+		return []string{failure}
+	}
+	command.DryRun = options.DryRun
+	if err := runCommand(ctx, runner, command); err != nil {
+		return []string{failure}
+	}
+	return nil
+}
+
+func buildCommand(options Options) Command {
+	return Command{
+		Executable: executablePodman,
+		Arguments: []string{
+			"build", "-t", "gobfd-clab:latest", "-f",
+			filepath.Join(options.ProjectRoot, "test", "interop-clab", "Containerfile.gobfd"),
+			options.ProjectRoot,
+		},
+		DryRun: options.DryRun,
+	}
+}
+
+func inspectInventory(ctx context.Context, options Options, runner Runner) {
+	images := []imageReference{
+		{name: "nokia", reference: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia},
+		{name: "sonic", reference: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic},
+		{name: "vyos", reference: "vyos:latest"},
+		{name: "frr", reference: "quay.io/frrouting/frr:" + options.Tags.FRR},
+		{name: "gobfd", reference: "gobfd-clab:latest"},
+		{name: "arista", reference: options.Tags.Arista},
+		{name: "cisco", reference: options.Tags.Cisco},
+	}
+	for _, image := range images {
+		exists := options.DryRun
+		var err error
+		if !options.DryRun {
+			exists, err = imageExists(ctx, options, runner, image.reference)
+		}
+		if options.Logger == nil {
+			continue
+		}
+		if err != nil {
+			options.Logger.WarnContext(
+				ctx,
+				"image inventory check failed",
+				"name",
+				image.name,
+				"reference",
+				image.reference,
+				"error",
+				err,
+			)
+			continue
+		}
+		status := "missing"
+		if exists {
+			status = "ready"
+		}
+		options.Logger.InfoContext(ctx, "image inventory", "name", image.name, "reference", image.reference, "status", status)
+	}
+}
+
+func runTopology(ctx context.Context, options Options, runner Runner) error {
+	if !options.Deploy && !options.Test {
+		return nil
+	}
+	arguments := []string(nil)
+	if options.Deploy {
+		arguments = []string{"--up-only"}
+	}
+	return runCommand(ctx, runner, Command{
+		Executable: filepath.Join(options.ProjectRoot, "test", "interop-clab", "run.sh"),
+		Arguments:  arguments,
+		Directory:  filepath.Join(options.ProjectRoot, "test", "interop-clab"),
+		DryRun:     options.DryRun,
+	})
+}
+
+func runCommand(ctx context.Context, runner Runner, command Command) error {
+	result, err := runner.Run(ctx, command)
+	if err != nil {
+		return fmt.Errorf("run %s: %w", command.Executable, err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("run %s: exit %d: %s: %w", command.Executable, result.ExitCode, result.Stderr, ErrBootstrapFailed)
+	}
+	return nil
+}

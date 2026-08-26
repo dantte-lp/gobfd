@@ -100,6 +100,7 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 | `make interop-bgp-up` | Start BGP+BFD topology |
 | `make interop-bgp-test` | Run BGP+BFD Go tests |
 | `make interop-bgp-down` | Stop BGP+BFD topology |
+| `make interop-clab-bootstrap` | Prepare vendor images through the Go bootstrap (`ARGS=...`) |
 | `make interop-clab` | Full cycle vendor NOS tests (Nokia, FRR, etc.) |
 | `make interop-clab-up` | Deploy vendor NOS topology |
 | `make interop-clab-test` | Run vendor interop Go tests |
@@ -288,13 +289,13 @@ are Go binaries, not Python dependencies.
 ```bash
 make python-sync
 make python-check
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help
+uv run --frozen --no-default-groups -- python test/interop-clab/vendor_images.py --help
 ```
 
 `make python-check` asserts Python 3.14.7, checks the lock and frozen sync, then
-runs lint, type, security, and vulnerability checks over both owned Python
-files. ExaBGP remains an external immutable interop image and is not duplicated
-in the lock.
+runs lint, type, security, and vulnerability checks over the single retained
+vendor-image helper. ExaBGP remains an external immutable interop image and is
+not duplicated in the lock.
 
 ### Dependency Inventory
 

@@ -413,38 +413,42 @@ graph TD
 - Capabilities контейнера: `NET_ADMIN`, `NET_RAW`
 - Хотя бы один доступный вендорный образ
 
-### Подготовка лаборатории (`bootstrap.py`)
+### Подготовка лаборатории (Go bootstrap)
 
-Самодостаточный скрипт на Python 3.12+ автоматизирует полную подготовку образов с чистой машины:
+Команда на Go 1.27 отвечает за preflight, ограниченные параллельные скачивания,
+сборку, инвентаризацию и опциональный запуск топологии. Python 3.14.7 остаётся
+только внутренней границей для подготовки ISO/rootfs VyOS и предоставленных
+оператором архивов Arista/Cisco.
 
 ```bash
 # Скачать все public образы + подготовить VyOS tag + собрать GoBFD
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py -v
+go run ./test/cmd/clabbootstrap -v
 
 # С коммерческими образами
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py \
+go run ./test/cmd/clabbootstrap \
     --arista-image /path/to/cEOS64-lab-4.36.0.1F.tar
 
 # Подготовка + деплой топологии
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --deploy
+go run ./test/cmd/clabbootstrap --deploy
 
 # Подготовка + полный прогон тестов
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --test
+go run ./test/cmd/clabbootstrap --test
 
 # Пробный запуск (показать что будет сделано)
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --dry-run
+go run ./test/cmd/clabbootstrap --dry-run
 ```
 
-Скрипт выполняет:
-- **Предварительные проверки**: podman, go, системные утилиты, свободное место
+Команда выполняет:
+- **Предварительные проверки**: podman и точный toolchain Go
 - **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ зависимости сборки)
 - **Подготовка образа VyOS**: скачивание `docker.io/muruu1/vyos:latest`, tag как `vyos:latest`; ISO build остаётся fallback
 - **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
-- **Отчёт об инвентаризации**: итоговая таблица всех образов со статусом готовности
+- **Отчёт об инвентаризации**: итоговый список образов со статусом готовности
 
-Выполните `uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help`
-для просмотра всех опций.
+Выполните `make interop-clab-bootstrap ARGS=--help` для просмотра всех опций.
+Оставшийся helper `vendor_images.py` является внутренней границей, а не
+операторской точкой входа.
 
 ### Запуск вендорных тестов
 

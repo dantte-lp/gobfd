@@ -100,6 +100,7 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 | `make interop-bgp-up` | Запуск топологии BGP+BFD |
 | `make interop-bgp-test` | Запуск Go-тестов BGP+BFD |
 | `make interop-bgp-down` | Остановка топологии BGP+BFD |
+| `make interop-clab-bootstrap` | Подготовка вендорных образов через Go bootstrap (`ARGS=...`) |
 | `make interop-clab` | Полный цикл вендорных NOS-тестов (Nokia, FRR и др.) |
 | `make interop-clab-up` | Деплой вендорной NOS-топологии |
 | `make interop-clab-test` | Запуск вендорных interop Go-тестов |
@@ -289,13 +290,13 @@ Docker Compose и генератор некорректных BFD-векторо
 ```bash
 make python-sync
 make python-check
-uv run --frozen --no-default-groups -- python test/interop-clab/bootstrap.py --help
+uv run --frozen --no-default-groups -- python test/interop-clab/vendor_images.py --help
 ```
 
 `make python-check` проверяет Python 3.14.7, lock и frozen sync, затем запускает
-lint, type, security и vulnerability проверки обоих принадлежащих репозиторию
-Python-файлов. ExaBGP остаётся внешним immutable interop-образом и не
-дублируется в lock.
+lint, type, security и vulnerability проверки единственного оставшегося
+helper для вендорных образов. ExaBGP остаётся внешним immutable interop-образом
+и не дублируется в lock.
 
 ### Инвентаризация зависимостей
 

@@ -260,6 +260,12 @@ linters:
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
+      # The containerlab bootstrap executes a fixed allowlist through
+      # exec.CommandContext; keep the exception on the single boundary file.
+      - path: test/internal/clabbootstrap/runner.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
       - path: internal/bfd/packet.go
         text: "Function 'UnmarshalControlPacket' has too many statements"
         linters:

@@ -52,7 +52,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         interop-capture interop-pcap interop-pcap-summary integration \
         interop-bgp interop-bgp-test interop-bgp-testcontainers interop-bgp-up interop-bgp-down interop-bgp-logs \
         interop-rfc interop-rfc-test interop-rfc-testcontainers interop-rfc-up interop-rfc-down interop-rfc-logs \
-        interop-clab interop-clab-test interop-clab-up interop-clab-down \
+        interop-clab interop-clab-bootstrap interop-clab-test interop-clab-up interop-clab-down \
         int-bgp-failover int-bgp-failover-testcontainers int-bgp-failover-up int-bgp-failover-down int-bgp-failover-logs \
         int-haproxy int-haproxy-testcontainers int-haproxy-up int-haproxy-down int-haproxy-logs \
         int-observability int-observability-testcontainers int-observability-up int-observability-down int-observability-logs \
@@ -341,6 +341,9 @@ interop-rfc-logs:
 # === Containerlab Vendor Interop Tests (Arista + Nokia + Cisco + SONiC + VyOS) ===
 
 CLAB_TOPO := test/interop-clab/gobfd-vendors.clab.yml
+
+interop-clab-bootstrap:
+	go run ./test/cmd/clabbootstrap $(ARGS)
 
 interop-clab:
 	$(DC) up -d --build --force-recreate dev
@@ -649,7 +652,7 @@ lint-spell: dev-ensure
 
 lint-docs: lint-md lint-yaml lint-spell
 
-PYTHON_FILES := test/interop-clab/bootstrap.py
+PYTHON_FILES := test/interop-clab/vendor_images.py
 
 python-sync:
 	uv lock --check

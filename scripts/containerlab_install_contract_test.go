@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec" //nolint:depguard // Execution is required to prove the installer rejects a mismatched binary.
 	"path/filepath"
@@ -107,7 +108,7 @@ func TestContainerlabBootstrapSecurityBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	bootstrap := filepath.Join(repositoryRoot, "test", "interop-clab", "bootstrap.py")
+	bootstrap := filepath.Join(repositoryRoot, "test", "interop-clab", "vendor_images.py")
 	fakeBin := t.TempDir()
 	fakePodman := filepath.Join(fakeBin, "podman")
 	if err := os.WriteFile(fakePodman, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
@@ -202,5 +203,67 @@ for invalid_executable in ("sh", "../podman", "/tmp/podman"):
 	command.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"))
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("bootstrap security contract: %v\n%s", err, output)
+	}
+}
+
+func TestContainerlabBootstrapOwnedOrchestrationUsesGo(t *testing.T) {
+	t.Parallel()
+
+	repositoryRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(repositoryRoot, "test", "internal", "clabbootstrap", "orchestration.go"),
+		filepath.Join(repositoryRoot, "test", "cmd", "clabbootstrap", "main.go"),
+		filepath.Join(repositoryRoot, "test", "interop-clab", "vendor_images.py"),
+	} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Errorf("required bootstrap split path %s: %v", path, statErr)
+			continue
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			t.Errorf("bootstrap split path %s is not a nonempty regular file", path)
+		}
+	}
+	legacy := filepath.Join(repositoryRoot, "test", "interop-clab", "bootstrap.py")
+	if _, statErr := os.Lstat(legacy); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("legacy Python bootstrap still exists: %v", statErr)
+	}
+
+	vendor := readContractFile(t, "../test/interop-clab/vendor_images.py")
+	for _, forbidden := range []string{
+		"ThreadPoolExecutor",
+		"_pull_images",
+		"_build_gobfd",
+		"_print_inventory",
+		"_run_deploy_or_test",
+		"--deploy",
+		"--test",
+		"--jobs",
+	} {
+		if strings.Contains(vendor, forbidden) {
+			t.Errorf("vendor Python helper retains Go-owned orchestration %q", forbidden)
+		}
+	}
+	for _, required := range []string{"vyos", "arista", "cisco", "_validated_https_url"} {
+		if !strings.Contains(vendor, required) {
+			t.Errorf("vendor Python helper is missing %q", required)
+		}
+	}
+
+	makefile := readContractFile(t, "../Makefile")
+	for _, required := range []string{
+		"interop-clab-bootstrap:",
+		"go run ./test/cmd/clabbootstrap",
+		"PYTHON_FILES := test/interop-clab/vendor_images.py",
+	} {
+		if !strings.Contains(makefile, required) {
+			t.Errorf("Makefile lacks bootstrap split contract %q", required)
+		}
+	}
+	if strings.Contains(makefile, "test/interop-clab/bootstrap.py") {
+		t.Error("Makefile still references the legacy Python bootstrap")
 	}
 }

@@ -4,12 +4,20 @@
 package clabbootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 )
 
-var errUnknownVendorOperation = errors.New("unknown vendor image operation")
+var (
+	errUnknownVendorOperation = errors.New("unknown vendor image operation")
+	// ErrBootstrapFailed identifies one or more failed bootstrap phases.
+	ErrBootstrapFailed = errors.New("containerlab bootstrap failed")
+)
+
+const executablePodman = "podman"
 
 // ImageTags contains the operator-visible vendor image tags.
 type ImageTags struct {
@@ -26,6 +34,15 @@ type Options struct {
 	ProjectRoot string
 	Jobs        int
 	Tags        ImageTags
+	Archives    VendorArchives
+	VyOSISO     string
+	VyOSVersion string
+	SkipBuild   bool
+	SkipPull    bool
+	Deploy      bool
+	Test        bool
+	DryRun      bool
+	Logger      *slog.Logger
 }
 
 // DefaultOptions returns the compatibility defaults of the existing bootstrap.
@@ -33,6 +50,7 @@ func DefaultOptions(projectRoot string) Options {
 	return Options{
 		ProjectRoot: projectRoot,
 		Jobs:        3,
+		VyOSVersion: "latest",
 		Tags: ImageTags{
 			Nokia:  "25.10.2",
 			Sonic:  "latest",
@@ -42,6 +60,12 @@ func DefaultOptions(projectRoot string) Options {
 			Cisco:  "ios-xr/xrd-control-plane:25.4.1",
 		},
 	}
+}
+
+// VendorArchives contains operator-supplied commercial image archives.
+type VendorArchives struct {
+	Arista string
+	Cisco  string
 }
 
 // VendorOperation identifies one operation retained in Python vendor glue.
@@ -61,6 +85,19 @@ type Command struct {
 	Executable string
 	Arguments  []string
 	Directory  string
+	DryRun     bool
+}
+
+// Result is the bounded result of an external command.
+type Result struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// Runner executes a fixed-argv command.
+type Runner interface {
+	Run(ctx context.Context, command Command) (Result, error)
 }
 
 // VendorCommand constructs the sole frozen-Python boundary used by the Go

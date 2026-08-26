@@ -30,7 +30,7 @@ ignore = ["COM812", "D203", "D213"]
 select = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
-"test/interop-clab/bootstrap.py" = [
+"test/interop-clab/vendor_images.py" = [
   "CPY001",
   "E501",
   "FBT001",
