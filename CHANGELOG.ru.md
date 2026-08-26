@@ -15,6 +15,9 @@
 
 ### Изменено
 
+- Нативный OVS LAG backend переведён с архивного модуля `ovn-org` на активный
+  `github.com/ovn-kubernetes/libovsdb` v0.8.1 с сохранением существующего
+  transaction-контракта RFC 7130.
 - Репозиторные проверки Markdown и PR title переведены на stdlib-checker Go
   1.27, а spelling — на закреплённый в uv codespell 2.4.3. Node.js, npm,
   markdownlint-cli2, CSpell и commitlint удалены из first-party development и

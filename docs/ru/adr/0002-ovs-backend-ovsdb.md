@@ -26,7 +26,10 @@ Owner-policy для OVS-managed устройств остаётся явной �
 backend не сможет подтвердить ownership через OVSDB или через сетевой
 менеджер более высокого уровня.
 
-Production-адаптер использует `github.com/ovn-org/libovsdb`. Ядро GoBFD
+Production-адаптер использует `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
+Прежний репозиторий `ovn-org` архивирован; активный владелец сохранил
+используемый transaction API и исправил deadlock в reconnect и inactivity
+probe. Ядро GoBFD
 зависит от узкого локального интерфейса, чтобы тесты не требовали
 работающий OVSDB-сервер.
 
@@ -91,5 +94,7 @@ Backend переиспользует валидацию и политику RFC 
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>
 - Open vSwitch `ovs-vsctl(8)`:
   <https://www.openvswitch.org/support/dist-docs/ovs-vsctl.8.html>
-- `github.com/ovn-org/libovsdb`:
-  <https://pkg.go.dev/github.com/ovn-org/libovsdb>
+- `github.com/ovn-kubernetes/libovsdb`:
+  <https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb>
+- Релиз v0.8.1:
+  <https://github.com/ovn-kubernetes/libovsdb/releases/tag/v0.8.1>

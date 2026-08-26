@@ -26,7 +26,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 192, "tools": 387}
+	wantGraphCounts := map[string]int{"runtime": 196, "tools": 387}
 	for _, graph := range inv.ModuleGraphs {
 		if len(graph.Modules) != wantGraphCounts[graph.ID] {
 			t.Fatalf("%s module count = %d, want %d", graph.ID, len(graph.Modules), wantGraphCounts[graph.ID])
@@ -34,6 +34,10 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 		for _, module := range graph.Modules {
 			if module.Target != module.Version {
 				t.Fatalf("%s %s target = %q, want selected version %q", graph.ID, module.Path, module.Target, module.Version)
+			}
+			if graph.ID == "runtime" && module.Path == "github.com/ovn-kubernetes/libovsdb" &&
+				module.Coordinates.SourceRepository != "https://github.com/ovn-kubernetes/libovsdb" {
+				t.Fatalf("libovsdb source repository = %q, want active owner", module.Coordinates.SourceRepository)
 			}
 			if graph.ID == "runtime" && module.Indirect && module.Assessment.UpstreamCurrent.Status != ReviewNotApplicable {
 				t.Fatalf("runtime transitive %s upstream status = %q, want not-applicable", module.Path, module.Assessment.UpstreamCurrent.Status)
@@ -51,7 +55,30 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 			}
 		}
 	}
-	assertRepositoryReview(t, inv, "runtime:github.com/ovn-org/libovsdb", "repository_archived", ReviewVerified, "archived")
+	assertRepositoryReview(
+		t,
+		inv,
+		"runtime:github.com/ovn-kubernetes/libovsdb",
+		"repository_archived",
+		ReviewVerified,
+		"active",
+	)
+	assertRepositoryReview(
+		t,
+		inv,
+		"runtime:github.com/ovn-kubernetes/libovsdb",
+		"license",
+		ReviewVerified,
+		"Apache-2.0",
+	)
+	assertRepositoryReview(
+		t,
+		inv,
+		"runtime:github.com/ovn-kubernetes/libovsdb",
+		"artifact_available",
+		ReviewVerified,
+		"available",
+	)
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "license", ReviewVerified, "MIT")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "channel_current", ReviewUnverified, "immutable commit identity does not prove channel currency")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "security", ReviewUnverified, "immutable pinning does not prove vulnerability status")
@@ -94,6 +121,7 @@ func assertReview(t *testing.T, id, field string, record Record, status ReviewSt
 		"security":            record.Assessment.Security,
 		"license":             record.Assessment.License,
 		"repository_archived": record.RepositoryState.RepositoryArchived,
+		"artifact_available":  record.RepositoryState.ArtifactAvailable,
 	}
 	review, ok := reviews[field]
 	if !ok {

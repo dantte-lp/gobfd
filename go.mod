@@ -16,7 +16,7 @@ require (
 	github.com/knadh/koanf/v2 v2.3.6
 	github.com/moby/moby/api v1.55.0
 	github.com/osrg/gobgp/v3 v3.37.0
-	github.com/ovn-org/libovsdb v0.7.0
+	github.com/ovn-kubernetes/libovsdb v0.8.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/reeflective/console v0.5.0
@@ -52,9 +52,13 @@ require (
 	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/go-playground/locales v0.14.1 // indirect
+	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-playground/validator/v10 v10.26.0 // indirect
 	github.com/go-quicktest/qt v1.102.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -62,6 +66,7 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/knadh/koanf/maps v0.1.3 // indirect
+	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect

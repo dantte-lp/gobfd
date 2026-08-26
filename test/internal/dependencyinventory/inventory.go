@@ -346,10 +346,10 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 					record.Assessment.Decision.LicenseException = nil
 				}
 			}
-			if identity.Path == "github.com/ovn-org/libovsdb" {
-				record.Coordinates.SourceRepository = "https://github.com/ovn-org/libovsdb"
+			if identity.Path == "github.com/ovn-kubernetes/libovsdb" {
+				record.Coordinates.SourceRepository = "https://github.com/ovn-kubernetes/libovsdb"
 				record.RepositoryState.RepositoryArchived = Review{
-					Status: ReviewVerified, Value: "archived", EvidenceIDs: []string{},
+					Status: ReviewVerified, Value: "active", EvidenceIDs: []string{},
 				}
 			}
 			module := Module{Record: record, Path: identity.Path, Version: identity.Version, Indirect: identity.Indirect}
@@ -1138,9 +1138,9 @@ func evidenceContext(
 		}
 		return "https://api.github.com/repos/" + repository, query, EvidenceTool{Name: "gh", Version: "2.97.0"}
 	}
-	if subject == "runtime:github.com/ovn-org/libovsdb" && review == "repository_archived" {
-		return "https://api.github.com/repos/ovn-org/libovsdb",
-			`gh api repos/ovn-org/libovsdb --jq 'if .archived then "archived" else "active" end'`,
+	if subject == "runtime:github.com/ovn-kubernetes/libovsdb" && review == "repository_archived" {
+		return "https://api.github.com/repos/ovn-kubernetes/libovsdb",
+			`gh api repos/ovn-kubernetes/libovsdb --jq 'if .archived then "archived" else "active" end'`,
 			EvidenceTool{Name: "gh", Version: "2.97.0"}
 	}
 	if review == "license" && record.ImmutablePin.Kind == "oci-digest" {

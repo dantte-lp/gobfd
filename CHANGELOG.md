@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The native OVS LAG backend now uses active
+  `github.com/ovn-kubernetes/libovsdb` v0.8.1 instead of the archived
+  `ovn-org` module, preserving the existing RFC 7130 transaction contract.
 - Repository Markdown and PR-title quality gates now use a stdlib-only Go 1.27
   checker, while spelling uses uv-locked codespell 2.4.3. Node.js, npm,
   markdownlint-cli2, CSpell, and commitlint are removed from first-party

@@ -757,6 +757,68 @@ and deterministic inventory checks are green. The inventory remains 35 Go
 packages, 72 components, and 1234 evidence records at SHA-256
 `3ecfb76f0cfc893e9d96c0c5790cc7b261926476c32a09c33219b1bc900cb2b6`.
 
+### Task 4d: Migrate the Active libovsdb Module Owner
+
+**Files:**
+- Modify: `go.mod`, `go.sum`
+- Modify: `internal/netio/lag_ovsdb.go`, `internal/netio/lag_ovsdb_test.go`
+- Modify: `test/internal/dependencyinventory/`
+- Modify: `docs/en/adr/0002-ovs-backend-ovsdb.md`
+- Modify: `docs/ru/adr/0002-ovs-backend-ovsdb.md`
+- Modify: dependency-refresh design, dependency inventory, and changelogs
+
+- [x] **Step 1: Establish the upstream and API contract**
+
+Use Context7, the Go 1.27 specification and module documentation, GitHub
+GraphQL/API, and the exact module source to prove that `ovn-org/libovsdb` is
+archived, `ovn-kubernetes/libovsdb` is the active module owner, and `v0.8.1` is
+the newest stable release. Review every release from `v0.7.0` through `v0.8.1`,
+the import-path migration, the Apache-2.0 license, and every API used by the OVS
+LAG adapter before editing imports.
+
+- [x] **Step 2: Capture the compatibility boundary**
+
+Record the old module/import path as the failing acceptance condition. Preserve
+the existing transaction fixtures for exact `Port` and `Interface` selects,
+insert-plus-mutate ordering, UUID sets, mutation counts, disconnect behavior,
+and wrapped errors. Do not add unrelated OVS features or change the public
+GoBFD configuration contract.
+
+- [x] **Step 3: Move the module and imports together**
+
+Replace the direct `github.com/ovn-org/libovsdb v0.7.0` requirement with exact
+`github.com/ovn-kubernetes/libovsdb v0.8.1`, update only the production and test
+imports that use it, and run Go 1.27 `go mod tidy -diff`/`go mod verify`. Reject
+any unexpected dependency-version movement instead of accepting a broad bump.
+
+- [x] **Step 4: Update ADR and supply-chain evidence**
+
+Update matched EN/RU ADRs, dependency inventory generation and validation, the
+dependency-refresh contract, and Unreleased changelog entries. The inventory
+must identify the active source repository and exact module checksum, remove
+the obsolete archived-module special case, regenerate deterministically, and
+retain explicit license and repository-state evidence.
+
+- [x] **Step 5: Verify, commit locally, and clean owned state**
+
+Run focused OVS race+trimpath tests, full race, scoped and full tagged lint,
+Linux/Darwin gopls profiles, vulnerability and documentation gates in the
+bounded Debian Trixie dev environment. Review the exact staged slice, commit on
+local `dev`, update/close Beads only after GREEN, perform no remote sync, and
+remove only task-owned containers, images, processes, and caches.
+
+The bounded Debian Trixie gate used 2 CPU, 5 GiB, and 512 PID limits. Full
+race+trimpath passed all 35 ordinary packages; golangci-lint 2.13.1 enabled 92
+non-deprecated linters and returned zero issues for ordinary plus all 17 tag
+profiles. Linux gopls covered 9 profiles, 329 package checks, and 1778 Go
+inputs; the Darwin generator profile covered 36 packages and 192 inputs.
+Govulncheck/OSV scanned 98 runtime and 219 tools packages with no unallowed
+findings. Tidy diff, module verification, 95-file Markdown, YAML, spelling,
+formatting, and operational old-owner scans passed. The deterministic inventory
+contains 35 Go packages, 196 runtime modules, 387 tools modules, 72 components,
+and 1248 evidence records at SHA-256
+`d8e68b677a2e3f2f62dbb66b546a201cdbcc18f6d82f36a5314871c7d9b34bf2`.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**
