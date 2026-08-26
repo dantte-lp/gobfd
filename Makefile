@@ -633,14 +633,14 @@ gopls-check: dev-ensure
 	$(EXEC) env GOPLS_GOOS=darwin GOPLS_TAGS=dependencyinventory_generate sh ./scripts/gopls-check.sh
 
 lint-md: dev-ensure
-	$(EXEC) markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports" "#dist" "#build" "#.venv" "#docs/rfc"
+	$(EXEC) go run ./test/cmd/repoquality markdown --root .
 
 lint-yaml: dev-ensure
 	$(EXEC) uv run --frozen --no-default-groups --group quality -- \
 		yamllint -c .yamllint.yaml .
 
 lint-spell: dev-ensure
-	$(EXEC) cspell --no-progress --no-summary --config .cspell.json \
+	$(EXEC) uv run --frozen --no-default-groups --group quality -- codespell \
 		README.md \
 		CONTRIBUTING.md \
 		CODE_OF_CONDUCT.md \
@@ -669,7 +669,7 @@ python-check: python-sync
 
 lint-commit:
 	@test -n "$(MSG)" || (echo "Usage: make lint-commit MSG='feat(bfd): add feature'"; exit 1)
-	$(EXEC) sh -c 'printf "%s\n" "$$1" | commitlint --config .commitlintrc.yaml' sh "$(MSG)"
+	$(EXEC) go run ./test/cmd/repoquality commit --message "$(MSG)"
 
 semgrep:
 	$(SEMGREP) scan $(SEMGREP_COMMON_FLAGS)

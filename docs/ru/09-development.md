@@ -276,6 +276,20 @@ CI проверяет v2-схему, точное число активных л
 - `depguard`, `gomoddirectives` -- гигиена зависимостей
 - `nolintlint` -- качество директив `//nolint`
 
+### Политика документации и коммитов
+
+`make lint-md` запускает репозиторный stdlib-checker Go 1.27 по непустому,
+ограниченному и детерминированному набору Markdown-файлов. Fixtures сохраняют
+36 активных правил markdownlint 0.41. Команда
+`make lint-commit MSG='feat(bfd): add peer'` проверяет сохранённые границы
+Conventional Commit для type, scope и case, блокирующего 100-байтного предела
+header, неблокирующего 120-байтного предупреждения body и default-ignore. Ни
+одна из этих проверок не требует Node.js или npm.
+
+`make lint-spell` запускает codespell 2.4.3 из frozen uv quality group с точным
+списком слов `.codespell-ignore`. `make lint-yaml` использует то же frozen
+окружение для yamllint 1.38.0.
+
 ### Python-инструменты
 
 В репозитории используется одно non-package окружение Python 3.14.7. uv 0.12.6
@@ -283,9 +297,9 @@ CI проверяет v2-схему, точное число активных л
 pip-bootstrap и отдельные окружения `uv tool` не поддерживаются.
 
 Группы `peer` и `runtime` намеренно пусты. Единый lock сохраняет Ruff, ty,
-Bandit, yamllint, junit2html и pip-audit (`quality`) для containerlab bootstrap.
-Docker Compose и генератор некорректных BFD-векторов реализованы на Go и не
-являются Python-зависимостями.
+Bandit, codespell, yamllint, junit2html и pip-audit (`quality`) для проверок
+репозитория и containerlab bootstrap. Docker Compose и генератор некорректных
+BFD-векторов реализованы на Go и не являются Python-зависимостями.
 
 ```bash
 make python-sync

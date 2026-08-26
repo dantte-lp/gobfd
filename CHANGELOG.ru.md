@@ -15,6 +15,10 @@
 
 ### Изменено
 
+- Репозиторные проверки Markdown и PR title переведены на stdlib-checker Go
+  1.27, а spelling — на закреплённый в uv codespell 2.4.3. Node.js, npm,
+  markdownlint-cli2, CSpell и commitlint удалены из first-party development и
+  CI-инструментов качества.
 - Alpine Linux больше не используется в first-party build, runtime, benchmark,
   smoke, interop и integration images. Эти пути переведены на immutable OCI
   indexes Debian trixie; единственная другая разрешённая OS baseline — Oracle

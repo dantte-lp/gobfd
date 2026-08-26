@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Repository Markdown and PR-title quality gates now use a stdlib-only Go 1.27
+  checker, while spelling uses uv-locked codespell 2.4.3. Node.js, npm,
+  markdownlint-cli2, CSpell, and commitlint are removed from first-party
+  development and CI quality tooling.
 - Alpine Linux is no longer used by first-party build, runtime, benchmark,
   smoke, interop, or integration images. Those paths now use immutable Debian
   trixie OCI indexes; the only other permitted OS baseline is Oracle Linux 10.

@@ -1006,7 +1006,6 @@ func TestTrackedOperationalTextHasNoRemovedReferences(t *testing.T) {
 	}
 
 	allowed := map[string]struct{}{
-		".cspell.json":    {},
 		"CHANGELOG.md":    {},
 		"CHANGELOG.ru.md": {},
 		"docs/superpowers/plans/2026-08-21-" + "aio" + "bfd-to-holo-interop.md":        {},

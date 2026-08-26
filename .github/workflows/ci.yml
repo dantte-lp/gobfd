@@ -123,20 +123,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          node-version: '24.19.0'
+          go-version: "1.27.0"
 
       - name: Install documentation linters
         run: |
-          npm install -g --ignore-scripts markdownlint-cli2@0.23.2 cspell@10.1.1
           .github/scripts/install-uv.sh
           "$HOME/.local/bin/uv" sync --frozen --no-default-groups --group quality
 
-      - name: markdownlint
-        run: >-
-          markdownlint-cli2 "**/*.md" "#node_modules" "#vendor" "#reports"
-          "#dist" "#build" "#.venv" "#docs/rfc"
+      - name: Markdown policy
+        run: go run ./test/cmd/repoquality markdown --root .
 
       - name: yamllint
         run: >-
@@ -146,31 +143,28 @@ jobs:
       - name: Python quality and security
         run: make python-check
 
-      - name: cspell
+      - name: codespell
         run: >
-          cspell --no-progress --no-summary --config .cspell.json
+          uv run --frozen --no-default-groups --group quality -- codespell
           README.md CONTRIBUTING.md CHANGELOG.md
           CODE_OF_CONDUCT.md SUPPORT.md GOVERNANCE.md MAINTAINERS.md
           docs/en/implementation-plan.md docs/en/codebase-consistency-audit.md
 
-  commitlint:
-    name: Commitlint (PR title)
+  commit-policy:
+    name: Commit policy (PR title)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          node-version: '24.19.0'
-
-      - name: Install commitlint
-        run: npm install -g --ignore-scripts @commitlint/cli@21.2.2 @commitlint/config-conventional@21.2.2
+          go-version: "1.27.0"
 
       - name: Validate PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$PR_TITLE" | commitlint --config .commitlintrc.yaml
+        run: go run ./test/cmd/repoquality commit --message "$PR_TITLE"
 
   vulnerability-check:
     name: Vulnerability audit

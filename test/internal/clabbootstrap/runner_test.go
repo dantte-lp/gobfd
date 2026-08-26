@@ -3,7 +3,6 @@ package clabbootstrap
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -74,7 +73,10 @@ func TestOSRunnerPreservesContextCancellation(t *testing.T) {
 func newTestOSRunner(t *testing.T) *OSRunner {
 	t.Helper()
 
-	runner, err := NewOSRunner(filepath.Join(string(filepath.Separator), "repo"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	runner, err := NewOSRunner(
+		filepath.Join(string(filepath.Separator), "repo"),
+		slog.New(slog.DiscardHandler),
+	)
 	if err != nil {
 		t.Fatalf("create test OS runner: %v", err)
 	}

@@ -43,7 +43,7 @@
 |---|---|
 | Default branch | `master` |
 | Pull requests | Require pull request before merge |
-| Required checks | CI, security, docs lint, commitlint, vulnerability audit |
+| Required checks | CI, security, docs lint, Commit policy (PR title), vulnerability audit |
 | Code owner review | Required only after at least two active maintainers can satisfy review policy |
 | Conversations | Require resolution before merge when maintainer capacity allows it |
 | Force pushes | Disabled on protected branches |

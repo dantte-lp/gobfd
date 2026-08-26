@@ -275,6 +275,19 @@ build, and every repository-specific build tag independently. Key checks include
 - `depguard`, `gomoddirectives` -- dependency hygiene
 - `nolintlint` -- quality of `//nolint` directives
 
+### Documentation and Commit Policy
+
+`make lint-md` runs the repository-owned stdlib Go 1.27 checker over a
+non-empty, bounded, deterministic Markdown input set. Its fixtures preserve the
+36 enabled markdownlint 0.41 rules. `make lint-commit MSG='feat(bfd): add peer'`
+checks the preserved Conventional Commit type, scope, case, 100-byte blocking
+header limit, 120-byte non-blocking body warning, and default-ignore boundary.
+Neither check requires Node.js or npm.
+
+`make lint-spell` runs codespell 2.4.3 from the frozen uv quality group with
+the exact `.codespell-ignore` word list. `make lint-yaml` uses the same frozen
+environment for yamllint 1.38.0.
+
 ### Python Tooling
 
 The repository has one non-package Python 3.14.7 environment. uv 0.12.6 reads
@@ -282,9 +295,10 @@ the root `.python-version`, `pyproject.toml`, and `uv.lock`; no requirements
 file, pip bootstrap, or independent uv tool environment is supported.
 
 The `peer` and `runtime` groups are intentionally empty. The lock retains the
-Ruff, ty, Bandit, yamllint, junit2html, and pip-audit toolchain (`quality`) for
-the containerlab bootstrap. Docker Compose and the BFD invalid-vector generator
-are Go binaries, not Python dependencies.
+Ruff, ty, Bandit, codespell, yamllint, junit2html, and pip-audit toolchain
+(`quality`) for repository checks and the containerlab bootstrap. Docker
+Compose and the BFD invalid-vector generator are Go binaries, not Python
+dependencies.
 
 ```bash
 make python-sync

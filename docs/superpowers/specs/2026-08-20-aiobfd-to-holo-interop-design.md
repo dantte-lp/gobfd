@@ -178,7 +178,7 @@ responsibility of the audit that created them.
 
 - Operational source, configuration, tests, benchmarks, reports, and reference
   documentation contain no `aiobfd` or `bitstring` reference. A repository scan
-  may match only `CHANGELOG.md`, `CHANGELOG.ru.md`, `.cspell.json`, this
+  may match only `CHANGELOG.md`, `CHANGELOG.ru.md`, `.codespell-ignore`, this
   migration design, and its approved implementation plan; every other match
   fails the gate.
 - Holo is pinned by the exact approved digest and exposes no floating tag.

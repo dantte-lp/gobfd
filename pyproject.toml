@@ -9,6 +9,7 @@ peer = []
 runtime = []
 quality = [
   "bandit==1.9.4",
+  "codespell==2.4.3",
   "junit2html==31.1.4",
   "pip-audit==2.10.1",
   "ruff==0.16.4",
@@ -42,3 +43,6 @@ select = ["ALL"]
 
 [tool.ty.environment]
 python-version = "3.14"
+
+[tool.codespell]
+ignore-words = ".codespell-ignore"

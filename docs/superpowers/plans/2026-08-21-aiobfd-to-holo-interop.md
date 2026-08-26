@@ -30,7 +30,8 @@ RFC 5880/5881, RFC 9314 YANG, tshark.
 - Modify `bench/compose.yml`, `scripts/gen-report.sh`, and `scripts/report-template.html`: remove deleted benchmark inputs and columns.
 - Modify active README, AGENTS, EN/RU interop, architecture, integration, competitive, and performance documents: replace active aiobfd claims with verified Holo facts.
 - Modify `CHANGELOG.md` and `CHANGELOG.ru.md`: add a new removal/replacement entry without rewriting published history.
-- Modify `.cspell.json`: add Holo terminology while retaining the historical aiobfd spelling entry.
+- Modify `.codespell-ignore`: add only Holo terminology not recognized by the
+  frozen spelling checker.
 
 ## Commit Safety Rule
 
@@ -704,7 +705,7 @@ stage only the reviewed slice, commit on `dev`, and perform no remote sync.
 - Modify: EN/RU development documentation, dependency-refresh design,
   dependency inventory, and changelogs
 
-- [ ] **Step 1: Capture the current policies in RED**
+- [x] **Step 1: Capture the current policies in RED**
 
 Use fixtures derived from the pinned commitlint 21.2.2 and markdownlint 0.41
 configuration to require exact accepted/rejected commit headers, body length,
@@ -713,7 +714,7 @@ and non-empty inputs. Require the repository to expose one Go 1.27 quality
 entrypoint and prove that npm, npx, Node setup, and package manifests are
 absent from quality-gate call sites.
 
-- [ ] **Step 2: Implement the smallest Go policy checker**
+- [x] **Step 2: Implement the smallest Go policy checker**
 
 Implement only the committed Conventional Commit and Markdown policies in a
 stdlib-only internal package and thin command. Keep deterministic sorted
@@ -721,21 +722,21 @@ diagnostics, bounded regular-file reads, context cancellation, exact ignore
 roots, and fail-closed empty discovery. Do not add a general Markdown parser,
 formatter, or new third-party module in this slice.
 
-- [ ] **Step 3: Move spelling and YAML checks to frozen uv**
+- [x] **Step 3: Move spelling and YAML checks to frozen uv**
 
 Add exact codespell 2.4.3 to the existing Python 3.14.7/uv 0.12.6 quality
 group, retain yamllint 1.38.0, and translate only the active cspell exception
 set needed by the checked files. Use explicit non-empty file lists and no
 broad directory or rule suppression.
 
-- [ ] **Step 4: Remove Node/npm from every quality surface**
+- [x] **Step 4: Remove Node/npm from every quality surface**
 
 Switch Make and CI to the Go checker plus frozen-uv codespell/yamllint, remove
 Node and global npm installs from the Debian Trixie development image, and
 delete the obsolete Node-tool configuration files. Keep the unrelated
 browser-side Alpine.js report asset out of this tooling-only slice.
 
-- [ ] **Step 5: Verify, document, inventory, and commit locally**
+- [x] **Step 5: Verify, document, inventory, and commit locally**
 
 Regenerate the dependency inventory and prove the exact removed tool/source
 records and Go package-count change. Run fixture tests, full race+trimpath,
@@ -743,6 +744,18 @@ gopls, scoped lint, frozen Python quality, Markdown/YAML/spelling parity, CI
 workflow contracts, and a Debian Trixie dev-image build with 2 CPU/5 GiB
 limits and task-local caches. Remove owned caches/processes, commit on `dev`,
 and perform no remote synchronization.
+
+The separately approved blockers are resolved without weakening policy:
+`gobfd-qj0.8.1.5.7` uses Go 1.27's `slog.DiscardHandler` and wraps the test
+construction below 120 columns, while `gobfd-qj0.8.1.5.8` classifies the
+existing `golang.org/x/net` version as direct because the Go Scapy replacement
+imports `ipv4`. The exact Debian Trixie image provides Go 1.27.0, uv 0.12.6,
+Python 3.14.7, golangci-lint 2.13.1, and gopls 0.23.0 with no Node/npm/npx.
+Under 2 CPU, 5 GiB, and 512 PID limits, full race+trimpath, all 17 lint tag
+profiles with 92 linters, Linux and Darwin gopls profiles, frozen uv quality,
+and deterministic inventory checks are green. The inventory remains 35 Go
+packages, 72 components, and 1234 evidence records at SHA-256
+`3ecfb76f0cfc893e9d96c0c5790cc7b261926476c32a09c33219b1bc900cb2b6`.
 
 ### Task 5: Update Active Documentation and the Repository Contract
 
@@ -758,7 +771,7 @@ and perform no remote synchronization.
 - Modify: `docs/en/13-competitive-analysis.md`, `docs/ru/13-competitive-analysis.md`
 - Modify: `docs/en/14-performance-analysis.md`, `docs/ru/14-performance-analysis.md`
 - Modify: `CHANGELOG.md`, `CHANGELOG.ru.md`
-- Modify: `.cspell.json`
+- Modify: `.codespell-ignore`
 - Modify: `test/interop/topology_contract_test.go`
 
 - [ ] **Step 1: Update the source contract and topology documentation**
@@ -784,7 +797,7 @@ entries untouched.
 - [ ] **Step 4: Extend the reference test to all operational surfaces**
 
 Extend the focused scan to tracked operational text. The exact allowlist is
-`CHANGELOG.md`, `CHANGELOG.ru.md`, `.cspell.json`, the approved migration design,
+`CHANGELOG.md`, `CHANGELOG.ru.md`, `.codespell-ignore`, the approved migration design,
 and this implementation plan. Prefer the Git tracked-file list. When mounted
 worktree metadata is unavailable, use a bounded standard-library working-tree
 walk that skips only the top-level `.git`, `.beads`, and `reports` metadata or
@@ -807,7 +820,7 @@ rg -n -i 'aiobfd|bitstring' . --hidden --glob '!.git/**'
 ```
 
 Expected: the Go test passes. `rg` returns only the two changelogs,
-`.cspell.json`, the approved migration design, and this implementation plan.
+`.codespell-ignore`, the approved migration design, and this implementation plan.
 
 - [ ] **Step 6: Run documentation and contract gates**
 
@@ -821,7 +834,7 @@ Expected: Markdown, YAML, spelling, and whitespace gates pass.
 - [ ] **Step 7: Commit the documentation slice**
 
 ```bash
-git add -p -- .cspell.json AGENTS.md README.md Makefile test/interop/gobfd/gobfd.yml test/interop/topology_contract_test.go docs/en/README.md docs/ru/README.md docs/en/01-architecture.md docs/ru/01-architecture.md docs/en/05-interop.md docs/ru/05-interop.md docs/en/11-integrations.md docs/ru/11-integrations.md docs/en/13-competitive-analysis.md docs/ru/13-competitive-analysis.md docs/en/14-performance-analysis.md docs/ru/14-performance-analysis.md CHANGELOG.md CHANGELOG.ru.md
+git add -p -- .codespell-ignore AGENTS.md README.md Makefile test/interop/gobfd/gobfd.yml test/interop/topology_contract_test.go docs/en/README.md docs/ru/README.md docs/en/01-architecture.md docs/ru/01-architecture.md docs/en/05-interop.md docs/ru/05-interop.md docs/en/11-integrations.md docs/ru/11-integrations.md docs/en/13-competitive-analysis.md docs/ru/13-competitive-analysis.md docs/en/14-performance-analysis.md docs/ru/14-performance-analysis.md CHANGELOG.md CHANGELOG.ru.md
 git diff --cached --name-only
 git diff --cached
 git commit -m "docs: document Holo interoperability"
