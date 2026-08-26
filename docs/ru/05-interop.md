@@ -171,7 +171,7 @@ podman logs gobfd-interop
 
 ## Полноцикловое тестирование BGP+BFD
 
-![GoBGP](https://img.shields.io/badge/GoBGP-v3-00ADD8?style=for-the-badge)
+![GoBGP](https://img.shields.io/badge/GoBGP-v4-00ADD8?style=for-the-badge)
 ![FRR](https://img.shields.io/badge/FRR-BGP+BFD-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-BGP+BFD-28a745?style=for-the-badge)
 ![ExaBGP](https://img.shields.io/badge/ExaBGP-5.0-6f42c1?style=for-the-badge)

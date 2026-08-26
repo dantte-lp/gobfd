@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (GoBGP Integration)**: Bump optional GoBGP client dependency from
+  `github.com/osrg/gobgp/v3 v3.37.0` to `github.com/osrg/gobgp/v4 v4.8.0` and
+  update container images across interop and deployment examples to
+  `jauderho/gobgp:v4.8.0`. This introduces a wire-level compatibility break
+  for external GoBGP daemons: GoBFD now communicates with `/api.GoBgpService/*`
+  (v4+) instead of the legacy `/apipb.GobgpApi/*` (v3). Operators using the
+  GoBGP integration must upgrade external `gobgpd` instances to v4.0.0+.
+- Re-scoped the `GO-2026-4736` vulnerability allowlist entry to `gobgp/v4`
+  because the Go vulnerability database still lacks an upstream fixed release
+  marker for v4.
+- Replaced deprecated `golang.org/x/net/http2/h2c` wrapper in `cmd/gobfd/shutdown.go`
+  with standard Go `http.Server.Protocols` configuration for unencrypted HTTP/2.
+
+### Added
+
+- In-memory `bufconn` unit test coverage in `internal/gobgp/client_test.go`
+  exercising `GRPCClient.EnablePeer` and `GRPCClient.DisablePeer` against the
+  GoBGP v4 `apipb.GoBgpServiceServer` interface.
+
 ### Removed
 
 - `.archive/` directory removed from the repository. Sprint planning

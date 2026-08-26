@@ -175,6 +175,7 @@ Graceful shutdown sends AdminDown with Diag=7, waits 2x TX interval, then cancel
   - BFD Down --> `DisablePeer()` (or `DeletePath()` per strategy)
   - BFD Up --> `EnablePeer()` (or `AddPath()`)
   - Each GoBGP API action is bounded by `gobgp.action_timeout` so a slow external API cannot block state-change processing indefinitely
+- **Compatibility Contract**: GoBFD targets the GoBGP v4+ gRPC service (`api.GoBgpService`). External `gobgpd` instances must run v4.0.0 or higher. Legacy GoBGP v3 instances exposing `/apipb.GobgpApi` are not supported.
 
 ### RFC 5883 Implementation Notes
 
@@ -225,7 +226,7 @@ RFC 9384 defines Cease NOTIFICATION subcode 10 ("BFD Down") for BGP sessions tor
 | NOTIFICATION on BFD failure | `FormatBFDDownCommunication()` enriches the DisablePeer communication |
 | Diagnostic context | BFD `Diag` code included in the communication string |
 
-**Limitation**: GoBGP v3 does not expose per-subcode control in its `DisablePeer` API — it sends Cease subcode 2 (Administrative Shutdown) with the communication string per RFC 8203. The communication string is enriched with `"BFD Down (RFC 9384 Cease/10): diag=..."` so that operators can identify BFD-triggered shutdowns in logs and monitoring systems. Full subcode 10 support requires upstream GoBGP changes.
+**Limitation**: GoBGP v4 does not expose per-subcode control in its `DisablePeer` API — it sends Cease subcode 2 (Administrative Shutdown) with the communication string per RFC 8203. The communication string is enriched with `"BFD Down (RFC 9384 Cease/10): diag=..."` so that operators can identify BFD-triggered shutdowns in logs and monitoring systems. Full subcode 10 support requires upstream GoBGP changes.
 
 ### RFC 9468 Implementation Notes
 

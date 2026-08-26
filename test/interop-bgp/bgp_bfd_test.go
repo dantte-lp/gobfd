@@ -73,7 +73,7 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// GoBGP v3 session state enum values (PeerState_SessionState protobuf).
+// GoBGP v4 session state enum values (PeerState_SessionState protobuf).
 const (
 	bgpStateUnspecified = 0
 	bgpStateIdle        = 1
@@ -84,7 +84,7 @@ const (
 	bgpStateEstablished = 6
 )
 
-// bgpSessionStateName maps GoBGP v3 protobuf session_state numbers to names.
+// bgpSessionStateName maps GoBGP v4 protobuf session_state numbers to names.
 var bgpSessionStateName = map[int]string{
 	bgpStateUnspecified: "unspecified",
 	bgpStateIdle:        "idle",
@@ -103,7 +103,7 @@ func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
 		return "", err
 	}
 
-	// GoBGP v3 uses protobuf-style JSON with underscored field names
+	// GoBGP v4 uses protobuf-style JSON with underscored field names
 	// and numeric enums for session_state.
 	var neighbors []struct {
 		State struct {

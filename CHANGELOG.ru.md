@@ -7,6 +7,26 @@
 
 ## [Не выпущено]
 
+### Изменено
+
+- **Breaking (Интеграция GoBGP)**: Обновлена зависимость клиента GoBGP с
+  `github.com/osrg/gobgp/v3 v3.37.0` до `github.com/osrg/gobgp/v4 v4.8.0`, а также
+  все образы контейнеров в interop и deployment examples до `jauderho/gobgp:v4.8.0`.
+  Это влечёт wire-level несовместимость с внешними демонами GoBGP: GoBFD теперь
+  взаимодействует с `/api.GoBgpService/*` (v4+) вместо устаревшего сервиса
+  `/apipb.GobgpApi/*` (v3). Для использования интеграции внешние инстансы `gobgpd`
+  необходимо обновить до версии v4.0.0+.
+- Запись allowlist для `GO-2026-4736` в `scripts/vuln-audit.go` перенастроена
+  на `gobgp/v4`, так как база уязвимостей Go не содержит отметки об исправленной версии для v4.
+- Устаревший wrapper `golang.org/x/net/http2/h2c` в `cmd/gobfd/shutdown.go` заменён
+  на стандартную конфигурацию `http.Server.Protocols` для нешифрованного HTTP/2.
+
+### Добавлено
+
+- Unit-тесты с использованием `bufconn` в `internal/gobgp/client_test.go`,
+  проверяющие `GRPCClient.EnablePeer` и `GRPCClient.DisablePeer` против
+  интерфейса `apipb.GoBgpServiceServer` GoBGP v4.
+
 ### Удалено
 
 - Каталог `.archive/` удалён из репозитория. Sprint planning records,

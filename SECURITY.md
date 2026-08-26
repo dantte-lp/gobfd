@@ -62,25 +62,6 @@ network. Security-relevant areas include:
   for loopback or trusted management networks, and plaintext non-loopback
   endpoints emit a startup warning
 
-## Known Dependency Advisory
-
-### GO-2026-4736 — GoBGP NEXT_HOP denial of service
-
-`github.com/osrg/gobgp/v3 v3.37.0` is affected by
-[GO-2026-4736](https://pkg.go.dev/vuln/GO-2026-4736), a denial-of-service
-advisory in GoBGP's handling of the BGP NEXT_HOP path attribute. As of
-2026-04-22, the advisory does not list a fixed version.
-
-GoBFD uses GoBGP only for the optional GoBGP integration path. Until an upstream
-fix is available, operators should keep the GoBGP gRPC endpoint bound to
-localhost or another trusted management network. For remote GoBGP API endpoints,
-enable `gobgp.tls.enabled` and configure `gobgp.tls.ca_file` / `server_name`.
-Do not expose plaintext GoBGP gRPC to untrusted peers.
-
-CI allowlists only `GO-2026-4736` in `scripts/vuln-audit.go`. Any additional
-advisory reported by `govulncheck` or `osv-scanner` fails the vulnerability
-audit. Remove the allowlist entry after upgrading GoBGP to a fixed release.
-
 ## Accepted Protocol Exceptions
 
 ### MD5 and SHA1 in BFD authentication

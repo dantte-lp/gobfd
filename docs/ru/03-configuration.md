@@ -446,6 +446,8 @@ gRPC `AddSession`: `auth_type`, `auth_key_id` и `auth_secret`. `auth_key_id`
 - **BFD Down** --> Отключение BGP-пира (`DisablePeer()`) или отзыв маршрутов (`DeletePath()`)
 - **BFD Up** --> Включение BGP-пира (`EnablePeer()`) или восстановление маршрутов (`AddPath()`)
 
+> **Примечание о совместимости**: GoBFD требует GoBGP версии v4.0.0 или новее. GoBGP v4 использует gRPC-эндпоинты `/api.GoBgpService/*` и не регистрирует устаревший сервис `/apipb.GobgpApi/*`. При обновлении с версий GoBGP v3 необходимо сначала обновить внешние демоны `gobgpd` до v4+.
+
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `gobgp.enabled` | bool | `false` | Включить/выключить интеграцию с GoBGP |

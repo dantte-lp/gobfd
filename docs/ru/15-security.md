@@ -57,12 +57,6 @@ GoBFD подключается к GoBGP через `gobgp.addr`. Plaintext до�
 loopback или доверенной management-сети. Для удалённых или non-loopback
 endpoints включайте `gobgp.tls.enabled`.
 
-Текущий модуль GoBGP имеет allowlisted advisory `GO-2026-4736`. Митигация:
-держать GoBGP API на localhost или в доверенной management-сети, пока upstream
-не выпустит исправленную версию. Запись allowlist в `scripts/vuln-audit.go`
-содержит owner, expiry, reason и mitigation; после expiry vulnerability gate
-падает.
-
 ## Секреты
 
 RFC 5880 auth secrets можно передавать через YAML или gRPC `AddSession`.

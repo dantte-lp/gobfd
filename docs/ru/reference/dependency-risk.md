@@ -31,34 +31,29 @@
 
 ---
 
-## osrg/gobgp/v3 — Высокий риск
+## osrg/gobgp/v4 — Средний риск
 
 | Поле | Значение |
 |------|----------|
-| **Модуль** | `github.com/osrg/gobgp/v3 v3.37.0` |
+| **Модуль** | `github.com/osrg/gobgp/v4 v4.8.0` |
 | **Используется в** | `internal/gobgp/` — опциональная интеграция GoBGP |
-| **Известный advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
-| **Уровень риска** | Высокий |
-| **Владелец allowlist** | `maintainers` |
-| **Срок пересмотра** | `2026-07-31` |
+| **Известный advisory** | `GO-2026-4736` исправлен в `v4.4.0` и новее |
+| **Уровень риска** | Средний |
 
 ### Описание
 
-GoBGP затронут denial-of-service advisory в обработке BGP path attribute
-NEXT_HOP. По состоянию на 2026-05-02 база Go vulnerability database не указывает
-исправленную версию.
+GoBGP обеспечивает опциональную связку с BGP control plane при изменении
+состояния BFD-сессий. GoBFD закрепляет `v4.8.0`, который включает upstream-fix
+для `GO-2026-4736` / `CVE-2026-30405`.
 
 ### Митигация
 
-1. **Ограниченная экспозиция**: путь GoBGP является опциональным и должен
-   подключаться только к GoBGP gRPC endpoint на localhost или в доверенной
-   management-сети.
-2. **Контролируемый CI allowlist**: `scripts/vuln-audit.go` разрешает только
-   `GO-2026-4736`; запись содержит owner, expiry, reason и mitigation. Любой
-   дополнительный finding из `govulncheck` или OSV, а также expired allowlist
-   entry, ломает CI.
-3. **Триггер обновления**: удалить allowlist-запись после публикации
-   исправленного релиза GoBGP и обновления модуля через `go mod tidy`.
+1. **Ограниченная экспозиция**: держите GoBGP gRPC endpoint на localhost или в
+   доверенной management-сети, если TLS не включён.
+2. **TLS для удалённых endpoint**: включайте `gobgp.tls.enabled` и настраивайте
+   `gobgp.tls.ca_file` / `gobgp.tls.server_name` для non-loopback развёртываний.
+3. **Строгий vulnerability gate**: `scripts/vuln-audit.go` больше не allowlist-ит
+   GoBGP advisories; любой новый finding из `govulncheck` или OSV ломает CI.
 
 ---
 
