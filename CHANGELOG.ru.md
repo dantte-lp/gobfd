@@ -80,7 +80,8 @@
   Docker Compose `v5.5.0` как checksum-pinned Go provider для
   `podman compose`, Syft `v1.51.0` и GoReleaser `v2.18.0`.
 - Изолированный граф lint-инструментов использует MIT-licensed revision
-  `github.com/tenntenn/text/transform`, не изменяя runtime-зависимости. CI
+  `github.com/tenntenn/text/transform`, не изменяя runtime-зависимости.
+  Dependabot теперь отслеживает корневой Go module и module в `tools/`. CI
   публикует раздельные runtime/tools vulnerability JSON и CycloneDX SBOM.
 - Машиночитаемый dependency inventory теперь связывает все 40 registry packages
   из `uv.lock` с license evidence точного PyPI release и artifact hash, а также

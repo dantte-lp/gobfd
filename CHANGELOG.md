@@ -81,8 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `podman compose`, Syft `v1.51.0`, and GoReleaser `v2.18.0`.
 - The isolated lint-tool graph selects the MIT-licensed
   `github.com/tenntenn/text/transform` revision without changing runtime
-  dependencies. CI publishes distinct runtime and tools vulnerability JSON and
-  CycloneDX SBOM artifacts.
+  dependencies. Dependabot now monitors both the root and `tools/` Go modules.
+  CI publishes distinct runtime and tools vulnerability JSON and CycloneDX SBOM
+  artifacts.
 - The machine-readable dependency inventory now binds all 40 registry packages
   from `uv.lock` to exact PyPI release and artifact-hash license evidence, and
   records per-version license evidence for all 21 declared tools. Build commit
