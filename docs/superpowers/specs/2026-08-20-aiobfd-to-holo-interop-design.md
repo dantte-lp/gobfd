@@ -142,9 +142,10 @@ the separately tracked uv migration. This change does not introduce another
 Python runtime or dependency.
 
 The optional invalid-vector generator has moved to repository-owned Go packet
-codecs while retaining the legacy `scapy` service identifier. Python embedded
-in the current report generator remains migration debt covered by the separate
-Go-first tooling work and does not expand this peer-replacement change.
+codecs while retaining the legacy `scapy` service identifier. The report
+generator now invokes the repository Go 1.27 benchmark renderer; it retains the
+same Go, FRR-style C, and BIRD-style C schema while validating bounded inputs
+and publishing the final HTML atomically with exact mode 0600.
 
 ## Documentation and Contract
 

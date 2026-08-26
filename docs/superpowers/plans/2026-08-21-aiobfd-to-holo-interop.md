@@ -607,6 +607,45 @@ git commit -m "bench: remove aiobfd Python comparisons"
 Expected staged paths are exactly the paths listed above; unstage and stop on
 any unrelated dependency-refresh path.
 
+### Task 4a: Port the Atomic Benchmark Report Renderer to Go
+
+**Files:**
+- Add: `test/internal/benchreport/benchreport.go`
+- Add: `test/internal/benchreport/benchreport_test.go`
+- Add: `test/cmd/benchreport/main.go`
+- Modify: `scripts/gen-report.sh`
+- Modify: `test/interop/topology_contract_test.go`
+- Modify: dependency-refresh design and changelog records
+
+- [x] **Step 1: Capture RED at both boundaries**
+
+The package test first required the missing `Render`, `Options`, and 2 MiB
+input bound. The operational contract independently rejected the Python
+heredoc and required the exact Go command invocation.
+
+- [x] **Step 2: Implement the compatible Go renderer**
+
+Preserve Go benchmark parsing, FRR/BIRD `BENCH` averaging and first-seen
+ordering, canonical names, annotations, feature rows, mandatory headlines,
+metadata defaults, and the embedded JSON schema. Reject non-regular, symlink,
+empty, invalid UTF-8, replaced, and oversized inputs before output mutation.
+Require exactly one metadata JSON document. Publish through a same-directory
+rooted `O_CREATE|O_EXCL` temporary, `Chmod(0600)`, sync, close, identity check,
+and rename; invalid input preserves the previous complete report.
+
+- [x] **Step 3: Run bounded verification**
+
+Run focused and ordinary `-race -trimpath` tests with two Go workers and
+task-local caches, scoped golangci-lint with concurrency two, gopls over a
+nonempty input set, shell syntax, Markdown lint, inventory determinism, and
+diff checks. Remove all task-local caches and verify no owned process remains.
+
+- [x] **Step 4: Commit the renderer slice locally**
+
+Stage only the renderer package/command, shell wrapper, contract tests,
+inventory, plan/design, and current changelog entries. Review the cached diff,
+commit on `dev`, and perform no remote synchronization.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**

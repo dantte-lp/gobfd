@@ -1495,15 +1495,13 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	generatorPath := filepath.Join(root, "scripts", "gen-report.sh")
 	generator := readContractFile(t, "benchmark report generator", generatorPath)
 	assertContainsAll(t, "benchmark report generator", generator, []string{
-		`uv run --project "${PROJECT_DIR}" --frozen --no-default-groups -- python -`,
-		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}" <<'PY'`,
-		"tempfile.NamedTemporaryFile(",
-		"os.fsync(temporary.fileno())",
-		"os.replace(temporary_path, output_path)",
-		"temporary_path.unlink()",
+		`go -C "${PROJECT_DIR}" run ./test/cmd/benchreport --`,
+		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}"`,
 	})
-	if strings.Contains(generator, "python3") {
-		t.Error("benchmark report generator interpolates shell paths into Python source")
+	for _, removed := range []string{"uv run", "python -", "<<'PY'", "tempfile.NamedTemporaryFile"} {
+		if strings.Contains(generator, removed) {
+			t.Errorf("benchmark report generator retains removed Python renderer marker %q", removed)
+		}
 	}
 }
 
