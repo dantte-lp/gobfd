@@ -900,6 +900,10 @@ dimensions to verified or broadcast evidence between records. Regenerate the
 then run bounded Debian Trixie race, gopls, lint, documentation, inventory,
 Buf, vulnerability, and CI checks before integration into `dev`.
 
+Local implementation and bounded checks are complete. Repository discovery now
+also excludes `.worktrees`, so the required in-repository worktree layout cannot
+contaminate dependency evidence. Remote `dev` checks remain the completion gate.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**

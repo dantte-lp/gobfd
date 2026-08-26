@@ -2396,7 +2396,8 @@ func discoverDeclaredComponentsFromRoot(
 			return fmt.Errorf("make dependency source relative: %w", err)
 		}
 		if entry.IsDir() {
-			if relative == ".git" || relative == ".beads" || relative == "reports" || relative == "docs" ||
+			if relative == ".git" || relative == ".beads" || relative == ".worktrees" ||
+				relative == "reports" || relative == "docs" ||
 				relative == "test/internal/dependencyinventory" || relative == "test/cmd/dependencyinventory" {
 				return filepath.SkipDir
 			}

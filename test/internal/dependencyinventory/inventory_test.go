@@ -526,6 +526,22 @@ func TestDiscoverDeclaredComponentsIncludesFixedShellToolVersion(t *testing.T) {
 	}
 }
 
+func TestDiscoverDeclaredComponentsIgnoresRepositoryWorktrees(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFixture(t, root, "Containerfile", "ARG BUF_VERSION=v1.72.0\n")
+	writeFixture(t, root, ".worktrees/feature/Containerfile", "ARG UV_VERSION=0.12.6\n")
+
+	components, err := discoverDeclaredComponents(context.Background(), root)
+	if err != nil {
+		t.Fatalf("discoverDeclaredComponents() error = %v", err)
+	}
+	if len(components) != 1 || components[0].ID != "tool:buf" {
+		t.Fatalf("discoverDeclaredComponents() = %#v, want only tool:buf", components)
+	}
+}
+
 func TestParseUVLockPackagesIncludesRegistryArtifactsAndExcludesVirtualProject(t *testing.T) {
 	t.Parallel()
 
