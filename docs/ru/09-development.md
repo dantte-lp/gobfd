@@ -281,10 +281,10 @@ CI проверяет v2-схему, точное число активных л
 читает корневые `.python-version`, `pyproject.toml` и `uv.lock`; requirements,
 pip-bootstrap и отдельные окружения `uv tool` не поддерживаются.
 
-Единый lock разделяет Scapy (`peer`), намеренно пустую группу `runtime` и набор
-Ruff, ty, Bandit, yamllint, junit2html и pip-audit (`quality`). Docker Compose
-не является Python-зависимостью: официальный Go-бинарник v5.5.0 закреплён по
-checksum и выбирается командой `podman compose`.
+Группы `peer` и `runtime` намеренно пусты. Единый lock сохраняет Ruff, ty,
+Bandit, yamllint, junit2html и pip-audit (`quality`) для containerlab bootstrap.
+Docker Compose и генератор некорректных BFD-векторов реализованы на Go и не
+являются Python-зависимостями.
 
 ```bash
 make python-sync

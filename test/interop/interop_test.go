@@ -38,7 +38,7 @@ const (
 	gobfdIP = "172.20.0.10"
 	frrIP   = "172.20.0.20"
 	bird3IP = "172.20.0.30"
-	scapyIP = "172.20.0.40"
+	fuzzIP  = "172.20.0.40"
 	holoIP  = "172.20.0.50"
 	thoroIP = "172.20.0.60"
 
@@ -61,10 +61,10 @@ const (
 	holoConfigWaitTimeout  = 10 * time.Second
 	holoInspectTimeout     = 5 * time.Second
 
-	// scapyImage is the image name for the Scapy BFD fuzzer.
+	// bfdFuzzImage is the image name for the Go BFD invalid-vector generator.
 	// Built with podman build (not compose) to avoid compose's "run"
 	// behavior that tears down and recreates the entire stack.
-	scapyImage = "gobfd-scapy-fuzz:latest"
+	bfdFuzzImage = "gobfd-bfd-fuzz:latest"
 )
 
 var (
@@ -2366,17 +2366,17 @@ func TestFRRDetectionTimeout(t *testing.T) {
 
 // =========================================================================
 // Test 5: Graceful shutdown with AdminDown (existing, enhanced)
-// Scapy Protocol Fuzzing
+// BFD Invalid-Vector Robustness
 // =========================================================================
 
-// TestScapyFuzzing runs the Scapy BFD fuzzer container that sends ~1000+
-// crafted/invalid BFD packets to GoBFD and verifies it survives.
+// TestBFDInvalidVectors runs the repository-owned Go generator that sends the
+// preserved 1055-packet invalid-vector corpus and verifies GoBFD survives.
 // Tests RFC 5880 Section 6.8.6 validation robustness.
 //
 // Uses podman build + podman run directly (NOT podman compose run) because
 // podman compose's "run" subcommand tears down and recreates the entire
 // compose stack, destroying frr-interop and other containers.
-func TestScapyFuzzing(t *testing.T) {
+func TestBFDInvalidVectors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -2385,16 +2385,16 @@ func TestScapyFuzzing(t *testing.T) {
 		t.Fatalf("resolve interop Compose project: %v", err)
 	}
 
-	// Build the Scapy image directly from the repository root so the image
-	// consumes the single checked-in uv lock.
+	// Build directly from the repository root so the Go module and internal BFD
+	// codec are available to the bounded multi-stage build context.
 	buildOut, err := exec.CommandContext(ctx,
 		"podman", "build",
-		"-t", scapyImage,
+		"-t", bfdFuzzImage,
 		"-f", "scapy/Containerfile",
 		"../..",
 	).CombinedOutput()
 	if err != nil {
-		t.Fatalf("podman build scapy: %v\n%s", err, buildOut)
+		t.Fatalf("podman build BFD invalid-vector generator: %v\n%s", err, buildOut)
 	}
 
 	// Run on the existing compose network without disturbing other services.
@@ -2403,25 +2403,23 @@ func TestScapyFuzzing(t *testing.T) {
 		"--name", "scapy-interop",
 		"--label", "com.docker.compose.project="+projectName,
 		"--network", interopNetworkName(projectName),
-		"--ip", scapyIP,
-		"--cap-add", "NET_RAW",
-		"--cap-add", "NET_ADMIN",
+		"--ip", fuzzIP,
 		"-e", "GOBFD_IP="+gobfdIP,
-		scapyImage,
+		bfdFuzzImage,
 	).CombinedOutput()
 	if err != nil {
-		t.Fatalf("scapy fuzzer failed: %v\n%s", err, runOut)
+		t.Fatalf("BFD invalid-vector generator failed: %v\n%s", err, runOut)
 	}
 
-	t.Logf("Scapy fuzzer output:\n%s", string(runOut))
+	t.Logf("BFD invalid-vector generator output:\n%s", string(runOut))
 
 	// Verify gobfd is still running after fuzzing.
 	out, err := projectContainerInspect(ctx, "gobfd-interop", "{{.State.Running}}")
 	if err != nil || strings.TrimSpace(out) != "true" {
-		t.Fatal("gobfd crashed after Scapy fuzzing")
+		t.Fatal("gobfd crashed after BFD invalid-vector corpus")
 	}
 
-	t.Log("GoBFD survived all Scapy fuzz packets")
+	t.Log("GoBFD survived all repository BFD invalid vectors")
 }
 
 // =========================================================================

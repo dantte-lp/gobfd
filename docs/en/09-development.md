@@ -280,10 +280,10 @@ The repository has one non-package Python 3.14.7 environment. uv 0.12.6 reads
 the root `.python-version`, `pyproject.toml`, and `uv.lock`; no requirements
 file, pip bootstrap, or independent uv tool environment is supported.
 
-The lock separates Scapy (`peer`), an intentionally empty `runtime` group, and
-the Ruff, ty, Bandit, yamllint, junit2html, and pip-audit toolchain (`quality`)
-while retaining one resolution. Docker Compose is not a Python dependency: the
-official v5.5.0 Go binary is checksum-pinned and selected by `podman compose`.
+The `peer` and `runtime` groups are intentionally empty. The lock retains the
+Ruff, ty, Bandit, yamllint, junit2html, and pip-audit toolchain (`quality`) for
+the containerlab bootstrap. Docker Compose and the BFD invalid-vector generator
+are Go binaries, not Python dependencies.
 
 ```bash
 make python-sync

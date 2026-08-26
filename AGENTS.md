@@ -116,8 +116,8 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
 - Run repository Python entrypoints as `uv run --frozen`; CI and image builds
   must use `uv sync --frozen`.
 - Run `make python-check` after changing Python code, pins, or invocation
-  paths. It executes Ruff, ty, Bandit, and pip-audit over the two owned Python
-  files and verifies the exact interpreter.
+  paths. It executes Ruff, ty, Bandit, and pip-audit over the owned Python
+  file and verifies the exact interpreter.
 - ExaBGP is an external immutable interop image, not a dependency of the
   repository Python lock.
 

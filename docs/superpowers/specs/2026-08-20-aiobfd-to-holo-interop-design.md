@@ -53,7 +53,8 @@ for this matrix.
 
 The Holo service replaces the current `aiobfd` service at `172.20.0.50`; the
 other addresses and peers remain unchanged. The topology continues to contain
-GoBFD, FRR, BIRD3, Holo, Thoro/bfd, tshark, and the optional Scapy fuzzer.
+GoBFD, FRR, BIRD3, Holo, Thoro/bfd, tshark, and the optional Go BFD
+invalid-vector generator (retaining the legacy `scapy` service identifier).
 
 Holo runs `holod` with `NET_RAW` and `NET_ADMIN`. A test-specific read-only TOML
 configuration enables the gRPC northbound plugin and stdout logging, disables
@@ -140,10 +141,10 @@ ExaBGP remains the sole required external Python interop peer and is handled by
 the separately tracked uv migration. This change does not introduce another
 Python runtime or dependency.
 
-The optional Scapy fuzzer and the Python embedded in the current report
-generator are existing migration debt covered by the separate Go-first tooling
-work. Their presence is not an endorsement of permanent Python surfaces and
-does not expand this peer-replacement change.
+The optional invalid-vector generator has moved to repository-owned Go packet
+codecs while retaining the legacy `scapy` service identifier. Python embedded
+in the current report generator remains migration debt covered by the separate
+Go-first tooling work and does not expand this peer-replacement change.
 
 ## Documentation and Contract
 

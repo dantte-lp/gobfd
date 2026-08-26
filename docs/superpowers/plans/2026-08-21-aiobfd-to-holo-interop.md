@@ -431,7 +431,7 @@ through artifact collection and save bounded `holo` and `holo-config` logs plus
 
 Use `INTEROP_PROJECT_NAME` with a deterministic default in the Make target,
 shell runner, tagged Go exact-container helper, and E2E environment. Derive the
-Scapy network as `${INTEROP_PROJECT_NAME}_bfdnet` in both Go and shell instead
+legacy `scapy` fuzzer network as `${INTEROP_PROJECT_NAME}_bfdnet` in both Go and shell instead
 of retaining `interop_bfdnet`. Before any build or startup command, query
 containers, networks, and volumes carrying
 `com.docker.compose.project=<project>` and fail if any exist. Only after all
@@ -484,8 +484,8 @@ Podman API `exec`, `stop`, `start`, `pause`, `unpause`, and `logs` operation;
 the dedicated ownership error must preserve `errors.Is` identity. Direct tagged
 test targets use a `lock-run -- <argv>` guard that requires every mandatory
 base or BGP container to exist with the exact project label. An arbitrary
-labelled container, network, or volume is insufficient; only Scapy is optional
-for the base suite. The E2E runner invokes its tagged tests under the lock it
+labelled container, network, or volume is insufficient; only the legacy-named
+Go `scapy` fuzzer service is optional for the base suite. The E2E runner invokes its tagged tests under the lock it
 already holds, and the direct BGP target propagates the derived BGP project name
 into the dev-container test environment.
 

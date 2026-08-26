@@ -1346,18 +1346,18 @@ assert_pass test_rfc5880_poll_final_parameter_change
 info "=== Phase 4: Detection Timeout ==="
 assert_pass test_frr_detection_timeout
 
-# --- Phase 5: Scapy protocol fuzzing ---
-info "=== Phase 5: Scapy Protocol Fuzzing ==="
+# --- Phase 5: repository-owned Go BFD invalid vectors ---
+info "=== Phase 5: BFD Invalid-Vector Robustness ==="
 
-test_scapy_fuzzing() {
-    local desc="Scapy BFD fuzzing — gobfd survives all invalid packets"
-    local scapy_image="gobfd-scapy-fuzz:latest"
+test_bfd_invalid_vectors() {
+    local desc="Go BFD invalid-vector corpus — gobfd survives all invalid packets"
+    local fuzz_image="gobfd-bfd-fuzz:latest"
 
-    # Build scapy image directly (podman compose "run" tears down the stack).
-    if ! timeout 10m podman build -t "${scapy_image}" \
+    # Build directly because podman compose "run" tears down the stack.
+    if ! timeout 10m podman build -t "${fuzz_image}" \
         -f "${SCRIPT_DIR}/scapy/Containerfile" \
         "${SCRIPT_DIR}/../.." 2>&1; then
-        fail "${desc} — scapy image build failed"
+        fail "${desc} — BFD fuzz image build failed"
         return 1
     fi
 
@@ -1367,17 +1367,15 @@ test_scapy_fuzzing() {
         --label "${PROJECT_LABEL}" \
         --network "${INTEROP_PROJECT_NAME}_bfdnet" \
         --ip 172.20.0.40 \
-        --cap-add NET_RAW \
-        --cap-add NET_ADMIN \
         -e "GOBFD_IP=${GOBFD_IP}" \
-        "${scapy_image}" 2>&1; then
-        fail "${desc} — scapy container exited with error"
+        "${fuzz_image}" 2>&1; then
+        fail "${desc} — BFD fuzz container exited with error"
         return 1
     fi
 
     # Verify gobfd is still running after fuzzing.
     if ! "${PODMAN[@]}" ps --format '{{.Names}}' | grep -q gobfd-interop; then
-        fail "${desc} — gobfd crashed after scapy fuzzing"
+        fail "${desc} — gobfd crashed after invalid-vector corpus"
         return 1
     fi
 
@@ -1385,7 +1383,7 @@ test_scapy_fuzzing() {
     return 0
 }
 
-assert_pass test_scapy_fuzzing
+assert_pass test_bfd_invalid_vectors
 
 # --- Phase 6: Graceful shutdown (LAST — stops gobfd) ---
 info "=== Phase 6: Graceful Shutdown ==="

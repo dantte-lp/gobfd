@@ -5,7 +5,7 @@
 #   - gobfd:   172.20.0.10  (tshark shares this network namespace)
 #   - frr:     172.20.0.20
 #   - bird3:   172.20.0.30
-#   - scapy:   172.20.0.40  (BFD protocol fuzzer, runs once and exits)
+#   - scapy:   172.20.0.40  (Go invalid-vector generator; legacy service ID)
 #   - holo:    172.20.0.50  (Holo BFD peer, no auth)
 #   - thoro:   172.20.0.60  (Go BFD peer, no auth — auth verify not implemented)
 #
@@ -136,9 +136,6 @@ services:
     container_name: scapy-interop
     depends_on:
       - gobfd
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
     environment:
       GOBFD_IP: "172.20.0.10"
     networks:

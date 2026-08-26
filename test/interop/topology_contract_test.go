@@ -262,6 +262,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "BGP Compose topology", path: filepath.Join(root, "test", "interop-bgp", "compose.yml")},
 		{name: "RFC Compose topology", path: filepath.Join(root, "test", "interop-rfc", "compose.yml")},
 		{name: "tshark image", path: filepath.Join(root, "test", "interop", "tshark", "Containerfile")},
+		{name: "BFD fuzz image", path: filepath.Join(root, "test", "interop", "scapy", "Containerfile")},
+		{name: "container context", path: filepath.Join(root, ".containerignore")},
 	}
 	contents := make(map[string]string, len(files))
 	for _, file := range files {
@@ -317,6 +319,37 @@ func TestInteropOperationalContract(t *testing.T) {
 		"verify_project_absent",
 		"release_project_lock",
 	})
+	assertContainsAll(t, "legacy runner", runner, []string{
+		"test_bfd_invalid_vectors",
+		"gobfd-bfd-fuzz:latest",
+		"BFD Invalid-Vector Robustness",
+	})
+	obsoleteFuzzContracts := []string{
+		"gobfd-scapy-fuzz", "test_scapy_fuzzing", "--cap-add NET_RAW", "--cap-add NET_ADMIN",
+	}
+	for _, forbidden := range obsoleteFuzzContracts {
+		if strings.Contains(runner, forbidden) {
+			t.Errorf("legacy runner retains obsolete BFD fuzz contract %q", forbidden)
+		}
+	}
+	fuzzImage := contents["BFD fuzz image"]
+	assertContainsAll(t, "BFD fuzz image", fuzzImage, []string{
+		"golang:1.27.0-trixie@sha256:",
+		"debian:trixie-slim@sha256:",
+		"go build -trimpath -o /out/bfd-fuzz ./test/interop/scapy",
+		`ENTRYPOINT ["/usr/local/bin/bfd-fuzz"]`,
+	})
+	for _, forbidden := range []string{"alpine", "python", "scapy==", "uv sync", "bfd_fuzz.py"} {
+		if strings.Contains(strings.ToLower(fuzzImage), forbidden) {
+			t.Errorf("BFD fuzz image retains forbidden runtime %q", forbidden)
+		}
+	}
+	assertContainsAll(t, "container context", contents["container context"], []string{
+		"!test/interop/scapy/*.go",
+	})
+	if strings.Contains(contents["container context"], "!test/interop/scapy/bfd_fuzz.py") {
+		t.Error("container context still permits the removed Python BFD fuzzer")
+	}
 	if strings.Contains(runner, "podman rm -f scapy-interop") {
 		t.Error("legacy runner removes an unlabelled Scapy container by name")
 	}
@@ -658,7 +691,7 @@ func TestInteropOperationalContract(t *testing.T) {
 
 	inventory := contents["target inventory"]
 	assertContainsAll(t, "target inventory", inventory, []string{
-		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Scapy fuzzer",
+		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
 		"Exact Compose project label",
 	})
 

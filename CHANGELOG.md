@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `make int-bgp-failover` now runs the Go 1.27 testcontainers Podman gate for
   GoBFD, GoBGP v3.37.0, and FRR 10.7.0, retaining packet/container evidence and
   proving exact cleanup; the operational Compose example remains available.
+- The optional BFD invalid-vector gate now uses repository Go packet codecs for
+  its preserved 18 groups and 1055 invalid packets. The legacy `scapy` service
+  identifier remains for topology compatibility, but Scapy and its Python
+  runtime are no longer dependencies.
 - The mandatory four-peer BFD interoperability matrix now uses FRR 10.7.0,
   BIRD 3.3.2, immutable Holo 0.9.0, and Thoro/bfd. Holo is configured by a
   healthy-gated one-shot YANG loader, and lifecycle tests require fresh packet
@@ -44,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   govulncheck `v1.7.0`, gotestsum `v1.13.0`, Node.js `v24.19.0`, and exact npm
   and uv-managed Python lint, type, security, YAML, and report tools. One
   Python 3.14.7 `uv.lock` replaces pip bootstrap and independent tool
-  environments across CI, development images, and the Scapy peer.
+  environments across CI and development images.
   Containerlab installs use verified `v0.79.0` release archives, and CI uses
   Docker Compose `v5.5.0` as the checksum-pinned Go provider for
   `podman compose`, Syft `v1.51.0`, and GoReleaser `v2.18.0`.

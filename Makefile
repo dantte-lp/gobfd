@@ -649,7 +649,7 @@ lint-spell: dev-ensure
 
 lint-docs: lint-md lint-yaml lint-spell
 
-PYTHON_FILES := test/interop-clab/bootstrap.py test/interop/scapy/bfd_fuzz.py
+PYTHON_FILES := test/interop-clab/bootstrap.py
 
 python-sync:
 	uv lock --check
@@ -657,7 +657,7 @@ python-sync:
 	@test "$$(uv run --frozen --all-groups python -c 'import sys; print(sys.version.split()[0])')" = "3.14.7"
 
 python-check: python-sync
-	@test "$$(printf '%s\n' $(PYTHON_FILES) | sed '/^$$/d' | wc -l)" -eq 2
+	@test "$$(printf '%s\n' $(PYTHON_FILES) | sed '/^$$/d' | wc -l)" -eq 1
 	uv run --frozen --no-default-groups --group quality -- ruff check $(PYTHON_FILES)
 	uv run --frozen --no-default-groups --group quality -- ty check $(PYTHON_FILES)
 	uv run --frozen --no-default-groups --group quality -- \

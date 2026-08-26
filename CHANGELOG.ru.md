@@ -22,6 +22,10 @@
 - `make int-bgp-failover` запускает Go 1.27 testcontainers Podman gate для
   GoBFD, GoBGP v3.37.0 и FRR 10.7.0, сохраняет пакетные/container-артефакты и
   доказывает точную очистку; операционный Compose-пример сохранён.
+- Опциональная проверка некорректных BFD-векторов теперь использует packet
+  codecs репозитория на Go для сохранённых 18 групп и 1055 пакетов. Legacy ID
+  сервиса `scapy` оставлен для совместимости топологии, но Scapy и его Python
+  runtime больше не являются зависимостями.
 - Обязательная матрица совместимости четырёх BFD-пиров использует FRR 10.7.0,
   BIRD 3.3.2, immutable Holo 0.9.0 и Thoro/bfd. Holo настраивается через
   healthy-gated одноразовый YANG loader; lifecycle tests требуют свежих
@@ -44,7 +48,7 @@
   `v0.23.0`, govulncheck `v1.7.0`, gotestsum `v1.13.0`, Node.js `v24.19.0`, а
   также точные версии npm- и uv-managed Python-инструментов для lint, type,
   security, YAML и отчётов. Единый Python 3.14.7 `uv.lock` заменяет pip-bootstrap
-  и независимые tool-окружения в CI, development-образах и Scapy peer.
+  и независимые tool-окружения в CI и development-образах.
   Containerlab устанавливается из проверенных архивов `v0.79.0`; CI использует
   Docker Compose `v5.5.0` как checksum-pinned Go provider для
   `podman compose`, Syft `v1.51.0` и GoReleaser `v2.18.0`.

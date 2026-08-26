@@ -57,15 +57,15 @@ docs/
 **/*.md
 **/*.markdown
 
-# The Scapy image uses the repository root for the single uv lock while
-# retaining only its one Python entrypoint from the otherwise excluded tests.
+# The legacy-named BFD fuzz image builds its repository-owned Go command from
+# the otherwise excluded test tree.
 !test/
 test/*
 !test/interop/
 test/interop/*
 !test/interop/scapy/
 test/interop/scapy/*
-!test/interop/scapy/bfd_fuzz.py
+!test/interop/scapy/*.go
 
 # Container infra is not copied into release images.
 deployments/

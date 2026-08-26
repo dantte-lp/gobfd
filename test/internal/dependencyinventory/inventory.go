@@ -1158,9 +1158,6 @@ func evidenceContext(
 		return record.ImmutablePin.Value, "podman manifest inspect " + record.ImmutablePin.Value,
 			EvidenceTool{Name: "podman", Version: "5.8.2"}
 	}
-	if (subject == "interop-daemon:scapy" || subject == "tool:scapy-python") && review == "channel_current" {
-		return "bead:gobfd-qj0.8.1.5.2", "bd show gobfd-qj0.8.1.5.2", EvidenceTool{Name: "bd", Version: "1.2.1"}
-	}
 	if (subject == "runtime:github.com/osrg/gobgp/v3" || subject == "interop-daemon:gobgp-v4-candidate") &&
 		(review == "upstream_current" || review == "repository_archived" || review == "artifact_available" || review == "release_line_eol") {
 		query := "gh api repos/osrg/gobgp"
@@ -1191,13 +1188,6 @@ func evidenceResultHash(result string) string {
 }
 
 func specialComponents() []Component {
-	locked := func(installed, channel string, sources []SourceLocation, pin ImmutablePin) Record {
-		record := baseRecord(installed, channel, sources, pin)
-		record.Target = installed
-		record.Assessment = assessmentTemplate("uv-locked-python-island")
-		record.RepositoryState = repositoryStateTemplate("uv-locked-python-island", pin)
-		return record
-	}
 	removed := func(id, baseline string) Component {
 		record := Record{
 			SourceLocations: []SourceLocation{}, Baseline: baseline, DeliveryChannel: "https://proxy.golang.org",
@@ -1208,14 +1198,6 @@ func specialComponents() []Component {
 		}
 		return Component{ID: id, Kind: KindRemoved, Record: record}
 	}
-	scapyPin := ImmutablePin{Status: PinVerified, Kind: "uv-lock", Value: "scapy==2.7.0"}
-	pythonPin := ImmutablePin{Status: PinVerified, Kind: "oci-digest", Value: "docker.io/library/python:3.14.7-slim-trixie@sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83"}
-	scapyRecord := locked("2.7.0", "https://pypi.org/project/scapy/",
-		[]SourceLocation{{Path: "pyproject.toml", Match: "scapy==2.7.0"}}, scapyPin)
-	scapyRecord.Coordinates = Coordinates{SourceRepository: "https://github.com/secdev/scapy", PURL: "pkg:pypi/scapy@2.7.0"}
-	pythonRecord := locked("3.14.7", "docker.io/library/python",
-		[]SourceLocation{{Path: "test/interop/scapy/Containerfile", Match: "python:3.14.7-slim-trixie@sha256:"}}, pythonPin)
-	pythonRecord.Coordinates = Coordinates{Digest: "sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83"}
 	return []Component{
 		{
 			ID: "interop-daemon:gobgp-v4-candidate", Kind: KindInteropDaemon,
@@ -1227,14 +1209,6 @@ func specialComponents() []Component {
 				RepositoryState: repositoryStateTemplate("gobgp-v4-risk", ImmutablePin{Status: PinNotApplicable}),
 				ImmutablePin:    ImmutablePin{Status: PinNotApplicable, Kind: "deferred-candidate", Value: "v4.8.0"},
 			},
-		},
-		{
-			ID: "interop-daemon:scapy", Kind: KindInteropDaemon,
-			Record: scapyRecord,
-		},
-		{
-			ID: "tool:scapy-python", Kind: KindTool,
-			Record: pythonRecord,
 		},
 		removed("removed-go-mod-require:github.com/davecgh/go-spew", "v1.1.1"),
 		removed("removed-go-mod-require:github.com/dlclark/regexp2", "v1.12.0"),

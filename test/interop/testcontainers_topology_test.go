@@ -53,7 +53,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		root := fourPeerRepositoryRoot(t)
 
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
-		registerFourPeerScapyImageCleanup(ctx, t, endpoint, resources)
+		registerFourPeerFuzzImageCleanup(ctx, t, endpoint, resources)
 		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
 		runFourPeerAssertions(ctx, t, projectName)
 		captureFourPeerPCAP(ctx, t, resources.tshark)
@@ -72,7 +72,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 	}
 }
 
-func registerFourPeerScapyImageCleanup(
+func registerFourPeerFuzzImageCleanup(
 	ctx context.Context,
 	t *testing.T,
 	endpoint string,
@@ -82,27 +82,27 @@ func registerFourPeerScapyImageCleanup(
 
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
-		t.Fatalf("create Podman client for Scapy image ownership: %v", err)
+		t.Fatalf("create Podman client for BFD fuzz image ownership: %v", err)
 	}
-	exists, err := client.ImageExists(ctx, scapyImage)
+	exists, err := client.ImageExists(ctx, bfdFuzzImage)
 	if err != nil {
-		t.Fatalf("inspect Scapy image before test: %v", err)
+		t.Fatalf("inspect BFD fuzz image before test: %v", err)
 	}
 	if exists {
-		t.Fatalf("Scapy image %s already exists; refusing ambiguous ownership", scapyImage)
+		t.Fatalf("BFD fuzz image %s already exists; refusing ambiguous ownership", bfdFuzzImage)
 	}
-	resources.imageNames = append(resources.imageNames, scapyImage)
+	resources.imageNames = append(resources.imageNames, bfdFuzzImage)
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 		defer cancel()
-		exists, err := client.ImageExists(cleanupCtx, scapyImage)
+		exists, err := client.ImageExists(cleanupCtx, bfdFuzzImage)
 		if err != nil {
-			t.Errorf("inspect test-owned Scapy image during cleanup: %v", err)
+			t.Errorf("inspect test-owned BFD fuzz image during cleanup: %v", err)
 			return
 		}
 		if exists {
-			if err := client.RemoveImage(cleanupCtx, scapyImage); err != nil {
-				t.Errorf("remove test-owned Scapy image: %v", err)
+			if err := client.RemoveImage(cleanupCtx, bfdFuzzImage); err != nil {
+				t.Errorf("remove test-owned BFD fuzz image: %v", err)
 			}
 		}
 	})
@@ -482,7 +482,7 @@ func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string
 		"TestRFCCompliance",
 		"TestHoloFailureRecoveryLifecycle",
 		"TestFRRDetectionTimeout",
-		"TestScapyFuzzing",
+		"TestBFDInvalidVectors",
 		"TestGracefulShutdown",
 	}
 	executable, err := os.Executable()
