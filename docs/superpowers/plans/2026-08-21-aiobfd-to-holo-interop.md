@@ -911,8 +911,14 @@ exec wait strategy both at initial startup and after the Holo lifecycle restart.
 The healthcheck remains part of the container contract for Compose. The complete
 four-peer Testcontainers gate passed locally under a 2-CPU/8-GiB cgroup in
 218.908 seconds, including Holo stop/restart recovery and resource cleanup.
-Remote validation of that narrow portability correction remains the completion
-gate.
+The next remote run passed both four-peer and BGP+BFD gates, then exposed an
+unrelated stale RFC echo-reflector log wait: the helper expected the former
+plain-text message while the current `slog` output records
+`echo reflector listening address=:3785`. The exact failure reproduced locally;
+after aligning only that wait substring, the complete RFC 7419/9384/9468/9747
+Testcontainers gate passed locally under the same resource limits in 90.674
+seconds and cleaned all owned resources. Remote validation of this final narrow
+correction remains the completion gate.
 
 ### Task 5: Update Active Documentation and the Repository Contract
 

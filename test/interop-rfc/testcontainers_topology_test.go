@@ -117,7 +117,7 @@ func startRFCTestTopology(
 
 	echo := startRFCTestContainer(ctx, t, testcontainers.ContainerRequest{
 		Image: echoImage, Name: echoReflectorContainer, Labels: labels, Networks: []string{networkName},
-		WaitingFor:               wait.ForLog("echo reflector listening on :3785").WithStartupTimeout(30 * time.Second),
+		WaitingFor:               wait.ForLog("echo reflector listening address=:3785").WithStartupTimeout(30 * time.Second),
 		EndpointSettingsModifier: staticRFCTestIP(networkName, echoReflectorIP),
 	})
 	addRFCTestContainer(resources, echo)
