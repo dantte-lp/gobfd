@@ -646,6 +646,49 @@ Stage only the renderer package/command, shell wrapper, contract tests,
 inventory, plan/design, and current changelog entries. Review the cached diff,
 commit on `dev`, and perform no remote synchronization.
 
+### Task 4b: Split the Containerlab Bootstrap Boundary
+
+**Files:**
+- Add: `test/internal/clabbootstrap/`
+- Add: `test/cmd/clabbootstrap/`
+- Rename and narrow: `test/interop-clab/bootstrap.py` to
+  `test/interop-clab/vendor_images.py`
+- Modify: `scripts/containerlab_install_contract_test.go`
+- Modify: `Makefile`, EN/RU interop and development documentation
+- Modify: dependency-refresh design, dependency inventory, and changelogs
+
+- [ ] **Step 1: Capture the orchestration boundary in RED**
+
+Require one Go 1.27 bootstrap entrypoint for CLI parsing, preflight, bounded
+parallel public-image pulls, GoBFD build, inventory, phase ordering, and
+optional `run.sh` delegation. Require the retained Python file to expose only
+VyOS ISO/rootfs preparation and operator-supplied Arista/Cisco archive import.
+The old Python bootstrap entrypoint and its owned orchestration must be absent.
+
+- [ ] **Step 2: Implement the smallest compatible split**
+
+Run every Go-owned subprocess through `exec.CommandContext` with a resolved
+allowlisted executable, fixed argument vector, bounded output, and nonzero
+status propagation. Preserve all current flags, image references, dry-run
+behavior, phase failure aggregation, and deployment/test ordering. Invoke the
+frozen Python 3.14.7 helper only for the three documented vendor-image
+operations; do not port or redesign vendor archive formats in this slice.
+
+- [ ] **Step 3: Update the Python exception and operator contract**
+
+Document the exact remaining Python call sites and replace operator examples
+with the Go entrypoint. Keep Ruff, ty, Bandit, and pip-audit scoped to the
+single retained helper. Regenerate the dependency inventory and prove that
+only the expected package/file-count fields change.
+
+- [ ] **Step 4: Run bounded verification and commit locally**
+
+Use task-local caches, two Go workers, and a 5 GiB memory limit for focused and
+full `-race -trimpath`, scoped golangci-lint, and gopls checks. Run the exact
+Python 3.14.7/uv 0.12.6 quality gates, shell and Markdown checks, and dry-run
+CLI parity without pulling or building images. Remove owned caches/processes,
+stage only the reviewed slice, commit on `dev`, and perform no remote sync.
+
 ### Task 5: Update Active Documentation and the Repository Contract
 
 **Files:**
