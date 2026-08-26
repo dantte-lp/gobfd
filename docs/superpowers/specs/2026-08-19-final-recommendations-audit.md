@@ -1,7 +1,7 @@
 # GoBFD Final Recommendations Audit
 
-**Status:** Reconciled against `dev` on 2026-08-27; release priorities and
-Beads plan updated
+**Status:** Reconciled against `dev` on 2026-08-27; independent-review
+remediation locally gated and release priorities tracked in Beads
 
 **Source:** secret Gist `66675b88a5fe0a66f270240f45307e0f`, revision
 `9f2ed3b80ee05205e2104356ee7f07d4fa887992`, fetched 2026-08-19
@@ -54,9 +54,13 @@ as Experimental and remain outside the v1 stable contract.
 
 ### Current priority order
 
-1. Finish the v0.6.2 qualification gate: independent review, remaining
-   documentation parity, and release notes. The RFC/performance claim
-   correction was completed locally on 2026-08-27.
+1. Finish v0.6.2 qualification on the remediated head: required remote checks,
+   maintainer PR approval, and release evidence in `gobfd-qj0.8.1.7`. The
+   locally gated review fixes cover ownership-safe Containerlab cleanup,
+   private unique core/BGP evidence, topology-owned immutable FRR input,
+   fail-closed benchmark rename compatibility, measured scheduler/GC claims,
+   and removal of residual performance and duplicate RFC overclaims; none adds
+   BFD behavior.
 2. Implement the v1 P0 RFC and delivery core: Poll/Final/Demand, diagnostics
    and timeout reset, typed delivery and AdminDown acknowledgement, RFC
    5881/5883 transport scope, RFC 9764 authenticated padding, and explicit

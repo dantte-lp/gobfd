@@ -2,11 +2,16 @@ package clabbootstrap
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"go.yaml.in/yaml/v3"
 )
 
 var errInvalidBootstrapOptions = errors.New("invalid containerlab bootstrap options")
@@ -26,12 +31,16 @@ func Run(ctx context.Context, options Options, runner Runner) error {
 	if err := validateOptions(options, runner); err != nil {
 		return err
 	}
+	frrReference, err := loadFRRReference(options.ProjectRoot)
+	if err != nil {
+		return err
+	}
 
 	if err := runPreflight(ctx, options, runner); err != nil {
 		return err
 	}
 
-	images := publicImages(options.Tags)
+	images := publicImages(options.Tags, frrReference)
 	failures := pullImages(ctx, options, runner, images)
 	failures = append(failures, runVendorPhases(ctx, options, runner, images)...)
 	if !options.SkipBuild {
@@ -40,7 +49,7 @@ func Run(ctx context.Context, options Options, runner Runner) error {
 		}
 	}
 
-	inspectInventory(ctx, options, runner)
+	inspectInventory(ctx, options, runner, frrReference)
 	if len(failures) != 0 {
 		return fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
 	}
@@ -87,12 +96,12 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 	return nil
 }
 
-func publicImages(tags ImageTags) []imageReference {
+func publicImages(tags ImageTags, frrReference string) []imageReference {
 	return []imageReference{
 		{name: "nokia", reference: "ghcr.io/nokia/srlinux:" + tags.Nokia},
 		{name: "sonic", reference: "docker.io/netreplica/docker-sonic-vs:" + tags.Sonic},
 		{name: "vyos", reference: "docker.io/muruu1/vyos:" + tags.VyOS},
-		{name: "frr", reference: "quay.io/frrouting/frr:" + tags.FRR},
+		{name: "frr", reference: frrReference},
 		{
 			name: "gobgp",
 			reference: "docker.io/jauderho/gobgp:v3.37.0@sha256:" +
@@ -109,6 +118,57 @@ func publicImages(tags ImageTags) []imageReference {
 				"d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
 		},
 	}
+}
+
+func loadFRRReference(projectRoot string) (string, error) {
+	topologyPath := filepath.Join(projectRoot, "test", "interop-clab", "gobfd-vendors.clab.yml")
+	file, err := os.Open(topologyPath)
+	if err != nil {
+		return "", fmt.Errorf("open Containerlab topology %s: %w", topologyPath, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat Containerlab topology %s: %w", topologyPath, err)
+	}
+	const maxTopologySize = 1 << 20
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxTopologySize {
+		return "", fmt.Errorf("validate Containerlab topology size %d: %w", info.Size(), errInvalidBootstrapOptions)
+	}
+
+	type topologyDocument struct {
+		Topology struct {
+			Nodes map[string]struct {
+				Image string `yaml:"image"`
+			} `yaml:"nodes"`
+		} `yaml:"topology"`
+	}
+	var document topologyDocument
+	decoder := yaml.NewDecoder(io.LimitReader(file, maxTopologySize))
+	if err := decoder.Decode(&document); err != nil {
+		return "", fmt.Errorf("decode Containerlab topology %s: %w", topologyPath, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return "", fmt.Errorf(
+				"validate Containerlab topology %s: multiple YAML documents: %w",
+				topologyPath,
+				errInvalidBootstrapOptions,
+			)
+		}
+		return "", fmt.Errorf("validate Containerlab topology %s: %w", topologyPath, err)
+	}
+
+	reference := document.Topology.Nodes["frr"].Image
+	name, digest, found := strings.Cut(reference, "@sha256:")
+	if !found || name == "" || !strings.HasPrefix(name, "quay.io/frrouting/frr:") || len(digest) != 64 {
+		return "", fmt.Errorf("validate immutable FRR image %q: %w", reference, errInvalidBootstrapOptions)
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return "", fmt.Errorf("decode FRR image digest %q: %w", digest, err)
+	}
+	return reference, nil
 }
 
 func pullImages(ctx context.Context, options Options, runner Runner, images []imageReference) []string {
@@ -234,12 +294,12 @@ func buildCommand(options Options) Command {
 	}
 }
 
-func inspectInventory(ctx context.Context, options Options, runner Runner) {
+func inspectInventory(ctx context.Context, options Options, runner Runner, frrReference string) {
 	images := []imageReference{
 		{name: "nokia", reference: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia},
 		{name: "sonic", reference: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic},
 		{name: "vyos", reference: "vyos:latest"},
-		{name: "frr", reference: "quay.io/frrouting/frr:" + options.Tags.FRR},
+		{name: "frr", reference: frrReference},
 		{name: "gobfd", reference: "gobfd-clab:latest"},
 		{name: "arista", reference: options.Tags.Arista},
 		{name: "cisco", reference: options.Tags.Cisco},

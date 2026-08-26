@@ -123,11 +123,19 @@ e2e-core: e2e-core-testcontainers
 e2e-core-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_core_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
-	bash -o pipefail -c 'run_id="$$(date -u +%Y%m%dT%H%M%SZ)"; \
-		report_dir="$(CURDIR)/reports/e2e/core/$${run_id}"; mkdir -p "$${report_dir}"; \
+	bash -o pipefail -c 'umask 077; report_parent="$(CURDIR)/reports/e2e/core"; \
+		mkdir -p "$${report_parent}" || exit 1; chmod 0700 "$${report_parent}" || exit 1; \
+		report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")" || exit 1; \
+		chmod 0700 "$${report_dir}" || exit 1; \
 		export GOBFD_REQUIRE_PODMAN=1 E2E_CORE_TESTCONTAINERS_ARTIFACT_DIR="$${report_dir}"; \
 		go test -tags e2e_core_testcontainers ./test/e2e/core -race -count=1 -json -timeout 10m \
-			-run "^TestCoreDaemonTestcontainers$$" | tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"'
+			-run "^TestCoreDaemonTestcontainers$$" | tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"; \
+		pipeline_status=("$${PIPESTATUS[@]}"); \
+		test "$${#pipeline_status[@]}" -eq 2 && test -s "$${report_dir}/go-test.json" && \
+			test -s "$${report_dir}/go-test.log" && \
+			test "$$(stat -c %a "$${report_dir}/go-test.json")" = 600 && \
+			test "$$(stat -c %a "$${report_dir}/go-test.log")" = 600 && \
+			test "$${pipeline_status[0]}" -eq 0 && test "$${pipeline_status[1]}" -eq 0'
 e2e-routing: interop-project-validate
 	$(DC) up -d --build --force-recreate dev
 	./test/e2e/routing/run.sh
@@ -357,15 +365,7 @@ interop-clab-up:
 	./test/interop-clab/run.sh --up-only
 
 interop-clab-down:
-	containerlab --runtime podman destroy -t $(CLAB_TOPO) --cleanup 2>/dev/null || true
-	podman rm -f clab-gobfd-vendors-gobfd clab-gobfd-vendors-arista clab-gobfd-vendors-nokia clab-gobfd-vendors-cisco clab-gobfd-vendors-sonic clab-gobfd-vendors-vyos clab-gobfd-vendors-frr 2>/dev/null || true
-	ip link del veth-eth1 2>/dev/null || true
-	ip link del veth-eth2 2>/dev/null || true
-	ip link del veth-eth3 2>/dev/null || true
-	ip link del veth-eth4 2>/dev/null || true
-	ip link del veth-eth5 2>/dev/null || true
-	ip link del veth-eth6 2>/dev/null || true
-	podman network rm gobfd-vendors-net 2>/dev/null || true
+	./test/interop-clab/run.sh --down-only
 
 # === Integration Examples ===
 
@@ -379,11 +379,19 @@ int-bgp-failover: int-bgp-failover-testcontainers
 int-bgp-failover-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_bgp_failover_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/bgp-failover/...
-	bash -o pipefail -c 'run_id="$$(date -u +%Y%m%dT%H%M%SZ)"; \
-		report_dir="$(CURDIR)/reports/e2e/bgp-fast-failover/$${run_id}"; mkdir -p "$${report_dir}"; \
+	bash -o pipefail -c 'umask 077; report_parent="$(CURDIR)/reports/e2e/bgp-fast-failover"; \
+		mkdir -p "$${report_parent}" || exit 1; chmod 0700 "$${report_parent}" || exit 1; \
+		report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")" || exit 1; \
+		chmod 0700 "$${report_dir}" || exit 1; \
 		export GOBFD_REQUIRE_PODMAN=1 E2E_BGP_FAILOVER_TESTCONTAINERS_ARTIFACT_DIR="$${report_dir}"; \
 		go test -tags e2e_bgp_failover_testcontainers ./test/e2e/bgp-failover -race -count=1 -json -timeout 10m \
-			-run "^TestBGPFastFailoverTestcontainers$$" | tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"'
+			-run "^TestBGPFastFailoverTestcontainers$$" | tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"; \
+		pipeline_status=("$${PIPESTATUS[@]}"); \
+		test "$${#pipeline_status[@]}" -eq 2 && test -s "$${report_dir}/go-test.json" && \
+			test -s "$${report_dir}/go-test.log" && \
+			test "$$(stat -c %a "$${report_dir}/go-test.json")" = 600 && \
+			test "$$(stat -c %a "$${report_dir}/go-test.log")" = 600 && \
+			test "$${pipeline_status[0]}" -eq 0 && test "$${pipeline_status[1]}" -eq 0'
 
 int-bgp-failover-up:
 	$(INT_BGP_DC) up --build -d

@@ -24,7 +24,6 @@ type ImageTags struct {
 	Nokia  string
 	Sonic  string
 	VyOS   string
-	FRR    string
 	Arista string
 	Cisco  string
 }
@@ -55,7 +54,6 @@ func DefaultOptions(projectRoot string) Options {
 			Nokia:  "25.10.2",
 			Sonic:  "latest",
 			VyOS:   "latest",
-			FRR:    "10.7.0",
 			Arista: "ceos:4.36.0.1F",
 			Cisco:  "ios-xr/xrd-control-plane:25.4.1",
 		},

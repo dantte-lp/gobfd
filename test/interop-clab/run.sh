@@ -14,6 +14,7 @@
 #   ./test/interop-clab/run.sh            # full cycle: build → deploy → test → destroy
 #   ./test/interop-clab/run.sh --up-only  # build + deploy, skip tests
 #   ./test/interop-clab/run.sh --test-only # run Go tests (topology must be up)
+#   ./test/interop-clab/run.sh --down-only # destroy the exact recorded topology
 #
 # Prerequisites:
 #   - podman installed, Podman socket active
@@ -31,6 +32,19 @@ LAB_NAME="gobfd-vendors"
 GOBFD_CONTAINER="clab-${LAB_NAME}-gobfd"
 GOBFD_IMAGE="gobfd-clab:latest"
 PODMAN_NETWORK="${LAB_NAME}-net"
+OWNER_LABEL="io.gobfd.interop-clab.owner"
+OWNER_VALUE="${LAB_NAME}"
+RUN_LABEL="io.gobfd.interop-clab.run"
+PODMAN=(timeout 2m podman)
+
+# shellcheck source=test/interop/project_guard.sh
+source "${PROJECT_ROOT}/test/interop/project_guard.sh"
+
+LOCK_FD=""
+RECEIPT_FILE=""
+RUN_ID=""
+MUTATION_STARTED=false
+KEEP_TOPOLOGY=false
 
 # Deployed vendor tracking (populated by deploy_vendors).
 DEPLOYED_VENDORS=()
@@ -129,12 +143,23 @@ VENDOR_IPV6_LOCAL[frr]="fd00:0:6::"
 # Parse flags.
 UP_ONLY=false
 TEST_ONLY=false
+DOWN_ONLY=false
+MODE_COUNT=0
 for arg in "$@"; do
     case "${arg}" in
-        --up-only)   UP_ONLY=true ;;
-        --test-only) TEST_ONLY=true ;;
+        --up-only)   UP_ONLY=true; MODE_COUNT=$((MODE_COUNT + 1)) ;;
+        --test-only) TEST_ONLY=true; MODE_COUNT=$((MODE_COUNT + 1)) ;;
+        --down-only) DOWN_ONLY=true; MODE_COUNT=$((MODE_COUNT + 1)) ;;
+        *)
+            printf 'unknown argument %q\n' "${arg}" >&2
+            exit 2
+            ;;
     esac
 done
+if [ "${MODE_COUNT}" -gt 1 ]; then
+    printf 'use only one of --up-only, --test-only, or --down-only\n' >&2
+    exit 2
+fi
 
 # Colors for output (disabled if not a terminal).
 if [ -t 1 ]; then
@@ -152,6 +177,258 @@ fi
 pass() { echo -e "${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "${RED}FAIL${NC}: $1"; }
 info() { echo -e "${YELLOW}INFO${NC}: $1"; }
+
+receipt_path() {
+    local lock_dir
+    lock_dir="$(interop_lock_directory)" || return 1
+    printf '%s/%s.receipt\n' "${lock_dir}" "${LAB_NAME}"
+}
+
+validate_receipt_file() {
+    local mode
+
+    if [[ -L "${RECEIPT_FILE}" || ! -f "${RECEIPT_FILE}" || ! -O "${RECEIPT_FILE}" ]]; then
+        fail "unsafe or missing ownership receipt: ${RECEIPT_FILE}"
+        return 1
+    fi
+    mode="$(stat -c '%a' -- "${RECEIPT_FILE}")" || return 1
+    if [[ "${mode}" != "600" ]]; then
+        fail "ownership receipt ${RECEIPT_FILE} has mode ${mode}, want 600"
+        return 1
+    fi
+}
+
+acquire_lab_lock() {
+    interop_acquire_project_lock "interop-clab-${LAB_NAME}" || return 1
+    LOCK_FD="${INTEROP_ACQUIRED_LOCK_FD}"
+    RECEIPT_FILE="$(receipt_path)" || return 1
+}
+
+load_receipt() {
+    local kind value extra header_count=0
+
+    validate_receipt_file || return 1
+    RUN_ID=""
+    while IFS='|' read -r kind value extra; do
+        if [[ "${kind}" == "run" && -n "${value}" && -z "${extra}" ]]; then
+            RUN_ID="${value}"
+            header_count=$((header_count + 1))
+        fi
+    done <"${RECEIPT_FILE}"
+    if [[ "${header_count}" -ne 1 || ! "${RUN_ID}" =~ ^[0-9]{23}-[0-9]+-[0-9]+$ ]]; then
+        fail "invalid ownership receipt header: ${RECEIPT_FILE}"
+        return 1
+    fi
+}
+
+assert_link_available() {
+    local link_name="$1"
+    if ip link show dev "${link_name}" >/dev/null 2>&1; then
+        fail "fixed veth name ${link_name} already exists"
+        return 1
+    fi
+}
+
+is_expected_veth() {
+    case "$1" in
+        veth-eth[1-6]|vpeer-e1-1|vpeer-eth1|vpeer-Gi0-0-0-0)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+assert_empty_lab() {
+    local container_ids cname vdef idx exists_status link_name
+
+    if [[ -e "${RECEIPT_FILE}" || -L "${RECEIPT_FILE}" ]]; then
+        fail "ownership receipt already exists: ${RECEIPT_FILE}; use --down-only"
+        return 1
+    fi
+    container_ids="$(interop_query_labelled_container_ids "${OWNER_LABEL}" "${OWNER_VALUE}")" || return 1
+    if [[ -n "${container_ids}" ]]; then
+        fail "labelled ${LAB_NAME} containers already exist"
+        return 1
+    fi
+    for vdef in "${VENDOR_DEFS[@]}"; do
+        cname="$(vendor_field "${vdef}" 2)"
+        exists_status=0
+        "${PODMAN[@]}" container exists "${cname}" || exists_status=$?
+        if [[ "${exists_status}" -eq 0 ]]; then
+            fail "fixed container name ${cname} already exists"
+            return 1
+        fi
+        if [[ "${exists_status}" -ne 1 ]]; then
+            fail "could not check fixed container name ${cname}"
+            return 1
+        fi
+        idx="$(vendor_field "${vdef}" 4)"
+        assert_link_available "veth-eth${idx}" || return 1
+    done
+    for link_name in vpeer-e1-1 vpeer-eth1 vpeer-Gi0-0-0-0; do
+        assert_link_available "${link_name}" || return 1
+    done
+    exists_status=0
+    "${PODMAN[@]}" container exists "${GOBFD_CONTAINER}" || exists_status=$?
+    if [[ "${exists_status}" -eq 0 ]]; then
+        fail "fixed container name ${GOBFD_CONTAINER} already exists"
+        return 1
+    fi
+    if [[ "${exists_status}" -ne 1 ]]; then
+        fail "could not check fixed container name ${GOBFD_CONTAINER}"
+        return 1
+    fi
+    exists_status=0
+    "${PODMAN[@]}" network exists "${PODMAN_NETWORK}" || exists_status=$?
+    if [[ "${exists_status}" -eq 0 ]]; then
+        fail "fixed network name ${PODMAN_NETWORK} already exists"
+        return 1
+    fi
+    if [[ "${exists_status}" -ne 1 ]]; then
+        fail "could not check fixed network name ${PODMAN_NETWORK}"
+        return 1
+    fi
+}
+
+create_receipt() {
+    local old_umask
+
+    RUN_ID="$(date -u +%Y%m%d%H%M%S%N)-$$-${RANDOM}"
+    old_umask="$(umask)"
+    umask 077
+    set -o noclobber
+    if ! printf 'run|%s\n' "${RUN_ID}" >"${RECEIPT_FILE}"; then
+        set +o noclobber
+        umask "${old_umask}"
+        fail "create ownership receipt ${RECEIPT_FILE}"
+        return 1
+    fi
+    set +o noclobber
+    umask "${old_umask}"
+    if ! chmod 0600 -- "${RECEIPT_FILE}" || ! validate_receipt_file; then
+        unlink -- "${RECEIPT_FILE}" 2>/dev/null || true
+        return 1
+    fi
+}
+
+append_receipt() {
+    validate_receipt_file || return 1
+    printf '%s|%s|%s\n' "$1" "$2" "$3" >>"${RECEIPT_FILE}"
+}
+
+owned_container_id() {
+    local cname="$1" details container_id owner run
+
+    details="$("${PODMAN[@]}" inspect --type container \
+        --format '{{.ID}}|{{ index .Config.Labels "io.gobfd.interop-clab.owner" }}|{{ index .Config.Labels "io.gobfd.interop-clab.run" }}' \
+        "${cname}")" || return 1
+    IFS='|' read -r container_id owner run <<<"${details}"
+    if [[ -z "${container_id}" || "${owner}" != "${OWNER_VALUE}" || "${run}" != "${RUN_ID}" ]]; then
+        fail "container ${cname} is not owned by run ${RUN_ID}"
+        return 1
+    fi
+    printf '%s\n' "${container_id}"
+}
+
+record_owned_container() {
+    local cname="$1" container_id
+    container_id="$(owned_container_id "${cname}")" || return 1
+    append_receipt container "${container_id}" "${cname}"
+}
+
+remove_owned_container() {
+    local cname="$1" container_id
+    container_id="$(owned_container_id "${cname}")" || return 1
+    "${PODMAN[@]}" rm -f -- "${container_id}" >/dev/null
+}
+
+record_veth() {
+    local link_name="$1" ifindex
+    ifindex="$(ip -o link show dev "${link_name}" | cut -d: -f1 | tr -d ' ')" || return 1
+    [[ "${ifindex}" =~ ^[0-9]+$ ]] || return 1
+    append_receipt veth "${ifindex}" "${link_name}"
+}
+
+cleanup_owned() {
+    local kind value name exists_status current_ifindex labelled_ids status=0
+    local -a container_ids=()
+    local -A recorded_containers=()
+    local -A recorded_veth=()
+
+    load_receipt || return 1
+    while IFS='|' read -r kind value name; do
+        case "${kind}" in
+            container)
+                [[ "${value}" =~ ^[0-9a-f]{64}$ && -n "${name}" ]] || return 1
+                recorded_containers["${value}"]=1
+                ;;
+            veth)
+                [[ "${value}" =~ ^[0-9]+$ ]] || return 1
+                is_expected_veth "${name}" || return 1
+                recorded_veth["${name}:${value}"]=1
+                ;;
+            run)
+                [[ "${value}" == "${RUN_ID}" && -z "${name}" ]] || return 1
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    done <"${RECEIPT_FILE}"
+
+    labelled_ids="$(interop_query_labelled_container_ids "${RUN_LABEL}" "${RUN_ID}")" || return 1
+    while IFS= read -r value; do
+        [[ -n "${value}" ]] || continue
+        [[ "${value}" =~ ^[0-9a-f]{64}$ ]] || return 1
+        recorded_containers["${value}"]=1
+    done <<<"${labelled_ids}"
+    for value in "${!recorded_containers[@]}"; do
+        exists_status=0
+        "${PODMAN[@]}" container exists "${value}" || exists_status=$?
+        if [[ "${exists_status}" -eq 0 ]]; then
+            container_ids+=("${value}")
+        elif [[ "${exists_status}" -ne 1 ]]; then
+            return 1
+        fi
+    done
+
+    interop_validate_container_snapshot \
+        "${RUN_LABEL}" "${RUN_ID}" "${container_ids[@]}" || return 1
+
+    for kind in "${!recorded_veth[@]}"; do
+        name="${kind%:*}"
+        value="${kind##*:}"
+        if ! ip link show dev "${name}" >/dev/null 2>&1; then
+            continue
+        fi
+        current_ifindex="$(ip -o link show dev "${name}" | cut -d: -f1 | tr -d ' ')" || return 1
+        if [[ "${current_ifindex}" == "${value}" ]]; then
+            ip link del "${name}" || status=1
+        fi
+    done
+    interop_remove_container_snapshot "${container_ids[@]}" || status=1
+    interop_verify_labelled_containers_absent "${RUN_LABEL}" "${RUN_ID}" || status=1
+    if [[ "${status}" -eq 0 ]]; then
+        unlink -- "${RECEIPT_FILE}" || status=1
+    fi
+    return "${status}"
+}
+
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
+finish() {
+    local status="$?"
+    trap - EXIT
+    if [[ "${MUTATION_STARTED}" == true && "${KEEP_TOPOLOGY}" != true ]]; then
+        cleanup_owned || status=1
+    fi
+    if [[ -n "${LOCK_FD}" ]]; then
+        interop_release_project_lock "${LOCK_FD}" || status=1
+    fi
+    exit "${status}"
+}
 
 # ---------------------------------------------------------------------------
 # Prerequisite checks
@@ -186,40 +463,6 @@ vendor_field() {
 }
 
 # ---------------------------------------------------------------------------
-# Cleanup
-# ---------------------------------------------------------------------------
-
-# Invoked indirectly by the EXIT trap below.
-# shellcheck disable=SC2329
-cleanup() {
-    info "cleaning up topology"
-
-    # Remove vendor containers.
-    for vdef in "${VENDOR_DEFS[@]}"; do
-        local cname
-        cname="$(vendor_field "${vdef}" 2)"
-        podman rm -f "${cname}" 2>/dev/null || true
-    done
-
-    # Remove GoBFD container.
-    podman rm -f "${GOBFD_CONTAINER}" 2>/dev/null || true
-
-    # Remove veth pairs (auto-removed when container is destroyed, but clean up orphans).
-    for vdef in "${VENDOR_DEFS[@]}"; do
-        local idx
-        idx="$(vendor_field "${vdef}" 4)"
-        ip link del "veth-eth${idx}" 2>/dev/null || true
-    done
-
-    # Remove network.
-    podman network rm "${PODMAN_NETWORK}" 2>/dev/null || true
-}
-
-if [ "${TEST_ONLY}" = false ]; then
-    trap cleanup EXIT
-fi
-
-# ---------------------------------------------------------------------------
 # Phase 1: Build GoBFD image
 # ---------------------------------------------------------------------------
 
@@ -235,16 +478,17 @@ build_gobfd_image() {
 # ---------------------------------------------------------------------------
 
 start_gobfd_container() {
-    podman rm -f "${GOBFD_CONTAINER}" 2>/dev/null || true
-
     info "starting GoBFD container: ${GOBFD_CONTAINER}"
     podman run -d \
         --name "${GOBFD_CONTAINER}" \
+        --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+        --label "${RUN_LABEL}=${RUN_ID}" \
         --cap-add NET_RAW \
         --cap-add NET_ADMIN \
         --user 0:0 \
         --entrypoint '["sleep", "infinity"]' \
         "${GOBFD_IMAGE}"
+    record_owned_container "${GOBFD_CONTAINER}"
 
     sleep 2
     if ! podman ps --format '{{.Names}}' | grep -q "${GOBFD_CONTAINER}"; then
@@ -272,7 +516,11 @@ create_veth_link() {
     local veth_a="veth-${gobfd_if}" veth_b="vpeer-${vendor_if}"
 
     # Create veth pair in the host namespace.
+    assert_link_available "${veth_a}"
+    assert_link_available "${veth_b}"
     ip link add "${veth_a}" type veth peer name "${veth_b}"
+    record_veth "${veth_a}"
+    record_veth "${veth_b}"
 
     # Move gobfd end into GoBFD container namespace.
     ip link set "${veth_a}" netns "${gobfd_pid}"
@@ -299,6 +547,8 @@ start_nokia_srl() {
     info "starting Nokia SR Linux: ${cname}"
     podman run -t -d \
         --name "${cname}" \
+        --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+        --label "${RUN_LABEL}=${RUN_ID}" \
         --cap-add NET_ADMIN \
         --cap-add SYS_ADMIN \
         --cap-add NET_RAW \
@@ -306,6 +556,7 @@ start_nokia_srl() {
         --user 0:0 \
         "${image}" \
         sudo bash /opt/srlinux/bin/sr_linux
+    record_owned_container "${cname}"
 }
 
 # start_arista_ceos starts Arista cEOS container with required environment variables.
@@ -318,6 +569,8 @@ start_arista_ceos() {
     info "starting Arista cEOS: ${cname}"
     podman run -d \
         --name "${cname}" \
+        --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+        --label "${RUN_LABEL}=${RUN_ID}" \
         --privileged \
         -e CEOS=1 \
         -e EOS_PLATFORM=ceoslab \
@@ -338,6 +591,7 @@ start_arista_ceos() {
         systemd.setenv=INTFTYPE=eth \
         systemd.setenv=MAPETH0=1 \
         systemd.setenv=MGMT_INTF=eth0
+    record_owned_container "${cname}"
 }
 
 # wait_arista_ceos waits for cEOS to fully initialize (up to 180s).
@@ -470,6 +724,8 @@ start_frr() {
     info "starting FRRouting: ${cname}"
     podman run -d \
         --name "${cname}" \
+        --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+        --label "${RUN_LABEL}=${RUN_ID}" \
         --cap-add NET_ADMIN \
         --cap-add NET_RAW \
         --cap-add SYS_ADMIN \
@@ -477,6 +733,7 @@ start_frr() {
         -v "${SCRIPT_DIR}/frr/daemons:/etc/frr/daemons:ro,z" \
         -v "${SCRIPT_DIR}/frr/frr.conf:/etc/frr/frr.conf:ro,z" \
         "${image}"
+    record_owned_container "${cname}"
 }
 
 # start_cisco_xrd starts Cisco XRd container.
@@ -501,9 +758,12 @@ start_cisco_xrd() {
 
     info "starting Cisco XRd Control Plane: ${cname}"
     podman run -d --name "${cname}" --privileged \
+        --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+        --label "${RUN_LABEL}=${RUN_ID}" \
         --pids-limit=-1 \
         -v "${SCRIPT_DIR}/cisco/xrd.cfg:/etc/xrd/startup.cfg:ro,z" \
         "${image}"
+    record_owned_container "${cname}"
 }
 
 # wait_cisco_xrd waits for XRd to fully initialize (up to 300s).
@@ -558,13 +818,20 @@ deploy_vendors() {
                 start_cisco_xrd "${cname}" "${image}" || true
                 ;;
             sonic)
-                podman run -d --name "${cname}" --privileged "${image}"
+                podman run -d --name "${cname}" --privileged \
+                    --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+                    --label "${RUN_LABEL}=${RUN_ID}" \
+                    "${image}"
+                record_owned_container "${cname}"
                 ;;
             vyos)
                 podman run -d --name "${cname}" --privileged \
+                    --label "${OWNER_LABEL}=${OWNER_VALUE}" \
+                    --label "${RUN_LABEL}=${RUN_ID}" \
                     -v /lib/modules:/lib/modules:ro \
                     -v "${SCRIPT_DIR}/vyos/config.boot:/opt/vyatta/etc/config/config.boot:ro,z" \
                     "${image}" /sbin/init
+                record_owned_container "${cname}"
                 ;;
             frr)
                 start_frr "${cname}" "${image}"
@@ -617,21 +884,21 @@ deploy_vendors() {
             nokia)
                 if ! configure_nokia_srl "${cname}"; then
                     fail "vendor ${name} configuration failed — skipping"
-                    podman rm -f "${cname}" 2>/dev/null || true
+                    remove_owned_container "${cname}" || true
                     continue
                 fi
                 ;;
             arista)
                 if ! wait_arista_ceos "${cname}"; then
                     fail "vendor ${name} did not initialize — skipping"
-                    podman rm -f "${cname}" 2>/dev/null || true
+                    remove_owned_container "${cname}" || true
                     continue
                 fi
                 ;;
             cisco)
                 if ! wait_cisco_xrd "${cname}"; then
                     fail "vendor ${name} did not initialize — skipping"
-                    podman rm -f "${cname}" 2>/dev/null || true
+                    remove_owned_container "${cname}" || true
                     continue
                 fi
                 ;;
@@ -1000,12 +1267,27 @@ echo "  Deferred: Cisco"
 echo "========================================="
 echo ""
 
-if [ "${TEST_ONLY}" = true ]; then
+check_prerequisites
+
+acquire_lab_lock
+trap finish EXIT
+
+if [[ "${DOWN_ONLY}" == true ]]; then
+    cleanup_owned
+    exit 0
+fi
+
+if [[ "${TEST_ONLY}" == true ]]; then
+    load_receipt
+    owned_container_id "${GOBFD_CONTAINER}" >/dev/null
+    KEEP_TOPOLOGY=true
     run_tests
     exit $?
 fi
 
-check_prerequisites
+assert_empty_lab
+create_receipt
+MUTATION_STARTED=true
 prepare_public_images
 show_vendor_images
 
@@ -1019,7 +1301,7 @@ wait_bfd_convergence
 if [ "${UP_ONLY}" = true ]; then
     info "topology deployed — use 'make interop-clab-test' to run tests"
     info "cleanup with: make interop-clab-down"
-    trap - EXIT
+    KEEP_TOPOLOGY=true
     exit 0
 fi
 

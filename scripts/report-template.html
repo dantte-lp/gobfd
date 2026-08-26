@@ -396,28 +396,28 @@
                      class="px-5 pb-5 text-sm text-bfd-muted space-y-4">
                     <div>
                         <h4 class="text-bfd-text font-medium mb-1">Goroutine-per-Session Model</h4>
-                        <p>GoBFD runs each BFD session in an isolated goroutine with a dedicated event loop.
-                           Incoming packets are delivered via buffered channels. This provides <strong class="text-bfd-text">complete session isolation</strong>:
-                           one session cannot block another, and BFD timers are not affected by CPU load from other protocols.</p>
-                        <p class="mt-1">C implementations (FRR, BIRD) run all BFD sessions in a single thread with a shared event loop.
-                           While faster per-packet, this means a CPU-intensive operation (e.g., BGP convergence) can delay BFD timer processing,
-                           potentially causing false session drops (<a href="https://github.com/FRRouting/frr/issues/9078" class="text-bfd-accent hover:underline" target="_blank">FRR Issue #9078</a>).</p>
+                        <p>GoBFD gives each BFD session a goroutine, buffered receive channel, and event loop.
+                           Sessions still share the Go scheduler, CPUs, memory, and process-wide runtime resources.
+                           Scheduler delay, CPU saturation, or channel saturation can therefore delay packet and timer processing.</p>
+                        <p class="mt-1">These microbenchmarks do not measure timer error, committed-packet latency,
+                           packet loss, or false-Down behavior under competing load. Those properties require a separate
+                           end-to-end qualification workload.</p>
                     </div>
                     <div>
-                        <h4 class="text-bfd-text font-medium mb-1">FullRxPath: Different Operations</h4>
-                        <p><strong class="text-bfd-text">Go FullRxPath</strong> (~50ns) = unmarshal + RWMutex lock + map lookup + channel send to session goroutine.
-                           <strong class="text-bfd-text">C FullRxPath</strong> (~5ns) = unmarshal + inline FSM call (no IPC, no locking).
-                           The ~10x gap is the cost of goroutine isolation, not codec inefficiency.</p>
-                        <p class="mt-1"><strong class="text-bfd-text">FullRxPathCodec</strong> (Go-only) measures only unmarshal + FSM &mdash; the fair comparison with C.
-                           Expected ratio: ~1.5-2x, which is typical for Go vs C on compute-bound operations.</p>
+                        <h4 class="text-bfd-text font-medium mb-1">Receive Stages Have Different Boundaries</h4>
+                        <p><strong class="text-bfd-text">RecvDecodeLookupEnqueue</strong> measures wire decode,
+                           discriminator lookup, and attempted buffered-channel enqueue. It ends before authentication,
+                           session-state mutation, FSM application, and timer reset.</p>
+                        <p class="mt-1"><strong class="text-bfd-text">RecvDecodeFSM</strong> measures wire decode,
+                           state-to-event mapping, and a stateless FSM-table transition. It excludes the session path and
+                           is not an end-to-end receive benchmark or a like-for-like C comparison.</p>
                     </div>
                     <div>
-                        <h4 class="text-bfd-text font-medium mb-1">SessionDemux: Channel Send vs Hashmap Lookup</h4>
-                        <p><strong class="text-bfd-text">Go Demux</strong> (~47ns) = RWMutex + map lookup + channel send.
-                           <strong class="text-bfd-text">C Demux</strong> (~1.4ns) = hashmap lookup only.
-                           ~70% of Go's cost is the channel send &mdash; which is the mechanism that enables goroutine isolation.</p>
-                        <p class="mt-1"><strong class="text-bfd-text">SessionLookup1000</strong> (Go-only) measures only RWMutex + map lookup &mdash; the fair comparison
-                           with C's hashmap lookup.</p>
+                        <h4 class="text-bfd-text font-medium mb-1">Demux and Lookup Are Separate Stages</h4>
+                        <p><strong class="text-bfd-text">ManagerDemux1000Sessions</strong> includes discriminator lookup
+                           and attempted channel delivery. <strong class="text-bfd-text">SessionLookup1000</strong> isolates
+                           the map lookup. Results with different boundaries must be reported separately; this report does
+                           not attribute their difference to a single mechanism.</p>
                     </div>
                     <div>
                         <h4 class="text-bfd-text font-medium mb-1">SessionCreate: Different Abstractions</h4>

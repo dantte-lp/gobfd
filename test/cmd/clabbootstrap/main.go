@@ -66,7 +66,6 @@ func parseOptions(projectRoot string, arguments []string, stderr io.Writer) (cla
 	flags.StringVar(&options.VyOSISO, "vyos-iso", "", "path to local VyOS ISO")
 	flags.StringVar(&options.VyOSVersion, "vyos-version", options.VyOSVersion, "VyOS rolling version for ISO fallback")
 	flags.StringVar(&options.Tags.Nokia, "nokia-tag", options.Tags.Nokia, "Nokia SR Linux tag")
-	flags.StringVar(&options.Tags.FRR, "frr-tag", options.Tags.FRR, "FRRouting tag")
 	flags.StringVar(&options.Tags.Sonic, "sonic-tag", options.Tags.Sonic, "SONiC-VS tag")
 	flags.StringVar(&options.Tags.VyOS, "vyos-tag", options.Tags.VyOS, "public VyOS image tag")
 	flags.BoolVar(&options.SkipBuild, "skip-build", false, "skip GoBFD image build")

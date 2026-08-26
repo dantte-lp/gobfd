@@ -105,6 +105,13 @@
 
 ### Исправлено
 
+- Follow-up независимого ревью v0.6.2 защищает lifecycle вендорной
+  Containerlab-лаборатории lock, run labels и receipts с exact ID; создаёт
+  evidence core/BGP в приватных уникальных каталогах; читает digest-pinned
+  образ FRR из tracked topology; требует все переименованные benchmark stages
+  на обеих сторонах PR; удаляет неподтверждённые заявления об изоляции
+  scheduler и отсутствии пауз GC; сохраняет авторитетный RFC support status
+  только в compliance matrix.
 - На metrics и ConnectRPC servers ограничено количество повторяющихся HTTP
   header values; parser-level test проверяет ответ HTTP 431 на 129-е значение.
 - Vulnerability allowlist теперь fail closed проверяет scanner, package и

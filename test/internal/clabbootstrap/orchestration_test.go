@@ -3,6 +3,7 @@ package clabbootstrap
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,7 +31,7 @@ func (runner *recordingRunner) Run(_ context.Context, command Command) (Result, 
 func TestRunKeepsOwnedPhasesInGoAndVendorGlueNarrow(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(string(filepath.Separator), "repo")
+	root := bootstrapTestRoot(t)
 	options := DefaultOptions(root)
 	options.Archives = VendorArchives{
 		Arista: "/images/ceos.tar",
@@ -83,11 +84,12 @@ func TestRunKeepsOwnedPhasesInGoAndVendorGlueNarrow(t *testing.T) {
 func TestRunAggregatesPhaseFailureAndSkipsDeploy(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(string(filepath.Separator), "repo")
+	root := bootstrapTestRoot(t)
 	options := DefaultOptions(root)
 	options.Deploy = true
 	options.Jobs = 1
-	failingReference := "quay.io/frrouting/frr:10.7.0"
+	failingReference := "quay.io/frrouting/frr:10.7.0@sha256:" +
+		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
 	runner := &recordingRunner{failPull: failingReference}
 
 	err := Run(t.Context(), options, runner)
@@ -103,4 +105,20 @@ func TestRunAggregatesPhaseFailureAndSkipsDeploy(t *testing.T) {
 			t.Fatalf("deploy ran after phase failure: %q", command.Arguments)
 		}
 	}
+}
+
+func bootstrapTestRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	topologyDir := filepath.Join(root, "test", "interop-clab")
+	if err := os.MkdirAll(topologyDir, 0o700); err != nil {
+		t.Fatalf("create topology directory: %v", err)
+	}
+	topology := []byte("topology:\n  nodes:\n    frr:\n      image: " +
+		"quay.io/frrouting/frr:10.7.0@sha256:" +
+		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68\n")
+	if err := os.WriteFile(filepath.Join(topologyDir, "gobfd-vendors.clab.yml"), topology, 0o600); err != nil {
+		t.Fatalf("write topology fixture: %v", err)
+	}
+	return root
 }

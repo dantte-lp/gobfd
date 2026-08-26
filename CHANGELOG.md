@@ -106,6 +106,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Independent v0.6.2 review follow-ups now guard the vendor Containerlab
+  lifecycle with a lock, run labels, and exact-ID receipts; create core and
+  BGP evidence in private unique directories; read the digest-pinned FRR image
+  from the tracked topology; require all renamed benchmark stages on both PR
+  sides; remove unsupported scheduler-isolation and GC-pause claims; and keep
+  RFC support status authoritative in the compliance matrix.
 - Bound repeated HTTP header values on both the metrics and ConnectRPC servers
   and verify the parser rejects the 129th value with HTTP 431.
 - Make vulnerability allowlist matching fail closed on scanner, package, and

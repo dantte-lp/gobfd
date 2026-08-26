@@ -104,7 +104,9 @@ Marshal, unmarshal, and round-trip (marshal + unmarshal) of a 24-byte BFD Contro
 2. **RFC validation depth**: Go's unmarshal performs 7 field validations per RFC 5880 (version, diagnostic, length, detect multiplier range, discriminator non-zero, interval sanity, state enum). FRR's `bfd_pkt_get()` validates 3 fields.
 3. **Function call overhead**: Go's calling convention passes arguments on the stack (until Go 1.17 register ABI, now register-based but still includes frame pointer setup). C with `-O2` inlines the entire codec.
 
-At 5.96 ns/op, GoBFD can marshal **167 million packets per second** on a single core. BFD at 1,000 sessions with 100ms intervals requires 10,000 packets/sec -- 16,700x headroom.
+The 5.96 ns/op sample measures only the marshal benchmark body. It must not be
+extrapolated into production packets per second, supported session scale, or
+headroom.
 
 #### 3.2 FSM Transitions
 
@@ -135,7 +137,8 @@ Pure arithmetic operations for BFD timer negotiation and jitter.
 
 **Analysis**: Sub-nanosecond arithmetic at parity with C. The `DetectionTimeCalc` 2.4x ratio is explained by `atomic.LoadUint32` in Go's implementation -- the hot-path variant reads from a local variable and closes to 0.69 ns (2.2x FRR). Jitter calculation includes PRNG (`math/rand`) which is slightly slower than C's `rand()` due to Go's thread-safe FastRand.
 
-At 0.74 ns/op, detection time can be recalculated **1.35 billion times per second**. This is called once per parameter change, not per packet.
+The 0.74 ns/op sample is a component cost, not throughput or capacity evidence.
+The operation runs on parameter change rather than on every packet.
 
 #### 3.4 Receive and Transmit Stages
 
@@ -251,13 +254,13 @@ GoBFD uses a **goroutine-per-session** architecture:
 ```mermaid
 graph TB
     subgraph "GoBFD: Goroutine-per-Session Model"
-        SCHED["Go Scheduler<br/>(preemptive, ~10ms quantum)"]
+        SCHED["Shared Go scheduler"]
 
         subgraph "Goroutines (M:N mapped to OS threads)"
             RX["RX Dispatcher<br/>goroutine"]
-            S1["Session 1<br/>goroutine + OS thread"]
-            S2["Session 2<br/>goroutine + OS thread"]
-            SN["Session N<br/>goroutine + OS thread"]
+            S1["Session 1<br/>goroutine"]
+            S2["Session 2<br/>goroutine"]
+            SN["Session N<br/>goroutine"]
             API["gRPC API<br/>goroutine"]
             BGP2["GoBGP Client<br/>goroutine"]
         end
@@ -269,10 +272,10 @@ graph TB
         RX --> CH1 --> S1
         RX --> CH2 --> S2
         RX --> CHN --> SN
-        SCHED -.->|"preempts every ~10ms"| RX
-        SCHED -.->|"preempts every ~10ms"| S1
-        SCHED -.->|"preempts every ~10ms"| S2
-        SCHED -.->|"preempts every ~10ms"| SN
+        SCHED -.->|"schedules"| RX
+        SCHED -.->|"schedules"| S1
+        SCHED -.->|"schedules"| S2
+        SCHED -.->|"schedules"| SN
     end
 
     style SCHED fill:#1a73e8,color:#fff
@@ -281,12 +284,14 @@ graph TB
     style SN fill:#34a853,color:#fff
 ```
 
-Each BFD session runs in a dedicated goroutine with `runtime.LockOSThread()`. This provides:
-
-1. **Preemptive scheduling**: Go's runtime preempts goroutines every ~10ms via asynchronous preemption (since Go 1.14). No single operation can starve others.
-2. **Channel isolation**: Packets are delivered via buffered channels. The RX dispatcher goroutine writes to the channel; the session goroutine reads from it. The sender cannot block the receiver's timer processing.
-3. **OS thread pinning**: `runtime.LockOSThread()` maps each session goroutine to a dedicated OS thread, ensuring the kernel scheduler provides CPU time slices even under full system load.
-4. **Independent timers**: Each session goroutine manages its own `time.Timer`. Timer firing is guaranteed by the Go runtime's timer heap, not by an event loop's willingness to process timer events.
+Each BFD session owns its state in a goroutine, receives packets through a
+buffered channel, and currently calls `runtime.LockOSThread()`. The ownership
+boundary avoids concurrent state mutation, but it does not reserve a CPU,
+provide affinity, or establish real-time scheduling. Sessions share the Go
+scheduler, CPUs, memory, and process-wide runtime. Channel saturation and
+scheduler or kernel delay can therefore postpone packet and timer processing.
+A `time.Timer` makes work eligible to run after its deadline; it does not
+guarantee when the session goroutine will execute it.
 
 See [01-architecture.md](./01-architecture.md) for the full goroutine model and packet flow diagrams.
 
@@ -296,52 +301,23 @@ See [01-architecture.md](./01-architecture.md) for the full goroutine model and 
 
 #### 5.1 What Happens When Host CPU is at 100%
 
-When the host machine is fully loaded (all cores at 100%):
-
-**GoBFD behavior**:
-- Go runtime preempts goroutines every ~10ms via asynchronous preemption signals (`SIGURG`)
-- Session goroutines are pinned to OS threads via `runtime.LockOSThread()` -- the kernel scheduler guarantees time slices to each thread
-- BFD timers fire within 1-10ms of their scheduled time, even under full CPU load
-- Channel-based packet delivery ensures the RX path does not block the session's timer processing
-- Worst case: a session's TX packet is delayed by up to 10ms (one scheduler quantum) -- well within the 25% jitter tolerance mandated by RFC 5880 section 6.8.7
-
-**FRR behavior**:
-- Single-threaded event loop cannot preempt long-running operations
-- BGP route processing (890K routes) blocks the event loop for 1-2 seconds
-- BFD timers cannot fire during this period
-- Result: BFD sessions flap, triggering BGP re-convergence (FRR Issue #9078)
-
-| Scenario | FRR Timer Delay | GoBFD Timer Delay |
-|----------|----------------:|------------------:|
-| Idle system | < 1ms | < 1ms |
-| Moderate CPU load (50%) | 1-50ms | 1-5ms |
-| Heavy BGP processing | 1-2 seconds | 1-10ms |
-| Full CPU saturation (100%) | Unbounded | ≤ 10ms |
+The component benchmarks in this document do not measure behavior at host CPU
+saturation. GoBFD's goroutines remain subject to scheduler, kernel, and CPU
+contention; `runtime.LockOSThread()` does not bound scheduling delay. Buffered
+channels decouple ownership, but a full channel drops the attempted delivery
+instead of proving that the session processed it. Timer error, committed-packet
+latency, loss, and false-Down behavior require a context-bounded end-to-end load
+test on the deployment kernel and hardware. No 1-10 ms or full-load guarantee
+is established here.
 
 #### 5.2 GOMAXPROCS Tuning
 
 `GOMAXPROCS` controls how many OS threads the Go scheduler uses for goroutines. Default: `runtime.NumCPU()` (all available cores).
 
-**Recommendations for BFD daemons**:
-
-| Machine Cores | GOMAXPROCS | Rationale |
-|--------------:|-----------:|-----------|
-| 2 | 2 | Use all cores (BFD is latency-sensitive) |
-| 4 | 3-4 | Reserve 1 core for kernel network stack |
-| 8 | 4-6 | BFD doesn't need all cores; leave room for BGP, monitoring |
-| 16+ | 4-8 | Diminishing returns beyond 8 for BFD workloads |
-
-**CPU affinity for cache locality**:
-
-```bash
-# Pin GoBFD to cores 0-3
-numactl --physcpubind=0-3 ./gobfd --config /etc/gobfd/config.yaml
-
-# Or via systemd
-# CPUAffinity=0-3
-```
-
-Pinning to a specific NUMA node avoids cross-socket memory access latency (~100ns per cross-socket hop).
+Do not derive a `GOMAXPROCS` or CPU-affinity value from these microbenchmarks.
+The default and any override must be qualified with the service CPU quota,
+kernel network work, co-located processes, session count, and overload tests.
+Affinity is an operational isolation choice, not a timer-latency guarantee.
 
 #### 5.3 GC Impact and Measured Allocation Boundaries
 
@@ -362,33 +338,31 @@ These rows are not a repository-wide allocation assertion. Authenticated
 unmarshal and compatibility wrappers have documented allocations, and the
 receive benchmark does not include session processing.
 
-**Production GC configuration**:
+**Deployment-qualified GC configuration**:
 
 ```bash
-# Disable periodic GC, use only memory-pressure-triggered GC
-export GOGC=off
-export GOMEMLIMIT=256MiB
-
-# GC runs only when:
-# 1. Memory usage approaches 256MB (config changes, session churn)
-# 2. Never during steady-state packet processing (0 allocs = no GC pressure)
+# Example only; replace with a deployment-qualified value.
+export GOMEMLIMIT=512MiB
+# Keep the default GOGC unless deployment measurements justify an override.
 ```
 
-With this configuration, GC runs are limited to config reload events and session creation/destruction. During normal BFD operation (packet TX/RX, timer processing, FSM transitions), no GC cycles occur.
+In Go 1.27, `GOMEMLIMIT` is a soft limit for Go-managed memory. The runtime may
+increase GC frequency to respect it even with `GOGC=off`, and a value below the
+working set can cause nearly continuous collection. Zero allocations in a
+selected benchmark body do not prove that the process performs no allocations
+or GC during steady state. Qualify RSS, the service memory limit, GC frequency,
+pause time, packet loss, and timer error together.
 
-**Comparison with C**: C has no garbage collector -- there is zero GC-related latency by definition. However, C also has no memory safety: buffer overflows, use-after-free, and double-free bugs are entire vulnerability classes that cannot exist in Go.
+**Comparison with C**: C has no garbage collector. These component benchmarks
+do not establish GoBFD's process-level GC latency or its effect on BFD.
 
 #### 5.4 Timer Precision Targets
 
-| Interval | FRR Achievable | GoBFD Achievable | Notes |
-|---------:|:--------------:|:----------------:|-------|
-| 1000ms | Yes | Yes | Standard, trivial for all implementations |
-| 300ms | Yes (default) | Yes | Industry standard, safe for software BFD |
-| 100ms | Risky | Yes | Achievable with GOMAXPROCS tuning and CPU affinity |
-| 50ms | No (software) | Possible | Requires RT kernel (`PREEMPT_RT`), CPU isolation |
-| 10ms | No (software) | Experimental | Needs `isolcpus`, `nohz_full`, SCHED_FIFO |
-
-GoBFD's target is **100ms intervals** with reliable detection on commodity hardware. This provides 3x faster failover detection than FRR's default 300ms, without requiring hardware BFD offload.
+The arithmetic and component benchmarks do not establish a supported BFD
+interval or timer-error bound. Each proposed interval must pass the release
+interop, overload, loss, and soak gates on the target kernel and hardware.
+`GOMAXPROCS`, affinity, or a real-time kernel may be qualification inputs, but
+none alone proves a production interval.
 
 See [13-competitive-analysis.md](./13-competitive-analysis.md) for the full production timer targets table.
 
@@ -403,8 +377,8 @@ Go provides compile-time and runtime guarantees that eliminate entire classes of
 | Vulnerability Class | Possible in C | Possible in Go | Cost in Go |
 |---------------------|:-------------:|:--------------:|:----------:|
 | Buffer overflow | Yes | No | ~1-2 ns/bounds check |
-| Use-after-free | Yes | No | GC overhead (zero in hot path) |
-| Double-free | Yes | No | GC overhead (zero in hot path) |
+| Use-after-free | Yes | No | Runtime and GC overhead |
+| Double-free | Yes | No | Runtime and GC overhead |
 | Null pointer deref | Yes | Panic (controlled crash) | Zero (nil check is free on x86) |
 | Integer overflow | Yes (undefined behavior) | Defined behavior (wraps) | Zero |
 | Format string attack | Yes | No (type-safe formatting) | Zero |
@@ -415,34 +389,20 @@ For a network daemon processing untrusted packets from remote peers, this is a f
 
 #### 6.2 Concurrency Isolation
 
-The single most impactful advantage of Go for BFD:
-
-| Problem | FRR | GoBFD |
-|---------|-----|-------|
-| BGP processes 890K routes | BFD starves for 1-2s, sessions flap (Issue #9078) | BFD sessions unaffected (separate goroutines) |
-| Config reload with 1000 sessions | Event loop blocked during reconciliation | Session goroutines continue TX/RX during reload |
-| gRPC API request during BFD processing | Must wait for current event loop iteration | API handler runs in separate goroutine |
-| Prometheus scrape during BFD processing | Must wait for event loop | Metrics handler runs in separate goroutine |
-
-The **cost** of this isolation is ~35 ns per received packet (RWMutex + channel send + goroutine wake). This buys complete immunity to the timer starvation problem that is FRR's most significant production issue for aggressive BFD timers.
+Separate session, API, and metrics goroutines provide ownership boundaries and
+permit concurrent execution when scheduler and CPU capacity are available.
+They do not isolate CPU or runtime resources, and API, metrics, configuration,
+or other process work can still contend with session processing. Historical
+component timings attribute about 35 ns to lookup and attempted channel
+delivery, but that sample does not prove timer-starvation immunity.
 
 #### 6.3 RFC Coverage
 
-| RFC | Title | GoBFD | FRR | BIRD3 |
-|-----|-------|:-----:|:---:|:-----:|
-| RFC 5880 | BFD Base Protocol | Yes | Yes | Yes |
-| RFC 5881 | BFD IPv4/IPv6 Single-Hop | Yes | Yes | Yes |
-| RFC 5882 | Generic Application of BFD | Yes | Yes | Yes |
-| RFC 5883 | BFD Multihop Paths | Yes | Partial | No |
-| RFC 7419 | Common Interval Support | Yes | No | No |
-| RFC 9384 | BGP Cease for BFD | Yes | No | No |
-| RFC 9468 | Unsolicited BFD | Yes | No | No |
-| RFC 9747 | Unaffiliated BFD Echo | Yes | Yes | No |
-| RFC 7130 | Micro-BFD for LAG | Yes | No | No |
-| RFC 8971 | BFD for VXLAN | Yes | No | No |
-| RFC 9521 | BFD for Geneve | Yes | No | No |
-| RFC 9764 | BFD Large Packets | Yes | No | No |
-| **Total** | | **12** | **3-4** | **3** |
+This historical performance document is not an RFC support contract. The
+section-by-section [RFC compliance matrix](./08-rfc-compliance.md) is the only
+authoritative support status and records the remaining protocol gaps and
+release gates. Component benchmarks do not promote an RFC from partial or
+experimental to supported.
 
 GoBFD implements 12 RFCs compared to FRR's 3-4 base RFCs. Unique to GoBFD: Echo mode (RFC 9747), VXLAN BFD (RFC 8971), Geneve BFD (RFC 9521), Micro-BFD (RFC 7130), Large Packets (RFC 9764), Unsolicited BFD (RFC 9468).
 
@@ -513,16 +473,12 @@ Go's runtime initialization adds ~10ms to startup. For a long-running daemon tha
 
 ### Production Recommendations
 
-**Environment variables**:
+**Environment variables** (examples only):
 
 ```bash
-# Disable periodic GC (only trigger on memory pressure)
-export GOGC=off
-
-# Set memory limit (prevents unbounded growth)
-export GOMEMLIMIT=256MiB
-
-# Limit Go scheduler threads (leave cores for kernel)
+# Replace with a deployment-qualified value and retain the default GOGC.
+export GOMEMLIMIT=512MiB
+# Set only after CPU-quota and overload qualification.
 export GOMAXPROCS=4
 ```
 
@@ -539,9 +495,8 @@ Type=notify
 ExecStart=/usr/local/bin/gobfd --config /etc/gobfd/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 
-# Performance tuning
-Environment=GOGC=off
-Environment=GOMEMLIMIT=256MiB
+# Examples only; qualify for this service and host.
+Environment=GOMEMLIMIT=512MiB
 Environment=GOMAXPROCS=4
 CPUAffinity=0-3
 
@@ -585,18 +540,18 @@ sysctl -w net.core.wmem_max=16777216
 | Aspect | GoBFD | FRR bfdd | BIRD3 |
 |--------|-------|----------|-------|
 | **Architecture** | Goroutine-per-session | Single-threaded event loop | Single-threaded event loop |
-| **CPU starvation resilience** | ≤ 10ms (OS scheduler quantum) | 1-2 seconds (Issue #9078) | Similar to FRR |
-| **Timer precision** | 100ms reliable, 50ms possible | 300ms standard | 300ms+ |
-| **Max sessions tested** | 1,000+ (benchmarks) | 64 (SONiC validated) | ~10 (estimated) |
+| **CPU starvation resilience** | Not qualified; shared scheduler and CPUs | Historical external incident evidence | Not qualified here |
+| **Timer precision** | Requires deployment E2E qualification | Not qualified here | Not qualified here |
+| **Session scale evidence** | 1,000-session construction benchmark only | Not qualified here | Not qualified here |
 | **Codec overhead vs C** | 1.2-1.4x | baseline | baseline |
 | **FSM overhead vs C** | 0.6-2.3x (at parity) | baseline | baseline |
-| **Full RX path vs C** | 2.9x (compute), 10.5x (with isolation) | baseline | baseline |
+| **Receive stages vs C** | Different boundaries; not comparable end to end | baseline | baseline |
 | **Demux vs C** | 13.3x (lookup), 38.9x (with channel) | baseline | baseline |
 | **Memory per session** | ~3 KB | ~300 B | ~300 B |
 | **Memory safety** | Yes (bounds checks, GC) | No | No |
-| **RFC coverage** | 12 RFCs | 3-4 RFCs | 3 RFCs |
-| **Zero-alloc hot path** | Yes (0 B/op, 0 allocs/op) | N/A (C, no GC) | N/A (C, no GC) |
-| **GC impact on BFD** | Zero (0 allocs in hot path) | N/A | N/A |
+| **RFC coverage** | See the authoritative RFC matrix | Not assessed here | Not assessed here |
+| **Allocation evidence** | Selected benchmark bodies report 0 allocs/op | N/A (C, no GC) | N/A (C, no GC) |
+| **GC impact on BFD** | Not established by component benchmarks | N/A | N/A |
 | **Config hot reload** | SIGHUP (no session drops) | Restart required | Restart required |
 | **API** | ConnectRPC (gRPC + HTTP) | vtysh CLI | CLI |
 | **Prometheus metrics** | Native | Via SNMP | No |

@@ -257,7 +257,7 @@ jobs:
       pull-requests: write
     env:
       BENCH_REGEX: >-
-        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
+        ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
     container:
       image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
@@ -289,6 +289,24 @@ jobs:
               -timeout=120s ./internal/bfd/ ./internal/netio/
           ) > old.txt
 
+      - name: Normalize renamed benchmarks and validate inputs
+        run: |
+          for benchmark_file in old.txt new.txt; do
+            sed -E -i \
+              -e 's/^BenchmarkFullRecvPathCodec([/-])/BenchmarkRecvDecodeFSM\1/' \
+              -e 's/^BenchmarkFullRecvPath([/-])/BenchmarkRecvDecodeLookupEnqueue\1/' \
+              -e 's/^BenchmarkFullTxPath([/-])/BenchmarkTxMarshalJitter\1/' \
+              "$benchmark_file"
+            for benchmark_name in \
+              RecvDecodeLookupEnqueue RecvDecodeFSM TxMarshalJitter
+            do
+              if ! grep -Eq "^Benchmark${benchmark_name}(-[0-9]+)?[[:space:]]" "$benchmark_file"; then
+                echo "mandatory benchmark ${benchmark_name} is absent from ${benchmark_file}" >&2
+                exit 1
+              fi
+            done
+          done
+
       - name: Compare benchmarks
         run: |
           echo "## Benchmark comparison" > bench-report.md
@@ -316,8 +334,8 @@ jobs:
             2> bench-regression/benchstat-notes.txt
           awk -F, '
             BEGIN {
-              critical = "^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|FullRecvPath|FullRecvPathCodec|"
-              critical = critical "FullTxPath|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|"
+              critical = "^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|RecvDecodeLookupEnqueue|RecvDecodeFSM|"
+              critical = critical "TxMarshalJitter|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|"
               critical = critical "ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|"
               critical = critical "VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-"
             }

@@ -40,7 +40,7 @@ and test infrastructure without adding BFD protocol behavior.
 | Debian trixie / Oracle Linux 10 image boundary | Done |
 | RFC and benchmark public-claim correction | Done |
 | Roadmap, Quick Start, architecture, and EN/RU parity | Done |
-| Independent review of all v0.6.2 slices | In progress |
+| Independent review of all v0.6.2 slices and P0/P1 remediation | Done |
 | Register the isolated `tools/go.mod` with Dependabot | Done |
 
 The release remains untagged until the qualification milestone
