@@ -191,8 +191,11 @@ release is a draft:
    disabled.
 2. Download the already generated release-report artifact and upload it to the
    same draft without `--clobber`.
-3. Query the draft through `gh api` and verify its tag, target commit, notes,
-   expected asset names, checksums, SBOM/provenance, packages, and OCI results.
+3. Query the draft through `gh api` and verify its tag, target commit, exact
+   non-whitespace notes, exact asset names, checksums, SBOM/provenance,
+   packages, and OCI results. Require every declared GoReleaser artifact class
+   and exactly one runnable descriptor for each supported OCI platform while
+   excluding only explicit attestation descriptors.
 4. Publish the complete draft as the workflow's final GitHub mutation.
 
 Remove the current post-publication `gh release upload --clobber` and release

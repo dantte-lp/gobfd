@@ -199,10 +199,10 @@ release:
 
 Do not enable `use_existing_draft`, `replace_existing_draft`, or
 `replace_existing_artifacts`. Before the GoReleaser action, add a named
-`Refuse existing release, draft, or versioned OCI tag` step. It uses
-`gh release view` and fails if any release or draft already exists for
-`GITHUB_REF_NAME`; only the documented not-found result permits the release
-check to continue.
+`Refuse existing release, draft, or versioned OCI tag` step. Query
+`repository.release(tagName:)` through `gh api graphql` so both drafts and
+published releases are visible. Require a non-null repository and an explicit
+null release result; any GitHub, GraphQL, or JSON error is fatal.
 
 Then query every GHCR package-version page through:
 
@@ -225,8 +225,8 @@ instead of pretending a duplicate upload is idempotent.
 - [ ] **Step 4: Fail closed when changelog notes are absent**
 
 In `release.yml`, replace the fallback note generation with a non-zero exit.
-The tag must have an exact dated section in `CHANGELOG.md`; a generic link to
-`master` is not a release note.
+Require at least one non-whitespace character. The tag must have an exact dated
+section in `CHANGELOG.md`; a generic link to `master` is not a release note.
 
 - [ ] **Step 5: Build the exact asset manifest and OCI digest receipt**
 
@@ -238,8 +238,9 @@ Peel the remote tag through the GitHub Git API and compare it with
 
 Build `expected-release-assets.txt` from `dist/artifacts.json` by selecting the
 GoReleaser artifact types `Archive`, `Linux Package`, `Checksum`, and `SBOM`,
-then append the exact report archive and OCI digest receipt names. Normalize it
-with `LC_ALL=C sort -u`.
+first requiring that every one of those four classes is present. Then append
+the exact report archive and OCI digest receipt names. Normalize it with
+`LC_ALL=C sort -u`.
 
 Use this fail-closed outline:
 
@@ -271,9 +272,12 @@ LC_ALL=C sort -u -o "$RUNNER_TEMP/expected-release-assets.txt" \
 For each of
 `ghcr.io/dantte-lp/gobfd:${GITHUB_REF_NAME#v}-debian-trixie` and
 `ghcr.io/dantte-lp/gobfd:${GITHUB_REF_NAME#v}-oraclelinux10`, save the raw
-manifest, require its sorted platform set to equal exactly
-`linux/amd64,linux/arm64`, and record `sha256sum` of the raw bytes with the full
-image reference. Require exactly two receipt lines.
+manifest, exclude only descriptors explicitly annotated as
+`attestation-manifest`, and require the remaining sorted descriptor list to
+equal exactly one `linux/amd64` and one `linux/arm64` line. Do not deduplicate
+the list because duplicate runnable descriptors must fail. Record `sha256sum`
+of the raw bytes with the full image reference and require exactly two receipt
+lines.
 
 - [ ] **Step 6: Attach, verify the complete draft, and publish last**
 
@@ -291,8 +295,10 @@ receives `--release-notes=release-notes.md` while the release is a draft.
 Sort the names returned by `gh release view ... --json assets` and require an
 exact `diff` against `expected-release-assets.txt`, not a subset. The named
 workflow step must be `Verify exact release draft`. It additionally requires a
-non-empty body, the exact tag, the already verified peeled commit, at least one
-SBOM, and both recorded multi-platform image digests.
+non-whitespace body exactly equal to `release-notes.md` after shell
+trailing-newline normalization, the exact tag, the already verified peeled
+commit, every required artifact class, and both recorded multi-platform image
+digests.
 
 The final outline is:
 
