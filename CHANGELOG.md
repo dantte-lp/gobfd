@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Release notes now include every maintenance entry since the previous
+  published stable release in the same line, plus tag-bound changelog and
+  comparison links. Release closeout also requires the accepted stable history
+  and bilingual changelogs to reach `master` before completion.
+
 ## [0.6.4] - 2026-08-27
 
 ### Fixed
@@ -18,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without moving or reusing that tag.
 
 ## [0.6.3] - 2026-08-27
+
+> Release status: the immutable tag, complete draft, assets, and versioned OCI
+> images were created, but the draft remained unpublished because its release
+> notes were empty. The failed cut is preserved and superseded by the published
+> `v0.6.4` release.
 
 ### Fixed
 
@@ -32,8 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.2] - 2026-08-27
 
 > Release status: the immutable tag was created, but workflow run `33083358370`
-> failed before draft or asset creation. The tag is preserved and superseded by
-> the `v0.6.3` recovery release.
+> failed before draft or asset creation. The failed cut is preserved; the
+> subsequent `v0.6.3` recovery cut also remained unpublished, and both are
+> superseded by the published `v0.6.4` release.
 
 ### Added
 

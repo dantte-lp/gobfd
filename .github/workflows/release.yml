@@ -310,31 +310,87 @@ jobs:
           done
 
       - name: Extract release notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
 
-          if ! awk -v ver="$VERSION" '
-            BEGIN { prefix = "## [" ver "] - " }
-            /^## \[/ {
-              if (found) exit
-              date = substr($0, length(prefix) + 1)
-              if (index($0, prefix) == 1 && length(date) == 10 &&
-                  date ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
-                found = 1
-              }
-              next
+          release_line_prefix="v${VERSION%.*}."
+          previous_release_tag="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --slurp | jq -er \
+              --arg prefix "$release_line_prefix" \
+              --arg current "$GITHUB_REF_NAME" '
+              flatten
+              | map(select(.draft == false and .prerelease == false and
+                  (.tag_name | type == "string" and
+                    . != $current))
+                | . + {semver: (
+                    .tag_name
+                    | capture(
+                        "^v(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)$"
+                      )
+                    | [.major, .minor, .patch]
+                    | map(tonumber)
+                  )}
+                )
+              | . as $published
+              | (($published
+                    | map(select(.tag_name | startswith($prefix)))
+                    | sort_by(.semver)
+                    | last)
+                  // ($published | sort_by(.semver) | last))
+              | .tag_name
+              | select(type == "string" and length > 0)
+            ')"
+          if [[ ! "$previous_release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "invalid previous published release tag: $previous_release_tag" >&2
+            exit 1
+          fi
+          previous_version="${previous_release_tag#v}"
+
+          if ! awk -v current="$VERSION" -v previous="$previous_version" '
+            function dated_heading(line, version, prefix, date) {
+              prefix = "## [" version "] - "
+              if (index(line, prefix) != 1) return 0
+              date = substr(line, length(prefix) + 1)
+              return length(date) == 10 &&
+                date ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/
             }
-            /^\[.+\]:/ && found { exit }
+            dated_heading($0, current) { found = 1 }
+            found && dated_heading($0, previous) { stopped = 1; exit }
             found { print }
-            END { if (!found) exit 1 }
-          ' CHANGELOG.md >release-notes.md; then
-            echo "No exact dated CHANGELOG.md section for version $VERSION." >&2
+            END { if (!found || !stopped) exit 1 }
+          ' CHANGELOG.md >"$RUNNER_TEMP/release-changelog.md"; then
+            echo "CHANGELOG.md does not contain a complete $previous_release_tag..$GITHUB_REF_NAME release range." >&2
             exit 1
           fi
 
+          if ! grep -q '^### ' "$RUNNER_TEMP/release-changelog.md" ||
+            ! grep -q '^- ' "$RUNNER_TEMP/release-changelog.md"; then
+            echo "Release changelog range lacks categorized entries." >&2
+            exit 1
+          fi
+
+          repository_url="https://github.com/${GITHUB_REPOSITORY}"
+          full_changelog_url="${repository_url}/blob/${GITHUB_REF_NAME}/CHANGELOG.md"
+          comparison_url="${repository_url}/compare/${previous_release_tag}...${GITHUB_REF_NAME}"
+          {
+            echo "## GoBFD ${GITHUB_REF_NAME}"
+            echo
+            cat "$RUNNER_TEMP/release-changelog.md"
+            echo
+            printf '**Full changelog:** [CHANGELOG.md at %s](%s)\n' \
+              "$GITHUB_REF_NAME" "$full_changelog_url"
+            echo
+            printf '**Changes since %s:** [compare %s...%s](%s)\n' \
+              "$previous_release_tag" "$previous_release_tag" \
+              "$GITHUB_REF_NAME" "$comparison_url"
+          } >release-notes.md
+
           if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "Dated CHANGELOG.md section for version $VERSION is empty." >&2
+            echo "Release notes for $VERSION are empty." >&2
             exit 1
           fi
 

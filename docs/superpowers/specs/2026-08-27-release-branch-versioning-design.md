@@ -177,7 +177,11 @@ Features and GoBGP v4 migration work remain on `dev`.
 After a v0.6 fix is accepted, assess whether the defect exists on `master` or
 `dev`:
 
-- if present, forward-port it through a separate reviewed pull request;
+- after publication, deliver the accepted stable history and both changelogs
+  to `master` before release closeout because `master` advertises the latest
+  accepted stable state;
+- if present on `dev`, forward-port it through a separate reviewed pull
+  request;
 - if absent or structurally replaced, record that conclusion in the Beads
   issue and do not create a no-op port;
 - never merge future v1 work backward into `release/v0.6`.
@@ -194,6 +198,10 @@ silently fork untracked fixes from later lines.
   not create a new maintenance branch until that line is accepted for support.
 - `CHANGELOG.md` on `release/v0.6` compares its Unreleased section with the
   latest v0.6 tag and links version sections to exact tags.
+- GitHub Release notes include every maintenance section after the previous
+  published stable release in the same line, or the highest previous published
+  stable SemVer tag across lines for the first cut, and end with changelog and
+  compare links bound to the new immutable tag.
 - Published changelog history is never rewritten. Later corrections are new
   entries in a new patch release.
 
@@ -208,9 +216,12 @@ release is a draft:
    canonical stable annotated SemVer tag that points directly to both the
    checked-out commit and the exact `release/vMAJOR.MINOR` branch head, then
    fail if any release, draft, or exact versioned OCI tag already exists for the cut.
-   GoReleaser creates one new draft and uploads its artifacts and release
-   notes. Existing-draft reuse and artifact or draft replacement remain
-   disabled.
+   Release-note extraction identifies the highest previous published stable
+   SemVer tag in the same major/minor line, falling back across lines for the
+   first cut, includes every subsequent dated CHANGELOG section, and appends
+   tag-bound full-changelog and comparison links. GoReleaser creates one new
+   draft and uploads its artifacts and those release notes. Existing-draft
+   reuse and artifact or draft replacement remain disabled.
 2. Publish only immutable versioned OCI refs. Download the already generated
    release-report artifact, checksum it together with the OCI receipt, and
    upload that evidence to the same draft without `--clobber`.
@@ -265,8 +276,9 @@ The implementation is accepted only with evidence that:
 4. `git merge-base --is-ancestor` proves the preserved v0.6.2 and v0.6.3 tag
    commits and the v0.6.4 recovery tag commit belong to `release/v0.6` and to
    reviewed stable history.
-5. the release workflow extracts non-empty v0.6.4 recovery notes before the
-   recovery tag push.
+5. the release workflow extracts non-empty cumulative v0.6.4 maintenance notes
+   after published v0.6.1 and includes tag-bound changelog and comparison links
+   before the recovery tag push.
 6. bounded local Go race/build, vulnerability, Buf, documentation, workflow,
    and release-dry-run gates pass on the exact release commit.
 7. a release workflow contract check proves that no asset upload or release
@@ -274,6 +286,9 @@ The implementation is accepted only with evidence that:
 8. post-publication GitHub API and registry queries resolve v0.6.4 assets and
    images to the recovery tag and expected immutable digests, while v0.6.2 and
    v0.6.3 remain unchanged as failed cuts.
+9. the accepted stable history and both changelogs are present on `master`, and
+   applicable fixes are independently present on `dev`, before Beads release
+   tracking is closed.
 
 Go specification and gopls checks remain mandatory when Go source or build
 constraints change. This branch-policy slice does not invent a Go-language
@@ -318,3 +333,20 @@ when `changelog.disable` skips the changelog pipe. The draft was never
 published, mutable aliases were not promoted, and the immutable tag is not
 reused. The one-line changelog-pipe correction enters through
 `fix/v0.6-release-notes`; the next recovery release is `v0.6.4`.
+
+## v0.6.4 closeout correction
+
+The v0.6.4 workflow published the immutable tag, 12 verified assets, and the
+qualified OCI indexes successfully, but its body contained only the narrow
+v0.6.4 changelog section describing the release-pipe repair. Because v0.6.2 and
+v0.6.3 were unpublished failed cuts, that body omitted the actual maintenance
+changes delivered since published v0.6.1. The closeout also synchronized the
+release history to `dev` but not to `master`, leaving the default-branch EN/RU
+changelogs at v0.6.2.
+
+The correction keeps the immutable tag and assets unchanged. Release notes are
+editable under GitHub's immutable-release contract, so the v0.6.4 body is
+replaced with the cumulative v0.6.2-v0.6.4 sections plus changelog and compare
+links bound to v0.6.4. The accepted fix then reaches `release/v0.6`, `master`,
+and `dev`; release tracking remains open until those public states are read
+back and verified.

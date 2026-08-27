@@ -116,8 +116,9 @@ Branch roles remain explicit throughout release preparation:
 
 A maintenance patch starts from the applicable release branch on
 `fix/vMAJOR.MINOR-*` and returns through a reviewed pull request. After the fix
-is accepted, maintainers assess whether a separate reviewed forward-port to
-`master` or `dev` is required. Release preparation follows the applicable
+is accepted and published, its accepted stable history and both changelogs
+must reach `master` before release closeout. Maintainers separately assess the
+applicable forward-port to `dev`. Release preparation follows the applicable
 supported line.
 
 The release-branch ruleset must be active before each new matching release
@@ -177,7 +178,12 @@ v0.6.2 from `release/v0.6`:
 
 5. **GitHub Actions** uses draft-first publication:
    - Runs the full test suite.
-   - Extracts the release notes from CHANGELOG.md for version 0.6.2.
+   - Extracts every CHANGELOG.md maintenance section from version 0.6.2 back
+     to, but excluding, the previous published stable release in the same
+     line. The first cut in a new line falls back to the highest previous
+     published stable SemVer tag across lines.
+   - Adds changelog and comparison links bound to the immutable tag; a link to
+     mutable `master` is not a release note.
    - Builds binaries (linux/amd64, linux/arm64), .deb, .rpm packages.
    - Publishes Debian-based and Oracle Linux-based OCI images to
      `ghcr.io/dantte-lp/gobfd`.
@@ -185,6 +191,12 @@ v0.6.2 from `release/v0.6`:
    - Verifies the draft's tag, target commit, notes, assets, checksums,
      SBOM/provenance, packages, OCI manifests, and release report.
    - Publishes the complete draft as the workflow's final GitHub mutation.
+
+6. **Close out the release branches** only after the published tag, assets,
+   notes, and OCI evidence pass independent verification. Deliver the accepted
+   stable history and both changelogs to `master`, forward-port applicable
+   changes to `dev`, and verify all three remote branch heads before closing
+   release tracking.
 
 ### Semantic Versioning
 

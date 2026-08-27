@@ -1,7 +1,7 @@
 # GoBFD Roadmap
 
-![Current Release](https://img.shields.io/badge/Current-v0.6.1-1a73e8?style=for-the-badge)
-![Next Release](https://img.shields.io/badge/Next-v0.6.4-34a853?style=for-the-badge)
+![Current Release](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
+![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
 > Status projection from Beads, reconciled on 2026-08-27. Beads is the task
@@ -9,11 +9,13 @@
 > used as an independent checklist.
 
 The latest published GitHub release is
-[`v0.6.1`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1). The immutable
-`v0.6.2` and `v0.6.3` tags are unpublished failed cuts; the next maintenance
-publication is `v0.6.4`, followed by the additive `v1.0.0` production
-contract. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP
-v4 development continues on `dev`.
+[`v0.6.4`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.4). The immutable
+`v0.6.2` and `v0.6.3` tags remain unpublished failed cuts. The v0.6.4 product
+artifacts are verified, while release tracking is reopened to correct the
+published notes and synchronize the stable changelogs to `master`. Three
+pre-existing P1 review findings remain separately tracked in Beads. The
+protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP v4 development
+continues on `dev`.
 
 ## Status key
 
@@ -27,12 +29,13 @@ v4 development continues on `dev`.
 
 Beads milestone: `gobfd-qj0.8.1` — **In progress**.
 
-After the protected branch is created, the release will be prepared on
-`release/v0.6`, which keeps GoBGP v3.37.0 and the existing `bfd.v1` and YAML
-runtime contracts. It updates dependencies, tools, CI, reproducibility,
-documentation, and test infrastructure without adding BFD protocol behavior.
-The baseline remains **In progress** until the v0.6.4 tag and GitHub Release
-are verified.
+The protected `release/v0.6` branch keeps GoBGP v3.37.0 and the existing
+`bfd.v1` and YAML runtime contracts. It updates dependencies, tools, CI,
+reproducibility, documentation, and test infrastructure without adding BFD
+protocol behavior. The v0.6.4 tag, assets, and OCI images are verified, but the
+baseline remains **In progress** until the release notes/default-branch
+closeout and P1 findings `gobfd-qj0.8.1.8.8`, `.8.9`, and `.8.10` are resolved
+and independently reviewed.
 
 | Delivery slice | Status |
 |---|---|
@@ -45,12 +48,14 @@ are verified.
 | Debian trixie / Oracle Linux 10 image boundary | Done |
 | RFC and benchmark public-claim correction | Done |
 | Roadmap, Quick Start, architecture, and EN/RU parity | Done |
-| Independent review of all v0.6.2 slices and P0/P1 remediation | Done |
+| Independent review of all v0.6 slices and P0/P1 remediation | In progress |
 | Register the isolated `tools/go.mod` with Dependabot | Done |
 
-The release remains untagged until the qualification milestone
-`gobfd-qj0.8.1.7`, independent review `gobfd-qj0.8.1.8`, and all required local
-and remote release gates are accepted.
+Release task `gobfd-qj0.8.1.15` is **In progress** again: immutable `v0.6.4`
+points to `b1c0bcd7d2e9abed00368b2082e34f521084c087`, and all 12 assets and OCI
+indexes remain verified, but the cumulative release notes and stable
+`master` changelogs require correction. Qualification `gobfd-qj0.8.1.7` and
+independent review `gobfd-qj0.8.1.8` remain open on the three P1 findings above.
 
 ## Legacy S12 reconciliation
 
@@ -74,8 +79,8 @@ authoritative.
 
 ## v1.0.0 production contract
 
-Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on the accepted and
-published v0.6 maintenance baseline (`v0.6.4`)**.
+Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on the accepted v0.6
+maintenance baseline after the v0.6.4 closeout and P1 findings are fixed**.
 
 Development of the v1 product line, including the GoBGP v4 migration, occurs
 on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
