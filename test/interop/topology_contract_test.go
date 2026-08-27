@@ -804,14 +804,23 @@ func TestInteropOwnedInlinePythonPortContract(t *testing.T) {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	legacy := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	bgp := readContractFile(t, "BGP runner", filepath.Join(root, "test", "interop-bgp", "run.sh"))
+	bgp := readContractFile(
+		t,
+		"Go BGP lifecycle",
+		filepath.Join(root, "test", "interop-bgp", "testcontainers_topology_test.go"),
+	)
 
 	assertContainsAll(t, "legacy Go interop helper", legacy, []string{
 		`INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)`,
 		`frr-bfd-peer-status "${peer_ip}"`,
 		`detection-gap "${first_down_epoch}" 3.0`,
 	})
-	for name, runner := range map[string]string{"legacy": legacy, "BGP": bgp} {
+	assertContainsAll(t, "Go BGP lifecycle", bgp, []string{
+		`func runBGPBFDTestcontainers`,
+		`runBGPTestAssertions`,
+		`captureBGPTestPCAP`,
+	})
+	for name, runner := range map[string]string{"legacy": legacy, "Go BGP": bgp} {
 		if strings.Contains(runner, "UV_"+"PYTHON") {
 			t.Errorf("%s runner retains inline Python invocation", name)
 		}
