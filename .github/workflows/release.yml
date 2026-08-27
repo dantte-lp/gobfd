@@ -50,7 +50,7 @@ jobs:
           jq --version
           .github/scripts/install-uv.sh
           export PATH="$HOME/.local/bin:$PATH"
-          uv sync --frozen --no-default-groups --group quality
+          uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Test
         run: go test -buildvcs=false ./... -race -count=1
