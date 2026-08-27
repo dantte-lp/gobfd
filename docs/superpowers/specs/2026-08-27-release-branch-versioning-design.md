@@ -34,7 +34,9 @@ The live repository state checked on 2026-08-27 establishes these constraints:
 - `.github/workflows/release.yml` runs only for pushed `v*` tags and creates the
   release from the tagged commit.
 - active rulesets protect `master`, `release/v*`, and `v*`; the release branch
-  and tag rulesets were created before their first matching refs.
+  ruleset was created before `release/v0.6`, and the tag ruleset was created
+  before the first new matching tag, `v0.6.2`. Existing `v0.1.0` through
+  `v0.6.1` tags predate that tag ruleset and remain unchanged.
 - `ci.yml`, `security.yml`, and `e2e.yml` route pull requests into `release/v*`
   through the normal release gates.
 - `build.yml` runs for every pull request, so its SonarQube check already covers
