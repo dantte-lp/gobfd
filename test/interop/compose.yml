@@ -16,7 +16,7 @@
 # Decode saved packets: make interop-pcap
 # Start a guarded live capture: make interop-capture
 #
-# Usage (project ownership and cleanup are enforced by projectctl.sh):
+# Usage (project ownership and cleanup are enforced by the Go interopctl command):
 #   make interop
 #   make interop-up
 #   make interop-logs

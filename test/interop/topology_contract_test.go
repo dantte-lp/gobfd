@@ -254,7 +254,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
 		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
 		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
-		{name: "project control", path: filepath.Join(root, "test", "interop", "projectctl.sh")},
+		{name: "project control", path: filepath.Join(root, "test", "internal", "interopproject", "controller.go")},
 		{name: "gopls gate", path: filepath.Join(root, "scripts", "gopls-check.sh")},
 		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
 		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
@@ -305,7 +305,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"INTEROP_PROJECT_NAME ?= gobfd-interop",
 		"override INTEROP_PROJECT_NAME := $(value INTEROP_PROJECT_NAME)",
 		"export INTEROP_PROJECT_NAME",
-		"INTEROP_CTL := ./test/interop/projectctl.sh",
+		"INTEROP_CTL := go run ./test/cmd/interopctl",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
@@ -377,37 +377,51 @@ func TestInteropOperationalContract(t *testing.T) {
 		`$(INTEROP_CTL) lock-run --`,
 	})
 	projectControl := contents["project control"]
-	startProject := shellFunctionBody(t, projectControl, "start_project")
+	startProject := contractSection(
+		t,
+		projectControl,
+		"func (c *Controller) start(ctx context.Context) error {",
+		"func (c *Controller) stop(ctx context.Context) error {",
+	)
 	assertOrdered(t, "direct interop up ownership", startProject, []string{
-		"acquire_lock",
-		"assert_empty_project",
-		"build",
-		"up -d holo holo-config",
-		"podman wait",
-		"podman inspect --format '{{.State.ExitCode}}'",
-		"interop_verify_holo_running_configuration",
-		"up -d --no-deps gobfd frr bird3 tshark thoro",
+		"c.acquireLock()",
+		"c.queryProjectResources(ctx)",
+		"c.assertFixedNamesAvailable(ctx)",
+		"c.mutation = true",
+		`c.compose(ctx, 10*time.Minute, "build")`,
+		`c.compose(ctx, commandTimeout, "up", "-d", "holo", "holo-config")`,
+		`c.resolveContainerID(ctx, "holo-config-interop")`,
+		`c.podmanText(ctx, 45*time.Second, "wait", loaderID)`,
+		`c.podmanText(ctx, 10*time.Second, "inspect", "--format", "{{.State.ExitCode}}", loaderID)`,
+		"c.verifyHoloConfiguration(ctx, loaderID)",
+		`ctx, commandTimeout, "up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro"`,
+		"c.keepProject = true",
 	})
-	stopProject := shellFunctionBody(t, projectControl, "stop_project")
+	stopProject := contractSection(
+		t,
+		projectControl,
+		"func (c *Controller) stop(ctx context.Context) error {",
+		"func (c *Controller) lockRun(ctx context.Context, args []string) error {",
+	)
 	assertOrdered(t, "direct interop down ownership", stopProject, []string{
-		"acquire_lock",
-		"interop_cleanup_project_resources",
+		"c.acquireLock()",
+		"c.cleanup(ctx)",
 	})
 	assertContainsAll(t, "direct locked test runner", projectControl, []string{
-		`lock-run)`,
-		`"$@"`,
-		`interop_assert_existing_project`,
-		`REQUIRED_CONTAINER_NAMES`,
-		`OPTIONAL_CONTAINER_NAMES`,
+		`func (c *Controller) lockRun`,
+		`c.assertExistingProject(ctx)`,
+		`exec.CommandContext(ctx, command[0], command[1:]...)`,
+		`required`,
+		`optional`,
 	})
 	assertContainsAll(t, "direct base mandatory containers", projectControl, []string{
-		`gobfd-interop frr-interop bird3-interop tshark-interop`,
-		`holo-interop holo-config-interop thoro-interop`,
-		`OPTIONAL_CONTAINER_NAMES=(scapy-interop)`,
+		`"gobfd-interop", "frr-interop", "bird3-interop", "tshark-interop"`,
+		`"holo-interop", "holo-config-interop", "thoro-interop"`,
+		`optional = []string{"scapy-interop"}`,
 	})
 	assertContainsAll(t, "direct BGP mandatory containers", projectControl, []string{
-		`gobfd-bgp-interop gobgp-interop tshark-bgp-interop frr-bgp-interop`,
-		`bird3-bgp-interop gobfd-exabgp-interop exabgp-interop`,
+		`"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop"`,
+		`"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop"`,
 	})
 
 	taggedGo := contents["tagged Go helper"]
@@ -486,7 +500,7 @@ func TestInteropOperationalContract(t *testing.T) {
 	if got := strings.Count(sharedHoloVerifier, "jq -s -e"); got != 1 {
 		t.Errorf("shared Holo semantic verifier jq call count = %d, want 1", got)
 	}
-	for _, name := range []string{"routing runner", "project control"} {
+	for _, name := range []string{"routing runner"} {
 		if got := strings.Count(contents[name], "interop_verify_holo_running_configuration"); got != 1 {
 			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
 		}
@@ -672,7 +686,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		"interop_verify_project_absent",
 		"interop_verify_labelled_containers_absent",
 		"make interop-up",
-		"./test/interop/projectctl.sh lock-run --",
 		"go test -json -tags interop",
 		`select(.Action == "pass" and .Test == "TestHoloFailureRecoveryLifecycle")`,
 		`select(.Action == "skip" and .Test == "TestHoloFailureRecoveryLifecycle")`,
@@ -2279,6 +2292,20 @@ func shellFunctionBody(t *testing.T, script, name string) string {
 		t.Fatalf("shell function %s has no closing brace", name)
 	}
 	return script[start : start+end]
+}
+
+func contractSection(t *testing.T, contents, startMarker, endMarker string) string {
+	t.Helper()
+
+	start := strings.Index(contents, startMarker)
+	if start < 0 {
+		t.Fatalf("contract section start %q is missing", startMarker)
+	}
+	end := strings.Index(contents[start:], endMarker)
+	if end < 0 {
+		t.Fatalf("contract section end %q is missing", endMarker)
+	}
+	return contents[start : start+end]
 }
 
 func TestInteropComposeServiceInventory(t *testing.T) {

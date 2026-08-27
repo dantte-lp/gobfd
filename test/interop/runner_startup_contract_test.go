@@ -25,25 +25,6 @@ const validHoloRunningConfig = `{"ietf-interfaces:interfaces":{"interface":[` +
 	holoInterfaceConfig + `]},"ietf-routing:routing":{"control-plane-protocols":` +
 	`{"control-plane-protocol":[` + holoProtocolConfig + `]}}}`
 
-const holoRunningConfigWithoutInterface = `{"ietf-routing:routing":{"control-plane-protocols":` +
-	`{"control-plane-protocol":[` + holoProtocolConfig + `]}}}`
-
-const holoRunningConfigDuplicateInterface = `{"ietf-interfaces:interfaces":{"interface":[` +
-	holoInterfaceConfig + `,` + holoInterfaceConfig + `]},"ietf-routing:routing":` +
-	`{"control-plane-protocols":{"control-plane-protocol":[` + holoProtocolConfig + `]}}}`
-
-const holoRunningConfigDuplicateProtocol = `{"ietf-interfaces:interfaces":{"interface":[` +
-	holoInterfaceConfig + `]},"ietf-routing:routing":{"control-plane-protocols":` +
-	`{"control-plane-protocol":[` + holoProtocolConfig + `,` + holoProtocolConfig + `]}}}`
-
-const holoProtocolDuplicateSessionConfig = `{"type":"ietf-bfd-types:bfdv1","name":"main",` +
-	`"ietf-bfd:bfd":{"ietf-bfd-ip-sh:ip-sh":{"sessions":{"session":[` +
-	holoSessionConfig + `,` + holoSessionConfig + `]}}}}`
-
-const holoRunningConfigDuplicateSession = `{"ietf-interfaces:interfaces":{"interface":[` +
-	holoInterfaceConfig + `]},"ietf-routing:routing":{"control-plane-protocols":` +
-	`{"control-plane-protocol":[` + holoProtocolDuplicateSessionConfig + `]}}}`
-
 const holoSemanticPodmanArgs = "exec immutable-holo-id holo-cli --no-colors --no-pager " +
 	"--address http://127.0.0.1:50051 --command show running format json"
 
@@ -142,8 +123,7 @@ esac
 					t.Fatalf("write fake %s: %v", command, writeErr)
 				}
 			}
-			cmd := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "test", "interop", "projectctl.sh"), "up")
-			cmd.Dir = root
+			cmd := projectControlCommand(t.Context(), root, "up")
 			cmd.Env = append(os.Environ(),
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
@@ -373,12 +353,10 @@ exit 0
 			if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
 				t.Fatalf("write fake podman: %v", writeErr)
 			}
-			cmd := exec.CommandContext(
-				t.Context(),
-				filepath.Join(root, "test", "interop", "projectctl.sh"),
+			cmd := projectControlCommand(
+				t.Context(), root,
 				"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
 			)
-			cmd.Dir = root
 			cmd.Env = append(os.Environ(),
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_PODMAN_LOG="+commandLog,
@@ -431,12 +409,10 @@ exit 9
 	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
 		t.Fatalf("write fake podman: %v", writeErr)
 	}
-	cmd := exec.CommandContext(
-		t.Context(),
-		filepath.Join(root, "test", "interop", "projectctl.sh"),
+	cmd := projectControlCommand(
+		t.Context(), root,
 		"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
 	)
-	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
 		"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
@@ -504,12 +480,10 @@ exit 9
 				if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
 					t.Fatalf("write fake podman: %v", writeErr)
 				}
-				cmd := exec.CommandContext(
-					t.Context(),
-					filepath.Join(root, "test", "interop", "projectctl.sh"),
+				cmd := projectControlCommand(
+					t.Context(), root,
 					"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
 				)
-				cmd.Dir = root
 				cmd.Env = append(os.Environ(),
 					"PATH="+fakeBin+":"+os.Getenv("PATH"),
 					"INTEROP_PROJECT_KIND="+testCase.kind,
@@ -1235,75 +1209,6 @@ interop_acquire_project_lock gobfd-interop
 	}
 }
 
-func assertHoloStartupSequence(
-	t *testing.T,
-	root, overrideFile, commandLog string,
-	wantInspect, wantLoaderLog, wantVersion, wantSemantic, wantSecondUp bool,
-) {
-	t.Helper()
-
-	composePrefix := "-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml")
-	if overrideFile != "" {
-		composePrefix += " -f " + overrideFile
-	}
-	composePrefix += " "
-	want := []string{
-		"flock -n ",
-		"podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
-		"podman network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
-		"podman volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}",
-		"podman container exists gobfd-interop",
-		"podman container exists frr-interop",
-		"podman container exists bird3-interop",
-		"podman container exists tshark-interop",
-		"podman container exists holo-interop",
-		"podman container exists holo-config-interop",
-		"podman container exists thoro-interop",
-		"podman container exists scapy-interop",
-		composePrefix + "build --no-cache",
-		composePrefix + "up -d holo holo-config",
-		"podman container exists holo-config-interop",
-		"podman inspect --type container --format {{.ID}}|" +
-			"{{ index .Config.Labels \"com.docker.compose.project\" }} holo-config-interop",
-		"podman wait immutable-holo-config-id",
-	}
-	if wantInspect {
-		want = append(want, "podman inspect --format {{.State.ExitCode}} immutable-holo-config-id")
-	}
-	if wantLoaderLog {
-		want = append(want, "podman logs immutable-holo-config-id")
-	}
-	if wantVersion {
-		want = append(want,
-			"podman container exists holo-interop",
-			"podman inspect --type container --format {{.ID}}|"+
-				"{{ index .Config.Labels \"com.docker.compose.project\" }} holo-interop",
-			"podman exec immutable-holo-id holo-cli --version",
-		)
-	}
-	if wantSemantic {
-		want = append(want,
-			holoSemanticCommandLog,
-		)
-	}
-	if wantSecondUp {
-		want = append(want, composePrefix+"up -d --no-deps gobfd frr bird3 tshark thoro")
-	}
-	assertCommandSubsequence(t, commandLog, want)
-}
-
-func assertProjectPreflight(t *testing.T, commandLog string) {
-	t.Helper()
-
-	want := []string{
-		"flock -n ",
-		"podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
-		"podman network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
-		"podman volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}",
-	}
-	assertCommandSubsequence(t, commandLog, want)
-}
-
 func assertCommandSubsequence(t *testing.T, commandLog string, want []string) {
 	t.Helper()
 
@@ -1365,58 +1270,6 @@ func TestForbiddenProjectMutation(t *testing.T) {
 	}
 }
 
-func assertNoProjectMutation(t *testing.T, commandLog string) {
-	t.Helper()
-
-	if command := forbiddenProjectMutation(commandLog); command != "" {
-		t.Fatalf("runner mutated resources after detecting a project collision: %q", command)
-	}
-}
-
-func assertForeignCleanupIsLabelOnly(t *testing.T, commandLog string) {
-	t.Helper()
-
-	for line := range strings.Lines(commandLog) {
-		command := strings.TrimSpace(line)
-		if strings.HasPrefix(command, "-p ") && strings.Contains(command, " down ") {
-			t.Fatalf("runner invoked Compose down after a foreign fixed name appeared: %q", command)
-		}
-		for _, forbidden := range []string{"podman rm ", "podman network rm ", "podman volume rm "} {
-			if strings.HasPrefix(command, forbidden) {
-				t.Fatalf("runner removed a resource outside exact-label fallback proof: %q", command)
-			}
-		}
-	}
-	query := "podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}"
-	if strings.Count(commandLog, query) < 2 {
-		t.Fatalf("runner did not re-query exact project labels during fallback cleanup; commands:\n%s", commandLog)
-	}
-}
-
-func assertNoComposeCleanup(t *testing.T, commandLog string) {
-	t.Helper()
-
-	for line := range strings.Lines(commandLog) {
-		command := strings.TrimSpace(line)
-		if strings.HasPrefix(command, "-p ") && strings.Contains(command, " down ") {
-			t.Fatalf("runner invoked name-based Compose cleanup: %q", command)
-		}
-	}
-}
-
-func assertNoNameBasedRuntimeMutation(t *testing.T, commandLog string) {
-	t.Helper()
-
-	for line := range strings.Lines(commandLog) {
-		command := strings.TrimSpace(line)
-		for _, action := range []string{"podman rm ", "podman stop ", "podman start "} {
-			if strings.HasPrefix(command, action) && strings.Contains(command, "-interop") {
-				t.Fatalf("runner used a mutable container name for runtime mutation: %q", command)
-			}
-		}
-	}
-}
-
 func forbiddenProjectMutation(commandLog string) string {
 	for line := range strings.Lines(commandLog) {
 		command := strings.TrimSpace(line)
@@ -1474,6 +1327,13 @@ func secureRuntimeDir(t *testing.T) string {
 		t.Fatalf("secure runtime directory: %v", err)
 	}
 	return dir
+}
+
+func projectControlCommand(ctx context.Context, root string, args ...string) *exec.Cmd {
+	commandArgs := append([]string{"run", "./test/cmd/interopctl"}, args...)
+	cmd := exec.CommandContext(ctx, "go", commandArgs...)
+	cmd.Dir = root
+	return cmd
 }
 
 func writeExecutable(path, contents string) error {

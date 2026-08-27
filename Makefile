@@ -235,7 +235,7 @@ test-integration:
 # === Interop Tests (FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd — 4-peer topology) ===
 
 INTEROP_COMPOSE := test/interop/compose.yml
-INTEROP_CTL := ./test/interop/projectctl.sh
+INTEROP_CTL := go run ./test/cmd/interopctl
 
 interop-project-validate:
 	@case "$${INTEROP_PROJECT_NAME}" in \

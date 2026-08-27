@@ -9,7 +9,7 @@
 //	go test -tags interop -v -count=1 -timeout 300s ./test/interop/
 //
 // Prerequisites:
-//   - test/interop/projectctl.sh up
+//   - go run ./test/cmd/interopctl up
 //   - The gobfd, frr, bird3, Holo, Thoro/bfd, and tshark services must be ready.
 package interop_test
 
