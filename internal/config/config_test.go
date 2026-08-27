@@ -68,10 +68,23 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+type yamlLoadCase struct {
+	yamlContent          string
+	wantGRPCAddr         string
+	wantMetricsAddr      string
+	wantMetricsPath      string
+	wantLogLevel         string
+	wantLogFormat        string
+	wantDesiredMinTx     time.Duration
+	wantRequiredMinRx    time.Duration
+	wantDetectMultiplier uint32
+}
+
 func TestLoadFromYAML(t *testing.T) {
 	t.Parallel()
 
-	yamlContent := `
+	testLoadYAML(t, yamlLoadCase{
+		yamlContent: `
 grpc:
   addr: ":60000"
 metrics:
@@ -84,99 +97,74 @@ bfd:
   default_desired_min_tx: "500ms"
   default_required_min_rx: "250ms"
   default_detect_multiplier: 5
-`
-
-	path := writeTemp(t, yamlContent)
-
-	cfg, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load(%q) error: %v", path, err)
-	}
-
-	if cfg.GRPC.Addr != ":60000" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":60000")
-	}
-
-	if cfg.Metrics.Addr != ":9200" {
-		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, ":9200")
-	}
-
-	if cfg.Metrics.Path != "/custom-metrics" {
-		t.Errorf("Metrics.Path = %q, want %q", cfg.Metrics.Path, "/custom-metrics")
-	}
-
-	if cfg.Log.Level != "debug" {
-		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "debug")
-	}
-
-	if cfg.Log.Format != "text" {
-		t.Errorf("Log.Format = %q, want %q", cfg.Log.Format, "text")
-	}
-
-	if cfg.BFD.DefaultDesiredMinTx != 500*time.Millisecond {
-		t.Errorf("BFD.DefaultDesiredMinTx = %v, want %v", cfg.BFD.DefaultDesiredMinTx, 500*time.Millisecond)
-	}
-
-	if cfg.BFD.DefaultRequiredMinRx != 250*time.Millisecond {
-		t.Errorf("BFD.DefaultRequiredMinRx = %v, want %v", cfg.BFD.DefaultRequiredMinRx, 250*time.Millisecond)
-	}
-
-	if cfg.BFD.DefaultDetectMultiplier != 5 {
-		t.Errorf("BFD.DefaultDetectMultiplier = %d, want %d", cfg.BFD.DefaultDetectMultiplier, 5)
-	}
+`,
+		wantGRPCAddr:         ":60000",
+		wantMetricsAddr:      ":9200",
+		wantMetricsPath:      "/custom-metrics",
+		wantLogLevel:         "debug",
+		wantLogFormat:        "text",
+		wantDesiredMinTx:     500 * time.Millisecond,
+		wantRequiredMinRx:    250 * time.Millisecond,
+		wantDetectMultiplier: 5,
+	})
 }
 
 func TestLoadMergesDefaults(t *testing.T) {
 	t.Parallel()
 
-	// Partial YAML: only override grpc.addr and log.level.
-	// Everything else should inherit from defaults.
-	yamlContent := `
+	testLoadYAML(t, yamlLoadCase{
+		yamlContent: `
 grpc:
   addr: ":55555"
 log:
   level: "warn"
-`
+`,
+		wantGRPCAddr:         ":55555",
+		wantMetricsAddr:      ":9100",
+		wantMetricsPath:      "/metrics",
+		wantLogLevel:         "warn",
+		wantLogFormat:        "json",
+		wantDesiredMinTx:     time.Second,
+		wantRequiredMinRx:    time.Second,
+		wantDetectMultiplier: 3,
+	})
+}
 
-	path := writeTemp(t, yamlContent)
+func testLoadYAML(t *testing.T, testCase yamlLoadCase) {
+	t.Helper()
 
+	path := writeTemp(t, testCase.yamlContent)
 	cfg, err := config.Load(path)
 	if err != nil {
 		t.Fatalf("Load(%q) error: %v", path, err)
 	}
 
-	// Overridden values.
-	if cfg.GRPC.Addr != ":55555" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":55555")
+	if cfg.GRPC.Addr != testCase.wantGRPCAddr {
+		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, testCase.wantGRPCAddr)
 	}
-
-	if cfg.Log.Level != "warn" {
-		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "warn")
+	if cfg.Metrics.Addr != testCase.wantMetricsAddr {
+		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, testCase.wantMetricsAddr)
 	}
-
-	// Default values should be preserved.
-	if cfg.Metrics.Addr != ":9100" {
-		t.Errorf("Metrics.Addr = %q, want default %q", cfg.Metrics.Addr, ":9100")
+	if cfg.Metrics.Path != testCase.wantMetricsPath {
+		t.Errorf("Metrics.Path = %q, want %q", cfg.Metrics.Path, testCase.wantMetricsPath)
 	}
-
-	if cfg.Metrics.Path != "/metrics" {
-		t.Errorf("Metrics.Path = %q, want default %q", cfg.Metrics.Path, "/metrics")
+	if cfg.Log.Level != testCase.wantLogLevel {
+		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, testCase.wantLogLevel)
 	}
-
-	if cfg.Log.Format != "json" {
-		t.Errorf("Log.Format = %q, want default %q", cfg.Log.Format, "json")
+	if cfg.Log.Format != testCase.wantLogFormat {
+		t.Errorf("Log.Format = %q, want %q", cfg.Log.Format, testCase.wantLogFormat)
 	}
-
-	if cfg.BFD.DefaultDesiredMinTx != 1*time.Second {
-		t.Errorf("BFD.DefaultDesiredMinTx = %v, want default %v", cfg.BFD.DefaultDesiredMinTx, 1*time.Second)
+	if cfg.BFD.DefaultDesiredMinTx != testCase.wantDesiredMinTx {
+		t.Errorf("BFD.DefaultDesiredMinTx = %v, want %v",
+			cfg.BFD.DefaultDesiredMinTx, testCase.wantDesiredMinTx)
 	}
-
-	if cfg.BFD.DefaultRequiredMinRx != 1*time.Second {
-		t.Errorf("BFD.DefaultRequiredMinRx = %v, want default %v", cfg.BFD.DefaultRequiredMinRx, 1*time.Second)
+	if cfg.BFD.DefaultRequiredMinRx != testCase.wantRequiredMinRx {
+		t.Errorf("BFD.DefaultRequiredMinRx = %v, want %v",
+			cfg.BFD.DefaultRequiredMinRx, testCase.wantRequiredMinRx)
 	}
-
-	if cfg.BFD.DefaultDetectMultiplier != 3 {
-		t.Errorf("BFD.DefaultDetectMultiplier = %d, want default %d", cfg.BFD.DefaultDetectMultiplier, 3)
+	if cfg.BFD.DefaultDetectMultiplier != testCase.wantDetectMultiplier {
+		t.Errorf("BFD.DefaultDetectMultiplier = %d, want %d",
+			cfg.BFD.DefaultDetectMultiplier, testCase.wantDetectMultiplier)
 	}
 }
 

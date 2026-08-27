@@ -262,41 +262,67 @@ func requireLinuxSourcePortAllocator(t *testing.T) {
 // Tests — GTSM TTL Validation
 // -------------------------------------------------------------------------
 
-// TestValidateTTLSingleHop verifies that single-hop sessions require
-// TTL = 255 exactly (RFC 5881 Section 5, RFC 5082).
-func TestValidateTTLSingleHop(t *testing.T) {
-	t.Parallel()
+type ttlValidationCase struct {
+	name    string
+	value   uint8
+	wantErr bool
+}
 
-	tests := []struct {
-		name    string
-		ttl     uint8
-		wantErr bool
-	}{
-		{name: "TTL 255 valid", ttl: 255, wantErr: false},
-		{name: "TTL 254 invalid", ttl: 254, wantErr: true},
-		{name: "TTL 0 invalid", ttl: 0, wantErr: true},
-		{name: "TTL 128 invalid", ttl: 128, wantErr: true},
-		{name: "TTL 1 invalid", ttl: 1, wantErr: true},
+type packetMetaForTTL func(uint8) netio.PacketMeta
+
+func ipv4PacketMeta(ttl uint8) netio.PacketMeta {
+	return netio.PacketMeta{TTL: ttl}
+}
+
+func ipv6PacketMeta(hopLimit uint8) netio.PacketMeta {
+	return netio.PacketMeta{
+		SrcAddr: netip.MustParseAddr("2001:db8::1"),
+		DstAddr: netip.MustParseAddr("2001:db8::2"),
+		TTL:     hopLimit,
 	}
+}
+
+func testValidateTTL(
+	t *testing.T,
+	valueName string,
+	multiHop bool,
+	metaForValue packetMetaForTTL,
+	tests []ttlValidationCase,
+) {
+	t.Helper()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			meta := netio.PacketMeta{TTL: tt.ttl}
-			err := netio.ValidateTTL(meta, false)
+			meta := metaForValue(tt.value)
+			err := netio.ValidateTTL(meta, multiHop)
 
 			if tt.wantErr && err == nil {
-				t.Errorf("TTL %d: expected error, got nil", tt.ttl)
+				t.Errorf("%s %d: expected error, got nil", valueName, tt.value)
 			}
 			if !tt.wantErr && err != nil {
-				t.Errorf("TTL %d: unexpected error: %v", tt.ttl, err)
+				t.Errorf("%s %d: unexpected error: %v", valueName, tt.value, err)
 			}
 			if tt.wantErr && err != nil && !errors.Is(err, netio.ErrTTLInvalid) {
-				t.Errorf("TTL %d: error does not wrap ErrTTLInvalid: %v", tt.ttl, err)
+				t.Errorf("%s %d: error does not wrap ErrTTLInvalid: %v", valueName, tt.value, err)
 			}
 		})
 	}
+}
+
+// TestValidateTTLSingleHop verifies that single-hop sessions require
+// TTL = 255 exactly (RFC 5881 Section 5, RFC 5082).
+func TestValidateTTLSingleHop(t *testing.T) {
+	t.Parallel()
+
+	testValidateTTL(t, "TTL", false, ipv4PacketMeta, []ttlValidationCase{
+		{name: "TTL 255 valid", value: 255, wantErr: false},
+		{name: "TTL 254 invalid", value: 254, wantErr: true},
+		{name: "TTL 0 invalid", value: 0, wantErr: true},
+		{name: "TTL 128 invalid", value: 128, wantErr: true},
+		{name: "TTL 1 invalid", value: 1, wantErr: true},
+	})
 }
 
 // TestValidateTTLMultiHop verifies that multi-hop sessions require
@@ -304,36 +330,13 @@ func TestValidateTTLSingleHop(t *testing.T) {
 func TestValidateTTLMultiHop(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name    string
-		ttl     uint8
-		wantErr bool
-	}{
-		{name: "TTL 255 valid", ttl: 255, wantErr: false},
-		{name: "TTL 254 valid", ttl: 254, wantErr: false},
-		{name: "TTL 253 invalid", ttl: 253, wantErr: true},
-		{name: "TTL 0 invalid", ttl: 0, wantErr: true},
-		{name: "TTL 128 invalid", ttl: 128, wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			meta := netio.PacketMeta{TTL: tt.ttl}
-			err := netio.ValidateTTL(meta, true)
-
-			if tt.wantErr && err == nil {
-				t.Errorf("TTL %d: expected error, got nil", tt.ttl)
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("TTL %d: unexpected error: %v", tt.ttl, err)
-			}
-			if tt.wantErr && err != nil && !errors.Is(err, netio.ErrTTLInvalid) {
-				t.Errorf("TTL %d: error does not wrap ErrTTLInvalid: %v", tt.ttl, err)
-			}
-		})
-	}
+	testValidateTTL(t, "TTL", true, ipv4PacketMeta, []ttlValidationCase{
+		{name: "TTL 255 valid", value: 255, wantErr: false},
+		{name: "TTL 254 valid", value: 254, wantErr: false},
+		{name: "TTL 253 invalid", value: 253, wantErr: true},
+		{name: "TTL 0 invalid", value: 0, wantErr: true},
+		{name: "TTL 128 invalid", value: 128, wantErr: true},
+	})
 }
 
 // -------------------------------------------------------------------------
@@ -346,41 +349,13 @@ func TestValidateTTLMultiHop(t *testing.T) {
 func TestValidateHopLimitSingleHopIPv6(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		hopLimit uint8
-		wantErr  bool
-	}{
-		{name: "HopLimit 255 valid", hopLimit: 255, wantErr: false},
-		{name: "HopLimit 254 invalid", hopLimit: 254, wantErr: true},
-		{name: "HopLimit 0 invalid", hopLimit: 0, wantErr: true},
-		{name: "HopLimit 128 invalid", hopLimit: 128, wantErr: true},
-		{name: "HopLimit 64 invalid", hopLimit: 64, wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			meta := netio.PacketMeta{
-				SrcAddr: netip.MustParseAddr("2001:db8::1"),
-				DstAddr: netip.MustParseAddr("2001:db8::2"),
-				TTL:     tt.hopLimit,
-			}
-			err := netio.ValidateTTL(meta, false)
-
-			if tt.wantErr && err == nil {
-				t.Errorf("HopLimit %d: expected error, got nil", tt.hopLimit)
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("HopLimit %d: unexpected error: %v", tt.hopLimit, err)
-			}
-			if tt.wantErr && err != nil && !errors.Is(err, netio.ErrTTLInvalid) {
-				t.Errorf("HopLimit %d: error does not wrap ErrTTLInvalid: %v",
-					tt.hopLimit, err)
-			}
-		})
-	}
+	testValidateTTL(t, "HopLimit", false, ipv6PacketMeta, []ttlValidationCase{
+		{name: "HopLimit 255 valid", value: 255, wantErr: false},
+		{name: "HopLimit 254 invalid", value: 254, wantErr: true},
+		{name: "HopLimit 0 invalid", value: 0, wantErr: true},
+		{name: "HopLimit 128 invalid", value: 128, wantErr: true},
+		{name: "HopLimit 64 invalid", value: 64, wantErr: true},
+	})
 }
 
 // TestValidateHopLimitMultiHopIPv6 verifies that multi-hop IPv6 sessions
@@ -388,41 +363,13 @@ func TestValidateHopLimitSingleHopIPv6(t *testing.T) {
 func TestValidateHopLimitMultiHopIPv6(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		hopLimit uint8
-		wantErr  bool
-	}{
-		{name: "HopLimit 255 valid", hopLimit: 255, wantErr: false},
-		{name: "HopLimit 254 valid", hopLimit: 254, wantErr: false},
-		{name: "HopLimit 253 invalid", hopLimit: 253, wantErr: true},
-		{name: "HopLimit 0 invalid", hopLimit: 0, wantErr: true},
-		{name: "HopLimit 128 invalid", hopLimit: 128, wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			meta := netio.PacketMeta{
-				SrcAddr: netip.MustParseAddr("2001:db8::1"),
-				DstAddr: netip.MustParseAddr("2001:db8::2"),
-				TTL:     tt.hopLimit,
-			}
-			err := netio.ValidateTTL(meta, true)
-
-			if tt.wantErr && err == nil {
-				t.Errorf("HopLimit %d: expected error, got nil", tt.hopLimit)
-			}
-			if !tt.wantErr && err != nil {
-				t.Errorf("HopLimit %d: unexpected error: %v", tt.hopLimit, err)
-			}
-			if tt.wantErr && err != nil && !errors.Is(err, netio.ErrTTLInvalid) {
-				t.Errorf("HopLimit %d: error does not wrap ErrTTLInvalid: %v",
-					tt.hopLimit, err)
-			}
-		})
-	}
+	testValidateTTL(t, "HopLimit", true, ipv6PacketMeta, []ttlValidationCase{
+		{name: "HopLimit 255 valid", value: 255, wantErr: false},
+		{name: "HopLimit 254 valid", value: 254, wantErr: false},
+		{name: "HopLimit 253 invalid", value: 253, wantErr: true},
+		{name: "HopLimit 0 invalid", value: 0, wantErr: true},
+		{name: "HopLimit 128 invalid", value: 128, wantErr: true},
+	})
 }
 
 // -------------------------------------------------------------------------
@@ -734,8 +681,25 @@ func TestListenerRecvWithMockIPv6(t *testing.T) {
 func TestListenerRecvRejectsBadTTL(t *testing.T) {
 	t.Parallel()
 
-	addr := netip.MustParseAddrPort("192.168.1.1:3784")
-	mock := NewMockPacketConn(addr)
+	testListenerRecvRejectsBadTTL(
+		t,
+		netip.MustParseAddrPort("192.168.1.1:3784"),
+		netip.MustParseAddr("10.0.0.2"),
+		254,
+		"TTL",
+	)
+}
+
+func testListenerRecvRejectsBadTTL(
+	t *testing.T,
+	localAddr netip.AddrPort,
+	srcAddr netip.Addr,
+	invalidTTL uint8,
+	valueName string,
+) {
+	t.Helper()
+
+	mock := NewMockPacketConn(localAddr)
 
 	callCount := 0
 	mock.ReadFunc = func(buf []byte) (int, netio.PacketMeta, error) {
@@ -744,16 +708,14 @@ func TestListenerRecvRejectsBadTTL(t *testing.T) {
 		n := copy(buf, data)
 
 		if callCount <= 2 {
-			// First two packets have bad TTL (single-hop requires 255).
 			return n, netio.PacketMeta{
-				SrcAddr: netip.MustParseAddr("10.0.0.2"),
-				TTL:     254,
+				SrcAddr: srcAddr,
+				TTL:     invalidTTL,
 			}, nil
 		}
 
-		// Third packet has valid TTL.
 		return n, netio.PacketMeta{
-			SrcAddr: netip.MustParseAddr("10.0.0.2"),
+			SrcAddr: srcAddr,
 			TTL:     255,
 		}, nil
 	}
@@ -771,10 +733,9 @@ func TestListenerRecvRejectsBadTTL(t *testing.T) {
 	}
 
 	if meta.TTL != 255 {
-		t.Errorf("received packet with TTL %d, expected 255", meta.TTL)
+		t.Errorf("received packet with %s %d, expected 255", valueName, meta.TTL)
 	}
 
-	// The first two packets with TTL=254 should have been dropped.
 	if callCount != 3 {
 		t.Errorf("read count = %d, expected 3 (2 dropped + 1 valid)", callCount)
 	}
@@ -833,49 +794,13 @@ func TestListenerRecvAcceptsEchoLoopbackTTL(t *testing.T) {
 func TestListenerRecvRejectsBadHopLimitIPv6(t *testing.T) {
 	t.Parallel()
 
-	addr := netip.MustParseAddrPort("[::1]:3784")
-	mock := NewMockPacketConn(addr)
-
-	callCount := 0
-	mock.ReadFunc = func(buf []byte) (int, netio.PacketMeta, error) {
-		callCount++
-		data := []byte{0x20, 0x40, 0x03, 0x18}
-		n := copy(buf, data)
-
-		if callCount <= 2 {
-			// First two packets have bad Hop Limit (single-hop requires 255).
-			return n, netio.PacketMeta{
-				SrcAddr: netip.MustParseAddr("2001:db8::1"),
-				TTL:     64,
-			}, nil
-		}
-
-		// Third packet has valid Hop Limit.
-		return n, netio.PacketMeta{
-			SrcAddr: netip.MustParseAddr("2001:db8::1"),
-			TTL:     255,
-		}, nil
-	}
-
-	listener := netio.NewListenerFromConn(mock, false)
-	defer func() {
-		if err := listener.Close(); err != nil {
-			t.Errorf("close: %v", err)
-		}
-	}()
-
-	_, meta, err := listener.Recv(t.Context())
-	if err != nil {
-		t.Fatalf("recv: unexpected error: %v", err)
-	}
-
-	if meta.TTL != 255 {
-		t.Errorf("received packet with HopLimit %d, expected 255", meta.TTL)
-	}
-
-	if callCount != 3 {
-		t.Errorf("read count = %d, expected 3 (2 dropped + 1 valid)", callCount)
-	}
+	testListenerRecvRejectsBadTTL(
+		t,
+		netip.MustParseAddrPort("[::1]:3784"),
+		netip.MustParseAddr("2001:db8::1"),
+		64,
+		"HopLimit",
+	)
 }
 
 // TestMockPacketConnWriteIPv6 verifies that WritePacket records IPv6

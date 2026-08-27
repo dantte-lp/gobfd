@@ -1293,13 +1293,55 @@ interop_cleanup_project_resources gobfd-interop
 	}
 }
 
-func TestProjectResourceCleanupRejectsLabelledVolumesBeforeMutation(t *testing.T) {
+type projectCleanupRejectionCase struct {
+	commandName     string
+	fakePodman      string
+	acceptedMessage string
+	diagnostic      string
+	mutationMessage string
+}
+
+func testProjectResourceCleanupRejectsBeforeMutation(t *testing.T, testCase projectCleanupRejectionCase) {
+	t.Helper()
+
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
+	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), testCase.fakePodman); writeErr != nil {
+		t.Fatalf("write fake podman: %v", writeErr)
+	}
+	const script = `set -euo pipefail
+source "$1"
+interop_remove_project_resources gobfd-interop
+`
+	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, testCase.commandName,
+		filepath.Join(root, "test", "interop", "project_guard.sh"))
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
+	)
+	output, runErr := cmd.CombinedOutput()
+	if runErr == nil {
+		t.Fatalf("%s; output:\n%s", testCase.acceptedMessage, output)
+	}
+	if !strings.Contains(string(output), testCase.diagnostic) {
+		t.Fatalf("cleanup output is missing %q; output:\n%s", testCase.diagnostic, output)
+	}
+	commands, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatalf("read fake podman log: %v", err)
+	}
+	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
+		if strings.Contains(string(commands), mutation) {
+			t.Fatalf("%s: %q\ncommands:\n%s", testCase.mutationMessage, mutation, commands)
+		}
+	}
+}
+
+func TestProjectResourceCleanupRejectsLabelledVolumesBeforeMutation(t *testing.T) {
 	fakePodman := `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
 label="label=com.docker.compose.project=gobfd-interop"
@@ -1310,44 +1352,16 @@ case "$*" in
     *) exit 9 ;;
 esac
 `
-	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
-		t.Fatalf("write fake podman: %v", writeErr)
-	}
-	script := `set -euo pipefail
-source "$1"
-interop_remove_project_resources gobfd-interop
-`
-	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-volume",
-		filepath.Join(root, "test", "interop", "project_guard.sh"))
-	cmd.Env = append(os.Environ(),
-		"PATH="+fakeBin+":"+os.Getenv("PATH"),
-		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
-	)
-	output, runErr := cmd.CombinedOutput()
-	if runErr == nil {
-		t.Fatalf("cleanup accepted a mutable labelled volume; output:\n%s", output)
-	}
-	if !strings.Contains(string(output), "guarded interop projects must use container storage or bind mounts") {
-		t.Fatalf("cleanup output is missing labelled-volume diagnostic; output:\n%s", output)
-	}
-	commands, err := os.ReadFile(commandLog)
-	if err != nil {
-		t.Fatalf("read fake podman log: %v", err)
-	}
-	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
-		if strings.Contains(string(commands), mutation) {
-			t.Fatalf("cleanup mutated resources after finding a mutable labelled volume: %q\ncommands:\n%s", mutation, commands)
-		}
-	}
+	testProjectResourceCleanupRejectsBeforeMutation(t, projectCleanupRejectionCase{
+		commandName:     "project-cleanup-volume",
+		fakePodman:      fakePodman,
+		acceptedMessage: "cleanup accepted a mutable labelled volume",
+		diagnostic:      "guarded interop projects must use container storage or bind mounts",
+		mutationMessage: "cleanup mutated resources after finding a mutable labelled volume",
+	})
 }
 
 func TestProjectResourceCleanupRejectsAnonymousVolumeMountBeforeMutation(t *testing.T) {
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
-	fakeBin := t.TempDir()
-	commandLog := filepath.Join(t.TempDir(), "podman.log")
 	fakePodman := `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
 label="label=com.docker.compose.project=gobfd-interop"
@@ -1364,44 +1378,16 @@ case "$*" in
     *) exit 9 ;;
 esac
 `
-	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
-		t.Fatalf("write fake podman: %v", writeErr)
-	}
-	script := `set -euo pipefail
-source "$1"
-interop_remove_project_resources gobfd-interop
-`
-	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-anonymous-volume",
-		filepath.Join(root, "test", "interop", "project_guard.sh"))
-	cmd.Env = append(os.Environ(),
-		"PATH="+fakeBin+":"+os.Getenv("PATH"),
-		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
-	)
-	output, runErr := cmd.CombinedOutput()
-	if runErr == nil {
-		t.Fatalf("cleanup accepted a container with an anonymous volume mount; output:\n%s", output)
-	}
-	if !strings.Contains(string(output), "container ownership or volume-mount preflight failed") {
-		t.Fatalf("cleanup output is missing anonymous-volume diagnostic; output:\n%s", output)
-	}
-	commands, err := os.ReadFile(commandLog)
-	if err != nil {
-		t.Fatalf("read fake podman log: %v", err)
-	}
-	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
-		if strings.Contains(string(commands), mutation) {
-			t.Fatalf("cleanup mutated resources after finding an anonymous volume: %q\ncommands:\n%s", mutation, commands)
-		}
-	}
+	testProjectResourceCleanupRejectsBeforeMutation(t, projectCleanupRejectionCase{
+		commandName:     "project-cleanup-anonymous-volume",
+		fakePodman:      fakePodman,
+		acceptedMessage: "cleanup accepted a container with an anonymous volume mount",
+		diagnostic:      "container ownership or volume-mount preflight failed",
+		mutationMessage: "cleanup mutated resources after finding an anonymous volume",
+	})
 }
 
 func TestProjectResourceCleanupRejectsMismatchedInspectLabelBeforeMutation(t *testing.T) {
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
-	fakeBin := t.TempDir()
-	commandLog := filepath.Join(t.TempDir(), "podman.log")
 	fakePodman := `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
 label="label=com.docker.compose.project=gobfd-interop"
@@ -1417,35 +1403,13 @@ case "$*" in
     *) exit 9 ;;
 esac
 `
-	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
-		t.Fatalf("write fake podman: %v", writeErr)
-	}
-	script := `set -euo pipefail
-source "$1"
-interop_remove_project_resources gobfd-interop
-`
-	cmd := exec.CommandContext(t.Context(), "bash", "-c", script, "project-cleanup-mismatched-label",
-		filepath.Join(root, "test", "interop", "project_guard.sh"))
-	cmd.Env = append(os.Environ(),
-		"PATH="+fakeBin+":"+os.Getenv("PATH"),
-		"INTEROP_FAKE_PODMAN_LOG="+commandLog,
-	)
-	output, runErr := cmd.CombinedOutput()
-	if runErr == nil {
-		t.Fatalf("cleanup accepted an exact ID whose inspected project label changed; output:\n%s", output)
-	}
-	if !strings.Contains(string(output), "container ownership or volume-mount preflight failed") {
-		t.Fatalf("cleanup output is missing ownership diagnostic; output:\n%s", output)
-	}
-	commands, err := os.ReadFile(commandLog)
-	if err != nil {
-		t.Fatalf("read fake podman log: %v", err)
-	}
-	for _, mutation := range []string{"rm -f --", "network rm --", "volume rm --"} {
-		if strings.Contains(string(commands), mutation) {
-			t.Fatalf("cleanup mutated resources after an inspect-label mismatch: %q\ncommands:\n%s", mutation, commands)
-		}
-	}
+	testProjectResourceCleanupRejectsBeforeMutation(t, projectCleanupRejectionCase{
+		commandName:     "project-cleanup-mismatched-label",
+		fakePodman:      fakePodman,
+		acceptedMessage: "cleanup accepted an exact ID whose inspected project label changed",
+		diagnostic:      "container ownership or volume-mount preflight failed",
+		mutationMessage: "cleanup mutated resources after an inspect-label mismatch",
+	})
 }
 
 func TestProjectResourceCleanupFailsClosedOnInvalidInspect(t *testing.T) {

@@ -69,15 +69,14 @@ func Run(
 // NewNetwork creates an explicit Podman user network and immediately
 // registers cleanup. NetworkRequest remains the only v0.44.0 API that accepts
 // custom IPAM together with an explicit provider.
-//
-//nolint:staticcheck // testcontainers has not replaced the provider-aware API
 func NewNetwork(
 	ctx context.Context,
 	tb testing.TB,
-	request testcontainers.NetworkRequest,
-) (testcontainers.Network, error) {
+	request testcontainers.NetworkRequest, //nolint:staticcheck // provider-aware API requires this request
+) (testcontainers.Network, error) { //nolint:staticcheck // CleanupNetwork still accepts this interface
 	tb.Helper()
 
+	//nolint:staticcheck // network.New cannot preserve the explicit Podman provider and network name
 	network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
 		NetworkRequest: request,
 		ProviderType:   testcontainers.ProviderPodman,
@@ -163,7 +162,7 @@ func AssertNetworkRemoved(tb testing.TB, networkName string) {
 		}
 	}()
 
-	//nolint:staticcheck // upstream replacement does not yet expose inspection
+	//nolint:staticcheck // provider.GetNetwork has no non-deprecated inspection replacement
 	_, err = provider.GetNetwork(ctx, testcontainers.NetworkRequest{Name: networkName})
 	if err == nil {
 		tb.Fatalf("network %s still exists after test cleanup", networkName)

@@ -187,7 +187,6 @@ linters:
         linters:
           - cyclop
           - gosec
-          - dupl
           - funlen
           - gocognit
           - err113

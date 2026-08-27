@@ -599,6 +599,16 @@ lint-ci:
 		echo "lint-ci is container-only; use 'make lint' locally"; exit 2; \
 	}
 	$(GOLANGCI_LINT) config verify
+	@packages="$$(go list -buildvcs=false -f '{{.ImportPath}}' ./...)"; \
+		package_count="$$(printf '%s\n' "$$packages" | sed '/^$$/d' | wc -l)"; \
+		production_inputs="$$(go list -buildvcs=false -f '{{range .GoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' ./...)"; \
+		production_input_count="$$(printf '%s\n' "$$production_inputs" | sed '/^$$/d' | wc -l)"; \
+		test_inputs="$$(go list -buildvcs=false -f '{{range .TestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' ./...)"; \
+		test_input_count="$$(printf '%s\n' "$$test_inputs" | sed '/^$$/d' | wc -l)"; \
+		test "$$package_count" -gt 0 || { echo "lint-ci: base selector produced no packages"; exit 1; }; \
+		test "$$production_input_count" -gt 0 || { echo "lint-ci: base selector produced no production Go inputs"; exit 1; }; \
+		test "$$test_input_count" -gt 0 || { echo "lint-ci: base selector produced no test Go inputs"; exit 1; }; \
+		echo "lint-ci: base ($$package_count packages, $$production_input_count production inputs, $$test_input_count test inputs)"
 	@module_version="$$(go list -modfile=tools/go.mod -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)"; \
 		binary_version="v$$($(GOLANGCI_LINT) version --short)"; \
 		test "$$module_version" = "$$binary_version" || { \

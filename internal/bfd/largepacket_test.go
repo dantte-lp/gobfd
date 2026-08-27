@@ -19,9 +19,23 @@ import (
 // TestLargePacket_PaddedPduSize verifies that when PaddedPduSize is set,
 // transmitted packets are padded with zeros to the configured size.
 func TestLargePacket_PaddedPduSize(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		const paddedSize = 128
+	testLargePacketPaddedPDUSize(t, 128, 42, true)
+}
 
+// TestLargePacket_PaddedPduSize_JumboFrame verifies large padding (close to MTU).
+func TestLargePacket_PaddedPduSize_JumboFrame(t *testing.T) {
+	testLargePacketPaddedPDUSize(t, bfd.MaxPaddedPduSize, 46, false)
+}
+
+func testLargePacketPaddedPDUSize(
+	t *testing.T,
+	paddedSize uint16,
+	discriminator uint32,
+	requireExactBFDLen bool,
+) {
+	t.Helper()
+
+	synctest.Test(t, func(t *testing.T) {
 		cfg := bfd.SessionConfig{
 			PeerAddr:              netip.MustParseAddr("192.0.2.1"),
 			LocalAddr:             netip.MustParseAddr("192.0.2.2"),
@@ -34,7 +48,7 @@ func TestLargePacket_PaddedPduSize(t *testing.T) {
 		}
 
 		sender := &mockSender{}
-		sess := mustNewSession(t, cfg, 42, sender, nil, slog.Default())
+		sess := mustNewSession(t, cfg, discriminator, sender, nil, slog.Default())
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -53,21 +67,23 @@ func TestLargePacket_PaddedPduSize(t *testing.T) {
 		raw := sender.packets[len(sender.packets)-1]
 		sender.mu.Unlock()
 
-		if len(raw) != paddedSize {
+		if len(raw) != int(paddedSize) {
 			t.Errorf("packet length = %d, want %d", len(raw), paddedSize)
 		}
 
-		// BFD Length field (byte 3) should be the actual BFD PDU size (24),
-		// not the padded size.
 		bfdLen := int(raw[3])
-		if bfdLen != bfd.HeaderSize {
+		if requireExactBFDLen && bfdLen != bfd.HeaderSize {
 			t.Errorf("BFD Length field = %d, want %d", bfdLen, bfd.HeaderSize)
+		}
+		if !requireExactBFDLen && bfdLen < bfd.HeaderSize {
+			t.Errorf("BFD Length field = %d, want >= %d", bfdLen, bfd.HeaderSize)
 		}
 
 		// Padding bytes must be zero (RFC 9764 Section 3).
 		for i := bfdLen; i < len(raw); i++ {
 			if raw[i] != 0 {
 				t.Errorf("padding byte %d = %#x, want 0x00", i, raw[i])
+
 				break
 			}
 		}
@@ -201,62 +217,6 @@ func TestLargePacket_PaddedPduSize_SmallValue(t *testing.T) {
 		// so no extra padding should be added.
 		if len(raw) != bfd.HeaderSize {
 			t.Errorf("packet length = %d, want %d", len(raw), bfd.HeaderSize)
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	})
-}
-
-// TestLargePacket_PaddedPduSize_JumboFrame verifies large padding (close to MTU).
-func TestLargePacket_PaddedPduSize_JumboFrame(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		const paddedSize = 9000
-
-		cfg := bfd.SessionConfig{
-			PeerAddr:              netip.MustParseAddr("192.0.2.1"),
-			LocalAddr:             netip.MustParseAddr("192.0.2.2"),
-			Type:                  bfd.SessionTypeSingleHop,
-			Role:                  bfd.RoleActive,
-			DesiredMinTxInterval:  100 * time.Millisecond,
-			RequiredMinRxInterval: 100 * time.Millisecond,
-			DetectMultiplier:      3,
-			PaddedPduSize:         paddedSize,
-		}
-
-		sender := &mockSender{}
-		sess := mustNewSession(t, cfg, 46, sender, nil, slog.Default())
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		go sess.Run(ctx)
-		time.Sleep(2 * time.Second)
-
-		count := sender.packetCount()
-		if count == 0 {
-			t.Fatal("expected at least one packet sent")
-		}
-
-		sender.mu.Lock()
-		raw := sender.packets[len(sender.packets)-1]
-		sender.mu.Unlock()
-
-		if len(raw) != paddedSize {
-			t.Errorf("packet length = %d, want %d", len(raw), paddedSize)
-		}
-
-		// Verify BFD header is intact.
-		bfdLen := int(raw[3])
-		if bfdLen < bfd.HeaderSize {
-			t.Errorf("BFD Length field = %d, want >= %d", bfdLen, bfd.HeaderSize)
-		}
-
-		// All padding bytes must be zero.
-		for i := bfdLen; i < len(raw); i++ {
-			if raw[i] != 0 {
-				t.Errorf("padding byte %d = %#x, want 0x00", i, raw[i])
-				break
-			}
 		}
 
 		time.Sleep(10 * time.Millisecond)

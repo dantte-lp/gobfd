@@ -1,6 +1,7 @@
 package netio_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -32,6 +33,56 @@ type overlaySendRecord struct {
 
 type countWarnHandler struct {
 	warnings atomic.Int64
+}
+
+type overlayConnConstructor func() (netio.OverlayConn, error)
+
+func testOverlayConnLoopbackLifecycle(
+	t *testing.T,
+	backend string,
+	newConn overlayConnConstructor,
+) {
+	t.Helper()
+
+	conn, err := newConn()
+	if err != nil {
+		t.Skipf("%s loopback socket unavailable: %v", backend, err)
+	}
+
+	loopback := netip.MustParseAddr("127.0.0.1")
+	payload := makePayload(24)
+	if sendErr := conn.SendEncapsulated(context.Background(), payload, loopback); sendErr != nil {
+		t.Fatalf("SendEncapsulated: %v", sendErr)
+	}
+
+	gotPayload, meta, err := conn.RecvDecapsulated(context.Background())
+	if err != nil {
+		t.Fatalf("RecvDecapsulated: %v", err)
+	}
+	if !bytes.Equal(gotPayload, payload) {
+		t.Fatalf("payload = %x, want %x", gotPayload, payload)
+	}
+	if meta.VNI != 100 {
+		t.Fatalf("VNI = %d, want 100", meta.VNI)
+	}
+
+	err = conn.SendEncapsulated(context.Background(), makePayload(9000), loopback)
+	if !errors.Is(err, netio.ErrInnerPacketBufferTooShort) {
+		t.Fatalf("oversized SendEncapsulated error = %v, want ErrInnerPacketBufferTooShort", err)
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if err := conn.SendEncapsulated(context.Background(), makePayload(24), loopback); !errors.Is(
+		err,
+		netio.ErrOverlayRecvClosed,
+	) {
+		t.Fatalf("SendEncapsulated after Close error = %v, want ErrOverlayRecvClosed", err)
+	}
 }
 
 func (h *countWarnHandler) Enabled(context.Context, slog.Level) bool {
