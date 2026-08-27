@@ -158,20 +158,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_response="$RUNNER_TEMP/release-preflight-response.txt"
-          release_error="$RUNNER_TEMP/release-preflight-error.txt"
-          if gh api --include \
-            "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
-            >"$release_response" 2>"$release_error"; then
-            echo "release or draft already exists: $GITHUB_REF_NAME" >&2
+          repository_owner="${GITHUB_REPOSITORY%%/*}"
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          if [ -z "$repository_owner" ] || [ -z "$repository_name" ] || \
+            [ "$repository_name" = "$GITHUB_REPOSITORY" ] || \
+            [[ "$repository_name" == */* ]]; then
+            echo "invalid GITHUB_REPOSITORY: $GITHUB_REPOSITORY" >&2
             exit 1
           fi
 
-          release_status="$(awk '/^HTTP\// { status=$2 } END { print status }' \
-            "$release_response")"
-          if [ "$release_status" != "404" ]; then
-            echo "release preflight failed with HTTP status ${release_status:-unknown}" >&2
-            cat "$release_response" "$release_error" >&2
+          # GraphQL variable references must remain literal for the API.
+          # shellcheck disable=SC2016
+          release_query="$(gh api graphql \
+            -f query='
+              query($owner: String!, $name: String!, $tag: String!) {
+                repository(owner: $owner, name: $name) {
+                  release(tagName: $tag) {
+                    id
+                    isDraft
+                    tagName
+                  }
+                }
+              }
+            ' \
+            -F owner="$repository_owner" \
+            -F name="$repository_name" \
+            -F tag="$GITHUB_REF_NAME")"
+          jq -e '
+            (.errors? == null) or
+            ((.errors | type) == "array" and (.errors | length) == 0)
+          ' <<<"$release_query" >/dev/null
+          jq -e '.data.repository | type == "object"' \
+            <<<"$release_query" >/dev/null
+          jq -e '.data.repository | has("release")' \
+            <<<"$release_query" >/dev/null
+          release_state="$(jq -er '
+            if .data.repository.release == null then "absent" else "exists" end
+          ' <<<"$release_query")"
+          if [ "$release_state" != "absent" ]; then
+            echo "release or draft already exists: $GITHUB_REF_NAME" >&2
             exit 1
           fi
 
@@ -218,7 +243,7 @@ jobs:
             exit 1
           fi
 
-          if [ ! -s release-notes.md ]; then
+          if ! grep -q '[^[:space:]]' release-notes.md; then
             echo "Dated CHANGELOG.md section for version $VERSION is empty." >&2
             exit 1
           fi
@@ -290,6 +315,10 @@ jobs:
 
           jq -e '
             type == "array" and
+            (any(.[]; .type == "Archive")) and
+            (any(.[]; .type == "Linux Package")) and
+            (any(.[]; .type == "Checksum")) and
+            (any(.[]; .type == "SBOM")) and
             ([.[] |
               select(.type == "Archive" or .type == "Linux Package" or
                 .type == "Checksum" or .type == "SBOM") |
@@ -324,7 +353,7 @@ jobs:
               select(.annotations["vnd.docker.reference.type"] !=
                 "attestation-manifest") |
               "\(.platform.os)/\(.platform.architecture)"
-            ' "$raw_manifest" | LC_ALL=C sort -u >"$actual_platforms"
+            ' "$raw_manifest" | LC_ALL=C sort >"$actual_platforms"
             diff -u "$RUNNER_TEMP/expected-release-platforms.txt" \
               "$actual_platforms"
             image_digest="$(sha256sum "$raw_manifest")"
@@ -398,7 +427,7 @@ jobs:
               select(.annotations["vnd.docker.reference.type"] !=
                 "attestation-manifest") |
               "\(.platform.os)/\(.platform.architecture)"
-            ' "$raw_manifest" | LC_ALL=C sort -u >"$actual_platforms"
+            ' "$raw_manifest" | LC_ALL=C sort >"$actual_platforms"
             diff -u "$RUNNER_TEMP/verified-release-platforms.txt" \
               "$actual_platforms"
             image_digest="$(sha256sum "$raw_manifest")"
@@ -412,6 +441,18 @@ jobs:
 
           release_json="$(gh release view "$GITHUB_REF_NAME" \
             --json isDraft,tagName,body,assets)"
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "expected release notes are empty" >&2
+            exit 1
+          fi
+          # Command substitution normalizes trailing newlines on both bodies.
+          expected_body="$(cat release-notes.md)"
+          actual_body="$(jq -er '.body | select(type == "string")' \
+            <<<"$release_json")"
+          if [ "$actual_body" != "$expected_body" ]; then
+            echo "draft body does not exactly match release-notes.md" >&2
+            exit 1
+          fi
           jq -e --arg tag "$GITHUB_REF_NAME" '
             .isDraft == true and
             .tagName == $tag and
