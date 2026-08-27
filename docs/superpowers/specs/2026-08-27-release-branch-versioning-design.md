@@ -209,7 +209,9 @@ release is a draft:
    class, exactly one runnable descriptor for each supported OCI platform, and
    corresponding SPDX plus SLSA attestation evidence. Parse the actual
    platform-specific SPDX and current BuildKit SLSA v1 JSON payloads before
-   alias promotion; predicate annotations alone are insufficient.
+   alias promotion. Accept the default empty `builder.id` as a string and use
+   the emitted `invocationId` field; predicate annotations alone are
+   insufficient.
 4. After all immutable evidence passes, promote the three mutable OCI aliases
    from the exact recorded index digests and verify them by digest. Publish the
    complete draft as the workflow's final GitHub Release mutation.

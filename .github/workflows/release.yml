@@ -530,8 +530,8 @@ jobs:
                 (.buildDefinition.resolvedDependencies |
                   type == "array" and length > 0) and
                 (.runDetails.builder.id |
-                  type == "string" and length > 0) and
-                (.runDetails.metadata.invocationID |
+                  type == "string") and
+                (.runDetails.metadata.invocationId |
                   type == "string" and length > 0) and
                 (.runDetails.metadata.startedOn |
                   type == "string" and length > 0) and
