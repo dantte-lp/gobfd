@@ -139,14 +139,20 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
 		"release:\n  draft: true\n  mode: keep_existing\n",
 	})
-	if strings.Contains(configuration, "use_existing_draft: true") {
-		t.Error("release workflow may not silently reuse a partial draft")
+	for _, forbidden := range []string{
+		"use_existing_draft: true",
+		"replace_existing_draft: true",
+		"replace_existing_artifacts: true",
+	} {
+		if strings.Contains(configuration, forbidden) {
+			t.Errorf("GoReleaser configuration enables forbidden retry behavior %q", forbidden)
+		}
 	}
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
 	requireContractStrings(t, "release workflow", workflow, []string{
 		"gh release upload \"$GITHUB_REF_NAME\" \\",
-		"Refuse existing release or draft",
+		"Refuse existing release, draft, or versioned OCI tag",
 		"Verify exact release draft",
 		"expected-release-assets.txt",
 		"release-image-digests.txt",
@@ -193,10 +199,28 @@ release:
 
 Do not enable `use_existing_draft`, `replace_existing_draft`, or
 `replace_existing_artifacts`. Before the GoReleaser action, add a named
-`Refuse existing release or draft` step. It uses `gh release view` and fails if
-any release or draft already exists for `GITHUB_REF_NAME`; only the documented
-not-found result permits GoReleaser to run. This makes partial publication fail
-closed instead of pretending a duplicate upload is idempotent.
+`Refuse existing release, draft, or versioned OCI tag` step. It uses
+`gh release view` and fails if any release or draft already exists for
+`GITHUB_REF_NAME`; only the documented not-found result permits the release
+check to continue.
+
+Then query every GHCR package-version page through:
+
+```bash
+existing_tags="$(gh api --paginate \
+  '/users/dantte-lp/packages/container/gobfd/versions?per_page=100' \
+  --slurp | jq -r 'flatten | .[].metadata.container.tags[]?' | LC_ALL=C sort -u)"
+version="${GITHUB_REF_NAME#v}"
+for tag in "$version" "$version-debian-trixie" "$version-oraclelinux10"; do
+  if grep -Fxq "$tag" <<<"$existing_tags"; then
+    echo "versioned OCI tag already exists: $tag" >&2
+    exit 1
+  fi
+done
+```
+
+An API error is fatal. This makes partial GitHub or GHCR publication fail closed
+instead of pretending a duplicate upload is idempotent.
 
 - [ ] **Step 4: Fail closed when changelog notes are absent**
 
