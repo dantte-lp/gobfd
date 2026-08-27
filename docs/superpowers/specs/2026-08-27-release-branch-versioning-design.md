@@ -183,8 +183,9 @@ Enable GitHub immutable releases and protect `v*` tags before the first v0.6.2
 tag is pushed. The release workflow must finish every mutation while the
 release is a draft:
 
-1. Configure GoReleaser `release.draft: true`. Before GoReleaser runs, fail if
-   any release, draft, or exact versioned OCI tag already exists for the cut.
+1. Configure GoReleaser `release.draft: true` and the documented release-notes
+   mode `release.mode: keep-existing`. Before GoReleaser runs, fail if any
+   release, draft, or exact versioned OCI tag already exists for the cut.
    GoReleaser creates one new draft and uploads its artifacts and release
    notes. Existing-draft reuse and artifact or draft replacement remain
    disabled.

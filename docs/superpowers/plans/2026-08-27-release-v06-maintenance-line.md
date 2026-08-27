@@ -137,7 +137,7 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 
 	configuration := readContractFile(t, "../.goreleaser.yml")
 	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
-		"release:\n  draft: true\n  mode: keep_existing\n",
+		"release:\n  draft: true\n  mode: keep-existing\n",
 	})
 	for _, forbidden := range []string{
 		"use_existing_draft: true",
@@ -194,7 +194,7 @@ Change the release block to:
 ```yaml
 release:
   draft: true
-  mode: keep_existing
+  mode: keep-existing
 ```
 
 Do not enable `use_existing_draft`, `replace_existing_draft`, or
