@@ -21,6 +21,7 @@ const (
 	defaultRootfulSocket = "/run/podman/podman.sock"
 	defaultAPIBaseURL    = "http://d/v5.0.0"
 	maxDockerFrameSize   = 64 << 20
+	maxResponseBodySize  = 1 << 20
 )
 
 var (
@@ -29,13 +30,24 @@ var (
 	errEmptyExecCommand     = errors.New("exec command is empty")
 	errExecCreateStatus     = errors.New("exec create returned non-success status")
 	errExecCreateIDEmpty    = errors.New("exec create returned empty exec ID")
+	errExecStartStatus      = errors.New("exec start returned non-success status")
+	errExecInspectStatus    = errors.New("exec inspect returned non-success status")
+	errExecInspectTrailing  = errors.New("exec inspect returned trailing JSON value")
+	errExecExitCodeMissing  = errors.New("exec inspect returned no exit code")
 	errExecNonZero          = errors.New("exec exited with non-zero code")
 	errLogsStatus           = errors.New("container logs returned non-success status")
 	errInspectStatus        = errors.New("container inspect returned non-success status")
+	errLibpodInspectStatus  = errors.New("libpod container inspect returned non-success status")
+	errImageInspectStatus   = errors.New("image inspect returned non-success status")
+	errImageIDEmpty         = errors.New("image inspect returned empty content ID")
+	errImageRemoveStatus    = errors.New("image remove returned non-success status")
+	errVolumeInspectStatus  = errors.New("volume inspect returned non-success status")
 	errListContainersStatus = errors.New("container list returned non-success status")
 	errDockerFrameTooLarge  = errors.New("docker stream frame exceeds size limit")
 	errContainerActionState = errors.New("container action returned non-success status")
 	errReadResponseBody     = errors.New("read response body")
+	errEmptyResponseBody    = errors.New("response body is empty")
+	errResponseBodyTooLarge = errors.New("response body exceeds limit")
 )
 
 // Client is a minimal Podman REST API client for integration tests.
@@ -109,7 +121,11 @@ func (c *Client) Exec(ctx context.Context, container string, argv []string) (Exe
 	if err != nil {
 		return result, err
 	}
-	result.ExitCode = c.execExitCode(ctx, execID)
+	exitCode, err := c.execExitCode(ctx, execID)
+	if err != nil {
+		return result, fmt.Errorf("inspect exec exit code for container %s: %w", container, err)
+	}
+	result.ExitCode = exitCode
 
 	if result.ExitCode != 0 {
 		return result, fmt.Errorf("%w: container %s code %d: %s%s",
@@ -166,6 +182,17 @@ func (c *Client) startExec(ctx context.Context, container, execID string) (ExecR
 		return ExecResult{}, fmt.Errorf("exec start request: %w", err)
 	}
 	defer startResp.Body.Close()
+	if startResp.StatusCode < http.StatusOK || startResp.StatusCode >= http.StatusMultipleChoices {
+		body, readErr := readBody(startResp.Body, "exec start error body")
+		if readErr != nil {
+			return ExecResult{}, fmt.Errorf(
+				"%w: container %s status %d: %w", errExecStartStatus, container, startResp.StatusCode, readErr,
+			)
+		}
+		return ExecResult{}, fmt.Errorf(
+			"%w: container %s status %d: %s", errExecStartStatus, container, startResp.StatusCode, body,
+		)
+	}
 
 	stdout, stderr, err := DemuxDockerStream(startResp.Body)
 	if err != nil {
@@ -175,20 +202,42 @@ func (c *Client) startExec(ctx context.Context, container, execID string) (ExecR
 	return ExecResult{Stdout: stdout, Stderr: stderr}, nil
 }
 
-func (c *Client) execExitCode(ctx context.Context, execID string) int {
+func (c *Client) execExitCode(ctx context.Context, execID string) (int, error) {
 	inspectResp, err := c.do(ctx, http.MethodGet, "/exec/"+url.PathEscape(execID)+"/json")
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("send exec inspect request: %w", err)
 	}
 	defer inspectResp.Body.Close()
+	if inspectResp.StatusCode < http.StatusOK || inspectResp.StatusCode >= http.StatusMultipleChoices {
+		body, readErr := readBody(inspectResp.Body, "exec inspect error body")
+		if readErr != nil {
+			return 0, fmt.Errorf(
+				"%w: exec %s status %d: %w", errExecInspectStatus, execID, inspectResp.StatusCode, readErr,
+			)
+		}
+		return 0, fmt.Errorf(
+			"%w: exec %s status %d: %s", errExecInspectStatus, execID, inspectResp.StatusCode, body,
+		)
+	}
 
 	var inspected struct {
-		ExitCode int `json:"ExitCode"` //nolint:tagliatelle // Docker-compatible API field.
+		ExitCode *int `json:"ExitCode"` //nolint:tagliatelle // Docker-compatible API field.
 	}
-	if err := json.NewDecoder(inspectResp.Body).Decode(&inspected); err != nil {
-		return 0
+	decoder := json.NewDecoder(inspectResp.Body)
+	if err := decoder.Decode(&inspected); err != nil {
+		return 0, fmt.Errorf("decode exec %s inspection: %w", execID, err)
 	}
-	return inspected.ExitCode
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return 0, fmt.Errorf("%w: exec %s", errExecInspectTrailing, execID)
+		}
+		return 0, fmt.Errorf("decode trailing exec %s inspection JSON: %w", execID, err)
+	}
+	if inspected.ExitCode == nil {
+		return 0, fmt.Errorf("%w: exec %s", errExecExitCodeMissing, execID)
+	}
+	return *inspected.ExitCode, nil
 }
 
 // Logs returns recent container logs via the Docker-compatible API endpoint.
@@ -239,11 +288,127 @@ func (c *Client) Inspect(ctx context.Context, container string) (json.RawMessage
 		}
 		return nil, fmt.Errorf("%w: container %s status %d: %s", errInspectStatus, container, resp.StatusCode, body)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBody(resp.Body, "container inspect success body")
 	if err != nil {
 		return nil, fmt.Errorf("inspect %s response: %w", container, err)
 	}
 	return json.RawMessage(body), nil
+}
+
+// EffectiveCapabilities returns the process capabilities reported by Podman's
+// native inspect endpoint. The Docker-compatible inspect response omits them.
+func (c *Client) EffectiveCapabilities(ctx context.Context, container string) ([]string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/libpod/containers/"+url.PathEscape(container)+"/json")
+	if err != nil {
+		return nil, fmt.Errorf("libpod inspect %s: %w", container, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := readBody(resp.Body, "libpod inspect error body")
+		if readErr != nil {
+			return nil, readErr
+		}
+		return nil, fmt.Errorf("%w: container %s status %d: %s", errLibpodInspectStatus, container, resp.StatusCode, body)
+	}
+	var inspected struct {
+		EffectiveCaps []string `json:"EffectiveCaps"` //nolint:tagliatelle // Podman API field
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&inspected); err != nil {
+		return nil, fmt.Errorf("decode libpod inspect %s response: %w", container, err)
+	}
+	return inspected.EffectiveCaps, nil
+}
+
+// ImageExists checks image presence and distinguishes not-found from API
+// failures so cleanup assertions fail closed.
+func (c *Client) ImageExists(ctx context.Context, image string) (bool, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(image)+"/json")
+	if err != nil {
+		return false, fmt.Errorf("inspect image %s: %w", image, err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		body, readErr := readBody(resp.Body, "image inspect error body")
+		if readErr != nil {
+			return false, readErr
+		}
+		return false, fmt.Errorf("%w: image %s status %d: %s", errImageInspectStatus, image, resp.StatusCode, body)
+	}
+}
+
+// VolumeExists checks exact volume presence and fails closed on API errors.
+func (c *Client) VolumeExists(ctx context.Context, volume string) (bool, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/volumes/"+url.PathEscape(volume))
+	if err != nil {
+		return false, fmt.Errorf("inspect volume %s: %w", volume, err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		body, readErr := readBody(resp.Body, "volume inspect error body")
+		if readErr != nil {
+			return false, readErr
+		}
+		return false, fmt.Errorf("%w: volume %s status %d: %s", errVolumeInspectStatus, volume, resp.StatusCode, body)
+	}
+}
+
+// ImageID returns the immutable content ID for an exact image tag and fails
+// closed when Podman omits the ID or returns a non-success response.
+func (c *Client) ImageID(ctx context.Context, image string) (string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/images/"+url.PathEscape(image)+"/json")
+	if err != nil {
+		return "", fmt.Errorf("inspect image ID %s: %w", image, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := readBody(resp.Body, "image ID inspect error body")
+		if readErr != nil {
+			return "", readErr
+		}
+		return "", fmt.Errorf("%w: image %s status %d: %s", errImageInspectStatus, image, resp.StatusCode, body)
+	}
+	var inspection struct {
+		ID string `json:"Id"` //nolint:tagliatelle // Docker-compatible API field.
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&inspection); err != nil {
+		return "", fmt.Errorf("decode image ID inspection for %s: %w", image, err)
+	}
+	if inspection.ID == "" {
+		return "", fmt.Errorf("%w: image %s", errImageIDEmpty, image)
+	}
+	return inspection.ID, nil
+}
+
+// RemoveImage removes an image owned by a test without forcing removal of
+// images that still have consumers.
+func (c *Client) RemoveImage(ctx context.Context, image string) error {
+	resp, err := c.do(ctx, http.MethodDelete, "/images/"+url.PathEscape(image)+"?force=false")
+	if err != nil {
+		return fmt.Errorf("remove image %s: %w", image, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, readErr := readBody(resp.Body, "image remove error body")
+		if readErr != nil {
+			return readErr
+		}
+		return fmt.Errorf("%w: image %s status %d: %s", errImageRemoveStatus, image, resp.StatusCode, body)
+	}
+	return nil
 }
 
 // Containers returns all containers visible through the Podman API socket.
@@ -314,7 +479,12 @@ func DemuxDockerStream(r io.Reader) (string, string, error) {
 			continue
 		}
 		if size > maxDockerFrameSize {
-			return out.String(), errOut.String(), fmt.Errorf("%w: size %d limit %d", errDockerFrameTooLarge, size, maxDockerFrameSize)
+			return out.String(), errOut.String(), fmt.Errorf(
+				"%w: size %d limit %d",
+				errDockerFrameTooLarge,
+				size,
+				maxDockerFrameSize,
+			)
 		}
 
 		payload := make([]byte, size)
@@ -349,30 +519,55 @@ func (c *Client) containerAction(ctx context.Context, container, action string, 
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("%w: action %s container %s status %d: %s", errContainerActionState, action, container, resp.StatusCode, body)
+	return fmt.Errorf(
+		"%w: action %s container %s status %d: %s",
+		errContainerActionState,
+		action,
+		container,
+		resp.StatusCode,
+		body,
+	)
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create %s JSON request for %s: %w", method, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send %s JSON request to %s: %w", method, path, err)
+	}
+
+	return resp, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create %s request for %s: %w", method, path, err)
 	}
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send %s request to %s: %w", method, path, err)
+	}
+
+	return resp, nil
 }
 
 func readBody(r io.Reader, context string) (string, error) {
-	body, err := io.ReadAll(r)
+	body, err := io.ReadAll(io.LimitReader(r, maxResponseBodySize+1))
 	if err != nil {
 		return "", fmt.Errorf("%w: %s: %w", errReadResponseBody, context, err)
+	}
+	if len(body) == 0 {
+		return "", fmt.Errorf("%w: %s: %w", errReadResponseBody, context, errEmptyResponseBody)
+	}
+	if len(body) > maxResponseBodySize {
+		return "", fmt.Errorf(
+			"%w: %s: %w: limit %d", errReadResponseBody, context, errResponseBodyTooLarge, maxResponseBodySize,
+		)
 	}
 	return string(body), nil
 }

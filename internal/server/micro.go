@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/netip"
 
@@ -30,6 +31,8 @@ var (
 
 	// ErrMicroDetectMultZero indicates a zero detect_multiplier on micro-BFD.
 	ErrMicroDetectMultZero = errors.New("detect_multiplier must be >= 1 for micro-BFD")
+
+	errMicroSnapshotCountOverflow = errors.New("micro-bfd snapshot count exceeds uint32")
 )
 
 // MicroBFDServer implements bfdv1connect.MicroBFDServiceHandler.
@@ -80,8 +83,12 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 
 	for _, snap := range s.manager.MicroBFDGroups() {
 		if snap.LAGInterface == cfg.LAGInterface {
+			group, err := microGroupSnapshotToProto(snap, cfg)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, err)
+			}
 			return &bfdv1.AddMicroBFDGroupResponse{
-				Group: microGroupSnapshotToProto(snap, cfg),
+				Group: group,
 			}, nil
 		}
 	}
@@ -122,7 +129,11 @@ func (s *MicroBFDServer) ListMicroBFDGroups(
 		Groups: make([]*bfdv1.MicroBFDGroup, 0, len(snaps)),
 	}
 	for _, snap := range snaps {
-		out.Groups = append(out.Groups, microGroupSnapshotToProto(snap, bfd.MicroBFDConfig{}))
+		group, err := microGroupSnapshotToProto(snap, bfd.MicroBFDConfig{})
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		out.Groups = append(out.Groups, group)
 	}
 	return out, nil
 }
@@ -152,7 +163,7 @@ func microBFDConfigFromProto(req *bfdv1.AddMicroBFDGroupRequest) (bfd.MicroBFDCo
 	if mult == 0 {
 		return bfd.MicroBFDConfig{}, ErrMicroDetectMultZero
 	}
-	if mult > 255 {
+	if mult > maxBFDWireUint8 {
 		return bfd.MicroBFDConfig{}, fmt.Errorf("value %d: %w", mult, ErrDetectMultOverflow)
 	}
 
@@ -175,7 +186,10 @@ func microBFDConfigFromProto(req *bfdv1.AddMicroBFDGroupRequest) (bfd.MicroBFDCo
 	}, nil
 }
 
-func microGroupSnapshotToProto(snap bfd.MicroBFDGroupSnapshot, cfg bfd.MicroBFDConfig) *bfdv1.MicroBFDGroup {
+func microGroupSnapshotToProto(
+	snap bfd.MicroBFDGroupSnapshot,
+	cfg bfd.MicroBFDConfig,
+) (*bfdv1.MicroBFDGroup, error) {
 	out := &bfdv1.MicroBFDGroup{
 		LagInterface: snap.LAGInterface,
 		PeerAddress:  snap.PeerAddr.String(),
@@ -183,10 +197,18 @@ func microGroupSnapshotToProto(snap bfd.MicroBFDGroupSnapshot, cfg bfd.MicroBFDC
 		AggregateUp:  snap.AggregateUp,
 	}
 	if snap.UpCount >= 0 {
-		out.UpMemberCount = uint32(snap.UpCount) //nolint:gosec // G115: snap.UpCount is bounded by len(MemberLinks), guarded above.
+		upCount, err := microSnapshotCountToUint32("up_member_count", snap.UpCount)
+		if err != nil {
+			return nil, err
+		}
+		out.UpMemberCount = upCount
 	}
 	if snap.MinActiveLinks >= 0 {
-		out.MinActiveLinks = uint32(snap.MinActiveLinks) //nolint:gosec // G115: validated >= 1 in microBFDConfigFromProto.
+		minActiveLinks, err := microSnapshotCountToUint32("min_active_links", snap.MinActiveLinks)
+		if err != nil {
+			return nil, err
+		}
+		out.MinActiveLinks = minActiveLinks
 	}
 	if cfg.LAGInterface != "" {
 		out.MemberLinks = cfg.MemberLinks
@@ -199,5 +221,12 @@ func microGroupSnapshotToProto(snap bfd.MicroBFDGroupSnapshot, cfg bfd.MicroBFDC
 			out.MemberLinks = append(out.MemberLinks, m.Interface)
 		}
 	}
-	return out
+	return out, nil
+}
+
+func microSnapshotCountToUint32(name string, value int) (uint32, error) {
+	if value < 0 || uint64(value) > math.MaxUint32 {
+		return 0, fmt.Errorf("%s=%d: %w", name, value, errMicroSnapshotCountOverflow)
+	}
+	return uint32(value), nil // #nosec G115 -- the explicit uint64 bound above proves the conversion fits.
 }

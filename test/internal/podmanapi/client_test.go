@@ -5,10 +5,14 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +50,14 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 			_, _ = w.Write(appendFrame(nil, 1, "log\n"))
 		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/containers/demo/json":
 			_, _ = w.Write([]byte(`{"State":{"Status":"running"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/libpod/containers/demo/json":
+			_, _ = w.Write([]byte(`{"EffectiveCaps":["CAP_NET_ADMIN","CAP_NET_RAW"]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/images/demo-image/json":
+			_, _ = w.Write([]byte(`{"Id":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/images/missing-image/json":
+			http.NotFound(w, r)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v5.0.0/images/demo-image":
+			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/v5.0.0/containers/json":
 			_, _ = w.Write([]byte(`[{"Id":"demo-id","Names":["demo"],"Labels":{"io.podman.compose.service":"demo"}}]`))
 		case r.Method == http.MethodPost && r.URL.Path == "/v5.0.0/containers/demo/pause":
@@ -92,6 +104,30 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 		t.Fatalf("Inspect JSON: %v", unmarshalErr)
 	}
 
+	capabilities, err := client.EffectiveCapabilities(context.Background(), "demo")
+	if err != nil {
+		t.Fatalf("EffectiveCapabilities: %v", err)
+	}
+	if len(capabilities) != 2 || capabilities[0] != "CAP_NET_ADMIN" || capabilities[1] != "CAP_NET_RAW" {
+		t.Fatalf("EffectiveCapabilities = %v", capabilities)
+	}
+
+	exists, err := client.ImageExists(context.Background(), "demo-image")
+	if err != nil || !exists {
+		t.Fatalf("ImageExists(demo-image) = %t, %v", exists, err)
+	}
+	imageID, err := client.ImageID(context.Background(), "demo-image")
+	if err != nil || imageID != "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("ImageID(demo-image) = %q, %v", imageID, err)
+	}
+	exists, err = client.ImageExists(context.Background(), "missing-image")
+	if err != nil || exists {
+		t.Fatalf("ImageExists(missing-image) = %t, %v", exists, err)
+	}
+	if removeErr := client.RemoveImage(context.Background(), "demo-image"); removeErr != nil {
+		t.Fatalf("RemoveImage: %v", removeErr)
+	}
+
 	containers, err := client.Containers(context.Background())
 	if err != nil {
 		t.Fatalf("Containers: %v", err)
@@ -119,6 +155,148 @@ func TestClientExecLogsInspectAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestClientExecRejectsStartAndInspectFailures(t *testing.T) {
+	tests := map[string]struct {
+		startStatus   int
+		inspectStatus int
+		inspectBody   string
+		want          error
+		wantDecode    error
+		wantTransport bool
+		breakPath     string
+	}{
+		"start status": {startStatus: http.StatusInternalServerError, want: errExecStartStatus},
+		"start transport": {
+			startStatus: http.StatusOK, breakPath: "/v5.0.0/exec/exec-1/start", wantTransport: true,
+		},
+		"inspect status": {
+			startStatus: http.StatusOK, inspectStatus: http.StatusBadGateway,
+			want: errExecInspectStatus,
+		},
+		"inspect transport": {
+			startStatus: http.StatusOK, inspectStatus: http.StatusOK,
+			breakPath: "/v5.0.0/exec/exec-1/json", wantTransport: true,
+		},
+		"inspect JSON": {
+			startStatus: http.StatusOK, inspectStatus: http.StatusOK, inspectBody: `{`, wantDecode: io.ErrUnexpectedEOF,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "podman.sock")
+			server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == test.breakPath {
+					connection, _, hijackErr := w.(http.Hijacker).Hijack()
+					if hijackErr == nil {
+						_ = connection.Close()
+					}
+					return
+				}
+				switch r.URL.Path {
+				case "/v5.0.0/containers/demo/exec":
+					w.WriteHeader(http.StatusCreated)
+					_, _ = w.Write([]byte(`{"Id":"exec-1"}`))
+				case "/v5.0.0/exec/exec-1/start":
+					w.WriteHeader(test.startStatus)
+					if test.startStatus == http.StatusOK {
+						_, _ = w.Write(appendFrame(nil, 1, "output\n"))
+					}
+				case "/v5.0.0/exec/exec-1/json":
+					w.WriteHeader(test.inspectStatus)
+					_, _ = w.Write([]byte(test.inspectBody))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client, err := NewClient(socket)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			_, err = client.Exec(t.Context(), "demo", []string{"true"})
+			if test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("Exec error = %v, want %v", err, test.want)
+			}
+			if test.wantDecode != nil && !errors.Is(err, test.wantDecode) {
+				t.Fatalf("Exec error = %v, want wrapped decode error %v", err, test.wantDecode)
+			}
+			if test.wantTransport {
+				if _, ok := errors.AsType[*url.Error](err); !ok {
+					t.Fatalf("Exec error = %v, want wrapped HTTP transport error", err)
+				}
+			}
+		})
+	}
+}
+
+func TestClientInspectRejectsEmptyAndOversizedSuccessBodies(t *testing.T) {
+	for name, test := range map[string]struct {
+		body string
+		want error
+	}{
+		"empty":     {body: "", want: errEmptyResponseBody},
+		"oversized": {body: strings.Repeat("x", 1<<20+1), want: errResponseBodyTooLarge},
+	} {
+		t.Run(name, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "podman.sock")
+			server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+			client, err := NewClient(socket)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			if _, err := client.Inspect(t.Context(), "demo"); !errors.Is(err, test.want) {
+				t.Fatalf("Inspect error = %v, want wrapped %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestClientVolumeExists(t *testing.T) {
+	for name, test := range map[string]struct {
+		status  int
+		body    string
+		want    bool
+		wantErr error
+	}{
+		"present":     {status: http.StatusOK, want: true},
+		"absent":      {status: http.StatusNotFound},
+		"API failure": {status: http.StatusInternalServerError, body: "failed", wantErr: errVolumeInspectStatus},
+		"oversized body": {
+			status:  http.StatusInternalServerError,
+			body:    strings.Repeat("x", maxResponseBodySize+1),
+			wantErr: errResponseBodyTooLarge,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "podman.sock")
+			server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/v5.0.0/volumes/prometheus-anonymous-volume" {
+					http.NotFound(w, r)
+					return
+				}
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			client, err := NewClient(socket)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			exists, err := client.VolumeExists(t.Context(), "prometheus-anonymous-volume")
+			if exists != test.want {
+				t.Fatalf("VolumeExists = %t, want %t", exists, test.want)
+			}
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("VolumeExists error = %v, want wrapped %v", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestClientLogsFallsBackToPlainText(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "podman.sock")
 	server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +319,35 @@ func TestClientLogsFallsBackToPlainText(t *testing.T) {
 	}
 	if logs != "plain log\n" {
 		t.Fatalf("Logs = %q", logs)
+	}
+}
+
+func TestClientContainersPreservesEncodingJSONV1Compatibility(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "podman.sock")
+	server := newUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v5.0.0/containers/json" {
+			http.NotFound(w, r)
+			return
+		}
+		response := append([]byte(`[{"Id":"stale","Id":"current","Names":["bad`), 0xff)
+		response = append(response, []byte(`"]}]`)...)
+		_, _ = w.Write(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(socket)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	containers, err := client.Containers(context.Background())
+	if err != nil {
+		t.Fatalf("Containers: %v", err)
+	}
+	if len(containers) != 1 || containers[0].ID != "current" {
+		t.Fatalf("Containers = %+v, want duplicate-key last ID", containers)
+	}
+	if len(containers[0].Names) != 1 || containers[0].Names[0] != "bad\ufffd" {
+		t.Fatalf("Names = %q, want replacement character", containers[0].Names)
 	}
 }
 

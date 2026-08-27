@@ -4,6 +4,7 @@ package netio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -124,7 +125,10 @@ func NewUDPSender(
 	// Apply write buffer tuning if configured.
 	if s.writeBufferSize > 0 {
 		if err := conn.SetWriteBuffer(s.writeBufferSize); err != nil {
-			conn.Close() //nolint:gosec // G104: already returning primary error
+			closeErr := conn.Close()
+			if closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close UDP sender socket: %w", closeErr))
+			}
 			return nil, fmt.Errorf("set write buffer to %d: %w", s.writeBufferSize, err)
 		}
 	}

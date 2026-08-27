@@ -1,6 +1,6 @@
 # Architecture
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![RFC 5880](https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge)
 ![ConnectRPC](https://img.shields.io/badge/ConnectRPC-gRPC-ea4335?style=for-the-badge)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?style=for-the-badge&logo=prometheus)
@@ -113,7 +113,8 @@ graph TB
 
 - `internal/bfd` has **zero** dependency on `internal/server`, `internal/netio`, or `internal/config`
 - `internal/server` depends on `internal/bfd` (Manager, Session, types) and `pkg/bfdpb`
-- `internal/netio` depends on `internal/bfd` only for the `PacketSender` interface and `ControlPacket`
+- `internal/netio` reuses the BFD packet codec, pool, packet metadata, sender
+  interface, and Micro-BFD state/event types from `internal/bfd`
 - `pkg/bfdpb` is generated code -- never edited manually
 
 ### Packet RX Flow
@@ -186,7 +187,10 @@ FSM transitions in sequence:
 
 ### Goroutine Model
 
-Each BFD session runs as an independent goroutine with its own timers and state. The goroutine lifetime is bound to a `context.Context` from the Manager.
+Each BFD session runs as an independent goroutine with its own timers and
+state. Its context is detached from the daemon signal context so SIGTERM does
+not stop it before the AdminDown drain. `Manager.Close()` cancels the
+per-session context explicitly.
 
 ```mermaid
 graph TB
@@ -225,12 +229,14 @@ graph TB
 On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
 1. `Manager.DrainAllSessions()` -- set all sessions to AdminDown with Diag = Administratively Down (7)
-2. Wait 2x TX interval for final AdminDown packets to transmit
+2. Wait the fixed two-second `drainTimeout` window for an AdminDown transmit
 3. `Manager.Close()` -- cancel all session goroutines
 4. Close listener sockets
 5. Shut down HTTP servers (gRPC, metrics)
 
-This ensures remote peers see AdminDown rather than a detection timeout, preventing unnecessary BGP route withdrawals.
+This is a best-effort notification window. The current implementation does not
+acknowledge transmission or prove that every peer received AdminDown; atomic
+AdminDown completion remains part of the v1 contract.
 
 ### Project Structure
 
@@ -250,10 +256,11 @@ gobfd/
 |   +-- gobgp/                    # GoBGP gRPC client + flap dampening
 |   +-- metrics/                  # Prometheus collectors
 |   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
+|   +-- sdnotify/                 # systemd readiness/watchdog notifications
 |   +-- server/                   # ConnectRPC server + interceptors
 |   +-- version/                  # Build info
 +-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, aiobfd, Thoro)
++-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
 +-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
 +-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
 +-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
@@ -272,7 +279,7 @@ gobfd/
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Language | Go 1.26 | Green Tea GC, `testing/synctest`, flight recorder |
+| Language | Go 1.27 | Green Tea GC, `testing/synctest`, flight recorder |
 | Network I/O | `x/net/ipv4`, `x/net/ipv6`, `x/sys/unix` | Raw sockets, TTL control, `SO_BINDTODEVICE` |
 | RPC Server | ConnectRPC | gRPC + Connect + gRPC-Web from one handler |
 | RPC Client | `google.golang.org/grpc` | GoBGP integration (gRPC client) |
@@ -281,7 +288,7 @@ gobfd/
 | Metrics | Prometheus `client_golang` | Counters, gauges, histograms |
 | Logging | `log/slog` (stdlib) | Structured JSON/text logging |
 | Protobuf | buf CLI | Lint, breaking detection, code generation |
-| Lint | golangci-lint v2 | 35+ linters, strict configuration |
+| Lint | golangci-lint v2.13.1 | 92 signal-bearing linters, schema and build-tag matrix gates |
 | Release | GoReleaser v2 | Binaries + deb/rpm + container images |
 | Containers | Podman + Podman Compose | Development and testing |
 | systemd | Type=notify, watchdog | Production daemon lifecycle |
@@ -314,4 +321,4 @@ gobfd/
 
 ---
 
-*Last updated: 2026-02-24*
+*Last updated: 2026-08-27*

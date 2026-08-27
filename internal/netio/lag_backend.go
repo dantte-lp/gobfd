@@ -17,9 +17,13 @@ const (
 )
 
 var (
+	// ErrUnsupportedLAGActuatorBackend indicates a recognized backend that cannot be selected.
 	ErrUnsupportedLAGActuatorBackend = errors.New("unsupported LAG actuator backend")
-	ErrUnsupportedLAGOwnerPolicy     = errors.New("unsupported LAG owner policy")
-	ErrInvalidLAGInterfaceName       = errors.New("invalid LAG interface name")
+	// ErrUnsupportedLAGOwnerPolicy indicates a backend and owner-policy mismatch.
+	ErrUnsupportedLAGOwnerPolicy = errors.New("unsupported LAG owner policy")
+	// ErrInvalidLAGInterfaceName indicates an unsafe or malformed Linux interface name.
+	ErrInvalidLAGInterfaceName = errors.New("invalid LAG interface name")
+	// ErrLAGActuatorBackendNotRequired indicates that no backend is needed outside enforce mode.
 	ErrLAGActuatorBackendNotRequired = errors.New("LAG actuator backend is only required in enforce mode")
 )
 
@@ -114,7 +118,7 @@ func (b *KernelBondLAGBackend) writeSlaveCommand(
 	prefix string,
 ) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("write Linux bond membership canceled: %w", err)
 	}
 	if err := validateLAGInterfaceName(lagInterface); err != nil {
 		return fmt.Errorf("lag interface %q: %w", lagInterface, err)
@@ -124,6 +128,7 @@ func (b *KernelBondLAGBackend) writeSlaveCommand(
 	}
 
 	path := filepath.Join(b.sysfsRoot, lagInterface, "bonding", "slaves")
+	// #nosec G304 -- sysfsRoot is trusted constructor configuration, and lagInterface is validated as one path component.
 	file, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
@@ -217,7 +222,7 @@ func (b *OVSLAGBackend) runBondIfaceCommand(
 	memberInterface string,
 ) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("run OVS bond member command canceled: %w", err)
 	}
 	if err := validateLAGInterfaceName(lagInterface); err != nil {
 		return fmt.Errorf("lag interface %q: %w", lagInterface, err)

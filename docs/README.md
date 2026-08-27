@@ -1,6 +1,6 @@
 # GoBFD Documentation / Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-EN%20%2F%20RU-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
@@ -18,6 +18,9 @@ records находятся в `docs/en/adr/`. Дополнительные те�
 |---|---|
 | English | [docs/en/README.md](./en/README.md) |
 | Русский | [docs/ru/README.md](./ru/README.md) |
+
+Current release roadmap: [English](./en/roadmap.md) |
+[Русский](./ru/roadmap.md).
 
 Full RFC source texts used by the documentation are stored in
 [`docs/rfc/`](./rfc/). Полные исходные тексты RFC хранятся в

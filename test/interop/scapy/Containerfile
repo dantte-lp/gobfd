@@ -1,16 +1,19 @@
-# Scapy-based BFD protocol fuzzer for interoperability testing.
+# Go BFD invalid-vector generator for interoperability testing.
 #
-# Sends crafted/invalid BFD packets to GoBFD to verify robustness
-# against malformed input per RFC 5880 Section 6.8.6 validation rules.
-#
-# Uses scapy.contrib.bfd for BFD packet construction.
+# The legacy scapy service identifier is retained by Compose for compatibility,
+# but the executable and its exact 18-group corpus are repository-owned Go.
 
-FROM docker.io/python:3.13-slim-trixie
+FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
 
-RUN pip install --no-cache-dir scapy==2.6.1
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY internal/ ./internal/
+COPY test/interop/scapy/*.go ./test/interop/scapy/
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/bfd-fuzz ./test/interop/scapy
 
-COPY bfd_fuzz.py /opt/bfd_fuzz.py
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
-WORKDIR /opt
+COPY --from=builder /out/bfd-fuzz /usr/local/bin/bfd-fuzz
 
-ENTRYPOINT ["python3", "/opt/bfd_fuzz.py"]
+ENTRYPOINT ["/usr/local/bin/bfd-fuzz"]

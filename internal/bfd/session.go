@@ -590,17 +590,17 @@ func (s *Session) LocalDiscriminator() uint32 { return s.localDiscr }
 
 // State returns the current session state (atomic read).
 func (s *Session) State() State {
-	return State(s.state.Load()) //nolint:gosec // G115: State is 0-3, fits uint8
+	return State(s.state.Load()) // #nosec G115 -- session transitions store only valid State values 0-3.
 }
 
 // RemoteState returns the last reported remote session state (atomic read).
 func (s *Session) RemoteState() State {
-	return State(s.remoteState.Load()) //nolint:gosec // G115: State is 0-3, fits uint8
+	return State(s.remoteState.Load()) // #nosec G115 -- packet decoding yields only valid State values 0-3.
 }
 
 // LocalDiag returns the current local diagnostic code (atomic read).
 func (s *Session) LocalDiag() Diag {
-	return Diag(s.localDiag.Load()) //nolint:gosec // G115: Diag is 0-8, fits uint8
+	return Diag(s.localDiag.Load()) // #nosec G115 -- session transitions store only valid Diag values 0-8.
 }
 
 // RemoteDiscriminator returns the remote discriminator learned from the peer.

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -1115,6 +1118,9 @@ func TestNewMetricsServerServesMetrics(t *testing.T) {
 	if srv.ReadHeaderTimeout != 10*time.Second {
 		t.Fatalf("ReadHeaderTimeout = %v, want 10s", srv.ReadHeaderTimeout)
 	}
+	if srv.MaxHeaderValueCount != 128 {
+		t.Fatalf("MaxHeaderValueCount = %d, want 128", srv.MaxHeaderValueCount)
+	}
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()
@@ -1148,6 +1154,108 @@ func TestNewMetricsServerRegistersFlightRecorderEndpoint(t *testing.T) {
 	if rec.Code == http.StatusNotFound {
 		t.Fatalf("GET /debug/flightrecorder status = %d, endpoint not registered", rec.Code)
 	}
+}
+
+func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+
+	srv := newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger)
+	if srv.Protocols == nil {
+		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
+	}
+	if !srv.Protocols.HTTP1() {
+		t.Error("HTTP/1 is disabled; Connect clients require HTTP/1.1 compatibility")
+	}
+	if !srv.Protocols.UnencryptedHTTP2() {
+		t.Error("unencrypted HTTP/2 is disabled; plaintext gRPC requires h2c")
+	}
+	if srv.MaxHeaderValueCount != 128 {
+		t.Fatalf("MaxHeaderValueCount = %d, want 128", srv.MaxHeaderValueCount)
+	}
+}
+
+func TestHTTPServersEnforceHeaderValueLimit(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+
+	servers := map[string]*http.Server{
+		"metrics": newMetricsServer(
+			config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
+			prometheus.NewRegistry(),
+			nil,
+		),
+		"grpc": newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger),
+	}
+	for name, srv := range servers {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+			serveDone := make(chan error, 1)
+			go func() {
+				serveDone <- srv.Serve(listener)
+			}()
+			t.Cleanup(func() {
+				if err := srv.Close(); err != nil {
+					t.Errorf("close server: %v", err)
+				}
+				if err := <-serveDone; !errors.Is(err, http.ErrServerClosed) {
+					t.Errorf("serve: %v", err)
+				}
+			})
+
+			status := requestWithHeaderValues(t, listener.Addr().String(), maxHTTPHeaderValueCount)
+			if status == http.StatusRequestHeaderFieldsTooLarge {
+				t.Fatalf("%d header values returned status %d", maxHTTPHeaderValueCount, status)
+			}
+			status = requestWithHeaderValues(t, listener.Addr().String(), maxHTTPHeaderValueCount+1)
+			if status != http.StatusRequestHeaderFieldsTooLarge {
+				t.Fatalf(
+					"%d header values returned status %d, want %d",
+					maxHTTPHeaderValueCount+1,
+					status,
+					http.StatusRequestHeaderFieldsTooLarge,
+				)
+			}
+		})
+	}
+}
+
+func requestWithHeaderValues(t *testing.T, addr string, count int) int {
+	t.Helper()
+
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	var request strings.Builder
+	request.WriteString("GET /metrics HTTP/1.0\r\n")
+	for range count {
+		request.WriteString("X-GoBFD-Test: value\r\n")
+	}
+	request.WriteString("\r\n")
+	if _, writeErr := io.WriteString(conn, request.String()); writeErr != nil {
+		t.Fatalf("write request: %v", writeErr)
+	}
+
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	defer response.Body.Close()
+	return response.StatusCode
 }
 
 func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {

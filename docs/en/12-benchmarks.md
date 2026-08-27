@@ -1,8 +1,8 @@
 # Benchmark Guide
 
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![Bench](https://img.shields.io/badge/go_test-bench-1a73e8?style=for-the-badge)
-![Allocs](https://img.shields.io/badge/Hot_Path-0_allocs-34a853?style=for-the-badge)
+![Allocs](https://img.shields.io/badge/Allocs-Measured_Per_Benchmark-ffc107?style=for-the-badge)
 ![Reports](https://img.shields.io/badge/Reports-Reproducible-ffc107?style=for-the-badge)
 
 > How to run, read, and interpret GoBFD benchmark results.
@@ -77,7 +77,7 @@ With `-count=6`, each benchmark line appears 6 times. The `benchstat` tool compu
 
 ### Benchmark Categories
 
-GoBFD has 28 benchmarks across 7 categories in two packages (`internal/bfd` and `internal/netio`).
+GoBFD has 34 benchmarks across 7 categories in two packages (`internal/bfd` and `internal/netio`).
 
 #### 1. Packet Codec (`internal/bfd`)
 
@@ -115,12 +115,17 @@ GoBFD has 28 benchmarks across 7 categories in two packages (`internal/bfd` and 
 | `RecvStateToEvent` | Map BFD state field to FSM event | Called on every received packet |
 | `SessionRecvPacket` | Channel send cost (packet -> session goroutine) | Per-packet demux overhead |
 
-#### 5. Full-Path Benchmarks (`internal/bfd`)
+#### 5. Receive and Transmit Stages (`internal/bfd`)
 
 | Benchmark | What It Measures | Why It Matters |
 |-----------|-----------------|----------------|
-| `FullRecvPath` | Complete RX: unmarshal + state lookup + FSM transition | End-to-end receive latency budget |
-| `FullTxPath` | Complete TX: build cached packet + marshal | End-to-end transmit latency budget |
+| `RecvDecodeLookupEnqueue` | Unmarshal + discriminator lookup + attempted buffered-channel enqueue | Cost before session processing begins |
+| `RecvDecodeFSM` | Unmarshal + state-to-event mapping + stateless FSM transition | Codec and FSM compute cost only |
+| `TxMarshalJitter` | Marshal a pre-built packet + calculate jitter | TX compute stage without socket send |
+
+None of these benchmarks is end to end. In particular,
+`RecvDecodeLookupEnqueue` does not wait for authentication, session-state
+mutation, FSM commit, timer reset, or notification delivery.
 
 #### 6. Session Scaling (`internal/bfd`)
 
@@ -135,7 +140,8 @@ GoBFD has 28 benchmarks across 7 categories in two packages (`internal/bfd` and 
 
 | Benchmark | What It Measures | Why It Matters |
 |-----------|-----------------|----------------|
-| `BuildInnerPacket` | Assemble Ethernet + IPv4 + UDP + BFD inner packet | Required for VXLAN/Geneve encapsulation |
+| `BuildInnerPacketInto` | Assemble inner packet in a caller-owned buffer | Production VXLAN/Geneve TX path |
+| `BuildInnerPacket` | Assemble Ethernet + IPv4 + UDP + BFD inner packet | Allocating compatibility wrapper |
 | `StripInnerPacket` | Extract BFD payload from inner packet | RX path for overlay sessions |
 | `VXLANHeaderMarshal` | VXLAN header serialization (RFC 7348) | Per-packet TX overhead for VXLAN BFD |
 | `VXLANHeaderUnmarshal` | VXLAN header parsing | Per-packet RX overhead for VXLAN BFD |
@@ -153,8 +159,8 @@ Target metrics for GoBFD based on BFD protocol requirements and production const
 | Packet codec (marshal/unmarshal) | 0 allocs/op, <10 ns/op | Called every TX/RX interval (potentially thousands of times per second) |
 | FSM transitions | 0 allocs/op, <25 ns/op | Most frequent operation in the hot path |
 | Timer calculations | <1 ns/op | Pure arithmetic, no memory access required |
-| Full receive path | 0 allocs/op, <100 ns/op | At 100ns/op, theoretical throughput is 10M+ packets/sec |
-| Full transmit path | 0 allocs/op, <10 ns/op | TX uses cached pre-built packet (copy, not rebuild) |
+| Decode + lookup + enqueue stage | Observed allocations and latency | Regression evidence for the named stage only |
+| Marshal + jitter stage | Observed allocations and latency | Regression evidence without the socket send |
 | Session demux (any count) | O(1), ~50 ns/op | Swiss table map lookup, independent of session count |
 | Overlay headers | 0 allocs/op, <5 ns/op | Thin wire format, fixed-size headers |
 
@@ -168,8 +174,8 @@ Target metrics for GoBFD based on BFD protocol requirements and production const
 | FSMTransitionUpRecvUp | 20.1 | 0 | 0 | Target met |
 | ApplyJitter | 9.6 | 0 | 0 | Target met |
 | DetectionTimeCalc | 0.7 | 0 | 0 | Target met |
-| FullRecvPath | 64.2 | 0 | 0 | Target met |
-| FullTxPath | 6.7 | 0 | 0 | Target met |
+| FullRecvPath (historical name) | 64.2 | 0 | 0 | v0.4.0 sample; ends at enqueue |
+| FullTxPath (historical name) | 6.7 | 0 | 0 | v0.4.0 sample; excludes socket send |
 | ManagerDemux1000Sessions | 50.7 | 0 | 0 | Target met |
 | VXLANHeaderMarshal | 2.8 | 0 | 0 | Target met |
 | GeneveHeaderUnmarshal | 3.8 | 0 | 0 | Target met |
@@ -178,7 +184,9 @@ Target metrics for GoBFD based on BFD protocol requirements and production const
 
 ### Zero Allocation Policy
 
-GoBFD enforces zero heap allocations in all hot-path operations. "Hot path" means any code executed per-packet or per-timer-tick during normal BFD operation.
+GoBFD targets zero heap allocations for selected named operations. Current
+evidence does not enforce a repository-wide zero-allocation invariant for all
+per-packet and per-timer runtime paths.
 
 #### Why Zero Allocation Matters for BFD
 
@@ -188,18 +196,24 @@ BFD sessions send and receive packets at intervals as low as 10ms. With 1,000 se
 2. **Latency jitter** — GC stop-the-world pauses add unpredictable delay
 3. **False positives** — if a GC pause exceeds the detection time, the remote peer declares the session Down
 
-GoBFD uses `GOMEMLIMIT` + `GOGC=off` in production to minimize GC cycles, but zero-allocation design eliminates the root cause.
+The production image sets a soft `GOMEMLIMIT` and retains the default `GOGC`.
+Override `GOGC` only after representative deployment measurements justify it;
+zero-allocation results for selected operations do not eliminate GC from the
+process or guarantee pause-free BFD operation.
 
 #### Verification Methods
 
-1. **`-benchmem` flag** — every benchmark reports `B/op` and `allocs/op`
-2. **`testing.AllocsPerRun`** — unit tests enforce `n == 0` for hot-path functions
-3. **Escape analysis** — `go build -gcflags='-m'` verifies no heap escapes in hot paths
+1. **`-benchmem` flag** — each benchmark reports allocations made by its body
+2. **`testing.AllocsPerRun`** — one explicit assertion protects
+   `BuildInnerPacketInto`; it is not a repository-wide gate
+3. **`benchstat` comparison** — CI reports timing and allocation samples, while
+   the current >10% regression policy remains a warning
 
 #### Known Exceptions
 
 - `ControlPacketUnmarshalWithAuth`: 1 alloc/op (64 B) — copies the authentication digest for HMAC verification. This is intentional: the digest must outlive the input buffer.
-- `BuildInnerPacket`: 1 alloc/op (80 B) — allocates the inner packet buffer. Overlay paths are less latency-sensitive than direct BFD.
+- `BuildInnerPacketInto`: 0 alloc/op — writes the inner packet into the connection-owned TX buffer used by production VXLAN/Geneve paths.
+- `BuildInnerPacket`: 1 alloc/op (80 B) — allocating compatibility wrapper for standalone callers and tests.
 - `ManagerCreate*` / `ManagerReconcile`: allocations expected — session lifecycle operations are not hot path.
 
 ---

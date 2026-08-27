@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"gopkg.in/yaml.v3"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/server"
@@ -39,8 +39,7 @@ func newCLITestEnv(t *testing.T) *cliTestEnv {
 	path, handler := server.New(mgr, nil, logger)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	srv := httptest.NewTestServer(t, mux)
 
 	client := bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
 

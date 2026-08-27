@@ -9,9 +9,9 @@
 #   172.23.0.40 — backend2 (nginx) + backend2-bfd (GoBFD sidecar, shared netns)
 #
 # Usage:
-#   podman-compose up --build -d
+#   podman compose up --build -d
 #   curl http://localhost:8080
-#   podman-compose down --volumes --remove-orphans
+#   podman compose down --volumes --remove-orphans
 
 services:
   # === GoBFD monitor at 172.23.0.10 ===
@@ -49,7 +49,7 @@ services:
   # === HAProxy (load balancer) at 172.23.0.20 ===
 
   haproxy:
-    image: docker.io/haproxy:3.1-alpine
+    image: docker.io/library/haproxy:3.4.3-trixie@sha256:4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5
     container_name: haproxy-health
     user: "0:0"
     ports:
@@ -66,7 +66,7 @@ services:
   # === Backend 1 (nginx) at 172.23.0.30 ===
 
   backend1:
-    image: docker.io/nginx:alpine
+    image: docker.io/library/nginx:1.31.4-trixie@sha256:b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0
     container_name: backend1
     networks:
       haproxy-health-net:
@@ -91,7 +91,7 @@ services:
   # === Backend 2 (nginx) at 172.23.0.40 ===
 
   backend2:
-    image: docker.io/nginx:alpine
+    image: docker.io/library/nginx:1.31.4-trixie@sha256:b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0
     container_name: backend2
     networks:
       haproxy-health-net:

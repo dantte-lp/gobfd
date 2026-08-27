@@ -7,8 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-08-27
+
+### Added
+
+- Go 1.27 compatibility coverage for duplicate JSON object members, invalid
+  UTF-8 replacement, the HTTP header-value boundary, and real Podman build
+  contexts.
+
+### Changed
+
+- Quick Start uses the tracked `configs/gobfd.example.yml`, and the EN/RU
+  roadmap remains In progress as a dated projection of Beads. The legacy S12
+  status was reconciled to record the delivered Echo/Micro CRUD and absent
+  Overlay API instead of reporting the whole sprint as pending.
+- Graceful-shutdown documentation now matches the fixed two-second drain in
+  code and describes AdminDown delivery as best effort rather than guaranteed.
+- Public RFC and performance documentation now reports RFC 9384 wire subcode
+  10 as not implemented with GoBGP v3, marks incomplete RFC capabilities as
+  partial or preview, and limits allocation and throughput statements to the
+  exact benchmark stages measured. Enqueue-only RX and socket-free TX
+  benchmarks now use stage-specific names.
+- The native OVS LAG backend now uses active
+  `github.com/ovn-kubernetes/libovsdb` v0.8.1 instead of the archived
+  `ovn-org` module, preserving the existing RFC 7130 transaction contract.
+- Repository Markdown and PR-title quality gates now use a stdlib-only Go 1.27
+  checker, while spelling uses uv-locked codespell 2.4.3. Node.js, npm,
+  markdownlint-cli2, CSpell, and commitlint are removed from first-party
+  development and CI quality tooling.
+- Alpine Linux is no longer used by first-party build, runtime, benchmark,
+  smoke, interop, or integration images. Those paths now use immutable Debian
+  trixie OCI indexes; the only other permitted OS baseline is Oracle Linux 10.
+- `make int-bgp-failover` now runs the Go 1.27 testcontainers Podman gate for
+  GoBFD, GoBGP v3.37.0, and FRR 10.7.0, retaining packet/container evidence and
+  proving exact cleanup; the operational Compose example remains available.
+- The optional BFD invalid-vector gate now uses repository Go packet codecs for
+  its preserved 18 groups and 1055 invalid packets. The legacy `scapy` service
+  identifier remains for topology compatibility, but Scapy and its Python
+  runtime are no longer dependencies.
+- Cross-implementation benchmark HTML is now rendered by a tested Go 1.27
+  command instead of an inline Python heredoc. Inputs are bounded and
+  identity-checked, metadata is exactly one JSON document, and the mode-0600
+  report is published only by same-directory atomic replacement.
+- Containerlab vendor-image bootstrap orchestration now runs through a bounded
+  Go 1.27 command. Python remains only for VyOS ISO/rootfs preparation and
+  operator-supplied Arista/Cisco archive import behind three explicit frozen-uv
+  subcommands.
+- The mandatory four-peer BFD interoperability matrix now uses FRR 10.7.0,
+  BIRD 3.3.2, immutable Holo 0.9.0, and Thoro/bfd. Holo is configured by a
+  healthy-gated one-shot YANG loader, and lifecycle tests require fresh packet
+  and daemon-state evidence for failure and recovery.
+- The first-party toolchain baseline is Go 1.27.0 across `go.mod`, GitHub
+  Actions, development and release images, and test harness builders. Compiler
+  images are pinned to immutable multi-platform OCI indexes. Go 1.27 includes
+  the `net/http` `ReadHeaderTimeout` fix also released in Go 1.26.7.
+- Timer tests use `testing/synctest.Sleep`, and HTTP tests use the Go 1.27
+  `httptest.NewTestServer(t, handler)` helper where no custom listener is
+  required.
+- `golangci-lint` keeps the strict linter set under Go 1.27 through the
+  upstream `honnef.co/go/tools` compatibility update; `golangci-lint` is now
+  `v2.13.1`, stable Staticcheck 2026.2 is used, and `staticcheck` remains
+  enabled.
+- Runtime modules are refreshed to the current compatible releases, including
+  ConnectRPC `v1.20.0`, gRPC health `v1.5.0`, koanf `v2.3.6`, Prometheus client
+  `v1.24.1`, console `v0.5.0`, and protobuf `v1.36.12`. First-party YAML
+  imports now use the maintained `go.yaml.in/yaml/v3 v3.0.5` module path.
+- Development tooling is reproducibly pinned: Buf `v1.72.0`, gopls `v0.23.0`,
+  govulncheck `v1.7.0`, gotestsum `v1.13.0`, and uv-managed Python lint, type,
+  security, YAML, and report tools. One
+  Python 3.14.7 `uv.lock` replaces pip bootstrap and independent tool
+  environments across CI and development images.
+  Containerlab installs use verified `v0.79.0` release archives, and CI uses
+  Docker Compose `v5.5.0` as the checksum-pinned Go provider for
+  `podman compose`, Syft `v1.51.0`, and GoReleaser `v2.18.0`.
+- The isolated lint-tool graph selects the MIT-licensed
+  `github.com/tenntenn/text/transform` revision without changing runtime
+  dependencies. Dependabot now monitors both the root and `tools/` Go modules.
+  CI publishes distinct runtime and tools vulnerability JSON and CycloneDX SBOM
+  artifacts.
+- The machine-readable dependency inventory now binds all 40 registry packages
+  from `uv.lock` to exact PyPI release and artifact-hash license evidence, and
+  records per-version license evidence for all 21 declared tools. Build commit
+  and source-checksum variables are no longer misclassified as tools. Each
+  adopted or retained record now carries an explicit, review-dated exception
+  for every unresolved release-blocking assessment.
+- GitHub Actions are updated to their current releases and immutable commit
+  SHAs. Interop and integration peers now use digest-pinned FRR `10.7.0`,
+  GoBGP `v3.37.0`, ExaBGP `5.0.13`, Prometheus `v3.14.0`, and Grafana `13.2.0`.
+  GoBGP v4 remains a separate compatibility migration for v1.0.0.
+- OSV Scanner is updated from `v2.3.5` to `v2.5.1`, whose Go analysis stack
+  understands Go 1.27 syntax.
+- The temporary GoBGP v3 NEXT_HOP denial-of-service exception is renewed only
+  through 2026-09-30; the v4 migration remains the tracked remediation.
+- Security fixes update gRPC to `v1.83.2`, `moby/go-archive` to `v0.3.3`,
+  `klauspost/compress` to `v1.19.2`, and `x/mod` to `v0.40.0`. The module-only
+  `x/crypto/openpgp` advisory is time-bounded because that package is not in
+  the build graph.
+
+### Fixed
+
+- Independent v0.6.2 review follow-ups now guard the vendor Containerlab
+  lifecycle with a lock, run labels, and exact-ID receipts; create core and
+  BGP evidence in private unique directories; read the digest-pinned FRR image
+  from the tracked topology; require all renamed benchmark stages on both PR
+  sides; remove unsupported scheduler-isolation and GC-pause claims; and keep
+  RFC support status authoritative in the compliance matrix.
+- Bound repeated HTTP header values on both the metrics and ConnectRPC servers
+  and verify the parser rejects the 129th value with HTTP 431.
+- Make vulnerability allowlist matching fail closed on scanner, package, and
+  reachable-symbol mismatches; module-only exceptions cannot admit affected
+  package imports.
+- Removed the obsolete `goroutineleakprofile` and `noswissmap` experiments,
+  which no longer exist in Go 1.27.
+
 ### Removed
 
+- Removed the abandoned aiobfd peer, its bitstring dependency, and the
+  repository-owned Python benchmark service and comparisons. Cross-language
+  benchmark reports now contain GoBFD, FRR-style C, and BIRD-style C results.
 - `.archive/` directory removed from the repository. Sprint planning
   records, the cleanup plan, and promo drafts are no longer tracked.
   The directory remains in `.gitignore` so a maintainer can keep
@@ -394,7 +510,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2

@@ -46,6 +46,9 @@ ignore:
   # Host-network integration boundaries are validated by build, lint, security, and system checks.
   - "internal/netio/ifmon_linux.go"
   - "internal/netio/ifmon_other.go"
+  - "internal/netio/listener_linux.go"
+  - "internal/netio/listener_other.go"
   - "internal/netio/lag_backend.go"
   - "internal/netio/lag_networkmanager.go"
   - "internal/netio/lag_ovsdb.go"
+  - "internal/netio/rawsock_other.go"

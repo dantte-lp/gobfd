@@ -1,10 +1,27 @@
 package commands
 
 import (
+	"encoding/json"
 	"testing"
 
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
+
+func TestMarshalJSONReplacesInvalidUTF8(t *testing.T) {
+	t.Parallel()
+
+	output, err := marshalJSON(map[string]string{"peer": string([]byte{'b', 'a', 'd', 0xff})})
+	if err != nil {
+		t.Fatalf("marshalJSON: %v", err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("decode marshalJSON output: %v", err)
+	}
+	if decoded["peer"] != "bad\ufffd" {
+		t.Fatalf("decoded peer = %q, want replacement character", decoded["peer"])
+	}
+}
 
 func TestShortSessionType(t *testing.T) {
 	t.Parallel()

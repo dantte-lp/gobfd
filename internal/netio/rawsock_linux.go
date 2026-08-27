@@ -512,7 +512,7 @@ func (a *SourcePortAllocator) Allocate() (uint16, error) {
 	}
 
 	for i := range a.portSpan {
-		//nolint:gosec // G115: (offset+i)%portSpan is always in [0, 16383], fits uint16 after adding sourcePortMin.
+		// #nosec G115 -- portSpan is exactly 16384, so the resulting port is 49152..65535.
 		port := sourcePortMin + uint16((offset+i)%a.portSpan)
 		if _, used := a.inUse[port]; !used {
 			a.inUse[port] = struct{}{}
@@ -526,7 +526,7 @@ func (a *SourcePortAllocator) Allocate() (uint16, error) {
 func randomPortOffset(portSpan int) (int, error) {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(portSpan)))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("generate random source port offset: %w", err)
 	}
 	return int(n.Int64()), nil
 }

@@ -1,0 +1,42 @@
+user = "holo"
+group = "holo"
+database_path = "/var/opt/holo/holo.db"
+
+[logging]
+  [logging.journald]
+    enabled = false
+  [logging.file]
+    enabled = false
+    dir = "/var/log/"
+    name = "holod.log"
+    rotation = "never"
+    style = "full"
+    colors = false
+    show_thread_id = false
+    show_source = false
+  [logging.stdout]
+    enabled = true
+    style = "full"
+    colors = false
+    show_thread_id = false
+    show_source = false
+
+[event_recorder]
+  enabled = false
+  dir = "/var/opt/holo"
+
+[plugins]
+  [plugins.grpc]
+    enabled = true
+    address = "0.0.0.0:50051"
+    [plugins.grpc.tls]
+      enabled = false
+      certificate = "/etc/ssl/private/holo.pem"
+      key = "/etc/ssl/certs/holo.key"
+  [plugins.gnmi]
+    enabled = false
+    address = "0.0.0.0:10161"
+    [plugins.gnmi.tls]
+      enabled = false
+      certificate = "/etc/ssl/private/holo.pem"
+      key = "/etc/ssl/certs/holo.key"

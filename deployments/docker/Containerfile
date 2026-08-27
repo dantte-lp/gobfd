@@ -1,4 +1,4 @@
-FROM docker.io/golang:1.26.3-trixie AS builder
+FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
 
 RUN groupadd -r gobfd && useradd -r -g gobfd -s /sbin/nologin gobfd
 
@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfdctl ./cmd/gobfdctl
 
-FROM scratch AS production
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS production
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd
@@ -33,7 +33,6 @@ COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
 USER gobfd:gobfd
 
 ENV GOMEMLIMIT=256MiB
-ENV GOGC=off
 
 EXPOSE 3784/udp 4784/udp 50051
 

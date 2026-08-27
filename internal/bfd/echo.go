@@ -193,6 +193,14 @@ func validateEchoConfig(cfg EchoSessionConfig, localDiscr uint32) error {
 	if cfg.TxInterval <= 0 {
 		return ErrInvalidEchoTxInterval
 	}
+	if cfg.TxInterval > MaxWireInterval {
+		return fmt.Errorf(
+			"echo TX interval %v exceeds max wire interval %v: %w",
+			cfg.TxInterval,
+			MaxWireInterval,
+			ErrInvalidWireInterval,
+		)
+	}
 	if !cfg.PeerAddr.IsValid() {
 		return ErrInvalidEchoPeerAddr
 	}
@@ -208,12 +216,12 @@ func (es *EchoSession) LocalDiscriminator() uint32 { return es.localDiscr }
 
 // State returns the current echo session state (atomic read).
 func (es *EchoSession) State() State {
-	return State(es.state.Load()) //nolint:gosec // G115: State is 0-3, fits uint8
+	return State(es.state.Load()) // #nosec G115 -- echo transitions store only valid State values 0-3.
 }
 
 // LocalDiag returns the current local diagnostic code (atomic read).
 func (es *EchoSession) LocalDiag() Diag {
-	return Diag(es.localDiag.Load()) //nolint:gosec // G115: Diag is 0-8, fits uint8
+	return Diag(es.localDiag.Load()) // #nosec G115 -- echo transitions store only valid Diag values 0-8.
 }
 
 // PeerAddr returns the remote system's IP address (echo target).

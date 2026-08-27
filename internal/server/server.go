@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/netip"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
+
+const maxBFDWireUint8 = math.MaxUint8
 
 // Sentinel errors for the server package.
 var (
@@ -411,7 +414,7 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 	if detectMult == 0 {
 		return bfd.SessionConfig{}, ErrDetectMultZero
 	}
-	if detectMult > 255 {
+	if detectMult > maxBFDWireUint8 {
 		return bfd.SessionConfig{}, fmt.Errorf("value %d: %w", detectMult, ErrDetectMultOverflow)
 	}
 
@@ -446,14 +449,14 @@ func authConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.Authenticator, bfd.A
 		return nil, nil, ErrAPIAuthKeyMaterialMissing
 	}
 	authKeyID := req.GetAuthKeyId()
-	if authKeyID > 255 {
+	if authKeyID > maxBFDWireUint8 {
 		return nil, nil, fmt.Errorf("auth_key_id %d: %w",
 			authKeyID, ErrAPIAuthKeyIDOverflow)
 	}
 
 	auth, err := bfd.NewAuthenticator(authType)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("create API authenticator type %s: %w", authType, err)
 	}
 
 	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{

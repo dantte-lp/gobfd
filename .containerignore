@@ -57,6 +57,16 @@ docs/
 **/*.md
 **/*.markdown
 
+# The legacy-named BFD fuzz image builds its repository-owned Go command from
+# the otherwise excluded test tree.
+!test/
+test/*
+!test/interop/
+test/interop/*
+!test/interop/scapy/
+test/interop/scapy/*
+!test/interop/scapy/*.go
+
 # Container infra is not copied into release images.
 deployments/
 **/Containerfile*

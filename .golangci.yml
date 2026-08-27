@@ -2,10 +2,10 @@ version: "2"
 
 run:
   timeout: 10m
+  # Keep package loading bounded even when the CI container exposes more CPUs.
+  concurrency: 4
   relative-path-mode: gomod
   tests: true
-  build-tags:
-    - integration
 
 formatters:
   enable:
@@ -28,126 +28,47 @@ output:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  # Preserve multiple independent diagnostics on the same source line.
+  uniq-by-line: false
 
 linters:
-  default: none
-  enable:
-    # ── Безопасность / Security ──
-    - gosec               # Security problems (audit mode)
-    - bidichk             # Dangerous Unicode sequences
-    - forcetypeassert     # Forced type assertions → panic on bad input
-    - reassign            # Package variable reassignment
-    - containedctx        # context.Context stored in structs
-    - forbidigo           # Ban fmt.Print* / print* outside command glue
-
-    # ── Корректность / Correctness ──
-    - govet               # Go vet with extra analyzers
-    - staticcheck         # Comprehensive static analysis
-    - errcheck            # Unchecked errors
-    - bodyclose           # HTTP response body not closed
-    - noctx               # HTTP request without context
-    - contextcheck        # Non-inherited context usage
-    - nilerr              # Returns nil when error is not nil
-    - nilnesserr          # Simultaneous nil error + invalid value
-    - nilnil              # Simultaneous nil error + nil value
-    - durationcheck       # Two durations multiplied together
-    - fatcontext          # Nested contexts in loops
-    - copyloopvar         # Loop variable copies
-    - dogsled             # Too many blank identifiers
-    - predeclared         # Shadows predeclared identifiers (true, len, etc.)
-    - recvcheck           # Receiver type consistency (pointer vs value)
-    - rowserrcheck        # Database rows error checks
-    - sqlclosecheck       # SQL rows/statements close checks
-    - gocheckcompilerdirectives  # Valid //go: directives
-    - protogetter         # Enforce proto message getters
-    - iface               # Incorrect interface usage patterns
-    - asasalint           # Catch []any as any in variadic func(...any)
-    - gochecksumtype      # Exhaustive sum type checks
-    - gochecknoinits      # No init() — explicit initialization
-    - iotamixing          # Catch mixed explicit/implicit iota values
-    - unqueryvet          # Detect SELECT * SQL query patterns
-
-    # ── Обработка ошибок / Error handling ──
-    - errorlint           # Error wrapping style (Go 1.13+)
-    - err113              # Error handling expressions
-    - errname             # Sentinel errors prefixed with Err
-    - errchkjson          # JSON encoding type checks
-
-    # ── Сетевые / Network ──
-    - nosprintfhostport   # Misuse of Sprintf for host:port URLs
-
-    # ── Качество кода / Code quality ──
-    - gocritic            # Bugs, performance, style diagnostics
-    - funlen              # Long functions
-    - exhaustive          # Exhaustive enum switch
-    - unparam             # Unused function parameters
-    - unconvert           # Unnecessary type conversions
-    - unused              # Unused code
-    - ineffassign         # Ineffective assignments
-    - maintidx            # Maintainability index
-    - nakedret            # Naked returns
-    - nonamedreturns      # Named return parameters
-    - goprintffuncname    # Printf-like functions end with 'f'
-    - interfacebloat      # Prevent interface pollution
-    - inamedparam         # Named interface method parameters
-    - decorder            # Consistent declaration ordering
-    - embeddedstructfieldcheck # Embedded struct field pitfalls
-    - grouper             # Expression group consistency
-    - nestif              # Excessive nested branching
-    - goconst             # Repeated constants
-    - godox               # Track TODO/FIXME/HACK/BUG debt
-
-    # ── Производительность / Performance ──
-    - prealloc            # Slice pre-allocation
-    - perfsprint          # Faster fmt.Sprintf alternatives
-    - makezero            # Slice with non-zero length + append
-    - mirror              # Wrong bytes/strings mirror patterns
-    - wastedassign        # Wasted assignment statements
-    - intrange            # Integer range in for loops (Go 1.22+)
-    - exptostd            # Replace x/exp with stdlib
-
-    # ── Стиль / Style ──
-    - dupl                # Code clones
-    - misspell            # Misspelled English words
-    - sloglint            # Consistent slog usage
-    - musttag             # Struct tags in marshaling
-    - modernize           # Modern Go patterns
-    - asciicheck          # ASCII-only identifiers
-    - canonicalheader     # Canonical net/http.Header
-    - dupword             # Duplicate words in comments
-    - gosmopolitan        # i18n/l10n anti-patterns
-    - usestdlibvars       # Use stdlib variables/constants
-    - loggercheck         # Logger key-value pair validation
-    - promlinter          # Prometheus metric naming checks
-    - whitespace          # Unnecessary blank lines
-    - godot               # Comments end with period
-    - godoclint           # Godoc validation
-    - tagalign            # Aligned struct tags
-    - tagliatelle         # Struct tag naming consistency
-    - importas            # Enforce import aliases consistency
-
-    # ── Зависимости / Dependencies ──
-    - depguard            # Forbidden package imports
-    - gomoddirectives     # Catch stray replace/retract in go.mod
-    - gomodguard_v2       # Block deprecated dependency modules
-
-    # ── Дисциплина / Discipline ──
-    - nolintlint          # Nolint directive quality
-
-    # ── Тесты / Testing ──
-    - tparallel           # Inappropriate t.Parallel() usage
-    - thelper             # Test helpers call t.Helper()
-    - testableexamples    # Examples have expected output
-    - usetesting          # Testing package replacements
-    - testifylint         # Testify best practices
-    - ginkgolinter        # Ginkgo/Gomega best practices
-
-    # ── Framework-specific no-op unless dependency is present ──
-    - arangolint          # ArangoDB client best practices
-    - spancheck           # OpenTelemetry/Census span checks
-    - zerologlint         # Zerolog event dispatch checks
+  # Forward-compatible maximum: every maintained linter is enabled unless the
+  # exclusion below documents a concrete semantic conflict.
+  default: all
+  disable:
+    # Domain analyzers with zero direct project inputs. Keeping them enabled
+    # would inflate the count without analyzing a single GoBFD call site.
+    - arangolint
+    - clickhouselint
+    - ginkgolinter
+    - rowserrcheck
+    - spancheck
+    - sqlclosecheck
+    - testifylint
+    - unqueryvet
+    - zerologlint
+    # Redundant or semantically conflicting rules.
+    - exhaustruct_v5 # Conflicts with intentional Go zero-value/options APIs.
+    - funcorder # Moving declarations apart harms consumer-locality without finding defects.
+    - gocyclo # Duplicates cyclop's metric; gocognit is the retained complexity gate.
+    - goheader # The repository has no approved per-file copyright owner/header contract.
+    - ireturn # Consumer-defined interfaces and factories are deliberate architecture boundaries.
+    - exhaustruct # Deprecated predecessor of exhaustruct_v5.
+    - gomodguard # Deprecated in v2.12; gomodguard_v2 is enabled.
+    - nlreturn # Cosmetic blank-line policy overlaps gofumpt/whitespace.
+    - noinlineerr # Rejects the idiomatic scoped `if err := ...` form.
+    - paralleltest # tparallel already checks unsafe parallel use; mandatory parallelism is not always safe.
+    - testpackage # White-box tests intentionally exercise unexported protocol hot paths.
+    - varnamelen # Short RFC field names (d, p, tx, rx) are domain terminology.
+    - wsl # Deprecated in v2.2; retained whitespace checks come from gofumpt/whitespace.
+    - wsl_v5 # Cosmetic whitespace policy overlaps gofumpt and obscures semantic diffs.
 
   settings:
+    cyclop:
+      max-complexity: 15
+      package-average: 0.0
+    gocognit:
+      min-complexity: 20
     gosec:
       excludes: []
       severity: low
@@ -155,7 +76,7 @@ linters:
       config:
         global:
           audit: "true"
-          nosec: "true"
+          nosec: false
           show-ignored: "false"
         G301: "0750"
         G302: "0600"
@@ -178,6 +99,9 @@ linters:
       default-signifies-exhaustive: true
     interfacebloat:
       max: 10
+    lll:
+      line-length: 120
+      tab-width: 1
     importas:
       no-unaliased: false
     depguard:
@@ -202,6 +126,12 @@ linters:
     loggercheck:
       require-string-key: true
       no-printf-like: true
+    mnd:
+      # Configuration/default tables legitimately contain values. Require
+      # named constants where numbers affect branching or arithmetic instead.
+      checks:
+        - condition
+        - operation
     forbidigo:
       forbid:
         - pattern: '^fmt\.Print(|f|ln)$'
@@ -247,6 +177,7 @@ linters:
           json: snake
           yaml: snake
   exclusions:
+    warn-unused: true
     generated: strict
     presets:
       - std-error-handling
@@ -254,9 +185,11 @@ linters:
     rules:
       - path: _test\.go
         linters:
+          - cyclop
           - gosec
           - dupl
           - funlen
+          - gocognit
           - err113
           - nonamedreturns
           - maintidx
@@ -266,24 +199,70 @@ linters:
           - godox
           - dogsled
           - nestif
+          - wrapcheck
+      # RFC and encapsulation codecs use specification-defined bit positions,
+      # masks, and widths. Naming each literal would obscure the wire layout.
+      - path: ^internal/(bfd/(auth|packet|session_packet)|netio/(geneve|overlay_inner|rawsock_linux|vxlan))\.go$
+        linters:
+          - mnd
+      # These exact globals are immutable lookup tables, hot-path pools,
+      # Cobra command state, ldflags targets, or test-export bridges. Both path
+      # and diagnostic text are bounded so any newly added global still fails.
+      - path: ^cmd/gobfdctl/commands/
+        text: '^(client|echoClient|microClient|outputFormat|serverAddr|rootCmd|shellCommands) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/bfd/packet\.go$
+        text: '^(diagNames|stateNames|authTypeNames|PacketPool) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/config/config\.go$
+        text: '^(validMicroBFDActuatorModes|validMicroBFDActuatorBackends) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/config/config\.go$
+        text: '^(validMicroBFDActuatorOwnerPolicies|validMicroBFDActuatorActions) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/config/config\.go$
+        text: '^(validOverlayBackends|ValidGoBGPStrategies|ValidSessionTypes|ValidAuthTypes) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/netio/overlay_inner\.go$
+        text: '^(innerDstMAC|innerSrcMAC) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/server/export_test\.go$
+        text: '^(StateToProto|DiagToProto|SessionTypeToProto|SessionTypeFromPB|DurationFromPB) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/server/export_test\.go$
+        text: '^(StateChangeToProto|SnapshotToProto|MapManagerError|WrapError) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^internal/version/version\.go$
+        text: '^(Version|GitCommit|BuildDate) is a global variable'
+        linters:
+          - gochecknoglobals
+      - path: ^scripts/vuln-audit\.go$
+        text: '^allowlist is a global variable'
+        linters:
+          - gochecknoglobals
       - path: cmd/
         linters:
-          - gochecknoinits  # cobra uses init() for flag registration
           - forbidigo
       - path: scripts/
         linters:
           - forbidigo
-          - depguard
-      - path: test/interop/
-        linters:
-          - depguard
-      - path: scripts/vuln-audit.go
-        text: "import 'os/exec' is not allowed"
-        linters:
-          - depguard
       # OVS LAG backend shells out to the official ovs-vsctl admin CLI with
       # validated interface names; keep os/exec forbidden everywhere else.
       - path: internal/netio/lag_backend.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
+      # The containerlab bootstrap executes a fixed allowlist through
+      # exec.CommandContext; keep the exception on the single boundary file.
+      - path: test/internal/clabbootstrap/runner.go
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
@@ -293,20 +272,6 @@ linters:
           - funlen
 
 severity:
-  default: warning
-  rules:
-    - linters:
-        - gosec
-        - errcheck
-        - bodyclose
-        - noctx
-        - staticcheck
-        - forcetypeassert
-        - containedctx
-        - nilnil
-        - reassign
-        - forbidigo
-        - gomodguard_v2
-        - iotamixing
-        - tparallel
-      severity: error
+  # Every enabled diagnostic is blocking and exported as an error in structured
+  # reports; no style/security split can silently downgrade a failure.
+  default: error

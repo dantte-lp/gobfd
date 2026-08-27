@@ -26,7 +26,10 @@ The owner-policy for OVS-managed devices must remain explicit until the
 backend can prove ownership through OVSDB or a higher-level network
 manager.
 
-The production adapter uses `github.com/ovn-org/libovsdb`. The GoBFD
+The production adapter uses `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
+The former `ovn-org` repository is archived; the active owner retained the
+used transaction API while fixing reconnect and inactivity-probe deadlocks.
+The GoBFD
 core depends on a narrow local interface so tests do not need a live
 OVSDB server.
 
@@ -87,5 +90,7 @@ the kernel-bond and CLI-backed OVS paths.
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>
 - Open vSwitch `ovs-vsctl(8)`:
   <https://www.openvswitch.org/support/dist-docs/ovs-vsctl.8.html>
-- `github.com/ovn-org/libovsdb`:
-  <https://pkg.go.dev/github.com/ovn-org/libovsdb>
+- `github.com/ovn-kubernetes/libovsdb`:
+  <https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb>
+- v0.8.1 release:
+  <https://github.com/ovn-kubernetes/libovsdb/releases/tag/v0.8.1>

@@ -29,6 +29,7 @@ package interop_clab_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -66,117 +67,135 @@ type vendorPeer struct {
 	upMatch   string   // Substring in show output indicating BFD Up.
 }
 
-var vendors = []vendorPeer{
-	{
-		name:      "arista",
-		baseName:  "arista",
-		container: "clab-" + labName + "-arista",
-		peerIP:    "10.0.1.2",
-		localIP:   "10.0.1.1",
-		route:     "10.20.1.0/24",
-		asn:       65002,
-		showCmd:   []string{"Cli", "-p", "15", "-c", "show bfd peers detail"},
-		upMatch:   "Up",
-	},
-	{
-		name:      "arista-v6",
-		baseName:  "arista",
-		container: "clab-" + labName + "-arista",
-		peerIP:    "fd00:0:1::1",
-		localIP:   "fd00:0:1::",
-		route:     "fd00:20:1::/48",
-		asn:       65002,
-		showCmd:   []string{"Cli", "-p", "15", "-c", "show bfd peers detail"},
-		upMatch:   "Up",
-	},
-	{
-		name:      "nokia",
-		baseName:  "nokia",
-		container: "clab-" + labName + "-nokia",
-		peerIP:    "10.0.2.2",
-		localIP:   "10.0.2.1",
-		route:     "10.20.2.0/24",
-		asn:       65003,
-		showCmd:   []string{"sr_cli", "-d", "info", "from", "state", "/bfd"},
-		upMatch:   "up",
-	},
-	{
-		name:      "nokia-v6",
-		baseName:  "nokia",
-		container: "clab-" + labName + "-nokia",
-		peerIP:    "fd00:0:2::1",
-		localIP:   "fd00:0:2::",
-		route:     "fd00:20:2::/48",
-		asn:       65003,
-		showCmd:   []string{"sr_cli", "-d", "info", "from", "state", "/bfd"},
-		upMatch:   "up",
-	},
-	{
-		name:      "cisco",
-		baseName:  "cisco",
-		container: "clab-" + labName + "-cisco",
-		peerIP:    "10.0.3.2",
-		localIP:   "10.0.3.1",
-		route:     "10.20.3.0/24",
-		asn:       65004,
-		showCmd:   []string{"bash", "-c", "source /etc/profile && xr_cli 'show bfd session'"},
-		upMatch:   "Up",
-	},
-	{
-		name:      "cisco-v6",
-		baseName:  "cisco",
-		container: "clab-" + labName + "-cisco",
-		peerIP:    "fd00:0:3::1",
-		localIP:   "fd00:0:3::",
-		route:     "fd00:20:3::/48",
-		asn:       65004,
-		showCmd:   []string{"bash", "-c", "source /etc/profile && xr_cli 'show bfd session'"},
-		upMatch:   "Up",
-	},
-	{
-		name:      "sonic",
-		baseName:  "sonic",
-		container: "clab-" + labName + "-sonic",
-		peerIP:    "10.0.4.2",
-		localIP:   "10.0.4.1",
-		route:     "10.20.4.0/24",
-		asn:       65005,
-		showCmd:   []string{"vtysh", "-c", "show bfd peers"},
-		upMatch:   "up",
-	},
-	{
-		name:      "vyos",
-		baseName:  "vyos",
-		container: "clab-" + labName + "-vyos",
-		peerIP:    "10.0.5.2",
-		localIP:   "10.0.5.1",
-		route:     "10.20.5.0/24",
-		asn:       65006,
-		showCmd:   []string{"vtysh", "-c", "show bfd peers"},
-		upMatch:   "up",
-	},
-	{
-		name:      "frr",
-		baseName:  "frr",
-		container: "clab-" + labName + "-frr",
-		peerIP:    "10.0.6.2",
-		localIP:   "10.0.6.1",
-		route:     "10.20.6.0/24",
-		asn:       65007,
-		showCmd:   []string{"vtysh", "-c", "show bfd peers"},
-		upMatch:   "up",
-	},
-	{
-		name:      "frr-v6",
-		baseName:  "frr",
-		container: "clab-" + labName + "-frr",
-		peerIP:    "fd00:0:6::1",
-		localIP:   "fd00:0:6::",
-		route:     "fd00:20:6::/48",
-		asn:       65007,
-		showCmd:   []string{"vtysh", "-c", "show bfd peers"},
-		upMatch:   "up",
-	},
+func vendorPeers() []vendorPeer {
+	peers := []vendorPeer{
+		{
+			name:      "arista",
+			baseName:  "arista",
+			container: "clab-" + labName + "-arista",
+			peerIP:    "10.0.1.2",
+			localIP:   "10.0.1.1",
+			route:     "10.20.1.0/24",
+			asn:       65002,
+			showCmd:   []string{"Cli", "-p", "15", "-c", "show bfd peers detail"},
+			upMatch:   "Up",
+		},
+		{
+			name:      "arista-v6",
+			baseName:  "arista",
+			container: "clab-" + labName + "-arista",
+			peerIP:    "fd00:0:1::1",
+			localIP:   "fd00:0:1::",
+			route:     "fd00:20:1::/48",
+			asn:       65002,
+			showCmd:   []string{"Cli", "-p", "15", "-c", "show bfd peers detail"},
+			upMatch:   "Up",
+		},
+		{
+			name:      "nokia",
+			baseName:  "nokia",
+			container: "clab-" + labName + "-nokia",
+			peerIP:    "10.0.2.2",
+			localIP:   "10.0.2.1",
+			route:     "10.20.2.0/24",
+			asn:       65003,
+			showCmd:   []string{"sr_cli", "-d", "info", "from", "state", "/bfd"},
+			upMatch:   "up",
+		},
+		{
+			name:      "nokia-v6",
+			baseName:  "nokia",
+			container: "clab-" + labName + "-nokia",
+			peerIP:    "fd00:0:2::1",
+			localIP:   "fd00:0:2::",
+			route:     "fd00:20:2::/48",
+			asn:       65003,
+			showCmd:   []string{"sr_cli", "-d", "info", "from", "state", "/bfd"},
+			upMatch:   "up",
+		},
+		{
+			name:      "cisco",
+			baseName:  "cisco",
+			container: "clab-" + labName + "-cisco",
+			peerIP:    "10.0.3.2",
+			localIP:   "10.0.3.1",
+			route:     "10.20.3.0/24",
+			asn:       65004,
+			showCmd:   []string{"bash", "-c", "source /etc/profile && xr_cli 'show bfd session'"},
+			upMatch:   "Up",
+		},
+		{
+			name:      "cisco-v6",
+			baseName:  "cisco",
+			container: "clab-" + labName + "-cisco",
+			peerIP:    "fd00:0:3::1",
+			localIP:   "fd00:0:3::",
+			route:     "fd00:20:3::/48",
+			asn:       65004,
+			showCmd:   []string{"bash", "-c", "source /etc/profile && xr_cli 'show bfd session'"},
+			upMatch:   "Up",
+		},
+		{
+			name:      "sonic",
+			baseName:  "sonic",
+			container: "clab-" + labName + "-sonic",
+			peerIP:    "10.0.4.2",
+			localIP:   "10.0.4.1",
+			route:     "10.20.4.0/24",
+			asn:       65005,
+			showCmd:   []string{"vtysh", "-c", "show bfd peers"},
+			upMatch:   "up",
+		},
+		{
+			name:      "vyos",
+			baseName:  "vyos",
+			container: "clab-" + labName + "-vyos",
+			peerIP:    "10.0.5.2",
+			localIP:   "10.0.5.1",
+			route:     "10.20.5.0/24",
+			asn:       65006,
+			showCmd:   []string{"vtysh", "-c", "show bfd peers"},
+			upMatch:   "up",
+		},
+		{
+			name:      "frr",
+			baseName:  "frr",
+			container: "clab-" + labName + "-frr",
+			peerIP:    "10.0.6.2",
+			localIP:   "10.0.6.1",
+			route:     "10.20.6.0/24",
+			asn:       65007,
+			showCmd:   []string{"vtysh", "-c", "show bfd peers"},
+			upMatch:   "up",
+		},
+		{
+			name:      "frr-v6",
+			baseName:  "frr",
+			container: "clab-" + labName + "-frr",
+			peerIP:    "fd00:0:6::1",
+			localIP:   "fd00:0:6::",
+			route:     "fd00:20:6::/48",
+			asn:       65007,
+			showCmd:   []string{"vtysh", "-c", "show bfd peers"},
+			upMatch:   "up",
+		},
+	}
+
+	// IPv6 peers share the same container as their IPv4 counterpart, so
+	// validate against baseName (for example, "arista" rather than "arista-v6").
+	for _, peer := range peers {
+		expected := fmt.Sprintf("clab-%s-%s", labName, peer.baseName)
+		if peer.container != expected {
+			panic(fmt.Sprintf("vendor %s container name mismatch: %s != %s", peer.name, peer.container, expected))
+		}
+	}
+
+	return peers
+}
+
+func TestMain(m *testing.M) {
+	_ = vendorPeers()
+	os.Exit(m.Run())
 }
 
 // =========================================================================
@@ -303,7 +322,7 @@ func resetGoBGPNeighbor(ctx context.Context, t *testing.T, v vendorPeer) {
 
 	// Collect all peers sharing the same container (IPv4 + IPv6 siblings).
 	var siblings []vendorPeer
-	for _, peer := range vendors {
+	for _, peer := range vendorPeers() {
 		if peer.container == v.container {
 			siblings = append(siblings, peer)
 		}
@@ -358,7 +377,7 @@ func dumpDebugInfo(t *testing.T, v vendorPeer) {
 func TestVendorBFD_SessionEstablish(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available (image not installed)", v.name)
@@ -394,7 +413,7 @@ func TestVendorBFD_SessionEstablish(t *testing.T) {
 func TestVendorBFD_FailureDetection(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -543,7 +562,7 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 
 	// Collect available vendors.
 	var available []vendorPeer
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		if vendorAvailable(ctx, v) {
 			available = append(available, v)
 		}
@@ -629,7 +648,7 @@ func TestVendorBFD_SessionIndependence(t *testing.T) {
 func TestVendorBFD_TimerNegotiation(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -685,7 +704,7 @@ func TestVendorBFD_TimerNegotiation(t *testing.T) {
 func TestVendorBFD_DetectionTiming(t *testing.T) {
 	ctx := t.Context()
 
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		t.Run(v.name, func(t *testing.T) {
 			if !vendorAvailable(ctx, v) {
 				t.Skipf("vendor %s container not available", v.name)
@@ -767,7 +786,7 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 	ctx := t.Context()
 
 	availableCount := 0
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		if vendorAvailable(ctx, v) {
 			availableCount++
 			t.Logf("vendor %s: available (container %s)", v.name, v.container)
@@ -780,10 +799,10 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 		t.Fatal("no vendor containers available — deploy containerlab topology first")
 	}
 
-	t.Logf("%d/%d vendor containers available", availableCount, len(vendors))
+	t.Logf("%d/%d vendor containers available", availableCount, len(vendorPeers()))
 
 	// Wait for all available BFD sessions to establish.
-	for _, v := range vendors {
+	for _, v := range vendorPeers() {
 		if !vendorAvailable(ctx, v) {
 			continue
 		}
@@ -792,20 +811,4 @@ func TestVendorBFD_AllAvailable(t *testing.T) {
 	}
 
 	t.Logf("all %d available BFD sessions established", availableCount)
-}
-
-// =========================================================================
-// Helpers for formatted output
-// =========================================================================
-
-func init() {
-	// Ensure container names are consistent.
-	// IPv6 peers share the same container as their IPv4 counterpart,
-	// so validate against baseName (e.g. "arista") not name ("arista-v6").
-	for _, v := range vendors {
-		expected := fmt.Sprintf("clab-%s-%s", labName, v.baseName)
-		if v.container != expected {
-			panic(fmt.Sprintf("vendor %s container name mismatch: %s != %s", v.name, v.container, expected))
-		}
-	}
 }

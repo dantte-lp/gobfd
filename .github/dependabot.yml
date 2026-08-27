@@ -2,7 +2,9 @@ version: 2
 
 updates:
   - package-ecosystem: "gomod"
-    directory: "/"
+    directories:
+      - "/"
+      - "/tools"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -34,4 +36,4 @@ updates:
     commit-message:
       prefix: "ci"
     labels:
-      - "ci"
+      - "github_actions"

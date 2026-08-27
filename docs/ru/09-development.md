@@ -1,6 +1,6 @@
 # Разработка
 
-![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![Go 1.27](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
 ![golangci--lint](https://img.shields.io/badge/golangci--lint-v2-1a73e8?style=for-the-badge)
 ![buf](https://img.shields.io/badge/buf-Protobuf-4353FF?style=for-the-badge)
 ![Podman](https://img.shields.io/badge/Podman-Dev_Container-892CA0?style=for-the-badge&logo=podman)
@@ -14,11 +14,12 @@
 
 - [Предварительные требования](#предварительные-требования)
 - [Настройка разработки](#настройка-разработки)
+- [Работа с ветками и релизами](#работа-с-ветками-и-релизами)
 - [Make-цели](#make-цели)
 - [Стратегия тестирования](#стратегия-тестирования)
 - [Линтинг](#линтинг)
 - [Рабочий процесс Protobuf](#рабочий-процесс-protobuf)
-- [Возможности Go 1.26](#возможности-go-126)
+- [Baseline Go 1.27](#baseline-go-127)
 - [Конвенции кода](#конвенции-кода)
 - [Вклад в проект](#вклад-в-проект)
 
@@ -26,7 +27,7 @@
 
 - **Podman** + **Podman Compose** (все команды выполняются в контейнерах)
 - **Git** для управления версиями
-- Go 1.26 (нужен только для поддержки IDE; сборка в контейнерах)
+- Go 1.27 (нужен только для поддержки IDE; сборка в контейнерах)
 
 > **Важно**: Все тестирование, сборка и линтинг выполняются внутри контейнеров Podman. Локальный Go-тулчейн не требуется для CI-эквивалентных сборок.
 
@@ -53,9 +54,37 @@ make lint
 make all
 ```
 
+### Работа с ветками и релизами
+
+У веток разные роли в развитии продукта:
+
+- `dev` служит интеграционной веткой для следующей продуктовой линии. Ветки для
+  функциональных изменений создаются от `dev` и вливаются в `dev`; стабильные
+  релизы никогда не получают тег непосредственно на `dev`.
+- `master` — ветка по умолчанию с последним принятым стабильным состоянием.
+- Поддерживаемые линии используют имена `release/vMAJOR.MINOR`. Линия
+  `release/v0.6` сохраняет GoBGP v3.37.0 и публичные контракты v0.6.
+
+Исправление для v0.6 начинается от `release/v0.6` в короткоживущей ветке
+`fix/v0.6-*` и возвращается в `release/v0.6` через проверенный pull request.
+После приёмки сопровождающие проверяют наличие того же дефекта в `master` и
+`dev`; если исправление применимо, его переносят отдельным проверенным pull
+request.
+Подготовка релиза проходит тем же путём в соответствующей поддерживаемой линии.
+
+Набор правил для релизных веток должен быть активен до создания каждой новой
+подходящей релизной ветки. Набор правил для тегов должен быть активен до
+создания каждого нового подходящего тега, в частности до `v0.6.2`. Существующие
+теги с `v0.1.0` по `v0.6.1` сохраняются без изменений: их никогда не
+перемещают, не удаляют и не используют повторно. Новый стабильный тег указывает
+на точный проверенный коммит в подходящей релизной ветке; его также никогда не
+перемещают, не удаляют и не используют повторно. GitHub Actions по событию тега
+создаёт черновик релиза GitHub, полностью формирует и проверяет его описание и
+артефакты, а затем автоматически публикует релиз как последнее изменение.
+
 ### Make-цели
 
-Все Go-команды выполняются внутри контейнеров Podman через `podman-compose exec`.
+Все Go-команды выполняются внутри контейнеров Podman через `podman compose exec`.
 Development stack изолирован через `COMPOSE_PROJECT_NAME`, который по
 умолчанию равен имени директории текущего checkout. Parallel worktrees
 используют разные default project names или явно задают `COMPOSE_PROJECT_NAME`.
@@ -100,6 +129,7 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 | `make interop-bgp-up` | Запуск топологии BGP+BFD |
 | `make interop-bgp-test` | Запуск Go-тестов BGP+BFD |
 | `make interop-bgp-down` | Остановка топологии BGP+BFD |
+| `make interop-clab-bootstrap` | Подготовка вендорных образов через Go bootstrap (`ARGS=...`) |
 | `make interop-clab` | Полный цикл вендорных NOS-тестов (Nokia, FRR и др.) |
 | `make interop-clab-up` | Деплой вендорной NOS-топологии |
 | `make interop-clab-test` | Запуск вендорных interop Go-тестов |
@@ -109,7 +139,7 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 
 | Цель | Описание |
 |---|---|
-| `make int-bgp-failover` | Демо BGP fast failover (GoBFD + GoBGP + FRR) |
+| `make int-bgp-failover` | Go testcontainers gate для BGP fast failover; операционный Compose-пример доступен через `-up`, `-logs` и `-down` |
 | `make int-haproxy` | Демо HAProxy agent-check bridge |
 | `make int-observability` | Стек наблюдаемости Prometheus + Grafana |
 | `make int-exabgp-anycast` | Анонсирование anycast-сервиса ExaBGP |
@@ -128,6 +158,10 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 | `make osv-scan` | Алиас для контролируемого vulnerability audit |
 | `make vulncheck-strict` | Raw `govulncheck ./...` без project allowlist |
 | `make osv-scan-strict` | Raw `osv-scanner scan -r .` без project allowlist |
+
+Контролируемый audit использует `go.mod` и `tools/go.mod` как раздельные входы
+OSV. CI сохраняет runtime govulncheck/OSV JSON, tools OSV JSON и раздельные
+runtime/tools CycloneDX SBOM в артефакте `dependency-security-reports`.
 
 #### Protobuf
 
@@ -154,11 +188,15 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 - **Table-driven** тесты для всех пакетов
 - **`t.Parallel()`** где безопасно (нет общего изменяемого состояния)
 - **Всегда** с `-race -count=1`
-- **`goleak.VerifyTestMain(m)`** в каждом пакете для обнаружения утечек горутин
+- **`goleak.VerifyTestMain(m)`** в шести concurrency-heavy пакетах, которые
+  владеют жизненным циклом демона, протокола, сети, метрик, конфигурации и
+  интеграционных тестов
 
 #### Тесты FSM (`testing/synctest`)
 
-Go 1.26 `testing/synctest` обеспечивает детерминированное тестирование на основе виртуального времени:
+Go 1.27 `testing/synctest` обеспечивает детерминированное тестирование на
+основе виртуального времени и добавляет `synctest.Sleep` для операции
+advance-time-and-settle:
 
 ```go
 func TestFSMDetectionTimeout(t *testing.T) {
@@ -175,8 +213,7 @@ func TestFSMDetectionTimeout(t *testing.T) {
         require.Equal(t, StateUp, sess.State())
 
         // Таймаут обнаружения = 3 x 100ms = 300ms
-        time.Sleep(350 * time.Millisecond) // виртуальное время
-        synctest.Wait()
+        synctest.Sleep(350 * time.Millisecond)
         require.Equal(t, StateDown, sess.State())
     })
 }
@@ -229,19 +266,110 @@ make test-integration
 
 ### Линтинг
 
-golangci-lint v2 со строгой curated-конфигурацией:
+golangci-lint v2.13.1 с конфигурацией maximum-by-default:
 
 ```bash
 make lint
 ```
 
-Конфигурация в `.golangci.yml`. Ключевые линтеры:
+Инструмент закреплён директивой `tool` в изолированном модуле `tools/go.mod`.
+Локальный lint выполняется только в контейнере: `make lint` приводит dev-сервис
+к актуальной конфигурации и запускает в нём заранее собранный закреплённый
+бинарник. `make lint-ci` является внутренним контрактом для CI-контейнеров и
+намеренно отказывается запускаться на хосте. По умолчанию dev-сервис ограничен
+4 CPU, жёстким лимитом памяти 8 GiB, мягким лимитом Go runtime 6 GiB, без swap
+сверх жёсткого лимита и 1 024 PID. Кэши Go и golangci-lint остаются в удаляемом
+слое контейнера. Образ содержит C-компилятор и runtime-заголовки, необходимые
+Linux race detector Go, поэтому race-гейты не устанавливают пакеты во время
+выполнения. Все команды, собранные через `go install`, используют абсолютный
+`GOBIN=/go/bin`, а `/go/bin` входит в `PATH`. При необходимости лимиты
+переопределяются через `GOBFD_DEV_CPUS`,
+`GOBFD_DEV_MEMORY_LIMIT`,
+`GOBFD_DEV_MEMORY_RESERVATION`, `GOBFD_DEV_GOMEMLIMIT` и
+`GOBFD_DEV_PIDS_LIMIT`.
+
+В `.golangci.yml` используется
+`linters.default: all`: включены 92 значимых линтера, отключены 20
+поддерживаемых линтеров без входных данных проекта, с дублирующими проверками или
+документированными семантическими конфликтами, а также два deprecated.
+CI проверяет v2-схему, точное число активных линтеров, обычную сборку и каждый
+репозиторный build tag отдельно. Ключевые проверки:
+
 - `gosec` (с `audit: true`) -- анализ безопасности
 - `govet`, `staticcheck`, `errcheck` -- стандартные проверки Go
 - `noctx` -- проверки передачи контекста
 - `exhaustive` -- исчерпывающие switch/map проверки
+- `cyclop`, `gocognit`, `maintidx` -- ограничения сложности
+- `revive`, `wrapcheck`, `gochecknoglobals`, `mnd`, `lll` -- проверки API,
+  ошибок, состояния и дисциплины исходного кода
 - `depguard`, `gomoddirectives` -- гигиена зависимостей
 - `nolintlint` -- качество директив `//nolint`
+
+### Политика документации и коммитов
+
+`make lint-md` запускает репозиторный stdlib-checker Go 1.27 по непустому,
+ограниченному и детерминированному набору Markdown-файлов. Fixtures сохраняют
+36 активных правил markdownlint 0.41. Команда
+`make lint-commit MSG='feat(bfd): add peer'` проверяет сохранённые границы
+Conventional Commit для type, scope и case, блокирующего 100-байтного предела
+header, неблокирующего 120-байтного предупреждения body и default-ignore. Ни
+одна из этих проверок не требует Node.js или npm.
+
+`make lint-spell` запускает codespell 2.4.3 из frozen uv quality group с точным
+списком слов `.codespell-ignore`. `make lint-yaml` использует то же frozen
+окружение для yamllint 1.38.0.
+
+### Python-инструменты
+
+В репозитории используется одно non-package окружение Python 3.14.7. uv 0.12.6
+читает корневые `.python-version`, `pyproject.toml` и `uv.lock`; requirements,
+pip-bootstrap и отдельные окружения `uv tool` не поддерживаются.
+
+Группы `peer` и `runtime` намеренно пусты. Единый lock сохраняет Ruff, ty,
+Bandit, codespell, yamllint, junit2html и pip-audit (`quality`) для проверок
+репозитория и containerlab bootstrap. Docker Compose и генератор некорректных
+BFD-векторов реализованы на Go и не являются Python-зависимостями.
+
+```bash
+make python-sync
+make python-check
+uv run --frozen --no-default-groups -- python test/interop-clab/vendor_images.py --help
+```
+
+`make python-check` проверяет Python 3.14.7, lock и frozen sync, затем запускает
+lint, type, security и vulnerability проверки единственного оставшегося
+helper для вендорных образов. ExaBGP остаётся внешним immutable interop-образом
+и не дублируется в lock.
+
+### Инвентаризация зависимостей
+
+Машиночитаемый snapshot цепочки поставки находится в
+`docs/supply-chain/dependency-inventory.json`. Он охватывает полные выбранные
+графы runtime и изолированных инструментов, а также объявленные в репозитории
+инструменты, GitHub Actions, OCI-образы, interop-демоны и все registry packages
+из `uv.lock`. Перегенерируйте его только после проверки release notes,
+безопасности, лицензий, archive status и неизменяемых pin:
+
+```bash
+make dependency-inventory
+make dependency-inventory-check
+```
+
+Генерация разрешает каждую точную выбранную версию Go-модуля через стабильный
+API deps.dev v3 и записывает GitHub evidence точного commit там, где deps.dev
+не возвращает license expression. Для PyPI точный release JSON обязан совпасть
+с package identity и artifact SHA-256 из lock до принятия license metadata.
+Для immutable OCI registry availability хранится отдельно от точного commit
+канонического build-source и hash его license-файла. Offline-проверка
+завершается ошибкой при drift любого Go module graph, объявленного компонента,
+source location, evidence binding или числа Go-пакетов относительно
+проверенного snapshot.
+
+Каждая принятая или сохранённая запись с незакрытой блокирующей проверкой
+содержит собственный `review_exception`: точные измерения проверки,
+ответственного, причину, Bead и дату пересмотра. Offline-проверка отклоняет
+неполное или лишнее покрытие исключениями; отложенные и устаревшие решения
+ограничиваются отдельно владельцем и датой пересмотра самого решения.
 
 ### Semgrep
 
@@ -262,6 +390,11 @@ CI и Pro-анализ, когда CLI авторизован. Флаг `--pro` 
 Текущие принятые предупреждения Semgrep задокументированы в
 [SECURITY.md](../../SECURITY.md): MD5 и SHA1 реализованы только для
 совместимости с аутентификацией RFC 5880.
+Соответствующее исключение Sonar `go:S4790` ограничено в
+`sonar-project.properties` файлом `internal/bfd/auth.go`; для всех остальных
+файлов правило остаётся активным. In-code resolution не используется, потому
+что SonarQube Cloud поддерживает `sonar-resolve` только для языков C-family,
+но не для Go.
 
 ### Рабочий процесс Protobuf
 
@@ -276,13 +409,17 @@ make proto-breaking  # Проверка на несовместимые изме
 
 > **НИКОГДА** не редактируйте файлы в `pkg/bfdpb/` вручную -- они генерируются через `buf generate`.
 
-### Возможности Go 1.26
+### Baseline Go 1.27
 
-GoBFD использует возможности Go 1.26 для безопасности, производительности и отладки:
+GoBFD использует Go 1.27, сохраняя нужные API безопасности,
+производительности и отладки из Go 1.26.
 
 #### `testing/synctest` -- Детерминированные тесты таймеров
 
-Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest` для выполнения с виртуальным временем. Тесты выполняются мгновенно (без реальных sleep) и полностью детерминированы. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
+Все тесты BFD-таймеров и таймаутов обнаружения используют `testing/synctest`
+с виртуальным временем. Соседние `time.Sleep` и `synctest.Wait` записываются
+как `synctest.Sleep`; реальные ожидания E2E и interop остаются ограниченными
+контекстом wall-clock waits. См. [Тесты FSM](#тесты-fsm-testingsynctest) выше.
 
 #### `os.Root` -- Песочница для доступа к файлам
 
@@ -308,9 +445,12 @@ if connectErr, ok := errors.AsType[*connect.Error](err); ok {
 }
 ```
 
-#### `GOEXPERIMENT=goroutineleakprofile`
+#### Диагностика утечек горутин
 
-Dev-контейнер (`Containerfile.dev`) включает эксперимент профилирования утечек горутин. В сочетании с `goleak.VerifyTestMain(m)` в тестовых пакетах это обеспечивает обнаружение утечек горутин в runtime во время разработки.
+В Go 1.27 runtime-профиль `goroutineleak` доступен без experiment flag.
+Автоматические тесты продолжают использовать `go.uber.org/goleak` в шести
+concurrency-heavy пакетах. Это разные механизмы; GoBFD не регистрирует полный
+набор обработчиков `net/http/pprof` на публичном metrics mux.
 
 #### `runtime/trace.FlightRecorder`
 
@@ -318,7 +458,20 @@ HTTP-endpoint предоставляет flight recorder для посмертн
 
 #### Swiss Tables
 
-Go 1.26 использует Swiss tables как реализацию `map` по умолчанию. Поиск дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD выигрывают от улучшенной локальности кэша. См. [BENCHMARKS.md](../../BENCHMARKS.md) для сравнения с `GOEXPERIMENT=noswissmap`.
+Go 1.26 ввёл Swiss tables как реализацию `map` по умолчанию. Поиск
+дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD
+выигрывают от улучшенной локальности кэша. Go 1.27 удаляет прежний
+диагностический experiment `noswissmap`, поэтому он не должен появляться в
+командах сборки и бенчмарков.
+
+#### Совместимость HTTP и JSON
+
+Оба публичных HTTP-сервера используют один явный `MaxHeaderValueCount`,
+сохраняя `ReadHeaderTimeout`; parser-level тесты проверяют разрешённую и
+запрещённую границы. В Go 1.27 существующий API `encoding/json` работает на
+реализации v2; compatibility-тесты покрывают duplicate object members и
+invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнения точного
+текста ошибок.
 
 ### Конвенции кода
 
@@ -339,9 +492,9 @@ Go 1.26 использует Swiss tables как реализацию `map` по
 ### Вклад в проект
 
 1. Откройте issue для обсуждения изменения перед отправкой PR
-2. Следуйте стилю кода (см. `CLAUDE.md` для конвенций)
+2. Следуйте стилю кода (см. `AGENTS.md` для соглашений)
 3. Добавляйте тесты для новой функциональности (`go test ./... -race -count=1`)
-4. Убедитесь, что `golangci-lint run ./...` проходит
+4. Убедитесь, что `make lint` проходит
 5. Запустите `buf lint` при изменении proto-файлов
 6. Пишите описательные и лаконичные commit-сообщения
 
@@ -363,8 +516,8 @@ make proto-lint   # Линтинг proto-определений
 
 - [01-architecture.md](./01-architecture.md) -- Архитектура и структура пакетов
 - [05-interop.md](./05-interop.md) -- Тестирование совместимости
-- [CLAUDE.md](../../CLAUDE.md) -- Полные конвенции кода и команды
+- [AGENTS.md](../../AGENTS.md) -- Полные конвенции кода и команды
 
 ---
 
-*Последнее обновление: 2026-02-24*
+*Последнее обновление: 2026-08-27*

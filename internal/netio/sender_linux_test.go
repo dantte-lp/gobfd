@@ -60,7 +60,8 @@ func TestNewUDPSenderLoopbackLifecycle(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
-	if err := s.SendPacket(context.Background(), []byte{1}, netip.MustParseAddr("127.0.0.1")); !errors.Is(err, ErrSocketClosed) {
-		t.Fatalf("SendPacket after Close error = %v, want ErrSocketClosed", err)
+	sendErr := s.SendPacket(context.Background(), []byte{1}, netip.MustParseAddr("127.0.0.1"))
+	if !errors.Is(sendErr, ErrSocketClosed) {
+		t.Fatalf("SendPacket after Close error = %v, want ErrSocketClosed", sendErr)
 	}
 }

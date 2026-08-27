@@ -148,7 +148,7 @@
         "test/interop-clab/frr/frr.conf"
       ],
       "images": [
-        "quay.io/frrouting/frr:10.2.5"
+        "quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
       ],
       "skip_policy": "missing-image",
       "scenario": "single-hop-dual-stack-bfd-baseline",

@@ -5,6 +5,8 @@
 //   - IPv4: IP_TTL, IP_RECVTTL, IP_PKTINFO
 //   - IPv6: IPV6_UNICAST_HOPS, IPV6_RECVHOPLIMIT, IPV6_RECVPKTINFO
 //
-// Linux-specific implementation uses golang.org/x/net and golang.org/x/sys/unix
-// for UDP listeners on ports 3784 (single-hop, RFC 5881) and 4784 (multi-hop, RFC 5883).
+// The dataplane implementation is Linux-specific and uses golang.org/x/net and
+// golang.org/x/sys/unix for UDP listeners on ports 3784 (single-hop, RFC 5881)
+// and 4784 (multi-hop, RFC 5883). Non-Linux builds retain the transport API for
+// cross-compilation and return ErrUnsupportedPlatform instead of opening sockets.
 package netio

@@ -86,7 +86,8 @@ checksum:
   name_template: checksums.txt
 
 release:
-  mode: keep_existing
+  draft: true
+  mode: keep-existing
 
 sboms:
   - artifacts: archive
@@ -133,9 +134,7 @@ dockers_v2:
       - ghcr.io/dantte-lp/gobfd
     tags:
       - "{{ .Version }}"
-      - latest
       - "{{ .Version }}-debian-trixie"
-      - debian-trixie
     platforms:
       - linux/amd64
       - linux/arm64
@@ -154,7 +153,6 @@ dockers_v2:
       - ghcr.io/dantte-lp/gobfd
     tags:
       - "{{ .Version }}-oraclelinux10"
-      - oraclelinux10
     platforms:
       - linux/amd64
       - linux/arm64

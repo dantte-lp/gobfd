@@ -37,6 +37,9 @@ const (
 	// Ethernet(14) + IPv4(20) + UDP(8) = 42 bytes.
 	InnerOverheadIPv4 = InnerEthSize + InnerIPv4Size + InnerUDPSize
 
+	// maxInnerBFDPayloadSize is bounded by the IPv4 total-length field.
+	maxInnerBFDPayloadSize = 1<<16 - 1 - InnerIPv4Size - InnerUDPSize
+
 	// innerEtherTypeIPv4 is the EtherType for IPv4 (0x0800).
 	innerEtherTypeIPv4 uint16 = 0x0800
 
@@ -84,6 +87,14 @@ var (
 
 	// ErrInnerIPv4Only indicates that only IPv4 inner addresses are supported.
 	ErrInnerIPv4Only = errors.New("inner packet: only IPv4 addresses supported")
+
+	// ErrInnerPacketBufferTooShort indicates that the caller-owned destination
+	// buffer cannot hold the complete inner packet.
+	ErrInnerPacketBufferTooShort = errors.New("inner packet: destination buffer too short")
+
+	// ErrInnerPacketPayloadTooLarge indicates that the BFD payload cannot be
+	// represented by the inner IPv4 and UDP length fields.
+	ErrInnerPacketPayloadTooLarge = errors.New("inner packet: BFD payload exceeds IPv4 length limit")
 )
 
 // -------------------------------------------------------------------------
@@ -99,8 +110,8 @@ var (
 // srcPort is the ephemeral source port for the inner UDP header.
 //
 // The function allocates a new buffer sized exactly for the complete inner packet.
-// This is called once per TX (after BFD payload is serialized), so the allocation
-// is acceptable on the encapsulation path.
+// Production tunnel connections use BuildInnerPacketInto with a connection-owned
+// buffer; this wrapper remains useful for callers that want ownership of a packet.
 //
 // References:
 //   - RFC 8971 Section 3: VXLAN BFD inner packet format
@@ -108,13 +119,38 @@ var (
 //   - RFC 5881 Section 5: TTL=255 (GTSM)
 //   - RFC 768: UDP checksum may be zero for IPv4
 func BuildInnerPacket(bfdPayload []byte, srcIP, dstIP netip.Addr, srcPort uint16) ([]byte, error) {
+	if err := validateInnerBFDPayloadSize(len(bfdPayload)); err != nil {
+		return nil, err
+	}
+	totalLen := InnerOverheadIPv4 + len(bfdPayload)
+	buf := make([]byte, totalLen)
+	return BuildInnerPacketInto(buf, bfdPayload, srcIP, dstIP, srcPort)
+}
+
+// BuildInnerPacketInto assembles an inner packet into dst and returns the exact
+// packet slice. The caller owns dst and must provide at least
+// InnerOverheadIPv4+len(bfdPayload) bytes. Reusing dst avoids a per-packet
+// allocation in the VXLAN and Geneve transmit paths.
+func BuildInnerPacketInto(
+	dst []byte,
+	bfdPayload []byte,
+	srcIP, dstIP netip.Addr,
+	srcPort uint16,
+) ([]byte, error) {
 	if !srcIP.Is4() || !dstIP.Is4() {
 		return nil, fmt.Errorf("build inner packet: src=%s dst=%s: %w",
 			srcIP, dstIP, ErrInnerIPv4Only)
 	}
+	if err := validateInnerBFDPayloadSize(len(bfdPayload)); err != nil {
+		return nil, err
+	}
 
 	totalLen := InnerOverheadIPv4 + len(bfdPayload)
-	buf := make([]byte, totalLen)
+	if len(dst) < totalLen {
+		return nil, fmt.Errorf("build inner packet: buffer=%d need=%d: %w",
+			len(dst), totalLen, ErrInnerPacketBufferTooShort)
+	}
+	buf := dst[:totalLen]
 
 	// --- Inner Ethernet Header (bytes 0-13) ---
 	// Dst MAC (bytes 0-5): IANA BFD-for-VXLAN MAC (RFC 8971 Section 3.1).
@@ -136,7 +172,7 @@ func BuildInnerPacket(bfdPayload []byte, srcIP, dstIP netip.Addr, srcPort uint16
 	// ipPayloadLen bounded by BFD packet sizes, always fits uint16.
 	binary.BigEndian.PutUint16(
 		buf[ipOff+2:ipOff+4],
-		uint16(ipPayloadLen), //nolint:gosec // G115
+		uint16(ipPayloadLen), // #nosec G115 -- validateInnerBFDPayloadSize bounds the IPv4 total length.
 	)
 	// Bytes 4-5: Identification = 0 (no fragmentation)
 	binary.BigEndian.PutUint16(buf[ipOff+4:ipOff+6], 0)
@@ -173,7 +209,7 @@ func BuildInnerPacket(bfdPayload []byte, srcIP, dstIP netip.Addr, srcPort uint16
 	// udpLen bounded by BFD packet sizes, always fits uint16.
 	binary.BigEndian.PutUint16(
 		buf[udpOff+4:udpOff+6],
-		uint16(udpLen), //nolint:gosec // G115
+		uint16(udpLen), // #nosec G115 -- validateInnerBFDPayloadSize bounds the UDP length.
 	)
 	// Bytes 6-7: Checksum = 0 (valid per RFC 768 for UDP over IPv4)
 	binary.BigEndian.PutUint16(buf[udpOff+6:udpOff+8], 0)
@@ -182,6 +218,18 @@ func BuildInnerPacket(bfdPayload []byte, srcIP, dstIP netip.Addr, srcPort uint16
 	copy(buf[InnerOverheadIPv4:], bfdPayload)
 
 	return buf, nil
+}
+
+func validateInnerBFDPayloadSize(size int) error {
+	if size > maxInnerBFDPayloadSize {
+		return fmt.Errorf(
+			"inner BFD payload size %d exceeds maximum %d: %w",
+			size,
+			maxInnerBFDPayloadSize,
+			ErrInnerPacketPayloadTooLarge,
+		)
+	}
+	return nil
 }
 
 // -------------------------------------------------------------------------

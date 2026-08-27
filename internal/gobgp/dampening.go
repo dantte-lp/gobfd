@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const penaltyNoiseFloor = 0.001
+
 // -------------------------------------------------------------------------
 // RFC 5882 Section 3.2 — BFD Flap Dampening
 // -------------------------------------------------------------------------
@@ -263,7 +265,7 @@ func (d *Dampener) decayPenalty(pp *peerPenalty, now time.Time) {
 	pp.lastUpdate = now
 
 	// Clamp near-zero values to avoid floating-point noise.
-	if pp.penalty < 0.001 {
+	if pp.penalty < penaltyNoiseFloor {
 		pp.penalty = 0
 	}
 }

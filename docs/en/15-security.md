@@ -63,6 +63,11 @@ network until upstream ships a fixed release. The allowlist entry in
 `scripts/vuln-audit.go` has an owner, expiry, reason, and mitigation; expiry
 turns the vulnerability gate into a failure.
 
+CI scans the runtime and isolated tool module manifests separately. Raw
+runtime and tools vulnerability reports and their separate CycloneDX SBOMs are
+retained in the `dependency-security-reports` artifact so tool-only findings
+cannot be attributed to the shipped daemon.
+
 ## Secrets
 
 RFC 5880 auth secrets may be supplied through YAML or gRPC `AddSession`.

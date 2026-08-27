@@ -1,10 +1,10 @@
 # GoBFD Documentation
 
-![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-English-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-> Canonical technical documentation for **GoBFD** -- a production-oriented BFD protocol daemon (RFC 5880/5881) written in Go 1.26.
+> Canonical technical documentation for **GoBFD** -- a production-oriented BFD protocol daemon (RFC 5880/5881) written in Go 1.27.
 
 ---
 
@@ -111,13 +111,14 @@ graph TD
 | 09 | [**Development**](./09-development.md) | Dev workflow, Make targets, testing, linting, proto generation |
 | 10 | [**Changelog Guide**](./10-changelog.md) | How to maintain CHANGELOG.md, release process, semantic versioning |
 | 11 | [**Integrations**](./11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes examples |
+| -- | [**Roadmap**](./roadmap.md) | Published projection of the current Beads release plan |
 
 ### Performance
 
 | # | Document | Description |
 |---|---|---|
 | 12 | [**Benchmarks**](./12-benchmarks.md) | How to run, read, and interpret benchmark results |
-| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, aiobfd, hardware platforms |
+| 13 | [**Competitive Analysis**](./13-competitive-analysis.md) | Comparison with FRR, BIRD, Holo, hardware platforms |
 | 14 | [**Performance Analysis**](./14-performance-analysis.md) | GoBFD vs C implementations: benchmarks, architecture, CPU load behavior |
 
 ### Architecture Decision Records
@@ -149,6 +150,8 @@ dependency risk register and other auxiliary material.
 | [rfc8971.txt](../rfc/rfc8971.txt) | RFC 8971 | BFD for VXLAN |
 | [rfc9521.txt](../rfc/rfc9521.txt) | RFC 9521 | BFD for Geneve |
 | [rfc9764.txt](../rfc/rfc9764.txt) | RFC 9764 | BFD Encapsulated in Large Packets |
+| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 | Optimizing BFD Authentication |
+| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 | Meticulous Keyed ISAAC for Optimized BFD Authentication |
 
 ---
 
@@ -158,7 +161,7 @@ dependency risk register and other auxiliary material.
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
 make build
 make test
-make up
+sudo ./gobfd -config configs/gobfd.example.yml
 ```
 
 See [06-deployment.md](./06-deployment.md) for production deployment and

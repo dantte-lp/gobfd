@@ -288,14 +288,14 @@ func BenchmarkRecvStateToEvent(b *testing.B) {
 // =========================================================================
 
 // -------------------------------------------------------------------------
-// BenchmarkFullRecvPath — unmarshal + demux simulation + FSM
+// BenchmarkRecvDecodeLookupEnqueue — unmarshal + lookup + enqueue
 // -------------------------------------------------------------------------
 
-// BenchmarkFullRecvPath measures the complete receive-side hot path:
-// unmarshal a wire-format packet, simulate two-tier demultiplexing via
-// Manager.Demux, which delivers the packet to the session's recvCh.
-// This represents the full cost of processing an incoming BFD keepalive
-// (RFC 5880 Section 6.8.6 steps 1-7 validation + demux + channel send).
+// BenchmarkRecvDecodeLookupEnqueue measures wire unmarshal followed by
+// Manager.Demux, which performs discriminator lookup and attempts delivery to
+// the session's buffered recvCh. It stops at channel enqueue: it does not wait
+// for the session goroutine to validate authentication, update state, apply an
+// FSM event, or reset the detection timer.
 //
 // The benchmark creates a real Manager with one session and routes packets
 // through the full Demux path. The session goroutine is running and
@@ -303,7 +303,7 @@ func BenchmarkRecvStateToEvent(b *testing.B) {
 //
 // Target: zero allocations on the unmarshal + demux path for packets
 // with Your Discriminator != 0 (tier-1 O(1) lookup).
-func BenchmarkFullRecvPath(b *testing.B) {
+func BenchmarkRecvDecodeLookupEnqueue(b *testing.B) {
 	logger := slog.New(slog.DiscardHandler)
 	mgr := bfd.NewManager(logger)
 	defer mgr.Close()
@@ -363,17 +363,17 @@ func BenchmarkFullRecvPath(b *testing.B) {
 }
 
 // -------------------------------------------------------------------------
-// BenchmarkFullRecvPathCodec — unmarshal + FSM only (no IPC)
+// BenchmarkRecvDecodeFSM — unmarshal + FSM only (no session state)
 // -------------------------------------------------------------------------
 
-// BenchmarkFullRecvPathCodec measures the codec-only receive path:
+// BenchmarkRecvDecodeFSM measures the codec-and-FSM compute path:
 // unmarshal a wire-format packet, map remote state to FSM event, and
-// apply the event to the FSM. This excludes Manager.Demux (RWMutex +
-// map lookup + channel send) and is the FAIR comparison with C benchmarks,
-// which also measure only unmarshal + FSM without inter-process communication.
+// apply the event to the stateless FSM transition table. It excludes session
+// packet validation, state mutation, timers, diagnostics, and notification
+// delivery as well as Manager.Demux.
 //
 // Target: zero allocations per operation.
-func BenchmarkFullRecvPathCodec(b *testing.B) {
+func BenchmarkRecvDecodeFSM(b *testing.B) {
 	// Build a valid wire-format keepalive packet.
 	srcPkt := &bfd.ControlPacket{
 		Version:               bfd.Version,
@@ -409,20 +409,16 @@ func BenchmarkFullRecvPathCodec(b *testing.B) {
 }
 
 // -------------------------------------------------------------------------
-// BenchmarkFullTxPath — buildControlPacket + marshal + jitter
+// BenchmarkTxMarshalJitter — marshal + jitter
 // -------------------------------------------------------------------------
 
-// BenchmarkFullTxPath measures the complete transmit-side hot path:
-// build a BFD Control packet from session state, marshal it into a
-// pre-allocated buffer, and apply jitter to the TX interval.
-// This represents the per-TX-interval cost (RFC 5880 Section 6.8.7)
-// excluding the actual socket send.
-//
-// Includes ApplyJitter for fair comparison with C benchmarks, which
-// measure marshal + jitter together in their FullTxPath.
+// BenchmarkTxMarshalJitter measures marshaling a pre-built BFD Control packet
+// into a caller-owned buffer and calculating TX jitter. It excludes session
+// snapshot construction, authentication sequence updates, cached-packet
+// publication, and the socket send.
 //
 // Target: zero allocations per operation.
-func BenchmarkFullTxPath(b *testing.B) {
+func BenchmarkTxMarshalJitter(b *testing.B) {
 	buf := make([]byte, bfd.MaxPacketSize)
 	interval := 100 * time.Millisecond
 

@@ -1,4 +1,4 @@
-//go:build interop_rfc
+//go:build interop_rfc || interop_rfc_testcontainers
 
 // Package interop_rfc_test provides RFC-specific interoperability tests
 // for GoBFD against FRR peers and echo reflectors.
@@ -18,7 +18,7 @@
 //	go test -tags interop_rfc -v -count=1 -timeout 300s ./test/interop-rfc/
 //
 // Prerequisites:
-//   - podman-compose -f test/interop-rfc/compose.yml up --build -d
+//   - podman compose -f test/interop-rfc/compose.yml up --build -d
 //   - All containers must be running.
 package interop_rfc_test
 
@@ -76,20 +76,26 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpRFCContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// GoBGP v3 session state enum values (PeerState_SessionState protobuf).
-const (
-	bgpStateEstablished = 6
-)
-
-// bgpSessionStateName maps GoBGP v3 protobuf session_state numbers to names.
-var bgpSessionStateName = map[int]string{
-	0: "unspecified",
-	1: "idle",
-	2: "connect",
-	3: "active",
-	4: "opensent",
-	5: "openconfirm",
-	6: "established",
+// bgpSessionStateName maps a GoBGP v3 protobuf session_state number to its name.
+func bgpSessionStateName(state int) string {
+	switch state {
+	case 0:
+		return "unspecified"
+	case 1:
+		return "idle"
+	case 2:
+		return "connect"
+	case 3:
+		return "active"
+	case 4:
+		return "opensent"
+	case 5:
+		return "openconfirm"
+	case 6:
+		return "established"
+	default:
+		return fmt.Sprintf("unknown(%d)", state)
+	}
 }
 
 // gobgpNeighborState returns the BGP session state for a specific peer.
@@ -111,11 +117,7 @@ func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
 
 	for _, n := range neighbors {
 		if n.State.NeighborAddress == peerIP {
-			name, ok := bgpSessionStateName[n.State.SessionState]
-			if !ok {
-				return fmt.Sprintf("unknown(%d)", n.State.SessionState), nil
-			}
-			return name, nil
+			return bgpSessionStateName(n.State.SessionState), nil
 		}
 	}
 
@@ -170,24 +172,11 @@ func frrBFDPeerUp(ctx context.Context, frrContainer, peerIP string) (bool, error
 // Tshark analysis helpers
 // =========================================================================
 
-// tsharkQuery runs tshark on the captured pcapng file inside the tshark container
-// via the Podman REST API (no podman CLI binary required).
-// Strips tshark's stderr warning about running as root (mixed into stdout
-// by the Docker stream protocol).
-func tsharkQuery(ctx context.Context, args ...string) (string, error) {
-	cmdArgs := append([]string{"tshark", "-r", "/captures/bfd.pcapng"}, args...)
-	output, err := containerExec(ctx, tsharkRFCContainer, cmdArgs...)
-	if err != nil {
-		return "", err
-	}
-	return cleanTsharkOutput(output), nil
-}
-
 func cleanTsharkOutput(output string) string {
 	// tshark emits "Running as user ..." warning on stderr, which the
 	// Docker stream demuxer merges into stdout. Strip it.
 	var cleaned []string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "Running as user") ||
 			strings.HasPrefix(trimmed, "Capturing on ") ||
@@ -200,38 +189,6 @@ func cleanTsharkOutput(output string) string {
 		cleaned = append(cleaned, line)
 	}
 	return strings.Join(cleaned, "\n")
-}
-
-// tsharkFields extracts specific fields from packets matching a display filter.
-// Returns [][]string where each row is one packet's field values.
-func tsharkFields(ctx context.Context, filter string, fields []string, maxCount int) ([][]string, error) {
-	args := []string{"-Y", filter, "-T", "fields"}
-	for _, f := range fields {
-		args = append(args, "-e", f)
-	}
-	args = append(args, "-E", "separator=\t", "-E", "header=n")
-	if maxCount > 0 {
-		args = append(args, "-c", strconv.Itoa(maxCount))
-	}
-
-	output, err := tsharkQuery(ctx, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	output = strings.TrimSpace(output)
-	if output == "" {
-		return nil, nil
-	}
-
-	var rows [][]string
-	for _, line := range strings.Split(output, "\n") {
-		if line == "" {
-			continue
-		}
-		rows = append(rows, strings.Split(line, "\t"))
-	}
-	return rows, nil
 }
 
 func tsharkLiveFields(
@@ -270,7 +227,7 @@ func tsharkLiveFields(
 	}
 
 	var rows [][]string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if line == "" {
 			continue
 		}
@@ -279,21 +236,10 @@ func tsharkLiveFields(
 	return rows, nil
 }
 
-// tsharkCount returns the number of packets matching a display filter.
-func tsharkCount(ctx context.Context, filter string) (int, error) {
-	output, err := tsharkQuery(ctx, "-Y", filter, "-T", "fields", "-e", "frame.number")
-	if err != nil {
-		return 0, err
-	}
-	output = strings.TrimSpace(output)
-	if output == "" {
-		return 0, nil
-	}
-	return len(strings.Split(output, "\n")), nil
-}
-
-type tsharkFieldsQuery func(filter string, fields []string, maxCount int) ([][]string, error)
-type tsharkCountQuery func(filter string) (int, error)
+type (
+	tsharkFieldsQuery func(filter string, fields []string, maxCount int) ([][]string, error)
+	tsharkCountQuery  func(filter string) (int, error)
+)
 
 func waitTsharkFields(
 	ctx context.Context,
@@ -403,14 +349,14 @@ func waitForCondition(t *testing.T, desc string, timeout time.Duration, fn func(
 	t.Fatalf("condition %q not met within %v", desc, timeout)
 }
 
-func waitFRRBFDUp(t *testing.T, ctx context.Context, frrContainer, peerIP string, timeout time.Duration) {
+func waitFRRBFDUp(ctx context.Context, t *testing.T, frrContainer, peerIP string, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, fmt.Sprintf("BFD Up on %s for peer %s", frrContainer, peerIP), timeout, func() (bool, error) {
 		return frrBFDPeerUp(ctx, frrContainer, peerIP)
 	})
 }
 
-func waitBGPEstablished(t *testing.T, ctx context.Context, peerIP string, timeout time.Duration) {
+func waitBGPEstablished(ctx context.Context, t *testing.T, peerIP string, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "BGP Established with "+peerIP, timeout, func() (bool, error) {
 		state, err := gobgpNeighborState(ctx, peerIP)
@@ -421,14 +367,14 @@ func waitBGPEstablished(t *testing.T, ctx context.Context, peerIP string, timeou
 	})
 }
 
-func waitRouteExists(t *testing.T, ctx context.Context, prefix string, timeout time.Duration) {
+func waitRouteExists(ctx context.Context, t *testing.T, prefix string, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "route "+prefix+" in RIB", timeout, func() (bool, error) {
 		return gobgpRouteExists(ctx, prefix)
 	})
 }
 
-func waitRouteGone(t *testing.T, ctx context.Context, prefix string, timeout time.Duration) {
+func waitRouteGone(ctx context.Context, t *testing.T, prefix string, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "route "+prefix+" withdrawn from RIB", timeout, func() (bool, error) {
 		exists, err := gobgpRouteExists(ctx, prefix)
@@ -471,9 +417,10 @@ func dumpTsharkCapture(t *testing.T, count int) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	output, err := containerExec(ctx, tsharkRFCContainer,
+	output, err := containerExec(
+		ctx, tsharkRFCContainer,
 		"tshark", "-r", "/captures/bfd.pcapng", "-Y", "bfd",
-		"-c", fmt.Sprintf("%d", count),
+		"-c", strconv.Itoa(count),
 		"-T", "fields",
 		"-e", "frame.time_relative",
 		"-e", "ip.src",
@@ -512,7 +459,7 @@ func TestRFC7419_CommonIntervalAlignment(t *testing.T) {
 
 	// Step 1: Wait for BFD session Up between gobfd-rfc and frr-rfc.
 	t.Log("waiting for BFD session Up between gobfd-rfc and frr-rfc...")
-	waitFRRBFDUp(t, ctx, frrRFCContainer, gobfdRFCIP, bfdUpTimeout)
+	waitFRRBFDUp(ctx, t, frrRFCContainer, gobfdRFCIP, bfdUpTimeout)
 	t.Log("BFD session Up")
 
 	// Step 2: Extract DesiredMinTxInterval from GoBFD→FRR Up packets.
@@ -534,9 +481,9 @@ func TestRFC7419_CommonIntervalAlignment(t *testing.T) {
 		if len(row) == 0 {
 			continue
 		}
-		interval, err := parseHexOrDec(row[0])
-		if err != nil {
-			t.Fatalf("parse interval at row %d: %v", i, err)
+		interval, parseErr := parseHexOrDec(row[0])
+		if parseErr != nil {
+			t.Fatalf("parse interval at row %d: %v", i, parseErr)
 		}
 		if interval != 100000 {
 			t.Errorf("packet %d: DesiredMinTxInterval = %d, want 100000 (100ms aligned per RFC 7419)",
@@ -580,19 +527,19 @@ func TestRFC9384_BGPCeaseBFDDown(t *testing.T) {
 		// Always unpause to leave stack clean.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		containerUnpause(ctx, frrRFCBGPContainer) //nolint:errcheck
+		containerUnpause(ctx, frrRFCBGPContainer) //nolint:errcheck // Cleanup is best-effort after the primary test result.
 	})
 	ctx := t.Context()
 
 	// Phase 1: Verify baseline.
 	t.Log("Phase 1: verifying baseline — BGP Established, BFD Up, route present")
-	waitBGPEstablished(t, ctx, frrRFCBGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, frrRFCBGPIP, bgpEstablishTimeout)
 	t.Log("BGP session Established")
 
-	waitFRRBFDUp(t, ctx, frrRFCBGPContainer, gobfdRFC9384IP, bfdUpTimeout)
+	waitFRRBFDUp(ctx, t, frrRFCBGPContainer, gobfdRFC9384IP, bfdUpTimeout)
 	t.Log("BFD session Up")
 
-	waitRouteExists(t, ctx, frrBGPRoute, routeTimeout)
+	waitRouteExists(ctx, t, frrBGPRoute, routeTimeout)
 	t.Logf("route %s present in GoBGP RIB", frrBGPRoute)
 
 	// Phase 2: Pause frr-rfc-bgp to trigger BFD failure.
@@ -639,7 +586,7 @@ func TestRFC9384_BGPCeaseBFDDown(t *testing.T) {
 	}
 
 	// Check route withdrawn.
-	waitRouteGone(t, ctx, frrBGPRoute, routeTimeout)
+	waitRouteGone(ctx, t, frrBGPRoute, routeTimeout)
 	t.Logf("route %s withdrawn after BFD failure", frrBGPRoute)
 
 	// Phase 4: Recovery — unpause frr-rfc-bgp.
@@ -648,10 +595,10 @@ func TestRFC9384_BGPCeaseBFDDown(t *testing.T) {
 		t.Fatalf("unpause frr-rfc-bgp: %v", err)
 	}
 
-	waitBGPEstablished(t, ctx, frrRFCBGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, frrRFCBGPIP, bgpEstablishTimeout)
 	t.Log("BGP session re-established")
 
-	waitRouteExists(t, ctx, frrBGPRoute, routeTimeout)
+	waitRouteExists(ctx, t, frrBGPRoute, routeTimeout)
 	t.Logf("route %s restored after recovery", frrBGPRoute)
 }
 
@@ -677,7 +624,7 @@ func TestRFC9468_UnsolicitedBFD(t *testing.T) {
 	// Step 1: Wait for FRR to start sending BFD and for session to come Up.
 	// FRR initiates BFD to gobfd-rfc. GoBFD must auto-create the session.
 	t.Log("waiting for FRR unsolicited BFD session to come Up...")
-	waitFRRBFDUp(t, ctx, frrUnsolicitedContainer, gobfdRFCIP, bfdUpTimeout)
+	waitFRRBFDUp(ctx, t, frrUnsolicitedContainer, gobfdRFCIP, bfdUpTimeout)
 	t.Log("FRR reports BFD session Up (GoBFD auto-created session via RFC 9468)")
 
 	// Step 2: Verify tshark sees BFD Up packets from GoBFD to FRR-unsolicited.
@@ -747,7 +694,7 @@ func TestRFC9747_EchoSession(t *testing.T) {
 		// Always unpause to leave stack clean.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		containerUnpause(ctx, echoReflectorContainer) //nolint:errcheck
+		containerUnpause(ctx, echoReflectorContainer) //nolint:errcheck // Best-effort cleanup.
 	})
 	ctx := t.Context()
 
@@ -798,7 +745,10 @@ func TestRFC9747_EchoSession(t *testing.T) {
 	}
 	if echoCount == 0 || reflectCount == 0 {
 		if lastErr != nil {
-			t.Fatalf("tshark captured echo directions: outbound=%d reflected=%d last_error=%v rows=%v", echoCount, reflectCount, lastErr, rows)
+			t.Fatalf(
+				"tshark captured echo directions: outbound=%d reflected=%d last_error=%v rows=%v",
+				echoCount, reflectCount, lastErr, rows,
+			)
 		}
 		t.Fatalf("tshark captured echo directions: outbound=%d reflected=%d rows=%v", echoCount, reflectCount, rows)
 	}
@@ -828,15 +778,15 @@ func TestRFC9747_EchoSession(t *testing.T) {
 
 	// Phase 4: Unpause echo-reflector → echo session should recover.
 	t.Log("Phase 4: unpausing echo-reflector for recovery")
-	if err := containerUnpause(ctx, echoReflectorContainer); err != nil {
-		t.Fatalf("unpause echo-reflector: %v", err)
+	if unpauseErr := containerUnpause(ctx, echoReflectorContainer); unpauseErr != nil {
+		t.Fatalf("unpause echo-reflector: %v", unpauseErr)
 	}
 
 	// Wait for echo session to come back Up.
 	waitForCondition(t, "echo session recovery (Down → Up)", bfdUpTimeout, func() (bool, error) {
-		recentLogs, err := containerLogs(ctx, gobfdRFCContainer, 50)
-		if err != nil {
-			return false, err
+		recentLogs, logErr := containerLogs(ctx, gobfdRFCContainer, 50)
+		if logErr != nil {
+			return false, logErr
 		}
 		// The most recent state transition should be to Up.
 		// Look for the pattern after the pause/unpause cycle.

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"net/netip"
 	"strings"
 
@@ -11,6 +12,8 @@ import (
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
+
+const maxBFDWireUint8 = math.MaxUint8
 
 func newUDPSenderFactory() *udpSenderFactory {
 	return &udpSenderFactory{
@@ -119,7 +122,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		detectMult = defaults.DefaultDetectMultiplier
 	}
 
-	if detectMult > 255 {
+	if detectMult > maxBFDWireUint8 {
 		return bfd.SessionConfig{}, fmt.Errorf("detect_mult %d: %w", detectMult, errDetectMultOverflow)
 	}
 
@@ -172,14 +175,14 @@ func configAuthToBFD(authCfg config.AuthConfig) (bfd.Authenticator, bfd.AuthKeyS
 	if err != nil {
 		return nil, nil, err
 	}
-	if authCfg.KeyID > 255 {
+	if authCfg.KeyID > maxBFDWireUint8 {
 		return nil, nil, fmt.Errorf("auth key ID %d exceeds 255: %w",
 			authCfg.KeyID, config.ErrInvalidSessionAuthKeyID)
 	}
 
 	auth, err := bfd.NewAuthenticator(authType)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("create %q authenticator: %w", authTypeName, err)
 	}
 	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
 		ID:     uint8(authCfg.KeyID), // Range checked above.
@@ -187,7 +190,7 @@ func configAuthToBFD(authCfg config.AuthConfig) (bfd.Authenticator, bfd.AuthKeyS
 		Secret: []byte(authCfg.Secret),
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("create authentication key store for key ID %d: %w", authCfg.KeyID, err)
 	}
 
 	return auth, keys, nil
@@ -254,12 +257,12 @@ func buildMicroBFDActuator(
 	if actuatorCfg.Mode == netio.LAGActuatorModeEnforce {
 		backend, err = netio.NewLAGActuatorBackend(actuatorCfg)
 		if err != nil {
-			return nil, false, err
+			return nil, false, fmt.Errorf("create micro-BFD LAG actuator backend: %w", err)
 		}
 	}
 	actuator, err := netio.NewLAGActuator(actuatorCfg, backend, logger)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("create micro-BFD LAG actuator: %w", err)
 	}
 	return actuator, true, nil
 }
@@ -294,7 +297,7 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 	}
 
 	detectMult := cfg.SessionDefaults.DetectMult
-	if detectMult > 255 {
+	if detectMult > maxBFDWireUint8 {
 		return nil, fmt.Errorf("unsolicited detect_mult %d: %w", detectMult, errDetectMultOverflow)
 	}
 

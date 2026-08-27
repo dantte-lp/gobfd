@@ -3,6 +3,7 @@ package bfd_test
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -103,6 +104,22 @@ func TestNewEchoSessionZeroTxInterval(t *testing.T) {
 	_, err := bfd.NewEchoSession(cfg, 1, noopSender{}, nil, logger)
 	if err == nil {
 		t.Fatal("expected error for zero TX interval")
+	}
+}
+
+func TestNewEchoSessionRejectsUnencodableTxInterval(t *testing.T) {
+	t.Parallel()
+
+	cfg := bfd.EchoSessionConfig{
+		PeerAddr:         netip.MustParseAddr("10.0.0.1"),
+		TxInterval:       bfd.MaxWireInterval + time.Microsecond,
+		DetectMultiplier: 3,
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	_, err := bfd.NewEchoSession(cfg, 1, noopSender{}, nil, logger)
+	if !errors.Is(err, bfd.ErrInvalidWireInterval) {
+		t.Fatalf("NewEchoSession() error = %v, want ErrInvalidWireInterval", err)
 	}
 }
 

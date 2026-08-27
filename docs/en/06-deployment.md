@@ -25,7 +25,11 @@
 
 - **Linux** kernel (raw sockets require Linux-specific APIs)
 - **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
-- Go 1.26+ (for building from source only)
+- Go 1.27+ (for building from source only)
+
+Non-Linux targets are compile-only compatibility surfaces. The `internal/netio`
+transport constructors return `ErrUnsupportedPlatform`; GoBFD does not publish
+or support a non-Linux dataplane runtime.
 
 ### Release Artifact Matrix
 
@@ -170,16 +174,31 @@ sudo systemctl status gobfd
 
 ### Podman Compose
 
+GoBFD uses Podman's external Compose-provider wrapper with the official Docker
+Compose v5.5.0 Go binary. Install the checksum-pinned provider and select it
+explicitly; Python `podman-compose` is unsupported:
+
+```bash
+scripts/install-compose-provider.sh
+export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
+export PODMAN_COMPOSE_WARNING_LOGS=false
+export DOCKER_BUILDKIT=0
+podman compose version
+```
+
+`DOCKER_BUILDKIT=0` keeps builds on the Podman-compatible classic Docker API;
+Docker Buildx/Bake is not part of the repository's Podman runtime.
+
 #### Development Stack
 
 `deployments/compose/compose.dev.yml` -- development environment with hot reload:
 
 ```bash
 # Start development environment
-podman-compose -f deployments/compose/compose.dev.yml up -d --build
+podman compose -f deployments/compose/compose.dev.yml up -d --build
 
 # Access the dev container
-podman-compose -f deployments/compose/compose.dev.yml exec dev bash
+podman compose -f deployments/compose/compose.dev.yml exec dev bash
 
 # Build and test inside container
 make build && make test
@@ -191,7 +210,7 @@ make build && make test
 
 ```bash
 # Start production stack
-podman-compose -f deployments/compose/compose.yml up -d
+podman compose -f deployments/compose/compose.yml up -d
 
 # Services:
 #   gobfd gRPC API:   localhost:50051
@@ -243,44 +262,53 @@ GoBFD follows the principle of least privilege:
 |---|---|
 | **Capabilities** | Only `CAP_NET_RAW` + `CAP_NET_ADMIN` (no root) |
 | **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
-| **Code** | No `unsafe` package, all socket errors handled |
+| **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
 | **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
 
-### Memory Tuning (GOMEMLIMIT + Green Tea GC)
+### Memory Tuning (`GOMEMLIMIT` and `GOGC`)
 
-Go 1.26 introduces the Green Tea garbage collector, which performs significantly better under bounded memory. GoBFD recommends setting `GOMEMLIMIT` with `GOGC=off` for production deployments to eliminate GC pauses on the hot path.
+Go 1.27 treats `GOMEMLIMIT` as a soft limit for memory managed by the Go
+runtime. It excludes the binary mapping, kernel memory, and memory managed
+outside Go. The runtime may increase garbage-collection frequency to respect
+the limit even when `GOGC=off`; this setting does not eliminate GC pauses. A
+limit below the working set can make GC run nearly continuously.
 
-| Deployment | GOMEMLIMIT | Notes |
-|---|---|---|
-| Small (< 50 sessions) | `256MiB` | Sufficient for typical edge deployments |
-| Medium (50-500 sessions) | `512MiB` | Route reflectors, aggregation routers |
-| Large (500+ sessions) | `1GiB` | Large-scale BGP+BFD deployments |
+GoBFD does not publish session-count-to-memory sizing tiers. Select a limit
+below the service or container memory limit with headroom for the binary,
+kernel socket buffers, and other non-Go memory, then qualify it with the target
+session count, authentication mode, telemetry, and failure workload. Keep the
+default `GOGC` unless deployment measurements justify an override.
 
 #### systemd Configuration
 
-Add to `[Service]` section of `gobfd.service`:
+Add a deployment-qualified byte value to the `[Service]` section of
+`gobfd.service`:
 
 ```ini
-Environment=GOMEMLIMIT=256MiB
-Environment=GOGC=off
+# Example only; replace with a deployment-qualified value.
+Environment=GOMEMLIMIT=512MiB
 ```
 
 #### Container Configuration
 
 ```dockerfile
-ENV GOMEMLIMIT=256MiB
-ENV GOGC=off
+# Example only; replace with a deployment-qualified value.
+ENV GOMEMLIMIT=512MiB
 ```
 
 #### Monitoring
 
-Monitor memory usage via the Prometheus metric `process_resident_memory_bytes`. If the process approaches `GOMEMLIMIT`, increase the limit. The Go runtime will perform more aggressive GC as it nears the limit rather than OOM.
+Monitor process RSS, the container or service memory limit, GC frequency, and
+GC pause time together. RSS is not the same quantity as `GOMEMLIMIT`. Sustained
+GC growth or memory-limit thrashing requires a larger qualified limit or a
+smaller workload; the soft limit is not an OOM guarantee.
 
 ### Production Checklist
 
-- [ ] Set `GOMEMLIMIT` and `GOGC=off` for bounded memory operation
-- [ ] Monitor `process_resident_memory_bytes` relative to `GOMEMLIMIT`
+- [ ] Qualify `GOMEMLIMIT` with deployment headroom and representative load
+- [ ] Keep the default `GOGC` unless measurements justify an override
+- [ ] Monitor RSS, the service memory limit, GC frequency, and GC pauses
 - [ ] Configure `gobfd.yml` with appropriate session parameters
 - [ ] Set `log.format: json` for structured logging
 - [ ] Enable GoBGP integration if using BFD for BGP failover

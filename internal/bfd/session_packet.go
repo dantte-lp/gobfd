@@ -534,5 +534,5 @@ func durationFromMicroseconds(us uint32) time.Duration {
 // microsecondsFromDuration converts time.Duration to BFD wire-format
 // microseconds (uint32). Values are truncated, not rounded.
 func microsecondsFromDuration(d time.Duration) uint32 {
-	return uint32(d / time.Microsecond) //nolint:gosec // G115: intentional truncation for BFD wire format
+	return uint32(d / time.Microsecond) // #nosec G115 -- session and echo constructors enforce MaxWireInterval.
 }

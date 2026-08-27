@@ -5,24 +5,29 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"os/exec" //nolint:depguard // Audit runner invokes pinned scanners with explicit argument vectors.
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	govulncheckVersion = "v1.3.0"
-	osvScannerVersion  = "v2.3.5"
+	govulncheckVersion = "v1.7.0"
+	osvScannerVersion  = "v2.5.1"
 	scannerTimeout     = 10 * time.Minute
+	govulncheckName    = "govulncheck"
+	osvScannerName     = "osv-scanner"
 )
 
 var (
 	errAllowEntryIncomplete = errors.New("allowlist entry missing package, owner, reason, or mitigation")
 	errAllowEntryExpired    = errors.New("allowlist entry expired")
+	errScannerReportEmpty   = errors.New("scanner returned an empty report")
 )
 
 type allowEntry struct {
@@ -31,15 +36,24 @@ type allowEntry struct {
 	Expires    string
 	Reason     string
 	Mitigation string
+	ModuleOnly bool
 }
 
 var allowlist = map[string]allowEntry{
 	"GO-2026-4736": {
 		Package:    "github.com/osrg/gobgp/v3",
 		Owner:      "maintainers",
-		Expires:    "2026-07-31",
-		Reason:     "GoBGP NEXT_HOP DoS advisory has no fixed version.",
+		Expires:    "2026-09-30",
+		Reason:     "GoBGP v3 has no fixed release; v4 migration is tracked by gobfd-qj0.8.2.4.",
 		Mitigation: "Keep GoBGP integration on localhost or a trusted management network until upstream ships a fix.",
+	},
+	"GO-2026-5932": {
+		Package:    "golang.org/x/crypto",
+		Owner:      "maintainers",
+		Expires:    "2026-09-30",
+		Reason:     "The advisory affects the unmaintained openpgp package, which is absent from the build dependency graph.",
+		Mitigation: "Keep the reachable-package govulncheck gate enabled and reject any openpgp import.",
+		ModuleOnly: true,
 	},
 }
 
@@ -49,6 +63,15 @@ type finding struct {
 	Package string
 	Version string
 	Source  string
+	// Reachable is true when govulncheck reports a vulnerable symbol in the
+	// application call graph. Inventory-only scanners cannot establish it.
+	Reachable bool
+}
+
+type govulnTrace struct {
+	Module   string `json:"module"`
+	Package  string `json:"package"`
+	Function string `json:"function"`
 }
 
 type commandResult struct {
@@ -60,33 +83,18 @@ type commandResult struct {
 }
 
 func main() {
-	var failures []string
-
-	govuln := runGo("run", "golang.org/x/vuln/cmd/govulncheck@"+govulncheckVersion, "-format", "json", "./...")
-	printStderr("govulncheck", govuln.Stderr)
-	govulnFindings, err := parseGovulncheck(govuln.Stdout)
-	if err != nil {
-		failures = append(failures, fmt.Sprintf("govulncheck JSON parse failed: %v", err))
-	}
-	if govuln.TimedOut {
-		failures = append(failures, "govulncheck timed out")
-	}
-	if govuln.Err != nil && len(govulnFindings) == 0 {
-		failures = append(failures, fmt.Sprintf("govulncheck failed with exit code %d: %v", govuln.Code, govuln.Err))
+	reportDir := flag.String("report-dir", "", "write separate raw runtime and tools scanner reports")
+	flag.Parse()
+	if flag.NArg() != 0 {
+		fmt.Fprintf(os.Stderr, "vulnerability audit: unexpected arguments: %s\n", strings.Join(flag.Args(), " "))
+		os.Exit(2)
 	}
 
-	osv := runGo("run", "github.com/google/osv-scanner/v2/cmd/osv-scanner@"+osvScannerVersion, "scan", "-r", "--format", "json", ".")
-	printStderr("osv-scanner", osv.Stderr)
-	osvFindings, err := parseOSVScanner(osv.Stdout)
-	if err != nil {
-		failures = append(failures, fmt.Sprintf("osv-scanner JSON parse failed: %v", err))
-	}
-	if osv.TimedOut {
-		failures = append(failures, "osv-scanner timed out")
-	}
-	if osv.Err != nil && len(osvFindings) == 0 {
-		failures = append(failures, fmt.Sprintf("osv-scanner failed with exit code %d: %v", osv.Code, osv.Err))
-	}
+	govulnFindings, failures := auditGovulncheck(*reportDir)
+	runtimeOSVFindings, runtimeFailures := auditOSV(*reportDir, "runtime", "go.mod")
+	toolsOSVFindings, toolsFailures := auditOSV(*reportDir, "tools", "tools/go.mod")
+	failures = append(failures, runtimeFailures...)
+	failures = append(failures, toolsFailures...)
 
 	if len(failures) > 0 {
 		for _, failure := range failures {
@@ -95,10 +103,82 @@ func main() {
 		os.Exit(2)
 	}
 
-	all := make([]finding, 0, len(govulnFindings)+len(osvFindings))
+	all := make([]finding, 0, len(govulnFindings)+len(runtimeOSVFindings)+len(toolsOSVFindings))
 	all = append(all, govulnFindings...)
-	all = append(all, osvFindings...)
+	all = append(all, runtimeOSVFindings...)
+	all = append(all, toolsOSVFindings...)
 	report(all)
+}
+
+func auditGovulncheck(reportDir string) ([]finding, []string) {
+	result := runGo("run", "golang.org/x/vuln/cmd/govulncheck@"+govulncheckVersion, "-format", "json", "./...")
+	printStderr(govulncheckName, result.Stderr)
+
+	var failures []string
+	reportErr := writeScannerReport(reportDir, "runtime-govulncheck.json", result.Stdout)
+	if reportErr != nil {
+		failures = append(failures, reportErr.Error())
+	}
+	findings, parseErr := parseGovulncheck(result.Stdout)
+	if parseErr != nil {
+		failures = append(failures, fmt.Sprintf("govulncheck JSON parse failed: %v", parseErr))
+	}
+	if result.TimedOut {
+		failures = append(failures, "govulncheck timed out")
+	}
+	if result.Err != nil && len(findings) == 0 {
+		failures = append(failures, fmt.Sprintf("govulncheck failed with exit code %d: %v", result.Code, result.Err))
+	}
+	return findings, failures
+}
+
+func auditOSV(reportDir, scope, manifest string) ([]finding, []string) {
+	result := runGo(
+		"run",
+		"github.com/google/osv-scanner/v2/cmd/osv-scanner@"+osvScannerVersion,
+		"scan",
+		"--lockfile="+manifest,
+		"--format",
+		"json",
+		"--all-packages",
+		"--no-call-analysis=go",
+	)
+	printStderr(scope+" "+osvScannerName, result.Stderr)
+
+	var failures []string
+	reportErr := writeScannerReport(reportDir, scope+"-osv.json", result.Stdout)
+	if reportErr != nil {
+		failures = append(failures, reportErr.Error())
+	}
+	findings, parseErr := parseOSVScanner(result.Stdout)
+	if parseErr != nil {
+		failures = append(failures, fmt.Sprintf("%s osv-scanner JSON parse failed: %v", scope, parseErr))
+	}
+	if result.TimedOut {
+		failures = append(failures, scope+" osv-scanner timed out")
+	}
+	if result.Err != nil && len(findings) == 0 {
+		failures = append(failures,
+			fmt.Sprintf("%s osv-scanner failed with exit code %d: %v", scope, result.Code, result.Err))
+	}
+	return findings, failures
+}
+
+func writeScannerReport(reportDir, name string, data []byte) error {
+	if reportDir == "" {
+		return nil
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return fmt.Errorf("write %s: %w", name, errScannerReportEmpty)
+	}
+	if err := os.MkdirAll(reportDir, 0o750); err != nil {
+		return fmt.Errorf("create scanner report directory %s: %w", reportDir, err)
+	}
+	path := filepath.Join(reportDir, name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write scanner report %s: %w", path, err)
+	}
+	return nil
 }
 
 func runGo(args ...string) commandResult {
@@ -107,6 +187,7 @@ func runGo(args ...string) commandResult {
 	ctx, cancel := context.WithTimeout(context.Background(), scannerTimeout)
 	defer cancel()
 
+	// #nosec G204 -- go is fixed and closed callers build argv from pinned scanner versions and fixed manifests.
 	cmd := exec.CommandContext(ctx, "go", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -117,8 +198,7 @@ func runGo(args ...string) commandResult {
 	code := 0
 	if err != nil {
 		code = 1
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			code = exitErr.ExitCode()
 		}
 	}
@@ -149,12 +229,8 @@ func parseGovulncheck(data []byte) ([]finding, error) {
 	for {
 		var message struct {
 			Finding *struct {
-				OSV   string `json:"osv"`
-				Trace []struct {
-					Module   string `json:"module"`
-					Package  string `json:"package"`
-					Function string `json:"function"`
-				} `json:"trace"`
+				OSV   string        `json:"osv"`
+				Trace []govulnTrace `json:"trace"`
 			} `json:"finding"`
 		}
 
@@ -163,26 +239,45 @@ func parseGovulncheck(data []byte) ([]finding, error) {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode govulncheck JSON: %w", err)
 		}
 		if message.Finding == nil || message.Finding.OSV == "" {
 			continue
 		}
 
-		item := finding{Scanner: "govulncheck", ID: message.Finding.OSV}
-		if len(message.Finding.Trace) > 0 {
-			item.Package = message.Finding.Trace[0].Package
-			if item.Package == "" {
-				item.Package = message.Finding.Trace[0].Module
-			}
-			item.Source = message.Finding.Trace[0].Function
-		}
+		item := newGovulnFinding(message.Finding.OSV, message.Finding.Trace)
 
-		key := item.Scanner + "\x00" + item.ID + "\x00" + item.Package + "\x00" + item.Source
+		key := fmt.Sprintf(
+			"%s\x00%s\x00%s\x00%s\x00%t",
+			item.Scanner,
+			item.ID,
+			item.Package,
+			item.Source,
+			item.Reachable,
+		)
 		seen[key] = item
 	}
 
 	return sortedFindings(seen), nil
+}
+
+func newGovulnFinding(id string, trace []govulnTrace) finding {
+	item := finding{Scanner: govulncheckName, ID: id}
+	for _, frame := range trace {
+		if item.Package == "" {
+			item.Package = frame.Package
+			if item.Package == "" {
+				item.Package = frame.Module
+			}
+		}
+		if frame.Function != "" {
+			item.Reachable = true
+			if item.Source == "" {
+				item.Source = frame.Function
+			}
+		}
+	}
+	return item
 }
 
 func parseOSVScanner(data []byte) ([]finding, error) {
@@ -212,7 +307,7 @@ func parseOSVScanner(data []byte) ([]finding, error) {
 		return nil, nil
 	}
 	if err := json.Unmarshal(data, &report); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode osv-scanner JSON: %w", err)
 	}
 
 	seen := map[string]finding{}
@@ -237,7 +332,7 @@ func addOSVFinding(seen map[string]finding, id, pkgName, version, source string)
 		return
 	}
 	item := finding{
-		Scanner: "osv-scanner",
+		Scanner: osvScannerName,
 		ID:      id,
 		Package: pkgName,
 		Version: version,
@@ -319,10 +414,24 @@ func classifyFindings(
 			failures = append(failures, err.Error())
 			continue
 		}
+		if !findingMatchesEntry(item, entry) {
+			unallowed[item.ID] = append(unallowed[item.ID], item)
+			continue
+		}
 		allowed[item.ID] = append(allowed[item.ID], item)
 	}
 
 	return allowed, unallowed, failures
+}
+
+func findingMatchesEntry(item finding, entry allowEntry) bool {
+	if item.Scanner != govulncheckName && item.Scanner != osvScannerName {
+		return false
+	}
+	if entry.ModuleOnly {
+		return item.Package == entry.Package && !item.Reachable
+	}
+	return item.Package == entry.Package || strings.HasPrefix(item.Package, entry.Package+"/")
 }
 
 func validateAllowEntry(id string, entry allowEntry, now time.Time) error {

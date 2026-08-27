@@ -7,8 +7,124 @@
 
 ## [Не выпущено]
 
+## [0.6.2] - 2026-08-27
+
+### Добавлено
+
+- Compatibility-тесты Go 1.27 для duplicate members в JSON, замены
+  некорректного UTF-8, границы количества HTTP header values и реальных
+  Podman build contexts.
+
+### Изменено
+
+- Quick Start использует отслеживаемый `configs/gobfd.example.yml`, а
+  дорожная карта EN/RU является датированной проекцией Beads. В legacy-плане
+  S12 отмечены реализованные Echo/Micro CRUD и отсутствующий Overlay API.
+- Документация graceful shutdown теперь соответствует фиксированному
+  двухсекундному drain в коде и описывает доставку AdminDown как best effort, а
+  не как гарантию.
+- Публичная документация RFC и производительности теперь указывает, что wire
+  subcode 10 RFC 9384 не реализован с GoBGP v3, помечает неполные RFC-возможности
+  как partial или preview и ограничивает заявления об аллокациях и throughput
+  точными этапами измеряемых benchmarks. RX до enqueue и TX без socket теперь
+  имеют stage-specific имена.
+- Нативный OVS LAG backend переведён с архивного модуля `ovn-org` на активный
+  `github.com/ovn-kubernetes/libovsdb` v0.8.1 с сохранением существующего
+  transaction-контракта RFC 7130.
+- Репозиторные проверки Markdown и PR title переведены на stdlib-checker Go
+  1.27, а spelling — на закреплённый в uv codespell 2.4.3. Node.js, npm,
+  markdownlint-cli2, CSpell и commitlint удалены из first-party development и
+  CI-инструментов качества.
+- Alpine Linux больше не используется в first-party build, runtime, benchmark,
+  smoke, interop и integration images. Эти пути переведены на immutable OCI
+  indexes Debian trixie; единственная другая разрешённая OS baseline — Oracle
+  Linux 10.
+- `make int-bgp-failover` запускает Go 1.27 testcontainers Podman gate для
+  GoBFD, GoBGP v3.37.0 и FRR 10.7.0, сохраняет пакетные/container-артефакты и
+  доказывает точную очистку; операционный Compose-пример сохранён.
+- Опциональная проверка некорректных BFD-векторов теперь использует packet
+  codecs репозитория на Go для сохранённых 18 групп и 1055 пакетов. Legacy ID
+  сервиса `scapy` оставлен для совместимости топологии, но Scapy и его Python
+  runtime больше не являются зависимостями.
+- HTML-отчёт cross-implementation benchmarks теперь формирует тестируемая
+  команда на Go 1.27 вместо inline Python heredoc. Входы ограничены по размеру
+  и проверяются по identity, metadata содержит ровно один JSON-документ, а
+  отчёт mode 0600 публикуется только атомарной заменой в том же каталоге.
+- Оркестрация подготовки вендорных образов containerlab перенесена в
+  ограниченную команду Go 1.27. Python оставлен только для подготовки
+  ISO/rootfs VyOS и импорта предоставленных оператором архивов Arista/Cisco
+  через три явных subcommands frozen uv.
+- Обязательная матрица совместимости четырёх BFD-пиров использует FRR 10.7.0,
+  BIRD 3.3.2, immutable Holo 0.9.0 и Thoro/bfd. Holo настраивается через
+  healthy-gated одноразовый YANG loader; lifecycle tests требуют свежих
+  подтверждений отказа и восстановления из пакетов и состояния демона.
+- First-party toolchain baseline переведён на Go 1.27.0 в `go.mod`, GitHub
+  Actions, development/release images и test harness builders. Compiler images
+  закреплены по immutable multi-platform OCI indexes. Go 1.27 включает
+  исправление `net/http` `ReadHeaderTimeout`, также выпущенное в Go 1.26.7.
+- Timer tests используют `testing/synctest.Sleep`, а HTTP tests — новый в Go
+  1.27 helper `httptest.NewTestServer(t, handler)`, когда custom listener не
+  требуется.
+- Строгий набор `golangci-lint` сохранён под Go 1.27 через upstream-обновление
+  `honnef.co/go/tools`; используется `golangci-lint v2.13.1` и стабильный
+  Staticcheck 2026.2, `staticcheck` остаётся включённым.
+- Runtime-модули обновлены до актуальных совместимых релизов, включая
+  ConnectRPC `v1.20.0`, gRPC health `v1.5.0`, koanf `v2.3.6`, Prometheus client
+  `v1.24.1`, console `v0.5.0` и protobuf `v1.36.12`. First-party YAML imports
+  переведены на поддерживаемый путь `go.yaml.in/yaml/v3 v3.0.5`.
+- Development tooling воспроизводимо закреплён: Buf `v1.72.0`, gopls
+  `v0.23.0`, govulncheck `v1.7.0`, gotestsum `v1.13.0`, а также точные версии
+  uv-managed Python-инструментов для lint, type, security, YAML и отчётов.
+  Единый Python 3.14.7 `uv.lock` заменяет pip-bootstrap
+  и независимые tool-окружения в CI и development-образах.
+  Containerlab устанавливается из проверенных архивов `v0.79.0`; CI использует
+  Docker Compose `v5.5.0` как checksum-pinned Go provider для
+  `podman compose`, Syft `v1.51.0` и GoReleaser `v2.18.0`.
+- Изолированный граф lint-инструментов использует MIT-licensed revision
+  `github.com/tenntenn/text/transform`, не изменяя runtime-зависимости.
+  Dependabot теперь отслеживает корневой Go module и module в `tools/`. CI
+  публикует раздельные runtime/tools vulnerability JSON и CycloneDX SBOM.
+- Машиночитаемый dependency inventory теперь связывает все 40 registry packages
+  из `uv.lock` с license evidence точного PyPI release и artifact hash, а также
+  хранит per-version license evidence для всех 21 объявленных инструментов.
+  Build commit и source checksum больше не классифицируются как инструменты.
+  Каждая принятая или сохранённая запись теперь содержит явное исключение с
+  датой пересмотра для каждой незакрытой блокирующей оценки релиза.
+- GitHub Actions обновлены до актуальных релизов и immutable commit SHA.
+  Interop/integration peers используют digest-pinned FRR `10.7.0`, GoBGP
+  `v3.37.0`, ExaBGP `5.0.13`, Prometheus `v3.14.0` и Grafana `13.2.0`.
+  Переход на GoBGP v4 остаётся отдельной несовместимой миграцией для v1.0.0.
+- OSV Scanner обновлён с `v2.3.5` до `v2.5.1`; его Go analysis stack
+  поддерживает синтаксис Go 1.27.
+- Временное исключение для GoBGP v3 NEXT_HOP denial-of-service продлено только
+  до 2026-09-30; переход на v4 остаётся отслеживаемым исправлением.
+- Security fixes обновляют gRPC до `v1.83.2`, `moby/go-archive` до `v0.3.3`,
+  `klauspost/compress` до `v1.19.2` и `x/mod` до `v0.40.0`. Исключение для
+  module-only advisory `x/crypto/openpgp` ограничено по времени: этот пакет
+  отсутствует в build graph.
+
+### Исправлено
+
+- Follow-up независимого ревью v0.6.2 защищает lifecycle вендорной
+  Containerlab-лаборатории lock, run labels и receipts с exact ID; создаёт
+  evidence core/BGP в приватных уникальных каталогах; читает digest-pinned
+  образ FRR из tracked topology; требует все переименованные benchmark stages
+  на обеих сторонах PR; удаляет неподтверждённые заявления об изоляции
+  scheduler и отсутствии пауз GC; сохраняет авторитетный RFC support status
+  только в compliance matrix.
+- На metrics и ConnectRPC servers ограничено количество повторяющихся HTTP
+  header values; parser-level test проверяет ответ HTTP 431 на 129-е значение.
+- Vulnerability allowlist теперь fail closed проверяет scanner, package и
+  reachable symbol; module-only exception не может разрешить import
+  затронутого пакета.
+- Удалены устаревшие эксперименты `goroutineleakprofile` и `noswissmap`,
+  отсутствующие в Go 1.27.
+
 ### Удалено
 
+- Удалены заброшенный пир aiobfd, его зависимость bitstring и repository-owned
+  Python benchmark service со сравнениями. Cross-language отчёты теперь
+  содержат результаты GoBFD, FRR-style C и BIRD-style C.
 - Каталог `.archive/` удалён из репозитория. Sprint planning records,
   cleanup plan и промо-черновики больше не трекаются. Каталог остаётся
   в `.gitignore`, чтобы maintainer мог держать локальные scratch-файлы
@@ -385,7 +501,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2

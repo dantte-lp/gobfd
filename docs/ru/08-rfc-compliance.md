@@ -1,17 +1,17 @@
 # Соответствие RFC
 
-[![RFC 5880](https://img.shields.io/badge/RFC_5880-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
+[![RFC 5880](https://img.shields.io/badge/RFC_5880-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
 [![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
 [![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
 [![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
 [![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
-[![RFC 9384](https://img.shields.io/badge/RFC_9384-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
-[![RFC 9468](https://img.shields.io/badge/RFC_9468-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
-[![RFC 9747](https://img.shields.io/badge/RFC_9747-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
+[![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
+[![RFC 9468](https://img.shields.io/badge/RFC_9468-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
+[![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
 [![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
 [![RFC 8971](https://img.shields.io/badge/RFC_8971-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
 [![RFC 9521](https://img.shields.io/badge/RFC_9521-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
-[![RFC 9764](https://img.shields.io/badge/RFC_9764-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
+[![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
 [![RFC 5884](https://img.shields.io/badge/RFC_5884-Stub-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5884)
@@ -44,24 +44,27 @@
 
 | RFC | Название | Статус | Примечания |
 |---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Реализован** | FSM, кодек, auth, таймеры, джиттер, Poll/Final |
+| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Ответ Final на входящий Poll есть; локальный/crossed Poll и Demand procedures не завершены |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Реализован** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Реализован** | Интеграция с GoBGP, демпфирование flap-ов |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Реализован** | UDP 4784, проверка TTL>=254 |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
-| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Реализован** | Cease/10 subcode в строке shutdown |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Реализован** | Автосоздание пассивных сессий, политика per-interface |
-| [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Реализован** | EchoSession FSM, слушатель порта 3785, echo receiver, подключение к демону |
-| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Протокол реализован; production integration частичная** | MicroBFDGroup, per-member сессии, порт 6784, `SO_BINDTODEVICE`, RunDispatch, kernel-bond/OVSDB/NetworkManager enforcement paths |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Userspace backend реализован; owner backends planned** | VXLANConn порт 4789, сборка inner-пакетов, OverlaySender/Receiver, daemon wiring, explicit `userspace-udp` ownership |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Userspace backend реализован; owner backends planned** | GeneveConn порт 6081, O=1/C=0, сборка inner-пакетов, OverlaySender/Receiver, daemon wiring, explicit `userspace-udp` ownership |
-| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Реализован** | PaddedPduSize, бит DF (`IP_PMTUDISC_DO`), zero-padding в TX-пути |
+| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v3 отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Preview** | Автосоздание и policy существуют; стабильная квалификация не завершена |
+| [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
+| [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Preview userspace backend** | Owner-specific dataplane integration не реализован |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Preview userspace backend** | Owner-specific dataplane integration не реализован |
+| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Padding без auth и DF реализованы; hashing authenticated padding не завершён |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Stub** | Интерфейсы определены, ожидает LSP Ping |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Stub** | Интерфейсы определены, ожидает VCCV/LDP |
 
-> Traditional Echo Mode (RFC 5880 Section 6.4, affiliated с контрольной сессией) и Demand Mode (Section 6.6) намеренно не реализованы. Асинхронный режим покрывает основной сценарий BFD-assisted failover в ISP/DC. Unaffiliated echo (RFC 9747) реализован как автономный тест forwarding-path без контрольной сессии.
+> Traditional Echo Mode (RFC 5880 Section 6.4, affiliated с контрольной
+> сессией) не реализован. Поля Demand Mode декодируются, но runtime procedures
+> RFC 5880 Section 6.6 не завершены. Unaffiliated echo (RFC 9747) является
+> отдельной preview-реализацией.
 
 ### Заметки по RFC 5880
 
@@ -87,7 +90,10 @@
 
 #### Section 6.5: Poll-последовательности
 
-Только одна активная Poll-последовательность. Ожидающие изменения параметров применяются только после получения бита Final.
+Входящий пакет с Poll планирует ответ с Final. Реализация ещё не инициирует
+локальные Poll-последовательности и не завершает crossed-Poll, commit параметров
+и timer semantics. Наличие `pollActive` и `terminatePollSequence` поэтому не
+означает полного соответствия Section 6.5.
 
 #### Section 6.7: Аутентификация
 
@@ -124,14 +130,18 @@
 
 #### Section 6.8.16: Административное управление
 
-Graceful shutdown отправляет AdminDown с Diag=7, ожидает 2x TX-интервал, затем отменяет горутины.
+Graceful shutdown запрашивает AdminDown с Diag=7, ожидает фиксированное
+двухсекундное окно `drainTimeout`, затем отменяет горутины сессий. Это
+best-effort путь: текущая реализация не подтверждает отправку и получение
+пиром. Атомарное завершение AdminDown отслеживается для v1.
 
 #### Не реализовано
 
 | Секция | Функция | Обоснование |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Требует контрольной сессии; RFC 9747 unaffiliated echo реализован вместо |
-| 6.6 | Demand Mode | Редко используется; настройка интервалов достигает той же цели |
+| 6.5 | Полные Poll Sequence procedures | Ответ на входящий Poll есть; локальная инициация, crossed Poll и timer semantics ожидаются |
+| 6.6 | Demand Mode | Поля декодируются, но remote Demand behavior и timer procedures ожидаются |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
 ### Заметки по RFC 5881
@@ -176,7 +186,11 @@ RFC 7419 определяет набор общих интервалов BFD д�
 
 Реализация: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
 
-RFC 9384 определяет Cease NOTIFICATION subcode 10 ("BFD Down") для BGP-сессий, разорванных из-за BFD. Строка communication обогащена `"BFD Down (RFC 9384 Cease/10): diag=..."`.
+RFC 9384 требует Cease NOTIFICATION subcode 10 ("BFD Down") при разрыве BGP
+из-за BFD. GoBGP v3 не позволяет выбрать subcode через `DisablePeer`: текущая
+интеграция отправляет Administrative Shutdown (Cease/2), а строка
+`"BFD Down (RFC 9384 Cease/10): diag=..."` служит только для операторской
+корреляции. Поэтому wire-соответствие RFC 9384 не реализовано.
 
 ### Заметки по RFC 9468
 
@@ -186,7 +200,7 @@ RFC 9468 позволяет динамически создавать пасси
 
 ### Заметки по RFC 9747
 
-**Статус**: Реализован
+**Статус**: Preview
 
 Реализация: [`internal/bfd/echo.go`](../../internal/bfd/echo.go), [`internal/netio/echo_receiver.go`](../../internal/netio/echo_receiver.go)
 
@@ -356,7 +370,7 @@ traffic-managed controlled environment или явно ограничивать 
 
 ### Заметки по RFC 9764
 
-**Статус**: Реализован
+**Статус**: Частично
 
 Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (бит DF)
 
@@ -371,6 +385,10 @@ RFC 9764 определяет BFD Large Packets для проверки MTU пу
 | Глобальное значение по умолчанию | `bfd.default_padded_pdu_size` в YAML конфигурации |
 | Допустимый диапазон | 24-9000 байт (24 = минимальный BFD Control пакет) |
 
+Authenticated padded packets не завершены: authentication hash должен
+покрывать padded length RFC 9764. Стабильное соответствие заблокировано до
+исправления и interop-проверки combined authenticated-padding path.
+
 ### RFC 7880/7881 (Планируется)
 
 **Статус**: Планируется
@@ -381,12 +399,15 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 
 | Требование | Планируемая реализация |
 |---|---|
-| Stateless рефлектор (RFC 7880) | `SBFDReflector` на порту 7784 |
+| Stateless рефлектор (RFC 7880) | Будущий рефлектор на порту 7784 |
 | Сопоставление пула дискриминаторов | Рефлектор сопоставляет `YourDiscriminator` с локальным пулом |
 | Ответ с State=Up | Состояние сессии не сохраняется |
-| S-BFD инициатор (RFC 7880) | `SBFDInitiator` с таймером обнаружения, Down→Up при первом ответе |
-| Порт 7784 (RFC 7881) | Выделенный слушатель S-BFD |
+| S-BFD инициатор (RFC 7880) | Будущий инициатор с таймером обнаружения |
+| Порт 7784 (RFC 7881) | Будущий выделенный слушатель S-BFD |
 | Без трёхстороннего рукопожатия | Инициатор отправляет, рефлектор отвечает немедленно |
+
+В текущем коде нет `SBFDReflector`, `SBFDInitiator` или listener порта 7784;
+описанные выше имена являются ролями плана, а не существующими API.
 
 ### Stub-интерфейсы
 
@@ -423,6 +444,8 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 | [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 -- BFD for MPLS LSPs |
 | [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 -- BFD for PW VCCV |
 | [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 -- BFD on LAG |
+| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 -- Optimizing BFD Authentication |
+| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 -- Meticulous Keyed ISAAC for Optimized BFD Authentication |
 
 ### Связанные документы
 

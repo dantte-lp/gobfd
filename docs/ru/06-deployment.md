@@ -25,7 +25,11 @@
 
 - **Linux** (сырые сокеты требуют Linux-специфичных API)
 - Capability **CAP_NET_RAW** и **CAP_NET_ADMIN** (для UDP-сокетов с TTL=255)
-- Go 1.26+ (только для сборки из исходников)
+- Go 1.27+ (только для сборки из исходников)
+
+Для non-Linux целей поддерживается только compile-time совместимость.
+Конструкторы транспорта `internal/netio` возвращают `ErrUnsupportedPlatform`;
+GoBFD не публикует и не поддерживает dataplane runtime для non-Linux систем.
 
 ### Матрица release-артефактов
 
@@ -162,21 +166,36 @@ sudo systemctl status gobfd      # Статус
 
 ### Podman Compose
 
+GoBFD использует внешний Compose provider Podman с официальным Go-бинарником
+Docker Compose v5.5.0. Установите checksum-pinned provider и выберите его явно;
+Python `podman-compose` не поддерживается:
+
+```bash
+scripts/install-compose-provider.sh
+export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
+export PODMAN_COMPOSE_WARNING_LOGS=false
+export DOCKER_BUILDKIT=0
+podman compose version
+```
+
+`DOCKER_BUILDKIT=0` оставляет сборку на совместимом с Podman classic Docker API;
+Docker Buildx/Bake не входит в runtime-контракт проекта.
+
 #### Стек разработки
 
 ```bash
 # Запуск среды разработки
-podman-compose -f deployments/compose/compose.dev.yml up -d --build
+podman compose -f deployments/compose/compose.dev.yml up -d --build
 
 # Доступ к контейнеру разработки
-podman-compose -f deployments/compose/compose.dev.yml exec dev bash
+podman compose -f deployments/compose/compose.dev.yml exec dev bash
 ```
 
 #### Production-стек
 
 ```bash
 # Запуск gobfd с Prometheus и Grafana
-podman-compose -f deployments/compose/compose.yml up -d
+podman compose -f deployments/compose/compose.yml up -d
 
 # Сервисы:
 #   gobfd gRPC API:   localhost:50051
@@ -228,40 +247,50 @@ Release-образы содержат четыре бинарных файла G
 | **TTL** | GTSM (RFC 5082): TTL=255 на передачу, проверка TTL=255 на приём |
 | **Аутентификация** | Опциональная BFD-аутентификация (5 типов по RFC 5880 Section 6.7) |
 
-### Настройка памяти (GOMEMLIMIT + Green Tea GC)
+### Настройка памяти (`GOMEMLIMIT` и `GOGC`)
 
-Go 1.26 представляет сборщик мусора Green Tea, который значительно лучше работает с ограниченной памятью. Для production-развёртываний GoBFD рекомендуется устанавливать `GOMEMLIMIT` с `GOGC=off` для устранения пауз GC на горячем пути.
+Go 1.27 рассматривает `GOMEMLIMIT` как мягкий лимит памяти, управляемой
+runtime Go. Он не включает отображение бинарного файла, память ядра и память,
+управляемую вне Go. Runtime может повышать частоту сборки мусора для соблюдения
+лимита даже при `GOGC=off`; эта настройка не устраняет паузы GC. Лимит ниже
+рабочего набора может привести к почти непрерывной сборке мусора.
 
-| Развёртывание | GOMEMLIMIT | Примечания |
-|---|---|---|
-| Малое (< 50 сессий) | `256MiB` | Достаточно для типичных edge-развёртываний |
-| Среднее (50-500 сессий) | `512MiB` | Route reflector-ы, агрегирующие маршрутизаторы |
-| Большое (500+ сессий) | `1GiB` | Крупномасштабные BGP+BFD |
+GoBFD не публикует таблицы размеров памяти по количеству сессий. Выбирайте
+лимит ниже memory limit сервиса или контейнера с запасом для бинарного файла,
+socket buffers ядра и другой памяти вне Go, затем квалифицируйте его с целевым
+числом сессий, режимом аутентификации, телеметрией и failure-нагрузкой.
+Сохраняйте стандартный `GOGC`, пока измерения deployment не обоснуют override.
 
 #### Конфигурация systemd
 
-Добавить в секцию `[Service]` файла `gobfd.service`:
+Добавьте квалифицированное для deployment значение в байтах в секцию
+`[Service]` файла `gobfd.service`:
 
 ```ini
-Environment=GOMEMLIMIT=256MiB
-Environment=GOGC=off
+# Только пример; замените значением, квалифицированным для deployment.
+Environment=GOMEMLIMIT=512MiB
 ```
 
 #### Конфигурация контейнера
 
 ```dockerfile
-ENV GOMEMLIMIT=256MiB
-ENV GOGC=off
+# Только пример; замените значением, квалифицированным для deployment.
+ENV GOMEMLIMIT=512MiB
 ```
 
 #### Мониторинг
 
-Отслеживайте использование памяти через Prometheus-метрику `process_resident_memory_bytes`. Если процесс приближается к `GOMEMLIMIT`, увеличьте лимит. Runtime Go будет выполнять более агрессивную сборку мусора при приближении к лимиту вместо OOM.
+Отслеживайте вместе RSS процесса, memory limit контейнера или сервиса, частоту
+GC и длительность пауз GC. RSS и `GOMEMLIMIT` измеряют разные величины.
+Устойчивый рост GC или thrashing около лимита требует большего
+квалифицированного лимита либо меньшей нагрузки; мягкий лимит не гарантирует
+защиту от OOM.
 
 ### Чек-лист production
 
-- [ ] Установить `GOMEMLIMIT` и `GOGC=off` для ограниченного потребления памяти
-- [ ] Мониторить `process_resident_memory_bytes` относительно `GOMEMLIMIT`
+- [ ] Квалифицировать `GOMEMLIMIT` с запасом и репрезентативной нагрузкой
+- [ ] Сохранять стандартный `GOGC`, пока измерения не обоснуют override
+- [ ] Мониторить RSS, memory limit сервиса, частоту GC и паузы GC
 - [ ] Настроить `gobfd.yml` с соответствующими параметрами сессий
 - [ ] Установить `log.format: json` для структурированного логирования
 - [ ] Включить интеграцию с GoBGP при использовании BFD для BGP failover

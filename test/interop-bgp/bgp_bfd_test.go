@@ -1,4 +1,4 @@
-//go:build interop_bgp
+//go:build interop_bgp || interop_bgp_testcontainers
 
 // Package interop_bgp_test provides BGP+BFD full-cycle interoperability tests
 // for GoBFD integrated with GoBGP.
@@ -19,19 +19,22 @@
 //	go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 //
 // Prerequisites:
-//   - podman-compose -f test/interop-bgp/compose.yml up --build -d
+//   - Set INTEROP_PROJECT_NAME to the validated project used to create the stack.
+//   - podman compose -p "$INTEROP_PROJECT_NAME" -f test/interop-bgp/compose.yml up --build -d
 //   - All containers must be running.
+//
+// Every runtime operation resolves the fixed name to an exact project-labelled
+// immutable container ID before using the Podman API.
 package interop_bgp_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/dantte-lp/gobfd/test/internal/frrjson"
+	"github.com/dantte-lp/gobfd/test/internal/interopcheck"
 )
 
 // =========================================================================
@@ -73,28 +76,6 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// GoBGP v3 session state enum values (PeerState_SessionState protobuf).
-const (
-	bgpStateUnspecified = 0
-	bgpStateIdle        = 1
-	bgpStateConnect     = 2
-	bgpStateActive      = 3
-	bgpStateOpenSent    = 4
-	bgpStateOpenConfirm = 5
-	bgpStateEstablished = 6
-)
-
-// bgpSessionStateName maps GoBGP v3 protobuf session_state numbers to names.
-var bgpSessionStateName = map[int]string{
-	bgpStateUnspecified: "unspecified",
-	bgpStateIdle:        "idle",
-	bgpStateConnect:     "connect",
-	bgpStateActive:      "active",
-	bgpStateOpenSent:    "opensent",
-	bgpStateOpenConfirm: "openconfirm",
-	bgpStateEstablished: "established",
-}
-
 // gobgpNeighborState returns the BGP session state for a specific peer.
 // Returns lowercase state string: "established", "idle", "active", "opensent", etc.
 func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
@@ -103,29 +84,11 @@ func gobgpNeighborState(ctx context.Context, peerIP string) (string, error) {
 		return "", err
 	}
 
-	// GoBGP v3 uses protobuf-style JSON with underscored field names
-	// and numeric enums for session_state.
-	var neighbors []struct {
-		State struct {
-			NeighborAddress string `json:"neighbor_address"`
-			SessionState    int    `json:"session_state"`
-		} `json:"state"`
-	}
-	if err := json.Unmarshal([]byte(output), &neighbors); err != nil {
+	state, err := interopcheck.GoBGPNeighborState([]byte(output), peerIP)
+	if err != nil {
 		return "", fmt.Errorf("parse gobgp neighbor json: %w: raw=%s", err, output)
 	}
-
-	for _, n := range neighbors {
-		if n.State.NeighborAddress == peerIP {
-			name, ok := bgpSessionStateName[n.State.SessionState]
-			if !ok {
-				return fmt.Sprintf("unknown(%d)", n.State.SessionState), nil
-			}
-			return name, nil
-		}
-	}
-
-	return "", fmt.Errorf("peer %s not found in gobgp neighbor list", peerIP)
+	return state, nil
 }
 
 // gobgpRouteExists checks if a prefix exists in the GoBGP global RIB.
@@ -145,42 +108,11 @@ func frrBFDPeerStatus(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("vtysh show bfd peers json: %w: %s", err, output)
 	}
 
-	jsonStr, err := frrjson.ExtractJSONArray(output)
+	status, err := interopcheck.FRRBFDPeerStatus([]byte(output), gobfdBGPIP)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse FRR BFD peer JSON: %w: raw=%s", err, output)
 	}
-
-	var peers []struct {
-		Peer   string `json:"peer"`
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal([]byte(jsonStr), &peers); err != nil {
-		return "", fmt.Errorf("parse bfd peers json: %w: raw=%s", err, jsonStr)
-	}
-
-	for _, p := range peers {
-		if p.Peer == gobfdBGPIP {
-			return strings.ToLower(p.Status), nil
-		}
-	}
-
-	return "", fmt.Errorf("peer %s not found in FRR BFD peers", gobfdBGPIP)
-}
-
-// bird3BGPSessionUp checks if the BIRD3 BGP session to GoBGP is established.
-func bird3BGPSessionUp(ctx context.Context) (bool, error) {
-	output, err := containerExec(ctx, bird3Container, "birdc", "show", "protocols")
-	if err != nil {
-		return false, fmt.Errorf("birdc show protocols: %w: %s", err, output)
-	}
-
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.Contains(line, "gobgp") && strings.Contains(line, "Established") {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return status, nil
 }
 
 // bird3BFDSessionUp checks if the BIRD3 BFD session to gobfd-bgp is Up.
@@ -225,9 +157,9 @@ func waitForCondition(t *testing.T, desc string, timeout time.Duration, fn func(
 	t.Fatalf("condition %q not met within %v", desc, timeout)
 }
 
-func waitBGPEstablished(t *testing.T, ctx context.Context, peerIP string, timeout time.Duration) {
+func waitBGPEstablished(ctx context.Context, t *testing.T, peerIP string) {
 	t.Helper()
-	waitForCondition(t, "BGP Established with "+peerIP, timeout, func() (bool, error) {
+	waitForCondition(t, "BGP Established with "+peerIP, bgpEstablishTimeout, func() (bool, error) {
 		state, err := gobgpNeighborState(ctx, peerIP)
 		if err != nil {
 			return false, err
@@ -236,14 +168,14 @@ func waitBGPEstablished(t *testing.T, ctx context.Context, peerIP string, timeou
 	})
 }
 
-func waitRouteExists(t *testing.T, ctx context.Context, prefix string, timeout time.Duration) {
+func waitRouteExists(ctx context.Context, t *testing.T, prefix string) {
 	t.Helper()
-	waitForCondition(t, "route "+prefix+" in RIB", timeout, func() (bool, error) {
+	waitForCondition(t, "route "+prefix+" in RIB", routeTimeout, func() (bool, error) {
 		return gobgpRouteExists(ctx, prefix)
 	})
 }
 
-func waitRouteGone(t *testing.T, ctx context.Context, prefix string, timeout time.Duration) {
+func waitRouteGone(ctx context.Context, t *testing.T, prefix string, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "route "+prefix+" withdrawn from RIB", timeout, func() (bool, error) {
 		exists, err := gobgpRouteExists(ctx, prefix)
@@ -254,7 +186,7 @@ func waitRouteGone(t *testing.T, ctx context.Context, prefix string, timeout tim
 	})
 }
 
-func waitFRRBFDUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+func waitFRRBFDUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "FRR BFD session Up", timeout, func() (bool, error) {
 		status, err := frrBFDPeerStatus(ctx)
@@ -265,7 +197,7 @@ func waitFRRBFDUp(t *testing.T, ctx context.Context, timeout time.Duration) {
 	})
 }
 
-func waitBIRD3BFDUp(t *testing.T, ctx context.Context, timeout time.Duration) {
+func waitBIRD3BFDUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 	t.Helper()
 	waitForCondition(t, "BIRD3 BFD session Up", timeout, func() (bool, error) {
 		return bird3BFDSessionUp(ctx)
@@ -313,28 +245,28 @@ func TestBGPBFD_AllPeersUp(t *testing.T) {
 	ctx := t.Context()
 
 	t.Log("waiting for BGP sessions to establish...")
-	waitBGPEstablished(t, ctx, frrBGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, frrBGPIP)
 	t.Log("FRR BGP session Established")
 
-	waitBGPEstablished(t, ctx, bird3BGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, bird3BGPIP)
 	t.Log("BIRD3 BGP session Established")
 
-	waitBGPEstablished(t, ctx, gobfdExaBGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, gobfdExaBGPIP)
 	t.Log("ExaBGP BGP session Established")
 
-	waitFRRBFDUp(t, ctx, bfdUpTimeout)
+	waitFRRBFDUp(ctx, t, bfdUpTimeout)
 	t.Log("FRR BFD session Up")
 
-	waitBIRD3BFDUp(t, ctx, bfdUpTimeout)
+	waitBIRD3BFDUp(ctx, t, bfdUpTimeout)
 	t.Log("BIRD3 BFD session Up")
 
-	waitRouteExists(t, ctx, frrRoute, routeTimeout)
+	waitRouteExists(ctx, t, frrRoute)
 	t.Logf("Route %s received from FRR", frrRoute)
 
-	waitRouteExists(t, ctx, bird3Route, routeTimeout)
+	waitRouteExists(ctx, t, bird3Route)
 	t.Logf("Route %s received from BIRD3", bird3Route)
 
-	waitRouteExists(t, ctx, exabgpRoute, routeTimeout)
+	waitRouteExists(ctx, t, exabgpRoute)
 	t.Logf("Route %s received from ExaBGP", exabgpRoute)
 
 	t.Log("all three BGP+BFD peerings and routes verified")
@@ -352,15 +284,15 @@ func TestBGPBFD_FRR(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		containerStart(ctx, frrContainer) //nolint:errcheck
+		containerStart(ctx, frrContainer) //nolint:errcheck // Cleanup is best-effort after the primary test result.
 	})
 	ctx := t.Context()
 
 	// Phase 1: Establish.
 	t.Log("Phase 1: verifying BGP + BFD + route baseline with FRR")
-	waitBGPEstablished(t, ctx, frrBGPIP, bgpEstablishTimeout)
-	waitFRRBFDUp(t, ctx, bfdUpTimeout)
-	waitRouteExists(t, ctx, frrRoute, routeTimeout)
+	waitBGPEstablished(ctx, t, frrBGPIP)
+	waitFRRBFDUp(ctx, t, bfdUpTimeout)
+	waitRouteExists(ctx, t, frrRoute)
 	t.Logf("baseline: BGP Established, BFD Up, route %s present", frrRoute)
 
 	// Phase 2: BFD failure -> BGP disabled.
@@ -381,7 +313,7 @@ func TestBGPBFD_FRR(t *testing.T) {
 		t.Logf("FRR BGP session state: %s (expected non-established)", state)
 	}
 
-	waitRouteGone(t, ctx, frrRoute, routeTimeout)
+	waitRouteGone(ctx, t, frrRoute, routeTimeout)
 	t.Logf("route %s withdrawn after BFD failure", frrRoute)
 
 	bird3State, _ := gobgpNeighborState(ctx, bird3BGPIP)
@@ -395,13 +327,13 @@ func TestBGPBFD_FRR(t *testing.T) {
 		t.Fatalf("start frr-bgp: %v", err)
 	}
 
-	waitBGPEstablished(t, ctx, frrBGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, frrBGPIP)
 	t.Log("FRR BGP session re-established")
 
-	waitFRRBFDUp(t, ctx, bfdUpTimeout)
+	waitFRRBFDUp(ctx, t, bfdUpTimeout)
 	t.Log("FRR BFD session Up")
 
-	waitRouteExists(t, ctx, frrRoute, routeTimeout)
+	waitRouteExists(ctx, t, frrRoute)
 	t.Logf("route %s restored after recovery", frrRoute)
 }
 
@@ -417,15 +349,15 @@ func TestBGPBFD_BIRD3(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		containerStart(ctx, bird3Container) //nolint:errcheck
+		containerStart(ctx, bird3Container) //nolint:errcheck // Cleanup is best-effort after the primary test result.
 	})
 	ctx := t.Context()
 
 	// Phase 1: Establish.
 	t.Log("Phase 1: verifying BGP + BFD + route baseline with BIRD3")
-	waitBGPEstablished(t, ctx, bird3BGPIP, bgpEstablishTimeout)
-	waitBIRD3BFDUp(t, ctx, bfdUpTimeout)
-	waitRouteExists(t, ctx, bird3Route, routeTimeout)
+	waitBGPEstablished(ctx, t, bird3BGPIP)
+	waitBIRD3BFDUp(ctx, t, bfdUpTimeout)
+	waitRouteExists(ctx, t, bird3Route)
 	t.Logf("baseline: BGP Established, BFD Up, route %s present", bird3Route)
 
 	// Phase 2: BFD failure -> BGP disabled.
@@ -446,7 +378,7 @@ func TestBGPBFD_BIRD3(t *testing.T) {
 		t.Logf("BIRD3 BGP session state: %s (expected non-established)", state)
 	}
 
-	waitRouteGone(t, ctx, bird3Route, routeTimeout)
+	waitRouteGone(ctx, t, bird3Route, routeTimeout)
 	t.Logf("route %s withdrawn after BFD failure", bird3Route)
 
 	frrState, _ := gobgpNeighborState(ctx, frrBGPIP)
@@ -460,13 +392,13 @@ func TestBGPBFD_BIRD3(t *testing.T) {
 		t.Fatalf("start bird3-bgp: %v", err)
 	}
 
-	waitBGPEstablished(t, ctx, bird3BGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, bird3BGPIP)
 	t.Log("BIRD3 BGP session re-established")
 
-	waitBIRD3BFDUp(t, ctx, bfdUpTimeout)
+	waitBIRD3BFDUp(ctx, t, bfdUpTimeout)
 	t.Log("BIRD3 BFD session Up")
 
-	waitRouteExists(t, ctx, bird3Route, routeTimeout)
+	waitRouteExists(ctx, t, bird3Route)
 	t.Logf("route %s restored after recovery", bird3Route)
 }
 
@@ -485,14 +417,14 @@ func TestBGPBFD_ExaBGP(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		containerUnpause(ctx, gobfdExaBGPContainer) //nolint:errcheck
+		containerUnpause(ctx, gobfdExaBGPContainer) //nolint:errcheck // Cleanup is best-effort after the primary test result.
 	})
 	ctx := t.Context()
 
 	// Phase 1: Establish.
 	t.Log("Phase 1: verifying BGP + BFD + route baseline with ExaBGP")
-	waitBGPEstablished(t, ctx, gobfdExaBGPIP, bgpEstablishTimeout)
-	waitRouteExists(t, ctx, exabgpRoute, routeTimeout)
+	waitBGPEstablished(ctx, t, gobfdExaBGPIP)
+	waitRouteExists(ctx, t, exabgpRoute)
 	t.Logf("baseline: BGP Established, route %s present", exabgpRoute)
 
 	// Phase 2: BFD failure via pause.
@@ -513,7 +445,7 @@ func TestBGPBFD_ExaBGP(t *testing.T) {
 		t.Logf("ExaBGP BGP session state: %s (expected non-established)", state)
 	}
 
-	waitRouteGone(t, ctx, exabgpRoute, routeTimeout)
+	waitRouteGone(ctx, t, exabgpRoute, routeTimeout)
 	t.Logf("route %s withdrawn after BFD failure", exabgpRoute)
 
 	// Phase 3: Recovery via unpause.
@@ -522,9 +454,9 @@ func TestBGPBFD_ExaBGP(t *testing.T) {
 		t.Fatalf("unpause gobfd-exabgp: %v", err)
 	}
 
-	waitBGPEstablished(t, ctx, gobfdExaBGPIP, bgpEstablishTimeout)
+	waitBGPEstablished(ctx, t, gobfdExaBGPIP)
 	t.Log("ExaBGP BGP session re-established")
 
-	waitRouteExists(t, ctx, exabgpRoute, routeTimeout)
+	waitRouteExists(ctx, t, exabgpRoute)
 	t.Logf("route %s restored after recovery", exabgpRoute)
 }

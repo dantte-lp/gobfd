@@ -21,8 +21,6 @@
                         'impl-go':     '#00d4ff',
                         'impl-frr':    '#4ade80',
                         'impl-bird':   '#fbbf24',
-                        'impl-aiobfd': '#f472b6',
-                        'impl-struct': '#a78bfa',
                     }
                 }
             }
@@ -82,7 +80,7 @@
                         <span class="font-normal text-bfd-text/80">Benchmark Comparison</span>
                     </h1>
                     <p class="text-bfd-muted text-sm mt-1">
-                        BFD protocol performance &mdash; Go vs C (FRR) vs C (BIRD) vs Python (aiobfd)
+                        BFD protocol performance &mdash; Go vs C (FRR) vs C (BIRD)
                     </p>
                 </div>
                 <div class="text-right text-xs text-bfd-muted space-y-0.5 font-mono">
@@ -100,7 +98,7 @@
         <!-- Summary Cards                                                -->
         <!-- ============================================================ -->
         <section>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <template x-for="impl in data.implementations" :key="impl.id">
                     <div class="bg-bfd-card rounded-xl p-4 border border-bfd-border hover:border-opacity-60 transition-colors"
                          :style="'border-color: ' + impl.color + '33'">
@@ -161,14 +159,6 @@
                                     style="color: #fbbf24" @click="toggleSort('bird')">
                                     C-BIRD <span class="text-xs" x-text="sortArrow('bird')"></span>
                                 </th>
-                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
-                                    style="color: #f472b6" @click="toggleSort('aiobfd')">
-                                    Py-aiobfd <span class="text-xs" x-text="sortArrow('aiobfd')"></span>
-                                </th>
-                                <th class="px-4 py-3 font-medium cursor-pointer select-none text-right hover:text-bfd-text"
-                                    style="color: #a78bfa" @click="toggleSort('pystruct')">
-                                    Py-struct <span class="text-xs" x-text="sortArrow('pystruct')"></span>
-                                </th>
                             </tr>
                         </thead>
                         <tbody>
@@ -188,7 +178,7 @@
                                     </td>
                                     <td class="px-4 py-2.5 text-right font-mono text-xs"
                                         style="color: #00d4ff" x-text="fmtNs(row.go?.ns_op)"></td>
-                                    <template x-for="implKey in ['frr','bird','aiobfd','pystruct']" :key="implKey">
+                                    <template x-for="implKey in ['frr','bird']" :key="implKey">
                                         <td class="px-4 py-2.5 text-right font-mono text-xs"
                                             :style="'color:' + implColors[implKey]">
                                             <template x-if="row[implKey]?.ns_op != null">
@@ -305,7 +295,6 @@
                                 <th class="px-4 py-3 text-center font-medium" style="color:#00d4ff">GoBFD</th>
                                 <th class="px-4 py-3 text-center font-medium" style="color:#4ade80">FRR</th>
                                 <th class="px-4 py-3 text-center font-medium" style="color:#fbbf24">BIRD</th>
-                                <th class="px-4 py-3 text-center font-medium" style="color:#f472b6">aiobfd</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -315,7 +304,6 @@
                                     <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.go)"></td>
                                     <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.frr)"></td>
                                     <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.bird)"></td>
-                                    <td class="px-4 py-2.5 text-center" x-html="featureIcon(feat.aiobfd)"></td>
                                 </tr>
                             </template>
                         </tbody>
@@ -354,12 +342,6 @@
                        replicate the exact code patterns (packet fill, FSM switch, jitter calculation) extracted
                        from FRR bfdd and BIRD BFD source code. They are NOT the full FRR/BIRD programs &mdash;
                        they isolate the hot-path operations for apples-to-apples comparison of code patterns.</p>
-                    <p><strong class="text-bfd-text">Python benchmarks (aiobfd)</strong> replicate the
-                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">bitstring.pack()</code> and
-                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">ConstBitStream.unpack()</code>
-                       patterns from aiobfd. The "struct" variant uses
-                       <code class="bg-slate-700 px-1.5 py-0.5 rounded text-xs">struct.pack()/unpack()</code>
-                       as an optimized Python baseline.</p>
                     <p class="text-xs italic">These benchmarks measure isolated operations, not end-to-end system performance.
                        Real-world performance depends on OS scheduling, network stack, socket I/O, and many other factors.</p>
                 </div>
@@ -389,8 +371,6 @@
                                 <td class="font-mono text-xs" x-text="data.meta.go_version"></td></tr>
                             <tr><td class="py-1 pr-4 font-medium text-bfd-text">GCC</td>
                                 <td class="font-mono text-xs" x-text="data.meta.gcc_version"></td></tr>
-                            <tr><td class="py-1 pr-4 font-medium text-bfd-text">Python</td>
-                                <td class="font-mono text-xs" x-text="data.meta.python_version"></td></tr>
                             <tr><td class="py-1 pr-4 font-medium text-bfd-text">GOMAXPROCS</td>
                                 <td class="font-mono text-xs" x-text="data.meta.gomaxprocs"></td></tr>
                         </tbody>
@@ -416,28 +396,28 @@
                      class="px-5 pb-5 text-sm text-bfd-muted space-y-4">
                     <div>
                         <h4 class="text-bfd-text font-medium mb-1">Goroutine-per-Session Model</h4>
-                        <p>GoBFD runs each BFD session in an isolated goroutine with a dedicated event loop.
-                           Incoming packets are delivered via buffered channels. This provides <strong class="text-bfd-text">complete session isolation</strong>:
-                           one session cannot block another, and BFD timers are not affected by CPU load from other protocols.</p>
-                        <p class="mt-1">C implementations (FRR, BIRD) run all BFD sessions in a single thread with a shared event loop.
-                           While faster per-packet, this means a CPU-intensive operation (e.g., BGP convergence) can delay BFD timer processing,
-                           potentially causing false session drops (<a href="https://github.com/FRRouting/frr/issues/9078" class="text-bfd-accent hover:underline" target="_blank">FRR Issue #9078</a>).</p>
+                        <p>GoBFD gives each BFD session a goroutine, buffered receive channel, and event loop.
+                           Sessions still share the Go scheduler, CPUs, memory, and process-wide runtime resources.
+                           Scheduler delay, CPU saturation, or channel saturation can therefore delay packet and timer processing.</p>
+                        <p class="mt-1">These microbenchmarks do not measure timer error, committed-packet latency,
+                           packet loss, or false-Down behavior under competing load. Those properties require a separate
+                           end-to-end qualification workload.</p>
                     </div>
                     <div>
-                        <h4 class="text-bfd-text font-medium mb-1">FullRxPath: Different Operations</h4>
-                        <p><strong class="text-bfd-text">Go FullRxPath</strong> (~50ns) = unmarshal + RWMutex lock + map lookup + channel send to session goroutine.
-                           <strong class="text-bfd-text">C FullRxPath</strong> (~5ns) = unmarshal + inline FSM call (no IPC, no locking).
-                           The ~10x gap is the cost of goroutine isolation, not codec inefficiency.</p>
-                        <p class="mt-1"><strong class="text-bfd-text">FullRxPathCodec</strong> (Go-only) measures only unmarshal + FSM &mdash; the fair comparison with C.
-                           Expected ratio: ~1.5-2x, which is typical for Go vs C on compute-bound operations.</p>
+                        <h4 class="text-bfd-text font-medium mb-1">Receive Stages Have Different Boundaries</h4>
+                        <p><strong class="text-bfd-text">RecvDecodeLookupEnqueue</strong> measures wire decode,
+                           discriminator lookup, and attempted buffered-channel enqueue. It ends before authentication,
+                           session-state mutation, FSM application, and timer reset.</p>
+                        <p class="mt-1"><strong class="text-bfd-text">RecvDecodeFSM</strong> measures wire decode,
+                           state-to-event mapping, and a stateless FSM-table transition. It excludes the session path and
+                           is not an end-to-end receive benchmark or a like-for-like C comparison.</p>
                     </div>
                     <div>
-                        <h4 class="text-bfd-text font-medium mb-1">SessionDemux: Channel Send vs Hashmap Lookup</h4>
-                        <p><strong class="text-bfd-text">Go Demux</strong> (~47ns) = RWMutex + map lookup + channel send.
-                           <strong class="text-bfd-text">C Demux</strong> (~1.4ns) = hashmap lookup only.
-                           ~70% of Go's cost is the channel send &mdash; which is the mechanism that enables goroutine isolation.</p>
-                        <p class="mt-1"><strong class="text-bfd-text">SessionLookup1000</strong> (Go-only) measures only RWMutex + map lookup &mdash; the fair comparison
-                           with C's hashmap lookup.</p>
+                        <h4 class="text-bfd-text font-medium mb-1">Demux and Lookup Are Separate Stages</h4>
+                        <p><strong class="text-bfd-text">ManagerDemux1000Sessions</strong> includes discriminator lookup
+                           and attempted channel delivery. <strong class="text-bfd-text">SessionLookup1000</strong> isolates
+                           the map lookup. Results with different boundaries must be reported separately; this report does
+                           not attribute their difference to a single mechanism.</p>
                     </div>
                     <div>
                         <h4 class="text-bfd-text font-medium mb-1">SessionCreate: Different Abstractions</h4>
@@ -504,7 +484,7 @@ make benchmark-compare OLD=v0.4.0 NEW=v0.5.0</pre>
 function benchApp() {
     return {
         data: REPORT_DATA,
-        implColors: { frr: '#4ade80', bird: '#fbbf24', aiobfd: '#f472b6', pystruct: '#a78bfa' },
+        implColors: { frr: '#4ade80', bird: '#fbbf24' },
 
         activeTab: 'comparison',
         sortCol: 'name',
@@ -556,8 +536,6 @@ function benchApp() {
                 { id: 'go', label: 'Go', color: '#00d4ff' },
                 { id: 'frr', label: 'C-FRR', color: '#4ade80' },
                 { id: 'bird', label: 'C-BIRD', color: '#fbbf24' },
-                { id: 'aiobfd', label: 'Py-aio', color: '#f472b6' },
-                { id: 'pystruct', label: 'Py-str', color: '#a78bfa' },
             ];
             return impls
                 .filter(i => row[i.id] && row[i.id].ns_op != null)
@@ -566,7 +544,7 @@ function benchApp() {
 
         maxNsForRow(row) {
             let max = 0;
-            for (const k of ['go', 'frr', 'bird', 'aiobfd', 'pystruct']) {
+            for (const k of ['go', 'frr', 'bird']) {
                 if (row[k]?.ns_op > max) max = row[k].ns_op;
             }
             return max || 1;

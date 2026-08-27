@@ -61,6 +61,8 @@ type GeneveConn struct {
 	localAddr netip.Addr
 	srcPort   uint16 // Ephemeral source port for inner UDP header
 	readBuf   []byte
+	sendBuf   []byte
+	sendMu    sync.Mutex
 	logger    *slog.Logger
 	mu        sync.Mutex
 	closed    bool
@@ -97,6 +99,7 @@ func NewGeneveConn(
 		localAddr: localAddr,
 		srcPort:   srcPort,
 		readBuf:   make([]byte, geneveBufSize),
+		sendBuf:   make([]byte, geneveBufSize),
 		logger: logger.With(
 			slog.String("component", "netio.geneve_conn"),
 			slog.String("local", localAddr.String()),
@@ -126,16 +129,24 @@ func (c *GeneveConn) SendEncapsulated(
 		return fmt.Errorf("geneve send to %s: %w", dstAddr, ErrOverlayRecvClosed)
 	}
 	c.mu.Unlock()
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 
-	// Build inner packet: Ethernet + IPv4 + UDP + BFD.
-	innerPkt, err := BuildInnerPacket(bfdPayload, c.localAddr, dstAddr, c.srcPort)
+	if len(bfdPayload)+GeneveHeaderMinSize+InnerOverheadIPv4 > len(c.sendBuf) {
+		return fmt.Errorf("geneve build packet: payload=%d: %w",
+			len(bfdPayload), ErrInnerPacketBufferTooShort)
+	}
+	buf := c.sendBuf
+	// Build inner packet: Ethernet + IPv4 + UDP + BFD in the owned buffer.
+	innerPkt, err := BuildInnerPacketInto(
+		buf[GeneveHeaderMinSize:], bfdPayload, c.localAddr, dstAddr, c.srcPort,
+	)
 	if err != nil {
 		return fmt.Errorf("geneve build inner: %w", err)
 	}
 
 	// Build complete Geneve packet: Geneve header + inner packet.
 	totalLen := GeneveHeaderMinSize + len(innerPkt)
-	buf := make([]byte, totalLen)
 
 	// Marshal Geneve header per RFC 9521 Section 4.
 	geneveHdr := GeneveHeader{
@@ -150,15 +161,12 @@ func (c *GeneveConn) SendEncapsulated(
 		return fmt.Errorf("geneve marshal header: %w", err)
 	}
 
-	// Append inner packet after Geneve header.
-	copy(buf[GeneveHeaderMinSize:], innerPkt)
-
 	// Send to remote NVE on port 6081.
 	dst := &net.UDPAddr{
 		IP:   dstAddr.AsSlice(),
 		Port: int(GenevePort),
 	}
-	if _, err := c.conn.WriteToUDP(buf, dst); err != nil {
+	if _, err := c.conn.WriteToUDP(buf[:totalLen], dst); err != nil {
 		return fmt.Errorf("geneve send to %s:%d: %w", dstAddr, GenevePort, err)
 	}
 

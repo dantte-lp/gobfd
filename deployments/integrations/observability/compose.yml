@@ -11,7 +11,7 @@
 #   :3000 — Grafana (admin/admin)
 #
 # Usage:
-#   podman-compose up --build -d
+#   podman compose up --build -d
 #   open http://localhost:3000  (Grafana, admin/admin)
 #   open http://localhost:9090  (Prometheus)
 
@@ -37,7 +37,7 @@ services:
   # === FRR (BFD peer) at 172.25.0.20 ===
 
   frr:
-    image: quay.io/frrouting/frr:10.2.5
+    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
     container_name: frr-observability
     cap_add:
       - NET_RAW
@@ -53,7 +53,7 @@ services:
   # === Prometheus ===
 
   prometheus:
-    image: docker.io/prom/prometheus:latest
+    image: docker.io/prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus-observability
     restart: unless-stopped
     ports:
@@ -67,7 +67,7 @@ services:
   # === Grafana ===
 
   grafana:
-    image: docker.io/grafana/grafana:latest
+    image: docker.io/grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b
     container_name: grafana-observability
     restart: unless-stopped
     ports:

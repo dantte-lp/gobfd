@@ -158,7 +158,7 @@ func echoSessionConfigFromProto(req *bfdv1.AddEchoSessionRequest) (bfd.EchoSessi
 	if mult == 0 {
 		return bfd.EchoSessionConfig{}, ErrEchoDetectMultZero
 	}
-	if mult > 255 {
+	if mult > maxBFDWireUint8 {
 		return bfd.EchoSessionConfig{}, fmt.Errorf("value %d: %w", mult, ErrDetectMultOverflow)
 	}
 

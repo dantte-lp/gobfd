@@ -1,4 +1,4 @@
-//go:build interop_rfc
+//go:build interop_rfc || interop_rfc_testcontainers
 
 package interop_rfc_test
 

@@ -3,6 +3,7 @@ package netio_test
 import (
 	"errors"
 	"net/netip"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -100,6 +101,7 @@ func (m *MockPacketConn) LocalAddr() netip.AddrPort {
 // released successfully.
 func TestSourcePortAllocatorBasic(t *testing.T) {
 	t.Parallel()
+	requireLinuxSourcePortAllocator(t)
 
 	alloc := netio.NewSourcePortAllocator()
 
@@ -123,6 +125,7 @@ func TestSourcePortAllocatorBasic(t *testing.T) {
 // allocations return unique ports.
 func TestSourcePortAllocatorUnique(t *testing.T) {
 	t.Parallel()
+	requireLinuxSourcePortAllocator(t)
 
 	alloc := netio.NewSourcePortAllocator()
 	seen := make(map[uint16]struct{}, 100)
@@ -147,6 +150,7 @@ func TestSourcePortAllocatorUnique(t *testing.T) {
 // within the RFC 5881 Section 4 mandated range.
 func TestSourcePortAllocatorRangeValidation(t *testing.T) {
 	t.Parallel()
+	requireLinuxSourcePortAllocator(t)
 
 	alloc := netio.NewSourcePortAllocator()
 
@@ -165,6 +169,7 @@ func TestSourcePortAllocatorRangeValidation(t *testing.T) {
 // be reallocated.
 func TestSourcePortAllocatorReleaseAndReuse(t *testing.T) {
 	t.Parallel()
+	requireLinuxSourcePortAllocator(t)
 
 	alloc := netio.NewSourcePortAllocator()
 
@@ -191,6 +196,7 @@ func TestSourcePortAllocatorReleaseAndReuse(t *testing.T) {
 // allocator under concurrent access. Run with -race to detect races.
 func TestSourcePortAllocatorConcurrency(t *testing.T) {
 	t.Parallel()
+	requireLinuxSourcePortAllocator(t)
 
 	alloc := netio.NewSourcePortAllocator()
 
@@ -242,6 +248,13 @@ func TestSourcePortAllocatorConcurrency(t *testing.T) {
 		for _, port := range ports {
 			alloc.Release(port)
 		}
+	}
+}
+
+func requireLinuxSourcePortAllocator(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("source port allocation requires the Linux transport")
 	}
 }
 

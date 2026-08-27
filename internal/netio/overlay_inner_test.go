@@ -100,6 +100,60 @@ func TestInnerPacketRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildInnerPacketIntoReusesBuffer(t *testing.T) {
+	payload := makePayload(24)
+	src := netip.MustParseAddr("10.0.0.1")
+	dst := netip.MustParseAddr("10.0.0.2")
+	buf := make([]byte, netio.InnerOverheadIPv4+len(payload))
+
+	packet, err := netio.BuildInnerPacketInto(buf, payload, src, dst, 49152)
+	if err != nil {
+		t.Fatalf("BuildInnerPacketInto: %v", err)
+	}
+	if &packet[0] != &buf[0] {
+		t.Fatal("BuildInnerPacketInto returned a different backing buffer")
+	}
+	if got := testing.AllocsPerRun(100, func() {
+		if _, err := netio.BuildInnerPacketInto(buf, payload, src, dst, 49152); err != nil {
+			t.Fatalf("BuildInnerPacketInto: %v", err)
+		}
+	}); got != 0 {
+		t.Fatalf("BuildInnerPacketInto allocations = %v, want 0", got)
+	}
+}
+
+func TestBuildInnerPacketIntoRejectsShortBuffer(t *testing.T) {
+	t.Parallel()
+
+	_, err := netio.BuildInnerPacketInto(
+		make([]byte, netio.InnerOverheadIPv4-1),
+		makePayload(24),
+		netip.MustParseAddr("10.0.0.1"),
+		netip.MustParseAddr("10.0.0.2"),
+		49152,
+	)
+	if err == nil {
+		t.Fatal("BuildInnerPacketInto accepted a short buffer")
+	}
+}
+
+func TestBuildInnerPacketRejectsPayloadAboveIPv4Limit(t *testing.T) {
+	t.Parallel()
+
+	payload := make([]byte, 1<<16-netio.InnerIPv4Size-netio.InnerUDPSize)
+	src := netip.MustParseAddr("10.0.0.1")
+	dst := netip.MustParseAddr("10.0.0.2")
+
+	if _, err := netio.BuildInnerPacket(payload, src, dst, 49152); !errors.Is(err, netio.ErrInnerPacketPayloadTooLarge) {
+		t.Fatalf("BuildInnerPacket() error = %v, want ErrInnerPacketPayloadTooLarge", err)
+	}
+	buf := make([]byte, netio.InnerOverheadIPv4+len(payload))
+	_, err := netio.BuildInnerPacketInto(buf, payload, src, dst, 49152)
+	if !errors.Is(err, netio.ErrInnerPacketPayloadTooLarge) {
+		t.Fatalf("BuildInnerPacketInto() error = %v, want ErrInnerPacketPayloadTooLarge", err)
+	}
+}
+
 // -------------------------------------------------------------------------
 // Inner Ethernet Header Validation
 // -------------------------------------------------------------------------

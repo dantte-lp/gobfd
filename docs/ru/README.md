@@ -1,10 +1,10 @@
 # Документация GoBFD
 
-![Version](https://img.shields.io/badge/Version-0.5.2-1a73e8?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.6.1-1a73e8?style=for-the-badge)
 ![Language](https://img.shields.io/badge/Lang-Русский-ea4335?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-> Русский перевод каноничной технической документации **GoBFD** -- production-oriented демона протокола BFD (RFC 5880/5881) на Go 1.26.
+> Русский перевод каноничной технической документации **GoBFD** -- production-oriented демона протокола BFD (RFC 5880/5881) на Go 1.27.
 
 ---
 
@@ -111,13 +111,14 @@ graph TD
 | 09 | [**Разработка**](./09-development.md) | Рабочий процесс, Make-цели, тестирование, линтинг |
 | 10 | [**Руководство по Changelog**](./10-changelog.md) | Ведение CHANGELOG.md, процесс релиза, семантическое версионирование |
 | 11 | [**Интеграции**](./11-integrations.md) | BGP failover, HAProxy, наблюдаемость, ExaBGP, Kubernetes |
+| -- | [**Дорожная карта**](./roadmap.md) | Публикуемая проекция актуального релизного плана Beads |
 
 ### Производительность
 
 | # | Документ | Описание |
 |---|---|---|
 | 12 | [**Бенчмарки**](./12-benchmarks.md) | Как запускать, читать и интерпретировать результаты бенчмарков |
-| 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, aiobfd, аппаратными платформами |
+| 13 | [**Конкурентный анализ**](./13-competitive-analysis.md) | Сравнение с FRR, BIRD, Holo, аппаратными платформами |
 | 14 | [**Анализ производительности**](./14-performance-analysis.md) | GoBFD vs реализации на C: бенчмарки, архитектура, поведение при нагрузке |
 
 ### Architecture Decision Records
@@ -149,6 +150,8 @@ graph TD
 | [rfc8971.txt](../rfc/rfc8971.txt) | RFC 8971 | BFD for VXLAN |
 | [rfc9521.txt](../rfc/rfc9521.txt) | RFC 9521 | BFD for Geneve |
 | [rfc9764.txt](../rfc/rfc9764.txt) | RFC 9764 | BFD Encapsulated in Large Packets |
+| [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 | Optimizing BFD Authentication |
+| [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 | Meticulous Keyed ISAAC for Optimized BFD Authentication |
 
 ---
 
@@ -158,7 +161,7 @@ graph TD
 git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
 make build
 make test
-make up
+sudo ./gobfd -config configs/gobfd.example.yml
 ```
 
 См. [06-deployment.md](./06-deployment.md) для развёртывания в production и

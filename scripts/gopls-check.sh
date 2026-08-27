@@ -3,30 +3,60 @@ set -eu
 
 target_goos="${GOPLS_GOOS:-linux}"
 target_goarch="${GOPLS_GOARCH:-amd64}"
-target_tags="${GOPLS_TAGS:-integration,interop,interop_bgp,interop_rfc,interop_clab,e2e_core,e2e_overlay,e2e_linux,e2e_vendor}"
+default_tag_profiles='integration,testcontainers,interop,interop_bgp,interop_rfc,interop_clab,e2e_overlay,e2e_linux,e2e_vendor
+e2e_core_testcontainers
+e2e_bgp_failover_testcontainers
+e2e_haproxy_testcontainers
+e2e_observability_testcontainers
+interop_testcontainers
+interop_bgp_testcontainers
+interop_rfc_testcontainers
+dependencyinventory_generate'
+tag_profiles="${GOPLS_TAGS:-${default_tag_profiles}}"
+base_goflags="${GOFLAGS:-}"
 
 export GOOS="${target_goos}"
 export GOARCH="${target_goarch}"
-export GOFLAGS="${GOFLAGS:-} -tags=${target_tags}"
 
-output="$(
-	go list -f '{{.ImportPath}}' ./... | while IFS= read -r pkg; do
-		files="$(
+profile_count=0
+total_package_count=0
+total_input_count=0
+for target_tags in ${tag_profiles}; do
+	profile_count=$((profile_count + 1))
+	export GOFLAGS="${base_goflags}${base_goflags:+ }-tags=${target_tags}"
+
+	packages="$(go list -f '{{.ImportPath}}' ./...)"
+	package_count="$(printf '%s\n' "${packages}" | sed '/^$/d' | wc -l | tr -d '[:space:]')"
+	if [ "${package_count}" -eq 0 ]; then
+		printf 'gopls-check: no packages discovered; tags=%s\n' "${target_tags}" >&2
+		exit 1
+	fi
+
+	inputs="$(
+		printf '%s\n' "${packages}" | while IFS= read -r pkg; do
 			go list -f '{{range .GoFiles}}{{printf "%s/%s\n" $.Dir .}}{{end}}{{range .TestGoFiles}}{{printf "%s/%s\n" $.Dir .}}{{end}}{{range .XTestGoFiles}}{{printf "%s/%s\n" $.Dir .}}{{end}}' "${pkg}"
-		)"
-		if [ -n "${files}" ]; then
-			# Check one package at a time so gopls does not mix unrelated
-			# GOOS-specific package scopes when Linux-only files are present.
-			# shellcheck disable=SC2086
-			gopls check ${files}
-		fi
-	done 2>&1
-)"
+		done
+	)"
+	input_count="$(printf '%s\n' "${inputs}" | sed '/^$/d' | wc -l | tr -d '[:space:]')"
+	if [ "${input_count}" -eq 0 ]; then
+		printf 'gopls-check: no Go inputs discovered; tags=%s\n' "${target_tags}" >&2
+		exit 1
+	fi
 
-if [ -n "${output}" ]; then
-	printf '%s\n' "${output}"
-	exit 1
-fi
+	output="$(
+		# One bounded gopls process analyzes the complete GOOS/tag profile. The
+		# previous per-package loop started hundreds of independent servers.
+		printf '%s\n' "${inputs}" | xargs -r gopls check 2>&1
+	)"
 
-printf 'gopls-check: no diagnostics for GOOS=%s GOARCH=%s tags=%s\n' \
-	"${target_goos}" "${target_goarch}" "${target_tags}"
+	if [ -n "${output}" ]; then
+		printf '%s\n' "${output}"
+		exit 1
+	fi
+
+	total_package_count=$((total_package_count + package_count))
+	total_input_count=$((total_input_count + input_count))
+done
+
+printf 'gopls-check: no diagnostics across %s tag profiles, %s package checks, and %s Go input checks; GOOS=%s GOARCH=%s\n' \
+	"${profile_count}" "${total_package_count}" "${total_input_count}" "${target_goos}" "${target_goarch}"

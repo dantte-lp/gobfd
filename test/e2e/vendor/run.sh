@@ -13,7 +13,7 @@ DEV_COMPOSE="${ROOT_DIR}/deployments/compose/compose.dev.yml"
 
 mkdir -p "${REPORT_DIR}"
 
-DEV_DC=(podman-compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
+DEV_DC=(podman compose -p "${DEV_PROJECT}" -f "${DEV_COMPOSE}")
 
 write_vendor_images() {
     local profile

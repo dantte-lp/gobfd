@@ -241,7 +241,7 @@ func configEchoToBFD(ep config.EchoPeerConfig, defaults config.EchoConfig) (bfd.
 		detectMult = defaults.DefaultDetectMultiplier
 	}
 
-	if detectMult > 255 {
+	if detectMult > maxBFDWireUint8 {
 		return bfd.EchoSessionConfig{}, fmt.Errorf("echo detect_mult %d: %w", detectMult, errDetectMultOverflow)
 	}
 

@@ -16,18 +16,18 @@ import (
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
-var reservedBackends = []string{
-	config.OverlayBackendKernel,
-	config.OverlayBackendOVS,
-	config.OverlayBackendOVN,
-	config.OverlayBackendCilium,
-	config.OverlayBackendCalico,
-	config.OverlayBackendNSX,
-}
-
 const bfdControlPort uint16 = 3784
 
 func TestOverlayReservedBackendsFailClosed(t *testing.T) {
+	reservedBackends := []string{
+		config.OverlayBackendKernel,
+		config.OverlayBackendOVS,
+		config.OverlayBackendOVN,
+		config.OverlayBackendCilium,
+		config.OverlayBackendCalico,
+		config.OverlayBackendNSX,
+	}
+
 	for _, backend := range reservedBackends {
 		t.Run("vxlan "+backend, func(t *testing.T) {
 			cfg := config.DefaultConfig()

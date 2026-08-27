@@ -29,7 +29,7 @@
 
 GoBFD integrates with routing, load balancing, monitoring, and orchestration systems to provide sub-second failure detection. Each integration example is a self-contained, runnable stack under `deployments/integrations/`.
 
-All stacks use **podman-compose** with OCI containers and include a **tshark** sidecar for BFD packet capture and RFC compliance verification.
+All stacks use **podman compose** with OCI containers and include a **tshark** sidecar for BFD packet capture and RFC compliance verification.
 
 | # | Integration | Components | Subnet | New Code |
 |---|------------|-----------|--------|----------|
@@ -80,10 +80,10 @@ graph LR
 ### Quick Start
 
 ```bash
-# Full demo (build, start, test failover, cleanup)
+# Automated Go testcontainers gate with evidence and exact cleanup
 make int-bgp-failover
 
-# Step by step
+# Operational Compose example, step by step
 make int-bgp-failover-up     # Start topology
 make int-bgp-failover-logs   # View logs
 make int-bgp-failover-down   # Cleanup
@@ -377,7 +377,7 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | Observability | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
 | ExaBGP Anycast | 172.24.0.0/24 | gobgp, gobfd, exabgp, tshark | — |
 | Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
-| **Interop: Base** | 10.99.0.0/24 | gobfd, frr, bird3, aiobfd, thoro, tshark | — |
+| **Interop: Base** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |
 | **Interop: RFC** | 172.22.0.0/24 | gobfd-rfc, gobfd-rfc9384, gobgp-rfc, frr-rfc, frr-rfc-bgp, frr-rfc-unsolicited, tshark-rfc | — |
 | **Interop: Vendor** | 10.0.x.0/30 | gobfd, gobgp, nokia, arista, frr, sonic, vyos; cisco deferred | — |
