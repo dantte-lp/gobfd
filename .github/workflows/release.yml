@@ -507,6 +507,32 @@ jobs:
               select(.annotations["vnd.docker.reference.type"] ==
                 "attestation-manifest") | .digest
             ' "$manifest")
+            for platform in linux/amd64 linux/arm64; do
+              platform_key="${platform//\//-}"
+              sbom_payload="$RUNNER_TEMP/release-sbom-${image_index}-${platform_key}.json"
+              provenance_payload="$RUNNER_TEMP/release-provenance-${image_index}-${platform_key}.json"
+              docker buildx imagetools inspect "$image" \
+                --format "{{json (index .SBOM \"$platform\").SPDX}}" \
+                >"$sbom_payload"
+              jq -e '
+                .SPDXID == "SPDXRef-DOCUMENT" and
+                .dataLicense == "CC0-1.0" and
+                (.spdxVersion | type == "string" and startswith("SPDX-")) and
+                (.documentNamespace | type == "string" and length > 0) and
+                (.packages | type == "array" and length > 0)
+              ' "$sbom_payload" >/dev/null
+              docker buildx imagetools inspect "$image" \
+                --format "{{json (index .Provenance \"$platform\").SLSA}}" \
+                >"$provenance_payload"
+              jq -e '
+                .buildType == "https://mobyproject.org/buildkit@v1" and
+                (.builder | type == "object") and
+                (.materials | type == "array" and length > 0) and
+                (.metadata | type == "object") and
+                (.metadata.buildStartedOn | type == "string" and length > 0) and
+                (.metadata.buildFinishedOn | type == "string" and length > 0)
+              ' "$provenance_payload" >/dev/null
+            done
             image_digest="$(jq -er '
               .digest |
               select(type == "string" and test("^sha256:[0-9a-f]{64}$"))

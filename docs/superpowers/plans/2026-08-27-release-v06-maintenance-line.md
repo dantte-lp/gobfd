@@ -250,6 +250,9 @@ with `docker buildx imagetools inspect --format '{{json .Manifest}}'`. For each,
 require exactly one runnable `linux/amd64` and `linux/arm64` descriptor, exactly
 two corresponding `attestation-manifest` descriptors, and an attestation for
 each runnable digest containing both an SPDX predicate and SLSA provenance.
+Use the Buildx `.SBOM` and `.Provenance` platform views to download and parse
+the actual SPDX and SLSA JSON for both platforms; descriptor annotations alone
+are not evidence of valid payloads.
 Record the registry-reported `sha256:` index digest for all three refs. The
 primary and Debian-qualified refs must resolve to the same digest.
 
