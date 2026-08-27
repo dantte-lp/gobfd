@@ -536,6 +536,33 @@ func TestStaticAuthKeyStoreValidation(t *testing.T) {
 	}
 }
 
+func TestAuthenticatorsRejectMismatchedKeyType(t *testing.T) {
+	t.Parallel()
+
+	pkt := newTestPacket()
+	simpleKeys := newTestKeyStore(1, bfd.AuthTypeKeyedMD5, []byte("md5-key"))
+	simple := bfd.SimplePasswordAuth{}
+	if err := simple.Sign(&bfd.AuthState{}, simpleKeys, pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
+		t.Fatalf("SimplePasswordAuth.Sign() error = %v, want ErrAuthKeyTypeMismatch", err)
+	}
+	pkt.AuthPresent = true
+	pkt.Auth = &bfd.AuthSection{Type: bfd.AuthTypeSimplePassword, Len: 10, KeyID: 1}
+	if err := simple.Verify(&bfd.AuthState{}, simpleKeys, pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
+		t.Fatalf("SimplePasswordAuth.Verify() error = %v, want ErrAuthKeyTypeMismatch", err)
+	}
+
+	hashKeys := newTestKeyStore(2, bfd.AuthTypeKeyedSHA1, []byte("sha1-key"))
+	hash := bfd.KeyedMD5Auth{}
+	err := hash.Sign(&bfd.AuthState{}, hashKeys, pkt, make([]byte, bfd.MaxPacketSize), 0)
+	if !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
+		t.Fatalf("KeyedMD5Auth.Sign() error = %v, want ErrAuthKeyTypeMismatch", err)
+	}
+	pkt.Auth = &bfd.AuthSection{Type: bfd.AuthTypeKeyedMD5, Len: 24, KeyID: 2}
+	if err := hash.Verify(&bfd.AuthState{}, hashKeys, pkt, nil, 0); !errors.Is(err, bfd.ErrAuthKeyTypeMismatch) {
+		t.Fatalf("KeyedMD5Auth.Verify() error = %v, want ErrAuthKeyTypeMismatch", err)
+	}
+}
+
 func TestNewAuthenticator(t *testing.T) {
 	t.Parallel()
 

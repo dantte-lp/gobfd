@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -124,5 +127,39 @@ func TestMicroServer_DeleteMicroBFDGroup_RejectsEmptyName(t *testing.T) {
 		LagInterface: "",
 	}); err == nil {
 		t.Fatalf("expected error for empty lag_interface")
+	}
+}
+
+func TestMicroGroupSnapshotToProtoRejectsCountOverflow(t *testing.T) {
+	t.Parallel()
+
+	overflow64 := uint64(math.MaxUint32) + 1
+	if strconv.IntSize < 64 {
+		t.Skip("snapshot counts cannot exceed uint32 on this architecture")
+	}
+	overflow := int(overflow64)
+	tests := []struct {
+		name string
+		snap bfd.MicroBFDGroupSnapshot
+	}{
+		{
+			name: "up member count",
+			snap: bfd.MicroBFDGroupSnapshot{UpCount: overflow, MinActiveLinks: -1},
+		},
+		{
+			name: "minimum active links",
+			snap: bfd.MicroBFDGroupSnapshot{UpCount: -1, MinActiveLinks: overflow},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := microGroupSnapshotToProto(tt.snap, bfd.MicroBFDConfig{})
+			if !errors.Is(err, errMicroSnapshotCountOverflow) {
+				t.Fatalf("microGroupSnapshotToProto() error = %v, want errMicroSnapshotCountOverflow", err)
+			}
+		})
 	}
 }

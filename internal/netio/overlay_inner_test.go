@@ -137,6 +137,23 @@ func TestBuildInnerPacketIntoRejectsShortBuffer(t *testing.T) {
 	}
 }
 
+func TestBuildInnerPacketRejectsPayloadAboveIPv4Limit(t *testing.T) {
+	t.Parallel()
+
+	payload := make([]byte, 1<<16-netio.InnerIPv4Size-netio.InnerUDPSize)
+	src := netip.MustParseAddr("10.0.0.1")
+	dst := netip.MustParseAddr("10.0.0.2")
+
+	if _, err := netio.BuildInnerPacket(payload, src, dst, 49152); !errors.Is(err, netio.ErrInnerPacketPayloadTooLarge) {
+		t.Fatalf("BuildInnerPacket() error = %v, want ErrInnerPacketPayloadTooLarge", err)
+	}
+	buf := make([]byte, netio.InnerOverheadIPv4+len(payload))
+	_, err := netio.BuildInnerPacketInto(buf, payload, src, dst, 49152)
+	if !errors.Is(err, netio.ErrInnerPacketPayloadTooLarge) {
+		t.Fatalf("BuildInnerPacketInto() error = %v, want ErrInnerPacketPayloadTooLarge", err)
+	}
+}
+
 // -------------------------------------------------------------------------
 // Inner Ethernet Header Validation
 // -------------------------------------------------------------------------

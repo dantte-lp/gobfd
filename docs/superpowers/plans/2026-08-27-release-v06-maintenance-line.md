@@ -626,7 +626,7 @@ Expected: one merge commit and no unresolved paths.
 
 Repeat Task 5 Steps 2–5 on the exact merge commit. Record the SHA.
 
-- [ ] **Step 4: Push only `dev` and inspect PR #63 through GitHub API**
+- [x] **Step 4: Push only `dev` and inspect PR #63 through GitHub API**
 
 ```bash
 git push origin dev
@@ -642,17 +642,18 @@ Use `gh api graphql` to verify exhaustive check and review state. Do not merge
 while any required check is pending/failing or while `reviewDecision` is not
 `APPROVED`. A stale approval from an earlier SHA is not evidence.
 
-Current status (2026-08-27): the first blocking standalone gosec run exposed
-an upstream action image on Go 1.26.3 and 27 previously hidden findings. The
-remediation now runs pinned gosec v2.28.0 on Go 1.27.0 through the audited
-`tools/go.mod` graph and requires audited suppression reasons. The remediation
-worktree passes independent review with no Critical/Important findings, the
-complete race suite, exact gosec SARIF gate with zero results, Linux and Darwin
-gopls profiles, deterministic dependency inventory, module
-verification/tidiness, actionlint, YAML, Markdown, codespell, and diff checks.
-The diff must still be committed, pushed, and inspected at its exact remote
-head. All current required checks and a current approval are still required
-before Task 7.
+Current status (2026-08-27): PR #63 and `origin/dev` were inspected at exact
+head `1d17e60ec4859c4e40010ddcec284c0856eb22fe`. The first CI pass confirmed
+standalone gosec and CodeQL, while the required `Lint (Go)` job rejected the
+golangci-lint gosec adapter configuration and SonarCloud reported 60.6% new
+coverage plus five non-Linux no-op code smells. The focused follow-up uses the
+adapter's boolean `nosec: false`, preserves strict standalone gosec, documents
+only those five intentional no-ops, and exercises the newly added auth, echo,
+overlay, and micro-BFD bounds in existing test files. The affected race tests,
+complete repository race/coverage run, bounded full golangci-lint, gopls, root
+and tools module checks, and diff checks pass locally. The follow-up still must
+be committed, pushed, and re-inspected at its exact remote head. All current
+required checks and a current approval remain mandatory before Task 7.
 
 ### Task 7: Merge the accepted stable commit and establish live protections
 

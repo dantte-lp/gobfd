@@ -76,7 +76,7 @@ linters:
       config:
         global:
           audit: "true"
-          nosec: "true"
+          nosec: false
           show-ignored: "false"
         G301: "0750"
         G302: "0600"

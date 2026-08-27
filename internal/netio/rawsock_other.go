@@ -22,22 +22,30 @@ func unsupportedPlatform(format string, args ...any) error {
 
 // WithDFBit preserves the Linux sender option API on non-Linux builds.
 func WithDFBit() SenderOption {
-	return func(*UDPSender) {}
+	return func(*UDPSender) {
+		// No-op: non-Linux transports cannot set the IPv4 DF bit.
+	}
 }
 
 // WithDstPort preserves the Linux sender option API on non-Linux builds.
 func WithDstPort(_ uint16) SenderOption {
-	return func(*UDPSender) {}
+	return func(*UDPSender) {
+		// No-op: non-Linux transports cannot create a BFD socket.
+	}
 }
 
 // WithBindDevice preserves the Linux sender option API on non-Linux builds.
 func WithBindDevice(_ string) SenderOption {
-	return func(*UDPSender) {}
+	return func(*UDPSender) {
+		// No-op: device binding is unavailable without Linux sockets.
+	}
 }
 
 // WithWriteBuffer preserves the Linux sender option API on non-Linux builds.
 func WithWriteBuffer(_ int) SenderOption {
-	return func(*UDPSender) {}
+	return func(*UDPSender) {
+		// No-op: no socket exists whose write buffer could be configured.
+	}
 }
 
 // NewUDPSender rejects the Linux-specific BFD sender on non-Linux platforms.
@@ -88,7 +96,9 @@ func (*SourcePortAllocator) Allocate() (uint16, error) {
 }
 
 // Release is a no-op because Allocate cannot reserve a port on this platform.
-func (*SourcePortAllocator) Release(_ uint16) {}
+func (*SourcePortAllocator) Release(_ uint16) {
+	// No-op: the non-Linux allocator never reserves ports.
+}
 
 // NewSingleHopListener rejects Linux-specific single-hop sockets on non-Linux platforms.
 func NewSingleHopListener(_ context.Context, addr netip.Addr, ifName string) (PacketConn, error) {
