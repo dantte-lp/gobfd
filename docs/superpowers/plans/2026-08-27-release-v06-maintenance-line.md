@@ -137,25 +137,34 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 
 	configuration := readContractFile(t, "../.goreleaser.yml")
 	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
-		"release:\n  draft: true\n  use_existing_draft: true\n",
+		"release:\n  draft: true\n  mode: keep_existing\n",
 	})
+	if strings.Contains(configuration, "use_existing_draft: true") {
+		t.Error("release workflow may not silently reuse a partial draft")
+	}
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
 	requireContractStrings(t, "release workflow", workflow, []string{
 		"gh release upload \"$GITHUB_REF_NAME\" \\",
+		"Refuse existing release or draft",
 		"Verify exact release draft",
 		"expected-release-assets.txt",
 		"release-image-digests.txt",
 		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
 	})
-	if strings.Contains(workflow, "--clobber") {
-		t.Error("release workflow may not replace draft or published assets")
+	for _, forbidden := range []string{"--clobber", "--notes-file", " --notes "} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("release workflow retains forbidden mutation marker %q", forbidden)
+		}
 	}
 	upload := strings.LastIndex(workflow, "gh release upload \"$GITHUB_REF_NAME\"")
 	verification := strings.LastIndex(workflow, "Verify exact release draft")
 	publication := strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false")
 	if upload < 0 || verification < upload || publication < verification {
 		t.Error("release ordering is not upload, exact verification, then publication")
+	}
+	if strings.LastIndex(workflow, "gh release ") != publication {
+		t.Error("publishing is not the final gh release mutation")
 	}
 }
 ```
@@ -179,12 +188,15 @@ Change the release block to:
 ```yaml
 release:
   draft: true
-  use_existing_draft: true
   mode: keep_existing
 ```
 
-`use_existing_draft` permits an idempotent retry against the same unpublished
-tag. Do not enable `replace_existing_draft` or `replace_existing_artifacts`.
+Do not enable `use_existing_draft`, `replace_existing_draft`, or
+`replace_existing_artifacts`. Before the GoReleaser action, add a named
+`Refuse existing release or draft` step. It uses `gh release view` and fails if
+any release or draft already exists for `GITHUB_REF_NAME`; only the documented
+not-found result permits GoReleaser to run. This makes partial publication fail
+closed instead of pretending a duplicate upload is idempotent.
 
 - [ ] **Step 4: Fail closed when changelog notes are absent**
 

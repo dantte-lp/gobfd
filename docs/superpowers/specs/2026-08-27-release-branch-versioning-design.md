@@ -183,10 +183,10 @@ Enable GitHub immutable releases and protect `v*` tags before the first v0.6.2
 tag is pushed. The release workflow must finish every mutation while the
 release is a draft:
 
-1. Configure GoReleaser `release.draft: true` and
-   `release.use_existing_draft: true`; GoReleaser creates or reuses the draft
-   and uploads its artifacts and release notes. Artifact and draft replacement
-   remain disabled.
+1. Configure GoReleaser `release.draft: true`. Before GoReleaser runs, fail if
+   any release or draft already exists for the tag. GoReleaser creates one new
+   draft and uploads its artifacts and release notes. Existing-draft reuse and
+   artifact or draft replacement remain disabled.
 2. Download the already generated release-report artifact and upload it to the
    same draft without `--clobber`.
 3. Query the draft through `gh api` and verify its tag, target commit, notes,
@@ -249,9 +249,10 @@ reviewed commits. No force-push or history rewrite is used.
 
 After `v0.6.2` is published, the tag and assets are immutable release evidence.
 A defect is handled on `fix/v0.6-*` and released as `v0.6.3`; the previous tag
-is not moved, deleted, or reused. If a transient workflow step fails while the
-release is still a draft, retry only against the same tag and exact artifacts.
-If the tagged workflow itself is defective, do not rewrite the tag: record the
-failed cut and fix forward with the next patch version. If a ruleset or workflow
-filter is wrong, tag creation pauses until the live configuration and a PR
-check run prove the repair.
+is not moved, deleted, or reused. If a transient workflow step fails before
+GoReleaser creates the draft, a rerun first proves that no release or draft
+exists for the tag. Once a draft or asset exists, do not silently reuse, delete,
+or replace it: record the failed cut for maintainer analysis and fix forward
+with the next patch version. If the tagged workflow itself is defective, do not
+rewrite the tag. If a ruleset or workflow filter is wrong, tag creation pauses
+until the live configuration and a PR check run prove the repair.
