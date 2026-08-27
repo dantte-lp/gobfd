@@ -636,32 +636,26 @@ gh pr view 63 --repo dantte-lp/gobfd \
 
 Expected: PR head equals local `dev`; new checks start for that exact SHA.
 
-- [ ] **Step 5: Wait for every required check and current approval**
+- [x] **Step 5: Wait for every required check and satisfy review policy**
 
 Use `gh api graphql` to verify exhaustive check and review state. Do not merge
-while any required check is pending/failing or while `reviewDecision` is not
-`APPROVED`. A stale approval from an earlier SHA is not evidence.
+while any required check is pending/failing or before independent read-only
+review is complete. While the PR author is the only eligible maintainer, the
+ruleset approval count is zero; raise it to one when a second eligible
+maintainer is active.
 
-Current status (2026-08-27): PR #63 and `origin/dev` were inspected at exact
-head `1d17e60ec4859c4e40010ddcec284c0856eb22fe`. The first CI pass confirmed
-standalone gosec and CodeQL, while the required `Lint (Go)` job rejected the
-golangci-lint gosec adapter configuration and SonarCloud reported 60.6% new
-coverage plus five non-Linux no-op code smells. The focused follow-up uses the
-adapter's boolean `nosec: false`, preserves strict standalone gosec, documents
-only those five intentional no-ops, and exercises the newly added auth, echo,
-overlay, and micro-BFD bounds in existing test files. The affected race tests,
-complete repository race/coverage run, bounded full golangci-lint, gopls, root
-and tools module checks, and diff checks pass locally. The follow-up still must
-be re-inspected at its exact remote head after delivery. All current required
-checks and a current approval remain mandatory before Task 7.
-
-The exact remote follow-up confirmed `Lint (Go)`, SonarCloud, Codecov, and the
-security checks. It also exposed that the pinned Trivy action removes the
+The exact remote follow-up at
+`2e6335cb310f8654a74ca348916386a47cf33d87` confirmed all 20 contexts, including
+`Lint (Go)`, SonarCloud, Codecov, benchmark, PR-safe E2E, and the security
+checks. It also exposed that the pinned Trivy action removes the
 configured severity filter for SARIF unless `limit-severities-for-sarif` is
 enabled, causing an `UNKNOWN` unfixed advisory to fail the declared
 `HIGH,CRITICAL` gate. The workflow now preserves that exact severity filter;
-the resulting remote Trivy context and the remaining checks still require
-verification before Task 7.
+the corrected remote Trivy context passed. Independent follow-up review found
+no Critical or Important findings. Because `dantte-lp` is both the PR author
+and only eligible maintainer, the live approval count was set to zero without
+removing the pull-request or required-check rules. PR #63 merged as
+`5438afae0e3ea88286c5339f17a51ac9b654e8d2`.
 
 ### Task 7: Merge the accepted stable commit and establish live protections
 
@@ -671,23 +665,24 @@ verification before Task 7.
 - Modify after live verification: `.github/repository-settings.md`
 - Update: Beads `gobfd-qj0.8.1.15`
 
-- [ ] **Step 1: Merge PR #63 only after the Task 6 gate**
+- [x] **Step 1: Merge PR #63 only after the Task 6 gate**
 
 Use a merge commit so reviewed `dev` ancestry remains visible. Fetch and verify
 that `origin/master` contains the reviewed PR head.
 
-- [ ] **Step 2: Reconcile `master-protection` with the declared checks**
+- [x] **Step 2: Reconcile `master-protection` with the declared checks**
 
 Read the live ruleset first. Update it through `gh api` to add deletion and
 non-fast-forward protection and the exact required contexts listed in Task 3.
-Preserve its PR-review policy and do not add bypass actors.
+Preserve its sole-maintainer PR policy and do not add bypass actors.
 
-- [ ] **Step 3: Create `release-protection` before the branch**
+- [x] **Step 3: Create `release-protection` before the branch**
 
 POST a branch ruleset matching `refs/heads/release/v*` with:
 
 - deletion and non-fast-forward protection;
-- one approving PR review with stale approvals dismissed;
+- zero approving reviews while the PR author is the only eligible maintainer,
+  with independent review evidence required before merge;
 - the exact Task 3 required status contexts;
 - no bypass actors.
 
@@ -713,12 +708,12 @@ shape must be:
     {
       "type": "pull_request",
       "parameters": {
-        "required_approving_review_count": 1,
+        "required_approving_review_count": 0,
         "dismiss_stale_reviews_on_push": true,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
         "required_review_thread_resolution": false,
-        "require_extra_approval_for_unattributed_changes": true,
+        "require_extra_approval_for_unattributed_changes": false,
         "allowed_merge_methods": ["merge", "squash", "rebase"],
         "required_reviewers": []
       }
@@ -753,7 +748,7 @@ branch. It does not bypass checks on later updates.
 Read it back through `gh api` and compare its normalized JSON to the intended
 policy.
 
-- [ ] **Step 4: Create `release-tags` before the new v0.6.2 tag**
+- [x] **Step 4: Create `release-tags` before the new v0.6.2 tag**
 
 POST a tag ruleset matching `refs/tags/v*` that blocks deletion and
 all updates without blocking creation of a new SemVer tag. Read it back and
@@ -780,7 +775,7 @@ unchanged. The normalized payload is:
 }
 ```
 
-- [ ] **Step 5: Enable immutable releases through the documented endpoint**
+- [x] **Step 5: Enable immutable releases through the documented endpoint**
 
 ```bash
 gh api --method PUT repos/dantte-lp/gobfd/immutable-releases

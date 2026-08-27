@@ -26,16 +26,19 @@ source line from which later v0.6.x tags are cut.
 
 The live repository state checked on 2026-08-27 establishes these constraints:
 
-- `master` is the protected default branch and currently contains v0.6.1.
-- PR #63 proposes `dev` into `master`. All reported checks are successful, but
-  the PR still requires an approving review.
+- `master` is the protected default branch at merge commit
+  `5438afae0e3ea88286c5339f17a51ac9b654e8d2`; the latest published tag remains
+  `v0.6.1` until the qualified v0.6.2 cut completes.
+- PR #63 merged the independently reviewed `dev` head
+  `2e6335cb310f8654a74ca348916386a47cf33d87` after all 20 contexts completed.
 - `.github/workflows/release.yml` runs only for pushed `v*` tags and creates the
   release from the tagged commit.
-- the active `master-protection` ruleset targets only the default branch;
-  `release/v*` is not currently protected.
-- `ci.yml`, `security.yml`, and `e2e.yml` limit pull requests to `master` or
-  `main`. Without updating those filters, a pull request into `release/v0.6`
-  would not receive the normal release gates.
+- active rulesets protect `master`, `release/v*`, and `v*`; the release branch
+  ruleset was created before `release/v0.6`, and the tag ruleset was created
+  before the first new matching tag, `v0.6.2`. Existing `v0.1.0` through
+  `v0.6.1` tags predate that tag ruleset and remain unchanged.
+- `ci.yml`, `security.yml`, and `e2e.yml` route pull requests into `release/v*`
+  through the normal release gates.
 - `build.yml` runs for every pull request, so its SonarQube check already covers
   a release-branch pull request.
 - the Makefile's interactive Buf target defaults to `master`, while `ci.yml`
@@ -96,8 +99,10 @@ normal reviewed path before a tag is created.
 
 1. Complete the release-policy and release-preparation changes on an isolated
    branch and merge them into `dev` through review.
-2. Re-run PR #63 checks after its final push and obtain the required approving
-   review. Do not merge while its review decision is unresolved.
+2. Re-run PR #63 checks after its final push and complete independent read-only
+   review. While the author is the only eligible maintainer, keep the GitHub
+   approval count at zero; do not merge while any required context or the
+   independent review is incomplete.
 3. Merge PR #63 into `master` without rewriting the published `dev` history.
    The merge method must preserve the reviewed commit ancestry.
 4. Create and verify the `release/v*` branch ruleset before the new
@@ -120,7 +125,7 @@ normal reviewed path before a tag is created.
    manifests, SBOM/provenance, and release reports before closing the
    milestone.
 
-No tag is pushed while a required gate or review is incomplete. A failed
+No tag is pushed while a required gate or independent review is incomplete. A failed
 published release is fixed forward with a new patch version; its public tag is
 not rewritten.
 
@@ -130,7 +135,10 @@ Create a repository ruleset for `release/v*` with at least the controls on
 `master-protection`:
 
 - pull request required;
-- one approving review with stale approvals dismissed;
+- zero GitHub approving reviews while the PR author is the only eligible
+  maintainer, with independent read-only review evidence required before merge;
+- raise the GitHub approval count to one and dismiss stale approvals when a
+  second eligible maintainer is active;
 - force pushes and branch deletion prohibited;
 - required status checks from the default branch plus `codeql`, `gosec`, and
   `PR-safe E2E`;

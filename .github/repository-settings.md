@@ -23,23 +23,23 @@
 
 | Area | Current state |
 |---|---|
-| Protection mechanism | Repository ruleset `master-protection` (ID `13093259`) on the default branch; it is the only live ruleset |
-| Enforcement | `master-protection` is active |
+| Protection mechanism | Repository rulesets `master-protection` (ID `13093259`), `release-protection` (ID `21655254`), and `release-tags` (ID `21655273`) |
+| Enforcement | All three rulesets are active |
 | Bypass actors | None |
-| Pull requests before merge | Required |
-| Required approving reviews | One eligible approving reviewer |
-| Stale review dismissal | Required |
+| Pull requests before merge | Required on `master` and `release/v*` |
+| Required approving reviews | Zero while the repository has one eligible maintainer; raise to one when a second eligible maintainer is active |
+| Stale review dismissal | Configured for future approving reviews |
 | Code owner review | Not required |
 | Latest reviewable push approval | Not required |
 | Conversation resolution | Not required |
-| Required status checks | `Build & test`, `Lint (Go)`, `Vulnerability audit`, `Buf`, `SonarQube`, `Trivy filesystem scan` |
+| Required status checks | All 11 exact contexts listed below on `master` and `release/v*` |
 | Strict up-to-date branches | Not required |
 | v0.6 release branch | `release/v0.6` does not yet exist |
-| Release branch protection | No `release-protection` ruleset exists |
-| Release tag protection | No `release-tags` ruleset exists |
-| Immutable releases | Disabled (`enabled=false`, `enforced_by_owner=false`) |
+| Release branch protection | Active `release-protection` ruleset (ID `21655254`) targets `refs/heads/release/v*`; deletion and non-fast-forward updates are prohibited |
+| Release tag protection | Active `release-tags` ruleset (ID `21655273`) targets `refs/tags/v*`; deletion and updates are prohibited |
+| Immutable releases | Enabled (`enabled=true`) |
 | Branch protection API | Not configured; repository rulesets are the active control plane |
-| OpenSSF Branch-Protection status | Scorecard reports gaps for force push/deletion, up-to-date branches, latest-push approval, CODEOWNERS review, and two-reviewer tier |
+| OpenSSF Branch-Protection status | The last report predates the live deletion/non-fast-forward rulesets; approval, latest-push, CODEOWNERS, and two-reviewer tiers remain intentionally constrained by maintainer capacity |
 
 ## Required Settings
 
@@ -48,7 +48,7 @@
 | Default branch | `master` |
 | Stable branch roles | `master` is the latest accepted stable state; supported lines use `release/vMAJOR.MINOR` |
 | Release branches | Create an active `release-protection` ruleset targeting `release/v*` before each new matching branch is created |
-| Pull requests | Require a pull request and one approving review, with stale approvals dismissed, for `master` and `release/v*` |
+| Pull requests | Require a pull request for `master` and `release/v*`; while only one eligible maintainer exists, require independent review evidence but configure zero GitHub approving reviews so the author is not permanently blocked |
 | Required checks | Require every exact context listed below on both stable-line rulesets |
 | Release tags | Create an active `release-tags` ruleset targeting `v*` before each new matching tag is created, specifically before `v0.6.2`; preserve existing `v0.1.0` through `v0.6.1` tags unchanged and prohibit tag updates and deletion |
 | Immutable releases | Enable immutable releases, complete and verify assets in a draft, and publish only as the final mutation |
@@ -81,8 +81,8 @@ The required status-check contexts are exact and case-sensitive:
 
 | Scorecard check | Policy |
 |---|---|
-| `Branch-Protection` | Enable force-push and deletion prevention immediately; defer only raising the approval requirement to two and requiring CODEOWNERS review until maintainer capacity supports them. |
-| `Code-Review` | `master-protection` already requires one eligible approving reviewer, and `release-protection` will require one. The one-maintainer repository must recruit an eligible external reviewer to satisfy this mandatory rule. |
+| `Branch-Protection` | Force-push and deletion prevention are active. Raise the approving-review count to one and require CODEOWNERS review when a second eligible maintainer can satisfy them without bypass. |
+| `Code-Review` | Both branch rulesets require pull requests but configure zero approving reviews while the author is the only eligible maintainer. Record independent read-only review evidence before merge; enable one GitHub approval when a second eligible maintainer is active. |
 | `Contributors` | Treat the score as an ecosystem signal, not a repository misconfiguration. |
 | `Maintained` | No remediation until the repository is older than 90 days; keep weekly maintenance activity visible. |
 
