@@ -187,6 +187,7 @@ func runGo(args ...string) commandResult {
 	ctx, cancel := context.WithTimeout(context.Background(), scannerTimeout)
 	defer cancel()
 
+	// #nosec G204 -- go is fixed and closed callers build argv from pinned scanner versions and fixed manifests.
 	cmd := exec.CommandContext(ctx, "go", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

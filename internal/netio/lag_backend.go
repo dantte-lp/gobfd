@@ -128,6 +128,7 @@ func (b *KernelBondLAGBackend) writeSlaveCommand(
 	}
 
 	path := filepath.Join(b.sysfsRoot, lagInterface, "bonding", "slaves")
+	// #nosec G304 -- sysfsRoot is trusted constructor configuration, and lagInterface is validated as one path component.
 	file, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		return fmt.Errorf("write %s: %w", path, err)

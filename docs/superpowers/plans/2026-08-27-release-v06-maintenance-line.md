@@ -43,7 +43,7 @@ slice.
 - Modify: `.github/workflows/security.yml:3-7`
 - Modify: `.github/workflows/e2e.yml:3-5`
 
-- [ ] **Step 1: Add the failing branch-filter contract**
+- [x] **Step 1: Add the failing branch-filter contract**
 
 Before editing the Go test, check the Go 1.27 language specification sections
 for range clauses and string literals at <https://go.dev/ref/spec>. The test
@@ -69,7 +69,7 @@ func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Prove the test fails on the current branch filters**
+- [x] **Step 2: Prove the test fails on the current branch filters**
 
 Run:
 
@@ -80,7 +80,7 @@ GOMAXPROCS=4 GOMEMLIMIT=8GiB go test -race -count=1 ./scripts \
 
 Expected: FAIL for `ci.yml`, `security.yml`, and `e2e.yml`.
 
-- [ ] **Step 3: Add `release/v*` only to relevant pull-request filters**
+- [x] **Step 3: Add `release/v*` only to relevant pull-request filters**
 
 Use this exact flow-style value in all three files:
 
@@ -92,13 +92,13 @@ Also add it to the `push` filters of `ci.yml` and `security.yml`, because the
 stable release branch must receive post-merge evidence. Do not broaden
 scheduled or manual E2E behavior.
 
-- [ ] **Step 4: Prove the focused contract passes**
+- [x] **Step 4: Prove the focused contract passes**
 
 Run the Step 2 command again.
 
 Expected: PASS with one non-empty Go package tested.
 
-- [ ] **Step 5: Validate workflow syntax without starting remote jobs**
+- [x] **Step 5: Validate workflow syntax without starting remote jobs**
 
 Run:
 
@@ -111,7 +111,7 @@ git diff --check
 
 Expected: both commands exit 0.
 
-- [ ] **Step 6: Commit the routing slice**
+- [x] **Step 6: Commit the routing slice**
 
 ```bash
 git add scripts/repo_quality_contract_test.go .github/workflows/ci.yml \
@@ -126,7 +126,7 @@ git commit -m "ci(release): validate maintained release branches"
 - Modify: `.goreleaser.yml:65-66`
 - Modify: `.github/workflows/release.yml:180-232`
 
-- [ ] **Step 1: Add the failing immutable-publication contract**
+- [x] **Step 1: Add the failing immutable-publication contract**
 
 Extend `scripts/repo_quality_contract_test.go` with a test that reads
 `.goreleaser.yml` and `release.yml` and requires these markers:
@@ -175,7 +175,7 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Prove the immutable-publication contract fails**
+- [x] **Step 2: Prove the immutable-publication contract fails**
 
 Run:
 
@@ -187,7 +187,7 @@ GOMAXPROCS=4 GOMEMLIMIT=8GiB go test -race -count=1 ./scripts \
 Expected: FAIL because `draft: true` and final publish are absent and
 `--clobber` is present.
 
-- [ ] **Step 3: Configure GoReleaser to retain a draft**
+- [x] **Step 3: Configure GoReleaser to retain a draft**
 
 Change the release block to:
 
@@ -229,13 +229,13 @@ done
 An API error is fatal. This makes partial GitHub or GHCR publication fail closed
 instead of pretending a duplicate upload is idempotent.
 
-- [ ] **Step 4: Fail closed when changelog notes are absent**
+- [x] **Step 4: Fail closed when changelog notes are absent**
 
 In `release.yml`, replace the fallback note generation with a non-zero exit.
 Require at least one non-whitespace character. The tag must have an exact dated
 section in `CHANGELOG.md`; a generic link to `master` is not a release note.
 
-- [ ] **Step 5: Build the exact asset manifest and OCI digest receipt**
+- [x] **Step 5: Build the exact asset manifest and OCI digest receipt**
 
 Revalidate the recorded commit before trusting `dist/artifacts.json`. Require
 the exact artifact matrix: two Linux archives (`amd64`, `arm64`), four Linux
@@ -259,7 +259,7 @@ are not evidence of valid payloads.
 Record the registry-reported `sha256:` index digest for all three refs. The
 primary and Debian-qualified refs must resolve to the same digest.
 
-- [ ] **Step 6: Attach, verify the complete draft, and publish last**
+- [x] **Step 6: Attach, verify the complete draft, and publish last**
 
 Retain the report download. Hash the exact nonempty report archive and OCI
 receipt into `release-evidence-checksums.txt`, then upload all three without
@@ -288,7 +288,7 @@ require digest equality. Revalidate tag, branch, draft body, and exact asset
 names once more. The `gh release edit --draft=false` command remains the final
 GitHub Release mutation.
 
-- [ ] **Step 7: Run focused and syntax gates**
+- [x] **Step 7: Run focused and syntax gates**
 
 ```bash
 GOMAXPROCS=4 GOMEMLIMIT=8GiB go test -race -count=1 ./scripts \
@@ -300,7 +300,7 @@ git diff --check
 
 Expected: all commands exit 0.
 
-- [ ] **Step 8: Commit the immutable release slice**
+- [x] **Step 8: Commit the immutable release slice**
 
 ```bash
 git add scripts/repo_quality_contract_test.go .goreleaser.yml \
@@ -323,7 +323,7 @@ git commit -m "ci(release): publish verified immutable drafts"
 - Modify: `docs/ru/roadmap.md`
 - Modify: `docs/superpowers/specs/2026-08-27-release-branch-versioning-design.md`
 
-- [ ] **Step 1: Add the normative branch roles to `AGENTS.md`**
+- [x] **Step 1: Add the normative branch roles to `AGENTS.md`**
 
 Add one `## Release branches` section that states:
 
@@ -340,7 +340,7 @@ Add one `## Release branches` section that states:
   deleted, or reused;
 - draft assets are complete and verified before immutable publication.
 
-- [ ] **Step 2: Reconcile repository settings documentation**
+- [x] **Step 2: Reconcile repository settings documentation**
 
 Separate `Current Protection State` from `Required Settings`. Before the live
 API mutation, identify `release-protection`, `release-tags`, and immutable
@@ -362,7 +362,7 @@ PR-safe E2E
 
 Do not claim a pending ruleset is already live.
 
-- [ ] **Step 3: Update contributor and governance rules**
+- [x] **Step 3: Update contributor and governance rules**
 
 Change the master-only feature-branch instruction in `CONTRIBUTING.md`:
 
@@ -373,25 +373,25 @@ Change the master-only feature-branch instruction in `CONTRIBUTING.md`:
 In `GOVERNANCE.md`, record the supported-line model, immutable draft-first
 authority, and required forward-port assessment.
 
-- [ ] **Step 4: Update EN/RU development and changelog guides in lockstep**
+- [x] **Step 4: Update EN/RU development and changelog guides in lockstep**
 
 Document the same branch roles, patch workflow, tag source, no-rewrite policy,
 and GitHub Actions draft publication in both languages. Replace the current
 `git push origin master --tags` example with separate, explicit branch and tag
 pushes that cannot publish unrelated local tags.
 
-- [ ] **Step 5: Update both roadmaps without claiming publication**
+- [x] **Step 5: Update both roadmaps without claiming publication**
 
 State that v0.6.x is maintained on `release/v0.6` with GoBGP v3.37.0 and that
 v1/GoBGP v4 development follows on `dev`. Keep v0.6.2 `In progress` until the
 tag and GitHub Release are verified.
 
-- [ ] **Step 6: Reconcile the approved design metadata**
+- [x] **Step 6: Reconcile the approved design metadata**
 
 Add the missing blank line after its metadata block and change its status to
 `Approved; implementation in progress`. Do not change the accepted decision.
 
-- [ ] **Step 7: Run documentation gates**
+- [x] **Step 7: Run documentation gates**
 
 ```bash
 go run ./test/cmd/repoquality markdown --root .
@@ -406,7 +406,7 @@ git diff --check
 
 Expected: 0 diagnostics.
 
-- [ ] **Step 8: Commit the contract slice**
+- [x] **Step 8: Commit the contract slice**
 
 ```bash
 git add AGENTS.md .github/repository-settings.md CONTRIBUTING.md GOVERNANCE.md \
@@ -424,7 +424,7 @@ git commit -m "docs(release): define v0.6 maintenance ownership"
 - Modify: `CHANGELOG.ru.md:8-134`
 - Test: `.github/workflows/release.yml` release-note extraction command
 
-- [ ] **Step 1: Convert current Unreleased content into v0.6.2**
+- [x] **Step 1: Convert current Unreleased content into v0.6.2**
 
 Keep an empty `## [Unreleased]` at the top. Add:
 
@@ -435,7 +435,7 @@ Keep an empty `## [Unreleased]` at the top. Add:
 Place every current v0.6.2 entry under that heading without rewriting earlier
 published sections.
 
-- [ ] **Step 2: Update comparison links**
+- [x] **Step 2: Update comparison links**
 
 Use:
 
@@ -447,7 +447,7 @@ Use:
 Use the same targets under the localized `[Не выпущено]` and `[0.6.2]`
 labels in `CHANGELOG.ru.md`. Leave every existing published link unchanged.
 
-- [ ] **Step 3: Exercise the workflow's exact extraction logic locally**
+- [x] **Step 3: Exercise the workflow's exact extraction logic locally**
 
 Run the `awk` program from `.github/workflows/release.yml` with
 `VERSION=0.6.2` into a `mktemp -d` directory. Assert the result is non-empty,
@@ -457,7 +457,7 @@ exact temporary directory after the assertions.
 Expected: all assertions pass and the extracted file contains only v0.6.2
 notes.
 
-- [ ] **Step 4: Run changelog quality gates**
+- [x] **Step 4: Run changelog quality gates**
 
 ```bash
 go run ./test/cmd/repoquality markdown --root .
@@ -467,7 +467,7 @@ git diff --check
 
 Expected: 0 diagnostics.
 
-- [ ] **Step 5: Commit release preparation**
+- [x] **Step 5: Commit release preparation**
 
 ```bash
 git add CHANGELOG.md
@@ -480,7 +480,7 @@ git commit -m "chore(release): prepare v0.6.2"
 - Verify only; do not add unrelated fixes
 - Update: Beads `gobfd-qj0.8.1.15`
 
-- [ ] **Step 1: Verify non-empty Go package input and the Go toolchain**
+- [x] **Step 1: Verify non-empty Go package input and the Go toolchain**
 
 ```bash
 go version
@@ -491,7 +491,7 @@ test -s /tmp/gobfd-release-v06-packages.txt
 Expected: Go 1.27.0 and a non-empty package list. Remove the exact temporary
 file after recording its line count in Beads.
 
-- [ ] **Step 2: Run bounded local race and contract tests**
+- [x] **Step 2: Run bounded local race and contract tests**
 
 ```bash
 GOMAXPROCS=4 GOMEMLIMIT=8GiB go test -p=4 ./... -race -count=1
@@ -499,7 +499,7 @@ GOMAXPROCS=4 GOMEMLIMIT=8GiB go test -p=4 ./... -race -count=1
 
 Expected: all discovered packages pass.
 
-- [ ] **Step 3: Run gopls against the changed Go contract test and repository profiles**
+- [x] **Step 3: Run gopls against the changed Go contract test and repository profiles**
 
 This slice modifies `scripts/repo_quality_contract_test.go`, and the maintainer
 explicitly requires gopls. Use the pinned development container or the already
@@ -513,7 +513,7 @@ GOMAXPROCS=4 GOMEMLIMIT=8GiB GOPLS_GOOS=darwin \
 
 Expected: non-zero package/input counts and zero gopls diagnostics.
 
-- [ ] **Step 4: Run build, configuration, and release snapshot gates**
+- [x] **Step 4: Run build, configuration, and release snapshot gates**
 
 Run the four-binary build first:
 
@@ -566,7 +566,7 @@ from atomically replacing that path and is not part of the GitHub release
 environment. This covers Debian Trixie and Oracle Linux 10 locally without
 creating a remote manifest or using Alpine.
 
-- [ ] **Step 5: Run remaining release-relevant existing gates**
+- [x] **Step 5: Run remaining release-relevant existing gates**
 
 ```bash
 go mod tidy -diff
@@ -587,7 +587,7 @@ Obtain Buf v1.72.0 and its `sha256.txt` from the upstream GitHub Release in an
 exact temporary directory and verify only the selected Linux x86-64 artifact
 before using `BUF_TOOL_DIR`. Do not use a stale host Buf binary.
 
-- [ ] **Step 6: Record qualification in Beads**
+- [x] **Step 6: Record qualification in Beads**
 
 Append exact commands, versions, package counts, commit SHAs, and results to
 `gobfd-qj0.8.1.15`. Keep the task `IN_PROGRESS` because remote review, rulesets,
@@ -600,7 +600,7 @@ branch creation, and publication remain.
 - Update: local and remote `dev`
 - Update: PR #63 through its existing `dev` head
 
-- [ ] **Step 1: Run independent code/spec review on the exact head**
+- [x] **Step 1: Run independent code/spec review on the exact head**
 
 Review the workflow ordering, shell quoting, required check names, EN/RU parity,
 and changelog extraction. Reject P0/P1 defects before merge. Do not broaden the
@@ -610,7 +610,7 @@ The independent review must also confirm that required security contexts are
 blocking: `gosec` runs without `-no-fail`, Trivy uses `exit-code: "1"` for its
 HIGH/CRITICAL filesystem scan, and both SARIF uploads retain `if: always()`.
 
-- [ ] **Step 2: Merge locally into `dev` without rewriting history**
+- [x] **Step 2: Merge locally into `dev` without rewriting history**
 
 From the root worktree, verify both worktrees are clean, then:
 
@@ -622,7 +622,7 @@ git merge --no-ff docs/release-v06-policy \
 
 Expected: one merge commit and no unresolved paths.
 
-- [ ] **Step 3: Run focused post-merge checks**
+- [x] **Step 3: Run focused post-merge checks**
 
 Repeat Task 5 Steps 2–5 on the exact merge commit. Record the SHA.
 
@@ -641,6 +641,18 @@ Expected: PR head equals local `dev`; new checks start for that exact SHA.
 Use `gh api graphql` to verify exhaustive check and review state. Do not merge
 while any required check is pending/failing or while `reviewDecision` is not
 `APPROVED`. A stale approval from an earlier SHA is not evidence.
+
+Current status (2026-08-27): the first blocking standalone gosec run exposed
+an upstream action image on Go 1.26.3 and 27 previously hidden findings. The
+remediation now runs pinned gosec v2.28.0 on Go 1.27.0 through the audited
+`tools/go.mod` graph and requires audited suppression reasons. The remediation
+worktree passes independent review with no Critical/Important findings, the
+complete race suite, exact gosec SARIF gate with zero results, Linux and Darwin
+gopls profiles, deterministic dependency inventory, module
+verification/tidiness, actionlint, YAML, Markdown, codespell, and diff checks.
+The diff must still be committed, pushed, and inspected at its exact remote
+head. All current required checks and a current approval are still required
+before Task 7.
 
 ### Task 7: Merge the accepted stable commit and establish live protections
 

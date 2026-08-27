@@ -1,9 +1,9 @@
 package bfd
 
 import (
-	"crypto/md5" //nolint:gosec // G501: MD5 required by RFC 5880 Section 6.7.3
+	"crypto/md5" // #nosec G501 -- MD5 is required by RFC 5880 Section 6.7.3.
 	"crypto/rand"
-	"crypto/sha1" //nolint:gosec // G505: SHA1 required by RFC 5880 Section 6.7.4
+	"crypto/sha1" // #nosec G505 -- SHA-1 is required by RFC 5880 Section 6.7.4.
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
@@ -151,6 +151,15 @@ func validateAuthKey(key AuthKey) error {
 	return nil
 }
 
+func validateAuthKeyForType(key AuthKey, expected AuthType) error {
+	if key.Type != expected {
+		return fmt.Errorf("auth key type %d, expected %d: %w",
+			key.Type, expected, ErrAuthKeyTypeMismatch)
+	}
+
+	return validateAuthKey(key)
+}
+
 // NewAuthenticator returns the RFC 5880 authenticator for an auth type.
 func NewAuthenticator(authType AuthType) (Authenticator, error) {
 	switch authType {
@@ -275,9 +284,12 @@ func (a SimplePasswordAuth) Sign(
 	_ int,
 ) error {
 	key := keys.CurrentKey()
+	if err := validateAuthKeyForType(key, AuthTypeSimplePassword); err != nil {
+		return fmt.Errorf("simple password current key: %w", err)
+	}
 	pkt.Auth = &AuthSection{
 		Type: AuthTypeSimplePassword,
-		Len: uint8( //nolint:gosec // G115: password max 16 bytes per RFC 5880 Section 4.2, sum fits uint8.
+		Len: uint8( // #nosec G115 -- validateAuthKey above limits the password to 16 bytes.
 			authSimpleHeaderSize + len(key.Secret),
 		),
 		KeyID:    key.ID,
@@ -316,7 +328,10 @@ func (a SimplePasswordAuth) Verify(
 
 // verifyPassword checks password length and value match.
 func verifyPassword(key AuthKey, auth *AuthSection) error {
-	expectedLen := uint8( //nolint:gosec // G115: password max 16 bytes per RFC 5880 Section 4.2, sum fits uint8.
+	if err := validateAuthKeyForType(key, AuthTypeSimplePassword); err != nil {
+		return fmt.Errorf("simple password key: %w", err)
+	}
+	expectedLen := uint8( // #nosec G115 -- validateAuthKey above limits the password to 16 bytes.
 		authSimpleHeaderSize + len(key.Secret),
 	)
 	if auth.Len != expectedLen {
@@ -522,6 +537,9 @@ func signHash(
 	p hashParams,
 ) error {
 	key := keys.CurrentKey()
+	if err := validateAuthKeyForType(key, p.authType); err != nil {
+		return fmt.Errorf("sign hash current key: %w", err)
+	}
 
 	// RFC 5880 Section 6.7.3/6.7.4: increment sequence number.
 	// For meticulous variants, caller increments on every packet.
@@ -584,15 +602,13 @@ func copyDigest(buf []byte, p hashParams) []byte {
 // computeDigest computes MD5 or SHA1 hash over the given data.
 func computeDigest(data []byte, p hashParams) []byte {
 	if p.digestSize == md5DigestSize {
-		//nolint:gosec // MD5 is required by RFC 5880 Section 6.7.3.
 		// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
-		sum := md5.Sum(data)
+		sum := md5.Sum(data) // #nosec G401 -- MD5 is required by RFC 5880 Section 6.7.3.
 		return sum[:]
 	}
 
-	//nolint:gosec // SHA1 is required by RFC 5880 Section 6.7.4.
 	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
-	sum := sha1.Sum(data)
+	sum := sha1.Sum(data) // #nosec G401 -- SHA-1 is required by RFC 5880 Section 6.7.4.
 	return sum[:]
 }
 
@@ -625,6 +641,9 @@ func verifyHash(
 	if err != nil {
 		return fmt.Errorf("hash auth key %d: %w",
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)
+	}
+	if err := validateAuthKeyForType(key, p.authType); err != nil {
+		return fmt.Errorf("hash auth key %d: %w", pkt.Auth.KeyID, err)
 	}
 
 	if err := checkSeqWindow(state, pkt, p); err != nil {

@@ -122,6 +122,7 @@ func publicImages(tags ImageTags, frrReference string) []imageReference {
 
 func loadFRRReference(projectRoot string) (string, error) {
 	topologyPath := filepath.Join(projectRoot, "test", "interop-clab", "gobfd-vendors.clab.yml")
+	// #nosec G304 -- projectRoot is the validated absolute repository cwd and the joined suffix is constant.
 	file, err := os.Open(topologyPath)
 	if err != nil {
 		return "", fmt.Errorf("open Containerlab topology %s: %w", topologyPath, err)

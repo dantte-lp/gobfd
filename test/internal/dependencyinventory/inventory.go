@@ -308,6 +308,7 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 		if parseErr != nil {
 			return Inventory{}, fmt.Errorf("parse %s: %w", definition.manifest, parseErr)
 		}
+		// #nosec G304 -- absoluteRoot is the selected repository root and definition.sum is one of two literal paths above.
 		sumData, readErr := os.ReadFile(filepath.Join(absoluteRoot, definition.sum))
 		if readErr != nil {
 			return Inventory{}, fmt.Errorf("read %s: %w", definition.sum, readErr)
@@ -2081,8 +2082,13 @@ func validateSourceLocation(root string, source SourceLocation) error {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("source location escapes repository root")
 	}
-	data, err := os.ReadFile(filepath.Join(root, clean))
+	repository, err := os.OpenRoot(root)
 	if err != nil {
+		return fmt.Errorf("open source-location root: %w", err)
+	}
+	data, readErr := readDeclaredSource(repository, clean)
+	closeErr := repository.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
 		if errors.Is(err, os.ErrNotExist) && root != "" && len(source.Path) == 0 {
 			return nil
 		}
@@ -2121,6 +2127,7 @@ func readInventory(path string) (Inventory, error) {
 }
 
 func decodeOneJSONFile(path string, target any) error {
+	// #nosec G304 -- path is deliberately selected by the local caller and the read is size-bounded and strictly decoded.
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open JSON file: %w", err)
@@ -2233,6 +2240,7 @@ func compareModuleGraph(ctx context.Context, root string, graph ModuleGraph) err
 	for _, module := range graph.Modules {
 		got = append(got, moduleIdentity{Path: module.Path, Version: module.Version, Indirect: module.Indirect})
 		if module.ImmutablePin.Status == PinVerified && module.ImmutablePin.Kind == "go-sum" {
+			// #nosec G304 -- Validate has already restricted graph.Sum to go.sum or tools/go.sum.
 			data, readErr := os.ReadFile(filepath.Join(root, graph.Sum))
 			if readErr != nil {
 				return fmt.Errorf("read %s: %w", graph.Sum, readErr)
@@ -2275,6 +2283,10 @@ func selectedModuleGraph(ctx context.Context, root string, graph ModuleGraph) ([
 			Version  string `json:"Version"`
 			Main     bool   `json:"Main"`
 			Indirect bool   `json:"Indirect"`
+			Replace  *struct {
+				Path    string `json:"Path"`
+				Version string `json:"Version"`
+			} `json:"Replace"`
 		}
 		if err := decoder.Decode(&item); errors.Is(err, io.EOF) {
 			break
@@ -2286,6 +2298,23 @@ func selectedModuleGraph(ctx context.Context, root string, graph ModuleGraph) ([
 		}
 		if item.Path == "" || item.Version == "" {
 			return nil, fmt.Errorf("decode %s selected module graph: module has missing path or version", graph.ID)
+		}
+		if item.Replace != nil {
+			if item.Replace.Path == "" {
+				return nil, fmt.Errorf(
+					"decode %s selected module graph: incomplete replacement %s@%s => %s@%s",
+					graph.ID, item.Path, item.Version, item.Replace.Path, item.Replace.Version,
+				)
+			}
+			if item.Replace.Version != "" {
+				if item.Replace.Path != item.Path {
+					return nil, fmt.Errorf(
+						"decode %s selected module graph: unsupported replacement %s@%s => %s@%s",
+						graph.ID, item.Path, item.Version, item.Replace.Path, item.Replace.Version,
+					)
+				}
+				item.Version = item.Replace.Version
+			}
 		}
 		modules = append(modules, moduleIdentity{Path: item.Path, Version: item.Version, Indirect: item.Indirect})
 	}

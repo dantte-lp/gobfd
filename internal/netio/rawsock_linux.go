@@ -512,8 +512,7 @@ func (a *SourcePortAllocator) Allocate() (uint16, error) {
 	}
 
 	for i := range a.portSpan {
-		//nolint:gosec // G115: (offset+i)%portSpan is always in [0, 16383], fits uint16 after adding sourcePortMin.
-		port := sourcePortMin + uint16((offset+i)%a.portSpan)
+		port := sourcePortMin + uint16((offset+i)%a.portSpan) // #nosec G115 -- portSpan is exactly 16384, so the resulting port is 49152..65535.
 		if _, used := a.inUse[port]; !used {
 			a.inUse[port] = struct{}{}
 			return port, nil

@@ -161,7 +161,7 @@ func buildTransportCredentials(cfg GRPCClientTLSConfig) (credentials.TransportCr
 }
 
 func loadRootCAs(path string) (*x509.CertPool, error) {
-	pemBytes, err := os.ReadFile(path)
+	pemBytes, err := os.ReadFile(path) // #nosec G304 -- CAFile is an intentional operator-selected local PEM bundle.
 	if err != nil {
 		return nil, fmt.Errorf("read CA file %s: %w", path, err)
 	}

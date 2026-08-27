@@ -48,6 +48,7 @@ func (runner *OSRunner) Run(ctx context.Context, command Command) (Result, error
 
 	stdout := newLimitedBuffer(maxCommandOutput)
 	stderr := newLimitedBuffer(maxCommandOutput)
+	// #nosec G204 -- executable is resolved from the fixed allowlist or repository run.sh and no shell is used.
 	process := exec.CommandContext(ctx, executable, command.Arguments...)
 	process.Dir = command.Directory
 	process.Stdout = stdout

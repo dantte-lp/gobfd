@@ -2006,8 +2006,9 @@ func TestOperationalSurfaceScanRejectsUnsafeEntries(t *testing.T) {
 }
 
 const (
-	maxOperationalFileSize = 2 << 20
-	maxOperationalEntries  = 10_000
+	maxOperationalFileSize         = 2 << 20
+	maxDependencyInventoryFileSize = 3 << 20
+	maxOperationalEntries          = 10_000
 )
 
 type benchmarkReport struct {
@@ -2303,12 +2304,13 @@ func validateTrackedOperationalPath(
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("tracked operational path %s is not a regular file", relative)
 	}
-	if info.Size() > maxOperationalFileSize {
+	fileSizeLimit := trackedOperationalFileSizeLimit(relative)
+	if info.Size() > int64(fileSizeLimit) {
 		return fmt.Errorf(
 			"tracked operational file %s is %d bytes, limit is %d",
 			relative,
 			info.Size(),
-			maxOperationalFileSize,
+			fileSizeLimit,
 		)
 	}
 	data, err := readTrackedOperationalFile(rooted, clean, info)
@@ -2346,6 +2348,7 @@ func readTrackedOperationalFileWithHook(
 	initial os.FileInfo,
 	afterIdentity func(*os.File) error,
 ) ([]byte, error) {
+	fileSizeLimit := trackedOperationalFileSizeLimit(relative)
 	file, err := rooted.Open(relative)
 	if err != nil {
 		return nil, fmt.Errorf("open rooted file: %w", err)
@@ -2359,9 +2362,9 @@ func readTrackedOperationalFileWithHook(
 		_ = file.Close()
 		return nil, errors.New("opened path is not a regular file")
 	}
-	if opened.Size() > maxOperationalFileSize {
+	if opened.Size() > int64(fileSizeLimit) {
 		_ = file.Close()
-		return nil, fmt.Errorf("opened file is %d bytes, limit is %d", opened.Size(), maxOperationalFileSize)
+		return nil, fmt.Errorf("opened file is %d bytes, limit is %d", opened.Size(), fileSizeLimit)
 	}
 	current, lstatErr := rooted.Lstat(relative)
 	if lstatErr != nil {
@@ -2383,7 +2386,7 @@ func readTrackedOperationalFileWithHook(
 		}
 	}
 
-	data, readErr := io.ReadAll(io.LimitReader(file, int64(maxOperationalFileSize)+1))
+	data, readErr := io.ReadAll(io.LimitReader(file, int64(fileSizeLimit)+1))
 	closeErr := file.Close()
 	if readErr != nil {
 		return nil, fmt.Errorf("read bounded file: %w", readErr)
@@ -2391,10 +2394,18 @@ func readTrackedOperationalFileWithHook(
 	if closeErr != nil {
 		return nil, fmt.Errorf("close rooted file: %w", closeErr)
 	}
-	if len(data) > maxOperationalFileSize {
-		return nil, fmt.Errorf("file grew beyond %d bytes", maxOperationalFileSize)
+	if len(data) > fileSizeLimit {
+		return nil, fmt.Errorf("file grew beyond %d bytes", fileSizeLimit)
 	}
 	return data, nil
+}
+
+func trackedOperationalFileSizeLimit(relative string) int {
+	if filepath.ToSlash(relative) == "docs/supply-chain/dependency-inventory.json" {
+		return maxDependencyInventoryFileSize
+	}
+
+	return maxOperationalFileSize
 }
 
 func benchmarkComposeConfigCommand(ctx context.Context, root string) *exec.Cmd {
