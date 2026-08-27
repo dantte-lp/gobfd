@@ -98,6 +98,22 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	}
 }
 
+func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
+	t.Parallel()
+
+	for workflow, wantOccurrences := range map[string]int{
+		"../.github/workflows/ci.yml":       2,
+		"../.github/workflows/security.yml": 2,
+		"../.github/workflows/e2e.yml":      1,
+	} {
+		content := readContractFile(t, workflow)
+		marker := `branches: [master, main, "release/v*"]`
+		if got := strings.Count(content, marker); got != wantOccurrences {
+			t.Errorf("%s has %d release/v* event filters, want %d", workflow, got, wantOccurrences)
+		}
+	}
+}
+
 func TestUVInstallerRequiresHTTPSAcrossRedirects(t *testing.T) {
 	t.Parallel()
 
