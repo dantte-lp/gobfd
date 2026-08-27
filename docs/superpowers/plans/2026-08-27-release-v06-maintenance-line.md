@@ -638,6 +638,10 @@ Review the workflow ordering, shell quoting, required check names, EN/RU parity,
 and changelog extraction. Reject P0/P1 defects before merge. Do not broaden the
 review into unrelated project improvements.
 
+The independent review must also confirm that required security contexts are
+blocking: `gosec` runs without `-no-fail`, Trivy uses `exit-code: "1"` for its
+HIGH/CRITICAL filesystem scan, and both SARIF uploads retain `if: always()`.
+
 - [ ] **Step 2: Merge locally into `dev` without rewriting history**
 
 From the root worktree, verify both worktrees are clean, then:

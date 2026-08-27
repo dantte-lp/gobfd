@@ -140,7 +140,10 @@ Update pull-request branch filters so `ci.yml`, `security.yml`, and `e2e.yml`
 run for `release/v*`. Keep scheduled work on the default branch unless a
 release-specific schedule has an explicit need. Reconcile `master-protection`
 to require the same security and PR-safe E2E checks so a failing normal gate is
-not merely informational on either stable line.
+not merely informational on either stable line. In particular, `gosec` must
+return a failing exit status for findings, and the Trivy filesystem scan must
+fail on HIGH or CRITICAL vulnerabilities while its SARIF upload remains an
+`always()` evidence step.
 
 Retain the existing CI behavior that passes `github.base_ref` to the Buf
 breaking check. A pull request into `release/v0.6` therefore compares against
