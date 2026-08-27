@@ -581,8 +581,12 @@ Expected: config validation, four binary builds, archives, checksums, SBOMs,
 DEB/RPM packaging, and `dist/artifacts.json` succeed without publishing.
 
 Use the snapshot output to build both release Containerfiles for local amd64
-with Podman under unique labels/tags derived from the exact commit. Inspect the
-created image IDs and bases, then remove only those two recorded image IDs. Pass
+with Podman under collision-free labels and tags derived from the exact commit.
+Require both tags to be absent before the build, record the complete pre-build
+image-ID set, and capture each result through a unique `--iidfile`. Verify the
+tag, ID, ownership label, architecture, user, entrypoint, and base before
+cleanup. Remove only the two new tags with `podman image rm --no-prune` and
+without `--force`; never remove a result ID that existed before the run. Pass
 `--default-mounts-file=/dev/null` to isolate build steps from host subscription
 mounts. In particular, a host certificate mounted directly at
 `/etc/ssl/certs/ca-certificates.crt` prevents Debian's `ca-certificates` package
