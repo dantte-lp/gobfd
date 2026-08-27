@@ -120,7 +120,8 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
 	requireContractStrings(t, "release workflow", workflow, []string{
-		"      - name: Extract release notes from CHANGELOG.md\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: |\n",
+		"      - name: Extract release notes from CHANGELOG.md\n" +
+			"        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: |\n",
 		"previous_release_tag=\"$(gh api --paginate",
 		"map(select(.draft == false and .prerelease == false and",
 		". != $current",
