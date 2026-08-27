@@ -289,8 +289,8 @@ graph TD
 ### Prerequisites
 
 - Root or sudo access
-- `curl`, `podman`, `kubectl`
-- k3s is installed automatically by `setup-cluster.sh`
+- `podman`, `kubectl`, and an existing k3s cluster
+- `/etc/rancher/k3s/k3s.yaml` available to the runner
 
 ### Key Design Decisions
 
@@ -304,15 +304,14 @@ graph TD
 ### Quick Start
 
 ```bash
-# Full demo (install k3s, deploy, verify, cleanup)
+# Full demo against an existing k3s cluster (build, import, deploy, verify)
 sudo make int-k8s
 
 # Step by step
-sudo ./deployments/integrations/kubernetes/setup-cluster.sh
-kubectl apply -f deployments/integrations/kubernetes/manifests/
+sudo make int-k8s-up
 kubectl -n gobfd rollout status daemonset/gobfd
 
-# Cleanup
+# Cleanup removes only the gobfd namespace and preserves the host cluster
 sudo make int-k8s-down
 ```
 

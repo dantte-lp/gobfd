@@ -400,7 +400,7 @@ int-bgp-failover-logs:
 	$(INT_BGP_DC) logs -f
 
 int-haproxy:
-	./deployments/integrations/haproxy-health/run.sh
+	go run ./test/cmd/integrationctl haproxy
 
 int-haproxy-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_haproxy_testcontainers \
@@ -423,7 +423,7 @@ int-haproxy-logs:
 	$(INT_HAPROXY_DC) logs -f
 
 int-observability:
-	./deployments/integrations/observability/run.sh
+	go run ./test/cmd/integrationctl observability
 
 int-observability-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_observability_testcontainers \
@@ -455,7 +455,7 @@ int-observability-logs:
 	$(INT_OBS_DC) logs -f
 
 int-exabgp-anycast:
-	./deployments/integrations/exabgp-anycast/run.sh
+	go run ./test/cmd/integrationctl exabgp-anycast
 
 int-exabgp-anycast-up:
 	$(INT_EXABGP_DC) up --build -d
@@ -467,13 +467,13 @@ int-exabgp-anycast-logs:
 	$(INT_EXABGP_DC) logs -f
 
 int-k8s:
-	./deployments/integrations/kubernetes/run.sh
+	go run ./test/cmd/integrationctl k8s
 
 int-k8s-up:
-	./deployments/integrations/kubernetes/setup-cluster.sh && kubectl apply -f deployments/integrations/kubernetes/manifests/
+	go run ./test/cmd/integrationctl k8s-up
 
 int-k8s-down:
-	./deployments/integrations/kubernetes/teardown.sh
+	go run ./test/cmd/integrationctl k8s-down
 
 # === Benchmarks & Profiling ===
 

@@ -16,7 +16,7 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	root := repositoryRoot(t)
 	makefile := readContractFile(t, filepath.Join(root, "Makefile"))
 	for _, required := range []string{
-		"int-observability:\n\t./deployments/integrations/observability/run.sh",
+		"int-observability:\n\tgo run ./test/cmd/integrationctl observability",
 		"int-observability-testcontainers:",
 		"-tags e2e_observability_testcontainers ./test/e2e/observability",
 	} {
