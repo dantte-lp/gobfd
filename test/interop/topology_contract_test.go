@@ -393,7 +393,7 @@ func TestInteropOperationalContract(t *testing.T) {
 	}
 	for _, name := range []string{"English interop guide", "Russian interop guide"} {
 		for _, command := range []string{
-			"make interop-bgp\n", "make interop-rfc\n", "make e2e-rfc\n", "podman logs ", "podman exec ",
+			"make e2e-rfc\n", "podman logs ", "podman exec ",
 		} {
 			if strings.Contains(contents[name], command) {
 				t.Errorf("%s documents unsafe legacy lifecycle command %q", name, command)
@@ -422,7 +422,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 	assertContainsAll(t, "Make interop validation prerequisites", makefile, []string{
-		"interop: interop-project-validate",
+		"interop: interop-testcontainers",
+		"interop-bgp: interop-bgp-testcontainers",
+		"interop-rfc: interop-rfc-testcontainers",
 		"interop-test: interop-project-validate",
 		"interop-up: interop-project-validate",
 		"interop-down: interop-project-validate",

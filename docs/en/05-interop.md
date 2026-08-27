@@ -83,22 +83,22 @@ loader has no fixed address and is not a fifth peer.
 make interop
 ```
 
-This runs `test/interop/run.sh`, which validates exact project ownership,
-requires the Holo loader to exit with status zero, runs the tests, and removes
-only resources carrying that project label.
+This runs the Go-owned testcontainers lifecycle. It validates fixed-name
+availability, requires the Holo loader to exit with status zero, runs the Go
+assertions, persists the packet capture, and verifies cleanup of every
+test-owned container, network, and image.
 
-#### Go testcontainers Lifecycle Gate
+#### Explicit Go testcontainers Target
 
 ```bash
 make interop-testcontainers
 ```
 
-This migration gate creates the static-IP network, GoBFD, FRR, BIRD3, Holo,
+This is the explicit form of the default full-cycle target. It creates the static-IP network, GoBFD, FRR, BIRD3, Holo,
 Thoro/bfd, and tshark directly through the Podman testcontainers provider. It
 runs the same Go assertions, retains the packet capture under
 `reports/e2e/interop-testcontainers`, and verifies removal of every test-owned
-container, network, and image. The legacy full-cycle runner remains available
-until the testcontainers path completes independent parity review.
+container, network, and image.
 
 #### Step by Step
 
@@ -255,16 +255,15 @@ Each scenario tests three phases:
 # Authoritative routing aggregate with owned artifacts and cleanup
 make e2e-routing
 
-# Migration gate: Go owns the Podman lifecycle through testcontainers
-make interop-bgp-testcontainers
+# Default full cycle: Go owns the Podman lifecycle through testcontainers
+make interop-bgp
 ```
 
-The migration gate creates the static network, both GoBFD instances, GoBGP
+The Go lifecycle creates the static network, both GoBFD instances, GoBGP
 v3.37.0, FRR 10.7.0, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
 the Podman provider. It runs the same establish, failure, route-withdrawal, and
 recovery assertions, saves a non-empty packet capture, and proves removal of
-all test-owned containers, network, and locally built images. The legacy
-runner remains available until independent parity review and remote CI pass.
+all test-owned containers, network, and locally built images.
 
 ### Key Design: Shared Network Namespaces
 
@@ -348,11 +347,10 @@ or prove RFC 9384 Cease subcode 10 on the wire.
 ### Running RFC Interop Tests
 
 Use the Go-owned Podman lifecycle for live validation. It resolves every
-runtime operation to an immutable container ID and retains the legacy runner
-only for parity during the migration:
+runtime operation to an immutable container ID:
 
 ```bash
-make interop-rfc-testcontainers
+make interop-rfc
 ```
 
 ---

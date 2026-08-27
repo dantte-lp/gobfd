@@ -245,8 +245,7 @@ interop-project-validate:
 	    exit 2 ;; \
 	esac
 
-interop: interop-project-validate
-	./test/interop/run.sh
+interop: interop-testcontainers
 
 interop-test: interop-project-validate
 	$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
@@ -289,8 +288,7 @@ integration: interop
 INTEROP_BGP_COMPOSE := test/interop-bgp/compose.yml
 INTEROP_BGP_DC := $(COMPOSE) -f $(INTEROP_BGP_COMPOSE)
 
-interop-bgp:
-	./test/interop-bgp/run.sh
+interop-bgp: interop-bgp-testcontainers
 
 interop-bgp-test:
 	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=$(INTEROP_BGP_COMPOSE) \
@@ -320,8 +318,7 @@ INTEROP_RFC_COMPOSE := test/interop-rfc/compose.yml
 INTEROP_RFC_PROJECT ?= gobfd-interop-rfc
 INTEROP_RFC_DC := $(COMPOSE) -p $(INTEROP_RFC_PROJECT) -f $(INTEROP_RFC_COMPOSE)
 
-interop-rfc:
-	env INTEROP_RFC_PROJECT=$(INTEROP_RFC_PROJECT) ./test/interop-rfc/run.sh
+interop-rfc: interop-rfc-testcontainers
 
 interop-rfc-test:
 	$(EXEC) env INTEROP_PROJECT_NAME=$(INTEROP_RFC_PROJECT) \

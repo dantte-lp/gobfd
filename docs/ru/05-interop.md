@@ -83,22 +83,22 @@ Holo использует immutable digest официального образа
 make interop
 ```
 
-Команда запускает `test/interop/run.sh`: проверяет точное владение проектом,
-требует нулевой exit status у Holo loader, выполняет тесты и удаляет только
-ресурсы с label этого проекта.
+Команда запускает Go-owned lifecycle на testcontainers: проверяет доступность
+фиксированных имён, требует нулевой exit status у Holo loader, выполняет Go-
+проверки, сохраняет packet capture и подтверждает удаление каждого test-owned
+контейнера, сети и образа.
 
-#### Go testcontainers lifecycle gate
+#### Явный target Go testcontainers
 
 ```bash
 make interop-testcontainers
 ```
 
-Этот миграционный gate создаёт сеть со статическими адресами, GoBFD, FRR,
+Это явная форма full-cycle target по умолчанию. Она создаёт сеть со статическими адресами, GoBFD, FRR,
 BIRD3, Holo, Thoro/bfd и tshark напрямую через Podman provider библиотеки
 testcontainers. Он выполняет те же Go-проверки, сохраняет захват пакетов в
 `reports/e2e/interop-testcontainers` и проверяет удаление каждого тестового
-контейнера, сети и образа. Старый full-cycle runner остаётся доступным до
-завершения независимой проверки parity нового пути.
+контейнера, сети и образа.
 
 #### Пошагово
 
@@ -251,16 +251,15 @@ graph LR
 # Авторитетный routing aggregate с owned artifacts и cleanup
 make e2e-routing
 
-# Миграционный gate: Go управляет Podman lifecycle через testcontainers
-make interop-bgp-testcontainers
+# Full cycle по умолчанию: Go управляет Podman lifecycle через testcontainers
+make interop-bgp
 ```
 
-Миграционный gate напрямую через Podman provider создаёт статическую сеть,
+Go lifecycle напрямую через Podman provider создаёт статическую сеть,
 оба экземпляра GoBFD, GoBGP v3.37.0, FRR 10.7.0, BIRD 3.3.2, ExaBGP 5.0.13
 и tshark. Он выполняет те же проверки установления сессий, отказа, отзыва
 маршрутов и восстановления, сохраняет непустой packet capture и доказывает
 удаление всех test-owned контейнеров, сети и локально собранных образов.
-Legacy runner сохраняется до независимой проверки паритета и remote CI.
 
 ### Ключевое решение: общие сетевые пространства имён
 
@@ -344,11 +343,10 @@ graph LR
 ### Запуск RFC Interop тестов
 
 Для live-проверки используйте Go-owned Podman lifecycle. Каждая runtime-
-операция разрешается в immutable container ID; legacy runner сохранён только
-для проверки parity на время миграции:
+операция разрешается в immutable container ID:
 
 ```bash
-make interop-rfc-testcontainers
+make interop-rfc
 ```
 
 ---
