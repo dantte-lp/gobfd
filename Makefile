@@ -156,7 +156,7 @@ e2e-routing-test: interop-project-validate
 
 e2e-rfc:
 	$(DC) up -d --build --force-recreate dev
-	./test/e2e/rfc/run.sh
+	go run ./test/cmd/e2ectl rfc
 
 e2e-rfc-test:
 	$(EXEC) env INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml \
@@ -164,20 +164,20 @@ e2e-rfc-test:
 
 e2e-overlay:
 	$(DC) up -d --build --force-recreate dev
-	./test/e2e/overlay/run.sh
+	go run ./test/cmd/e2ectl overlay
 
 e2e-overlay-test:
 	$(EXEC) go test -tags e2e_overlay -v -count=1 ./test/e2e/overlay/
 
 e2e-linux:
 	$(DC) up -d --build --force-recreate dev
-	./test/e2e/linux/run.sh
+	go run ./test/cmd/e2ectl linux
 
 e2e-linux-test: e2e-linux
 
 e2e-vendor:
 	$(DC) up -d --build --force-recreate dev
-	./test/e2e/vendor/run.sh
+	go run ./test/cmd/e2ectl vendor
 
 e2e-vendor-test:
 	$(EXEC) go test -tags e2e_vendor -v -count=1 -timeout 120s ./test/e2e/vendor/
