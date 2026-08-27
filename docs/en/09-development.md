@@ -14,6 +14,7 @@
 
 - [Prerequisites](#prerequisites)
 - [Development Setup](#development-setup)
+- [Branch and Release Workflow](#branch-and-release-workflow)
 - [Make Targets](#make-targets)
 - [Testing Strategy](#testing-strategy)
 - [Linting](#linting)
@@ -52,6 +53,31 @@ make lint
 # All at once
 make all
 ```
+
+### Branch and Release Workflow
+
+The branches have distinct product roles:
+
+- `dev` integrates the next product line. Features start from `dev`, target
+  `dev`, and are never released by tagging `dev`.
+- `master` is the default branch and contains the latest accepted stable state.
+- Supported lines use `release/vMAJOR.MINOR`. The `release/v0.6` line retains
+  GoBGP v3.37.0 and the v0.6 public contracts.
+
+A v0.6 patch starts from `release/v0.6` on a short-lived `fix/v0.6-*` branch
+and returns to `release/v0.6` through a reviewed pull request. After acceptance,
+maintainers assess the same defect on `master` and `dev`; an applicable fix is
+forward-ported through a separate reviewed pull request. Release-preparation
+changes follow the same reviewed path on the applicable supported line.
+
+The release-branch ruleset must be active before each new matching release
+branch is created. The tag ruleset must be active before each new matching tag
+is created, specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1`
+tags remain unchanged and are never moved, deleted, or reused. A new stable tag
+points to the exact reviewed commit on the applicable release branch and is
+also never moved, deleted, or reused. The tag-triggered GitHub Actions workflow
+creates a draft GitHub Release, completes and verifies its notes and assets,
+and automatically publishes it only as the final mutation.
 
 ### Make Targets
 
@@ -486,4 +512,4 @@ make proto-lint   # Lint proto definitions
 
 ---
 
-*Last updated: 2026-08-19*
+*Last updated: 2026-08-27*

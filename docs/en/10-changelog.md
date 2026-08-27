@@ -106,48 +106,85 @@ Guidelines:
 
 ### Release Process
 
-When preparing a release:
+Branch roles remain explicit throughout release preparation:
+
+- `dev` integrates the next product line and is never tagged for a stable
+  release.
+- `master` is the default branch and contains the latest accepted stable state.
+- Supported product lines use `release/vMAJOR.MINOR`. The `release/v0.6` line
+  retains GoBGP v3.37.0 and the v0.6 public contracts.
+
+A maintenance patch starts from the applicable release branch on
+`fix/vMAJOR.MINOR-*` and returns through a reviewed pull request. After the fix
+is accepted, maintainers assess whether a separate reviewed forward-port to
+`master` or `dev` is required. Release preparation follows the applicable
+supported line.
+
+The release-branch ruleset must be active before each new matching release
+branch is created. The tag ruleset must be active before each new matching tag
+is created, specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1`
+tags remain unchanged and are never moved, deleted, or reused. When preparing
+v0.6.2 from `release/v0.6`:
 
 1. **Move entries** from `[Unreleased]` to a new version section:
 
    ```markdown
    ## [Unreleased]
 
-   ## [0.5.0] - 2026-04-01
+   ## [0.6.2] - YYYY-MM-DD
 
-   ### Added
+   ### Fixed
    - (entries moved from Unreleased)
    ```
 
 2. **Update comparison links** at the bottom of the file:
 
    ```markdown
-   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
-   [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
-   [0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
+   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+   [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
+   [0.6.1]: https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1
    ```
 
 3. **Commit** the changelog update:
 
    ```bash
    git add CHANGELOG.md
-   git commit -m "chore(release): prepare v0.5.0"
+   git commit -m "chore(release): prepare v0.6.2"
    ```
 
-4. **Tag and push**:
+4. **Tag the exact reviewed release-branch commit and push explicit refs**:
 
    ```bash
-   git tag -a v0.5.0 -m "Release v0.5.0"
-   git push origin master --tags
+   set -euo pipefail
+
+   release_sha=$(git rev-parse --verify 'refs/heads/release/v0.6^{commit}')
+   git push origin refs/heads/release/v0.6:refs/heads/release/v0.6
+
+   read -r remote_sha remote_ref < <(
+     git ls-remote --exit-code origin refs/heads/release/v0.6
+   )
+   test "$remote_ref" = refs/heads/release/v0.6
+   test "$remote_sha" = "$release_sha"
+
+   git tag -a v0.6.2 "$release_sha" -m "Release v0.6.2"
+   git push origin refs/tags/v0.6.2:refs/tags/v0.6.2
    ```
 
-5. **GitHub Actions** automatically:
+   The tag push is authorized only after the remote branch ref and commit equal
+   the reviewed local branch ref and `release_sha`. Never move, delete, or reuse
+   a release tag. A failed published release is corrected with a new patch
+   version.
+
+5. **GitHub Actions** uses draft-first publication:
    - Runs the full test suite.
-   - Extracts the release notes from CHANGELOG.md for version 0.5.0.
+   - Extracts the release notes from CHANGELOG.md for version 0.6.2.
    - Builds binaries (linux/amd64, linux/arm64), .deb, .rpm packages.
    - Publishes Debian-based and Oracle Linux-based OCI images to
      `ghcr.io/dantte-lp/gobfd`.
-   - Creates a GitHub Release with the changelog content as the release body.
+   - Creates a draft GitHub Release and attaches all required assets.
+   - Verifies the draft's tag, target commit, notes, assets, checksums,
+     SBOM/provenance, packages, OCI manifests, and release report.
+   - Publishes the complete draft as the workflow's final GitHub mutation.
 
 ### Semantic Versioning
 
@@ -200,4 +237,4 @@ Edit `CHANGELOG.md`, add under `[Unreleased]`:
 
 ---
 
-*Last updated: 2026-02-21*
+*Last updated: 2026-08-27*

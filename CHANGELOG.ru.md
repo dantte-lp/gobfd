@@ -7,6 +7,8 @@
 
 ## [Не выпущено]
 
+## [0.6.2] - 2026-08-27
+
 ### Добавлено
 
 - Compatibility-тесты Go 1.27 для duplicate members в JSON, замены
@@ -15,8 +17,7 @@
 
 ### Изменено
 
-- Индексы документации теперь указывают `v0.6.1` как последний опубликованный
-  релиз, Quick Start использует отслеживаемый `configs/gobfd.example.yml`, а
+- Quick Start использует отслеживаемый `configs/gobfd.example.yml`, а
   дорожная карта EN/RU является датированной проекцией Beads. В legacy-плане
   S12 отмечены реализованные Echo/Micro CRUD и отсутствующий Overlay API.
 - Документация graceful shutdown теперь соответствует фиксированному
@@ -72,9 +73,9 @@
   `v1.24.1`, console `v0.5.0` и protobuf `v1.36.12`. First-party YAML imports
   переведены на поддерживаемый путь `go.yaml.in/yaml/v3 v3.0.5`.
 - Development tooling воспроизводимо закреплён: Buf `v1.72.0`, gopls
-  `v0.23.0`, govulncheck `v1.7.0`, gotestsum `v1.13.0`, Node.js `v24.19.0`, а
-  также точные версии npm- и uv-managed Python-инструментов для lint, type,
-  security, YAML и отчётов. Единый Python 3.14.7 `uv.lock` заменяет pip-bootstrap
+  `v0.23.0`, govulncheck `v1.7.0`, gotestsum `v1.13.0`, а также точные версии
+  uv-managed Python-инструментов для lint, type, security, YAML и отчётов.
+  Единый Python 3.14.7 `uv.lock` заменяет pip-bootstrap
   и независимые tool-окружения в CI и development-образах.
   Containerlab устанавливается из проверенных архивов `v0.79.0`; CI использует
   Docker Compose `v5.5.0` как checksum-pinned Go provider для
@@ -89,8 +90,7 @@
   Build commit и source checksum больше не классифицируются как инструменты.
   Каждая принятая или сохранённая запись теперь содержит явное исключение с
   датой пересмотра для каждой незакрытой блокирующей оценки релиза.
-- CSpell обновлён до `10.1.1`. GitHub Actions обновлены до актуальных релизов
-  и immutable commit SHA.
+- GitHub Actions обновлены до актуальных релизов и immutable commit SHA.
   Interop/integration peers используют digest-pinned FRR `10.7.0`, GoBGP
   `v3.37.0`, ExaBGP `5.0.13`, Prometheus `v3.14.0` и Grafana `13.2.0`.
   Переход на GoBGP v4 остаётся отдельной несовместимой миграцией для v1.0.0.
@@ -501,7 +501,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2

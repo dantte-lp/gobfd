@@ -2,7 +2,7 @@ name: E2E Evidence
 
 on:
   pull_request:
-    branches: [master, main]
+    branches: [master, main, "release/v*"]
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:

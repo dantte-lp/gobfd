@@ -134,6 +134,24 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
 - Run the provider version check and render every tracked Compose file before
   live topology validation.
 
+## Release branches
+
+- `dev` integrates the next product line and is never tagged for a stable
+  release.
+- `master` is the default branch and contains the latest accepted stable state.
+- Supported product lines use branches named `release/vMAJOR.MINOR`.
+- `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
+- Fixes use `fix/vMAJOR.MINOR-*`, enter the supported line through reviewed
+  pull requests, and are forward-ported separately when applicable.
+- The release-branch ruleset must be active before each new matching release
+  branch is created. The tag ruleset must be active before each new matching
+  tag is created, specifically before `v0.6.2`.
+- A release tag points to the exact reviewed release-branch commit and is
+  never moved, deleted, or reused. Existing `v0.1.0` through `v0.6.1` tags are
+  preserved unchanged.
+- GitHub Release assets must be complete and verified while the release is a
+  draft, before immutable publication.
+
 ## Git
 - Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
 - Module: `github.com/dantte-lp/gobfd` — owner dantte-lp, NOT wolfguard

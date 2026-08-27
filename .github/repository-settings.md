@@ -23,17 +23,21 @@
 
 | Area | Current state |
 |---|---|
-| Protection mechanism | Repository ruleset `master-protection` on default branch |
-| Enforcement | Active |
+| Protection mechanism | Repository ruleset `master-protection` (ID `13093259`) on the default branch; it is the only live ruleset |
+| Enforcement | `master-protection` is active |
 | Bypass actors | None |
 | Pull requests before merge | Required |
-| Required approving reviews | 1 |
+| Required approving reviews | One eligible approving reviewer |
 | Stale review dismissal | Required |
 | Code owner review | Not required |
 | Latest reviewable push approval | Not required |
 | Conversation resolution | Not required |
-| Required status checks | Build and test, Go lint, vulnerability audit, Buf, SonarQube, Trivy filesystem scan |
+| Required status checks | `Build & test`, `Lint (Go)`, `Vulnerability audit`, `Buf`, `SonarQube`, `Trivy filesystem scan` |
 | Strict up-to-date branches | Not required |
+| v0.6 release branch | `release/v0.6` does not yet exist |
+| Release branch protection | No `release-protection` ruleset exists |
+| Release tag protection | No `release-tags` ruleset exists |
+| Immutable releases | Disabled (`enabled=false`, `enforced_by_owner=false`) |
 | Branch protection API | Not configured; repository rulesets are the active control plane |
 | OpenSSF Branch-Protection status | Scorecard reports gaps for force push/deletion, up-to-date branches, latest-push approval, CODEOWNERS review, and two-reviewer tier |
 
@@ -42,8 +46,12 @@
 | Area | Required policy |
 |---|---|
 | Default branch | `master` |
-| Pull requests | Require pull request before merge |
-| Required checks | CI, security, docs lint, Commit policy (PR title), vulnerability audit |
+| Stable branch roles | `master` is the latest accepted stable state; supported lines use `release/vMAJOR.MINOR` |
+| Release branches | Create an active `release-protection` ruleset targeting `release/v*` before each new matching branch is created |
+| Pull requests | Require a pull request and one approving review, with stale approvals dismissed, for `master` and `release/v*` |
+| Required checks | Require every exact context listed below on both stable-line rulesets |
+| Release tags | Create an active `release-tags` ruleset targeting `v*` before each new matching tag is created, specifically before `v0.6.2`; preserve existing `v0.1.0` through `v0.6.1` tags unchanged and prohibit tag updates and deletion |
+| Immutable releases | Enable immutable releases, complete and verify assets in a draft, and publish only as the final mutation |
 | Code owner review | Required only after at least two active maintainers can satisfy review policy |
 | Conversations | Require resolution before merge when maintainer capacity allows it |
 | Force pushes | Disabled on protected branches |
@@ -55,12 +63,26 @@
 | CodeQL | Enabled for Go |
 | Private vulnerability reporting | Enabled |
 
+The required status-check contexts are exact and case-sensitive:
+
+- `Build & test`
+- `Lint (Go)`
+- `Vulnerability audit`
+- `Buf`
+- `SonarQube`
+- `Trivy filesystem scan`
+- `Lint (docs)`
+- `Commit policy (PR title)`
+- `codeql`
+- `gosec`
+- `PR-safe E2E`
+
 ## One-Maintainer Constraints
 
 | Scorecard check | Policy |
 |---|---|
-| `Branch-Protection` | Enable force-push and deletion prevention immediately; defer two-reviewer and CODEOWNERS requirements until a second maintainer exists. |
-| `Code-Review` | Use pull requests for traceability; recruit an external reviewer before making all merges review-mandatory. |
+| `Branch-Protection` | Enable force-push and deletion prevention immediately; defer only raising the approval requirement to two and requiring CODEOWNERS review until maintainer capacity supports them. |
+| `Code-Review` | `master-protection` already requires one eligible approving reviewer, and `release-protection` will require one. The one-maintainer repository must recruit an eligible external reviewer to satisfy this mandatory rule. |
 | `Contributors` | Treat the score as an ecosystem signal, not a repository misconfiguration. |
 | `Maintained` | No remediation until the repository is older than 90 days; keep weekly maintenance activity visible. |
 

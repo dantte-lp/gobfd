@@ -106,48 +106,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Процесс релиза
 
-При подготовке релиза:
+Роли веток остаются явными на всех этапах подготовки релиза:
+
+- `dev` служит интеграционной веткой для следующей продуктовой линии и никогда
+  не получает тег стабильного релиза.
+- `master` — ветка по умолчанию с последним принятым стабильным состоянием.
+- Поддерживаемые продуктовые линии используют `release/vMAJOR.MINOR`. Линия
+  `release/v0.6` сохраняет GoBGP v3.37.0 и публичные контракты v0.6.
+
+Исправление для поддерживаемой версии начинается от соответствующей релизной
+ветки в `fix/vMAJOR.MINOR-*` и возвращается через проверенный pull request.
+После приёмки исправления сопровождающие оценивают, требуется ли отдельный
+проверенный forward-port в `master` или `dev`. Подготовка релиза ведётся в
+соответствующей поддерживаемой линии.
+
+Набор правил для релизных веток должен быть активен до создания каждой новой
+подходящей релизной ветки. Набор правил для тегов должен быть активен до
+создания каждого нового подходящего тега, в частности до `v0.6.2`. Существующие
+теги с `v0.1.0` по `v0.6.1` сохраняются без изменений: их никогда не
+перемещают, не удаляют и не используют повторно. При подготовке v0.6.2 из
+`release/v0.6`:
 
 1. **Перенесите записи** из `[Unreleased]` в новую секцию версии:
 
    ```markdown
    ## [Unreleased]
 
-   ## [0.5.0] - 2026-04-01
+   ## [0.6.2] - ГГГГ-ММ-ДД
 
-   ### Added
+   ### Fixed
    - (записи перенесены из Unreleased)
    ```
 
 2. **Обновите ссылки сравнения** внизу файла:
 
    ```markdown
-   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.5.0...HEAD
-   [0.5.0]: https://github.com/dantte-lp/gobfd/compare/v0.4.0...v0.5.0
-   [0.4.0]: https://github.com/dantte-lp/gobfd/releases/tag/v0.4.0
+   [Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+   [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
+   [0.6.1]: https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1
    ```
 
 3. **Зафиксируйте** обновление changelog:
 
    ```bash
    git add CHANGELOG.md
-   git commit -m "chore(release): prepare v0.5.0"
+   git commit -m "chore(release): prepare v0.6.2"
    ```
 
-4. **Создайте тег и отправьте**:
+4. **Создайте тег на точном проверенном коммите релизной ветки и отправьте
+   явные ссылки**:
 
    ```bash
-   git tag -a v0.5.0 -m "Release v0.5.0"
-   git push origin master --tags
+   set -euo pipefail
+
+   release_sha=$(git rev-parse --verify 'refs/heads/release/v0.6^{commit}')
+   git push origin refs/heads/release/v0.6:refs/heads/release/v0.6
+
+   read -r remote_sha remote_ref < <(
+     git ls-remote --exit-code origin refs/heads/release/v0.6
+   )
+   test "$remote_ref" = refs/heads/release/v0.6
+   test "$remote_sha" = "$release_sha"
+
+   git tag -a v0.6.2 "$release_sha" -m "Release v0.6.2"
+   git push origin refs/tags/v0.6.2:refs/tags/v0.6.2
    ```
 
-5. **GitHub Actions** автоматически:
+   Отправка тега разрешена только после подтверждения, что ссылка и коммит
+   удалённой ветки совпадают с проверенной локальной веткой и `release_sha`.
+   Релизный тег никогда не перемещают, не удаляют и не используют повторно.
+   Ошибку в опубликованном релизе исправляют новой patch-версией.
+
+5. **GitHub Actions** публикует релиз через черновик:
    - Запускает полный набор тестов.
-   - Извлекает release notes из CHANGELOG.md для версии 0.5.0.
+   - Извлекает release notes из CHANGELOG.md для версии 0.6.2.
    - Собирает бинарники (linux/amd64, linux/arm64), .deb, .rpm пакеты.
    - Публикует OCI-образы на базе Debian и Oracle Linux в
      `ghcr.io/dantte-lp/gobfd`.
-   - Создаёт GitHub Release с содержимым changelog в качестве описания.
+   - Создаёт черновик релиза GitHub и прикладывает все обязательные артефакты.
+   - Проверяет тег и целевой коммит черновика, описание, артефакты, контрольные
+     суммы, SBOM/provenance, пакеты, манифесты OCI и отчёт о релизе.
+   - Публикует полностью проверенный черновик как последнее изменение процесса.
 
 ### Семантическое версионирование
 
@@ -200,4 +239,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Последнее обновление: 2026-08-27*

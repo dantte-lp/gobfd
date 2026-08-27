@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-08-27
+
 ### Added
 
 - Go 1.27 compatibility coverage for duplicate JSON object members, invalid
@@ -15,11 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Documentation indexes now identify `v0.6.1` as the latest published release,
-  Quick Start uses the tracked `configs/gobfd.example.yml`, and the EN/RU
-  roadmap is a dated projection of Beads. The legacy S12 plan now records the
-  delivered Echo/Micro CRUD and the absent Overlay API instead of reporting the
-  whole sprint as pending.
+- Quick Start uses the tracked `configs/gobfd.example.yml`, and the EN/RU
+  roadmap remains In progress as a dated projection of Beads. The legacy S12
+  status was reconciled to record the delivered Echo/Micro CRUD and absent
+  Overlay API instead of reporting the whole sprint as pending.
 - Graceful-shutdown documentation now matches the fixed two-second drain in
   code and describes AdminDown delivery as best effort rather than guaranteed.
 - Public RFC and performance documentation now reports RFC 9384 wire subcode
@@ -72,8 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `v1.24.1`, console `v0.5.0`, and protobuf `v1.36.12`. First-party YAML
   imports now use the maintained `go.yaml.in/yaml/v3 v3.0.5` module path.
 - Development tooling is reproducibly pinned: Buf `v1.72.0`, gopls `v0.23.0`,
-  govulncheck `v1.7.0`, gotestsum `v1.13.0`, Node.js `v24.19.0`, and exact npm
-  and uv-managed Python lint, type, security, YAML, and report tools. One
+  govulncheck `v1.7.0`, gotestsum `v1.13.0`, and uv-managed Python lint, type,
+  security, YAML, and report tools. One
   Python 3.14.7 `uv.lock` replaces pip bootstrap and independent tool
   environments across CI and development images.
   Containerlab installs use verified `v0.79.0` release archives, and CI uses
@@ -90,8 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and source-checksum variables are no longer misclassified as tools. Each
   adopted or retained record now carries an explicit, review-dated exception
   for every unresolved release-blocking assessment.
-- CSpell is updated to `10.1.1`. GitHub Actions are updated to their current
-  releases and immutable commit
+- GitHub Actions are updated to their current releases and immutable commit
   SHAs. Interop and integration peers now use digest-pinned FRR `10.7.0`,
   GoBGP `v3.37.0`, ExaBGP `5.0.13`, Prometheus `v3.14.0`, and Grafana `13.2.0`.
   GoBGP v4 remains a separate compatibility migration for v1.0.0.
@@ -510,7 +510,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/dantte-lp/gobfd/compare/v0.5.1...v0.5.2
