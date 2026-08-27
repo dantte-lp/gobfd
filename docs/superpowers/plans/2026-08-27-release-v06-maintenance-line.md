@@ -548,13 +548,26 @@ Expected: non-zero package/input counts and zero gopls diagnostics.
 Run the four-binary build first:
 
 ```bash
-make build
+GOMAXPROCS=4 GOMEMLIMIT=8GiB make -o dev-ensure EXEC= build
 ```
+
+This invokes the existing four-binary target with the local exact Go 1.27.0
+toolchain and resource limits without implicitly building or starting the much
+larger Compose development image.
 
 Obtain the repository-pinned GoReleaser v2.18.0 archive and `checksums.txt`
 from its GitHub Release into an exact `mktemp -d` directory. Verify only the
 selected archive line with `sha256sum --check`, extract the binary there, and
-record `goreleaser --version`. Do not use the stale host v2.15.4 binary.
+record `goreleaser --version`. Do not use the stale host v2.15.4 binary. Obtain
+Syft v1.51.0 the same way and put only that checksum-verified binary on the
+temporary `PATH`.
+
+The release configuration enables UPX, which GoReleaser otherwise silently
+skips when the command is absent. Download the upstream
+`upx-4.2.2-amd64_linux.tar.xz` release asset and require SHA-256
+`915c8e844f835de03b9cc311ff185aedec79d757aee9d7133a528b9e89c463bb` before
+extraction. Require `upx --version` to report 4.2.2 so the local snapshot
+matches the exact fail-closed runner prerequisite.
 
 Run:
 
@@ -569,9 +582,13 @@ DEB/RPM packaging, and `dist/artifacts.json` succeed without publishing.
 
 Use the snapshot output to build both release Containerfiles for local amd64
 with Podman under unique labels/tags derived from the exact commit. Inspect the
-created image IDs and bases, then remove only those two recorded image IDs.
-This covers Debian Trixie and Oracle Linux 10 locally without creating a remote
-manifest or using Alpine.
+created image IDs and bases, then remove only those two recorded image IDs. Pass
+`--default-mounts-file=/dev/null` to isolate build steps from host subscription
+mounts. In particular, a host certificate mounted directly at
+`/etc/ssl/certs/ca-certificates.crt` prevents Debian's `ca-certificates` package
+from atomically replacing that path and is not part of the GitHub release
+environment. This covers Debian Trixie and Oracle Linux 10 locally without
+creating a remote manifest or using Alpine.
 
 - [ ] **Step 5: Run remaining release-relevant existing gates**
 
@@ -579,7 +596,7 @@ manifest or using Alpine.
 go mod tidy -diff
 go mod verify
 go run ./scripts/vuln-audit.go
-buf lint
+"$BUF_TOOL_DIR/buf" lint
 go run ./test/cmd/repoquality markdown --root .
 uv run --frozen --no-default-groups --group quality -- \
   yamllint -c .yamllint.yaml .github/workflows .goreleaser.yml
@@ -589,6 +606,10 @@ git status --short --branch
 
 Expected: all gates pass and the worktree is clean. Do not run a new interop
 topology because this slice changes no protocol or container behavior.
+
+Obtain Buf v1.72.0 and its `sha256.txt` from the upstream GitHub Release in an
+exact temporary directory and verify only the selected Linux x86-64 artifact
+before using `BUF_TOOL_DIR`. Do not use a stale host Buf binary.
 
 - [ ] **Step 6: Record qualification in Beads**
 
