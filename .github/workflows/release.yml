@@ -484,9 +484,10 @@ jobs:
                 ($attestations | length == 2) and
                 (all($attestations[];
                   .platform.os == "unknown" and
-                  .platform.architecture == "unknown" and
-                  (.annotations["vnd.docker.reference.digest"] as $subject |
-                    $runnable | index($subject) != null))))
+                  .platform.architecture == "unknown")) and
+                (($runnable | sort) ==
+                  ([$attestations[].annotations[
+                    "vnd.docker.reference.digest"]] | unique | sort)))
             ' "$manifest" >/dev/null
             while IFS= read -r attestation_digest; do
               attestation_manifest="$RUNNER_TEMP/release-attestation-${image_index}-${attestation_digest#sha256:}.json"
@@ -652,9 +653,10 @@ jobs:
                 ($attestations | length == 2) and
                 (all($attestations[];
                   .platform.os == "unknown" and
-                  .platform.architecture == "unknown" and
-                  (.annotations["vnd.docker.reference.digest"] as $subject |
-                    $runnable | index($subject) != null))))
+                  .platform.architecture == "unknown")) and
+                (($runnable | sort) ==
+                  ([$attestations[].annotations[
+                    "vnd.docker.reference.digest"]] | unique | sort)))
             ' "$manifest" >/dev/null
             image_digest="$(jq -er '
               .digest |
