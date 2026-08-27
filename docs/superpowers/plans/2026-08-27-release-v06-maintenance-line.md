@@ -453,6 +453,7 @@ git commit -m "docs(release): define v0.6 maintenance ownership"
 
 **Files:**
 - Modify: `CHANGELOG.md:8-135`
+- Modify: `CHANGELOG.ru.md:8-134`
 - Test: `.github/workflows/release.yml` release-note extraction command
 
 - [ ] **Step 1: Convert current Unreleased content into v0.6.2**
@@ -475,7 +476,8 @@ Use:
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 ```
 
-Leave every existing published link unchanged.
+Use the same targets under the localized `[Не выпущено]` and `[0.6.2]`
+labels in `CHANGELOG.ru.md`. Leave every existing published link unchanged.
 
 - [ ] **Step 3: Exercise the workflow's exact extraction logic locally**
 
@@ -761,10 +763,29 @@ policy.
 - [ ] **Step 4: Create `release-tags` before the new v0.6.2 tag**
 
 POST a tag ruleset matching `refs/tags/v*` that blocks deletion and
-non-fast-forward updates without blocking creation of a new SemVer tag. Read it
-back and verify the exact condition. Its rules contain only `deletion` and
-`non_fast_forward`; do not add a `creation` rule. Preserve existing `v0.1.0`
-through `v0.6.1` tags unchanged.
+all updates without blocking creation of a new SemVer tag. Read it back and
+verify the exact condition. Its rules contain only `deletion` and `update`; do
+not add a `creation` rule. Preserve existing `v0.1.0` through `v0.6.1` tags
+unchanged. The normalized payload is:
+
+```json
+{
+  "name": "release-tags",
+  "target": "tag",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/tags/v*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "deletion"},
+    {"type": "update"}
+  ]
+}
+```
 
 - [ ] **Step 5: Enable immutable releases through the documented endpoint**
 

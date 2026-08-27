@@ -103,7 +103,9 @@ normal reviewed path before a tag is created.
 4. Create and verify the `release/v*` branch ruleset before the new
    `release/v0.6` branch is created, and the `v*` tag ruleset before the new
    `v0.6.2` tag is created. Preserve the existing `v0.1.0` through `v0.6.1`
-   tags unchanged; do not move, delete, or reuse them.
+   tags unchanged. The tag ruleset restricts updates and deletions but does not
+   restrict creation, so a new SemVer tag can be created once and cannot then
+   be moved, deleted, or reused.
 5. Create `release/v0.6` at the exact accepted v0.6.2 release commit. Record the
    commit SHA in Beads and release evidence, then verify that the pre-existing
    ruleset applies to the new branch.
