@@ -288,15 +288,11 @@ jobs:
             exit 1
           fi
           upx_first_line="${upx_output%%$'\n'*}"
-          actual_tool=""
-          actual_version=""
-          extra_token=""
-          read -r actual_tool actual_version extra_token <<<"$upx_first_line"
-          if [ "$actual_tool" != "upx" ] || \
-            [ "$actual_version" != "$UPX_VERSION" ] || \
-            [ -n "$extra_token" ]; then
-            echo "UPX prerequisite failed; expected first line: upx $UPX_VERSION" >&2
-            echo "actual first line: ${upx_first_line:-<empty>}" >&2
+          expected_upx_line="upx $UPX_VERSION"
+          if [ "$upx_first_line" != "$expected_upx_line" ]; then
+            echo "UPX prerequisite failed" >&2
+            echo "expected first line: $expected_upx_line" >&2
+            echo "actual first line: $upx_first_line" >&2
             exit 1
           fi
 
