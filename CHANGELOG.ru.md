@@ -7,6 +7,16 @@
 
 ## [Не выпущено]
 
+## [0.6.4] - 2026-08-27
+
+### Исправлено
+
+- Changelog pipe GoReleaser остаётся включённым, поэтому `--release-notes`
+  загружает точный датированный раздел CHANGELOG в body черновика до
+  fail-closed проверки. Неизменяемый тег `v0.6.3` и его полный, но
+  неопубликованный draft остаются неудачной recovery-попыткой; `v0.6.4`
+  исправляет её вперёд без перемещения или повторного использования тега.
+
 ## [0.6.3] - 2026-08-27
 
 ### Исправлено
@@ -517,7 +527,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1

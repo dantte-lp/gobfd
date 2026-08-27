@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-08-27
+
+### Fixed
+
+- Keep the GoReleaser changelog pipe enabled so `--release-notes` loads the
+  exact dated CHANGELOG section into the draft body before the fail-closed
+  draft verification. The immutable `v0.6.3` tag and its complete but
+  unpublished draft remain the failed recovery cut; `v0.6.4` fixes forward
+  without moving or reusing that tag.
+
 ## [0.6.3] - 2026-08-27
 
 ### Fixed
@@ -526,7 +536,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
