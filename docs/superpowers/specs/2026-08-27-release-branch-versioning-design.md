@@ -183,8 +183,10 @@ Enable GitHub immutable releases and protect `v*` tags before the first v0.6.2
 tag is pushed. The release workflow must finish every mutation while the
 release is a draft:
 
-1. Configure GoReleaser `release.draft: true`; GoReleaser creates or reuses the
-   draft and uploads its artifacts and release notes.
+1. Configure GoReleaser `release.draft: true` and
+   `release.use_existing_draft: true`; GoReleaser creates or reuses the draft
+   and uploads its artifacts and release notes. Artifact and draft replacement
+   remain disabled.
 2. Download the already generated release-report artifact and upload it to the
    same draft without `--clobber`.
 3. Query the draft through `gh api` and verify its tag, target commit, notes,

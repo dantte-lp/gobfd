@@ -45,20 +45,25 @@ slice.
 
 - [ ] **Step 1: Add the failing branch-filter contract**
 
+Before editing the Go test, check the Go 1.27 language specification sections
+for range clauses and string literals at <https://go.dev/ref/spec>. The test
+must use only APIs and syntax admitted by the module's exact Go 1.27 baseline.
+
 Add a focused test beside `TestRepositoryQualityGatesHaveNoNodeRuntime`:
 
 ```go
 func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
 	t.Parallel()
 
-	for _, workflow := range []string{
-		"../.github/workflows/ci.yml",
-		"../.github/workflows/security.yml",
-		"../.github/workflows/e2e.yml",
+	for workflow, wantOccurrences := range map[string]int{
+		"../.github/workflows/ci.yml":      2,
+		"../.github/workflows/security.yml": 2,
+		"../.github/workflows/e2e.yml":      1,
 	} {
 		content := readContractFile(t, workflow)
-		if !strings.Contains(content, `branches: [master, main, "release/v*"]`) {
-			t.Errorf("%s does not route release/v* pull requests", workflow)
+		marker := `branches: [master, main, "release/v*"]`
+		if got := strings.Count(content, marker); got != wantOccurrences {
+			t.Errorf("%s has %d release/v* event filters, want %d", workflow, got, wantOccurrences)
 		}
 	}
 }
@@ -132,21 +137,25 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 
 	configuration := readContractFile(t, "../.goreleaser.yml")
 	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
-		"release:\n  draft: true\n",
+		"release:\n  draft: true\n  use_existing_draft: true\n",
 	})
 
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
 	requireContractStrings(t, "release workflow", workflow, []string{
-		"gh release upload \"$GITHUB_REF_NAME\" gobfd-*-reports.tar.gz",
-		"gh release view \"$GITHUB_REF_NAME\" --json",
+		"gh release upload \"$GITHUB_REF_NAME\" \\",
+		"Verify exact release draft",
+		"expected-release-assets.txt",
+		"release-image-digests.txt",
 		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
 	})
 	if strings.Contains(workflow, "--clobber") {
 		t.Error("release workflow may not replace draft or published assets")
 	}
-	if strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false") <
-		strings.LastIndex(workflow, "gh release upload") {
-		t.Error("release is published before all assets are attached")
+	upload := strings.LastIndex(workflow, "gh release upload \"$GITHUB_REF_NAME\"")
+	verification := strings.LastIndex(workflow, "Verify exact release draft")
+	publication := strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false")
+	if upload < 0 || verification < upload || publication < verification {
+		t.Error("release ordering is not upload, exact verification, then publication")
 	}
 }
 ```
@@ -170,10 +179,12 @@ Change the release block to:
 ```yaml
 release:
   draft: true
+  use_existing_draft: true
   mode: keep_existing
 ```
 
-Do not enable `replace_existing_draft` or `replace_existing_artifacts`.
+`use_existing_draft` permits an idempotent retry against the same unpublished
+tag. Do not enable `replace_existing_draft` or `replace_existing_artifacts`.
 
 - [ ] **Step 4: Fail closed when changelog notes are absent**
 
@@ -181,33 +192,87 @@ In `release.yml`, replace the fallback note generation with a non-zero exit.
 The tag must have an exact dated section in `CHANGELOG.md`; a generic link to
 `master` is not a release note.
 
-- [ ] **Step 5: Attach the report before publication without replacement**
+- [ ] **Step 5: Build the exact asset manifest and OCI digest receipt**
 
-Retain the report download. Change upload to:
+Peel the remote tag through the GitHub Git API and compare it with
+`git rev-parse HEAD`. Query each released OCI reference with
+`docker buildx imagetools inspect --raw`, require both `linux/amd64` and
+`linux/arm64`, and write the calculated index SHA-256 values to
+`release-image-digests.txt`.
+
+Build `expected-release-assets.txt` from `dist/artifacts.json` by selecting the
+GoReleaser artifact types `Archive`, `Linux Package`, `Checksum`, and `SBOM`,
+then append the exact report archive and OCI digest receipt names. Normalize it
+with `LC_ALL=C sort -u`.
+
+Use this fail-closed outline:
 
 ```bash
-gh release upload "$GITHUB_REF_NAME" gobfd-*-reports.tar.gz
+expected_commit="$(git rev-parse HEAD)"
+tag_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+tag_type="$(jq -r '.object.type' <<<"$tag_ref")"
+tag_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
+if [ "$tag_type" = tag ]; then
+  tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
+  tag_type="$(jq -r '.object.type' <<<"$tag_object")"
+  tag_sha="$(jq -r '.object.sha' <<<"$tag_object")"
+fi
+test "$tag_type" = commit
+test "$tag_sha" = "$expected_commit"
+
+jq -r '
+  .[] |
+  select(.type == "Archive" or .type == "Linux Package" or
+    .type == "Checksum" or .type == "SBOM") |
+  .path | split("/")[-1]
+' dist/artifacts.json >"$RUNNER_TEMP/expected-release-assets.txt"
+printf 'gobfd-%s-reports.tar.gz\nrelease-image-digests.txt\n' \
+  "$GITHUB_REF_NAME" >>"$RUNNER_TEMP/expected-release-assets.txt"
+LC_ALL=C sort -u -o "$RUNNER_TEMP/expected-release-assets.txt" \
+  "$RUNNER_TEMP/expected-release-assets.txt"
+```
+
+For each of
+`ghcr.io/dantte-lp/gobfd:${GITHUB_REF_NAME#v}-debian-trixie` and
+`ghcr.io/dantte-lp/gobfd:${GITHUB_REF_NAME#v}-oraclelinux10`, save the raw
+manifest, require its sorted platform set to equal exactly
+`linux/amd64,linux/arm64`, and record `sha256sum` of the raw bytes with the full
+image reference. Require exactly two receipt lines.
+
+- [ ] **Step 6: Attach, verify the complete draft, and publish last**
+
+Retain the report download. Upload both the report and the completed OCI digest
+receipt without replacement:
+
+```bash
+gh release upload "$GITHUB_REF_NAME" \
+  gobfd-*-reports.tar.gz release-image-digests.txt
 ```
 
 Remove the post-GoReleaser release-notes edit because GoReleaser already
 receives `--release-notes=release-notes.md` while the release is a draft.
 
-- [ ] **Step 6: Verify the complete draft and publish last**
+Sort the names returned by `gh release view ... --json assets` and require an
+exact `diff` against `expected-release-assets.txt`, not a subset. The named
+workflow step must be `Verify exact release draft`. It additionally requires a
+non-empty body, the exact tag, the already verified peeled commit, at least one
+SBOM, and both recorded multi-platform image digests.
 
-Before publication, query the draft with:
+The final outline is:
 
 ```bash
 release_json="$(gh release view "$GITHUB_REF_NAME" \
-  --json isDraft,tagName,targetCommitish,body,assets)"
+  --json isDraft,tagName,body,assets)"
 jq -e --arg tag "$GITHUB_REF_NAME" '
   .isDraft == true and
   .tagName == $tag and
   (.body | length > 0) and
-  ([.assets[].name] | index("checksums.txt") != null) and
-  ([.assets[].name] | any(endswith("-reports.tar.gz"))) and
-  ([.assets[].name] | any(endswith(".deb"))) and
-  ([.assets[].name] | any(endswith(".rpm")))
+  ([.assets[].name] | any(endswith(".sbom.json")))
 ' <<<"$release_json"
+jq -r '.assets[].name' <<<"$release_json" | LC_ALL=C sort -u \
+  >"$RUNNER_TEMP/actual-release-assets.txt"
+diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
+  "$RUNNER_TEMP/actual-release-assets.txt"
 gh release edit "$GITHUB_REF_NAME" --draft=false --latest
 ```
 
@@ -420,10 +485,11 @@ GOMAXPROCS=4 GOMEMLIMIT=8GiB go test -p=4 ./... -race -count=1
 
 Expected: all discovered packages pass.
 
-- [ ] **Step 3: Run gopls against the actual repository profiles**
+- [ ] **Step 3: Run gopls against the changed Go contract test and repository profiles**
 
-Use the pinned development container or the already pinned local tool with
-resource limits:
+This slice modifies `scripts/repo_quality_contract_test.go`, and the maintainer
+explicitly requires gopls. Use the pinned development container or the already
+pinned local tool with resource limits:
 
 ```bash
 GOMAXPROCS=4 GOMEMLIMIT=8GiB sh ./scripts/gopls-check.sh
@@ -433,7 +499,37 @@ GOMAXPROCS=4 GOMEMLIMIT=8GiB GOPLS_GOOS=darwin \
 
 Expected: non-zero package/input counts and zero gopls diagnostics.
 
-- [ ] **Step 4: Run only release-relevant existing gates**
+- [ ] **Step 4: Run build, configuration, and release snapshot gates**
+
+Run the four-binary build first:
+
+```bash
+make build
+```
+
+Obtain the repository-pinned GoReleaser v2.18.0 archive and `checksums.txt`
+from its GitHub Release into an exact `mktemp -d` directory. Verify only the
+selected archive line with `sha256sum --check`, extract the binary there, and
+record `goreleaser --version`. Do not use the stale host v2.15.4 binary.
+
+Run:
+
+```bash
+GOMAXPROCS=4 GOMEMLIMIT=8GiB "$RELEASE_TOOL_DIR/goreleaser" check
+GOMAXPROCS=4 GOMEMLIMIT=8GiB "$RELEASE_TOOL_DIR/goreleaser" release \
+  --snapshot --clean --skip=publish,docker --parallelism=1
+```
+
+Expected: config validation, four binary builds, archives, checksums, SBOMs,
+DEB/RPM packaging, and `dist/artifacts.json` succeed without publishing.
+
+Use the snapshot output to build both release Containerfiles for local amd64
+with Podman under unique labels/tags derived from the exact commit. Inspect the
+created image IDs and bases, then remove only those two recorded image IDs.
+This covers Debian Trixie and Oracle Linux 10 locally without creating a remote
+manifest or using Alpine.
+
+- [ ] **Step 5: Run remaining release-relevant existing gates**
 
 ```bash
 go mod tidy -diff
@@ -450,7 +546,7 @@ git status --short --branch
 Expected: all gates pass and the worktree is clean. Do not run a new interop
 topology because this slice changes no protocol or container behavior.
 
-- [ ] **Step 5: Record qualification in Beads**
+- [ ] **Step 6: Record qualification in Beads**
 
 Append exact commands, versions, package counts, commit SHAs, and results to
 `gobfd-qj0.8.1.15`. Keep the task `IN_PROGRESS` because remote review, rulesets,
@@ -483,7 +579,7 @@ Expected: one merge commit and no unresolved paths.
 
 - [ ] **Step 3: Run focused post-merge checks**
 
-Repeat Task 5 Steps 2–4 on the exact merge commit. Record the SHA.
+Repeat Task 5 Steps 2–5 on the exact merge commit. Record the SHA.
 
 - [ ] **Step 4: Push only `dev` and inspect PR #63 through GitHub API**
 
@@ -529,6 +625,65 @@ POST a branch ruleset matching `refs/heads/release/v*` with:
 - the exact Task 3 required status contexts;
 - no bypass actors.
 
+Build the payload with `jq -n` and pipe it directly to
+`gh api --method POST repos/dantte-lp/gobfd/rulesets --input -`. Its normalized
+shape must be:
+
+```json
+{
+  "name": "release-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/release/v*"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["merge", "squash", "rebase"],
+        "required_reviewers": []
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {"context": "Build & test"},
+          {"context": "Lint (Go)"},
+          {"context": "Vulnerability audit"},
+          {"context": "Buf"},
+          {"context": "SonarQube"},
+          {"context": "Trivy filesystem scan"},
+          {"context": "Lint (docs)"},
+          {"context": "Commit policy (PR title)"},
+          {"context": "codeql"},
+          {"context": "gosec"},
+          {"context": "PR-safe E2E"}
+        ]
+      }
+    }
+  ]
+}
+```
+
+`do_not_enforce_on_create: true` is limited to bootstrap of a new matching
+branch. It does not bypass checks on later updates.
+
 Read it back through `gh api` and compare its normalized JSON to the intended
 policy.
 
@@ -536,7 +691,8 @@ policy.
 
 POST a tag ruleset matching `refs/tags/v*` that blocks deletion and
 non-fast-forward updates without blocking creation of a new SemVer tag. Read it
-back and verify the exact condition.
+back and verify the exact condition. Its rules contain only `deletion` and
+`non_fast_forward`; do not add a `creation` rule.
 
 - [ ] **Step 5: Enable immutable releases through the documented endpoint**
 
@@ -617,5 +773,7 @@ exception. Close only tasks whose acceptance criteria are fully satisfied.
 
 After all commits are integrated and refs verified, remove the clean
 `docs-release-v06-policy` and `release-v0.6` worktrees through
-`git worktree remove` and prune worktree metadata. Do not delete branches,
-tags, unrelated caches, containers, images, or volumes.
+`git worktree remove` after resolving and checking each exact path and branch.
+Do not run repository-wide `git worktree prune`; report any unrelated stale
+entry instead. Do not delete branches, tags, unrelated caches, containers,
+images, or volumes.
