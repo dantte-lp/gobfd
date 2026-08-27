@@ -95,7 +95,7 @@ sboms:
     cmd: syft
 
 changelog:
-  disable: true
+  disable: false
 
 nfpms:
   - id: packages

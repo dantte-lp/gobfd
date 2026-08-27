@@ -1,7 +1,7 @@
 # GoBFD Roadmap
 
 ![Current Release](https://img.shields.io/badge/Current-v0.6.1-1a73e8?style=for-the-badge)
-![Next Release](https://img.shields.io/badge/Next-v0.6.2-34a853?style=for-the-badge)
+![Next Release](https://img.shields.io/badge/Next-v0.6.4-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
 > Status projection from Beads, reconciled on 2026-08-27. Beads is the task
@@ -9,12 +9,11 @@
 > used as an independent checklist.
 
 The latest published GitHub release is
-[`v0.6.1`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1). Delivery is
-ordered as `v0.6.2` maintenance first and the additive `v1.0.0` production
-contract second. The v0.6.x line will be maintained on `release/v0.6` with
-GoBGP v3.37.0; v1 and GoBGP v4 development continues on `dev`.
-`release/v0.6` does not yet exist and will be created only after its protection
-ruleset is active.
+[`v0.6.1`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1). The immutable
+`v0.6.2` and `v0.6.3` tags are unpublished failed cuts; the next maintenance
+publication is `v0.6.4`, followed by the additive `v1.0.0` production
+contract. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP
+v4 development continues on `dev`.
 
 ## Status key
 
@@ -24,7 +23,7 @@ ruleset is active.
 | In progress | Active work or independent review is not complete |
 | Open | Planned in Beads and not yet accepted |
 
-## v0.6.2 maintenance baseline
+## v0.6 maintenance baseline
 
 Beads milestone: `gobfd-qj0.8.1` — **In progress**.
 
@@ -32,7 +31,8 @@ After the protected branch is created, the release will be prepared on
 `release/v0.6`, which keeps GoBGP v3.37.0 and the existing `bfd.v1` and YAML
 runtime contracts. It updates dependencies, tools, CI, reproducibility,
 documentation, and test infrastructure without adding BFD protocol behavior.
-v0.6.2 remains **In progress** until its tag and GitHub Release are verified.
+The baseline remains **In progress** until the v0.6.4 tag and GitHub Release
+are verified.
 
 | Delivery slice | Status |
 |---|---|
@@ -74,7 +74,8 @@ authoritative.
 
 ## v1.0.0 production contract
 
-Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on accepted v0.6.2**.
+Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on the accepted and
+published v0.6 maintenance baseline (`v0.6.4`)**.
 
 Development of the v1 product line, including the GoBGP v4 migration, occurs
 on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
