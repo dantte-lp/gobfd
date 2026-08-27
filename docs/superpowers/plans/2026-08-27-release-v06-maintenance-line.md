@@ -652,8 +652,8 @@ only those five intentional no-ops, and exercises the newly added auth, echo,
 overlay, and micro-BFD bounds in existing test files. The affected race tests,
 complete repository race/coverage run, bounded full golangci-lint, gopls, root
 and tools module checks, and diff checks pass locally. The follow-up still must
-be committed, pushed, and re-inspected at its exact remote head. All current
-required checks and a current approval remain mandatory before Task 7.
+be re-inspected at its exact remote head after delivery. All current required
+checks and a current approval remain mandatory before Task 7.
 
 ### Task 7: Merge the accepted stable commit and establish live protections
 
