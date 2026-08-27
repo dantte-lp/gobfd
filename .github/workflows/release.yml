@@ -10,10 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -31,31 +34,62 @@ jobs:
             -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
             -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
             -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfdctl
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-haproxy-agent
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-exabgp-bridge
+          install -d -m 0755 /tmp/gobfd-release-build
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfd ./cmd/gobfd
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfdctl ./cmd/gobfdctl
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
+
+      - name: Install test tools
+        run: |
+          .github/scripts/install-podman-runtime.sh
+          jq --version
+          .github/scripts/install-uv.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Test
         run: go test -buildvcs=false ./... -race -count=1
 
-      - name: Lint
-        run: make lint-ci
-
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go
 
-  reports:
+  lint:
     runs-on: ubuntu-latest
-    needs: test
     permissions:
       contents: read
     container:
       image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache Go modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Lint
+        run: make lint-ci
+
+  reports:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -65,8 +99,10 @@ jobs:
 
       - name: Install report tools
         run: |
-          apt-get update && apt-get install -y --no-install-recommends ca-certificates coreutils curl tar
-          UV_INSTALL_DIR=/usr/local/bin .github/scripts/install-uv.sh
+          .github/scripts/install-podman-runtime.sh
+          jq --version
+          .github/scripts/install-uv.sh
+          export PATH="$HOME/.local/bin:$PATH"
           uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Run tests with JUnit output
@@ -138,7 +174,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [test, reports]
+    needs: [test, lint, reports]
     permissions:
       contents: write
       packages: write
@@ -274,31 +310,87 @@ jobs:
           done
 
       - name: Extract release notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
 
-          if ! awk -v ver="$VERSION" '
-            BEGIN { prefix = "## [" ver "] - " }
-            /^## \[/ {
-              if (found) exit
-              date = substr($0, length(prefix) + 1)
-              if (index($0, prefix) == 1 && length(date) == 10 &&
-                  date ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
-                found = 1
-              }
-              next
+          release_line_prefix="v${VERSION%.*}."
+          previous_release_tag="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --slurp | jq -er \
+              --arg prefix "$release_line_prefix" \
+              --arg current "$GITHUB_REF_NAME" '
+              flatten
+              | map(select(.draft == false and .prerelease == false and
+                  (.tag_name | type == "string" and
+                    . != $current))
+                | . + {semver: (
+                    .tag_name
+                    | capture(
+                        "^v(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)$"
+                      )
+                    | [.major, .minor, .patch]
+                    | map(tonumber)
+                  )}
+                )
+              | . as $published
+              | (($published
+                    | map(select(.tag_name | startswith($prefix)))
+                    | sort_by(.semver)
+                    | last)
+                  // ($published | sort_by(.semver) | last))
+              | .tag_name
+              | select(type == "string" and length > 0)
+            ')"
+          if [[ ! "$previous_release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "invalid previous published release tag: $previous_release_tag" >&2
+            exit 1
+          fi
+          previous_version="${previous_release_tag#v}"
+
+          if ! awk -v current="$VERSION" -v previous="$previous_version" '
+            function dated_heading(line, version, prefix, date) {
+              prefix = "## [" version "] - "
+              if (index(line, prefix) != 1) return 0
+              date = substr(line, length(prefix) + 1)
+              return length(date) == 10 &&
+                date ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/
             }
-            /^\[.+\]:/ && found { exit }
+            dated_heading($0, current) { found = 1 }
+            found && dated_heading($0, previous) { stopped = 1; exit }
             found { print }
-            END { if (!found) exit 1 }
-          ' CHANGELOG.md >release-notes.md; then
-            echo "No exact dated CHANGELOG.md section for version $VERSION." >&2
+            END { if (!found || !stopped) exit 1 }
+          ' CHANGELOG.md >"$RUNNER_TEMP/release-changelog.md"; then
+            echo "CHANGELOG.md does not contain a complete $previous_release_tag..$GITHUB_REF_NAME release range." >&2
             exit 1
           fi
 
+          if ! grep -q '^### ' "$RUNNER_TEMP/release-changelog.md" ||
+            ! grep -q '^- ' "$RUNNER_TEMP/release-changelog.md"; then
+            echo "Release changelog range lacks categorized entries." >&2
+            exit 1
+          fi
+
+          repository_url="https://github.com/${GITHUB_REPOSITORY}"
+          full_changelog_url="${repository_url}/blob/${GITHUB_REF_NAME}/CHANGELOG.md"
+          comparison_url="${repository_url}/compare/${previous_release_tag}...${GITHUB_REF_NAME}"
+          {
+            echo "## GoBFD ${GITHUB_REF_NAME}"
+            echo
+            cat "$RUNNER_TEMP/release-changelog.md"
+            echo
+            printf '**Full changelog:** [CHANGELOG.md at %s](%s)\n' \
+              "$GITHUB_REF_NAME" "$full_changelog_url"
+            echo
+            printf '**Changes since %s:** [compare %s...%s](%s)\n' \
+              "$previous_release_tag" "$previous_release_tag" \
+              "$GITHUB_REF_NAME" "$comparison_url"
+          } >release-notes.md
+
           if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "Dated CHANGELOG.md section for version $VERSION is empty." >&2
+            echo "Release notes for $VERSION are empty." >&2
             exit 1
           fi
 

@@ -7,7 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Release notes now include every maintenance entry since the previous
+  published stable release in the same line, plus tag-bound changelog and
+  comparison links. Release closeout also requires the accepted stable history
+  and bilingual changelogs to reach `master` before completion.
+
+## [0.6.4] - 2026-08-27
+
+### Fixed
+
+- Keep the GoReleaser changelog pipe enabled so `--release-notes` loads the
+  exact dated CHANGELOG section into the draft body before the fail-closed
+  draft verification. The immutable `v0.6.3` tag and its complete but
+  unpublished draft remain the failed recovery cut; `v0.6.4` fixes forward
+  without moving or reusing that tag.
+
+## [0.6.3] - 2026-08-27
+
+> Release status: the immutable tag, complete draft, assets, and versioned OCI
+> images were created, but the draft remained unpublished because its release
+> notes were empty. The failed cut is preserved and superseded by the published
+> `v0.6.4` release.
+
+### Fixed
+
+- Release qualification now writes its four smoke-build binaries outside the
+  checkout and installs the checksum-pinned Podman Compose and uv test tools in
+  both full-race jobs, while strict Go lint remains in its digest-pinned Debian
+  Trixie container. This prevents generated binaries and missing runner CLIs
+  from invalidating the release gate before artifact creation. The immutable
+  `v0.6.2` tag remains the failed first cut without a GitHub Release or assets;
+  `v0.6.3` is its fix-forward recovery release.
+
 ## [0.6.2] - 2026-08-27
+
+> Release status: the immutable tag was created, but workflow run `33083358370`
+> failed before draft or asset creation. The failed cut is preserved; the
+> subsequent `v0.6.3` recovery cut also remained unpublished, and both are
+> superseded by the published `v0.6.4` release.
 
 ### Added
 
@@ -510,7 +549,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0

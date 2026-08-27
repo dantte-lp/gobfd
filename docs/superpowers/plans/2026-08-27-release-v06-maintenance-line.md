@@ -2,9 +2,25 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Establish protected `release/v0.6` maintenance ownership for GoBGP v3.37.0 and publish v0.6.2 from its exact reviewed commit without blocking future v1/GoBGP v4 development on `dev`.
+**Goal:** Establish protected `release/v0.6` maintenance ownership for GoBGP
+v3.37.0 and publish the qualified v0.6 patch line without blocking future
+v1/GoBGP v4 development on `dev`. The immutable `v0.6.2` tag records the
+failed first publication attempt, and immutable `v0.6.3` records the failed
+empty-notes recovery cut; recovery publication uses `v0.6.4`.
 
-**Architecture:** Repository-owned contract tests make branch filters and draft-first immutable publication fail closed. The policy implementation first reaches `dev` and PR #63, then the reviewed stable commit reaches `master`; only afterward do GitHub rulesets, immutable-release settings, `release/v0.6`, and `v0.6.2` get created in that order. Later v0.6 fixes enter through short-lived `fix/v0.6-*` branches and are forward-ported separately when applicable.
+**Architecture:** Repository-owned contract tests make branch filters and
+draft-first immutable publication fail closed. The policy implementation first
+reaches `dev` and PR #63, then the reviewed stable commit reaches `master`;
+only afterward do GitHub rulesets, immutable-release settings,
+`release/v0.6`, and `v0.6.2` get created in that order. The v0.6.2 workflow
+failed before draft creation because its test jobs lacked repository-required
+runner tools and wrote binaries into the checkout. The tag remains unchanged;
+the minimal workflow correction entered through `fix/v0.6-release-workflow`.
+That fix produced `v0.6.3`, whose complete unpublished draft failed closed on
+an empty body because GoReleaser skipped the disabled changelog pipe. The tag
+remains unchanged; `fix/v0.6-release-notes` enables the pipe, and `v0.6.4`
+becomes the recovery publication. Later v0.6 fixes follow the same reviewed
+path and are forward-ported separately when applicable.
 
 **Tech Stack:** Git and Git worktrees, GitHub Actions, GitHub REST/GraphQL through `gh api`, GoReleaser v2.18.0, Go 1.27.0 contract tests, Buf, gopls v0.23.0, Beads.
 
@@ -27,7 +43,7 @@
 | `docs/en/09-development.md`, `docs/ru/09-development.md` | Bilingual development and backport workflow |
 | `docs/en/10-changelog.md`, `docs/ru/10-changelog.md` | Bilingual release-branch and tag procedure |
 | `docs/en/roadmap.md`, `docs/ru/roadmap.md` | v0.6 maintenance versus v1 development boundary |
-| `CHANGELOG.md` | Dated v0.6.2 release notes and comparison links |
+| `CHANGELOG.md` | Dated v0.6.2/v0.6.3/v0.6.4 release notes and comparison links |
 | `docs/superpowers/specs/2026-08-27-release-branch-versioning-design.md` | Approved design source of truth |
 | `docs/superpowers/plans/2026-08-27-release-v06-maintenance-line.md` | Executable implementation checklist |
 
@@ -383,8 +399,8 @@ pushes that cannot publish unrelated local tags.
 - [x] **Step 5: Update both roadmaps without claiming publication**
 
 State that v0.6.x is maintained on `release/v0.6` with GoBGP v3.37.0 and that
-v1/GoBGP v4 development follows on `dev`. Keep v0.6.2 `In progress` until the
-tag and GitHub Release are verified.
+v1/GoBGP v4 development follows on `dev`. Keep the v0.6 maintenance baseline
+`In progress` until the v0.6.4 tag and GitHub Release are verified.
 
 - [x] **Step 6: Reconcile the approved design metadata**
 
@@ -784,40 +800,41 @@ gh api repos/dantte-lp/gobfd/immutable-releases
 
 Expected GET result: `enabled: true`.
 
-- [ ] **Step 6: Update settings documentation with live IDs and state**
+- [x] **Step 6: Update settings documentation with live IDs and state**
 
 On a short-lived documentation branch from the accepted stable commit, replace
 pending markers in `.github/repository-settings.md` with verified ruleset IDs,
 conditions, required checks, and immutable-release state. Merge it through the
 normal reviewed path before tagging; do not claim unverified settings.
 
-### Task 8: Create `release/v0.6`, tag, and publish v0.6.2
+### Task 8: Create `release/v0.6`, preserve failed cuts, and recover as v0.6.4
 
 **Files:**
 - Create remote branch: `release/v0.6`
-- Create annotated tag: `v0.6.2`
+- Preserve annotated tags: `v0.6.2`, `v0.6.3`
+- Create annotated tag after qualification: `v0.6.4`
 - Update: GitHub Release and GHCR through the approved workflow
 - Update: Beads milestones after evidence
 
-- [ ] **Step 1: Resolve the exact release commit**
+- [x] **Step 1: Resolve the exact release commit**
 
 Fetch `master`, resolve the accepted commit containing the policy/settings
 documentation, and verify it is descended from the reviewed PR #63 head. Store
 the full SHA in Beads before creating refs.
 
-- [ ] **Step 2: Create and push the maintained branch**
+- [x] **Step 2: Create and push the maintained branch**
 
 Create local `release/v0.6` at the exact SHA, push only that branch, then use
 `gh api` to verify the remote ref and that `release-protection` applies. Do not
 create the branch in `/root`; any worktree for it belongs under repository
 `.worktrees/`.
 
-- [ ] **Step 3: Re-run exact-commit release preflight**
+- [x] **Step 3: Re-run exact-commit release preflight**
 
 Create `.worktrees/release-v0.6` from the existing branch. Run Task 5 against
 that exact commit and repeat the release-note extraction. Stop on any failure.
 
-- [ ] **Step 4: Create and push only the annotated v0.6.2 tag**
+- [x] **Step 4: Create and push only the annotated v0.6.2 tag**
 
 ```bash
 git tag -a v0.6.2 <FULL_RELEASE_SHA> -m "Release v0.6.2"
@@ -827,30 +844,61 @@ git push origin refs/tags/v0.6.2
 Verify the peeled tag commit equals `release/v0.6` and that the tag ruleset is
 active. Do not use `--tags`.
 
-- [ ] **Step 5: Monitor the release workflow without consuming unrelated CI**
+- [ ] **Step 5: Create and push only the qualified annotated v0.6.4 tag**
+
+After the reviewed release-notes fix is merged into `release/v0.6`, rerun the
+bounded exact-commit preflight and extract a non-empty v0.6.4 CHANGELOG
+section. Verify that the `v0.6.4` tag, GitHub Release, draft, and exact
+versioned OCI refs do not exist and that the active tag ruleset applies. Then
+create and push only the annotated tag:
+
+```bash
+git tag -a v0.6.4 <FULL_RELEASE_SHA> -m "Release v0.6.4"
+git push origin refs/tags/v0.6.4
+```
+
+Verify that the peeled tag commit equals both the reviewed release commit and
+the exact `release/v0.6` head. Do not use `--tags`, move an existing tag, or
+create a tag while any local qualification gate is incomplete.
+
+- [x] **Step 6: Monitor the release workflow without consuming unrelated CI**
 
 Use `gh run list`, `gh run view`, and `gh api` for the tag-triggered run. Do not
 start duplicate workflows. The release must remain a draft until all assets and
-the report are verified, then become published and immutable.
+the report are verified, then become published and immutable. Run
+`33083358370` for immutable tag `v0.6.2` failed in its test job before draft or
+asset creation: the release jobs had drifted from the normal CI runner-tool and
+isolated-build-output contract. Do not rerun that deterministic failure, move
+the tag, or reuse the version. Deliver the minimal fix through
+`fix/v0.6-release-workflow`. The resulting immutable `v0.6.3` cut built a
+complete unpublished draft and versioned OCI manifests, then failed closed
+because its draft body was empty; do not rerun, move, delete, or reuse it.
+Deliver the changelog-pipe fix through `fix/v0.6-release-notes`, qualify the
+exact release commit locally, create the qualified tag once, then monitor the
+single `v0.6.4` recovery run.
 
-- [ ] **Step 6: Verify public release evidence**
+- [x] **Step 7: Verify public release evidence**
 
 Through GitHub API and GHCR, verify:
 
-- tag and release target the recorded full SHA;
+- `v0.6.2` remains unchanged at its recorded failed-attempt SHA;
+- `v0.6.3` remains unchanged at its recorded failed-attempt SHA, with its
+  unpublished failed draft and versioned OCI evidence not reused;
+- the `v0.6.4` tag and release target the reviewed recovery SHA;
 - release is non-draft and non-prerelease;
-- notes are the v0.6.2 changelog section;
+- notes contain every maintenance section after the previous published stable
+  v0.6 release and include changelog/compare links bound to v0.6.4;
 - checksums, archives, DEB/RPM packages, SBOMs, and report archive exist;
-- Debian Trixie and Oracle Linux 10 manifests exist for the exact v0.6.2 tags;
+- Debian Trixie and Oracle Linux 10 manifests exist for the exact v0.6.4 tags;
 - immutable releases remains enabled.
 
-- [ ] **Step 7: Close release tracking only after evidence is complete**
+- [ ] **Step 8: Close release tracking only after evidence is complete**
 
-Update `gobfd-qj0.8.1.15`, the v0.6.2 qualification task, and milestone with
+Update `gobfd-qj0.8.1.15`, the v0.6.4 qualification evidence, and milestone with
 exact SHAs, run IDs, asset/digest evidence, and any time-bounded advisory
 exception. Close only tasks whose acceptance criteria are fully satisfied.
 
-- [ ] **Step 8: Clean only owned worktrees and transient resources**
+- [x] **Step 9: Clean only owned worktrees and transient resources**
 
 After all commits are integrated and refs verified, remove the clean
 `docs-release-v06-policy` and `release-v0.6` worktrees through
@@ -858,3 +906,84 @@ After all commits are integrated and refs verified, remove the clean
 Do not run repository-wide `git worktree prune`; report any unrelated stale
 entry instead. Do not delete branches, tags, unrelated caches, containers,
 images, or volumes.
+
+Correction evidence: run `33101133019` attempt 2 completed successfully at
+`b1c0bcd7d2e9abed00368b2082e34f521084c087`, and the 12 assets plus OCI indexes
+remain independently verified. The closeout was nevertheless incomplete: the
+published body contained only the 348-byte v0.6.4 recovery delta, and the exact
+release history reached `dev` but not `master`, whose bilingual changelogs
+therefore stopped at v0.6.2. Beads task `gobfd-qj0.8.1.15` is reopened until
+Task 10 is complete. The parent milestone also remains open on P1 findings
+`gobfd-qj0.8.1.8.8`, `.8.9`, and `.8.10`.
+
+### Task 10: Correct v0.6.4 changelog and release closeout
+
+**Files and live state:**
+- Modify: `.github/workflows/release.yml`
+- Modify: `scripts/repo_quality_contract_test.go`
+- Modify: `CHANGELOG.md`
+- Modify: `CHANGELOG.ru.md`
+- Modify: `AGENTS.md`
+- Modify: `docs/en/10-changelog.md`
+- Modify: `docs/ru/10-changelog.md`
+- Modify: `docs/en/roadmap.md`
+- Modify: `docs/ru/roadmap.md`
+- Modify: `docs/superpowers/specs/2026-08-27-release-branch-versioning-design.md`
+- Update: GitHub Release `v0.6.4` notes only
+- Update: protected `release/v0.6`, `master`, and `dev` refs through accepted
+  non-rewriting history
+
+- [x] **Step 1: Reproduce the incomplete closeout**
+
+Use `gh api` to prove the published body length and content, compare the two
+changelogs across `master`, `release/v0.6`, `dev`, and `v0.6.4`, and record the
+exact branch/tag/release identities in Beads.
+
+- [x] **Step 2: Add and prove the failing release-note contract**
+
+Extend the existing release workflow contract to require the previous
+published stable release in the same major/minor line, cumulative dated
+sections, and immutable-tag changelog/compare links. Run only the focused test
+and observe the expected missing-marker failure before changing the workflow.
+
+- [x] **Step 3: Generate cumulative fail-closed release notes**
+
+Query published non-prerelease releases with `gh api`, select the highest
+stable SemVer tag in the current major/minor line with a cross-line fallback
+for the first cut, require exact dated boundaries for both versions, and render
+all intervening changelog sections. Add tag-bound full-changelog and comparison
+links. Keep draft body equality checks and immutable asset/tag behavior
+unchanged.
+
+- [x] **Step 4: Correct bilingual release history and process contracts**
+
+Record v0.6.2 and v0.6.3 as preserved unpublished failed cuts superseded by
+published v0.6.4. Require accepted stable history and both changelogs on
+`master` before closeout, with a separate applicable forward-port to `dev`.
+
+- [ ] **Step 5: Run local release-note and documentation gates**
+
+Run the focused contract, a v0.6.4 fixture using the live previous published
+tag, actionlint, locked yamllint, repository Markdown, focused codespell,
+`git diff --check`, and an independent diff review. Do not dispatch a remote
+workflow before these pass.
+
+- [ ] **Step 6: Correct and independently verify the live release notes**
+
+Use the documented immutable-release exception for title/notes only. Patch the
+body through `gh api`, then read it back and require the cumulative sections,
+tag-bound links, unchanged release/tag identity, unchanged 12 assets, and
+`immutable=true`. Do not alter the tag or assets.
+
+- [ ] **Step 7: Deliver and synchronize the accepted history**
+
+Deliver the locally green fix through the protected `release/v0.6` line,
+synchronize the accepted stable history and both changelogs to `master`, and
+forward-port the same fix to `dev`. Verify remote SHAs and changelog headings on
+all three refs without force-push or tag changes.
+
+- [ ] **Step 8: Close Beads only after the corrected public state is proven**
+
+Record exact commits, PRs/checks, release-body hash, asset count, and final
+branch heads. Close `gobfd-qj0.8.1.15` only when every Task 10 acceptance check
+is satisfied; the separate P1 findings remain independent blockers.

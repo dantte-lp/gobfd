@@ -7,7 +7,46 @@
 
 ## [Не выпущено]
 
+### Исправлено
+
+- Release notes теперь включают все maintenance-записи после предыдущего
+  опубликованного стабильного релиза в той же линии, а также привязанные к тегу
+  ссылки на changelog и сравнение. Release closeout также требует, чтобы
+  принятая стабильная история и оба changelog попали в `master` до завершения.
+
+## [0.6.4] - 2026-08-27
+
+### Исправлено
+
+- Changelog pipe GoReleaser остаётся включённым, поэтому `--release-notes`
+  загружает точный датированный раздел CHANGELOG в body черновика до
+  fail-closed проверки. Неизменяемый тег `v0.6.3` и его полный, но
+  неопубликованный draft остаются неудачной recovery-попыткой; `v0.6.4`
+  исправляет её вперёд без перемещения или повторного использования тега.
+
+## [0.6.3] - 2026-08-27
+
+> Статус релиза: неизменяемый тег, полный draft, артефакты и versioned OCI
+> images были созданы, но draft остался неопубликованным из-за пустых release
+> notes. Неудачная попытка сохранена и заменена опубликованным релизом
+> `v0.6.4`.
+
+### Исправлено
+
+- Release qualification теперь записывает четыре smoke-build binary вне
+  checkout и устанавливает checksum-pinned Podman Compose и uv test tools в
+  обоих full-race jobs, а строгий Go lint остаётся в digest-pinned контейнере
+  Debian Trixie. Поэтому сгенерированные binary и отсутствующие runner CLI
+  больше не блокируют release gate до создания артефактов. Неизменяемый тег
+  `v0.6.2` остаётся первой неудачной попыткой без GitHub Release и артефактов;
+  `v0.6.3` является её fix-forward recovery release.
+
 ## [0.6.2] - 2026-08-27
+
+> Статус релиза: неизменяемый тег создан, но workflow run `33083358370`
+> завершился ошибкой до создания draft или артефактов. Неудачная попытка
+> сохранена; следующий recovery cut `v0.6.3` также остался неопубликованным, и
+> обе попытки заменены опубликованным релизом `v0.6.4`.
 
 ### Добавлено
 
@@ -501,7 +540,9 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0
