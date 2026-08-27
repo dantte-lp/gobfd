@@ -152,31 +152,75 @@ jobs:
         with:
           go-version: "1.27.0"
 
+      - name: Refuse existing release, draft, or versioned OCI tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          release_response="$RUNNER_TEMP/release-preflight-response.txt"
+          release_error="$RUNNER_TEMP/release-preflight-error.txt"
+          if gh api --include \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+            >"$release_response" 2>"$release_error"; then
+            echo "release or draft already exists: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+          release_status="$(awk '/^HTTP\// { status=$2 } END { print status }' \
+            "$release_response")"
+          if [ "$release_status" != "404" ]; then
+            echo "release preflight failed with HTTP status ${release_status:-unknown}" >&2
+            cat "$release_response" "$release_error" >&2
+            exit 1
+          fi
+
+          package_versions="$RUNNER_TEMP/ghcr-package-versions.json"
+          existing_tags="$RUNNER_TEMP/ghcr-existing-tags.txt"
+          gh api --paginate \
+            '/users/dantte-lp/packages/container/gobfd/versions?per_page=100' \
+            --slurp >"$package_versions"
+          jq -r 'flatten | .[].metadata.container.tags[]?' "$package_versions" \
+            | LC_ALL=C sort -u >"$existing_tags"
+
+          version="${GITHUB_REF_NAME#v}"
+          for tag in \
+            "$version" \
+            "$version-debian-trixie" \
+            "$version-oraclelinux10"; do
+            if grep -Fxq -- "$tag" "$existing_tags"; then
+              echo "versioned OCI tag already exists: $tag" >&2
+              exit 1
+            fi
+          done
+
       - name: Extract release notes from CHANGELOG.md
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
 
-          # Extract the section between two version headers.
-          # From "## [X.Y.Z]" until next "## [" or end of file.
-          awk -v ver="$VERSION" '
+          if ! awk -v ver="$VERSION" '
+            BEGIN { prefix = "## [" ver "] - " }
             /^## \[/ {
               if (found) exit
-              if ($0 ~ "\\[" ver "\\]") found=1
+              date = substr($0, length(prefix) + 1)
+              if (index($0, prefix) == 1 && length(date) == 10 &&
+                  date ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
+                found = 1
+              }
               next
             }
             /^\[.+\]:/ && found { exit }
             found { print }
-          ' CHANGELOG.md > release-notes.md
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md >release-notes.md; then
+            echo "No exact dated CHANGELOG.md section for version $VERSION." >&2
+            exit 1
+          fi
 
-          # Fallback if no section found for this version.
           if [ ! -s release-notes.md ]; then
-            echo "No release notes found for version $VERSION in CHANGELOG.md."
-            echo "Using fallback."
-            {
-              echo "## What's Changed"
-              echo ""
-              echo "See [CHANGELOG.md](https://github.com/dantte-lp/gobfd/blob/master/CHANGELOG.md) for details."
-            } > release-notes.md
+            echo "Dated CHANGELOG.md section for version $VERSION is empty." >&2
+            exit 1
           fi
 
           echo "--- Release notes for $VERSION ---"
@@ -216,17 +260,166 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Record exact release commit, assets, and OCI evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          expected_commit="$(git rev-parse HEAD)"
+          tag_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$tag_ref")"
+          tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$tag_ref")"
+          if [ "$tag_type" = "tag" ]; then
+            tag_object="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
+            tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+              <<<"$tag_object")"
+            tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+              <<<"$tag_object")"
+          fi
+          if [ "$tag_type" != "commit" ] || [ "$tag_sha" != "$expected_commit" ]; then
+            echo "tag does not resolve to the checked-out release commit" >&2
+            exit 1
+          fi
+          printf '%s\n' "$expected_commit" \
+            >"$RUNNER_TEMP/expected-release-commit.txt"
+
+          jq -e '
+            type == "array" and
+            ([.[] |
+              select(.type == "Archive" or .type == "Linux Package" or
+                .type == "Checksum" or .type == "SBOM") |
+              .path] as $paths |
+              ($paths | length > 0) and
+              ($paths | all(type == "string" and length > 0)))
+          ' dist/artifacts.json >/dev/null
+          jq -r '
+            .[] |
+            select(.type == "Archive" or .type == "Linux Package" or
+              .type == "Checksum" or .type == "SBOM") |
+            .path | split("/")[-1]
+          ' dist/artifacts.json >"$RUNNER_TEMP/expected-release-assets.txt"
+          printf 'gobfd-%s-reports.tar.gz\nrelease-image-digests.txt\n' \
+            "$GITHUB_REF_NAME" >>"$RUNNER_TEMP/expected-release-assets.txt"
+          LC_ALL=C sort -u -o "$RUNNER_TEMP/expected-release-assets.txt" \
+            "$RUNNER_TEMP/expected-release-assets.txt"
+
+          printf 'linux/amd64\nlinux/arm64\n' \
+            >"$RUNNER_TEMP/expected-release-platforms.txt"
+          : >release-image-digests.txt
+          image_index=0
+          version="${GITHUB_REF_NAME#v}"
+          for image in \
+            "ghcr.io/dantte-lp/gobfd:${version}-debian-trixie" \
+            "ghcr.io/dantte-lp/gobfd:${version}-oraclelinux10"; do
+            raw_manifest="$RUNNER_TEMP/release-image-${image_index}.json"
+            actual_platforms="$RUNNER_TEMP/release-platforms-${image_index}.txt"
+            docker buildx imagetools inspect --raw "$image" >"$raw_manifest"
+            jq -r '
+              .manifests[] |
+              "\(.platform.os)/\(.platform.architecture)"
+            ' "$raw_manifest" | LC_ALL=C sort -u >"$actual_platforms"
+            diff -u "$RUNNER_TEMP/expected-release-platforms.txt" \
+              "$actual_platforms"
+            image_digest="$(sha256sum "$raw_manifest")"
+            image_digest="${image_digest%% *}"
+            printf '%s sha256:%s\n' "$image" "$image_digest" \
+              >>release-image-digests.txt
+            image_index=$((image_index + 1))
+          done
+          receipt_shape="$(awk 'NF { nonempty++ } END { print NR ":" nonempty + 0 }' \
+            release-image-digests.txt)"
+          if [ "$receipt_shape" != "2:2" ]; then
+            echo "OCI digest receipt must contain exactly two nonempty lines" >&2
+            exit 1
+          fi
+
       - name: Download reports archive
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-reports
 
       - name: Attach reports to release
-        run: gh release upload "$GITHUB_REF_NAME" gobfd-*-reports.tar.gz --clobber
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            gobfd-*-reports.tar.gz release-image-digests.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set release notes
-        run: gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+      - name: Verify exact release draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
+          if [ "$(git rev-parse HEAD)" != "$expected_commit" ]; then
+            echo "checked-out commit changed after release evidence was recorded" >&2
+            exit 1
+          fi
+          tag_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$tag_ref")"
+          tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$tag_ref")"
+          if [ "$tag_type" = "tag" ]; then
+            tag_object="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
+            tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+              <<<"$tag_object")"
+            tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+              <<<"$tag_object")"
+          fi
+          if [ "$tag_type" != "commit" ] || [ "$tag_sha" != "$expected_commit" ]; then
+            echo "tag no longer resolves to the verified release commit" >&2
+            exit 1
+          fi
+
+          printf 'linux/amd64\nlinux/arm64\n' \
+            >"$RUNNER_TEMP/verified-release-platforms.txt"
+          : >"$RUNNER_TEMP/verified-release-image-digests.txt"
+          image_index=0
+          version="${GITHUB_REF_NAME#v}"
+          for image in \
+            "ghcr.io/dantte-lp/gobfd:${version}-debian-trixie" \
+            "ghcr.io/dantte-lp/gobfd:${version}-oraclelinux10"; do
+            raw_manifest="$RUNNER_TEMP/verified-release-image-${image_index}.json"
+            actual_platforms="$RUNNER_TEMP/verified-release-platforms-${image_index}.txt"
+            docker buildx imagetools inspect --raw "$image" >"$raw_manifest"
+            jq -r '
+              .manifests[] |
+              "\(.platform.os)/\(.platform.architecture)"
+            ' "$raw_manifest" | LC_ALL=C sort -u >"$actual_platforms"
+            diff -u "$RUNNER_TEMP/verified-release-platforms.txt" \
+              "$actual_platforms"
+            image_digest="$(sha256sum "$raw_manifest")"
+            image_digest="${image_digest%% *}"
+            printf '%s sha256:%s\n' "$image" "$image_digest" \
+              >>"$RUNNER_TEMP/verified-release-image-digests.txt"
+            image_index=$((image_index + 1))
+          done
+          diff -u release-image-digests.txt \
+            "$RUNNER_TEMP/verified-release-image-digests.txt"
+
+          release_json="$(gh release view "$GITHUB_REF_NAME" \
+            --json isDraft,tagName,body,assets)"
+          jq -e --arg tag "$GITHUB_REF_NAME" '
+            .isDraft == true and
+            .tagName == $tag and
+            (.body | length > 0) and
+            ([.assets[].name] | any(endswith(".sbom.json")))
+          ' <<<"$release_json"
+          jq -r '.assets[].name' <<<"$release_json" | LC_ALL=C sort -u \
+            >"$RUNNER_TEMP/actual-release-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
+            "$RUNNER_TEMP/actual-release-assets.txt"
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

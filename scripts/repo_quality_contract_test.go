@@ -98,6 +98,48 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	}
 }
 
+func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
+	t.Parallel()
+
+	configuration := readContractFile(t, "../.goreleaser.yml")
+	requireContractStrings(t, "GoReleaser configuration", configuration, []string{
+		"release:\n  draft: true\n  mode: keep-existing\n",
+	})
+	for _, forbidden := range []string{
+		"use_existing_draft: true",
+		"replace_existing_draft: true",
+		"replace_existing_artifacts: true",
+	} {
+		if strings.Contains(configuration, forbidden) {
+			t.Errorf("GoReleaser configuration enables forbidden retry behavior %q", forbidden)
+		}
+	}
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	requireContractStrings(t, "release workflow", workflow, []string{
+		"gh release upload \"$GITHUB_REF_NAME\" \\",
+		"Refuse existing release, draft, or versioned OCI tag",
+		"Verify exact release draft",
+		"expected-release-assets.txt",
+		"release-image-digests.txt",
+		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
+	})
+	for _, forbidden := range []string{"--clobber", "--notes-file", " --notes "} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("release workflow retains forbidden mutation marker %q", forbidden)
+		}
+	}
+	upload := strings.LastIndex(workflow, "gh release upload \"$GITHUB_REF_NAME\"")
+	verification := strings.LastIndex(workflow, "Verify exact release draft")
+	publication := strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false")
+	if upload < 0 || verification < upload || publication < verification {
+		t.Error("release ordering is not upload, exact verification, then publication")
+	}
+	if strings.LastIndex(workflow, "gh release ") != publication {
+		t.Error("publishing is not the final gh release mutation")
+	}
+}
+
 func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
 	t.Parallel()
 
