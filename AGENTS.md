@@ -143,9 +143,12 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
 - `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
 - Fixes use `fix/vMAJOR.MINOR-*`, enter the supported line through reviewed
   pull requests, and are forward-ported separately when applicable.
-- Release-branch and tag rulesets must exist before matching refs are created.
+- The release-branch ruleset must be active before each new matching release
+  branch is created. The tag ruleset must be active before each new matching
+  tag is created, specifically before `v0.6.2`.
 - A release tag points to the exact reviewed release-branch commit and is
-  never moved, deleted, or reused.
+  never moved, deleted, or reused. Existing `v0.1.0` through `v0.6.1` tags are
+  preserved unchanged.
 - GitHub Release assets must be complete and verified while the release is a
   draft, before immutable publication.
 

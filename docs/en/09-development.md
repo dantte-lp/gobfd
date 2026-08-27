@@ -70,11 +70,14 @@ maintainers assess the same defect on `master` and `dev`; an applicable fix is
 forward-ported through a separate reviewed pull request. Release-preparation
 changes follow the same reviewed path on the applicable supported line.
 
-Release-branch and tag rulesets must exist before their matching refs. A stable
-tag points to the exact reviewed commit on the applicable release branch and is
-never moved, deleted, or reused. The tag-triggered GitHub Actions workflow
+The release-branch ruleset must be active before each new matching release
+branch is created. The tag ruleset must be active before each new matching tag
+is created, specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1`
+tags remain unchanged and are never moved, deleted, or reused. A new stable tag
+points to the exact reviewed commit on the applicable release branch and is
+also never moved, deleted, or reused. The tag-triggered GitHub Actions workflow
 creates a draft GitHub Release, completes and verifies its notes and assets,
-and publishes it only as the final mutation.
+and automatically publishes it only as the final mutation.
 
 ### Make Targets
 

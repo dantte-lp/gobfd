@@ -43,11 +43,16 @@ require:
 2. `make verify VERSION=vX.Y.Z` and required interop gates for protocol
    changes on that exact commit.
 3. Updated changelog entries and a Conventional Commit release commit.
-4. Release-branch and tag rulesets established before the corresponding refs.
-5. An immutable SemVer tag pointing to the exact reviewed release-branch
-   commit; the tag is never moved, deleted, or reused.
-6. GitHub Actions creation of a draft release whose assets and notes are
-   complete and verified before a maintainer authorizes immutable publication.
+4. The release-branch ruleset active before each new matching branch is
+   created, and the tag ruleset active before each new matching tag is created,
+   specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1` tags are
+   preserved unchanged and are never moved, deleted, or reused.
+5. Maintainer authorization occurs when the exact reviewed annotated SemVer tag
+   is pushed. The tag points to the reviewed release-branch commit and is never
+   moved, deleted, or reused.
+6. GitHub Actions then creates a draft release, builds and verifies all release
+   evidence, and automatically publishes the complete draft as its final
+   mutation.
 
 Every fix accepted on a supported line requires an explicit assessment of
 whether the defect also exists on `master` or `dev`. Applicable fixes are

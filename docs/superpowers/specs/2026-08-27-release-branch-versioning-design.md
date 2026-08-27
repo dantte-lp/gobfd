@@ -100,8 +100,10 @@ normal reviewed path before a tag is created.
    review. Do not merge while its review decision is unresolved.
 3. Merge PR #63 into `master` without rewriting the published `dev` history.
    The merge method must preserve the reviewed commit ancestry.
-4. Create and verify the `release/v*` branch ruleset and the `v*` tag ruleset
-   before a matching branch or release tag exists.
+4. Create and verify the `release/v*` branch ruleset before the new
+   `release/v0.6` branch is created, and the `v*` tag ruleset before the new
+   `v0.6.2` tag is created. Preserve the existing `v0.1.0` through `v0.6.1`
+   tags unchanged; do not move, delete, or reuse them.
 5. Create `release/v0.6` at the exact accepted v0.6.2 release commit. Record the
    commit SHA in Beads and release evidence, then verify that the pre-existing
    ruleset applies to the new branch.

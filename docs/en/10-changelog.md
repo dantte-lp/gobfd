@@ -120,8 +120,11 @@ is accepted, maintainers assess whether a separate reviewed forward-port to
 `master` or `dev` is required. Release preparation follows the applicable
 supported line.
 
-Release-branch and tag rulesets must exist before matching refs are created.
-When preparing v0.6.2 from `release/v0.6`:
+The release-branch ruleset must be active before each new matching release
+branch is created. The tag ruleset must be active before each new matching tag
+is created, specifically before `v0.6.2`. Existing `v0.1.0` through `v0.6.1`
+tags remain unchanged and are never moved, deleted, or reused. When preparing
+v0.6.2 from `release/v0.6`:
 
 1. **Move entries** from `[Unreleased]` to a new version section:
 
@@ -152,14 +155,25 @@ When preparing v0.6.2 from `release/v0.6`:
 4. **Tag the exact reviewed release-branch commit and push explicit refs**:
 
    ```bash
-   release_commit=$(git rev-parse 'release/v0.6^{commit}')
-   git tag -a v0.6.2 "$release_commit" -m "Release v0.6.2"
-   git push origin release/v0.6
+   set -euo pipefail
+
+   release_sha=$(git rev-parse --verify 'refs/heads/release/v0.6^{commit}')
+   git push origin refs/heads/release/v0.6:refs/heads/release/v0.6
+
+   read -r remote_sha remote_ref < <(
+     git ls-remote --exit-code origin refs/heads/release/v0.6
+   )
+   test "$remote_ref" = refs/heads/release/v0.6
+   test "$remote_sha" = "$release_sha"
+
+   git tag -a v0.6.2 "$release_sha" -m "Release v0.6.2"
    git push origin refs/tags/v0.6.2:refs/tags/v0.6.2
    ```
 
-   Never move, delete, or reuse a release tag. A failed published release is
-   corrected with a new patch version.
+   The tag push is authorized only after the remote branch ref and commit equal
+   the reviewed local branch ref and `release_sha`. Never move, delete, or reuse
+   a release tag. A failed published release is corrected with a new patch
+   version.
 
 5. **GitHub Actions** uses draft-first publication:
    - Runs the full test suite.

@@ -120,8 +120,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 проверенный forward-port в `master` или `dev`. Подготовка релиза ведётся в
 соответствующей поддерживаемой линии.
 
-Наборы правил для релизных веток и тегов должны существовать до появления
-соответствующих ссылок Git. При подготовке v0.6.2 из `release/v0.6`:
+Набор правил для релизных веток должен быть активен до создания каждой новой
+подходящей релизной ветки. Набор правил для тегов должен быть активен до
+создания каждого нового подходящего тега, в частности до `v0.6.2`. Существующие
+теги с `v0.1.0` по `v0.6.1` сохраняются без изменений: их никогда не
+перемещают, не удаляют и не используют повторно. При подготовке v0.6.2 из
+`release/v0.6`:
 
 1. **Перенесите записи** из `[Unreleased]` в новую секцию версии:
 
@@ -153,12 +157,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    явные ссылки**:
 
    ```bash
-   release_commit=$(git rev-parse 'release/v0.6^{commit}')
-   git tag -a v0.6.2 "$release_commit" -m "Release v0.6.2"
-   git push origin release/v0.6
+   set -euo pipefail
+
+   release_sha=$(git rev-parse --verify 'refs/heads/release/v0.6^{commit}')
+   git push origin refs/heads/release/v0.6:refs/heads/release/v0.6
+
+   read -r remote_sha remote_ref < <(
+     git ls-remote --exit-code origin refs/heads/release/v0.6
+   )
+   test "$remote_ref" = refs/heads/release/v0.6
+   test "$remote_sha" = "$release_sha"
+
+   git tag -a v0.6.2 "$release_sha" -m "Release v0.6.2"
    git push origin refs/tags/v0.6.2:refs/tags/v0.6.2
    ```
 
+   Отправка тега разрешена только после подтверждения, что ссылка и коммит
+   удалённой ветки совпадают с проверенной локальной веткой и `release_sha`.
    Релизный тег никогда не перемещают, не удаляют и не используют повторно.
    Ошибку в опубликованном релизе исправляют новой patch-версией.
 
