@@ -17,18 +17,20 @@ remains available for reviewed critical correctness and security patches after
 dependencies are implementation details and may change within a compatible
 product line.
 
-The v0.6.2 Git tag and GitHub Release are created from the exact qualified
-commit on `release/v0.6`. A tag ruleset and GitHub immutable releases enforce
-the tag and asset identity after publication. The branch is the maintained
-source line from which later v0.6.x tags are cut.
+The v0.6.2 Git tag was created from the exact qualified commit on
+`release/v0.6`, but its workflow failed before a GitHub Release or assets were
+created. The tag remains immutable. The reviewed runner fix and updated release
+notes produce `v0.6.3` as the first publication from the maintained branch. A
+tag ruleset and GitHub immutable releases enforce tag and asset identity after
+publication. The branch remains the source line for later v0.6.x tags.
 
 ## Evidence and constraints
 
 The live repository state checked on 2026-08-27 establishes these constraints:
 
 - `master` is the protected default branch at merge commit
-  `5438afae0e3ea88286c5339f17a51ac9b654e8d2`; the latest published tag remains
-  `v0.6.1` until the qualified v0.6.2 cut completes.
+  `48ef04e158dbc923173f44932a4686747bf873ee`; the latest published tag remains
+  `v0.6.1` until the qualified v0.6.3 recovery cut completes.
 - PR #63 merged the independently reviewed `dev` head
   `2e6335cb310f8654a74ca348916386a47cf33d87` after all 20 contexts completed.
 - `.github/workflows/release.yml` runs only for pushed `v*` tags and creates the
@@ -258,15 +260,18 @@ The implementation is accepted only with evidence that:
    branch creation.
 3. `gh api` reports the intended branch and tag ruleset conditions,
    protections, and immutable-release setting.
-4. `git merge-base --is-ancestor` proves the v0.6.2 tag commit belongs to
-   `release/v0.6` and to the reviewed stable history.
-5. the release workflow extracts non-empty v0.6.2 notes before the tag push.
+4. `git merge-base --is-ancestor` proves both the preserved v0.6.2 tag commit
+   and the v0.6.3 recovery tag commit belong to `release/v0.6` and to reviewed
+   stable history.
+5. the release workflow extracts non-empty v0.6.3 recovery notes before the
+   recovery tag push.
 6. bounded local Go race/build, vulnerability, Buf, documentation, workflow,
    and release-dry-run gates pass on the exact release commit.
 7. a release workflow contract check proves that no asset upload or release
    note edit follows publication.
-8. post-publication GitHub API and registry queries resolve assets and images
-   to the released tag and expected immutable digests.
+8. post-publication GitHub API and registry queries resolve v0.6.3 assets and
+   images to the recovery tag and expected immutable digests, while v0.6.2
+   remains unchanged without a GitHub Release.
 
 Go specification and gopls checks remain mandatory when Go source or build
 constraints change. This branch-policy slice does not invent a Go-language
@@ -278,9 +283,9 @@ the repository's normal Go gates against non-empty package input.
 Before a public tag exists, release preparation can be corrected through new
 reviewed commits. No force-push or history rewrite is used.
 
-After `v0.6.2` is published, the tag and assets are immutable release evidence.
-A defect is handled on `fix/v0.6-*` and released as `v0.6.3`; the previous tag
-is not moved, deleted, or reused. If a transient workflow step fails before
+After any v0.6.x release is published, its tag and assets are immutable release
+evidence. A defect is handled on `fix/v0.6-*` and released as the next patch;
+the previous tag is not moved, deleted, or reused. If a transient workflow step fails before
 GoReleaser creates the draft, a rerun first proves that no release, draft, or
 exact versioned OCI tag exists for the cut. Once a draft, release asset, or
 versioned OCI tag exists, do not silently reuse, delete, or replace it: record
@@ -288,3 +293,16 @@ the failed cut for maintainer analysis and fix forward with the next patch
 version. If the tagged workflow itself is defective, do not rewrite the tag. If
 a ruleset or workflow filter is wrong, tag creation pauses until the live
 configuration and a PR check run prove the repair.
+
+### Observed first-cut recovery
+
+The annotated `v0.6.2` tag was created at
+`48ef04e158dbc923173f44932a4686747bf873ee` after its exact-commit preflight.
+Workflow run `33083358370` then failed in the test job before GoReleaser,
+draft creation, asset upload, or OCI publication. The release test job wrote
+smoke-build binaries into the checkout and lacked the repository-required uv,
+Podman, and checksum-pinned Compose provider; the reports job shared the
+Podman gap. These are workflow-environment defects, so rerunning the immutable
+tag cannot correct them. The tag remains unchanged, the minimal runner parity
+fix enters through `fix/v0.6-release-workflow`, and the recovery release is
+`v0.6.3` as required by the fix-forward policy above.

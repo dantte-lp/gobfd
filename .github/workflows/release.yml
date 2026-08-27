@@ -10,10 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -31,31 +34,62 @@ jobs:
             -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
             -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
             -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfdctl
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-haproxy-agent
-          go build -buildvcs=false -ldflags="${LDFLAGS}" ./cmd/gobfd-exabgp-bridge
+          install -d -m 0755 /tmp/gobfd-release-build
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfd ./cmd/gobfd
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfdctl ./cmd/gobfdctl
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
+          go build -buildvcs=false -ldflags="${LDFLAGS}" \
+            -o /tmp/gobfd-release-build/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
+
+      - name: Install test tools
+        run: |
+          .github/scripts/install-podman-runtime.sh
+          jq --version
+          .github/scripts/install-uv.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --frozen --no-default-groups --group quality
 
       - name: Test
         run: go test -buildvcs=false ./... -race -count=1
 
-      - name: Lint
-        run: make lint-ci
-
       - name: Vulnerability Audit
         run: go run ./scripts/vuln-audit.go
 
-  reports:
+  lint:
     runs-on: ubuntu-latest
-    needs: test
     permissions:
       contents: read
     container:
       image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cache Go modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Lint
+        run: make lint-ci
+
+  reports:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.0"
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -65,8 +99,10 @@ jobs:
 
       - name: Install report tools
         run: |
-          apt-get update && apt-get install -y --no-install-recommends ca-certificates coreutils curl tar
-          UV_INSTALL_DIR=/usr/local/bin .github/scripts/install-uv.sh
+          .github/scripts/install-podman-runtime.sh
+          jq --version
+          .github/scripts/install-uv.sh
+          export PATH="$HOME/.local/bin:$PATH"
           uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Run tests with JUnit output
@@ -138,7 +174,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [test, reports]
+    needs: [test, lint, reports]
     permissions:
       contents: write
       packages: write
