@@ -655,6 +655,14 @@ and tools module checks, and diff checks pass locally. The follow-up still must
 be re-inspected at its exact remote head after delivery. All current required
 checks and a current approval remain mandatory before Task 7.
 
+The exact remote follow-up confirmed `Lint (Go)`, SonarCloud, Codecov, and the
+security checks. It also exposed that the pinned Trivy action removes the
+configured severity filter for SARIF unless `limit-severities-for-sarif` is
+enabled, causing an `UNKNOWN` unfixed advisory to fail the declared
+`HIGH,CRITICAL` gate. The workflow now preserves that exact severity filter;
+the resulting remote Trivy context and the remaining checks still require
+verification before Task 7.
+
 ### Task 7: Merge the accepted stable commit and establish live protections
 
 **Files:**

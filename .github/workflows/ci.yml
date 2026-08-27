@@ -445,6 +445,7 @@ jobs:
           scan-ref: .
           severity: CRITICAL,HIGH
           format: sarif
+          limit-severities-for-sarif: true
           output: trivy-results.sarif
           exit-code: "1"
 
