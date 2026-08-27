@@ -365,7 +365,9 @@ Add one `## Release branches` section that states:
 - `release/v0.6` retains GoBGP v3.37.0 and v0.6 public contracts;
 - fixes use `fix/vMAJOR.MINOR-*`, enter through reviewed PRs, and are
   forward-ported separately when applicable;
-- release and tag rulesets exist before their refs;
+- the release ruleset exists before each new matching branch, and the tag
+  ruleset exists before each new matching tag, specifically before `v0.6.2`;
+  existing `v0.1.0` through `v0.6.1` tags remain unchanged;
 - a tag points to the exact reviewed release-branch commit and is never moved,
   deleted, or reused;
 - draft assets are complete and verified before immutable publication.
@@ -729,12 +731,13 @@ branch. It does not bypass checks on later updates.
 Read it back through `gh api` and compare its normalized JSON to the intended
 policy.
 
-- [ ] **Step 4: Create `release-tags` before the tag**
+- [ ] **Step 4: Create `release-tags` before the new v0.6.2 tag**
 
 POST a tag ruleset matching `refs/tags/v*` that blocks deletion and
 non-fast-forward updates without blocking creation of a new SemVer tag. Read it
 back and verify the exact condition. Its rules contain only `deletion` and
-`non_fast_forward`; do not add a `creation` rule.
+`non_fast_forward`; do not add a `creation` rule. Preserve existing `v0.1.0`
+through `v0.6.1` tags unchanged.
 
 - [ ] **Step 5: Enable immutable releases through the documented endpoint**
 
