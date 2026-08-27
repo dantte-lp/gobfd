@@ -276,6 +276,30 @@ jobs:
           ln -sf "${{ steps.syft.outputs.cmd }}" "$RUNNER_TEMP/syft-bin/syft"
           echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
 
+      - name: Verify UPX prerequisite
+        env:
+          UPX_VERSION: "4.2.2"
+        run: |
+          set -euo pipefail
+
+          if ! upx_output="$(upx --version 2>&1)"; then
+            echo "UPX prerequisite failed; expected upx $UPX_VERSION" >&2
+            echo "actual: ${upx_output:-command unavailable}" >&2
+            exit 1
+          fi
+          upx_first_line="${upx_output%%$'\n'*}"
+          actual_tool=""
+          actual_version=""
+          extra_token=""
+          read -r actual_tool actual_version extra_token <<<"$upx_first_line"
+          if [ "$actual_tool" != "upx" ] || \
+            [ "$actual_version" != "$UPX_VERSION" ] || \
+            [ -n "$extra_token" ]; then
+            echo "UPX prerequisite failed; expected first line: upx $UPX_VERSION" >&2
+            echo "actual first line: ${upx_first_line:-<empty>}" >&2
+            exit 1
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
