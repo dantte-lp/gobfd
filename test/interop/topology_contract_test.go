@@ -1473,7 +1473,6 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 
 	paths := []string{
 		filepath.Join(root, "bench"),
-		filepath.Join(root, "scripts", "gen-report.sh"),
 		filepath.Join(root, "scripts", "report-template.html"),
 	}
 	removedReferences := []string{"aio" + "bfd", "bit" + "string"}
@@ -1487,14 +1486,18 @@ func TestBenchmarkReportOperationalContract(t *testing.T) {
 	if strings.Contains(strings.ToLower(makefile), "bench-"+"python") {
 		t.Error("benchmark-cross retains the removed benchmark service")
 	}
-	generatorPath := filepath.Join(root, "scripts", "gen-report.sh")
-	generator := readContractFile(t, "benchmark report generator", generatorPath)
-	assertContainsAll(t, "benchmark report generator", generator, []string{
-		`go -C "${PROJECT_DIR}" run ./test/cmd/benchreport --`,
-		`"${META_JSON}" "${TEMPLATE}" "${OUTPUT}"`,
+	recipeStart := strings.Index(makefile, "benchmark-report:\n")
+	recipeEnd := strings.Index(makefile, "\n# === Quality ===")
+	if recipeStart < 0 || recipeEnd < recipeStart {
+		t.Fatal("Makefile lacks a bounded benchmark-report recipe")
+	}
+	reportRecipe := makefile[recipeStart:recipeEnd]
+	assertContainsAll(t, "benchmark report generator", reportRecipe, []string{
+		`go run ./test/cmd/benchreport --`,
+		`"$(BENCH_META_JSON)" "$(BENCH_REPORT_TEMPLATE)" "$(BENCH_REPORT_OUTPUT)"`,
 	})
 	for _, removed := range []string{"uv run", "python -", "<<'PY'", "tempfile.NamedTemporaryFile"} {
-		if strings.Contains(generator, removed) {
+		if strings.Contains(reportRecipe, removed) {
 			t.Errorf("benchmark report generator retains removed Python renderer marker %q", removed)
 		}
 	}
@@ -1575,7 +1578,7 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) build`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-c`,
 		`BENCH_RESULTS_DIR="$(BENCH_RESULTS)" $(BENCH_DC) run --rm bench-go`,
-		`./scripts/gen-report.sh "$(BENCH_RESULTS)"`,
+		`go run ./test/cmd/benchreport --`,
 	})
 	spaceResults := filepath.Join(t.TempDir(), "benchmark results with spaces")
 	dryRun := exec.CommandContext(
@@ -1590,7 +1593,7 @@ func TestBenchmarkResultMountContract(t *testing.T) {
 	assertContainsAll(t, "benchmark Make recipes with spaces", string(dryRunOutput), []string{
 		`mkdir -p "` + spaceResults + `"`,
 		`BENCH_RESULTS_DIR="` + spaceResults + `" podman compose -f bench/compose.yml build`,
-		`./scripts/gen-report.sh "` + spaceResults + `"`,
+		`"` + filepath.Join(spaceResults, "bench-go.txt") + `"`,
 	})
 }
 
@@ -1706,15 +1709,13 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	script := filepath.Join(root, "scripts", "gen-report.sh")
-
 	t.Run("success", func(t *testing.T) {
 		results := t.TempDir()
 		writeBenchmarkFixtures(t, results)
 		outputDir := t.TempDir()
 		output := filepath.Join(outputDir, "report.html")
 		writeFixture(t, output, "pre-existing report\n")
-		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
+		stdout, stderr, runErr := runBenchmarkReport(t, root, results, output, "")
 		if runErr != nil {
 			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
 		}
@@ -1756,7 +1757,7 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 		meta := filepath.Join(t.TempDir(), "meta.json")
 		writeFixture(t, meta, "{}\n")
 		output := filepath.Join(t.TempDir(), "report.html")
-		stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
+		stdout, stderr, runErr := runBenchmarkReport(t, root, results, output, meta)
 		if runErr != nil {
 			t.Fatalf("generate report: %v\nstdout:\n%s\nstderr:\n%s", runErr, stdout, stderr)
 		}
@@ -1777,7 +1778,7 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 		if err := os.Symlink(target, output); err != nil {
 			t.Fatalf("create output symlink: %v", err)
 		}
-		_, stderr, runErr := runBenchmarkReport(t, script, results, output, "")
+		_, stderr, runErr := runBenchmarkReport(t, root, results, output, "")
 		if runErr == nil {
 			t.Fatal("generator accepted a symlink output target")
 		}
@@ -1936,7 +1937,7 @@ func TestBenchmarkReportGenerator(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "report.html")
 			const previousReport = "previous complete report\n"
 			writeFixture(t, output, previousReport)
-			stdout, stderr, runErr := runBenchmarkReport(t, script, results, output, meta)
+			stdout, stderr, runErr := runBenchmarkReport(t, root, results, output, meta)
 			if runErr == nil {
 				t.Fatalf("generator accepted invalid input\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
 			}
@@ -2045,14 +2046,23 @@ func invalidMetadataMutation(contents string) func(*testing.T, string) string {
 	}
 }
 
-func runBenchmarkReport(t *testing.T, script, results, output, meta string) (string, string, error) {
+func runBenchmarkReport(t *testing.T, root, results, output, meta string) (string, string, error) {
 	t.Helper()
 
-	cmd := exec.CommandContext(t.Context(), script, results)
-	cmd.Env = append(os.Environ(), "BENCH_REPORT_OUTPUT="+output)
-	if meta != "" {
-		cmd.Env = append(cmd.Env, "BENCH_META_JSON="+meta)
+	if meta == "" {
+		meta = filepath.Join(root, "testdata", "benchmarks", "v0.4.0", "meta.json")
 	}
+	cmd := exec.CommandContext(
+		t.Context(),
+		"go", "run", "./test/cmd/benchreport", "--",
+		filepath.Join(results, "bench-go.txt"),
+		filepath.Join(results, "bench-c-frr.txt"),
+		filepath.Join(results, "bench-c-bird.txt"),
+		meta,
+		filepath.Join(root, "scripts", "report-template.html"),
+		output,
+	)
+	cmd.Dir = root
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

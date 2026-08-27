@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/dantte-lp/gobfd/test/internal/benchreport"
@@ -36,6 +37,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, now fun
 	goMaxProcs := getenv("GOMAXPROCS")
 	if goMaxProcs == "" {
 		goMaxProcs = "8"
+	}
+	if err := os.MkdirAll(filepath.Dir(args[5]), 0o750); err != nil {
+		return fmt.Errorf("create report output directory: %w", err)
 	}
 	if err := benchreport.Render(ctx, benchreport.Options{
 		GoInput:    args[0],

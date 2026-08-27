@@ -562,6 +562,9 @@ report-all: test-report benchmark-save benchmark-compare
 BENCH_COMPOSE := bench/compose.yml
 BENCH_DC := $(COMPOSE) -f $(BENCH_COMPOSE)
 BENCH_RESULTS := $(CURDIR)/bench-results
+BENCH_REPORT_OUTPUT ?= $(CURDIR)/reports/benchmarks/cross-comparison.html
+BENCH_META_JSON ?= $(CURDIR)/testdata/benchmarks/v0.4.0/meta.json
+BENCH_REPORT_TEMPLATE := $(CURDIR)/scripts/report-template.html
 
 benchmark-cross:
 	@mkdir -p "$(BENCH_RESULTS)"
@@ -571,7 +574,11 @@ benchmark-cross:
 	@echo "=== All benchmarks completed. Results in $(BENCH_RESULTS)/ ==="
 
 benchmark-report:
-	./scripts/gen-report.sh "$(BENCH_RESULTS)"
+	GCC_VERSION="gcc (Debian trixie)" go run ./test/cmd/benchreport -- \
+		"$(BENCH_RESULTS)/bench-go.txt" \
+		"$(BENCH_RESULTS)/bench-c-frr.txt" \
+		"$(BENCH_RESULTS)/bench-c-bird.txt" \
+		"$(BENCH_META_JSON)" "$(BENCH_REPORT_TEMPLATE)" "$(BENCH_REPORT_OUTPUT)"
 
 # === Quality ===
 

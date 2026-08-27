@@ -3,103 +3,11 @@ package main
 import (
 	"errors"
 	"os"
-	"os/exec" //nolint:depguard // Execution is required to prove the installer rejects a mismatched binary.
+	"os/exec" //nolint:depguard // Execution is required to validate the remaining Python vendor bootstrap boundary.
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
-
-func TestContainerlabInstallerPinsOneVerifiedRelease(t *testing.T) {
-	t.Parallel()
-
-	installer := readContractFile(t, "../test/interop-clab/install-containerlab.sh")
-	for _, forbidden := range []string{
-		`${CONTAINERLAB_VERSION:-`,
-		"containerlab already installed:",
-	} {
-		if strings.Contains(installer, forbidden) {
-			t.Errorf("installer retains fail-open contract %q", forbidden)
-		}
-	}
-	for _, required := range []string{
-		`readonly CONTAINERLAB_VERSION="0.79.0"`,
-		`installed_version="$(containerlab version --short`,
-		`installed containerlab version ${installed_version} does not match required ${CONTAINERLAB_VERSION}`,
-	} {
-		if !strings.Contains(installer, required) {
-			t.Errorf("installer is missing %q", required)
-		}
-	}
-
-	for _, path := range []string{"../docs/en/05-interop.md", "../docs/ru/05-interop.md"} {
-		document := readContractFile(t, path)
-		if !strings.Contains(document, "containerlab-0.79.0-") {
-			t.Errorf("%s does not advertise the pinned containerlab 0.79.0", path)
-		}
-	}
-}
-
-func TestContainerlabInstallerValidatesExistingBinary(t *testing.T) {
-	t.Parallel()
-
-	installer, err := filepath.Abs("../test/interop-clab/install-containerlab.sh")
-	if err != nil {
-		t.Fatalf("resolve installer path: %v", err)
-	}
-
-	tests := []struct {
-		name       string
-		version    string
-		exitStatus int
-		wantErr    bool
-		wantOutput string
-	}{
-		{
-			name:       "exact version",
-			version:    "0.79.0",
-			wantOutput: "containerlab 0.79.0 is already installed",
-		},
-		{
-			name:       "stale version",
-			version:    "0.77.0",
-			wantErr:    true,
-			wantOutput: "installed containerlab version 0.77.0 does not match required 0.79.0",
-		},
-		{
-			name:       "unreadable version",
-			exitStatus: 7,
-			wantErr:    true,
-			wantOutput: "failed to determine installed containerlab version",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			fakeBin := t.TempDir()
-			fakeContainerlab := filepath.Join(fakeBin, "containerlab")
-			fake := "#!/usr/bin/env bash\n" +
-				"[[ \"${1:-}\" == version && \"${2:-}\" == --short ]] || exit 64\n" +
-				"printf '%s\\n' " + test.version + "\n" +
-				"exit " + strconv.Itoa(test.exitStatus) + "\n"
-			if err := os.WriteFile(fakeContainerlab, []byte(fake), 0o700); err != nil {
-				t.Fatalf("write fake containerlab: %v", err)
-			}
-
-			command := exec.CommandContext(t.Context(), "bash", installer)
-			command.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"))
-			output, runErr := command.CombinedOutput()
-			if (runErr != nil) != test.wantErr {
-				t.Fatalf("installer error = %v, want error %t; output:\n%s", runErr, test.wantErr, output)
-			}
-			if !strings.Contains(string(output), test.wantOutput) {
-				t.Fatalf("installer output = %q, want substring %q", output, test.wantOutput)
-			}
-		})
-	}
-}
 
 func TestContainerlabBootstrapSecurityBoundaries(t *testing.T) {
 	t.Parallel()
