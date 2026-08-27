@@ -245,7 +245,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "legacy runner", path: filepath.Join(root, "test", "interop", "run.sh")},
 		{name: "Compose topology", path: filepath.Join(root, "test", "interop", "compose.yml")},
 		{name: "FRR configuration", path: filepath.Join(root, "test", "interop", "frr", "frr.conf")},
 		{name: "BIRD image", path: filepath.Join(root, "test", "interop", "bird3", "Containerfile")},
@@ -276,62 +275,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 
-	runner := contents["legacy runner"]
-	assertContainsAll(t, "legacy runner", runner, []string{
-		`INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"`,
-		`PROJECT_LABEL="com.docker.compose.project=${INTEROP_PROJECT_NAME}"`,
-		`-p "${INTEROP_PROJECT_NAME}"`,
-		`assert_project_available`,
-		`remove_project_resources`,
-		`verify_project_absent`,
-		`acquire_project_lock`,
-		`release_project_lock`,
-		`assert_fixed_names_available`,
-		`HOLO_IP="172.20.0.50"`,
-		`docker.io/debian:trixie-slim (for BIRD 3.3.2 source build)`,
-		`holo-interop`,
-		`holo-config`,
-		`/tmp/holod.err`,
-		`${INTEROP_PROJECT_NAME}_bfdnet`,
-		`for svc in gobfd frr bird3 holo thoro`,
-		`INTEROP_COMPOSE_OVERRIDE_FILE`,
-		`COMPOSE_ARGS`,
-		`=== Holo daemon logs ===`,
-		`=== Holo daemon /tmp/holod.err ===`,
-		`=== Holo configuration loader logs ===`,
-		`interop_verify_holo_running_configuration`,
-	})
-	assertOrdered(t, "legacy runner preflight and startup", runner, []string{
-		"acquire_project_lock",
-		"assert_project_available",
-		"assert_fixed_names_available",
-		"PROJECT_OWNED=true",
-		"build --no-cache",
-		"up -d holo holo-config",
-		"resolve_project_container_id holo-config-interop",
-		`podman wait "${holo_config_id}"`,
-		`podman inspect --format '{{.State.ExitCode}}' "${holo_config_id}"`,
-		`interop_verify_holo_running_configuration`,
-		"up -d --no-deps gobfd frr bird3 tshark thoro",
-	})
-	assertOrdered(t, "legacy runner cleanup", runner, []string{
-		"remove_project_resources",
-		"verify_project_absent",
-		"release_project_lock",
-	})
-	assertContainsAll(t, "legacy runner", runner, []string{
-		"test_bfd_invalid_vectors",
-		"gobfd-bfd-fuzz:latest",
-		"BFD Invalid-Vector Robustness",
-	})
-	obsoleteFuzzContracts := []string{
-		"gobfd-scapy-fuzz", "test_scapy_fuzzing", "--cap-add NET_RAW", "--cap-add NET_ADMIN",
-	}
-	for _, forbidden := range obsoleteFuzzContracts {
-		if strings.Contains(runner, forbidden) {
-			t.Errorf("legacy runner retains obsolete BFD fuzz contract %q", forbidden)
-		}
-	}
 	fuzzImage := contents["BFD fuzz image"]
 	assertContainsAll(t, "BFD fuzz image", fuzzImage, []string{
 		"golang:1.27.0-trixie@sha256:",
@@ -350,10 +293,7 @@ func TestInteropOperationalContract(t *testing.T) {
 	if strings.Contains(contents["container context"], "!test/interop/scapy/bfd_fuzz.py") {
 		t.Error("container context still permits the removed Python BFD fuzzer")
 	}
-	if strings.Contains(runner, "podman rm -f scapy-interop") {
-		t.Error("legacy runner removes an unlabelled Scapy container by name")
-	}
-	for _, name := range []string{"legacy runner", "routing runner"} {
+	for _, name := range []string{"routing runner"} {
 		if strings.Contains(contents[name], "podman network ls --no-trunc") ||
 			strings.Contains(contents[name], "podman volume rm --") {
 			t.Errorf("%s duplicates exact-label query/removal implementation outside project_guard.sh", name)
@@ -546,7 +486,7 @@ func TestInteropOperationalContract(t *testing.T) {
 	if got := strings.Count(sharedHoloVerifier, "jq -s -e"); got != 1 {
 		t.Errorf("shared Holo semantic verifier jq call count = %d, want 1", got)
 	}
-	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
+	for _, name := range []string{"routing runner", "project control"} {
 		if got := strings.Count(contents[name], "interop_verify_holo_running_configuration"); got != 1 {
 			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
 		}
@@ -685,7 +625,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`test_status=1`,
 		`return "${test_status}"`,
 	})
-	for _, name := range []string{"legacy runner", "routing runner", "project control"} {
+	for _, name := range []string{"routing runner", "project control"} {
 		if strings.Contains(contents[name], "down --volumes --remove-orphans") {
 			t.Errorf("%s retains name-based Compose cleanup", name)
 		}
@@ -759,31 +699,11 @@ func TestInteropJitterAnalyzerContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
-	assertContainsAll(t, "legacy jitter analyzer", jitterFunction, []string{
-		`go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/bfdjitter`,
-		`if ! jitter_tsv="$(tshark_fields`,
-		`"frame.time_epoch" "bfd.sta" "bfd.flags.p" "bfd.flags.f"`,
-	})
-	for _, forbidden := range []string{"python3", "head -200"} {
-		if strings.Contains(jitterFunction, forbidden) {
-			t.Errorf("legacy jitter analyzer retains forbidden command %q", forbidden)
-		}
-	}
-
 	tagged := readContractFile(t, "tagged Go helper", filepath.Join(root, "test", "interop", "interop_test.go"))
 	assertContainsAll(t, "tagged jitter analyzer", tagged, []string{
 		`"github.com/dantte-lp/gobfd/test/internal/bfdjitter"`,
 		`bfdjitter.Evaluate(strings.NewReader(output))`,
 		`[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0`,
-	})
-	assertOrdered(t, "legacy jitter before mutations", runner, []string{
-		`assert_pass test_rfc5880_jitter_compliance`,
-		`assert_pass test_rfc5880_session_independence`,
-		`assert_pass test_rfc5880_frr_admin_down`,
-		`assert_pass test_rfc5880_poll_final_parameter_change`,
-		`assert_pass test_gobfd_graceful_shutdown`,
 	})
 	assertOrdered(t, "tagged jitter before mutations", tagged, []string{
 		`t.Run("RFC5880_6.8.7_JitterCompliance"`,
@@ -803,121 +723,19 @@ func TestInteropOwnedInlinePythonPortContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	legacy := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
 	bgp := readContractFile(
 		t,
 		"Go BGP lifecycle",
 		filepath.Join(root, "test", "interop-bgp", "testcontainers_topology_test.go"),
 	)
 
-	assertContainsAll(t, "legacy Go interop helper", legacy, []string{
-		`INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)`,
-		`frr-bfd-peer-status "${peer_ip}"`,
-		`detection-gap "${first_down_epoch}" 3.0`,
-	})
 	assertContainsAll(t, "Go BGP lifecycle", bgp, []string{
 		`func runBGPBFDTestcontainers`,
 		`runBGPTestAssertions`,
 		`captureBGPTestPCAP`,
 	})
-	for name, runner := range map[string]string{"legacy": legacy, "Go BGP": bgp} {
-		if strings.Contains(runner, "UV_"+"PYTHON") {
-			t.Errorf("%s runner retains inline Python invocation", name)
-		}
-	}
-}
-
-func TestInteropJitterTsharkFailureIsFatal(t *testing.T) {
-	t.Parallel()
-
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
-	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
-	goCallLog := filepath.Join(t.TempDir(), "go-called")
-	script := strings.Join([]string{
-		"set -uo pipefail",
-		`info() { :; }`,
-		`fail() { printf '%s\n' "$*" >&2; }`,
-		`pass() { :; }`,
-		`tshark_fields() { return 42; }`,
-		`go() { printf 'skip\tinsufficient-up-packets\t0\t0.000000\t0.000000\t0\n'; printf called >"${GO_CALL_LOG}"; }`,
-		`SCRIPT_DIR=/tmp/repository/test/interop`,
-		`GOBFD_IP=172.20.0.10`,
-		`FRR_IP=172.20.0.20`,
-		`BIRD3_IP=172.20.0.30`,
-		`HOLO_IP=172.20.0.50`,
-		`THORO_IP=172.20.0.60`,
-		"test_rfc5880_jitter_compliance() {\n" + jitterFunction + "\n}",
-		`if test_rfc5880_jitter_compliance; then status=0; else status=$?; fi`,
-		`exit "${status}"`,
-	}, "\n")
-	command := exec.CommandContext(t.Context(), "bash", "-c", script)
-	command.Env = append(os.Environ(), "GO_CALL_LOG="+goCallLog)
-	output, err := command.CombinedOutput()
-	if err == nil {
-		t.Fatalf("jitter check skipped failed tshark query: %s", output)
-	}
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) || exitError.ExitCode() != 1 {
-		t.Fatalf("jitter check status = %v, want 1: %s", err, output)
-	}
-	if _, err := os.Stat(goCallLog); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("native analyzer ran after tshark failure: %v", err)
-	}
-}
-
-func TestInteropJitterConsumesCompleteTsharkStream(t *testing.T) {
-	t.Parallel()
-
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
-	runner := readContractFile(t, "legacy runner", filepath.Join(root, "test", "interop", "run.sh"))
-	jitterFunction := shellFunctionBody(t, runner, "test_rfc5880_jitter_compliance")
-	countLog := filepath.Join(t.TempDir(), "analyzer-counts")
-	script := strings.Join([]string{
-		"set -uo pipefail",
-		`info() { :; }`,
-		`fail() { printf '%s\n' "$*" >&2; }`,
-		`pass() { :; }`,
-		`tshark_fields() {
-  local index=0
-  while [ "${index}" -lt 250 ]; do
-    printf '%d.000\t3\tFalse\tFalse\n' "${index}"
-    index=$((index + 1))
-  done
-}`,
-		`go() {
-  local count
-  count="$(awk 'END { print NR }')"
-  printf '%s\n' "${count}" >>"${COUNT_LOG}"
-  [ "${count}" -eq 250 ] || return 9
-  printf 'pass\twithin-bounds\t250\t0.225000\t0.300000\t249\n'
-}`,
-		`SCRIPT_DIR=/tmp/repository/test/interop`,
-		`GOBFD_IP=172.20.0.10`,
-		`FRR_IP=172.20.0.20`,
-		`BIRD3_IP=172.20.0.30`,
-		`HOLO_IP=172.20.0.50`,
-		`THORO_IP=172.20.0.60`,
-		"test_rfc5880_jitter_compliance() {\n" + jitterFunction + "\n}",
-		`test_rfc5880_jitter_compliance`,
-	}, "\n")
-	command := exec.CommandContext(t.Context(), "bash", "-c", script)
-	command.Env = append(os.Environ(), "COUNT_LOG="+countLog)
-	if output, runErr := command.CombinedOutput(); runErr != nil {
-		t.Fatalf("jitter check truncated tshark stream: %v: %s", runErr, output)
-	}
-	counts, err := os.ReadFile(countLog)
-	if err != nil {
-		t.Fatalf("read analyzer row counts: %v", err)
-	}
-	if got, want := strings.Fields(string(counts)), []string{"250", "250", "250", "250"}; !slices.Equal(got, want) {
-		t.Fatalf("native analyzer row counts = %v, want %v", got, want)
+	if strings.Contains(bgp, "UV_"+"PYTHON") {
+		t.Error("Go BGP lifecycle retains inline Python invocation")
 	}
 }
 
