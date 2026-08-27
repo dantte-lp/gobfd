@@ -19,6 +19,12 @@ var (
 
 const executablePodman = "podman"
 
+const (
+	executableContainerlab = "containerlab"
+	// ContainerlabVersion is the exact CLI version required by the vendor interoperability harness.
+	ContainerlabVersion = "0.79.0"
+)
+
 // ImageTags contains the operator-visible vendor image tags.
 type ImageTags struct {
 	Nokia  string

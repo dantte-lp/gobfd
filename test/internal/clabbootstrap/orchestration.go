@@ -3,6 +3,7 @@ package clabbootstrap
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -78,6 +79,39 @@ func validateOptions(options Options, runner Runner) error {
 }
 
 func runPreflight(ctx context.Context, options Options, runner Runner) error {
+	versionResult, err := runner.Run(ctx, Command{
+		Executable: executableContainerlab,
+		Arguments:  []string{"version", "-j"},
+		DryRun:     options.DryRun,
+	})
+	if err != nil {
+		return fmt.Errorf("run containerlab version preflight: %w", err)
+	}
+	if !options.DryRun {
+		if versionResult.ExitCode != 0 {
+			return fmt.Errorf(
+				"run containerlab version preflight: exit %d: %s: %w",
+				versionResult.ExitCode,
+				versionResult.Stderr,
+				ErrBootstrapFailed,
+			)
+		}
+		var version struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(versionResult.Stdout), &version); err != nil {
+			return fmt.Errorf("decode containerlab version JSON: %w", err)
+		}
+		if version.Version != ContainerlabVersion {
+			return fmt.Errorf(
+				"containerlab version %q, require %q: %w",
+				version.Version,
+				ContainerlabVersion,
+				errInvalidBootstrapOptions,
+			)
+		}
+	}
+
 	commands := []Command{
 		{
 			Executable: executablePodman,

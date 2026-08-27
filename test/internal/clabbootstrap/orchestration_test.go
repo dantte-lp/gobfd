@@ -17,6 +17,9 @@ type recordingRunner struct {
 
 func (runner *recordingRunner) Run(_ context.Context, command Command) (Result, error) {
 	runner.commands = append(runner.commands, command)
+	if command.Executable == executableContainerlab {
+		return Result{Stdout: `{"version":"` + ContainerlabVersion + `"}`}, nil
+	}
 	if len(command.Arguments) >= 3 && command.Executable == "podman" &&
 		command.Arguments[0] == "image" && command.Arguments[1] == "exists" {
 		return Result{ExitCode: 1}, nil

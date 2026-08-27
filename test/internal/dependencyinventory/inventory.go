@@ -2378,6 +2378,7 @@ var (
 	declaredARGPattern      = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*_VERSION)=([^\s]+)`)
 	versionVarPattern       = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)="?\$\{[^:}]+:-([^}"]+)}`)
 	fixedVersionVar         = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)=["']?([^"'\s]+)["']?\s*$`)
+	goContainerlabVersion   = regexp.MustCompile(`^\s*ContainerlabVersion\s*=\s*"([^"]+)"`)
 	workflowToolVersion     = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
 	pythonDependency        = regexp.MustCompile(`^\s*"([a-z0-9][a-z0-9_-]*)==([^"]+)",\s*$`)
 	uvRequiredVersion       = regexp.MustCompile(`^\s*required-version\s*=\s*"==([^"]+)"\s*$`)
@@ -2470,6 +2471,11 @@ func discoverDeclaredComponentsFromRoot(
 					addTool(components, relative, match[1], match[2], strings.TrimSpace(line))
 				} else if match := fixedVersionVar.FindStringSubmatch(line); match != nil {
 					addTool(components, relative, match[1], match[2], strings.TrimSpace(line))
+				}
+			}
+			if strings.HasSuffix(relative, ".go") {
+				if match := goContainerlabVersion.FindStringSubmatch(line); match != nil {
+					addTool(components, relative, "CONTAINERLAB_VERSION", match[1], strings.TrimSpace(line))
 				}
 			}
 			if relative == "pyproject.toml" {
@@ -2614,7 +2620,7 @@ func shouldScanDeclaredSource(relative string) bool {
 		return true
 	}
 	switch filepath.Ext(relative) {
-	case ".json", ".py", ".sh", ".yaml", ".yml":
+	case ".go", ".json", ".py", ".sh", ".yaml", ".yml":
 		return true
 	default:
 		return false
