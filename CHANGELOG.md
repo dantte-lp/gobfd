@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-08-27
+
+### Fixed
+
+- Release qualification now writes its four smoke-build binaries outside the
+  checkout and installs the checksum-pinned Podman Compose and uv test tools in
+  both full-race jobs, while strict Go lint remains in its digest-pinned Debian
+  Trixie container. This prevents generated binaries and missing runner CLIs
+  from invalidating the release gate before artifact creation. The immutable
+  `v0.6.2` tag remains the failed first cut without a GitHub Release or assets;
+  `v0.6.3` is its fix-forward recovery release.
+
 ## [0.6.2] - 2026-08-27
+
+> Release status: the immutable tag was created, but workflow run `33083358370`
+> failed before draft or asset creation. The tag is preserved and superseded by
+> the `v0.6.3` recovery release.
 
 ### Added
 
@@ -510,7 +526,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI pipeline: build, test, lint, govulncheck, buf lint/breaking.
 - Bilingual documentation (English and Russian).
 
-[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0

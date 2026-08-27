@@ -7,7 +7,23 @@
 
 ## [Не выпущено]
 
+## [0.6.3] - 2026-08-27
+
+### Исправлено
+
+- Release qualification теперь записывает четыре smoke-build binary вне
+  checkout и устанавливает checksum-pinned Podman Compose и uv test tools в
+  обоих full-race jobs, а строгий Go lint остаётся в digest-pinned контейнере
+  Debian Trixie. Поэтому сгенерированные binary и отсутствующие runner CLI
+  больше не блокируют release gate до создания артефактов. Неизменяемый тег
+  `v0.6.2` остаётся первой неудачной попыткой без GitHub Release и артефактов;
+  `v0.6.3` является её fix-forward recovery release.
+
 ## [0.6.2] - 2026-08-27
+
+> Статус релиза: неизменяемый тег создан, но workflow run `33083358370`
+> завершился ошибкой до создания draft или артефактов. Тег сохранён; следующей
+> fix-forward версией является recovery-релиз `v0.6.3`.
 
 ### Добавлено
 
@@ -501,7 +517,8 @@
 - CI-пайплайн: сборка, тесты, линтер, govulncheck, buf lint/breaking.
 - Двуязычная документация (английский и русский).
 
-[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...HEAD
+[Не выпущено]: https://github.com/dantte-lp/gobfd/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/dantte-lp/gobfd/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/dantte-lp/gobfd/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/dantte-lp/gobfd/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/dantte-lp/gobfd/compare/v0.5.2...v0.6.0

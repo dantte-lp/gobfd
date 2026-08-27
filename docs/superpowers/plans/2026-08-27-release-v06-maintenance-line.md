@@ -2,9 +2,21 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Establish protected `release/v0.6` maintenance ownership for GoBGP v3.37.0 and publish v0.6.2 from its exact reviewed commit without blocking future v1/GoBGP v4 development on `dev`.
+**Goal:** Establish protected `release/v0.6` maintenance ownership for GoBGP
+v3.37.0 and publish the qualified v0.6 patch line without blocking future
+v1/GoBGP v4 development on `dev`. The immutable `v0.6.2` tag records the
+failed first publication attempt; recovery publication uses `v0.6.3`.
 
-**Architecture:** Repository-owned contract tests make branch filters and draft-first immutable publication fail closed. The policy implementation first reaches `dev` and PR #63, then the reviewed stable commit reaches `master`; only afterward do GitHub rulesets, immutable-release settings, `release/v0.6`, and `v0.6.2` get created in that order. Later v0.6 fixes enter through short-lived `fix/v0.6-*` branches and are forward-ported separately when applicable.
+**Architecture:** Repository-owned contract tests make branch filters and
+draft-first immutable publication fail closed. The policy implementation first
+reaches `dev` and PR #63, then the reviewed stable commit reaches `master`;
+only afterward do GitHub rulesets, immutable-release settings,
+`release/v0.6`, and `v0.6.2` get created in that order. The v0.6.2 workflow
+failed before draft creation because its test jobs lacked repository-required
+runner tools and wrote binaries into the checkout. The tag remains unchanged;
+the minimal workflow correction enters through `fix/v0.6-*`, and `v0.6.3`
+becomes the recovery release. Later v0.6 fixes follow the same reviewed path
+and are forward-ported separately when applicable.
 
 **Tech Stack:** Git and Git worktrees, GitHub Actions, GitHub REST/GraphQL through `gh api`, GoReleaser v2.18.0, Go 1.27.0 contract tests, Buf, gopls v0.23.0, Beads.
 
@@ -27,7 +39,7 @@
 | `docs/en/09-development.md`, `docs/ru/09-development.md` | Bilingual development and backport workflow |
 | `docs/en/10-changelog.md`, `docs/ru/10-changelog.md` | Bilingual release-branch and tag procedure |
 | `docs/en/roadmap.md`, `docs/ru/roadmap.md` | v0.6 maintenance versus v1 development boundary |
-| `CHANGELOG.md` | Dated v0.6.2 release notes and comparison links |
+| `CHANGELOG.md` | Dated v0.6.2/v0.6.3 release notes and comparison links |
 | `docs/superpowers/specs/2026-08-27-release-branch-versioning-design.md` | Approved design source of truth |
 | `docs/superpowers/plans/2026-08-27-release-v06-maintenance-line.md` | Executable implementation checklist |
 
@@ -784,14 +796,14 @@ gh api repos/dantte-lp/gobfd/immutable-releases
 
 Expected GET result: `enabled: true`.
 
-- [ ] **Step 6: Update settings documentation with live IDs and state**
+- [x] **Step 6: Update settings documentation with live IDs and state**
 
 On a short-lived documentation branch from the accepted stable commit, replace
 pending markers in `.github/repository-settings.md` with verified ruleset IDs,
 conditions, required checks, and immutable-release state. Merge it through the
 normal reviewed path before tagging; do not claim unverified settings.
 
-### Task 8: Create `release/v0.6`, tag, and publish v0.6.2
+### Task 8: Create `release/v0.6`, preserve v0.6.2, and recover as v0.6.3
 
 **Files:**
 - Create remote branch: `release/v0.6`
@@ -799,25 +811,25 @@ normal reviewed path before tagging; do not claim unverified settings.
 - Update: GitHub Release and GHCR through the approved workflow
 - Update: Beads milestones after evidence
 
-- [ ] **Step 1: Resolve the exact release commit**
+- [x] **Step 1: Resolve the exact release commit**
 
 Fetch `master`, resolve the accepted commit containing the policy/settings
 documentation, and verify it is descended from the reviewed PR #63 head. Store
 the full SHA in Beads before creating refs.
 
-- [ ] **Step 2: Create and push the maintained branch**
+- [x] **Step 2: Create and push the maintained branch**
 
 Create local `release/v0.6` at the exact SHA, push only that branch, then use
 `gh api` to verify the remote ref and that `release-protection` applies. Do not
 create the branch in `/root`; any worktree for it belongs under repository
 `.worktrees/`.
 
-- [ ] **Step 3: Re-run exact-commit release preflight**
+- [x] **Step 3: Re-run exact-commit release preflight**
 
 Create `.worktrees/release-v0.6` from the existing branch. Run Task 5 against
 that exact commit and repeat the release-note extraction. Stop on any failure.
 
-- [ ] **Step 4: Create and push only the annotated v0.6.2 tag**
+- [x] **Step 4: Create and push only the annotated v0.6.2 tag**
 
 ```bash
 git tag -a v0.6.2 <FULL_RELEASE_SHA> -m "Release v0.6.2"
@@ -831,22 +843,28 @@ active. Do not use `--tags`.
 
 Use `gh run list`, `gh run view`, and `gh api` for the tag-triggered run. Do not
 start duplicate workflows. The release must remain a draft until all assets and
-the report are verified, then become published and immutable.
+the report are verified, then become published and immutable. Run
+`33083358370` for immutable tag `v0.6.2` failed in its test job before draft or
+asset creation: the release jobs had drifted from the normal CI runner-tool and
+isolated-build-output contract. Do not rerun that deterministic failure, move
+the tag, or reuse the version. Deliver the minimal fix through
+`fix/v0.6-release-workflow`, then monitor the single `v0.6.3` recovery run.
 
 - [ ] **Step 6: Verify public release evidence**
 
 Through GitHub API and GHCR, verify:
 
-- tag and release target the recorded full SHA;
+- `v0.6.2` remains unchanged at its recorded failed-attempt SHA;
+- the `v0.6.3` tag and release target the reviewed recovery SHA;
 - release is non-draft and non-prerelease;
-- notes are the v0.6.2 changelog section;
+- notes are the v0.6.3 changelog section;
 - checksums, archives, DEB/RPM packages, SBOMs, and report archive exist;
-- Debian Trixie and Oracle Linux 10 manifests exist for the exact v0.6.2 tags;
+- Debian Trixie and Oracle Linux 10 manifests exist for the exact v0.6.3 tags;
 - immutable releases remains enabled.
 
 - [ ] **Step 7: Close release tracking only after evidence is complete**
 
-Update `gobfd-qj0.8.1.15`, the v0.6.2 qualification task, and milestone with
+Update `gobfd-qj0.8.1.15`, the v0.6.3 qualification task, and milestone with
 exact SHAs, run IDs, asset/digest evidence, and any time-bounded advisory
 exception. Close only tasks whose acceptance criteria are fully satisfied.
 
