@@ -158,6 +158,60 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "release tag is not canonical stable SemVer: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          release_branch="release/v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          expected_commit="$(git rev-parse HEAD)"
+          if [ "$GITHUB_SHA" != "$expected_commit" ]; then
+            echo "checked-out commit does not equal the workflow tag commit" >&2
+            exit 1
+          fi
+
+          tag_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$tag_ref")"
+          tag_object_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$tag_ref")"
+          if [ "$tag_type" != "tag" ]; then
+            echo "release tag must be annotated: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          tag_object="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}")"
+          tag_name="$(jq -er '.tag | select(type == "string" and length > 0)' \
+            <<<"$tag_object")"
+          tag_target_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$tag_object")"
+          tag_target_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$tag_object")"
+          if [ "$tag_name" != "$GITHUB_REF_NAME" ] || \
+            [ "$tag_target_type" != "commit" ] || \
+            [ "$tag_target_sha" != "$expected_commit" ]; then
+            echo "annotated tag does not target the checked-out release commit" >&2
+            exit 1
+          fi
+
+          branch_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}")"
+          branch_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$branch_ref")"
+          branch_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$branch_ref")"
+          if [ "$branch_type" != "commit" ] || \
+            [ "$branch_sha" != "$expected_commit" ]; then
+            echo "$GITHUB_REF_NAME does not equal the exact $release_branch head" >&2
+            exit 1
+          fi
+          printf '%s\n' "$expected_commit" \
+            >"$RUNNER_TEMP/expected-release-commit.txt"
+          printf '%s\n' "$release_branch" \
+            >"$RUNNER_TEMP/expected-release-branch.txt"
+          printf '%s\n' "$tag_object_sha" \
+            >"$RUNNER_TEMP/expected-release-tag-object.txt"
+
           repository_owner="${GITHUB_REPOSITORY%%/*}"
           repository_name="${GITHUB_REPOSITORY#*/}"
           if [ -z "$repository_owner" ] || [ -z "$repository_name" ] || \
@@ -352,34 +406,27 @@ jobs:
         run: |
           set -euo pipefail
 
-          expected_commit="$(git rev-parse HEAD)"
-          tag_ref="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
-          tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
-            <<<"$tag_ref")"
-          tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
-            <<<"$tag_ref")"
-          if [ "$tag_type" = "tag" ]; then
-            tag_object="$(gh api \
-              "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
-            tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
-              <<<"$tag_object")"
-            tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
-              <<<"$tag_object")"
-          fi
-          if [ "$tag_type" != "commit" ] || [ "$tag_sha" != "$expected_commit" ]; then
-            echo "tag does not resolve to the checked-out release commit" >&2
+          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
+          if [ "$(git rev-parse HEAD)" != "$expected_commit" ]; then
+            echo "checked-out commit changed after release preflight" >&2
             exit 1
           fi
-          printf '%s\n' "$expected_commit" \
-            >"$RUNNER_TEMP/expected-release-commit.txt"
 
           jq -e '
             type == "array" and
-            (any(.[]; .type == "Archive")) and
-            (any(.[]; .type == "Linux Package")) and
-            (any(.[]; .type == "Checksum")) and
-            (any(.[]; .type == "SBOM")) and
+            ([.[] | select(.type == "Archive") |
+              [.goos, .goarch]] | sort) ==
+              [["linux", "amd64"], ["linux", "arm64"]] and
+            ([.[] | select(.type == "Linux Package") |
+              [.goos, .goarch, .extra.Format]] | sort) ==
+              [["linux", "amd64", "deb"], ["linux", "amd64", "rpm"],
+               ["linux", "arm64", "deb"], ["linux", "arm64", "rpm"]] and
+            ([.[] | select(.type == "SBOM") |
+              (.path | split("/")[-1])] | sort) ==
+              ([.[] | select(.type == "Archive") |
+                ((.path | split("/")[-1]) + ".sbom.json")] | sort) and
+            ([.[] | select(.type == "Checksum") |
+              (.path | split("/")[-1])]) == ["checksums.txt"] and
             ([.[] |
               select(.type == "Archive" or .type == "Linux Package" or
                 .type == "Checksum" or .type == "SBOM") |
@@ -390,10 +437,17 @@ jobs:
           jq -r '
             .[] |
             select(.type == "Archive" or .type == "Linux Package" or
+              .type == "SBOM") |
+            .path | split("/")[-1]
+          ' dist/artifacts.json | LC_ALL=C sort -u \
+            >"$RUNNER_TEMP/expected-checksummed-assets.txt"
+          jq -r '
+            .[] |
+            select(.type == "Archive" or .type == "Linux Package" or
               .type == "Checksum" or .type == "SBOM") |
             .path | split("/")[-1]
           ' dist/artifacts.json >"$RUNNER_TEMP/expected-release-assets.txt"
-          printf 'gobfd-%s-reports.tar.gz\nrelease-image-digests.txt\n' \
+          printf 'gobfd-%s-reports.tar.gz\nrelease-evidence-checksums.txt\nrelease-image-digests.txt\n' \
             "$GITHUB_REF_NAME" >>"$RUNNER_TEMP/expected-release-assets.txt"
           LC_ALL=C sort -u -o "$RUNNER_TEMP/expected-release-assets.txt" \
             "$RUNNER_TEMP/expected-release-assets.txt"
@@ -404,29 +458,74 @@ jobs:
           image_index=0
           version="${GITHUB_REF_NAME#v}"
           for image in \
+            "ghcr.io/dantte-lp/gobfd:${version}" \
             "ghcr.io/dantte-lp/gobfd:${version}-debian-trixie" \
             "ghcr.io/dantte-lp/gobfd:${version}-oraclelinux10"; do
-            raw_manifest="$RUNNER_TEMP/release-image-${image_index}.json"
+            manifest="$RUNNER_TEMP/release-image-${image_index}.json"
             actual_platforms="$RUNNER_TEMP/release-platforms-${image_index}.txt"
-            docker buildx imagetools inspect --raw "$image" >"$raw_manifest"
+            docker buildx imagetools inspect \
+              --format '{{json .Manifest}}' "$image" >"$manifest"
             jq -er '
               .manifests[] |
               select(.annotations["vnd.docker.reference.type"] !=
                 "attestation-manifest") |
               "\(.platform.os)/\(.platform.architecture)"
-            ' "$raw_manifest" | LC_ALL=C sort >"$actual_platforms"
+            ' "$manifest" | LC_ALL=C sort >"$actual_platforms"
             diff -u "$RUNNER_TEMP/expected-release-platforms.txt" \
               "$actual_platforms"
-            image_digest="$(sha256sum "$raw_manifest")"
-            image_digest="${image_digest%% *}"
-            printf '%s sha256:%s\n' "$image" "$image_digest" \
+            jq -e '
+              ([.manifests[] |
+                select(.annotations["vnd.docker.reference.type"] !=
+                  "attestation-manifest") | .digest] | unique) as $runnable |
+              ($runnable | length == 2) and
+              ([.manifests[] |
+                select(.annotations["vnd.docker.reference.type"] ==
+                  "attestation-manifest")] as $attestations |
+                ($attestations | length == 2) and
+                (all($attestations[];
+                  .platform.os == "unknown" and
+                  .platform.architecture == "unknown" and
+                  (.annotations["vnd.docker.reference.digest"] as $subject |
+                    $runnable | index($subject) != null))))
+            ' "$manifest" >/dev/null
+            while IFS= read -r attestation_digest; do
+              attestation_manifest="$RUNNER_TEMP/release-attestation-${image_index}-${attestation_digest#sha256:}.json"
+              docker buildx imagetools inspect --raw \
+                "$image@$attestation_digest" >"$attestation_manifest"
+              jq -e '
+                (.layers | type == "array" and length > 0) and
+                any(.layers[];
+                  .annotations["in-toto.io/predicate-type"] ==
+                    "https://spdx.dev/Document") and
+                any(.layers[];
+                  (.annotations["in-toto.io/predicate-type"] // "") |
+                  startswith("https://slsa.dev/provenance/"))
+              ' "$attestation_manifest" >/dev/null
+            done < <(jq -r '
+              .manifests[] |
+              select(.annotations["vnd.docker.reference.type"] ==
+                "attestation-manifest") | .digest
+            ' "$manifest")
+            image_digest="$(jq -er '
+              .digest |
+              select(type == "string" and test("^sha256:[0-9a-f]{64}$"))
+            ' "$manifest")"
+            printf '%s %s\n' "$image" "$image_digest" \
               >>release-image-digests.txt
             image_index=$((image_index + 1))
           done
           receipt_shape="$(awk 'NF { nonempty++ } END { print NR ":" nonempty + 0 }' \
             release-image-digests.txt)"
-          if [ "$receipt_shape" != "2:2" ]; then
-            echo "OCI digest receipt must contain exactly two nonempty lines" >&2
+          if [ "$receipt_shape" != "3:3" ]; then
+            echo "OCI digest receipt must contain exactly three nonempty lines" >&2
+            exit 1
+          fi
+          primary_digest="$(awk -v image="ghcr.io/dantte-lp/gobfd:${version}" \
+            '$1 == image { print $2 }' release-image-digests.txt)"
+          debian_digest="$(awk -v image="ghcr.io/dantte-lp/gobfd:${version}-debian-trixie" \
+            '$1 == image { print $2 }' release-image-digests.txt)"
+          if [ -z "$primary_digest" ] || [ "$primary_digest" != "$debian_digest" ]; then
+            echo "primary and Debian versioned OCI tags differ" >&2
             exit 1
           fi
 
@@ -437,8 +536,24 @@ jobs:
 
       - name: Attach reports to release
         run: |
+          set -euo pipefail
+          report_archive="gobfd-${GITHUB_REF_NAME}-reports.tar.gz"
+          if [ ! -f "$report_archive" ] || [ ! -s "$report_archive" ] || \
+            [ -L "$report_archive" ]; then
+            echo "expected one nonempty regular reports archive: $report_archive" >&2
+            exit 1
+          fi
+          if [ ! -f release-image-digests.txt ] || \
+            [ ! -s release-image-digests.txt ] || \
+            [ -L release-image-digests.txt ]; then
+            echo "release image digest receipt is invalid" >&2
+            exit 1
+          fi
+          sha256sum "$report_archive" release-image-digests.txt \
+            >release-evidence-checksums.txt
           gh release upload "$GITHUB_REF_NAME" \
-            gobfd-*-reports.tar.gz release-image-digests.txt
+            "$report_archive" release-image-digests.txt \
+            release-evidence-checksums.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -449,26 +564,59 @@ jobs:
           set -euo pipefail
 
           expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
+          expected_branch="$(cat "$RUNNER_TEMP/expected-release-branch.txt")"
+          expected_tag_object="$(cat \
+            "$RUNNER_TEMP/expected-release-tag-object.txt")"
           if [ "$(git rev-parse HEAD)" != "$expected_commit" ]; then
             echo "checked-out commit changed after release evidence was recorded" >&2
+            exit 1
+          fi
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "release tag is no longer canonical stable SemVer" >&2
+            exit 1
+          fi
+          release_branch="release/v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          if [ "$release_branch" != "$expected_branch" ]; then
+            echo "release branch identity changed after preflight" >&2
             exit 1
           fi
           tag_ref="$(gh api \
             "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
           tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
             <<<"$tag_ref")"
-          tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+          tag_object_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
             <<<"$tag_ref")"
-          if [ "$tag_type" = "tag" ]; then
-            tag_object="$(gh api \
-              "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
-            tag_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
-              <<<"$tag_object")"
-            tag_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
-              <<<"$tag_object")"
+          if [ "$tag_type" != "tag" ]; then
+            echo "release tag is no longer annotated" >&2
+            exit 1
           fi
-          if [ "$tag_type" != "commit" ] || [ "$tag_sha" != "$expected_commit" ]; then
-            echo "tag no longer resolves to the verified release commit" >&2
+          if [ "$tag_object_sha" != "$expected_tag_object" ]; then
+            echo "annotated tag object changed after preflight" >&2
+            exit 1
+          fi
+          tag_object="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}")"
+          tag_name="$(jq -er '.tag | select(type == "string" and length > 0)' \
+            <<<"$tag_object")"
+          tag_target_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$tag_object")"
+          tag_target_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$tag_object")"
+          if [ "$tag_name" != "$GITHUB_REF_NAME" ] || \
+            [ "$tag_target_type" != "commit" ] || \
+            [ "$tag_target_sha" != "$expected_commit" ]; then
+            echo "annotated tag no longer targets the verified release commit" >&2
+            exit 1
+          fi
+          branch_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}")"
+          branch_type="$(jq -er '.object.type | select(type == "string" and length > 0)' \
+            <<<"$branch_ref")"
+          branch_sha="$(jq -er '.object.sha | select(type == "string" and length > 0)' \
+            <<<"$branch_ref")"
+          if [ "$branch_type" != "commit" ] || \
+            [ "$branch_sha" != "$expected_commit" ]; then
+            echo "release branch no longer equals the verified commit" >&2
             exit 1
           fi
 
@@ -478,22 +626,41 @@ jobs:
           image_index=0
           version="${GITHUB_REF_NAME#v}"
           for image in \
+            "ghcr.io/dantte-lp/gobfd:${version}" \
             "ghcr.io/dantte-lp/gobfd:${version}-debian-trixie" \
             "ghcr.io/dantte-lp/gobfd:${version}-oraclelinux10"; do
-            raw_manifest="$RUNNER_TEMP/verified-release-image-${image_index}.json"
+            manifest="$RUNNER_TEMP/verified-release-image-${image_index}.json"
             actual_platforms="$RUNNER_TEMP/verified-release-platforms-${image_index}.txt"
-            docker buildx imagetools inspect --raw "$image" >"$raw_manifest"
+            docker buildx imagetools inspect \
+              --format '{{json .Manifest}}' "$image" >"$manifest"
             jq -er '
               .manifests[] |
               select(.annotations["vnd.docker.reference.type"] !=
                 "attestation-manifest") |
               "\(.platform.os)/\(.platform.architecture)"
-            ' "$raw_manifest" | LC_ALL=C sort >"$actual_platforms"
+            ' "$manifest" | LC_ALL=C sort >"$actual_platforms"
             diff -u "$RUNNER_TEMP/verified-release-platforms.txt" \
               "$actual_platforms"
-            image_digest="$(sha256sum "$raw_manifest")"
-            image_digest="${image_digest%% *}"
-            printf '%s sha256:%s\n' "$image" "$image_digest" \
+            jq -e '
+              ([.manifests[] |
+                select(.annotations["vnd.docker.reference.type"] !=
+                  "attestation-manifest") | .digest] | unique) as $runnable |
+              ($runnable | length == 2) and
+              ([.manifests[] |
+                select(.annotations["vnd.docker.reference.type"] ==
+                  "attestation-manifest")] as $attestations |
+                ($attestations | length == 2) and
+                (all($attestations[];
+                  .platform.os == "unknown" and
+                  .platform.architecture == "unknown" and
+                  (.annotations["vnd.docker.reference.digest"] as $subject |
+                    $runnable | index($subject) != null))))
+            ' "$manifest" >/dev/null
+            image_digest="$(jq -er '
+              .digest |
+              select(type == "string" and test("^sha256:[0-9a-f]{64}$"))
+            ' "$manifest")"
+            printf '%s %s\n' "$image" "$image_digest" \
               >>"$RUNNER_TEMP/verified-release-image-digests.txt"
             image_index=$((image_index + 1))
           done
@@ -525,7 +692,213 @@ jobs:
           diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
             "$RUNNER_TEMP/actual-release-assets.txt"
 
+          download_dir="$RUNNER_TEMP/verified-release-assets"
+          if [ -e "$download_dir" ] || [ -L "$download_dir" ]; then
+            echo "release asset verification directory collision" >&2
+            exit 1
+          fi
+          mkdir "$download_dir"
+          gh release download "$GITHUB_REF_NAME" --dir "$download_dir"
+          find -P "$download_dir" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+            | LC_ALL=C sort -u >"$RUNNER_TEMP/downloaded-release-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
+            "$RUNNER_TEMP/downloaded-release-assets.txt"
+          downloaded_count="$(find -P "$download_dir" \
+            -mindepth 1 -maxdepth 1 | wc -l)"
+          regular_count="$(find -P "$download_dir" \
+            -mindepth 1 -maxdepth 1 -type f ! -empty | wc -l)"
+          if [ "$downloaded_count" -eq 0 ] || \
+            [ "$downloaded_count" -ne "$regular_count" ]; then
+            echo "every downloaded release asset must be a nonempty regular file" >&2
+            exit 1
+          fi
+
+          checksums_file="$download_dir/checksums.txt"
+          if grep -Ev '^[0-9a-f]{64}  [A-Za-z0-9._+-]+$' \
+            "$checksums_file" | grep -q .; then
+            echo "checksums.txt has a non-canonical entry" >&2
+            exit 1
+          fi
+          awk 'NF { print $2 }' "$checksums_file" | LC_ALL=C sort -u \
+            >"$RUNNER_TEMP/actual-checksummed-assets.txt"
+          checksum_line_count="$(awk 'NF { count++ } END { print count + 0 }' \
+            "$checksums_file")"
+          checksum_name_count="$(wc -l \
+            <"$RUNNER_TEMP/actual-checksummed-assets.txt")"
+          if [ "$checksum_line_count" -ne "$checksum_name_count" ]; then
+            echo "checksums.txt contains duplicate asset entries" >&2
+            exit 1
+          fi
+          diff -u "$RUNNER_TEMP/expected-checksummed-assets.txt" \
+            "$RUNNER_TEMP/actual-checksummed-assets.txt"
+          (
+            cd "$download_dir"
+            sha256sum --check --strict checksums.txt
+          )
+
+          supplemental_checksums="$download_dir/release-evidence-checksums.txt"
+          if grep -Ev '^[0-9a-f]{64}  (gobfd-v[0-9]+\.[0-9]+\.[0-9]+-reports\.tar\.gz|release-image-digests\.txt)$' \
+            "$supplemental_checksums" | grep -q .; then
+            echo "release evidence checksums have a non-canonical entry" >&2
+            exit 1
+          fi
+          printf 'gobfd-%s-reports.tar.gz\nrelease-image-digests.txt\n' \
+            "$GITHUB_REF_NAME" | LC_ALL=C sort \
+            >"$RUNNER_TEMP/expected-supplemental-assets.txt"
+          awk 'NF { print $2 }' "$supplemental_checksums" | LC_ALL=C sort -u \
+            >"$RUNNER_TEMP/actual-supplemental-assets.txt"
+          supplemental_line_count="$(awk 'NF { count++ } END { print count + 0 }' \
+            "$supplemental_checksums")"
+          supplemental_name_count="$(wc -l \
+            <"$RUNNER_TEMP/actual-supplemental-assets.txt")"
+          if [ "$supplemental_line_count" -ne 2 ] || \
+            [ "$supplemental_line_count" -ne "$supplemental_name_count" ]; then
+            echo "release evidence checksums must contain two unique entries" >&2
+            exit 1
+          fi
+          diff -u "$RUNNER_TEMP/expected-supplemental-assets.txt" \
+            "$RUNNER_TEMP/actual-supplemental-assets.txt"
+          (
+            cd "$download_dir"
+            sha256sum --check --strict release-evidence-checksums.txt
+          )
+          diff -u release-image-digests.txt \
+            "$download_dir/release-image-digests.txt"
+          diff -u release-evidence-checksums.txt \
+            "$download_dir/release-evidence-checksums.txt"
+          tar tzf "$download_dir/gobfd-${GITHUB_REF_NAME}-reports.tar.gz" \
+            >/dev/null
+
+          shopt -s nullglob
+          sbom_files=("$download_dir"/*.sbom.json)
+          if [ "${#sbom_files[@]}" -ne 2 ]; then
+            echo "expected exactly two CycloneDX SBOM assets" >&2
+            exit 1
+          fi
+          for sbom_file in "${sbom_files[@]}"; do
+            jq -e '
+              .bomFormat == "CycloneDX" and
+              (.specVersion | type == "string" and length > 0) and
+              (.metadata | type == "object") and
+              (.components | type == "array" and length > 0)
+            ' "$sbom_file" >/dev/null
+          done
+
+      - name: Promote verified OCI aliases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
+          expected_branch="$(cat "$RUNNER_TEMP/expected-release-branch.txt")"
+          expected_tag_object="$(cat \
+            "$RUNNER_TEMP/expected-release-tag-object.txt")"
+          tag_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          if [ "$(jq -er '.object.type' <<<"$tag_ref")" != "tag" ] || \
+            [ "$(jq -er '.object.sha' <<<"$tag_ref")" != \
+              "$expected_tag_object" ]; then
+            echo "release tag identity changed before OCI alias promotion" >&2
+            exit 1
+          fi
+          tag_object="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/tags/${expected_tag_object}")"
+          if [ "$(jq -er '.object.type' <<<"$tag_object")" != "commit" ] || \
+            [ "$(jq -er '.object.sha' <<<"$tag_object")" != \
+              "$expected_commit" ]; then
+            echo "release tag target changed before OCI alias promotion" >&2
+            exit 1
+          fi
+          branch_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${expected_branch}")"
+          if [ "$(jq -er '.object.type' <<<"$branch_ref")" != "commit" ] || \
+            [ "$(jq -er '.object.sha' <<<"$branch_ref")" != \
+              "$expected_commit" ]; then
+            echo "release branch changed before OCI alias promotion" >&2
+            exit 1
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          repository="ghcr.io/dantte-lp/gobfd"
+          primary_image="$repository:$version"
+          debian_image="$repository:${version}-debian-trixie"
+          oracle_image="$repository:${version}-oraclelinux10"
+          primary_digest="$(awk -v image="$primary_image" \
+            '$1 == image { print $2 }' release-image-digests.txt)"
+          debian_digest="$(awk -v image="$debian_image" \
+            '$1 == image { print $2 }' release-image-digests.txt)"
+          oracle_digest="$(awk -v image="$oracle_image" \
+            '$1 == image { print $2 }' release-image-digests.txt)"
+          if [[ ! "$primary_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+            [ "$primary_digest" != "$debian_digest" ] || \
+            [[ ! "$oracle_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "versioned OCI digest receipt is incomplete or inconsistent" >&2
+            exit 1
+          fi
+
+          docker buildx imagetools create \
+            --tag "$repository:latest" \
+            --tag "$repository:debian-trixie" \
+            "$repository@$primary_digest"
+          docker buildx imagetools create \
+            --tag "$repository:oraclelinux10" \
+            "$repository@$oracle_digest"
+
+          for alias_record in \
+            "$repository:latest $primary_digest" \
+            "$repository:debian-trixie $primary_digest" \
+            "$repository:oraclelinux10 $oracle_digest"; do
+            alias_image="${alias_record%% *}"
+            expected_digest="${alias_record#* }"
+            alias_manifest="$(docker buildx imagetools inspect \
+              --format '{{json .Manifest}}' "$alias_image")"
+            actual_digest="$(jq -er '
+              .digest |
+              select(type == "string" and test("^sha256:[0-9a-f]{64}$"))
+            ' <<<"$alias_manifest")"
+            if [ "$actual_digest" != "$expected_digest" ]; then
+              echo "$alias_image does not reference the verified OCI index" >&2
+              exit 1
+            fi
+          done
+
       - name: Publish verified release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+        run: |
+          set -euo pipefail
+
+          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
+          expected_branch="$(cat "$RUNNER_TEMP/expected-release-branch.txt")"
+          expected_tag_object="$(cat \
+            "$RUNNER_TEMP/expected-release-tag-object.txt")"
+          tag_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
+          branch_ref="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${expected_branch}")"
+          if [ "$(jq -er '.object.type' <<<"$tag_ref")" != "tag" ] || \
+            [ "$(jq -er '.object.sha' <<<"$tag_ref")" != \
+              "$expected_tag_object" ] || \
+            [ "$(jq -er '.object.type' <<<"$branch_ref")" != "commit" ] || \
+            [ "$(jq -er '.object.sha' <<<"$branch_ref")" != \
+              "$expected_commit" ]; then
+            echo "release identity changed before publication" >&2
+            exit 1
+          fi
+          release_json="$(gh release view "$GITHUB_REF_NAME" \
+            --json isDraft,tagName,body,assets)"
+          expected_body="$(cat release-notes.md)"
+          actual_body="$(jq -er '.body | select(type == "string")' \
+            <<<"$release_json")"
+          if [ "$(jq -er '.isDraft' <<<"$release_json")" != "true" ] || \
+            [ "$(jq -er '.tagName' <<<"$release_json")" != \
+              "$GITHUB_REF_NAME" ] || [ "$actual_body" != "$expected_body" ]; then
+            echo "release draft changed after evidence verification" >&2
+            exit 1
+          fi
+          jq -r '.assets[].name' <<<"$release_json" | LC_ALL=C sort -u \
+            >"$RUNNER_TEMP/final-release-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
+            "$RUNNER_TEMP/final-release-assets.txt"
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

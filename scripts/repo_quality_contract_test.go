@@ -109,6 +109,9 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 		"use_existing_draft: true",
 		"replace_existing_draft: true",
 		"replace_existing_artifacts: true",
+		"\n      - latest\n",
+		"\n      - debian-trixie\n",
+		"\n      - oraclelinux10\n",
 	} {
 		if strings.Contains(configuration, forbidden) {
 			t.Errorf("GoReleaser configuration enables forbidden retry behavior %q", forbidden)
@@ -121,7 +124,13 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 		"Refuse existing release, draft, or versioned OCI tag",
 		"Verify exact release draft",
 		"expected-release-assets.txt",
+		"expected-release-tag-object.txt",
+		"expected-checksummed-assets.txt",
 		"release-image-digests.txt",
+		"release-evidence-checksums.txt",
+		"gh release download \"$GITHUB_REF_NAME\"",
+		"sha256sum --check --strict checksums.txt",
+		"Promote verified OCI aliases",
 		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
 	})
 	for _, forbidden := range []string{"--clobber", "--notes-file", " --notes "} {
@@ -130,10 +139,14 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 		}
 	}
 	upload := strings.LastIndex(workflow, "gh release upload \"$GITHUB_REF_NAME\"")
+	preflight := strings.Index(workflow, "Refuse existing release, draft, or versioned OCI tag")
+	goreleaser := strings.Index(workflow, "Run GoReleaser")
 	verification := strings.LastIndex(workflow, "Verify exact release draft")
+	promotion := strings.LastIndex(workflow, "Promote verified OCI aliases")
 	publication := strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false")
-	if upload < 0 || verification < upload || publication < verification {
-		t.Error("release ordering is not upload, exact verification, then publication")
+	if preflight < 0 || goreleaser < preflight || upload < goreleaser ||
+		verification < upload || promotion < verification || publication < promotion {
+		t.Error("release ordering is not preflight, draft, upload, verification, alias promotion, then publication")
 	}
 	if strings.LastIndex(workflow, "gh release ") != publication {
 		t.Error("publishing is not the final gh release mutation")

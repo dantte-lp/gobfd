@@ -204,6 +204,13 @@ Do not enable `use_existing_draft`, `replace_existing_draft`, or
 published releases are visible. Require a non-null repository and an explicit
 null release result; any GitHub, GraphQL, or JSON error is fatal.
 
+Before that read-only publication check, require an exact stable tag matching
+`vMAJOR.MINOR.PATCH` without leading zeroes. The Git ref must point to an
+annotated tag object, that object must point directly to the checked-out commit,
+and `refs/heads/release/vMAJOR.MINOR` must equal the same commit. Record the
+commit, branch, and annotated tag-object SHA under `RUNNER_TEMP`; a lightweight
+tag or a tag cut from any other branch head is fatal before GoReleaser runs.
+
 Then query every GHCR package-version page through:
 
 ```bash
@@ -230,95 +237,50 @@ section in `CHANGELOG.md`; a generic link to `master` is not a release note.
 
 - [ ] **Step 5: Build the exact asset manifest and OCI digest receipt**
 
-Peel the remote tag through the GitHub Git API and compare it with
-`git rev-parse HEAD`. Query each released OCI reference with
-`docker buildx imagetools inspect --raw`, require both `linux/amd64` and
-`linux/arm64`, and write the calculated index SHA-256 values to
-`release-image-digests.txt`.
+Revalidate the recorded commit before trusting `dist/artifacts.json`. Require
+the exact artifact matrix: two Linux archives (`amd64`, `arm64`), four Linux
+packages (`deb` and `rpm` for both architectures), two CycloneDX JSON SBOMs,
+and one `checksums.txt`. Build both the exact release-asset list and the exact
+set that `checksums.txt` must cover; append the report archive,
+`release-image-digests.txt`, and `release-evidence-checksums.txt` to the former.
 
-Build `expected-release-assets.txt` from `dist/artifacts.json` by selecting the
-GoReleaser artifact types `Archive`, `Linux Package`, `Checksum`, and `SBOM`,
-first requiring that every one of those four classes is present. Then append
-the exact report archive and OCI digest receipt names. Normalize it with
-`LC_ALL=C sort -u`.
-
-Use this fail-closed outline:
-
-```bash
-expected_commit="$(git rev-parse HEAD)"
-tag_ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
-tag_type="$(jq -r '.object.type' <<<"$tag_ref")"
-tag_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
-if [ "$tag_type" = tag ]; then
-  tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}")"
-  tag_type="$(jq -r '.object.type' <<<"$tag_object")"
-  tag_sha="$(jq -r '.object.sha' <<<"$tag_object")"
-fi
-test "$tag_type" = commit
-test "$tag_sha" = "$expected_commit"
-
-jq -r '
-  .[] |
-  select(.type == "Archive" or .type == "Linux Package" or
-    .type == "Checksum" or .type == "SBOM") |
-  .path | split("/")[-1]
-' dist/artifacts.json >"$RUNNER_TEMP/expected-release-assets.txt"
-printf 'gobfd-%s-reports.tar.gz\nrelease-image-digests.txt\n' \
-  "$GITHUB_REF_NAME" >>"$RUNNER_TEMP/expected-release-assets.txt"
-LC_ALL=C sort -u -o "$RUNNER_TEMP/expected-release-assets.txt" \
-  "$RUNNER_TEMP/expected-release-assets.txt"
-```
-
-For each of
-`ghcr.io/dantte-lp/gobfd:${GITHUB_REF_NAME#v}-debian-trixie` and
-`ghcr.io/dantte-lp/gobfd:${GITHUB_REF_NAME#v}-oraclelinux10`, save the raw
-manifest, exclude only descriptors explicitly annotated as
-`attestation-manifest`, and require the remaining sorted descriptor list to
-equal exactly one `linux/amd64` and one `linux/arm64` line. Do not deduplicate
-the list because duplicate runnable descriptors must fail. Record `sha256sum`
-of the raw bytes with the full image reference and require exactly two receipt
-lines.
+GoReleaser publishes only collision-checked immutable versioned OCI refs:
+`VERSION`, `VERSION-debian-trixie`, and `VERSION-oraclelinux10`. Query all three
+with `docker buildx imagetools inspect --format '{{json .Manifest}}'`. For each,
+require exactly one runnable `linux/amd64` and `linux/arm64` descriptor, exactly
+two corresponding `attestation-manifest` descriptors, and an attestation for
+each runnable digest containing both an SPDX predicate and SLSA provenance.
+Record the registry-reported `sha256:` index digest for all three refs. The
+primary and Debian-qualified refs must resolve to the same digest.
 
 - [ ] **Step 6: Attach, verify the complete draft, and publish last**
 
-Retain the report download. Upload both the report and the completed OCI digest
-receipt without replacement:
+Retain the report download. Hash the exact nonempty report archive and OCI
+receipt into `release-evidence-checksums.txt`, then upload all three without
+replacement:
 
 ```bash
 gh release upload "$GITHUB_REF_NAME" \
-  gobfd-*-reports.tar.gz release-image-digests.txt
+  "gobfd-${GITHUB_REF_NAME}-reports.tar.gz" \
+  release-image-digests.txt release-evidence-checksums.txt
 ```
 
 Remove the post-GoReleaser release-notes edit because GoReleaser already
 receives `--release-notes=release-notes.md` while the release is a draft.
 
-Sort the names returned by `gh release view ... --json assets` and require an
-exact `diff` against `expected-release-assets.txt`, not a subset. The named
-workflow step must be `Verify exact release draft`. It additionally requires a
-non-whitespace body exactly equal to `release-notes.md` after shell
-trailing-newline normalization, the exact tag, the already verified peeled
-commit, every required artifact class, and both recorded multi-platform image
-digests.
+The named `Verify exact release draft` step revalidates the annotated tag and
+release-branch head, the exact draft body and asset names, and all three
+versioned OCI digests. Download every draft asset into a new directory, require
+only nonempty regular files, verify canonical and complete GoReleaser plus
+supplemental checksum manifests, parse both CycloneDX documents, and list the
+report archive successfully.
 
-The final outline is:
-
-```bash
-release_json="$(gh release view "$GITHUB_REF_NAME" \
-  --json isDraft,tagName,body,assets)"
-jq -e --arg tag "$GITHUB_REF_NAME" '
-  .isDraft == true and
-  .tagName == $tag and
-  (.body | length > 0) and
-  ([.assets[].name] | any(endswith(".sbom.json")))
-' <<<"$release_json"
-jq -r '.assets[].name' <<<"$release_json" | LC_ALL=C sort -u \
-  >"$RUNNER_TEMP/actual-release-assets.txt"
-diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
-  "$RUNNER_TEMP/actual-release-assets.txt"
-gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-```
-
-The `gh release edit --draft=false` command is the final release mutation.
+Only after all draft evidence passes, create mutable `latest`,
+`debian-trixie`, and `oraclelinux10` aliases from the recorded exact index
+digests with `docker buildx imagetools create`, then read each alias back and
+require digest equality. Revalidate tag, branch, draft body, and exact asset
+names once more. The `gh release edit --draft=false` command remains the final
+GitHub Release mutation.
 
 - [ ] **Step 7: Run focused and syntax gates**
 

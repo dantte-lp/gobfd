@@ -192,19 +192,25 @@ tag is pushed. The release workflow must finish every mutation while the
 release is a draft:
 
 1. Configure GoReleaser `release.draft: true` and the documented release-notes
-   mode `release.mode: keep-existing`. Before GoReleaser runs, fail if any
-   release, draft, or exact versioned OCI tag already exists for the cut.
+   mode `release.mode: keep-existing`. Before GoReleaser runs, require a
+   canonical stable annotated SemVer tag that points directly to both the
+   checked-out commit and the exact `release/vMAJOR.MINOR` branch head, then
+   fail if any release, draft, or exact versioned OCI tag already exists for the cut.
    GoReleaser creates one new draft and uploads its artifacts and release
    notes. Existing-draft reuse and artifact or draft replacement remain
    disabled.
-2. Download the already generated release-report artifact and upload it to the
-   same draft without `--clobber`.
+2. Publish only immutable versioned OCI refs. Download the already generated
+   release-report artifact, checksum it together with the OCI receipt, and
+   upload that evidence to the same draft without `--clobber`.
 3. Query the draft through `gh api` and verify its tag, target commit, exact
    non-whitespace notes, exact asset names, checksums, SBOM/provenance,
-   packages, and OCI results. Require every declared GoReleaser artifact class
-   and exactly one runnable descriptor for each supported OCI platform while
-   excluding only explicit attestation descriptors.
-4. Publish the complete draft as the workflow's final GitHub mutation.
+   packages, and OCI results. Download the draft assets and verify their
+   contents, not only their names. Require every declared GoReleaser artifact
+   class, exactly one runnable descriptor for each supported OCI platform, and
+   corresponding SPDX plus SLSA attestation evidence.
+4. After all immutable evidence passes, promote the three mutable OCI aliases
+   from the exact recorded index digests and verify them by digest. Publish the
+   complete draft as the workflow's final GitHub Release mutation.
 
 Remove the current post-publication `gh release upload --clobber` and release
 notes edit. They are incompatible with immutable releases because publication
