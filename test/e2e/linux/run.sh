@@ -16,7 +16,6 @@ REPORT_DIR="${ROOT_DIR}/${REPORT_REL}"
 DEV_PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "${ROOT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')}"
 DEV_COMPOSE="${ROOT_DIR}/deployments/compose/compose.dev.yml"
 TEST_IMAGE="${E2E_LINUX_IMAGE:-localhost/${DEV_PROJECT}_dev:latest}"
-TEST_BINARY="${REPORT_DIR}/e2e-linux.test"
 
 mkdir -p "${REPORT_DIR}"
 : >"${REPORT_DIR}/go-test.json"

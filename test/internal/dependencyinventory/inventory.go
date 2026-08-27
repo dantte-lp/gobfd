@@ -2058,7 +2058,7 @@ func validateCoordinates(id string, kind Kind, record Record) error {
 	if coordinates.PURL != "" && !strings.HasPrefix(coordinates.PURL, "pkg:") {
 		return fmt.Errorf("dependency %q purl coordinate is invalid", id)
 	}
-	if coordinates.Digest != "" && !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(coordinates.Digest) {
+	if coordinates.Digest != "" && !coordinateDigestPattern.MatchString(coordinates.Digest) {
 		return fmt.Errorf("dependency %q digest coordinate is invalid", id)
 	}
 	if kind == KindOCIImage && record.ImmutablePin.Status == PinVerified &&
@@ -2371,28 +2371,29 @@ type declaredComponent struct {
 }
 
 var (
-	actionPattern       = regexp.MustCompile(`\buses:\s*([^@\s]+)@([^\s#]+)`)
-	containerPattern    = regexp.MustCompile(`^\s*FROM\s+([^\s]+)`)
-	imagePattern        = regexp.MustCompile(`\bimage:\s*([^\s#]+)`)
-	qualifiedImage      = regexp.MustCompile(`(?:docker\.io|quay\.io|ghcr\.io)/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?`)
-	declaredARGPattern  = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*_VERSION)=([^\s]+)`)
-	versionVarPattern   = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)="?\$\{[^:}]+:-([^}"]+)}`)
-	fixedVersionVar     = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)=["']?([^"'\s]+)["']?\s*$`)
-	workflowToolVersion = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
-	pythonDependency    = regexp.MustCompile(`^\s*"([a-z0-9][a-z0-9_-]*)==([^"]+)",\s*$`)
-	uvRequiredVersion   = regexp.MustCompile(`^\s*required-version\s*=\s*"==([^"]+)"\s*$`)
-	ociDigestPattern    = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
-	actionSHAPattern    = regexp.MustCompile(`@[0-9a-f]{40}$`)
-	sourceCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	evidenceIDPattern   = regexp.MustCompile(`^ev-[0-9a-f]{24}$`)
-	uvPackageName       = regexp.MustCompile(`(?m)^name = "([a-z0-9][a-z0-9._-]*)"$`)
-	uvPackageVersion    = regexp.MustCompile(`(?m)^version = "([^"]+)"$`)
-	uvRegistrySource    = regexp.MustCompile(`(?m)^source = \{ registry = "([^"]+)" \}$`)
-	uvVirtualSource     = regexp.MustCompile(`(?m)^source = \{ virtual = "[^"]+" \}$`)
-	uvSDistHash         = regexp.MustCompile(`(?m)^sdist = \{[^\n]* hash = "(sha256:[0-9a-f]{64})"`)
-	uvArtifactHash      = regexp.MustCompile(`hash = "(sha256:[0-9a-f]{64})"`)
-	pythonNameSeparator = regexp.MustCompile(`[-_.]+`)
-	spdxExpression      = regexp.MustCompile(`^[A-Za-z0-9.+() -]+$`)
+	actionPattern           = regexp.MustCompile(`\buses:\s*([^@\s]+)@([^\s#]+)`)
+	containerPattern        = regexp.MustCompile(`^\s*FROM\s+([^\s]+)`)
+	imagePattern            = regexp.MustCompile(`\bimage:\s*([^\s#]+)`)
+	qualifiedImage          = regexp.MustCompile(`(?:docker\.io|quay\.io|ghcr\.io)/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+)?(?:@sha256:[0-9a-f]{64})?`)
+	declaredARGPattern      = regexp.MustCompile(`^\s*ARG\s+([A-Z][A-Z0-9_]*_VERSION)=([^\s]+)`)
+	versionVarPattern       = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)="?\$\{[^:}]+:-([^}"]+)}`)
+	fixedVersionVar         = regexp.MustCompile(`^\s*(?:readonly\s+)?([A-Z][A-Z0-9_]*_VERSION)=["']?([^"'\s]+)["']?\s*$`)
+	workflowToolVersion     = regexp.MustCompile(`^\s*(?:version|syft-version):\s*["']?([^"'#\s]+)`)
+	pythonDependency        = regexp.MustCompile(`^\s*"([a-z0-9][a-z0-9_-]*)==([^"]+)",\s*$`)
+	uvRequiredVersion       = regexp.MustCompile(`^\s*required-version\s*=\s*"==([^"]+)"\s*$`)
+	coordinateDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	ociDigestPattern        = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
+	actionSHAPattern        = regexp.MustCompile(`@[0-9a-f]{40}$`)
+	sourceCommitPattern     = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	evidenceIDPattern       = regexp.MustCompile(`^ev-[0-9a-f]{24}$`)
+	uvPackageName           = regexp.MustCompile(`(?m)^name = "([a-z0-9][a-z0-9._-]*)"$`)
+	uvPackageVersion        = regexp.MustCompile(`(?m)^version = "([^"]+)"$`)
+	uvRegistrySource        = regexp.MustCompile(`(?m)^source = \{ registry = "([^"]+)" \}$`)
+	uvVirtualSource         = regexp.MustCompile(`(?m)^source = \{ virtual = "[^"]+" \}$`)
+	uvSDistHash             = regexp.MustCompile(`(?m)^sdist = \{[^\n]* hash = "(sha256:[0-9a-f]{64})"`)
+	uvArtifactHash          = regexp.MustCompile(`hash = "(sha256:[0-9a-f]{64})"`)
+	pythonNameSeparator     = regexp.MustCompile(`[-_.]+`)
+	spdxExpression          = regexp.MustCompile(`^[A-Za-z0-9.+() -]+$`)
 )
 
 func discoverDeclaredComponents(ctx context.Context, root string) ([]declaredComponent, error) {

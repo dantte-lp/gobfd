@@ -25,7 +25,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yml"
 DC="podman compose -f ${COMPOSE_FILE}"
-INTEROPCHECK=(go -C "${SCRIPT_DIR}/../.." run ./test/interop/scripts/interopcheck)
 
 # Colors for test output (disabled if not a terminal).
 if [ -t 1 ]; then
@@ -54,72 +53,6 @@ cleanup() {
 }
 
 trap cleanup EXIT
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-gobgp_neighbor_state() {
-    local peer_ip="$1"
-    podman exec gobgp-interop gobgp neighbor -j 2>/dev/null \
-        | "${INTEROPCHECK[@]}" gobgp-neighbor-state "${peer_ip}" 2>/dev/null \
-        || echo "error"
-}
-
-gobgp_route_exists() {
-    local prefix="$1"
-    podman exec gobgp-interop gobgp global rib 2>/dev/null | grep -qF "${prefix}"
-}
-
-wait_bgp_established() {
-    local peer_ip="$1"
-    local max_wait="${2:-90}"
-    local interval=3
-    local waited=0
-
-    while [ "${waited}" -lt "${max_wait}" ]; do
-        local state
-        state="$(gobgp_neighbor_state "${peer_ip}")"
-        if [ "${state}" = "established" ]; then
-            return 0
-        fi
-        sleep "${interval}"
-        waited=$((waited + interval))
-    done
-    return 1
-}
-
-wait_route() {
-    local prefix="$1"
-    local max_wait="${2:-30}"
-    local interval=2
-    local waited=0
-
-    while [ "${waited}" -lt "${max_wait}" ]; do
-        if gobgp_route_exists "${prefix}"; then
-            return 0
-        fi
-        sleep "${interval}"
-        waited=$((waited + interval))
-    done
-    return 1
-}
-
-wait_route_gone() {
-    local prefix="$1"
-    local max_wait="${2:-30}"
-    local interval=2
-    local waited=0
-
-    while [ "${waited}" -lt "${max_wait}" ]; do
-        if ! gobgp_route_exists "${prefix}"; then
-            return 0
-        fi
-        sleep "${interval}"
-        waited=$((waited + interval))
-    done
-    return 1
-}
 
 # ---------------------------------------------------------------------------
 # Build & Start

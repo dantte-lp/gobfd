@@ -28,3 +28,4 @@
 | [0001](./0001-link-state-rtnetlink.md) | Мониторинг состояния линков через rtnetlink | Accepted |
 | [0002](./0002-ovs-backend-ovsdb.md) | Нативный OVSDB-клиент для OVS LAG backend | Accepted |
 | [0003](./0003-linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux | Accepted |
+| [0004](./0004-overlay-backend-vocabulary.md) | Единый словарь overlay backend | Accepted |

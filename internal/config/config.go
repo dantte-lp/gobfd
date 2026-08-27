@@ -16,6 +16,8 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+
+	"github.com/dantte-lp/gobfd/internal/overlay"
 )
 
 // -------------------------------------------------------------------------
@@ -247,19 +249,19 @@ const (
 	maxBFDWireUint8 = math.MaxUint8
 
 	// OverlayBackendUserspaceUDP selects the implemented userspace UDP backend.
-	OverlayBackendUserspaceUDP = "userspace-udp"
+	OverlayBackendUserspaceUDP = overlay.BackendUserspaceUDP
 	// OverlayBackendKernel selects the reserved Linux kernel backend.
-	OverlayBackendKernel = "kernel"
+	OverlayBackendKernel = overlay.BackendKernel
 	// OverlayBackendOVS selects the reserved Open vSwitch backend.
-	OverlayBackendOVS = "ovs"
+	OverlayBackendOVS = overlay.BackendOVS
 	// OverlayBackendOVN selects the reserved OVN backend.
-	OverlayBackendOVN = "ovn"
+	OverlayBackendOVN = overlay.BackendOVN
 	// OverlayBackendCilium selects the reserved Cilium backend.
-	OverlayBackendCilium = "cilium"
+	OverlayBackendCilium = overlay.BackendCilium
 	// OverlayBackendCalico selects the reserved Calico backend.
-	OverlayBackendCalico = "calico"
+	OverlayBackendCalico = overlay.BackendCalico
 	// OverlayBackendNSX selects the reserved NSX backend.
-	OverlayBackendNSX = "nsx"
+	OverlayBackendNSX = overlay.BackendNSX
 )
 
 // MicroBFDActuatorConfig controls the optional LAG member actuator.
@@ -1012,16 +1014,6 @@ var validMicroBFDActuatorActions = map[string]bool{
 	MicroBFDActuatorActionAddMember:    true,
 }
 
-var validOverlayBackends = map[string]bool{
-	OverlayBackendUserspaceUDP: true,
-	OverlayBackendKernel:       true,
-	OverlayBackendOVS:          true,
-	OverlayBackendOVN:          true,
-	OverlayBackendCilium:       true,
-	OverlayBackendCalico:       true,
-	OverlayBackendNSX:          true,
-}
-
 func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
 	if !validMicroBFDActuatorModes[cfg.Mode] {
 		return fmt.Errorf("micro_bfd.actuator.mode %q: %w",
@@ -1046,20 +1038,12 @@ func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {
 	return nil
 }
 
-func normalizeOverlayBackend(backend string) string {
-	normalized := strings.TrimSpace(backend)
-	if normalized == "" {
-		return OverlayBackendUserspaceUDP
-	}
-	return normalized
-}
-
 func validateOverlayBackend(field string, backend string) error {
-	normalized := normalizeOverlayBackend(backend)
-	if !validOverlayBackends[normalized] {
+	normalized, recognized := overlay.ParseBackend(backend)
+	if !recognized {
 		return fmt.Errorf("%s %q: %w", field, backend, ErrInvalidOverlayBackend)
 	}
-	if normalized != OverlayBackendUserspaceUDP {
+	if !normalized.Implemented() {
 		return fmt.Errorf("%s %q: %w", field, normalized, ErrUnsupportedOverlayBackend)
 	}
 	return nil
