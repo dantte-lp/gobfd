@@ -674,20 +674,13 @@ lint-spell: dev-ensure
 
 lint-docs: lint-md lint-yaml lint-spell
 
-PYTHON_FILES := test/interop-clab/vendor_images.py
-
 python-sync:
 	uv lock --check
 	uv sync --frozen --all-groups
 	@test "$$(uv run --frozen --all-groups python -c 'import sys; print(sys.version.split()[0])')" = "3.14.7"
 
-python-check: python-sync
-	@test "$$(printf '%s\n' $(PYTHON_FILES) | sed '/^$$/d' | wc -l)" -eq 1
-	uv run --frozen --no-default-groups --group quality -- ruff check $(PYTHON_FILES)
-	uv run --frozen --no-default-groups --group quality -- ty check $(PYTHON_FILES)
-	uv run --frozen --no-default-groups --group quality -- \
-		bandit -q -c pyproject.toml -r $(PYTHON_FILES)
-	uv run --frozen --all-groups -- pip-audit --local --progress-spinner off
+python-check:
+	@test -z "$$(git ls-files '*.py')" || { echo "owned Python files remain"; exit 1; }
 
 lint-commit:
 	@test -n "$(MSG)" || (echo "Usage: make lint-commit MSG='feat(bfd): add feature'"; exit 1)

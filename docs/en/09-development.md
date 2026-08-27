@@ -314,28 +314,19 @@ Neither check requires Node.js or npm.
 the exact `.codespell-ignore` word list. `make lint-yaml` uses the same frozen
 environment for yamllint 1.38.0.
 
-### Python Tooling
+### Python Absence Contract
 
-The repository has one non-package Python 3.14.7 environment. uv 0.12.6 reads
-the root `.python-version`, `pyproject.toml`, and `uv.lock`; no requirements
-file, pip bootstrap, or independent uv tool environment is supported.
-
-The `peer` and `runtime` groups are intentionally empty. The lock retains the
-Ruff, ty, Bandit, codespell, yamllint, junit2html, and pip-audit toolchain
-(`quality`) for repository checks and the containerlab bootstrap. Docker
-Compose and the BFD invalid-vector generator are Go binaries, not Python
-dependencies.
+The repository owns no Python source files. Vendor image preparation is native
+Go; `make python-check` fails if a tracked `.py` file is reintroduced. The
+frozen uv environment is temporarily retained only for codespell, yamllint,
+and JUnit-to-HTML conversion while those quality-tool callers migrate.
 
 ```bash
-make python-sync
 make python-check
-uv run --frozen --no-default-groups -- python test/interop-clab/vendor_images.py --help
 ```
 
-`make python-check` asserts Python 3.14.7, checks the lock and frozen sync, then
-runs lint, type, security, and vulnerability checks over the single retained
-vendor-image helper. ExaBGP remains an external immutable interop image and is
-not duplicated in the lock.
+ExaBGP remains an external immutable interop image and is not duplicated in
+the quality-tool lock.
 
 ### Dependency Inventory
 

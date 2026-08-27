@@ -273,48 +273,21 @@ func imageExists(ctx context.Context, options Options, runner Runner, reference 
 }
 
 func runVendorPhases(ctx context.Context, options Options, runner Runner, images []imageReference) []string {
-	vyosImage := images[2].reference
-	arguments := []string{"--version", options.VyOSVersion, "--image", vyosImage}
-	if options.VyOSISO != "" {
-		arguments = append(arguments, "--iso", options.VyOSISO)
+	failures := make([]string, 0, 3)
+	if err := prepareVyOS(ctx, options, runner, images[2].reference); err != nil {
+		failures = append(failures, "vyos")
 	}
-	if options.SkipPull {
-		arguments = append(arguments, "--skip-pull")
-	}
-	if options.DryRun {
-		arguments = append(arguments, "--dry-run")
-	}
-	failures := runVendorCommand(ctx, options, runner, VendorVyOS, "vyos", arguments)
 	if options.Archives.Arista != "" {
-		failures = append(failures, runVendorCommand(ctx, options, runner, VendorArista, "arista", []string{
-			"--archive", options.Archives.Arista, "--tag", options.Tags.Arista,
-		})...)
+		if err := importArista(ctx, options, runner); err != nil {
+			failures = append(failures, "arista")
+		}
 	}
 	if options.Archives.Cisco != "" {
-		failures = append(failures, runVendorCommand(ctx, options, runner, VendorCisco, "cisco", []string{
-			"--archive", options.Archives.Cisco, "--tag", options.Tags.Cisco,
-		})...)
+		if err := importCisco(ctx, options, runner); err != nil {
+			failures = append(failures, "cisco")
+		}
 	}
 	return failures
-}
-
-func runVendorCommand(
-	ctx context.Context,
-	options Options,
-	runner Runner,
-	operation VendorOperation,
-	failure string,
-	arguments []string,
-) []string {
-	command, err := VendorCommand(options.ProjectRoot, operation, arguments...)
-	if err != nil {
-		return []string{failure}
-	}
-	command.DryRun = options.DryRun
-	if err := runCommand(ctx, runner, command); err != nil {
-		return []string{failure}
-	}
-	return nil
 }
 
 func buildCommand(options Options) Command {

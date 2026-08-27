@@ -319,27 +319,19 @@ header, неблокирующего 120-байтного предупрежде
 списком слов `.codespell-ignore`. `make lint-yaml` использует то же frozen
 окружение для yamllint 1.38.0.
 
-### Python-инструменты
+### Контракт отсутствия Python
 
-В репозитории используется одно non-package окружение Python 3.14.7. uv 0.12.6
-читает корневые `.python-version`, `pyproject.toml` и `uv.lock`; requirements,
-pip-bootstrap и отдельные окружения `uv tool` не поддерживаются.
-
-Группы `peer` и `runtime` намеренно пусты. Единый lock сохраняет Ruff, ty,
-Bandit, codespell, yamllint, junit2html и pip-audit (`quality`) для проверок
-репозитория и containerlab bootstrap. Docker Compose и генератор некорректных
-BFD-векторов реализованы на Go и не являются Python-зависимостями.
+Репозиторий больше не содержит Python-кода. Подготовка вендорных образов
+реализована на Go, а `make python-check` запрещает повторное добавление tracked
+`.py`. Frozen uv-окружение временно остаётся только для codespell, yamllint и
+конвертации JUnit в HTML до переноса этих quality-tool callers.
 
 ```bash
-make python-sync
 make python-check
-uv run --frozen --no-default-groups -- python test/interop-clab/vendor_images.py --help
 ```
 
-`make python-check` проверяет Python 3.14.7, lock и frozen sync, затем запускает
-lint, type, security и vulnerability проверки единственного оставшегося
-helper для вендорных образов. ExaBGP остаётся внешним immutable interop-образом
-и не дублируется в lock.
+ExaBGP остаётся внешним immutable interop-образом и не дублируется в lock
+quality-инструментов.
 
 ### Инвентаризация зависимостей
 

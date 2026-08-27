@@ -30,17 +30,6 @@ target-version = "py314"
 ignore = ["COM812", "D203", "D213"]
 select = ["ALL"]
 
-[tool.ruff.lint.per-file-ignores]
-"test/interop-clab/vendor_images.py" = [
-  "CPY001",
-  "E501",
-  "FBT001",
-  "PERF401",
-  "PLR0911",
-  "PTH123",
-  "TRY300",
-]
-
 [tool.ty.environment]
 python-version = "3.14"
 

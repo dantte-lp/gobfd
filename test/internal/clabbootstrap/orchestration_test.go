@@ -13,32 +13,44 @@ import (
 type recordingRunner struct {
 	commands []Command
 	failPull string
+	images   map[string]bool
 }
 
 func (runner *recordingRunner) Run(_ context.Context, command Command) (Result, error) {
+	if runner.images == nil {
+		runner.images = make(map[string]bool)
+	}
 	runner.commands = append(runner.commands, command)
 	if command.Executable == executableContainerlab {
 		return Result{Stdout: `{"version":"` + ContainerlabVersion + `"}`}, nil
 	}
 	if len(command.Arguments) >= 3 && command.Executable == "podman" &&
 		command.Arguments[0] == "image" && command.Arguments[1] == "exists" {
+		if runner.images[command.Arguments[2]] {
+			return Result{}, nil
+		}
 		return Result{ExitCode: 1}, nil
 	}
 	if len(command.Arguments) >= 3 && command.Executable == "podman" &&
 		command.Arguments[0] == "pull" && command.Arguments[2] == runner.failPull {
 		return Result{ExitCode: 17, Stderr: "injected pull failure"}, nil
 	}
+	if len(command.Arguments) >= 3 && command.Executable == "podman" && command.Arguments[0] == "pull" {
+		runner.images[command.Arguments[2]] = true
+	}
 	return Result{}, nil
 }
 
-func TestRunKeepsOwnedPhasesInGoAndVendorGlueNarrow(t *testing.T) {
+func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 	t.Parallel()
 
 	root := bootstrapTestRoot(t)
 	options := DefaultOptions(root)
-	options.Archives = VendorArchives{
-		Arista: "/images/ceos.tar",
-		Cisco:  "/images/xrd.tar",
+	options.Archives = VendorArchives{Arista: filepath.Join(root, "ceos.tar"), Cisco: filepath.Join(root, "xrd.tar")}
+	for _, archive := range []string{options.Archives.Arista, options.Archives.Cisco} {
+		if err := os.WriteFile(archive, []byte("fixture"), 0o600); err != nil {
+			t.Fatalf("write vendor archive fixture: %v", err)
+		}
 	}
 	options.Deploy = true
 	options.Jobs = 1
@@ -55,13 +67,10 @@ func TestRunKeepsOwnedPhasesInGoAndVendorGlueNarrow(t *testing.T) {
 			pulls++
 		case command.Executable == "podman" && slices.Contains(command.Arguments, "build"):
 			builds++
-		case command.Executable == "uv":
+		case command.Executable == "podman" &&
+			(slices.Contains(command.Arguments, "tag") || slices.Contains(command.Arguments, "load")):
 			vendorCalls++
-			if !slices.Contains(command.Arguments, "vendor_images.py") &&
-				!strings.Contains(strings.Join(command.Arguments, "\x00"), "vendor_images.py") {
-				t.Errorf("Python boundary does not invoke vendor_images.py: %q", command.Arguments)
-			}
-		case command.Executable == "python" || command.Executable == "python3":
+		case command.Executable == "python" || command.Executable == "python3" || command.Executable == "uv":
 			t.Errorf("owned phase invokes Python directly: %q", command.Arguments)
 		}
 	}
@@ -72,7 +81,7 @@ func TestRunKeepsOwnedPhasesInGoAndVendorGlueNarrow(t *testing.T) {
 		t.Errorf("GoBFD image builds = %d, want 1", builds)
 	}
 	if vendorCalls != 3 {
-		t.Errorf("vendor Python calls = %d, want 3", vendorCalls)
+		t.Errorf("vendor image operations = %d, want 3", vendorCalls)
 	}
 	if len(runner.commands) == 0 {
 		t.Fatal("bootstrap issued no commands")

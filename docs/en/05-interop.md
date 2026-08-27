@@ -421,9 +421,9 @@ graph TD
 ### Lab Preparation (Go Bootstrap)
 
 The Go 1.27 bootstrap command owns preflight, bounded parallel pulls, build,
-inventory, and optional topology delegation. Python 3.14.7 is retained only
-behind the command for VyOS ISO/rootfs preparation and operator-supplied
-Arista/Cisco archives.
+inventory, native VyOS ISO/rootfs preparation, and operator-supplied
+Arista/Cisco archive imports. No repository Python or shell helper participates
+in vendor image preparation.
 
 ```bash
 # Pull all public images + prepare VyOS tag + build GoBFD
@@ -451,8 +451,9 @@ The command handles:
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
 - **Inventory report**: final list of all images with ready/missing status
 
-Run `make interop-clab-bootstrap ARGS=--help` for all options. The retained
-`vendor_images.py` helper is an internal boundary, not an operator entrypoint.
+Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,
+archive extraction, and external image-tool argv are validated by the Go
+bootstrap boundary.
 
 ### Running Vendor Tests
 
