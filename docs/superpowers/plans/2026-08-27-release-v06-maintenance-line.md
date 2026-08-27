@@ -844,7 +844,7 @@ git push origin refs/tags/v0.6.2
 Verify the peeled tag commit equals `release/v0.6` and that the tag ruleset is
 active. Do not use `--tags`.
 
-- [ ] **Step 5: Create and push only the qualified annotated v0.6.4 tag**
+- [x] **Step 5: Create and push only the qualified annotated v0.6.4 tag**
 
 After the reviewed release-notes fix is merged into `release/v0.6`, rerun the
 bounded exact-commit preflight and extract a non-empty v0.6.4 CHANGELOG
@@ -861,7 +861,7 @@ Verify that the peeled tag commit equals both the reviewed release commit and
 the exact `release/v0.6` head. Do not use `--tags`, move an existing tag, or
 create a tag while any local qualification gate is incomplete.
 
-- [ ] **Step 6: Monitor the release workflow without consuming unrelated CI**
+- [x] **Step 6: Monitor the release workflow without consuming unrelated CI**
 
 Use `gh run list`, `gh run view`, and `gh api` for the tag-triggered run. Do not
 start duplicate workflows. The release must remain a draft until all assets and
@@ -877,7 +877,7 @@ Deliver the changelog-pipe fix through `fix/v0.6-release-notes`, qualify the
 exact release commit locally, create the qualified tag once, then monitor the
 single `v0.6.4` recovery run.
 
-- [ ] **Step 7: Verify public release evidence**
+- [x] **Step 7: Verify public release evidence**
 
 Through GitHub API and GHCR, verify:
 
@@ -891,13 +891,13 @@ Through GitHub API and GHCR, verify:
 - Debian Trixie and Oracle Linux 10 manifests exist for the exact v0.6.4 tags;
 - immutable releases remains enabled.
 
-- [ ] **Step 8: Close release tracking only after evidence is complete**
+- [x] **Step 8: Close release tracking only after evidence is complete**
 
 Update `gobfd-qj0.8.1.15`, the v0.6.4 qualification evidence, and milestone with
 exact SHAs, run IDs, asset/digest evidence, and any time-bounded advisory
 exception. Close only tasks whose acceptance criteria are fully satisfied.
 
-- [ ] **Step 9: Clean only owned worktrees and transient resources**
+- [x] **Step 9: Clean only owned worktrees and transient resources**
 
 After all commits are integrated and refs verified, remove the clean
 `docs-release-v06-policy` and `release-v0.6` worktrees through
@@ -905,3 +905,15 @@ After all commits are integrated and refs verified, remove the clean
 Do not run repository-wide `git worktree prune`; report any unrelated stale
 entry instead. Do not delete branches, tags, unrelated caches, containers,
 images, or volumes.
+
+Completion evidence: run `33101133019` attempt 2 completed successfully at
+`b1c0bcd7d2e9abed00368b2082e34f521084c087`. Published immutable release
+`v0.6.4` has an exact matching body and 12 independently checksum-verified
+assets. Debian Trixie and Oracle Linux 10 multi-architecture OCI indexes and
+their mutable aliases resolve to the recorded release digests. The exact
+release history was fast-forwarded to `dev`; GitHub reports no push workflow
+for that branch. The clean `fix-v06-release-notes` and `release-v0.6` worktrees
+were removed, leaving only the main `dev` worktree. Beads release task
+`gobfd-qj0.8.1.15` is closed. The parent maintenance milestone remains open on
+the separately tracked P1 review findings `gobfd-qj0.8.1.8.8`, `.8.9`, and
+`.8.10`.

@@ -1,7 +1,7 @@
 # GoBFD Release-Branch Versioning Design
 
 - **Date:** 2026-08-27
-- **Status:** Approved; implementation in progress
+- **Status:** Implemented; v0.6.4 published
 - **Beads:** `gobfd-qj0.8.1.15`
 
 **Scope:** v0.6 maintenance line and reusable release-branch policy
@@ -31,8 +31,10 @@ The branch remains the source line for later v0.6.x tags.
 The live repository state checked on 2026-08-27 establishes these constraints:
 
 - `master` is the protected default branch at merge commit
-  `48ef04e158dbc923173f44932a4686747bf873ee`; the latest published tag remains
-  `v0.6.1` until the qualified v0.6.4 recovery cut completes.
+  `48ef04e158dbc923173f44932a4686747bf873ee`; the published immutable `v0.6.4`
+  tag points to `b1c0bcd7d2e9abed00368b2082e34f521084c087` on `release/v0.6`.
+- `dev` was fast-forwarded to the same reviewed release commit after
+  publication; its push triggers no repository workflow.
 - PR #63 merged the independently reviewed `dev` head
   `2e6335cb310f8654a74ca348916386a47cf33d87` after all 20 contexts completed.
 - `.github/workflows/release.yml` runs only for pushed `v*` tags and creates the
@@ -318,3 +320,22 @@ when `changelog.disable` skips the changelog pipe. The draft was never
 published, mutable aliases were not promoted, and the immutable tag is not
 reused. The one-line changelog-pipe correction enters through
 `fix/v0.6-release-notes`; the next recovery release is `v0.6.4`.
+
+### Published recovery result
+
+Release run `33101133019` completed successfully on its second attempt after
+the sole transient OSV download failure was reproduced successfully with a
+resource-bounded local audit. The immutable annotated `v0.6.4` tag points to
+`b1c0bcd7d2e9abed00368b2082e34f521084c087`. GitHub Release `378036743` is
+published, non-prerelease, and immutable; its exact CHANGELOG body, 12 assets,
+checksums, two CycloneDX SBOMs, report archive, and API asset digests were
+verified independently. The Debian Trixie index digest is
+`sha256:6deccf688ef862da35c35fa3c8343ed6499fbf0d31d4b58226786dedc8b911e1` and
+the Oracle Linux 10 index digest is
+`sha256:eae22d81c6c8c31b9e7c969456203621d1f75b6fa1f17845b868208dbe4b4cef`;
+both contain linux/amd64 and linux/arm64 manifests with linked attestations.
+
+This design's release-line acceptance is complete. The broader maintenance
+milestone remains open on separately tracked P1 review findings
+`gobfd-qj0.8.1.8.8`, `.8.9`, and `.8.10`; they are not silently treated as
+resolved by publication.

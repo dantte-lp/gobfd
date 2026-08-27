@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reconciled the public roadmap, release-branch design, and executable plan
+  with the published immutable v0.6.4 evidence while keeping three unresolved
+  P1 maintenance-review findings visible and fail-closed in Beads.
+
 ## [0.6.4] - 2026-08-27
 
 ### Fixed
