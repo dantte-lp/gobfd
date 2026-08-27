@@ -58,6 +58,7 @@ type Controller struct {
 	root        string
 	composeFile string
 	projectName string
+	kind        string
 	required    []string
 	optional    []string
 	stdout      io.Writer
@@ -80,15 +81,30 @@ func New(root string, stdout, stderr io.Writer) (*Controller, error) {
 		)}
 	}
 
+	return NewProject(root, projectName, os.Getenv("INTEROP_PROJECT_KIND"), stdout, stderr)
+}
+
+// NewProject constructs a controller for an explicit base or BGP Compose project.
+func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Controller, error) {
+	if !projectNamePattern.MatchString(projectName) {
+		return nil, &UsageError{Message: fmt.Sprintf(
+			"invalid interop project name %q: use lowercase letters, digits, dashes, and underscores",
+			projectName,
+		)}
+	}
+
 	var required, optional []string
-	switch kind := os.Getenv("INTEROP_PROJECT_KIND"); kind {
+	composeFile := filepath.Join(root, "test", "interop", "compose.yml")
+	switch kind {
 	case "", "base":
+		kind = "base"
 		required = []string{
 			"gobfd-interop", "frr-interop", "bird3-interop", "tshark-interop",
 			"holo-interop", "holo-config-interop", "thoro-interop",
 		}
 		optional = []string{"scapy-interop"}
 	case "bgp":
+		composeFile = filepath.Join(root, "test", "interop-bgp", "compose.yml")
 		required = []string{
 			"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop",
 			"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop",
@@ -101,13 +117,49 @@ func New(root string, stdout, stderr io.Writer) (*Controller, error) {
 
 	return &Controller{
 		root:        root,
-		composeFile: filepath.Join(root, "test", "interop", "compose.yml"),
+		composeFile: composeFile,
 		projectName: projectName,
+		kind:        kind,
 		required:    required,
 		optional:    optional,
 		stdout:      stdout,
 		stderr:      stderr,
 	}, nil
+}
+
+// Lifecycle starts, operates, and cleans one exact Compose project while holding its lock.
+func (c *Controller) Lifecycle(
+	ctx context.Context,
+	operation func(context.Context, *Controller) error,
+) (runErr error) {
+	defer func() {
+		if c.mutation {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+			runErr = errors.Join(runErr, c.cleanup(cleanupCtx))
+			cancel()
+			c.mutation = false
+			c.keepProject = false
+		}
+		runErr = errors.Join(runErr, c.releaseLock())
+	}()
+
+	if operation == nil {
+		return fmt.Errorf("%w: lifecycle operation is nil", errUsage)
+	}
+	if err := c.start(ctx); err != nil {
+		return err
+	}
+	return operation(ctx, c)
+}
+
+// ContainerID resolves a fixed container and verifies exact project ownership.
+func (c *Controller) ContainerID(ctx context.Context, name string) (string, error) {
+	return c.resolveContainerID(ctx, name)
+}
+
+// ServiceContainerID resolves exactly one service container for a Compose project.
+func (c *Controller) ServiceContainerID(ctx context.Context, projectName, serviceName string) (string, error) {
+	return c.resolveServiceContainerID(ctx, projectName, serviceName)
 }
 
 // Run executes one controller action.
@@ -177,6 +229,13 @@ func (c *Controller) start(ctx context.Context) error {
 	c.mutation = true
 	if opErr := c.compose(ctx, 10*time.Minute, "build"); opErr != nil {
 		return opErr
+	}
+	if c.kind == "bgp" {
+		if opErr := c.compose(ctx, commandTimeout, "up", "-d"); opErr != nil {
+			return opErr
+		}
+		c.keepProject = true
+		return nil
 	}
 	if opErr := c.compose(ctx, commandTimeout, "up", "-d", "holo", "holo-config"); opErr != nil {
 		return opErr

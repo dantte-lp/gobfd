@@ -248,7 +248,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "Compose topology", path: filepath.Join(root, "test", "interop", "compose.yml")},
 		{name: "FRR configuration", path: filepath.Join(root, "test", "interop", "frr", "frr.conf")},
 		{name: "BIRD image", path: filepath.Join(root, "test", "interop", "bird3", "Containerfile")},
-		{name: "routing runner", path: filepath.Join(root, "test", "e2e", "routing", "run.sh")},
+		{name: "routing runner", path: filepath.Join(root, "test", "internal", "e2erunner", "routing.go")},
 		{name: "target inventory", path: filepath.Join(root, "test", "e2e", "targets.md")},
 		{name: "Makefile", path: filepath.Join(root, "Makefile")},
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
@@ -444,207 +444,39 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 
 	routing := contents["routing runner"]
-	assertContainsAll(t, "routing runner", routing, []string{
-		`date -u +%Y%m%dT%H%M%S%NZ`,
-		`RUN_ID="${RUN_TIMESTAMP}-$$"`,
-		`MERGE_OWNER_LABEL_VALUE="${RUN_ID}"`,
-		`INTEROP_PROJECT_NAME="${INTEROP_PROJECT_NAME:-gobfd-interop}"`,
-		`-p "${project_name}"`,
-		`"INTEROP_PROJECT_NAME=${project_name}"`,
-		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
-		"start_holo_interop_suite",
-		"start_generic_suite",
-		"collect_holo_diagnostics",
-		"acquire_project_lock",
-		"release_project_lock",
-		"assert_fixed_names_available",
-		"resolve_project_container_id",
-		"holo-interop",
-		"holo-config-interop",
-		"interop_verify_holo_running_configuration",
+	assertContainsAll(t, "routing Go runner", routing, []string{
+		"func (r *runner) runRouting",
+		"interopproject.NewProject",
+		"controller.Lifecycle",
+		"runRoutingSuite",
+		"passedGoTest",
+		"collectHoloDiagnostics",
+		"collectRoutingPcap",
+		"routingartifacts.WriteImageID",
+		"routingartifacts.ReadImageID",
+		"routingartifacts.Merge",
+		"mergeOwnerLabelKey",
+		"removeLabelledContainers",
 	})
-	holoStartup := shellFunctionBody(t, routing, "start_holo_interop_suite")
-	assertOrdered(t, "routing Holo provider gate", holoStartup, []string{
-		"up -d holo holo-config",
-		`resolve_project_container_id "${project_name}" holo-config-interop`,
-		`podman wait "${loader_id}"`,
-		`podman inspect --format '{{.State.ExitCode}}' "${loader_id}"`,
-		`interop_verify_holo_running_configuration`,
-		"up -d --no-deps gobfd frr bird3 tshark thoro",
+	assertOrdered(t, "routing Go lifecycle", routing, []string{
+		"controller.Lifecycle",
+		"runRoutingSuite",
+		"mergeRoutingArtifacts",
 	})
-	assertContainsAll(t, "routing Holo provider gate", holoStartup, []string{
-		`[[ ! "${wait_status}" =~ ^[0-9]+$ ]]`,
-		`[[ ! "${inspect_status}" =~ ^[0-9]+$ ]]`,
-		`[ "${wait_status}" != "${inspect_status}" ]`,
-		`[ "${wait_status}" -ne 0 ]`,
-		`fail_holo_suite_startup`,
-	})
-	projectGuard := contents["project guard"]
-	sharedHoloVerifier := shellFunctionBody(t, projectGuard, "interop_verify_holo_running_configuration")
-	assertOrdered(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
-		`"${PODMAN[@]}" logs "${loader_id}"`,
-		`grep -q '^% '`,
-		`interop_resolve_project_container_id "${project_name}" holo-interop`,
-		`holo-cli --version`,
-		`--command 'show running format json'`,
-	})
-	assertContainsAll(t, "shared Holo semantic verifier", sharedHoloVerifier, []string{
-		`Holo command-line interface 0.5.0`,
-		`Holo configuration loader produced unexpected output`,
-		`jq -s -e`,
-		`length == 1`,
-		`($interfaces | length) == 1`,
-		`($protocols | length) == 1`,
-		`($sessions | length) == 1`,
-	})
-	if got := strings.Count(sharedHoloVerifier, "jq -s -e"); got != 1 {
-		t.Errorf("shared Holo semantic verifier jq call count = %d, want 1", got)
-	}
-	for _, name := range []string{"routing runner"} {
-		if got := strings.Count(contents[name], "interop_verify_holo_running_configuration"); got != 1 {
-			t.Errorf("%s shared Holo verifier call count = %d, want 1", name, got)
-		}
-	}
-	containerPreflight := shellFunctionBody(t, projectGuard, "interop_validate_container_snapshot")
-	assertContainsAll(t, "generic exact container preflight", containerPreflight, []string{
-		`podman inspect --type container`,
-		`--format '{{json .}}' "${container_id}"`,
-		`jq -s -e`,
-		`length == 1`,
-		`.Id == $container_id`,
-		`.Config.Labels[$label_key] == $label_value`,
-		`(.Mounts | type) == "array"`,
-		`all(.Mounts[];`,
-		`.Type != "volume"`,
-		`container ownership or volume-mount preflight failed`,
-	})
-	projectRemoval := shellFunctionBody(t, projectGuard, "interop_remove_project_resources")
-	assertOrdered(t, "project cleanup preflight before mutation", projectRemoval, []string{
-		`[[ "${#volume_names[@]}" -ne 0 ]]`,
-		`interop_validate_container_snapshot`,
-		`interop_remove_container_snapshot`,
-		`podman network rm`,
-	})
-	labelledRemoval := shellFunctionBody(t, projectGuard, "interop_remove_labelled_containers")
-	assertOrdered(t, "merge-owner cleanup preflight before mutation", labelledRemoval, []string{
-		`snapshot+=("${container_id}")`,
-		`interop_validate_container_snapshot`,
-		`interop_remove_container_snapshot`,
-	})
-	runSuite := shellFunctionBody(t, routing, "run_suite")
-	assertOrdered(t, "routing base suite startup dispatch", runSuite, []string{
-		`acquire_project_lock "${project_name}"`,
-		`assert_project_available "${project_name}"`,
-		`assert_fixed_names_available "${project_name}"`,
-		`build --no-cache`,
-		`start_holo_interop_suite`,
-	})
-	assertContainsAll(t, "routing suite startup modes", routing, []string{
-		`"holo" "${INTEROP_PROJECT_NAME}"`,
-		`"generic" "${INTEROP_BGP_PROJECT_NAME}"`,
-	})
-	assertOrdered(t, "routing lock lifecycle", runSuite, []string{
-		`acquire_project_lock "${project_name}"`,
-		`assert_project_available "${project_name}"`,
-		`cleanup_project "${project_name}"`,
-		`release_project_lock "${project_name}"`,
-	})
-	holoDiagnostics := shellFunctionBody(t, routing, "collect_holo_diagnostics")
-	assertContainsAll(t, "routing Holo artifact diagnostics", holoDiagnostics, []string{
-		`resolve_project_container_id "${project_name}" holo-interop`,
-		`resolve_project_container_id "${project_name}" holo-config-interop`,
-		`logs --tail 100 "${holo_id}"`,
-		`logs --tail 100 "${loader_id}"`,
-		`exec "${holo_id}" sh -c`,
-		`/tmp/holod.err`,
-		`"${suite_dir}/holo.log"`,
-		`"${suite_dir}/holo-config.log"`,
-		`"${suite_dir}/holod.err"`,
-	})
-	recordContainers := shellFunctionBody(t, routing, "record_containers")
-	assertContainsAll(t, "routing container inventory ownership", recordContainers, []string{
-		`resolve_project_container_id "${project_name}" "${container_name}"`,
-		`inspect "${container_ids[@]}"`,
-	})
-	cleanupProject := shellFunctionBody(t, routing, "cleanup_project")
-	assertOrdered(t, "routing label-safe cleanup", cleanupProject, []string{
-		`remove_project_resources "${project_name}"`,
-		`verify_project_absent "${project_name}"`,
-	})
-	mergeArtifacts := shellFunctionBody(t, routing, "merge_artifacts")
-	collectPcap := shellFunctionBody(t, routing, "collect_pcap")
-	assertOrdered(t, "routing tshark image identity collection", collectPcap, []string{
-		`resolve_project_container_id "${project_name}" "${tshark_container}"`,
-		`inspect --type container --format '{{.Image}}'`,
-		`^[0-9a-f]{64}$`,
-		`image exists "${tshark_image_id}"`,
-		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
-		`write-image-id "/app/${REPORT_REL}" "${suite}/tshark-image-id"`,
-		`exec "${tshark_id}" cat /captures/bfd.pcapng`,
-		`failed to copy tshark packet capture`,
-		`exec "${tshark_id}" tshark`,
-		`failed to decode tshark packet capture`,
-		`append_csv "${suite}" "${suite_dir}/packets.csv"`,
-	})
-	if strings.Contains(collectPcap, "|| true") {
-		t.Error("routing packet collection still swallows a producer failure")
-	}
-	assertContainsAll(t, "routing merge ownership", routing, []string{
-		`MERGE_OWNER_LABEL_KEY="io.gobfd.e2e.merge-owner"`,
-	})
-	assertContainsAll(t, "routing merge ownership", mergeArtifacts, []string{
-		`query_labelled_container_ids`,
-		`remove_labelled_containers`,
-		`verify_labelled_containers_absent`,
-	})
-	assertOrdered(t, "routing merge ownership lifecycle", mergeArtifacts, []string{
-		`interop_query_labelled_container_ids`,
-		`merge ownership label collision`,
-		`interop_resolve_project_service_container_id "${DEV_PROJECT}" dev`,
-		`read-image-id "/app/${REPORT_REL}" "interop/tshark-image-id"`,
-		`image exists "${tshark_image_id}"`,
-		`read-image-id "/app/${REPORT_REL}" "interop-bgp/tshark-image-id"`,
-		`image exists "${bgp_tshark_image_id}"`,
-		`"containers.json"`,
-		`required packet capture is missing, empty, or unsafe`,
-		`"${PODMAN[@]}" run`,
-		`interop_remove_labelled_containers`,
-		`interop_verify_labelled_containers_absent`,
-	})
-	if strings.Contains(mergeArtifacts, "com.docker.compose.project") {
-		t.Error("merge_artifacts reuses a Compose project ownership label")
-	}
-	if strings.Contains(mergeArtifacts, "run --rm") {
-		t.Error("merge_artifacts delegates cleanup to name-based or implicit removal")
-	}
-	for _, forbidden := range []string{"TSHARK_IMAGE", "localhost/interop_tshark", "python3"} {
+	for _, forbidden := range []string{"sh -c", "python3", "localhost/interop_tshark"} {
 		if strings.Contains(routing, forbidden) {
-			t.Errorf("routing runner retains forbidden artifact merge dependency %q", forbidden)
+			t.Errorf("routing Go runner retains forbidden dependency %q", forbidden)
 		}
 	}
-	failHoloStartup := shellFunctionBody(t, routing, "fail_holo_suite_startup")
-	assertContainsAll(t, "routing Holo failure diagnostics", failHoloStartup, []string{
-		`collect_holo_diagnostics "${project_name}" "${compose_file}" "${suite_dir}"`,
-		`for artifact in holo.log holo-config.log holod.err`,
+	assertContainsAll(t, "routing controller lifecycle", projectControl, []string{
+		"func (c *Controller) Lifecycle",
+		"c.start(ctx)",
+		"c.cleanup(cleanupCtx)",
+		"c.releaseLock()",
+		`"interop-bgp"`,
+		"if c.kind == \"bgp\"",
+		`c.compose(ctx, commandTimeout, "up", "-d")`,
 	})
-	assertOrdered(t, "routing non-zero test guard", routing, []string{
-		`>"${suite_dir}/go-test.json"`,
-		`jq -s -e '[.[] | select(.Action == "pass" and has("Test"))] | length > 0'`,
-		`collect_holo_diagnostics`,
-		`collect_pcap "${suite}"`,
-	})
-	assertOrdered(t, "routing packet collection failure propagation", runSuite, []string{
-		`if ! collect_pcap "${suite}" "${project_name}" "${tshark_container}"; then`,
-		`suite %s packet collection failed`,
-		`test_status=1`,
-		`return "${test_status}"`,
-	})
-	for _, name := range []string{"routing runner", "project control"} {
-		if strings.Contains(contents[name], "down --volumes --remove-orphans") {
-			t.Errorf("%s retains name-based Compose cleanup", name)
-		}
-	}
-
 	inventory := contents["target inventory"]
 	assertContainsAll(t, "target inventory", inventory, []string{
 		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
@@ -2276,22 +2108,6 @@ func trackedGeneratedMarker(path string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-func shellFunctionBody(t *testing.T, script, name string) string {
-	t.Helper()
-
-	startMarker := name + "() {\n"
-	start := strings.Index(script, startMarker)
-	if start < 0 {
-		t.Fatalf("shell function %s is missing", name)
-	}
-	start += len(startMarker)
-	end := strings.Index(script[start:], "\n}\n")
-	if end < 0 {
-		t.Fatalf("shell function %s has no closing brace", name)
-	}
-	return script[start : start+end]
 }
 
 func contractSection(t *testing.T, contents, startMarker, endMarker string) string {

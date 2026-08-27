@@ -16,9 +16,24 @@ import (
 )
 
 const (
-	commandTimeout = 2 * time.Minute
-	testTimeout    = 6 * time.Minute
-	podmanCommand  = "podman"
+	commandTimeout        = 2 * time.Minute
+	testTimeout           = 6 * time.Minute
+	podmanCommand         = "podman"
+	environmentTarget     = "target"
+	environmentRunID      = "run_id"
+	environmentDevProject = "dev_project"
+	environmentRuntime    = "podman_runtime"
+	summaryTarget         = "Target"
+	summaryRunID          = "Run ID"
+	summaryExitCode       = "Exit code"
+	summaryGoTestJSON     = "Go test JSON"
+	summaryGoTestLog      = "Go test log"
+	summaryContainerState = "Container state"
+	summaryContainerLogs  = "Container logs"
+	goTestJSONName        = "go-test.json"
+	goTestLogName         = "go-test.log"
+	containersJSONName    = "containers.json"
+	containersLogName     = "containers.log"
 )
 
 var (
@@ -50,10 +65,10 @@ type runner struct {
 // Run executes one E2E target.
 func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writer) error {
 	if len(args) != 1 {
-		return fmt.Errorf("%w: usage: e2ectl {linux|overlay|rfc|vendor}", errUsage)
+		return fmt.Errorf("%w: usage: e2ectl {linux|overlay|rfc|routing|vendor}", errUsage)
 	}
 	target := args[0]
-	if target != "linux" && target != "overlay" && target != "rfc" && target != "vendor" {
+	if !validTarget(target) {
 		return fmt.Errorf("%w: unknown target %q", errUsage, target)
 	}
 
@@ -66,6 +81,9 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 	}
 
 	runID := time.Now().UTC().Format("20060102T150405Z")
+	if target == "routing" {
+		runID = fmt.Sprintf("%s-%d", time.Now().UTC().Format("20060102T150405000000000Z"), os.Getpid())
+	}
 	reportRel := filepath.ToSlash(filepath.Join("reports", "e2e", target, runID))
 	r := &runner{
 		root:       root,
@@ -88,10 +106,21 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 		return r.runOverlay(ctx)
 	case "rfc":
 		return r.runRFC(ctx)
+	case "routing":
+		return r.runRouting(ctx)
 	case "vendor":
 		return r.runVendor(ctx)
 	default:
 		panic("validated E2E target is unhandled")
+	}
+}
+
+func validTarget(target string) bool {
+	switch target {
+	case "linux", "overlay", "rfc", "routing", "vendor":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -123,27 +152,27 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 	}
 	defer func() {
 		r.bestEffortFile(
-			ctx, "containers.json", "containers.err", podmanCommand,
+			ctx, containersJSONName, "containers.err", podmanCommand,
 			"ps", "-a", "--filter", "name="+containerName, "--format", "json",
 		)
-		r.bestEffortFile(ctx, "containers.log", "containers-log.err", podmanCommand, "logs", containerName)
+		r.bestEffortFile(ctx, containersLogName, "containers-log.err", podmanCommand, "logs", containerName)
 		r.bestEffortCommand(ctx, podmanCommand, "rm", "-f", containerName)
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
-			"target":         "e2e-linux",
-			"run_id":         r.runID,
-			"dev_project":    r.devProject,
-			"test_image":     testImage,
-			"podman_runtime": podmanCommand,
-			"isolation":      "podman --network none --cap-add NET_ADMIN --cap-add NET_RAW",
+			environmentTarget:     "e2e-linux",
+			environmentRunID:      r.runID,
+			environmentDevProject: r.devProject,
+			"test_image":          testImage,
+			environmentRuntime:    podmanCommand,
+			"isolation":           "podman --network none --cap-add NET_ADMIN --cap-add NET_RAW",
 		}), r.writeSummary([]summaryRow{
-			{"Target", "`make e2e-linux`"},
-			{"Run ID", "`" + r.runID + "`"},
-			{"Exit code", fmt.Sprintf("`%d`", exitCode(runErr))},
+			{summaryTarget, "`make e2e-linux`"},
+			{summaryRunID, "`" + r.runID + "`"},
+			{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
 			{"Isolation", "`podman --network none`"},
-			{"Go test JSON", "`go-test.json`"},
-			{"Go test log", "`go-test.log`"},
-			{"Container state", "`containers.json`"},
-			{"Container logs", "`containers.log`"},
+			{summaryGoTestJSON, "`" + goTestJSONName + "`"},
+			{summaryGoTestLog, "`" + goTestLogName + "`"},
+			{summaryContainerState, "`" + containersJSONName + "`"},
+			{summaryContainerLogs, "`" + containersLogName + "`"},
 			{"Linux events", "`link-events.json`"},
 			{"LAG backend evidence", "`lag-backends.json`"},
 		}))
@@ -176,17 +205,17 @@ func (r *runner) runOverlay(ctx context.Context) (runErr error) {
 	defer func() {
 		r.collectDevDiagnostics(ctx)
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
-			"target": "e2e-overlay", "run_id": r.runID, "dev_project": r.devProject,
-			"podman_runtime":    podmanCommand,
+			environmentTarget: "e2e-overlay", environmentRunID: r.runID, environmentDevProject: r.devProject,
+			environmentRuntime:  podmanCommand,
 			"reserved_backends": []string{"kernel", "ovs", "ovn", "cilium", "calico", "nsx"},
 		}), r.writeSummary([]summaryRow{
-			{"Target", "`make e2e-overlay`"},
-			{"Run ID", "`" + r.runID + "`"},
-			{"Exit code", fmt.Sprintf("`%d`", exitCode(runErr))},
-			{"Go test JSON", "`go-test.json`"},
-			{"Go test log", "`go-test.log`"},
-			{"Container state", "`containers.json`"},
-			{"Container logs", "`containers.log`"},
+			{summaryTarget, "`make e2e-overlay`"},
+			{summaryRunID, "`" + r.runID + "`"},
+			{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
+			{summaryGoTestJSON, "`" + goTestJSONName + "`"},
+			{summaryGoTestLog, "`" + goTestLogName + "`"},
+			{summaryContainerState, "`" + containersJSONName + "`"},
+			{summaryContainerLogs, "`" + containersLogName + "`"},
 			{"Packet evidence", "`packets.csv`"},
 		}))
 	}()
@@ -210,8 +239,8 @@ func (r *runner) runRFC(ctx context.Context) (runErr error) {
 		return append([]string{podmanCommand, "compose", "-f", composeFile}, args...)
 	}
 	defer func() {
-		r.bestEffortFile(ctx, "containers.log", "containers-log.err", compose("logs")...)
-		r.bestEffortFile(ctx, "containers.json", "containers.err", podmanCommand, "inspect",
+		r.bestEffortFile(ctx, containersLogName, "containers-log.err", compose("logs")...)
+		r.bestEffortFile(ctx, containersJSONName, "containers.err", podmanCommand, "inspect",
 			"gobfd-rfc-interop", "tshark-rfc-interop", "frr-rfc-interop", "gobfd-rfc9384-interop",
 			"gobgp-rfc-interop", "frr-rfc-bgp-interop", "frr-rfc-unsolicited-interop", "echo-reflector-interop")
 		r.bestEffortFile(
@@ -226,18 +255,18 @@ func (r *runner) runRFC(ctx context.Context) (runErr error) {
 			"-E", "header=y", "-E", "separator=,")
 		r.bestEffortCommand(ctx, compose("down", "--volumes", "--remove-orphans")...)
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
-			"target": "e2e-rfc", "run_id": r.runID, "dev_project": r.devProject,
-			"compose_file": composeFile, "podman_runtime": podmanCommand,
+			environmentTarget: "e2e-rfc", environmentRunID: r.runID, environmentDevProject: r.devProject,
+			"compose_file": composeFile, environmentRuntime: podmanCommand,
 			"rfc_scenarios": []string{"RFC 7419", "RFC 9384", "RFC 9468", "RFC 9747"},
 		}), r.writeSummary([]summaryRow{
-			{"Target", "`make e2e-rfc`"},
-			{"Run ID", "`" + r.runID + "`"},
-			{"Exit code", fmt.Sprintf("`%d`", exitCode(runErr))},
+			{summaryTarget, "`make e2e-rfc`"},
+			{summaryRunID, "`" + r.runID + "`"},
+			{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
 			{"RFC coverage", "RFC 7419, RFC 9384, RFC 9468, RFC 9747"},
-			{"Go test JSON", "`go-test.json`"},
-			{"Go test log", "`go-test.log`"},
-			{"Container state", "`containers.json`"},
-			{"Container logs", "`containers.log`"},
+			{summaryGoTestJSON, "`" + goTestJSONName + "`"},
+			{summaryGoTestLog, "`" + goTestLogName + "`"},
+			{summaryContainerState, "`" + containersJSONName + "`"},
+			{summaryContainerLogs, "`" + containersLogName + "`"},
 			{"Packet capture", "`packets.pcapng`"},
 			{"Packet CSV", "`packets.csv`"},
 		}))
@@ -268,20 +297,20 @@ func (r *runner) runVendor(ctx context.Context) (runErr error) {
 	defer func() {
 		r.collectDevDiagnostics(ctx)
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
-			"target": "e2e-vendor", "run_id": r.runID, "dev_project": r.devProject,
-			"podman_runtime": podmanCommand, "containerlab_runtime": podmanCommand,
+			environmentTarget: "e2e-vendor", environmentRunID: r.runID, environmentDevProject: r.devProject,
+			environmentRuntime: podmanCommand, "containerlab_runtime": podmanCommand,
 			"topology": "test/interop-clab/gobfd-vendors.clab.yml", "public_ci_default": "skip-topology",
 		}), r.writeSummary([]summaryRow{
-			{"Target", "`make e2e-vendor`"},
-			{"Run ID", "`" + r.runID + "`"},
-			{"Exit code", fmt.Sprintf("`%d`", exitCode(runErr))},
+			{summaryTarget, "`make e2e-vendor`"},
+			{summaryRunID, "`" + r.runID + "`"},
+			{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
 			{"Runtime", "`podman`"},
 			{"Containerlab runtime", "`podman`"},
 			{"Topology", "`test/interop-clab/gobfd-vendors.clab.yml`"},
-			{"Go test JSON", "`go-test.json`"},
-			{"Go test log", "`go-test.log`"},
-			{"Container state", "`containers.json`"},
-			{"Container logs", "`containers.log`"},
+			{summaryGoTestJSON, "`" + goTestJSONName + "`"},
+			{summaryGoTestLog, "`" + goTestLogName + "`"},
+			{summaryContainerState, "`" + containersJSONName + "`"},
+			{summaryContainerLogs, "`" + containersLogName + "`"},
 			{"Vendor profiles", "`vendor-profiles.json`"},
 			{"Image availability", "`vendor-images.json`"},
 			{"Skip summary", "`skip-summary.json`"},
@@ -367,18 +396,18 @@ func (r *runner) composeDev(args ...string) []string {
 }
 
 func (r *runner) collectDevDiagnostics(ctx context.Context) {
-	r.bestEffortFile(ctx, "containers.json", "containers.err", podmanCommand, "ps", "-a",
+	r.bestEffortFile(ctx, containersJSONName, "containers.err", podmanCommand, "ps", "-a",
 		"--filter", "label=io.podman.compose.project="+r.devProject, "--format", "json")
-	r.bestEffortFile(ctx, "containers.log", "containers-log.err", r.composeDev("logs")...)
+	r.bestEffortFile(ctx, containersLogName, "containers-log.err", r.composeDev("logs")...)
 }
 
 func (r *runner) loggedCommand(ctx context.Context, argv ...string) error {
-	jsonFile, err := secureFile(filepath.Join(r.reportDir, "go-test.json"))
+	jsonFile, err := secureFile(filepath.Join(r.reportDir, goTestJSONName))
 	if err != nil {
 		return err
 	}
 	defer jsonFile.Close()
-	logFile, err := secureFile(filepath.Join(r.reportDir, "go-test.log"))
+	logFile, err := secureFile(filepath.Join(r.reportDir, goTestLogName))
 	if err != nil {
 		return err
 	}

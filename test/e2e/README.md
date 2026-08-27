@@ -16,6 +16,7 @@ optional vendor profiles.
 | Compose project | Every dev stack uses `COMPOSE_PROJECT_NAME`; no fixed dev `container_name` is allowed. |
 | Vendor NOS | Optional/manual unless public images and licenses allow CI execution. |
 | Packet capture | Required when a target claims wire behavior. |
+| E2E orchestration | `test/cmd/e2ectl` and `test/internal/e2erunner`; the five aggregate targets do not use shell runners. |
 
 ## Target Matrix
 
@@ -34,8 +35,12 @@ optional vendor profiles.
 Every implemented S10 target writes artifacts to:
 
 ```text
-reports/e2e/<target>/<YYYYMMDDTHHMMSSZ>/
+reports/e2e/<target>/<run-id>/
 ```
+
+Linux, overlay, RFC, and vendor runs use `YYYYMMDDTHHMMSSZ`. Routing uses
+`YYYYMMDDTHHMMSSNNNNNNNNNZ-PID` so the same identifier can safely own its
+temporary merge container.
 
 Required files:
 

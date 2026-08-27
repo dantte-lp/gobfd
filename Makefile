@@ -138,7 +138,7 @@ e2e-core-testcontainers: dev-ensure
 			test "$${pipeline_status[0]}" -eq 0 && test "$${pipeline_status[1]}" -eq 0'
 e2e-routing: interop-project-validate
 	$(DC) up -d --build --force-recreate dev
-	./test/e2e/routing/run.sh
+	go run ./test/cmd/e2ectl routing
 
 e2e-routing-test: interop-project-validate
 	$(INTEROP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
