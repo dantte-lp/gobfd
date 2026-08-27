@@ -143,6 +143,9 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
 - `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
 - Fixes use `fix/vMAJOR.MINOR-*`, enter the supported line through reviewed
   pull requests, and are forward-ported separately when applicable.
+- After a supported patch is published, its accepted stable history and both
+  changelogs must reach `master` before release closeout; applicable changes
+  are forward-ported to `dev` separately.
 - The release-branch ruleset must be active before each new matching release
   branch is created. The tag ruleset must be active before each new matching
   tag is created, specifically before `v0.6.2`.
@@ -151,6 +154,10 @@ from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
   preserved unchanged.
 - GitHub Release assets must be complete and verified while the release is a
   draft, before immutable publication.
+- GitHub Release notes cover every maintenance section since the previous
+  published stable release in the same line, or the previous stable release
+  across lines for the first cut, and link to the changelog and comparison at
+  the immutable tag.
 
 ## Git
 - Commits: NEVER add Co-Authored-By or any AI/Claude mentions in commit messages
