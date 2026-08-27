@@ -22,6 +22,17 @@
 
 ## Development Workflow
 
+### Branch Selection
+
+- Features start from `dev` and target `dev` through a reviewed pull request.
+- v0.6 maintenance fixes start from `release/v0.6` on a
+  `fix/v0.6-*` branch and target `release/v0.6` through a reviewed pull
+  request.
+- Release-preparation changes start from and target the applicable supported
+  `release/vMAJOR.MINOR` line.
+- After a maintenance fix is accepted, maintainers assess whether it also
+  needs a separate forward-port to `master` or `dev`.
+
 ### Build and Test
 
 All Go commands run inside Podman containers. No local Go toolchain required.
@@ -122,7 +133,7 @@ make lint
 ## Pull Request Process
 
 1. Open an issue first to discuss significant changes
-2. Create a feature branch from `master`
+2. Choose the source and target branch according to [Branch Selection](#branch-selection)
 3. Make focused, reviewable commits with descriptive messages
 4. Ensure all routine checks pass: `make verify`
 5. Update documentation if your change affects user-facing behavior

@@ -1,8 +1,9 @@
 # GoBFD Release-Branch Versioning Design
 
 - **Date:** 2026-08-27
-- **Status:** Approved direction; implementation pending reviewed plan
+- **Status:** Approved; implementation in progress
 - **Beads:** `gobfd-qj0.8.1.15`
+
 **Scope:** v0.6 maintenance line and reusable release-branch policy
 
 ## Decision

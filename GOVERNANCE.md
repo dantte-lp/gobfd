@@ -7,6 +7,8 @@ GoBFD is an independent open source project maintained in this repository.
 | Area | Policy |
 |---|---|
 | Default branch | `master` |
+| Integration branch | `dev` for the next product line; never a stable release tag source |
+| Supported lines | `release/vMAJOR.MINOR`; `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts |
 | License | Apache License 2.0 |
 | Versioning | Semantic Versioning 2.0.0; current release line is `0.x` |
 | Changelog | Keep a Changelog 1.1.0 |
@@ -34,13 +36,23 @@ GoBFD is an independent open source project maintained in this repository.
 
 ## Release Authority
 
-Release tags require:
+Maintainers own supported release lines and immutable publication. Release tags
+require:
 
-1. `make verify VERSION=vX.Y.Z`.
-2. Required interop gates for protocol changes.
-3. Updated changelog entries.
-4. Conventional Commit release commit.
-5. Immutable SemVer tag.
+1. A reviewed commit on the applicable `release/vMAJOR.MINOR` branch.
+2. `make verify VERSION=vX.Y.Z` and required interop gates for protocol
+   changes on that exact commit.
+3. Updated changelog entries and a Conventional Commit release commit.
+4. Release-branch and tag rulesets established before the corresponding refs.
+5. An immutable SemVer tag pointing to the exact reviewed release-branch
+   commit; the tag is never moved, deleted, or reused.
+6. GitHub Actions creation of a draft release whose assets and notes are
+   complete and verified before a maintainer authorizes immutable publication.
+
+Every fix accepted on a supported line requires an explicit assessment of
+whether the defect also exists on `master` or `dev`. Applicable fixes are
+forward-ported through a separate reviewed pull request; otherwise the
+maintainer records why no forward-port is required.
 
 ## References
 

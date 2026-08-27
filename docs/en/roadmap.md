@@ -11,7 +11,10 @@
 The latest published GitHub release is
 [`v0.6.1`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.1). Delivery is
 ordered as `v0.6.2` maintenance first and the additive `v1.0.0` production
-contract second.
+contract second. The v0.6.x line will be maintained on `release/v0.6` with
+GoBGP v3.37.0; v1 and GoBGP v4 development continues on `dev`.
+`release/v0.6` does not yet exist and will be created only after its protection
+ruleset is active.
 
 ## Status key
 
@@ -25,9 +28,11 @@ contract second.
 
 Beads milestone: `gobfd-qj0.8.1` — **In progress**.
 
-The release keeps GoBGP v3.37.0 and the existing `bfd.v1` and YAML runtime
-contracts. It updates dependencies, tools, CI, reproducibility, documentation,
-and test infrastructure without adding BFD protocol behavior.
+After the protected branch is created, the release will be prepared on
+`release/v0.6`, which keeps GoBGP v3.37.0 and the existing `bfd.v1` and YAML
+runtime contracts. It updates dependencies, tools, CI, reproducibility,
+documentation, and test infrastructure without adding BFD protocol behavior.
+v0.6.2 remains **In progress** until its tag and GitHub Release are verified.
 
 | Delivery slice | Status |
 |---|---|
@@ -70,6 +75,9 @@ authoritative.
 ## v1.0.0 production contract
 
 Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on accepted v0.6.2**.
+
+Development of the v1 product line, including the GoBGP v4 migration, occurs
+on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 
 ### P0 sequence
 
