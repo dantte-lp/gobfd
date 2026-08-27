@@ -586,7 +586,9 @@ Require both tags to be absent before the build, record the complete pre-build
 image-ID set, and capture each result through a unique `--iidfile`. Verify the
 tag, ID, ownership label, architecture, user, entrypoint, and base before
 cleanup. Remove only the two new tags with `podman image rm --no-prune` and
-without `--force`; never remove a result ID that existed before the run. Pass
+without `--force` when their result IDs were absent from the pre-build set. If
+a collision-free tag resolves to an ID that already existed, remove only that
+new tag with `podman untag` and preserve the image. Pass
 `--default-mounts-file=/dev/null` to isolate build steps from host subscription
 mounts. In particular, a host certificate mounted directly at
 `/etc/ssl/certs/ca-certificates.crt` prevents Debian's `ca-certificates` package
