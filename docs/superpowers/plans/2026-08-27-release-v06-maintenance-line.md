@@ -886,7 +886,8 @@ Through GitHub API and GHCR, verify:
   unpublished failed draft and versioned OCI evidence not reused;
 - the `v0.6.4` tag and release target the reviewed recovery SHA;
 - release is non-draft and non-prerelease;
-- notes are the v0.6.4 changelog section;
+- notes contain every maintenance section after the previous published stable
+  v0.6 release and include changelog/compare links bound to v0.6.4;
 - checksums, archives, DEB/RPM packages, SBOMs, and report archive exist;
 - Debian Trixie and Oracle Linux 10 manifests exist for the exact v0.6.4 tags;
 - immutable releases remains enabled.
@@ -906,7 +907,7 @@ Do not run repository-wide `git worktree prune`; report any unrelated stale
 entry instead. Do not delete branches, tags, unrelated caches, containers,
 images, or volumes.
 
-Completion evidence: run `33101133019` attempt 2 completed successfully at
+Initial publication evidence: run `33101133019` attempt 2 completed successfully at
 `b1c0bcd7d2e9abed00368b2082e34f521084c087`. Published immutable release
 `v0.6.4` has an exact matching body and 12 independently checksum-verified
 assets. Debian Trixie and Oracle Linux 10 multi-architecture OCI indexes and
@@ -917,3 +918,97 @@ were removed, leaving only the main `dev` worktree. Beads release task
 `gobfd-qj0.8.1.15` is closed. The parent maintenance milestone remains open on
 the separately tracked P1 review findings `gobfd-qj0.8.1.8.8`, `.8.9`, and
 `.8.10`.
+
+Correction evidence: run `33101133019` attempt 2 completed successfully at
+`b1c0bcd7d2e9abed00368b2082e34f521084c087`, and the 12 assets plus OCI indexes
+remain independently verified. The closeout was nevertheless incomplete: the
+published body contained only the 348-byte v0.6.4 recovery delta, and the exact
+release history reached `dev` but not `master`, whose bilingual changelogs
+therefore stopped at v0.6.2. Beads task `gobfd-qj0.8.1.15` is reopened until
+Task 10 is complete. The parent milestone also remains open on P1 findings
+`gobfd-qj0.8.1.8.8`, `.8.9`, and `.8.10`.
+
+### Task 10: Correct v0.6.4 changelog and release closeout
+
+**Files and live state:**
+- Modify: `.github/workflows/release.yml`
+- Modify: `scripts/repo_quality_contract_test.go`
+- Modify: `CHANGELOG.md`
+- Modify: `CHANGELOG.ru.md`
+- Modify: `AGENTS.md`
+- Modify: `docs/en/10-changelog.md`
+- Modify: `docs/ru/10-changelog.md`
+- Modify: `docs/en/roadmap.md`
+- Modify: `docs/ru/roadmap.md`
+- Modify: `docs/superpowers/specs/2026-08-27-release-branch-versioning-design.md`
+- Update: GitHub Release `v0.6.4` notes only
+- Update: protected `release/v0.6`, `master`, and `dev` refs through accepted
+  non-rewriting history
+
+- [x] **Step 1: Reproduce the incomplete closeout**
+
+Use `gh api` to prove the published body length and content, compare the two
+changelogs across `master`, `release/v0.6`, `dev`, and `v0.6.4`, and record the
+exact branch/tag/release identities in Beads.
+
+- [x] **Step 2: Add and prove the failing release-note contract**
+
+Extend the existing release workflow contract to require the previous
+published stable release in the same major/minor line, cumulative dated
+sections, and immutable-tag changelog/compare links. Run only the focused test
+and observe the expected missing-marker failure before changing the workflow.
+
+- [x] **Step 3: Generate cumulative fail-closed release notes**
+
+Query published non-prerelease releases with `gh api`, select the highest
+stable SemVer tag in the current major/minor line with a cross-line fallback
+for the first cut, require exact dated boundaries for both versions, and render
+all intervening changelog sections. Add tag-bound full-changelog and comparison
+links. Keep draft body equality checks and immutable asset/tag behavior
+unchanged.
+
+- [x] **Step 4: Correct bilingual release history and process contracts**
+
+Record v0.6.2 and v0.6.3 as preserved unpublished failed cuts superseded by
+published v0.6.4. Require accepted stable history and both changelogs on
+`master` before closeout, with a separate applicable forward-port to `dev`.
+
+- [x] **Step 5: Run local release-note and documentation gates**
+
+Run the focused contract, a v0.6.4 fixture using the live previous published
+tag, actionlint, locked yamllint, repository Markdown, focused codespell,
+`git diff --check`, and an independent diff review. Do not dispatch a remote
+workflow before these pass.
+
+- [x] **Step 6: Correct and independently verify the live release notes**
+
+Use the documented immutable-release exception for title/notes only. Patch the
+body through `gh api`, then read it back and require the cumulative sections,
+tag-bound links, unchanged release/tag identity, unchanged 12 assets, and
+`immutable=true`. Do not alter the tag or assets.
+
+- [x] **Step 7: Deliver and synchronize the accepted history**
+
+Deliver the locally green fix through the protected `release/v0.6` line,
+synchronize the accepted stable history and both changelogs to `master`, and
+forward-port the same fix to `dev`. Verify remote SHAs and changelog headings on
+all three refs without force-push or tag changes.
+
+- [x] **Step 8: Close Beads only after the corrected public state is proven**
+
+Record exact commits, PRs/checks, release-body hash, asset count, and final
+branch heads. Close `gobfd-qj0.8.1.15` only when every Task 10 acceptance check
+is satisfied; the separate P1 findings remain independent blockers.
+
+Correction completion evidence: GitHub Release `378036743` has a 9,241-byte
+cumulative v0.6.2-v0.6.4 body and remains immutable. Its 12-asset identity hash
+is `79b5f5b158f6c428587439092e715331343d1b0ee3aa450e530025a2bc14a77c`;
+annotated tag object `c45e30ed63784d2274041622a37ba073bf235c84` still peels to
+`b1c0bcd7d2e9abed00368b2082e34f521084c087`. PR `#67` passed all required
+checks and delivered the fix to `release/v0.6` at
+`145d7a33571b76f234fd06ccb00798586a40b8d5`; PR `#68` passed all required
+checks and synchronized `master` at
+`5680385679d8e03d74226b5fcde269210d63bde8`. The current merge commit
+forward-ports the same accepted correction to `dev`; its exact remote SHA is
+recorded in Beads after push verification. P1 findings `gobfd-qj0.8.1.8.8`,
+`.8.9`, and `.8.10` remain open and independent.
