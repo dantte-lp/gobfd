@@ -319,8 +319,10 @@ jobs:
             raw_manifest="$RUNNER_TEMP/release-image-${image_index}.json"
             actual_platforms="$RUNNER_TEMP/release-platforms-${image_index}.txt"
             docker buildx imagetools inspect --raw "$image" >"$raw_manifest"
-            jq -r '
+            jq -er '
               .manifests[] |
+              select(.annotations["vnd.docker.reference.type"] !=
+                "attestation-manifest") |
               "\(.platform.os)/\(.platform.architecture)"
             ' "$raw_manifest" | LC_ALL=C sort -u >"$actual_platforms"
             diff -u "$RUNNER_TEMP/expected-release-platforms.txt" \
@@ -391,8 +393,10 @@ jobs:
             raw_manifest="$RUNNER_TEMP/verified-release-image-${image_index}.json"
             actual_platforms="$RUNNER_TEMP/verified-release-platforms-${image_index}.txt"
             docker buildx imagetools inspect --raw "$image" >"$raw_manifest"
-            jq -r '
+            jq -er '
               .manifests[] |
+              select(.annotations["vnd.docker.reference.type"] !=
+                "attestation-manifest") |
               "\(.platform.os)/\(.platform.architecture)"
             ' "$raw_manifest" | LC_ALL=C sort -u >"$actual_platforms"
             diff -u "$RUNNER_TEMP/verified-release-platforms.txt" \
