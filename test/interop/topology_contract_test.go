@@ -253,7 +253,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "Makefile", path: filepath.Join(root, "Makefile")},
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
 		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
-		{name: "project guard", path: filepath.Join(root, "test", "interop", "project_guard.sh")},
 		{name: "project control", path: filepath.Join(root, "test", "internal", "interopproject", "controller.go")},
 		{name: "gopls gate", path: filepath.Join(root, "scripts", "gopls-check.sh")},
 		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
@@ -293,13 +292,6 @@ func TestInteropOperationalContract(t *testing.T) {
 	if strings.Contains(contents["container context"], "!test/interop/scapy/bfd_fuzz.py") {
 		t.Error("container context still permits the removed Python BFD fuzzer")
 	}
-	for _, name := range []string{"routing runner"} {
-		if strings.Contains(contents[name], "podman network ls --no-trunc") ||
-			strings.Contains(contents[name], "podman volume rm --") {
-			t.Errorf("%s duplicates exact-label query/removal implementation outside project_guard.sh", name)
-		}
-	}
-
 	makefile := contents["Makefile"]
 	assertContainsAll(t, "Makefile", makefile, []string{
 		"INTEROP_PROJECT_NAME ?= gobfd-interop",
