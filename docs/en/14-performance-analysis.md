@@ -404,7 +404,10 @@ authoritative support status and records the remaining protocol gaps and
 release gates. Component benchmarks do not promote an RFC from partial or
 experimental to supported.
 
-GoBFD implements 12 RFCs compared to FRR's 3-4 base RFCs. Unique to GoBFD: Echo mode (RFC 9747), VXLAN BFD (RFC 8971), Geneve BFD (RFC 9521), Micro-BFD (RFC 7130), Large Packets (RFC 9764), Unsolicited BFD (RFC 9468).
+The matrix covers base, transport, and extension RFCs at different maturity
+levels. RFC 5881 and RFC 7419 are marked implemented; the remaining entries are
+partial, constrained, preview, not implemented, planned, or stub capabilities.
+Raw RFC counts are therefore not a valid implementation or product comparison.
 
 See [08-rfc-compliance.md](./08-rfc-compliance.md) for the full compliance matrix.
 
@@ -417,7 +420,7 @@ See [08-rfc-compliance.md](./08-rfc-compliance.md) for the full compliance matri
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (text parsing) |
 | Metrics | Native Prometheus (`/metrics` endpoint) | SNMP (requires SNMP infrastructure) |
 | Deployment | Single static binary, no dependencies | C dependencies, shared libraries |
-| Container support | Scratch container image (~15 MB) | Full OS base image required |
+| Container support | Pinned Debian trixie and Oracle Linux 10 runtime images | Not assessed here |
 
 ---
 

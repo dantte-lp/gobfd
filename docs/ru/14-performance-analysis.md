@@ -402,7 +402,11 @@ CPU или runtime resources; API, metrics, configuration и другая раб
 пробелы протокола и release gates. Component benchmarks не переводят RFC из
 partial или experimental в supported.
 
-GoBFD реализует 12 RFC по сравнению с 3-4 базовыми RFC в FRR. Уникальные для GoBFD: Echo mode (RFC 9747), VXLAN BFD (RFC 8971), Geneve BFD (RFC 9521), Micro-BFD (RFC 7130), Large Packets (RFC 9764), Unsolicited BFD (RFC 9468).
+Матрица охватывает базовые, transport и extension RFC с разной степенью
+готовности. RFC 5881 и RFC 7419 отмечены как реализованные; остальные entries
+имеют статус partial, constrained, preview, not implemented, planned или stub.
+Поэтому простой подсчёт RFC не является корректным сравнением реализации или
+продукта.
 
 См. [08-rfc-compliance.md](./08-rfc-compliance.md) для полной матрицы соответствия.
 
@@ -415,7 +419,7 @@ GoBFD реализует 12 RFC по сравнению с 3-4 базовыми 
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (парсинг текста) |
 | Метрики | Нативный Prometheus (эндпоинт `/metrics`) | SNMP (требуется SNMP-инфраструктура) |
 | Деплой | Единый статический бинарник, без зависимостей | C-зависимости, разделяемые библиотеки |
-| Контейнеры | Scratch-образ (~15 МБ) | Требуется полный базовый образ ОС |
+| Контейнеры | Закреплённые runtime-образы Debian trixie и Oracle Linux 10 | Здесь не оценивается |
 
 ---
 
