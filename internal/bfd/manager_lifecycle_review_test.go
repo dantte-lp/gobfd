@@ -150,7 +150,8 @@ func TestManagerClosingRejectsEchoReconciliation(t *testing.T) {
 
 	cfg := lifecycleEchoConfig()
 	created, destroyed, err := mgr.ReconcileEchoSessions(context.Background(), []EchoReconcileConfig{{
-		Key: "echo-closing", EchoSessionConfig: cfg, Sender: senderLeaseTestSender{},
+		Key: "echo-closing", EchoSessionConfig: cfg,
+		SenderLeaseFactory: NonOwningSenderLeaseFactory(senderLeaseTestSender{}),
 	}})
 	//nolint:errorlint // Require the direct lifecycle sentinel rather than a wrapped error.
 	if err != ErrManagerClosing || created != 0 || destroyed != 0 {
@@ -174,7 +175,8 @@ func TestManagerReconcileEchoSessionsIsOneLifecycleOperation(t *testing.T) {
 		reconcileDone := make(chan error, 1)
 		go func() {
 			_, _, err := mgr.ReconcileEchoSessions(context.Background(), []EchoReconcileConfig{{
-				Key: "echo-linearized", EchoSessionConfig: cfg, Sender: senderLeaseTestSender{},
+				Key: "echo-linearized", EchoSessionConfig: cfg,
+				SenderLeaseFactory: NonOwningSenderLeaseFactory(senderLeaseTestSender{}),
 			}})
 			reconcileDone <- err
 		}()

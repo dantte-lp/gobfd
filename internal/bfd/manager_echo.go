@@ -7,61 +7,93 @@ import (
 	"log/slog"
 )
 
-// -------------------------------------------------------------------------
-// Echo Session CRUD — RFC 9747
-// -------------------------------------------------------------------------
-
-// CreateEchoSession creates a new RFC 9747 echo session with the given
-// configuration. The session is registered in the echo session map and
-// its Run goroutine is started. Returns the allocated discriminator.
-//
-// RFC 9747 Section 3: echo sessions do not negotiate timers and do not
-// participate in the BFD three-way handshake.
+// CreateEchoSession creates a compatibility/API-owned echo session. The raw
+// sender is explicitly non-owning.
 func (m *Manager) CreateEchoSession(
 	ctx context.Context,
 	cfg EchoSessionConfig,
 	sender PacketSender,
 ) (uint32, error) {
+	return m.createEchoSessionWithSenderLease(ctx, cfg, NonOwningSenderLeaseFactory(sender))
+}
+
+// CreateEchoSessionWithSenderLease lazily acquires an owning sender lease for
+// one compatibility/API-owned echo session.
+func (m *Manager) CreateEchoSessionWithSenderLease(
+	ctx context.Context,
+	cfg EchoSessionConfig,
+	senderFactory SenderLeaseFactory,
+) (uint32, error) {
+	return m.createEchoSessionWithSenderLease(ctx, cfg, senderFactory)
+}
+
+func (m *Manager) createEchoSessionWithSenderLease(
+	ctx context.Context,
+	cfg EchoSessionConfig,
+	senderFactory SenderLeaseFactory,
+) (uint32, error) {
 	op, err := m.beginOperation()
 	if err != nil {
 		return 0, err
 	}
-	discr, err := m.createEchoSession(ctx, cfg, sender)
-	op.finish()
+	defer op.finish()
+
+	m.ownershipMu.Lock()
+	discr, unusedLease, err := m.createEchoSession(
+		ctx, cfg, senderFactory, echoSessionSourceCompatibility,
+	)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
+		err = errors.Join(err, closeErr)
+	}
 	return discr, err
 }
 
+// createEchoSession runs with ownershipMu held. A returned lease was not
+// accepted and must be closed after Manager locks are released.
 func (m *Manager) createEchoSession(
 	ctx context.Context,
 	cfg EchoSessionConfig,
-	sender PacketSender,
-) (uint32, error) {
+	senderFactory SenderLeaseFactory,
+	source echoSessionSource,
+) (uint32, *SenderLease, error) {
+	cfg = canonicalEchoSessionConfig(cfg)
 	if !cfg.PeerAddr.IsValid() {
-		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, ErrInvalidPeerAddr)
+		return 0, nil, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, ErrInvalidPeerAddr)
+	}
+	if err := validateEchoConfig(cfg, 1); err != nil {
+		return 0, nil, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
 
+	lease, err := acquireSenderLease(senderFactory)
+	if err != nil {
+		return 0, lease, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
+	}
 	discr, err := m.discriminators.Allocate()
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
+		return 0, lease, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
-
-	es, err := NewEchoSession(cfg, discr, sender, m.rawNotifyCh, m.logger,
+	es, err := NewEchoSession(cfg, discr, lease.Sender(), m.rawNotifyCh, m.logger,
 		WithEchoMetrics(m.metrics),
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
-		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
+		return 0, lease, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
 
-	// Start echo session goroutine with a decoupled context (same pattern
-	// as control sessions — graceful shutdown calls DrainAllSessions first).
 	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	entry := &echoSessionEntry{session: es, cancel: cancel, done: make(chan struct{})}
-
+	entry := &echoSessionEntry{
+		session:     es,
+		cancel:      cancel,
+		senderLease: lease,
+		key:         canonicalEchoSessionKey(cfg),
+		source:      source,
+		done:        make(chan struct{}),
+	}
 	m.mu.Lock()
 	m.echoSessions[discr] = entry
 	m.mu.Unlock()
-
 	m.workers.Go(func() {
 		defer close(entry.done)
 		es.Run(sessCtx)
@@ -75,79 +107,77 @@ func (m *Manager) createEchoSession(
 		slog.Duration("tx_interval", cfg.TxInterval),
 		slog.Uint64("detect_mult", uint64(cfg.DetectMultiplier)),
 	)
-
-	return discr, nil
+	return discr, nil, nil
 }
 
 // DestroyEchoSession stops and removes the echo session identified by discr.
-// The session goroutine is cancelled and the discriminator is released.
-//
-// Returns ErrEchoSessionNotFound if no echo session exists with the given
-// discriminator.
 func (m *Manager) DestroyEchoSession(discr uint32) error {
 	op, err := m.beginOperation()
 	if err != nil {
 		return err
 	}
-	err = m.destroyEchoSession(discr)
-	op.finish()
+	defer op.finish()
+
+	m.ownershipMu.Lock()
+	retired, err := m.detachEchoSession(discr)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	if retired != nil {
+		m.finishEchoSessionDestroy(retired.localDiscr, retired.entry)
+	}
 	return err
 }
 
-func (m *Manager) destroyEchoSession(discr uint32) error {
+func (m *Manager) detachEchoSession(discr uint32) (*retiredEchoSession, error) {
 	m.mu.Lock()
 	entry, ok := m.echoSessions[discr]
 	if !ok {
 		m.mu.Unlock()
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"destroy echo session with discriminator %d: %w",
 			discr, ErrEchoSessionNotFound,
 		)
 	}
 	delete(m.echoSessions, discr)
 	m.mu.Unlock()
+	return &retiredEchoSession{localDiscr: discr, entry: entry}, nil
+}
 
+func (m *Manager) finishEchoSessionDestroy(discr uint32, entry *echoSessionEntry) {
 	entry.cancel()
 	<-entry.done
+	if err := entry.senderLease.Close(); err != nil {
+		m.logger.Warn("failed to close echo session sender lease",
+			slog.Uint64("local_discr", uint64(discr)),
+			slog.String("error", err.Error()),
+		)
+	}
 	m.discriminators.Release(discr)
-
 	m.logger.Info("echo session destroyed",
 		slog.String("peer", entry.session.PeerAddr().String()),
 		slog.Uint64("local_discr", uint64(discr)),
 	)
-
-	return nil
 }
 
-// DemuxEcho routes a returned echo packet to the appropriate echo session.
-//
-// RFC 9747: echo packets are self-originated and bounced back by the remote.
-// Demultiplexing is by MyDiscriminator in the returned packet, which identifies
-// the local echo session that originated the packet.
-//
-// Returns ErrEchoDemuxNoMatch if no echo session matches the discriminator.
+// DemuxEcho routes a returned echo packet to the matching echo session.
 func (m *Manager) DemuxEcho(myDiscr uint32) error {
 	m.mu.RLock()
 	entry, ok := m.echoSessions[myDiscr]
 	m.mu.RUnlock()
-
 	if !ok {
 		return fmt.Errorf(
 			"echo demux: discriminator %d not found: %w",
 			myDiscr, ErrEchoDemuxNoMatch,
 		)
 	}
-
 	entry.session.RecvEcho()
 	return nil
 }
 
 // EchoSessions returns a snapshot of all active echo sessions.
-// The returned slice contains copies; no references to mutable data are held.
 func (m *Manager) EchoSessions() []EchoSessionSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	snapshots := make([]EchoSessionSnapshot, 0, len(m.echoSessions))
 	for _, entry := range m.echoSessions {
 		snapshots = append(snapshots, entry.session.Snapshot())
@@ -155,28 +185,19 @@ func (m *Manager) EchoSessions() []EchoSessionSnapshot {
 	return snapshots
 }
 
-// -------------------------------------------------------------------------
-// Echo Session Reconciliation — SIGHUP reload
-// -------------------------------------------------------------------------
-
-// EchoReconcileConfig describes a desired echo session for reconciliation.
+// EchoReconcileConfig describes one desired declarative echo session.
 type EchoReconcileConfig struct {
-	// Key uniquely identifies the echo session for diffing purposes.
-	// Typically: "echo|peer|local|interface".
-	Key string
-
-	// EchoSessionConfig is the echo session configuration to create if missing.
+	// Key is diagnostic adapter context only. Manager derives canonical
+	// identity from EchoSessionConfig and never trusts this external value.
+	Key               string
 	EchoSessionConfig EchoSessionConfig
-
-	// Sender provides the packet sending capability for the echo session.
-	Sender PacketSender
+	// SenderLeaseFactory is called only after the complete desired set is valid
+	// and this canonical session is known to be new.
+	SenderLeaseFactory SenderLeaseFactory
 }
 
-// ReconcileEchoSessions diffs the desired echo session set against current
-// echo sessions. Sessions present in desired but absent are created. Sessions
-// present in current but absent from desired are destroyed.
-//
-// Returns the number of sessions created and destroyed, and any errors.
+// ReconcileEchoSessions reconciles only declarative echo sessions. API-owned
+// sessions are outside this desired set.
 func (m *Manager) ReconcileEchoSessions(
 	ctx context.Context,
 	desired []EchoReconcileConfig,
@@ -185,84 +206,177 @@ func (m *Manager) ReconcileEchoSessions(
 	if err != nil {
 		return 0, 0, err
 	}
-	created, destroyed, err := m.reconcileEchoSessions(ctx, desired)
-	op.finish()
-	return created, destroyed, err
-}
+	defer op.finish()
 
-func (m *Manager) reconcileEchoSessions(
-	ctx context.Context,
-	desired []EchoReconcileConfig,
-) (int, int, error) {
-	desiredKeys := make(map[string]EchoReconcileConfig, len(desired))
-	for _, rc := range desired {
-		desiredKeys[rc.Key] = rc
+	m.ownershipMu.Lock()
+	desiredByKey, desiredOrder, err := compileEchoReconcileConfigs(desired)
+	if err != nil {
+		m.ownershipMu.Unlock()
+		return 0, 0, err
 	}
-
-	currentKeys := m.echoSessionKeySet()
-
-	var created, destroyed int
-	var errs []error
-
-	// Destroy echo sessions not in desired set.
-	for key, discr := range currentKeys {
-		if _, want := desiredKeys[key]; want {
-			continue
-		}
-
-		m.logger.Info("reconcile: destroying removed echo session",
-			slog.String("key", key),
-			slog.Uint64("local_discr", uint64(discr)),
-		)
-
-		if dErr := m.destroyEchoSession(discr); dErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile destroy echo %s: %w", key, dErr))
-			continue
-		}
-		destroyed++
+	current, err := m.declarativeEchoSnapshot(desiredByKey, desiredOrder)
+	if err != nil {
+		m.ownershipMu.Unlock()
+		return 0, 0, err
 	}
+	destroyed, retired := m.detachStaleDeclarativeEchoSessions(desiredByKey, current)
+	created, rollbackRetired, unusedLease, createErr := m.createDesiredDeclarativeEchoSessions(
+		ctx, desiredByKey, desiredOrder, current,
+	)
+	retired = append(retired, rollbackRetired...)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
 
-	// Create echo sessions in desired but not in current.
-	for key, rc := range desiredKeys {
-		if _, exists := currentKeys[key]; exists {
-			continue
-		}
-
-		m.logger.Info("reconcile: creating new echo session",
-			slog.String("key", key),
-		)
-
-		if _, cErr := m.createEchoSession(ctx, rc.EchoSessionConfig, rc.Sender); cErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile create echo %s: %w", key, cErr))
-			continue
-		}
-		created++
+	m.finishRetiredEchoSessions(retired)
+	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
+		createErr = errors.Join(createErr, closeErr)
 	}
-
-	var err error
-	if len(errs) > 0 {
-		err = errors.Join(errs...)
-	}
-
 	m.logger.Info("echo session reconciliation complete",
 		slog.Int("created", created),
 		slog.Int("destroyed", destroyed),
 	)
-
-	return created, destroyed, err
+	return created, destroyed, createErr
 }
 
-// echoSessionKeySet returns a map of echo session key -> discriminator
-// for all active echo sessions.
-func (m *Manager) echoSessionKeySet() map[string]uint32 {
+type echoReconcileCandidate struct {
+	config  EchoSessionConfig
+	factory SenderLeaseFactory
+}
+
+func compileEchoReconcileConfigs(
+	desired []EchoReconcileConfig,
+) (map[string]echoReconcileCandidate, []string, error) {
+	desiredByKey := make(map[string]echoReconcileCandidate, len(desired))
+	desiredOrder := make([]string, 0, len(desired))
+	for _, rc := range desired {
+		cfg := canonicalEchoSessionConfig(rc.EchoSessionConfig)
+		if err := validateEchoConfig(cfg, 1); err != nil {
+			return nil, nil, fmt.Errorf("reconcile echo config %q: %w", rc.Key, err)
+		}
+		if rc.SenderLeaseFactory == nil {
+			return nil, nil, fmt.Errorf("reconcile echo config %q: %w",
+				rc.Key, ErrSenderLeaseFactoryNil)
+		}
+		key := canonicalEchoSessionKey(cfg)
+		if previous, exists := desiredByKey[key]; exists {
+			if previous.config != cfg {
+				return nil, nil, fmt.Errorf("reconcile duplicate echo %s: %w",
+					key, ErrSessionParameterConflict)
+			}
+			continue
+		}
+		desiredByKey[key] = echoReconcileCandidate{config: cfg, factory: rc.SenderLeaseFactory}
+		desiredOrder = append(desiredOrder, key)
+	}
+	return desiredByKey, desiredOrder, nil
+}
+
+func canonicalEchoSessionConfig(cfg EchoSessionConfig) EchoSessionConfig {
+	if cfg.PeerAddr.IsValid() {
+		cfg.PeerAddr = cfg.PeerAddr.Unmap()
+	}
+	if cfg.LocalAddr.IsValid() {
+		cfg.LocalAddr = cfg.LocalAddr.Unmap()
+	}
+	return cfg
+}
+
+func canonicalEchoSessionKey(cfg EchoSessionConfig) string {
+	return "echo|" + cfg.PeerAddr.String() + "|" + cfg.LocalAddr.String() + "|" + cfg.Interface
+}
+
+func (m *Manager) declarativeEchoSnapshot(
+	desiredByKey map[string]echoReconcileCandidate,
+	desiredOrder []string,
+) (map[string]uint32, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	keys := make(map[string]uint32, len(m.echoSessions))
-	for _, entry := range m.echoSessions {
-		es := entry.session
-		key := "echo|" + es.PeerAddr().String() + "|" + es.LocalAddr().String() + "|" + es.Interface()
-		keys[key] = es.LocalDiscriminator()
+	current := make(map[string]uint32)
+	for discr, entry := range m.echoSessions {
+		if entry.source == echoSessionSourceDeclarative {
+			current[entry.key] = discr
+		}
 	}
-	return keys
+	for _, key := range desiredOrder {
+		discr, exists := current[key]
+		if !exists {
+			continue
+		}
+		entry := m.echoSessions[discr]
+		if !echoSessionMatchesConfig(entry.session, desiredByKey[key].config) {
+			return nil, fmt.Errorf("reconcile echo %s: %w", key, ErrSessionParameterConflict)
+		}
+	}
+	return current, nil
+}
+
+func echoSessionMatchesConfig(session *EchoSession, cfg EchoSessionConfig) bool {
+	return session.PeerAddr() == cfg.PeerAddr &&
+		session.LocalAddr() == cfg.LocalAddr &&
+		session.Interface() == cfg.Interface &&
+		session.TxInterval() == cfg.TxInterval &&
+		session.DetectMultiplier() == cfg.DetectMultiplier
+}
+
+func (m *Manager) detachStaleDeclarativeEchoSessions(
+	desiredByKey map[string]echoReconcileCandidate,
+	current map[string]uint32,
+) (int, []retiredEchoSession) {
+	retired := make([]retiredEchoSession, 0)
+	for key, discr := range current {
+		if _, wanted := desiredByKey[key]; wanted {
+			continue
+		}
+		m.logger.Info("reconcile: destroying removed echo session",
+			slog.String("key", key),
+			slog.Uint64("local_discr", uint64(discr)),
+		)
+		entry, err := m.detachEchoSession(discr)
+		if err == nil {
+			retired = append(retired, *entry)
+		}
+	}
+	return len(retired), retired
+}
+
+func (m *Manager) createDesiredDeclarativeEchoSessions(
+	ctx context.Context,
+	desiredByKey map[string]echoReconcileCandidate,
+	desiredOrder []string,
+	current map[string]uint32,
+) (int, []retiredEchoSession, *SenderLease, error) {
+	createdDiscriminators := make([]uint32, 0, len(desiredOrder))
+	for _, key := range desiredOrder {
+		if _, exists := current[key]; exists {
+			continue
+		}
+		candidate := desiredByKey[key]
+		m.logger.Info("reconcile: creating new echo session", slog.String("key", key))
+		discr, unusedLease, err := m.createEchoSession(
+			ctx, candidate.config, candidate.factory, echoSessionSourceDeclarative,
+		)
+		if err != nil {
+			retired := m.detachEchoSessions(createdDiscriminators)
+			return 0, retired, unusedLease, fmt.Errorf("reconcile create echo %s: %w", key, err)
+		}
+		createdDiscriminators = append(createdDiscriminators, discr)
+	}
+	return len(createdDiscriminators), nil, nil, nil
+}
+
+func (m *Manager) detachEchoSessions(discriminators []uint32) []retiredEchoSession {
+	retired := make([]retiredEchoSession, 0, len(discriminators))
+	for _, discr := range discriminators {
+		entry, err := m.detachEchoSession(discr)
+		if err == nil {
+			retired = append(retired, *entry)
+		}
+	}
+	return retired
+}
+
+func (m *Manager) finishRetiredEchoSessions(retired []retiredEchoSession) {
+	for _, item := range retired {
+		m.finishEchoSessionDestroy(item.localDiscr, item.entry)
+	}
 }

@@ -337,17 +337,27 @@ type sessionEntry struct {
 	done        chan struct{}
 }
 
+type echoSessionSource uint8
+
+const (
+	echoSessionSourceCompatibility echoSessionSource = iota
+	echoSessionSourceDeclarative
+)
+
 type retiredSession struct {
 	localDiscr uint32
 	entry      *sessionEntry
 }
 
-// echoSessionEntry holds an echo session and its cancellation function.
-// The cancel function is used by DestroyEchoSession to stop the echo session goroutine.
+// echoSessionEntry holds one echo session's canonical identity, source, and
+// owned runtime resources.
 type echoSessionEntry struct {
-	session *EchoSession
-	cancel  context.CancelFunc
-	done    chan struct{}
+	session     *EchoSession
+	cancel      context.CancelFunc
+	senderLease *SenderLease
+	key         string
+	source      echoSessionSource
+	done        chan struct{}
 }
 
 type retiredEchoSession struct {
@@ -769,8 +779,7 @@ func (m *Manager) releaseCloseResources(
 		return cmp.Compare(a.localDiscr, b.localDiscr)
 	})
 	for _, item := range retiredEcho {
-		<-item.entry.done
-		m.discriminators.Release(item.localDiscr)
+		m.finishEchoSessionDestroy(item.localDiscr, item.entry)
 	}
 }
 

@@ -1493,7 +1493,7 @@ func TestManagerReconcileEchoSessionsCreatesNew(t *testing.T) {
 					TxInterval:       100 * time.Millisecond,
 					DetectMultiplier: 3,
 				},
-				Sender: noopSender{},
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}
 
@@ -1517,9 +1517,9 @@ func TestManagerReconcileEchoSessionsCreatesNew(t *testing.T) {
 	})
 }
 
-// TestManagerReconcileEchoSessionsDestroysStale verifies that
-// ReconcileEchoSessions destroys echo sessions not in the desired set.
-func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
+// TestManagerReconcileEchoSessionsPreservesAPISessions verifies that an empty
+// declarative desired set does not destroy sessions created through the API.
+func TestManagerReconcileEchoSessionsPreservesAPISessions(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mgr := newTestManager(t)
 		defer mgr.Close()
@@ -1530,7 +1530,7 @@ func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
 			t.Fatalf("CreateEchoSession: %v", err)
 		}
 
-		// Reconcile with empty desired set: existing echo session should be destroyed.
+		// Reconcile with an empty declarative desired set: the API session remains.
 		created, destroyed, reconcileErr := mgr.ReconcileEchoSessions(
 			context.Background(), nil,
 		)
@@ -1540,12 +1540,12 @@ func TestManagerReconcileEchoSessionsDestroysStale(t *testing.T) {
 		if created != 0 {
 			t.Errorf("created = %d, want 0", created)
 		}
-		if destroyed != 1 {
-			t.Errorf("destroyed = %d, want 1", destroyed)
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0", destroyed)
 		}
 
-		if len(mgr.EchoSessions()) != 0 {
-			t.Error("expected 0 echo sessions after reconciliation")
+		if len(mgr.EchoSessions()) != 1 {
+			t.Error("expected API-created echo session to survive reconciliation")
 		}
 
 		time.Sleep(10 * time.Millisecond)
