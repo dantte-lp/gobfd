@@ -144,80 +144,79 @@ func TestManagerReconcileMicroBFDGroupsIsOneLifecycleOperation(t *testing.T) {
 	})
 }
 
-func TestManagerReconcileMicroBFDGroupsSerializesConcurrentCRUD(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		barrier := &lifecycleLogBarrier{
-			target:  "reconcile: creating new micro-BFD group",
-			entered: make(chan struct{}),
-			release: make(chan struct{}),
-		}
+func TestManagerMicroBFDGroupMutationsHoldOwnershipLock(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		barrier := newLifecycleLogBarrier("micro-BFD group created")
 		mgr := NewManager(slog.New(barrier))
 		defer mgr.Close()
 
-		kept := lifecycleMicroConfig("bond-kept")
-		if _, err := mgr.CreateMicroBFDGroup(kept); err != nil {
-			t.Fatalf("CreateMicroBFDGroup kept: %v", err)
-		}
-		added := lifecycleMicroConfig("bond-added")
-		reconcileDone := make(chan error, 1)
+		done := make(chan error, 1)
 		go func() {
-			_, _, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{
-				{Key: kept.LAGInterface, Config: kept},
-				{Key: added.LAGInterface, Config: added},
-			})
-			reconcileDone <- err
+			_, err := mgr.CreateMicroBFDGroup(lifecycleMicroConfig("bond-create"))
+			done <- err
 		}()
-		<-barrier.entered
-		if mgr.ownershipMu.TryLock() {
-			mgr.ownershipMu.Unlock()
-			close(barrier.release)
-			<-reconcileDone
-			t.Fatal("Micro-BFD reconciliation did not hold ownershipMu for the complete operation")
-		}
-
-		createdByAPI := lifecycleMicroConfig("bond-api")
-		createDone := make(chan error, 1)
-		createReturned := make(chan struct{})
-		createStarted := make(chan struct{})
-		go func() {
-			close(createStarted)
-			_, err := mgr.CreateMicroBFDGroup(createdByAPI)
-			createDone <- err
-			close(createReturned)
-		}()
-		destroyDone := make(chan error, 1)
-		destroyReturned := make(chan struct{})
-		destroyStarted := make(chan struct{})
-		go func() {
-			close(destroyStarted)
-			destroyDone <- mgr.DestroyMicroBFDGroup(kept.LAGInterface)
-			close(destroyReturned)
-		}()
-		<-createStarted
-		<-destroyStarted
-
-		select {
-		case <-createReturned:
-			t.Error("CreateMicroBFDGroup returned during reconciliation")
-		default:
-		}
-		select {
-		case <-destroyReturned:
-			t.Error("DestroyMicroBFDGroup returned during reconciliation")
-		default:
-		}
-
-		close(barrier.release)
-		if err := <-reconcileDone; err != nil {
-			t.Errorf("ReconcileMicroBFDGroups: %v", err)
-		}
-		if err := <-createDone; err != nil {
-			t.Errorf("CreateMicroBFDGroup after reconciliation: %v", err)
-		}
-		if err := <-destroyDone; err != nil {
-			t.Errorf("DestroyMicroBFDGroup after reconciliation: %v", err)
-		}
+		assertOwnershipLockedAtBarrier(t, mgr, barrier, done)
 	})
+
+	t.Run("destroy", func(t *testing.T) {
+		barrier := newLifecycleLogBarrier("micro-BFD group destroyed")
+		mgr := NewManager(slog.New(barrier))
+		defer mgr.Close()
+		cfg := lifecycleMicroConfig("bond-destroy")
+		if _, err := mgr.CreateMicroBFDGroup(cfg); err != nil {
+			t.Fatalf("CreateMicroBFDGroup: %v", err)
+		}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- mgr.DestroyMicroBFDGroup(cfg.LAGInterface)
+		}()
+		assertOwnershipLockedAtBarrier(t, mgr, barrier, done)
+	})
+
+	t.Run("reconcile", func(t *testing.T) {
+		barrier := newLifecycleLogBarrier("reconcile: creating new micro-BFD group")
+		mgr := NewManager(slog.New(barrier))
+		defer mgr.Close()
+		cfg := lifecycleMicroConfig("bond-reconcile")
+
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
+				Key: cfg.LAGInterface, Config: cfg,
+			}})
+			done <- err
+		}()
+		assertOwnershipLockedAtBarrier(t, mgr, barrier, done)
+	})
+}
+
+func newLifecycleLogBarrier(target string) *lifecycleLogBarrier {
+	return &lifecycleLogBarrier{
+		target:  target,
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func assertOwnershipLockedAtBarrier(
+	t *testing.T,
+	mgr *Manager,
+	barrier *lifecycleLogBarrier,
+	done <-chan error,
+) {
+	t.Helper()
+	<-barrier.entered
+	if mgr.ownershipMu.TryLock() {
+		mgr.ownershipMu.Unlock()
+		close(barrier.release)
+		<-done
+		t.Fatal("Micro-BFD mutation did not hold ownershipMu")
+	}
+	close(barrier.release)
+	if err := <-done; err != nil {
+		t.Errorf("Micro-BFD mutation: %v", err)
+	}
 }
 
 func TestManagerClosingRejectsEchoReconciliation(t *testing.T) {
