@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"connectrpc.com/grpchealth"
@@ -38,6 +39,19 @@ const (
 )
 
 const sourceCount = int(sourceGeneve) + 1
+
+type reconciliationSourceMask uint8
+
+func sourceMask(source reconciliationSource) reconciliationSourceMask {
+	if int(source) >= sourceCount {
+		return 0
+	}
+	return 1 << source
+}
+
+func (m reconciliationSourceMask) contains(source reconciliationSource) bool {
+	return m&sourceMask(source) != 0
+}
 
 func reconciliationSources() [sourceCount]reconciliationSource {
 	return [sourceCount]reconciliationSource{
@@ -119,12 +133,15 @@ type sourceApplyFunc func(
 	compiledControlSessionCandidate,
 ) sourceApplyResult
 
-// reconciliationCoordinator serializes complete six-source applies while
-// publishing status through a separately readable immutable value snapshot.
+// reconciliationCoordinator serializes complete six-source applies and
+// generation-scoped pending-source retries while publishing status through a
+// separately readable immutable value snapshot.
 type reconciliationCoordinator struct {
 	// Lock order is applyMu then statusMu. Snapshot readers take only
 	// statusMu; health and logging callbacks run after statusMu is released.
-	applyMu sync.Mutex
+	applyMu              sync.Mutex
+	retainedCandidate    compiledControlSessionCandidate
+	hasRetainedCandidate bool
 
 	statusMu sync.RWMutex
 	snapshot reconciliationSnapshot
@@ -187,9 +204,17 @@ func (c *reconciliationCoordinator) apply(
 	ctx context.Context,
 	applySource sourceApplyFunc,
 ) reconciliationSnapshot {
+	return c.applyCandidate(ctx, compiledControlSessionCandidate{}, applySource)
+}
+
+func (c *reconciliationCoordinator) applyCandidate(
+	ctx context.Context,
+	candidate compiledControlSessionCandidate,
+	applySource sourceApplyFunc,
+) reconciliationSnapshot {
 	c.applyMu.Lock()
 	defer c.applyMu.Unlock()
-	return c.applyCandidateLocked(ctx, compiledControlSessionCandidate{}, nil, applySource)
+	return c.applyCandidateLocked(ctx, candidate, nil, applySource)
 }
 
 func (c *reconciliationCoordinator) applyCandidateLocked(
@@ -198,6 +223,9 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	logLevel *slog.LevelVar,
 	applySource sourceApplyFunc,
 ) reconciliationSnapshot {
+	retainedCandidate := cloneCompiledControlSessionCandidate(candidate)
+	workingCandidate := cloneCompiledControlSessionCandidate(retainedCandidate)
+
 	c.statusMu.Lock()
 	generation := c.snapshot.DesiredGeneration + 1
 	c.snapshot.DesiredGeneration = generation
@@ -206,13 +234,13 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	c.setReady(false)
 
 	if logLevel != nil {
-		logLevel.Set(candidate.logLevel)
+		logLevel.Set(workingCandidate.logLevel)
 	}
 
 	receipt := generationReceipt{Generation: generation}
 	transientErrors := make([]error, 0, sourceCount)
 	for i, source := range reconciliationSources() {
-		result := applySource(ctx, source, candidate)
+		result := applySource(ctx, source, workingCandidate)
 		receipt.Sources[i] = sourceReceipt{
 			Source: source, Created: result.Created, Released: result.Released,
 			Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
@@ -221,7 +249,58 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 			transientErrors = append(transientErrors, result.Err)
 		}
 	}
+	c.retainedCandidate = retainedCandidate
+	c.hasRetainedCandidate = true
 
+	return c.publishReceipt(receipt, errors.Join(transientErrors...))
+}
+
+func (c *reconciliationCoordinator) retryPendingSources(
+	ctx context.Context,
+	expectedGeneration uint64,
+	selected reconciliationSourceMask,
+	applySource sourceApplyFunc,
+) reconciliationSnapshot {
+	c.applyMu.Lock()
+	defer c.applyMu.Unlock()
+
+	snapshot := c.Snapshot()
+	if !c.hasRetainedCandidate || snapshot.DesiredGeneration != expectedGeneration ||
+		snapshot.LastReceipt.Generation != expectedGeneration {
+		return snapshot
+	}
+
+	receipt := snapshot.LastReceipt
+	workingCandidate := cloneCompiledControlSessionCandidate(c.retainedCandidate)
+	transientErrors := make([]error, 0, sourceCount)
+	applied := false
+	for i, source := range reconciliationSources() {
+		prior := receipt.Sources[i]
+		if !selected.contains(source) || prior.Pending <= 0 || prior.Failed != 0 {
+			continue
+		}
+		result := applySource(ctx, source, workingCandidate)
+		receipt.Sources[i] = sourceReceipt{
+			Source:  source,
+			Created: prior.Created + result.Created, Released: prior.Released + result.Released,
+			Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
+		}
+		if result.Err != nil {
+			transientErrors = append(transientErrors, result.Err)
+		}
+		applied = true
+	}
+	if !applied {
+		return snapshot
+	}
+
+	return c.publishReceipt(receipt, errors.Join(transientErrors...))
+}
+
+func (c *reconciliationCoordinator) publishReceipt(
+	receipt generationReceipt,
+	transientErr error,
+) reconciliationSnapshot {
 	var pending, failed int
 	for _, sourceReceipt := range receipt.Sources {
 		pending += sourceReceipt.Pending
@@ -233,15 +312,39 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	c.snapshot.Pending = pending
 	c.snapshot.Failed = failed
 	if pending == 0 && failed == 0 {
-		c.snapshot.AppliedGeneration = generation
+		c.snapshot.AppliedGeneration = receipt.Generation
 		c.snapshot.Stale = false
+	} else {
+		c.snapshot.Stale = true
 	}
 	snapshot := c.snapshot
 	c.statusMu.Unlock()
 
 	c.setReady(!snapshot.Stale)
-	c.logResult(snapshot, errors.Join(transientErrors...))
+	c.logResult(snapshot, transientErr)
 	return snapshot
+}
+
+func cloneCompiledControlSessionCandidate(
+	candidate compiledControlSessionCandidate,
+) compiledControlSessionCandidate {
+	cloned := candidate
+	cloned.base = slices.Clone(candidate.base)
+	for i := range cloned.base {
+		cloned.base[i].senderOpts = slices.Clone(candidate.base[i].senderOpts)
+	}
+	cloned.echo = slices.Clone(candidate.echo)
+	cloned.microGroups = slices.Clone(candidate.microGroups)
+	for i := range cloned.microGroups {
+		cloned.microGroups[i].Config.MemberLinks = slices.Clone(
+			candidate.microGroups[i].Config.MemberLinks,
+		)
+	}
+	cloned.microMembers = slices.Clone(candidate.microMembers)
+	for i := range cloned.overlays {
+		cloned.overlays[i].desired = slices.Clone(candidate.overlays[i].desired)
+	}
+	return cloned
 }
 
 func (c *reconciliationCoordinator) setReady(ready bool) {
@@ -431,6 +534,41 @@ func failedSourceResult(code bfd.ReconcileErrorCode, err error) sourceApplyResul
 		result.Errors[code] = 1
 	}
 	return result
+}
+
+func resourceErrorSourceResult(pendingClaims int, err error) sourceApplyResult {
+	if pendingClaims > 0 && onlyUnavailableResourceErrors(err) {
+		return sourceApplyResult{Pending: pendingClaims, Err: err}
+	}
+	return failedSourceResult(bfd.ReconcileErrorCreate, err)
+}
+
+func onlyUnavailableResourceErrors(err error) bool {
+	if err == nil {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !onlyUnavailableResourceErrors(child) {
+				return false
+			}
+		}
+		return true
+	}
+	unavailableErr, unavailable := errors.AsType[*bfd.ResourceUnavailableError](err)
+	_, wrappedUnavailable := errors.AsType[*bfd.ResourceUnavailableError](errors.Unwrap(err))
+	if unavailable && !wrappedUnavailable {
+		_, valid := bfd.UnavailableResource(unavailableErr)
+		return valid
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return onlyUnavailableResourceErrors(wrapped.Unwrap())
+	}
+	return false
 }
 
 func startReloadAfterStartup(reconcileStartup, startReload func()) {
