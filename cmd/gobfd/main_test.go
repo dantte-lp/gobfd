@@ -404,6 +404,91 @@ func TestReconcileEchoSessionsNthSenderFailureRollsBackBatch(t *testing.T) {
 	}
 }
 
+func TestReconcileAdaptersDoNotLogCompletionAfterDetailedFailure(t *testing.T) {
+	tests := []struct {
+		name           string
+		failureText    string
+		completionText string
+		reconcile      func(*slog.Logger)
+	}{
+		{
+			name:           "base",
+			failureText:    "session reconciliation had errors",
+			completionText: "session reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				t.Cleanup(mgr.Close)
+				cfg := config.DefaultConfig()
+				cfg.Sessions = []config.SessionConfig{{
+					Peer: "192.0.2.220", Local: "127.0.0.1", Interface: "lo",
+				}}
+				reconcileSessions(
+					context.Background(), cfg, mgr,
+					newNthFailureDeclarativeSenderFactory(1), logger,
+				)
+			},
+		},
+		{
+			name:           "echo",
+			failureText:    "echo session reconciliation had errors",
+			completionText: "echo session reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				t.Cleanup(mgr.Close)
+				reconcileEchoSessions(
+					context.Background(), echoLeaseTestConfig("192.0.2.221"), mgr,
+					newNthFailureDeclarativeSenderFactory(1), logger,
+				)
+			},
+		},
+		{
+			name:           "Micro-BFD member",
+			failureText:    "micro-BFD session reconciliation had errors",
+			completionText: "micro-BFD session reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				t.Cleanup(mgr.Close)
+				cfg := config.DefaultConfig()
+				cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+					LAGInterface: "bond0", MemberLinks: []string{"eth0"},
+					PeerAddr: "192.0.2.222", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+				}}
+				reconcileMicroBFDGroups(
+					context.Background(), cfg, mgr,
+					newNthFailureDeclarativeSenderFactory(1), logger,
+				)
+			},
+		},
+		{
+			name:           "overlay",
+			failureText:    "overlay session reconciliation had errors",
+			completionText: "overlay session reconciliation complete",
+			reconcile: func(logger *slog.Logger) {
+				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+				mgr.Close()
+				reconcileOverlaySessions(
+					context.Background(), mgr, bfd.VXLANReconciliationOwner(), nil,
+					"RFC 8971", logger,
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			tt.reconcile(slog.New(slog.NewTextHandler(&logs, nil)))
+			got := logs.String()
+			if !strings.Contains(got, tt.failureText) {
+				t.Errorf("adapter log = %q, want explicit failure %q", got, tt.failureText)
+			}
+			if strings.Contains(got, tt.completionText) {
+				t.Errorf("adapter log = %q, must not contain %q after failure", got, tt.completionText)
+			}
+		})
+	}
+}
+
 func TestReconcileEchoSessionsInvalidCandidateDoesNotOpenOrMutate(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)

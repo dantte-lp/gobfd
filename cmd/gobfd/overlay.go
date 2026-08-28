@@ -330,15 +330,23 @@ func reconcileOverlaySessions(
 	rfc string,
 	logger *slog.Logger,
 ) {
-	created, destroyed, err := mgr.ReconcileSessionsForOwner(ctx, owner, desired)
-	if err != nil {
+	result := mgr.ReconcileSessionsForOwnerDetailed(ctx, owner, desired)
+	if err := result.Err(); err != nil {
 		logger.Error("overlay session reconciliation had errors",
-			slog.String("rfc", rfc), slog.String("error", err.Error()))
+			slog.String("rfc", rfc),
+			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
+		)
+		return
 	}
 
 	logger.Info("overlay session reconciliation complete",
 		slog.String("rfc", rfc),
-		slog.Int("created", created), slog.Int("destroyed", destroyed))
+		slog.Int("created", result.Created), slog.Int("released", result.Released))
 }
 
 // buildOverlaySessionConfig converts per-peer overlay fields (address strings,

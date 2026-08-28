@@ -170,21 +170,35 @@ func reconcileSessions(
 		desired = append(desired, rc)
 	}
 
-	created, destroyed, err := mgr.ReconcileSessionsForOwner(
+	result := mgr.ReconcileSessionsForOwnerDetailed(
 		ctx,
 		bfd.ConfigReconciliationOwner(),
 		desired,
 	)
-	if err != nil {
+	if err := result.Err(); err != nil {
 		logger.Error("session reconciliation had errors",
 			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
 		)
+		return
 	}
 
 	logger.Info("session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
 	)
+}
+
+func reconcileErrorCodes(result bfd.ReconcileResult) []string {
+	codes := make([]string, 0, len(result.Errors))
+	for _, reconcileErr := range result.Errors {
+		codes = append(codes, reconcileErr.Code.String())
+	}
+	return codes
 }
 
 func declarativeSenderLeaseFactoryFor(
@@ -311,18 +325,26 @@ func reconcileEchoSessions(
 		})
 	}
 
-	created, destroyed, err := mgr.ReconcileEchoSessions(ctx, desired)
-	if err != nil {
+	result := mgr.ReconcileEchoSessionsDetailed(ctx, desired)
+	if err := result.Err(); err != nil {
 		logger.Error("echo session reconciliation had errors",
 			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
 		)
+		return echoReconcileOutcome{
+			Created: result.Created, Destroyed: result.Released, Err: err,
+		}
 	}
 
 	logger.Info("echo session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
 	)
-	return echoReconcileOutcome{Created: created, Destroyed: destroyed, Err: err}
+	return echoReconcileOutcome{Created: result.Created, Destroyed: result.Released}
 }
 
 // configEchoToBFD converts a config.EchoPeerConfig to a bfd.EchoSessionConfig,

@@ -328,14 +328,21 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 }
 
 func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
+	if err := m.finishSessionDestroyError(localDiscr, entry); err != nil {
+		return
+	}
+}
+
+func (m *Manager) finishSessionDestroyError(localDiscr uint32, entry *sessionEntry) error {
 	// Cancel session goroutine (outside lock to avoid holding lock during
 	// goroutine teardown).
 	entry.cancel()
 	<-entry.done
-	if err := entry.senderLease.Close(); err != nil {
+	closeErr := entry.senderLease.Close()
+	if closeErr != nil {
 		m.logger.Warn("failed to close session sender lease",
 			slog.Uint64("local_discr", uint64(localDiscr)),
-			slog.String("error", err.Error()),
+			slog.String("error", closeErr.Error()),
 		)
 	}
 
@@ -352,6 +359,10 @@ func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
 		slog.String("peer", entry.session.PeerAddr().String()),
 		slog.Uint64("local_discr", uint64(localDiscr)),
 	)
+	if closeErr != nil {
+		return fmt.Errorf("destroy session %d sender lease: %w", localDiscr, closeErr)
+	}
+	return nil
 }
 
 // HandleInterfaceEvent applies an interface state event to sessions bound to
@@ -776,7 +787,8 @@ func (m *Manager) ReconcileSessions(
 	ctx context.Context,
 	desired []ReconcileConfig,
 ) (int, int, error) {
-	return m.reconcileSessionsForOwner(ctx, configSessionOwner(), desired)
+	result := m.reconcileSessionsForOwner(ctx, configSessionOwner(), desired)
+	return result.wireCreated, result.wireDestroyed, result.Err()
 }
 
 // ReconcileSessionsForOwner reconciles only claims held by owner. Declarative
@@ -787,6 +799,19 @@ func (m *Manager) ReconcileSessionsForOwner(
 	owner SessionOwner,
 	desired []ReconcileConfig,
 ) (int, int, error) {
+	result := m.reconcileSessionsForOwner(ctx, owner, desired)
+	return result.wireCreated, result.wireDestroyed, result.Err()
+}
+
+// ReconcileSessionsForOwnerDetailed reconciles one declarative owner's
+// complete desired set and returns claim-level net changes. Exact claims from
+// different owners may share one physical wire session, so these counts are
+// deliberately distinct from the legacy tuple returned above.
+func (m *Manager) ReconcileSessionsForOwnerDetailed(
+	ctx context.Context,
+	owner SessionOwner,
+	desired []ReconcileConfig,
+) ReconcileResult {
 	return m.reconcileSessionsForOwner(ctx, owner, desired)
 }
 
@@ -794,16 +819,19 @@ func (m *Manager) reconcileSessionsForOwner(
 	ctx context.Context,
 	owner SessionOwner,
 	desired []ReconcileConfig,
-) (int, int, error) {
+) ReconcileResult {
 	op, err := m.beginOperation()
 	if err != nil {
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorLifecycle, err)
 	}
 	defer op.finish()
 
 	if !isDeclarativeReconciliationOwner(owner) {
-		return 0, 0, fmt.Errorf("reconcile sessions for owner source %d ID %q: %w",
-			owner.Source, owner.ID, ErrInvalidReconciliationOwner)
+		return failedReconcileResult(
+			ReconcileErrorInvalid,
+			fmt.Errorf("reconcile sessions for owner source %d ID %q: %w",
+				owner.Source, owner.ID, ErrInvalidReconciliationOwner),
+		)
 	}
 
 	m.ownershipMu.Lock()
@@ -811,37 +839,54 @@ func (m *Manager) reconcileSessionsForOwner(
 	desiredByKey, desiredOrder, err := compileReconcileConfigs(desired)
 	if err != nil {
 		m.ownershipMu.Unlock()
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorInvalid, err)
 	}
 
 	currentClaims, err := m.ownerClaimSnapshot(owner, desiredByKey, desiredOrder)
 	if err != nil {
 		m.ownershipMu.Unlock()
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorConflict, err)
 	}
 
-	destroyed, retired, releaseErrs := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
-	created, rollbackRetired, unusedLeases, claimErrs := m.claimDesiredOwnerSessions(
+	result, retired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
+	claimResult, rollbackRetired, unusedLeases := m.claimDesiredOwnerSessions(
 		ctx, owner, desiredByKey, desiredOrder, currentClaims,
 	)
+	result.Created = claimResult.Created
+	result.wireCreated = claimResult.wireCreated
+	result.Errors = append(result.Errors, claimResult.Errors...)
+	result.Failed = len(result.Errors)
 	retired = append(retired, rollbackRetired...)
-	err = errors.Join(append(releaseErrs, claimErrs...)...)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
-	m.finishRetiredSessions(retired)
+	for _, cleanupErr := range m.finishRetiredSessions(retired) {
+		addReconcileError(&result, ReconcileErrorCleanup, cleanupErr)
+	}
 	for _, lease := range unusedLeases {
 		if closeErr := closeSenderLeaseError(lease); closeErr != nil {
-			err = errors.Join(err, closeErr)
+			addReconcileError(&result, ReconcileErrorCleanup, closeErr)
 		}
 	}
 
-	m.logger.Info("session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
-	)
+	m.logSessionReconcileResult(result)
 
-	return created, destroyed, err
+	return result
+}
+
+func (m *Manager) logSessionReconcileResult(result ReconcileResult) {
+	if result.Err() != nil {
+		m.logger.Warn("session reconciliation incomplete",
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("failed", result.Failed),
+		)
+	} else {
+		m.logger.Info("session reconciliation complete",
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+		)
+	}
 }
 
 // ValidateReconcileConfigs validates the complete desired set without opening
@@ -918,10 +963,9 @@ func (m *Manager) releaseStaleOwnerClaims(
 	owner SessionOwner,
 	desiredByKey map[SessionKey]reconcileCandidate,
 	currentClaims map[SessionKey]uint32,
-) (int, []retiredSession, []error) {
-	var destroyed int
+) (ReconcileResult, []retiredSession) {
+	var result ReconcileResult
 	var retired []retiredSession
-	var errs []error
 	for key, discr := range currentClaims {
 		if _, want := desiredByKey[key]; want {
 			continue
@@ -935,15 +979,17 @@ func (m *Manager) releaseStaleOwnerClaims(
 
 		wireDestroyed, detached, releaseErr := m.detachSessionClaimByDiscriminator(discr, owner)
 		if releaseErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile release %+v: %w", key, releaseErr))
+			addReconcileError(&result, ReconcileErrorRelease,
+				fmt.Errorf("reconcile release %+v: %w", key, releaseErr))
 			continue
 		}
+		result.Released++
 		if wireDestroyed {
-			destroyed++
+			result.wireDestroyed++
 			retired = append(retired, *detached)
 		}
 	}
-	return destroyed, retired, errs
+	return result, retired
 }
 
 func (m *Manager) claimDesiredOwnerSessions(
@@ -952,11 +998,10 @@ func (m *Manager) claimDesiredOwnerSessions(
 	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
 	currentClaims map[SessionKey]uint32,
-) (int, []retiredSession, []*SenderLease, []error) {
-	var created int
+) (ReconcileResult, []retiredSession, []*SenderLease) {
+	var result ReconcileResult
 	var retired []retiredSession
 	var unusedLeases []*SenderLease
-	var errs []error
 	newClaims := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
@@ -973,18 +1018,20 @@ func (m *Manager) claimDesiredOwnerSessions(
 			unusedLeases = append(unusedLeases, unusedLease)
 		}
 		if claimErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile claim %+v: %w", key, claimErr))
+			addReconcileError(&result, ReconcileErrorCreate,
+				fmt.Errorf("reconcile claim %+v: %w", key, claimErr))
 			continue
 		}
 		if wireCreated {
-			created++
+			result.wireCreated++
 		}
 		if _, alreadyClaimed := currentClaims[key]; !alreadyClaimed {
+			result.Created++
 			newClaims = append(newClaims, sess.LocalDiscriminator())
 		}
 	}
-	if len(errs) == 0 {
-		return created, nil, unusedLeases, nil
+	if result.Failed == 0 {
+		return result, nil, unusedLeases
 	}
 
 	// Roll back claims added by this creation pass. This closes accepted
@@ -993,19 +1040,25 @@ func (m *Manager) claimDesiredOwnerSessions(
 	for _, discr := range newClaims {
 		wireDestroyed, detached, err := m.detachSessionClaimByDiscriminator(discr, owner)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("rollback new session claim %d: %w", discr, err))
+			addReconcileError(&result, ReconcileErrorRollback,
+				fmt.Errorf("rollback new session claim %d: %w", discr, err))
 			continue
 		}
+		result.Created--
 		if wireDestroyed {
-			created--
+			result.wireCreated--
 			retired = append(retired, *detached)
 		}
 	}
-	return created, retired, unusedLeases, errs
+	return result, retired, unusedLeases
 }
 
-func (m *Manager) finishRetiredSessions(retired []retiredSession) {
+func (m *Manager) finishRetiredSessions(retired []retiredSession) []error {
+	var errs []error
 	for _, item := range retired {
-		m.finishSessionDestroy(item.localDiscr, item.entry)
+		if err := m.finishSessionDestroyError(item.localDiscr, item.entry); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errs
 }

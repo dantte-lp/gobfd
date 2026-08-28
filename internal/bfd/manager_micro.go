@@ -205,31 +205,39 @@ type MicroBFDReconcileConfig struct {
 func (m *Manager) ReconcileMicroBFDGroups(
 	desired []MicroBFDReconcileConfig,
 ) (int, int, error) {
+	result := m.ReconcileMicroBFDGroupsDetailed(desired)
+	return result.wireCreated, result.wireDestroyed, result.Err()
+}
+
+// ReconcileMicroBFDGroupsDetailed reconciles the complete declarative group
+// set and returns net group-resource changes plus bounded operation failures.
+func (m *Manager) ReconcileMicroBFDGroupsDetailed(
+	desired []MicroBFDReconcileConfig,
+) ReconcileResult {
 	op, err := m.beginOperation()
 	if err != nil {
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorLifecycle, err)
 	}
 	defer op.finish()
 
 	m.ownershipMu.Lock()
-	created, destroyed, err := m.reconcileMicroBFDGroups(desired)
+	result := m.reconcileMicroBFDGroups(desired)
 	m.ownershipMu.Unlock()
-	return created, destroyed, err
+	return result
 }
 
-func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (int, int, error) {
+func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) ReconcileResult {
 	desiredKeys, err := compileMicroBFDReconcileConfigs(desired)
 	if err != nil {
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorInvalid, err)
 	}
 
 	currentGroups := m.microBFDGroupsByKey()
 
-	var created, destroyed int
-	var errs []error
+	var result ReconcileResult
 
 	if conflict := m.microBFDReconcileConflict(desiredKeys, currentGroups); conflict != nil {
-		return 0, 0, conflict
+		return failedReconcileResult(ReconcileErrorConflict, conflict)
 	}
 
 	// Destroy groups not in desired set.
@@ -243,10 +251,12 @@ func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (in
 		)
 
 		if dErr := m.destroyMicroBFDGroup(key); dErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile destroy micro-BFD %s: %w", key, dErr))
+			addReconcileError(&result, ReconcileErrorRelease,
+				fmt.Errorf("reconcile destroy micro-BFD %s: %w", key, dErr))
 			continue
 		}
-		destroyed++
+		result.Released++
+		result.wireDestroyed++
 	}
 
 	// Create groups in desired but not in current.
@@ -260,22 +270,32 @@ func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (in
 		)
 
 		if _, cErr := m.createMicroBFDGroup(rc.Config); cErr != nil {
-			errs = append(errs, fmt.Errorf("reconcile create micro-BFD %s: %w", key, cErr))
+			addReconcileError(&result, ReconcileErrorCreate,
+				fmt.Errorf("reconcile create micro-BFD %s: %w", key, cErr))
 			continue
 		}
-		created++
+		result.Created++
+		result.wireCreated++
 	}
 
-	if len(errs) > 0 {
-		err = errors.Join(errs...)
+	m.logMicroBFDReconcileResult(result)
+
+	return result
+}
+
+func (m *Manager) logMicroBFDReconcileResult(result ReconcileResult) {
+	if result.Err() != nil {
+		m.logger.Warn("micro-BFD group reconciliation incomplete",
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("failed", result.Failed),
+		)
+	} else {
+		m.logger.Info("micro-BFD group reconciliation complete",
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+		)
 	}
-
-	m.logger.Info("micro-BFD group reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
-	)
-
-	return created, destroyed, err
 }
 
 func compileMicroBFDReconcileConfigs(

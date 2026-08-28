@@ -108,17 +108,22 @@ func reconcileMicroBFDGroupState(
 	mgr *bfd.Manager,
 	logger *slog.Logger,
 ) {
-	created, destroyed, err := mgr.ReconcileMicroBFDGroups(desired)
-	if err != nil {
+	result := mgr.ReconcileMicroBFDGroupsDetailed(desired)
+	if err := result.Err(); err != nil {
 		logger.Error("micro-BFD group reconciliation had errors",
 			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
 		)
 		return
 	}
 
 	logger.Info("micro-BFD group reconciliation complete",
-		slog.Int("groups_created", created),
-		slog.Int("groups_destroyed", destroyed),
+		slog.Int("groups_created", result.Created),
+		slog.Int("groups_released", result.Released),
 	)
 }
 
@@ -145,19 +150,25 @@ func reconcileMicroBFDMemberSessions(
 		desiredSessions = append(desiredSessions, rc)
 	}
 
-	sessCreated, sessDestroyed, sessErr := mgr.ReconcileSessionsForOwner(
+	result := mgr.ReconcileSessionsForOwnerDetailed(
 		ctx,
 		bfd.MicroBFDReconciliationOwner(),
 		desiredSessions,
 	)
-	if sessErr != nil {
+	if err := result.Err(); err != nil {
 		logger.Error("micro-BFD session reconciliation had errors",
-			slog.String("error", sessErr.Error()),
+			slog.String("error", err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", reconcileErrorCodes(result)),
 		)
+		return
 	}
 	logger.Info("micro-BFD session reconciliation complete",
-		slog.Int("sessions_created", sessCreated),
-		slog.Int("sessions_destroyed", sessDestroyed),
+		slog.Int("sessions_created", result.Created),
+		slog.Int("sessions_released", result.Released),
 	)
 }
 

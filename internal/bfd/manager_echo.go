@@ -144,12 +144,19 @@ func (m *Manager) detachEchoSession(discr uint32) (*retiredEchoSession, error) {
 }
 
 func (m *Manager) finishEchoSessionDestroy(discr uint32, entry *echoSessionEntry) {
+	if err := m.finishEchoSessionDestroyError(discr, entry); err != nil {
+		return
+	}
+}
+
+func (m *Manager) finishEchoSessionDestroyError(discr uint32, entry *echoSessionEntry) error {
 	entry.cancel()
 	<-entry.done
-	if err := entry.senderLease.Close(); err != nil {
+	closeErr := entry.senderLease.Close()
+	if closeErr != nil {
 		m.logger.Warn("failed to close echo session sender lease",
 			slog.Uint64("local_discr", uint64(discr)),
-			slog.String("error", err.Error()),
+			slog.String("error", closeErr.Error()),
 		)
 	}
 	m.discriminators.Release(discr)
@@ -157,6 +164,10 @@ func (m *Manager) finishEchoSessionDestroy(discr uint32, entry *echoSessionEntry
 		slog.String("peer", entry.session.PeerAddr().String()),
 		slog.Uint64("local_discr", uint64(discr)),
 	)
+	if closeErr != nil {
+		return fmt.Errorf("destroy echo session %d sender lease: %w", discr, closeErr)
+	}
+	return nil
 }
 
 // DemuxEcho routes a returned echo packet to the matching echo session.
@@ -202,9 +213,19 @@ func (m *Manager) ReconcileEchoSessions(
 	ctx context.Context,
 	desired []EchoReconcileConfig,
 ) (int, int, error) {
+	result := m.ReconcileEchoSessionsDetailed(ctx, desired)
+	return result.wireCreated, result.wireDestroyed, result.Err()
+}
+
+// ReconcileEchoSessionsDetailed reconciles the declarative Echo desired set
+// and returns net source-resource changes plus bounded operation failures.
+func (m *Manager) ReconcileEchoSessionsDetailed(
+	ctx context.Context,
+	desired []EchoReconcileConfig,
+) ReconcileResult {
 	op, err := m.beginOperation()
 	if err != nil {
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorLifecycle, err)
 	}
 	defer op.finish()
 
@@ -212,30 +233,44 @@ func (m *Manager) ReconcileEchoSessions(
 	desiredByKey, desiredOrder, err := compileEchoReconcileConfigs(desired, true)
 	if err != nil {
 		m.ownershipMu.Unlock()
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorInvalid, err)
 	}
 	current, err := m.declarativeEchoSnapshot(desiredByKey, desiredOrder)
 	if err != nil {
 		m.ownershipMu.Unlock()
-		return 0, 0, err
+		return failedReconcileResult(ReconcileErrorConflict, err)
 	}
-	destroyed, retired := m.detachStaleDeclarativeEchoSessions(desiredByKey, current)
-	created, rollbackRetired, unusedLease, createErr := m.createDesiredDeclarativeEchoSessions(
+	result, retired := m.detachStaleDeclarativeEchoSessions(desiredByKey, current)
+	createResult, rollbackRetired, unusedLease := m.createDesiredDeclarativeEchoSessions(
 		ctx, desiredByKey, desiredOrder, current,
 	)
+	result.Created = createResult.Created
+	result.wireCreated = createResult.wireCreated
+	result.Errors = append(result.Errors, createResult.Errors...)
+	result.Failed = len(result.Errors)
 	retired = append(retired, rollbackRetired...)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
-	m.finishRetiredEchoSessions(retired)
-	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
-		createErr = errors.Join(createErr, closeErr)
+	for _, cleanupErr := range m.finishRetiredEchoSessions(retired) {
+		addReconcileError(&result, ReconcileErrorCleanup, cleanupErr)
 	}
-	m.logger.Info("echo session reconciliation complete",
-		slog.Int("created", created),
-		slog.Int("destroyed", destroyed),
-	)
-	return created, destroyed, createErr
+	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
+		addReconcileError(&result, ReconcileErrorCleanup, closeErr)
+	}
+	if result.Err() != nil {
+		m.logger.Warn("echo session reconciliation incomplete",
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("failed", result.Failed),
+		)
+	} else {
+		m.logger.Info("echo session reconciliation complete",
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+		)
+	}
+	return result
 }
 
 type echoReconcileCandidate struct {
@@ -329,7 +364,8 @@ func echoSessionMatchesConfig(session *EchoSession, cfg EchoSessionConfig) bool 
 func (m *Manager) detachStaleDeclarativeEchoSessions(
 	desiredByKey map[string]echoReconcileCandidate,
 	current map[string]uint32,
-) (int, []retiredEchoSession) {
+) (ReconcileResult, []retiredEchoSession) {
+	var result ReconcileResult
 	retired := make([]retiredEchoSession, 0)
 	for key, discr := range current {
 		if _, wanted := desiredByKey[key]; wanted {
@@ -340,11 +376,16 @@ func (m *Manager) detachStaleDeclarativeEchoSessions(
 			slog.Uint64("local_discr", uint64(discr)),
 		)
 		entry, err := m.detachEchoSession(discr)
-		if err == nil {
-			retired = append(retired, *entry)
+		if err != nil {
+			addReconcileError(&result, ReconcileErrorRelease,
+				fmt.Errorf("reconcile release echo %s: %w", key, err))
+			continue
 		}
+		result.Released++
+		result.wireDestroyed++
+		retired = append(retired, *entry)
 	}
-	return len(retired), retired
+	return result, retired
 }
 
 func (m *Manager) createDesiredDeclarativeEchoSessions(
@@ -352,7 +393,8 @@ func (m *Manager) createDesiredDeclarativeEchoSessions(
 	desiredByKey map[string]echoReconcileCandidate,
 	desiredOrder []string,
 	current map[string]uint32,
-) (int, []retiredEchoSession, *SenderLease, error) {
+) (ReconcileResult, []retiredEchoSession, *SenderLease) {
+	var result ReconcileResult
 	createdDiscriminators := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		if _, exists := current[key]; exists {
@@ -364,27 +406,35 @@ func (m *Manager) createDesiredDeclarativeEchoSessions(
 			ctx, candidate.config, candidate.factory, echoSessionSourceDeclarative,
 		)
 		if err != nil {
-			retired := m.detachEchoSessions(createdDiscriminators)
-			return 0, retired, unusedLease, fmt.Errorf("reconcile create echo %s: %w", key, err)
+			addReconcileError(&result, ReconcileErrorCreate,
+				fmt.Errorf("reconcile create echo %s: %w", key, err))
+			retired := make([]retiredEchoSession, 0, len(createdDiscriminators))
+			for _, createdDiscr := range createdDiscriminators {
+				entry, rollbackErr := m.detachEchoSession(createdDiscr)
+				if rollbackErr != nil {
+					addReconcileError(&result, ReconcileErrorRollback,
+						fmt.Errorf("rollback new echo session %d: %w", createdDiscr, rollbackErr))
+					continue
+				}
+				result.Created--
+				result.wireCreated--
+				retired = append(retired, *entry)
+			}
+			return result, retired, unusedLease
 		}
+		result.Created++
+		result.wireCreated++
 		createdDiscriminators = append(createdDiscriminators, discr)
 	}
-	return len(createdDiscriminators), nil, nil, nil
+	return result, nil, nil
 }
 
-func (m *Manager) detachEchoSessions(discriminators []uint32) []retiredEchoSession {
-	retired := make([]retiredEchoSession, 0, len(discriminators))
-	for _, discr := range discriminators {
-		entry, err := m.detachEchoSession(discr)
-		if err == nil {
-			retired = append(retired, *entry)
+func (m *Manager) finishRetiredEchoSessions(retired []retiredEchoSession) []error {
+	var errs []error
+	for _, item := range retired {
+		if err := m.finishEchoSessionDestroyError(item.localDiscr, item.entry); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	return retired
-}
-
-func (m *Manager) finishRetiredEchoSessions(retired []retiredEchoSession) {
-	for _, item := range retired {
-		m.finishEchoSessionDestroy(item.localDiscr, item.entry)
-	}
+	return errs
 }
