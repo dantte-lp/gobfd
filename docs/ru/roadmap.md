@@ -42,7 +42,7 @@ runtime-контракты `bfd.v1` и YAML. Она обновляет зави�
 | Toolchain Go 1.27 и обновление CI | Готово |
 | Go-owned Podman testcontainers harness | Готово |
 | Миграция interop, integration и E2E orchestration | Готово |
-| Контракт Python 3.14.7 и Docker Compose v5 | Готово |
+| Удаление Python-инструментов репозитория и контракт Docker Compose v5 | Готово |
 | Инвентарь лицензий, SBOM, OCI provenance и уязвимостей | Готово |
 | Граница образов Debian trixie / Oracle Linux 10 | Готово |
 | Исправление публичных RFC- и benchmark-заявлений | Готово |

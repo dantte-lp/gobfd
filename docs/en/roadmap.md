@@ -42,7 +42,7 @@ baseline remains **In progress** until final qualification
 | Go 1.27 toolchain and CI refresh | Done |
 | Go-owned Podman testcontainers harness | Done |
 | Interop, integration, and E2E orchestration migration | Done |
-| Python 3.14.7 and Docker Compose v5 tooling contract | Done |
+| Removal of repository Python tooling and Docker Compose v5 contract | Done |
 | License, SBOM, OCI provenance, and vulnerability inventory | Done |
 | Debian trixie / Oracle Linux 10 image boundary | Done |
 | RFC and benchmark public-claim correction | Done |
