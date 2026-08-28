@@ -13,9 +13,9 @@ The latest published GitHub release is
 `v0.6.2` and `v0.6.3` tags remain unpublished failed cuts. The v0.6.4 product
 artifacts and cumulative notes are verified, and the accepted stable history
 and bilingual changelogs have reached `master`. All independent v0.6 review
-findings are resolved and accepted; final local baseline qualification remains
-in progress. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and
-GoBGP v4 development continues on `dev`.
+findings are resolved and accepted, and final local baseline qualification is
+complete. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP
+v4 development continues on `dev`.
 
 ## Status key
 
@@ -27,14 +27,13 @@ GoBGP v4 development continues on `dev`.
 
 ## v0.6 maintenance baseline
 
-Beads milestone: `gobfd-qj0.8.1` — **Open**.
+Beads milestone: `gobfd-qj0.8.1` — **Done**.
 
 The protected `release/v0.6` branch keeps GoBGP v3.37.0 and the existing
 `bfd.v1` and YAML runtime contracts. It updates dependencies, tools, CI,
 reproducibility, documentation, and test infrastructure without adding BFD
-protocol behavior. The v0.6.4 tag, assets, and OCI images are verified, but the
-baseline remains **In progress** until final qualification
-`gobfd-qj0.8.1.7` is accepted.
+protocol behavior. The v0.6.4 tag, assets, and OCI images are verified; final
+qualification `gobfd-qj0.8.1.7` is accepted and the baseline is **Done**.
 
 | Delivery slice | Status |
 |---|---|
@@ -48,6 +47,7 @@ baseline remains **In progress** until final qualification
 | RFC and benchmark public-claim correction | Done |
 | Roadmap, Quick Start, architecture, and EN/RU parity | Done |
 | Independent review of all v0.6 slices and P0/P1 remediation | Done |
+| Final local qualification and immutable release evidence | Done |
 | Register the isolated `tools/go.mod` with Dependabot | Done |
 
 Release task `gobfd-qj0.8.1.15` is complete after correction: immutable
@@ -55,9 +55,8 @@ Release task `gobfd-qj0.8.1.15` is complete after correction: immutable
 assets and OCI indexes remain verified, and its body now covers v0.6.2-v0.6.4.
 PRs `#67` and `#68` delivered the accepted correction to `release/v0.6` and
 `master`; this `dev` history contains the separate forward-port. Qualification
-`gobfd-qj0.8.1.7` is in progress; independent review
-`gobfd-qj0.8.1.8` is complete after all 13 child findings were resolved and
-accepted.
+`gobfd-qj0.8.1.7` and independent review `gobfd-qj0.8.1.8` are complete after
+all 13 child findings were resolved and accepted.
 
 ## Legacy S12 reconciliation
 
@@ -81,8 +80,7 @@ authoritative.
 
 ## v1.0.0 production contract
 
-Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on final acceptance of the
-v0.6 maintenance baseline**.
+Beads milestone: `gobfd-qj0.8.2` — **Open; the v0.6 prerequisite is accepted**.
 
 Development of the v1 product line, including the GoBGP v4 migration, occurs
 on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
