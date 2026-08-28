@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -108,7 +109,7 @@ func reconcileMicroBFDGroupState(
 	mgr *bfd.Manager,
 	logger *slog.Logger,
 ) {
-	result := mgr.ReconcileMicroBFDGroupsDetailed(desired)
+	result := applyMicroBFDGroupCandidates(desired, mgr)
 	if err := result.Err(); err != nil {
 		logger.Error("micro-BFD group reconciliation had errors",
 			slog.String("error", err.Error()),
@@ -127,6 +128,13 @@ func reconcileMicroBFDGroupState(
 	)
 }
 
+func applyMicroBFDGroupCandidates(
+	desired []bfd.MicroBFDReconcileConfig,
+	mgr *bfd.Manager,
+) bfd.ReconcileResult {
+	return mgr.ReconcileMicroBFDGroupsDetailed(desired)
+}
+
 // reconcileMicroBFDMemberSessions performs Step 2 of micro-BFD reconciliation:
 // create/destroy per-member-link BFD sessions with SO_BINDTODEVICE on port 6784.
 func reconcileMicroBFDMemberSessions(
@@ -136,25 +144,7 @@ func reconcileMicroBFDMemberSessions(
 	candidates []microBFDMemberCandidate,
 	logger *slog.Logger,
 ) {
-	desiredSessions := make([]bfd.ReconcileConfig, 0, len(candidates))
-	for _, candidate := range candidates {
-		rc := candidate.reconcile
-		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
-			sf,
-			candidate.config.LocalAddr,
-			false,
-			logger,
-			netio.WithDstPort(netio.PortMicroBFD),
-			netio.WithBindDevice(candidate.member),
-		)
-		desiredSessions = append(desiredSessions, rc)
-	}
-
-	result := mgr.ReconcileSessionsForOwnerDetailed(
-		ctx,
-		bfd.MicroBFDReconciliationOwner(),
-		desiredSessions,
-	)
+	result := applyMicroBFDMemberCandidates(ctx, candidates, mgr, sf, logger)
 	if err := result.Err(); err != nil {
 		logger.Error("micro-BFD session reconciliation had errors",
 			slog.String("error", err.Error()),
@@ -169,6 +159,34 @@ func reconcileMicroBFDMemberSessions(
 	logger.Info("micro-BFD session reconciliation complete",
 		slog.Int("sessions_created", result.Created),
 		slog.Int("sessions_released", result.Released),
+	)
+}
+
+func applyMicroBFDMemberCandidates(
+	ctx context.Context,
+	candidates []microBFDMemberCandidate,
+	mgr *bfd.Manager,
+	sf declarativeSenderFactory,
+	logger *slog.Logger,
+) bfd.ReconcileResult {
+	desiredSessions := make([]bfd.ReconcileConfig, 0, len(candidates))
+	for _, candidate := range candidates {
+		rc := candidate.reconcile
+		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
+			sf,
+			candidate.config.LocalAddr,
+			false,
+			logger,
+			netio.WithDstPort(netio.PortMicroBFD),
+			netio.WithBindDevice(candidate.member),
+		)
+		desiredSessions = append(desiredSessions, rc)
+	}
+
+	return mgr.ReconcileSessionsForOwnerDetailed(
+		ctx,
+		bfd.MicroBFDReconciliationOwner(),
+		desiredSessions,
 	)
 }
 
@@ -280,7 +298,7 @@ func configMicroBFDToBFD(gc config.MicroBFDGroupConfig) (bfd.MicroBFDConfig, err
 
 	return bfd.MicroBFDConfig{
 		LAGInterface:          gc.LAGInterface,
-		MemberLinks:           gc.MemberLinks,
+		MemberLinks:           slices.Clone(gc.MemberLinks),
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
 		DesiredMinTxInterval:  gc.DesiredMinTx,

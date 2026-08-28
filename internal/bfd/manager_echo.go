@@ -258,18 +258,12 @@ func (m *Manager) ReconcileEchoSessionsDetailed(
 	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
 		addReconcileError(&result, ReconcileErrorCleanup, closeErr)
 	}
-	if result.Err() != nil {
-		m.logger.Warn("echo session reconciliation incomplete",
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-			slog.Int("failed", result.Failed),
-		)
-	} else {
-		m.logger.Info("echo session reconciliation complete",
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-		)
-	}
+	m.logger.Debug("echo session reconciliation source result",
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
+		slog.Int("failed", result.Failed),
+		slog.Bool("converged", result.Err() == nil),
+	)
 	return result
 }
 

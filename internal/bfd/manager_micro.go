@@ -284,18 +284,12 @@ func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) Rec
 }
 
 func (m *Manager) logMicroBFDReconcileResult(result ReconcileResult) {
-	if result.Err() != nil {
-		m.logger.Warn("micro-BFD group reconciliation incomplete",
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-			slog.Int("failed", result.Failed),
-		)
-	} else {
-		m.logger.Info("micro-BFD group reconciliation complete",
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-		)
-	}
+	m.logger.Debug("micro-BFD group reconciliation source result",
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
+		slog.Int("failed", result.Failed),
+		slog.Bool("converged", result.Err() == nil),
+	)
 }
 
 func compileMicroBFDReconcileConfigs(
@@ -337,9 +331,9 @@ func (m *Manager) microBFDReconcileConflict(
 		}
 
 		conflict := &MicroBFDConfigConflictError{LAGInterface: key}
-		m.logger.Error("micro-BFD group reconciliation conflict",
+		m.logger.Debug("micro-BFD group reconciliation source conflict",
 			slog.String("lag", key),
-			slog.String("error", conflict.Error()),
+			slog.String("error_code", ReconcileErrorConflict.String()),
 		)
 		return conflict
 	}

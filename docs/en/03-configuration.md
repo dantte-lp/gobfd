@@ -509,26 +509,35 @@ kill -HUP $(pidof gobfd)
 
 On reload:
 1. The YAML file is re-read and validated
-2. The complete base, Echo, Micro-BFD member, VXLAN, and Geneve session
-   candidate is compiled and validated before sender creation or Manager
-   mutation
-3. Log level is updated dynamically (no restart needed)
-4. The base session source is reconciled, including an empty desired set
-5. Echo peers are reconciled as a source-isolated desired set, including the
+2. Under one coordinator lock, the complete base, Echo, Micro-BFD group and
+   member, VXLAN, and Geneve session candidate is compiled and validated before
+   sender creation or Manager mutation
+3. A new desired generation is published and gRPC empty-service health becomes
+   `NOT_SERVING`; an invalid candidate leaves generations, health, and log level
+   unchanged
+4. Log level is updated dynamically after validation (no restart needed); this
+   setting is not rolled back if a later source fails
+5. The base session source is reconciled, including an empty desired set
+6. Echo peers are reconciled as a source-isolated desired set, including the
    disabled or empty state; sender leases are acquired lazily only for newly
    accepted sessions
-6. Micro-BFD groups and the member-session source are reconciled, including
+7. Micro-BFD groups and the member-session source are reconciled, including
    empty desired sets
-7. VXLAN and Geneve are reconciled as distinct sources, including empty
+8. VXLAN and Geneve are reconciled as distinct sources, including empty
    desired sets
-8. Runtime errors are logged; sender, resource, or session changes already
-   applied by earlier steps are not rolled back
+9. One aggregate receipt records bounded counts and error codes for all six
+   sources. Applied advances to desired, and empty-service health becomes
+   `SERVING`, only if all six converge
 
 Base configuration, Echo, Micro-BFD members, VXLAN, and Geneve use distinct
 source ownership. Removing the final entry for one of these sources does not
 delete sessions owned by another source. Echo sender acquisition failure rolls
 back newly accepted Echo sessions from that pass; SIGHUP remains
 non-transactional across sources and for other runtime apply failures.
+There is no automatic retry in this slice: after a partial apply, a later
+explicit SIGHUP compiles and publishes another desired generation. A configured
+non-empty VXLAN or Geneve source without its running backend is failed, not
+skipped. Already accepted source changes are not rolled back.
 
 ### Validation Rules
 

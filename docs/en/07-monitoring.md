@@ -187,6 +187,16 @@ sudo vim /etc/gobfd/gobfd.yml
 sudo systemctl reload gobfd
 ```
 
+For each valid startup or SIGHUP candidate, the coordinator emits one aggregate
+structured event: the INFO event `configuration reconciliation converged` only
+after all six sources converge, or the ERROR event `configuration
+reconciliation incomplete` for a stale generation. The configured logging
+threshold applies normally, so INFO convergence events are filtered at WARN or
+ERROR. Fields include `desired_generation`, `applied_generation`, `stale`,
+aggregate `pending`/`failed`, and per-source `created`, `released`, `pending`,
+`failed`, and bounded error-code counts. Raw error text may appear only in that
+immediate event; it is not retained in the runtime snapshot or used as a label.
+
 ### Flight Recorder
 
 `runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:
@@ -204,7 +214,14 @@ The flight recorder captures scheduling events, goroutine creation, GC pauses, a
 |---|---|---|---|
 | Prometheus metrics | `:9100` | `/metrics` | Prometheus scrape target |
 | gRPC API | `:50051` | -- | ConnectRPC/gRPC API |
-| gRPC Health | `:50051` | `/grpc.health.v1.Health/Check` | gRPC health check |
+| gRPC Health | `:50051` | `/grpc.health.v1.Health/Check` | Empty service is reconciliation readiness; named services are process/service health |
+
+The empty-service check is `NOT_SERVING` before the first converged generation
+and while the latest desired generation is stale, then `SERVING` after full
+convergence. Named checks for `grpc.health.v1.Health`, `bfd.v1.BfdService`,
+`bfd.v1.EchoService`, and `bfd.v1.MicroBFDService` remain `SERVING`. systemd
+`READY=1` continues to describe process/listener startup rather than
+configuration convergence.
 
 ### Related Documents
 

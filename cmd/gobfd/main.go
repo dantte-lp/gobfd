@@ -126,7 +126,9 @@ func runServers(
 	sf := newUDPSenderFactory()
 
 	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, logger)
+	healthChecker := newDaemonHealthChecker()
+	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, logger)
+	coordinator := newReconciliationCoordinator(logger, healthChecker)
 
 	// errgroup with signal-aware context.
 	ctx, stop := signal.NotifyContext(
@@ -135,6 +137,9 @@ func runServers(
 		syscall.SIGTERM,
 	)
 	defer stop()
+	sigHUP := make(chan os.Signal, 1)
+	signal.Notify(sigHUP, syscall.SIGHUP)
+	defer signal.Stop(sigHUP)
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -142,10 +147,7 @@ func runServers(
 	// sessions are created so that state change notifications are forwarded
 	// from the internal rawNotifyCh to the public StateChanges channel.
 	// Also handles micro-BFD aggregate state dispatch (RFC 7130).
-	g.Go(func() error {
-		mgr.RunDispatch(gCtx)
-		return nil
-	})
+	startManagerDispatch(gCtx, g, mgr)
 
 	startInterfaceMonitor(gCtx, g, mgr, logger)
 
@@ -168,22 +170,65 @@ func runServers(
 	overlayRuntime, overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, logger)
 	defer overlayCleanup()
 
-	startDaemonGoroutines(gCtx, g, configPath, logLevel, mgr, sf, overlayRuntime, logger)
-
-	reconcileAllSessions(gCtx, cfg, mgr, sf, overlayRuntime, logger)
+	startReconciliationRuntime(
+		gCtx, g, sigHUP, configPath, logLevel, cfg, mgr, sf, overlayRuntime, coordinator, logger,
+	)
 
 	notifyReady(logger)
 
 	// Shutdown goroutine: waits for context cancellation.
-	g.Go(func() error {
-		<-gCtx.Done()
-		return gracefulShutdown(gCtx, mgr, logger, fr, grpcSrv, metricsSrv)
-	})
+	startShutdown(gCtx, g, mgr, logger, fr, grpcSrv, metricsSrv)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("run servers: %w", err)
 	}
 	return nil
+}
+
+func startManagerDispatch(ctx context.Context, g *errgroup.Group, mgr *bfd.Manager) {
+	g.Go(func() error {
+		mgr.RunDispatch(ctx)
+		return nil
+	})
+}
+
+func startShutdown(
+	ctx context.Context,
+	g *errgroup.Group,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+	fr *trace.FlightRecorder,
+	grpcSrv, metricsSrv *http.Server,
+) {
+	g.Go(func() error {
+		<-ctx.Done()
+		return gracefulShutdown(ctx, mgr, logger, fr, grpcSrv, metricsSrv)
+	})
+}
+
+func startReconciliationRuntime(
+	ctx context.Context,
+	g *errgroup.Group,
+	sigHUP <-chan os.Signal,
+	configPath string,
+	logLevel *slog.LevelVar,
+	cfg *config.Config,
+	mgr *bfd.Manager,
+	sf *udpSenderFactory,
+	overlayRuntime *overlayRuntime,
+	coordinator *reconciliationCoordinator,
+	logger *slog.Logger,
+) {
+	startReloadAfterStartup(
+		func() {
+			reconcileAllSessions(ctx, cfg, mgr, sf, overlayRuntime, coordinator, logger)
+		},
+		func() {
+			startDaemonGoroutines(
+				ctx, g, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, coordinator, logger,
+			)
+		},
+	)
 }
 
 // startHTTPServers registers the gRPC and metrics HTTP server goroutines.
@@ -215,22 +260,23 @@ func startHTTPServers(
 func startDaemonGoroutines(
 	ctx context.Context,
 	g *errgroup.Group,
+	sigHUP <-chan os.Signal,
 	configPath string,
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
 	overlayRuntime *overlayRuntime,
+	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
 	g.Go(func() error {
 		return runWatchdog(ctx, logger)
 	})
 
-	sigHUP := make(chan os.Signal, 1)
-	signal.Notify(sigHUP, syscall.SIGHUP)
 	g.Go(func() error {
-		defer signal.Stop(sigHUP)
-		handleSIGHUP(ctx, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, logger)
+		handleSIGHUP(
+			ctx, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, coordinator, logger,
+		)
 		return nil
 	})
 }

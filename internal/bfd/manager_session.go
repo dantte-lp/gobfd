@@ -875,18 +875,12 @@ func (m *Manager) reconcileSessionsForOwner(
 }
 
 func (m *Manager) logSessionReconcileResult(result ReconcileResult) {
-	if result.Err() != nil {
-		m.logger.Warn("session reconciliation incomplete",
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-			slog.Int("failed", result.Failed),
-		)
-	} else {
-		m.logger.Info("session reconciliation complete",
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-		)
-	}
+	m.logger.Debug("session reconciliation source result",
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
+		slog.Int("failed", result.Failed),
+		slog.Bool("converged", result.Err() == nil),
+	)
 }
 
 // ValidateReconcileConfigs validates the complete desired set without opening

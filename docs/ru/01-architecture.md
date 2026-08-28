@@ -189,6 +189,29 @@ Geneve до применения любого из этих sources. Compiler к
 проверяет полный набор до открытия sender adapter или изменения session
 ownership.
 
+Daemon-level coordinator сериализует компиляцию и применение startup и SIGHUP.
+Он публикует монотонное desired generation только после компиляции полного
+неизменяемого candidate. Один receipt затем хранит claim-level счётчики
+`created`, `released`, `pending` и `failed`, а также ограниченную гистограмму
+кодов ошибок ровно для шести sources: base, Echo, Micro-BFD group, Micro-BFD
+member, VXLAN и Geneve. Applied generation продвигается только при convergence
+всех sources. Частичный проход сохраняет последнее applied generation,
+помечает snapshot как stale и не откатывает изменения, уже принятые другим
+source. Следующий SIGHUP создаёт явное новое generation и может привести runtime
+к convergence. Pending остаётся нулём, пока будущий owner не предоставит
+типизированные retryable errors и автоматический retry; текущие runtime failures,
+включая отсутствие backend для непустого overlay, учитываются как failed без
+классификации по строкам или errno.
+
+Проверка gRPC health с пустым service возвращает `NOT_SERVING` до первого
+converged generation и пока desired отличается от applied; после convergence
+она возвращает `SERVING`. Named health для health, BFD, Echo и Micro-BFD services
+остаётся `SERVING`. SIGHUP регистрируется в bounded channel до startup apply, но
+handler запускается только после startup reconciliation, поэтому ранний reload
+не может примениться раньше startup candidate. systemd `READY=1` остаётся
+сигналом готовности процесса/listeners и отправляется даже при stale
+configuration health.
+
 Для новой принятой physical session Manager лениво открывает один sender lease
 и хранит его идемпотентную release-операцию в session entry. Неизменившаяся
 reconciliation и совпадающий claim другого source не открывают новый sender.
@@ -219,12 +242,12 @@ authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Stat
 
 Это ownership core C01.1 вместе со slice C01.2 для atomic candidate/изоляции
 sources, slice C01.3a для sender lease принятой control session, slice C01.3b
-для lifecycle Manager и slice C01.4a для sender lease/изоляции source Echo, а
+для lifecycle Manager, slice C01.4a для sender lease/изоляции source Echo и
+slice C01.4b для coordinator generations/receipts, а
 не полный контракт v1 reconciliation или RFC. Отложены следующие границы:
 
 - ownership listeners и замены backends;
 - стабильные owner identifiers для отдельных groups и tunnels;
-- generations и receipts reconciliation;
 - согласование параметров Poll/Final;
 - transport-aware packet demultiplexing; и
 - идентичности аутентифицированных API principals вместо одного

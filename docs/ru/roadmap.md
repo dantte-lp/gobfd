@@ -89,7 +89,7 @@ v0.6 после завершения closeout v0.6.4 и исправления P
 | Часть поставки | Статус |
 |---|---|
 | Корректность RFC core и учёт потерь | Открыто |
-| Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.4a |
+| Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.4b |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
@@ -114,9 +114,13 @@ Close из synchronous release callback требует явного API design, 
 добавляет ленивые Manager-owned Echo sender leases, изоляцию API/config
 sources, полную preflight-проверку Echo candidate, передачу пустого desired set
 и rollback новых принятых Echo sessions при ошибке получения sender. Замена
-listeners/backends, стабильные owners отдельных groups/tunnels, generations,
+listeners/backends, стабильные owners отдельных groups/tunnels,
 согласование Poll/Final, transport-aware demultiplexing и аутентифицированные
 API principals остаются открытыми.
+C01.4b сериализует компиляцию/apply startup и SIGHUP, публикует desired и
+applied generations, сохраняет ограниченные receipts шести sources и управляет
+gRPC readiness пустого service без изменения process readiness systemd. Slice
+остаётся нетранзакционным между sources и не добавляет автоматический retry.
 
 RFC core начинается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,

@@ -90,7 +90,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Delivery slice | Status |
 |---|---|
 | RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | In progress; C01.1 through C01.4a implemented |
+| Ownership and configuration reconciliation | In progress; C01.1 through C01.4b implemented |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
@@ -115,8 +115,12 @@ does not complete C01 or SIGHUP reload. C01.4a adds lazy Manager-owned Echo
 sender leases, API/config source isolation, complete Echo candidate preflight,
 empty desired-set forwarding, and rollback of newly accepted Echo sessions on
 sender acquisition failure. Listener/backend replacement, stable
-per-group/per-tunnel owners, generations, Poll/Final negotiation,
+per-group/per-tunnel owners, Poll/Final negotiation,
 transport-aware demultiplexing, and authenticated API principals remain open.
+C01.4b serializes startup and SIGHUP compilation/apply, publishes desired and
+applied generations, retains bounded six-source receipts, and drives
+empty-service gRPC readiness without changing systemd process readiness. It is
+non-transactional across sources and does not add automatic retry.
 
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

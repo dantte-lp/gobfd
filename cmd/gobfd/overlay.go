@@ -275,29 +275,20 @@ func reconcileOverlayTunnel(
 	logger *slog.Logger,
 	params overlayTunnelParams,
 ) {
-	if len(params.entries) == 0 {
-		reconcileOverlaySessions(ctx, mgr, params.owner, nil, params.rfc, logger)
-		return
-	}
-	if params.conn == nil {
-		logger.Error("overlay backend is not running, skipping reconciliation",
-			slog.String("rfc", params.rfc))
-		return
-	}
-
 	desired, err := compileOverlaySessionCandidates(params)
 	if err != nil {
 		logger.Error("invalid overlay candidate, keeping current sessions",
 			slog.String("rfc", params.rfc), slog.String("error", err.Error()))
 		return
 	}
-	sender := netio.NewOverlaySender(params.conn)
-	for i := range desired {
-		// The overlay sender shares the long-lived backend connection. Session
-		// teardown must release only its non-owning lease, never the backend.
-		desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
+	source := sourceVXLAN
+	if params.sessType == bfd.SessionTypeGeneve {
+		source = sourceGeneve
 	}
-	reconcileOverlaySessions(ctx, mgr, params.owner, desired, params.rfc, logger)
+	result := applyCompiledOverlay(ctx, mgr, source, compiledOverlayCandidate{
+		owner: params.owner, conn: params.conn, desired: desired,
+	})
+	logOverlaySourceApplyResult(logger, params.rfc, result)
 }
 
 func compileOverlaySessionCandidates(params overlayTunnelParams) ([]bfd.ReconcileConfig, error) {
@@ -330,7 +321,7 @@ func reconcileOverlaySessions(
 	rfc string,
 	logger *slog.Logger,
 ) {
-	result := mgr.ReconcileSessionsForOwnerDetailed(ctx, owner, desired)
+	result := applyOverlayDesiredSessions(ctx, mgr, owner, desired)
 	if err := result.Err(); err != nil {
 		logger.Error("overlay session reconciliation had errors",
 			slog.String("rfc", rfc),
@@ -347,6 +338,49 @@ func reconcileOverlaySessions(
 	logger.Info("overlay session reconciliation complete",
 		slog.String("rfc", rfc),
 		slog.Int("created", result.Created), slog.Int("released", result.Released))
+}
+
+func applyOverlayDesiredSessions(
+	ctx context.Context,
+	mgr *bfd.Manager,
+	owner bfd.SessionOwner,
+	desired []bfd.ReconcileConfig,
+) bfd.ReconcileResult {
+	return mgr.ReconcileSessionsForOwnerDetailed(ctx, owner, desired)
+}
+
+func logOverlaySourceApplyResult(
+	logger *slog.Logger,
+	rfc string,
+	result sourceApplyResult,
+) {
+	if result.Err != nil {
+		logger.Error("overlay session reconciliation had errors",
+			slog.String("rfc", rfc),
+			slog.String("error", result.Err.Error()),
+			slog.Int("created", result.Created),
+			slog.Int("released", result.Released),
+			slog.Int("pending", result.Pending),
+			slog.Int("failed", result.Failed),
+			slog.Any("error_codes", sourceApplyErrorCodes(result)),
+		)
+		return
+	}
+	logger.Info("overlay session reconciliation complete",
+		slog.String("rfc", rfc),
+		slog.Int("created", result.Created),
+		slog.Int("released", result.Released),
+	)
+}
+
+func sourceApplyErrorCodes(result sourceApplyResult) []string {
+	codes := make([]string, 0, result.Failed)
+	for code := bfd.ReconcileErrorLifecycle; code <= bfd.ReconcileErrorCleanup; code++ {
+		for range result.Errors.Count(code) {
+			codes = append(codes, code.String())
+		}
+	}
+	return codes
 }
 
 // buildOverlaySessionConfig converts per-peer overlay fields (address strings,

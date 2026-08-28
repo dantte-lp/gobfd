@@ -163,7 +163,13 @@ func flightRecorderHandler(fr *trace.FlightRecorder) http.HandlerFunc {
 // The server explicitly enables h2c, which is required for gRPC clients that
 // connect over plaintext (for example, gobfdctl), alongside HTTP/1.1.
 // Includes standard gRPC health checking (grpc.health.v1).
-func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFactory, logger *slog.Logger) *http.Server {
+func newGRPCServer(
+	cfg config.GRPCConfig,
+	mgr *bfd.Manager,
+	sf server.SenderFactory,
+	checker *grpchealth.StaticChecker,
+	logger *slog.Logger,
+) *http.Server {
 	mux := http.NewServeMux()
 
 	interceptors := []connect.HandlerOption{
@@ -184,13 +190,8 @@ func newGRPCServer(cfg config.GRPCConfig, mgr *bfd.Manager, sf server.SenderFact
 	mux.Handle(microPath, microHandler)
 
 	// gRPC health check handler (grpc.health.v1).
-	// Reports SERVING for the overall server and the registered BFD services.
-	checker := grpchealth.NewStaticChecker(
-		grpchealth.HealthV1ServiceName,
-		"bfd.v1.BfdService",
-		"bfd.v1.EchoService",
-		"bfd.v1.MicroBFDService",
-	)
+	// The empty service is dynamic reconciliation readiness. Named health and
+	// BFD services remain SERVING while the process serves requests.
 	mux.Handle(grpchealth.NewHandler(checker))
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)

@@ -176,6 +176,28 @@ Geneve control-session candidate before applying any of those sources. Each
 source compiler also validates its complete set before that adapter opens
 senders or mutates session ownership.
 
+A daemon-level coordinator serializes startup and SIGHUP compilation and apply.
+It publishes a monotonic desired generation only after the complete immutable
+candidate compiles. One receipt then records claim-level `created`, `released`,
+`pending`, and `failed` counts plus a bounded error-code histogram for exactly
+six sources: base, Echo, Micro-BFD group, Micro-BFD member, VXLAN, and Geneve.
+The applied generation advances only when every source converges. A partial
+pass preserves the last applied generation, marks the snapshot stale, and does
+not roll back changes already accepted by another source. A later SIGHUP is an
+explicit new generation and can converge the runtime. Pending remains zero
+until a future owner provides typed retryable errors and automatic retry; the
+current runtime failures, including a missing non-empty overlay backend, are
+reported as failed without string or errno classification.
+
+The empty-service gRPC health check is `NOT_SERVING` before the first converged
+generation and while desired differs from applied; it returns `SERVING` after
+convergence. Named health for the health, BFD, Echo, and Micro-BFD services
+remains `SERVING`. SIGHUP is registered into a bounded channel before startup
+apply, but its handler starts only after startup reconciliation, so an early
+reload cannot apply ahead of the startup candidate. systemd `READY=1` remains a
+process/listener readiness signal and is sent even when configuration health is
+stale.
+
 For a newly accepted physical session, the manager opens one lazy sender lease
 and stores its idempotent release operation with the session entry. Unchanged
 reconciliation and matching claims from another source do not open another
@@ -207,12 +229,12 @@ identity can be derived.
 This is the C01.1 ownership core plus the C01.2 atomic-candidate/source
 isolation slice, the C01.3a accepted-control-session sender-lease slice, the
 C01.3b Manager lifecycle slice, and the C01.4a Echo sender-lease/source
-isolation slice. It is not the complete v1 reconciliation or RFC contract. The
+isolation slice, and the C01.4b generation/receipt coordinator slice. It is not
+the complete v1 reconciliation or RFC contract. The
 following boundaries remain deferred:
 
 - listener and backend replacement ownership;
 - stable per-group and per-tunnel owner identifiers;
-- reconciliation generations and receipts;
 - Poll/Final parameter negotiation;
 - transport-aware packet demultiplexing; and
 - authenticated API principal identities instead of one compatibility/API

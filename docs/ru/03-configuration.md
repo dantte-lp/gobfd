@@ -509,25 +509,35 @@ kill -HUP $(pidof gobfd)
 
 При перезагрузке:
 1. YAML-файл перечитывается и валидируется
-2. Полный candidate sessions base, Echo, Micro-BFD members, VXLAN и Geneve
-   компилируется и валидируется до создания sender или мутации Manager
-3. Уровень лога обновляется динамически
-4. Source базовых сессий реконсилируется, включая пустой desired set
-5. Echo-пиры реконсилируются как изолированный по source desired set, включая
+2. Под одним coordinator lock полный candidate sessions base, Echo, Micro-BFD
+   groups и members, VXLAN и Geneve компилируется и валидируется до создания
+   sender или мутации Manager
+3. Публикуется новое desired generation, а gRPC health для пустого service
+   становится `NOT_SERVING`; невалидный candidate не меняет generations, health
+   и log level
+4. После валидации уровень лога обновляется динамически; при последующей ошибке
+   source эта настройка не откатывается
+5. Source базовых сессий реконсилируется, включая пустой desired set
+6. Echo-пиры реконсилируются как изолированный по source desired set, включая
    disabled или пустое состояние; sender leases лениво создаются только для
    новых принятых sessions
-6. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
+7. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
    desired sets
-7. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
+8. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
    desired sets
-8. Runtime errors логируются; изменения sender, resources или sessions, уже
-   применённые на предыдущих шагах, не откатываются
+9. Один aggregate receipt хранит ограниченные счётчики и коды ошибок всех шести
+   sources. Applied продвигается до desired, а health пустого service становится
+   `SERVING`, только если все шесть sources converged
 
 Base configuration, Echo, Micro-BFD members, VXLAN и Geneve используют
 раздельный ownership sources. Удаление последней записи одного source не
 удаляет sessions другого source. Ошибка получения sender для Echo откатывает
 новые принятые Echo sessions этого прохода; SIGHUP остаётся нетранзакционным
 между sources и для других runtime apply failures.
+Автоматического retry в этом slice нет: после частичного apply следующий явный
+SIGHUP компилирует и публикует новое desired generation. Настроенный непустой
+source VXLAN или Geneve без работающего backend считается failed, а не skipped.
+Уже принятые изменения других sources не откатываются.
 
 ### Правила валидации
 

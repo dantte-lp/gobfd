@@ -259,6 +259,7 @@ func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
 		mgr,
 		sf,
 		&overlayRuntime{},
+		newReconciliationCoordinator(slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
 
@@ -298,7 +299,9 @@ micro_bfd:
 	}
 
 	reloadConfig(
-		context.Background(), path, level, mgr, sf, &overlayRuntime{}, slog.New(slog.DiscardHandler),
+		context.Background(), path, level, mgr, sf, &overlayRuntime{},
+		newReconciliationCoordinator(slog.New(slog.DiscardHandler), nil),
+		slog.New(slog.DiscardHandler),
 	)
 
 	if got := level.Level(); got != slog.LevelInfo {
@@ -929,7 +932,9 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 	}}
 
 	reconcileAllSessions(
-		context.Background(), cfg, mgr, sf, &overlayRuntime{}, slog.New(slog.DiscardHandler),
+		context.Background(), cfg, mgr, sf, &overlayRuntime{},
+		newReconciliationCoordinator(slog.New(slog.DiscardHandler), nil),
+		slog.New(slog.DiscardHandler),
 	)
 
 	sf.mu.Lock()
@@ -2082,7 +2087,9 @@ func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	srv := newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger)
+	srv := newGRPCServer(
+		config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, newDaemonHealthChecker(), logger,
+	)
 	if srv.Protocols == nil {
 		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
 	}
@@ -2110,7 +2117,9 @@ func TestHTTPServersEnforceHeaderValueLimit(t *testing.T) {
 			prometheus.NewRegistry(),
 			nil,
 		),
-		"grpc": newGRPCServer(config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, logger),
+		"grpc": newGRPCServer(
+			config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, newDaemonHealthChecker(), logger,
+		),
 	}
 	for name, srv := range servers {
 		t.Run(name, func(t *testing.T) {
