@@ -413,7 +413,13 @@ desired set are:
 - **Removed sessions** release their configuration claim; the wire session is
   destroyed only when no other claim remains
 - **Existing exact sessions** are shared; conflicting effective parameters are
-  rejected without mutation
+  rejected without mutating the manager's ownership claims or session
+  registries
+
+That no-mutation guarantee is limited to manager ownership and session-registry
+state. SIGHUP reload is non-transactional: log-level changes and any sender,
+transport-resource, or session changes applied before a later failure are not
+rolled back.
 
 The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 
@@ -443,7 +449,11 @@ Session types determine the UDP port and TTL handling:
 | Type | Port | Outgoing TTL | Incoming TTL Check |
 |---|---|---|---|
 | `single_hop` | 3784 | 255 (GTSM) | MUST be 255 (RFC 5881) |
-| `multi_hop` | 4784 | 255 | MUST be >= 254 (RFC 5883) |
+| `multi_hop` | 4784 | 255 | GoBFD currently requires >= 254 |
+
+The multi-hop check is GoBFD's current constrained GTSM policy, not an RFC 5883
+requirement. Arbitrary-hop operation and a configurable GTSM policy remain
+deferred.
 
 ### GoBGP Integration
 
@@ -495,12 +505,16 @@ kill -HUP $(pidof gobfd)
 On reload:
 1. The YAML file is re-read and validated
 2. Log level is updated dynamically (no restart needed)
-3. A non-empty declarative session list is reconciled (claims added/released)
-4. Echo sessions are reconciled (added/removed)
-5. Micro-BFD groups are reconciled (added/removed, member link changes)
-6. VXLAN tunnel sessions are reconciled (added/removed)
-7. Geneve tunnel sessions are reconciled (added/removed)
-8. Errors during reload are logged -- the previous configuration remains in effect
+3. A non-empty declarative session list is reconciled on a best-effort basis
+4. Enabled, non-empty Echo peers are reconciled on a best-effort basis
+5. Non-empty Micro-BFD groups are reconciled on a best-effort basis
+6. Enabled, non-empty VXLAN peers are reconciled on a best-effort basis
+7. Enabled, non-empty Geneve peers are reconciled on a best-effort basis
+8. Errors are logged; changes already applied by earlier steps are not rolled back
+
+Empty desired sets are not forwarded by these reload adapters, so removing the
+final entry does not remove the last object in that family. Separate owner
+isolation for base, Echo, Micro-BFD, VXLAN, and Geneve remains deferred.
 
 ### Validation Rules
 
