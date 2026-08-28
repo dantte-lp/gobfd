@@ -350,7 +350,7 @@ func BenchmarkRecvDecodeLookupEnqueue(b *testing.B) {
 		DetectMultiplier:      3,
 	}
 
-	sess, err := mgr.CreateSession(b.Context(), cfg, sender)
+	sess, err := mgr.CreateSession(b.Context(), cfg, bfd.NonOwningSenderLeaseFactory(sender))
 	if err != nil {
 		b.Fatalf("CreateSession: %v", err)
 	}

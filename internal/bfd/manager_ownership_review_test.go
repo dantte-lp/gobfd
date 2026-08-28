@@ -18,6 +18,10 @@ func (ownershipNoopSender) SendPacket(context.Context, []byte, netip.Addr) error
 	return nil
 }
 
+func ownershipSenderLeaseFactory() SenderLeaseFactory {
+	return NonOwningSenderLeaseFactory(ownershipNoopSender{})
+}
+
 type unregisterBarrierMetrics struct {
 	noopMetrics
 
@@ -55,7 +59,7 @@ func TestManagerSequentialReconciliationSourcesDoNotCrossDelete(t *testing.T) {
 		created, destroyed, err := mgr.ReconcileSessionsForOwner(
 			context.Background(),
 			owner,
-			[]ReconcileConfig{{Key: owner.ID, SessionConfig: cfg, Sender: ownershipNoopSender{}}},
+			[]ReconcileConfig{{Key: owner.ID, SessionConfig: cfg, SenderLeaseFactory: ownershipSenderLeaseFactory()}},
 		)
 		if err != nil {
 			t.Fatalf("reconcile source %+v: %v", owner, err)
@@ -77,7 +81,7 @@ func TestManagerExactClaimsFromReconciliationSourcesShareWireSession(t *testing.
 	defer mgr.Close()
 
 	cfg := ownershipTestConfig("192.0.2.200")
-	desired := []ReconcileConfig{{Key: "shared", SessionConfig: cfg, Sender: ownershipNoopSender{}}}
+	desired := []ReconcileConfig{{Key: "shared", SessionConfig: cfg, SenderLeaseFactory: ownershipSenderLeaseFactory()}}
 	for _, owner := range []SessionOwner{
 		ConfigReconciliationOwner(),
 		MicroBFDReconciliationOwner(),
@@ -123,7 +127,7 @@ func TestManagerRejectsNonDeclarativeReconciliationOwnersWithoutMutation(t *test
 
 			seed := ownershipTestConfig("192.0.2.210")
 			if _, _, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{{
-				Key: "seed", SessionConfig: seed, Sender: ownershipNoopSender{},
+				Key: "seed", SessionConfig: seed, SenderLeaseFactory: ownershipSenderLeaseFactory(),
 			}}); err != nil {
 				t.Fatalf("seed ReconcileSessions: %v", err)
 			}
@@ -133,7 +137,7 @@ func TestManagerRejectsNonDeclarativeReconciliationOwnersWithoutMutation(t *test
 			created, destroyed, err := mgr.ReconcileSessionsForOwner(
 				context.Background(),
 				tt.owner,
-				[]ReconcileConfig{{Key: "forged", SessionConfig: candidate, Sender: ownershipNoopSender{}}},
+				[]ReconcileConfig{{Key: "forged", SessionConfig: candidate, SenderLeaseFactory: ownershipSenderLeaseFactory()}},
 			)
 			if err == nil {
 				t.Fatal("ReconcileSessionsForOwner forged owner succeeded")
@@ -163,7 +167,7 @@ func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 
 	stale := ownershipTestConfig("192.0.2.1")
 	if _, _, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{
-		{Key: "stale", SessionConfig: stale, Sender: ownershipNoopSender{}},
+		{Key: "stale", SessionConfig: stale, SenderLeaseFactory: ownershipSenderLeaseFactory()},
 	}); err != nil {
 		t.Fatalf("seed ReconcileSessions: %v", err)
 	}
@@ -176,7 +180,7 @@ func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 	reconcileResult := make(chan ownershipOperationResult, 1)
 	go func() {
 		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{
-			{Key: "desired", SessionConfig: desired, Sender: ownershipNoopSender{}},
+			{Key: "desired", SessionConfig: desired, SenderLeaseFactory: ownershipSenderLeaseFactory()},
 		})
 		reconcileResult <- ownershipOperationResult{created: created, destroyed: destroyed, err: err}
 	}()
@@ -192,7 +196,7 @@ func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 	createResult := make(chan error, 1)
 	go func() {
 		close(createStarted)
-		_, err := mgr.CreateSession(context.Background(), conflict, ownershipNoopSender{})
+		_, err := mgr.CreateSession(context.Background(), conflict, ownershipSenderLeaseFactory())
 		createResult <- err
 	}()
 	<-createStarted
@@ -264,7 +268,7 @@ func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testi
 	config.LocalAddr = firstMeta.DstAddr
 	config.Role = RolePassive
 	if _, _, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{
-		{Key: "matching-config", SessionConfig: config, Sender: ownershipNoopSender{}},
+		{Key: "matching-config", SessionConfig: config, SenderLeaseFactory: ownershipSenderLeaseFactory()},
 	}); err != nil {
 		t.Fatalf("ReconcileSessions matching config: %v", err)
 	}
@@ -359,7 +363,7 @@ func TestManagerRejectsUnknownRotatingAuthStoreFailClosed(t *testing.T) {
 	cfg.Auth = SimplePasswordAuth{}
 	cfg.AuthKeys = store
 
-	if _, err := mgr.CreateSession(context.Background(), cfg, ownershipNoopSender{}); !errors.Is(
+	if _, err := mgr.CreateSession(context.Background(), cfg, ownershipSenderLeaseFactory()); !errors.Is(
 		err, ErrAuthKeyStoreIdentityUnavailable,
 	) {
 		t.Fatalf("CreateSession error = %v, want ErrAuthKeyStoreIdentityUnavailable", err)
@@ -384,14 +388,14 @@ func TestStaticAuthStoresWithEquivalentKeysShareSession(t *testing.T) {
 	cfgA := ownershipTestConfig("192.0.2.20")
 	cfgA.Auth = SimplePasswordAuth{}
 	cfgA.AuthKeys = storeA
-	sess, err := mgr.CreateSession(context.Background(), cfgA, ownershipNoopSender{})
+	sess, err := mgr.CreateSession(context.Background(), cfgA, ownershipSenderLeaseFactory())
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	cfgB := cfgA
 	cfgB.AuthKeys = storeB
 	created, destroyed, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{
-		{Key: "equivalent-auth", SessionConfig: cfgB, Sender: ownershipNoopSender{}},
+		{Key: "equivalent-auth", SessionConfig: cfgB, SenderLeaseFactory: ownershipSenderLeaseFactory()},
 	})
 	if err != nil {
 		t.Fatalf("ReconcileSessions: %v", err)
@@ -445,7 +449,7 @@ func TestManagerMissingAuthKeyStorePreservesLegacyError(t *testing.T) {
 	cfg := ownershipTestConfig("192.0.2.30")
 	cfg.Auth = SimplePasswordAuth{}
 
-	if _, err := mgr.CreateSession(context.Background(), cfg, ownershipNoopSender{}); !errors.Is(
+	if _, err := mgr.CreateSession(context.Background(), cfg, ownershipSenderLeaseFactory()); !errors.Is(
 		err, ErrMissingAuthKeyStore,
 	) {
 		t.Fatalf("CreateSession error = %v, want ErrMissingAuthKeyStore", err)

@@ -131,27 +131,17 @@ func reconcileMicroBFDMemberSessions(
 	logger *slog.Logger,
 ) {
 	desiredSessions := make([]bfd.ReconcileConfig, 0, len(candidates))
-	openedPorts := make([]uint16, 0, len(candidates))
 	for _, candidate := range candidates {
-		sender, srcPort, err := sf.createSenderForSession(
+		rc := candidate.reconcile
+		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
+			sf,
 			candidate.config.LocalAddr,
 			false,
 			logger,
 			netio.WithDstPort(netio.PortMicroBFD),
 			netio.WithBindDevice(candidate.member),
 		)
-		if err != nil {
-			closeUncommittedSenderBatch(sf, openedPorts, logger)
-			logger.Error("failed to create sender for Micro-BFD candidate, keeping current sessions",
-				slog.String("lag", candidate.lagInterface),
-				slog.String("member", candidate.member),
-				slog.String("error", err.Error()))
-			return
-		}
-		rc := candidate.reconcile
-		rc.Sender = sender
 		desiredSessions = append(desiredSessions, rc)
-		openedPorts = append(openedPorts, srcPort)
 	}
 
 	sessCreated, sessDestroyed, sessErr := mgr.ReconcileSessionsForOwner(

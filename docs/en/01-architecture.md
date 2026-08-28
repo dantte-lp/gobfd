@@ -176,17 +176,31 @@ Geneve control-session candidate before applying any of those sources. Each
 source compiler also validates its complete set before that adapter opens
 senders or mutates session ownership.
 
+For a newly accepted physical session, the manager opens one lazy sender lease
+and stores its idempotent release operation with the session entry. Unchanged
+reconciliation and matching claims from another source do not open another
+sender. Creation rollback, release of the last claim, and manager shutdown
+release the accepted lease once; releasing a non-last claim preserves it. Base
+configuration, Micro-BFD, and the compatibility API use owning UDP leases that
+also return the allocated source port. Overlay sessions use explicit
+non-owning leases because their sender shares the backend connection. RFC 9468
+sessions likewise use non-owning per-session leases over one manager-owned
+singleton sender, so cleanup of one unsolicited session cannot close the
+shared socket.
+
 For authenticated sessions, the effective parameters include the built-in
 authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.
 The static store clones constructor inputs and returns caller-owned key copies;
 unknown key-store implementations fail closed because no stable semantic
 identity can be derived.
 
-This is the C01.1 ownership core plus the C01.2 atomic-candidate and source
-isolation slice, not the complete v1 reconciliation or RFC contract. The
-following boundaries remain deferred:
+This is the C01.1 ownership core plus the C01.2 atomic-candidate/source
+isolation slice and the C01.3a accepted-session sender-lease slice, not the
+complete v1 reconciliation or RFC contract. The following boundaries remain
+deferred:
 
-- sender and transport-resource lifecycle ownership;
+- manager Open/Closing/Closed state, goroutine waits, listeners, and backend
+  replacement ownership;
 - stable per-group and per-tunnel owner identifiers;
 - reconciliation generations and receipts;
 - Poll/Final parameter negotiation;

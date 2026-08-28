@@ -57,7 +57,7 @@ func TestManagerCreateSession(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -92,7 +92,7 @@ func TestManagerHandleInterfaceEventMarksMatchingSessionsPathDown(t *testing.T) 
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestManagerHandleInterfaceEventIgnoresOtherInterfaces(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -225,7 +225,7 @@ func TestManagerCreateSessionValidation(t *testing.T) {
 			mgr := newTestManager(t)
 			defer mgr.Close()
 
-			_, err := mgr.CreateSession(context.Background(), tt.cfg, noopSender{})
+			_, err := mgr.CreateSession(context.Background(), tt.cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
 			}
@@ -249,13 +249,13 @@ func TestManagerCreateSessionDuplicate(t *testing.T) {
 
 		cfg := defaultManagerConfig()
 
-		_, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		_, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("first CreateSession: %v", err)
 		}
 
 		// Second creation with same peer key should fail.
-		_, err = mgr.CreateSession(context.Background(), cfg, noopSender{})
+		_, err = mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err == nil {
 			t.Fatal("expected ErrDuplicateSession, got nil")
 		}
@@ -279,7 +279,7 @@ func TestManagerDestroySession(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestManagerDemuxByDiscriminator(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -389,7 +389,7 @@ func TestManagerDemuxByPeerKey(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -529,11 +529,11 @@ func TestManagerSessions(t *testing.T) {
 			DetectMultiplier:      5,
 		}
 
-		sess1, err := mgr.CreateSession(context.Background(), cfg1, noopSender{})
+		sess1, err := mgr.CreateSession(context.Background(), cfg1, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 1: %v", err)
 		}
-		sess2, err := mgr.CreateSession(context.Background(), cfg2, noopSender{})
+		sess2, err := mgr.CreateSession(context.Background(), cfg2, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 2: %v", err)
 		}
@@ -610,7 +610,7 @@ func TestManagerStateChanges(t *testing.T) {
 		go mgr.RunDispatch(dispatchCtx)
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -678,7 +678,7 @@ func TestManagerReconcileSessionsCreatesNew(t *testing.T) {
 					RequiredMinRxInterval: time.Second,
 					DetectMultiplier:      3,
 				},
-				Sender: noopSender{},
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}
 
@@ -713,9 +713,9 @@ func TestManagerReconcileSessionsDestroysStale(t *testing.T) {
 		cfg := defaultManagerConfig()
 		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		})
 		if err != nil {
@@ -755,9 +755,9 @@ func TestManagerConfigAndCompatibilityAPIClaimsShareSession(t *testing.T) {
 		cfg := defaultManagerConfig()
 		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		})
 		if err != nil {
@@ -768,7 +768,7 @@ func TestManagerConfigAndCompatibilityAPIClaimsShareSession(t *testing.T) {
 		}
 		original := mgr.Sessions()[0]
 
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession matching config claim: %v", err)
 		}
@@ -790,14 +790,14 @@ func TestManagerReleaseCompatibilityAPIClaimPreservesConfigSession(t *testing.T)
 		cfg := defaultManagerConfig()
 		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}); err != nil {
 			t.Fatalf("ReconcileSessions: %v", err)
 		}
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession matching config claim: %v", err)
 		}
@@ -820,9 +820,9 @@ func TestManagerConflictingClaimDoesNotMutateSession(t *testing.T) {
 		cfg := defaultManagerConfig()
 		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}); err != nil {
 			t.Fatalf("ReconcileSessions: %v", err)
@@ -831,7 +831,7 @@ func TestManagerConflictingClaimDoesNotMutateSession(t *testing.T) {
 
 		conflict := cfg
 		conflict.DetectMultiplier++
-		_, err := mgr.CreateSession(context.Background(), conflict, noopSender{})
+		_, err := mgr.CreateSession(context.Background(), conflict, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err == nil {
 			t.Fatal("CreateSession conflicting claim succeeded")
 		}
@@ -860,14 +860,14 @@ func TestManagerReconcileConflictDoesNotReleaseExistingClaims(t *testing.T) {
 		cfg2.PeerAddr = netip.MustParseAddr("198.51.100.1")
 		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg1,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg1,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 			{
-				Key:           "198.51.100.1|192.0.2.2|eth0",
-				SessionConfig: cfg2,
-				Sender:        noopSender{},
+				Key:                "198.51.100.1|192.0.2.2|eth0",
+				SessionConfig:      cfg2,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}); err != nil {
 			t.Fatalf("initial ReconcileSessions: %v", err)
@@ -878,9 +878,9 @@ func TestManagerReconcileConflictDoesNotReleaseExistingClaims(t *testing.T) {
 		conflict.DetectMultiplier++
 		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: conflict,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      conflict,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		})
 		if !errors.Is(err, bfd.ErrSessionParameterConflict) {
@@ -921,7 +921,7 @@ func TestManagerCanonicalizesMappedIPv4ClaimIdentity(t *testing.T) {
 		apiCfg := defaultManagerConfig()
 		apiCfg.PeerAddr = netip.MustParseAddr("::ffff:192.0.2.1")
 		apiCfg.LocalAddr = netip.MustParseAddr("::ffff:192.0.2.2")
-		sess, err := mgr.CreateSession(context.Background(), apiCfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), apiCfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -929,9 +929,9 @@ func TestManagerCanonicalizesMappedIPv4ClaimIdentity(t *testing.T) {
 		configCfg := defaultManagerConfig()
 		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: configCfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      configCfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		})
 		if err != nil {
@@ -952,7 +952,7 @@ func TestManagerEmptyConfigReconcilePreservesCompatibilityAPISession(t *testing.
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -986,16 +986,16 @@ func TestManagerReconcileSessionsKeepsExisting(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
 
 		desired := []bfd.ReconcileConfig{
 			{
-				Key:           "192.0.2.1|192.0.2.2|eth0",
-				SessionConfig: cfg,
-				Sender:        noopSender{},
+				Key:                "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig:      cfg,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(noopSender{}),
 			},
 		}
 
@@ -1038,7 +1038,7 @@ func TestManagerStateChangeSubscribersReceiveSameEvent(t *testing.T) {
 		sub2 := mgr.SubscribeStateChanges(dispatchCtx)
 
 		cfg := defaultManagerConfig()
-		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -1075,11 +1075,11 @@ func TestManagerDrainAllSessions(t *testing.T) {
 			DetectMultiplier:      3,
 		}
 
-		sess1, err := mgr.CreateSession(context.Background(), cfg1, noopSender{})
+		sess1, err := mgr.CreateSession(context.Background(), cfg1, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 1: %v", err)
 		}
-		sess2, err := mgr.CreateSession(context.Background(), cfg2, noopSender{})
+		sess2, err := mgr.CreateSession(context.Background(), cfg2, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 		if err != nil {
 			t.Fatalf("CreateSession 2: %v", err)
 		}
@@ -1770,7 +1770,7 @@ func TestManagerDispatchMicroBFDCallsActuator(t *testing.T) {
 	sessCfg := defaultManagerConfig()
 	sessCfg.Type = bfd.SessionTypeMicroBFD
 	sessCfg.Interface = "eth0"
-	sess, err := mgr.CreateSession(context.Background(), sessCfg, noopSender{})
+	sess, err := mgr.CreateSession(context.Background(), sessCfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}

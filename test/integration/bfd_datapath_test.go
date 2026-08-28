@@ -190,12 +190,12 @@ func createPeerSessions(
 		DetectMultiplier:      3,
 	}
 
-	sessA, err := mgrA.CreateSession(context.Background(), cfgA, senderAtoB)
+	sessA, err := mgrA.CreateSession(context.Background(), cfgA, bfd.NonOwningSenderLeaseFactory(senderAtoB))
 	if err != nil {
 		t.Fatalf("create session A: %v", err)
 	}
 
-	sessB, err := mgrB.CreateSession(context.Background(), cfgB, senderBtoA)
+	sessB, err := mgrB.CreateSession(context.Background(), cfgB, bfd.NonOwningSenderLeaseFactory(senderBtoA))
 	if err != nil {
 		t.Fatalf("create session B: %v", err)
 	}

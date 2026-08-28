@@ -19,13 +19,13 @@ import (
 func (m *Manager) CreateSession(
 	ctx context.Context,
 	cfg SessionConfig,
-	sender PacketSender,
+	senderFactory SenderLeaseFactory,
 ) (*Session, error) {
 	m.ownershipMu.Lock()
 	defer m.ownershipMu.Unlock()
 
 	sess, _, err := m.claimSession(
-		ctx, canonicalSessionConfig(cfg), sender, compatibilityAPISessionOwner(), false,
+		ctx, canonicalSessionConfig(cfg), senderFactory, compatibilityAPISessionOwner(), false,
 	)
 	return sess, err
 }
@@ -33,7 +33,7 @@ func (m *Manager) CreateSession(
 func (m *Manager) claimSession(
 	ctx context.Context,
 	cfg SessionConfig,
-	sender PacketSender,
+	senderFactory SenderLeaseFactory,
 	owner SessionOwner,
 	idempotent bool,
 ) (*Session, bool, error) {
@@ -51,16 +51,24 @@ func (m *Manager) claimSession(
 		return sess, false, claimErr
 	}
 
-	discr, sess, err := m.allocateAndBuild(cfg, sender)
+	lease, err := acquireSenderLease(senderFactory)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+
+	discr, sess, err := m.allocateAndBuild(cfg, lease.Sender())
+	if err != nil {
+		return nil, false, errors.Join(err, closeSenderLeaseError(lease))
 	}
 
 	registered, created, err := m.registerAndStart(
-		ctx, key, cfg, effective, owner, idempotent, discr, sess,
+		ctx, key, cfg, effective, owner, idempotent, discr, sess, lease,
 	)
 	if !created {
 		m.discriminators.Release(discr)
+		if closeErr := closeSenderLeaseError(lease); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 	}
 	if err != nil {
 		return nil, false, err
@@ -70,6 +78,33 @@ func (m *Manager) claimSession(
 	}
 
 	return registered, created, nil
+}
+
+func acquireSenderLease(factory SenderLeaseFactory) (*SenderLease, error) {
+	if factory == nil {
+		return nil, ErrSenderLeaseFactoryNil
+	}
+	lease, err := factory()
+	if err != nil {
+		return nil, errors.Join(err, closeSenderLeaseError(lease))
+	}
+	if lease == nil {
+		return nil, ErrSenderLeaseNil
+	}
+	if lease.Sender() == nil {
+		return nil, errors.Join(
+			ErrSenderLeaseSenderNil,
+			closeSenderLeaseError(lease),
+		)
+	}
+	return lease, nil
+}
+
+func closeSenderLeaseError(lease *SenderLease) error {
+	if err := lease.Close(); err != nil {
+		return fmt.Errorf("close sender lease: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) claimExisting(
@@ -135,12 +170,9 @@ func (m *Manager) registerAndStart(
 	idempotent bool,
 	discr uint32,
 	sess *Session,
+	senderLease *SenderLease,
 ) (*Session, bool, error) {
-	demuxKey := packetDemuxKey{
-		peerAddr:  cfg.PeerAddr,
-		localAddr: cfg.LocalAddr,
-		ifName:    cfg.Interface,
-	}
+	demuxKey := demuxKeyFromSessionConfig(cfg)
 
 	m.mu.Lock()
 	if entry, exists := m.sessionsByKey[key]; exists {
@@ -170,11 +202,12 @@ func (m *Manager) registerAndStart(
 	}
 
 	entry := &sessionEntry{
-		session:   sess,
-		key:       key,
-		demuxKey:  demuxKey,
-		effective: effective,
-		owners:    map[SessionOwner]struct{}{owner: {}},
+		session:     sess,
+		senderLease: senderLease,
+		key:         key,
+		demuxKey:    demuxKey,
+		effective:   effective,
+		owners:      map[SessionOwner]struct{}{owner: {}},
 	}
 	// Decouple session lifetime from the parent context so that SIGTERM
 	// does not immediately cancel sessions. Graceful shutdown first sets
@@ -190,6 +223,14 @@ func (m *Manager) registerAndStart(
 	m.mu.Unlock()
 
 	return sess, true, nil
+}
+
+func demuxKeyFromSessionConfig(cfg SessionConfig) packetDemuxKey {
+	return packetDemuxKey{
+		peerAddr:  cfg.PeerAddr,
+		localAddr: cfg.LocalAddr,
+		ifName:    cfg.Interface,
+	}
 }
 
 // logSessionCreated logs the successful creation of a BFD session and
@@ -270,6 +311,12 @@ func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
 	// Cancel session goroutine (outside lock to avoid holding lock during
 	// goroutine teardown).
 	entry.cancel()
+	if err := entry.senderLease.Close(); err != nil {
+		m.logger.Warn("failed to close session sender lease",
+			slog.Uint64("local_discr", uint64(localDiscr)),
+			slog.String("error", err.Error()),
+		)
+	}
 
 	// Release discriminator for reuse.
 	m.discriminators.Release(localDiscr)
@@ -495,8 +542,8 @@ func (m *Manager) tryCreateUnsolicited(
 		DetectMultiplier:      defaults.DetectMultiplier,
 	}
 
-	sender := m.unsolicitedSender
-	if sender == nil {
+	senderFactory := m.unsolicitedSenderFactory
+	if senderFactory == nil {
 		m.unsolicited.release()
 		return fmt.Errorf(
 			"unsolicited: no sender configured for peer %s: %w",
@@ -505,7 +552,8 @@ func (m *Manager) tryCreateUnsolicited(
 	}
 
 	sess, _, err := m.claimSession(
-		context.Background(), cfg, sender, unsolicitedSessionOwner(), false,
+		context.Background(), cfg, senderFactory,
+		unsolicitedSessionOwner(), false,
 	)
 	if err != nil {
 		m.unsolicited.release()
@@ -638,8 +686,9 @@ type ReconcileConfig struct {
 	// SessionConfig is the BFD session configuration to create if missing.
 	SessionConfig SessionConfig
 
-	// Sender provides the packet sending capability for new sessions.
-	Sender PacketSender
+	// SenderLeaseFactory lazily acquires the sender and its release operation
+	// only after Manager determines that a new physical session is required.
+	SenderLeaseFactory SenderLeaseFactory
 }
 
 // ReconcileSessions reconciles only claims owned by the configuration source.
@@ -683,7 +732,9 @@ func (m *Manager) ReconcileSessionsForOwner(
 	}
 
 	destroyed, releaseErrs := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
-	created, claimErrs := m.claimDesiredOwnerSessions(ctx, owner, desiredByKey, desiredOrder)
+	created, claimErrs := m.claimDesiredOwnerSessions(
+		ctx, owner, desiredByKey, desiredOrder, currentClaims,
+	)
 	err = errors.Join(append(releaseErrs, claimErrs...)...)
 
 	m.logger.Info("session reconciliation complete",
@@ -799,9 +850,11 @@ func (m *Manager) claimDesiredOwnerSessions(
 	owner SessionOwner,
 	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
+	currentClaims map[SessionKey]uint32,
 ) (int, []error) {
 	var created int
 	var errs []error
+	newClaims := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
 
@@ -810,8 +863,8 @@ func (m *Manager) claimDesiredOwnerSessions(
 			slog.Any("owner", owner),
 		)
 
-		_, wireCreated, claimErr := m.claimSession(
-			ctx, rc.SessionConfig, rc.Sender, owner, true,
+		sess, wireCreated, claimErr := m.claimSession(
+			ctx, rc.SessionConfig, rc.SenderLeaseFactory, owner, true,
 		)
 		if claimErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile claim %+v: %w", key, claimErr))
@@ -819,6 +872,26 @@ func (m *Manager) claimDesiredOwnerSessions(
 		}
 		if wireCreated {
 			created++
+		}
+		if _, alreadyClaimed := currentClaims[key]; !alreadyClaimed {
+			newClaims = append(newClaims, sess.LocalDiscriminator())
+		}
+	}
+	if len(errs) == 0 {
+		return created, nil
+	}
+
+	// Roll back claims added by this creation pass. This closes accepted
+	// sender leases for newly created physical sessions without attempting the
+	// broader stale-claim/full-reload rollback owned by a later lifecycle slice.
+	for _, discr := range newClaims {
+		wireDestroyed, err := m.releaseSessionClaimByDiscriminator(discr, owner)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("rollback new session claim %d: %w", discr, err))
+			continue
+		}
+		if wireDestroyed {
+			created--
 		}
 	}
 	return created, errs

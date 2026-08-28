@@ -32,6 +32,10 @@ func (candidateTestSender) SendPacket(context.Context, []byte, netip.Addr) error
 	return nil
 }
 
+func candidateTestSenderLeaseFactory() bfd.SenderLeaseFactory {
+	return bfd.NonOwningSenderLeaseFactory(candidateTestSender{})
+}
+
 var errInjectedSenderCreation = errors.New("injected sender creation failure")
 
 type nthFailureDeclarativeSenderFactory struct {
@@ -106,6 +110,23 @@ func (candidateTestOverlayConn) Close() error {
 	return nil
 }
 
+type nonOwningLeaseTestOverlayConn struct {
+	closes int
+}
+
+func (*nonOwningLeaseTestOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func (*nonOwningLeaseTestOverlayConn) RecvDecapsulated(context.Context) ([]byte, netio.OverlayMeta, error) {
+	return nil, netio.OverlayMeta{}, netio.ErrOverlayRecvClosed
+}
+
+func (c *nonOwningLeaseTestOverlayConn) Close() error {
+	c.closes++
+	return nil
+}
+
 func cleanupCandidateTestSenders(t *testing.T, sf *udpSenderFactory) {
 	t.Helper()
 
@@ -140,7 +161,7 @@ func seedDuplicateMicroBFDTestState(
 		DetectMultiplier:      3,
 	}
 	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
-		Key: "base-seed", SessionConfig: base, Sender: candidateTestSender{},
+		Key: "base-seed", SessionConfig: base, SenderLeaseFactory: candidateTestSenderLeaseFactory(),
 	}}); err != nil {
 		t.Fatalf("seed base session: %v", err)
 	}
@@ -159,7 +180,10 @@ func seedDuplicateMicroBFDTestState(
 	if _, _, err := mgr.ReconcileSessionsForOwner(
 		context.Background(),
 		bfd.MicroBFDReconciliationOwner(),
-		[]bfd.ReconcileConfig{{Key: "micro-seed", SessionConfig: microSession, Sender: candidateTestSender{}}},
+		[]bfd.ReconcileConfig{{
+			Key: "micro-seed", SessionConfig: microSession,
+			SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+		}},
 	); err != nil {
 		t.Fatalf("seed Micro-BFD member claim: %v", err)
 	}
@@ -302,6 +326,33 @@ func TestReconcileSessionsClosesEarlierSendersWhenLaterCreationFails(t *testing.
 	}
 }
 
+func TestReconcileSessionsUnchangedDesiredDoesNotOpenSender(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	t.Cleanup(func() {
+		for port := range sf.open {
+			if err := sf.CloseSender(port); err != nil {
+				t.Errorf("CloseSender(%d): %v", port, err)
+			}
+		}
+	})
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{{
+		Peer: "192.0.2.239", Local: "127.0.0.1", Interface: "lo",
+	}}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if sf.calls != 1 {
+		t.Fatalf("sender factory calls after initial reconcile = %d, want 1", sf.calls)
+	}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if sf.calls != 1 {
+		t.Fatalf("sender factory calls after unchanged reconcile = %d, want 1", sf.calls)
+	}
+}
+
 func TestReconcileMicroBFDClosesEarlierSendersWhenLaterCreationFails(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
@@ -335,9 +386,9 @@ func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T
 		DetectMultiplier:      3,
 	}
 	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
-		Key:           "seed",
-		SessionConfig: seed,
-		Sender:        candidateTestSender{},
+		Key:                "seed",
+		SessionConfig:      seed,
+		SenderLeaseFactory: candidateTestSenderLeaseFactory(),
 	}}); err != nil {
 		t.Fatalf("seed ReconcileSessions: %v", err)
 	}
@@ -380,13 +431,13 @@ func TestReconcileSessionsForwardsEmptyBaseDesiredSet(t *testing.T) {
 		DetectMultiplier:      3,
 	}
 	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
-		Key:           "base",
-		SessionConfig: cfg,
-		Sender:        candidateTestSender{},
+		Key:                "base",
+		SessionConfig:      cfg,
+		SenderLeaseFactory: candidateTestSenderLeaseFactory(),
 	}}); err != nil {
 		t.Fatalf("seed ReconcileSessions: %v", err)
 	}
-	shared, err := mgr.CreateSession(context.Background(), cfg, candidateTestSender{})
+	shared, err := mgr.CreateSession(context.Background(), cfg, candidateTestSenderLeaseFactory())
 	if err != nil {
 		t.Fatalf("CreateSession matching compatibility claim: %v", err)
 	}
@@ -423,7 +474,7 @@ func TestReconcileMicroBFDGroupsForwardsEmptyMemberDesiredSet(t *testing.T) {
 	if _, _, err := mgr.ReconcileSessionsForOwner(
 		context.Background(),
 		bfd.MicroBFDReconciliationOwner(),
-		[]bfd.ReconcileConfig{{Key: "micro", SessionConfig: cfg, Sender: candidateTestSender{}}},
+		[]bfd.ReconcileConfig{{Key: "micro", SessionConfig: cfg, SenderLeaseFactory: candidateTestSenderLeaseFactory()}},
 	); err != nil {
 		t.Fatalf("seed Micro-BFD reconciliation: %v", err)
 	}
@@ -477,7 +528,10 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 		if _, _, err := mgr.ReconcileSessionsForOwner(
 			context.Background(),
 			tt.owner,
-			[]bfd.ReconcileConfig{{Key: tt.owner.ID, SessionConfig: tt.cfg, Sender: candidateTestSender{}}},
+			[]bfd.ReconcileConfig{{
+				Key: tt.owner.ID, SessionConfig: tt.cfg,
+				SenderLeaseFactory: candidateTestSenderLeaseFactory(),
+			}},
 		); err != nil {
 			t.Fatalf("seed overlay owner %+v: %v", tt.owner, err)
 		}
@@ -544,7 +598,7 @@ func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
 	if _, _, err := mgr.ReconcileSessionsForOwner(
 		context.Background(),
 		bfd.VXLANReconciliationOwner(),
-		[]bfd.ReconcileConfig{{Key: "seed", SessionConfig: seed, Sender: candidateTestSender{}}},
+		[]bfd.ReconcileConfig{{Key: "seed", SessionConfig: seed, SenderLeaseFactory: candidateTestSenderLeaseFactory()}},
 	); err != nil {
 		t.Fatalf("seed VXLAN reconciliation: %v", err)
 	}
@@ -573,6 +627,36 @@ func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
 	}
 }
 
+func TestOverlaySessionLeaseDoesNotCloseSharedBackend(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	conn := &nonOwningLeaseTestOverlayConn{}
+	logger := slog.New(slog.DiscardHandler)
+	params := overlayTunnelParams{
+		rfc:      "RFC 8971",
+		sessType: bfd.SessionTypeVXLAN,
+		owner:    bfd.VXLANReconciliationOwner(),
+		defaults: overlayTimerDefaults{
+			desiredMinTx:  time.Second,
+			requiredMinRx: time.Second,
+			detectMult:    3,
+		},
+		conn: conn,
+		entries: []overlayPeerEntry{{
+			key: "vxlan-test", peerName: "vxlan-test",
+			peerStr: "192.0.2.92", localStr: "192.0.2.93",
+		}},
+	}
+
+	reconcileOverlayTunnel(context.Background(), mgr, logger, params)
+	params.entries = nil
+	reconcileOverlayTunnel(context.Background(), mgr, logger, params)
+	mgr.Close()
+
+	if conn.closes != 0 {
+		t.Fatalf("shared overlay backend closes from session leases = %d, want 0", conn.closes)
+	}
+}
+
 func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
@@ -587,7 +671,7 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 		DetectMultiplier:      3,
 	}
 	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
-		Key: "seed", SessionConfig: seed, Sender: candidateTestSender{},
+		Key: "seed", SessionConfig: seed, SenderLeaseFactory: candidateTestSenderLeaseFactory(),
 	}}); err != nil {
 		t.Fatalf("seed ReconcileSessions: %v", err)
 	}

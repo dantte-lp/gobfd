@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -17,6 +18,31 @@ import (
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
+
+type countingSenderFactory struct {
+	opens  int
+	closes int
+}
+
+func (f *countingSenderFactory) CreateSender(
+	netip.Addr,
+	bool,
+	*slog.Logger,
+) (bfd.PacketSender, uint16, error) {
+	f.opens++
+	return countingPacketSender{}, uint16(50000 + f.opens), nil
+}
+
+func (f *countingSenderFactory) CloseSender(uint16) error {
+	f.closes++
+	return nil
+}
+
+type countingPacketSender struct{}
+
+func (countingPacketSender) SendPacket(context.Context, []byte, netip.Addr) error {
+	return nil
+}
 
 const (
 	// testPeerAddr is a documentation IP address (RFC 5737) used as peer in tests.
@@ -319,6 +345,36 @@ func TestDeleteSession(t *testing.T) {
 	}
 	if len(listResp.GetSessions()) != 0 {
 		t.Errorf("expected 0 sessions after delete, got %d", len(listResp.GetSessions()))
+	}
+}
+
+func TestDeleteSessionReleasesSenderAndSourcePortOnce(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	sf := &countingSenderFactory{}
+
+	path, handler := server.New(mgr, sf, logger)
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	srv := httptest.NewTestServer(t, mux)
+	client := bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+
+	addResp, err := client.AddSession(context.Background(), validAddRequest())
+	if err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	if sf.opens != 1 || sf.closes != 0 {
+		t.Fatalf("sender factory after AddSession = %d opens, %d closes; want 1, 0", sf.opens, sf.closes)
+	}
+
+	if _, err := client.DeleteSession(context.Background(), &bfdv1.DeleteSessionRequest{
+		LocalDiscriminator: addResp.GetSession().GetLocalDiscriminator(),
+	}); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+	mgr.Close()
+	if sf.closes != 1 {
+		t.Fatalf("sender/source-port releases after DeleteSession and Manager.Close = %d, want 1", sf.closes)
 	}
 }
 

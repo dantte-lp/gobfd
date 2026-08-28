@@ -8,7 +8,6 @@ import (
 	"math"
 	"net/http"
 	"net/netip"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -56,9 +55,8 @@ var (
 // abstracts socket creation so that the server can be tested without
 // real network sockets.
 //
-// On session creation, the factory is called with the session's local
-// address and session type. On session destruction, CloseSender is
-// called to release resources (close socket, release port).
+// On session creation, the factory is called lazily after Manager accepts a
+// new physical session. Manager then owns the matching CloseSender call.
 type SenderFactory interface {
 	// CreateSender allocates a source port and creates a PacketSender
 	// bound to localAddr. Returns the sender and allocated port.
@@ -102,11 +100,6 @@ type BFDServer struct {
 	manager       *bfd.Manager
 	senderFactory SenderFactory
 	logger        *slog.Logger
-
-	// senderPorts tracks allocated source ports per session discriminator
-	// for cleanup on DestroySession.
-	senderPorts   map[uint32]uint16
-	senderPortsMu sync.Mutex
 }
 
 // verify interface compliance at compile time.
@@ -126,7 +119,6 @@ func New(
 	srv := &BFDServer{
 		manager:       mgr,
 		senderFactory: sf,
-		senderPorts:   make(map[uint32]uint16),
 		logger:        logger.With(slog.String("component", "server")),
 	}
 	return bfdv1connect.NewBfdServiceHandler(srv, opts...)
@@ -147,13 +139,10 @@ func (s *BFDServer) AddSession(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	sender, srcPort, sess, err := s.createSessionWithSender(ctx, cfg)
+	sess, err := s.createSessionWithSenderLease(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	_ = sender // sender is owned by session now
-	s.trackSenderPort(sess.LocalDiscriminator(), srcPort)
 
 	snap := snapshotFromSession(sess, cfg)
 
@@ -162,41 +151,34 @@ func (s *BFDServer) AddSession(
 	}, nil
 }
 
-// createSessionWithSender creates the sender and session together.
-// On session creation failure, the sender is cleaned up.
-func (s *BFDServer) createSessionWithSender(
+// createSessionWithSenderLease gives Manager lazy ownership of both the
+// sender socket and its allocated source port.
+func (s *BFDServer) createSessionWithSenderLease(
 	ctx context.Context,
 	cfg bfd.SessionConfig,
-) (bfd.PacketSender, uint16, *bfd.Session, error) {
+) (*bfd.Session, error) {
 	multiHop := cfg.Type == bfd.SessionTypeMultiHop
-
-	sender, srcPort, err := s.senderFactory.CreateSender(
-		cfg.LocalAddr, multiHop, s.logger,
-	)
-	if err != nil {
-		return nil, 0, nil, mapManagerError(
-			fmt.Errorf("create sender: %w", err), "add session",
+	factory := func() (*bfd.SenderLease, error) {
+		sender, srcPort, err := s.senderFactory.CreateSender(
+			cfg.LocalAddr, multiHop, s.logger,
 		)
-	}
-
-	sess, err := s.manager.CreateSession(ctx, cfg, sender)
-	if err != nil {
-		if closeErr := s.senderFactory.CloseSender(srcPort); closeErr != nil {
-			s.logger.Warn("failed to close sender after session creation failure",
-				slog.String("error", closeErr.Error()),
-			)
+		if err != nil {
+			return nil, fmt.Errorf("create API session sender: %w", err)
 		}
-		return nil, 0, nil, mapManagerError(err, "add session")
+		return bfd.NewSenderLease(sender, func() error {
+			if err := s.senderFactory.CloseSender(srcPort); err != nil {
+				return fmt.Errorf("close API session sender port %d: %w", srcPort, err)
+			}
+			return nil
+		}), nil
 	}
 
-	return sender, srcPort, sess, nil
-}
+	sess, err := s.manager.CreateSession(ctx, cfg, factory)
+	if err != nil {
+		return nil, mapManagerError(err, "add session")
+	}
 
-// trackSenderPort records the source port for cleanup on DestroySession.
-func (s *BFDServer) trackSenderPort(discr uint32, srcPort uint16) {
-	s.senderPortsMu.Lock()
-	s.senderPorts[discr] = srcPort
-	s.senderPortsMu.Unlock()
+	return sess, nil
 }
 
 // DeleteSession removes a BFD session by its local discriminator.
@@ -213,29 +195,7 @@ func (s *BFDServer) DeleteSession(
 		return nil, mapManagerError(err, "delete session")
 	}
 
-	s.cleanupSender(discr)
-
 	return &bfdv1.DeleteSessionResponse{}, nil
-}
-
-// cleanupSender closes the sender and releases the source port for a
-// destroyed session.
-func (s *BFDServer) cleanupSender(discr uint32) {
-	s.senderPortsMu.Lock()
-	srcPort, ok := s.senderPorts[discr]
-	if ok {
-		delete(s.senderPorts, discr)
-	}
-	s.senderPortsMu.Unlock()
-
-	if ok {
-		if err := s.senderFactory.CloseSender(srcPort); err != nil {
-			s.logger.Warn("failed to close sender",
-				slog.Uint64("discriminator", uint64(discr)),
-				slog.String("error", err.Error()),
-			)
-		}
-	}
 }
 
 // ListSessions returns all active BFD sessions.

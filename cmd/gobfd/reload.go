@@ -155,27 +155,16 @@ func reconcileSessions(
 	}
 
 	desired := make([]bfd.ReconcileConfig, 0, len(candidates))
-	openedPorts := make([]uint16, 0, len(candidates))
 	for _, candidate := range candidates {
-		sender, srcPort, senderErr := sf.createSenderForSession(
+		rc := candidate.reconcile
+		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
+			sf,
 			candidate.config.LocalAddr,
 			candidate.multiHop,
 			logger,
 			candidate.senderOpts...,
 		)
-		if senderErr != nil {
-			closeUncommittedSenderBatch(sf, openedPorts, logger)
-			logger.Error("failed to create sender for session, keeping current sessions",
-				slog.String("peer", candidate.peer),
-				slog.String("error", senderErr.Error()),
-			)
-			return
-		}
-
-		rc := candidate.reconcile
-		rc.Sender = sender
 		desired = append(desired, rc)
-		openedPorts = append(openedPorts, srcPort)
 	}
 
 	created, destroyed, err := mgr.ReconcileSessionsForOwner(
@@ -195,18 +184,26 @@ func reconcileSessions(
 	)
 }
 
-func closeUncommittedSenderBatch(
+func declarativeSenderLeaseFactoryFor(
 	sf declarativeSenderFactory,
-	ports []uint16,
+	localAddr netip.Addr,
+	multiHop bool,
 	logger *slog.Logger,
-) {
-	for _, port := range ports {
-		if err := sf.CloseSender(port); err != nil {
-			logger.Error("failed to close uncommitted session sender",
-				slog.Uint64("source_port", uint64(port)),
-				slog.String("error", err.Error()),
-			)
+	senderOpts ...netio.SenderOption,
+) bfd.SenderLeaseFactory {
+	return func() (*bfd.SenderLease, error) {
+		sender, srcPort, err := sf.createSenderForSession(
+			localAddr, multiHop, logger, senderOpts...,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create session sender: %w", err)
 		}
+		return bfd.NewSenderLease(sender, func() error {
+			if err := sf.CloseSender(srcPort); err != nil {
+				return fmt.Errorf("close session sender port %d: %w", srcPort, err)
+			}
+			return nil
+		}), nil
 	}
 }
 

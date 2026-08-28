@@ -293,7 +293,9 @@ func reconcileOverlayTunnel(
 	}
 	sender := netio.NewOverlaySender(params.conn)
 	for i := range desired {
-		desired[i].Sender = sender
+		// The overlay sender shares the long-lived backend connection. Session
+		// teardown must release only its non-owning lease, never the backend.
+		desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
 	}
 	reconcileOverlaySessions(ctx, mgr, params.owner, desired, params.rfc, logger)
 }

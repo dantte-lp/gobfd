@@ -232,11 +232,18 @@ func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slo
 		opts = append(opts, bfd.WithUnsolicitedPolicy(policy))
 
 		sf := newUDPSenderFactory()
-		sender, _, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
+		sender, srcPort, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
 		if err != nil {
 			return nil, fmt.Errorf("create unsolicited BFD sender: %w", err)
 		}
-		opts = append(opts, bfd.WithUnsolicitedSender(sender))
+		opts = append(opts, bfd.WithUnsolicitedSenderLease(
+			bfd.NewSenderLease(sender, func() error {
+				if err := sf.CloseSender(srcPort); err != nil {
+					return fmt.Errorf("close unsolicited BFD sender port %d: %w", srcPort, err)
+				}
+				return nil
+			}),
+		))
 		logger.Info("unsolicited BFD enabled (RFC 9468)",
 			slog.Int("max_sessions", policy.MaxSessions),
 		)

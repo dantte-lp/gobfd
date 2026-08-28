@@ -189,17 +189,30 @@ Geneve до применения любого из этих sources. Compiler к
 проверяет полный набор до открытия sender adapter или изменения session
 ownership.
 
+Для новой принятой physical session Manager лениво открывает один sender lease
+и хранит его идемпотентную release-операцию в session entry. Неизменившаяся
+reconciliation и совпадающий claim другого source не открывают новый sender.
+Creation rollback, освобождение последнего claim и закрытие Manager освобождают
+принятый lease один раз; освобождение не последнего claim сохраняет его. Base
+configuration, Micro-BFD и compatibility API используют owning UDP leases,
+которые также возвращают выделенный source port. Overlay sessions используют
+явные non-owning leases, потому что их sender разделяет backend connection.
+RFC 9468 sessions аналогично используют non-owning per-session leases поверх
+одного singleton sender, принадлежащего Manager, поэтому cleanup одной
+unsolicited session не закрывает общий socket.
+
 Для сессий с аутентификацией эффективные параметры включают тип встроенного
 authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Static store
 клонирует входные данные конструктора и возвращает caller-owned копии ключей;
 неизвестные реализации key store отклоняются, потому что для них нельзя
 получить стабильную семантическую идентичность.
 
-Это ownership core C01.1 вместе со slice C01.2 для atomic candidate и изоляции
-sources, а не полный контракт v1 reconciliation или RFC. Отложены следующие
-границы:
+Это ownership core C01.1 вместе со slice C01.2 для atomic candidate/изоляции
+sources и slice C01.3a для sender lease принятой session, а не полный контракт
+v1 reconciliation или RFC. Отложены следующие границы:
 
-- ownership жизненного цикла sender и transport resources;
+- состояния Manager Open/Closing/Closed, ожидание goroutines, ownership
+  listeners и замены backends;
 - стабильные owner identifiers для отдельных groups и tunnels;
 - generations и receipts reconciliation;
 - согласование параметров Poll/Final;

@@ -33,6 +33,15 @@ var (
 	// an owner other than one of the declarative configuration sources.
 	ErrInvalidReconciliationOwner = errors.New("invalid reconciliation owner")
 
+	// ErrSenderLeaseFactoryNil indicates session creation lacks a sender factory.
+	ErrSenderLeaseFactoryNil = errors.New("sender lease factory is nil")
+
+	// ErrSenderLeaseNil indicates a sender factory returned no lease.
+	ErrSenderLeaseNil = errors.New("sender lease factory returned nil lease")
+
+	// ErrSenderLeaseSenderNil indicates a lease contains no packet sender.
+	ErrSenderLeaseSenderNil = errors.New("sender lease has nil sender")
+
 	// ErrDemuxNoMatch indicates no session matched the incoming packet during
 	// demultiplexing (RFC 5880 Section 6.8.6).
 	ErrDemuxNoMatch = errors.New("no matching session for incoming packet")
@@ -255,9 +264,13 @@ type Manager struct {
 	// nil when unsolicited BFD is not configured.
 	unsolicited *unsolicitedState
 
-	// unsolicitedSender provides packet sending for auto-created sessions.
-	// Set via WithUnsolicitedSender option.
-	unsolicitedSender PacketSender
+	// unsolicitedSenderFactory creates explicit non-owning session leases for
+	// the singleton sender after an unsolicited claim is accepted.
+	unsolicitedSenderFactory SenderLeaseFactory
+
+	// unsolicitedSenderLease owns the singleton sender shared by all RFC 9468
+	// sessions. Per-session leases are explicitly non-owning.
+	unsolicitedSenderLease *SenderLease
 
 	// microActuator receives RFC 7130 member state transitions after the
 	// Manager updates its MicroBFDGroup aggregate state.
@@ -283,6 +296,7 @@ type Manager struct {
 type sessionEntry struct {
 	session     *Session
 	cancel      context.CancelFunc
+	senderLease *SenderLease
 	key         SessionKey
 	demuxKey    packetDemuxKey
 	effective   effectiveSessionConfig
@@ -333,7 +347,20 @@ func WithUnsolicitedPolicy(policy *UnsolicitedPolicy) ManagerOption {
 // unsolicited sessions. Required when unsolicited BFD is enabled.
 func WithUnsolicitedSender(sender PacketSender) ManagerOption {
 	return func(m *Manager) {
-		m.unsolicitedSender = sender
+		m.unsolicitedSenderLease = NewSenderLease(sender, nil)
+		m.unsolicitedSenderFactory = NonOwningSenderLeaseFactory(sender)
+	}
+}
+
+// WithUnsolicitedSenderLease gives Manager ownership of the singleton sender
+// shared by all accepted RFC 9468 sessions. Individual session entries use
+// non-owning leases so cleanup cannot close the shared socket.
+func WithUnsolicitedSenderLease(lease *SenderLease) ManagerOption {
+	return func(m *Manager) {
+		m.unsolicitedSenderLease = lease
+		if lease != nil && lease.Sender() != nil {
+			m.unsolicitedSenderFactory = NonOwningSenderLeaseFactory(lease.Sender())
+		}
 	}
 }
 
@@ -523,7 +550,18 @@ func (m *Manager) Close() {
 
 	for discr, entry := range m.sessions {
 		entry.cancel()
+		if err := entry.senderLease.Close(); err != nil {
+			m.logger.Warn("failed to close session sender lease",
+				slog.Uint64("local_discr", uint64(discr)),
+				slog.String("error", err.Error()),
+			)
+		}
 		m.discriminators.Release(discr)
+	}
+	if err := m.unsolicitedSenderLease.Close(); err != nil {
+		m.logger.Warn("failed to close shared unsolicited sender lease",
+			slog.String("error", err.Error()),
+		)
 	}
 
 	for discr, entry := range m.echoSessions {

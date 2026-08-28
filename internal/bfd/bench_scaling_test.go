@@ -69,7 +69,7 @@ func benchmarkManagerCreateDestroy(b *testing.B, count int) {
 				DetectMultiplier:      3,
 			}
 
-			if _, err := mgr.CreateSession(ctx, cfg, sender); err != nil {
+			if _, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(sender)); err != nil {
 				b.Fatalf("CreateSession %d: %v", i, err)
 			}
 		}
@@ -118,7 +118,7 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 			DetectMultiplier:      3,
 		}
 
-		sess, err := mgr.CreateSession(ctx, cfg, sender)
+		sess, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(sender))
 		if err != nil {
 			b.Fatalf("CreateSession %d: %v", i, err)
 		}
@@ -198,7 +198,7 @@ func BenchmarkManagerLookup1000Sessions(b *testing.B) {
 			DetectMultiplier:      3,
 		}
 
-		sess, err := mgr.CreateSession(ctx, cfg, sender)
+		sess, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(sender))
 		if err != nil {
 			b.Fatalf("CreateSession %d: %v", i, err)
 		}
@@ -253,7 +253,7 @@ func BenchmarkManagerReconcile(b *testing.B) {
 					RequiredMinRxInterval: 1 * time.Second,
 					DetectMultiplier:      3,
 				},
-				Sender: sender,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(sender),
 			}
 		}
 
@@ -281,7 +281,7 @@ func BenchmarkManagerReconcile(b *testing.B) {
 					RequiredMinRxInterval: 1 * time.Second,
 					DetectMultiplier:      3,
 				},
-				Sender: sender,
+				SenderLeaseFactory: bfd.NonOwningSenderLeaseFactory(sender),
 			})
 		}
 
