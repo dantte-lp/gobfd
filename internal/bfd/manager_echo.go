@@ -26,15 +26,22 @@ func (m *Manager) CreateEchoSession(
 	if err != nil {
 		return 0, err
 	}
+	discr, err := m.createEchoSession(ctx, cfg, sender)
+	op.finish()
+	return discr, err
+}
 
+func (m *Manager) createEchoSession(
+	ctx context.Context,
+	cfg EchoSessionConfig,
+	sender PacketSender,
+) (uint32, error) {
 	if !cfg.PeerAddr.IsValid() {
-		op.finish()
 		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, ErrInvalidPeerAddr)
 	}
 
 	discr, err := m.discriminators.Allocate()
 	if err != nil {
-		op.finish()
 		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
 
@@ -43,7 +50,6 @@ func (m *Manager) CreateEchoSession(
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
-		op.finish()
 		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
 
@@ -60,7 +66,6 @@ func (m *Manager) CreateEchoSession(
 		defer close(entry.done)
 		es.Run(sessCtx)
 	})
-	op.finish()
 
 	m.logger.Info("echo session created",
 		slog.String("peer", cfg.PeerAddr.String()),
@@ -84,12 +89,16 @@ func (m *Manager) DestroyEchoSession(discr uint32) error {
 	if err != nil {
 		return err
 	}
+	err = m.destroyEchoSession(discr)
+	op.finish()
+	return err
+}
 
+func (m *Manager) destroyEchoSession(discr uint32) error {
 	m.mu.Lock()
 	entry, ok := m.echoSessions[discr]
 	if !ok {
 		m.mu.Unlock()
-		op.finish()
 		return fmt.Errorf(
 			"destroy echo session with discriminator %d: %w",
 			discr, ErrEchoSessionNotFound,
@@ -97,7 +106,6 @@ func (m *Manager) DestroyEchoSession(discr uint32) error {
 	}
 	delete(m.echoSessions, discr)
 	m.mu.Unlock()
-	op.finish()
 
 	entry.cancel()
 	<-entry.done
@@ -173,6 +181,19 @@ func (m *Manager) ReconcileEchoSessions(
 	ctx context.Context,
 	desired []EchoReconcileConfig,
 ) (int, int, error) {
+	op, err := m.beginOperation()
+	if err != nil {
+		return 0, 0, err
+	}
+	created, destroyed, err := m.reconcileEchoSessions(ctx, desired)
+	op.finish()
+	return created, destroyed, err
+}
+
+func (m *Manager) reconcileEchoSessions(
+	ctx context.Context,
+	desired []EchoReconcileConfig,
+) (int, int, error) {
 	desiredKeys := make(map[string]EchoReconcileConfig, len(desired))
 	for _, rc := range desired {
 		desiredKeys[rc.Key] = rc
@@ -194,7 +215,7 @@ func (m *Manager) ReconcileEchoSessions(
 			slog.Uint64("local_discr", uint64(discr)),
 		)
 
-		if dErr := m.DestroyEchoSession(discr); dErr != nil {
+		if dErr := m.destroyEchoSession(discr); dErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile destroy echo %s: %w", key, dErr))
 			continue
 		}
@@ -211,7 +232,7 @@ func (m *Manager) ReconcileEchoSessions(
 			slog.String("key", key),
 		)
 
-		if _, cErr := m.CreateEchoSession(ctx, rc.EchoSessionConfig, rc.Sender); cErr != nil {
+		if _, cErr := m.createEchoSession(ctx, rc.EchoSessionConfig, rc.Sender); cErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile create echo %s: %w", key, cErr))
 			continue
 		}

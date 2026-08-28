@@ -20,6 +20,16 @@ import (
 //
 // Returns ErrMicroBFDGroupExists if a group already exists for the LAG.
 func (m *Manager) CreateMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error) {
+	op, err := m.beginOperation()
+	if err != nil {
+		return nil, err
+	}
+	group, err := m.createMicroBFDGroup(cfg)
+	op.finish()
+	return group, err
+}
+
+func (m *Manager) createMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -53,6 +63,16 @@ func (m *Manager) CreateMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error
 //
 // Returns ErrMicroBFDGroupNotFound if no group exists for the LAG.
 func (m *Manager) DestroyMicroBFDGroup(lagInterface string) error {
+	op, err := m.beginOperation()
+	if err != nil {
+		return err
+	}
+	err = m.destroyMicroBFDGroup(lagInterface)
+	op.finish()
+	return err
+}
+
+func (m *Manager) destroyMicroBFDGroup(lagInterface string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -178,6 +198,16 @@ type MicroBFDReconcileConfig struct {
 func (m *Manager) ReconcileMicroBFDGroups(
 	desired []MicroBFDReconcileConfig,
 ) (int, int, error) {
+	op, err := m.beginOperation()
+	if err != nil {
+		return 0, 0, err
+	}
+	created, destroyed, err := m.reconcileMicroBFDGroups(desired)
+	op.finish()
+	return created, destroyed, err
+}
+
+func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (int, int, error) {
 	desiredKeys := make(map[string]MicroBFDReconcileConfig, len(desired))
 	for _, rc := range desired {
 		desiredKeys[rc.Key] = rc
@@ -198,7 +228,7 @@ func (m *Manager) ReconcileMicroBFDGroups(
 			slog.String("lag", key),
 		)
 
-		if dErr := m.DestroyMicroBFDGroup(key); dErr != nil {
+		if dErr := m.destroyMicroBFDGroup(key); dErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile destroy micro-BFD %s: %w", key, dErr))
 			continue
 		}
@@ -215,7 +245,7 @@ func (m *Manager) ReconcileMicroBFDGroups(
 			slog.String("lag", key),
 		)
 
-		if _, cErr := m.CreateMicroBFDGroup(rc.Config); cErr != nil {
+		if _, cErr := m.createMicroBFDGroup(rc.Config); cErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile create micro-BFD %s: %w", key, cErr))
 			continue
 		}

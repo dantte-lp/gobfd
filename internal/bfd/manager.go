@@ -678,6 +678,8 @@ func (m *Manager) DrainAllSessions() {
 // Close cancels all Manager-owned goroutines and releases resources.
 // After Close returns, new mutations are rejected and StateChanges has reached
 // EOF. Close is safe to call concurrently and more than once.
+// Sender release callbacks run without Manager locks and may reenter Manager
+// read or mutation APIs, but must not recursively call this blocking method.
 func (m *Manager) Close() {
 	if !m.beginClose() {
 		return
