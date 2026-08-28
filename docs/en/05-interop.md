@@ -448,7 +448,8 @@ The command handles:
 - **Parallel image pulls**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ build dependencies)
 - **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
-- **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar
+- **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar, using a
+  run-owned `localhost/gobfd-clab:<run-id>` reference and exact image ID
 - **Inventory report**: final list of all images with ready/missing status
 
 Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,
@@ -464,14 +465,24 @@ make interop-clab
 # Step by step
 make interop-clab-up     # Build + deploy topology
 make interop-clab-test   # Run Go tests (topology must be up)
-make interop-clab-down   # Destroy containers and veth links
+make interop-clab-down   # Destroy owned containers, links, and the exact GoBFD image
+
+# Prepare only, then either consume or remove the staged owned image
+make interop-clab-bootstrap
+make interop-clab-bootstrap ARGS="--deploy --skip-build"
+# or: make interop-clab-down
 ```
 
 `make interop-clab` pulls public Nokia SR Linux, SONiC-VS, VyOS, and FRRouting
 images before availability checks. Cisco XRd and Arista cEOS remain
 operator-provided images. The Go lifecycle renders a topology containing only
 available profiles, records exact container identities in a mode-0600 receipt,
-and validates that receipt before cleanup.
+and records the run-owned GoBFD image reference, ID, and ownership labels in
+the same mode-0600 receipt. Cleanup validates all recorded identities before
+its first mutation, removes the image by exact ID without force, and deletes
+the receipt last. A standalone bootstrap intentionally leaves the staged image
+and receipt for a later `--skip-build` deployment or exact `--down` cleanup;
+`--skip-build` never trusts a shared `latest` tag.
 
 ### RFC Compliance Matrix
 
@@ -559,7 +570,7 @@ module: [bgp, bfd]
 nodes:
   gobfd:
     device: linux
-    image: gobfd-clab:latest
+    image: localhost/gobfd-clab:<run-id>
   frr1:
     device: frr
   srlinux1:

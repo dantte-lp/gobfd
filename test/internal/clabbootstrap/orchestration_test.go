@@ -62,12 +62,16 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 	}
 
 	var pulls, builds, vendorCalls int
+	var buildImage, runImage string
 	for _, command := range runner.commands {
 		switch {
 		case command.Executable == "podman" && slices.Contains(command.Arguments, "pull"):
 			pulls++
 		case command.Executable == "podman" && slices.Contains(command.Arguments, "build"):
 			builds++
+			buildImage = argumentAfter(command.Arguments, "-t")
+		case command.Executable == "podman" && slices.Contains(command.Arguments, "run"):
+			runImage = command.Arguments[len(command.Arguments)-2]
 		case command.Executable == "podman" &&
 			(slices.Contains(command.Arguments, "tag") || slices.Contains(command.Arguments, "load")):
 			vendorCalls++
@@ -80,6 +84,9 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 	}
 	if builds != 1 {
 		t.Errorf("GoBFD image builds = %d, want 1", builds)
+	}
+	if buildImage != dryRunImage || runImage != dryRunImage {
+		t.Errorf("dry-run build/run images = %q/%q, want %q", buildImage, runImage, dryRunImage)
 	}
 	if vendorCalls != 2 {
 		t.Errorf("dry-run vendor image operations = %d, want 2", vendorCalls)

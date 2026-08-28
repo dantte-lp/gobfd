@@ -444,7 +444,8 @@ go run ./test/cmd/clabbootstrap --dry-run
 - **Параллельное скачивание образов**: Nokia SR Linux, SONiC-VS, VyOS, FRRouting (+ зависимости сборки)
 - **Подготовка образа VyOS**: скачивание `docker.io/muruu1/vyos:latest`, tag как `vyos:latest`; ISO build остаётся fallback
 - **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
-- **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar
+- **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar,
+  run-owned ссылкой `localhost/gobfd-clab:<run-id>` и точным image ID
 - **Отчёт об инвентаризации**: итоговый список образов со статусом готовности
 
 Выполните `make interop-clab-bootstrap ARGS=--help` для просмотра всех опций.
@@ -460,14 +461,24 @@ make interop-clab
 # Пошагово
 make interop-clab-up     # Сборка + деплой топологии
 make interop-clab-test   # Запуск Go-тестов (топология должна работать)
-make interop-clab-down   # Уничтожение контейнеров и veth-линков
+make interop-clab-down   # Удаление owned-контейнеров, линков и точного образа GoBFD
+
+# Только подготовка, затем использование или удаление staged owned-образа
+make interop-clab-bootstrap
+make interop-clab-bootstrap ARGS="--deploy --skip-build"
+# либо: make interop-clab-down
 ```
 
 `make interop-clab` скачивает public images Nokia SR Linux, SONiC-VS, VyOS и
 FRRouting до проверки availability. Cisco XRd и Arista cEOS остаются
 operator-provided images. Go lifecycle формирует topology только для доступных
 профилей, записывает точные container identities в receipt с mode 0600 и
-проверяет receipt перед очисткой.
+записывает в тот же receipt run-owned ссылку, ID и ownership labels образа
+GoBFD. Перед первой мутацией cleanup проверяет все записанные identities,
+удаляет образ по точному ID без `--force` и последним удаляет receipt.
+Отдельный bootstrap намеренно оставляет staged image и receipt для следующего
+деплоя с `--skip-build` либо точной очистки через `--down`; `--skip-build`
+никогда не доверяет общему тегу `latest`.
 
 ### Матрица соответствия RFC
 
@@ -555,7 +566,7 @@ module: [bgp, bfd]
 nodes:
   gobfd:
     device: linux
-    image: gobfd-clab:latest
+    image: localhost/gobfd-clab:<run-id>
   frr1:
     device: frr
   srlinux1:

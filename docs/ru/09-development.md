@@ -129,11 +129,11 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 | `make interop-bgp-up` | Запуск топологии BGP+BFD |
 | `make interop-bgp-test` | Запуск Go-тестов BGP+BFD |
 | `make interop-bgp-down` | Остановка топологии BGP+BFD |
-| `make interop-clab-bootstrap` | Подготовка вендорных образов через Go bootstrap (`ARGS=...`) |
+| `make interop-clab-bootstrap` | Подготовка вендорных образов и receipt-owned образа GoBFD (`ARGS=...`) |
 | `make interop-clab` | Полный цикл вендорных NOS-тестов (Nokia, FRR и др.) |
 | `make interop-clab-up` | Деплой вендорной NOS-топологии |
 | `make interop-clab-test` | Запуск вендорных interop Go-тестов |
-| `make interop-clab-down` | Уничтожение вендорных NOS-контейнеров |
+| `make interop-clab-down` | Удаление записанных ресурсов NOS и точного owned-образа GoBFD |
 
 #### Примеры интеграций
 

@@ -38,7 +38,7 @@ func Run(ctx context.Context, options Options, runner Runner) error {
 		if err := runPreflight(ctx, lifecycleOptions, runner); err != nil {
 			return err
 		}
-		return runTopology(ctx, options, runner)
+		return runTopology(ctx, options, runner, "")
 	}
 	frrReference, err := loadFRRReference(options.ProjectRoot)
 	if err != nil {
@@ -52,20 +52,37 @@ func Run(ctx context.Context, options Options, runner Runner) error {
 	images := publicImages(options.Tags, frrReference)
 	failures := pullImages(ctx, options, runner, images)
 	failures = append(failures, runVendorPhases(ctx, options, runner, images)...)
-	if !options.SkipBuild {
-		if err := runCommand(ctx, runner, buildCommand(options)); err != nil {
-			failures = append(failures, "gobfd-build")
-		}
+	imageReference, imageErr := prepareGoBFDImage(ctx, options, runner)
+	if imageErr != nil {
+		failures = append(failures, "gobfd-build")
 	}
 
-	inspectInventory(ctx, options, runner, frrReference)
+	inspectInventory(ctx, options, runner, frrReference, imageReference)
 	if len(failures) != 0 {
-		return fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
+		phaseErr := fmt.Errorf("%w: %s", ErrBootstrapFailed, strings.Join(failures, ", "))
+		if imageErr != nil {
+			return errors.Join(phaseErr, fmt.Errorf("prepare owned GoBFD image: %w", imageErr))
+		}
+		return phaseErr
 	}
-	if err := runTopology(ctx, options, runner); err != nil {
+	if err := runTopology(ctx, options, runner, imageReference); err != nil {
 		return fmt.Errorf("%w: deploy/test: %w", ErrBootstrapFailed, err)
 	}
 	return nil
+}
+
+func prepareGoBFDImage(ctx context.Context, options Options, runner Runner) (string, error) {
+	if options.DryRun {
+		if options.SkipBuild {
+			return dryRunImage, nil
+		}
+		return dryRunImage, runCommand(ctx, runner, buildCommand(options, dryRunImage, "dry-run"))
+	}
+	receipt, err := stageGoBFDImage(ctx, options, runner)
+	if err != nil {
+		return "", err
+	}
+	return receipt.Image.Reference, nil
 }
 
 func validateOptions(options Options, runner Runner) error {
@@ -304,11 +321,14 @@ func runVendorPhases(ctx context.Context, options Options, runner Runner, images
 	return failures
 }
 
-func buildCommand(options Options) Command {
+func buildCommand(options Options, imageReference, runID string) Command {
 	return Command{
 		Executable: executablePodman,
 		Arguments: []string{
-			"build", "-t", "gobfd-clab:latest", "-f",
+			"build",
+			"--label", ownerLabel + "=" + labName,
+			"--label", runLabel + "=" + runID,
+			"-t", imageReference, "-f",
 			filepath.Join(options.ProjectRoot, "test", "interop-clab", "Containerfile.gobfd"),
 			options.ProjectRoot,
 		},
@@ -316,15 +336,23 @@ func buildCommand(options Options) Command {
 	}
 }
 
-func inspectInventory(ctx context.Context, options Options, runner Runner, frrReference string) {
+func inspectInventory(
+	ctx context.Context,
+	options Options,
+	runner Runner,
+	frrReference string,
+	gobfdReference string,
+) {
 	images := []imageReference{
 		{name: vendorNokia, reference: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia},
 		{name: vendorSONiC, reference: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic},
 		{name: "vyos", reference: "vyos:latest"},
 		{name: "frr", reference: frrReference},
-		{name: "gobfd", reference: "gobfd-clab:latest"},
 		{name: "arista", reference: options.Tags.Arista},
 		{name: "cisco", reference: options.Tags.Cisco},
+	}
+	if gobfdReference != "" {
+		images = append(images, imageReference{name: "gobfd", reference: gobfdReference})
 	}
 	for _, image := range images {
 		exists := options.DryRun

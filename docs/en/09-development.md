@@ -126,11 +126,11 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 | `make interop-bgp-up` | Start BGP+BFD topology |
 | `make interop-bgp-test` | Run BGP+BFD Go tests |
 | `make interop-bgp-down` | Stop BGP+BFD topology |
-| `make interop-clab-bootstrap` | Prepare vendor images through the Go bootstrap (`ARGS=...`) |
+| `make interop-clab-bootstrap` | Prepare vendor images and a receipt-owned GoBFD image (`ARGS=...`) |
 | `make interop-clab` | Full cycle vendor NOS tests (Nokia, FRR, etc.) |
 | `make interop-clab-up` | Deploy vendor NOS topology |
 | `make interop-clab-test` | Run vendor interop Go tests |
-| `make interop-clab-down` | Destroy vendor NOS containers |
+| `make interop-clab-down` | Destroy recorded vendor resources and the exact owned GoBFD image |
 
 #### Integration Examples
 
