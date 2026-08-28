@@ -3,12 +3,109 @@ package bfd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestUnavailableResourceClassification(t *testing.T) {
+	t.Parallel()
+
+	want := ResourceRef{Kind: ResourceKindInterface, ID: "eth-test"}
+	err := fmt.Errorf("create transport: %w", NewResourceUnavailableError(want))
+	if !errors.Is(err, ErrResourceUnavailable) {
+		t.Fatalf("errors.Is(%v, ErrResourceUnavailable) = false", err)
+	}
+	var unavailableErr *ResourceUnavailableError
+	if !errors.As(err, &unavailableErr) {
+		t.Fatalf("errors.As(%v, *ResourceUnavailableError) = false", err)
+	}
+	if got := unavailableErr.Resource(); got != want {
+		t.Fatalf("typed unavailable resource = %+v, want %+v", got, want)
+	}
+	if got, ok := UnavailableResource(err); !ok || got != want {
+		t.Fatalf("UnavailableResource(%v) = (%+v, %t), want (%+v, true)", err, got, ok, want)
+	}
+}
+
+func TestUnavailableResourceClassifierRejectsPermanentErrors(t *testing.T) {
+	t.Parallel()
+
+	permanent := errors.New("permanent failure")
+	if got, ok := UnavailableResource(permanent); ok || got != (ResourceRef{}) {
+		t.Fatalf("UnavailableResource(permanent) = (%+v, %t), want zero, false", got, ok)
+	}
+	if got, ok := UnavailableResource(nil); ok || got != (ResourceRef{}) {
+		t.Fatalf("UnavailableResource(nil) = (%+v, %t), want zero, false", got, ok)
+	}
+}
+
+func TestNewResourceUnavailableErrorRejectsMalformedResourceRefs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource ResourceRef
+	}{
+		{name: "unknown kind", resource: ResourceRef{Kind: ResourceKind(255), ID: "eth0"}},
+		{name: "empty ID", resource: ResourceRef{Kind: ResourceKindInterface}},
+		{name: "NUL in ID", resource: ResourceRef{Kind: ResourceKindInterface, ID: "eth\x000"}},
+		{
+			name: "ID beyond bound",
+			resource: ResourceRef{
+				Kind: ResourceKindInterface,
+				ID:   strings.Repeat("x", MaxResourceIDLen+1),
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := NewResourceUnavailableError(tc.resource)
+			if !errors.Is(err, ErrInvalidResourceRef) {
+				t.Fatalf("malformed resource error = %v, want ErrInvalidResourceRef", err)
+			}
+			if errors.Is(err, ErrResourceUnavailable) {
+				t.Fatalf("malformed resource exposed ErrResourceUnavailable: %v", err)
+			}
+			if unavailableErr, ok := errors.AsType[*ResourceUnavailableError](err); ok {
+				t.Fatalf("malformed resource exposed ResourceUnavailableError: %+v", unavailableErr)
+			}
+			if got, ok := UnavailableResource(err); ok || got != (ResourceRef{}) {
+				t.Fatalf("UnavailableResource(malformed) = (%+v, %t), want zero, false", got, ok)
+			}
+
+			malformedTyped := &ResourceUnavailableError{resource: tc.resource}
+			if errors.Is(malformedTyped, ErrResourceUnavailable) {
+				t.Fatalf("direct malformed typed error exposed ErrResourceUnavailable: %v", malformedTyped)
+			}
+			if got, ok := UnavailableResource(malformedTyped); ok || got != (ResourceRef{}) {
+				t.Fatalf("UnavailableResource(direct malformed) = (%+v, %t), want zero, false", got, ok)
+			}
+		})
+	}
+}
+
+func TestNewResourceUnavailableErrorAcceptsMaximumBoundedID(t *testing.T) {
+	t.Parallel()
+
+	want := ResourceRef{
+		Kind: ResourceKindInterface,
+		ID:   strings.Repeat("x", MaxResourceIDLen),
+	}
+	err := NewResourceUnavailableError(want)
+	if !errors.Is(err, ErrResourceUnavailable) {
+		t.Fatalf("maximum bounded resource error = %v, want ErrResourceUnavailable", err)
+	}
+	if got, ok := UnavailableResource(err); !ok || got != want {
+		t.Fatalf("UnavailableResource(maximum ID) = (%+v, %t), want (%+v, true)", got, ok, want)
+	}
+}
 
 func TestManagerDetailedReconcileCountsSharedWireOwnerClaims(t *testing.T) {
 	mgr := NewManager(slog.New(slog.DiscardHandler))

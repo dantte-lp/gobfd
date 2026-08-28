@@ -1,6 +1,114 @@
 package bfd
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+const (
+	// MaxResourceIDLen bounds transient resource identities. Resource-specific
+	// adapters may enforce a smaller namespace limit before constructing an
+	// unavailable-resource error.
+	MaxResourceIDLen = 255
+)
+
+var (
+	// ErrResourceUnavailable identifies a validated runtime resource that is
+	// not currently available. Callers must use ResourceUnavailableError for
+	// the bounded resource kind and identity rather than inferring retryability
+	// from error text or platform-specific causes.
+	ErrResourceUnavailable = errors.New("resource unavailable")
+	// ErrInvalidResourceRef identifies a malformed unavailable-resource
+	// reference. It is a permanent validation failure, never retryable.
+	ErrInvalidResourceRef = errors.New("invalid resource reference")
+)
+
+// ResourceKind is a closed classification of retryable runtime resources.
+type ResourceKind uint8
+
+const (
+	// ResourceKindInterface identifies one validated network interface name.
+	ResourceKindInterface ResourceKind = iota + 1
+)
+
+// String returns the stable bounded name of a resource kind.
+func (k ResourceKind) String() string {
+	switch k {
+	case ResourceKindInterface:
+		return "interface"
+	default:
+		return "unknown"
+	}
+}
+
+// ResourceRef identifies one unavailable resource. ID is validated and
+// bounded by the adapter that owns the resource namespace.
+type ResourceRef struct {
+	Kind ResourceKind
+	ID   string
+}
+
+// ResourceUnavailableError carries typed retry context for one resource.
+// It is transient diagnostic data and must not be promoted into metric labels
+// or durable status.
+type ResourceUnavailableError struct {
+	resource ResourceRef
+}
+
+// NewResourceUnavailableError validates resource and creates a typed
+// unavailable-resource error. Malformed references return a permanent error.
+func NewResourceUnavailableError(resource ResourceRef) error {
+	if !validResourceRef(resource) {
+		return fmt.Errorf("validate unavailable resource reference: %w", ErrInvalidResourceRef)
+	}
+	return &ResourceUnavailableError{resource: resource}
+}
+
+// Error implements error.
+func (e *ResourceUnavailableError) Error() string {
+	if e == nil || !validResourceRef(e.resource) {
+		return ErrInvalidResourceRef.Error()
+	}
+	return fmt.Sprintf("%s %q: %v", e.resource.Kind, e.resource.ID, ErrResourceUnavailable)
+}
+
+// Unwrap exposes the stable unavailable-resource sentinel.
+func (e *ResourceUnavailableError) Unwrap() error {
+	if e == nil || !validResourceRef(e.resource) {
+		return ErrInvalidResourceRef
+	}
+	return ErrResourceUnavailable
+}
+
+// Resource returns the bounded typed resource identity.
+func (e *ResourceUnavailableError) Resource() ResourceRef {
+	if e == nil {
+		return ResourceRef{}
+	}
+	return e.resource
+}
+
+// UnavailableResource classifies a typed unavailable-resource error through
+// arbitrary wrapping. Malformed or permanent errors are not classified.
+func UnavailableResource(err error) (ResourceRef, bool) {
+	var unavailableErr *ResourceUnavailableError
+	if !errors.As(err, &unavailableErr) || unavailableErr == nil {
+		return ResourceRef{}, false
+	}
+	resource := unavailableErr.Resource()
+	if !validResourceRef(resource) {
+		return ResourceRef{}, false
+	}
+	return resource, true
+}
+
+func validResourceRef(resource ResourceRef) bool {
+	return resource.Kind == ResourceKindInterface &&
+		resource.ID != "" &&
+		len(resource.ID) <= MaxResourceIDLen &&
+		!strings.ContainsRune(resource.ID, 0)
+}
 
 // ReconcileErrorCode is a closed, bounded classification of one failed
 // reconciliation operation. Callers may persist or label the code, but must
