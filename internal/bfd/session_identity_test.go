@@ -110,9 +110,10 @@ func TestSessionOwnersAreTypedComparableClaims(t *testing.T) {
 	claims := map[SessionOwner]struct{}{
 		configSessionOwner():           {},
 		compatibilityAPISessionOwner(): {},
+		unsolicitedSessionOwner():      {},
 	}
-	if got := len(claims); got != 2 {
-		t.Fatalf("typed owner claims = %d, want 2", got)
+	if got := len(claims); got != 3 {
+		t.Fatalf("typed owner claims = %d, want 3", got)
 	}
 	if configSessionOwner().Source != SessionOwnerSourceConfig {
 		t.Errorf("config owner source = %d, want %d",
@@ -121,5 +122,9 @@ func TestSessionOwnersAreTypedComparableClaims(t *testing.T) {
 	if compatibilityAPISessionOwner().Source != SessionOwnerSourceCompatibilityAPI {
 		t.Errorf("compatibility owner source = %d, want %d",
 			compatibilityAPISessionOwner().Source, SessionOwnerSourceCompatibilityAPI)
+	}
+	if unsolicitedSessionOwner().Source != SessionOwnerSourceUnsolicited {
+		t.Errorf("unsolicited owner source = %d, want %d",
+			unsolicitedSessionOwner().Source, SessionOwnerSourceUnsolicited)
 	}
 }

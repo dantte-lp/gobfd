@@ -4,10 +4,12 @@ import (
 	"crypto/md5" // #nosec G501 -- MD5 is required by RFC 5880 Section 6.7.3.
 	"crypto/rand"
 	"crypto/sha1" // #nosec G505 -- SHA-1 is required by RFC 5880 Section 6.7.4.
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // -------------------------------------------------------------------------
@@ -56,6 +58,10 @@ var (
 	// ErrAuthWireMissing indicates raw wire bytes were not provided for
 	// digest verification.
 	ErrAuthWireMissing = errors.New("auth wire bytes missing")
+
+	// ErrAuthKeyStoreIdentityUnavailable indicates an AuthKeyStore does not
+	// expose the immutable package-owned identity required for shared claims.
+	ErrAuthKeyStoreIdentityUnavailable = errors.New("auth key store has no stable effective identity")
 )
 
 // -------------------------------------------------------------------------
@@ -93,8 +99,9 @@ type AuthKeyStore interface {
 // StaticAuthKeyStore is an in-memory AuthKeyStore with one selected
 // transmit key and optional additional receive keys for rotation.
 type StaticAuthKeyStore struct {
-	keys       map[uint8]AuthKey
-	currentKey AuthKey
+	keys        map[uint8]AuthKey
+	currentKey  AuthKey
+	fingerprint authKeyStoreFingerprint
 }
 
 // NewStaticAuthKeyStore creates a key store for a session. The current key is
@@ -104,19 +111,68 @@ func NewStaticAuthKeyStore(current AuthKey, additional ...AuthKey) (*StaticAuthK
 		return nil, err
 	}
 
+	current = cloneAuthKey(current)
 	keys := make(map[uint8]AuthKey, 1+len(additional))
 	keys[current.ID] = current
 	for _, key := range additional {
 		if err := validateAuthKey(key); err != nil {
 			return nil, err
 		}
+		key = cloneAuthKey(key)
 		keys[key.ID] = key
 	}
 
 	return &StaticAuthKeyStore{
-		keys:       keys,
-		currentKey: current,
+		keys:        keys,
+		currentKey:  current,
+		fingerprint: fingerprintAuthKeys(current, keys),
 	}, nil
+}
+
+type authKeyStoreFingerprint [sha256.Size]byte
+
+// effectiveAuthKeyStore is intentionally package-private: only stores whose
+// construction-time semantics GoBFD owns may participate in shared claims.
+type effectiveAuthKeyStore interface {
+	effectiveAuthKeyStoreFingerprint() authKeyStoreFingerprint
+}
+
+func (s *StaticAuthKeyStore) effectiveAuthKeyStoreFingerprint() authKeyStoreFingerprint {
+	return s.fingerprint
+}
+
+func cloneAuthKey(key AuthKey) AuthKey {
+	key.Secret = slices.Clone(key.Secret)
+	return key
+}
+
+func fingerprintAuthKeys(
+	current AuthKey,
+	keys map[uint8]AuthKey,
+) authKeyStoreFingerprint {
+	ids := make([]uint8, 0, len(keys))
+	for id := range keys {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	material := make([]byte, 0, len("gobfd-effective-auth-v1")+sha256.Size*(1+len(ids)))
+	material = append(material, "gobfd-effective-auth-v1"...)
+	currentFingerprint := fingerprintAuthKey(current)
+	material = append(material, currentFingerprint[:]...)
+	for _, id := range ids {
+		fingerprint := fingerprintAuthKey(keys[id])
+		material = append(material, fingerprint[:]...)
+	}
+
+	return authKeyStoreFingerprint(sha256.Sum256(material))
+}
+
+func fingerprintAuthKey(key AuthKey) [sha256.Size]byte {
+	material := make([]byte, 0, 2+len(key.Secret))
+	material = append(material, key.ID, byte(key.Type))
+	material = append(material, key.Secret...)
+	return sha256.Sum256(material)
 }
 
 // LookupKey returns the key with the given ID.

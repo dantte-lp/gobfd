@@ -234,6 +234,11 @@ type Manager struct {
 	// Each group tracks the aggregate state of per-member-link BFD sessions.
 	microGroups map[string]*MicroBFDGroup
 
+	// ownershipMu serializes complete source-ownership operations. Public
+	// ownership mutations acquire it before mu so multi-step reconciliation
+	// cannot interleave with another claim or release.
+	ownershipMu sync.Mutex
+
 	mu sync.RWMutex
 
 	discriminators *DiscriminatorAllocator
@@ -276,7 +281,7 @@ type sessionEntry struct {
 	cancel      context.CancelFunc
 	key         SessionKey
 	demuxKey    packetDemuxKey
-	config      SessionConfig
+	effective   effectiveSessionConfig
 	owners      map[SessionOwner]struct{}
 	unsolicited bool
 }
@@ -446,7 +451,10 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 	}()
 }
 
-func (m *Manager) cleanupUnsolicitedSession(ctx context.Context, localDiscr uint32) {
+func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32) {
+	m.ownershipMu.Lock()
+	defer m.ownershipMu.Unlock()
+
 	m.mu.RLock()
 	entry, ok := m.sessions[localDiscr]
 	if !ok || !entry.unsolicited || entry.session.State() != StateDown {
@@ -456,7 +464,10 @@ func (m *Manager) cleanupUnsolicitedSession(ctx context.Context, localDiscr uint
 	peer := entry.session.PeerAddr()
 	m.mu.RUnlock()
 
-	if err := m.DestroySession(ctx, localDiscr); err != nil {
+	wireDestroyed, err := m.releaseSessionClaimByDiscriminator(
+		localDiscr, unsolicitedSessionOwner(),
+	)
+	if err != nil {
 		m.logger.Debug("unsolicited cleanup skipped",
 			slog.Uint64("local_discr", uint64(localDiscr)),
 			slog.String("peer", peer.String()),
@@ -464,9 +475,10 @@ func (m *Manager) cleanupUnsolicitedSession(ctx context.Context, localDiscr uint
 		)
 		return
 	}
-	m.logger.Info("unsolicited session cleaned up",
+	m.logger.Info("unsolicited claim cleaned up",
 		slog.Uint64("local_discr", uint64(localDiscr)),
 		slog.String("peer", peer.String()),
+		slog.Bool("wire_destroyed", wireDestroyed),
 	)
 }
 
@@ -499,6 +511,9 @@ func (m *Manager) DrainAllSessions() {
 // After Close returns, no new sessions can be created and the StateChanges
 // channel should no longer be read.
 func (m *Manager) Close() {
+	m.ownershipMu.Lock()
+	defer m.ownershipMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

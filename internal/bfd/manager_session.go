@@ -21,6 +21,9 @@ func (m *Manager) CreateSession(
 	cfg SessionConfig,
 	sender PacketSender,
 ) (*Session, error) {
+	m.ownershipMu.Lock()
+	defer m.ownershipMu.Unlock()
+
 	sess, _, err := m.claimSession(
 		ctx, canonicalSessionConfig(cfg), sender, compatibilityAPISessionOwner(), false,
 	)
@@ -39,8 +42,12 @@ func (m *Manager) claimSession(
 		return nil, false, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 	cfg = canonicalSessionConfig(cfg)
+	effective, err := normalizeEffectiveSessionConfig(cfg)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
 
-	if sess, found, claimErr := m.claimExisting(key, cfg, owner, idempotent); found {
+	if sess, found, claimErr := m.claimExisting(key, effective, owner, idempotent); found {
 		return sess, false, claimErr
 	}
 
@@ -50,7 +57,7 @@ func (m *Manager) claimSession(
 	}
 
 	registered, created, err := m.registerAndStart(
-		ctx, key, cfg, owner, idempotent, discr, sess,
+		ctx, key, cfg, effective, owner, idempotent, discr, sess,
 	)
 	if !created {
 		m.discriminators.Release(discr)
@@ -67,7 +74,7 @@ func (m *Manager) claimSession(
 
 func (m *Manager) claimExisting(
 	key SessionKey,
-	cfg SessionConfig,
+	effective effectiveSessionConfig,
 	owner SessionOwner,
 	idempotent bool,
 ) (*Session, bool, error) {
@@ -78,7 +85,7 @@ func (m *Manager) claimExisting(
 	if !exists {
 		return nil, false, nil
 	}
-	if !effectiveSessionConfigsEqual(entry.config, cfg) {
+	if entry.effective != effective {
 		return nil, true, fmt.Errorf("claim session %+v for owner %+v: %w",
 			key, owner, ErrSessionParameterConflict)
 	}
@@ -123,6 +130,7 @@ func (m *Manager) registerAndStart(
 	ctx context.Context,
 	key SessionKey,
 	cfg SessionConfig,
+	effective effectiveSessionConfig,
 	owner SessionOwner,
 	idempotent bool,
 	discr uint32,
@@ -136,7 +144,7 @@ func (m *Manager) registerAndStart(
 
 	m.mu.Lock()
 	if entry, exists := m.sessionsByKey[key]; exists {
-		if !effectiveSessionConfigsEqual(entry.config, cfg) {
+		if entry.effective != effective {
 			m.mu.Unlock()
 			return nil, false, fmt.Errorf("claim session %+v for owner %+v: %w",
 				key, owner, ErrSessionParameterConflict)
@@ -162,11 +170,11 @@ func (m *Manager) registerAndStart(
 	}
 
 	entry := &sessionEntry{
-		session:  sess,
-		key:      key,
-		demuxKey: demuxKey,
-		config:   cfg,
-		owners:   map[SessionOwner]struct{}{owner: {}},
+		session:   sess,
+		key:       key,
+		demuxKey:  demuxKey,
+		effective: effective,
+		owners:    map[SessionOwner]struct{}{owner: {}},
 	}
 	// Decouple session lifetime from the parent context so that SIGTERM
 	// does not immediately cancel sessions. Graceful shutdown first sets
@@ -211,6 +219,9 @@ func (m *Manager) logSessionCreated(cfg SessionConfig, discr uint32) {
 //
 // Returns ErrSessionNotFound if no session exists with the given discriminator.
 func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
+	m.ownershipMu.Lock()
+	defer m.ownershipMu.Unlock()
+
 	_, err := m.releaseSessionClaimByDiscriminator(localDiscr, compatibilityAPISessionOwner())
 	return err
 }
@@ -233,6 +244,12 @@ func (m *Manager) releaseSessionClaimByDiscriminator(
 		return false, fmt.Errorf("release session %d for owner %+v: %w",
 			localDiscr, owner, ErrSessionOwnerClaimNotFound)
 	}
+	if owner.Source == SessionOwnerSourceUnsolicited {
+		entry.unsolicited = false
+		if m.unsolicited != nil {
+			m.unsolicited.release()
+		}
+	}
 	if len(entry.owners) > 1 {
 		delete(entry.owners, owner)
 		m.mu.Unlock()
@@ -250,10 +267,6 @@ func (m *Manager) releaseSessionClaimByDiscriminator(
 }
 
 func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
-	if entry.unsolicited && m.unsolicited != nil {
-		m.unsolicited.release()
-	}
-
 	// Cancel session goroutine (outside lock to avoid holding lock during
 	// goroutine teardown).
 	entry.cancel()
@@ -455,6 +468,9 @@ func (m *Manager) tryCreateUnsolicited(
 	meta PacketMeta,
 	wire []byte,
 ) error {
+	m.ownershipMu.Lock()
+	defer m.ownershipMu.Unlock()
+
 	// RFC 9468 Section 6.1: unsolicited BFD is single-hop only.
 	// Multi-hop packets arrive on port 4784; single-hop on 3784.
 	// We use the interface name as a proxy: multi-hop sessions have no interface.
@@ -481,13 +497,16 @@ func (m *Manager) tryCreateUnsolicited(
 
 	sender := m.unsolicitedSender
 	if sender == nil {
+		m.unsolicited.release()
 		return fmt.Errorf(
 			"unsolicited: no sender configured for peer %s: %w",
 			meta.SrcAddr, ErrUnsolicitedDisabled,
 		)
 	}
 
-	sess, err := m.CreateSession(context.Background(), cfg, sender)
+	sess, _, err := m.claimSession(
+		context.Background(), cfg, sender, unsolicitedSessionOwner(), false,
+	)
 	if err != nil {
 		m.unsolicited.release()
 		return fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
@@ -634,6 +653,9 @@ func (m *Manager) ReconcileSessions(
 	ctx context.Context,
 	desired []ReconcileConfig,
 ) (int, int, error) {
+	m.ownershipMu.Lock()
+	defer m.ownershipMu.Unlock()
+
 	desiredByKey, desiredOrder, err := compileReconcileConfigs(desired)
 	if err != nil {
 		return 0, 0, err
@@ -656,10 +678,15 @@ func (m *Manager) ReconcileSessions(
 	return created, destroyed, err
 }
 
+type reconcileCandidate struct {
+	config    ReconcileConfig
+	effective effectiveSessionConfig
+}
+
 func compileReconcileConfigs(
 	desired []ReconcileConfig,
-) (map[SessionKey]ReconcileConfig, []SessionKey, error) {
-	desiredByKey := make(map[SessionKey]ReconcileConfig, len(desired))
+) (map[SessionKey]reconcileCandidate, []SessionKey, error) {
+	desiredByKey := make(map[SessionKey]reconcileCandidate, len(desired))
 	desiredOrder := make([]SessionKey, 0, len(desired))
 	for _, rc := range desired {
 		rc.SessionConfig = canonicalSessionConfig(rc.SessionConfig)
@@ -667,21 +694,25 @@ func compileReconcileConfigs(
 		if err != nil {
 			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
 		}
+		effective, err := normalizeEffectiveSessionConfig(rc.SessionConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
+		}
 		if previous, exists := desiredByKey[key]; exists {
-			if !effectiveSessionConfigsEqual(previous.SessionConfig, rc.SessionConfig) {
+			if previous.effective != effective {
 				return nil, nil, fmt.Errorf("reconcile duplicate session %+v: %w",
 					key, ErrSessionParameterConflict)
 			}
 			continue
 		}
-		desiredByKey[key] = rc
+		desiredByKey[key] = reconcileCandidate{config: rc, effective: effective}
 		desiredOrder = append(desiredOrder, key)
 	}
 	return desiredByKey, desiredOrder, nil
 }
 
 func (m *Manager) configClaimSnapshot(
-	desiredByKey map[SessionKey]ReconcileConfig,
+	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
 ) (map[SessionKey]uint32, error) {
 	m.mu.RLock()
@@ -698,7 +729,7 @@ func (m *Manager) configClaimSnapshot(
 		if !exists {
 			continue
 		}
-		if !effectiveSessionConfigsEqual(entry.config, desiredByKey[key].SessionConfig) {
+		if entry.effective != desiredByKey[key].effective {
 			return nil, fmt.Errorf("reconcile session %+v: %w",
 				key, ErrSessionParameterConflict)
 		}
@@ -707,7 +738,7 @@ func (m *Manager) configClaimSnapshot(
 }
 
 func (m *Manager) releaseStaleConfigClaims(
-	desiredByKey map[SessionKey]ReconcileConfig,
+	desiredByKey map[SessionKey]reconcileCandidate,
 	currentConfigClaims map[SessionKey]uint32,
 ) (int, []error) {
 	var destroyed int
@@ -736,13 +767,13 @@ func (m *Manager) releaseStaleConfigClaims(
 
 func (m *Manager) claimDesiredConfigSessions(
 	ctx context.Context,
-	desiredByKey map[SessionKey]ReconcileConfig,
+	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
 ) (int, []error) {
 	var created int
 	var errs []error
 	for _, key := range desiredOrder {
-		rc := desiredByKey[key]
+		rc := desiredByKey[key].config
 
 		m.logger.Info("reconcile: claiming desired config session",
 			slog.Any("key", key),

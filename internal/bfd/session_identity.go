@@ -3,7 +3,7 @@ package bfd
 import (
 	"fmt"
 	"net/netip"
-	"reflect"
+	"time"
 )
 
 // AddressFamily identifies the canonical address family of a BFD session.
@@ -68,6 +68,9 @@ const (
 
 	// SessionOwnerSourceCompatibilityAPI is the existing CreateSession API.
 	SessionOwnerSourceCompatibilityAPI
+
+	// SessionOwnerSourceUnsolicited is an RFC 9468 dynamically learned claim.
+	SessionOwnerSourceUnsolicited
 )
 
 // SessionOwner identifies one source-scoped claim. ID permits future sources
@@ -88,6 +91,13 @@ func compatibilityAPISessionOwner() SessionOwner {
 	return SessionOwner{
 		Source: SessionOwnerSourceCompatibilityAPI,
 		ID:     "compatibility",
+	}
+}
+
+func unsolicitedSessionOwner() SessionOwner {
+	return SessionOwner{
+		Source: SessionOwnerSourceUnsolicited,
+		ID:     "unsolicited",
 	}
 }
 
@@ -129,6 +139,39 @@ func sessionKeyFromConfig(cfg SessionConfig) (SessionKey, error) {
 	}, nil
 }
 
-func effectiveSessionConfigsEqual(a, b SessionConfig) bool {
-	return reflect.DeepEqual(canonicalSessionConfig(a), canonicalSessionConfig(b))
+type effectiveSessionConfig struct {
+	Role                  SessionRole
+	DesiredMinTxInterval  time.Duration
+	RequiredMinRxInterval time.Duration
+	DetectMultiplier      uint8
+	PaddedPduSize         uint16
+	AuthType              AuthType
+	AuthKeys              authKeyStoreFingerprint
+}
+
+func normalizeEffectiveSessionConfig(cfg SessionConfig) (effectiveSessionConfig, error) {
+	effective := effectiveSessionConfig{
+		Role:                  cfg.Role,
+		DesiredMinTxInterval:  cfg.DesiredMinTxInterval,
+		RequiredMinRxInterval: cfg.RequiredMinRxInterval,
+		DetectMultiplier:      cfg.DetectMultiplier,
+		PaddedPduSize:         cfg.PaddedPduSize,
+	}
+	if cfg.Auth == nil {
+		return effective, nil
+	}
+
+	authType, ok := authenticatorType(cfg.Auth)
+	if !ok {
+		return effectiveSessionConfig{}, fmt.Errorf("normalize authenticator %T: %w",
+			cfg.Auth, ErrAuthTypeMismatch)
+	}
+	store, ok := cfg.AuthKeys.(effectiveAuthKeyStore)
+	if !ok {
+		return effectiveSessionConfig{}, fmt.Errorf("normalize auth key store %T: %w",
+			cfg.AuthKeys, ErrAuthKeyStoreIdentityUnavailable)
+	}
+	effective.AuthType = authType
+	effective.AuthKeys = store.effectiveAuthKeyStoreFingerprint()
+	return effective, nil
 }

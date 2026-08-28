@@ -1108,7 +1108,7 @@ func TestManagerDrainAllSessions(t *testing.T) {
 	})
 }
 
-func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
+func TestManagerDestroyDoesNotReleaseUnsolicitedClaim(t *testing.T) {
 	t.Parallel()
 
 	policy := &bfd.UnsolicitedPolicy{
@@ -1150,15 +1150,22 @@ func TestManagerDestroyUnsolicitedSessionReleasesQuota(t *testing.T) {
 	if len(snapshots) != 1 {
 		t.Fatalf("sessions after first create = %d, want 1", len(snapshots))
 	}
-	if err := mgr.DestroySession(context.Background(), snapshots[0].LocalDiscr); err != nil {
-		t.Fatalf("destroy first unsolicited session: %v", err)
+	if err := mgr.DestroySession(context.Background(), snapshots[0].LocalDiscr); !errors.Is(
+		err, bfd.ErrSessionOwnerClaimNotFound,
+	) {
+		t.Fatalf("DestroySession error = %v, want ErrSessionOwnerClaimNotFound", err)
+	}
+	if got := mgr.Sessions(); len(got) != 1 || got[0].LocalDiscr != snapshots[0].LocalDiscr {
+		t.Fatalf("sessions after API destroy attempt = %+v, want unsolicited session preserved", got)
 	}
 
 	second := makeUnsolicitedControlPacket(200)
 	secondMeta := firstMeta
 	secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.11")
-	if err := mgr.DemuxWithWire(second, secondMeta, nil); err != nil {
-		t.Fatalf("create second unsolicited session after destroy: %v", err)
+	if err := mgr.DemuxWithWire(second, secondMeta, nil); !errors.Is(
+		err, bfd.ErrUnsolicitedMaxSessions,
+	) {
+		t.Fatalf("second unsolicited error = %v, want ErrUnsolicitedMaxSessions", err)
 	}
 }
 
