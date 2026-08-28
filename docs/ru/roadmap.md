@@ -106,7 +106,11 @@ API source port и явные non-owning leases для общих overlay и uns
 transports. C01.3b добавляет lifecycle Manager Open/Closing/Closed, fail-closed
 gates для мутаций и подписок, ожидание зарегистрированных goroutines, точное
 закрытие notification channels и sender callbacks после завершения session и
-вне locks Manager. Он не завершает C01 или SIGHUP reload. Замена
+вне locks Manager. Он также охватывает echo reconciliation и CRUD/reconciliation
+Micro-BFD groups как одну top-level lifecycle operation. Рекурсивный blocking
+Close из synchronous release callback требует явного API design, который
+отслеживается в `gobfd-qj0.8.2.2.5.1`; остальные Manager APIs callback может
+безопасно вызывать повторно. Он не завершает C01 или SIGHUP reload. Замена
 listeners/backends, стабильные owners отдельных groups/tunnels, generations,
 согласование Poll/Final, transport-aware demultiplexing и аутентифицированные
 API principals остаются открытыми.

@@ -107,6 +107,10 @@ non-owning leases for shared overlay and unsolicited transports. C01.3b adds
 the Open/Closing/Closed Manager lifecycle, fail-closed mutation and
 subscription gates, registered goroutine waits, exact notification-channel
 closure, and sender callbacks after session exit and outside Manager locks. It
+also gates echo reconciliation and Micro-BFD group CRUD/reconciliation as one
+top-level lifecycle operation. Recursive blocking Close from a synchronous
+release callback requires the explicit API design tracked by
+`gobfd-qj0.8.2.2.5.1`; callbacks may otherwise reenter Manager APIs safely. It
 does not complete C01 or SIGHUP reload. Listener/backend replacement, stable
 per-group/per-tunnel owners, generations, Poll/Final negotiation,
 transport-aware demultiplexing, and authenticated API principals remain open.

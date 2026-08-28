@@ -274,7 +274,20 @@ Manager.
 goroutines. Callback освобождения sender выполняется только после завершения
 соответствующей session goroutine и без обоих locks; после него по порядку
 освобождаются discriminator и регистрация metrics. Конкурентные вызовы Close
-ожидают один и тот же результат shutdown.
+ожидают один и тот же результат shutdown. Callback освобождения может вызывать
+snapshot APIs Manager и пытаться выполнить mutation APIs, которые возвращают
+`ErrManagerClosing`. Он не должен рекурсивно вызывать блокирующий
+`Manager.Close()`: synchronous callback входит в завершение того же Close,
+поэтому два вызова будут ожидать друг друга. Явный recursive-safe callback или
+асинхронный shutdown API отложен в `gobfd-qj0.8.2.2.5.1`, чтобы не ослаблять
+семантику конкурентных Close.
+
+Lifecycle gate охватывает создание и удаление control- и echo-sessions,
+reconciliation control- и echo-sessions, создание, удаление и reconciliation
+Micro-BFD groups, unsolicited claims и регистрацию subscriptions. Каждая
+top-level reconciliation удерживает одну lifecycle operation и вызывает
+внутренние helpers без дополнительного gate, предотвращая nested read-lock
+deadlock, когда Close уже ожидает write-side lifecycle transition.
 
 ```mermaid
 graph TB
