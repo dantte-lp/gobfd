@@ -180,14 +180,20 @@ func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
 	}
 }
 
-func TestUVInstallerRequiresHTTPSAcrossRedirects(t *testing.T) {
+func TestUVBootstrapPinsActionVersionAndChecksum(t *testing.T) {
 	t.Parallel()
 
-	installer := readContractFile(t, "../.github/scripts/install-uv.sh")
-	requireContractStrings(t, "uv installer", installer, []string{
-		"--proto '=https'",
-		"--proto-redir '=https'",
+	workflow := readContractFile(t, "../.github/workflows/ci.yml")
+	requireContractStrings(t, "uv bootstrap", workflow, []string{
+		"astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0",
+		`version: "0.12.6"`,
+		`checksum: "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477"`,
+		"download-from-astral-mirror: false",
+		"enable-cache: false",
 	})
+	if _, err := os.Lstat("../.github/scripts/install-uv.sh"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("legacy uv installer still exists: %v", err)
+	}
 }
 
 func requireContractStrings(t *testing.T, surface string, content string, required []string) {

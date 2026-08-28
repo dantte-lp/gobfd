@@ -48,9 +48,6 @@ jobs:
         run: |
           go run ./test/cmd/toolbootstrap podman-runtime
           jq --version
-          .github/scripts/install-uv.sh
-          export PATH="$HOME/.local/bin:$PATH"
-          uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Test
         run: go test -buildvcs=false ./... -race -count=1
@@ -101,9 +98,17 @@ jobs:
         run: |
           go run ./test/cmd/toolbootstrap podman-runtime
           jq --version
-          .github/scripts/install-uv.sh
-          export PATH="$HOME/.local/bin:$PATH"
-          uv sync --frozen --no-build --no-default-groups --group quality
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.6"
+          checksum: "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477"
+          download-from-astral-mirror: false
+          enable-cache: false
+
+      - name: Sync report tools
+        run: uv sync --frozen --no-build --no-default-groups --group quality
 
       - name: Run tests with JUnit output
         run: |
