@@ -711,12 +711,21 @@ func TestManagerReconcileSessionsDestroysStale(t *testing.T) {
 		defer mgr.Close()
 
 		cfg := defaultManagerConfig()
-		_, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: cfg,
+				Sender:        noopSender{},
+			},
+		})
 		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
+			t.Fatalf("initial ReconcileSessions: %v", err)
+		}
+		if created != 1 || destroyed != 0 {
+			t.Fatalf("initial reconcile = (%d created, %d destroyed), want (1, 0)", created, destroyed)
 		}
 
-		// Reconcile with empty desired set: existing session should be destroyed.
+		// Reconcile with empty desired set: the config-owned session should be destroyed.
 		created, destroyed, reconcileErr := mgr.ReconcileSessions(
 			context.Background(), nil,
 		)
@@ -735,6 +744,237 @@ func TestManagerReconcileSessionsDestroysStale(t *testing.T) {
 		}
 
 		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+func TestManagerConfigAndCompatibilityAPIClaimsShareSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: cfg,
+				Sender:        noopSender{},
+			},
+		})
+		if err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		if created != 1 || destroyed != 0 {
+			t.Fatalf("reconcile = (%d created, %d destroyed), want (1, 0)", created, destroyed)
+		}
+		original := mgr.Sessions()[0]
+
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession matching config claim: %v", err)
+		}
+		if sess.LocalDiscriminator() != original.LocalDiscr {
+			t.Errorf("compatibility API discriminator = %d, want shared %d",
+				sess.LocalDiscriminator(), original.LocalDiscr)
+		}
+		if got := len(mgr.Sessions()); got != 1 {
+			t.Errorf("wire sessions = %d, want 1", got)
+		}
+	})
+}
+
+func TestManagerReleaseCompatibilityAPIClaimPreservesConfigSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: cfg,
+				Sender:        noopSender{},
+			},
+		}); err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession matching config claim: %v", err)
+		}
+
+		if err := mgr.DestroySession(context.Background(), sess.LocalDiscriminator()); err != nil {
+			t.Fatalf("DestroySession: %v", err)
+		}
+		found, ok := mgr.LookupByDiscriminator(sess.LocalDiscriminator())
+		if !ok || found != sess {
+			t.Fatal("releasing compatibility API claim removed config-owned wire session")
+		}
+	})
+}
+
+func TestManagerConflictingClaimDoesNotMutateSession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: cfg,
+				Sender:        noopSender{},
+			},
+		}); err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		before := mgr.Sessions()[0]
+
+		conflict := cfg
+		conflict.DetectMultiplier++
+		_, err := mgr.CreateSession(context.Background(), conflict, noopSender{})
+		if err == nil {
+			t.Fatal("CreateSession conflicting claim succeeded")
+		}
+		if !errors.Is(err, bfd.ErrSessionParameterConflict) {
+			t.Fatalf("CreateSession conflict error = %v, want ErrSessionParameterConflict", err)
+		}
+
+		after := mgr.Sessions()
+		if len(after) != 1 {
+			t.Fatalf("wire sessions after conflict = %d, want 1", len(after))
+		}
+		if after[0].LocalDiscr != before.LocalDiscr ||
+			after[0].DetectMultiplier != before.DetectMultiplier {
+			t.Errorf("session mutated after conflict: before=%+v after=%+v", before, after[0])
+		}
+	})
+}
+
+func TestManagerReconcileConflictDoesNotReleaseExistingClaims(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg1 := defaultManagerConfig()
+		cfg2 := cfg1
+		cfg2.PeerAddr = netip.MustParseAddr("198.51.100.1")
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: cfg1,
+				Sender:        noopSender{},
+			},
+			{
+				Key:           "198.51.100.1|192.0.2.2|eth0",
+				SessionConfig: cfg2,
+				Sender:        noopSender{},
+			},
+		}); err != nil {
+			t.Fatalf("initial ReconcileSessions: %v", err)
+		}
+		before := mgr.Sessions()
+
+		conflict := cfg1
+		conflict.DetectMultiplier++
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: conflict,
+				Sender:        noopSender{},
+			},
+		})
+		if !errors.Is(err, bfd.ErrSessionParameterConflict) {
+			t.Fatalf("ReconcileSessions error = %v, want ErrSessionParameterConflict", err)
+		}
+		if created != 0 || destroyed != 0 {
+			t.Errorf("conflicting reconcile = (%d created, %d destroyed), want (0, 0)",
+				created, destroyed)
+		}
+
+		after := mgr.Sessions()
+		if len(after) != len(before) {
+			t.Fatalf("wire sessions after conflict = %d, want %d", len(after), len(before))
+		}
+		beforeByDiscr := make(map[uint32]bfd.SessionSnapshot, len(before))
+		for _, snapshot := range before {
+			beforeByDiscr[snapshot.LocalDiscr] = snapshot
+		}
+		for _, snapshot := range after {
+			previous, ok := beforeByDiscr[snapshot.LocalDiscr]
+			if !ok {
+				t.Errorf("unexpected discriminator %d after conflict", snapshot.LocalDiscr)
+				continue
+			}
+			if snapshot.DetectMultiplier != previous.DetectMultiplier {
+				t.Errorf("session %d detect multiplier changed from %d to %d",
+					snapshot.LocalDiscr, previous.DetectMultiplier, snapshot.DetectMultiplier)
+			}
+		}
+	})
+}
+
+func TestManagerCanonicalizesMappedIPv4ClaimIdentity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		apiCfg := defaultManagerConfig()
+		apiCfg.PeerAddr = netip.MustParseAddr("::ffff:192.0.2.1")
+		apiCfg.LocalAddr = netip.MustParseAddr("::ffff:192.0.2.2")
+		sess, err := mgr.CreateSession(context.Background(), apiCfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		configCfg := defaultManagerConfig()
+		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
+			{
+				Key:           "192.0.2.1|192.0.2.2|eth0",
+				SessionConfig: configCfg,
+				Sender:        noopSender{},
+			},
+		})
+		if err != nil {
+			t.Fatalf("ReconcileSessions: %v", err)
+		}
+		if created != 0 || destroyed != 0 {
+			t.Errorf("reconcile = (%d created, %d destroyed), want shared (0, 0)", created, destroyed)
+		}
+		if got := mgr.Sessions(); len(got) != 1 || got[0].LocalDiscr != sess.LocalDiscriminator() {
+			t.Errorf("canonical IPv4 claims did not share wire session: %+v", got)
+		}
+	})
+}
+
+func TestManagerEmptyConfigReconcilePreservesCompatibilityAPISession(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newTestManager(t)
+		defer mgr.Close()
+
+		cfg := defaultManagerConfig()
+		sess, err := mgr.CreateSession(context.Background(), cfg, noopSender{})
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+
+		created, destroyed, reconcileErr := mgr.ReconcileSessions(context.Background(), nil)
+		if reconcileErr != nil {
+			t.Fatalf("ReconcileSessions: %v", reconcileErr)
+		}
+		if created != 0 {
+			t.Errorf("created = %d, want 0", created)
+		}
+		if destroyed != 0 {
+			t.Errorf("destroyed = %d, want 0", destroyed)
+		}
+
+		found, ok := mgr.LookupByDiscriminator(sess.LocalDiscriminator())
+		if !ok {
+			t.Fatal("compatibility API session removed by empty config reconciliation")
+		}
+		if found != sess {
+			t.Error("compatibility API session pointer changed after reconciliation")
+		}
 	})
 }
 

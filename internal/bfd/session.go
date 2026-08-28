@@ -103,6 +103,14 @@ type SessionConfig struct {
 	// Type distinguishes single-hop (RFC 5881) from multi-hop (RFC 5883).
 	Type SessionType
 
+	// NetworkScope identifies the process network namespace. The empty value
+	// is the current process namespace.
+	NetworkScope string
+
+	// TransportScope is the exact transport-specific identity. The zero value
+	// selects base BFD.
+	TransportScope TransportScope
+
 	// Role determines whether the session actively initiates or waits passively.
 	Role SessionRole
 

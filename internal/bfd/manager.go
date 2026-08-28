@@ -21,6 +21,14 @@ var (
 	// ErrDuplicateSession indicates a session already exists for the given peer key.
 	ErrDuplicateSession = errors.New("duplicate session for peer key")
 
+	// ErrSessionParameterConflict indicates matching ownership claims requested
+	// different effective parameters for one canonical wire session.
+	ErrSessionParameterConflict = errors.New("conflicting effective session parameters")
+
+	// ErrSessionOwnerClaimNotFound indicates a source attempted to release a
+	// session without owning a claim on it.
+	ErrSessionOwnerClaimNotFound = errors.New("session owner claim not found")
+
 	// ErrDemuxNoMatch indicates no session matched the incoming packet during
 	// demultiplexing (RFC 5880 Section 6.8.6).
 	ErrDemuxNoMatch = errors.New("no matching session for incoming packet")
@@ -73,15 +81,15 @@ type PacketMeta struct {
 }
 
 // -------------------------------------------------------------------------
-// Session Key — peer identity for initial demultiplexing
+// Packet Demux Key — peer identity for initial demultiplexing
 // -------------------------------------------------------------------------
 
-// sessionKey is the composite key for initial session demultiplexing when
+// packetDemuxKey is the composite key for initial session demultiplexing when
 // Your Discriminator is zero (RFC 5880 Section 6.8.6).
 //
 // For single-hop (RFC 5881 Section 3): match by (PeerAddr, LocalAddr, IfName).
 // For multi-hop (RFC 5883): match by (PeerAddr, LocalAddr) — IfName is empty.
-type sessionKey struct {
+type packetDemuxKey struct {
 	peerAddr  netip.Addr
 	localAddr netip.Addr
 	ifName    string
@@ -213,7 +221,10 @@ type Manager struct {
 
 	// sessionsByPeer indexed by peer key for initial demux
 	// when Your Discriminator is zero.
-	sessionsByPeer map[sessionKey]*sessionEntry
+	sessionsByPeer map[packetDemuxKey]*sessionEntry
+
+	// sessionsByKey indexes wire sessions by canonical desired identity.
+	sessionsByKey map[SessionKey]*sessionEntry
 
 	// echoSessions indexed by local discriminator for echo demux.
 	// RFC 9747: echo packets are demultiplexed by MyDiscriminator on return.
@@ -263,7 +274,10 @@ type Manager struct {
 type sessionEntry struct {
 	session     *Session
 	cancel      context.CancelFunc
-	key         sessionKey
+	key         SessionKey
+	demuxKey    packetDemuxKey
+	config      SessionConfig
+	owners      map[SessionOwner]struct{}
 	unsolicited bool
 }
 
@@ -330,7 +344,8 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		sessions:       make(map[uint32]*sessionEntry),
-		sessionsByPeer: make(map[sessionKey]*sessionEntry),
+		sessionsByPeer: make(map[packetDemuxKey]*sessionEntry),
+		sessionsByKey:  make(map[SessionKey]*sessionEntry),
 		echoSessions:   make(map[uint32]*echoSessionEntry),
 		microGroups:    make(map[string]*MicroBFDGroup),
 		discriminators: NewDiscriminatorAllocator(),
@@ -499,7 +514,8 @@ func (m *Manager) Close() {
 
 	// Clear maps to prevent use-after-close.
 	m.sessions = make(map[uint32]*sessionEntry)
-	m.sessionsByPeer = make(map[sessionKey]*sessionEntry)
+	m.sessionsByPeer = make(map[packetDemuxKey]*sessionEntry)
+	m.sessionsByKey = make(map[SessionKey]*sessionEntry)
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
 
