@@ -12,9 +12,10 @@ The latest published GitHub release is
 [`v0.6.4`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.4). The immutable
 `v0.6.2` and `v0.6.3` tags remain unpublished failed cuts. The v0.6.4 product
 artifacts and cumulative notes are verified, and the accepted stable history
-and bilingual changelogs have reached `master`. Three pre-existing P1 review
-findings remain separately tracked in Beads. The protected `release/v0.6` line
-keeps GoBGP v3.37.0; v1 and GoBGP v4 development continues on `dev`.
+and bilingual changelogs have reached `master`. All independent v0.6 review
+findings are resolved and accepted; final local baseline qualification remains
+in progress. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and
+GoBGP v4 development continues on `dev`.
 
 ## Status key
 
@@ -26,14 +27,14 @@ keeps GoBGP v3.37.0; v1 and GoBGP v4 development continues on `dev`.
 
 ## v0.6 maintenance baseline
 
-Beads milestone: `gobfd-qj0.8.1` — **In progress**.
+Beads milestone: `gobfd-qj0.8.1` — **Open**.
 
 The protected `release/v0.6` branch keeps GoBGP v3.37.0 and the existing
 `bfd.v1` and YAML runtime contracts. It updates dependencies, tools, CI,
 reproducibility, documentation, and test infrastructure without adding BFD
 protocol behavior. The v0.6.4 tag, assets, and OCI images are verified, but the
-baseline remains **In progress** until P1 findings `gobfd-qj0.8.1.8.8`, `.8.9`,
-and `.8.10` are resolved and independently reviewed.
+baseline remains **In progress** until final qualification
+`gobfd-qj0.8.1.7` is accepted.
 
 | Delivery slice | Status |
 |---|---|
@@ -46,7 +47,7 @@ and `.8.10` are resolved and independently reviewed.
 | Debian trixie / Oracle Linux 10 image boundary | Done |
 | RFC and benchmark public-claim correction | Done |
 | Roadmap, Quick Start, architecture, and EN/RU parity | Done |
-| Independent review of all v0.6 slices and P0/P1 remediation | In progress |
+| Independent review of all v0.6 slices and P0/P1 remediation | Done |
 | Register the isolated `tools/go.mod` with Dependabot | Done |
 
 Release task `gobfd-qj0.8.1.15` is complete after correction: immutable
@@ -54,8 +55,9 @@ Release task `gobfd-qj0.8.1.15` is complete after correction: immutable
 assets and OCI indexes remain verified, and its body now covers v0.6.2-v0.6.4.
 PRs `#67` and `#68` delivered the accepted correction to `release/v0.6` and
 `master`; this `dev` history contains the separate forward-port. Qualification
-`gobfd-qj0.8.1.7` and independent review `gobfd-qj0.8.1.8` remain open on the
-three P1 findings above.
+`gobfd-qj0.8.1.7` is in progress; independent review
+`gobfd-qj0.8.1.8` is complete after all 13 child findings were resolved and
+accepted.
 
 ## Legacy S12 reconciliation
 
@@ -79,8 +81,8 @@ authoritative.
 
 ## v1.0.0 production contract
 
-Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on the accepted v0.6
-maintenance baseline after the v0.6.4 closeout and P1 findings are fixed**.
+Beads milestone: `gobfd-qj0.8.2` — **Open; blocked on final acceptance of the
+v0.6 maintenance baseline**.
 
 Development of the v1 product line, including the GoBGP v4 migration, occurs
 on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
