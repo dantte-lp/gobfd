@@ -22,4 +22,15 @@ func TestCheckInterfaceAvailableIsExplicitOnUnsupportedPlatforms(t *testing.T) {
 	if errors.Is(err, bfd.ErrResourceUnavailable) {
 		t.Fatalf("unsupported platform promoted to unavailable: %v", err)
 	}
+
+	pending, err := CheckInterfacesAvailable([]string{"", "en0", "en1"})
+	if pending != 0 {
+		t.Fatalf("unsupported batch pending claims = %d, want 0", pending)
+	}
+	if !errors.Is(err, ErrUnsupportedPlatform) {
+		t.Fatalf("unsupported batch error = %v, want ErrUnsupportedPlatform", err)
+	}
+	if errors.Is(err, bfd.ErrResourceUnavailable) {
+		t.Fatalf("unsupported batch promoted to unavailable: %v", err)
+	}
 }

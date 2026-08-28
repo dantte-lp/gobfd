@@ -22,9 +22,11 @@ const (
 )
 
 var (
-	errOverlayBackendUnavailable   = errors.New("overlay backend is not running")
-	errNilControlSessionCandidate  = errors.New("nil control-session candidate")
-	errUnknownReconciliationSource = errors.New("unknown reconciliation source")
+	errOverlayBackendUnavailable       = errors.New("overlay backend is not running")
+	errNilControlSessionCandidate      = errors.New("nil control-session candidate")
+	errUnknownReconciliationSource     = errors.New("unknown reconciliation source")
+	errInvalidInterfacePreflightResult = errors.New("invalid interface availability preflight result")
+	errMicroBFDMemberDependency        = errors.New("micro-BFD member source depends on incomplete group source")
 )
 
 type reconciliationSource uint8
@@ -133,6 +135,8 @@ type sourceApplyFunc func(
 	compiledControlSessionCandidate,
 ) sourceApplyResult
 
+type interfaceAvailabilityChecker func([]string) (int, error)
+
 // reconciliationCoordinator serializes complete six-source applies and
 // generation-scoped pending-source retries while publishing status through a
 // separately readable immutable value snapshot.
@@ -238,9 +242,22 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	}
 
 	receipt := generationReceipt{Generation: generation}
+	var sourceResults [sourceCount]sourceApplyResult
 	transientErrors := make([]error, 0, sourceCount)
 	for i, source := range reconciliationSources() {
-		result := applySource(ctx, source, workingCandidate)
+		var result sourceApplyResult
+		if source == sourceMicroMember {
+			var blocked bool
+			result, blocked = microMemberDependencyResult(
+				sourceResults[sourceMicroGroup], len(workingCandidate.microMembers),
+			)
+			if !blocked {
+				result = applySource(ctx, source, workingCandidate)
+			}
+		} else {
+			result = applySource(ctx, source, workingCandidate)
+		}
+		sourceResults[i] = result
 		receipt.Sources[i] = sourceReceipt{
 			Source: source, Created: result.Created, Released: result.Released,
 			Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
@@ -269,9 +286,12 @@ func (c *reconciliationCoordinator) retryPendingSources(
 		snapshot.LastReceipt.Generation != expectedGeneration {
 		return snapshot
 	}
+	selected = withMicroMemberRetryDependency(selected, snapshot.LastReceipt)
 
 	receipt := snapshot.LastReceipt
 	workingCandidate := cloneCompiledControlSessionCandidate(c.retainedCandidate)
+	var retryResults [sourceCount]sourceApplyResult
+	var sourceRetried [sourceCount]bool
 	transientErrors := make([]error, 0, sourceCount)
 	applied := false
 	for i, source := range reconciliationSources() {
@@ -279,12 +299,22 @@ func (c *reconciliationCoordinator) retryPendingSources(
 		if !selected.contains(source) || prior.Pending <= 0 || prior.Failed != 0 {
 			continue
 		}
-		result := applySource(ctx, source, workingCandidate)
-		receipt.Sources[i] = sourceReceipt{
-			Source:  source,
-			Created: prior.Created + result.Created, Released: prior.Released + result.Released,
-			Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
+		var result sourceApplyResult
+		if source == sourceMicroMember {
+			var retry bool
+			result, retry = retryMicroMemberSource(
+				ctx, workingCandidate, receipt.Sources[sourceMicroGroup],
+				sourceRetried[sourceMicroGroup], retryResults[sourceMicroGroup], applySource,
+			)
+			if !retry {
+				continue
+			}
+		} else {
+			result = applySource(ctx, source, workingCandidate)
 		}
+		retryResults[i] = result
+		sourceRetried[i] = true
+		receipt.Sources[i] = mergedSourceReceipt(source, prior, result)
 		if result.Err != nil {
 			transientErrors = append(transientErrors, result.Err)
 		}
@@ -295,6 +325,73 @@ func (c *reconciliationCoordinator) retryPendingSources(
 	}
 
 	return c.publishReceipt(receipt, errors.Join(transientErrors...))
+}
+
+func withMicroMemberRetryDependency(
+	selected reconciliationSourceMask,
+	receipt generationReceipt,
+) reconciliationSourceMask {
+	group := receipt.Sources[sourceMicroGroup]
+	member := receipt.Sources[sourceMicroMember]
+	if !selected.contains(sourceMicroGroup) || group.Pending <= 0 || group.Failed != 0 ||
+		member.Pending <= 0 || member.Failed != 0 {
+		return selected
+	}
+	return selected | sourceMask(sourceMicroMember)
+}
+
+func retryMicroMemberSource(
+	ctx context.Context,
+	candidate compiledControlSessionCandidate,
+	groupReceipt sourceReceipt,
+	groupRetried bool,
+	groupResult sourceApplyResult,
+	applySource sourceApplyFunc,
+) (sourceApplyResult, bool) {
+	if groupReceipt.Failed > 0 {
+		if !groupRetried {
+			return sourceApplyResult{}, false
+		}
+		result, _ := microMemberDependencyResult(groupResult, len(candidate.microMembers))
+		return result, true
+	}
+	if groupReceipt.Pending > 0 {
+		return sourceApplyResult{}, false
+	}
+	return applySource(ctx, sourceMicroMember, candidate), true
+}
+
+func mergedSourceReceipt(
+	source reconciliationSource,
+	prior sourceReceipt,
+	result sourceApplyResult,
+) sourceReceipt {
+	return sourceReceipt{
+		Source:  source,
+		Created: prior.Created + result.Created, Released: prior.Released + result.Released,
+		Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
+	}
+}
+
+func microMemberDependencyResult(
+	groupResult sourceApplyResult,
+	desiredMembers int,
+) (sourceApplyResult, bool) {
+	if groupResult.Failed > 0 {
+		cause := errors.Join(errMicroBFDMemberDependency, groupResult.Err)
+		return failedSourceResult(
+			bfd.ReconcileErrorLifecycle,
+			fmt.Errorf("gate Micro-BFD member reconciliation: %w", cause),
+		), true
+	}
+	if groupResult.Pending > 0 {
+		pendingMembers := max(1, desiredMembers)
+		return resourceErrorSourceResult(
+			pendingMembers,
+			fmt.Errorf("wait for Micro-BFD group reconciliation: %w", groupResult.Err),
+		), true
+	}
+	return sourceApplyResult{}, false
 }
 
 func (c *reconciliationCoordinator) publishReceipt(
@@ -461,6 +558,39 @@ func applyCompiledSource(
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) sourceApplyResult {
+	return applyCompiledSourceWithInterfaceChecker(
+		ctx, source, candidate, mgr, sf, logger, netio.CheckInterfacesAvailable,
+	)
+}
+
+func applyCompiledSourceWithInterfaceChecker(
+	ctx context.Context,
+	source reconciliationSource,
+	candidate compiledControlSessionCandidate,
+	mgr *bfd.Manager,
+	sf declarativeSenderFactory,
+	logger *slog.Logger,
+	checkInterfaces interfaceAvailabilityChecker,
+) sourceApplyResult {
+	dependencies := compiledSourceInterfaceDependencies(source, candidate)
+	if len(dependencies) != 0 {
+		pendingClaims, err := checkInterfaces(dependencies)
+		if pendingClaims < 0 || pendingClaims > len(dependencies) ||
+			(err == nil && pendingClaims != 0) {
+			return failedSourceResult(
+				bfd.ReconcileErrorCreate,
+				fmt.Errorf("preflight %s returned pending count %d for %d dependencies: %w",
+					source, pendingClaims, len(dependencies), errInvalidInterfacePreflightResult),
+			)
+		}
+		if err != nil {
+			return resourceErrorSourceResult(
+				pendingClaims,
+				fmt.Errorf("preflight %s interface dependencies: %w", source, err),
+			)
+		}
+	}
+
 	switch source {
 	case sourceBase:
 		return sourceResultFromBFD(applyBaseSessionCandidates(
@@ -486,6 +616,45 @@ func applyCompiledSource(
 			fmt.Errorf("reconciliation source %d: %w", source, errUnknownReconciliationSource),
 		)
 	}
+}
+
+func compiledSourceInterfaceDependencies(
+	source reconciliationSource,
+	candidate compiledControlSessionCandidate,
+) []string {
+	switch source {
+	case sourceBase:
+		return collectInterfaceDependencies(len(candidate.base), func(i int) string {
+			return candidate.base[i].config.Interface
+		})
+	case sourceEcho:
+		return collectInterfaceDependencies(len(candidate.echo), func(i int) string {
+			return candidate.echo[i].config.Interface
+		})
+	case sourceMicroGroup:
+		return collectInterfaceDependencies(len(candidate.microGroups), func(i int) string {
+			return candidate.microGroups[i].Config.LAGInterface
+		})
+	case sourceMicroMember:
+		return collectInterfaceDependencies(len(candidate.microMembers), func(i int) string {
+			return candidate.microMembers[i].member
+		})
+	case sourceVXLAN, sourceGeneve:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func collectInterfaceDependencies(count int, interfaceAt func(int) string) []string {
+	dependencies := make([]string, 0, count)
+	for i := range count {
+		ifName := interfaceAt(i)
+		if ifName != "" {
+			dependencies = append(dependencies, ifName)
+		}
+	}
+	return dependencies
 }
 
 func applyCompiledOverlay(
