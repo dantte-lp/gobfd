@@ -177,8 +177,17 @@ source compiler also validates its complete set before that adapter opens
 senders or mutates session ownership.
 
 A daemon-level coordinator serializes startup and SIGHUP compilation and apply.
-It publishes a monotonic desired generation only after the complete immutable
-candidate compiles. One receipt then records claim-level `created`, `released`,
+It retains a deep-copied startup-runtime contract. Every SIGHUP candidate is
+checked against that contract before candidate compilation or any generation,
+health, log-level, session, or resource mutation. Startup-owned server,
+listener, socket, policy, actuator, GoBGP, and overlay fields are rejected with
+bounded field identifiers; configuration values and secrets are not retained in
+the error. Desired-set membership changes may reuse startup-open listener and
+overlay capabilities, but cannot require a new binding; same-key effective
+parameter changes remain reconciliation conflicts rather than in-place updates.
+The coordinator publishes a
+monotonic desired generation only after that check and the complete immutable
+session candidate compiles. One receipt then records claim-level `created`, `released`,
 `pending`, and `failed` counts plus a bounded error-code histogram for exactly
 six sources: base, Echo, Micro-BFD group, Micro-BFD member, VXLAN, and Geneve.
 The applied generation advances only when every source converges. A partial

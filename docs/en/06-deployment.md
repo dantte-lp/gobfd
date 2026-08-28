@@ -151,7 +151,7 @@ Key features:
 |---|---|
 | `Type=notify` | Uses `sd_notify(READY)` for accurate readiness reporting |
 | `WatchdogSec=30s` | systemd watchdog -- daemon sends keepalives at 15s intervals |
-| `ExecReload` | SIGHUP triggers hot reload (log level + session reconciliation) |
+| `ExecReload` | SIGHUP reloads log level and reconciles session membership within startup-open transport bindings; startup-owned changes are rejected and require restart |
 | `Restart=on-failure` | Auto-restart on crash with 5s delay |
 | Security directives | Least-privilege with only `CAP_NET_RAW` and `CAP_NET_ADMIN` |
 

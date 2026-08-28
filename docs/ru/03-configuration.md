@@ -525,25 +525,48 @@ kill -HUP $(pidof gobfd)
 
 При перезагрузке:
 1. YAML-файл перечитывается и валидируется
-2. Под одним coordinator lock полный candidate sessions base, Echo, Micro-BFD
+2. Под одним coordinator lock candidate сверяется с неизменяемым контрактом
+   startup-runtime. Несовпадение отклоняется с ограниченным списком путей полей
+   до изменения generation, health, log level, sessions или ресурсов
+3. Полный candidate sessions base, Echo, Micro-BFD
    groups и members, VXLAN и Geneve компилируется и валидируется до создания
    sender или мутации Manager
-3. Публикуется новое desired generation, а gRPC health для пустого service
+4. Публикуется новое desired generation, а gRPC health для пустого service
    становится `NOT_SERVING`; невалидный candidate не меняет generations, health
    и log level
-4. После валидации уровень лога обновляется динамически; при последующей ошибке
+5. После валидации уровень лога обновляется динамически; при последующей ошибке
    source эта настройка не откатывается
-5. Source базовых сессий реконсилируется, включая пустой desired set
-6. Echo-пиры реконсилируются как изолированный по source desired set, включая
+6. Source базовых сессий реконсилируется, включая пустой desired set
+7. Echo-пиры реконсилируются как изолированный по source desired set, включая
    disabled или пустое состояние; sender leases лениво создаются только для
    новых принятых sessions
-7. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
+8. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
    desired sets
-8. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
+9. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
    desired sets
-9. Один aggregate receipt хранит ограниченные счётчики и коды ошибок всех шести
+10. Один aggregate receipt хранит ограниченные счётчики и коды ошибок всех шести
    sources. Applied продвигается до desired, а health пустого service становится
    `SERVING`, только если все шесть sources converged
+
+`log.level` применяется сразу после полной валидации candidate. Шесть desired
+sets реконсилируют membership sessions/groups: записи можно добавлять, удалять
+или re-key при повторном использовании control, Echo, Micro-BFD или overlay
+transport binding, открытого при startup. BFD defaults и per-entry timers,
+padding, authentication, peer и threshold values применяются при создании новой
+identity. Изменение effective parameters существующей same-key session или
+Micro-BFD group не является in-place update: reconciliation возвращает
+conflict, generation остаётся stale, а оператор должен удалить и затем добавить
+identity отдельными reload либо перезапустить процесс. Удаление последней записи
+или отключение source поддерживается.
+
+Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
+`unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,
+`vxlan.management_vni`, `geneve.backend`, `geneve.default_vni`, а также любая
+новая или re-keyed identity, которой нужен новый local address, interface,
+session type, overlay local binding или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
+пути полей, но не значения конфигурации или authentication secrets. Socket
+buffer values входят в startup-only границу, однако их runtime wiring
+отслеживается отдельно и здесь не заявляется.
 
 Base configuration, Echo, Micro-BFD members, VXLAN и Geneve используют
 раздельный ownership sources. Удаление последней записи одного source не

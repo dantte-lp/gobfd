@@ -170,7 +170,8 @@ bfd:
 #     half_life: "15s"
 
 # Declarative BFD sessions. Sessions defined here are created on startup
-# and reconciled on SIGHUP reload (new sessions added, removed sessions
+# and reconciled on SIGHUP reload within listener bindings opened at startup
+# (new sessions added only on an existing binding, removed sessions
 # destroyed, existing sessions left untouched).
 #
 # sessions:

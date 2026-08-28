@@ -20,7 +20,9 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 	t.Parallel()
 
 	checker := newDaemonHealthChecker()
-	coordinator := newReconciliationCoordinator(slog.New(slog.DiscardHandler), checker)
+	coordinator := newReconciliationCoordinator(
+		config.DefaultConfig(), slog.New(slog.DiscardHandler), checker,
+	)
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	level := new(slog.LevelVar)
@@ -71,9 +73,7 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 	assertNamedHealthServing(t, checker)
 
 	invalid := config.DefaultConfig()
-	invalid.Sessions = []config.SessionConfig{{
-		Peer: "not-an-address", Local: "127.0.0.1", Interface: "lo",
-	}}
+	invalid.Sessions = []config.SessionConfig{{Peer: "not-an-address"}}
 	if err := coordinator.reconcile(
 		context.Background(), invalid, mgr,
 		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, level,
@@ -93,9 +93,6 @@ func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
 
 	logs := new(lockedBuffer)
 	checker := newDaemonHealthChecker()
-	coordinator := newReconciliationCoordinator(
-		slog.New(slog.NewTextHandler(logs, nil)), checker,
-	)
 	mgr := bfd.NewManager(slog.New(slog.NewTextHandler(logs, nil)))
 	t.Cleanup(mgr.Close)
 	factory := newNthFailureDeclarativeSenderFactory(1)
@@ -105,6 +102,9 @@ func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
 	cfg.Sessions = []config.SessionConfig{{
 		Peer: "192.0.2.210", Local: "127.0.0.1", Interface: "lo",
 	}}
+	coordinator := newReconciliationCoordinator(
+		cfg, slog.New(slog.NewTextHandler(logs, nil)), checker,
+	)
 
 	if err := coordinator.reconcile(
 		context.Background(), cfg, mgr, factory, &overlayRuntime{}, level,
@@ -194,7 +194,9 @@ func TestReconciliationCoordinatorPreservesCompletedReceiptWhileNextApplyRuns(t 
 	t.Parallel()
 
 	checker := newDaemonHealthChecker()
-	coordinator := newReconciliationCoordinator(slog.New(slog.DiscardHandler), checker)
+	coordinator := newReconciliationCoordinator(
+		config.DefaultConfig(), slog.New(slog.DiscardHandler), checker,
+	)
 	first := coordinator.apply(
 		context.Background(),
 		func(_ context.Context, source reconciliationSource, _ compiledControlSessionCandidate) sourceApplyResult {
@@ -270,7 +272,9 @@ func TestReconciliationCoordinatorSerializesStartupBeforeReloadWholeSixSourceApp
 	t.Parallel()
 
 	checker := newDaemonHealthChecker()
-	coordinator := newReconciliationCoordinator(slog.New(slog.DiscardHandler), checker)
+	coordinator := newReconciliationCoordinator(
+		config.DefaultConfig(), slog.New(slog.DiscardHandler), checker,
+	)
 	firstEntered := make(chan struct{})
 	checkSerialization := make(chan struct{})
 	serializationChecked := make(chan bool, 1)
@@ -355,7 +359,6 @@ func TestReconciliationCoordinatorMissingOverlayBackendIsFailed(t *testing.T) {
 	t.Parallel()
 
 	checker := newDaemonHealthChecker()
-	coordinator := newReconciliationCoordinator(slog.New(slog.DiscardHandler), checker)
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	level := new(slog.LevelVar)
@@ -368,6 +371,7 @@ func TestReconciliationCoordinatorMissingOverlayBackendIsFailed(t *testing.T) {
 	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
 		Peer: "192.0.2.220", Local: "192.0.2.221",
 	}}
+	coordinator := newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), checker)
 
 	if err := coordinator.reconcile(
 		context.Background(), cfg, mgr,

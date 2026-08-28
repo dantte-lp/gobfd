@@ -253,13 +253,14 @@ func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
 	sf := newUDPSenderFactory()
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
+	cfg := duplicateMicroBFDConfig()
 	reconcileAllSessions(
 		context.Background(),
-		duplicateMicroBFDConfig(),
+		cfg,
 		mgr,
 		sf,
 		&overlayRuntime{},
-		newReconciliationCoordinator(slog.New(slog.DiscardHandler), nil),
+		newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
 
@@ -298,9 +299,10 @@ micro_bfd:
 		t.Fatalf("write duplicate Micro-BFD config: %v", err)
 	}
 
+	startup := duplicateMicroBFDConfig()
 	reloadConfig(
 		context.Background(), path, level, mgr, sf, &overlayRuntime{},
-		newReconciliationCoordinator(slog.New(slog.DiscardHandler), nil),
+		newReconciliationCoordinator(startup, slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
 
@@ -933,7 +935,7 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 
 	reconcileAllSessions(
 		context.Background(), cfg, mgr, sf, &overlayRuntime{},
-		newReconciliationCoordinator(slog.New(slog.DiscardHandler), nil),
+		newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
 

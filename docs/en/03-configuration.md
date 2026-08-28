@@ -525,25 +525,49 @@ kill -HUP $(pidof gobfd)
 
 On reload:
 1. The YAML file is re-read and validated
-2. Under one coordinator lock, the complete base, Echo, Micro-BFD group and
+2. Under one coordinator lock, the candidate is checked against the immutable
+   startup-runtime contract. A mismatch is rejected with bounded field paths
+   before generation, health, log level, sessions, or resources change
+3. The complete base, Echo, Micro-BFD group and
    member, VXLAN, and Geneve session candidate is compiled and validated before
    sender creation or Manager mutation
-3. A new desired generation is published and gRPC empty-service health becomes
+4. A new desired generation is published and gRPC empty-service health becomes
    `NOT_SERVING`; an invalid candidate leaves generations, health, and log level
    unchanged
-4. Log level is updated dynamically after validation (no restart needed); this
+5. Log level is updated dynamically after validation (no restart needed); this
    setting is not rolled back if a later source fails
-5. The base session source is reconciled, including an empty desired set
-6. Echo peers are reconciled as a source-isolated desired set, including the
+6. The base session source is reconciled, including an empty desired set
+7. Echo peers are reconciled as a source-isolated desired set, including the
    disabled or empty state; sender leases are acquired lazily only for newly
    accepted sessions
-7. Micro-BFD groups and the member-session source are reconciled, including
+8. Micro-BFD groups and the member-session source are reconciled, including
    empty desired sets
-8. VXLAN and Geneve are reconciled as distinct sources, including empty
+9. VXLAN and Geneve are reconciled as distinct sources, including empty
    desired sets
-9. One aggregate receipt records bounded counts and error codes for all six
+10. One aggregate receipt records bounded counts and error codes for all six
    sources. Applied advances to desired, and empty-service health becomes
    `SERVING`, only if all six converge
+
+`log.level` applies immediately after the complete candidate passes validation.
+The six desired sets reconcile session/group membership: entries may be added,
+removed, or re-keyed when they reuse a control, Echo, Micro-BFD, or overlay
+transport binding opened at startup. BFD defaults and per-entry timers,
+padding, authentication, peer, and threshold values apply when a new identity
+is created. Changing the effective parameters of an existing same-key session
+or Micro-BFD group is not an in-place update: reconciliation reports a conflict,
+the generation remains stale, and the operator must remove then add the identity
+in separate reloads or restart the process. Removing the final entry or
+disabling a source is supported.
+
+The following settings require a process restart: `grpc.*`, `metrics.*`,
+`log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`,
+`vxlan.backend`, `vxlan.management_vni`, `geneve.backend`,
+`geneve.default_vni`, and any new or re-keyed identity that needs a new local
+address, interface, session type, overlay local binding, or effective Geneve
+VNI. A rejected reload logs only
+these bounded field paths, never configuration values or authentication
+secrets. Socket buffer values are included in this startup-only boundary, but
+their runtime wiring is tracked separately and is not claimed here.
 
 Base configuration, Echo, Micro-BFD members, VXLAN, and Geneve use distinct
 source ownership. Removing the final entry for one of these sources does not

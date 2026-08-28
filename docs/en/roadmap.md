@@ -121,6 +121,13 @@ C01.4b serializes startup and SIGHUP compilation/apply, publishes desired and
 applied generations, retains bounded six-source receipts, and drives
 empty-service gRPC readiness without changing systemd process readiness. It is
 non-transactional across sources and does not add automatic retry.
+C01.5 loads YAML through the already verified descriptor. C01.6 rejects
+unsupported GoBGP strategies from one shared vocabulary. C01.7 rejects
+startup-owned SIGHUP changes before any generation or runtime mutation and
+allows desired-set membership changes only within startup-open transport
+bindings; same-key parameter changes remain explicit reconciliation conflicts.
+Socket buffer wiring, ambiguous listener-interface declarations, and strict log
+vocabulary validation remain separately tracked follow-up work.
 
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

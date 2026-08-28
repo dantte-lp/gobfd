@@ -190,8 +190,16 @@ Geneve до применения любого из этих sources. Compiler к
 ownership.
 
 Daemon-level coordinator сериализует компиляцию и применение startup и SIGHUP.
-Он публикует монотонное desired generation только после компиляции полного
-неизменяемого candidate. Один receipt затем хранит claim-level счётчики
+Он хранит deep-copied контракт startup-runtime. Каждый SIGHUP candidate
+сверяется с этим контрактом до компиляции candidate и до изменения generation,
+health, log level, sessions или ресурсов. Startup-owned поля servers, listeners,
+sockets, policy, actuator, GoBGP и overlays отклоняются с ограниченными
+идентификаторами полей; значения конфигурации и secrets в ошибке не сохраняются.
+Изменения desired-set membership могут повторно использовать открытые при
+startup listener/overlay capabilities, но не могут потребовать новый binding;
+изменения effective parameters same-key identity остаются reconciliation
+conflicts, а не in-place updates. Coordinator публикует монотонное desired generation только после этой проверки
+и компиляции полного неизменяемого session candidate. Один receipt затем хранит claim-level счётчики
 `created`, `released`, `pending` и `failed`, а также ограниченную гистограмму
 кодов ошибок ровно для шести sources: base, Echo, Micro-BFD group, Micro-BFD
 member, VXLAN и Geneve. Applied generation продвигается только при convergence

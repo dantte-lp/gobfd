@@ -121,6 +121,14 @@ C01.4b сериализует компиляцию/apply startup и SIGHUP, пу
 applied generations, сохраняет ограниченные receipts шести sources и управляет
 gRPC readiness пустого service без изменения process readiness systemd. Slice
 остаётся нетранзакционным между sources и не добавляет автоматический retry.
+C01.5 загружает YAML через уже проверенный descriptor. C01.6 отклоняет
+неподдерживаемые GoBGP strategies из одного общего словаря. C01.7 отклоняет
+startup-owned изменения SIGHUP до мутации generation или runtime и разрешает
+изменения desired-set membership только в пределах открытых при startup
+transport bindings; same-key изменения параметров остаются явными
+reconciliation conflicts. Runtime wiring socket buffers, неоднозначные объявления
+listener interfaces и строгая проверка log vocabulary остаются отдельными
+отслеживаемыми задачами.
 
 RFC core начинается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,

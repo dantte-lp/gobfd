@@ -128,17 +128,20 @@ type reconciliationCoordinator struct {
 
 	statusMu sync.RWMutex
 	snapshot reconciliationSnapshot
+	startup  startupRuntimeContract
 
 	logger  *slog.Logger
 	checker *grpchealth.StaticChecker
 }
 
 func newReconciliationCoordinator(
+	cfg *config.Config,
 	logger *slog.Logger,
 	checker *grpchealth.StaticChecker,
 ) *reconciliationCoordinator {
 	coordinator := &reconciliationCoordinator{
 		snapshot: reconciliationSnapshot{Stale: true},
+		startup:  newStartupRuntimeContract(cfg),
 		logger:   logger,
 		checker:  checker,
 	}
@@ -163,6 +166,9 @@ func (c *reconciliationCoordinator) reconcile(
 	c.applyMu.Lock()
 	defer c.applyMu.Unlock()
 
+	if fields := c.startup.changedFields(cfg); len(fields) != 0 {
+		return &startupConfigChangeError{fields: fields}
+	}
 	candidate, err := compileControlSessionCandidate(cfg, overlayRuntime)
 	if err != nil {
 		return err

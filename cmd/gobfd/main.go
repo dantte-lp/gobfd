@@ -128,7 +128,7 @@ func runServers(
 	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
 	healthChecker := newDaemonHealthChecker()
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, logger)
-	coordinator := newReconciliationCoordinator(logger, healthChecker)
+	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
 
 	// errgroup with signal-aware context.
 	ctx, stop := signal.NotifyContext(
