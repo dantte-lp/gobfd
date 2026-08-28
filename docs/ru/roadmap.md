@@ -89,7 +89,7 @@ v0.6 после завершения closeout v0.6.4 и исправления P
 | Часть поставки | Статус |
 |---|---|
 | Корректность RFC core и учёт потерь | Открыто |
-| Reconciliation ownership и конфигурации | В работе; реализованы C01.1, C01.2 и C01.3a |
+| Reconciliation ownership и конфигурации | В работе; реализованы C01.1, C01.2, C01.3a и C01.3b |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
@@ -103,10 +103,13 @@ desired set и отдельные типизированные owners для bas
 Geneve. C01.3a добавляет ленивые Manager-owned sender leases для принятых
 physical sessions, точное освобождение при последнем claim и shutdown, возврат
 API source port и явные non-owning leases для общих overlay и unsolicited
-transports. Он не завершает C01 или SIGHUP reload. Lifecycle state Manager и
-ожидание goroutines, замена listeners/backends, стабильные owners отдельных
-groups/tunnels, generations, согласование Poll/Final, transport-aware
-demultiplexing и аутентифицированные API principals остаются открытыми.
+transports. C01.3b добавляет lifecycle Manager Open/Closing/Closed, fail-closed
+gates для мутаций и подписок, ожидание зарегистрированных goroutines, точное
+закрытие notification channels и sender callbacks после завершения session и
+вне locks Manager. Он не завершает C01 или SIGHUP reload. Замена
+listeners/backends, стабильные owners отдельных groups/tunnels, generations,
+согласование Poll/Final, transport-aware demultiplexing и аутентифицированные
+API principals остаются открытыми.
 
 RFC core начинается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,

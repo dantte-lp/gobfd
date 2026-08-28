@@ -90,7 +90,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Delivery slice | Status |
 |---|---|
 | RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | In progress; C01.1, C01.2, and C01.3a implemented |
+| Ownership and configuration reconciliation | In progress; C01.1, C01.2, C01.3a, and C01.3b implemented |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
@@ -103,11 +103,13 @@ candidate validation before sender creation, empty desired-set forwarding,
 and distinct typed owners for base BFD, Micro-BFD, VXLAN, and Geneve. C01.3a
 adds lazy Manager-owned sender leases for accepted physical sessions, exact
 last-claim and shutdown release, API source-port release, and explicit
-non-owning leases for shared overlay and unsolicited transports. It does not
-complete C01 or SIGHUP reload. Manager lifecycle state and goroutine waits,
-listener/backend replacement, stable per-group/per-tunnel owners, generations,
-Poll/Final negotiation, transport-aware demultiplexing, and authenticated API
-principals remain open.
+non-owning leases for shared overlay and unsolicited transports. C01.3b adds
+the Open/Closing/Closed Manager lifecycle, fail-closed mutation and
+subscription gates, registered goroutine waits, exact notification-channel
+closure, and sender callbacks after session exit and outside Manager locks. It
+does not complete C01 or SIGHUP reload. Listener/backend replacement, stable
+per-group/per-tunnel owners, generations, Poll/Final negotiation,
+transport-aware demultiplexing, and authenticated API principals remain open.
 
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

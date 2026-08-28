@@ -208,11 +208,11 @@ authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Stat
 получить стабильную семантическую идентичность.
 
 Это ownership core C01.1 вместе со slice C01.2 для atomic candidate/изоляции
-sources и slice C01.3a для sender lease принятой session, а не полный контракт
-v1 reconciliation или RFC. Отложены следующие границы:
+sources, slice C01.3a для sender lease принятой session и slice C01.3b для
+lifecycle Manager, а не полный контракт v1 reconciliation или RFC. Отложены
+следующие границы:
 
-- состояния Manager Open/Closing/Closed, ожидание goroutines, ownership
-  listeners и замены backends;
+- ownership listeners и замены backends;
 - стабильные owner identifiers для отдельных groups и tunnels;
 - generations и receipts reconciliation;
 - согласование параметров Poll/Final;
@@ -255,7 +255,26 @@ sequenceDiagram
 Каждая BFD-сессия работает как независимая горутина с собственными таймерами и
 состоянием. Её контекст отделён от сигнального контекста демона, чтобы SIGTERM
 не остановил сессию до AdminDown drain. `Manager.Close()` явно отменяет
-индивидуальный контекст сессии.
+индивидуальный контекст сессии и ожидает завершения каждой зарегистрированной
+session- и echo-горутины до освобождения sender lease или discriminator.
+
+Lifecycle Manager имеет состояния `Open -> Closing -> Closed`. После начала
+`Closing` новые session claims, reconciliation, unsolicited claims и подписки
+на изменения состояния отклоняются стабильными lifecycle errors без мутаций.
+Демон по-прежнему запускает `RunDispatch` из своего errgroup, но Manager
+регистрирует этот запуск и владеет его остановкой. `RunDispatch` допускает
+только один запуск: второй вызов сразу возвращается. Отмена caller context или
+`Manager.Close()` останавливает dispatch и ровно один раз закрывает legacy-
+канал `StateChanges()`. Канал каждой отдельной подписки ровно один раз закрывает
+её зарегистрированная goroutine при отмене subscriber context или закрытии
+Manager.
+
+После lifecycle transition Close отделяет registries под `ownershipMu` и
+`manager.mu`, а затем освобождает оба lock до cancellation и ожидания
+goroutines. Callback освобождения sender выполняется только после завершения
+соответствующей session goroutine и без обоих locks; после него по порядку
+освобождаются discriminator и регистрация metrics. Конкурентные вызовы Close
+ожидают один и тот же результат shutdown.
 
 ```mermaid
 graph TB
@@ -300,7 +319,9 @@ graph TB
 
 1. `Manager.DrainAllSessions()` -- все сессии переводятся в AdminDown с Diag = Administratively Down (7)
 2. Фиксированное двухсекундное окно `drainTimeout` для отправки AdminDown
-3. `Manager.Close()` -- отмена всех горутин сессий
+3. `Manager.Close()` -- переход в Closing, отделение sessions, отмена и
+   ожидание зарегистрированных Manager goroutines, закрытие notification
+   channels и освобождение sender resources
 4. Закрытие сокетов слушателей
 5. Остановка HTTP-серверов (gRPC, метрики)
 

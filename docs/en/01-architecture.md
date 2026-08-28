@@ -195,12 +195,11 @@ unknown key-store implementations fail closed because no stable semantic
 identity can be derived.
 
 This is the C01.1 ownership core plus the C01.2 atomic-candidate/source
-isolation slice and the C01.3a accepted-session sender-lease slice, not the
-complete v1 reconciliation or RFC contract. The following boundaries remain
-deferred:
+isolation slice, the C01.3a accepted-session sender-lease slice, and the
+C01.3b Manager lifecycle slice. It is not the complete v1 reconciliation or
+RFC contract. The following boundaries remain deferred:
 
-- manager Open/Closing/Closed state, goroutine waits, listeners, and backend
-  replacement ownership;
+- listener and backend replacement ownership;
 - stable per-group and per-tunnel owner identifiers;
 - reconciliation generations and receipts;
 - Poll/Final parameter negotiation;
@@ -243,7 +242,25 @@ FSM transitions in sequence:
 Each BFD session runs as an independent goroutine with its own timers and
 state. Its context is detached from the daemon signal context so SIGTERM does
 not stop it before the AdminDown drain. `Manager.Close()` cancels the
-per-session context explicitly.
+per-session context explicitly and waits for every registered session and echo
+goroutine to exit before releasing its sender lease or discriminator.
+
+The Manager lifecycle is `Open -> Closing -> Closed`. Once `Closing` begins,
+new session claims, reconciliation, unsolicited claims, and state-change
+subscriptions fail with stable lifecycle errors without mutation. The daemon
+still starts `RunDispatch` from its errgroup, but the Manager registers and
+owns that run for shutdown. `RunDispatch` is single-run: a second invocation
+returns immediately. Cancellation of its caller context or `Manager.Close()`
+stops dispatch and closes the legacy `StateChanges()` channel exactly once.
+Per-consumer subscription channels are closed exactly once by their registered
+subscriber goroutine when either the subscriber context or Manager closes.
+
+After the lifecycle transition, Close detaches registries under `ownershipMu`
+and `manager.mu`, then releases both locks before cancellation and waits.
+Sender release callbacks run only after the corresponding session goroutine
+exits and without either lock; discriminator release and metrics unregister
+follow the sender release in that order. Concurrent Close calls wait for the
+same shutdown result.
 
 ```mermaid
 graph TB
@@ -283,7 +300,9 @@ On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
 1. `Manager.DrainAllSessions()` -- set all sessions to AdminDown with Diag = Administratively Down (7)
 2. Wait the fixed two-second `drainTimeout` window for an AdminDown transmit
-3. `Manager.Close()` -- cancel all session goroutines
+3. `Manager.Close()` -- enter Closing, detach sessions, cancel and wait for
+   registered Manager goroutines, close notification channels, and release
+   sender resources
 4. Close listener sockets
 5. Shut down HTTP servers (gRPC, metrics)
 
