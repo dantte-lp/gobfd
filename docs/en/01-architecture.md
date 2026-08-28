@@ -260,11 +260,15 @@ and `manager.mu`, then releases both locks before cancellation and waits.
 Sender release callbacks run only after the corresponding session goroutine
 exits and without either lock; discriminator release and metrics unregister
 follow the sender release in that order. Concurrent Close calls wait for the
-same shutdown result. A release callback may call Manager snapshot APIs and may
-attempt Manager mutations, which fail with `ErrManagerClosing`. It must not call
-the blocking `Manager.Close()` recursively: a synchronous callback is part of
-that same Close completion, so the two calls would wait on each other. An
-explicit recursive-safe callback or asynchronous shutdown API is deferred to
+same shutdown result. The operation releases the lifecycle mutation lock before
+detached or unused sender callbacks, so Close can transition to `Closing`, but
+keeps its active-operation registration through the callback, discriminator
+release, and metrics cleanup. Therefore Close waits for the complete cleanup,
+while a release callback may call Manager snapshot APIs and may attempt Manager
+mutations, which fail with `ErrManagerClosing`. It must not call the blocking
+`Manager.Close()` recursively: a synchronous callback is part of that same
+Close completion, so the two calls would wait on each other. An explicit
+recursive-safe callback or asynchronous shutdown API is deferred to
 `gobfd-qj0.8.2.2.5.1` rather than weakening concurrent Close semantics.
 
 The lifecycle gate covers control and echo session creation/destruction,
