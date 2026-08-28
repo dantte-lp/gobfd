@@ -484,6 +484,9 @@ the receipt last. A standalone bootstrap intentionally leaves the staged image
 and receipt for a later `--skip-build` deployment or exact `--down` cleanup;
 `--skip-build` never trusts a shared `latest` tag. A UID-scoped host-global lock
 serializes the fixed Containerlab lab namespace across repository worktrees.
+Before `--test-only` emits evidence, it revalidates every recorded live
+container ID and ownership label and rejects any unrecorded fixed-name
+container that the test suite could otherwise discover.
 
 ### RFC Compliance Matrix
 

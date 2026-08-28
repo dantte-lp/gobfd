@@ -173,10 +173,62 @@ func runTopologyLocked(ctx context.Context, options Options, runner Runner) erro
 		if receipt.Topology == "" || len(receipt.Containers) == 0 {
 			return fmt.Errorf("vendor topology is not deployed: %w", errLifecycleState)
 		}
+		if err := validateDeployedContainerIdentities(ctx, options, runner, receipt); err != nil {
+			return err
+		}
 		return runVendorTests(ctx, options, runner)
 	default:
 		return deployTopology(ctx, options, runner)
 	}
+}
+
+func validateDeployedContainerIdentities(
+	ctx context.Context,
+	options Options,
+	runner Runner,
+	receipt lifecycleReceipt,
+) error {
+	var validationErr error
+	for name, wantID := range receipt.Containers {
+		gotID, err := inspectOwnedContainer(ctx, runner, name, receipt.RunID)
+		if err != nil {
+			validationErr = errors.Join(validationErr, err)
+			continue
+		}
+		if gotID != wantID {
+			validationErr = errors.Join(
+				validationErr,
+				fmt.Errorf("container %s changed identity before test-only: %w", name, errLifecycleState),
+			)
+		}
+	}
+	for _, name := range fixedTestContainerNames(options) {
+		if _, recorded := receipt.Containers[name]; recorded {
+			continue
+		}
+		exists, err := containerExists(ctx, runner, name)
+		if err != nil {
+			validationErr = errors.Join(validationErr, err)
+			continue
+		}
+		if exists {
+			validationErr = errors.Join(
+				validationErr,
+				fmt.Errorf("unrecorded container %s could be selected by test-only: %w", name, errLifecycleState),
+			)
+		}
+	}
+	return validationErr
+}
+
+func fixedTestContainerNames(options Options) []string {
+	candidates := vendorCandidates(options, "")
+	names := make([]string, 1, len(candidates)+1)
+	names[0] = gobfdContainer
+	for _, candidate := range candidates {
+		names = append(names, "clab-"+labName+"-"+candidate.profile.name)
+	}
+	return names
 }
 
 func dryRunTopology(ctx context.Context, options Options, runner Runner, imageReference string) error {
