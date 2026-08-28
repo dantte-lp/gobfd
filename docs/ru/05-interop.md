@@ -478,7 +478,8 @@ GoBFD. Перед первой мутацией cleanup проверяет вс�
 удаляет образ по точному ID без `--force` и последним удаляет receipt.
 Отдельный bootstrap намеренно оставляет staged image и receipt для следующего
 деплоя с `--skip-build` либо точной очистки через `--down`; `--skip-build`
-никогда не доверяет общему тегу `latest`.
+никогда не доверяет общему тегу `latest`. UID-scoped host-global lock
+сериализует фиксированный namespace Containerlab между worktree репозитория.
 
 ### Матрица соответствия RFC
 

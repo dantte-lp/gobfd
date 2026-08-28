@@ -32,6 +32,18 @@ func Run(ctx context.Context, options Options, runner Runner) error {
 	if err := validateOptions(options, runner); err != nil {
 		return err
 	}
+	if options.DryRun {
+		return runLocked(ctx, options, runner)
+	}
+	lock, err := acquireLifecycleLock(options.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	options.lifecycleLockHeld = true
+	return errors.Join(runLocked(ctx, options, runner), releaseLifecycleLock(lock))
+}
+
+func runLocked(ctx context.Context, options Options, runner Runner) error {
 	if options.Down || options.TestOnly {
 		lifecycleOptions := options
 		lifecycleOptions.SkipBuild = true

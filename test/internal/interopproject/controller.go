@@ -53,6 +53,57 @@ func (e *ChildExitError) Error() string { return e.Err.Error() }
 
 func (e *ChildExitError) Unwrap() error { return e.Err }
 
+// ProjectLock serializes one host-global interoperability project for the current UID.
+type ProjectLock struct {
+	file        *os.File
+	projectName string
+}
+
+// AcquireLock acquires the shared nonblocking lock for one interoperability project.
+func AcquireLock(projectName string) (*ProjectLock, error) {
+	if !projectNamePattern.MatchString(projectName) {
+		return nil, &UsageError{Message: fmt.Sprintf(
+			"invalid interop project lock name %q: use lowercase letters, digits, dashes, and underscores",
+			projectName,
+		)}
+	}
+	lockDir, err := lockDirectory()
+	if err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(lockDir, projectName+".lock")
+	if validateErr := validateLockFile(lockPath, true); validateErr != nil {
+		return nil, validateErr
+	}
+	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open interop lock %s: %w", lockPath, err)
+	}
+	if err := validateOpenLockFile(lockPath, file); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("%w: project %s is locked by another runner: %w", errControl, projectName, err),
+			file.Close(),
+		)
+	}
+	return &ProjectLock{file: file, projectName: projectName}, nil
+}
+
+// Close releases the project lock.
+func (lock *ProjectLock) Close() error {
+	if lock == nil || lock.file == nil {
+		return nil
+	}
+	err := errors.Join(unix.Flock(int(lock.file.Fd()), unix.LOCK_UN), lock.file.Close())
+	lock.file = nil
+	if err != nil {
+		return fmt.Errorf("release interop project %s lock: %w", lock.projectName, err)
+	}
+	return nil
+}
+
 // Controller owns one exact Compose project.
 type Controller struct {
 	root        string
@@ -63,7 +114,7 @@ type Controller struct {
 	optional    []string
 	stdout      io.Writer
 	stderr      io.Writer
-	lock        *os.File
+	lock        *ProjectLock
 	mutation    bool
 	keepProject bool
 }
@@ -412,28 +463,11 @@ func (c *Controller) acquireLock() error {
 	if c.lock != nil {
 		return nil
 	}
-	lockDir, err := lockDirectory()
+	lock, err := AcquireLock(c.projectName)
 	if err != nil {
 		return err
 	}
-	lockPath := filepath.Join(lockDir, c.projectName+".lock")
-	if validateErr := validateLockFile(lockPath, true); validateErr != nil {
-		return validateErr
-	}
-	file, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE, 0o600)
-	if err != nil {
-		return fmt.Errorf("open interop lock %s: %w", lockPath, err)
-	}
-	if err := validateOpenLockFile(lockPath, file); err != nil {
-		return errors.Join(err, file.Close())
-	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		return errors.Join(
-			fmt.Errorf("%w: Compose project %s is locked by another runner: %w", errControl, c.projectName, err),
-			file.Close(),
-		)
-	}
-	c.lock = file
+	c.lock = lock
 	return nil
 }
 
@@ -441,12 +475,9 @@ func (c *Controller) releaseLock() error {
 	if c.lock == nil {
 		return nil
 	}
-	err := errors.Join(unix.Flock(int(c.lock.Fd()), unix.LOCK_UN), c.lock.Close())
+	err := c.lock.Close()
 	c.lock = nil
-	if err != nil {
-		return fmt.Errorf("release Compose project lock: %w", err)
-	}
-	return nil
+	return err
 }
 
 func lockDirectory() (string, error) {

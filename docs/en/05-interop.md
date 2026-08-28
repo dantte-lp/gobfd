@@ -482,7 +482,8 @@ the same mode-0600 receipt. Cleanup validates all recorded identities before
 its first mutation, removes the image by exact ID without force, and deletes
 the receipt last. A standalone bootstrap intentionally leaves the staged image
 and receipt for a later `--skip-build` deployment or exact `--down` cleanup;
-`--skip-build` never trusts a shared `latest` tag.
+`--skip-build` never trusts a shared `latest` tag. A UID-scoped host-global lock
+serializes the fixed Containerlab lab namespace across repository worktrees.
 
 ### RFC Compliance Matrix
 

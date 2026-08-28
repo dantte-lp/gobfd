@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
-	"golang.org/x/sys/unix"
+
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 )
 
 const (
 	labName           = "gobfd-vendors"
+	lifecycleLockName = "interop-clab-" + labName
 	gobfdContainer    = "clab-" + labName + "-gobfd"
 	gobfdImageRepo    = "localhost/gobfd-clab"
 	dryRunImage       = gobfdImageRepo + ":dry-run"
@@ -145,6 +147,9 @@ func runTopology(ctx context.Context, options Options, runner Runner, imageRefer
 	if options.DryRun {
 		return dryRunTopology(ctx, options, runner, imageReference)
 	}
+	if options.lifecycleLockHeld {
+		return runTopologyLocked(ctx, options, runner)
+	}
 
 	lock, err := acquireLifecycleLock(options.ProjectRoot)
 	if err != nil {
@@ -153,7 +158,10 @@ func runTopology(ctx context.Context, options Options, runner Runner, imageRefer
 	defer func() {
 		returnErr = errors.Join(returnErr, releaseLifecycleLock(lock))
 	}()
+	return runTopologyLocked(ctx, options, runner)
+}
 
+func runTopologyLocked(ctx context.Context, options Options, runner Runner) error {
 	switch {
 	case options.Down:
 		return destroyTopology(ctx, options, runner)
@@ -955,6 +963,9 @@ func containerExists(ctx context.Context, runner Runner, reference string) (bool
 }
 
 func stageGoBFDImage(ctx context.Context, options Options, runner Runner) (lifecycleReceipt, error) {
+	if options.lifecycleLockHeld {
+		return stageGoBFDImageLocked(ctx, options, runner)
+	}
 	lock, err := acquireLifecycleLock(options.ProjectRoot)
 	if err != nil {
 		return lifecycleReceipt{}, err
@@ -1188,32 +1199,34 @@ func profileContainerNames(profiles []vendorProfile) []string {
 	return names
 }
 
-func acquireLifecycleLock(projectRoot string) (*os.File, error) {
+func acquireLifecycleLock(projectRoot string) (*interopproject.ProjectLock, error) {
+	lock, err := interopproject.AcquireLock(lifecycleLockName)
+	if err != nil {
+		return nil, fmt.Errorf("acquire vendor lifecycle lock: %w", err)
+	}
+	if err := ensureRuntimeDirectory(projectRoot); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	return lock, nil
+}
+
+func ensureRuntimeDirectory(projectRoot string) error {
 	directory := runtimeDirectory(projectRoot)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, fmt.Errorf("create vendor runtime directory: %w", err)
+		return fmt.Errorf("create vendor runtime directory: %w", err)
 	}
 	info, err := os.Lstat(directory)
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
-		return nil, fmt.Errorf("validate vendor runtime directory %s: %w", directory, errLifecycleState)
+		return fmt.Errorf("validate vendor runtime directory %s: %w", directory, errLifecycleState)
 	}
-	path := filepath.Join(directory, "lifecycle.lock")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open vendor lifecycle lock: %w", err)
-	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		closeErr := file.Close()
-		return nil, fmt.Errorf("acquire vendor lifecycle lock: %w", errors.Join(err, closeErr))
-	}
-	return file, nil
+	return nil
 }
 
-func releaseLifecycleLock(file *os.File) error {
-	if file == nil {
+func releaseLifecycleLock(lock *interopproject.ProjectLock) error {
+	if lock == nil {
 		return nil
 	}
-	if err := errors.Join(unix.Flock(int(file.Fd()), unix.LOCK_UN), file.Close()); err != nil {
+	if err := lock.Close(); err != nil {
 		return fmt.Errorf("release vendor lifecycle lock: %w", err)
 	}
 	return nil

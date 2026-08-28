@@ -83,8 +83,6 @@ func argumentAfter(arguments []string, name string, occurrence ...int) string {
 }
 
 func TestStageGoBFDImageRecordsRunOwnedIdentity(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	options := DefaultOptions(root)
 	runner := &ownedImageRunner{}
@@ -141,8 +139,6 @@ func TestStageGoBFDImageRecordsRunOwnedIdentity(t *testing.T) {
 }
 
 func TestStageGoBFDImageRejectsReferenceCollisionBeforeBuild(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	runner := &ownedImageRunner{collision: true}
 	_, err := stageGoBFDImage(t.Context(), DefaultOptions(root), runner)
@@ -160,8 +156,6 @@ func TestStageGoBFDImageRejectsReferenceCollisionBeforeBuild(t *testing.T) {
 }
 
 func TestCleanupTopologyRemovesOnlyRecordedOwnedImage(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	options := DefaultOptions(root)
 	runner := &ownedImageRunner{}
@@ -188,8 +182,6 @@ func TestCleanupTopologyRemovesOnlyRecordedOwnedImage(t *testing.T) {
 }
 
 func TestCleanupTopologyRejectsChangedImageIdentityBeforeMutation(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	options := DefaultOptions(root)
 	runner := &ownedImageRunner{}
@@ -211,6 +203,37 @@ func TestCleanupTopologyRejectsChangedImageIdentityBeforeMutation(t *testing.T) 
 	}
 	if _, err := os.Stat(receiptPath(root)); err != nil {
 		t.Fatalf("receipt was not retained after mismatch: %v", err)
+	}
+}
+
+func TestLifecycleLockSerializesRepositoryWorktreesBeforeRunnerMutation(t *testing.T) {
+	runtimeBase := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeBase)
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+
+	lock, err := acquireLifecycleLock(firstRoot)
+	if err != nil {
+		t.Fatalf("acquire first worktree lifecycle lock: %v", err)
+	}
+	t.Cleanup(func() {
+		if releaseErr := releaseLifecycleLock(lock); releaseErr != nil {
+			t.Errorf("release first worktree lifecycle lock: %v", releaseErr)
+		}
+	})
+	runner := &recordingRunner{}
+	options := DefaultOptions(secondRoot)
+	options.Down = true
+
+	err = Run(t.Context(), options, runner)
+	if err == nil {
+		t.Fatal("second worktree acquired the host-global lifecycle lock")
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("losing worktree issued commands before lock failure: %#v", runner.commands)
+	}
+	if _, err := os.Lstat(runtimeDirectory(secondRoot)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("losing worktree mutated its runtime directory: %v", err)
 	}
 }
 

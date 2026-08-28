@@ -30,20 +30,21 @@ type ImageTags struct {
 
 // Options contains the bootstrap inputs owned by the Go command.
 type Options struct {
-	ProjectRoot string
-	Jobs        int
-	Tags        ImageTags
-	Archives    VendorArchives
-	VyOSISO     string
-	VyOSVersion string
-	SkipBuild   bool
-	SkipPull    bool
-	Deploy      bool
-	Test        bool
-	TestOnly    bool
-	Down        bool
-	DryRun      bool
-	Logger      *slog.Logger
+	ProjectRoot       string
+	Jobs              int
+	Tags              ImageTags
+	Archives          VendorArchives
+	VyOSISO           string
+	VyOSVersion       string
+	SkipBuild         bool
+	SkipPull          bool
+	Deploy            bool
+	Test              bool
+	TestOnly          bool
+	Down              bool
+	DryRun            bool
+	Logger            *slog.Logger
+	lifecycleLockHeld bool
 }
 
 // DefaultOptions returns the compatibility defaults of the existing bootstrap.
