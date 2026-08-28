@@ -22,12 +22,19 @@ func (m *Manager) CreateEchoSession(
 	cfg EchoSessionConfig,
 	sender PacketSender,
 ) (uint32, error) {
+	op, err := m.beginOperation()
+	if err != nil {
+		return 0, err
+	}
+
 	if !cfg.PeerAddr.IsValid() {
+		op.finish()
 		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, ErrInvalidPeerAddr)
 	}
 
 	discr, err := m.discriminators.Allocate()
 	if err != nil {
+		op.finish()
 		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
 
@@ -36,19 +43,24 @@ func (m *Manager) CreateEchoSession(
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
+		op.finish()
 		return 0, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
 
 	// Start echo session goroutine with a decoupled context (same pattern
 	// as control sessions — graceful shutdown calls DrainAllSessions first).
 	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	entry := &echoSessionEntry{session: es, cancel: cancel}
+	entry := &echoSessionEntry{session: es, cancel: cancel, done: make(chan struct{})}
 
 	m.mu.Lock()
 	m.echoSessions[discr] = entry
 	m.mu.Unlock()
 
-	go es.Run(sessCtx)
+	m.workers.Go(func() {
+		defer close(entry.done)
+		es.Run(sessCtx)
+	})
+	op.finish()
 
 	m.logger.Info("echo session created",
 		slog.String("peer", cfg.PeerAddr.String()),
@@ -68,10 +80,16 @@ func (m *Manager) CreateEchoSession(
 // Returns ErrEchoSessionNotFound if no echo session exists with the given
 // discriminator.
 func (m *Manager) DestroyEchoSession(discr uint32) error {
+	op, err := m.beginOperation()
+	if err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	entry, ok := m.echoSessions[discr]
 	if !ok {
 		m.mu.Unlock()
+		op.finish()
 		return fmt.Errorf(
 			"destroy echo session with discriminator %d: %w",
 			discr, ErrEchoSessionNotFound,
@@ -79,8 +97,10 @@ func (m *Manager) DestroyEchoSession(discr uint32) error {
 	}
 	delete(m.echoSessions, discr)
 	m.mu.Unlock()
+	op.finish()
 
 	entry.cancel()
+	<-entry.done
 	m.discriminators.Release(discr)
 
 	m.logger.Info("echo session destroyed",

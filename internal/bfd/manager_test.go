@@ -1034,8 +1034,14 @@ func TestManagerStateChangeSubscribersReceiveSameEvent(t *testing.T) {
 		defer dispatchCancel()
 		go mgr.RunDispatch(dispatchCtx)
 
-		sub1 := mgr.SubscribeStateChanges(dispatchCtx)
-		sub2 := mgr.SubscribeStateChanges(dispatchCtx)
+		sub1, err := mgr.SubscribeStateChanges(dispatchCtx)
+		if err != nil {
+			t.Fatalf("SubscribeStateChanges(sub1): %v", err)
+		}
+		sub2, err := mgr.SubscribeStateChanges(dispatchCtx)
+		if err != nil {
+			t.Fatalf("SubscribeStateChanges(sub2): %v", err)
+		}
 
 		cfg := defaultManagerConfig()
 		sess, err := mgr.CreateSession(context.Background(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))

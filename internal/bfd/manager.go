@@ -1,10 +1,12 @@
 package bfd
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 )
@@ -41,6 +43,14 @@ var (
 
 	// ErrSenderLeaseSenderNil indicates a lease contains no packet sender.
 	ErrSenderLeaseSenderNil = errors.New("sender lease has nil sender")
+
+	// ErrManagerClosing indicates an operation was rejected because Manager
+	// shutdown has begun but has not completed.
+	ErrManagerClosing = errors.New("manager is closing")
+
+	// ErrManagerClosed indicates an operation was rejected after Manager
+	// shutdown completed.
+	ErrManagerClosed = errors.New("manager is closed")
 
 	// ErrDemuxNoMatch indicates no session matched the incoming packet during
 	// demultiplexing (RFC 5880 Section 6.8.6).
@@ -107,6 +117,14 @@ type packetDemuxKey struct {
 	localAddr netip.Addr
 	ifName    string
 }
+
+type managerLifecycleState uint8
+
+const (
+	managerOpen managerLifecycleState = iota
+	managerClosing
+	managerClosed
+)
 
 // -------------------------------------------------------------------------
 // Session Snapshot — read-only view for external consumers
@@ -289,6 +307,20 @@ type Manager struct {
 	subMu       sync.RWMutex
 
 	logger *slog.Logger
+
+	// lifecycleMu gates new mutations and goroutine registration. Mutations
+	// hold a read lock only until their registry changes are complete. Resource
+	// callbacks run after the lifecycle, ownership, and registry locks are free.
+	lifecycleMu    sync.RWMutex
+	lifecycleState managerLifecycleState
+	activeOps      sync.WaitGroup
+	workers        sync.WaitGroup
+	closeDone      chan struct{}
+
+	shutdownCh chan struct{}
+
+	dispatchStarted bool
+	legacyCloseOnce sync.Once
 }
 
 // sessionEntry holds a session and its cancellation function.
@@ -302,6 +334,12 @@ type sessionEntry struct {
 	effective   effectiveSessionConfig
 	owners      map[SessionOwner]struct{}
 	unsolicited bool
+	done        chan struct{}
+}
+
+type retiredSession struct {
+	localDiscr uint32
+	entry      *sessionEntry
 }
 
 // echoSessionEntry holds an echo session and its cancellation function.
@@ -309,6 +347,51 @@ type sessionEntry struct {
 type echoSessionEntry struct {
 	session *EchoSession
 	cancel  context.CancelFunc
+	done    chan struct{}
+}
+
+type retiredEchoSession struct {
+	localDiscr uint32
+	entry      *echoSessionEntry
+}
+
+type managerOperation struct {
+	manager          *Manager
+	mutationUnlocked bool
+}
+
+func (m *Manager) beginOperation() (*managerOperation, error) {
+	m.lifecycleMu.RLock()
+	switch m.lifecycleState {
+	case managerOpen:
+		m.activeOps.Add(1)
+		return &managerOperation{manager: m}, nil
+	case managerClosing:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosing
+	case managerClosed:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosed
+	default:
+		m.lifecycleMu.RUnlock()
+		return nil, ErrManagerClosed
+	}
+}
+
+func (op *managerOperation) unlockMutation() {
+	if op == nil || op.mutationUnlocked {
+		return
+	}
+	op.mutationUnlocked = true
+	op.manager.lifecycleMu.RUnlock()
+}
+
+func (op *managerOperation) finish() {
+	if op == nil {
+		return
+	}
+	op.unlockMutation()
+	op.manager.activeOps.Done()
 }
 
 // ManagerOption configures optional Manager parameters.
@@ -389,6 +472,8 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
 		publicNotifyCh: make(chan StateChange, notifyChSize),
 		subscribers:    make(map[chan StateChange]struct{}),
+		closeDone:      make(chan struct{}),
+		shutdownCh:     make(chan struct{}),
 		logger:         logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
@@ -409,11 +494,29 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 // external consumers (GoBGP handler, gRPC streaming). Without RunDispatch,
 // the rawNotifyCh will fill up and sessions will drop notifications.
 //
-// Blocks until ctx is cancelled.
+// RunDispatch is single-run. The caller starts it, while Manager owns its
+// registered lifetime for shutdown. A second call returns immediately. The
+// first call blocks until ctx is cancelled or Manager.Close begins, then
+// closes the legacy StateChanges channel exactly once.
 func (m *Manager) RunDispatch(ctx context.Context) {
+	m.lifecycleMu.Lock()
+	if m.lifecycleState != managerOpen || m.dispatchStarted {
+		m.lifecycleMu.Unlock()
+		return
+	}
+	m.dispatchStarted = true
+	m.workers.Add(1)
+	m.lifecycleMu.Unlock()
+	defer func() {
+		m.closeLegacyStateChanges()
+		m.workers.Done()
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-m.shutdownCh:
 			return
 		case sc := <-m.rawNotifyCh:
 			// Dispatch micro-BFD events to the group.
@@ -436,6 +539,12 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (m *Manager) closeLegacyStateChanges() {
+	m.legacyCloseOnce.Do(func() {
+		close(m.publicNotifyCh)
+	})
 }
 
 func (m *Manager) broadcastStateChange(sc StateChange) {
@@ -468,36 +577,64 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 	}
 
 	timeout := m.unsolicited.policy.CleanupTimeout
-	go func() {
+	if !m.startWorker(func() {
 		if timeout > 0 {
 			timer := time.NewTimer(timeout)
 			defer timer.Stop()
 			select {
 			case <-ctx.Done():
 				return
+			case <-m.shutdownCh:
+				return
 			case <-timer.C:
 			}
 		}
 		m.cleanupUnsolicitedSession(ctx, sc.LocalDiscr)
-	}()
+	}) {
+		return
+	}
+}
+
+func (m *Manager) startWorker(run func()) bool {
+	m.lifecycleMu.RLock()
+	defer m.lifecycleMu.RUnlock()
+	if m.lifecycleState != managerOpen {
+		return false
+	}
+	m.workers.Go(func() {
+		run()
+	})
+	return true
 }
 
 func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32) {
+	op, err := m.beginOperation()
+	if err != nil {
+		return
+	}
+
 	m.ownershipMu.Lock()
-	defer m.ownershipMu.Unlock()
 
 	m.mu.RLock()
 	entry, ok := m.sessions[localDiscr]
 	if !ok || !entry.unsolicited || entry.session.State() != StateDown {
 		m.mu.RUnlock()
+		m.ownershipMu.Unlock()
+		op.finish()
 		return
 	}
 	peer := entry.session.PeerAddr()
 	m.mu.RUnlock()
 
-	wireDestroyed, err := m.releaseSessionClaimByDiscriminator(
+	wireDestroyed, retired, err := m.detachSessionClaimByDiscriminator(
 		localDiscr, unsolicitedSessionOwner(),
 	)
+	m.ownershipMu.Unlock()
+	op.unlockMutation()
+	op.finish()
+	if retired != nil {
+		m.finishSessionDestroy(retired.localDiscr, retired.entry)
+	}
 	if err != nil {
 		m.logger.Debug("unsolicited cleanup skipped",
 			slog.Uint64("local_discr", uint64(localDiscr)),
@@ -538,36 +675,53 @@ func (m *Manager) DrainAllSessions() {
 // Lifecycle
 // -------------------------------------------------------------------------
 
-// Close cancels all session goroutines and releases resources.
-// After Close returns, no new sessions can be created and the StateChanges
-// channel should no longer be read.
+// Close cancels all Manager-owned goroutines and releases resources.
+// After Close returns, new mutations are rejected and StateChanges has reached
+// EOF. Close is safe to call concurrently and more than once.
 func (m *Manager) Close() {
+	if !m.beginClose() {
+		return
+	}
+
+	retired, retiredEcho, sharedUnsolicitedLease := m.detachCloseResources()
+	m.stopAndWait(retired, retiredEcho)
+	m.releaseCloseResources(retired, retiredEcho, sharedUnsolicitedLease)
+	m.completeClose()
+	m.logger.Info("manager closed")
+}
+
+func (m *Manager) beginClose() bool {
+	m.lifecycleMu.Lock()
+	switch m.lifecycleState {
+	case managerClosing, managerClosed:
+		done := m.closeDone
+		m.lifecycleMu.Unlock()
+		<-done
+		return false
+	case managerOpen:
+		m.lifecycleState = managerClosing
+	}
+	m.lifecycleMu.Unlock()
+	return true
+}
+
+func (m *Manager) detachCloseResources() (
+	[]retiredSession,
+	[]retiredEchoSession,
+	*SenderLease,
+) {
 	m.ownershipMu.Lock()
-	defer m.ownershipMu.Unlock()
-
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	retired := make([]retiredSession, 0, len(m.sessions))
 	for discr, entry := range m.sessions {
-		entry.cancel()
-		if err := entry.senderLease.Close(); err != nil {
-			m.logger.Warn("failed to close session sender lease",
-				slog.Uint64("local_discr", uint64(discr)),
-				slog.String("error", err.Error()),
-			)
-		}
-		m.discriminators.Release(discr)
+		retired = append(retired, retiredSession{localDiscr: discr, entry: entry})
 	}
-	if err := m.unsolicitedSenderLease.Close(); err != nil {
-		m.logger.Warn("failed to close shared unsolicited sender lease",
-			slog.String("error", err.Error()),
-		)
-	}
-
+	retiredEcho := make([]retiredEchoSession, 0, len(m.echoSessions))
 	for discr, entry := range m.echoSessions {
-		entry.cancel()
-		m.discriminators.Release(discr)
+		retiredEcho = append(retiredEcho, retiredEchoSession{localDiscr: discr, entry: entry})
 	}
+	sharedUnsolicitedLease := m.unsolicitedSenderLease
+	m.unsolicitedSenderLease = nil
 
 	// Clear maps to prevent use-after-close.
 	m.sessions = make(map[uint32]*sessionEntry)
@@ -575,13 +729,53 @@ func (m *Manager) Close() {
 	m.sessionsByKey = make(map[SessionKey]*sessionEntry)
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
+	m.mu.Unlock()
+	m.ownershipMu.Unlock()
+	return retired, retiredEcho, sharedUnsolicitedLease
+}
 
-	m.subMu.Lock()
-	for ch := range m.subscribers {
-		delete(m.subscribers, ch)
-		close(ch)
+func (m *Manager) stopAndWait(retired []retiredSession, retiredEcho []retiredEchoSession) {
+	for _, item := range retired {
+		item.entry.cancel()
 	}
-	m.subMu.Unlock()
+	for _, item := range retiredEcho {
+		item.entry.cancel()
+	}
+	close(m.shutdownCh)
 
-	m.logger.Info("manager closed")
+	m.activeOps.Wait()
+	m.workers.Wait()
+	m.closeLegacyStateChanges()
+}
+
+func (m *Manager) releaseCloseResources(
+	retired []retiredSession,
+	retiredEcho []retiredEchoSession,
+	sharedUnsolicitedLease *SenderLease,
+) {
+	slices.SortFunc(retired, func(a, b retiredSession) int {
+		return cmp.Compare(a.localDiscr, b.localDiscr)
+	})
+	for _, item := range retired {
+		m.finishSessionDestroy(item.localDiscr, item.entry)
+	}
+	if err := sharedUnsolicitedLease.Close(); err != nil {
+		m.logger.Warn("failed to close shared unsolicited sender lease",
+			slog.String("error", err.Error()),
+		)
+	}
+	slices.SortFunc(retiredEcho, func(a, b retiredEchoSession) int {
+		return cmp.Compare(a.localDiscr, b.localDiscr)
+	})
+	for _, item := range retiredEcho {
+		<-item.entry.done
+		m.discriminators.Release(item.localDiscr)
+	}
+}
+
+func (m *Manager) completeClose() {
+	m.lifecycleMu.Lock()
+	m.lifecycleState = managerClosed
+	close(m.closeDone)
+	m.lifecycleMu.Unlock()
 }

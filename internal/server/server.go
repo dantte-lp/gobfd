@@ -257,7 +257,10 @@ func (s *BFDServer) WatchSessionEvents(
 
 	// Stream state changes from a per-client subscription. Multiple watch
 	// clients must observe the same events rather than competing on one channel.
-	ch := s.manager.SubscribeStateChanges(ctx)
+	ch, err := s.manager.SubscribeStateChanges(ctx)
+	if err != nil {
+		return fmt.Errorf("subscribe to session state changes: %w", err)
+	}
 	for {
 		select {
 		case <-ctx.Done():

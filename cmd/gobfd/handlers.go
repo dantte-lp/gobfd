@@ -51,6 +51,33 @@ func startGoBGPHandler(
 		return nil, fmt.Errorf("create gobgp client: %w", err)
 	}
 
+	handler, err := newGoBGPHandler(client, cfg, logger)
+	if err != nil {
+		closeGoBGPClient(client, logger)
+		return nil, err
+	}
+
+	if err := startGoBGPHandlerRun(ctx, g, mgr, handler); err != nil {
+		closeGoBGPClient(client, logger)
+		return nil, err
+	}
+
+	logger.Info("gobgp integration enabled",
+		slog.String("addr", cfg.Addr),
+		slog.String("strategy", cfg.Strategy),
+		slog.Duration("action_timeout", cfg.ActionTimeout),
+		slog.Bool("tls", cfg.TLS.Enabled),
+		slog.Bool("dampening", cfg.Dampening.Enabled),
+	)
+
+	return client, nil
+}
+
+func newGoBGPHandler(
+	client gobgp.Client,
+	cfg config.GoBGPConfig,
+	logger *slog.Logger,
+) (*gobgp.Handler, error) {
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
 		Client:        client,
 		Strategy:      gobgp.Strategy(cfg.Strategy),
@@ -65,23 +92,25 @@ func startGoBGPHandler(
 		Logger: logger,
 	})
 	if err != nil {
-		closeGoBGPClient(client, logger)
 		return nil, fmt.Errorf("create gobgp handler: %w", err)
 	}
+	return handler, nil
+}
 
+func startGoBGPHandlerRun(
+	ctx context.Context,
+	g *errgroup.Group,
+	mgr *bfd.Manager,
+	handler *gobgp.Handler,
+) error {
+	stateChanges, err := mgr.SubscribeStateChanges(ctx)
+	if err != nil {
+		return fmt.Errorf("subscribe GoBGP handler to BFD state changes: %w", err)
+	}
 	g.Go(func() error {
-		return handler.Run(ctx, mgr.SubscribeStateChanges(ctx))
+		return handler.Run(ctx, stateChanges)
 	})
-
-	logger.Info("gobgp integration enabled",
-		slog.String("addr", cfg.Addr),
-		slog.String("strategy", cfg.Strategy),
-		slog.Duration("action_timeout", cfg.ActionTimeout),
-		slog.Bool("tls", cfg.TLS.Enabled),
-		slog.Bool("dampening", cfg.Dampening.Enabled),
-	)
-
-	return client, nil
+	return nil
 }
 
 func startInterfaceMonitor(

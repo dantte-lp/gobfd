@@ -185,12 +185,12 @@ func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 		reconcileResult <- ownershipOperationResult{created: created, destroyed: destroyed, err: err}
 	}()
 	<-metrics.entered
-	if mgr.ownershipMu.TryLock() {
-		mgr.ownershipMu.Unlock()
+	if !mgr.ownershipMu.TryLock() {
 		close(metrics.release)
 		<-reconcileResult
-		t.Fatal("reconciliation released ownership lock before completing")
+		t.Fatal("reconciliation retained ownership lock during detached-session cleanup")
 	}
+	mgr.ownershipMu.Unlock()
 
 	createStarted := make(chan struct{})
 	createResult := make(chan error, 1)
@@ -203,6 +203,7 @@ func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 	close(metrics.release)
 
 	reconciled := <-reconcileResult
+	metrics.armed.Store(false)
 	if reconciled.err != nil {
 		t.Fatalf("ReconcileSessions: %v", reconciled.err)
 	}
