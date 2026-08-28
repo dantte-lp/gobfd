@@ -509,17 +509,24 @@ kill -HUP $(pidof gobfd)
 
 При перезагрузке:
 1. YAML-файл перечитывается и валидируется
-2. Уровень лога обновляется динамически
-3. Непустой список декларативных сессий реконсилируется в режиме best effort
-4. Включённые непустые списки Echo-пиров реконсилируются в режиме best effort
-5. Непустые группы Micro-BFD реконсилируются в режиме best effort
-6. Включённые непустые списки VXLAN-пиров реконсилируются в режиме best effort
-7. Включённые непустые списки Geneve-пиров реконсилируются в режиме best effort
-8. Ошибки логируются; изменения, уже применённые на предыдущих шагах, не откатываются
+2. Полный candidate control sessions base, Micro-BFD members, VXLAN и Geneve
+   компилируется и валидируется до создания sender или мутации Manager
+3. Уровень лога обновляется динамически
+4. Source базовых сессий реконсилируется, включая пустой desired set
+5. Включённые непустые списки Echo-пиров реконсилируются в режиме best effort;
+   пустой desired set Echo остаётся отдельным путём и сейчас пропускается
+6. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
+   desired sets
+7. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
+   desired sets
+8. Runtime errors логируются; изменения sender, resources или sessions, уже
+   применённые на предыдущих шагах, не откатываются
 
-Эти reload adapters не передают пустые desired sets, поэтому удаление последней
-записи не удаляет последний объект семейства. Раздельная owner isolation для
-base, Echo, Micro-BFD, VXLAN и Geneve отложена.
+Base configuration, Micro-BFD members, VXLAN и Geneve используют отдельные
+типизированные reconciliation owners. Удаление последней записи одного из этих
+sources освобождает claim этого source, не удаляя claims другого source.
+SIGHUP остаётся нетранзакционным для sender/resource failures и других ошибок
+runtime apply.
 
 ### Правила валидации
 

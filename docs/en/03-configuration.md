@@ -509,17 +509,25 @@ kill -HUP $(pidof gobfd)
 
 On reload:
 1. The YAML file is re-read and validated
-2. Log level is updated dynamically (no restart needed)
-3. A non-empty declarative session list is reconciled on a best-effort basis
-4. Enabled, non-empty Echo peers are reconciled on a best-effort basis
-5. Non-empty Micro-BFD groups are reconciled on a best-effort basis
-6. Enabled, non-empty VXLAN peers are reconciled on a best-effort basis
-7. Enabled, non-empty Geneve peers are reconciled on a best-effort basis
-8. Errors are logged; changes already applied by earlier steps are not rolled back
+2. The complete base, Micro-BFD member, VXLAN, and Geneve control-session
+   candidate is compiled and validated before sender creation or Manager
+   mutation
+3. Log level is updated dynamically (no restart needed)
+4. The base session source is reconciled, including an empty desired set
+5. Enabled, non-empty Echo peers are reconciled on a best-effort basis; empty
+   Echo desired sets remain a separate path and are currently skipped
+6. Micro-BFD groups and the member-session source are reconciled, including
+   empty desired sets
+7. VXLAN and Geneve are reconciled as distinct sources, including empty
+   desired sets
+8. Runtime errors are logged; sender, resource, or session changes already
+   applied by earlier steps are not rolled back
 
-Empty desired sets are not forwarded by these reload adapters, so removing the
-final entry does not remove the last object in that family. Separate owner
-isolation for base, Echo, Micro-BFD, VXLAN, and Geneve remains deferred.
+Base configuration, Micro-BFD members, VXLAN, and Geneve use distinct typed
+reconciliation owners. Removing the final entry for one of these sources
+releases that source's claim without deleting claims held by another source.
+SIGHUP remains non-transactional for sender/resource failures and other
+runtime apply failures.
 
 ### Validation Rules
 
