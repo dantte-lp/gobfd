@@ -91,14 +91,14 @@ deployments/
 .github/
 .golangci.yml
 .markdownlint-cli2.yaml
-.yamllint.yaml
+.yamlfmt.yaml
 .cspell.json
 .commitlintrc.yaml
 .editorconfig
 .pre-commit-config.yaml
 sonar-project.properties
 
-# Node / Python local caches that may appear during dev
+# Node and legacy Python local caches that may appear during dev
 node_modules/
 __pycache__/
 *.pyc

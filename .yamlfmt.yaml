@@ -1,0 +1,21 @@
+formatter:
+  type: basic
+  indent: 2
+  retain_line_breaks: true
+  scan_folded_as_literal: true
+  eof_newline: false
+  trim_trailing_whitespace: false
+
+exclude:
+  - node_modules/**
+  - vendor/**
+  - reports/**
+  - dist/**
+  - build/**
+  - bin/**
+  - .worktrees/**
+  - .archive/**
+  - .serena/**
+  - docs/rfc/**
+  - docs/tmp/**
+  - test/interop-clab/clab-gobfd-vendors/**

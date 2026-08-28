@@ -8,8 +8,6 @@ ARG BENCHSTAT_VERSION=v0.0.0-20260825160852-19be9d8e6c70
 ARG GOTESTSUM_VERSION=v1.13.0
 ARG DOCKER_COMPOSE_VERSION=5.5.0
 
-FROM ghcr.io/astral-sh/uv:0.12.6@sha256:88bc6eb1ccd4b82efd0e1b530caffabddf50dc2bf612e66c14ea25b8ee8a4d3d AS uv
-
 FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS go-toolchain
 
 FROM go-toolchain AS compose-provider
@@ -25,7 +23,7 @@ RUN go build -trimpath -o /out/toolbootstrap ./test/cmd/toolbootstrap \
         --install-dir /out/provider \
         --version "${DOCKER_COMPOSE_VERSION}"
 
-FROM docker.io/library/python:3.14.7-slim-trixie@sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83 AS dev
+FROM go-toolchain AS dev
 
 ARG BUF_VERSION
 ARG PROTOC_GEN_GO_VERSION
@@ -37,18 +35,14 @@ ARG BENCHSTAT_VERSION
 ARG GOTESTSUM_VERSION
 ARG DOCKER_COMPOSE_VERSION
 
-COPY --from=go-toolchain /usr/local/go /usr/local/go
-COPY --from=uv /uv /uvx /usr/local/bin/
-
 ENV GOFLAGS="-buildvcs=false" \
     GOCACHE=/tmp/go-cache \
     GOMODCACHE=/go/pkg/mod \
-	UV_PROJECT_ENVIRONMENT=/opt/gobfd-python/.venv \
 	PODMAN_COMPOSE_PROVIDER=/usr/local/bin/docker-compose \
 	PODMAN_COMPOSE_WARNING_LOGS=false \
 	DOCKER_BUILDKIT=0 \
 	DEBIAN_FRONTEND=noninteractive \
-	PATH=/usr/local/go/bin:/opt/gobfd-python/.venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+	PATH=/usr/local/go/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Build tools and certificates
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -107,13 +101,6 @@ RUN go install golang.org/x/perf/cmd/benchstat@${BENCHSTAT_VERSION}
 
 # gotestsum — Go test runner with JUnit XML / JSON output
 RUN go install gotest.tools/gotestsum@${GOTESTSUM_VERSION}
-
-# Python tooling uses the repository's single frozen lock. Compose is the
-# separately checksum-pinned Go provider installed above.
-WORKDIR /opt/gobfd-python
-COPY pyproject.toml uv.lock .python-version ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-default-groups --group quality
 
 # Module cache warm-up happens on first `go mod download`
 WORKDIR /app

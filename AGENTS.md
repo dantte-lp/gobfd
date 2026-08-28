@@ -104,22 +104,13 @@ that exact toolchain. Use the official
   Keep analysis HTTP UIs on loopback and never put secrets or peer addresses
   into goroutine labels.
 
-## Python tooling rules
+## No-Python tooling rule
 
-The only supported Python environment is Python 3.14.7 managed by uv 0.12.6
-from the root `.python-version`, `pyproject.toml`, and `uv.lock`.
-
-- Keep one lock. Use the `peer`, `runtime`, and `quality` dependency groups;
-  never add a second requirements or lock file.
-- Never use `pip`, `pipx`, or `uv tool install`. Bootstrap uv from the
-  checksum-pinned release archive or digest-pinned OCI image.
-- Run repository Python entrypoints as `uv run --frozen`; CI and image builds
-  must use `uv sync --frozen`.
-- Run `make python-check` after changing Python code, pins, or invocation
-  paths. It executes Ruff, ty, Bandit, and pip-audit over the owned Python
-  file and verifies the exact interpreter.
-- ExaBGP is an external immutable interop image, not a dependency of the
-  repository Python lock.
+The repository owns no Python source, environment, manifest, or lock file.
+Quality gates and report generation are Go-owned. Do not add `pip`, `uv`,
+Python container stages, requirements files, `pyproject.toml`, or Python
+entrypoints. ExaBGP remains an external immutable interop image and is not a
+repository Python dependency.
 
 ## Podman Compose rules
 

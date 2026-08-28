@@ -310,30 +310,22 @@ checks the preserved Conventional Commit type, scope, case, 100-byte blocking
 header limit, 120-byte non-blocking body warning, and default-ignore boundary.
 Neither check requires Node.js or npm.
 
-`make lint-spell` runs codespell 2.4.3 from the frozen uv quality group with
-the exact `.codespell-ignore` word list. `make lint-yaml` uses the same frozen
-environment for yamllint 1.38.0.
+`make lint-spell` runs the pinned Go `misspell` tool over the exact maintained
+English documentation set. `make lint-yaml` runs pinned Go `yamlfmt` in lint
+mode with the repository's line-preserving `.yamlfmt.yaml` policy.
 
 ### Python Absence Contract
 
-The repository owns no Python source files. Vendor image preparation is native
-Go; `make python-check` fails if a tracked `.py` file is reintroduced. The
-frozen uv environment is temporarily retained only for codespell, yamllint,
-and JUnit-to-HTML conversion while those quality-tool callers migrate.
-
-```bash
-make python-check
-```
-
-ExaBGP remains an external immutable interop image and is not duplicated in
-the quality-tool lock.
+The repository owns no Python source, environment, manifest, or lock file.
+Vendor image preparation, spelling, YAML policy, and JUnit-to-HTML conversion
+are Go-owned. ExaBGP remains an external immutable interop image.
 
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in
 `docs/supply-chain/dependency-inventory.json`. It covers the complete selected
 runtime and isolated-tool module graphs plus repository-declared tools, GitHub
-Actions, OCI images, interop daemons, and all registry packages from `uv.lock`.
+Actions, OCI images, and interop daemons.
 Regenerate it only after completing the corresponding release-note, security,
 license, archive, and pin review:
 
@@ -344,8 +336,7 @@ make dependency-inventory-check
 
 Generation resolves each exact selected Go module version through the stable
 deps.dev v3 API and records exact-commit GitHub evidence where deps.dev has no
-license expression. Exact PyPI release JSON must match the locked package
-identity and artifact SHA-256 before its license metadata is accepted.
+license expression.
 Immutable OCI records keep registry availability separate from their canonical
 build-source commit and hashed license file. The check is offline and fails if
 either Go module graph, a declared component, a source location, evidence

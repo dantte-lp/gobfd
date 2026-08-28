@@ -50,17 +50,6 @@ jobs:
           go run ./test/cmd/toolbootstrap podman-runtime
           jq --version
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.6"
-          checksum: "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477"
-          download-from-astral-mirror: false
-          enable-cache: false
-
-      - name: Sync Python quality tools
-        run: uv sync --frozen --no-default-groups --group quality
-
       - name: Test with coverage
         run: |
           go tool -modfile=tools/go.mod gotestsum \
@@ -72,9 +61,9 @@ jobs:
 
       - name: Generate HTML test report
         if: always()
-        run: >-
-          uv run --frozen --no-build --no-default-groups --group quality --
-          junit2html unit-report.xml unit-report.html 2>/dev/null || true
+        run: >
+          go run ./test/cmd/junitreport --root .
+          --input unit-report.xml --output unit-report.html
 
       - name: Upload test reports
         if: always()
@@ -141,34 +130,14 @@ jobs:
         with:
           go-version: "1.27.0"
 
-      - name: Install documentation linters
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.6"
-          checksum: "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477"
-          download-from-astral-mirror: false
-          enable-cache: false
-
-      - name: Sync documentation linters
-        run: uv sync --frozen --no-default-groups --group quality
-
       - name: Markdown policy
         run: go run ./test/cmd/repoquality markdown --root .
 
-      - name: yamllint
-        run: >-
-          uv run --frozen --no-build --no-default-groups --group quality --
-          yamllint -c .yamllint.yaml .
+      - name: YAML policy
+        run: go tool -modfile=tools/go.mod yamlfmt -lint .
 
-      - name: Python quality and security
-        run: make python-check
-
-      - name: codespell
-        run: >
-          uv run --frozen --no-build --no-default-groups --group quality -- codespell
-          README.md CONTRIBUTING.md CHANGELOG.md
-          CODE_OF_CONDUCT.md SUPPORT.md GOVERNANCE.md MAINTAINERS.md
-          docs/en/implementation-plan.md docs/en/codebase-consistency-audit.md
+      - name: Spelling policy
+        run: make lint-spell
 
   commit-policy:
     name: Commit policy (PR title)

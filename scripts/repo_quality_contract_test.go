@@ -39,25 +39,25 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	releaseWorkflow := readContractFile(t, "../.github/workflows/release.yml")
 	repositorySettings := readContractFile(t, "../.github/repository-settings.md")
 	containerfile := readContractFile(t, "../deployments/docker/Containerfile.dev")
-	pythonProject := readContractFile(t, "../pyproject.toml")
 	sonarProject := readContractFile(t, "../sonar-project.properties")
 
 	requireContractStrings(t, "Makefile", makefile, []string{
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/repoquality commit --message",
-		"uv run --frozen --no-default-groups --group quality -- codespell",
+		"go tool -modfile=tools/go.mod yamlfmt -lint .",
+		"go tool -modfile=tools/go.mod misspell -error",
+		"go run ./test/cmd/junitreport --root .",
 	})
 	requireContractStrings(t, "CI workflow", workflow, []string{
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/repoquality commit --message \"$PR_TITLE\"",
-		"uv run --frozen --no-build --no-default-groups --group quality -- codespell",
+		"go tool -modfile=tools/go.mod yamlfmt -lint .",
+		"go run ./test/cmd/junitreport --root .",
 	})
-	if got := strings.Count(workflow, "uv run --frozen --no-build"); got != 3 {
-		t.Errorf("CI workflow has %d locked no-build uv runs, want 3", got)
-	}
 	requireContractStrings(t, "release workflow", releaseWorkflow, []string{
-		"uv sync --frozen --no-build --no-default-groups --group quality",
-		"uv run --frozen --no-build --no-default-groups --group quality",
+		"go run ./test/cmd/junitreport --root .",
+		"--input reports/tests/unit-report.xml",
+		"--output reports/tests/unit-report.html",
 	})
 	requireContractStrings(t, "Sonar project", sonarProject, []string{
 		"internal/netio/listener_linux.go",
@@ -67,12 +67,6 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	requireContractStrings(t, "repository settings", repositorySettings, []string{
 		"Commit policy (PR title)",
 	})
-	requireContractStrings(t, "Python quality project", pythonProject, []string{
-		`"codespell==2.4.3",`,
-		"[tool.codespell]",
-		"ignore-words = \".codespell-ignore\"",
-	})
-
 	for _, surface := range []struct {
 		name    string
 		content string
@@ -90,6 +84,10 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 			"markdownlint-cli2",
 			"cspell",
 			"commitlint",
+			"setup-uv",
+			"uv run",
+			"junit2html",
+			"yamllint",
 		} {
 			if strings.Contains(surface.content, forbidden) {
 				t.Errorf("%s retains Node quality marker %q", surface.name, forbidden)
@@ -180,19 +178,20 @@ func TestReleaseBranchesReceiveRequiredWorkflows(t *testing.T) {
 	}
 }
 
-func TestUVBootstrapPinsActionVersionAndChecksum(t *testing.T) {
+func TestPythonToolingIsAbsent(t *testing.T) {
 	t.Parallel()
 
-	workflow := readContractFile(t, "../.github/workflows/ci.yml")
-	requireContractStrings(t, "uv bootstrap", workflow, []string{
-		"astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0",
-		`version: "0.12.6"`,
-		`checksum: "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477"`,
-		"download-from-astral-mirror: false",
-		"enable-cache: false",
-	})
-	if _, err := os.Lstat("../.github/scripts/install-uv.sh"); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("legacy uv installer still exists: %v", err)
+	for _, path := range []string{
+		"../.python-version",
+		"../pyproject.toml",
+		"../uv.lock",
+		"../.codespell-ignore",
+		"../.yamllint.yaml",
+		"../.github/scripts/install-uv.sh",
+	} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("legacy Python quality path still exists: %s (%v)", path, err)
+		}
 	}
 }
 

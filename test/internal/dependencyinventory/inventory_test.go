@@ -3,9 +3,6 @@ package dependencyinventory
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,7 +26,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read checked repository inventory: %v", err)
 	}
-	wantGraphCounts := map[string]int{"runtime": 196, "tools": 443}
+	wantGraphCounts := map[string]int{"runtime": 196, "tools": 449}
 	for _, graph := range inv.ModuleGraphs {
 		if len(graph.Modules) != wantGraphCounts[graph.ID] {
 			t.Fatalf("%s module count = %d, want %d", graph.ID, len(graph.Modules), wantGraphCounts[graph.ID])
@@ -59,7 +56,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 				t.Fatalf("deferred/stale component %s lacks tracking or review date", component.ID)
 			}
 		}
-		if component.Kind == KindTool || component.Kind == KindPythonPackage {
+		if component.Kind == KindTool {
 			if component.Assessment.License.Status != ReviewVerified {
 				t.Fatalf("%s license status = %q, want verified", component.ID, component.Assessment.License.Status)
 			}
@@ -68,8 +65,8 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 			}
 		}
 	}
-	if kindCounts[KindPythonPackage] != 40 || kindCounts[KindTool] != 21 {
-		t.Fatalf("inventory Python/tool counts = %d/%d, want 40/21", kindCounts[KindPythonPackage], kindCounts[KindTool])
+	if kindCounts[KindTool] != 13 {
+		t.Fatalf("inventory tool count = %d, want 13", kindCounts[KindTool])
 	}
 	for _, removed := range []string{
 		"tool:git_commit", "tool:bird_commit", "tool:bird_source_sha256",
@@ -531,7 +528,7 @@ func TestDiscoverDeclaredComponentsIgnoresRepositoryWorktrees(t *testing.T) {
 
 	root := t.TempDir()
 	writeFixture(t, root, "Containerfile", "ARG BUF_VERSION=v1.72.0\n")
-	writeFixture(t, root, ".worktrees/feature/Containerfile", "ARG UV_VERSION=0.12.6\n")
+	writeFixture(t, root, ".worktrees/feature/Containerfile", "ARG YAMLFMT_VERSION=v0.21.0\n")
 
 	components, err := discoverDeclaredComponents(context.Background(), root)
 	if err != nil {
@@ -539,37 +536,6 @@ func TestDiscoverDeclaredComponentsIgnoresRepositoryWorktrees(t *testing.T) {
 	}
 	if len(components) != 1 || components[0].ID != "tool:buf" {
 		t.Fatalf("discoverDeclaredComponents() = %#v, want only tool:buf", components)
-	}
-}
-
-func TestParseUVLockPackagesIncludesRegistryArtifactsAndExcludesVirtualProject(t *testing.T) {
-	t.Parallel()
-
-	const locked = `version = 1
-
-[[package]]
-name = "example-package"
-version = "1.2.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/example.tar.gz", hash = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", size = 42 }
-
-[[package]]
-name = "example-project"
-version = "0.0.0"
-source = { virtual = "." }
-`
-	packages, err := parseUVLockPackages([]byte(locked))
-	if err != nil {
-		t.Fatalf("parseUVLockPackages() error = %v", err)
-	}
-	if len(packages) != 1 {
-		t.Fatalf("parseUVLockPackages() count = %d, want 1", len(packages))
-	}
-	packageRecord := packages[0]
-	if packageRecord.ID != "python-package:example-package" || packageRecord.Kind != KindPythonPackage ||
-		packageRecord.Installed != "1.2.3" || packageRecord.Registry != "https://pypi.org/simple" ||
-		packageRecord.ArtifactHash != "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
-		t.Fatalf("parseUVLockPackages() = %#v", packageRecord)
 	}
 }
 
@@ -591,67 +557,12 @@ ARG BIRD_SOURCE_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef012345678
 	}
 }
 
-func TestFetchPyPILicenseRejectsUntrustedReleaseEvidence(t *testing.T) {
-	t.Parallel()
-
-	const artifactHash = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	tests := map[string]struct {
-		status int
-		body   string
-		want   string
-	}{
-		"non-2xx":           {status: http.StatusBadGateway, body: `{}`, want: "HTTP 502"},
-		"identity mismatch": {status: http.StatusOK, body: `{"info":{"name":"other","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]}`, want: "identity mismatch"},
-		"artifact mismatch": {status: http.StatusOK, body: `{"info":{"name":"example-package","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}}]}`, want: "artifact hash mismatch"},
-		"ambiguous license": {status: http.StatusOK, body: `{"info":{"name":"example-package","version":"1.2.3","classifiers":["License :: OSI Approved :: BSD License"]},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]}`, want: "ambiguous or missing license"},
-		"multiple JSON":     {status: http.StatusOK, body: `{"info":{"name":"example-package","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]} {}`, want: "multiple JSON"},
-		"oversized":         {status: http.StatusOK, body: strings.Repeat(" ", pypiMaxResponseBytes+1), want: "exceeds"},
-	}
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-				response.WriteHeader(test.status)
-				_, _ = fmt.Fprint(response, test.body)
-			}))
-			t.Cleanup(server.Close)
-
-			_, err := fetchPyPILicense(context.Background(), server.Client(), server.URL, pythonPackageIdentity{
-				Name: "example-package", Version: "1.2.3", ArtifactHash: artifactHash,
-			})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("fetchPyPILicense() error = %v, want %q", err, test.want)
-			}
-		})
-	}
-}
-
-func TestFetchPyPILicenseAcceptsExactPEP639Release(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(response, `{"info":{"name":"example-package","version":"1.2.3","license_expression":"MIT"},"urls":[{"digests":{"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}]}`)
-	}))
-	t.Cleanup(server.Close)
-
-	result, err := fetchPyPILicense(context.Background(), server.Client(), server.URL, pythonPackageIdentity{
-		Name: "example-package", Version: "1.2.3",
-		ArtifactHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-	})
-	if err != nil {
-		t.Fatalf("fetchPyPILicense() error = %v", err)
-	}
-	if result.License != "MIT" {
-		t.Fatalf("fetchPyPILicense() license = %q, want MIT", result.License)
-	}
-}
-
 func TestDiscoverDeclaredComponentsIgnoresProsePunctuationAndTemplates(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	writeFixture(t, root, "CHANGELOG.md", "Uses docker.io/example/router:latest.\n")
-	writeFixture(t, root, "bootstrap.py", `template = "docker.io/example/router:{tag}"`)
+	writeFixture(t, root, "template.txt", `template = "docker.io/example/router:{tag}"`)
 	writeFixture(t, root, "compose.yml", "# image: docker.io/example/router:latest.\n")
 	writeFixture(t, root, "run.sh", "# pull docker.io/example/router:latest.\n")
 	writeFixture(t, root, "profiles.json", `{"image":"docker.io/example/router:1.2.3"}`)

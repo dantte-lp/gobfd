@@ -581,7 +581,7 @@ netlab automatically handles IP addressing, BGP AS assignment, and BFD session c
 4. Convert the generated Containerlab topology to netlab YAML
 5. For VM-based vendors (Cisco IOS-XR, Juniper vMX), enable nested KVM on the host
 
-> **Note**: netlab is not part of the supported uv lock and requires Ansible
+> **Note**: netlab is not part of the supported repository toolchain and requires Ansible
 > and KVM. It remains a future direction for expanding vendor coverage beyond
 > native container platforms.
 

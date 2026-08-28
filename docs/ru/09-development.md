@@ -315,31 +315,24 @@ Conventional Commit для type, scope и case, блокирующего 100-б�
 header, неблокирующего 120-байтного предупреждения body и default-ignore. Ни
 одна из этих проверок не требует Node.js или npm.
 
-`make lint-spell` запускает codespell 2.4.3 из frozen uv quality group с точным
-списком слов `.codespell-ignore`. `make lint-yaml` использует то же frozen
-окружение для yamllint 1.38.0.
+`make lint-spell` запускает закреплённый Go-инструмент `misspell` по точному
+набору поддерживаемой англоязычной документации. `make lint-yaml` запускает
+закреплённый Go `yamlfmt` в lint-режиме с сохраняющей строки политикой
+`.yamlfmt.yaml`.
 
 ### Контракт отсутствия Python
 
-Репозиторий больше не содержит Python-кода. Подготовка вендорных образов
-реализована на Go, а `make python-check` запрещает повторное добавление tracked
-`.py`. Frozen uv-окружение временно остаётся только для codespell, yamllint и
-конвертации JUnit в HTML до переноса этих quality-tool callers.
-
-```bash
-make python-check
-```
-
-ExaBGP остаётся внешним immutable interop-образом и не дублируется в lock
-quality-инструментов.
+Репозиторий не содержит Python-кода, окружения, manifest или lock-файла.
+Подготовка вендорных образов, spelling, YAML-политика и преобразование JUnit в
+HTML реализованы на Go. ExaBGP остаётся внешним immutable interop-образом.
 
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в
 `docs/supply-chain/dependency-inventory.json`. Он охватывает полные выбранные
 графы runtime и изолированных инструментов, а также объявленные в репозитории
-инструменты, GitHub Actions, OCI-образы, interop-демоны и все registry packages
-из `uv.lock`. Перегенерируйте его только после проверки release notes,
+инструменты, GitHub Actions, OCI-образы и interop-демоны. Перегенерируйте его
+только после проверки release notes,
 безопасности, лицензий, archive status и неизменяемых pin:
 
 ```bash
@@ -349,8 +342,7 @@ make dependency-inventory-check
 
 Генерация разрешает каждую точную выбранную версию Go-модуля через стабильный
 API deps.dev v3 и записывает GitHub evidence точного commit там, где deps.dev
-не возвращает license expression. Для PyPI точный release JSON обязан совпасть
-с package identity и artifact SHA-256 из lock до принятия license metadata.
+не возвращает license expression.
 Для immutable OCI registry availability хранится отдельно от точного commit
 канонического build-source и hash его license-файла. Offline-проверка
 завершается ошибкой при drift любого Go module graph, объявленного компонента,

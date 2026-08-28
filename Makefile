@@ -40,7 +40,7 @@ SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
 
-.PHONY: all verify build test testcontainers-smoke lint lint-ci lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit python-sync python-check semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict dependency-inventory dependency-inventory-check \
+.PHONY: all verify build test testcontainers-smoke lint lint-ci lint-fix gopls-check lint-docs lint-md lint-yaml lint-spell lint-commit semgrep semgrep-json semgrep-pro proto-gen proto-lint fuzz vulncheck osv-scan vulncheck-strict osv-scan-strict dependency-inventory dependency-inventory-check \
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
@@ -544,9 +544,9 @@ test-report:
 		--jsonfile $(REPORT_DIR)/tests/unit-report.json \
 		--format short-verbose \
 		-- -buildvcs=false ./... -race -count=1
-	$(EXEC) uv run --frozen --no-default-groups --group quality -- \
-		junit2html $(REPORT_DIR)/tests/unit-report.xml \
-		$(REPORT_DIR)/tests/unit-report.html
+	$(EXEC) go run ./test/cmd/junitreport --root . \
+		--input $(REPORT_DIR)/tests/unit-report.xml \
+		--output $(REPORT_DIR)/tests/unit-report.html
 	@echo "=== Test report: $(REPORT_DIR)/tests/unit-report.html ==="
 
 # Full pipeline: tests + benchmarks + comparison.
@@ -659,11 +659,10 @@ lint-md: dev-ensure
 	$(EXEC) go run ./test/cmd/repoquality markdown --root .
 
 lint-yaml: dev-ensure
-	$(EXEC) uv run --frozen --no-default-groups --group quality -- \
-		yamllint -c .yamllint.yaml .
+	$(EXEC) go tool -modfile=tools/go.mod yamlfmt -lint .
 
 lint-spell: dev-ensure
-	$(EXEC) uv run --frozen --no-default-groups --group quality -- codespell \
+	$(EXEC) go tool -modfile=tools/go.mod misspell -error \
 		README.md \
 		CONTRIBUTING.md \
 		CODE_OF_CONDUCT.md \
@@ -674,14 +673,6 @@ lint-spell: dev-ensure
 		docs/en/roadmap.md
 
 lint-docs: lint-md lint-yaml lint-spell
-
-python-sync:
-	uv lock --check
-	uv sync --frozen --all-groups
-	@test "$$(uv run --frozen --all-groups python -c 'import sys; print(sys.version.split()[0])')" = "3.14.7"
-
-python-check:
-	@test -z "$$(git ls-files '*.py')" || { echo "owned Python files remain"; exit 1; }
 
 lint-commit:
 	@test -n "$(MSG)" || (echo "Usage: make lint-commit MSG='feat(bfd): add feature'"; exit 1)

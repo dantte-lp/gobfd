@@ -72,8 +72,6 @@ func TestContainerlabBootstrapOwnedOrchestrationUsesGo(t *testing.T) {
 	for _, required := range []string{
 		"interop-clab-bootstrap:",
 		"go run ./test/cmd/clabbootstrap",
-		"python-check:",
-		`git ls-files '*.py'`,
 	} {
 		if !strings.Contains(makefile, required) {
 			t.Errorf("Makefile lacks bootstrap split contract %q", required)
