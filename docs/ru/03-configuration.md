@@ -391,7 +391,10 @@ geneve:
 
 ### Переменные окружения
 
-Все ключи конфигурации можно переопределить через переменные окружения с префиксом `GOBFD_`. Правило маппинга: убрать префикс, привести к нижнему регистру, заменить `_` на `.`.
+Daemon поддерживает только явные environment overrides из таблицы ниже.
+Остальные или неоднозначные имена `GOBFD_` игнорируются; underscores не
+интерпретируются универсальным правилом nesting. Environment values перекрывают
+YAML, а YAML перекрывает встроенные defaults.
 
 | Переменная | Ключ конфигурации | Пример |
 |---|---|---|
@@ -400,6 +403,19 @@ geneve:
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
+| `GOBFD_UNSOLICITED_ENABLED` | `unsolicited.enabled` | `true` |
+| `GOBFD_ECHO_ENABLED` | `echo.enabled` | `true` |
+| `GOBFD_SOCKET_READ_BUFFER_SIZE` | `socket.read_buffer_size` | `8388608` |
+| `GOBFD_SOCKET_WRITE_BUFFER_SIZE` | `socket.write_buffer_size` | `8388608` |
+| `GOBFD_VXLAN_ENABLED` | `vxlan.enabled` | `true` |
+| `GOBFD_VXLAN_BACKEND` | `vxlan.backend` | `"userspace-udp"` |
+| `GOBFD_GENEVE_ENABLED` | `geneve.enabled` | `true` |
+| `GOBFD_GENEVE_BACKEND` | `geneve.backend` | `"userspace-udp"` |
+| `GOBFD_GOBGP_ENABLED` | `gobgp.enabled` | `true` |
+| `GOBFD_GOBGP_ADDR` | `gobgp.addr` | `"127.0.0.1:50051"` |
+| `GOBFD_GOBGP_STRATEGY` | `gobgp.strategy` | `"disable-peer"` |
+| `GOBFD_GOBGP_TLS_ENABLED` | `gobgp.tls.enabled` | `true` |
+| `GOBFD_GOBGP_DAMPENING_ENABLED` | `gobgp.dampening.enabled` | `true` |
 
 ### Декларативные сессии
 

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
-	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
 
 	"github.com/dantte-lp/gobfd/internal/overlay"
@@ -722,15 +723,10 @@ const envPrefix = "GOBFD_"
 // variable overrides (GOBFD_ prefix), and merges on top of DefaultConfig().
 // Missing fields inherit defaults.
 //
-// Environment variable mapping:
+// The explicit supported environment mapping is defined by envKeyMapper;
+// unknown or ambiguous GOBFD_ names are ignored.
 //
-//	GOBFD_GRPC_ADDR     -> grpc.addr
-//	GOBFD_METRICS_ADDR  -> metrics.addr
-//	GOBFD_METRICS_PATH  -> metrics.path
-//	GOBFD_LOG_LEVEL     -> log.level
-//	GOBFD_LOG_FORMAT    -> log.format
-//
-// Uses koanf/v2 with file + env providers and YAML parser.
+// Uses koanf/v2 with raw bytes + env providers and YAML parser.
 func Load(path string) (*Config, error) {
 	// os.Root provides sandboxed file access to prevent path traversal.
 	// Validate that the config file is within the expected directory
@@ -749,6 +745,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("open config file %s in root %s: %w", base, dir, err)
 	}
 	defer f.Close()
+	return loadOpenedConfig(path, f)
+}
+
+func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
+	contents, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("read config from %s: %w", path, err)
+	}
 
 	k := koanf.New(".")
 
@@ -759,12 +763,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Load YAML file on top of defaults.
-	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+	if err := k.Load(rawbytes.Provider(contents), yaml.Parser()); err != nil {
 		return nil, fmt.Errorf("load config from %s: %w", path, err)
 	}
 
 	// Load environment variable overrides on top of YAML.
-	// GOBFD_GRPC_ADDR -> grpc.addr (strip prefix, lowercase, _ -> .).
 	if err := k.Load(env.Provider(envPrefix, ".", envKeyMapper), nil); err != nil {
 		return nil, fmt.Errorf("load env overrides: %w", err)
 	}
@@ -781,12 +784,32 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// envKeyMapper transforms GOBFD_GRPC_ADDR -> grpc.addr.
-// Strips the GOBFD_ prefix, lowercases, and replaces _ with .
+// envKeyMapper returns the exact supported configuration key for a daemon
+// environment variable. Returning an empty key makes the env provider ignore
+// unknown or ambiguous GOBFD_ names.
 func envKeyMapper(s string) string {
-	s = strings.TrimPrefix(s, envPrefix)
-	s = strings.ToLower(s)
-	return strings.ReplaceAll(s, "_", ".")
+	supported := map[string]string{
+		"GOBFD_GRPC_ADDR":                "grpc.addr",
+		"GOBFD_METRICS_ADDR":             "metrics.addr",
+		"GOBFD_METRICS_PATH":             "metrics.path",
+		"GOBFD_LOG_LEVEL":                "log.level",
+		"GOBFD_LOG_FORMAT":               "log.format",
+		"GOBFD_UNSOLICITED_ENABLED":      "unsolicited.enabled",
+		"GOBFD_ECHO_ENABLED":             "echo.enabled",
+		"GOBFD_VXLAN_ENABLED":            "vxlan.enabled",
+		"GOBFD_VXLAN_BACKEND":            "vxlan.backend",
+		"GOBFD_GENEVE_ENABLED":           "geneve.enabled",
+		"GOBFD_GENEVE_BACKEND":           "geneve.backend",
+		"GOBFD_GOBGP_ENABLED":            "gobgp.enabled",
+		"GOBFD_GOBGP_ADDR":               "gobgp.addr",
+		"GOBFD_GOBGP_STRATEGY":           "gobgp.strategy",
+		"GOBFD_GOBGP_TLS_ENABLED":        "gobgp.tls.enabled",
+		"GOBFD_GOBGP_DAMPENING_ENABLED":  "gobgp.dampening.enabled",
+		"GOBFD_SOCKET_READ_BUFFER_SIZE":  "socket.read_buffer_size",
+		"GOBFD_SOCKET_WRITE_BUFFER_SIZE": "socket.write_buffer_size",
+	}
+
+	return supported[s]
 }
 
 // loadDefaults marshals the default config into koanf as the base layer.
@@ -797,6 +820,8 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"metrics.path":                       defaults.Metrics.Path,
 		"log.level":                          defaults.Log.Level,
 		"log.format":                         defaults.Log.Format,
+		"socket.read_buffer_size":            defaults.Socket.ReadBufferSize,
+		"socket.write_buffer_size":           defaults.Socket.WriteBufferSize,
 		"bfd.default_desired_min_tx":         defaults.BFD.DefaultDesiredMinTx.String(),
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,

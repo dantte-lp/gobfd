@@ -1,11 +1,24 @@
 # GoBFD daemon configuration example.
 #
-# All settings can be overridden via environment variables:
+# Supported environment overrides:
 #   GOBFD_GRPC_ADDR=:50051
 #   GOBFD_METRICS_ADDR=:9100
 #   GOBFD_METRICS_PATH=/metrics
 #   GOBFD_LOG_LEVEL=debug
 #   GOBFD_LOG_FORMAT=text
+#   GOBFD_UNSOLICITED_ENABLED=true
+#   GOBFD_ECHO_ENABLED=true
+#   GOBFD_SOCKET_READ_BUFFER_SIZE=4194304
+#   GOBFD_SOCKET_WRITE_BUFFER_SIZE=4194304
+#   GOBFD_VXLAN_ENABLED=true
+#   GOBFD_VXLAN_BACKEND=userspace-udp
+#   GOBFD_GENEVE_ENABLED=true
+#   GOBFD_GENEVE_BACKEND=userspace-udp
+#   GOBFD_GOBGP_ENABLED=true
+#   GOBFD_GOBGP_ADDR=127.0.0.1:50051
+#   GOBFD_GOBGP_STRATEGY=disable-peer
+#   GOBFD_GOBGP_TLS_ENABLED=true
+#   GOBFD_GOBGP_DAMPENING_ENABLED=true
 
 grpc:
   # gRPC (ConnectRPC) listen address.

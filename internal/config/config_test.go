@@ -599,6 +599,32 @@ metrics:
 	}
 }
 
+func TestLoadEnvOverridesCompoundSocketKeys(t *testing.T) {
+	yamlContent := `
+socket:
+  read_buffer_size: 2097152
+  write_buffer_size: 1048576
+`
+	path := writeTemp(t, yamlContent)
+
+	t.Setenv("GOBFD_SOCKET_READ_BUFFER_SIZE", "8388608")
+	t.Setenv("GOBFD_SOCKET_WRITE_BUFFER_SIZE", "3145728")
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error: %v", path, err)
+	}
+
+	if cfg.Socket.ReadBufferSize != 8388608 {
+		t.Errorf("Socket.ReadBufferSize = %d, want 8388608 from environment",
+			cfg.Socket.ReadBufferSize)
+	}
+	if cfg.Socket.WriteBufferSize != 3145728 {
+		t.Errorf("Socket.WriteBufferSize = %d, want 3145728 from environment",
+			cfg.Socket.WriteBufferSize)
+	}
+}
+
 // -------------------------------------------------------------------------
 // Echo Peer Config Tests
 // -------------------------------------------------------------------------

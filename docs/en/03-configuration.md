@@ -390,7 +390,10 @@ See [Declarative Sessions](#declarative-sessions) for details.
 
 ### Environment Variables
 
-All configuration keys can be overridden via environment variables with the `GOBFD_` prefix. The mapping rule is: strip prefix, lowercase, replace `_` with `.`.
+The daemon supports the explicit environment overrides below. Other or
+ambiguous `GOBFD_` names are ignored; underscores are not interpreted by a
+generic nesting rule. Environment values override YAML, which overrides the
+built-in defaults.
 
 | Environment Variable | Config Key | Example |
 |---|---|---|
@@ -399,6 +402,19 @@ All configuration keys can be overridden via environment variables with the `GOB
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
+| `GOBFD_UNSOLICITED_ENABLED` | `unsolicited.enabled` | `true` |
+| `GOBFD_ECHO_ENABLED` | `echo.enabled` | `true` |
+| `GOBFD_SOCKET_READ_BUFFER_SIZE` | `socket.read_buffer_size` | `8388608` |
+| `GOBFD_SOCKET_WRITE_BUFFER_SIZE` | `socket.write_buffer_size` | `8388608` |
+| `GOBFD_VXLAN_ENABLED` | `vxlan.enabled` | `true` |
+| `GOBFD_VXLAN_BACKEND` | `vxlan.backend` | `"userspace-udp"` |
+| `GOBFD_GENEVE_ENABLED` | `geneve.enabled` | `true` |
+| `GOBFD_GENEVE_BACKEND` | `geneve.backend` | `"userspace-udp"` |
+| `GOBFD_GOBGP_ENABLED` | `gobgp.enabled` | `true` |
+| `GOBFD_GOBGP_ADDR` | `gobgp.addr` | `"127.0.0.1:50051"` |
+| `GOBFD_GOBGP_STRATEGY` | `gobgp.strategy` | `"disable-peer"` |
+| `GOBFD_GOBGP_TLS_ENABLED` | `gobgp.tls.enabled` | `true` |
+| `GOBFD_GOBGP_DAMPENING_ENABLED` | `gobgp.dampening.enabled` | `true` |
 
 ### Declarative Sessions
 
