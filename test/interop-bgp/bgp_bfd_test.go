@@ -276,7 +276,18 @@ func TestBGPBFD_AllPeersUp(t *testing.T) {
 // Test: Scenario 1 — GoBFD + GoBGP <-> FRR (BGP+BFD)
 // =========================================================================
 
-func TestBGPBFD_FRR(t *testing.T) {
+type bgpBFDLifecycleScenario struct {
+	peerName        string
+	container       string
+	neighborIP      string
+	route           string
+	otherPeerName   string
+	otherNeighborIP string
+	waitBFDUp       func(context.Context, *testing.T, time.Duration)
+}
+
+func runBGPBFDLifecycle(t *testing.T, scenario bgpBFDLifecycleScenario) {
+	t.Helper()
 	t.Cleanup(func() {
 		if t.Failed() {
 			dumpGoBGPState(t)
@@ -284,57 +295,74 @@ func TestBGPBFD_FRR(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		containerStart(ctx, frrContainer) //nolint:errcheck // Cleanup is best-effort after the primary test result.
+		containerStart(ctx, scenario.container) //nolint:errcheck // Cleanup is best-effort after the primary test result.
 	})
 	ctx := t.Context()
 
 	// Phase 1: Establish.
-	t.Log("Phase 1: verifying BGP + BFD + route baseline with FRR")
-	waitBGPEstablished(ctx, t, frrBGPIP)
-	waitFRRBFDUp(ctx, t, bfdUpTimeout)
-	waitRouteExists(ctx, t, frrRoute)
-	t.Logf("baseline: BGP Established, BFD Up, route %s present", frrRoute)
+	t.Logf("Phase 1: verifying BGP + BFD + route baseline with %s", scenario.peerName)
+	waitBGPEstablished(ctx, t, scenario.neighborIP)
+	scenario.waitBFDUp(ctx, t, bfdUpTimeout)
+	waitRouteExists(ctx, t, scenario.route)
+	t.Logf("baseline: BGP Established, BFD Up, route %s present", scenario.route)
 
 	// Phase 2: BFD failure -> BGP disabled.
-	t.Log("Phase 2: stopping FRR to trigger BFD failure")
-	if err := containerStop(ctx, frrContainer); err != nil {
-		t.Fatalf("stop frr-bgp: %v", err)
+	t.Logf("Phase 2: stopping %s to trigger BFD failure", scenario.peerName)
+	if err := containerStop(ctx, scenario.container); err != nil {
+		t.Fatalf("stop %s: %v", scenario.container, err)
 	}
 
 	time.Sleep(failureDetectWait)
 
-	state, err := gobgpNeighborState(ctx, frrBGPIP)
+	state, err := gobgpNeighborState(ctx, scenario.neighborIP)
 	if err != nil {
-		t.Fatalf("check FRR BGP state: %v", err)
+		t.Fatalf("check %s BGP state: %v", scenario.peerName, err)
 	}
 	if state == "established" {
-		t.Errorf("FRR BGP session still Established after BFD failure, expected disabled")
+		t.Errorf("%s BGP session still Established after BFD failure, expected disabled", scenario.peerName)
 	} else {
-		t.Logf("FRR BGP session state: %s (expected non-established)", state)
+		t.Logf("%s BGP session state: %s (expected non-established)", scenario.peerName, state)
 	}
 
-	waitRouteGone(ctx, t, frrRoute, routeTimeout)
-	t.Logf("route %s withdrawn after BFD failure", frrRoute)
+	waitRouteGone(ctx, t, scenario.route, routeTimeout)
+	t.Logf("route %s withdrawn after BFD failure", scenario.route)
 
-	bird3State, _ := gobgpNeighborState(ctx, bird3BGPIP)
-	if bird3State != "established" {
-		t.Errorf("BIRD3 BGP session affected by FRR failure: state=%s", bird3State)
+	otherState, _ := gobgpNeighborState(ctx, scenario.otherNeighborIP)
+	if otherState != "established" {
+		t.Errorf(
+			"%s BGP session affected by %s failure: state=%s",
+			scenario.otherPeerName,
+			scenario.peerName,
+			otherState,
+		)
 	}
 
 	// Phase 3: Recovery.
-	t.Log("Phase 3: starting FRR for recovery")
-	if err := containerStart(ctx, frrContainer); err != nil {
-		t.Fatalf("start frr-bgp: %v", err)
+	t.Logf("Phase 3: starting %s for recovery", scenario.peerName)
+	if err := containerStart(ctx, scenario.container); err != nil {
+		t.Fatalf("start %s: %v", scenario.container, err)
 	}
 
-	waitBGPEstablished(ctx, t, frrBGPIP)
-	t.Log("FRR BGP session re-established")
+	waitBGPEstablished(ctx, t, scenario.neighborIP)
+	t.Logf("%s BGP session re-established", scenario.peerName)
 
-	waitFRRBFDUp(ctx, t, bfdUpTimeout)
-	t.Log("FRR BFD session Up")
+	scenario.waitBFDUp(ctx, t, bfdUpTimeout)
+	t.Logf("%s BFD session Up", scenario.peerName)
 
-	waitRouteExists(ctx, t, frrRoute)
-	t.Logf("route %s restored after recovery", frrRoute)
+	waitRouteExists(ctx, t, scenario.route)
+	t.Logf("route %s restored after recovery", scenario.route)
+}
+
+func TestBGPBFD_FRR(t *testing.T) {
+	runBGPBFDLifecycle(t, bgpBFDLifecycleScenario{
+		peerName:        "FRR",
+		container:       frrContainer,
+		neighborIP:      frrBGPIP,
+		route:           frrRoute,
+		otherPeerName:   "BIRD3",
+		otherNeighborIP: bird3BGPIP,
+		waitBFDUp:       waitFRRBFDUp,
+	})
 }
 
 // =========================================================================
@@ -342,64 +370,15 @@ func TestBGPBFD_FRR(t *testing.T) {
 // =========================================================================
 
 func TestBGPBFD_BIRD3(t *testing.T) {
-	t.Cleanup(func() {
-		if t.Failed() {
-			dumpGoBGPState(t)
-			dumpGoBFDLogs(t)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		containerStart(ctx, bird3Container) //nolint:errcheck // Cleanup is best-effort after the primary test result.
+	runBGPBFDLifecycle(t, bgpBFDLifecycleScenario{
+		peerName:        "BIRD3",
+		container:       bird3Container,
+		neighborIP:      bird3BGPIP,
+		route:           bird3Route,
+		otherPeerName:   "FRR",
+		otherNeighborIP: frrBGPIP,
+		waitBFDUp:       waitBIRD3BFDUp,
 	})
-	ctx := t.Context()
-
-	// Phase 1: Establish.
-	t.Log("Phase 1: verifying BGP + BFD + route baseline with BIRD3")
-	waitBGPEstablished(ctx, t, bird3BGPIP)
-	waitBIRD3BFDUp(ctx, t, bfdUpTimeout)
-	waitRouteExists(ctx, t, bird3Route)
-	t.Logf("baseline: BGP Established, BFD Up, route %s present", bird3Route)
-
-	// Phase 2: BFD failure -> BGP disabled.
-	t.Log("Phase 2: stopping BIRD3 to trigger BFD failure")
-	if err := containerStop(ctx, bird3Container); err != nil {
-		t.Fatalf("stop bird3-bgp: %v", err)
-	}
-
-	time.Sleep(failureDetectWait)
-
-	state, err := gobgpNeighborState(ctx, bird3BGPIP)
-	if err != nil {
-		t.Fatalf("check BIRD3 BGP state: %v", err)
-	}
-	if state == "established" {
-		t.Errorf("BIRD3 BGP session still Established after BFD failure, expected disabled")
-	} else {
-		t.Logf("BIRD3 BGP session state: %s (expected non-established)", state)
-	}
-
-	waitRouteGone(ctx, t, bird3Route, routeTimeout)
-	t.Logf("route %s withdrawn after BFD failure", bird3Route)
-
-	frrState, _ := gobgpNeighborState(ctx, frrBGPIP)
-	if frrState != "established" {
-		t.Errorf("FRR BGP session affected by BIRD3 failure: state=%s", frrState)
-	}
-
-	// Phase 3: Recovery.
-	t.Log("Phase 3: starting BIRD3 for recovery")
-	if err := containerStart(ctx, bird3Container); err != nil {
-		t.Fatalf("start bird3-bgp: %v", err)
-	}
-
-	waitBGPEstablished(ctx, t, bird3BGPIP)
-	t.Log("BIRD3 BGP session re-established")
-
-	waitBIRD3BFDUp(ctx, t, bfdUpTimeout)
-	t.Log("BIRD3 BFD session Up")
-
-	waitRouteExists(ctx, t, bird3Route)
-	t.Logf("route %s restored after recovery", bird3Route)
 }
 
 // =========================================================================
