@@ -2,8 +2,8 @@
 
 [![RFC 5880](https://img.shields.io/badge/RFC_5880-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
 [![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
-[![RFC 5882](https://img.shields.io/badge/RFC_5882-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
-[![RFC 5883](https://img.shields.io/badge/RFC_5883-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
+[![RFC 5882](https://img.shields.io/badge/RFC_5882-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
+[![RFC 5883](https://img.shields.io/badge/RFC_5883-Constrained-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
 [![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
@@ -46,8 +46,8 @@
 |---|---|---|---|
 | [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Ответ Final на входящий Poll есть; локальный/crossed Poll и Demand procedures не завершены |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Реализован** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
-| [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Реализован** | Интеграция с GoBGP, демпфирование flap-ов |
-| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Реализован** | UDP 4784, проверка TTL>=254 |
+| [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Application integration частичная** | State delivery и actuator convergence не завершены; penalty dampening является implementation policy |
+| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784 с TTL>=254 допускает не более одного промежуточного router; arbitrary-hop qualification не завершена |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v3 отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Preview** | Автосоздание и policy существуют; стабильная квалификация не завершена |
@@ -161,7 +161,9 @@ best-effort путь: текущая реализация не подтверж�
 
 Реализация: [`internal/gobgp/`](../../internal/gobgp/)
 
-- Section 3.2: демпфирование flap-ов с настраиваемыми порогами
+- Section 3.1 разрешает implementation-defined session-state hysteresis.
+  Настраиваемое penalty-based dampening в GoBFD является implementation policy,
+  а не стандартизированным RFC-алгоритмом.
 - Section 4.3: отслеживание состояний BFD и вызов GoBGP gRPC API
   - BFD Down --> `DisablePeer()` (или `DeletePath()` по стратегии)
   - BFD Up --> `EnablePeer()` (или `AddPath()`)

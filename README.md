@@ -1,6 +1,6 @@
 <p align="center">
   <strong>GoBFD</strong><br>
-  Production-grade BFD protocol daemon for Go
+  Production-oriented pre-1.0 BFD protocol daemon for Go
 </p>
 
 <p align="center">
@@ -134,8 +134,8 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 |---|---|---|
 | RFC 5880 | BFD Base Protocol | Asynchronous core; partial |
 | RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Implemented |
-| RFC 5882 | Generic Application of BFD | Implemented |
-| RFC 5883 | BFD for Multihop Paths | Implemented |
+| RFC 5882 | Generic Application of BFD | Application integration partial |
+| RFC 5883 | BFD for Multihop Paths | Constrained GTSM profile; arbitrary-hop qualification pending |
 | RFC 7419 | Common Interval Support | Implemented |
 | RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v3 emits Cease/2 |
 | RFC 9468 | Unsolicited BFD | Preview |
@@ -167,7 +167,7 @@ allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
 - Table-driven FSM matching RFC 5880 Section 6.8.6 (no if-else chains)
 - Five authentication modes (Simple Password, Keyed MD5/SHA1, Meticulous MD5/SHA1)
 - RFC 9747 Echo, RFC 7130 Micro-BFD protocol, RFC 8971 VXLAN userspace backend, and RFC 9521 Geneve userspace backend support
-- BFD flap dampening for BGP integration (RFC 5882 Section 3.2)
+- BFD flap dampening for BGP integration (implementation policy informed by RFC 5882 Section 3.1)
 - Zero-allocation packet codec with pre-built cached packets
 - ConnectRPC/gRPC API + CLI with interactive shell
 - Prometheus metrics + Grafana dashboard

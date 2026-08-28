@@ -121,7 +121,7 @@ graph TB
 
 ```mermaid
 flowchart TD
-    NET["Network<br/>UDP 3784 / 4784"] --> LISTEN["netio.Listener<br/>ReadBatch<br/>PacketPool.Get()"]
+    NET["Network<br/>UDP 3784 / 4784"] --> LISTEN["netio.Listener<br/>ReadMsgUDP<br/>PacketPool.Get()"]
     LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>RFC 5880 steps 1-7<br/>version, length, detect mult,<br/>multipoint, discriminators"]
     UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>Tier 1: YourDiscr (O1 map)<br/>Tier 2: PeerKey (SrcIP, DstIP, If)"]
     DEMUX --> RECV["Session.RecvPkt<br/>buffered chan"]
@@ -205,7 +205,7 @@ graph TB
     end
 
     subgraph "Shared Receivers"
-        L["netio.Listener<br/>ReadBatch goroutine"]
+        L["netio.Listener<br/>ReadMsgUDP goroutine"]
         R["netio.Receiver<br/>demux + dispatch"]
         ER["netio.EchoReceiver<br/>port 3785"]
         OR["netio.OverlayReceiver<br/>VXLAN 4789 / Geneve 6081"]

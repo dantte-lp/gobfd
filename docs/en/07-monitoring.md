@@ -22,6 +22,11 @@
 
 GoBFD exposes Prometheus metrics at the configured endpoint (default `:9100/metrics`). All metrics use the `gobfd_bfd_` prefix.
 
+`gobfd_bfd_packets_dropped_total` and `gobfd_bfd_auth_failures_total` are
+registered but are not yet incremented by the production data path. They remain
+zero and must not be used as operational loss or authentication evidence until
+the v1 loss-accounting work is complete.
+
 | Metric | Type | Labels | Description |
 |---|---|---|---|
 | `gobfd_bfd_sessions` | Gauge | `peer_addr`, `local_addr`, `session_type` | Currently active BFD sessions |

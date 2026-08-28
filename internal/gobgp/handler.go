@@ -63,8 +63,9 @@ var (
 // -------------------------------------------------------------------------
 
 // Handler consumes BFD state change events and applies the configured
-// strategy against the GoBGP API. It implements RFC 5882 Section 3.2 by
-// applying flap dampening before taking any BGP action.
+// strategy against the GoBGP API. It applies GoBFD's implementation-defined
+// flap dampening policy before taking any BGP action. RFC 5882 Section 3.1
+// permits session-state hysteresis but does not define this algorithm.
 //
 // The handler runs as a single goroutine in the daemon's errgroup,
 // consuming from the Manager.StateChanges() channel.
@@ -84,7 +85,7 @@ type HandlerConfig struct {
 	// Strategy determines the BGP action on BFD state changes.
 	Strategy Strategy
 
-	// Dampening configures RFC 5882 Section 3.2 flap dampening.
+	// Dampening configures GoBFD's penalty-based flap dampening policy.
 	Dampening DampeningConfig
 
 	// ActionTimeout bounds each GoBGP API action. When unset, the handler
@@ -186,7 +187,7 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 // RFC 5882 Section 4.3: "When BFD for BGP detects a failure, the BGP
 // session is torn down.".
 func (h *Handler) handleDown(ctx context.Context, peerAddr string, sc bfd.StateChange) {
-	// RFC 5882 Section 3.2: apply flap dampening before acting.
+	// Apply the implementation-defined flap dampening policy before acting.
 	if h.dampener.ShouldSuppress(peerAddr) {
 		h.logger.Warn("BFD Down suppressed by flap dampening",
 			slog.String("peer", peerAddr),
@@ -213,7 +214,7 @@ func (h *Handler) handleDown(ctx context.Context, peerAddr string, sc bfd.StateC
 // RFC 5882 Section 4.3: "When the BFD session comes back up, the BGP
 // session should be re-established.".
 func (h *Handler) handleUp(ctx context.Context, peerAddr string, sc bfd.StateChange) {
-	// RFC 5882 Section 3.2: suppress Up if peer is still dampened.
+	// Suppress Up if the peer is still dampened by local policy.
 	if h.dampener.ShouldSuppressUp(peerAddr) {
 		h.logger.Warn("BFD Up suppressed by flap dampening",
 			slog.String("peer", peerAddr),

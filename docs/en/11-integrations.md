@@ -177,6 +177,10 @@ graph LR
 
 ### Metrics
 
+The drop and authentication-failure series are registered but currently remain
+zero because production data-path accounting is not wired. Their alert rules
+are placeholders until the v1 loss-accounting work is complete.
+
 | Metric | Type | Description |
 |--------|------|-------------|
 | `gobfd_bfd_sessions` | Gauge | Active BFD sessions per peer |

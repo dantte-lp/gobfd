@@ -10,13 +10,11 @@ import (
 const penaltyNoiseFloor = 0.001
 
 // -------------------------------------------------------------------------
-// RFC 5882 Section 3.2 — BFD Flap Dampening
+// BFD Flap Dampening — GoBFD implementation policy
 // -------------------------------------------------------------------------
 //
-// "BFD is a relatively aggressive mechanism for detecting failures.
-//  Because of this, implementations SHOULD provide a flap dampening
-//  mechanism to prevent rapid oscillation of the BFD session from
-//  causing excessive route churn."
+// RFC 5882 Section 3.1 permits implementations to hide rapid Up/Down/Up
+// transitions from clients, but does not define a penalty-based algorithm.
 //
 // The dampening algorithm follows the classic route flap dampening model
 // (RFC 2439) adapted for BFD: each Down event accumulates a penalty

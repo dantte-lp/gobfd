@@ -460,9 +460,11 @@ deployments. Enable `gobgp.tls.enabled` for remote or non-loopback GoBGP API
 endpoints. When GoBGP is enabled with plaintext and `gobgp.addr` is not
 loopback/localhost, GoBFD logs a startup warning.
 
-#### Flap Dampening (RFC 5882 Section 3.2)
+#### Flap Dampening
 
-Prevents rapid BFD oscillation from causing excessive BGP route churn:
+Prevents rapid BFD oscillation from causing excessive BGP route churn. This
+penalty-based algorithm is GoBFD implementation policy; RFC 5882 Section 3.1
+permits session-state hysteresis but does not standardize this algorithm.
 
 | Key | Type | Default | Description |
 |---|---|---|---|

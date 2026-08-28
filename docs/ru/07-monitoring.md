@@ -22,6 +22,11 @@
 
 GoBFD предоставляет метрики Prometheus по настроенному адресу (по умолчанию `:9100/metrics`). Все метрики имеют префикс `gobfd_bfd_`.
 
+`gobfd_bfd_packets_dropped_total` и `gobfd_bfd_auth_failures_total`
+зарегистрированы, но production data path пока не увеличивает их значения.
+Они остаются равны нулю и не являются эксплуатационным свидетельством потерь
+или ошибок аутентификации до завершения v1 loss accounting.
+
 | Метрика | Тип | Метки | Описание |
 |---|---|---|---|
 | `gobfd_bfd_sessions` | Gauge | `peer_addr`, `local_addr`, `session_type` | Текущее количество активных BFD-сессий |

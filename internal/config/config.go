@@ -495,7 +495,7 @@ type GoBGPConfig struct {
 	// TLS configures transport security for the GoBGP gRPC API.
 	TLS GoBGPTLSConfig `koanf:"tls"`
 
-	// Dampening configures RFC 5882 Section 3.2 flap dampening.
+	// Dampening configures GoBFD's penalty-based flap dampening policy.
 	Dampening GoBGPDampeningConfig `koanf:"dampening"`
 }
 
@@ -544,7 +544,7 @@ func goBGPAddrHost(addr string) string {
 	return strings.Trim(addr, "[]")
 }
 
-// GoBGPDampeningConfig holds flap dampening parameters (RFC 5882 Section 3.2).
+// GoBGPDampeningConfig holds GoBFD flap dampening policy parameters.
 type GoBGPDampeningConfig struct {
 	// Enabled controls whether flap dampening is active.
 	Enabled bool `koanf:"enabled"`

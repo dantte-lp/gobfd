@@ -27,9 +27,9 @@ import "net/netip"
 // This decoupled design avoids import cycles between the bfd package and
 // protocol-specific integration packages (e.g., internal/gobgp).
 //
-// For BFD flap dampening (RFC 5882 Section 3.2), the callback consumer
-// should implement exponential backoff before propagating rapid Down->Up->Down
-// oscillations to routing protocols.
+// A callback consumer may implement local hysteresis or dampening before
+// propagating rapid Down->Up->Down oscillations to routing protocols. RFC 5882
+// Section 3.1 permits hysteresis but does not define a penalty algorithm.
 type StateCallback func(change StateChange)
 
 // MetricsReporter is a consumer interface for reporting BFD protocol metrics.
