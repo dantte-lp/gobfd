@@ -131,7 +131,28 @@ func TestManagerCloseInvokesSenderReleaseOutsideManagerLocks(t *testing.T) {
 	}
 }
 
-func TestManagerDetachedSessionReleaseCanReenterClose(t *testing.T) {
+type lifecycleCleanupMetrics struct {
+	noopMetrics
+
+	manager               *Manager
+	discr                 uint32
+	entered               chan struct{}
+	release               chan struct{}
+	discriminatorReleased atomic.Bool
+}
+
+func (m *lifecycleCleanupMetrics) UnregisterSession(netip.Addr, netip.Addr, string) {
+	m.discriminatorReleased.Store(!m.manager.discriminators.IsAllocated(m.discr))
+	close(m.entered)
+	<-m.release
+}
+
+type lifecycleCallbackResult struct {
+	snapshotCount int
+	mutationErr   error
+}
+
+func TestManagerDetachedSessionCleanupKeepsCloseWaitingAndAllowsReentry(t *testing.T) {
 	testCases := []struct {
 		name    string
 		release func(*Manager, uint32) error
@@ -153,13 +174,29 @@ func TestManagerDetachedSessionReleaseCanReenterClose(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				mgr := NewManager(slog.New(slog.DiscardHandler))
-				var callbackCalls atomic.Int32
+				metrics := &lifecycleCleanupMetrics{
+					entered: make(chan struct{}),
+					release: make(chan struct{}),
+				}
+				mgr := NewManager(slog.New(slog.DiscardHandler), WithManagerMetrics(metrics))
+				metrics.manager = mgr
+				callbackEntered := make(chan struct{})
+				allowCallback := make(chan struct{})
+				callbackResult := make(chan lifecycleCallbackResult, 1)
 				var sess *Session
 				factory := func() (*SenderLease, error) {
 					return NewSenderLease(senderLeaseTestSender{}, func() error {
-						callbackCalls.Add(1)
-						mgr.Close()
+						close(callbackEntered)
+						<-allowCallback
+						snapshots := mgr.Sessions()
+						_, mutationErr := mgr.CreateSession(
+							context.Background(),
+							senderLeaseTestConfig("192.0.2.121"),
+							NonOwningSenderLeaseFactory(senderLeaseTestSender{}),
+						)
+						callbackResult <- lifecycleCallbackResult{
+							snapshotCount: len(snapshots), mutationErr: mutationErr,
+						}
 						return nil
 					}), nil
 				}
@@ -184,23 +221,61 @@ func TestManagerDetachedSessionReleaseCanReenterClose(t *testing.T) {
 				if err != nil {
 					t.Fatalf("seed session: %v", err)
 				}
+				metrics.discr = sess.LocalDiscriminator()
 
 				releaseDone := make(chan error, 1)
 				go func() {
 					releaseDone <- tt.release(mgr, sess.LocalDiscriminator())
 				}()
+				<-callbackEntered
+
+				closeDone := make(chan struct{})
+				go func() {
+					mgr.Close()
+					close(closeDone)
+				}()
 				synctest.Wait()
+				mgr.lifecycleMu.RLock()
+				state := mgr.lifecycleState
+				mgr.lifecycleMu.RUnlock()
+				if state != managerClosing {
+					t.Errorf("Manager lifecycle state = %d, want Closing", state)
+				}
 				select {
-				case releaseErr := <-releaseDone:
-					if releaseErr != nil {
-						t.Errorf("%s: %v", tt.name, releaseErr)
-					}
+				case <-closeDone:
+					t.Error("Manager.Close returned before sender release callback completed")
 				default:
-					t.Errorf("%s sender release callback deadlocked on reentrant Close", tt.name)
 				}
-				if got := callbackCalls.Load(); got != 1 {
-					t.Errorf("sender release callbacks = %d, want 1", got)
+
+				close(allowCallback)
+				<-metrics.entered
+				result := <-callbackResult
+				if result.snapshotCount != 0 {
+					t.Errorf("callback session snapshots = %d, want 0", result.snapshotCount)
 				}
+				if !errors.Is(result.mutationErr, ErrManagerClosing) {
+					t.Errorf("callback mutation error = %v, want ErrManagerClosing", result.mutationErr)
+				}
+				if !metrics.discriminatorReleased.Load() {
+					t.Error("metrics cleanup began before discriminator release")
+				}
+				select {
+				case <-closeDone:
+					t.Error("Manager.Close returned before metrics cleanup completed")
+				default:
+				}
+				select {
+				case <-releaseDone:
+					t.Errorf("%s returned before metrics cleanup completed", tt.name)
+				default:
+				}
+
+				close(metrics.release)
+				synctest.Wait()
+				if releaseErr := <-releaseDone; releaseErr != nil {
+					t.Errorf("%s: %v", tt.name, releaseErr)
+				}
+				<-closeDone
 			})
 		})
 	}

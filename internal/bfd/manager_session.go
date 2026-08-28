@@ -25,6 +25,7 @@ func (m *Manager) CreateSession(
 	if err != nil {
 		return nil, err
 	}
+	defer op.finish()
 
 	m.ownershipMu.Lock()
 	sess, _, unusedLease, err := m.claimSession(
@@ -32,7 +33,6 @@ func (m *Manager) CreateSession(
 	)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
-	op.finish()
 	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
 		err = errors.Join(err, closeErr)
 	}
@@ -276,12 +276,12 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 	if err != nil {
 		return err
 	}
+	defer op.finish()
 
 	m.ownershipMu.Lock()
 	_, retired, err := m.detachSessionClaimByDiscriminator(localDiscr, compatibilityAPISessionOwner())
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
-	op.finish()
 	if retired != nil {
 		m.finishSessionDestroy(retired.localDiscr, retired.entry)
 	}
@@ -540,6 +540,7 @@ func (m *Manager) tryCreateUnsolicited(
 	if err != nil {
 		return err
 	}
+	defer op.finish()
 
 	m.ownershipMu.Lock()
 
@@ -550,7 +551,6 @@ func (m *Manager) tryCreateUnsolicited(
 
 	if reserveErr := m.unsolicited.reserve(meta.SrcAddr, meta.IfName); reserveErr != nil {
 		m.ownershipMu.Unlock()
-		op.finish()
 		return fmt.Errorf(
 			"unsolicited: peer %s on %s: %w",
 			meta.SrcAddr, meta.IfName, reserveErr,
@@ -563,7 +563,6 @@ func (m *Manager) tryCreateUnsolicited(
 	if senderFactory == nil {
 		m.unsolicited.release()
 		m.ownershipMu.Unlock()
-		op.finish()
 		return fmt.Errorf(
 			"unsolicited: no sender configured for peer %s: %w",
 			meta.SrcAddr, ErrUnsolicitedDisabled,
@@ -578,7 +577,6 @@ func (m *Manager) tryCreateUnsolicited(
 		m.unsolicited.release()
 		m.ownershipMu.Unlock()
 		op.unlockMutation()
-		op.finish()
 		if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
 			err = errors.Join(err, closeErr)
 		}
@@ -589,7 +587,6 @@ func (m *Manager) tryCreateUnsolicited(
 	m.activateUnsolicitedSession(sess, pkt, meta, wire)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
-	op.finish()
 	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
 		return fmt.Errorf("unsolicited: close unused sender for peer %s: %w", meta.SrcAddr, closeErr)
 	}
@@ -802,9 +799,9 @@ func (m *Manager) reconcileSessionsForOwner(
 	if err != nil {
 		return 0, 0, err
 	}
+	defer op.finish()
 
 	if !isDeclarativeReconciliationOwner(owner) {
-		op.finish()
 		return 0, 0, fmt.Errorf("reconcile sessions for owner source %d ID %q: %w",
 			owner.Source, owner.ID, ErrInvalidReconciliationOwner)
 	}
@@ -814,14 +811,12 @@ func (m *Manager) reconcileSessionsForOwner(
 	desiredByKey, desiredOrder, err := compileReconcileConfigs(desired)
 	if err != nil {
 		m.ownershipMu.Unlock()
-		op.finish()
 		return 0, 0, err
 	}
 
 	currentClaims, err := m.ownerClaimSnapshot(owner, desiredByKey, desiredOrder)
 	if err != nil {
 		m.ownershipMu.Unlock()
-		op.finish()
 		return 0, 0, err
 	}
 
@@ -833,7 +828,6 @@ func (m *Manager) reconcileSessionsForOwner(
 	err = errors.Join(append(releaseErrs, claimErrs...)...)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
-	op.finish()
 
 	m.finishRetiredSessions(retired)
 	for _, lease := range unusedLeases {

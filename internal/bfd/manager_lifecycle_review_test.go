@@ -5,10 +5,38 @@ import (
 	"errors"
 	"log/slog"
 	"net/netip"
-	"runtime"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
+
+type lifecycleLogBarrier struct {
+	target  string
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *lifecycleLogBarrier) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (b *lifecycleLogBarrier) Handle(_ context.Context, record slog.Record) error {
+	if record.Message == b.target {
+		b.once.Do(func() { close(b.entered) })
+		<-b.release
+	}
+	return nil
+}
+
+func (b *lifecycleLogBarrier) WithAttrs([]slog.Attr) slog.Handler {
+	return b
+}
+
+func (b *lifecycleLogBarrier) WithGroup(string) slog.Handler {
+	return b
+}
 
 func lifecycleMicroConfig(lag string) MicroBFDConfig {
 	return MicroBFDConfig{
@@ -81,45 +109,39 @@ func TestManagerClosingRejectsMicroBFDGroupMutations(t *testing.T) {
 }
 
 func TestManagerReconcileMicroBFDGroupsIsOneLifecycleOperation(t *testing.T) {
-	mgr := NewManager(slog.New(slog.DiscardHandler))
-	cfg := lifecycleMicroConfig("bond-linearized")
-	mgr.mu.Lock()
-	reconcileStarted := make(chan struct{})
-	reconcileDone := make(chan error, 1)
-	go func() {
-		close(reconcileStarted)
-		_, _, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
-			Key: cfg.LAGInterface, Config: cfg,
-		}})
-		reconcileDone <- err
-	}()
-	<-reconcileStarted
+	synctest.Test(t, func(t *testing.T) {
+		barrier := &lifecycleLogBarrier{
+			target:  "reconcile: creating new micro-BFD group",
+			entered: make(chan struct{}),
+			release: make(chan struct{}),
+		}
+		mgr := NewManager(slog.New(barrier))
+		cfg := lifecycleMicroConfig("bond-linearized")
+		reconcileDone := make(chan error, 1)
+		go func() {
+			_, _, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
+				Key: cfg.LAGInterface, Config: cfg,
+			}})
+			reconcileDone <- err
+		}()
+		<-barrier.entered
 
-	if !waitForLifecycleReader(mgr) {
-		mgr.mu.Unlock()
-		<-reconcileDone
+		if mgr.lifecycleMu.TryLock() {
+			mgr.lifecycleMu.Unlock()
+			close(barrier.release)
+			<-reconcileDone
+			mgr.Close()
+			t.Fatal("Micro-BFD reconciliation did not register a top-level lifecycle operation")
+		}
+		mgr.lifecycleState = managerClosing
+		close(barrier.release)
+		synctest.Wait()
+		if err := <-reconcileDone; err != nil {
+			t.Errorf("ReconcileMicroBFDGroups: %v", err)
+		}
+		mgr.lifecycleState = managerOpen
 		mgr.Close()
-		t.Fatal("ReconcileMicroBFDGroups did not register one top-level lifecycle operation")
-	}
-
-	closeStarted := make(chan struct{})
-	closeDone := make(chan struct{})
-	go func() {
-		close(closeStarted)
-		mgr.Close()
-		close(closeDone)
-	}()
-	<-closeStarted
-	if !waitForLifecycleWriter(mgr) {
-		mgr.mu.Unlock()
-		t.Fatal("Manager.Close did not queue its lifecycle transition")
-	}
-	mgr.mu.Unlock()
-
-	if err := <-reconcileDone; err != nil {
-		t.Errorf("ReconcileMicroBFDGroups: %v", err)
-	}
-	<-closeDone
+	})
 }
 
 func TestManagerClosingRejectsEchoReconciliation(t *testing.T) {
@@ -141,67 +163,39 @@ func TestManagerClosingRejectsEchoReconciliation(t *testing.T) {
 }
 
 func TestManagerReconcileEchoSessionsIsOneLifecycleOperation(t *testing.T) {
-	mgr := NewManager(slog.New(slog.DiscardHandler))
-	cfg := lifecycleEchoConfig()
-	mgr.mu.Lock()
-	reconcileStarted := make(chan struct{})
-	reconcileDone := make(chan error, 1)
-	go func() {
-		close(reconcileStarted)
-		_, _, err := mgr.ReconcileEchoSessions(context.Background(), []EchoReconcileConfig{{
-			Key: "echo-linearized", EchoSessionConfig: cfg, Sender: senderLeaseTestSender{},
-		}})
-		reconcileDone <- err
-	}()
-	<-reconcileStarted
-
-	if !waitForLifecycleReader(mgr) {
-		mgr.mu.Unlock()
-		<-reconcileDone
-		mgr.Close()
-		t.Fatal("ReconcileEchoSessions did not register one top-level lifecycle operation")
-	}
-
-	closeStarted := make(chan struct{})
-	closeDone := make(chan struct{})
-	go func() {
-		close(closeStarted)
-		mgr.Close()
-		close(closeDone)
-	}()
-	<-closeStarted
-	if !waitForLifecycleWriter(mgr) {
-		mgr.mu.Unlock()
-		t.Fatal("Manager.Close did not queue its lifecycle transition")
-	}
-	mgr.mu.Unlock()
-
-	if err := <-reconcileDone; err != nil {
-		t.Errorf("ReconcileEchoSessions: %v", err)
-	}
-	<-closeDone
-}
-
-func waitForLifecycleReader(mgr *Manager) bool {
-	for range 10_000 {
-		if !mgr.lifecycleMu.TryLock() {
-			return true
+	synctest.Test(t, func(t *testing.T) {
+		barrier := &lifecycleLogBarrier{
+			target:  "reconcile: creating new echo session",
+			entered: make(chan struct{}),
+			release: make(chan struct{}),
 		}
-		mgr.lifecycleMu.Unlock()
-		runtime.Gosched()
-	}
-	return false
-}
+		mgr := NewManager(slog.New(barrier))
+		cfg := lifecycleEchoConfig()
+		reconcileDone := make(chan error, 1)
+		go func() {
+			_, _, err := mgr.ReconcileEchoSessions(context.Background(), []EchoReconcileConfig{{
+				Key: "echo-linearized", EchoSessionConfig: cfg, Sender: senderLeaseTestSender{},
+			}})
+			reconcileDone <- err
+		}()
+		<-barrier.entered
 
-func waitForLifecycleWriter(mgr *Manager) bool {
-	for range 10_000 {
-		if !mgr.lifecycleMu.TryRLock() {
-			return true
+		if mgr.lifecycleMu.TryLock() {
+			mgr.lifecycleMu.Unlock()
+			close(barrier.release)
+			<-reconcileDone
+			mgr.Close()
+			t.Fatal("echo reconciliation did not register a top-level lifecycle operation")
 		}
-		mgr.lifecycleMu.RUnlock()
-		runtime.Gosched()
-	}
-	return false
+		mgr.lifecycleState = managerClosing
+		close(barrier.release)
+		synctest.Wait()
+		if err := <-reconcileDone; err != nil {
+			t.Errorf("ReconcileEchoSessions: %v", err)
+		}
+		mgr.lifecycleState = managerOpen
+		mgr.Close()
+	})
 }
 
 func TestManagerCloseCallbackCanReenterManagerAPIs(t *testing.T) {

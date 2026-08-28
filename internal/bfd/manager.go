@@ -612,6 +612,7 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32
 	if err != nil {
 		return
 	}
+	defer op.finish()
 
 	m.ownershipMu.Lock()
 
@@ -620,7 +621,6 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32
 	if !ok || !entry.unsolicited || entry.session.State() != StateDown {
 		m.mu.RUnlock()
 		m.ownershipMu.Unlock()
-		op.finish()
 		return
 	}
 	peer := entry.session.PeerAddr()
@@ -631,7 +631,6 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32
 	)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
-	op.finish()
 	if retired != nil {
 		m.finishSessionDestroy(retired.localDiscr, retired.entry)
 	}
