@@ -103,6 +103,56 @@ func TestManagerExactClaimsFromReconciliationSourcesShareWireSession(t *testing.
 	}
 }
 
+func TestManagerRejectsNonDeclarativeReconciliationOwnersWithoutMutation(t *testing.T) {
+	testCases := []struct {
+		name  string
+		owner SessionOwner
+	}{
+		{name: "compatibility", owner: compatibilityAPISessionOwner()},
+		{name: "unsolicited", owner: unsolicitedSessionOwner()},
+		{name: "zero", owner: SessionOwner{}},
+		{name: "unknown", owner: SessionOwner{Source: SessionOwnerSource(255), ID: "unknown"}},
+		{name: "config source with micro ID", owner: SessionOwner{Source: SessionOwnerSourceConfig, ID: "micro-config"}},
+		{name: "micro source with config ID", owner: SessionOwner{Source: SessionOwnerSourceMicroBFD, ID: "config"}},
+		{name: "vxlan source with geneve ID", owner: SessionOwner{Source: SessionOwnerSourceVXLAN, ID: "geneve-config"}},
+	}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := NewManager(slog.New(slog.DiscardHandler))
+			defer mgr.Close()
+
+			seed := ownershipTestConfig("192.0.2.210")
+			if _, _, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{{
+				Key: "seed", SessionConfig: seed, Sender: ownershipNoopSender{},
+			}}); err != nil {
+				t.Fatalf("seed ReconcileSessions: %v", err)
+			}
+			before := mgr.Sessions()
+			candidate := ownershipTestConfig("192.0.2.211")
+
+			created, destroyed, err := mgr.ReconcileSessionsForOwner(
+				context.Background(),
+				tt.owner,
+				[]ReconcileConfig{{Key: "forged", SessionConfig: candidate, Sender: ownershipNoopSender{}}},
+			)
+			if err == nil {
+				t.Fatal("ReconcileSessionsForOwner forged owner succeeded")
+			}
+			if !errors.Is(err, ErrInvalidReconciliationOwner) {
+				t.Fatalf("ReconcileSessionsForOwner error = %v, want ErrInvalidReconciliationOwner", err)
+			}
+			if created != 0 || destroyed != 0 {
+				t.Fatalf("forged owner reconcile = (%d created, %d destroyed), want (0, 0)",
+					created, destroyed)
+			}
+			after := mgr.Sessions()
+			if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+				t.Fatalf("sessions changed for forged owner: before=%+v after=%+v", before, after)
+			}
+		})
+	}
+}
+
 func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 	metrics := &unregisterBarrierMetrics{
 		entered: make(chan struct{}),

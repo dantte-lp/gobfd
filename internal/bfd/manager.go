@@ -29,6 +29,10 @@ var (
 	// session without owning a claim on it.
 	ErrSessionOwnerClaimNotFound = errors.New("session owner claim not found")
 
+	// ErrInvalidReconciliationOwner indicates reconciliation was requested for
+	// an owner other than one of the declarative configuration sources.
+	ErrInvalidReconciliationOwner = errors.New("invalid reconciliation owner")
+
 	// ErrDemuxNoMatch indicates no session matched the incoming packet during
 	// demultiplexing (RFC 5880 Section 6.8.6).
 	ErrDemuxNoMatch = errors.New("no matching session for incoming packet")

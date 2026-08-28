@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"sync"
 
@@ -128,11 +129,21 @@ func validateCompleteControlSessionCandidate(cfg *config.Config) error {
 
 // reconcileSessions diffs the declarative sessions from the config against
 // the current session set and creates/destroys sessions as needed.
+type declarativeSenderFactory interface {
+	createSenderForSession(
+		localAddr netip.Addr,
+		multiHop bool,
+		logger *slog.Logger,
+		senderOpts ...netio.SenderOption,
+	) (bfd.PacketSender, uint16, error)
+	CloseSender(srcPort uint16) error
+}
+
 func reconcileSessions(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) {
 	candidates, err := compileBaseSessionCandidates(cfg)
@@ -144,15 +155,16 @@ func reconcileSessions(
 	}
 
 	desired := make([]bfd.ReconcileConfig, 0, len(candidates))
+	openedPorts := make([]uint16, 0, len(candidates))
 	for _, candidate := range candidates {
-		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
-		sender, senderErr := sf.createSenderForSession(
+		sender, srcPort, senderErr := sf.createSenderForSession(
 			candidate.config.LocalAddr,
 			candidate.multiHop,
 			logger,
 			candidate.senderOpts...,
 		)
 		if senderErr != nil {
+			closeUncommittedSenderBatch(sf, openedPorts, logger)
 			logger.Error("failed to create sender for session, keeping current sessions",
 				slog.String("peer", candidate.peer),
 				slog.String("error", senderErr.Error()),
@@ -163,6 +175,7 @@ func reconcileSessions(
 		rc := candidate.reconcile
 		rc.Sender = sender
 		desired = append(desired, rc)
+		openedPorts = append(openedPorts, srcPort)
 	}
 
 	created, destroyed, err := mgr.ReconcileSessionsForOwner(
@@ -180,6 +193,21 @@ func reconcileSessions(
 		slog.Int("created", created),
 		slog.Int("destroyed", destroyed),
 	)
+}
+
+func closeUncommittedSenderBatch(
+	sf declarativeSenderFactory,
+	ports []uint16,
+	logger *slog.Logger,
+) {
+	for _, port := range ports {
+		if err := sf.CloseSender(port); err != nil {
+			logger.Error("failed to close uncommitted session sender",
+				slog.Uint64("source_port", uint64(port)),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
 }
 
 type baseSessionCandidate struct {
@@ -246,7 +274,9 @@ func reconcileEchoSessions(
 
 		// Echo sessions send on port 3785 (RFC 5881 Section 4, RFC 9747).
 		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
-		sender, err := sf.createSenderForSession(echoCfg.LocalAddr, false, logger, netio.WithDstPort(netio.PortEcho))
+		sender, _, err := sf.createSenderForSession(
+			echoCfg.LocalAddr, false, logger, netio.WithDstPort(netio.PortEcho),
+		)
 		if err != nil {
 			logger.Error("failed to create sender for echo session, skipping",
 				slog.String("peer", ep.Peer),

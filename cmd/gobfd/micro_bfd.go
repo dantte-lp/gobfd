@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -10,6 +11,8 @@ import (
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
+
+var errDuplicateMicroBFDGroupKey = errors.New("duplicate Micro-BFD LAG interface")
 
 // -------------------------------------------------------------------------
 // Micro-BFD — RFC 7130 LAG member link sessions
@@ -85,7 +88,7 @@ func reconcileMicroBFDGroups(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) {
 	groups, members, err := compileMicroBFDCandidates(cfg)
@@ -123,14 +126,14 @@ func reconcileMicroBFDGroupState(
 func reconcileMicroBFDMemberSessions(
 	ctx context.Context,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	sf declarativeSenderFactory,
 	candidates []microBFDMemberCandidate,
 	logger *slog.Logger,
 ) {
 	desiredSessions := make([]bfd.ReconcileConfig, 0, len(candidates))
+	openedPorts := make([]uint16, 0, len(candidates))
 	for _, candidate := range candidates {
-		//nolint:contextcheck // Socket creation is a quick local operation.
-		sender, err := sf.createSenderForSession(
+		sender, srcPort, err := sf.createSenderForSession(
 			candidate.config.LocalAddr,
 			false,
 			logger,
@@ -138,6 +141,7 @@ func reconcileMicroBFDMemberSessions(
 			netio.WithBindDevice(candidate.member),
 		)
 		if err != nil {
+			closeUncommittedSenderBatch(sf, openedPorts, logger)
 			logger.Error("failed to create sender for Micro-BFD candidate, keeping current sessions",
 				slog.String("lag", candidate.lagInterface),
 				slog.String("member", candidate.member),
@@ -147,6 +151,7 @@ func reconcileMicroBFDMemberSessions(
 		rc := candidate.reconcile
 		rc.Sender = sender
 		desiredSessions = append(desiredSessions, rc)
+		openedPorts = append(openedPorts, srcPort)
 	}
 
 	sessCreated, sessDestroyed, sessErr := mgr.ReconcileSessionsForOwner(
@@ -173,6 +178,27 @@ type microBFDMemberCandidate struct {
 }
 
 func compileMicroBFDCandidates(
+	cfg *config.Config,
+) ([]bfd.MicroBFDReconcileConfig, []microBFDMemberCandidate, error) {
+	if err := validateUniqueMicroBFDGroupKeys(cfg.MicroBFD.Groups); err != nil {
+		return nil, nil, err
+	}
+	return compileUniqueMicroBFDCandidates(cfg)
+}
+
+func validateUniqueMicroBFDGroupKeys(groups []config.MicroBFDGroupConfig) error {
+	seen := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		if _, exists := seen[group.LAGInterface]; exists {
+			return fmt.Errorf("Micro-BFD group %q: %w",
+				group.LAGInterface, errDuplicateMicroBFDGroupKey)
+		}
+		seen[group.LAGInterface] = struct{}{}
+	}
+	return nil
+}
+
+func compileUniqueMicroBFDCandidates(
 	cfg *config.Config,
 ) ([]bfd.MicroBFDReconcileConfig, []microBFDMemberCandidate, error) {
 	groups := make([]bfd.MicroBFDReconcileConfig, 0, len(cfg.MicroBFD.Groups))

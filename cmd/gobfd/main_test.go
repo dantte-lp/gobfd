@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -29,6 +30,66 @@ type candidateTestSender struct{}
 
 func (candidateTestSender) SendPacket(context.Context, []byte, netip.Addr) error {
 	return nil
+}
+
+var errInjectedSenderCreation = errors.New("injected sender creation failure")
+
+type nthFailureDeclarativeSenderFactory struct {
+	failAt int
+	calls  int
+	open   map[uint16]struct{}
+	closed []uint16
+}
+
+func newNthFailureDeclarativeSenderFactory(failAt int) *nthFailureDeclarativeSenderFactory {
+	return &nthFailureDeclarativeSenderFactory{
+		failAt: failAt,
+		open:   make(map[uint16]struct{}),
+	}
+}
+
+func (f *nthFailureDeclarativeSenderFactory) createSenderForSession(
+	netip.Addr,
+	bool,
+	*slog.Logger,
+	...netio.SenderOption,
+) (bfd.PacketSender, uint16, error) {
+	f.calls++
+	if f.calls == f.failAt {
+		return nil, 0, errInjectedSenderCreation
+	}
+	port := uint16(50000 + f.calls)
+	f.open[port] = struct{}{}
+	return candidateTestSender{}, port, nil
+}
+
+func (f *nthFailureDeclarativeSenderFactory) CloseSender(port uint16) error {
+	if _, ok := f.open[port]; !ok {
+		return fmt.Errorf("close untracked test sender %d", port)
+	}
+	delete(f.open, port)
+	f.closed = append(f.closed, port)
+	return nil
+}
+
+func assertNthFailureSenderBatchClosed(t *testing.T, sf *nthFailureDeclarativeSenderFactory) {
+	t.Helper()
+
+	if sf.calls != sf.failAt {
+		t.Errorf("sender factory calls = %d, want %d", sf.calls, sf.failAt)
+	}
+	if len(sf.open) != 0 {
+		t.Errorf("uncommitted senders still open = %v, want none", sf.open)
+	}
+	if len(sf.closed) != sf.failAt-1 {
+		t.Fatalf("closed sender handles = %v, want %d handles", sf.closed, sf.failAt-1)
+	}
+	for i, port := range sf.closed {
+		want := uint16(50001 + i)
+		if port != want {
+			t.Errorf("closed sender handle %d = %d, want %d", i, port, want)
+		}
+	}
 }
 
 type candidateTestOverlayConn struct{}
@@ -59,6 +120,203 @@ func cleanupCandidateTestSenders(t *testing.T, sf *udpSenderFactory) {
 		if err := sf.CloseSender(port); err != nil {
 			t.Errorf("CloseSender(%d): %v", port, err)
 		}
+	}
+}
+
+func seedDuplicateMicroBFDTestState(
+	t *testing.T,
+	mgr *bfd.Manager,
+) ([]bfd.SessionSnapshot, []bfd.MicroBFDGroupSnapshot) {
+	t.Helper()
+
+	base := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.220"),
+		LocalAddr:             netip.MustParseAddr("127.0.0.1"),
+		Interface:             "lo",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key: "base-seed", SessionConfig: base, Sender: candidateTestSender{},
+	}}); err != nil {
+		t.Fatalf("seed base session: %v", err)
+	}
+	microGroup := bfd.MicroBFDConfig{
+		LAGInterface: "bond-old", MemberLinks: []string{"old-member"},
+		PeerAddr: netip.MustParseAddr("192.0.2.221"), LocalAddr: netip.MustParseAddr("127.0.0.1"),
+		MinActiveLinks: 1,
+	}
+	if _, err := mgr.CreateMicroBFDGroup(microGroup); err != nil {
+		t.Fatalf("seed Micro-BFD group: %v", err)
+	}
+	microSession := base
+	microSession.PeerAddr = microGroup.PeerAddr
+	microSession.Interface = "old-member"
+	microSession.Type = bfd.SessionTypeMicroBFD
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(),
+		bfd.MicroBFDReconciliationOwner(),
+		[]bfd.ReconcileConfig{{Key: "micro-seed", SessionConfig: microSession, Sender: candidateTestSender{}}},
+	); err != nil {
+		t.Fatalf("seed Micro-BFD member claim: %v", err)
+	}
+	return mgr.Sessions(), mgr.MicroBFDGroups()
+}
+
+func assertDuplicateMicroBFDTestStateUnchanged(
+	t *testing.T,
+	mgr *bfd.Manager,
+	wantSessions []bfd.SessionSnapshot,
+	wantGroups []bfd.MicroBFDGroupSnapshot,
+) {
+	t.Helper()
+
+	gotSessions := mgr.Sessions()
+	if len(gotSessions) != len(wantSessions) {
+		t.Errorf("sessions = %d, want %d", len(gotSessions), len(wantSessions))
+	} else {
+		wantDiscriminators := make(map[uint32]struct{}, len(wantSessions))
+		for _, snapshot := range wantSessions {
+			wantDiscriminators[snapshot.LocalDiscr] = struct{}{}
+		}
+		for _, snapshot := range gotSessions {
+			if _, ok := wantDiscriminators[snapshot.LocalDiscr]; !ok {
+				t.Errorf("unexpected session discriminator %d after duplicate candidate", snapshot.LocalDiscr)
+			}
+		}
+	}
+	gotGroups := mgr.MicroBFDGroups()
+	if len(gotGroups) != len(wantGroups) ||
+		len(gotGroups) != 1 ||
+		gotGroups[0].LAGInterface != wantGroups[0].LAGInterface {
+		t.Errorf("Micro-BFD groups changed: before=%+v after=%+v", wantGroups, gotGroups)
+	}
+}
+
+func duplicateMicroBFDConfig() *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{{Peer: "192.0.2.230", Local: "127.0.0.1", Interface: "lo"}}
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
+		{
+			LAGInterface: "bond-dup", MemberLinks: []string{"lo"},
+			PeerAddr: "192.0.2.231", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+		{
+			LAGInterface: "bond-dup", MemberLinks: []string{"lo"},
+			PeerAddr: "192.0.2.232", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+	}
+	return cfg
+}
+
+func TestCompileMicroBFDCandidatesRejectsDuplicateLAGInterface(t *testing.T) {
+	_, _, err := compileMicroBFDCandidates(duplicateMicroBFDConfig())
+	if err == nil {
+		t.Fatal("compileMicroBFDCandidates duplicate LAG interface succeeded")
+	}
+	if !errors.Is(err, errDuplicateMicroBFDGroupKey) {
+		t.Fatalf("compileMicroBFDCandidates error = %v, want errDuplicateMicroBFDGroupKey", err)
+	}
+}
+
+func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
+	sf := newUDPSenderFactory()
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+
+	reconcileAllSessions(
+		context.Background(),
+		duplicateMicroBFDConfig(),
+		mgr,
+		sf,
+		&overlayRuntime{},
+		slog.New(slog.DiscardHandler),
+	)
+
+	assertDuplicateMicroBFDTestStateUnchanged(t, mgr, wantSessions, wantGroups)
+}
+
+func TestReloadConfigDuplicateMicroBFDKeyPreservesStateAndLogLevel(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
+	sf := newUDPSenderFactory()
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+	level := new(slog.LevelVar)
+	level.Set(slog.LevelInfo)
+	path := t.TempDir() + "/duplicate-micro.yml"
+	yaml := `log:
+  level: debug
+sessions:
+  - peer: 192.0.2.230
+    local: 127.0.0.1
+    interface: lo
+micro_bfd:
+  groups:
+    - lag_interface: bond-dup
+      member_links: [lo]
+      peer_addr: 192.0.2.231
+      local_addr: 127.0.0.1
+      min_active_links: 1
+    - lag_interface: bond-dup
+      member_links: [lo]
+      peer_addr: 192.0.2.232
+      local_addr: 127.0.0.1
+      min_active_links: 1
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("write duplicate Micro-BFD config: %v", err)
+	}
+
+	reloadConfig(
+		context.Background(), path, level, mgr, sf, &overlayRuntime{}, slog.New(slog.DiscardHandler),
+	)
+
+	if got := level.Level(); got != slog.LevelInfo {
+		t.Errorf("log level after duplicate candidate = %s, want %s", got, slog.LevelInfo)
+	}
+	assertDuplicateMicroBFDTestStateUnchanged(t, mgr, wantSessions, wantGroups)
+}
+
+func TestReconcileSessionsClosesEarlierSendersWhenLaterCreationFails(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(3)
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{
+		{Peer: "192.0.2.240", Local: "127.0.0.1", Interface: "lo"},
+		{Peer: "192.0.2.241", Local: "127.0.0.1", Interface: "lo"},
+		{Peer: "192.0.2.242", Local: "127.0.0.1", Interface: "lo"},
+	}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+
+	assertNthFailureSenderBatchClosed(t, sf)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Errorf("sessions after sender batch failure = %d, want 0", got)
+	}
+}
+
+func TestReconcileMicroBFDClosesEarlierSendersWhenLaterCreationFails(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(3)
+	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1", "eth2"},
+		PeerAddr: "192.0.2.243", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+	}}
+
+	reconcileMicroBFDGroups(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+
+	assertNthFailureSenderBatchClosed(t, sf)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Errorf("Micro-BFD sessions after sender batch failure = %d, want 0", got)
 	}
 }
 

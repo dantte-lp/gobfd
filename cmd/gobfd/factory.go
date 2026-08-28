@@ -73,23 +73,23 @@ func (f *udpSenderFactory) createSenderForSession(
 	multiHop bool,
 	logger *slog.Logger,
 	senderOpts ...netio.SenderOption,
-) (bfd.PacketSender, error) {
+) (bfd.PacketSender, uint16, error) {
 	srcPort, err := f.portAlloc.Allocate()
 	if err != nil {
-		return nil, fmt.Errorf("allocate source port: %w", err)
+		return nil, 0, fmt.Errorf("allocate source port: %w", err)
 	}
 
 	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, senderOpts...)
 	if err != nil {
 		f.portAlloc.Release(srcPort)
-		return nil, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
+		return nil, 0, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
 	}
 
 	f.mu.Lock()
 	f.senders[srcPort] = sender
 	f.mu.Unlock()
 
-	return sender, nil
+	return sender, srcPort, nil
 }
 
 // configSessionToBFD converts a config.SessionConfig to a bfd.SessionConfig,
@@ -232,7 +232,7 @@ func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slo
 		opts = append(opts, bfd.WithUnsolicitedPolicy(policy))
 
 		sf := newUDPSenderFactory()
-		sender, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
+		sender, _, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
 		if err != nil {
 			return nil, fmt.Errorf("create unsolicited BFD sender: %w", err)
 		}

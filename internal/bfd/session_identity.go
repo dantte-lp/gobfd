@@ -116,6 +116,13 @@ func GeneveReconciliationOwner() SessionOwner {
 	return SessionOwner{Source: SessionOwnerSourceGeneve, ID: "geneve-config"}
 }
 
+func isDeclarativeReconciliationOwner(owner SessionOwner) bool {
+	return owner == ConfigReconciliationOwner() ||
+		owner == MicroBFDReconciliationOwner() ||
+		owner == VXLANReconciliationOwner() ||
+		owner == GeneveReconciliationOwner()
+}
+
 func compatibilityAPISessionOwner() SessionOwner {
 	return SessionOwner{
 		Source: SessionOwnerSourceCompatibilityAPI,

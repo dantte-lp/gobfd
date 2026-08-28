@@ -664,6 +664,11 @@ func (m *Manager) ReconcileSessionsForOwner(
 	owner SessionOwner,
 	desired []ReconcileConfig,
 ) (int, int, error) {
+	if !isDeclarativeReconciliationOwner(owner) {
+		return 0, 0, fmt.Errorf("reconcile sessions for owner source %d ID %q: %w",
+			owner.Source, owner.ID, ErrInvalidReconciliationOwner)
+	}
+
 	m.ownershipMu.Lock()
 	defer m.ownershipMu.Unlock()
 
