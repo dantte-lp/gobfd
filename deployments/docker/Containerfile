@@ -32,7 +32,7 @@ COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
 
 USER gobfd:gobfd
 
-ENV GOMEMLIMIT=256MiB
+# Set GOMEMLIMIT at deployment time only after workload qualification.
 
 EXPOSE 3784/udp 4784/udp 50051
 

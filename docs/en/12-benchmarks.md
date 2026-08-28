@@ -196,10 +196,11 @@ BFD sessions send and receive packets at intervals as low as 10ms. With 1,000 se
 2. **Latency jitter** — GC stop-the-world pauses add unpredictable delay
 3. **False positives** — if a GC pause exceeds the detection time, the remote peer declares the session Down
 
-The production image sets a soft `GOMEMLIMIT` and retains the default `GOGC`.
-Override `GOGC` only after representative deployment measurements justify it;
-zero-allocation results for selected operations do not eliminate GC from the
-process or guarantee pause-free BFD operation.
+Production images do not set an unqualified `GOMEMLIMIT` and retain the default
+`GOGC`. Set a deployment-qualified soft limit with headroom only after measuring
+the target workload. Override `GOGC` only after representative deployment
+measurements justify it; zero-allocation results for selected operations do not
+eliminate GC from the process or guarantee pause-free BFD operation.
 
 #### Verification Methods
 
