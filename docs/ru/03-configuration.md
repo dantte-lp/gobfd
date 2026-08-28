@@ -509,12 +509,13 @@ kill -HUP $(pidof gobfd)
 
 При перезагрузке:
 1. YAML-файл перечитывается и валидируется
-2. Полный candidate control sessions base, Micro-BFD members, VXLAN и Geneve
+2. Полный candidate sessions base, Echo, Micro-BFD members, VXLAN и Geneve
    компилируется и валидируется до создания sender или мутации Manager
 3. Уровень лога обновляется динамически
 4. Source базовых сессий реконсилируется, включая пустой desired set
-5. Включённые непустые списки Echo-пиров реконсилируются в режиме best effort;
-   пустой desired set Echo остаётся отдельным путём и сейчас пропускается
+5. Echo-пиры реконсилируются как изолированный по source desired set, включая
+   disabled или пустое состояние; sender leases лениво создаются только для
+   новых принятых sessions
 6. Группы Micro-BFD и source member sessions реконсилируются, включая пустые
    desired sets
 7. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
@@ -522,11 +523,11 @@ kill -HUP $(pidof gobfd)
 8. Runtime errors логируются; изменения sender, resources или sessions, уже
    применённые на предыдущих шагах, не откатываются
 
-Base configuration, Micro-BFD members, VXLAN и Geneve используют отдельные
-типизированные reconciliation owners. Удаление последней записи одного из этих
-sources освобождает claim этого source, не удаляя claims другого source.
-SIGHUP остаётся нетранзакционным для sender/resource failures и других ошибок
-runtime apply.
+Base configuration, Echo, Micro-BFD members, VXLAN и Geneve используют
+раздельный ownership sources. Удаление последней записи одного source не
+удаляет sessions другого source. Ошибка получения sender для Echo откатывает
+новые принятые Echo sessions этого прохода; SIGHUP остаётся нетранзакционным
+между sources и для других runtime apply failures.
 
 ### Правила валидации
 

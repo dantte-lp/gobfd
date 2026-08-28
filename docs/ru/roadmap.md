@@ -89,7 +89,7 @@ v0.6 после завершения closeout v0.6.4 и исправления P
 | Часть поставки | Статус |
 |---|---|
 | Корректность RFC core и учёт потерь | Открыто |
-| Reconciliation ownership и конфигурации | В работе; реализованы C01.1, C01.2, C01.3a и C01.3b |
+| Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.4a |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
@@ -110,7 +110,10 @@ gates для мутаций и подписок, ожидание зарегис
 Micro-BFD groups как одну top-level lifecycle operation. Рекурсивный blocking
 Close из synchronous release callback требует явного API design, который
 отслеживается в `gobfd-qj0.8.2.2.5.1`; остальные Manager APIs callback может
-безопасно вызывать повторно. Он не завершает C01 или SIGHUP reload. Замена
+безопасно вызывать повторно. Он не завершает C01 или SIGHUP reload. C01.4a
+добавляет ленивые Manager-owned Echo sender leases, изоляцию API/config
+sources, полную preflight-проверку Echo candidate, передачу пустого desired set
+и rollback новых принятых Echo sessions при ошибке получения sender. Замена
 listeners/backends, стабильные owners отдельных groups/tunnels, generations,
 согласование Poll/Final, transport-aware demultiplexing и аутентифицированные
 API principals остаются открытыми.

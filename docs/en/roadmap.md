@@ -90,7 +90,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Delivery slice | Status |
 |---|---|
 | RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | In progress; C01.1, C01.2, C01.3a, and C01.3b implemented |
+| Ownership and configuration reconciliation | In progress; C01.1 through C01.4a implemented |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
@@ -111,7 +111,10 @@ also gates echo reconciliation and Micro-BFD group CRUD/reconciliation as one
 top-level lifecycle operation. Recursive blocking Close from a synchronous
 release callback requires the explicit API design tracked by
 `gobfd-qj0.8.2.2.5.1`; callbacks may otherwise reenter Manager APIs safely. It
-does not complete C01 or SIGHUP reload. Listener/backend replacement, stable
+does not complete C01 or SIGHUP reload. C01.4a adds lazy Manager-owned Echo
+sender leases, API/config source isolation, complete Echo candidate preflight,
+empty desired-set forwarding, and rollback of newly accepted Echo sessions on
+sender acquisition failure. Listener/backend replacement, stable
 per-group/per-tunnel owners, generations, Poll/Final negotiation,
 transport-aware demultiplexing, and authenticated API principals remain open.
 

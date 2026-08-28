@@ -201,6 +201,16 @@ RFC 9468 sessions аналогично используют non-owning per-sessi
 одного singleton sender, принадлежащего Manager, поэтому cleanup одной
 unsolicited session не закрывает общий socket.
 
+Echo sessions используют ту же границу lease принятой session с отдельными API
+и declarative sources. Compatibility-путь `CreateEchoSession` сохраняет явный
+non-owning wrapper для raw sender, а API adapter и declarative reconciler
+передают ленивые owning factories. Declarative reconciliation проверяет полный
+canonical candidate до открытия senders, не доверяет adapter-supplied keys как
+identity, сохраняет API-created Echo sessions и передаёт пустой desired set.
+Ошибка получения sender откатывает только новые принятые declarative Echo
+sessions текущего прохода; removal и shutdown ровно один раз освобождают каждый
+принятый lease после завершения Echo goroutine.
+
 Для сессий с аутентификацией эффективные параметры включают тип встроенного
 authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Static store
 клонирует входные данные конструктора и возвращает caller-owned копии ключей;
@@ -208,9 +218,9 @@ authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Stat
 получить стабильную семантическую идентичность.
 
 Это ownership core C01.1 вместе со slice C01.2 для atomic candidate/изоляции
-sources, slice C01.3a для sender lease принятой session и slice C01.3b для
-lifecycle Manager, а не полный контракт v1 reconciliation или RFC. Отложены
-следующие границы:
+sources, slice C01.3a для sender lease принятой control session, slice C01.3b
+для lifecycle Manager и slice C01.4a для sender lease/изоляции source Echo, а
+не полный контракт v1 reconciliation или RFC. Отложены следующие границы:
 
 - ownership listeners и замены backends;
 - стабильные owner identifiers для отдельных groups и tunnels;

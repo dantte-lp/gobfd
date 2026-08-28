@@ -188,6 +188,16 @@ sessions likewise use non-owning per-session leases over one manager-owned
 singleton sender, so cleanup of one unsolicited session cannot close the
 shared socket.
 
+Echo sessions use the same accepted-session lease boundary with separate API
+and declarative sources. The compatibility `CreateEchoSession` path keeps an
+explicit non-owning raw-sender wrapper, while the API adapter and declarative
+reconciler pass lazy owning factories. Declarative reconciliation validates the
+complete canonical candidate before opening senders, ignores adapter-supplied
+keys for identity, preserves API-created Echo sessions, and forwards an empty
+desired set. A sender acquisition failure rolls back only the newly accepted
+declarative Echo sessions from that pass; removal and shutdown release each
+accepted lease once after its Echo goroutine exits.
+
 For authenticated sessions, the effective parameters include the built-in
 authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.
 The static store clones constructor inputs and returns caller-owned key copies;
@@ -195,9 +205,10 @@ unknown key-store implementations fail closed because no stable semantic
 identity can be derived.
 
 This is the C01.1 ownership core plus the C01.2 atomic-candidate/source
-isolation slice, the C01.3a accepted-session sender-lease slice, and the
-C01.3b Manager lifecycle slice. It is not the complete v1 reconciliation or
-RFC contract. The following boundaries remain deferred:
+isolation slice, the C01.3a accepted-control-session sender-lease slice, the
+C01.3b Manager lifecycle slice, and the C01.4a Echo sender-lease/source
+isolation slice. It is not the complete v1 reconciliation or RFC contract. The
+following boundaries remain deferred:
 
 - listener and backend replacement ownership;
 - stable per-group and per-tunnel owner identifiers;
