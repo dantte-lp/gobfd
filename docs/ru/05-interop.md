@@ -465,7 +465,9 @@ make interop-clab-down   # Уничтожение контейнеров и veth
 
 `make interop-clab` скачивает public images Nokia SR Linux, SONiC-VS, VyOS и
 FRRouting до проверки availability. Cisco XRd и Arista cEOS остаются
-operator-provided images.
+operator-provided images. Go lifecycle формирует topology только для доступных
+профилей, записывает точные container identities в receipt с mode 0600 и
+проверяет receipt перед очисткой.
 
 ### Матрица соответствия RFC
 
@@ -481,7 +483,7 @@ operator-provided images.
 
 ### Особенности вендоров
 
-**Nokia SR Linux**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия). После коммита конфигурации BFD-подинтерфейс перезапускается (admin-state disable/enable) для принудительного пересогласования таймеров с YANG-значения по умолчанию 1000мс на сконфигурированные 300мс. Контейнер SR Linux выполняет тот же код, что и промышленное оборудование Nokia.
+**Nokia SR Linux**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия). Containerlab применяет `nokia/config.cli` с явно заданными таймерами 300мс. Контейнер SR Linux выполняет тот же код, что и промышленное оборудование Nokia.
 
 **FRRouting**: Нативный демон `bfdd` реализует RFC 5880/5881/5882/5883. Таймеры BFD настраиваются напрямую в `frr.conf` (300мс TX/RX, множитель 3). FRR интегрирует BFD с BGP через директиву `neighbor X bfd`. Контейнер ~188МБ, запускается за секунды.
 
@@ -497,7 +499,7 @@ operator-provided images.
 |---|---|---|---|
 | Arista cEOS | `arista/startup-config.cfg` | EOS BGP использует `neighbor bfd`; interface timers используют `bfd interval`; VXLAN BFD использует `bfd vtep evpn` под VTI. | Current profile is single-hop BGP+BFD. RFC 8971 reserved for a future Vxlan1 profile. |
 | Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers задаются в microseconds; BGP failure-detection enables BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
-| SONiC-VS | `sonic/configure.sh` | SONiC использует ConfigDB для настройки data-plane interfaces; `sonic-vs` является containerized SONiC kind; текущий BFD path основан на FRR. | Current profile starts bgpd/bfdd, configures the data-plane interface, and requires separate evidence before claiming native SONiC BFD CLI coverage. |
+| SONiC-VS | Go lifecycle в `test/internal/clabbootstrap` | SONiC использует ConfigDB для настройки data-plane interfaces; `sonic-vs` является containerized SONiC kind; текущий BFD path основан на FRR. | Fixed argv calls запускают bgpd/bfdd и настраивают data-plane interface без repository shell. Для заявления native SONiC BFD CLI coverage всё ещё нужны отдельные доказательства. |
 | VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
 | FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
 | Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
@@ -536,8 +538,8 @@ RFC 5881 определяет BFD как для IPv4 (Section 4), так и дл
 
 | Возможность | Текущее (Podman + containerlab) | netlab |
 |---|---|---|
-| Управление топологией | Ручное veth + Podman API | Автоматическое (декларативный YAML) |
-| IP-адресация | Статическая в run.sh | Автоматическая |
+| Управление топологией | Генерируемый Containerlab YAML + Go lifecycle | Автоматическое (декларативный YAML) |
+| IP-адресация | Статическая в Go profile definitions | Автоматическая |
 | Конфигурация BFD | Файлы для каждого вендора | Директива `module: [bgp, bfd]` |
 | Конфигурация BGP | Для каждого вендора + GoBGP TOML | Автогенерация для платформы |
 | Поддержка вендоров | 6 (нативные контейнеры) | 29 (нативные + vrnetlab VM) |
@@ -572,7 +574,7 @@ netlab автоматически управляет IP-адресацией, н
 2. Отдельно оценить netlab до добавления в группы зависимостей единого Python
    lock-файла проекта.
 3. Установить Docker (основной runtime netlab)
-4. Преобразовать топологию из ручного run.sh в YAML netlab
+4. Преобразовать генерируемую Containerlab topology в YAML netlab
 5. Для VM-вендоров (Cisco IOS-XR, Juniper vMX) включить вложенный KVM на хосте
 
 > **Примечание**: netlab не входит в поддерживаемый uv lock и требует Ansible

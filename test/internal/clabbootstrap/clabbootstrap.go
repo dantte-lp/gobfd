@@ -40,6 +40,8 @@ type Options struct {
 	SkipPull    bool
 	Deploy      bool
 	Test        bool
+	TestOnly    bool
+	Down        bool
 	DryRun      bool
 	Logger      *slog.Logger
 }

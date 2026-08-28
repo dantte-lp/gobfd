@@ -91,7 +91,7 @@
       "profile_class": "primary",
       "topology_node": "sonic",
       "config_paths": [
-        "test/interop-clab/sonic/configure.sh"
+        "test/internal/clabbootstrap/lifecycle.go"
       ],
       "images": [
         "docker.io/netreplica/docker-sonic-vs:latest",

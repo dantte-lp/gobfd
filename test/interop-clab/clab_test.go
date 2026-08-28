@@ -18,7 +18,7 @@
 // (/run/podman/podman.sock).
 //
 // Prerequisites:
-//   - containerlab topology deployed: see test/interop-clab/run.sh
+//   - containerlab topology deployed: make interop-clab-up
 //   - All available vendor containers must be running.
 //
 // Run with:

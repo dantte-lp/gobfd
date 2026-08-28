@@ -70,8 +70,10 @@ func parseOptions(projectRoot string, arguments []string, stderr io.Writer) (cla
 	flags.StringVar(&options.Tags.VyOS, "vyos-tag", options.Tags.VyOS, "public VyOS image tag")
 	flags.BoolVar(&options.SkipBuild, "skip-build", false, "skip GoBFD image build")
 	flags.BoolVar(&options.SkipPull, "skip-pull", false, "skip images already present")
-	flags.BoolVar(&options.Deploy, "deploy", false, "run run.sh --up-only after preparation")
-	flags.BoolVar(&options.Test, "test", false, "run the full interop-clab runner after preparation")
+	flags.BoolVar(&options.Deploy, "deploy", false, "deploy the prepared vendor topology and leave it running")
+	flags.BoolVar(&options.Test, "test", false, "deploy, test, and clean the prepared vendor topology")
+	flags.BoolVar(&options.TestOnly, "test-only", false, "test an existing owned vendor topology")
+	flags.BoolVar(&options.Down, "down", false, "destroy the exact vendor topology recorded by the ownership receipt")
 	flags.BoolVar(&options.DryRun, "dry-run", false, "show commands without executing them")
 	flags.IntVar(&options.Jobs, "jobs", options.Jobs, "maximum parallel image pulls")
 	if err := flags.Parse(arguments); err != nil {

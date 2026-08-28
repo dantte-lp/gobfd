@@ -352,17 +352,17 @@ interop-clab-bootstrap:
 
 interop-clab:
 	$(DC) up -d --build --force-recreate dev
-	./test/interop-clab/run.sh
+	go run ./test/cmd/clabbootstrap --test
 
 interop-clab-test:
 	$(EXEC) go test -tags interop_clab -v -count=1 -timeout 600s ./test/interop-clab/
 
 interop-clab-up:
 	$(DC) up -d --build --force-recreate dev
-	./test/interop-clab/run.sh --up-only
+	go run ./test/cmd/clabbootstrap --deploy
 
 interop-clab-down:
-	./test/interop-clab/run.sh --down-only
+	go run ./test/cmd/clabbootstrap --down
 
 # === Integration Examples ===
 

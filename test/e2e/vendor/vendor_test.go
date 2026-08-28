@@ -149,7 +149,7 @@ func TestContainerlabTopologyMatchesManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read containerlab topology: %v", err)
 	}
-	runner, err := os.ReadFile(repoPath(t, "test/interop-clab/run.sh"))
+	runner, err := os.ReadFile(repoPath(t, "test/internal/clabbootstrap/lifecycle.go"))
 	if err != nil {
 		t.Fatalf("read containerlab runner: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestContainerlabTopologyMatchesManifest(t *testing.T) {
 	}
 	writeJSONArtifact(t, "skip-summary.json", map[string]any{
 		"topology":            "test/interop-clab/gobfd-vendors.clab.yml",
-		"runner":              "test/interop-clab/run.sh",
+		"runner":              "test/internal/clabbootstrap/lifecycle.go",
 		"primary_profiles":    []string{"arista-ceos", "nokia-srlinux", "sonic-vs", "vyos"},
 		"baseline_profiles":   []string{"frr"},
 		"deferred_profiles":   []string{"cisco-xrd"},

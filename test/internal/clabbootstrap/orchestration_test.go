@@ -53,6 +53,7 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 		}
 	}
 	options.Deploy = true
+	options.DryRun = true
 	options.Jobs = 1
 	runner := &recordingRunner{}
 
@@ -80,16 +81,16 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 	if builds != 1 {
 		t.Errorf("GoBFD image builds = %d, want 1", builds)
 	}
-	if vendorCalls != 3 {
-		t.Errorf("vendor image operations = %d, want 3", vendorCalls)
+	if vendorCalls != 2 {
+		t.Errorf("dry-run vendor image operations = %d, want 2", vendorCalls)
 	}
 	if len(runner.commands) == 0 {
 		t.Fatal("bootstrap issued no commands")
 	}
-	last := runner.commands[len(runner.commands)-1]
-	wantRunner := filepath.Join(root, "test", "interop-clab", "run.sh")
-	if last.Executable != wantRunner || !slices.Equal(last.Arguments, []string{"--up-only"}) {
-		t.Fatalf("last command = %q %q, want %q [--up-only]", last.Executable, last.Arguments, wantRunner)
+	if !slices.ContainsFunc(runner.commands, func(command Command) bool {
+		return command.Executable == executableContainerlab && slices.Contains(command.Arguments, "deploy")
+	}) {
+		t.Fatal("native Containerlab deploy command is missing")
 	}
 }
 
@@ -99,6 +100,7 @@ func TestRunAggregatesPhaseFailureAndSkipsDeploy(t *testing.T) {
 	root := bootstrapTestRoot(t)
 	options := DefaultOptions(root)
 	options.Deploy = true
+	options.DryRun = true
 	options.Jobs = 1
 	failingReference := "quay.io/frrouting/frr:10.7.0@sha256:" +
 		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
@@ -111,9 +113,8 @@ func TestRunAggregatesPhaseFailureAndSkipsDeploy(t *testing.T) {
 	if !strings.Contains(err.Error(), "pull:frr") {
 		t.Fatalf("bootstrap error = %v, want pull:frr context", err)
 	}
-	runScript := filepath.Join(root, "test", "interop-clab", "run.sh")
 	for _, command := range runner.commands {
-		if command.Executable == runScript {
+		if command.Executable == executableContainerlab && slices.Contains(command.Arguments, "deploy") {
 			t.Fatalf("deploy ran after phase failure: %q", command.Arguments)
 		}
 	}

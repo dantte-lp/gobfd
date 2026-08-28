@@ -32,6 +32,14 @@ func Run(ctx context.Context, options Options, runner Runner) error {
 	if err := validateOptions(options, runner); err != nil {
 		return err
 	}
+	if options.Down || options.TestOnly {
+		lifecycleOptions := options
+		lifecycleOptions.SkipBuild = true
+		if err := runPreflight(ctx, lifecycleOptions, runner); err != nil {
+			return err
+		}
+		return runTopology(ctx, options, runner)
+	}
 	frrReference, err := loadFRRReference(options.ProjectRoot)
 	if err != nil {
 		return err
@@ -72,8 +80,14 @@ func validateOptions(options Options, runner Runner) error {
 			errInvalidBootstrapOptions,
 		)
 	}
-	if options.Deploy && options.Test {
-		return fmt.Errorf("validate mutually exclusive deploy and test flags: %w", errInvalidBootstrapOptions)
+	modes := 0
+	for _, enabled := range []bool{options.Deploy, options.Test, options.TestOnly, options.Down} {
+		if enabled {
+			modes++
+		}
+	}
+	if modes > 1 {
+		return fmt.Errorf("validate mutually exclusive lifecycle flags: %w", errInvalidBootstrapOptions)
 	}
 	return nil
 }
@@ -132,8 +146,8 @@ func runPreflight(ctx context.Context, options Options, runner Runner) error {
 
 func publicImages(tags ImageTags, frrReference string) []imageReference {
 	return []imageReference{
-		{name: "nokia", reference: "ghcr.io/nokia/srlinux:" + tags.Nokia},
-		{name: "sonic", reference: "docker.io/netreplica/docker-sonic-vs:" + tags.Sonic},
+		{name: vendorNokia, reference: "ghcr.io/nokia/srlinux:" + tags.Nokia},
+		{name: vendorSONiC, reference: "docker.io/netreplica/docker-sonic-vs:" + tags.Sonic},
 		{name: "vyos", reference: "docker.io/muruu1/vyos:" + tags.VyOS},
 		{name: "frr", reference: frrReference},
 		{
@@ -304,8 +318,8 @@ func buildCommand(options Options) Command {
 
 func inspectInventory(ctx context.Context, options Options, runner Runner, frrReference string) {
 	images := []imageReference{
-		{name: "nokia", reference: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia},
-		{name: "sonic", reference: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic},
+		{name: vendorNokia, reference: "ghcr.io/nokia/srlinux:" + options.Tags.Nokia},
+		{name: vendorSONiC, reference: "docker.io/netreplica/docker-sonic-vs:" + options.Tags.Sonic},
 		{name: "vyos", reference: "vyos:latest"},
 		{name: "frr", reference: frrReference},
 		{name: "gobfd", reference: "gobfd-clab:latest"},
@@ -340,22 +354,6 @@ func inspectInventory(ctx context.Context, options Options, runner Runner, frrRe
 		}
 		options.Logger.InfoContext(ctx, "image inventory", "name", image.name, "reference", image.reference, "status", status)
 	}
-}
-
-func runTopology(ctx context.Context, options Options, runner Runner) error {
-	if !options.Deploy && !options.Test {
-		return nil
-	}
-	arguments := []string(nil)
-	if options.Deploy {
-		arguments = []string{"--up-only"}
-	}
-	return runCommand(ctx, runner, Command{
-		Executable: filepath.Join(options.ProjectRoot, "test", "interop-clab", "run.sh"),
-		Arguments:  arguments,
-		Directory:  filepath.Join(options.ProjectRoot, "test", "interop-clab"),
-		DryRun:     options.DryRun,
-	})
 }
 
 func runCommand(ctx context.Context, runner Runner, command Command) error {

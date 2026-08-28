@@ -48,7 +48,7 @@ func (runner *OSRunner) Run(ctx context.Context, command Command) (Result, error
 
 	stdout := newLimitedBuffer(maxCommandOutput)
 	stderr := newLimitedBuffer(maxCommandOutput)
-	// #nosec G204 -- executable is resolved from the fixed allowlist or repository run.sh and no shell is used.
+	// #nosec G204 -- executable is resolved from the fixed allowlist and no shell is used.
 	process := exec.CommandContext(ctx, executable, command.Arguments...)
 	process.Dir = command.Directory
 	process.Stdout = stdout
@@ -73,10 +73,6 @@ func (runner *OSRunner) Run(ctx context.Context, command Command) (Result, error
 }
 
 func (runner *OSRunner) resolveExecutable(name string, dryRun bool) (string, error) {
-	runScript := filepath.Join(runner.projectRoot, "test", "interop-clab", "run.sh")
-	if name == runScript {
-		return runScript, nil
-	}
 	switch name {
 	case executableContainerlab, executablePodman, "go", "7z", "unsquashfs", "xorriso":
 	default:

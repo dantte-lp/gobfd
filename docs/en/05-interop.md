@@ -469,7 +469,9 @@ make interop-clab-down   # Destroy containers and veth links
 
 `make interop-clab` pulls public Nokia SR Linux, SONiC-VS, VyOS, and FRRouting
 images before availability checks. Cisco XRd and Arista cEOS remain
-operator-provided images.
+operator-provided images. The Go lifecycle renders a topology containing only
+available profiles, records exact container identities in a mode-0600 receipt,
+and validates that receipt before cleanup.
 
 ### RFC Compliance Matrix
 
@@ -485,7 +487,7 @@ operator-provided images.
 
 ### Vendor-Specific Notes
 
-**Nokia SR Linux**: BFD sessions are protocol-triggered (requires established BGP session). After config commit, the BFD subinterface is bounced (admin-state disable/enable) to force timer renegotiation from the YANG default of 1000ms to the configured 300ms. The SR Linux container runs the same code as production Nokia hardware.
+**Nokia SR Linux**: BFD sessions are protocol-triggered (requires established BGP session). Containerlab applies `nokia/config.cli`, whose explicit timer values are 300ms. The SR Linux container runs the same code as production Nokia hardware.
 
 **FRRouting**: Native `bfdd` daemon implements RFC 5880/5881/5882/5883. BFD timers are configured directly in `frr.conf` (300ms TX/RX, multiplier 3). FRR integrates BFD with BGP via `neighbor X bfd` directive. The container is ~188MB and starts in seconds.
 
@@ -501,7 +503,7 @@ operator-provided images.
 |---|---|---|---|
 | Arista cEOS | `arista/startup-config.cfg` | EOS BGP uses `neighbor bfd`; interface timers use `bfd interval`; VXLAN BFD uses `bfd vtep evpn` under VTI. | Current profile is single-hop BGP+BFD. RFC 8971 is reserved for a future Vxlan1 profile. |
 | Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers are microseconds; BGP failure-detection can enable BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
-| SONiC-VS | `sonic/configure.sh` | SONiC uses ConfigDB for data-plane interface configuration; `sonic-vs` is the containerized SONiC kind; the current BFD path is FRR-backed. | Current profile starts bgpd/bfdd, configures the data-plane interface, and requires separate evidence before claiming native SONiC BFD CLI coverage. |
+| SONiC-VS | Go lifecycle in `test/internal/clabbootstrap` | SONiC uses ConfigDB for data-plane interface configuration; `sonic-vs` is the containerized SONiC kind; the current BFD path is FRR-backed. | Fixed argv calls start bgpd/bfdd and configure the data-plane interface without a repository shell. Separate evidence is still required before claiming native SONiC BFD CLI coverage. |
 | VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
 | FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
 | Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
@@ -540,8 +542,8 @@ RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor 
 
 | Capability | Current (Podman + containerlab) | netlab |
 |---|---|---|
-| Topology management | Manual veth + Podman API | Automated (YAML declarative) |
-| IP addressing | Static in run.sh | Auto-assigned |
+| Topology management | Generated Containerlab YAML + Go lifecycle | Automated (YAML declarative) |
+| IP addressing | Static in Go profile definitions | Auto-assigned |
 | BFD configuration | Per-vendor config files | `module: [bgp, bfd]` directive |
 | BGP configuration | Per-vendor + GoBGP TOML | Auto-generated per platform |
 | Vendor support | 6 (native containers) | 29 (native + vrnetlab VMs) |
@@ -576,7 +578,7 @@ netlab automatically handles IP addressing, BGP AS assignment, and BFD session c
 2. Evaluate netlab separately before adding it to the repository's locked
    Python dependency groups.
 3. Install Docker (netlab's primary runtime)
-4. Convert topology from manual run.sh to netlab YAML
+4. Convert the generated Containerlab topology to netlab YAML
 5. For VM-based vendors (Cisco IOS-XR, Juniper vMX), enable nested KVM on the host
 
 > **Note**: netlab is not part of the supported uv lock and requires Ansible

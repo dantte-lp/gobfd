@@ -18,23 +18,10 @@ name: gobfd-vendors
 topology:
   nodes:
     # === GoBFD: external container with NET_RAW + NET_ADMIN ===
-    # Started separately by run.sh before containerlab deploy.
+    # Started by the Go lifecycle before containerlab deploy.
     # For ext-container kind, the node name MUST match the actual container name.
     clab-gobfd-vendors-gobfd:
       kind: ext-container
-      exec:
-        - ip addr add 10.0.1.1/30 dev eth1
-        - ip addr add 10.0.2.1/30 dev eth2
-        - ip addr add 10.0.3.1/30 dev eth3
-        - ip addr add 10.0.4.1/30 dev eth4
-        - ip addr add 10.0.5.1/30 dev eth5
-        - ip addr add 10.0.6.1/30 dev eth6
-        - ip link set eth1 up
-        - ip link set eth2 up
-        - ip link set eth3 up
-        - ip link set eth4 up
-        - ip link set eth5 up
-        - ip link set eth6 up
 
     # === Arista cEOS (ASN 65002) ===
     # Current profile: single-hop BGP+BFD on Ethernet1.
@@ -51,7 +38,7 @@ topology:
     # Image: ghcr.io/nokia/srlinux (freely available, no registration)
     nokia:
       kind: nokia_srlinux
-      image: ghcr.io/nokia/srlinux:24.10.1
+      image: ghcr.io/nokia/srlinux:25.10.2
       startup-config: nokia/config.cli
 
     # === Cisco XRd (ASN 65004) ===
@@ -72,7 +59,7 @@ topology:
 
     # === VyOS (ASN 65006) ===
     # Official reproducible image path: build from a VyOS Stream/nightly ISO.
-    # Public lab mirror used by run.sh when present: docker.io/muruu1/vyos:latest.
+    # Public lab mirror used by the Go bootstrap when present: docker.io/muruu1/vyos:latest.
     vyos:
       kind: vyosnetworks_vyos
       image: docker.io/muruu1/vyos:latest
