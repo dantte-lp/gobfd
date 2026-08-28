@@ -402,13 +402,20 @@ All configuration keys can be overridden via environment variables with the `GOB
 
 ### Declarative Sessions
 
-Sessions defined under `sessions:` are created on daemon startup and reconciled on SIGHUP reload. Reconciliation semantics:
+Sessions defined under `sessions:` are created on daemon startup. Non-empty
+session lists are reconciled on SIGHUP reload. The current reload adapter skips
+an empty `sessions:` desired set, so removing the final entry does not yet
+release its configuration claim. Reconciliation semantics for a forwarded
+desired set are:
 
-- **New sessions** (in config but not running) are created
-- **Removed sessions** (running but not in config) are destroyed
-- **Existing sessions** (matching key) are left untouched
+- **New desired entries** acquire a configuration claim and create a wire
+  session only when no exact session exists
+- **Removed sessions** release their configuration claim; the wire session is
+  destroyed only when no other claim remains
+- **Existing exact sessions** are shared; conflicting effective parameters are
+  rejected without mutation
 
-Session key is the tuple: `(peer, local, interface)`.
+The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 
 | Key | Type | Required | Description |
 |---|---|---|---|
@@ -488,7 +495,7 @@ kill -HUP $(pidof gobfd)
 On reload:
 1. The YAML file is re-read and validated
 2. Log level is updated dynamically (no restart needed)
-3. Declarative sessions are reconciled (added/removed)
+3. A non-empty declarative session list is reconciled (claims added/released)
 4. Echo sessions are reconciled (added/removed)
 5. Micro-BFD groups are reconciled (added/removed, member link changes)
 6. VXLAN tunnel sessions are reconciled (added/removed)

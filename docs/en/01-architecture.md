@@ -18,6 +18,7 @@
 - [Packet RX Flow](#packet-rx-flow)
 - [Packet TX Flow](#packet-tx-flow)
 - [Demultiplexing](#demultiplexing)
+- [Session Identity and Ownership](#session-identity-and-ownership)
 - [Three-Way Handshake](#three-way-handshake)
 - [Goroutine Model](#goroutine-model)
 - [Graceful Shutdown](#graceful-shutdown)
@@ -154,6 +155,40 @@ Two-tier lookup per RFC 5880 Section 6.8.6:
 
 1. **Tier 1** -- Your Discriminator is nonzero: O(1) map lookup by discriminator. Fast path for established sessions.
 2. **Tier 2** -- Your Discriminator is zero AND state is Down/AdminDown: lookup by composite key (SrcIP, DstIP, Interface). Used only during initial session establishment.
+
+### Session Identity and Ownership
+
+`SessionKey` is the comparable canonical identity of one desired wire session.
+It contains the session type and address family, normalized peer and local
+addresses, interface, network scope, and transport scope. IPv4-mapped
+addresses are normalized to IPv4. This identity is separate from the smaller
+packet demultiplexing key used only for initial packet delivery.
+
+The manager records typed claims from declarative configuration, the
+compatibility/API path, and unsolicited BFD. Ownership mutations are
+serialized. Claims with the same canonical key and effective parameters share
+one wire session and discriminator; releasing one claim preserves the others,
+and releasing the last claim destroys the wire session. Configuration
+reconciliation releases only configuration claims and rejects conflicting
+effective parameters before mutation.
+
+For authenticated sessions, the effective parameters include the built-in
+authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.
+The static store clones constructor inputs and returns caller-owned key copies;
+unknown key-store implementations fail closed because no stable semantic
+identity can be derived.
+
+This is the C01.1 ownership core, not the complete v1 reconciliation or RFC
+contract. The following boundaries remain deferred:
+
+- forwarding an empty `sessions:` desired set from the daemon SIGHUP adapter;
+- distinct owner adapters for base BFD, Micro-BFD, VXLAN, and Geneve;
+- sender and transport-resource lifecycle ownership;
+- reconciliation generations and receipts;
+- Poll/Final parameter negotiation;
+- transport-aware packet demultiplexing; and
+- authenticated API principal identities instead of one compatibility/API
+  owner.
 
 ### Three-Way Handshake
 
@@ -321,4 +356,4 @@ gobfd/
 
 ---
 
-*Last updated: 2026-08-27*
+*Last updated: 2026-08-28*

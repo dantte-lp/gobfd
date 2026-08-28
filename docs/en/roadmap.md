@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-08-27. Beads is the task
+> Status projection from Beads, reconciled on 2026-08-28. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -90,11 +90,19 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Delivery slice | Status |
 |---|---|
 | RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | Open |
+| Ownership and configuration reconciliation | In progress; C01.1 core only |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
 | Interop, scale, security, and release qualification | Open |
+
+The accepted C01.1 core provides a canonical session key separate from packet
+demultiplexing, serialized typed configuration, compatibility/API, and
+unsolicited claims, and immutable static-auth identity. It does not complete
+C01 or SIGHUP reload. Empty desired-set forwarding, distinct owner adapters
+for base BFD, Micro-BFD, VXLAN, and Geneve, sender and resource lifecycle,
+generations, Poll/Final negotiation, transport-aware demultiplexing, and
+authenticated API principals remain open.
 
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,
