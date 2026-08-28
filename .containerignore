@@ -67,6 +67,19 @@ test/interop/*
 test/interop/scapy/*
 !test/interop/scapy/*.go
 
+# The development-image Compose stage builds the repository-owned bootstrap
+# command from the otherwise excluded test tree.
+!test/cmd/
+test/cmd/*
+!test/cmd/toolbootstrap/
+test/cmd/toolbootstrap/*
+!test/cmd/toolbootstrap/*.go
+!test/internal/
+test/internal/*
+!test/internal/toolbootstrap/
+test/internal/toolbootstrap/*
+!test/internal/toolbootstrap/*.go
+
 # Container infra is not copied into release images.
 deployments/
 **/Containerfile*

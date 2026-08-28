@@ -179,7 +179,7 @@ Compose v5.5.0 Go binary. Install the checksum-pinned provider and select it
 explicitly; Python `podman-compose` is unsupported:
 
 ```bash
-scripts/install-compose-provider.sh
+go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"
 export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
 export PODMAN_COMPOSE_WARNING_LOGS=false
 export DOCKER_BUILDKIT=0

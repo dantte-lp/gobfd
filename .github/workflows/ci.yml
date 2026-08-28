@@ -47,7 +47,7 @@ jobs:
 
       - name: Install test tools
         run: |
-          .github/scripts/install-podman-runtime.sh
+          go run ./test/cmd/toolbootstrap podman-runtime
           jq --version
           .github/scripts/install-uv.sh
           "$HOME/.local/bin/uv" sync --frozen --no-default-groups --group quality

@@ -271,6 +271,12 @@ linters:
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
+      # Tool bootstrap executes only fixed sudo/podman argv and the verified
+      # Compose provider path without a shell.
+      - path: test/internal/toolbootstrap/runner.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
       - path: internal/bfd/packet.go
         text: "Function 'UnmarshalControlPacket' has too many statements"
         linters:

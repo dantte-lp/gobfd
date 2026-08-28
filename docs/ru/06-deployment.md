@@ -171,7 +171,7 @@ Docker Compose v5.5.0. Установите checksum-pinned provider и выбе
 Python `podman-compose` не поддерживается:
 
 ```bash
-scripts/install-compose-provider.sh
+go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"
 export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
 export PODMAN_COMPOSE_WARNING_LOGS=false
 export DOCKER_BUILDKIT=0

@@ -46,7 +46,7 @@ jobs:
 
       - name: Install test tools
         run: |
-          .github/scripts/install-podman-runtime.sh
+          go run ./test/cmd/toolbootstrap podman-runtime
           jq --version
           .github/scripts/install-uv.sh
           export PATH="$HOME/.local/bin:$PATH"
@@ -99,7 +99,7 @@ jobs:
 
       - name: Install report tools
         run: |
-          .github/scripts/install-podman-runtime.sh
+          go run ./test/cmd/toolbootstrap podman-runtime
           jq --version
           .github/scripts/install-uv.sh
           export PATH="$HOME/.local/bin:$PATH"
