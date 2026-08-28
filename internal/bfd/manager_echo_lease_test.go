@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -214,57 +215,61 @@ func TestManagerEchoLeaseDestroyAndCloseReleaseExactlyOnce(t *testing.T) {
 }
 
 func TestManagerDestroyEchoSessionKeepsOperationActiveThroughLeaseCallback(t *testing.T) {
-	mgr := newEchoLeaseManager()
-	callbackEntered := make(chan struct{})
-	callbackRelease := make(chan struct{})
-	var ownershipUnlocked atomic.Bool
-	var lifecycleMutationUnlocked atomic.Bool
-	leaseFactory := func() (*SenderLease, error) {
-		return NewSenderLease(echoLeaseSender{}, func() error {
-			ownershipUnlocked.Store(mgr.ownershipMu.TryLock())
-			if ownershipUnlocked.Load() {
-				mgr.ownershipMu.Unlock()
-			}
-			lifecycleMutationUnlocked.Store(mgr.lifecycleMu.TryLock())
-			if lifecycleMutationUnlocked.Load() {
-				mgr.lifecycleMu.Unlock()
-			}
-			_ = mgr.EchoSessions()
-			close(callbackEntered)
-			<-callbackRelease
-			return nil
-		}), nil
-	}
-	discr, err := mgr.CreateEchoSessionWithSenderLease(
-		context.Background(), echoLeaseConfig("192.0.2.50"), leaseFactory,
-	)
-	if err != nil {
-		t.Fatalf("CreateEchoSessionWithSenderLease: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		mgr := newEchoLeaseManager()
+		callbackEntered := make(chan struct{})
+		callbackRelease := make(chan struct{})
+		var ownershipUnlocked atomic.Bool
+		var lifecycleMutationUnlocked atomic.Bool
+		leaseFactory := func() (*SenderLease, error) {
+			return NewSenderLease(echoLeaseSender{}, func() error {
+				ownershipUnlocked.Store(mgr.ownershipMu.TryLock())
+				if ownershipUnlocked.Load() {
+					mgr.ownershipMu.Unlock()
+				}
+				lifecycleMutationUnlocked.Store(mgr.lifecycleMu.TryLock())
+				if lifecycleMutationUnlocked.Load() {
+					mgr.lifecycleMu.Unlock()
+				}
+				_ = mgr.EchoSessions()
+				close(callbackEntered)
+				<-callbackRelease
+				return nil
+			}), nil
+		}
+		discr, err := mgr.CreateEchoSessionWithSenderLease(
+			context.Background(), echoLeaseConfig("192.0.2.50"), leaseFactory,
+		)
+		if err != nil {
+			t.Fatalf("CreateEchoSessionWithSenderLease: %v", err)
+		}
 
-	destroyDone := make(chan error, 1)
-	go func() { destroyDone <- mgr.DestroyEchoSession(discr) }()
-	<-callbackEntered
-	if !ownershipUnlocked.Load() {
-		t.Error("sender release callback could not reacquire ownershipMu")
-	}
-	if !lifecycleMutationUnlocked.Load() {
-		t.Error("sender release callback ran while lifecycle mutation lock was held")
-	}
+		destroyDone := make(chan error, 1)
+		go func() { destroyDone <- mgr.DestroyEchoSession(discr) }()
+		<-callbackEntered
+		if !ownershipUnlocked.Load() {
+			t.Error("sender release callback could not reacquire ownershipMu")
+		}
+		if !lifecycleMutationUnlocked.Load() {
+			t.Error("sender release callback ran while lifecycle mutation lock was held")
+		}
 
-	closeDone := make(chan struct{})
-	go func() {
-		mgr.Close()
-		close(closeDone)
-	}()
-	select {
-	case <-closeDone:
-		t.Fatal("Manager.Close returned before active echo cleanup callback completed")
-	default:
-	}
-	close(callbackRelease)
-	if err := <-destroyDone; err != nil {
-		t.Fatalf("DestroyEchoSession: %v", err)
-	}
-	<-closeDone
+		closeDone := make(chan struct{})
+		go func() {
+			mgr.Close()
+			close(closeDone)
+		}()
+		synctest.Wait()
+		select {
+		case <-closeDone:
+			t.Fatal("Manager.Close returned before active echo cleanup callback completed")
+		default:
+		}
+		close(callbackRelease)
+		synctest.Wait()
+		if err := <-destroyDone; err != nil {
+			t.Fatalf("DestroyEchoSession: %v", err)
+		}
+		<-closeDone
+	})
 }
