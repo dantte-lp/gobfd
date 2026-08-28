@@ -176,13 +176,18 @@ peer и local, interface, network scope и transport scope. IPv4-mapped адре
 нормализуются в IPv4. Этот идентификатор отделён от более узкого ключа packet
 demultiplexing, который используется только для доставки начального пакета.
 
-Manager хранит типизированные claims декларативной конфигурации,
-compatibility/API-пути и unsolicited BFD. Изменения ownership сериализованы.
-Claims с одинаковым каноническим ключом и эффективными параметрами разделяют
-одну wire session и discriminator; освобождение одного claim сохраняет
-остальные, а освобождение последнего уничтожает wire session. Configuration
-reconciliation освобождает только claims конфигурации и отклоняет конфликт
-эффективных параметров до мутации.
+Manager хранит типизированные claims базовой конфигурации, Micro-BFD members,
+VXLAN, Geneve, compatibility/API-пути и unsolicited BFD. Изменения ownership
+сериализованы. Каждый декларативный adapter реконсилирует только свой
+типизированный source. Claims с одинаковым каноническим ключом и эффективными
+параметрами разделяют одну wire session и discriminator; освобождение одного
+claim сохраняет остальные, а освобождение последнего уничтожает wire session.
+Пустые декларативные наборы передаются в Manager, поэтому удаление последней
+записи освобождает только claims этого source. Демон проверяет полный
+объединённый candidate control sessions base, Micro-BFD members, VXLAN и
+Geneve до применения любого из этих sources. Compiler каждого source также
+проверяет полный набор до открытия sender adapter или изменения session
+ownership.
 
 Для сессий с аутентификацией эффективные параметры включают тип встроенного
 authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Static store
@@ -190,12 +195,12 @@ authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Stat
 неизвестные реализации key store отклоняются, потому что для них нельзя
 получить стабильную семантическую идентичность.
 
-Это ownership core C01.1, а не полный контракт v1 reconciliation или RFC.
-Отложены следующие границы:
+Это ownership core C01.1 вместе со slice C01.2 для atomic candidate и изоляции
+sources, а не полный контракт v1 reconciliation или RFC. Отложены следующие
+границы:
 
-- передача пустого желаемого списка `sessions:` из SIGHUP-адаптера демона;
-- отдельные owner adapters для base BFD, Micro-BFD, VXLAN и Geneve;
 - ownership жизненного цикла sender и transport resources;
+- стабильные owner identifiers для отдельных groups и tunnels;
 - generations и receipts reconciliation;
 - согласование параметров Poll/Final;
 - transport-aware packet demultiplexing; и

@@ -653,6 +653,17 @@ func (m *Manager) ReconcileSessions(
 	ctx context.Context,
 	desired []ReconcileConfig,
 ) (int, int, error) {
+	return m.ReconcileSessionsForOwner(ctx, configSessionOwner(), desired)
+}
+
+// ReconcileSessionsForOwner reconciles only claims held by owner. Declarative
+// adapters use distinct typed owners so one source cannot release another
+// source's claims. Exact matching claims still share a wire session.
+func (m *Manager) ReconcileSessionsForOwner(
+	ctx context.Context,
+	owner SessionOwner,
+	desired []ReconcileConfig,
+) (int, int, error) {
 	m.ownershipMu.Lock()
 	defer m.ownershipMu.Unlock()
 
@@ -661,13 +672,13 @@ func (m *Manager) ReconcileSessions(
 		return 0, 0, err
 	}
 
-	currentConfigClaims, err := m.configClaimSnapshot(desiredByKey, desiredOrder)
+	currentClaims, err := m.ownerClaimSnapshot(owner, desiredByKey, desiredOrder)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	destroyed, releaseErrs := m.releaseStaleConfigClaims(desiredByKey, currentConfigClaims)
-	created, claimErrs := m.claimDesiredConfigSessions(ctx, desiredByKey, desiredOrder)
+	destroyed, releaseErrs := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
+	created, claimErrs := m.claimDesiredOwnerSessions(ctx, owner, desiredByKey, desiredOrder)
 	err = errors.Join(append(releaseErrs, claimErrs...)...)
 
 	m.logger.Info("session reconciliation complete",
@@ -676,6 +687,13 @@ func (m *Manager) ReconcileSessions(
 	)
 
 	return created, destroyed, err
+}
+
+// ValidateReconcileConfigs validates the complete desired set without opening
+// senders or mutating Manager state.
+func ValidateReconcileConfigs(desired []ReconcileConfig) error {
+	_, _, err := compileReconcileConfigs(desired)
+	return err
 }
 
 type reconcileCandidate struct {
@@ -690,6 +708,9 @@ func compileReconcileConfigs(
 	desiredOrder := make([]SessionKey, 0, len(desired))
 	for _, rc := range desired {
 		rc.SessionConfig = canonicalSessionConfig(rc.SessionConfig)
+		if err := ValidateSessionConfig(rc.SessionConfig); err != nil {
+			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
+		}
 		key, err := sessionKeyFromConfig(rc.SessionConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("reconcile config %q: %w", rc.Key, err)
@@ -711,17 +732,18 @@ func compileReconcileConfigs(
 	return desiredByKey, desiredOrder, nil
 }
 
-func (m *Manager) configClaimSnapshot(
+func (m *Manager) ownerClaimSnapshot(
+	owner SessionOwner,
 	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
 ) (map[SessionKey]uint32, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	currentConfigClaims := make(map[SessionKey]uint32)
+	currentClaims := make(map[SessionKey]uint32)
 	for key, entry := range m.sessionsByKey {
-		if _, owned := entry.owners[configSessionOwner()]; owned {
-			currentConfigClaims[key] = entry.session.LocalDiscriminator()
+		if _, owned := entry.owners[owner]; owned {
+			currentClaims[key] = entry.session.LocalDiscriminator()
 		}
 	}
 	for _, key := range desiredOrder {
@@ -734,26 +756,28 @@ func (m *Manager) configClaimSnapshot(
 				key, ErrSessionParameterConflict)
 		}
 	}
-	return currentConfigClaims, nil
+	return currentClaims, nil
 }
 
-func (m *Manager) releaseStaleConfigClaims(
+func (m *Manager) releaseStaleOwnerClaims(
+	owner SessionOwner,
 	desiredByKey map[SessionKey]reconcileCandidate,
-	currentConfigClaims map[SessionKey]uint32,
+	currentClaims map[SessionKey]uint32,
 ) (int, []error) {
 	var destroyed int
 	var errs []error
-	for key, discr := range currentConfigClaims {
+	for key, discr := range currentClaims {
 		if _, want := desiredByKey[key]; want {
 			continue
 		}
 
-		m.logger.Info("reconcile: releasing removed config claim",
+		m.logger.Info("reconcile: releasing removed owner claim",
 			slog.Any("key", key),
+			slog.Any("owner", owner),
 			slog.Uint64("local_discr", uint64(discr)),
 		)
 
-		wireDestroyed, releaseErr := m.releaseSessionClaimByDiscriminator(discr, configSessionOwner())
+		wireDestroyed, releaseErr := m.releaseSessionClaimByDiscriminator(discr, owner)
 		if releaseErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile release %+v: %w", key, releaseErr))
 			continue
@@ -765,8 +789,9 @@ func (m *Manager) releaseStaleConfigClaims(
 	return destroyed, errs
 }
 
-func (m *Manager) claimDesiredConfigSessions(
+func (m *Manager) claimDesiredOwnerSessions(
 	ctx context.Context,
+	owner SessionOwner,
 	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
 ) (int, []error) {
@@ -775,12 +800,13 @@ func (m *Manager) claimDesiredConfigSessions(
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
 
-		m.logger.Info("reconcile: claiming desired config session",
+		m.logger.Info("reconcile: claiming desired owner session",
 			slog.Any("key", key),
+			slog.Any("owner", owner),
 		)
 
 		_, wireCreated, claimErr := m.claimSession(
-			ctx, rc.SessionConfig, rc.Sender, configSessionOwner(), true,
+			ctx, rc.SessionConfig, rc.Sender, owner, true,
 		)
 		if claimErr != nil {
 			errs = append(errs, fmt.Errorf("reconcile claim %+v: %w", key, claimErr))

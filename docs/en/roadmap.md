@@ -90,7 +90,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Delivery slice | Status |
 |---|---|
 | RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | In progress; C01.1 core only |
+| Ownership and configuration reconciliation | In progress; C01.1 and C01.2 implemented |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
@@ -98,11 +98,12 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 
 The accepted C01.1 core provides a canonical session key separate from packet
 demultiplexing, serialized typed configuration, compatibility/API, and
-unsolicited claims, and immutable static-auth identity. It does not complete
-C01 or SIGHUP reload. Empty desired-set forwarding, distinct owner adapters
-for base BFD, Micro-BFD, VXLAN, and Geneve, sender and resource lifecycle,
-generations, Poll/Final negotiation, transport-aware demultiplexing, and
-authenticated API principals remain open.
+unsolicited claims, and immutable static-auth identity. C01.2 adds complete
+candidate validation before sender creation, empty desired-set forwarding,
+and distinct typed owners for base BFD, Micro-BFD, VXLAN, and Geneve. It does
+not complete C01 or SIGHUP reload. Sender and resource lifecycle, stable
+per-group/per-tunnel owners, generations, Poll/Final negotiation,
+transport-aware demultiplexing, and authenticated API principals remain open.
 
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

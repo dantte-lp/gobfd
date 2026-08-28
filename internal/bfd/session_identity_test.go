@@ -108,12 +108,15 @@ func TestSessionOwnersAreTypedComparableClaims(t *testing.T) {
 	t.Parallel()
 
 	claims := map[SessionOwner]struct{}{
-		configSessionOwner():           {},
+		ConfigReconciliationOwner():    {},
+		MicroBFDReconciliationOwner():  {},
+		VXLANReconciliationOwner():     {},
+		GeneveReconciliationOwner():    {},
 		compatibilityAPISessionOwner(): {},
 		unsolicitedSessionOwner():      {},
 	}
-	if got := len(claims); got != 3 {
-		t.Fatalf("typed owner claims = %d, want 3", got)
+	if got := len(claims); got != 6 {
+		t.Fatalf("typed owner claims = %d, want 6", got)
 	}
 	if configSessionOwner().Source != SessionOwnerSourceConfig {
 		t.Errorf("config owner source = %d, want %d",
@@ -126,5 +129,18 @@ func TestSessionOwnersAreTypedComparableClaims(t *testing.T) {
 	if unsolicitedSessionOwner().Source != SessionOwnerSourceUnsolicited {
 		t.Errorf("unsolicited owner source = %d, want %d",
 			unsolicitedSessionOwner().Source, SessionOwnerSourceUnsolicited)
+	}
+	declarative := []struct {
+		owner SessionOwner
+		want  SessionOwnerSource
+	}{
+		{MicroBFDReconciliationOwner(), SessionOwnerSourceMicroBFD},
+		{VXLANReconciliationOwner(), SessionOwnerSourceVXLAN},
+		{GeneveReconciliationOwner(), SessionOwnerSourceGeneve},
+	}
+	for _, tt := range declarative {
+		if tt.owner.Source != tt.want {
+			t.Errorf("declarative owner %q source = %d, want %d", tt.owner.ID, tt.owner.Source, tt.want)
+		}
 	}
 }

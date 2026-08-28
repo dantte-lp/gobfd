@@ -164,13 +164,17 @@ addresses, interface, network scope, and transport scope. IPv4-mapped
 addresses are normalized to IPv4. This identity is separate from the smaller
 packet demultiplexing key used only for initial packet delivery.
 
-The manager records typed claims from declarative configuration, the
-compatibility/API path, and unsolicited BFD. Ownership mutations are
-serialized. Claims with the same canonical key and effective parameters share
-one wire session and discriminator; releasing one claim preserves the others,
-and releasing the last claim destroys the wire session. Configuration
-reconciliation releases only configuration claims and rejects conflicting
-effective parameters before mutation.
+The manager records typed claims from base configuration, Micro-BFD members,
+VXLAN, Geneve, the compatibility/API path, and unsolicited BFD. Ownership
+mutations are serialized. Each declarative adapter reconciles only its typed
+source. Claims with the same canonical key and effective parameters share one
+wire session and discriminator; releasing one claim preserves the others, and
+releasing the last claim destroys the wire session. Empty declarative sets are
+forwarded, so removing the final entry releases only that source's claims.
+The daemon validates the complete combined base, Micro-BFD member, VXLAN, and
+Geneve control-session candidate before applying any of those sources. Each
+source compiler also validates its complete set before that adapter opens
+senders or mutates session ownership.
 
 For authenticated sessions, the effective parameters include the built-in
 authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.
@@ -178,12 +182,12 @@ The static store clones constructor inputs and returns caller-owned key copies;
 unknown key-store implementations fail closed because no stable semantic
 identity can be derived.
 
-This is the C01.1 ownership core, not the complete v1 reconciliation or RFC
-contract. The following boundaries remain deferred:
+This is the C01.1 ownership core plus the C01.2 atomic-candidate and source
+isolation slice, not the complete v1 reconciliation or RFC contract. The
+following boundaries remain deferred:
 
-- forwarding an empty `sessions:` desired set from the daemon SIGHUP adapter;
-- distinct owner adapters for base BFD, Micro-BFD, VXLAN, and Geneve;
 - sender and transport-resource lifecycle ownership;
+- stable per-group and per-tunnel owner identifiers;
 - reconciliation generations and receipts;
 - Poll/Final parameter negotiation;
 - transport-aware packet demultiplexing; and

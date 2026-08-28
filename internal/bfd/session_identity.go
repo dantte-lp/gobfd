@@ -71,6 +71,15 @@ const (
 
 	// SessionOwnerSourceUnsolicited is an RFC 9468 dynamically learned claim.
 	SessionOwnerSourceUnsolicited
+
+	// SessionOwnerSourceMicroBFD is the declarative Micro-BFD member source.
+	SessionOwnerSourceMicroBFD
+
+	// SessionOwnerSourceVXLAN is the declarative VXLAN session source.
+	SessionOwnerSourceVXLAN
+
+	// SessionOwnerSourceGeneve is the declarative Geneve session source.
+	SessionOwnerSourceGeneve
 )
 
 // SessionOwner identifies one source-scoped claim. ID permits future sources
@@ -85,6 +94,26 @@ func configSessionOwner() SessionOwner {
 		Source: SessionOwnerSourceConfig,
 		ID:     "config",
 	}
+}
+
+// ConfigReconciliationOwner returns the base declarative configuration owner.
+func ConfigReconciliationOwner() SessionOwner {
+	return configSessionOwner()
+}
+
+// MicroBFDReconciliationOwner returns the declarative Micro-BFD member owner.
+func MicroBFDReconciliationOwner() SessionOwner {
+	return SessionOwner{Source: SessionOwnerSourceMicroBFD, ID: "micro-config"}
+}
+
+// VXLANReconciliationOwner returns the declarative VXLAN session owner.
+func VXLANReconciliationOwner() SessionOwner {
+	return SessionOwner{Source: SessionOwnerSourceVXLAN, ID: "vxlan-config"}
+}
+
+// GeneveReconciliationOwner returns the declarative Geneve session owner.
+func GeneveReconciliationOwner() SessionOwner {
+	return SessionOwner{Source: SessionOwnerSourceGeneve, ID: "geneve-config"}
 }
 
 func compatibilityAPISessionOwner() SessionOwner {

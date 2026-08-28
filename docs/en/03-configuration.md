@@ -402,11 +402,11 @@ All configuration keys can be overridden via environment variables with the `GOB
 
 ### Declarative Sessions
 
-Sessions defined under `sessions:` are created on daemon startup. Non-empty
-session lists are reconciled on SIGHUP reload. The current reload adapter skips
-an empty `sessions:` desired set, so removing the final entry does not yet
-release its configuration claim. Reconciliation semantics for a forwarded
-desired set are:
+Sessions defined under `sessions:` are created on daemon startup and
+reconciled on SIGHUP reload. The base, Micro-BFD member, VXLAN, and Geneve
+adapters forward empty desired sets and use distinct typed reconciliation
+owners. Removing the final base entry therefore releases only the base
+configuration claim. Reconciliation semantics are:
 
 - **New desired entries** acquire a configuration claim and create a wire
   session only when no exact session exists
@@ -416,10 +416,15 @@ desired set are:
   rejected without mutating the manager's ownership claims or session
   registries
 
-That no-mutation guarantee is limited to manager ownership and session-registry
-state. SIGHUP reload is non-transactional: log-level changes and any sender,
-transport-resource, or session changes applied before a later failure are not
-rolled back.
+Before startup or SIGHUP applies any control-session source, the daemon
+compiles and validates the complete combined base, Micro-BFD member, VXLAN,
+and Geneve candidate. Each adapter also validates its complete source set
+before opening a sender or mutating Manager session ownership. A conversion,
+session-validation, or duplicate error rejects the combined candidate.
+Conflicts with a running exact session are rejected before ownership mutation.
+The broader SIGHUP reload remains non-transactional:
+log-level changes, sender lifecycle, transport resources, listener/backend
+replacement, and cross-adapter rollback are outside this guarantee.
 
 The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 

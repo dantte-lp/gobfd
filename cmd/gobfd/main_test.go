@@ -25,6 +25,343 @@ import (
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
+type candidateTestSender struct{}
+
+func (candidateTestSender) SendPacket(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+type candidateTestOverlayConn struct{}
+
+func (candidateTestOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error {
+	return nil
+}
+
+func (candidateTestOverlayConn) RecvDecapsulated(context.Context) ([]byte, netio.OverlayMeta, error) {
+	return nil, netio.OverlayMeta{}, netio.ErrOverlayRecvClosed
+}
+
+func (candidateTestOverlayConn) Close() error {
+	return nil
+}
+
+func cleanupCandidateTestSenders(t *testing.T, sf *udpSenderFactory) {
+	t.Helper()
+
+	sf.mu.Lock()
+	ports := make([]uint16, 0, len(sf.senders))
+	for port := range sf.senders {
+		ports = append(ports, port)
+	}
+	sf.mu.Unlock()
+
+	for _, port := range ports {
+		if err := sf.CloseSender(port); err != nil {
+			t.Errorf("CloseSender(%d): %v", port, err)
+		}
+	}
+}
+
+func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	seed := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("127.0.0.1"),
+		Interface:             "lo",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key:           "seed",
+		SessionConfig: seed,
+		Sender:        candidateTestSender{},
+	}}); err != nil {
+		t.Fatalf("seed ReconcileSessions: %v", err)
+	}
+	before := mgr.Sessions()
+
+	sf := newUDPSenderFactory()
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{
+		{Peer: "198.51.100.1", Local: "127.0.0.1", Interface: "lo"},
+		{Peer: "not-an-address", Local: "127.0.0.1", Interface: "lo"},
+	}
+
+	reconcileSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+
+	sf.mu.Lock()
+	openedSenders := len(sf.senders)
+	sf.mu.Unlock()
+	if openedSenders != 0 {
+		t.Errorf("opened senders = %d, want 0", openedSenders)
+	}
+	after := mgr.Sessions()
+	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+		t.Fatalf("sessions changed after invalid candidate: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestReconcileSessionsForwardsEmptyBaseDesiredSet(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+		Interface:             "eth0",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key:           "base",
+		SessionConfig: cfg,
+		Sender:        candidateTestSender{},
+	}}); err != nil {
+		t.Fatalf("seed ReconcileSessions: %v", err)
+	}
+	shared, err := mgr.CreateSession(context.Background(), cfg, candidateTestSender{})
+	if err != nil {
+		t.Fatalf("CreateSession matching compatibility claim: %v", err)
+	}
+
+	reconcileSessions(
+		context.Background(),
+		config.DefaultConfig(),
+		mgr,
+		newUDPSenderFactory(),
+		slog.New(slog.DiscardHandler),
+	)
+	if err := mgr.DestroySession(context.Background(), shared.LocalDiscriminator()); err != nil {
+		t.Fatalf("DestroySession compatibility claim: %v", err)
+	}
+	if got := mgr.Sessions(); len(got) != 0 {
+		t.Fatalf("wire sessions after empty base reconciliation = %d, want 0", len(got))
+	}
+}
+
+func TestReconcileMicroBFDGroupsForwardsEmptyMemberDesiredSet(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	cfg := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.10"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.20"),
+		Interface:             "eth1",
+		Type:                  bfd.SessionTypeMicroBFD,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(),
+		bfd.MicroBFDReconciliationOwner(),
+		[]bfd.ReconcileConfig{{Key: "micro", SessionConfig: cfg, Sender: candidateTestSender{}}},
+	); err != nil {
+		t.Fatalf("seed Micro-BFD reconciliation: %v", err)
+	}
+
+	reconcileMicroBFDGroups(
+		context.Background(),
+		config.DefaultConfig(),
+		mgr,
+		newUDPSenderFactory(),
+		slog.New(slog.DiscardHandler),
+	)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("wire sessions after empty Micro-BFD reconciliation = %d, want 0", got)
+	}
+}
+
+func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	tests := []struct {
+		owner bfd.SessionOwner
+		cfg   bfd.SessionConfig
+	}{
+		{
+			owner: bfd.VXLANReconciliationOwner(),
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.30"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.40"),
+				Type:                  bfd.SessionTypeVXLAN,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		},
+		{
+			owner: bfd.GeneveReconciliationOwner(),
+			cfg: bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.50"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.60"),
+				Type:                  bfd.SessionTypeGeneve,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		},
+	}
+	for _, tt := range tests {
+		if _, _, err := mgr.ReconcileSessionsForOwner(
+			context.Background(),
+			tt.owner,
+			[]bfd.ReconcileConfig{{Key: tt.owner.ID, SessionConfig: tt.cfg, Sender: candidateTestSender{}}},
+		); err != nil {
+			t.Fatalf("seed overlay owner %+v: %v", tt.owner, err)
+		}
+	}
+
+	reconcileOverlayTunnels(
+		context.Background(),
+		config.DefaultConfig(),
+		mgr,
+		&overlayRuntime{},
+		slog.New(slog.DiscardHandler),
+	)
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("wire sessions after empty overlay reconciliation = %d, want 0", got)
+	}
+}
+
+func TestReconcileMicroBFDCandidateIsValidatedBeforeOpeningSenders(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newUDPSenderFactory()
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+
+	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
+		{
+			LAGInterface: "bond0", MemberLinks: []string{"lo"},
+			PeerAddr: "192.0.2.70", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+		{
+			LAGInterface: "bond1", MemberLinks: []string{"lo"},
+			PeerAddr: "not-an-address", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+		},
+	}
+
+	reconcileMicroBFDGroups(
+		context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler),
+	)
+
+	sf.mu.Lock()
+	openedSenders := len(sf.senders)
+	sf.mu.Unlock()
+	if openedSenders != 0 {
+		t.Errorf("opened Micro-BFD senders = %d, want 0", openedSenders)
+	}
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("wire sessions after invalid Micro-BFD candidate = %d, want 0", got)
+	}
+}
+
+func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	seed := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.80"),
+		LocalAddr:             netip.MustParseAddr("192.0.2.81"),
+		Type:                  bfd.SessionTypeVXLAN,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessionsForOwner(
+		context.Background(),
+		bfd.VXLANReconciliationOwner(),
+		[]bfd.ReconcileConfig{{Key: "seed", SessionConfig: seed, Sender: candidateTestSender{}}},
+	); err != nil {
+		t.Fatalf("seed VXLAN reconciliation: %v", err)
+	}
+	before := mgr.Sessions()
+
+	cfg := config.DefaultConfig()
+	cfg.VXLAN.Enabled = true
+	cfg.VXLAN.DefaultDesiredMinTx = time.Second
+	cfg.VXLAN.DefaultRequiredMinRx = time.Second
+	cfg.VXLAN.DefaultDetectMultiplier = 3
+	cfg.VXLAN.Peers = []config.VXLANPeerConfig{
+		{Peer: "192.0.2.90", Local: "192.0.2.91"},
+		{Peer: "not-an-address", Local: "192.0.2.91"},
+	}
+	reconcileOverlayTunnels(
+		context.Background(),
+		cfg,
+		mgr,
+		&overlayRuntime{vxlan: candidateTestOverlayConn{}},
+		slog.New(slog.DiscardHandler),
+	)
+
+	after := mgr.Sessions()
+	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+		t.Fatalf("VXLAN sessions changed after invalid candidate: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	seed := bfd.SessionConfig{
+		PeerAddr:              netip.MustParseAddr("192.0.2.100"),
+		LocalAddr:             netip.MustParseAddr("127.0.0.1"),
+		Interface:             "lo",
+		Type:                  bfd.SessionTypeSingleHop,
+		Role:                  bfd.RoleActive,
+		DesiredMinTxInterval:  time.Second,
+		RequiredMinRxInterval: time.Second,
+		DetectMultiplier:      3,
+	}
+	if _, _, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{{
+		Key: "seed", SessionConfig: seed, Sender: candidateTestSender{},
+	}}); err != nil {
+		t.Fatalf("seed ReconcileSessions: %v", err)
+	}
+	before := mgr.Sessions()
+
+	sf := newUDPSenderFactory()
+	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{{
+		Peer: "192.0.2.101", Local: "127.0.0.1", Interface: "lo",
+	}}
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"lo"},
+		PeerAddr: "not-an-address", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
+	}}
+
+	reconcileAllSessions(
+		context.Background(), cfg, mgr, sf, &overlayRuntime{}, slog.New(slog.DiscardHandler),
+	)
+
+	sf.mu.Lock()
+	openedSenders := len(sf.senders)
+	sf.mu.Unlock()
+	if openedSenders != 0 {
+		t.Errorf("opened senders before later source validation = %d, want 0", openedSenders)
+	}
+	after := mgr.Sessions()
+	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
+		t.Fatalf("sessions changed before later source validation: before=%+v after=%+v", before, after)
+	}
+}
+
 // =========================================================================
 // 4.1 — configSessionToBFD
 // =========================================================================
@@ -788,7 +1125,7 @@ func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
 	params := buildOverlayTunnelParams(cfg, &overlayRuntime{
 		vxlan:  vxlanConn,
 		geneve: geneveConn,
-	}, slog.Default())
+	})
 
 	if len(params) != 2 {
 		t.Fatalf("params len = %d, want 2", len(params))

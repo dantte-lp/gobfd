@@ -62,6 +62,11 @@ func reloadConfig(
 		)
 		return
 	}
+	if err := validateCompleteControlSessionCandidate(newCfg); err != nil {
+		logger.Error("invalid control-session candidate, keeping current settings",
+			slog.String("error", err.Error()))
+		return
+	}
 
 	// Update log level.
 	oldLevel := logLevel.Level()
@@ -95,10 +100,30 @@ func reconcileAllSessions(
 	overlayRuntime *overlayRuntime,
 	logger *slog.Logger,
 ) {
+	if err := validateCompleteControlSessionCandidate(cfg); err != nil {
+		logger.Error("invalid startup control-session candidate, skipping reconciliation",
+			slog.String("error", err.Error()))
+		return
+	}
 	reconcileSessions(ctx, cfg, mgr, sf, logger)
 	reconcileEchoSessions(ctx, cfg, mgr, sf, logger)
 	reconcileMicroBFDGroups(ctx, cfg, mgr, sf, logger)
 	reconcileOverlayTunnels(ctx, cfg, mgr, overlayRuntime, logger)
+}
+
+func validateCompleteControlSessionCandidate(cfg *config.Config) error {
+	if _, err := compileBaseSessionCandidates(cfg); err != nil {
+		return err
+	}
+	if _, _, err := compileMicroBFDCandidates(cfg); err != nil {
+		return err
+	}
+	for _, params := range buildOverlayTunnelParams(cfg, nil) {
+		if _, err := compileOverlaySessionCandidates(params); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // reconcileSessions diffs the declarative sessions from the config against
@@ -110,46 +135,41 @@ func reconcileSessions(
 	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) {
-	if len(cfg.Sessions) == 0 {
-		logger.Debug("no declarative sessions in config, skipping reconciliation")
+	candidates, err := compileBaseSessionCandidates(cfg)
+	if err != nil {
+		logger.Error("invalid declarative session candidate, keeping current sessions",
+			slog.String("error", err.Error()),
+		)
 		return
 	}
 
-	desired := make([]bfd.ReconcileConfig, 0, len(cfg.Sessions))
-	for _, sc := range cfg.Sessions {
-		sessCfg, err := configSessionToBFD(sc, cfg.BFD)
-		if err != nil {
-			logger.Error("invalid session config, skipping",
-				slog.String("peer", sc.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
-		}
-
-		multiHop := sessCfg.Type == bfd.SessionTypeMultiHop
-		// RFC 9764: set DF bit on the sender socket when padding is configured.
-		var senderOpts []netio.SenderOption
-		if sessCfg.PaddedPduSize > 0 {
-			senderOpts = append(senderOpts, netio.WithDFBit())
-		}
+	desired := make([]bfd.ReconcileConfig, 0, len(candidates))
+	for _, candidate := range candidates {
 		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
-		sender, err := sf.createSenderForSession(sessCfg.LocalAddr, multiHop, logger, senderOpts...)
-		if err != nil {
-			logger.Error("failed to create sender for session, skipping",
-				slog.String("peer", sc.Peer),
-				slog.String("error", err.Error()),
+		sender, senderErr := sf.createSenderForSession(
+			candidate.config.LocalAddr,
+			candidate.multiHop,
+			logger,
+			candidate.senderOpts...,
+		)
+		if senderErr != nil {
+			logger.Error("failed to create sender for session, keeping current sessions",
+				slog.String("peer", candidate.peer),
+				slog.String("error", senderErr.Error()),
 			)
-			continue
+			return
 		}
 
-		desired = append(desired, bfd.ReconcileConfig{
-			Key:           sc.SessionKey(),
-			SessionConfig: sessCfg,
-			Sender:        sender,
-		})
+		rc := candidate.reconcile
+		rc.Sender = sender
+		desired = append(desired, rc)
 	}
 
-	created, destroyed, err := mgr.ReconcileSessions(ctx, desired)
+	created, destroyed, err := mgr.ReconcileSessionsForOwner(
+		ctx,
+		bfd.ConfigReconciliationOwner(),
+		desired,
+	)
 	if err != nil {
 		logger.Error("session reconciliation had errors",
 			slog.String("error", err.Error()),
@@ -160,6 +180,43 @@ func reconcileSessions(
 		slog.Int("created", created),
 		slog.Int("destroyed", destroyed),
 	)
+}
+
+type baseSessionCandidate struct {
+	peer       string
+	config     bfd.SessionConfig
+	reconcile  bfd.ReconcileConfig
+	multiHop   bool
+	senderOpts []netio.SenderOption
+}
+
+func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, error) {
+	candidates := make([]baseSessionCandidate, 0, len(cfg.Sessions))
+	desired := make([]bfd.ReconcileConfig, 0, len(cfg.Sessions))
+	for _, sc := range cfg.Sessions {
+		sessCfg, err := configSessionToBFD(sc, cfg.BFD)
+		if err != nil {
+			return nil, fmt.Errorf("session %q: %w", sc.Peer, err)
+		}
+
+		var senderOpts []netio.SenderOption
+		if sessCfg.PaddedPduSize > 0 {
+			senderOpts = append(senderOpts, netio.WithDFBit())
+		}
+		rc := bfd.ReconcileConfig{Key: sc.SessionKey(), SessionConfig: sessCfg}
+		candidates = append(candidates, baseSessionCandidate{
+			peer:       sc.Peer,
+			config:     sessCfg,
+			reconcile:  rc,
+			multiHop:   sessCfg.Type == bfd.SessionTypeMultiHop,
+			senderOpts: senderOpts,
+		})
+		desired = append(desired, rc)
+	}
+	if err := bfd.ValidateReconcileConfigs(desired); err != nil {
+		return nil, fmt.Errorf("validate complete base session set: %w", err)
+	}
+	return candidates, nil
 }
 
 // reconcileEchoSessions diffs the declarative echo sessions from the config

@@ -403,11 +403,11 @@ geneve:
 
 ### Декларативные сессии
 
-Сессии из секции `sessions:` создаются при старте демона. Непустые списки
-сессий реконсилируются при SIGHUP. Текущий reload adapter пропускает пустой
-желаемый список `sessions:`, поэтому удаление последней записи пока не
-освобождает её claim конфигурации. Семантика reconciliation для переданного
-desired set:
+Сессии из секции `sessions:` создаются при старте демона и реконсилируются при
+SIGHUP. Adapters base, Micro-BFD members, VXLAN и Geneve передают пустые desired
+sets и используют отдельные типизированные reconciliation owners. Поэтому
+удаление последней base-записи освобождает только claim базовой конфигурации.
+Семантика reconciliation:
 
 - **Новые желаемые записи** -- получают claim конфигурации и создают wire
   session, только если точной сессии ещё нет
@@ -417,10 +417,15 @@ desired set:
   эффективных параметров отклоняется без мутации ownership claims и реестров
   сессий manager
 
-Эта гарантия отсутствия мутации ограничена ownership-состоянием и реестрами
-сессий manager. SIGHUP reload нетранзакционен: уже применённые изменения уровня
-логирования, sender, transport resource или сессий не откатываются при
-последующей ошибке.
+До применения любого source при startup или SIGHUP демон компилирует и
+проверяет полный объединённый candidate base, Micro-BFD members, VXLAN и
+Geneve. Каждый adapter также проверяет полный набор своего source до открытия
+sender или изменения session ownership в Manager. Ошибка conversion, session
+validation или duplicate отклоняет объединённый candidate.
+Конфликт с запущенной точной сессией отклоняется до изменения ownership.
+SIGHUP reload в целом остаётся нетранзакционным: изменения log
+level, lifecycle sender, transport resources, замена listener/backend и
+cross-adapter rollback не входят в эту гарантию.
 
 Ключ уникальности YAML -- кортеж: `(peer, local, interface)`.
 

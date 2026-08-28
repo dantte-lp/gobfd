@@ -89,7 +89,7 @@ v0.6 после завершения closeout v0.6.4 и исправления P
 | Часть поставки | Статус |
 |---|---|
 | Корректность RFC core и учёт потерь | Открыто |
-| Reconciliation ownership и конфигурации | В работе; только core C01.1 |
+| Reconciliation ownership и конфигурации | В работе; реализованы C01.1 и C01.2 |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
@@ -98,10 +98,12 @@ v0.6 после завершения closeout v0.6.4 и исправления P
 Принятый core C01.1 предоставляет канонический ключ сессии, отделённый от
 packet demultiplexing, сериализованные типизированные claims конфигурации,
 compatibility/API и unsolicited, а также неизменяемую static-auth identity.
-Он не завершает C01 или SIGHUP reload. Передача пустого desired set, отдельные
-owner adapters для base BFD, Micro-BFD, VXLAN и Geneve, жизненный цикл sender
-и resources, generations, согласование Poll/Final, transport-aware
-demultiplexing и аутентифицированные API principals остаются открытыми.
+C01.2 добавляет проверку полного candidate до создания sender, передачу пустого
+desired set и отдельные типизированные owners для base BFD, Micro-BFD, VXLAN и
+Geneve. Он не завершает C01 или SIGHUP reload. Lifecycle sender и resources,
+стабильные owners отдельных groups/tunnels, generations, согласование
+Poll/Final, transport-aware demultiplexing и аутентифицированные API principals
+остаются открытыми.
 
 RFC core начинается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,

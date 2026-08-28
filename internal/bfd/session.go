@@ -537,6 +537,12 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	return nil
 }
 
+// ValidateSessionConfig validates a session candidate without allocating a
+// discriminator or starting runtime resources.
+func ValidateSessionConfig(cfg SessionConfig) error {
+	return validateSessionConfig(cfg, 1)
+}
+
 func validateSessionAuthConfig(cfg SessionConfig) error {
 	if cfg.Auth == nil {
 		return nil

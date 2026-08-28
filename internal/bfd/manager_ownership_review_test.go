@@ -40,6 +40,69 @@ type ownershipOperationResult struct {
 	err       error
 }
 
+func TestManagerSequentialReconciliationSourcesDoNotCrossDelete(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	testSources := []SessionOwner{
+		ConfigReconciliationOwner(),
+		MicroBFDReconciliationOwner(),
+		VXLANReconciliationOwner(),
+		GeneveReconciliationOwner(),
+	}
+	for i, owner := range testSources {
+		cfg := ownershipTestConfig(netip.AddrFrom4([4]byte{192, 0, 2, byte(i + 1)}).String())
+		created, destroyed, err := mgr.ReconcileSessionsForOwner(
+			context.Background(),
+			owner,
+			[]ReconcileConfig{{Key: owner.ID, SessionConfig: cfg, Sender: ownershipNoopSender{}}},
+		)
+		if err != nil {
+			t.Fatalf("reconcile source %+v: %v", owner, err)
+		}
+		if created != 1 || destroyed != 0 {
+			t.Fatalf("reconcile source %+v = (%d created, %d destroyed), want (1, 0)",
+				owner, created, destroyed)
+		}
+	}
+
+	if got := len(mgr.Sessions()); got != len(testSources) {
+		t.Fatalf("wire sessions after sequential source reconciliation = %d, want %d",
+			got, len(testSources))
+	}
+}
+
+func TestManagerExactClaimsFromReconciliationSourcesShareWireSession(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+
+	cfg := ownershipTestConfig("192.0.2.200")
+	desired := []ReconcileConfig{{Key: "shared", SessionConfig: cfg, Sender: ownershipNoopSender{}}}
+	for _, owner := range []SessionOwner{
+		ConfigReconciliationOwner(),
+		MicroBFDReconciliationOwner(),
+		VXLANReconciliationOwner(),
+		GeneveReconciliationOwner(),
+	} {
+		created, destroyed, err := mgr.ReconcileSessionsForOwner(context.Background(), owner, desired)
+		if err != nil {
+			t.Fatalf("reconcile exact owner %+v: %v", owner, err)
+		}
+		if destroyed != 0 {
+			t.Fatalf("reconcile exact owner %+v destroyed = %d, want 0", owner, destroyed)
+		}
+		if owner == ConfigReconciliationOwner() && created != 1 {
+			t.Fatalf("first exact owner created = %d, want 1", created)
+		}
+		if owner != ConfigReconciliationOwner() && created != 0 {
+			t.Fatalf("shared exact owner %+v created = %d, want 0", owner, created)
+		}
+	}
+	if got := len(mgr.Sessions()); got != 1 {
+		t.Fatalf("wire sessions for four exact claims = %d, want 1", got)
+	}
+}
+
 func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 	metrics := &unregisterBarrierMetrics{
 		entered: make(chan struct{}),

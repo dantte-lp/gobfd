@@ -231,6 +231,12 @@ func validateMicroBFDConfig(cfg MicroBFDConfig) error {
 	return nil
 }
 
+// ValidateMicroBFDConfig validates a Micro-BFD group candidate without
+// creating its runtime aggregate state.
+func ValidateMicroBFDConfig(cfg MicroBFDConfig) error {
+	return validateMicroBFDConfig(cfg)
+}
+
 // -------------------------------------------------------------------------
 // Dynamic Member Management — future Sprint 7 (netlink LAG events)
 // -------------------------------------------------------------------------
