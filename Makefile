@@ -651,8 +651,9 @@ lint-fix:
 	$(EXEC) /go/bin/golangci-lint run --fix ./...
 
 gopls-check: dev-ensure
-	$(EXEC) sh ./scripts/gopls-check.sh
-	$(EXEC) env GOPLS_GOOS=darwin GOPLS_TAGS=dependencyinventory_generate sh ./scripts/gopls-check.sh
+	$(EXEC) env GOMAXPROCS=2 GOMEMLIMIT=1500MiB go run ./test/cmd/repoquality gopls --root .
+	$(EXEC) env GOMAXPROCS=2 GOMEMLIMIT=1500MiB go run ./test/cmd/repoquality gopls --root . \
+		--goos darwin --profile dependencyinventory_generate
 
 lint-md: dev-ensure
 	$(EXEC) go run ./test/cmd/repoquality markdown --root .

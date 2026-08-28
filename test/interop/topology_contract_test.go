@@ -254,7 +254,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		{name: "tagged Go helper", path: filepath.Join(root, "test", "interop", "interop_test.go")},
 		{name: "tagged BGP API helper", path: filepath.Join(root, "test", "interop-bgp", "podman_api_test.go")},
 		{name: "project control", path: filepath.Join(root, "test", "internal", "interopproject", "controller.go")},
-		{name: "gopls gate", path: filepath.Join(root, "scripts", "gopls-check.sh")},
+		{name: "gopls gate", path: filepath.Join(root, "test", "internal", "repoquality", "gopls.go")},
 		{name: "English interop guide", path: filepath.Join(root, "docs", "en", "05-interop.md")},
 		{name: "Russian interop guide", path: filepath.Join(root, "docs", "ru", "05-interop.md")},
 		{name: "BGP Compose topology", path: filepath.Join(root, "test", "interop-bgp", "compose.yml")},
@@ -304,6 +304,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`env "INTEROP_PROJECT_NAME=$${bgp_project}"`,
 		"FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd",
 		"gopls-check: dev-ensure",
+		"go run ./test/cmd/repoquality gopls --root .",
 		"lint-md: dev-ensure",
 		"lint-yaml: dev-ensure",
 		"proto-lint: dev-ensure",
@@ -311,8 +312,8 @@ func TestInteropOperationalContract(t *testing.T) {
 	assertContainsAll(t, "gopls gate", contents["gopls gate"], []string{
 		"testcontainers",
 		"e2e_core_testcontainers",
-		"gopls-check: no packages discovered",
-		"gopls-check: no Go inputs discovered",
+		"no packages discovered",
+		"no Go inputs discovered",
 	})
 	if strings.Contains(contents["gopls gate"], "e2e_core,e2e_core_testcontainers") {
 		t.Error("gopls gate combines mutually exclusive core test backends in one tag profile")

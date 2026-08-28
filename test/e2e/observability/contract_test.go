@@ -25,7 +25,7 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 		}
 	}
 
-	gopls := readContractFile(t, filepath.Join(root, "scripts", "gopls-check.sh"))
+	gopls := readContractFile(t, filepath.Join(root, "test", "internal", "repoquality", "gopls.go"))
 	if !strings.Contains(gopls, "e2e_observability_testcontainers") {
 		t.Fatal("gopls tag profiles lack e2e_observability_testcontainers")
 	}

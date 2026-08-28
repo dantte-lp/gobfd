@@ -172,64 +172,6 @@ esac
 	}
 }
 
-func TestGoplsCheckRejectsEmptyDiscovery(t *testing.T) {
-	t.Parallel()
-
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatalf("resolve repository root: %v", err)
-	}
-	tests := map[string]struct {
-		goCommand string
-		want      string
-	}{
-		"no packages": {
-			goCommand: "exit 0",
-			want:      "gopls-check: no packages discovered",
-		},
-		"no Go inputs": {
-			goCommand: `
-if [[ "$*" == "list -f {{.ImportPath}} ./..." ]]; then
-    printf '%s\n' example.invalid/empty
-fi
-exit 0`,
-			want: "gopls-check: no Go inputs discovered",
-		},
-	}
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			fakeBin := t.TempDir()
-			goplsMarker := filepath.Join(t.TempDir(), "gopls-called")
-			if err := writeExecutable(filepath.Join(fakeBin, "go"), "#!/usr/bin/env bash\n"+test.goCommand+"\n"); err != nil {
-				t.Fatalf("write fake go: %v", err)
-			}
-			goplsFake := "#!/usr/bin/env bash\nprintf called > \"${GOPLS_FAKE_MARKER}\"\n"
-			if err := writeExecutable(filepath.Join(fakeBin, "gopls"), goplsFake); err != nil {
-				t.Fatalf("write fake gopls: %v", err)
-			}
-
-			cmd := exec.CommandContext(t.Context(), "sh", filepath.Join(root, "scripts", "gopls-check.sh"))
-			cmd.Dir = root
-			cmd.Env = append(os.Environ(),
-				"PATH="+fakeBin+":"+os.Getenv("PATH"),
-				"GOPLS_FAKE_MARKER="+goplsMarker,
-			)
-			output, runErr := cmd.CombinedOutput()
-			if runErr == nil {
-				t.Fatalf("gopls gate accepted empty discovery; output:\n%s", output)
-			}
-			if !strings.Contains(string(output), test.want) {
-				t.Fatalf("gopls gate output is missing %q; output:\n%s", test.want, output)
-			}
-			if _, statErr := os.Stat(goplsMarker); !os.IsNotExist(statErr) {
-				t.Fatalf("gopls ran after empty discovery: %v", statErr)
-			}
-		})
-	}
-}
-
 func TestMakeRejectsInvalidInteropProjectBeforeCommand(t *testing.T) {
 	t.Parallel()
 

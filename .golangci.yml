@@ -265,6 +265,12 @@ linters:
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
+      # The repository-owned gopls gate executes only fixed go and gopls
+      # argv without a shell; keep the exception on this single boundary.
+      - path: test/internal/repoquality/gopls.go
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
       - path: internal/bfd/packet.go
         text: "Function 'UnmarshalControlPacket' has too many statements"
         linters:
