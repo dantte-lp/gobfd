@@ -77,14 +77,9 @@ func (s *EchoServer) AddEchoSession(
 		slog.Uint64("detect_mult", uint64(cfg.DetectMultiplier)),
 	)
 
-	sender, _, err := s.senderFactory.CreateSender(cfg.LocalAddr, false, s.logger)
+	discr, err := s.createEchoSessionWithSenderLease(ctx, cfg)
 	if err != nil {
-		return nil, mapManagerError(fmt.Errorf("create echo sender: %w", err), "add echo session")
-	}
-
-	discr, err := s.manager.CreateEchoSession(ctx, cfg, sender)
-	if err != nil {
-		return nil, mapManagerError(err, "add echo session")
+		return nil, err
 	}
 
 	for _, snap := range s.manager.EchoSessions() {
@@ -98,6 +93,30 @@ func (s *EchoServer) AddEchoSession(
 	return nil, connect.NewError(connect.CodeInternal,
 		fmt.Errorf("echo session %d created but not visible in snapshot: %w",
 			discr, bfd.ErrEchoSessionNotFound))
+}
+
+func (s *EchoServer) createEchoSessionWithSenderLease(
+	ctx context.Context,
+	cfg bfd.EchoSessionConfig,
+) (uint32, error) {
+	factory := func() (*bfd.SenderLease, error) {
+		sender, srcPort, err := s.senderFactory.CreateSender(cfg.LocalAddr, false, s.logger)
+		if err != nil {
+			return nil, fmt.Errorf("create API echo sender: %w", err)
+		}
+		return bfd.NewSenderLease(sender, func() error {
+			if err := s.senderFactory.CloseSender(srcPort); err != nil {
+				return fmt.Errorf("close API echo sender port %d: %w", srcPort, err)
+			}
+			return nil
+		}), nil
+	}
+
+	discr, err := s.manager.CreateEchoSessionWithSenderLease(ctx, cfg, factory)
+	if err != nil {
+		return 0, mapManagerError(err, "add echo session")
+	}
+	return discr, nil
 }
 
 // DeleteEchoSession removes an echo session by its local discriminator.

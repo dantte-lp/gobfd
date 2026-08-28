@@ -353,6 +353,131 @@ func TestReconcileSessionsUnchangedDesiredDoesNotOpenSender(t *testing.T) {
 	}
 }
 
+func echoLeaseTestConfig(peers ...string) *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Echo.Enabled = true
+	cfg.Echo.DefaultTxInterval = 100 * time.Millisecond
+	cfg.Echo.DefaultDetectMultiplier = 3
+	for _, peer := range peers {
+		cfg.Echo.Peers = append(cfg.Echo.Peers, config.EchoPeerConfig{
+			Peer: peer, Local: "127.0.0.1", Interface: "lo",
+		})
+	}
+	return cfg
+}
+
+func TestReconcileEchoSessionsUnchangedDesiredDoesNotOpenSender(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	cfg := echoLeaseTestConfig("192.0.2.180")
+
+	first := reconcileEchoSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if first.Err != nil || first.Created != 1 || first.Destroyed != 0 {
+		t.Fatalf("first echo outcome = %+v, want created=1 destroyed=0 err=nil", first)
+	}
+	second := reconcileEchoSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if second.Err != nil || second.Created != 0 || second.Destroyed != 0 {
+		t.Fatalf("unchanged echo outcome = %+v, want zero outcome", second)
+	}
+	if sf.calls != 1 {
+		t.Errorf("echo sender factory calls = %d, want 1", sf.calls)
+	}
+}
+
+func TestReconcileEchoSessionsNthSenderFailureRollsBackBatch(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	sf := newNthFailureDeclarativeSenderFactory(3)
+	cfg := echoLeaseTestConfig("192.0.2.181", "192.0.2.182", "192.0.2.183")
+
+	outcome := reconcileEchoSessions(context.Background(), cfg, mgr, sf, slog.New(slog.DiscardHandler))
+	if !errors.Is(outcome.Err, errInjectedSenderCreation) {
+		t.Fatalf("echo outcome error = %v, want %v", outcome.Err, errInjectedSenderCreation)
+	}
+	if outcome.Created != 0 || outcome.Destroyed != 0 {
+		t.Errorf("echo outcome = %+v, want zero counts", outcome)
+	}
+	assertNthFailureSenderBatchClosed(t, sf)
+	if got := len(mgr.EchoSessions()); got != 0 {
+		t.Errorf("echo sessions after sender failure = %d, want 0", got)
+	}
+}
+
+func TestReconcileEchoSessionsInvalidCandidateDoesNotOpenOrMutate(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	seedFactory := newNthFailureDeclarativeSenderFactory(0)
+	seed := echoLeaseTestConfig("192.0.2.184")
+	if outcome := reconcileEchoSessions(
+		context.Background(), seed, mgr, seedFactory, slog.New(slog.DiscardHandler),
+	); outcome.Err != nil {
+		t.Fatalf("seed echo reconcile: %v", outcome.Err)
+	}
+	want := mgr.EchoSessions()
+
+	invalidFactory := newNthFailureDeclarativeSenderFactory(0)
+	invalid := echoLeaseTestConfig("192.0.2.185", "not-an-address")
+	outcome := reconcileEchoSessions(
+		context.Background(), invalid, mgr, invalidFactory, slog.New(slog.DiscardHandler),
+	)
+	if outcome.Err == nil {
+		t.Fatal("invalid echo candidate succeeded")
+	}
+	if invalidFactory.calls != 0 {
+		t.Errorf("invalid echo candidate opened %d senders, want 0", invalidFactory.calls)
+	}
+	got := mgr.EchoSessions()
+	if len(got) != len(want) || len(got) != 1 || got[0].LocalDiscr != want[0].LocalDiscr {
+		t.Errorf("echo sessions changed: before=%+v after=%+v", want, got)
+	}
+}
+
+func TestReconcileEchoSessionsDisabledRemovesOnlyDeclarative(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	apiConfig := bfd.EchoSessionConfig{
+		PeerAddr:         netip.MustParseAddr("192.0.2.186"),
+		LocalAddr:        netip.MustParseAddr("127.0.0.1"),
+		Interface:        "lo",
+		TxInterval:       time.Second,
+		DetectMultiplier: 3,
+	}
+	if _, err := mgr.CreateEchoSession(
+		context.Background(), apiConfig, candidateTestSender{},
+	); err != nil {
+		t.Fatalf("CreateEchoSession: %v", err)
+	}
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	if outcome := reconcileEchoSessions(
+		context.Background(), echoLeaseTestConfig("192.0.2.187"), mgr, sf, slog.New(slog.DiscardHandler),
+	); outcome.Err != nil {
+		t.Fatalf("seed declarative echo: %v", outcome.Err)
+	}
+
+	disabled := config.DefaultConfig()
+	outcome := reconcileEchoSessions(
+		context.Background(), disabled, mgr, sf, slog.New(slog.DiscardHandler),
+	)
+	if outcome.Err != nil || outcome.Created != 0 || outcome.Destroyed != 1 {
+		t.Fatalf("disabled echo outcome = %+v, want created=0 destroyed=1 err=nil", outcome)
+	}
+	if len(sf.open) != 0 || len(sf.closed) != 1 {
+		t.Errorf("declarative echo senders open=%v closed=%v, want none open and one close", sf.open, sf.closed)
+	}
+	sessions := mgr.EchoSessions()
+	if len(sessions) != 1 || sessions[0].PeerAddr != apiConfig.PeerAddr {
+		t.Errorf("echo sessions after disable = %+v, want only API peer %s", sessions, apiConfig.PeerAddr)
+	}
+}
+
+func TestValidateCompleteControlSessionCandidateRejectsInvalidEcho(t *testing.T) {
+	cfg := echoLeaseTestConfig("192.0.2.188", "invalid")
+	if err := validateCompleteControlSessionCandidate(cfg); err == nil {
+		t.Fatal("invalid complete Echo candidate succeeded")
+	}
+}
+
 func TestReconcileMicroBFDClosesEarlierSendersWhenLaterCreationFails(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)

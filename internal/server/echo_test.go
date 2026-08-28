@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -11,6 +12,25 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
+
+type echoLeaseTestSenderFactory struct {
+	opens  int
+	closes int
+}
+
+func (f *echoLeaseTestSenderFactory) CreateSender(
+	_ netip.Addr,
+	_ bool,
+	_ *slog.Logger,
+) (bfd.PacketSender, uint16, error) {
+	f.opens++
+	return noopSender{}, uint16(50000 + f.opens), nil
+}
+
+func (f *echoLeaseTestSenderFactory) CloseSender(_ uint16) error {
+	f.closes++
+	return nil
+}
 
 func newTestEchoServer(t *testing.T) *EchoServer {
 	t.Helper()
@@ -141,5 +161,64 @@ func TestEchoServer_DeleteEchoSession_RemovesByDiscriminator(t *testing.T) {
 	}
 	if got := len(list.GetSessions()); got != 0 {
 		t.Fatalf("expected zero sessions after delete, got %d", got)
+	}
+}
+
+func TestEchoServer_DeleteEchoSession_ReleasesSenderExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+	factory := &echoLeaseTestSenderFactory{}
+	s := &EchoServer{manager: mgr, senderFactory: factory, logger: logger}
+	add, err := s.AddEchoSession(context.Background(), &bfdv1.AddEchoSessionRequest{
+		PeerAddress:      "192.0.2.20",
+		LocalAddress:     "192.0.2.1",
+		TxInterval:       durationpb.New(50 * time.Millisecond),
+		DetectMultiplier: 3,
+	})
+	if err != nil {
+		t.Fatalf("AddEchoSession: %v", err)
+	}
+	if factory.opens != 1 {
+		t.Fatalf("sender opens = %d, want 1", factory.opens)
+	}
+
+	if _, err := s.DeleteEchoSession(context.Background(), &bfdv1.DeleteEchoSessionRequest{
+		LocalDiscriminator: add.GetSession().GetLocalDiscriminator(),
+	}); err != nil {
+		t.Fatalf("DeleteEchoSession: %v", err)
+	}
+	if factory.closes != 1 {
+		t.Errorf("sender closes after delete = %d, want 1", factory.closes)
+	}
+
+	mgr.Close()
+	if factory.closes != 1 {
+		t.Errorf("sender closes after delete and Manager.Close = %d, want 1", factory.closes)
+	}
+}
+
+func TestEchoServer_AddEchoSession_DoesNotOpenSenderAfterManagerClose(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	mgr.Close()
+	factory := &echoLeaseTestSenderFactory{}
+	s := &EchoServer{manager: mgr, senderFactory: factory, logger: logger}
+	_, err := s.AddEchoSession(context.Background(), &bfdv1.AddEchoSessionRequest{
+		PeerAddress:      "192.0.2.21",
+		LocalAddress:     "192.0.2.1",
+		TxInterval:       durationpb.New(50 * time.Millisecond),
+		DetectMultiplier: 3,
+	})
+	if err == nil {
+		t.Fatal("AddEchoSession after Manager.Close succeeded")
+	}
+	if factory.opens != 0 || factory.closes != 0 {
+		t.Errorf("sender lifecycle after rejected add = opens %d closes %d, want 0/0",
+			factory.opens, factory.closes)
 	}
 }

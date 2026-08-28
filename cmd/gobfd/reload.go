@@ -116,6 +116,9 @@ func validateCompleteControlSessionCandidate(cfg *config.Config) error {
 	if _, err := compileBaseSessionCandidates(cfg); err != nil {
 		return err
 	}
+	if _, err := compileEchoSessionCandidates(cfg); err != nil {
+		return err
+	}
 	if _, _, err := compileMicroBFDCandidates(cfg); err != nil {
 		return err
 	}
@@ -244,48 +247,67 @@ func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, e
 	return candidates, nil
 }
 
-// reconcileEchoSessions diffs the declarative echo sessions from the config
-// against the current echo session set and creates/destroys sessions as needed.
+type echoReconcileOutcome struct {
+	Created   int
+	Destroyed int
+	Err       error
+}
+
+type echoSessionCandidate struct {
+	key    string
+	config bfd.EchoSessionConfig
+}
+
+func compileEchoSessionCandidates(cfg *config.Config) ([]echoSessionCandidate, error) {
+	if !cfg.Echo.Enabled {
+		return nil, nil
+	}
+	candidates := make([]echoSessionCandidate, 0, len(cfg.Echo.Peers))
+	validationSet := make([]bfd.EchoReconcileConfig, 0, len(cfg.Echo.Peers))
+	for _, ep := range cfg.Echo.Peers {
+		echoCfg, err := configEchoToBFD(ep, cfg.Echo)
+		if err != nil {
+			return nil, fmt.Errorf("echo session %q: %w", ep.Peer, err)
+		}
+		candidate := echoSessionCandidate{key: ep.EchoSessionKey(), config: echoCfg}
+		candidates = append(candidates, candidate)
+		validationSet = append(validationSet, bfd.EchoReconcileConfig{
+			Key: candidate.key, EchoSessionConfig: candidate.config,
+		})
+	}
+	if err := bfd.ValidateEchoReconcileConfigs(validationSet); err != nil {
+		return nil, fmt.Errorf("validate complete echo session set: %w", err)
+	}
+	return candidates, nil
+}
+
+// reconcileEchoSessions reconciles the complete declarative Echo desired set
+// and returns its structured apply outcome.
 func reconcileEchoSessions(
 	ctx context.Context,
 	cfg *config.Config,
 	mgr *bfd.Manager,
-	sf *udpSenderFactory,
+	sf declarativeSenderFactory,
 	logger *slog.Logger,
-) {
-	if !cfg.Echo.Enabled || len(cfg.Echo.Peers) == 0 {
-		logger.Debug("no declarative echo sessions in config, skipping echo reconciliation")
-		return
+) echoReconcileOutcome {
+	candidates, err := compileEchoSessionCandidates(cfg)
+	if err != nil {
+		logger.Error("invalid declarative echo candidate, keeping current sessions",
+			slog.String("error", err.Error()))
+		return echoReconcileOutcome{Err: err}
 	}
 
-	desired := make([]bfd.EchoReconcileConfig, 0, len(cfg.Echo.Peers))
-	for _, ep := range cfg.Echo.Peers {
-		echoCfg, err := configEchoToBFD(ep, cfg.Echo)
-		if err != nil {
-			logger.Error("invalid echo session config, skipping",
-				slog.String("peer", ep.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
-		}
-
-		// Echo sessions send on port 3785 (RFC 5881 Section 4, RFC 9747).
-		//nolint:contextcheck // Socket creation is a quick local operation; SenderFactory API is context-free.
-		sender, _, err := sf.createSenderForSession(
-			echoCfg.LocalAddr, false, logger, netio.WithDstPort(netio.PortEcho),
-		)
-		if err != nil {
-			logger.Error("failed to create sender for echo session, skipping",
-				slog.String("peer", ep.Peer),
-				slog.String("error", err.Error()),
-			)
-			continue
-		}
-
+	desired := make([]bfd.EchoReconcileConfig, 0, len(candidates))
+	for _, candidate := range candidates {
 		desired = append(desired, bfd.EchoReconcileConfig{
-			Key:               ep.EchoSessionKey(),
-			EchoSessionConfig: echoCfg,
-			Sender:            sender,
+			Key: candidate.key, EchoSessionConfig: candidate.config,
+			SenderLeaseFactory: declarativeSenderLeaseFactoryFor(
+				sf,
+				candidate.config.LocalAddr,
+				false,
+				logger,
+				netio.WithDstPort(netio.PortEcho),
+			),
 		})
 	}
 
@@ -300,6 +322,7 @@ func reconcileEchoSessions(
 		slog.Int("created", created),
 		slog.Int("destroyed", destroyed),
 	)
+	return echoReconcileOutcome{Created: created, Destroyed: destroyed, Err: err}
 }
 
 // configEchoToBFD converts a config.EchoPeerConfig to a bfd.EchoSessionConfig,

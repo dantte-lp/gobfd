@@ -209,7 +209,7 @@ func (m *Manager) ReconcileEchoSessions(
 	defer op.finish()
 
 	m.ownershipMu.Lock()
-	desiredByKey, desiredOrder, err := compileEchoReconcileConfigs(desired)
+	desiredByKey, desiredOrder, err := compileEchoReconcileConfigs(desired, true)
 	if err != nil {
 		m.ownershipMu.Unlock()
 		return 0, 0, err
@@ -243,8 +243,16 @@ type echoReconcileCandidate struct {
 	factory SenderLeaseFactory
 }
 
+// ValidateEchoReconcileConfigs validates a complete declarative Echo desired
+// set without acquiring sender leases or mutating Manager state.
+func ValidateEchoReconcileConfigs(desired []EchoReconcileConfig) error {
+	_, _, err := compileEchoReconcileConfigs(desired, false)
+	return err
+}
+
 func compileEchoReconcileConfigs(
 	desired []EchoReconcileConfig,
+	requireFactory bool,
 ) (map[string]echoReconcileCandidate, []string, error) {
 	desiredByKey := make(map[string]echoReconcileCandidate, len(desired))
 	desiredOrder := make([]string, 0, len(desired))
@@ -253,7 +261,7 @@ func compileEchoReconcileConfigs(
 		if err := validateEchoConfig(cfg, 1); err != nil {
 			return nil, nil, fmt.Errorf("reconcile echo config %q: %w", rc.Key, err)
 		}
-		if rc.SenderLeaseFactory == nil {
+		if requireFactory && rc.SenderLeaseFactory == nil {
 			return nil, nil, fmt.Errorf("reconcile echo config %q: %w",
 				rc.Key, ErrSenderLeaseFactoryNil)
 		}
