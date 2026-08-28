@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	strategycontract "github.com/dantte-lp/gobfd/internal/gobgp/strategy"
 )
 
 // -------------------------------------------------------------------------
@@ -15,35 +16,23 @@ import (
 // -------------------------------------------------------------------------
 
 // Strategy determines how BFD state changes affect BGP.
-type Strategy string
+type Strategy = strategycontract.Strategy
 
 const (
 	// StrategyDisablePeer disables/enables the BGP peer on BFD Down/Up.
 	// This is the recommended default: it causes BGP to send a Notification
 	// and cleanly tear down the session, allowing the remote peer to
 	// immediately reconverge routes.
-	StrategyDisablePeer Strategy = "disable-peer"
+	StrategyDisablePeer = strategycontract.DisablePeer
 
-	// StrategyWithdrawRoutes withdraws/restores routes on BFD Down/Up.
-	// This is a lighter-weight approach that does not tear down the BGP
-	// session itself. Use this when you want BFD to affect route
-	// advertisement without disrupting the BGP session.
-	//
-	// NOTE: withdraw-routes is reserved for future implementation.
-	// Currently only disable-peer is supported.
-	StrategyWithdrawRoutes Strategy = "withdraw-routes"
+	// StrategyWithdrawRoutes is the reserved identifier for a future route
+	// withdrawal strategy. It is recognized for migration diagnostics but is
+	// not implemented.
+	StrategyWithdrawRoutes = strategycontract.WithdrawRoutes
 )
 
 // DefaultActionTimeout is the maximum duration of a GoBGP action when no timeout is configured.
 const DefaultActionTimeout = 5 * time.Second
-
-// ValidStrategies lists all recognized strategy strings.
-//
-//nolint:gochecknoglobals // Lookup table is intentionally package-level.
-var ValidStrategies = map[Strategy]bool{
-	StrategyDisablePeer:    true,
-	StrategyWithdrawRoutes: true,
-}
 
 // -------------------------------------------------------------------------
 // Sentinel Errors
@@ -98,11 +87,12 @@ type HandlerConfig struct {
 
 // NewHandler creates a new BFD->BGP handler with the given configuration.
 func NewHandler(cfg HandlerConfig) (*Handler, error) {
-	if !ValidStrategies[cfg.Strategy] {
+	strategy, recognized := strategycontract.Parse(string(cfg.Strategy))
+	if !recognized {
 		return nil, fmt.Errorf("handler strategy %q: %w", cfg.Strategy, ErrInvalidStrategy)
 	}
 
-	if cfg.Strategy == StrategyWithdrawRoutes {
+	if !strategy.Implemented() {
 		return nil, fmt.Errorf("handler strategy %q: %w", cfg.Strategy, ErrUnsupportedStrategy)
 	}
 
@@ -113,7 +103,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 
 	return &Handler{
 		client:   cfg.Client,
-		strategy: cfg.Strategy,
+		strategy: strategy,
 		dampener: NewDampener(cfg.Dampening, cfg.Logger),
 		timeout:  timeout,
 		logger: cfg.Logger.With(

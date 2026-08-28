@@ -180,8 +180,11 @@ AdminDown completion is tracked for v1.
 
 - Section 3.1 permits implementation-defined session-state hysteresis. GoBFD's configurable penalty-based dampening is implementation policy, not an RFC-defined algorithm.
 - Section 4.3 (BFD for BGP): `handler.go` watches BFD state changes and calls GoBGP gRPC API
-  - BFD Down --> `DisablePeer()` (or `DeletePath()` per strategy)
-  - BFD Up --> `EnablePeer()` (or `AddPath()`)
+  - BFD Down --> `DisablePeer()`
+  - BFD Up --> `EnablePeer()`
+  - Generic route withdrawal/restoration is not implemented; when GoBGP
+    integration is enabled, the reserved `withdraw-routes` strategy fails
+    configuration validation
   - Each GoBGP API action is bounded by `gobgp.action_timeout` so a slow external API cannot block state-change processing indefinitely
 
 ### RFC 5883 Implementation Notes

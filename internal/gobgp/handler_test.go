@@ -470,6 +470,9 @@ func TestNewHandlerInvalidStrategy(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid strategy")
 	}
+	if !errors.Is(err, gobgp.ErrInvalidStrategy) {
+		t.Fatalf("NewHandler() error = %v, want errors.Is ErrInvalidStrategy", err)
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -487,6 +490,9 @@ func TestNewHandlerWithdrawRoutesUnsupported(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("expected error for unsupported withdraw-routes strategy")
+	}
+	if !errors.Is(err, gobgp.ErrUnsupportedStrategy) {
+		t.Fatalf("NewHandler() error = %v, want errors.Is ErrUnsupportedStrategy", err)
 	}
 }
 

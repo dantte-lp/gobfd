@@ -886,12 +886,13 @@ func TestValidateGoBGPErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "valid gobgp withdraw-routes",
+			name: "unsupported gobgp withdraw-routes",
 			modify: func(cfg *config.Config) {
 				cfg.GoBGP.Enabled = true
 				cfg.GoBGP.Addr = testGoBGPAddr
 				cfg.GoBGP.Strategy = "withdraw-routes"
 			},
+			wantErr: config.ErrUnsupportedGoBGPStrategy,
 		},
 		{
 			name: "gobgp tls ca requires tls enabled",

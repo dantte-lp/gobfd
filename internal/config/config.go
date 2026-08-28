@@ -18,6 +18,7 @@ import (
 	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
 
+	gobgpstrategy "github.com/dantte-lp/gobfd/internal/gobgp/strategy"
 	"github.com/dantte-lp/gobfd/internal/overlay"
 )
 
@@ -486,8 +487,9 @@ type GoBGPConfig struct {
 	Addr string `koanf:"addr"`
 
 	// Strategy determines how BFD state changes affect BGP:
-	//   - "disable-peer": disable/enable the BGP peer (default)
-	//   - "withdraw-routes": withdraw/restore routes (future)
+	//   - "disable-peer": disable/enable the BGP peer (default and only
+	//     implemented strategy)
+	//   - "withdraw-routes": reserved and rejected as unsupported
 	Strategy string `koanf:"strategy"`
 
 	// ActionTimeout bounds each GoBGP API action.
@@ -900,7 +902,10 @@ var (
 	ErrEmptyGoBGPAddr = errors.New("gobgp.addr must not be empty when gobgp is enabled")
 
 	// ErrInvalidGoBGPStrategy indicates an unrecognized GoBGP strategy.
-	ErrInvalidGoBGPStrategy = errors.New("gobgp.strategy must be disable-peer or withdraw-routes")
+	ErrInvalidGoBGPStrategy = errors.New("gobgp.strategy is not recognized")
+
+	// ErrUnsupportedGoBGPStrategy indicates a recognized GoBGP strategy has no implementation.
+	ErrUnsupportedGoBGPStrategy = errors.New("gobgp.strategy is recognized but unsupported")
 
 	// ErrInvalidGoBGPActionTimeout indicates a non-positive GoBGP action timeout.
 	ErrInvalidGoBGPActionTimeout = errors.New("gobgp.action_timeout must be > 0 when gobgp is enabled")
@@ -1074,12 +1079,6 @@ func validateOverlayBackend(field string, backend string) error {
 	return nil
 }
 
-// ValidGoBGPStrategies lists the recognized GoBGP strategy strings.
-var ValidGoBGPStrategies = map[string]bool{
-	"disable-peer":    true,
-	"withdraw-routes": true,
-}
-
 // validateGoBGP checks the GoBGP integration configuration for logical errors.
 func validateGoBGP(cfg GoBGPConfig) error {
 	if !cfg.Enabled {
@@ -1090,8 +1089,12 @@ func validateGoBGP(cfg GoBGPConfig) error {
 		return ErrEmptyGoBGPAddr
 	}
 
-	if !ValidGoBGPStrategies[cfg.Strategy] {
+	strategy, recognized := gobgpstrategy.Parse(cfg.Strategy)
+	if !recognized {
 		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrInvalidGoBGPStrategy)
+	}
+	if !strategy.Implemented() {
+		return fmt.Errorf("gobgp.strategy %q: %w", cfg.Strategy, ErrUnsupportedGoBGPStrategy)
 	}
 
 	if cfg.ActionTimeout <= 0 {

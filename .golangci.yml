@@ -224,7 +224,7 @@ linters:
         linters:
           - gochecknoglobals
       - path: ^internal/config/config\.go$
-        text: '^(validOverlayBackends|ValidGoBGPStrategies|ValidSessionTypes|ValidAuthTypes) is a global variable'
+        text: '^(validOverlayBackends|ValidSessionTypes|ValidAuthTypes) is a global variable'
         linters:
           - gochecknoglobals
       - path: ^internal/netio/overlay_inner\.go$

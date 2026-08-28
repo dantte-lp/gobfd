@@ -80,7 +80,7 @@ geneve:
 gobgp:
   enabled: true
   addr: "127.0.0.1:50052"
-  strategy: "disable-peer"   # или "withdraw-routes"
+  strategy: "disable-peer"   # единственная реализованная стратегия
   action_timeout: "5s"
   tls:
     enabled: false            # включите для удалённого/non-loopback GoBGP API
@@ -481,14 +481,14 @@ policy отложены.
 
 При включении изменения состояния BFD передаются в GoBGP через gRPC API (RFC 5882 Section 4.3):
 
-- **BFD Down** --> Отключение BGP-пира (`DisablePeer()`) или отзыв маршрутов (`DeletePath()`)
-- **BFD Up** --> Включение BGP-пира (`EnablePeer()`) или восстановление маршрутов (`AddPath()`)
+- **BFD Down** --> Отключение BGP-пира (`DisablePeer()`)
+- **BFD Up** --> Включение BGP-пира (`EnablePeer()`)
 
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `gobgp.enabled` | bool | `false` | Включить/выключить интеграцию с GoBGP |
 | `gobgp.addr` | string | `"127.0.0.1:50051"` | Адрес gRPC API GoBGP |
-| `gobgp.strategy` | string | `"disable-peer"` | Стратегия: `disable-peer` или `withdraw-routes` |
+| `gobgp.strategy` | string | `"disable-peer"` | `disable-peer` -- единственная реализованная стратегия; `withdraw-routes` распознаётся, но отклоняется как неподдерживаемая |
 | `gobgp.action_timeout` | duration | `"5s"` | Максимальное время на один вызов GoBGP API |
 | `gobgp.tls.enabled` | bool | `false` | Использовать TLS для GoBGP gRPC соединения |
 | `gobgp.tls.ca_file` | string | `""` | Опциональный PEM bundle корневых CA; пустое значение использует системные roots |
@@ -564,7 +564,8 @@ source VXLAN или Geneve без работающего backend считает�
 | `bfd.default_desired_min_tx` должен быть > 0 | `ErrInvalidDesiredMinTx` |
 | `bfd.default_required_min_rx` должен быть > 0 | `ErrInvalidRequiredMinRx` |
 | `gobgp.addr` не должен быть пустым при включённой интеграции | `ErrEmptyGoBGPAddr` |
-| `gobgp.strategy` должен быть `disable-peer` или `withdraw-routes` | `ErrInvalidGoBGPStrategy` |
+| Включённая `gobgp.strategy` не распознана | `ErrInvalidGoBGPStrategy` |
+| Включённая `gobgp.strategy` распознана, но не реализована (`withdraw-routes`) | `ErrUnsupportedGoBGPStrategy` |
 | `gobgp.action_timeout` должен быть > 0 при включённой интеграции | `ErrInvalidGoBGPActionTimeout` |
 | `gobgp.tls.ca_file` / `server_name` требуют `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
 | `gobgp.dampening.suppress_threshold` должен быть > `reuse_threshold` | `ErrInvalidDampeningThreshold` |

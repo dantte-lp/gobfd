@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,26 @@ func TestLoadOpenedConfigUsesVerifiedDescriptor(t *testing.T) {
 	if cfg.BFD.DefaultDetectMultiplier != 7 {
 		t.Fatalf("BFD.DefaultDetectMultiplier = %d, want descriptor value 7",
 			cfg.BFD.DefaultDetectMultiplier)
+	}
+}
+
+func TestLoadRejectsUnsupportedGoBGPStrategy(t *testing.T) {
+	isolateSupportedEnv(t)
+
+	path := filepath.Join(t.TempDir(), "gobfd.yml")
+	contents := []byte(`
+gobgp:
+  enabled: true
+  addr: "127.0.0.1:50051"
+  strategy: "withdraw-routes"
+`)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(path)
+	if !errors.Is(err, ErrUnsupportedGoBGPStrategy) {
+		t.Fatalf("Load(%q) error = %v, want errors.Is ErrUnsupportedGoBGPStrategy", path, err)
 	}
 }
 

@@ -165,8 +165,11 @@ best-effort путь: текущая реализация не подтверж�
   Настраиваемое penalty-based dampening в GoBFD является implementation policy,
   а не стандартизированным RFC-алгоритмом.
 - Section 4.3: отслеживание состояний BFD и вызов GoBGP gRPC API
-  - BFD Down --> `DisablePeer()` (или `DeletePath()` по стратегии)
-  - BFD Up --> `EnablePeer()` (или `AddPath()`)
+  - BFD Down --> `DisablePeer()`
+  - BFD Up --> `EnablePeer()`
+  - Универсальный отзыв/восстановление маршрутов не реализован; при включённой
+    интеграции с GoBGP зарезервированная стратегия `withdraw-routes` отклоняется
+    при валидации конфигурации
   - Каждый вызов GoBGP API ограничен `gobgp.action_timeout`, чтобы медленный внешний API не блокировал обработку изменений состояния бесконечно
 
 ### Заметки по RFC 5883

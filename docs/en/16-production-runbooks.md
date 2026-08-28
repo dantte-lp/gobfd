@@ -106,8 +106,7 @@ podman exec gobgp-bgp-failover gobgp global rib
 Expected result:
 
 - BFD transitions from Up to Down before the normal BGP hold timer expires.
-- GoBGP disables or withdraws the affected peer according to configured
-  strategy.
+- GoBGP disables the affected peer.
 - Route reachability recovers after the BFD session returns Up.
 
 ## Prometheus Alert Validation

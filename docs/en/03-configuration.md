@@ -78,7 +78,7 @@ geneve:
 gobgp:
   enabled: true
   addr: "127.0.0.1:50052"
-  strategy: "disable-peer"   # or "withdraw-routes"
+  strategy: "disable-peer"   # the only implemented strategy
   action_timeout: "5s"
   tls:
     enabled: false            # enable for remote/non-loopback GoBGP API
@@ -480,14 +480,14 @@ deferred.
 
 When enabled, BFD state changes are propagated to a GoBGP instance via its gRPC API (RFC 5882 Section 4.3):
 
-- **BFD Down** --> Disable BGP peer (`DisablePeer()`) or withdraw routes (`DeletePath()`)
-- **BFD Up** --> Enable BGP peer (`EnablePeer()`) or restore routes (`AddPath()`)
+- **BFD Down** --> Disable BGP peer (`DisablePeer()`)
+- **BFD Up** --> Enable BGP peer (`EnablePeer()`)
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `gobgp.enabled` | bool | `false` | Enable/disable GoBGP integration |
 | `gobgp.addr` | string | `"127.0.0.1:50051"` | GoBGP gRPC API address |
-| `gobgp.strategy` | string | `"disable-peer"` | Strategy: `disable-peer` or `withdraw-routes` |
+| `gobgp.strategy` | string | `"disable-peer"` | `disable-peer` is the only implemented strategy; `withdraw-routes` is recognized but rejected as unsupported |
 | `gobgp.action_timeout` | duration | `"5s"` | Maximum time allowed for each GoBGP API action |
 | `gobgp.tls.enabled` | bool | `false` | Use TLS for the GoBGP gRPC connection |
 | `gobgp.tls.ca_file` | string | `""` | Optional PEM root CA bundle; empty uses system roots |
@@ -564,7 +564,8 @@ skipped. Already accepted source changes are not rolled back.
 | `bfd.default_desired_min_tx` must be > 0 | `ErrInvalidDesiredMinTx` |
 | `bfd.default_required_min_rx` must be > 0 | `ErrInvalidRequiredMinRx` |
 | `gobgp.addr` must not be empty when enabled | `ErrEmptyGoBGPAddr` |
-| `gobgp.strategy` must be `disable-peer` or `withdraw-routes` | `ErrInvalidGoBGPStrategy` |
+| Enabled `gobgp.strategy` is not recognized | `ErrInvalidGoBGPStrategy` |
+| Enabled `gobgp.strategy` is recognized but not implemented (`withdraw-routes`) | `ErrUnsupportedGoBGPStrategy` |
 | `gobgp.action_timeout` must be > 0 when enabled | `ErrInvalidGoBGPActionTimeout` |
 | `gobgp.tls.ca_file` / `server_name` require `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
 | `gobgp.dampening.suppress_threshold` must be > `reuse_threshold` | `ErrInvalidDampeningThreshold` |

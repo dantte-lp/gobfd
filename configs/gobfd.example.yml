@@ -158,7 +158,7 @@ bfd:
 #   enabled: true
 #   # GoBGP gRPC API address. Use a different port than gobfd's own gRPC.
 #   addr: "127.0.0.1:50052"
-#   # Strategy: "disable-peer" (default) or "withdraw-routes" (future).
+#   # Only "disable-peer" is implemented; "withdraw-routes" is rejected.
 #   strategy: "disable-peer"
 #   # RFC 5882 Section 3.2: flap dampening prevents rapid BFD oscillation
 #   # from causing excessive BGP route churn.
