@@ -89,10 +89,12 @@ type AuthKey struct {
 // AuthKeyStore manages authentication keys for a session.
 // Supports multiple active keys for hitless key rotation.
 type AuthKeyStore interface {
-	// LookupKey returns the key with the given ID, or an error if not found.
+	// LookupKey returns a caller-owned key with the given ID, or an error if
+	// not found. Callers may modify the returned Secret.
 	LookupKey(id uint8) (AuthKey, error)
 
-	// CurrentKey returns the currently selected key for transmission.
+	// CurrentKey returns a caller-owned copy of the currently selected key for
+	// transmission. Callers may modify the returned Secret.
 	CurrentKey() AuthKey
 }
 
@@ -137,6 +139,14 @@ type effectiveAuthKeyStore interface {
 	effectiveAuthKeyStoreFingerprint() authKeyStoreFingerprint
 }
 
+// internalAuthKeyStore permits built-in authenticators to read immutable key
+// material without allocating. Returned keys are package-private read-only
+// views and must never be exposed to callers or mutated.
+type internalAuthKeyStore interface {
+	currentKeyNoCopy() AuthKey
+	lookupKeyNoCopy(id uint8) (AuthKey, error)
+}
+
 func (s *StaticAuthKeyStore) effectiveAuthKeyStoreFingerprint() authKeyStoreFingerprint {
 	return s.fingerprint
 }
@@ -177,6 +187,14 @@ func fingerprintAuthKey(key AuthKey) [sha256.Size]byte {
 
 // LookupKey returns the key with the given ID.
 func (s *StaticAuthKeyStore) LookupKey(id uint8) (AuthKey, error) {
+	key, err := s.lookupKeyNoCopy(id)
+	if err != nil {
+		return AuthKey{}, err
+	}
+	return cloneAuthKey(key), nil
+}
+
+func (s *StaticAuthKeyStore) lookupKeyNoCopy(id uint8) (AuthKey, error) {
 	key, ok := s.keys[id]
 	if !ok {
 		return AuthKey{}, ErrAuthKeyNotFound
@@ -186,7 +204,29 @@ func (s *StaticAuthKeyStore) LookupKey(id uint8) (AuthKey, error) {
 
 // CurrentKey returns the selected transmit key.
 func (s *StaticAuthKeyStore) CurrentKey() AuthKey {
+	return cloneAuthKey(s.currentKeyNoCopy())
+}
+
+func (s *StaticAuthKeyStore) currentKeyNoCopy() AuthKey {
 	return s.currentKey
+}
+
+func currentAuthKey(keys AuthKeyStore) AuthKey {
+	if store, ok := keys.(internalAuthKeyStore); ok {
+		return store.currentKeyNoCopy()
+	}
+	return keys.CurrentKey()
+}
+
+func lookupAuthKey(keys AuthKeyStore, id uint8) (AuthKey, error) {
+	if store, ok := keys.(internalAuthKeyStore); ok {
+		return store.lookupKeyNoCopy(id)
+	}
+	key, err := keys.LookupKey(id)
+	if err != nil {
+		return AuthKey{}, fmt.Errorf("lookup auth key %d: %w", id, err)
+	}
+	return key, nil
 }
 
 func validateAuthKey(key AuthKey) error {
@@ -339,6 +379,8 @@ func (a SimplePasswordAuth) Sign(
 	_ []byte,
 	_ int,
 ) error {
+	// Simple password AuthData becomes caller-visible packet state, so use the
+	// public caller-owned copy instead of exposing StaticAuthKeyStore backing.
 	key := keys.CurrentKey()
 	if err := validateAuthKeyForType(key, AuthTypeSimplePassword); err != nil {
 		return fmt.Errorf("simple password current key: %w", err)
@@ -373,7 +415,7 @@ func (a SimplePasswordAuth) Verify(
 			pkt.Auth.Type, ErrAuthTypeMismatch)
 	}
 
-	key, err := keys.LookupKey(pkt.Auth.KeyID)
+	key, err := lookupAuthKey(keys, pkt.Auth.KeyID)
 	if err != nil {
 		return fmt.Errorf("simple password key %d: %w",
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)
@@ -592,7 +634,7 @@ func signHash(
 	_ int,
 	p hashParams,
 ) error {
-	key := keys.CurrentKey()
+	key := currentAuthKey(keys)
 	if err := validateAuthKeyForType(key, p.authType); err != nil {
 		return fmt.Errorf("sign hash current key: %w", err)
 	}
@@ -693,7 +735,7 @@ func verifyHash(
 		return err
 	}
 
-	key, err := keys.LookupKey(pkt.Auth.KeyID)
+	key, err := lookupAuthKey(keys, pkt.Auth.KeyID)
 	if err != nil {
 		return fmt.Errorf("hash auth key %d: %w",
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)

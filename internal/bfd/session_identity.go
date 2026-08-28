@@ -160,6 +160,10 @@ func normalizeEffectiveSessionConfig(cfg SessionConfig) (effectiveSessionConfig,
 	if cfg.Auth == nil {
 		return effective, nil
 	}
+	if cfg.AuthKeys == nil {
+		return effectiveSessionConfig{}, fmt.Errorf("normalize auth key store: %w",
+			ErrMissingAuthKeyStore)
+	}
 
 	authType, ok := authenticatorType(cfg.Auth)
 	if !ok {

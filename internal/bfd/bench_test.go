@@ -81,6 +81,37 @@ func BenchmarkControlPacketMarshalWithAuth(b *testing.B) {
 	}
 }
 
+// BenchmarkSimplePasswordAuthVerifyStaticStore covers the built-in
+// authenticator's package-private immutable key lookup hot path.
+func BenchmarkSimplePasswordAuthVerifyStaticStore(b *testing.B) {
+	store, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{
+		ID:     1,
+		Type:   bfd.AuthTypeSimplePassword,
+		Secret: []byte("password"),
+	})
+	if err != nil {
+		b.Fatalf("NewStaticAuthKeyStore: %v", err)
+	}
+	auth := bfd.SimplePasswordAuth{}
+	pkt := &bfd.ControlPacket{
+		AuthPresent: true,
+		Auth: &bfd.AuthSection{
+			Type:     bfd.AuthTypeSimplePassword,
+			Len:      11,
+			KeyID:    1,
+			AuthData: []byte("password"),
+		},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := auth.Verify(nil, store, pkt, nil, 0); err != nil {
+			b.Fatalf("Verify: %v", err)
+		}
+	}
+}
+
 // -------------------------------------------------------------------------
 // BenchmarkControlPacketUnmarshal — hot path: parse BFD Control packet
 // -------------------------------------------------------------------------

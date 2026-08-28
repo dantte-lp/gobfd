@@ -291,6 +291,54 @@ func TestStaticAuthStoresWithEquivalentKeysShareSession(t *testing.T) {
 	}
 }
 
+func TestStaticAuthKeyStoreAccessorsPreserveImmutableSemantics(t *testing.T) {
+	current := AuthKey{ID: 1, Type: AuthTypeSimplePassword, Secret: []byte("current")}
+	receive := AuthKey{ID: 2, Type: AuthTypeSimplePassword, Secret: []byte("receive")}
+	store, err := NewStaticAuthKeyStore(current, receive)
+	if err != nil {
+		t.Fatalf("NewStaticAuthKeyStore: %v", err)
+	}
+	originalFingerprint := store.effectiveAuthKeyStoreFingerprint()
+
+	current.Secret[0] = 'X'
+	receive.Secret[0] = 'X'
+	returnedCurrent := store.CurrentKey()
+	returnedCurrent.Secret[0] = 'Y'
+	returnedReceive, err := store.LookupKey(receive.ID)
+	if err != nil {
+		t.Fatalf("LookupKey(%d): %v", receive.ID, err)
+	}
+	returnedReceive.Secret[0] = 'Y'
+
+	gotCurrent := store.CurrentKey()
+	if got := string(gotCurrent.Secret); got != "current" {
+		t.Errorf("CurrentKey secret after caller mutations = %q, want %q", got, "current")
+	}
+	gotReceive, err := store.LookupKey(receive.ID)
+	if err != nil {
+		t.Fatalf("LookupKey(%d) after caller mutations: %v", receive.ID, err)
+	}
+	if got := string(gotReceive.Secret); got != "receive" {
+		t.Errorf("LookupKey secret after caller mutations = %q, want %q", got, "receive")
+	}
+	if got := store.effectiveAuthKeyStoreFingerprint(); got != originalFingerprint {
+		t.Errorf("fingerprint after caller mutations = %x, want %x", got, originalFingerprint)
+	}
+}
+
+func TestManagerMissingAuthKeyStorePreservesLegacyError(t *testing.T) {
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+	cfg := ownershipTestConfig("192.0.2.30")
+	cfg.Auth = SimplePasswordAuth{}
+
+	if _, err := mgr.CreateSession(context.Background(), cfg, ownershipNoopSender{}); !errors.Is(
+		err, ErrMissingAuthKeyStore,
+	) {
+		t.Fatalf("CreateSession error = %v, want ErrMissingAuthKeyStore", err)
+	}
+}
+
 func ownershipTestConfig(peer string) SessionConfig {
 	return SessionConfig{
 		PeerAddr:              netip.MustParseAddr(peer),
