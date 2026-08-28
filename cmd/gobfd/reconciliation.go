@@ -44,6 +44,13 @@ const sourceCount = int(sourceGeneve) + 1
 
 type reconciliationSourceMask uint8
 
+type interfaceEventAvailability uint8
+
+const (
+	interfaceEventUnavailable interfaceEventAvailability = iota
+	interfaceEventAvailable
+)
+
 func sourceMask(source reconciliationSource) reconciliationSourceMask {
 	if int(source) >= sourceCount {
 		return 0
@@ -137,9 +144,9 @@ type sourceApplyFunc func(
 
 type interfaceAvailabilityChecker func([]string) (int, error)
 
-// reconciliationCoordinator serializes complete six-source applies and
-// generation-scoped pending-source retries while publishing status through a
-// separately readable immutable value snapshot.
+// reconciliationCoordinator serializes complete six-source applies,
+// generation-scoped pending-source retries, and interface availability events
+// while publishing status through a separately readable immutable snapshot.
 type reconciliationCoordinator struct {
 	// Lock order is applyMu then statusMu. Snapshot readers take only
 	// statusMu; health and logging callbacks run after statusMu is released.
@@ -280,7 +287,15 @@ func (c *reconciliationCoordinator) retryPendingSources(
 ) reconciliationSnapshot {
 	c.applyMu.Lock()
 	defer c.applyMu.Unlock()
+	return c.retryPendingSourcesLocked(ctx, expectedGeneration, selected, applySource)
+}
 
+func (c *reconciliationCoordinator) retryPendingSourcesLocked(
+	ctx context.Context,
+	expectedGeneration uint64,
+	selected reconciliationSourceMask,
+	applySource sourceApplyFunc,
+) reconciliationSnapshot {
 	snapshot := c.Snapshot()
 	if !c.hasRetainedCandidate || snapshot.DesiredGeneration != expectedGeneration ||
 		snapshot.LastReceipt.Generation != expectedGeneration {
@@ -293,7 +308,6 @@ func (c *reconciliationCoordinator) retryPendingSources(
 	var retryResults [sourceCount]sourceApplyResult
 	var sourceRetried [sourceCount]bool
 	transientErrors := make([]error, 0, sourceCount)
-	applied := false
 	for i, source := range reconciliationSources() {
 		prior := receipt.Sources[i]
 		if !selected.contains(source) || prior.Pending <= 0 || prior.Failed != 0 {
@@ -318,12 +332,69 @@ func (c *reconciliationCoordinator) retryPendingSources(
 		if result.Err != nil {
 			transientErrors = append(transientErrors, result.Err)
 		}
-		applied = true
 	}
-	if !applied {
+	if receipt == snapshot.LastReceipt {
 		return snapshot
 	}
 
+	return c.publishReceipt(receipt, errors.Join(transientErrors...))
+}
+
+func (c *reconciliationCoordinator) reconcileInterfaceEvent(
+	ctx context.Context,
+	expectedGeneration uint64,
+	ifName string,
+	availability interfaceEventAvailability,
+	checkInterfaces interfaceAvailabilityChecker,
+	applySource sourceApplyFunc,
+) reconciliationSnapshot {
+	c.applyMu.Lock()
+	defer c.applyMu.Unlock()
+
+	snapshot := c.Snapshot()
+	if !c.hasRetainedCandidate || snapshot.DesiredGeneration != expectedGeneration ||
+		snapshot.LastReceipt.Generation != expectedGeneration || ifName == "" {
+		return snapshot
+	}
+	selected := compiledCandidateInterfaceSourceMask(c.retainedCandidate, ifName)
+	if selected == 0 {
+		return snapshot
+	}
+
+	switch availability {
+	case interfaceEventUnavailable:
+		return c.reconcileUnavailableInterfaceLocked(snapshot, selected, checkInterfaces)
+	case interfaceEventAvailable:
+		return c.retryPendingSourcesLocked(ctx, expectedGeneration, selected, applySource)
+	default:
+		return snapshot
+	}
+}
+
+func (c *reconciliationCoordinator) reconcileUnavailableInterfaceLocked(
+	snapshot reconciliationSnapshot,
+	selected reconciliationSourceMask,
+	checkInterfaces interfaceAvailabilityChecker,
+) reconciliationSnapshot {
+	receipt := snapshot.LastReceipt
+	transientErrors := make([]error, 0, sourceCount)
+	for i, source := range reconciliationSources() {
+		prior := receipt.Sources[i]
+		if !selected.contains(source) || prior.Failed != 0 {
+			continue
+		}
+		result := preflightCompiledSourceInterfaces(
+			source, c.retainedCandidate, checkInterfaces,
+		)
+		if result.Err == nil {
+			continue
+		}
+		receipt.Sources[i] = mergedSourceReceipt(source, prior, result)
+		transientErrors = append(transientErrors, result.Err)
+	}
+	if receipt == snapshot.LastReceipt {
+		return snapshot
+	}
 	return c.publishReceipt(receipt, errors.Join(transientErrors...))
 }
 
@@ -572,23 +643,8 @@ func applyCompiledSourceWithInterfaceChecker(
 	logger *slog.Logger,
 	checkInterfaces interfaceAvailabilityChecker,
 ) sourceApplyResult {
-	dependencies := compiledSourceInterfaceDependencies(source, candidate)
-	if len(dependencies) != 0 {
-		pendingClaims, err := checkInterfaces(dependencies)
-		if pendingClaims < 0 || pendingClaims > len(dependencies) ||
-			(err == nil && pendingClaims != 0) {
-			return failedSourceResult(
-				bfd.ReconcileErrorCreate,
-				fmt.Errorf("preflight %s returned pending count %d for %d dependencies: %w",
-					source, pendingClaims, len(dependencies), errInvalidInterfacePreflightResult),
-			)
-		}
-		if err != nil {
-			return resourceErrorSourceResult(
-				pendingClaims,
-				fmt.Errorf("preflight %s interface dependencies: %w", source, err),
-			)
-		}
+	if result := preflightCompiledSourceInterfaces(source, candidate, checkInterfaces); result.Err != nil {
+		return result
 	}
 
 	switch source {
@@ -618,6 +674,33 @@ func applyCompiledSourceWithInterfaceChecker(
 	}
 }
 
+func preflightCompiledSourceInterfaces(
+	source reconciliationSource,
+	candidate compiledControlSessionCandidate,
+	checkInterfaces interfaceAvailabilityChecker,
+) sourceApplyResult {
+	dependencies := compiledSourceInterfaceDependencies(source, candidate)
+	if len(dependencies) == 0 {
+		return sourceApplyResult{}
+	}
+	pendingClaims, err := checkInterfaces(dependencies)
+	if pendingClaims < 0 || pendingClaims > len(dependencies) ||
+		(err == nil && pendingClaims != 0) {
+		return failedSourceResult(
+			bfd.ReconcileErrorCreate,
+			fmt.Errorf("preflight %s returned pending count %d for %d dependencies: %w",
+				source, pendingClaims, len(dependencies), errInvalidInterfacePreflightResult),
+		)
+	}
+	if err != nil {
+		return resourceErrorSourceResult(
+			pendingClaims,
+			fmt.Errorf("preflight %s interface dependencies: %w", source, err),
+		)
+	}
+	return sourceApplyResult{}
+}
+
 func compiledSourceInterfaceDependencies(
 	source reconciliationSource,
 	candidate compiledControlSessionCandidate,
@@ -644,6 +727,22 @@ func compiledSourceInterfaceDependencies(
 	default:
 		return nil
 	}
+}
+
+func compiledCandidateInterfaceSourceMask(
+	candidate compiledControlSessionCandidate,
+	ifName string,
+) reconciliationSourceMask {
+	if ifName == "" {
+		return 0
+	}
+	var selected reconciliationSourceMask
+	for _, source := range reconciliationSources() {
+		if slices.Contains(compiledSourceInterfaceDependencies(source, candidate), ifName) {
+			selected |= sourceMask(source)
+		}
+	}
+	return selected
 }
 
 func collectInterfaceDependencies(count int, interfaceAt func(int) string) []string {
