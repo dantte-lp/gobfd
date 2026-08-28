@@ -16,6 +16,8 @@ const pathArgumentCount = 6
 
 var errArgumentContract = errors.New("invalid benchreport argument contract")
 
+var errOutputOutsideRoot = errors.New("benchreport output must be within the report ownership root")
+
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Getenv, time.Now); err != nil {
 		fmt.Fprintf(os.Stderr, "gen-report: %v\n", err)
@@ -38,8 +40,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, now fun
 	if goMaxProcs == "" {
 		goMaxProcs = "8"
 	}
-	if err := os.MkdirAll(filepath.Dir(args[5]), 0o750); err != nil {
-		return fmt.Errorf("create report output directory: %w", err)
+	if err := prepareOutputDirectory(args[5], getenv("BENCH_REPORT_ROOT")); err != nil {
+		return err
 	}
 	if err := benchreport.Render(ctx, benchreport.Options{
 		GoInput:    args[0],
@@ -54,6 +56,55 @@ func run(ctx context.Context, args []string, getenv func(string) string, now fun
 		GoMaxProcs: goMaxProcs,
 	}); err != nil {
 		return fmt.Errorf("render cross-comparison report: %w", err)
+	}
+	return nil
+}
+
+// prepareOutputDirectory creates the output directory beneath the report
+// ownership root. BENCH_REPORT_ROOT may name a caller-owned artifact root;
+// otherwise the command's working directory is used.
+func prepareOutputDirectory(output, configuredRoot string) (returnErr error) {
+	outputRoot := configuredRoot
+	if outputRoot == "" {
+		var err error
+		outputRoot, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve benchreport output root: %w", err)
+		}
+	}
+	absoluteRoot, err := filepath.Abs(outputRoot)
+	if err != nil {
+		return fmt.Errorf("resolve benchreport output root %q: %w", outputRoot, err)
+	}
+	absoluteOutput, err := filepath.Abs(output)
+	if err != nil {
+		return fmt.Errorf("resolve report output path %q: %w", output, err)
+	}
+	relativeOutput, err := filepath.Rel(absoluteRoot, absoluteOutput)
+	if err != nil {
+		return fmt.Errorf("resolve report output relative to %s: %w", absoluteRoot, err)
+	}
+	if !filepath.IsLocal(relativeOutput) {
+		return fmt.Errorf("output %q: %w", output, errOutputOutsideRoot)
+	}
+
+	root, err := os.OpenRoot(absoluteRoot)
+	if err != nil {
+		return fmt.Errorf("open benchreport output root %s: %w", absoluteRoot, err)
+	}
+	defer func() {
+		if closeErr := root.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr,
+				fmt.Errorf("close benchreport output root %s: %w", absoluteRoot, closeErr))
+		}
+	}()
+
+	directory := filepath.Dir(relativeOutput)
+	if directory == "." {
+		return nil
+	}
+	if err := root.MkdirAll(directory, 0o750); err != nil {
+		return fmt.Errorf("create report output directory %s: %w", directory, err)
 	}
 	return nil
 }

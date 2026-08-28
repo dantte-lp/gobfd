@@ -1730,6 +1730,7 @@ func runBenchmarkReport(t *testing.T, root, results, output, meta string) (strin
 		output,
 	)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "BENCH_REPORT_ROOT="+filepath.Dir(output))
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
