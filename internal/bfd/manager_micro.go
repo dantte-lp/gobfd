@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 )
 
 // -------------------------------------------------------------------------
@@ -24,8 +25,11 @@ func (m *Manager) CreateMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error
 	if err != nil {
 		return nil, err
 	}
+	defer op.finish()
+
+	m.ownershipMu.Lock()
 	group, err := m.createMicroBFDGroup(cfg)
-	op.finish()
+	m.ownershipMu.Unlock()
 	return group, err
 }
 
@@ -67,8 +71,11 @@ func (m *Manager) DestroyMicroBFDGroup(lagInterface string) error {
 	if err != nil {
 		return err
 	}
+	defer op.finish()
+
+	m.ownershipMu.Lock()
 	err = m.destroyMicroBFDGroup(lagInterface)
-	op.finish()
+	m.ownershipMu.Unlock()
 	return err
 }
 
@@ -202,24 +209,31 @@ func (m *Manager) ReconcileMicroBFDGroups(
 	if err != nil {
 		return 0, 0, err
 	}
+	defer op.finish()
+
+	m.ownershipMu.Lock()
 	created, destroyed, err := m.reconcileMicroBFDGroups(desired)
-	op.finish()
+	m.ownershipMu.Unlock()
 	return created, destroyed, err
 }
 
 func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (int, int, error) {
-	desiredKeys := make(map[string]MicroBFDReconcileConfig, len(desired))
-	for _, rc := range desired {
-		desiredKeys[rc.Key] = rc
+	desiredKeys, err := compileMicroBFDReconcileConfigs(desired)
+	if err != nil {
+		return 0, 0, err
 	}
 
-	currentKeys := m.microBFDGroupKeySet()
+	currentGroups := m.microBFDGroupsByKey()
 
 	var created, destroyed int
 	var errs []error
 
+	if conflict := m.microBFDReconcileConflict(desiredKeys, currentGroups); conflict != nil {
+		return 0, 0, conflict
+	}
+
 	// Destroy groups not in desired set.
-	for key := range currentKeys {
+	for key := range currentGroups {
 		if _, want := desiredKeys[key]; want {
 			continue
 		}
@@ -237,7 +251,7 @@ func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (in
 
 	// Create groups in desired but not in current.
 	for key, rc := range desiredKeys {
-		if _, exists := currentKeys[key]; exists {
+		if _, exists := currentGroups[key]; exists {
 			continue
 		}
 
@@ -252,7 +266,6 @@ func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (in
 		created++
 	}
 
-	var err error
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
 	}
@@ -265,14 +278,58 @@ func (m *Manager) reconcileMicroBFDGroups(desired []MicroBFDReconcileConfig) (in
 	return created, destroyed, err
 }
 
-// microBFDGroupKeySet returns a set of LAG interface names for all active groups.
-func (m *Manager) microBFDGroupKeySet() map[string]struct{} {
+func compileMicroBFDReconcileConfigs(
+	desired []MicroBFDReconcileConfig,
+) (map[string]MicroBFDReconcileConfig, error) {
+	desiredByKey := make(map[string]MicroBFDReconcileConfig, len(desired))
+	for _, rc := range desired {
+		if rc.Key != rc.Config.LAGInterface {
+			return nil, fmt.Errorf(
+				"micro-BFD reconcile key %q does not match config LAG %q: %w",
+				rc.Key, rc.Config.LAGInterface, ErrMicroBFDConfigConflict,
+			)
+		}
+		if err := validateMicroBFDConfig(rc.Config); err != nil {
+			return nil, fmt.Errorf("validate micro-BFD group %q: %w", rc.Key, err)
+		}
+		if _, exists := desiredByKey[rc.Key]; exists {
+			return nil, fmt.Errorf(
+				"duplicate desired micro-BFD group %q: %w",
+				rc.Key, ErrMicroBFDGroupExists,
+			)
+		}
+		desiredByKey[rc.Key] = rc
+	}
+	return desiredByKey, nil
+}
+
+// microBFDReconcileConflict rejects all same-key configuration conflicts
+// before reconciliation changes any group. Replacing a live group is a
+// separate operation with different rollback requirements.
+func (m *Manager) microBFDReconcileConflict(
+	desired map[string]MicroBFDReconcileConfig,
+	current map[string]*MicroBFDGroup,
+) error {
+	for key, rc := range desired {
+		group, exists := current[key]
+		if !exists || group.matchesReconcileConfig(rc.Config) {
+			continue
+		}
+
+		conflict := &MicroBFDConfigConflictError{LAGInterface: key}
+		m.logger.Error("micro-BFD group reconciliation conflict",
+			slog.String("lag", key),
+			slog.String("error", conflict.Error()),
+		)
+		return conflict
+	}
+	return nil
+}
+
+// microBFDGroupsByKey returns a snapshot of active groups keyed by LAG name.
+func (m *Manager) microBFDGroupsByKey() map[string]*MicroBFDGroup {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	keys := make(map[string]struct{}, len(m.microGroups))
-	for lagName := range m.microGroups {
-		keys[lagName] = struct{}{}
-	}
-	return keys
+	return maps.Clone(m.microGroups)
 }

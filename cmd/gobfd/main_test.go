@@ -496,6 +496,36 @@ func TestReconcileMicroBFDClosesEarlierSendersWhenLaterCreationFails(t *testing.
 	}
 }
 
+func TestReconcileMicroBFDGroupConflictDoesNotLogCompletion(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+
+	original := bfd.MicroBFDConfig{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
+		PeerAddr: netip.MustParseAddr("192.0.2.1"), LocalAddr: netip.MustParseAddr("192.0.2.2"),
+		MinActiveLinks: 1,
+	}
+	if _, err := mgr.CreateMicroBFDGroup(original); err != nil {
+		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	}
+	divergent := original
+	divergent.PeerAddr = netip.MustParseAddr("192.0.2.9")
+
+	reconcileMicroBFDGroupState([]bfd.MicroBFDReconcileConfig{{
+		Key: divergent.LAGInterface, Config: divergent,
+	}}, mgr, logger)
+
+	got := logs.String()
+	if !strings.Contains(got, "micro-BFD group reconciliation had errors") {
+		t.Errorf("adapter log = %q, want reconciliation error", got)
+	}
+	if strings.Contains(got, "micro-BFD group reconciliation complete") {
+		t.Errorf("adapter log = %q, must not claim completion after conflict", got)
+	}
+}
+
 func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)

@@ -42,7 +42,31 @@ var (
 	// ErrMicroBFDMemberNotFound indicates the specified member link was
 	// not found in the group.
 	ErrMicroBFDMemberNotFound = errors.New("member link not found in micro-BFD group")
+
+	// ErrMicroBFDConfigConflict indicates that reconciliation requested a
+	// different effective group configuration for an existing LAG key.
+	ErrMicroBFDConfigConflict = errors.New("micro-BFD group configuration conflicts with existing group")
 )
+
+// MicroBFDConfigConflictError identifies the LAG whose effective group
+// configuration differs from the already-running group.
+type MicroBFDConfigConflictError struct {
+	LAGInterface string
+}
+
+func (e *MicroBFDConfigConflictError) Error() string {
+	return fmt.Sprintf("micro-BFD group %q: %v", e.LAGInterface, ErrMicroBFDConfigConflict)
+}
+
+// Unwrap supports errors.Is with ErrMicroBFDConfigConflict.
+func (*MicroBFDConfigConflictError) Unwrap() error {
+	return ErrMicroBFDConfigConflict
+}
+
+// ConflictingLAGInterface returns the key of the existing conflicting group.
+func (e *MicroBFDConfigConflictError) ConflictingLAGInterface() string {
+	return e.LAGInterface
+}
 
 // -------------------------------------------------------------------------
 // Micro-BFD Configuration — RFC 7130 Section 2
@@ -432,6 +456,28 @@ func (g *MicroBFDGroup) MemberNames() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// matchesReconcileConfig reports whether cfg describes the effective group
+// state owned by MicroBFDGroup. Timer and detection fields belong to the
+// separately reconciled per-member sessions.
+func (g *MicroBFDGroup) matchesReconcileConfig(cfg MicroBFDConfig) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.lagInterface != cfg.LAGInterface ||
+		g.peerAddr != cfg.PeerAddr ||
+		g.localAddr != cfg.LocalAddr ||
+		g.minActive != cfg.MinActiveLinks ||
+		len(g.members) != len(cfg.MemberLinks) {
+		return false
+	}
+	for _, member := range cfg.MemberLinks {
+		if _, exists := g.members[member]; !exists {
+			return false
+		}
+	}
+	return true
 }
 
 // MemberStates returns a snapshot of all member link states.

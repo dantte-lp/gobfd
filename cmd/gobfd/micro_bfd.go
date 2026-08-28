@@ -113,6 +113,7 @@ func reconcileMicroBFDGroupState(
 		logger.Error("micro-BFD group reconciliation had errors",
 			slog.String("error", err.Error()),
 		)
+		return
 	}
 
 	logger.Info("micro-BFD group reconciliation complete",
