@@ -414,7 +414,7 @@ partial или experimental в supported.
 
 | Возможность | GoBFD | FRR bfdd |
 |-------------|-------|----------|
-| Перезагрузка конфига | SIGHUP: горячая перезагрузка без разрыва сессий | Перезапуск для многих изменений |
+| Перезагрузка конфига | SIGHUP реконсилирует membership в пределах startup-open transports; same-key изменения параметров дают conflict и оставляют generation stale | Перезапуск для многих изменений |
 | Graceful shutdown | AdminDown всем пирам → 2 с drain → чистое завершение | Завершение процесса (сессии флапают) |
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (парсинг текста) |
 | Метрики | Нативный Prometheus (эндпоинт `/metrics`) | SNMP (требуется SNMP-инфраструктура) |
@@ -554,7 +554,7 @@ sysctl -w net.core.wmem_max=16777216
 | **Покрытие RFC** | См. авторитетную RFC matrix | Здесь не оценивается | Здесь не оценивается |
 | **Evidence аллокаций** | Отдельные benchmark bodies показывают 0 allocs/op | Н/П (C, нет GC) | Н/П (C, нет GC) |
 | **Влияние GC на BFD** | Не устанавливается component benchmarks | Н/П | Н/П |
-| **Горячая перезагрузка конфига** | SIGHUP (без разрыва сессий) | Требуется перезапуск | Требуется перезапуск |
+| **Горячая перезагрузка конфига** | SIGHUP-реконсиляция membership в пределах startup-open transports; same-key изменения дают conflict/stale | Требуется перезапуск | Требуется перезапуск |
 | **API** | ConnectRPC (gRPC + HTTP) | vtysh CLI | CLI |
 | **Метрики Prometheus** | Нативные | Через SNMP | Нет |
 

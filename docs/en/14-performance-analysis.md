@@ -415,7 +415,7 @@ See [08-rfc-compliance.md](./08-rfc-compliance.md) for the full compliance matri
 
 | Feature | GoBFD | FRR bfdd |
 |---------|-------|----------|
-| Config reload | SIGHUP: hot reload without session drops | Restart required for many changes |
+| Config reload | SIGHUP reconciles membership within startup-open transports; same-key parameter changes conflict and leave the generation stale | Restart required for many changes |
 | Graceful shutdown | AdminDown to all peers → 2s drain → clean close | Process kill (sessions flap) |
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (text parsing) |
 | Metrics | Native Prometheus (`/metrics` endpoint) | SNMP (requires SNMP infrastructure) |
@@ -555,7 +555,7 @@ sysctl -w net.core.wmem_max=16777216
 | **RFC coverage** | See the authoritative RFC matrix | Not assessed here | Not assessed here |
 | **Allocation evidence** | Selected benchmark bodies report 0 allocs/op | N/A (C, no GC) | N/A (C, no GC) |
 | **GC impact on BFD** | Not established by component benchmarks | N/A | N/A |
-| **Config hot reload** | SIGHUP (no session drops) | Restart required | Restart required |
+| **Config hot reload** | SIGHUP membership reconciliation within startup-open transports; same-key changes conflict/stale | Restart required | Restart required |
 | **API** | ConnectRPC (gRPC + HTTP) | vtysh CLI | CLI |
 | **Prometheus metrics** | Native | Via SNMP | No |
 
