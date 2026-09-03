@@ -363,14 +363,14 @@ func TestOpenRootedRegularFileRejectsReplacementOutsideRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	external := filepath.Join(t.TempDir(), "external.txt")
-	if err := os.WriteFile(external, []byte("external\n"), 0o644); err != nil {
-		t.Fatal(err)
+	if writeErr := os.WriteFile(external, []byte("external\n"), 0o644); writeErr != nil {
+		t.Fatal(writeErr)
 	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
+	if removeErr := os.Remove(path); removeErr != nil {
+		t.Fatal(removeErr)
 	}
-	if err := os.Symlink(external, path); err != nil {
-		t.Fatal(err)
+	if symlinkErr := os.Symlink(external, path); symlinkErr != nil {
+		t.Fatal(symlinkErr)
 	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
@@ -404,11 +404,11 @@ func TestOpenReportArchiveFileRejectsSiblingDirectoryReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	parkedDirectory := filepath.Join(reports, "parked")
-	if err := os.Rename(originalDirectory, parkedDirectory); err != nil {
-		t.Fatal(err)
+	if renameErr := os.Rename(originalDirectory, parkedDirectory); renameErr != nil {
+		t.Fatal(renameErr)
 	}
-	if err := os.Symlink(filepath.Join("..", "sibling"), originalDirectory); err != nil {
-		t.Fatal(err)
+	if symlinkErr := os.Symlink(filepath.Join("..", "sibling"), originalDirectory); symlinkErr != nil {
+		t.Fatal(symlinkErr)
 	}
 	reportsRoot, err := os.OpenRoot(reports)
 	if err != nil {

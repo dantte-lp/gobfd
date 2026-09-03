@@ -211,8 +211,8 @@ func runFakeGo() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(125)
 	}
-	if err := os.WriteFile(os.Getenv(fakeGoCapture), data, 0o600); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if writeErr := os.WriteFile(os.Getenv(fakeGoCapture), data, 0o600); writeErr != nil {
+		fmt.Fprintln(os.Stderr, writeErr)
 		os.Exit(125)
 	}
 	if os.Getenv(fakeGoSilent) != "1" {
