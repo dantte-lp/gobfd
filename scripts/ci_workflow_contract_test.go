@@ -459,6 +459,32 @@ func TestReleaseWorkflowUsesOneGoOwnedOCIEvidenceCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesOneGoOwnedEvidenceUploadCommand(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	step := namedWorkflowStep(t, workflow, "Attach reports to release")
+	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-evidence\n"); got != 1 {
+		t.Errorf("release evidence upload command count = %d, want 1", got)
+	}
+	for _, marker := range []string{
+		"        working-directory: .release-verifier\n",
+		"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n",
+		"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+	} {
+		if !strings.Contains(step, marker) {
+			t.Errorf("release evidence upload step lacks verifier marker %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		"run: |", "sha256sum", "gh release upload", "report_archive=", "[ ! -f", "[ -L",
+	} {
+		if strings.Contains(step, marker) {
+			t.Errorf("release evidence upload step retains shell-owned marker %q", marker)
+		}
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

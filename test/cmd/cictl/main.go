@@ -64,7 +64,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
-				"release-upx|release-artifacts|release-oci-evidence}: %w",
+				"release-upx|release-artifacts|release-oci-evidence|release-evidence}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -118,9 +118,28 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runReleaseArtifacts(ctx, arguments[1:], deps)
 	case "release-oci-evidence":
 		return runReleaseOCIEvidence(ctx, arguments[1:], deps)
+	case "release-evidence":
+		return runReleaseEvidence(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleaseEvidence(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-evidence", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release evidence verifier root: %w", err)
+	}
+	if err := cirunner.ReleaseEvidence(ctx, cirunner.ReleaseEvidenceOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RefName: deps.getenv("GITHUB_REF_NAME"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("attach release evidence: %w", err)
+	}
+	return nil
 }
 
 func runReleaseOCIEvidence(ctx context.Context, arguments []string, deps dependencies) error {

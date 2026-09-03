@@ -509,6 +509,17 @@ three images pass does the command atomically publish mode `0644`
 `release-image-digests.txt` through the separately rooted original workspace
 in fixed order; the primary and Debian digests must be identical.
 
+`cictl release-evidence` also runs from the immutable verifier checkout. It
+opens the original workspace as a separate root, rejects missing, empty, linked,
+misnamed, changed, or oversized report and OCI digest inputs, and validates the
+exact three-line digest receipt again. It atomically writes the two canonical
+SHA-256 records to mode `0644` `release-evidence-checksums.txt`, then calls
+`gh release upload` once with only an owned staging snapshot of the fixed
+report, digest, and checksum paths under the verifier checkout. The command
+never uses `--clobber`; source and staging root identity and all three file
+contents are revalidated immediately before and after the draft upload, even
+when `gh` reports an error.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

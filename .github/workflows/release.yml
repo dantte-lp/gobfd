@@ -186,27 +186,11 @@ jobs:
           name: release-reports
 
       - name: Attach reports to release
-        run: |
-          set -euo pipefail
-          report_archive="gobfd-${GITHUB_REF_NAME}-reports.tar.gz"
-          if [ ! -f "$report_archive" ] || [ ! -s "$report_archive" ] || \
-            [ -L "$report_archive" ]; then
-            echo "expected one nonempty regular reports archive: $report_archive" >&2
-            exit 1
-          fi
-          if [ ! -f release-image-digests.txt ] || \
-            [ ! -s release-image-digests.txt ] || \
-            [ -L release-image-digests.txt ]; then
-            echo "release image digest receipt is invalid" >&2
-            exit 1
-          fi
-          sha256sum "$report_archive" release-image-digests.txt \
-            >release-evidence-checksums.txt
-          gh release upload "$GITHUB_REF_NAME" \
-            "$report_archive" release-image-digests.txt \
-            release-evidence-checksums.txt
+        working-directory: .release-verifier
         env:
+          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./test/cmd/cictl release-evidence
 
       - name: Verify exact release draft
         env:

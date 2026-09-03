@@ -525,6 +525,18 @@ manifest и проверяет SPDX document и BuildKit SLSA v1 provenance ка
 открытый root исходного workspace в фиксированном порядке; digest primary и
 Debian должен совпадать.
 
+`cictl release-evidence` также запускается из immutable verifier checkout.
+Команда открывает исходный workspace как отдельный root, отклоняет
+отсутствующие, пустые, linked, неверно названные, изменённые или слишком
+большие reports и OCI digest inputs и повторно проверяет точный трёхстрочный
+digest receipt. Затем она атомарно записывает две канонические строки SHA-256
+в `release-evidence-checksums.txt` режима `0644` и один раз вызывает
+`gh release upload` только для owned staging snapshot фиксированных report,
+digest и checksum paths внутри verifier checkout. `--clobber` не используется;
+identity source и staging root и содержимое всех трёх файлов повторно
+проверяются непосредственно до и после загрузки в draft, в том числе при
+ошибке `gh`.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в

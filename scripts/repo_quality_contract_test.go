@@ -124,7 +124,12 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 			"        env:\n" +
 			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
 			"        run: go run ./test/cmd/cictl release-artifacts\n",
-		"gh release upload \"$GITHUB_REF_NAME\" \\",
+		"      - name: Attach reports to release\n" +
+			"        working-directory: .release-verifier\n" +
+			"        env:\n" +
+			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
+			"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
+			"        run: go run ./test/cmd/cictl release-evidence\n",
 		"Refuse existing release, draft, or versioned OCI tag",
 		"Verify exact release draft",
 		"expected-release-assets.txt",
@@ -142,7 +147,7 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 			t.Errorf("release workflow retains forbidden mutation marker %q", forbidden)
 		}
 	}
-	upload := strings.LastIndex(workflow, "gh release upload \"$GITHUB_REF_NAME\"")
+	upload := strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-evidence")
 	preflight := strings.Index(workflow, "Refuse existing release, draft, or versioned OCI tag")
 	goreleaser := strings.Index(workflow, "Run GoReleaser")
 	verification := strings.LastIndex(workflow, "Verify exact release draft")
