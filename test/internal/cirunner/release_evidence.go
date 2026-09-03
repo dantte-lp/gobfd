@@ -67,51 +67,22 @@ func ReleaseEvidence(ctx context.Context, options ReleaseEvidenceOptions) (retur
 		return identityErr
 	}
 
-	reportName := "gobfd-" + options.RefName + "-reports.tar.gz"
-	digestName := "release-image-digests.txt"
-	checksumName := "release-evidence-checksums.txt"
-	if targetErr := validateRootedRegularTarget(
-		artifactRoot, checksumName, "release evidence checksum",
-	); targetErr != nil {
-		return targetErr
-	}
-	report, err := readRootedRegularFile(artifactRoot, reportName, "release reports archive", releaseArtifactLimit)
+	expected, err := prepareReleaseEvidenceFiles(artifactRoot, artifactRootPath, options.RefName, version)
 	if err != nil {
 		return err
 	}
-	digests, err := readRootedRegularFile(
-		artifactRoot, digestName, "release image digest receipt", releaseOCIDigestReceiptLimit,
-	)
-	if err != nil {
-		return err
-	}
-	if digestErr := validateReleaseOCIDigestReceipt(digests, version); digestErr != nil {
-		return digestErr
-	}
-	checksums := append(
-		formatReleaseSHA256Line(report, reportName),
-		formatReleaseSHA256Line(digests, digestName)...,
-	)
-	if identityErr := validateRootPathIdentity(
-		artifactRoot, artifactRootPath, "release evidence root before checksums",
-	); identityErr != nil {
-		return identityErr
-	}
-	if writeErr := writeRootedArtifact(
-		artifactRoot, checksumName, checksums, "release evidence checksum", releaseEvidenceChecksumLimit,
-	); writeErr != nil {
-		return writeErr
-	}
-	expected := []releaseEvidenceFile{
-		{name: reportName, data: report, limit: releaseArtifactLimit},
-		{name: digestName, data: digests, limit: releaseOCIDigestReceiptLimit},
-		{name: checksumName, data: checksums, limit: releaseEvidenceChecksumLimit},
-	}
-	if snapshotErr := validateReleaseEvidenceSnapshot(
-		artifactRoot, artifactRootPath, expected, "before upload",
-	); snapshotErr != nil {
-		return snapshotErr
-	}
+	return uploadReleaseEvidence(ctx, options, verifierRoot, root, artifactRoot, artifactRootPath, expected)
+}
+
+func uploadReleaseEvidence(
+	ctx context.Context,
+	options ReleaseEvidenceOptions,
+	verifierRoot *os.Root,
+	root string,
+	artifactRoot *os.Root,
+	artifactRootPath string,
+	expected []releaseEvidenceFile,
+) (returnErr error) {
 	stageRoot, stageInfo, err := prepareReleaseEvidenceStage(verifierRoot, root, expected)
 	if err != nil {
 		return err
@@ -147,6 +118,56 @@ type releaseEvidenceFile struct {
 	name  string
 	data  []byte
 	limit int64
+}
+
+func prepareReleaseEvidenceFiles(
+	artifactRoot *os.Root,
+	artifactRootPath string,
+	refName string,
+	version string,
+) ([]releaseEvidenceFile, error) {
+	reportName := "gobfd-" + refName + "-reports.tar.gz"
+	digestName := "release-image-digests.txt"
+	checksumName := "release-evidence-checksums.txt"
+	if err := validateRootedRegularTarget(artifactRoot, checksumName, "release evidence checksum"); err != nil {
+		return nil, err
+	}
+	report, err := readRootedRegularFile(artifactRoot, reportName, "release reports archive", releaseArtifactLimit)
+	if err != nil {
+		return nil, err
+	}
+	digests, err := readRootedRegularFile(
+		artifactRoot, digestName, "release image digest receipt", releaseOCIDigestReceiptLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateReleaseOCIDigestReceipt(digests, version); err != nil {
+		return nil, err
+	}
+	checksums := append(
+		formatReleaseSHA256Line(report, reportName),
+		formatReleaseSHA256Line(digests, digestName)...,
+	)
+	if err := validateRootPathIdentity(
+		artifactRoot, artifactRootPath, "release evidence root before checksums",
+	); err != nil {
+		return nil, err
+	}
+	if err := writeRootedArtifact(
+		artifactRoot, checksumName, checksums, "release evidence checksum", releaseEvidenceChecksumLimit,
+	); err != nil {
+		return nil, err
+	}
+	files := []releaseEvidenceFile{
+		{name: reportName, data: report, limit: releaseArtifactLimit},
+		{name: digestName, data: digests, limit: releaseOCIDigestReceiptLimit},
+		{name: checksumName, data: checksums, limit: releaseEvidenceChecksumLimit},
+	}
+	if err := validateReleaseEvidenceSnapshot(artifactRoot, artifactRootPath, files, "before upload"); err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func prepareReleaseEvidenceStage(
