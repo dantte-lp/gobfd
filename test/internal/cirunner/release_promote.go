@@ -74,10 +74,10 @@ func PromoteReleaseOCIAliases(ctx context.Context, options PromoteReleaseOCIAlia
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP OCI alias root", runnerTemp.Close()))
 	}()
-	if err := validatePromotionRoots(
+	if rootsErr := validatePromotionRoots(
 		verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "before identity verification",
-	); err != nil {
-		return err
+	); rootsErr != nil {
+		return rootsErr
 	}
 	receiptTagObject, err := readExpectedReleaseIdentityReceipts(runnerTemp, expectedCommit, releaseBranch)
 	if err != nil {
@@ -102,10 +102,10 @@ func PromoteReleaseOCIAliases(ctx context.Context, options PromoteReleaseOCIAlia
 	if err != nil {
 		return err
 	}
-	if err := validatePromotionRoots(
+	if rootsErr := validatePromotionRoots(
 		verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "before alias mutation",
-	); err != nil {
-		return err
+	); rootsErr != nil {
+		return rootsErr
 	}
 
 	const imageRepository = "ghcr.io/dantte-lp/gobfd"
@@ -286,15 +286,15 @@ func inspectReleaseOCIAliasDigest(
 	if err != nil {
 		return "", err
 	}
-	if err := validateStrictJSONDocument(data, "promoted OCI alias "+image); err != nil {
-		return "", err
+	if validationErr := validateStrictJSONDocument(data, "promoted OCI alias "+image); validationErr != nil {
+		return "", validationErr
 	}
-	if err := validateOCIManifestJSONFields(data, image); err != nil {
-		return "", err
+	if fieldsErr := validateOCIManifestJSONFields(data, image); fieldsErr != nil {
+		return "", fieldsErr
 	}
 	index := ociManifestIndex{}
-	if err := decodeJSONDocument(data, &index, "promoted OCI alias "+image); err != nil {
-		return "", err
+	if decodeErr := decodeJSONDocument(data, &index, "promoted OCI alias "+image); decodeErr != nil {
+		return "", decodeErr
 	}
 	evidence, err := validateOCIManifestIndex(image, index)
 	if err != nil {

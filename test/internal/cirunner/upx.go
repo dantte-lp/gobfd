@@ -83,15 +83,15 @@ func ReleaseUPX(ctx context.Context, options ReleaseUPXOptions) (returnErr error
 	if hasControl(runnerTemp) {
 		return fmt.Errorf("RUNNER_TEMP contains control characters: %w", errInvalidConfig)
 	}
-	if err := validateGitHubPath(options.GitHubPath); err != nil {
-		return err
+	if pathErr := validateGitHubPath(options.GitHubPath); pathErr != nil {
+		return pathErr
 	}
 	asset := defaultUPXAssetContract()
 	if options.asset != nil {
 		asset = *options.asset
 	}
-	if err := validateUPXAssetContract(asset); err != nil {
-		return err
+	if contractErr := validateUPXAssetContract(asset); contractErr != nil {
+		return contractErr
 	}
 
 	runnerRoot, err := os.OpenRoot(runnerTemp)
@@ -119,13 +119,13 @@ func ReleaseUPX(ctx context.Context, options ReleaseUPXOptions) (returnErr error
 		}
 		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP for UPX prerequisite", runnerRoot.Close()))
 	}()
-	if _, err := runnerRoot.Lstat(upxRootName); err == nil {
+	if _, statErr := runnerRoot.Lstat(upxRootName); statErr == nil {
 		return fmt.Errorf("UPX prerequisite directory collision: %s: %w", filepath.Join(runnerTemp, upxRootName), errInvalidConfig)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect UPX prerequisite directory: %w", err)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect UPX prerequisite directory: %w", statErr)
 	}
-	if err := runnerRoot.Mkdir(upxRootName, upxDirectoryMode); err != nil {
-		return fmt.Errorf("create UPX prerequisite directory: %w", err)
+	if mkdirErr := runnerRoot.Mkdir(upxRootName, upxDirectoryMode); mkdirErr != nil {
+		return fmt.Errorf("create UPX prerequisite directory: %w", mkdirErr)
 	}
 	created = true
 	createdInfo, err = runnerRoot.Lstat(upxRootName)
@@ -142,8 +142,8 @@ func ReleaseUPX(ctx context.Context, options ReleaseUPXOptions) (returnErr error
 	}
 	openedOwnedRoot = true
 	for _, name := range []string{"download", "bin"} {
-		if err := upxRoot.Mkdir(name, upxDirectoryMode); err != nil {
-			return fmt.Errorf("create UPX %s directory: %w", name, err)
+		if mkdirErr := upxRoot.Mkdir(name, upxDirectoryMode); mkdirErr != nil {
+			return fmt.Errorf("create UPX %s directory: %w", name, mkdirErr)
 		}
 	}
 
@@ -170,15 +170,15 @@ func ReleaseUPX(ctx context.Context, options ReleaseUPXOptions) (returnErr error
 	if err != nil {
 		return err
 	}
-	if err := writeUPXExecutable(upxRoot, upxData, asset.entriesUPXSize()); err != nil {
-		return err
+	if writeErr := writeUPXExecutable(upxRoot, upxData, asset.entriesUPXSize()); writeErr != nil {
+		return writeErr
 	}
 	binDirectory := filepath.Join(runnerTemp, upxRootName, "bin")
-	if err := verifyUPXVersion(
+	if verifyErr := verifyUPXVersion(
 		ctx, options.Runner, upxRoot, filepath.Join(runnerTemp, upxRootName),
 		binDirectory, commandEnvironment, asset,
-	); err != nil {
-		return err
+	); verifyErr != nil {
+		return verifyErr
 	}
 	currentRootInfo, err := runnerRoot.Lstat(upxRootName)
 	if err != nil || !os.SameFile(currentRootInfo, createdInfo) {

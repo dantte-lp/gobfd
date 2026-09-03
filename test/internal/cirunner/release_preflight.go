@@ -109,8 +109,10 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close repository preflight root", repositoryRoot.Close()))
 	}()
-	if err := validateRootPathIdentity(repositoryRoot, root, "repository root before release preflight"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		repositoryRoot, root, "repository root before release preflight",
+	); identityErr != nil {
+		return identityErr
 	}
 	receiptRoot, receipts, err := prepareReleaseReceipts(runnerTemp)
 	if err != nil {
@@ -226,11 +228,11 @@ func verifyReleaseGitIdentity(
 	}
 
 	tagRef := releaseGitRef{}
-	if err := runReleasePreflightJSON(ctx, runner, CommandSpec{
+	if tagRefErr := runReleasePreflightJSON(ctx, runner, CommandSpec{
 		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/tags/" + refName},
 		Dir: root, Env: environment,
-	}, "read annotated release tag ref", &tagRef, validateReleaseGitRefJSON); err != nil {
-		return "", err
+	}, "read annotated release tag ref", &tagRef, validateReleaseGitRefJSON); tagRefErr != nil {
+		return "", tagRefErr
 	}
 	tagObjectSHA, err := validateFullCommitSHA(tagRef.Object.SHA, "release tag object SHA")
 	if err != nil {
@@ -241,11 +243,11 @@ func verifyReleaseGitIdentity(
 	}
 
 	tagObject := releaseGitTag{}
-	if err := runReleasePreflightJSON(ctx, runner, CommandSpec{
+	if tagObjectErr := runReleasePreflightJSON(ctx, runner, CommandSpec{
 		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/tags/" + tagObjectSHA},
 		Dir: root, Env: environment,
-	}, "read annotated release tag object", &tagObject, validateReleaseGitTagJSON); err != nil {
-		return "", err
+	}, "read annotated release tag object", &tagObject, validateReleaseGitTagJSON); tagObjectErr != nil {
+		return "", tagObjectErr
 	}
 	tagSHA, err := validateFullCommitSHA(tagObject.SHA, "annotated tag object SHA")
 	if err != nil {
@@ -261,11 +263,11 @@ func verifyReleaseGitIdentity(
 	}
 
 	branchRef := releaseGitRef{}
-	if err := runReleasePreflightJSON(ctx, runner, CommandSpec{
+	if branchErr := runReleasePreflightJSON(ctx, runner, CommandSpec{
 		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/heads/" + releaseBranch},
 		Dir: root, Env: environment,
-	}, "read release branch ref", &branchRef, validateReleaseGitRefJSON); err != nil {
-		return "", err
+	}, "read release branch ref", &branchRef, validateReleaseGitRefJSON); branchErr != nil {
+		return "", branchErr
 	}
 	branchSHA, err := validateFullCommitSHA(branchRef.Object.SHA, "release branch head SHA")
 	if err != nil {
@@ -396,13 +398,13 @@ func writeRootedModeArtifact(
 		return fmt.Errorf("create temporary %s %s: %w", purpose, name, err)
 	}
 	defer func() {
-		if err := root.Remove(temporaryName); err != nil && !errors.Is(err, os.ErrNotExist) {
-			returnErr = errors.Join(returnErr, fmt.Errorf("remove temporary %s %s: %w", purpose, name, err))
+		if cleanupErr := root.Remove(temporaryName); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("remove temporary %s %s: %w", purpose, name, cleanupErr))
 		}
 	}()
-	if err := temporary.Chmod(mode.Perm()); err != nil {
+	if chmodErr := temporary.Chmod(mode.Perm()); chmodErr != nil {
 		return errors.Join(
-			fmt.Errorf("set temporary %s %s mode: %w", purpose, name, err),
+			fmt.Errorf("set temporary %s %s mode: %w", purpose, name, chmodErr),
 			wrapOptional("close temporary "+purpose+" "+name, temporary.Close()),
 		)
 	}
@@ -420,8 +422,8 @@ func writeRootedModeArtifact(
 			wrapOptional("close temporary "+purpose+" "+name, closeErr),
 		)
 	}
-	if err := root.Rename(temporaryName, name); err != nil {
-		return fmt.Errorf("publish %s %s: %w", purpose, name, err)
+	if renameErr := root.Rename(temporaryName, name); renameErr != nil {
+		return fmt.Errorf("publish %s %s: %w", purpose, name, renameErr)
 	}
 	info, err := root.Lstat(name)
 	if err != nil {

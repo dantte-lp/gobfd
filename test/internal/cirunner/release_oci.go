@@ -101,8 +101,8 @@ func ReleaseOCIEvidence(ctx context.Context, options ReleaseOCIEvidenceOptions) 
 		returnErr = errors.Join(returnErr, wrapOptional("close OCI digest receipt root", receiptRoot.Close()))
 	}()
 	const receiptName = "release-image-digests.txt"
-	if err := validateRootedRegularTarget(receiptRoot, receiptName, "OCI digest receipt"); err != nil {
-		return err
+	if targetErr := validateRootedRegularTarget(receiptRoot, receiptName, "OCI digest receipt"); targetErr != nil {
+		return targetErr
 	}
 
 	evidence, err := inspectReleaseOCIManifests(ctx, options.Runner, root, options.RefName, options.Environment)
@@ -407,15 +407,15 @@ func inspectReleaseOCIManifests(
 		if err != nil {
 			return nil, err
 		}
-		if err := validateStrictJSONDocument(data, "OCI manifest "+image); err != nil {
-			return nil, err
+		if validationErr := validateStrictJSONDocument(data, "OCI manifest "+image); validationErr != nil {
+			return nil, validationErr
 		}
-		if err := validateOCIManifestJSONFields(data, image); err != nil {
-			return nil, err
+		if fieldsErr := validateOCIManifestJSONFields(data, image); fieldsErr != nil {
+			return nil, fieldsErr
 		}
 		index := ociManifestIndex{}
-		if err := decodeJSONDocument(data, &index, "OCI manifest "+image); err != nil {
-			return nil, err
+		if decodeErr := decodeJSONDocument(data, &index, "OCI manifest "+image); decodeErr != nil {
+			return nil, decodeErr
 		}
 		item, err := validateOCIManifestIndex(image, index)
 		if err != nil {

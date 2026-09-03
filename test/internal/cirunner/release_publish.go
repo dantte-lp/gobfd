@@ -73,10 +73,10 @@ func PublishVerifiedRelease(ctx context.Context, options PublishVerifiedReleaseO
 	if err != nil {
 		return fmt.Errorf("open RUNNER_TEMP for release publication: %w", err)
 	}
-	if err := validatePromotionRoots(
+	if rootsErr := validatePromotionRoots(
 		verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "before publication checks",
-	); err != nil {
-		return err
+	); rootsErr != nil {
+		return rootsErr
 	}
 	receiptTagObject, err := readExpectedReleaseIdentityReceipts(runnerTemp, expectedCommit, releaseBranch)
 	if err != nil {
@@ -119,11 +119,11 @@ func PublishVerifiedRelease(ctx context.Context, options PublishVerifiedReleaseO
 		{Image: imageRepository + ":debian-trixie", Digest: versioned[0].Digest},
 		{Image: imageRepository + ":oraclelinux10", Digest: versioned[2].Digest},
 	}
-	if _, err := inspectReleaseOCIAliases(
+	if _, aliasesErr := inspectReleaseOCIAliases(
 		ctx, options.Runner, root, aliases,
 		withoutEnvironmentKeys(options.Environment, "GH_TOKEN", "GITHUB_TOKEN"),
-	); err != nil {
-		return err
+	); aliasesErr != nil {
+		return aliasesErr
 	}
 	actualTagObject, err := verifyReleaseGitIdentity(
 		ctx, options.Runner, root, owner, repository, options.RefName, releaseBranch, expectedCommit, options.Environment,
@@ -143,8 +143,8 @@ func PublishVerifiedRelease(ctx context.Context, options PublishVerifiedReleaseO
 	if err != nil {
 		return err
 	}
-	if err := validateStrictJSONDocument(draftData, "release draft before publication"); err != nil {
-		return err
+	if validationErr := validateStrictJSONDocument(draftData, "release draft before publication"); validationErr != nil {
+		return validationErr
 	}
 	remoteAssets, err := validateExactReleaseDraft(
 		draftData, options.RefName, owner+"/"+repository, releaseNotes, expectedAssets,

@@ -75,14 +75,20 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP release verification root", runnerTemp.Close()))
 	}()
-	if err := validateRootPathIdentity(verifierRoot, root, "release verifier root before verification"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		verifierRoot, root, "release verifier root before verification",
+	); identityErr != nil {
+		return identityErr
 	}
-	if err := validateRootPathIdentity(artifactRoot, artifactRootPath, "release artifact root before verification"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		artifactRoot, artifactRootPath, "release artifact root before verification",
+	); identityErr != nil {
+		return identityErr
 	}
-	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP before release verification"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		runnerTemp, runnerTempPath, "RUNNER_TEMP before release verification",
+	); identityErr != nil {
+		return identityErr
 	}
 
 	receiptTagObject, err := readExpectedReleaseIdentityReceipts(runnerTemp, expectedCommit, releaseBranch)
@@ -106,8 +112,8 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	if err != nil {
 		return err
 	}
-	if err := validateReleaseOCIDigestReceipt(digestReceipt, version); err != nil {
-		return err
+	if digestErr := validateReleaseOCIDigestReceipt(digestReceipt, version); digestErr != nil {
+		return digestErr
 	}
 	ociEvidence, err := inspectReleaseOCIManifests(
 		ctx, options.Runner, root, options.RefName, options.Environment,
@@ -144,8 +150,8 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	if err != nil {
 		return err
 	}
-	if err := validateStrictJSONDocument(draftData, "release draft"); err != nil {
-		return err
+	if validationErr := validateStrictJSONDocument(draftData, "release draft"); validationErr != nil {
+		return validationErr
 	}
 	remoteAssets, err := validateExactReleaseDraft(
 		draftData, options.RefName, owner+"/"+repository, releaseNotes, expectedAssets,
@@ -266,8 +272,10 @@ func validateExactReleaseDraft(
 		return nil, err
 	}
 	var isDraft *bool
-	if err := decodeJSONDocument(fields["isDraft"], &isDraft, "release draft state"); err != nil || isDraft == nil || !*isDraft {
-		return nil, fmt.Errorf("release is not an explicit draft: %w", errors.Join(err, errInvalidConfig))
+	if decodeErr := decodeJSONDocument(
+		fields["isDraft"], &isDraft, "release draft state",
+	); decodeErr != nil || isDraft == nil || !*isDraft {
+		return nil, fmt.Errorf("release is not an explicit draft: %w", errors.Join(decodeErr, errInvalidConfig))
 	}
 	tagName, err := decodeRequiredJSONString(fields["tagName"], "release draft tag")
 	if err != nil {
