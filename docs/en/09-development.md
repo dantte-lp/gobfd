@@ -460,6 +460,10 @@ calendar dates plus categorized entries in the exact current-to-previous
 `release-notes.md` through a repository-rooted Go 1.27 `os.Root`. `GH_TOKEN`
 is inherited by `gh` and never appears in arguments or output.
 
+The commit-pinned `anchore/sbom-action/download-syft` action owns PATH
+registration for the exact `v1.51.0` version input. The release workflow does
+not add a second shell wrapper or mutable Syft shim after that action.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

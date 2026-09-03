@@ -362,6 +362,20 @@ func TestReleaseWorkflowNotesUseOneGoCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesPinnedActionOwnedSyftPath(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	requireContractStrings(t, "release workflow Syft bootstrap", workflow, []string{
+		"      - name: Install Syft\n",
+		"        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0\n",
+		"          syft-version: v1.51.0\n",
+	})
+	if strings.Contains(workflow, "      - name: Add Syft to PATH\n") {
+		t.Error("release workflow retains redundant Syft PATH shell step")
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

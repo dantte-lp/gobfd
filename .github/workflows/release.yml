@@ -145,12 +145,6 @@ jobs:
         with:
           syft-version: v1.51.0
 
-      - name: Add Syft to PATH
-        run: |
-          mkdir -p "$RUNNER_TEMP/syft-bin"
-          ln -sf "${{ steps.syft.outputs.cmd }}" "$RUNNER_TEMP/syft-bin/syft"
-          echo "$RUNNER_TEMP/syft-bin" >> "$GITHUB_PATH"
-
       - name: Verify UPX prerequisite
         env:
           UPX_VERSION: "4.2.2"

@@ -473,6 +473,10 @@ GHCR JSON в Go и отклоняет существующий release или dr
 привязанный к корню репозитория. `GH_TOKEN` наследуется процессом `gh` и не
 попадает в аргументы или вывод.
 
+Commit-pinned action `anchore/sbom-action/download-syft` самостоятельно
+регистрирует PATH для точного version input `v1.51.0`. После action release
+workflow не добавляет второй shell-wrapper или изменяемый Syft shim.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в
