@@ -500,7 +500,7 @@ func lockDirectory() (string, error) {
 		}
 	}
 	lockDir := filepath.Join(base, fmt.Sprintf("gobfd-interop-%d.locks", uid))
-	//nolint:gosec // The parent is ownership-validated before this fixed child is created.
+	// #nosec G703 -- the parent is ownership-validated before this fixed child is created.
 	if err := os.Mkdir(lockDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return "", fmt.Errorf("create interop lock directory %s: %w", lockDir, err)
 	}
@@ -585,7 +585,8 @@ func validateOpenLockFile(path string, file *os.File) error {
 }
 
 func lstatInfo(path string) (os.FileInfo, *syscall.Stat_t, error) {
-	info, err := os.Lstat(path) //nolint:gosec // Callers validate ownership and type before mutation.
+	// #nosec G703 -- callers use this lstat result to validate ownership and type before mutation.
+	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("lstat %s: %w", path, err)
 	}
@@ -776,7 +777,7 @@ func (c *Controller) cleanup(ctx context.Context) error {
 		return removeErr
 	}
 	for _, id := range resources.networks {
-		//nolint:gosec // Absence is verified after best-effort removal.
+		// #nosec G104 -- the final exact-labelled resource query verifies absence after all bounded removals.
 		_, _ = c.podmanText(ctx, 30*time.Second, "network", "rm", "--", id)
 	}
 	remaining, err := c.queryProjectResources(ctx)
@@ -826,7 +827,7 @@ func (c *Controller) removeContainerSnapshot(ctx context.Context, ids []string) 
 		next := make([]string, 0, len(remaining))
 		progress := false
 		for _, id := range remaining {
-			//nolint:gosec // Existence is verified after each best-effort removal.
+			// #nosec G104 -- existence is verified immediately after each best-effort removal.
 			_, _ = c.podmanText(ctx, 30*time.Second, "rm", "-f", "--", id)
 			exists, err := c.containerExists(ctx, id)
 			if err != nil {

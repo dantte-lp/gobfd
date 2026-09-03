@@ -23,6 +23,7 @@ const (
 	ComposeVersion = "5.5.0"
 	composeBaseURL = "https://github.com/docker/compose/releases/download"
 	httpTimeout    = 5 * time.Minute
+	otherWriteBits = os.FileMode(0o022)
 )
 
 var (
@@ -31,6 +32,8 @@ var (
 	errInvalidDownload         = errors.New("invalid Docker Compose download")
 	errUnexpectedVersion       = errors.New("unexpected Docker Compose provider version")
 	errInvalidGitHubFile       = errors.New("invalid GitHub workflow environment file")
+	errUnsafeInstallDirectory  = errors.New("unsafe Compose install directory")
+	errTemporaryFileReplaced   = errors.New("temporary Compose provider replaced")
 )
 
 type composeAsset struct {
@@ -85,43 +88,243 @@ func InstallCompose(ctx context.Context, options ComposeOptions) (ComposeReport,
 	if options.InstallDir == "" || strings.ContainsAny(options.InstallDir, "\r\n") {
 		return ComposeReport{}, fmt.Errorf("docker Compose install directory %q: %w", options.InstallDir, os.ErrInvalid)
 	}
-	asset, err := composeAssetFor(runtime.GOARCH)
-	if err != nil {
-		return ComposeReport{}, err
+	if !filepath.IsAbs(options.InstallDir) {
+		return ComposeReport{}, fmt.Errorf("docker Compose install directory %q must be absolute: %w",
+			options.InstallDir, errUnsafeInstallDirectory)
 	}
-	//nolint:gosec // Executables require a traversable user-local or system bin directory.
-	if mkdirErr := os.MkdirAll(options.InstallDir, 0o755); mkdirErr != nil {
-		return ComposeReport{}, fmt.Errorf("create Compose install directory: %w", mkdirErr)
+	asset, assetErr := composeAssetFor(runtime.GOARCH)
+	if assetErr != nil {
+		return ComposeReport{}, assetErr
 	}
-	temporary, err := os.CreateTemp(options.InstallDir, ".docker-compose-*")
-	if err != nil {
-		return ComposeReport{}, fmt.Errorf("create temporary Compose provider: %w", err)
+	installDir, directoryErr := prepareComposeInstallDirectory(options.InstallDir)
+	if directoryErr != nil {
+		return ComposeReport{}, directoryErr
 	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	installRoot, rootErr := os.OpenRoot(installDir)
+	if rootErr != nil {
+		return ComposeReport{}, fmt.Errorf("open Compose install directory root: %w", rootErr)
+	}
+	if identityErr := validateComposeInstallRoot(installRoot, installDir); identityErr != nil {
+		return ComposeReport{}, errors.Join(identityErr, wrapComposeCleanupError("close install root", installRoot.Close()))
+	}
+	temporary, createErr := os.CreateTemp(installDir, ".docker-compose-*")
+	if createErr != nil {
+		return ComposeReport{}, errors.Join(
+			fmt.Errorf("create temporary Compose provider: %w", createErr),
+			wrapComposeCleanupError("close install root", installRoot.Close()),
+		)
+	}
+	temporaryName := filepath.Base(temporary.Name())
+	temporaryInfo, statErr := temporary.Stat()
+	if statErr != nil {
+		return ComposeReport{}, abortComposeInstall(installRoot, temporary, temporaryName, nil,
+			fmt.Errorf("stat temporary Compose provider: %w", statErr))
+	}
 	if downloadErr := downloadCompose(ctx, options.Version, asset, temporary); downloadErr != nil {
-		return ComposeReport{}, errors.Join(downloadErr, temporary.Close())
+		return ComposeReport{}, abortComposeInstall(installRoot, temporary, temporaryName, temporaryInfo, downloadErr)
 	}
-	if finalizeErr := errors.Join(temporary.Sync(), temporary.Close()); finalizeErr != nil {
-		return ComposeReport{}, fmt.Errorf("finalize temporary Compose provider: %w", finalizeErr)
+	if syncErr := temporary.Sync(); syncErr != nil {
+		return ComposeReport{}, abortComposeInstall(installRoot, temporary, temporaryName, temporaryInfo,
+			fmt.Errorf("sync temporary Compose provider: %w", syncErr))
 	}
-	//nolint:gosec // The checksum-verified provider must be executable by CI and development users.
-	if chmodErr := os.Chmod(temporaryPath, 0o755); chmodErr != nil {
-		return ComposeReport{}, fmt.Errorf("set Compose provider mode: %w", chmodErr)
+	// #nosec G302 -- this descriptor identifies the checksum-verified provider and must become executable.
+	if chmodErr := temporary.Chmod(0o755); chmodErr != nil {
+		return ComposeReport{}, abortComposeInstall(installRoot, temporary, temporaryName, temporaryInfo,
+			fmt.Errorf("set Compose provider mode: %w", chmodErr))
 	}
-	actual, err := commandOutput(ctx, temporaryPath, []string{"version", "--short"}, nil)
-	if err != nil {
-		return ComposeReport{}, fmt.Errorf("verify temporary Compose provider: %w", err)
+	if closeErr := temporary.Close(); closeErr != nil {
+		return ComposeReport{}, failClosedComposeInstall(installRoot, temporaryName, temporaryInfo,
+			fmt.Errorf("close temporary Compose provider: %w", closeErr),
+		)
+	}
+	verified, openErr := installRoot.Open(temporaryName)
+	if openErr != nil {
+		return ComposeReport{}, failClosedComposeInstall(installRoot, temporaryName, temporaryInfo,
+			fmt.Errorf("open verified Compose provider: %w", openErr))
+	}
+	verifiedInfo, verifiedStatErr := verified.Stat()
+	if verifiedStatErr != nil || !os.SameFile(temporaryInfo, verifiedInfo) {
+		identityErr := errors.Join(verifiedStatErr, errTemporaryFileReplaced)
+		return ComposeReport{}, failOpenComposeInstall(installRoot, verified, temporaryName, temporaryInfo,
+			fmt.Errorf("bind verified Compose provider inode: %w", identityErr))
+	}
+	actual, commandErr := commandFileOutput(ctx, verified, []string{"version", "--short"}, nil)
+	if commandErr != nil {
+		return ComposeReport{}, failOpenComposeInstall(installRoot, verified, temporaryName, temporaryInfo,
+			fmt.Errorf("verify temporary Compose provider: %w", commandErr),
+		)
 	}
 	if actual != options.Version {
-		return ComposeReport{}, fmt.Errorf("docker Compose provider version %s, want %s: %w",
-			actual, options.Version, errUnexpectedVersion)
+		return ComposeReport{}, failOpenComposeInstall(installRoot, verified, temporaryName, temporaryInfo,
+			fmt.Errorf("docker Compose provider version %s, want %s: %w",
+				actual, options.Version, errUnexpectedVersion),
+		)
 	}
-	target := filepath.Join(options.InstallDir, "docker-compose")
-	if err := os.Rename(temporaryPath, target); err != nil {
-		return ComposeReport{}, fmt.Errorf("install Compose provider: %w", err)
+	const targetName = "docker-compose"
+	if renameErr := installRoot.Rename(temporaryName, targetName); renameErr != nil {
+		return ComposeReport{}, failOpenComposeInstall(installRoot, verified, temporaryName, temporaryInfo,
+			fmt.Errorf("install Compose provider: %w", renameErr),
+		)
 	}
+	publishedInfo, publishedErr := installRoot.Stat(targetName)
+	if publishedErr != nil || !os.SameFile(temporaryInfo, publishedInfo) {
+		return ComposeReport{}, errors.Join(
+			fmt.Errorf("verify published Compose provider inode: %w",
+				errors.Join(publishedErr, errTemporaryFileReplaced)),
+			wrapComposeCleanupError("close verified Compose provider", verified.Close()),
+			wrapComposeCleanupError("close install root", installRoot.Close()),
+		)
+	}
+	if closeErr := verified.Close(); closeErr != nil {
+		return ComposeReport{}, errors.Join(
+			fmt.Errorf("close verified Compose provider: %w", closeErr),
+			wrapComposeCleanupError("close install root", installRoot.Close()),
+		)
+	}
+	if closeErr := installRoot.Close(); closeErr != nil {
+		return ComposeReport{}, fmt.Errorf("close install root: %w", closeErr)
+	}
+	target := filepath.Join(installDir, targetName)
 	return ComposeReport{Path: target, Version: actual}, nil
+}
+
+func prepareComposeInstallDirectory(path string) (string, error) {
+	cleaned := filepath.Clean(path)
+	current := string(filepath.Separator)
+	components := strings.Split(strings.TrimPrefix(cleaned, current), current)
+	for index, component := range components {
+		if component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := prepareComposeDirectoryComponent(current)
+		if err != nil {
+			return "", err
+		}
+		validationErr := validateComposeDirectoryComponent(current, info, index == len(components)-1)
+		if validationErr != nil {
+			return "", validationErr
+		}
+	}
+	return cleaned, nil
+}
+
+func prepareComposeDirectoryComponent(path string) (os.FileInfo, error) {
+	// #nosec G703 -- the component is derived from the absolute install directory and inspected before use.
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		// #nosec G703 -- all existing ancestors were validated before creating this single component.
+		if mkdirErr := os.Mkdir(path, 0o750); mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
+			return nil, fmt.Errorf("create Compose install directory component %s: %w", path, mkdirErr)
+		}
+		// #nosec G703 -- a concurrent creator is accepted only after ownership and mode validation by the caller.
+		info, err = os.Lstat(path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect Compose install directory component %s: %w", path, err)
+	}
+	return info, nil
+}
+
+func validateComposeDirectoryComponent(path string, info os.FileInfo, final bool) error {
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("compose install directory component %s is not a real directory: %w",
+			path, errUnsafeInstallDirectory)
+	}
+	trustedOwner, currentOwner := composeDirectoryOwnership(info)
+	if !trustedOwner {
+		return fmt.Errorf("compose install directory component %s has an untrusted owner: %w",
+			path, errUnsafeInstallDirectory)
+	}
+	writableByOthers := info.Mode().Perm()&otherWriteBits != 0
+	if final && !currentOwner {
+		return fmt.Errorf("compose install directory %s is not owned by the current user: %w",
+			path, errUnsafeInstallDirectory)
+	}
+	if writableByOthers && (final || info.Mode()&os.ModeSticky == 0) {
+		return fmt.Errorf("compose install directory component %s has unsafe mode %o: %w",
+			path, info.Mode().Perm(), errUnsafeInstallDirectory)
+	}
+	return nil
+}
+
+func validateComposeInstallRoot(root *os.Root, path string) error {
+	rootInfo, rootErr := root.Stat(".")
+	// #nosec G703 -- the absolute path was prepared without symlink traversal and is compared with the opened root.
+	pathInfo, pathErr := os.Lstat(path)
+	if err := errors.Join(rootErr, pathErr); err != nil {
+		return fmt.Errorf("bind Compose install directory root: %w", err)
+	}
+	if !os.SameFile(rootInfo, pathInfo) {
+		return fmt.Errorf("compose install directory changed identity: %w", errUnsafeInstallDirectory)
+	}
+	return nil
+}
+
+func abortComposeInstall(
+	root *os.Root,
+	temporary *os.File,
+	name string,
+	expected os.FileInfo,
+	cause error,
+) error {
+	return errors.Join(
+		cause,
+		wrapComposeCleanupError("close temporary Compose provider", temporary.Close()),
+		removeComposeTemporary(root, name, expected),
+		wrapComposeCleanupError("close install root", root.Close()),
+	)
+}
+
+func failOpenComposeInstall(
+	root *os.Root,
+	verified *os.File,
+	name string,
+	expected os.FileInfo,
+	cause error,
+) error {
+	return errors.Join(
+		cause,
+		wrapComposeCleanupError("close verified Compose provider", verified.Close()),
+		removeComposeTemporary(root, name, expected),
+		wrapComposeCleanupError("close install root", root.Close()),
+	)
+}
+
+func failClosedComposeInstall(root *os.Root, name string, expected os.FileInfo, cause error) error {
+	return errors.Join(
+		cause,
+		removeComposeTemporary(root, name, expected),
+		wrapComposeCleanupError("close install root", root.Close()),
+	)
+}
+
+func removeComposeTemporary(root *os.Root, name string, expected os.FileInfo) error {
+	if expected == nil {
+		return fmt.Errorf("refuse to remove unverified temporary Compose provider %s: %w",
+			name, errTemporaryFileReplaced)
+	}
+	info, statErr := root.Lstat(name)
+	if statErr != nil {
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("inspect temporary Compose provider: %w", statErr)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(expected, info) {
+		return fmt.Errorf("temporary Compose provider %s changed identity: %w", name, errTemporaryFileReplaced)
+	}
+	if removeErr := root.Remove(name); removeErr != nil {
+		return fmt.Errorf("remove temporary Compose provider: %w", removeErr)
+	}
+	return nil
+}
+
+func wrapComposeCleanupError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", action, err)
 }
 
 // SetupPodmanRuntime ensures Podman is present, installs the verified Compose

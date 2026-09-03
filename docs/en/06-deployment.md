@@ -186,6 +186,15 @@ export DOCKER_BUILDKIT=0
 podman compose version
 ```
 
+The bootstrap command lexically canonicalizes an absolute install path before
+using it and accepts only a path made entirely of real directories. The final
+directory must be owned by the current user and must not be group- or
+world-writable. Ancestors must be owned by root or the current user; writable
+ancestors are accepted only when protected by the sticky bit. The
+downloaded provider stays bound to its original file identity through checksum
+verification, execution, and atomic publication, and cleanup refuses to remove
+a replacement inode.
+
 `DOCKER_BUILDKIT=0` keeps builds on the Podman-compatible classic Docker API;
 Docker Buildx/Bake is not part of the repository's Podman runtime.
 

@@ -57,13 +57,30 @@ func commandOutput(ctx context.Context, name string, arguments, environment []st
 			return "", err
 		}
 	}
-	// #nosec G204 -- path is either the checksum-verified Compose file or a fixed allowlisted executable.
+	return executeOutput(ctx, path, name, arguments, environment, nil)
+}
+
+func commandFileOutput(ctx context.Context, file *os.File, arguments, environment []string) (string, error) {
+	if file == nil {
+		return "", fmt.Errorf("run nil Compose provider descriptor: %w", os.ErrInvalid)
+	}
+	return executeOutput(ctx, "/proc/self/fd/3", file.Name(), arguments, environment, []*os.File{file})
+}
+
+func executeOutput(
+	ctx context.Context,
+	path, displayName string,
+	arguments, environment []string,
+	extraFiles []*os.File,
+) (string, error) {
+	// #nosec G204 -- path is fixed /proc/self/fd/3 or resolved from the command allowlist.
 	command := exec.CommandContext(ctx, path, arguments...)
 	command.Env = environment
+	command.ExtraFiles = extraFiles
 	command.WaitDelay = commandWaitDelay
 	output, err := command.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("run %s %s; output=%s: %w", name, strings.Join(arguments, " "),
+		return "", fmt.Errorf("run %s %s; output=%s: %w", displayName, strings.Join(arguments, " "),
 			strings.TrimSpace(string(output)), err)
 	}
 	return strings.TrimSpace(string(output)), nil

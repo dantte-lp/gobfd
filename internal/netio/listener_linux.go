@@ -4,6 +4,7 @@ package netio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -20,8 +21,14 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 	if cfg.ReadBufferSize > 0 {
 		if setter, ok := conn.(interface{ SetReadBuffer(bytes int) error }); ok {
 			if err := setter.SetReadBuffer(cfg.ReadBufferSize); err != nil {
-				_ = conn.Close() //nolint:gosec // G104: already returning primary error
-				return nil, fmt.Errorf("set read buffer to %d: %w", cfg.ReadBufferSize, err)
+				closeErr := conn.Close()
+				if closeErr != nil {
+					closeErr = fmt.Errorf("close listener after read buffer failure: %w", closeErr)
+				}
+				return nil, errors.Join(
+					fmt.Errorf("set read buffer to %d: %w", cfg.ReadBufferSize, err),
+					closeErr,
+				)
 			}
 		}
 	}
