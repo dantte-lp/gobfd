@@ -45,24 +45,7 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 			t.Parallel()
 
 			workflow := readContractFile(t, test.workflow)
-			step := namedWorkflowStep(t, workflow, test.step)
-			wantRun := "        run: " + test.command + "\n"
-			if strings.Count(step, wantRun) != 1 {
-				t.Errorf("workflow step %q must contain exactly one %q", test.step, strings.TrimSpace(wantRun))
-			}
-			if got := strings.Count(step, "\n        run:"); got != 1 {
-				t.Errorf("workflow step %q has %d run programs, want exactly one", test.step, got)
-			}
-			for _, marker := range test.required {
-				if !strings.Contains(step, marker) {
-					t.Errorf("workflow step %q lacks required marker %q", test.step, marker)
-				}
-			}
-			for _, marker := range test.forbidden {
-				if strings.Contains(step, marker) {
-					t.Errorf("workflow step %q retains old shell marker %q", test.step, marker)
-				}
-			}
+			assertWorkflowStep(t, workflow, test.step, test.command, test.required, test.forbidden, "old shell marker")
 		})
 	}
 }
@@ -109,24 +92,7 @@ func TestCIWorkflowSupplyChainAndProtoStepsUseOneGoCommand(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			step := namedWorkflowStep(t, workflow, test.step)
-			wantRun := "        run: " + test.command + "\n"
-			if strings.Count(step, wantRun) != 1 {
-				t.Errorf("workflow step %q must contain exactly one %q", test.step, strings.TrimSpace(wantRun))
-			}
-			if got := strings.Count(step, "\n        run:"); got != 1 {
-				t.Errorf("workflow step %q has %d run programs, want exactly one", test.step, got)
-			}
-			for _, marker := range test.required {
-				if !strings.Contains(step, marker) {
-					t.Errorf("workflow step %q lacks required marker %q", test.step, marker)
-				}
-			}
-			for _, marker := range test.forbidden {
-				if strings.Contains(step, marker) {
-					t.Errorf("workflow step %q retains old shell marker %q", test.step, marker)
-				}
-			}
+			assertWorkflowStep(t, workflow, test.step, test.command, test.required, test.forbidden, "old shell marker")
 		})
 	}
 }
@@ -196,24 +162,7 @@ func TestCIWorkflowResidualShellStepsUseOneGoCommand(t *testing.T) {
 			t.Parallel()
 
 			workflow := readContractFile(t, test.workflow)
-			step := namedWorkflowStep(t, workflow, test.step)
-			wantRun := "        run: " + test.command + "\n"
-			if strings.Count(step, wantRun) != 1 {
-				t.Errorf("workflow step %q must contain exactly one %q", test.step, strings.TrimSpace(wantRun))
-			}
-			if got := strings.Count(step, "\n        run:"); got != 1 {
-				t.Errorf("workflow step %q has %d run programs, want exactly one", test.step, got)
-			}
-			for _, marker := range test.required {
-				if !strings.Contains(step, marker) {
-					t.Errorf("workflow step %q lacks required marker %q", test.step, marker)
-				}
-			}
-			for _, marker := range test.forbidden {
-				if strings.Contains(step, marker) {
-					t.Errorf("workflow step %q retains shell marker %q", test.step, marker)
-				}
-			}
+			assertWorkflowStep(t, workflow, test.step, test.command, test.required, test.forbidden, "shell marker")
 		})
 	}
 }
@@ -621,4 +570,32 @@ func namedWorkflowStep(t *testing.T, workflow, name string) string {
 		return rest[:len(marker)+end]
 	}
 	return rest
+}
+
+func assertWorkflowStep(
+	t *testing.T,
+	workflow, name, command string,
+	required, forbidden []string,
+	forbiddenKind string,
+) {
+	t.Helper()
+
+	step := namedWorkflowStep(t, workflow, name)
+	wantRun := "        run: " + command + "\n"
+	if strings.Count(step, wantRun) != 1 {
+		t.Errorf("workflow step %q must contain exactly one %q", name, strings.TrimSpace(wantRun))
+	}
+	if got := strings.Count(step, "\n        run:"); got != 1 {
+		t.Errorf("workflow step %q has %d run programs, want exactly one", name, got)
+	}
+	for _, marker := range required {
+		if !strings.Contains(step, marker) {
+			t.Errorf("workflow step %q lacks required marker %q", name, marker)
+		}
+	}
+	for _, marker := range forbidden {
+		if strings.Contains(step, marker) {
+			t.Errorf("workflow step %q retains %s %q", name, forbiddenKind, marker)
+		}
+	}
 }
