@@ -81,7 +81,14 @@ func secureReportDirectory(root, reportPath string) (string, string, error) {
 		return "", "", fmt.Errorf("create exclusive %s report directory: %w", reportPath, err)
 	}
 	if err := os.Chmod(reportDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("secure %s report directory: %w", reportPath, err)
+		secureErr := fmt.Errorf("secure %s report directory: %w", reportPath, err)
+		if removeErr := os.Remove(reportDir); removeErr != nil {
+			return "", "", errors.Join(
+				secureErr,
+				fmt.Errorf("remove unsecured %s report directory %s: %w", reportPath, reportDir, removeErr),
+			)
+		}
+		return "", "", secureErr
 	}
 	return filepath.Base(reportDir), reportDir, nil
 }

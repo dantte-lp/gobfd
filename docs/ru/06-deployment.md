@@ -185,10 +185,10 @@ Docker Buildx/Bake не входит в runtime-контракт проекта.
 
 ```bash
 # Запуск среды разработки
-podman compose -f deployments/compose/compose.dev.yml up -d --build
+make up
 
-# Запуск отдельной команды в контейнере разработки
-podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
+# Запуск отдельного теста через управляемый Make Compose project
+make test-run RUN=TestFSMTransition PKG=./internal/bfd
 ```
 
 Четыре testcontainers gate с отчётами используют Go-owned binary `e2ectl`,

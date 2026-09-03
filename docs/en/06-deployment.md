@@ -195,10 +195,10 @@ Docker Buildx/Bake is not part of the repository's Podman runtime.
 
 ```bash
 # Start development environment
-podman compose -f deployments/compose/compose.dev.yml up -d --build
+make up
 
-# Run a targeted command in the dev container
-podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
+# Run a targeted test through the Make-owned Compose project
+make test-run RUN=TestFSMTransition PKG=./internal/bfd
 
 # Build and test through the repository targets
 make build && make test

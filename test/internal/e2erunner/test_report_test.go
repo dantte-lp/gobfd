@@ -8,18 +8,22 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec" //nolint:depguard // The subprocess isolates the process-global umask regression.
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
 const (
-	fakeGoEnabled = "GOBFD_E2ERUNNER_FAKE_GO"
-	fakeGoCapture = "GOBFD_E2ERUNNER_FAKE_GO_CAPTURE"
-	fakeGoExit    = "GOBFD_E2ERUNNER_FAKE_GO_EXIT"
-	fakeGoOutput  = "fake go test output\n"
+	fakeGoEnabled  = "GOBFD_E2ERUNNER_FAKE_GO"
+	fakeGoCapture  = "GOBFD_E2ERUNNER_FAKE_GO_CAPTURE"
+	fakeGoExit     = "GOBFD_E2ERUNNER_FAKE_GO_EXIT"
+	fakeGoSilent   = "GOBFD_E2ERUNNER_FAKE_GO_SILENT"
+	fakeGoOutput   = "fake go test output\n"
+	secureFilePath = "GOBFD_E2ERUNNER_SECURE_FILE_PATH"
 )
 
 type fakeGoInvocation struct {
@@ -28,11 +32,25 @@ type fakeGoInvocation struct {
 }
 
 func TestMain(m *testing.M) {
+	if path := os.Getenv(secureFilePath); path != "" {
+		runSecureFileHelper(path)
+		return
+	}
 	if os.Getenv(fakeGoEnabled) == "1" {
 		runFakeGo()
 		return
 	}
 	os.Exit(m.Run())
+}
+
+func TestSecureFileEnforcesModeUnderRestrictiveUmask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "artifact")
+	command := exec.CommandContext(t.Context(), os.Args[0])
+	command.Env = append(os.Environ(), secureFilePath+"="+path)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("run secure-file subprocess: %v: %s", err, output)
+	}
+	requireMode(t, path, 0o600)
 }
 
 func TestReportTargetsRunFixedGoTestsWithSecureArtifacts(t *testing.T) {
@@ -136,6 +154,7 @@ func TestReportTargetPreservesGoTestExitCode(t *testing.T) {
 	t.Setenv(fakeGoEnabled, "1")
 	t.Setenv(fakeGoCapture, filepath.Join(t.TempDir(), "invocation.json"))
 	t.Setenv(fakeGoExit, "23")
+	t.Setenv(fakeGoSilent, "1")
 
 	err := Run(context.Background(), t.TempDir(), []string{"core"}, &bytes.Buffer{}, &bytes.Buffer{})
 	var exitErr *ExitError
@@ -144,6 +163,24 @@ func TestReportTargetPreservesGoTestExitCode(t *testing.T) {
 	}
 	if exitErr.Code != 23 {
 		t.Errorf("ExitError.Code = %d, want 23", exitErr.Code)
+	}
+}
+
+func TestReportTargetRejectsSilentSuccess(t *testing.T) {
+	fakeGo := installFakeGo(t)
+	t.Setenv("PATH", filepath.Dir(fakeGo)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(fakeGoEnabled, "1")
+	t.Setenv(fakeGoCapture, filepath.Join(t.TempDir(), "invocation.json"))
+	t.Setenv(fakeGoSilent, "1")
+
+	err := Run(context.Background(), t.TempDir(), []string{"core"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("Run(core) accepted successful go test with empty report artifacts")
+	}
+	for _, name := range []string{goTestJSONName, goTestLogName} {
+		if !strings.Contains(err.Error(), name+" is empty") {
+			t.Errorf("Run(core) error = %q, want empty %s context", err, name)
+		}
 	}
 }
 
@@ -178,12 +215,27 @@ func runFakeGo() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(125)
 	}
-	fmt.Print(fakeGoOutput)
+	if os.Getenv(fakeGoSilent) != "1" {
+		fmt.Print(fakeGoOutput)
+	}
 	code, err := strconv.Atoi(os.Getenv(fakeGoExit))
 	if err == nil {
 		os.Exit(code)
 	}
 	if os.Getenv(fakeGoExit) != "" {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(125)
+	}
+	os.Exit(0)
+}
+
+func runSecureFileHelper(path string) {
+	syscall.Umask(0o777)
+	file, err := secureFile(path)
+	if err == nil {
+		err = file.Close()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(125)
 	}

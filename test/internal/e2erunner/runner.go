@@ -39,6 +39,7 @@ const (
 var (
 	projectNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	errUsage           = errors.New("invalid e2ectl usage")
+	errEmptyArtifact   = errors.New("artifact is empty")
 )
 
 // ExitError preserves the exit status of a failed E2E producer.
@@ -437,12 +438,19 @@ func (r *runner) loggedCommandEnvironment(
 	}
 	logFile, err := secureFile(filepath.Join(r.reportDir, goTestLogName))
 	if err != nil {
-		return errors.Join(err, jsonFile.Close())
+		return errors.Join(err, closeArtifact(jsonFile))
 	}
 	runErr := r.commandEnvironment(
 		ctx, timeout, io.MultiWriter(r.stdout, jsonFile, logFile), r.stderr, environment, argv...,
 	)
-	return errors.Join(runErr, jsonFile.Close(), logFile.Close())
+	closeErr := errors.Join(closeArtifact(jsonFile), closeArtifact(logFile))
+	var validationErr error
+	if runErr == nil {
+		validationErr = errors.Join(
+			validateNonemptyArtifact(jsonFile.Name()), validateNonemptyArtifact(logFile.Name()),
+		)
+	}
+	return errors.Join(runErr, closeErr, validationErr)
 }
 
 func (r *runner) command(
@@ -520,7 +528,31 @@ func secureFile(path string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create artifact %s: %w", path, err)
 	}
+	if err := file.Chmod(0o600); err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("set artifact %s mode to 0600: %w", path, err),
+			closeArtifact(file),
+		)
+	}
 	return file, nil
+}
+
+func closeArtifact(file *os.File) error {
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close artifact %s: %w", file.Name(), err)
+	}
+	return nil
+}
+
+func validateNonemptyArtifact(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("inspect artifact %s: %w", path, err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("%s is empty: %w", filepath.Base(path), errEmptyArtifact)
+	}
+	return nil
 }
 
 func (r *runner) writeJSON(name string, value any) error {

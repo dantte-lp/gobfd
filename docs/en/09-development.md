@@ -86,11 +86,11 @@ The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
 the current checkout directory name. Parallel worktrees use distinct default
 project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 
-There is no interactive Make shell target. Run a specific non-interactive
-command explicitly, for example:
+There is no interactive Make shell target. Use the Make-owned project routing
+for a specific non-interactive test, for example:
 
 ```bash
-podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
+make test-run RUN=TestFSMTransition PKG=./internal/bfd
 ```
 
 #### Lifecycle

@@ -90,11 +90,11 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 умолчанию равен имени директории текущего checkout. Parallel worktrees
 используют разные default project names или явно задают `COMPOSE_PROJECT_NAME`.
 
-Интерактивной Make-цели для shell нет. Нужную неинтерактивную команду следует
-запускать явно, например:
+Интерактивной Make-цели для shell нет. Для отдельного неинтерактивного теста
+следует использовать управляемую Make маршрутизацию Compose project, например:
 
 ```bash
-podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
+make test-run RUN=TestFSMTransition PKG=./internal/bfd
 ```
 
 #### Жизненный цикл
