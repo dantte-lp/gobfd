@@ -130,15 +130,13 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
 			"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
 			"        run: go run ./test/cmd/cictl release-evidence\n",
+		"      - name: Verify exact release draft\n" +
+			"        working-directory: .release-verifier\n" +
+			"        env:\n" +
+			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
+			"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
+			"        run: go run ./test/cmd/cictl release-verify\n",
 		"Refuse existing release, draft, or versioned OCI tag",
-		"Verify exact release draft",
-		"expected-release-assets.txt",
-		"expected-release-tag-object.txt",
-		"expected-checksummed-assets.txt",
-		"release-image-digests.txt",
-		"release-evidence-checksums.txt",
-		"gh release download \"$GITHUB_REF_NAME\"",
-		"sha256sum --check --strict checksums.txt",
 		"Promote verified OCI aliases",
 		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
 	})

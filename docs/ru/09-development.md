@@ -538,6 +538,30 @@ identity source и staging root и содержимое всех трёх фай
 проверяются непосредственно до и после загрузки в draft, в том числе при
 ошибке `gh`.
 
+`cictl release-verify` заменяет shell-проверку release draft и запускается из
+того же immutable verifier checkout. До любой загрузки команда повторно
+проверяет checkout, объект annotated tag, целевой commit, release branch, три
+receipt версионированных OCI index, tag/body draft и точный список из 12
+assets. Затем она создаёт новый каталог режима `0700` под root `RUNNER_TEMP`,
+identity которого зафиксирован, и вызывает документированный фиксированный
+argv `gh release download <tag> --repo <owner/repository> --dir <directory>`
+без overwrite- или skip-флагов. Скачанные entries обязаны быть точным
+ограниченным набором непустых обычных файлов; при ошибке cleanup обходит только
+открытый root после доказательства владения через `SameFile` и никогда не
+удаляет replacement pathname.
+
+Эта же команда разбирает в Go канонические основной и дополнительный наборы
+SHA-256 и хеширует rooted snapshots файлов. Два CycloneDX-документа и reports
+archive семантически проверяются из тех же хешированных байтов, без повторного
+открытия paths. Скачанные OCI digest и supplemental checksum receipts обязаны
+побайтово совпадать с локальными evidence. CycloneDX JSON отклоняет invalid
+UTF-8, duplicate или неканонические contract fields и trailing data и требует
+непустые metadata и components. Gzip/tar parser отклоняет дополнительные gzip
+members, trailing data, unsafe или duplicate paths, links и special entries;
+обязательны явный каталог `reports/` и ограниченные regular descendants.
+Только `gh` наследует GitHub tokens; Git и Docker получают явно очищенное от
+токенов окружение.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в

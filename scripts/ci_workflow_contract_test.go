@@ -485,6 +485,34 @@ func TestReleaseWorkflowUsesOneGoOwnedEvidenceUploadCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesOneGoOwnedDraftVerificationCommand(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	step := namedWorkflowStep(t, workflow, "Verify exact release draft")
+	for _, marker := range []string{
+		"        working-directory: .release-verifier\n",
+		"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n",
+		"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+		"        run: go run ./test/cmd/cictl release-verify\n",
+	} {
+		if !strings.Contains(step, marker) {
+			t.Errorf("release draft verification step lacks immutable verifier marker %q", marker)
+		}
+	}
+	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-verify\n"); got != 1 {
+		t.Errorf("release draft verification command count = %d, want 1", got)
+	}
+	for _, marker := range []string{
+		"run: |", "jq ", "awk ", "grep ", "find ", "diff ", "sha256sum", "tar ",
+		"gh release download", "docker buildx imagetools inspect",
+	} {
+		if strings.Contains(step, marker) {
+			t.Errorf("release draft verification step retains shell-owned marker %q", marker)
+		}
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

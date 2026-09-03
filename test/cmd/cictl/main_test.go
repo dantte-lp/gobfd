@@ -188,6 +188,18 @@ func TestRunDispatchesReleaseEvidenceFromWorkflowEnvironment(t *testing.T) {
 	}
 }
 
+func TestRunDispatchesReleaseVerifyFromImmutableVerifierEnvironment(t *testing.T) {
+	t.Parallel()
+
+	err := run(context.Background(), []string{"release-verify"}, dependencies{
+		getenv: func(string) string { return "" },
+		getwd:  func() (string, error) { return t.TempDir(), nil },
+	})
+	if err == nil || strings.Contains(err.Error(), "unknown CI command") {
+		t.Fatalf("run(release-verify) error = %v, want dispatched verifier environment validation", err)
+	}
+}
+
 func TestRunReleaseBuildReadsTagAndSHA(t *testing.T) {
 	t.Parallel()
 

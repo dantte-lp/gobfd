@@ -521,6 +521,29 @@ never uses `--clobber`; source and staging root identity and all three file
 contents are revalidated immediately before and after the draft upload, even
 when `gh` reports an error.
 
+`cictl release-verify` replaces the release draft verification shell and runs
+from the same immutable verifier checkout. It revalidates the checkout,
+annotated tag object, target commit, release branch, three versioned OCI index
+receipts, draft tag/body, and the exact 12-name asset inventory before any
+download. It creates a new mode `0700` directory under the identity-bound
+`RUNNER_TEMP` root and invokes the documented fixed
+`gh release download <tag> --repo <owner/repository> --dir <directory>` argv
+without overwrite or skip flags. Downloaded entries must be the exact bounded
+set of nonempty regular files; failure cleanup traverses only the opened root
+after `SameFile` ownership proof and never removes a replacement pathname.
+
+The same command parses the canonical main and supplemental SHA-256 record
+sets in Go and hashes rooted file snapshots. The two CycloneDX documents and
+the reports archive are semantically validated from those same hashed byte
+snapshots rather than reopened paths. Downloaded OCI digest and supplemental
+checksum receipts must equal the local evidence byte-for-byte. CycloneDX JSON
+rejects invalid UTF-8, duplicate or noncanonical contract fields, and trailing
+data, and requires nonempty metadata and components. The gzip/tar parser
+rejects additional gzip members, trailing data, unsafe or duplicate paths,
+links and special entries; it requires an explicit `reports/` directory and
+bounded regular descendants. Only `gh` inherits GitHub tokens; Git and Docker
+receive an explicitly token-stripped environment.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

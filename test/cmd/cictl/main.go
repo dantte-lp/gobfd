@@ -64,7 +64,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
-				"release-upx|release-artifacts|release-oci-evidence|release-evidence}: %w",
+				"release-upx|release-artifacts|release-oci-evidence|release-evidence|release-verify}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -120,9 +120,29 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runReleaseOCIEvidence(ctx, arguments[1:], deps)
 	case "release-evidence":
 		return runReleaseEvidence(ctx, arguments[1:], deps)
+	case "release-verify":
+		return runReleaseVerify(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleaseVerify(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-verify", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release verifier root: %w", err)
+	}
+	if err := cirunner.VerifyReleaseDraft(ctx, cirunner.VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify exact release draft: %w", err)
+	}
+	return nil
 }
 
 func runReleaseEvidence(ctx context.Context, arguments []string, deps dependencies) error {
