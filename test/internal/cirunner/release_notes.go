@@ -73,38 +73,13 @@ func ReleaseNotes(ctx context.Context, options ReleaseNotesOptions) (returnErr e
 	); writeErr != nil {
 		return writeErr
 	}
-
-	response, err := runReleasePreflightCommand(ctx, options.Runner, CommandSpec{
-		Name: "gh",
-		Args: []string{
-			"api", "--paginate", "repos/" + owner + "/" + repository + "/releases?per_page=100", "--slurp",
-		},
-		Dir: root,
-	}, "list published releases for release notes")
+	notes, err := buildReleaseNotes(ctx, options.Runner, repositoryRoot, root, owner, repository, current)
 	if err != nil {
 		return err
 	}
-	previousTag, err := selectPreviousRelease(response, current.Tag)
-	if err != nil {
-		return err
-	}
-	previous, canonical := parseCanonicalReleaseTag(previousTag)
-	if !canonical {
-		return fmt.Errorf("selected previous release tag is not canonical: %q: %w", previousTag, errInvalidConfig)
-	}
-	changelog, err := readRootedRegularFile(repositoryRoot, "CHANGELOG.md", "release changelog", releaseNotesLimit)
-	if err != nil {
-		return err
-	}
-	rangeText, err := extractReleaseChangelogRange(string(changelog), current, previous)
-	if err != nil {
-		return err
-	}
-	notes := renderReleaseNotes(owner, repository, current.Tag, previous.Tag, rangeText)
-	if len(notes) == 0 || len(notes) > releaseNotesLimit {
-		return fmt.Errorf("release notes exceed the bounded non-empty contract: %w", errInvalidConfig)
-	}
-	if err := writeRootedArtifact(repositoryRoot, "release-notes.md", []byte(notes), "release notes", releaseNotesLimit); err != nil {
+	if err := writeRootedArtifact(
+		repositoryRoot, "release-notes.md", []byte(notes), "release notes", releaseNotesLimit,
+	); err != nil {
 		return err
 	}
 	console := "--- Release notes for " + strings.TrimPrefix(current.Tag, "v") + " ---\n" + notes
@@ -116,43 +91,119 @@ func ReleaseNotes(ctx context.Context, options ReleaseNotesOptions) (returnErr e
 	return nil
 }
 
+func buildReleaseNotes(
+	ctx context.Context,
+	runner SpecRunner,
+	repositoryRoot *os.Root,
+	root, owner, repository string,
+	current canonicalReleaseVersion,
+) (string, error) {
+	response, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
+		Name: "gh",
+		Args: []string{
+			"api", "--paginate", "repos/" + owner + "/" + repository + "/releases?per_page=100", "--slurp",
+		},
+		Dir: root,
+	}, "list published releases for release notes")
+	if err != nil {
+		return "", err
+	}
+	previousTag, err := selectPreviousRelease(response, current.Tag)
+	if err != nil {
+		return "", err
+	}
+	previous, canonical := parseCanonicalReleaseTag(previousTag)
+	if !canonical {
+		return "", fmt.Errorf("selected previous release tag is not canonical: %q: %w", previousTag, errInvalidConfig)
+	}
+	changelog, err := readRootedRegularFile(repositoryRoot, "CHANGELOG.md", "release changelog", releaseNotesLimit)
+	if err != nil {
+		return "", err
+	}
+	rangeText, err := extractReleaseChangelogRange(string(changelog), current, previous)
+	if err != nil {
+		return "", err
+	}
+	notes := renderReleaseNotes(owner, repository, current.Tag, previous.Tag, rangeText)
+	if len(notes) == 0 || len(notes) > releaseNotesLimit {
+		return "", fmt.Errorf("release notes exceed the bounded non-empty contract: %w", errInvalidConfig)
+	}
+	return notes, nil
+}
+
 func selectPreviousRelease(data []byte, currentTag string) (string, error) {
 	current, canonical := parseCanonicalReleaseTag(currentTag)
 	if !canonical {
 		return "", fmt.Errorf("current release tag is not canonical: %q: %w", currentTag, errInvalidConfig)
 	}
-	pages := [][]*listedRelease{}
-	if err := decodeJSONDocument(data, &pages, "paginated published releases"); err != nil {
+	versions, err := decodePublishedReleaseVersions(data, current.Tag)
+	if err != nil {
 		return "", err
 	}
+	bestLine, bestOverall := bestPreviousReleases(versions, current)
+	if bestLine != nil {
+		return bestLine.Tag, nil
+	}
+	if bestOverall != nil {
+		return bestOverall.Tag, nil
+	}
+	return "", fmt.Errorf("no previous canonical published release exists: %w", errInvalidConfig)
+}
+
+func decodePublishedReleaseVersions(data []byte, currentTag string) ([]canonicalReleaseVersion, error) {
+	pages := [][]*listedRelease{}
+	if err := decodeJSONDocument(data, &pages, "paginated published releases"); err != nil {
+		return nil, err
+	}
 	if len(pages) == 0 {
-		return "", fmt.Errorf("paginated published releases contain no pages: %w", errInvalidConfig)
+		return nil, fmt.Errorf("paginated published releases contain no pages: %w", errInvalidConfig)
 	}
 	versions := make([]canonicalReleaseVersion, 0)
 	for pageIndex, page := range pages {
 		if page == nil {
-			return "", fmt.Errorf("published releases page %d is null: %w", pageIndex, errInvalidConfig)
+			return nil, fmt.Errorf("published releases page %d is null: %w", pageIndex, errInvalidConfig)
 		}
 		for itemIndex, release := range page {
-			if release == nil || release.Draft == nil || release.Prerelease == nil || len(release.TagName) == 0 {
-				return "", fmt.Errorf("published releases page %d item %d lacks required fields: %w", pageIndex, itemIndex, errInvalidConfig)
+			version, include, err := parsePublishedRelease(release, pageIndex, itemIndex, currentTag)
+			if err != nil {
+				return nil, err
 			}
-			var tag *string
-			if err := json.Unmarshal(release.TagName, &tag); err != nil || tag == nil {
-				return "", fmt.Errorf(
-					"decode published releases page %d item %d tag_name: %w",
-					pageIndex, itemIndex, errors.Join(err, errInvalidConfig),
-				)
-			}
-			if *release.Draft || *release.Prerelease || *tag == current.Tag {
-				continue
-			}
-			version, canonical := parseCanonicalReleaseTag(*tag)
-			if canonical {
+			if include {
 				versions = append(versions, version)
 			}
 		}
 	}
+	return versions, nil
+}
+
+func parsePublishedRelease(
+	release *listedRelease,
+	pageIndex, itemIndex int,
+	currentTag string,
+) (canonicalReleaseVersion, bool, error) {
+	if release == nil || release.Draft == nil || release.Prerelease == nil || len(release.TagName) == 0 {
+		return canonicalReleaseVersion{}, false, fmt.Errorf(
+			"published releases page %d item %d lacks required fields: %w", pageIndex, itemIndex, errInvalidConfig,
+		)
+	}
+	var tag *string
+	if err := json.Unmarshal(release.TagName, &tag); err != nil || tag == nil {
+		return canonicalReleaseVersion{}, false, fmt.Errorf(
+			"decode published releases page %d item %d tag_name: %w",
+			pageIndex, itemIndex, errors.Join(err, errInvalidConfig),
+		)
+	}
+	if *release.Draft || *release.Prerelease || *tag == currentTag {
+		return canonicalReleaseVersion{}, false, nil
+	}
+	version, canonical := parseCanonicalReleaseTag(*tag)
+	return version, canonical, nil
+}
+
+func bestPreviousReleases(
+	versions []canonicalReleaseVersion,
+	current canonicalReleaseVersion,
+) (*canonicalReleaseVersion, *canonicalReleaseVersion) {
 	var bestOverall *canonicalReleaseVersion
 	var bestLine *canonicalReleaseVersion
 	for index := range versions {
@@ -165,13 +216,7 @@ func selectPreviousRelease(data []byte, currentTag string) (string, error) {
 			bestLine = candidate
 		}
 	}
-	if bestLine != nil {
-		return bestLine.Tag, nil
-	}
-	if bestOverall != nil {
-		return bestOverall.Tag, nil
-	}
-	return "", fmt.Errorf("no previous canonical published release exists: %w", errInvalidConfig)
+	return bestLine, bestOverall
 }
 
 func parseCanonicalReleaseTag(tag string) (canonicalReleaseVersion, bool) {
