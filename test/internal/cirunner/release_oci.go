@@ -152,6 +152,10 @@ func validateReleaseOCIAttestations(
 	}
 	dockerEnvironment := withoutEnvironmentKeys(environment, "GH_TOKEN", "GITHUB_TOKEN")
 	for _, image := range evidence {
+		if !canonicalOCIDigest(image.Digest) {
+			return fmt.Errorf("OCI image %s has invalid index digest: %w", image.Image, errInvalidConfig)
+		}
+		pinnedImage := image.Image + "@" + image.Digest
 		for _, platform := range []string{"linux/amd64", "linux/arm64"} {
 			runnableDigest, exists := image.Runnable[platform]
 			if !exists {
@@ -166,10 +170,10 @@ func validateReleaseOCIAttestations(
 			); err != nil {
 				return err
 			}
-			if err := validateOCISBOM(ctx, runner, repositoryRoot, image.Image, platform, dockerEnvironment); err != nil {
+			if err := validateOCISBOM(ctx, runner, repositoryRoot, pinnedImage, platform, dockerEnvironment); err != nil {
 				return err
 			}
-			if err := validateOCIProvenance(ctx, runner, repositoryRoot, image.Image, platform, dockerEnvironment); err != nil {
+			if err := validateOCIProvenance(ctx, runner, repositoryRoot, pinnedImage, platform, dockerEnvironment); err != nil {
 				return err
 			}
 		}

@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"testing"
 )
 
@@ -154,15 +153,22 @@ func TestValidateReleaseOCIAttestationsChecksBothPlatforms(t *testing.T) {
 			t.Errorf("OCI payload call %d = %#v", index, call)
 		}
 	}
-	if got := runner.calls[0].args; len(got) != 5 || got[3] != "--raw" ||
-		got[4] != evidence[0].Image+"@"+evidence[0].Attestations[evidence[0].Runnable["linux/amd64"]] {
-		t.Errorf("amd64 raw attestation args = %q", got)
-	}
-	if got := runner.calls[1].args; !slices.Contains(got, `{{json (index .SBOM "linux/amd64").SPDX}}`) {
-		t.Errorf("amd64 SPDX args = %q", got)
-	}
-	if got := runner.calls[17].args; !slices.Contains(got, `{{json (index .Provenance "linux/arm64").SLSA}}`) {
-		t.Errorf("arm64 provenance args = %q", got)
+	platforms := []string{"linux/amd64", "linux/arm64"}
+	for imageIndex, image := range evidence {
+		for platformIndex, platform := range platforms {
+			callIndex := (imageIndex*len(platforms) + platformIndex) * 3
+			pinnedImage := image.Image + "@" + image.Digest
+			want := [][]string{
+				{"buildx", "imagetools", "inspect", "--raw", image.Image + "@" + image.Attestations[image.Runnable[platform]]},
+				{"buildx", "imagetools", "inspect", pinnedImage, "--format", `{{json (index .SBOM "` + platform + `").SPDX}}`},
+				{"buildx", "imagetools", "inspect", pinnedImage, "--format", `{{json (index .Provenance "` + platform + `").SLSA}}`},
+			}
+			for offset, wantArgs := range want {
+				if got := runner.calls[callIndex+offset].args; !reflect.DeepEqual(got, wantArgs) {
+					t.Errorf("OCI payload args image=%d platform=%s offset=%d = %q, want %q", imageIndex, platform, offset, got, wantArgs)
+				}
+			}
+		}
 	}
 }
 

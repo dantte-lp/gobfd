@@ -504,8 +504,9 @@ Debian Trixie, and Oracle Linux 10 versioned references with direct Buildx
 argv, requires exactly `linux/amd64` and
 `linux/arm64` plus their linked attestation manifests, and validates each
 platform's SPDX document and BuildKit SLSA v1 provenance. Docker receives the
-workflow environment without `GH_TOKEN` or `GITHUB_TOKEN`. Only after all
-three images pass does the command atomically publish mode `0644`
+workflow environment without `GH_TOKEN` or `GITHUB_TOKEN`; both payload
+queries are pinned to the inspected image-index digest rather than the mutable
+version tag. Only after all three images pass does the command atomically publish mode `0644`
 `release-image-digests.txt` through the separately rooted original workspace
 in fixed order; the primary and Debian digests must be identical.
 

@@ -520,7 +520,8 @@ supplemental checksum receipt.
 ровно `linux/amd64` и `linux/arm64` вместе с привязанными attestation
 manifest и проверяет SPDX document и BuildKit SLSA v1 provenance каждой
 платформы. Docker получает окружение workflow без `GH_TOKEN` и
-`GITHUB_TOKEN`. Только после успешной проверки всех трёх образов команда
+`GITHUB_TOKEN`; оба payload query привязаны к проверенному digest image index,
+а не к изменяемому version tag. Только после успешной проверки всех трёх образов команда
 атомарно публикует `release-image-digests.txt` режима `0644` через отдельно
 открытый root исходного workspace в фиксированном порядке; digest primary и
 Debian должен совпадать.
