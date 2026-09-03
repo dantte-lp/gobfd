@@ -133,10 +133,12 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 			asset.archiveSHA256 = strings.Repeat("0", 64)
 		}},
 		{name: "unexpected tar entry", mutate: func(t *testing.T, _ *ReleaseUPXOptions, runner *upxTestRunner, asset *upxAssetContract) {
+			t.Helper()
 			runner.tar = makeUPXTestTar(t, true)
 			asset.tarSize = int64(len(runner.tar))
 		}},
 		{name: "directory collision", mutate: func(t *testing.T, options *ReleaseUPXOptions, _ *upxTestRunner, _ *upxAssetContract) {
+			t.Helper()
 			if err := os.Mkdir(filepath.Join(options.RunnerTemp, "gobfd-upx-4.2.2"), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -183,6 +185,7 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 			}
 		}},
 		{name: "symlink GITHUB_PATH", mutate: func(t *testing.T, options *ReleaseUPXOptions, _ *upxTestRunner, _ *upxAssetContract) {
+			t.Helper()
 			external := filepath.Join(t.TempDir(), "external")
 			if err := os.WriteFile(external, []byte("preserve\n"), 0o644); err != nil {
 				t.Fatal(err)

@@ -31,6 +31,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 		want   string
 	}{
 		{name: "main checksum mismatch", mutate: func(t *testing.T, download, _, _ string) {
+			t.Helper()
 			path := filepath.Join(download, "checksums.txt")
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -42,6 +43,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			}
 		}, want: "SHA-256 mismatch"},
 		{name: "duplicate checksum name", mutate: func(t *testing.T, download, _, _ string) {
+			t.Helper()
 			path := filepath.Join(download, "checksums.txt")
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -54,6 +56,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			}
 		}, want: "duplicate"},
 		{name: "supplemental receipt differs from local", mutate: func(t *testing.T, download, _, _ string) {
+			t.Helper()
 			path := filepath.Join(download, "release-evidence-checksums.txt")
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -65,6 +68,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			}
 		}, want: "differs from local"},
 		{name: "SBOM duplicate field", mutate: func(t *testing.T, download, _, _ string) {
+			t.Helper()
 			name := expectedChecksummedArtifactNames("0.6.2")[3]
 			data := `{"bomFormat":"CycloneDX","bomFormat":"CycloneDX","specVersion":"1.6","metadata":{"component":{}},"components":[{"name":"gobfd"}]}`
 			if err := os.WriteFile(filepath.Join(download, name), []byte(data), 0o600); err != nil {
@@ -73,6 +77,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			rewriteMainChecksums(t, download)
 		}, want: "duplicate JSON"},
 		{name: "SBOM trailing data", mutate: func(t *testing.T, download, _, _ string) {
+			t.Helper()
 			name := expectedChecksummedArtifactNames("0.6.2")[3]
 			path := filepath.Join(download, name)
 			data, err := os.ReadFile(path)
@@ -85,6 +90,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			rewriteMainChecksums(t, download)
 		}, want: "trailing JSON"},
 		{name: "SBOM empty components", mutate: func(t *testing.T, download, _, _ string) {
+			t.Helper()
 			name := expectedChecksummedArtifactNames("0.6.2")[3]
 			data := `{"bomFormat":"CycloneDX","specVersion":"1.6","metadata":{"component":{}},"components":[]}`
 			if err := os.WriteFile(filepath.Join(download, name), []byte(data), 0o600); err != nil {
@@ -93,6 +99,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			rewriteMainChecksums(t, download)
 		}, want: "components"},
 		{name: "report archive link", mutate: func(t *testing.T, download, artifact, _ string) {
+			t.Helper()
 			archive := releaseReportsArchiveWithHeaders(t, []tar.Header{
 				{Name: "reports/", Typeflag: tar.TypeDir, Mode: 0o755},
 				{Name: "reports/link", Typeflag: tar.TypeSymlink, Linkname: "target", Mode: 0o777},
@@ -101,10 +108,12 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			syncSupplementalReceipt(t, download, artifact)
 		}, want: "unsupported type"},
 		{name: "malformed report archive", mutate: func(t *testing.T, download, artifact, _ string) {
+			t.Helper()
 			rewriteSupplementalEvidence(t, download, []byte("not a gzip stream"))
 			syncSupplementalReceipt(t, download, artifact)
 		}, want: "gzip stream"},
 		{name: "report archive duplicate", mutate: func(t *testing.T, download, artifact, _ string) {
+			t.Helper()
 			archive := releaseReportsArchiveWithHeaders(t, []tar.Header{
 				{Name: "reports/", Typeflag: tar.TypeDir, Mode: 0o755},
 				{Name: "reports/report.txt", Typeflag: tar.TypeReg, Mode: 0o644, Size: 1},
@@ -114,6 +123,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			syncSupplementalReceipt(t, download, artifact)
 		}, want: "duplicate"},
 		{name: "reports root is a regular file", mutate: func(t *testing.T, download, artifact, _ string) {
+			t.Helper()
 			archive := releaseReportsArchiveWithHeaders(t, []tar.Header{
 				{Name: "reports", Typeflag: tar.TypeReg, Mode: 0o644, Size: 1},
 			})
@@ -121,6 +131,7 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 			syncSupplementalReceipt(t, download, artifact)
 		}, want: "not a reports descendant"},
 		{name: "report archive trailing gzip member", mutate: func(t *testing.T, download, artifact, _ string) {
+			t.Helper()
 			archive := append(validReleaseReportsArchive(t), validReleaseReportsArchive(t)...)
 			rewriteSupplementalEvidence(t, download, archive)
 			syncSupplementalReceipt(t, download, artifact)

@@ -64,6 +64,7 @@ func TestPublishVerifiedReleaseRejectsDriftWithoutMutation(t *testing.T) {
 		want   string
 	}{
 		{name: "git receipt", mutate: func(t *testing.T, _ string, runnerTemp string, _ *releasePublishRunner) {
+			t.Helper()
 			writeReleaseVerifyFile(t, runnerTemp, "expected-release-branch.txt", []byte("release/v0.7\n"))
 		}, want: "branch receipt"},
 		{name: "draft body", mutate: func(_ *testing.T, _ string, _ string, runner *releasePublishRunner) {
@@ -75,6 +76,7 @@ func TestPublishVerifiedReleaseRejectsDriftWithoutMutation(t *testing.T) {
 			}
 		}, want: "draft body"},
 		{name: "remote asset identity", mutate: func(t *testing.T, _ string, _ string, runner *releasePublishRunner) {
+			t.Helper()
 			proxy := &releaseVerifyRunner{releaseView: runner.releaseView}
 			mutateReleaseDraftAssets(t, proxy, func(assets []map[string]any) {
 				assets[0]["state"] = "new"
@@ -82,6 +84,7 @@ func TestPublishVerifiedReleaseRejectsDriftWithoutMutation(t *testing.T) {
 			runner.releaseView = proxy.releaseView
 		}, want: "uploaded"},
 		{name: "asset receipt", mutate: func(t *testing.T, _ string, runnerTemp string, _ *releasePublishRunner) {
+			t.Helper()
 			path := filepath.Join(runnerTemp, releaseAssetIdentityReceiptName)
 			data, err := os.ReadFile(path)
 			if err != nil {

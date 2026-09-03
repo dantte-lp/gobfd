@@ -208,6 +208,7 @@ func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory
 		want   string
 	}{
 		{name: "symlink", mutate: func(t *testing.T, directory string, assets []string) {
+			t.Helper()
 			name := filepath.Join(directory, assets[0])
 			if err := os.Remove(name); err != nil {
 				t.Fatal(err)
@@ -217,6 +218,7 @@ func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory
 			}
 		}, want: "nonempty regular file"},
 		{name: "directory", mutate: func(t *testing.T, directory string, assets []string) {
+			t.Helper()
 			name := filepath.Join(directory, assets[0])
 			if err := os.Remove(name); err != nil {
 				t.Fatal(err)
@@ -226,26 +228,31 @@ func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory
 			}
 		}, want: "nonempty regular file"},
 		{name: "empty", mutate: func(t *testing.T, directory string, assets []string) {
+			t.Helper()
 			if err := os.WriteFile(filepath.Join(directory, assets[0]), nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "nonempty regular file"},
 		{name: "oversized", mutate: func(t *testing.T, directory string, assets []string) {
+			t.Helper()
 			if err := os.Truncate(filepath.Join(directory, assets[0]), releaseArtifactLimit+1); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "bounded nonempty regular file"},
 		{name: "missing", mutate: func(t *testing.T, directory string, assets []string) {
+			t.Helper()
 			if err := os.Remove(filepath.Join(directory, assets[0])); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "exact manifest"},
 		{name: "extra", mutate: func(t *testing.T, directory string, _ []string) {
+			t.Helper()
 			if err := os.WriteFile(filepath.Join(directory, "unexpected"), []byte("asset"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "exact manifest"},
 		{name: "checksum mismatch", mutate: func(t *testing.T, directory string, _ []string) {
+			t.Helper()
 			path := filepath.Join(directory, "checksums.txt")
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -423,18 +430,22 @@ func TestVerifyReleaseDraftRejectsChangedEvidence(t *testing.T) {
 		want   string
 	}{
 		{name: "tag object receipt", mutate: func(t *testing.T, _ string, runnerTemp string, _ *releaseVerifyRunner) {
+			t.Helper()
 			writeReleaseVerifyFile(t, runnerTemp, "expected-release-tag-object.txt", []byte(preflightCommit+"\n"))
 		}, want: "tag object receipt"},
 		{name: "OCI digest receipt", mutate: func(t *testing.T, artifactRoot, _ string, _ *releaseVerifyRunner) {
+			t.Helper()
 			changed := strings.Replace(
 				string(validReleaseDigestReceipt("0.6.2")), testOCIDigest("1"), testOCIDigest("9"), 2,
 			)
 			writeReleaseVerifyFile(t, artifactRoot, "release-image-digests.txt", []byte(changed))
 		}, want: "OCI digest receipt changed"},
 		{name: "draft body", mutate: func(t *testing.T, _ string, _ string, runner *releaseVerifyRunner) {
+			t.Helper()
 			runner.releaseView = marshalReleaseDraftView(t, true, "v0.6.2", "other notes", runner.assets)
 		}, want: "draft body"},
 		{name: "duplicate asset", mutate: func(t *testing.T, _ string, _ string, runner *releaseVerifyRunner) {
+			t.Helper()
 			assets := append([]string(nil), runner.assets...)
 			assets[len(assets)-1] = assets[0]
 			runner.releaseView = marshalReleaseDraftView(t, true, "v0.6.2", "release notes", assets)

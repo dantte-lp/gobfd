@@ -169,13 +169,16 @@ func TestReleaseEvidenceRejectsInvalidInputsWithoutUpload(t *testing.T) {
 		setup func(*testing.T, string)
 	}{
 		{name: "missing report", setup: func(t *testing.T, root string) {
+			t.Helper()
 			writeReleaseDigestReceipt(t, root, validReleaseDigestReceipt("0.6.5"))
 		}},
 		{name: "empty report", setup: func(t *testing.T, root string) {
+			t.Helper()
 			writeReleaseEvidenceFile(t, root, "gobfd-v0.6.5-reports.tar.gz", nil)
 			writeReleaseDigestReceipt(t, root, validReleaseDigestReceipt("0.6.5"))
 		}},
 		{name: "linked report", setup: func(t *testing.T, root string) {
+			t.Helper()
 			target := filepath.Join(t.TempDir(), "report.tar.gz")
 			writeReleaseEvidenceFile(t, filepath.Dir(target), filepath.Base(target), []byte("report"))
 			if err := os.Symlink(target, filepath.Join(root, "gobfd-v0.6.5-reports.tar.gz")); err != nil {
@@ -184,9 +187,11 @@ func TestReleaseEvidenceRejectsInvalidInputsWithoutUpload(t *testing.T) {
 			writeReleaseDigestReceipt(t, root, validReleaseDigestReceipt("0.6.5"))
 		}},
 		{name: "missing digest receipt", setup: func(t *testing.T, root string) {
+			t.Helper()
 			writeReleaseEvidenceFile(t, root, "gobfd-v0.6.5-reports.tar.gz", []byte("report"))
 		}},
 		{name: "malformed digest receipt", setup: func(t *testing.T, root string) {
+			t.Helper()
 			writeReleaseEvidenceFile(t, root, "gobfd-v0.6.5-reports.tar.gz", []byte("report"))
 			writeReleaseDigestReceipt(t, root, []byte("not canonical\n"))
 		}},
