@@ -1,7 +1,9 @@
 package cirunner
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +66,68 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 			t.Errorf("downloaded release asset %s info = %#v, error = %v", name, info, err)
 		}
 	}
+	receipt, err := os.ReadFile(filepath.Join(runnerTemp, releaseAssetIdentityReceiptName))
+	if err != nil {
+		t.Fatalf("read release asset identity receipt: %v", err)
+	}
+	if !bytes.Contains(receipt, []byte(`"database_id": 1000`)) ||
+		!bytes.Contains(receipt, []byte(`"state": "uploaded"`)) {
+		t.Fatalf("release asset identity receipt = %s", receipt)
+	}
+}
+
+func TestVerifyReleaseDraftRejectsInvalidRemoteAssetIdentity(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		mutate func([]map[string]any)
+		want   string
+	}{
+		{name: "null node id", mutate: func(assets []map[string]any) { assets[0]["id"] = nil }, want: "node ID"},
+		{name: "duplicate node id", mutate: func(assets []map[string]any) {
+			assets[1]["id"] = assets[0]["id"]
+		}, want: "duplicate node ID"},
+		{name: "noncanonical API URL", mutate: func(assets []map[string]any) {
+			assets[0]["apiUrl"] = "https://example.invalid/assets/1000"
+		}, want: "API URL"},
+		{name: "duplicate REST id", mutate: func(assets []map[string]any) {
+			assets[1]["apiUrl"] = assets[0]["apiUrl"]
+		}, want: "duplicate REST"},
+		{name: "size drift", mutate: func(assets []map[string]any) { assets[0]["size"] = float64(1) }, want: "size"},
+		{name: "digest drift", mutate: func(assets []map[string]any) {
+			assets[0]["digest"] = "sha256:" + strings.Repeat("0", 64)
+		}, want: "digest"},
+		{name: "state drift", mutate: func(assets []map[string]any) { assets[0]["state"] = "new" }, want: "uploaded"},
+		{name: "field alias", mutate: func(assets []map[string]any) {
+			assets[0]["Name"] = assets[0]["name"]
+		}, want: "noncanonical JSON field"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			artifactRoot := t.TempDir()
+			runnerTemp := t.TempDir()
+			assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+			writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+			runner := newReleaseVerifyRunner(t, assets, "release notes")
+			mutateReleaseDraftAssets(t, runner, test.mutate)
+			err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+				Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+				RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+				Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+			})
+			if err == nil || !containsError(err, test.want) {
+				t.Fatalf("VerifyReleaseDraft() error = %v, want %q", err, test.want)
+			}
+			if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetIdentityReceiptName)); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("invalid remote asset wrote identity receipt: %v", statErr)
+			}
+			if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("invalid remote asset retained download directory: %v", statErr)
+			}
+		})
+	}
 }
 
 func TestVerifyReleaseDraftRejectsDownloadDirectoryCollision(t *testing.T) {
@@ -96,6 +160,42 @@ func TestVerifyReleaseDraftRejectsDownloadDirectoryCollision(t *testing.T) {
 	}
 	if len(runner.calls) != 8 {
 		t.Fatalf("command count before collision = %d, want 8", len(runner.calls))
+	}
+}
+
+func TestVerifyReleaseDraftRejectsReceiptCollisionAndCleansOwnedDownload(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	artifactRoot := t.TempDir()
+	runnerTemp := t.TempDir()
+	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+	target := filepath.Join(t.TempDir(), "preserve")
+	if err := os.WriteFile(target, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(runnerTemp, releaseAssetIdentityReceiptName)
+	if err := os.Symlink(target, receiptPath); err != nil {
+		t.Fatal(err)
+	}
+	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+		Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+	})
+	if err == nil || !containsError(err, "release asset identity receipt") {
+		t.Fatalf("VerifyReleaseDraft() error = %v, want receipt collision", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("receipt collision retained owned download directory: %v", statErr)
+	}
+	if info, statErr := os.Lstat(receiptPath); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("pre-existing receipt symlink info = %#v, error = %v", info, statErr)
+	}
+	if data, readErr := os.ReadFile(target); readErr != nil || string(data) != "preserve" {
+		t.Fatalf("pre-existing receipt target = %q, error = %v", data, readErr)
 	}
 }
 
@@ -459,9 +559,18 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 
 func marshalReleaseDraftView(t *testing.T, draft bool, tag, body string, assets []string) []byte {
 	t.Helper()
-	items := make([]map[string]string, 0, len(assets))
-	for _, name := range assets {
-		items = append(items, map[string]string{"name": name})
+	items := make([]map[string]any, 0, len(assets))
+	dataByName := validReleaseAssetData(t)
+	for index, name := range assets {
+		digest := sha256.Sum256(dataByName[name])
+		items = append(items, map[string]any{
+			"apiUrl": fmt.Sprintf("https://api.github.com/repos/dantte-lp/gobfd/releases/assets/%d", 1000+index),
+			"digest": fmt.Sprintf("sha256:%x", digest),
+			"id":     fmt.Sprintf("RA_test_%02d", index),
+			"name":   name,
+			"size":   len(dataByName[name]),
+			"state":  "uploaded",
+		})
 	}
 	data, err := json.Marshal(map[string]any{
 		"isDraft": draft, "tagName": tag, "body": body, "assets": items,
@@ -470,6 +579,27 @@ func marshalReleaseDraftView(t *testing.T, draft bool, tag, body string, assets 
 		t.Fatal(err)
 	}
 	return data
+}
+
+func mutateReleaseDraftAssets(t *testing.T, runner *releaseVerifyRunner, mutate func([]map[string]any)) {
+	t.Helper()
+	var document struct {
+		Assets []map[string]any `json:"assets"`
+	}
+	if err := json.Unmarshal(runner.releaseView, &document); err != nil {
+		t.Fatal(err)
+	}
+	mutate(document.Assets)
+	var root map[string]any
+	if err := json.Unmarshal(runner.releaseView, &root); err != nil {
+		t.Fatal(err)
+	}
+	root["assets"] = document.Assets
+	data, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.releaseView = data
 }
 
 func containsError(err error, text string) bool {

@@ -25,9 +25,13 @@ func downloadExactReleaseAssets(
 	environment []string,
 	expectedAssets []string,
 	validateContents func(*os.Root) error,
+	commitValidatedContents func() error,
 ) (returnErr error) {
 	if validateContents == nil {
 		return fmt.Errorf("release asset content validator is required: %w", errInvalidConfig)
+	}
+	if commitValidatedContents == nil {
+		return fmt.Errorf("release asset commit callback is required: %w", errInvalidConfig)
 	}
 	if err := validateRootPathIdentity(
 		runnerTempRoot, runnerTempPath, "RUNNER_TEMP before release asset download",
@@ -106,6 +110,9 @@ func downloadExactReleaseAssets(
 	if err := validateRootPathIdentity(
 		runnerTempRoot, runnerTempPath, "RUNNER_TEMP after release asset download",
 	); err != nil {
+		return err
+	}
+	if err := commitValidatedContents(); err != nil {
 		return err
 	}
 	keep = true

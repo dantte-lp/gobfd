@@ -23,6 +23,11 @@ const (
 	releaseReportsEntryLimit    = 4096
 )
 
+type releaseAssetSnapshot struct {
+	Size   int64
+	Digest string
+}
+
 func validateReleaseAssetContents(
 	downloadRoot *os.Root,
 	artifactRoot *os.Root,
@@ -30,6 +35,20 @@ func validateReleaseAssetContents(
 	version string,
 	refName string,
 ) error {
+	return validateReleaseAssetContentsWithEvidence(
+		downloadRoot, artifactRoot, runnerTempRoot, version, refName, nil,
+	)
+}
+
+func validateReleaseAssetContentsWithEvidence(
+	downloadRoot *os.Root,
+	artifactRoot *os.Root,
+	runnerTempRoot *os.Root,
+	version string,
+	refName string,
+	evidence map[string]releaseAssetSnapshot,
+) error {
+	validatedEvidence := make(map[string]releaseAssetSnapshot)
 	expectedChecksummed := expectedChecksummedArtifactNames(version)
 	expectedReceipt, err := readRootedRegularFile(
 		runnerTempRoot, "expected-checksummed-assets.txt",
@@ -60,12 +79,16 @@ func validateReleaseAssetContents(
 	if err != nil {
 		return err
 	}
-	mainSnapshots, err := validateReleaseChecksums(
+	mainSnapshots, mainEvidence, err := validateReleaseChecksums(
 		downloadRoot, mainRecords, expectedChecksummed, sbomNames,
 	)
 	if err != nil {
 		return err
 	}
+	for name, snapshot := range mainEvidence {
+		validatedEvidence[name] = snapshot
+	}
+	validatedEvidence["checksums.txt"] = snapshotReleaseAsset(mainChecksums)
 
 	downloadedSupplemental, err := readRootedRegularFile(
 		downloadRoot, "release-evidence-checksums.txt",
@@ -93,12 +116,16 @@ func validateReleaseAssetContents(
 	if err != nil {
 		return err
 	}
-	supplementalSnapshots, err := validateReleaseChecksums(
+	supplementalSnapshots, supplementalEvidence, err := validateReleaseChecksums(
 		downloadRoot, supplementalRecords, supplementalNames, supplementalNames,
 	)
 	if err != nil {
 		return err
 	}
+	for name, snapshot := range supplementalEvidence {
+		validatedEvidence[name] = snapshot
+	}
+	validatedEvidence["release-evidence-checksums.txt"] = snapshotReleaseAsset(downloadedSupplemental)
 	downloadedDigests := supplementalSnapshots["release-image-digests.txt"]
 	localDigests, err := readRootedRegularFile(
 		artifactRoot, "release-image-digests.txt", "local OCI digest receipt", releaseOCIDigestReceiptLimit,
@@ -118,6 +145,15 @@ func validateReleaseAssetContents(
 	for _, name := range sbomNames {
 		if err := validateReleaseCycloneDXSBOM(mainSnapshots[name], name); err != nil {
 			return err
+		}
+	}
+	if len(validatedEvidence) != len(expectedReleaseAssetNames(version, refName)) {
+		return fmt.Errorf("validated release asset evidence set is incomplete: %w", errInvalidConfig)
+	}
+	if evidence != nil {
+		clear(evidence)
+		for name, snapshot := range validatedEvidence {
+			evidence[name] = snapshot
 		}
 	}
 	return nil
@@ -175,29 +211,36 @@ func validateReleaseChecksums(
 	records map[string]string,
 	names []string,
 	retainNames []string,
-) (map[string][]byte, error) {
+) (map[string][]byte, map[string]releaseAssetSnapshot, error) {
 	retain := make(map[string]struct{}, len(retainNames))
 	for _, name := range retainNames {
 		retain[name] = struct{}{}
 	}
 	snapshots := make(map[string][]byte, len(retain))
+	evidence := make(map[string]releaseAssetSnapshot, len(names))
 	for _, name := range names {
 		data, err := readRootedRegularFile(root, name, "checksummed release asset", releaseArtifactLimit)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		digest := sha256.Sum256(data)
 		if fmt.Sprintf("%x", digest) != records[name] {
-			return nil, fmt.Errorf("release asset %s SHA-256 mismatch: %w", name, errInvalidConfig)
+			return nil, nil, fmt.Errorf("release asset %s SHA-256 mismatch: %w", name, errInvalidConfig)
 		}
+		evidence[name] = releaseAssetSnapshot{Size: int64(len(data)), Digest: "sha256:" + records[name]}
 		if _, keep := retain[name]; keep {
 			snapshots[name] = data
 		}
 	}
 	if len(snapshots) != len(retain) {
-		return nil, fmt.Errorf("checksummed release snapshot set is incomplete: %w", errInvalidConfig)
+		return nil, nil, fmt.Errorf("checksummed release snapshot set is incomplete: %w", errInvalidConfig)
 	}
-	return snapshots, nil
+	return snapshots, evidence, nil
+}
+
+func snapshotReleaseAsset(data []byte) releaseAssetSnapshot {
+	digest := sha256.Sum256(data)
+	return releaseAssetSnapshot{Size: int64(len(data)), Digest: fmt.Sprintf("sha256:%x", digest)}
 }
 
 func validateReleaseCycloneDXSBOM(data []byte, name string) error {

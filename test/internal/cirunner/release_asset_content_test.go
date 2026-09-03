@@ -188,15 +188,33 @@ func writeReleaseAssetContentFixture(t *testing.T, download, artifact, runnerTem
 
 func writeValidDownloadedReleaseAssets(t *testing.T, directory string) {
 	t.Helper()
+	for name, data := range validReleaseAssetData(t) {
+		writeReleaseVerifyFile(t, directory, name, data)
+	}
+}
+
+func validReleaseAssetData(t *testing.T) map[string][]byte {
+	t.Helper()
+	assets := make(map[string][]byte)
+	var mainChecksums []byte
 	for _, name := range expectedChecksummedArtifactNames("0.6.2") {
 		data := []byte("asset:" + name)
 		if strings.HasSuffix(name, ".sbom.json") {
 			data = []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","metadata":{"component":{"name":"gobfd"}},"components":[{"name":"gobfd"}]}`)
 		}
-		writeReleaseVerifyFile(t, directory, name, data)
+		assets[name] = data
+		mainChecksums = append(mainChecksums, formatReleaseSHA256Line(data, name)...)
 	}
-	rewriteMainChecksums(t, directory)
-	rewriteSupplementalEvidence(t, directory, validReleaseReportsArchive(t))
+	report := validReleaseReportsArchive(t)
+	digests := validReleaseDigestReceipt("0.6.2")
+	assets["checksums.txt"] = mainChecksums
+	assets["gobfd-v0.6.2-reports.tar.gz"] = report
+	assets["release-image-digests.txt"] = digests
+	assets["release-evidence-checksums.txt"] = append(
+		formatReleaseSHA256Line(report, "gobfd-v0.6.2-reports.tar.gz"),
+		formatReleaseSHA256Line(digests, "release-image-digests.txt")...,
+	)
+	return assets
 }
 
 func rewriteMainChecksums(t *testing.T, directory string) {

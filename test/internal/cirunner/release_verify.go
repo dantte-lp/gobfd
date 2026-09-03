@@ -175,7 +175,10 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	if err := validateStrictJSONDocument(draftData, "release draft"); err != nil {
 		return err
 	}
-	if err := validateExactReleaseDraft(draftData, options.RefName, releaseNotes, expectedAssets); err != nil {
+	remoteAssets, err := validateExactReleaseDraft(
+		draftData, options.RefName, owner+"/"+repository, releaseNotes, expectedAssets,
+	)
+	if err != nil {
 		return err
 	}
 	if err := validateRootPathIdentity(verifierRoot, root, "release verifier root after verification"); err != nil {
@@ -187,17 +190,32 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP after release verification"); err != nil {
 		return err
 	}
+	localAssets := make(map[string]releaseAssetSnapshot, len(expectedAssets))
+	var identityReceipt []byte
 	if err := downloadExactReleaseAssets(
 		ctx, options.Runner, verifierRoot, runnerTemp, root, runnerTempPath,
 		owner+"/"+repository, options.RefName, options.Environment, expectedAssets,
 		func(downloadRoot *os.Root) error {
+			contentErr := validateReleaseAssetContentsWithEvidence(
+				downloadRoot, artifactRoot, runnerTemp, version, options.RefName, localAssets,
+			)
+			var identityErr error
+			if contentErr == nil {
+				identityReceipt, identityErr = renderReleaseAssetIdentityReceipt(
+					options.RefName, remoteAssets, localAssets,
+				)
+			}
 			return errors.Join(
-				validateReleaseAssetContents(
-					downloadRoot, artifactRoot, runnerTemp, version, options.RefName,
-				),
+				contentErr,
+				identityErr,
 				validateRootPathIdentity(
 					artifactRoot, artifactRootPath, "release artifact root after asset content verification",
 				),
+			)
+		},
+		func() error {
+			return writeAndVerifyReleaseAssetIdentityReceipt(
+				runnerTemp, runnerTempPath, identityReceipt,
 			)
 		},
 	); err != nil {
@@ -206,56 +224,127 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	return nil
 }
 
-func validateExactReleaseDraft(data []byte, refName string, releaseNotes []byte, expectedAssets []string) error {
-	fields, err := decodeRequiredJSONObject(data, "release draft fields", []string{"isDraft", "tagName", "body", "assets"})
+func writeAndVerifyReleaseAssetIdentityReceipt(
+	runnerTemp *os.Root,
+	runnerTempPath string,
+	identityReceipt []byte,
+) (returnErr error) {
+	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP before asset identity receipt"); err != nil {
+		return err
+	}
+	publishedInfo, publishErr := publishReleaseAssetIdentityReceipt(runnerTemp, identityReceipt)
+	keep := false
+	defer func() {
+		if !keep && publishedInfo != nil {
+			returnErr = errors.Join(
+				returnErr,
+				removeOwnedRootedArtifact(
+					runnerTemp, releaseAssetIdentityReceiptName, publishedInfo,
+					"release asset identity receipt",
+				),
+			)
+		}
+	}()
+	if publishErr != nil {
+		return publishErr
+	}
+	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP after asset identity receipt"); err != nil {
+		return err
+	}
+	writtenReceipt, err := readRootedRegularFile(
+		runnerTemp, releaseAssetIdentityReceiptName,
+		"release asset identity receipt", releaseAssetIdentityReceiptLimit,
+	)
 	if err != nil {
 		return err
+	}
+	if !bytes.Equal(writtenReceipt, identityReceipt) {
+		return fmt.Errorf("release asset identity receipt changed after write: %w", errInvalidConfig)
+	}
+	keep = true
+	return nil
+}
+
+func removeOwnedRootedArtifact(root *os.Root, name string, expected os.FileInfo, purpose string) error {
+	current, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect %s before rollback: %w", purpose, err)
+	}
+	if expected == nil || !os.SameFile(current, expected) {
+		return fmt.Errorf("%s ownership changed before rollback: %w", purpose, errInvalidConfig)
+	}
+	if err := root.Remove(name); err != nil {
+		return fmt.Errorf("remove %s during rollback: %w", purpose, err)
+	}
+	return nil
+}
+
+func validateExactReleaseDraft(
+	data []byte,
+	refName string,
+	repository string,
+	releaseNotes []byte,
+	expectedAssets []string,
+) ([]releaseRemoteAssetIdentity, error) {
+	fields, err := decodeRequiredJSONObject(data, "release draft fields", []string{"isDraft", "tagName", "body", "assets"})
+	if err != nil {
+		return nil, err
 	}
 	var isDraft *bool
 	if err := decodeJSONDocument(fields["isDraft"], &isDraft, "release draft state"); err != nil || isDraft == nil || !*isDraft {
-		return fmt.Errorf("release is not an explicit draft: %w", errors.Join(err, errInvalidConfig))
+		return nil, fmt.Errorf("release is not an explicit draft: %w", errors.Join(err, errInvalidConfig))
 	}
 	tagName, err := decodeRequiredJSONString(fields["tagName"], "release draft tag")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if tagName != refName {
-		return fmt.Errorf("release draft tag differs from canonical release tag: %w", errInvalidConfig)
+		return nil, fmt.Errorf("release draft tag differs from canonical release tag: %w", errInvalidConfig)
 	}
 	body, err := decodeRequiredJSONString(fields["body"], "release draft body")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if strings.TrimRight(body, "\n") != strings.TrimRight(string(releaseNotes), "\n") {
-		return fmt.Errorf("release draft body differs from release-notes.md: %w", errInvalidConfig)
+		return nil, fmt.Errorf("release draft body differs from release-notes.md: %w", errInvalidConfig)
 	}
 	assetFields := []map[string]json.RawMessage{}
 	if err := decodeJSONDocument(fields["assets"], &assetFields, "release draft assets"); err != nil {
-		return err
+		return nil, err
 	}
-	actualAssets := make([]string, 0, len(assetFields))
+	remoteAssets := make([]releaseRemoteAssetIdentity, 0, len(assetFields))
+	nodeIDs := make(map[string]struct{}, len(assetFields))
+	databaseIDs := make(map[uint64]struct{}, len(assetFields))
 	for index, asset := range assetFields {
 		if asset == nil {
-			return fmt.Errorf("release draft asset %d is not an object: %w", index, errInvalidConfig)
+			return nil, fmt.Errorf("release draft asset %d is not an object: %w", index, errInvalidConfig)
 		}
-		if err := rejectJSONFieldAliases(asset, []string{"name"}); err != nil {
-			return err
-		}
-		nameJSON, exists := asset["name"]
-		if !exists {
-			return fmt.Errorf("release draft asset %d lacks name: %w", index, errInvalidConfig)
-		}
-		name, err := decodeRequiredJSONString(nameJSON, "release draft asset name")
+		identity, err := validateRemoteReleaseAsset(asset, index, repository)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		actualAssets = append(actualAssets, name)
+		if _, exists := nodeIDs[identity.NodeID]; exists {
+			return nil, fmt.Errorf("release draft has duplicate node ID %s: %w", identity.NodeID, errInvalidConfig)
+		}
+		if _, exists := databaseIDs[identity.DatabaseID]; exists {
+			return nil, fmt.Errorf("release draft has duplicate REST asset ID %d: %w", identity.DatabaseID, errInvalidConfig)
+		}
+		nodeIDs[identity.NodeID] = struct{}{}
+		databaseIDs[identity.DatabaseID] = struct{}{}
+		remoteAssets = append(remoteAssets, identity)
 	}
-	sort.Strings(actualAssets)
+	sort.Slice(remoteAssets, func(left, right int) bool { return remoteAssets[left].Name < remoteAssets[right].Name })
+	actualAssets := make([]string, 0, len(remoteAssets))
+	for _, asset := range remoteAssets {
+		actualAssets = append(actualAssets, asset.Name)
+	}
 	if !slices.Equal(actualAssets, expectedAssets) {
-		return fmt.Errorf("release draft asset set differs from the exact manifest: %w", errInvalidConfig)
+		return nil, fmt.Errorf("release draft asset set differs from the exact manifest: %w", errInvalidConfig)
 	}
-	return nil
+	return remoteAssets, nil
 }
 
 func decodeRequiredJSONString(data []byte, purpose string) (string, error) {
