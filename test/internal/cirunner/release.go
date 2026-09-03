@@ -102,11 +102,13 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		output = io.Discard
 	}
 	versionDirectory := filepath.Join(root, "testdata", "benchmarks", version)
-	if err := ensureDirectory(versionDirectory, "release benchmark", reportDirectoryMode); err != nil {
-		return err
+	if directoryErr := ensureDirectory(versionDirectory, "release benchmark", reportDirectoryMode); directoryErr != nil {
+		return directoryErr
 	}
-	if err := ensureDirectory(filepath.Join(root, "reports", "benchmarks"), "release report", reportDirectoryMode); err != nil {
-		return err
+	if directoryErr := ensureDirectory(
+		filepath.Join(root, "reports", "benchmarks"), "release report", reportDirectoryMode,
+	); directoryErr != nil {
+		return directoryErr
 	}
 	type benchmarkTarget struct {
 		file    string
@@ -191,10 +193,10 @@ func ReleaseBenchmarkMetadata(ctx context.Context, options ReleaseMetadataOption
 		return fmt.Errorf("release metadata command runner is required: %w", errInvalidConfig)
 	}
 	var goVersion bytes.Buffer
-	if err := options.Runner.RunCommand(ctx, CommandSpec{
+	if commandErr := options.Runner.RunCommand(ctx, CommandSpec{
 		Name: "go", Args: []string{"env", "GOVERSION"}, Dir: root, Stdout: &goVersion,
-	}); err != nil {
-		return fmt.Errorf("read Go version: %w", err)
+	}); commandErr != nil {
+		return fmt.Errorf("read Go version: %w", commandErr)
 	}
 	goName := strings.TrimSuffix(goVersion.String(), "\n")
 	if goName == "" || hasControl(goName) {
@@ -242,8 +244,10 @@ func ReleaseBenchmarkComparison(ctx context.Context, options ReleaseComparisonOp
 		return err
 	}
 	reportDirectory := filepath.Join(root, "reports", "benchmarks")
-	if err := ensureDirectory(reportDirectory, "release benchmark comparison", reportDirectoryMode); err != nil {
-		return err
+	if directoryErr := ensureDirectory(
+		reportDirectory, "release benchmark comparison", reportDirectoryMode,
+	); directoryErr != nil {
+		return directoryErr
 	}
 	comparisonArtifacts := releaseComparisonArtifactNames()
 	comparisonPaths := make([]string, len(comparisonArtifacts))
@@ -308,8 +312,8 @@ func ReleaseReportsArchive(root, version string) (returnErr error) {
 	}
 	reports := filepath.Join(root, "reports")
 	benchmarks := filepath.Join(reports, "benchmarks")
-	if err := ensureDirectory(benchmarks, "release benchmark reports", reportDirectoryMode); err != nil {
-		return err
+	if directoryErr := ensureDirectory(benchmarks, "release benchmark reports", reportDirectoryMode); directoryErr != nil {
+		return directoryErr
 	}
 	repositoryRoot, err := os.OpenRoot(root)
 	if err != nil {
@@ -327,8 +331,10 @@ func ReleaseReportsArchive(root, version string) (returnErr error) {
 		if readErr != nil {
 			return readErr
 		}
-		if err := writeAtomicArtifact(filepath.Join(benchmarks, name), data, "release benchmark evidence"); err != nil {
-			return err
+		if writeErr := writeAtomicArtifact(
+			filepath.Join(benchmarks, name), data, "release benchmark evidence",
+		); writeErr != nil {
+			return writeErr
 		}
 	}
 	archive, err := validateRootFile(root, "gobfd-"+version+"-reports.tar.gz", "release reports archive", false)
@@ -389,8 +395,8 @@ func writeTarGzip(path, reports string, reportsRoot *os.Root) (returnErr error) 
 		if info.IsDir() {
 			header.Name += "/"
 		}
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return fmt.Errorf("write release report archive header for %s: %w", name, err)
+		if headerErr := tarWriter.WriteHeader(header); headerErr != nil {
+			return fmt.Errorf("write release report archive header for %s: %w", name, headerErr)
 		}
 		if info.IsDir() {
 			return nil

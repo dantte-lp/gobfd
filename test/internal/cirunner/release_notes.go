@@ -65,11 +65,13 @@ func ReleaseNotes(ctx context.Context, options ReleaseNotesOptions) (returnErr e
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close repository root for release notes", repositoryRoot.Close()))
 	}()
-	if err := validateRootedRegularTarget(repositoryRoot, "release-notes.md", "release notes"); err != nil {
-		return err
+	if targetErr := validateRootedRegularTarget(repositoryRoot, "release-notes.md", "release notes"); targetErr != nil {
+		return targetErr
 	}
-	if err := writeRootedArtifact(repositoryRoot, "release-notes.md", nil, "release notes", releaseNotesLimit); err != nil {
-		return err
+	if writeErr := writeRootedArtifact(
+		repositoryRoot, "release-notes.md", nil, "release notes", releaseNotesLimit,
+	); writeErr != nil {
+		return writeErr
 	}
 
 	response, err := runReleasePreflightCommand(ctx, options.Runner, CommandSpec{

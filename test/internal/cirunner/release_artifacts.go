@@ -74,10 +74,10 @@ func ReleaseArtifacts(ctx context.Context, options ReleaseArtifactsOptions) (ret
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close release asset manifest root", receiptRoot.Close()))
 	}()
-	if err := verifyReleaseArtifactCommit(
+	if verifyErr := verifyReleaseArtifactCommit(
 		ctx, options.Runner, repositoryRoot, receiptRoot, root, expectedWorkflowSHA,
-	); err != nil {
-		return err
+	); verifyErr != nil {
+		return verifyErr
 	}
 	manifest, err := readRootedRegularFile(
 		repositoryRoot, "dist/artifacts.json", "GoReleaser artifact manifest", releaseArtifactsManifestLimit,
@@ -85,15 +85,15 @@ func ReleaseArtifacts(ctx context.Context, options ReleaseArtifactsOptions) (ret
 	if err != nil {
 		return err
 	}
-	if err := validateStrictJSONDocument(manifest, "GoReleaser artifact manifest"); err != nil {
-		return err
+	if validationErr := validateStrictJSONDocument(manifest, "GoReleaser artifact manifest"); validationErr != nil {
+		return validationErr
 	}
 	artifacts := []goReleaserArtifact{}
-	if err := decodeJSONDocument(manifest, &artifacts, "GoReleaser artifact manifest"); err != nil {
-		return err
+	if decodeErr := decodeJSONDocument(manifest, &artifacts, "GoReleaser artifact manifest"); decodeErr != nil {
+		return decodeErr
 	}
-	if err := validateGoReleaserArtifactFields(manifest); err != nil {
-		return err
+	if validationErr := validateGoReleaserArtifactFields(manifest); validationErr != nil {
+		return validationErr
 	}
 	checksummed, release, err := validateGoReleaserArtifactMatrix(artifacts, version, options.RefName)
 	if err != nil {

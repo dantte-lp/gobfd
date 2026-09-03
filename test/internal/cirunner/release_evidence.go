@@ -49,8 +49,10 @@ func ReleaseEvidence(ctx context.Context, options ReleaseEvidenceOptions) (retur
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close release verifier root", verifierRoot.Close()))
 	}()
-	if err := validateRootPathIdentity(verifierRoot, root, "release verifier root before staging"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		verifierRoot, root, "release verifier root before staging",
+	); identityErr != nil {
+		return identityErr
 	}
 	artifactRoot, err := os.OpenRoot(artifactRootPath)
 	if err != nil {
@@ -59,15 +61,19 @@ func ReleaseEvidence(ctx context.Context, options ReleaseEvidenceOptions) (retur
 	defer func() {
 		returnErr = errors.Join(returnErr, wrapOptional("close release evidence root", artifactRoot.Close()))
 	}()
-	if err := validateRootPathIdentity(artifactRoot, artifactRootPath, "release evidence root before validation"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		artifactRoot, artifactRootPath, "release evidence root before validation",
+	); identityErr != nil {
+		return identityErr
 	}
 
 	reportName := "gobfd-" + options.RefName + "-reports.tar.gz"
 	digestName := "release-image-digests.txt"
 	checksumName := "release-evidence-checksums.txt"
-	if err := validateRootedRegularTarget(artifactRoot, checksumName, "release evidence checksum"); err != nil {
-		return err
+	if targetErr := validateRootedRegularTarget(
+		artifactRoot, checksumName, "release evidence checksum",
+	); targetErr != nil {
+		return targetErr
 	}
 	report, err := readRootedRegularFile(artifactRoot, reportName, "release reports archive", releaseArtifactLimit)
 	if err != nil {
@@ -79,28 +85,32 @@ func ReleaseEvidence(ctx context.Context, options ReleaseEvidenceOptions) (retur
 	if err != nil {
 		return err
 	}
-	if err := validateReleaseOCIDigestReceipt(digests, version); err != nil {
-		return err
+	if digestErr := validateReleaseOCIDigestReceipt(digests, version); digestErr != nil {
+		return digestErr
 	}
 	checksums := append(
 		formatReleaseSHA256Line(report, reportName),
 		formatReleaseSHA256Line(digests, digestName)...,
 	)
-	if err := validateRootPathIdentity(artifactRoot, artifactRootPath, "release evidence root before checksums"); err != nil {
-		return err
+	if identityErr := validateRootPathIdentity(
+		artifactRoot, artifactRootPath, "release evidence root before checksums",
+	); identityErr != nil {
+		return identityErr
 	}
-	if err := writeRootedArtifact(
+	if writeErr := writeRootedArtifact(
 		artifactRoot, checksumName, checksums, "release evidence checksum", releaseEvidenceChecksumLimit,
-	); err != nil {
-		return err
+	); writeErr != nil {
+		return writeErr
 	}
 	expected := []releaseEvidenceFile{
 		{name: reportName, data: report, limit: releaseArtifactLimit},
 		{name: digestName, data: digests, limit: releaseOCIDigestReceiptLimit},
 		{name: checksumName, data: checksums, limit: releaseEvidenceChecksumLimit},
 	}
-	if err := validateReleaseEvidenceSnapshot(artifactRoot, artifactRootPath, expected, "before upload"); err != nil {
-		return err
+	if snapshotErr := validateReleaseEvidenceSnapshot(
+		artifactRoot, artifactRootPath, expected, "before upload",
+	); snapshotErr != nil {
+		return snapshotErr
 	}
 	stageRoot, stageInfo, err := prepareReleaseEvidenceStage(verifierRoot, root, expected)
 	if err != nil {

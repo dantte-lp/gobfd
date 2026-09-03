@@ -77,8 +77,8 @@ func validateRemoteReleaseAsset(
 		return releaseRemoteAssetIdentity{}, err
 	}
 	var size *int64
-	if err := decodeJSONDocument(asset["size"], &size, "release draft asset size"); err != nil {
-		return releaseRemoteAssetIdentity{}, err
+	if decodeErr := decodeJSONDocument(asset["size"], &size, "release draft asset size"); decodeErr != nil {
+		return releaseRemoteAssetIdentity{}, decodeErr
 	}
 	if size == nil || *size <= 0 || *size > releaseArtifactLimit {
 		return releaseRemoteAssetIdentity{}, fmt.Errorf("release draft asset size is outside bounds: %w", errInvalidConfig)
@@ -175,8 +175,10 @@ func parseReleaseAssetIdentityReceipt(
 		return nil, fmt.Errorf("release asset identity receipt has unexpected fields: %w", errInvalidConfig)
 	}
 	var schemaVersion *int
-	if err := decodeJSONDocument(root["schema_version"], &schemaVersion, "release asset identity receipt schema"); err != nil {
-		return nil, err
+	if decodeErr := decodeJSONDocument(
+		root["schema_version"], &schemaVersion, "release asset identity receipt schema",
+	); decodeErr != nil {
+		return nil, decodeErr
 	}
 	if schemaVersion == nil || *schemaVersion != 1 {
 		return nil, fmt.Errorf("release asset identity receipt schema is not version 1: %w", errInvalidConfig)
@@ -221,8 +223,10 @@ func parseReleaseAssetIdentityReceipt(
 			return nil, fmt.Errorf("release asset identity receipt node ID is not canonical: %w", errors.Join(err, errInvalidConfig))
 		}
 		var databaseID *uint64
-		if err := decodeJSONDocument(raw["database_id"], &databaseID, "release asset identity receipt REST ID"); err != nil {
-			return nil, err
+		if decodeErr := decodeJSONDocument(
+			raw["database_id"], &databaseID, "release asset identity receipt REST ID",
+		); decodeErr != nil {
+			return nil, decodeErr
 		}
 		if databaseID == nil || *databaseID == 0 {
 			return nil, fmt.Errorf("release asset identity receipt REST ID is not positive: %w", errInvalidConfig)
@@ -232,8 +236,8 @@ func parseReleaseAssetIdentityReceipt(
 			return nil, err
 		}
 		var size *int64
-		if err := decodeJSONDocument(raw["size"], &size, "release asset identity receipt size"); err != nil {
-			return nil, err
+		if decodeErr := decodeJSONDocument(raw["size"], &size, "release asset identity receipt size"); decodeErr != nil {
+			return nil, decodeErr
 		}
 		if size == nil || *size <= 0 || *size > releaseArtifactLimit {
 			return nil, fmt.Errorf("release asset identity receipt size is outside bounds: %w", errInvalidConfig)
@@ -304,9 +308,9 @@ func publishReleaseAssetIdentityReceipt(
 			),
 		)
 	}()
-	if err := temporary.Chmod(benchmarkArtifactMode); err != nil {
+	if chmodErr := temporary.Chmod(benchmarkArtifactMode); chmodErr != nil {
 		return nil, errors.Join(
-			fmt.Errorf("set temporary release asset identity receipt mode: %w", err),
+			fmt.Errorf("set temporary release asset identity receipt mode: %w", chmodErr),
 			wrapOptional("close temporary release asset identity receipt", temporary.Close()),
 		)
 	}
