@@ -130,7 +130,6 @@ func TestRunDispatchesReleaseReportModes(t *testing.T) {
 		"release-benchmark-comparison", "release-reports-archive", "release-preflight",
 		"release-notes",
 	} {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 
@@ -204,7 +203,6 @@ func TestRunDispatchesReleaseCloseoutFromImmutableVerifierEnvironment(t *testing
 	t.Parallel()
 
 	for _, mode := range []string{"release-promote", "release-publish"} {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 
@@ -259,7 +257,6 @@ func TestRunDispatchesBenchmarkModes(t *testing.T) {
 
 	wantErr := errors.New("working directory unavailable")
 	for _, mode := range []string{"benchmark-run", "benchmark-base", "benchmark-normalize", "benchmark-report"} {
-		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 

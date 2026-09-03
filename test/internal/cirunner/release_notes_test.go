@@ -105,7 +105,6 @@ func TestReleaseNotesRejectsMalformedReleasesAndIncompleteChangelog(t *testing.T
 		{name: "missing entry", releases: validReleaseNotesResponse, changelog: strings.Replace(validReleaseNotesChangelog, "- Current fix.\n", "Current fix.\n", 1)},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()

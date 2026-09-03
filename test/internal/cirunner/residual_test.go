@@ -82,7 +82,6 @@ func TestBufBreakingResolvesBaseToCommit(t *testing.T) {
 	t.Parallel()
 
 	for _, sha := range []string{strings.Repeat("a", 40), strings.Repeat("b", 64)} {
-		sha := sha
 		t.Run(strconv.Itoa(len(sha)), func(t *testing.T) {
 			t.Parallel()
 

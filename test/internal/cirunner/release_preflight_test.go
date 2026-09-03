@@ -70,7 +70,6 @@ func TestReleasePreflightRejectsMalformedIdentityBeforeCommands(t *testing.T) {
 		{RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd/extra"},
 	}
 	for _, options := range tests {
-		options := options
 		t.Run(options.RefName+options.Repository, func(t *testing.T) {
 			t.Parallel()
 			runner := newPreflightRunner(t, nil)
@@ -102,7 +101,6 @@ func TestReleasePreflightRejectsExistingReleaseAndVersionTags(t *testing.T) {
 		{name: "Oracle Linux version", packageTags: []string{"0.6.2-oraclelinux10"}, want: "versioned OCI tag already exists: 0.6.2-oraclelinux10"},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			runner := newPreflightRunner(t, test.packageTags)
@@ -144,7 +142,6 @@ func TestReleasePreflightRejectsMalformedGHCRPages(t *testing.T) {
 		"null tags":         `[[{"metadata":{"container":{"tags":null}}}]]`,
 		"null tag":          `[[{"metadata":{"container":{"tags":[null]}}}]]`,
 	} {
-		name, response := name, response
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			runner := newPreflightRunner(t, nil)
@@ -216,7 +213,6 @@ func TestReleasePreflightRejectsMismatchedRemoteIdentity(t *testing.T) {
 		}, want: "exact release/v0.6 head"},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			runner := newPreflightRunner(t, nil)

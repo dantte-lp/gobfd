@@ -74,7 +74,6 @@ func TestSonarModeRejectsMissingOrInvalidPresence(t *testing.T) {
 	t.Parallel()
 
 	for _, present := range []string{"", "TRUE", "1", "yes", "unexpected"} {
-		present := present
 		t.Run(present, func(t *testing.T) {
 			t.Parallel()
 
@@ -184,7 +183,6 @@ func TestBuildRejectsInvalidSHA(t *testing.T) {
 	t.Parallel()
 
 	for _, sha := range []string{"", "0123456", "0123456g", "01234567xyz"} {
-		sha := sha
 		t.Run(sha, func(t *testing.T) {
 			t.Parallel()
 
