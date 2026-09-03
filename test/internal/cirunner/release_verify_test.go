@@ -145,6 +145,17 @@ func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory
 				t.Fatal(err)
 			}
 		}, want: "exact manifest"},
+		{name: "checksum mismatch", mutate: func(t *testing.T, directory string, _ []string) {
+			path := filepath.Join(directory, "checksums.txt")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data[0] = changedHexByte(data[0])
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "SHA-256 mismatch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -356,12 +367,20 @@ func writeReleaseVerifyFixture(t *testing.T, artifactRoot, runnerTemp string, as
 		"expected-release-commit.txt":     []byte(preflightCommit + "\n"),
 		"expected-release-branch.txt":     []byte("release/v0.6\n"),
 		"expected-release-tag-object.txt": []byte(preflightTagObject + "\n"),
+		"expected-checksummed-assets.txt": renderArtifactNames(expectedChecksummedArtifactNames("0.6.2")),
 		"expected-release-assets.txt":     renderArtifactNames(assets),
 	} {
 		writeReleaseVerifyFile(t, runnerTemp, name, data)
 	}
 	writeReleaseVerifyFile(t, artifactRoot, "release-notes.md", []byte("release notes\n"))
-	writeReleaseVerifyFile(t, artifactRoot, "release-image-digests.txt", validReleaseDigestReceipt("0.6.2"))
+	digests := validReleaseDigestReceipt("0.6.2")
+	report := validReleaseReportsArchive(t)
+	checksums := append(
+		formatReleaseSHA256Line(report, "gobfd-v0.6.2-reports.tar.gz"),
+		formatReleaseSHA256Line(digests, "release-image-digests.txt")...,
+	)
+	writeReleaseVerifyFile(t, artifactRoot, "release-image-digests.txt", digests)
+	writeReleaseVerifyFile(t, artifactRoot, "release-evidence-checksums.txt", checksums)
 }
 
 func writeReleaseVerifyFile(t *testing.T, root, name string, data []byte) {
@@ -397,11 +416,7 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 	if spec.Name == "gh" && len(spec.Args) == 7 && slices.Equal(spec.Args[:5], []string{
 		"release", "download", "v0.6.2", "--repo", "dantte-lp/gobfd",
 	}) && spec.Args[5] == "--dir" {
-		for _, name := range runner.assets {
-			if err := os.WriteFile(filepath.Join(spec.Args[6], name), []byte("asset"), 0o600); err != nil {
-				return err
-			}
-		}
+		writeValidDownloadedReleaseAssets(runner.t, spec.Args[6])
 		if runner.afterDownload != nil {
 			runner.afterDownload(spec.Args[6])
 		}

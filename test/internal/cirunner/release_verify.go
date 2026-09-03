@@ -190,16 +190,17 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	if err := downloadExactReleaseAssets(
 		ctx, options.Runner, verifierRoot, runnerTemp, root, runnerTempPath,
 		owner+"/"+repository, options.RefName, options.Environment, expectedAssets,
+		func(downloadRoot *os.Root) error {
+			return errors.Join(
+				validateReleaseAssetContents(
+					downloadRoot, artifactRoot, runnerTemp, version, options.RefName,
+				),
+				validateRootPathIdentity(
+					artifactRoot, artifactRootPath, "release artifact root after asset content verification",
+				),
+			)
+		},
 	); err != nil {
-		return err
-	}
-	if err := validateRootPathIdentity(verifierRoot, root, "release verifier root after asset download"); err != nil {
-		return err
-	}
-	if err := validateRootPathIdentity(artifactRoot, artifactRootPath, "release artifact root after asset download"); err != nil {
-		return err
-	}
-	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP after asset download"); err != nil {
 		return err
 	}
 	return nil

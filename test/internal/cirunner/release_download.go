@@ -24,7 +24,11 @@ func downloadExactReleaseAssets(
 	refName string,
 	environment []string,
 	expectedAssets []string,
+	validateContents func(*os.Root) error,
 ) (returnErr error) {
+	if validateContents == nil {
+		return fmt.Errorf("release asset content validator is required: %w", errInvalidConfig)
+	}
 	if err := validateRootPathIdentity(
 		runnerTempRoot, runnerTempPath, "RUNNER_TEMP before release asset download",
 	); err != nil {
@@ -80,6 +84,14 @@ func downloadExactReleaseAssets(
 		Dir: commandDirectory, Env: environment,
 	}); err != nil {
 		return fmt.Errorf("download exact release assets: %w", err)
+	}
+	if err := validateOwnedReleaseDownloadRoot(
+		runnerTempRoot, downloadRoot, createdInfo, expectedAssets,
+	); err != nil {
+		return err
+	}
+	if err := validateContents(downloadRoot); err != nil {
+		return err
 	}
 	if err := validateOwnedReleaseDownloadRoot(
 		runnerTempRoot, downloadRoot, createdInfo, expectedAssets,
