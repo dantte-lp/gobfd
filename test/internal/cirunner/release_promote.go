@@ -23,93 +23,93 @@ type PromoteReleaseOCIAliasesOptions struct {
 	Runner       SpecRunner
 }
 
+type releaseOCIAliasPromotion struct {
+	options                                PromoteReleaseOCIAliasesOptions
+	root, artifactRootPath, runnerTempPath string
+	version, releaseBranch, expectedCommit string
+	owner, repository                      string
+	verifierRoot, artifactRoot, runnerTemp *os.Root
+}
+
 // PromoteReleaseOCIAliases moves stable OCI aliases to verified versioned index digests.
 func PromoteReleaseOCIAliases(ctx context.Context, options PromoteReleaseOCIAliasesOptions) (returnErr error) {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "release verifier root")
+	promotion, err := prepareReleaseOCIAliasPromotion(options)
 	if err != nil {
 		return err
 	}
-	artifactRootPath, err := validateAbsoluteExistingDirectory(options.ArtifactRoot, "release artifact root")
-	if err != nil {
-		return err
-	}
-	runnerTempPath, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
-	if err != nil {
-		return err
-	}
-	version, releaseBranch, err := parseStableReleaseVersion(options.RefName)
-	if err != nil {
-		return err
-	}
-	expectedCommit, err := validateFullCommitSHA(options.SHA, "GITHUB_SHA")
-	if err != nil {
-		return err
-	}
-	owner, repository, err := parseGitHubRepository(options.Repository)
-	if err != nil {
-		return err
-	}
-	if options.Runner == nil {
-		return fmt.Errorf("release OCI alias promotion command runner is required: %w", errInvalidConfig)
-	}
-
-	verifierRoot, err := os.OpenRoot(root)
+	promotion.verifierRoot, err = os.OpenRoot(promotion.root)
 	if err != nil {
 		return fmt.Errorf("open release verifier root for OCI alias promotion: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, wrapOptional("close release verifier OCI alias root", verifierRoot.Close()))
+		returnErr = errors.Join(
+			returnErr,
+			wrapOptional("close release verifier OCI alias root", promotion.verifierRoot.Close()),
+		)
 	}()
-	artifactRoot, err := os.OpenRoot(artifactRootPath)
+	promotion.artifactRoot, err = os.OpenRoot(promotion.artifactRootPath)
 	if err != nil {
 		return fmt.Errorf("open release artifact root for OCI alias promotion: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, wrapOptional("close release artifact OCI alias root", artifactRoot.Close()))
+		returnErr = errors.Join(
+			returnErr,
+			wrapOptional("close release artifact OCI alias root", promotion.artifactRoot.Close()),
+		)
 	}()
-	runnerTemp, err := os.OpenRoot(runnerTempPath)
+	promotion.runnerTemp, err = os.OpenRoot(promotion.runnerTempPath)
 	if err != nil {
 		return fmt.Errorf("open RUNNER_TEMP for OCI alias promotion: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP OCI alias root", runnerTemp.Close()))
+		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP OCI alias root", promotion.runnerTemp.Close()))
 	}()
-	if rootsErr := validatePromotionRoots(
-		verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "before identity verification",
-	); rootsErr != nil {
-		return rootsErr
+	return promotion.run(ctx)
+}
+
+func prepareReleaseOCIAliasPromotion(options PromoteReleaseOCIAliasesOptions) (*releaseOCIAliasPromotion, error) {
+	root, err := validateAbsoluteExistingDirectory(options.Root, "release verifier root")
+	if err != nil {
+		return nil, err
 	}
-	receiptTagObject, err := readExpectedReleaseIdentityReceipts(runnerTemp, expectedCommit, releaseBranch)
+	artifactRootPath, err := validateAbsoluteExistingDirectory(options.ArtifactRoot, "release artifact root")
+	if err != nil {
+		return nil, err
+	}
+	runnerTempPath, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
+	if err != nil {
+		return nil, err
+	}
+	version, releaseBranch, err := parseStableReleaseVersion(options.RefName)
+	if err != nil {
+		return nil, err
+	}
+	expectedCommit, err := validateFullCommitSHA(options.SHA, "GITHUB_SHA")
+	if err != nil {
+		return nil, err
+	}
+	owner, repository, err := parseGitHubRepository(options.Repository)
+	if err != nil {
+		return nil, err
+	}
+	if options.Runner == nil {
+		return nil, fmt.Errorf("release OCI alias promotion command runner is required: %w", errInvalidConfig)
+	}
+	return &releaseOCIAliasPromotion{
+		options: options, root: root, artifactRootPath: artifactRootPath, runnerTempPath: runnerTempPath,
+		version: version, releaseBranch: releaseBranch, expectedCommit: expectedCommit,
+		owner: owner, repository: repository,
+	}, nil
+}
+
+func (promotion *releaseOCIAliasPromotion) run(ctx context.Context) error {
+	versioned, err := promotion.verifyIdentityAndReceipts(ctx)
 	if err != nil {
 		return err
-	}
-	actualTagObject, err := verifyReleaseGitIdentity(
-		ctx, options.Runner, root, owner, repository, options.RefName, releaseBranch, expectedCommit, options.Environment,
-	)
-	if err != nil {
-		return err
-	}
-	if actualTagObject != receiptTagObject {
-		return fmt.Errorf("release tag object receipt changed before OCI alias promotion: %w", errInvalidConfig)
-	}
-	digestReceipt, err := readRootedRegularFile(
-		artifactRoot, "release-image-digests.txt", "release OCI digest receipt", releaseOCIDigestReceiptLimit,
-	)
-	if err != nil {
-		return err
-	}
-	versioned, err := parseReleaseOCIDigestReceipt(digestReceipt, version)
-	if err != nil {
-		return err
-	}
-	if rootsErr := validatePromotionRoots(
-		verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "before alias mutation",
-	); rootsErr != nil {
-		return rootsErr
 	}
 
 	const imageRepository = "ghcr.io/dantte-lp/gobfd"
-	dockerEnvironment := withoutEnvironmentKeys(options.Environment, "GH_TOKEN", "GITHUB_TOKEN")
+	dockerEnvironment := withoutEnvironmentKeys(promotion.options.Environment, "GH_TOKEN", "GITHUB_TOKEN")
 	aliases := []releaseOCIImageDigest{
 		{Image: imageRepository + ":latest", Digest: versioned[0].Digest},
 		{Image: imageRepository + ":debian-trixie", Digest: versioned[0].Digest},
@@ -120,63 +120,125 @@ func PromoteReleaseOCIAliases(ctx context.Context, options PromoteReleaseOCIAlia
 		snapshotTargets[index].Image = alias.Image
 	}
 	previousAliases, err := inspectReleaseOCIAliases(
-		ctx, options.Runner, root, snapshotTargets, dockerEnvironment,
+		ctx, promotion.options.Runner, promotion.root, snapshotTargets, dockerEnvironment,
 	)
 	if err != nil {
 		return fmt.Errorf("snapshot existing OCI aliases before promotion: %w", err)
 	}
-	if err := validatePromotionRoots(
-		verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "after alias snapshot",
-	); err != nil {
+	if err := promotion.validateRoots("after alias snapshot"); err != nil {
 		return err
 	}
+	promotionErr := promotion.promote(ctx, imageRepository, aliases, dockerEnvironment)
+	if promotionErr == nil {
+		return nil
+	}
+	return errors.Join(
+		promotionErr,
+		promotion.rollback(ctx, imageRepository, previousAliases, dockerEnvironment),
+	)
+}
+
+func (promotion *releaseOCIAliasPromotion) verifyIdentityAndReceipts(
+	ctx context.Context,
+) ([]releaseOCIImageDigest, error) {
+	if rootsErr := promotion.validateRoots("before identity verification"); rootsErr != nil {
+		return nil, rootsErr
+	}
+	receiptTagObject, err := readExpectedReleaseIdentityReceipts(
+		promotion.runnerTemp, promotion.expectedCommit, promotion.releaseBranch,
+	)
+	if err != nil {
+		return nil, err
+	}
+	actualTagObject, err := verifyReleaseGitIdentity(
+		ctx, promotion.options.Runner, promotion.root, promotion.owner, promotion.repository,
+		promotion.options.RefName, promotion.releaseBranch, promotion.expectedCommit, promotion.options.Environment,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if actualTagObject != receiptTagObject {
+		return nil, fmt.Errorf("release tag object receipt changed before OCI alias promotion: %w", errInvalidConfig)
+	}
+	digestReceipt, err := readRootedRegularFile(
+		promotion.artifactRoot, "release-image-digests.txt", "release OCI digest receipt", releaseOCIDigestReceiptLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	versioned, err := parseReleaseOCIDigestReceipt(digestReceipt, promotion.version)
+	if err != nil {
+		return nil, err
+	}
+	if rootsErr := promotion.validateRoots("before alias mutation"); rootsErr != nil {
+		return nil, rootsErr
+	}
+	return versioned, nil
+}
+
+func (promotion *releaseOCIAliasPromotion) promote(
+	ctx context.Context,
+	imageRepository string,
+	aliases []releaseOCIImageDigest,
+	dockerEnvironment []string,
+) error {
 	commands := []CommandSpec{
 		{
 			Name: "docker", Args: []string{
 				"buildx", "imagetools", "create",
 				"--tag", imageRepository + ":latest",
 				"--tag", imageRepository + ":debian-trixie",
-				imageRepository + "@" + versioned[0].Digest,
-			}, Dir: root, Env: dockerEnvironment,
+				imageRepository + "@" + aliases[0].Digest,
+			}, Dir: promotion.root, Env: dockerEnvironment,
 		},
 		{
 			Name: "docker", Args: []string{
 				"buildx", "imagetools", "create",
 				"--tag", imageRepository + ":oraclelinux10",
-				imageRepository + "@" + versioned[2].Digest,
-			}, Dir: root, Env: dockerEnvironment,
+				imageRepository + "@" + aliases[2].Digest,
+			}, Dir: promotion.root, Env: dockerEnvironment,
 		},
 	}
-	promotionErr := func() error {
-		for _, command := range commands {
-			if err := options.Runner.RunCommand(ctx, command); err != nil {
-				return fmt.Errorf("promote verified OCI alias: %w", err)
-			}
+	for _, command := range commands {
+		if err := promotion.options.Runner.RunCommand(ctx, command); err != nil {
+			return fmt.Errorf("promote verified OCI alias: %w", err)
 		}
-		_, err := inspectReleaseOCIAliases(ctx, options.Runner, root, aliases, dockerEnvironment)
-		if err != nil {
-			return err
-		}
-		return validatePromotionRoots(
-			verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "after alias verification",
-		)
-	}()
-	if promotionErr != nil {
-		rollbackContext, cancelRollback := context.WithTimeout(
-			context.WithoutCancel(ctx), releaseOCIAliasRollbackTimeout,
-		)
-		rollbackErr := errors.Join(
-			restoreReleaseOCIAliases(
-				rollbackContext, options.Runner, root, imageRepository, previousAliases, dockerEnvironment,
-			),
-			validatePromotionRoots(
-				verifierRoot, root, artifactRoot, artifactRootPath, runnerTemp, runnerTempPath, "after alias rollback",
-			),
-		)
-		cancelRollback()
-		return errors.Join(promotionErr, wrapOptional("rollback OCI aliases after failed promotion", rollbackErr))
 	}
-	return nil
+	if _, err := inspectReleaseOCIAliases(
+		ctx, promotion.options.Runner, promotion.root, aliases, dockerEnvironment,
+	); err != nil {
+		return err
+	}
+	return promotion.validateRoots("after alias verification")
+}
+
+func (promotion *releaseOCIAliasPromotion) rollback(
+	ctx context.Context,
+	imageRepository string,
+	previousAliases []releaseOCIImageDigest,
+	dockerEnvironment []string,
+) error {
+	rollbackContext, cancelRollback := context.WithTimeout(
+		context.WithoutCancel(ctx), releaseOCIAliasRollbackTimeout,
+	)
+	rollbackErr := errors.Join(
+		restoreReleaseOCIAliases(
+			rollbackContext, promotion.options.Runner, promotion.root,
+			imageRepository, previousAliases, dockerEnvironment,
+		),
+		promotion.validateRoots("after alias rollback"),
+	)
+	cancelRollback()
+	return wrapOptional("rollback OCI aliases after failed promotion", rollbackErr)
+}
+
+func (promotion *releaseOCIAliasPromotion) validateRoots(phase string) error {
+	return validatePromotionRoots(
+		promotion.verifierRoot, promotion.root,
+		promotion.artifactRoot, promotion.artifactRootPath,
+		promotion.runnerTemp, promotion.runnerTempPath,
+		phase,
+	)
 }
 
 func inspectReleaseOCIAliases(
