@@ -10,7 +10,7 @@
 #   make proto-gen   — generate protobuf Go code
 #   make proto-lint  — lint proto definitions
 #   make all           — build + test + lint
-#   make interop       — run interop tests (bash, builds + tests + cleans up)
+#   make interop       — run interop tests (builds + tests + cleans up)
 #   make interop-test  — run Go interop tests (stack must be running)
 #   make interop-testcontainers — build, test, and clean a Go-owned interop stack
 #   make interop-bgp-testcontainers — build, test, and clean a Go-owned BGP+BFD stack
@@ -44,7 +44,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         benchmark benchmark-all benchmark-save benchmark-compare \
         test-report report-all \
         coverage profile \
-        up down restart logs shell clean tidy \
+        up down restart logs clean tidy \
         dev-ps dev-project dev-ensure \
         e2e-help e2e-core e2e-core-testcontainers \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
@@ -72,9 +72,6 @@ restart: down up
 
 logs:
 	$(DC) logs -f dev
-
-shell:
-	$(DC) exec dev bash
 
 dev-ps:
 	$(DC) ps
@@ -123,19 +120,7 @@ e2e-core: e2e-core-testcontainers
 e2e-core-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_core_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
-	bash -o pipefail -c 'umask 077; report_parent="$(CURDIR)/reports/e2e/core"; \
-		mkdir -p "$${report_parent}" || exit 1; chmod 0700 "$${report_parent}" || exit 1; \
-		report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")" || exit 1; \
-		chmod 0700 "$${report_dir}" || exit 1; \
-		export GOBFD_REQUIRE_PODMAN=1 E2E_CORE_TESTCONTAINERS_ARTIFACT_DIR="$${report_dir}"; \
-		go test -tags e2e_core_testcontainers ./test/e2e/core -race -count=1 -json -timeout 10m \
-			-run "^TestCoreDaemonTestcontainers$$" | tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"; \
-		pipeline_status=("$${PIPESTATUS[@]}"); \
-		test "$${#pipeline_status[@]}" -eq 2 && test -s "$${report_dir}/go-test.json" && \
-			test -s "$${report_dir}/go-test.log" && \
-			test "$$(stat -c %a "$${report_dir}/go-test.json")" = 600 && \
-			test "$$(stat -c %a "$${report_dir}/go-test.log")" = 600 && \
-			test "$${pipeline_status[0]}" -eq 0 && test "$${pipeline_status[1]}" -eq 0'
+	go run ./test/cmd/e2ectl core
 e2e-routing: interop-project-validate
 	$(DC) up -d --build --force-recreate dev
 	go run ./test/cmd/e2ectl routing
@@ -376,19 +361,7 @@ int-bgp-failover: int-bgp-failover-testcontainers
 int-bgp-failover-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_bgp_failover_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/bgp-failover/...
-	bash -o pipefail -c 'umask 077; report_parent="$(CURDIR)/reports/e2e/bgp-fast-failover"; \
-		mkdir -p "$${report_parent}" || exit 1; chmod 0700 "$${report_parent}" || exit 1; \
-		report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")" || exit 1; \
-		chmod 0700 "$${report_dir}" || exit 1; \
-		export GOBFD_REQUIRE_PODMAN=1 E2E_BGP_FAILOVER_TESTCONTAINERS_ARTIFACT_DIR="$${report_dir}"; \
-		go test -tags e2e_bgp_failover_testcontainers ./test/e2e/bgp-failover -race -count=1 -json -timeout 10m \
-			-run "^TestBGPFastFailoverTestcontainers$$" | tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"; \
-		pipeline_status=("$${PIPESTATUS[@]}"); \
-		test "$${#pipeline_status[@]}" -eq 2 && test -s "$${report_dir}/go-test.json" && \
-			test -s "$${report_dir}/go-test.log" && \
-			test "$$(stat -c %a "$${report_dir}/go-test.json")" = 600 && \
-			test "$$(stat -c %a "$${report_dir}/go-test.log")" = 600 && \
-			test "$${pipeline_status[0]}" -eq 0 && test "$${pipeline_status[1]}" -eq 0'
+	go run ./test/cmd/e2ectl bgp-fast-failover
 
 int-bgp-failover-up:
 	$(INT_BGP_DC) up --build -d
@@ -405,13 +378,7 @@ int-haproxy:
 int-haproxy-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_haproxy_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/haproxy-health/...
-	bash -o pipefail -c 'umask 077; run_id="$$(date -u +%Y%m%dT%H%M%SZ)"; \
-		report_dir="$(CURDIR)/reports/e2e/haproxy-health/$${run_id}"; mkdir -p "$${report_dir}"; \
-		export GOBFD_REQUIRE_PODMAN=1 E2E_HAPROXY_TESTCONTAINERS_ARTIFACT_DIR="$${report_dir}"; \
-		go test -trimpath -tags e2e_haproxy_testcontainers ./test/e2e/haproxy-health -race -count=1 -json -timeout 10m \
-			| tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"; \
-		test_status="$${PIPESTATUS[0]}"; test -s "$${report_dir}/go-test.json" && \
-			test -s "$${report_dir}/go-test.log" && test "$${test_status}" -eq 0'
+	go run ./test/cmd/e2ectl haproxy-health
 
 int-haproxy-up:
 	$(INT_HAPROXY_DC) up --build -d
@@ -428,22 +395,7 @@ int-observability:
 int-observability-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_observability_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/observability/...
-	bash -o pipefail -c 'umask 077; working_dir="$$(pwd -P)" || exit 1; \
-		report_parent="$${working_dir}/reports/e2e/observability"; \
-		mkdir -p "$${report_parent}" || exit 1; chmod 0700 "$${report_parent}" || exit 1; \
-		report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")" || exit 1; \
-		chmod 0700 "$${report_dir}" || exit 1; report_owner="$$(basename "$${report_dir}")" || exit 1; \
-		printf "%s\n" "$${report_owner}" > "$${report_dir}/.gobfd-observability-owner"; \
-		printf_status="$$?"; test "$${printf_status}" -eq 0 || exit 1; \
-		chmod 0600 "$${report_dir}/.gobfd-observability-owner" || exit 1; \
-		export GOBFD_REQUIRE_PODMAN=1 E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_DIR="$${report_dir}" \
-			E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_OWNER="$${report_owner}"; \
-		go test -trimpath -tags e2e_observability_testcontainers ./test/e2e/observability -race -count=1 -json -timeout 15m \
-			| tee "$${report_dir}/go-test.json" "$${report_dir}/go-test.log"; \
-		pipeline_status=("$${PIPESTATUS[@]}"); \
-		test "$${#pipeline_status[@]}" -eq 2 && test -s "$${report_dir}/go-test.json" && \
-			test -s "$${report_dir}/go-test.log" && test "$${pipeline_status[0]}" -eq 0 && \
-			test "$${pipeline_status[1]}" -eq 0'
+	go run ./test/cmd/e2ectl observability
 
 int-observability-up:
 	$(INT_OBS_DC) up --build -d

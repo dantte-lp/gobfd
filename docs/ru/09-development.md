@@ -84,10 +84,18 @@ request.
 
 ### Make-цели
 
-Все Go-команды выполняются внутри контейнеров Podman через `podman compose exec`.
+Обычные цели сборки и тестирования запускают Go внутри Podman через
+`podman compose exec`.
 Development stack изолирован через `COMPOSE_PROJECT_NAME`, который по
 умолчанию равен имени директории текущего checkout. Parallel worktrees
 используют разные default project names или явно задают `COMPOSE_PROJECT_NAME`.
+
+Интерактивной Make-цели для shell нет. Нужную неинтерактивную команду следует
+запускать явно, например:
+
+```bash
+podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
+```
 
 #### Жизненный цикл
 
@@ -97,7 +105,6 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 | `make down` | Остановка контейнера |
 | `make restart` | Перезапуск (down + up) |
 | `make logs` | Просмотр логов контейнера |
-| `make shell` | Открыть bash в контейнере |
 | `make dev-project` | Показать Compose project name active checkout |
 | `make dev-ps` | Показать development stack active checkout |
 
@@ -137,8 +144,17 @@ Development stack изолирован через `COMPOSE_PROJECT_NAME`, кот
 
 #### Примеры интеграций
 
+Testcontainers-цели для core, BGP fast failover, HAProxy health и observability
+делегируют сбор отчётов Go-owned runner `test/cmd/e2ectl`. Он создаёт
+эксклюзивный каталог отчёта, направляет одинаковый вывод `go test -json` в
+`go-test.json` и `go-test.log` и сохраняет код завершения теста.
+
 | Цель | Описание |
 |---|---|
+| `make e2e-core-testcontainers` | Core daemon testcontainers gate и отчёт `e2ectl` |
+| `make int-bgp-failover-testcontainers` | BGP fast-failover testcontainers gate и отчёт `e2ectl` |
+| `make int-haproxy-testcontainers` | HAProxy health testcontainers gate и отчёт `e2ectl` |
+| `make int-observability-testcontainers` | Observability testcontainers gate и отчёт `e2ectl` |
 | `make int-bgp-failover` | Go testcontainers gate для BGP fast failover; операционный Compose-пример доступен через `-up`, `-logs` и `-down` |
 | `make int-haproxy` | Демо HAProxy agent-check bridge |
 | `make int-observability` | Стек наблюдаемости Prometheus + Grafana |

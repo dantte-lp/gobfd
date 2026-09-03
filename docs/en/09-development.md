@@ -81,10 +81,17 @@ and automatically publishes it only as the final mutation.
 
 ### Make Targets
 
-All Go commands run inside Podman containers via `podman compose exec`.
+Routine build and test targets run Go inside Podman via `podman compose exec`.
 The development stack is scoped by `COMPOSE_PROJECT_NAME`, which defaults to
 the current checkout directory name. Parallel worktrees use distinct default
 project names and can override `COMPOSE_PROJECT_NAME` explicitly.
+
+There is no interactive Make shell target. Run a specific non-interactive
+command explicitly, for example:
+
+```bash
+podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
+```
 
 #### Lifecycle
 
@@ -94,7 +101,6 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 | `make down` | Stop development container |
 | `make restart` | Restart (down + up) |
 | `make logs` | Follow development container logs |
-| `make shell` | Open bash in development container |
 | `make dev-project` | Print the active checkout Compose project name |
 | `make dev-ps` | Show the active checkout development stack |
 
@@ -134,8 +140,17 @@ project names and can override `COMPOSE_PROJECT_NAME` explicitly.
 
 #### Integration Examples
 
+The core, BGP fast-failover, HAProxy health, and observability testcontainers
+targets delegate report collection to the Go-owned `test/cmd/e2ectl` runner.
+It creates an exclusive report directory, streams the same `go test -json`
+output to `go-test.json` and `go-test.log`, and preserves the test exit code.
+
 | Target | Description |
 |---|---|
+| `make e2e-core-testcontainers` | Core daemon testcontainers gate and `e2ectl` report |
+| `make int-bgp-failover-testcontainers` | BGP fast-failover testcontainers gate and `e2ectl` report |
+| `make int-haproxy-testcontainers` | HAProxy health testcontainers gate and `e2ectl` report |
+| `make int-observability-testcontainers` | Observability testcontainers gate and `e2ectl` report |
 | `make int-bgp-failover` | Go testcontainers BGP fast-failover gate; the operational Compose example remains available through `-up`, `-logs`, and `-down` |
 | `make int-haproxy` | HAProxy agent-check bridge demo |
 | `make int-observability` | Prometheus + Grafana observability stack |

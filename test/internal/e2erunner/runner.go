@@ -65,7 +65,10 @@ type runner struct {
 // Run executes one E2E target.
 func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writer) error {
 	if len(args) != 1 {
-		return fmt.Errorf("%w: usage: e2ectl {linux|overlay|rfc|routing|vendor}", errUsage)
+		return fmt.Errorf(
+			"%w: usage: e2ectl {bgp-fast-failover|core|haproxy-health|linux|observability|overlay|rfc|routing|vendor}",
+			errUsage,
+		)
 	}
 	target := args[0]
 	if !validTarget(target) {
@@ -80,26 +83,28 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 		return fmt.Errorf("%w: invalid Compose project name %q", errUsage, project)
 	}
 
-	runID := time.Now().UTC().Format("20060102T150405Z")
-	if target == "routing" {
-		runID = fmt.Sprintf("%s-%d", time.Now().UTC().Format("20060102T150405000000000Z"), os.Getpid())
+	runID, reportDir, err := initializeReportDirectory(root, target)
+	if err != nil {
+		return err
 	}
-	reportRel := filepath.ToSlash(filepath.Join("reports", "e2e", target, runID))
+	reportRel, err := filepath.Rel(root, reportDir)
+	if err != nil {
+		return fmt.Errorf("resolve %s report path: %w", target, err)
+	}
 	r := &runner{
 		root:       root,
 		target:     target,
 		runID:      runID,
-		reportRel:  reportRel,
-		reportDir:  filepath.Join(root, filepath.FromSlash(reportRel)),
+		reportRel:  filepath.ToSlash(reportRel),
+		reportDir:  reportDir,
 		devProject: project,
 		stdout:     stdout,
 		stderr:     stderr,
 	}
-	if err := os.MkdirAll(r.reportDir, 0o750); err != nil {
-		return fmt.Errorf("create %s report directory: %w", target, err)
-	}
 
 	switch target {
+	case "bgp-fast-failover", "core", "haproxy-health", "observability":
+		return r.runTestReport(ctx)
 	case "linux":
 		return r.runLinux(ctx)
 	case "overlay":
@@ -117,11 +122,26 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 
 func validTarget(target string) bool {
 	switch target {
-	case "linux", "overlay", "rfc", "routing", "vendor":
+	case "bgp-fast-failover", "core", "haproxy-health", "linux", "observability", "overlay", "rfc", "routing", "vendor":
 		return true
 	default:
 		return false
 	}
+}
+
+func initializeReportDirectory(root, target string) (string, string, error) {
+	if spec, ok := testReportTarget(target); ok {
+		return secureReportDirectory(root, spec.reportPath)
+	}
+	runID := time.Now().UTC().Format("20060102T150405Z")
+	if target == "routing" {
+		runID = fmt.Sprintf("%s-%d", time.Now().UTC().Format("20060102T150405000000000Z"), os.Getpid())
+	}
+	reportDir := filepath.Join(root, "reports", "e2e", target, runID)
+	if err := os.MkdirAll(reportDir, 0o750); err != nil {
+		return "", "", fmt.Errorf("create %s report directory: %w", target, err)
+	}
+	return runID, reportDir, nil
 }
 
 func normalizeProject(name string) string {
@@ -402,17 +422,27 @@ func (r *runner) collectDevDiagnostics(ctx context.Context) {
 }
 
 func (r *runner) loggedCommand(ctx context.Context, argv ...string) error {
+	return r.loggedCommandEnvironment(ctx, testTimeout, nil, argv...)
+}
+
+func (r *runner) loggedCommandEnvironment(
+	ctx context.Context,
+	timeout time.Duration,
+	environment []string,
+	argv ...string,
+) error {
 	jsonFile, err := secureFile(filepath.Join(r.reportDir, goTestJSONName))
 	if err != nil {
 		return err
 	}
-	defer jsonFile.Close()
 	logFile, err := secureFile(filepath.Join(r.reportDir, goTestLogName))
 	if err != nil {
-		return err
+		return errors.Join(err, jsonFile.Close())
 	}
-	defer logFile.Close()
-	return r.command(ctx, testTimeout, io.MultiWriter(r.stdout, jsonFile, logFile), r.stderr, argv...)
+	runErr := r.commandEnvironment(
+		ctx, timeout, io.MultiWriter(r.stdout, jsonFile, logFile), r.stderr, environment, argv...,
+	)
+	return errors.Join(runErr, jsonFile.Close(), logFile.Close())
 }
 
 func (r *runner) command(
@@ -420,6 +450,17 @@ func (r *runner) command(
 	timeout time.Duration,
 	stdout io.Writer,
 	stderr io.Writer,
+	argv ...string,
+) error {
+	return r.commandEnvironment(ctx, timeout, stdout, stderr, nil, argv...)
+}
+
+func (r *runner) commandEnvironment(
+	ctx context.Context,
+	timeout time.Duration,
+	stdout io.Writer,
+	stderr io.Writer,
+	environment []string,
 	argv ...string,
 ) error {
 	if len(argv) == 0 {
@@ -433,6 +474,9 @@ func (r *runner) command(
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	if environment != nil {
+		cmd.Env = environment
+	}
 	if err := cmd.Run(); err != nil {
 		if commandCtx.Err() != nil {
 			return fmt.Errorf("run %s: %w", argv[0], commandCtx.Err())

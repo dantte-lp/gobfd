@@ -187,8 +187,8 @@ Docker Buildx/Bake не входит в runtime-контракт проекта.
 # Запуск среды разработки
 podman compose -f deployments/compose/compose.dev.yml up -d --build
 
-# Доступ к контейнеру разработки
-podman compose -f deployments/compose/compose.dev.yml exec dev bash
+# Запуск отдельной команды в контейнере разработки
+podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
 ```
 
 #### Production-стек
