@@ -159,6 +159,120 @@ func renderReleaseAssetIdentityReceipt(
 	return data, nil
 }
 
+func parseReleaseAssetIdentityReceipt(
+	data []byte,
+	refName string,
+	expectedAssets []string,
+	remote []releaseRemoteAssetIdentity,
+) ([]releaseAssetIdentityRecord, error) {
+	if err := validateStrictJSONDocument(data, "release asset identity receipt"); err != nil {
+		return nil, err
+	}
+	root, err := decodeRequiredJSONObject(
+		data, "release asset identity receipt", []string{"schema_version", "tag", "assets"},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(root) != 3 {
+		return nil, fmt.Errorf("release asset identity receipt has unexpected fields: %w", errInvalidConfig)
+	}
+	var schemaVersion *int
+	if err := decodeJSONDocument(root["schema_version"], &schemaVersion, "release asset identity receipt schema"); err != nil {
+		return nil, err
+	}
+	if schemaVersion == nil || *schemaVersion != 1 {
+		return nil, fmt.Errorf("release asset identity receipt schema is not version 1: %w", errInvalidConfig)
+	}
+	tag, err := decodeRequiredJSONString(root["tag"], "release asset identity receipt tag")
+	if err != nil {
+		return nil, err
+	}
+	if tag != refName {
+		return nil, fmt.Errorf("release asset identity receipt tag differs from release tag: %w", errInvalidConfig)
+	}
+	rawRecords := []map[string]json.RawMessage{}
+	if err := decodeJSONDocument(root["assets"], &rawRecords, "release asset identity receipt assets"); err != nil {
+		return nil, err
+	}
+	if len(rawRecords) != len(expectedAssets) || len(remote) != len(expectedAssets) {
+		return nil, fmt.Errorf("release asset identity receipt set is incomplete: %w", errInvalidConfig)
+	}
+	records := make([]releaseAssetIdentityRecord, 0, len(rawRecords))
+	nodeIDs := make(map[string]struct{}, len(rawRecords))
+	databaseIDs := make(map[uint64]struct{}, len(rawRecords))
+	fields := []string{"node_id", "database_id", "name", "size", "digest", "state"}
+	for index, raw := range rawRecords {
+		if raw == nil {
+			return nil, fmt.Errorf("release asset identity receipt record %d is not an object: %w", index, errInvalidConfig)
+		}
+		if err := rejectJSONFieldAliases(raw, fields); err != nil {
+			return nil, fmt.Errorf("release asset identity receipt record %d: %w", index, err)
+		}
+		if len(raw) != len(fields) {
+			return nil, fmt.Errorf("release asset identity receipt record %d has unexpected fields: %w", index, errInvalidConfig)
+		}
+		for _, field := range fields {
+			if _, exists := raw[field]; !exists {
+				return nil, fmt.Errorf(
+					"release asset identity receipt record %d lacks %s: %w", index, field, errInvalidConfig,
+				)
+			}
+		}
+		nodeID, err := decodeRequiredJSONString(raw["node_id"], "release asset identity receipt node ID")
+		if err != nil || !canonicalReleaseAssetNodeID(nodeID) {
+			return nil, fmt.Errorf("release asset identity receipt node ID is not canonical: %w", errors.Join(err, errInvalidConfig))
+		}
+		var databaseID *uint64
+		if err := decodeJSONDocument(raw["database_id"], &databaseID, "release asset identity receipt REST ID"); err != nil {
+			return nil, err
+		}
+		if databaseID == nil || *databaseID == 0 {
+			return nil, fmt.Errorf("release asset identity receipt REST ID is not positive: %w", errInvalidConfig)
+		}
+		name, err := decodeRequiredJSONString(raw["name"], "release asset identity receipt name")
+		if err != nil {
+			return nil, err
+		}
+		var size *int64
+		if err := decodeJSONDocument(raw["size"], &size, "release asset identity receipt size"); err != nil {
+			return nil, err
+		}
+		if size == nil || *size <= 0 || *size > releaseArtifactLimit {
+			return nil, fmt.Errorf("release asset identity receipt size is outside bounds: %w", errInvalidConfig)
+		}
+		digest, err := decodeRequiredJSONString(raw["digest"], "release asset identity receipt digest")
+		if err != nil || !canonicalOCIDigest(digest) {
+			return nil, fmt.Errorf("release asset identity receipt digest is not canonical: %w", errors.Join(err, errInvalidConfig))
+		}
+		state, err := decodeRequiredJSONString(raw["state"], "release asset identity receipt state")
+		if err != nil || state != "uploaded" {
+			return nil, fmt.Errorf("release asset identity receipt state is not uploaded: %w", errors.Join(err, errInvalidConfig))
+		}
+		if _, exists := nodeIDs[nodeID]; exists {
+			return nil, fmt.Errorf("release asset identity receipt duplicates node ID: %w", errInvalidConfig)
+		}
+		if _, exists := databaseIDs[*databaseID]; exists {
+			return nil, fmt.Errorf("release asset identity receipt duplicates REST ID: %w", errInvalidConfig)
+		}
+		nodeIDs[nodeID] = struct{}{}
+		databaseIDs[*databaseID] = struct{}{}
+		record := releaseAssetIdentityRecord{
+			NodeID: nodeID, DatabaseID: *databaseID, Name: name, Size: *size, Digest: digest, State: state,
+		}
+		if name != expectedAssets[index] || !releaseAssetIdentityMatchesRemote(record, remote[index]) {
+			return nil, fmt.Errorf("release asset identity receipt record %d differs from exact remote asset: %w", index, errInvalidConfig)
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
+func releaseAssetIdentityMatchesRemote(record releaseAssetIdentityRecord, remote releaseRemoteAssetIdentity) bool {
+	return record.NodeID == remote.NodeID && record.DatabaseID == remote.DatabaseID && record.Name == remote.Name &&
+		record.Size == remote.Size && record.Digest == remote.Digest && record.State == remote.State
+}
+
 func publishReleaseAssetIdentityReceipt(
 	root *os.Root,
 	data []byte,
