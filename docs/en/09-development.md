@@ -387,7 +387,7 @@ is not changed.
 and requires `RecvDecodeLookupEnqueue`, `RecvDecodeFSM`, and `TxMarshalJitter`
 in both raw inputs. `cictl benchmark-report` invokes the pinned `benchstat`
 tool for text and CSV output, parses CSV with Go's `encoding/csv`, preserves the
-existing warning-only `>10%` critical/report-only policy, and appends report-only
+existing warning-only `>=10%` critical/report-only policy, and appends report-only
 rows and tool notes to `GITHUB_STEP_SUMMARY`. It atomically publishes mode
 `0644` Markdown, escaped HTML, raw CSV/notes, and the versioned
 `bench-comparison.json`; stale or non-regular artifacts cannot satisfy the

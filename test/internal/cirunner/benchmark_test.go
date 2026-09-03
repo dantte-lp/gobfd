@@ -227,6 +227,7 @@ func TestBenchmarkReportWritesEscapedStructuredArtifactsAndSummary(t *testing.T)
 RecvDecodeFSM-8,2e-7,1%,2.4e-7,1%,+20.00%,p=0.001 n=6
 Other-8,2e-9,1%,2.3e-9,1%,+15.00%,p=0.002 n=6
 Tiny-8,5e-10,1%,6e-10,1%,+20.00%,p=0.003 n=6
+Boundary-8,2e-9,1%,2.2e-9,1%,+10.00%,p=0.004 n=6
 geomean,1e-8,,1.1e-8,,+10.00%,
 
 ,old.txt,,new.txt,,,
@@ -298,16 +299,20 @@ geomean,0,,0,,?,
 	if structured.SchemaVersion != "gobfd.benchmark-comparison.v1" {
 		t.Errorf("schema version = %q, want v1", structured.SchemaVersion)
 	}
-	if len(structured.Rows) != 4 {
-		t.Fatalf("comparison row count = %d, want 4", len(structured.Rows))
+	if len(structured.Rows) != 5 {
+		t.Fatalf("comparison row count = %d, want 5", len(structured.Rows))
 	}
 	if got := []string{
 		structured.Rows[0].Classification,
 		structured.Rows[1].Classification,
 		structured.Rows[2].Classification,
 		structured.Rows[3].Classification,
-	}; !reflect.DeepEqual(got, []string{"critical", "reported", "none", "none"}) {
+		structured.Rows[4].Classification,
+	}; !reflect.DeepEqual(got, []string{"critical", "reported", "none", "reported", "none"}) {
 		t.Errorf("regression classifications = %v", got)
+	}
+	if structured.Rows[3].Delta != "+10.00%" {
+		t.Errorf("exact boundary delta = %q, want +10.00%%", structured.Rows[3].Delta)
 	}
 	if !reflect.DeepEqual(structured.Notes, []string{"G3: benchmark samples are sparse"}) {
 		t.Errorf("structured notes = %v", structured.Notes)
@@ -316,10 +321,11 @@ geomean,0,,0,,?,
 	stepSummary := readTestFile(t, summary)
 	if !strings.Contains(stepSummary, "Report-only benchmark regressions") ||
 		!strings.Contains(stepSummary, "`Other-8`") ||
+		!strings.Contains(stepSummary, "`Boundary-8`") ||
 		!strings.Contains(stepSummary, "benchstat notes") {
 		t.Errorf("step summary lacks regression evidence: %q", stepSummary)
 	}
-	if !strings.Contains(warning.String(), "::warning::Critical benchmark regression detected (>10%)") ||
+	if !strings.Contains(warning.String(), "::warning::Critical benchmark regression detected (>=10%)") ||
 		!strings.Contains(warning.String(), "RecvDecodeFSM-8,+20.00%,p=0.001 n=6") {
 		t.Errorf("workflow warning lacks critical regression evidence: %q", warning.String())
 	}

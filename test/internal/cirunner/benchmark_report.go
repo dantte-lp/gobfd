@@ -373,7 +373,10 @@ func writeBenchmarkWarnings(output io.Writer, comparison benchmarkComparison) {
 			continue
 		}
 		if !wroteHeader {
-			_, _ = io.WriteString(output, "::warning::Critical benchmark regression detected (>10%). Review bench-report.md.\n")
+			_, _ = io.WriteString(
+				output,
+				"::warning::Critical benchmark regression detected (>=10%). Review bench-report.md.\n",
+			)
 			wroteHeader = true
 		}
 		_, _ = fmt.Fprintf(output, "%s,%s,%s\n", row.Name, row.Delta, row.Significance)

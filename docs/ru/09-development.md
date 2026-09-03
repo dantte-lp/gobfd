@@ -395,7 +395,7 @@ Benchmark job также реализован на Go. `cictl benchmark-run` з�
 `TxMarshalJitter` в обоих исходных результатах. `cictl benchmark-report`
 запускает закреплённый `benchstat` для text и CSV, разбирает CSV стандартным
 пакетом Go `encoding/csv`, сохраняет существующую warning-only политику
-critical/report-only для регрессий `>10%` и добавляет report-only строки и
+critical/report-only для регрессий `>=10%` и добавляет report-only строки и
 заметки инструмента в `GITHUB_STEP_SUMMARY`. Markdown, экранированный HTML,
 исходные CSV/notes и версионированный `bench-comparison.json` атомарно
 публикуются с режимом `0644`; устаревшие или не обычные файлы не могут пройти

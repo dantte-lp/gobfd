@@ -208,7 +208,7 @@ eliminate GC from the process or guarantee pause-free BFD operation.
 2. **`testing.AllocsPerRun`** — one explicit assertion protects
    `BuildInnerPacketInto`; it is not a repository-wide gate
 3. **`benchstat` comparison** — CI reports timing and allocation samples, while
-   the current >10% regression policy remains a warning
+   the current >=10% regression policy remains a warning
 
 #### Known Exceptions
 
