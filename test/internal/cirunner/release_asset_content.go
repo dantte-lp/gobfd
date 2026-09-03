@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	pathpkg "path"
 	"slices"
@@ -48,64 +49,115 @@ func validateReleaseAssetContentsWithEvidence(
 	refName string,
 	evidence map[string]releaseAssetSnapshot,
 ) error {
-	validatedEvidence := make(map[string]releaseAssetSnapshot)
+	mainSnapshots, mainEvidence, sbomNames, err := validateMainReleaseAssets(
+		downloadRoot, runnerTempRoot, version,
+	)
+	if err != nil {
+		return err
+	}
+	report, supplementalEvidence, err := validateSupplementalReleaseAssets(
+		downloadRoot, artifactRoot, version, refName,
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateReleaseReportsArchive(report); err != nil {
+		return err
+	}
+	for _, name := range sbomNames {
+		if err := validateReleaseCycloneDXSBOM(mainSnapshots[name], name); err != nil {
+			return err
+		}
+	}
+	maps.Copy(mainEvidence, supplementalEvidence)
+	if len(mainEvidence) != len(expectedReleaseAssetNames(version, refName)) {
+		return fmt.Errorf("validated release asset evidence set is incomplete: %w", errInvalidConfig)
+	}
+	if evidence != nil {
+		clear(evidence)
+		maps.Copy(evidence, mainEvidence)
+	}
+	return nil
+}
+
+func validateMainReleaseAssets(
+	downloadRoot *os.Root,
+	runnerTempRoot *os.Root,
+	version string,
+) (map[string][]byte, map[string]releaseAssetSnapshot, []string, error) {
 	expectedChecksummed := expectedChecksummedArtifactNames(version)
 	expectedReceipt, err := readRootedRegularFile(
 		runnerTempRoot, "expected-checksummed-assets.txt",
 		"expected checksummed release asset manifest", releaseArtifactsManifestLimit,
 	)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	if !bytes.Equal(expectedReceipt, renderArtifactNames(expectedChecksummed)) {
-		return fmt.Errorf("expected checksummed release asset manifest is not canonical: %w", errInvalidConfig)
+		return nil, nil, nil, fmt.Errorf(
+			"expected checksummed release asset manifest is not canonical: %w", errInvalidConfig,
+		)
 	}
-	sbomNames := make([]string, 0, 2)
-	for _, name := range expectedChecksummed {
-		if strings.HasSuffix(name, ".sbom.json") {
-			sbomNames = append(sbomNames, name)
-		}
-	}
+	sbomNames := releaseSBOMNames(expectedChecksummed)
 	if len(sbomNames) != 2 {
-		return fmt.Errorf("canonical release matrix does not contain exactly two SBOMs: %w", errInvalidConfig)
+		return nil, nil, nil, fmt.Errorf(
+			"canonical release matrix does not contain exactly two SBOMs: %w", errInvalidConfig,
+		)
 	}
 	mainChecksums, err := readRootedRegularFile(
 		downloadRoot, "checksums.txt", "release checksum manifest", releaseChecksumFileLimit,
 	)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	mainRecords, err := parseReleaseChecksumRecords(mainChecksums, "release checksum manifest", expectedChecksummed)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
 	mainSnapshots, mainEvidence, err := validateReleaseChecksums(
 		downloadRoot, mainRecords, expectedChecksummed, sbomNames,
 	)
 	if err != nil {
-		return err
+		return nil, nil, nil, err
 	}
-	for name, snapshot := range mainEvidence {
-		validatedEvidence[name] = snapshot
-	}
-	validatedEvidence["checksums.txt"] = snapshotReleaseAsset(mainChecksums)
+	mainEvidence["checksums.txt"] = snapshotReleaseAsset(mainChecksums)
+	return mainSnapshots, mainEvidence, sbomNames, nil
+}
 
+func releaseSBOMNames(names []string) []string {
+	sbomNames := make([]string, 0, 2)
+	for _, name := range names {
+		if strings.HasSuffix(name, ".sbom.json") {
+			sbomNames = append(sbomNames, name)
+		}
+	}
+	return sbomNames
+}
+
+func validateSupplementalReleaseAssets(
+	downloadRoot *os.Root,
+	artifactRoot *os.Root,
+	version string,
+	refName string,
+) ([]byte, map[string]releaseAssetSnapshot, error) {
 	downloadedSupplemental, err := readRootedRegularFile(
 		downloadRoot, "release-evidence-checksums.txt",
 		"downloaded supplemental checksum receipt", releaseEvidenceChecksumLimit,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	localSupplemental, err := readRootedRegularFile(
 		artifactRoot, "release-evidence-checksums.txt",
 		"local supplemental checksum receipt", releaseEvidenceChecksumLimit,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if !bytes.Equal(downloadedSupplemental, localSupplemental) {
-		return fmt.Errorf("downloaded supplemental checksum receipt differs from local evidence: %w", errInvalidConfig)
+		return nil, nil, fmt.Errorf(
+			"downloaded supplemental checksum receipt differs from local evidence: %w", errInvalidConfig,
+		)
 	}
 	reportName := "gobfd-" + refName + "-reports.tar.gz"
 	supplementalNames := []string{reportName, "release-image-digests.txt"}
@@ -114,49 +166,31 @@ func validateReleaseAssetContentsWithEvidence(
 		downloadedSupplemental, "supplemental checksum receipt", supplementalNames,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	supplementalSnapshots, supplementalEvidence, err := validateReleaseChecksums(
 		downloadRoot, supplementalRecords, supplementalNames, supplementalNames,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	for name, snapshot := range supplementalEvidence {
-		validatedEvidence[name] = snapshot
-	}
-	validatedEvidence["release-evidence-checksums.txt"] = snapshotReleaseAsset(downloadedSupplemental)
+	supplementalEvidence["release-evidence-checksums.txt"] = snapshotReleaseAsset(downloadedSupplemental)
 	downloadedDigests := supplementalSnapshots["release-image-digests.txt"]
 	localDigests, err := readRootedRegularFile(
 		artifactRoot, "release-image-digests.txt", "local OCI digest receipt", releaseOCIDigestReceiptLimit,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := validateReleaseOCIDigestReceipt(downloadedDigests, version); err != nil {
-		return err
+		return nil, nil, err
 	}
 	if !bytes.Equal(downloadedDigests, localDigests) {
-		return fmt.Errorf("downloaded OCI digest receipt differs from local evidence: %w", errInvalidConfig)
+		return nil, nil, fmt.Errorf(
+			"downloaded OCI digest receipt differs from local evidence: %w", errInvalidConfig,
+		)
 	}
-	if err := validateReleaseReportsArchive(supplementalSnapshots[reportName]); err != nil {
-		return err
-	}
-	for _, name := range sbomNames {
-		if err := validateReleaseCycloneDXSBOM(mainSnapshots[name], name); err != nil {
-			return err
-		}
-	}
-	if len(validatedEvidence) != len(expectedReleaseAssetNames(version, refName)) {
-		return fmt.Errorf("validated release asset evidence set is incomplete: %w", errInvalidConfig)
-	}
-	if evidence != nil {
-		clear(evidence)
-		for name, snapshot := range validatedEvidence {
-			evidence[name] = snapshot
-		}
-	}
-	return nil
+	return supplementalSnapshots[reportName], supplementalEvidence, nil
 }
 
 func parseReleaseChecksumRecords(data []byte, purpose string, expectedNames []string) (map[string]string, error) {
@@ -301,12 +335,22 @@ func validateReleaseReportsArchive(data []byte) (returnErr error) {
 		returnErr = errors.Join(returnErr, wrapOptional("close release reports gzip stream", decompressor.Close()))
 	}()
 	limited := &io.LimitedReader{R: decompressor, N: releaseReportsExpandedLimit + 1}
-	reader := tar.NewReader(limited)
-	seen := make(map[string]struct{})
-	entryCount := 0
-	regularCount := 0
-	foundReportsRoot := false
-	var contentSize int64
+	if err := validateReleaseReportsTar(tar.NewReader(limited)); err != nil {
+		return err
+	}
+	return validateReleaseReportsArchiveEnd(limited, source)
+}
+
+type releaseReportsArchiveState struct {
+	seen             map[string]struct{}
+	entryCount       int
+	regularCount     int
+	foundReportsRoot bool
+	contentSize      int64
+}
+
+func validateReleaseReportsTar(reader *tar.Reader) error {
+	state := releaseReportsArchiveState{seen: make(map[string]struct{})}
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
@@ -315,47 +359,82 @@ func validateReleaseReportsArchive(data []byte) (returnErr error) {
 		if err != nil {
 			return fmt.Errorf("read release reports tar header: %w", err)
 		}
-		entryCount++
-		if entryCount > releaseReportsEntryLimit {
-			return fmt.Errorf("release reports archive exceeds %d entries: %w", releaseReportsEntryLimit, errInvalidConfig)
-		}
-		name := strings.TrimSuffix(header.Name, "/")
-		if name == "" || pathpkg.IsAbs(name) || pathpkg.Clean(name) != name ||
-			(name != "reports" && !strings.HasPrefix(name, "reports/")) || hasControl(name) {
-			return fmt.Errorf("release reports archive path %q is unsafe: %w", header.Name, errInvalidConfig)
-		}
-		if _, exists := seen[name]; exists {
-			return fmt.Errorf("release reports archive contains duplicate path %s: %w", name, errInvalidConfig)
-		}
-		seen[name] = struct{}{}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if header.Size != 0 || header.Linkname != "" {
-				return fmt.Errorf("release reports directory %s has invalid metadata: %w", name, errInvalidConfig)
-			}
-			if name == "reports" {
-				foundReportsRoot = true
-			}
-		case tar.TypeReg:
-			if !strings.HasPrefix(name, "reports/") {
-				return fmt.Errorf("release reports regular file %s is not a reports descendant: %w", name, errInvalidConfig)
-			}
-			if header.Linkname != "" || header.Size < 0 || header.Size > releaseArtifactLimit ||
-				header.Size > releaseReportsExpandedLimit-contentSize {
-				return fmt.Errorf("release reports file %s exceeds content bounds: %w", name, errInvalidConfig)
-			}
-			contentSize += header.Size
-			regularCount++
-			if _, err := io.CopyN(io.Discard, reader, header.Size); err != nil {
-				return fmt.Errorf("read release reports file %s: %w", name, err)
-			}
-		default:
-			return fmt.Errorf("release reports archive path %s has unsupported type %d: %w", name, header.Typeflag, errInvalidConfig)
+		if err := state.validateEntry(reader, header); err != nil {
+			return err
 		}
 	}
-	if entryCount == 0 || regularCount == 0 || !foundReportsRoot {
+	if state.entryCount == 0 || state.regularCount == 0 || !state.foundReportsRoot {
 		return fmt.Errorf("release reports archive lacks regular report files: %w", errInvalidConfig)
 	}
+	return nil
+}
+
+func (state *releaseReportsArchiveState) validateEntry(reader *tar.Reader, header *tar.Header) error {
+	state.entryCount++
+	if state.entryCount > releaseReportsEntryLimit {
+		return fmt.Errorf("release reports archive exceeds %d entries: %w", releaseReportsEntryLimit, errInvalidConfig)
+	}
+	name, err := validateReleaseReportPath(header.Name)
+	if err != nil {
+		return err
+	}
+	if _, exists := state.seen[name]; exists {
+		return fmt.Errorf("release reports archive contains duplicate path %s: %w", name, errInvalidConfig)
+	}
+	state.seen[name] = struct{}{}
+	switch header.Typeflag {
+	case tar.TypeDir:
+		return state.validateDirectory(header, name)
+	case tar.TypeReg:
+		return state.validateRegularFile(reader, header, name)
+	default:
+		return fmt.Errorf(
+			"release reports archive path %s has unsupported type %d: %w",
+			name, header.Typeflag, errInvalidConfig,
+		)
+	}
+}
+
+func validateReleaseReportPath(headerName string) (string, error) {
+	name := strings.TrimSuffix(headerName, "/")
+	if name == "" || pathpkg.IsAbs(name) || pathpkg.Clean(name) != name ||
+		(name != "reports" && !strings.HasPrefix(name, "reports/")) || hasControl(name) {
+		return "", fmt.Errorf("release reports archive path %q is unsafe: %w", headerName, errInvalidConfig)
+	}
+	return name, nil
+}
+
+func (state *releaseReportsArchiveState) validateDirectory(header *tar.Header, name string) error {
+	if header.Size != 0 || header.Linkname != "" {
+		return fmt.Errorf("release reports directory %s has invalid metadata: %w", name, errInvalidConfig)
+	}
+	if name == "reports" {
+		state.foundReportsRoot = true
+	}
+	return nil
+}
+
+func (state *releaseReportsArchiveState) validateRegularFile(
+	reader *tar.Reader,
+	header *tar.Header,
+	name string,
+) error {
+	if !strings.HasPrefix(name, "reports/") {
+		return fmt.Errorf("release reports regular file %s is not a reports descendant: %w", name, errInvalidConfig)
+	}
+	if header.Linkname != "" || header.Size < 0 || header.Size > releaseArtifactLimit ||
+		header.Size > releaseReportsExpandedLimit-state.contentSize {
+		return fmt.Errorf("release reports file %s exceeds content bounds: %w", name, errInvalidConfig)
+	}
+	state.contentSize += header.Size
+	state.regularCount++
+	if _, err := io.CopyN(io.Discard, reader, header.Size); err != nil {
+		return fmt.Errorf("read release reports file %s: %w", name, err)
+	}
+	return nil
+}
+
+func validateReleaseReportsArchiveEnd(limited *io.LimitedReader, source *bytes.Reader) error {
 	var trailing [1]byte
 	count, trailingErr := limited.Read(trailing[:])
 	if count != 0 || !errors.Is(trailingErr, io.EOF) {
