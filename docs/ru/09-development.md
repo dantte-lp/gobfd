@@ -494,6 +494,25 @@ workflow не добавляет второй shell-wrapper или изменя�
 удалить только пустой каталог и никогда рекурсивно не удаляет существующее или
 подменённое дерево.
 
+После создания draft в GoReleaser commit-pinned checkout action создаёт
+отдельный чистый checkout `.release-verifier` на точном workflow SHA без
+сохранённых credentials. `cictl release-artifacts` запускается из этого
+источника, повторно сверяет HEAD исходного workspace одновременно с
+`GITHUB_SHA` и rooted commit receipt из preflight, связывает pathname workspace
+с открытым root, затем читает ограниченный обычный `dist/artifacts.json`. До
+typed decode структурная JSON-проверка отклоняет invalid UTF-8,
+duplicate object members и неканонический регистр имён contract fields. Typed
+decoder требует точные два Linux archive, четыре Debian/RPM package, два
+CycloneDX SBOM, соответствующих archive, и `checksums.txt` для канонической
+версии release. Каждый выбранный path обязан быть точным относительным
+`dist/<asset>`; нерелизные записи GoReleaser, например binaries и OCI metadata,
+игнорируются. Дубликаты, пропуски, лишние, неверно названные, unsafe-path или
+относящиеся к другой платформе release assets отклоняются. Команда атомарно записывает
+отсортированные receipts режима `0644` `expected-checksummed-assets.txt` и
+`expected-release-assets.txt` под проверенным root `RUNNER_TEMP`; второй также
+включает фиксированные имена reports archive, OCI digest receipt и
+supplemental checksum receipt.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в

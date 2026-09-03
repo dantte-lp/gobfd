@@ -159,57 +159,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Record exact release commit, assets, and OCI evidence
+      - name: Checkout immutable release verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .release-verifier
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Record exact release asset matrix
+        working-directory: .release-verifier
+        env:
+          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}
+        run: go run ./test/cmd/cictl release-artifacts
+
+      - name: Record exact release commit and OCI evidence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
-          if [ "$(git rev-parse HEAD)" != "$expected_commit" ]; then
-            echo "checked-out commit changed after release preflight" >&2
-            exit 1
-          fi
-
-          jq -e '
-            type == "array" and
-            ([.[] | select(.type == "Archive") |
-              [.goos, .goarch]] | sort) ==
-              [["linux", "amd64"], ["linux", "arm64"]] and
-            ([.[] | select(.type == "Linux Package") |
-              [.goos, .goarch, .extra.Format]] | sort) ==
-              [["linux", "amd64", "deb"], ["linux", "amd64", "rpm"],
-               ["linux", "arm64", "deb"], ["linux", "arm64", "rpm"]] and
-            ([.[] | select(.type == "SBOM") |
-              (.path | split("/")[-1])] | sort) ==
-              ([.[] | select(.type == "Archive") |
-                ((.path | split("/")[-1]) + ".sbom.json")] | sort) and
-            ([.[] | select(.type == "Checksum") |
-              (.path | split("/")[-1])]) == ["checksums.txt"] and
-            ([.[] |
-              select(.type == "Archive" or .type == "Linux Package" or
-                .type == "Checksum" or .type == "SBOM") |
-              .path] as $paths |
-              ($paths | length > 0) and
-              ($paths | all(type == "string" and length > 0)))
-          ' dist/artifacts.json >/dev/null
-          jq -r '
-            .[] |
-            select(.type == "Archive" or .type == "Linux Package" or
-              .type == "SBOM") |
-            .path | split("/")[-1]
-          ' dist/artifacts.json | LC_ALL=C sort -u \
-            >"$RUNNER_TEMP/expected-checksummed-assets.txt"
-          jq -r '
-            .[] |
-            select(.type == "Archive" or .type == "Linux Package" or
-              .type == "Checksum" or .type == "SBOM") |
-            .path | split("/")[-1]
-          ' dist/artifacts.json >"$RUNNER_TEMP/expected-release-assets.txt"
-          printf 'gobfd-%s-reports.tar.gz\nrelease-evidence-checksums.txt\nrelease-image-digests.txt\n' \
-            "$GITHUB_REF_NAME" >>"$RUNNER_TEMP/expected-release-assets.txt"
-          LC_ALL=C sort -u -o "$RUNNER_TEMP/expected-release-assets.txt" \
-            "$RUNNER_TEMP/expected-release-assets.txt"
 
           printf 'linux/amd64\nlinux/arm64\n' \
             >"$RUNNER_TEMP/expected-release-platforms.txt"

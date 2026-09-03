@@ -63,7 +63,8 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
-				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|release-upx}: %w",
+				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
+				"release-upx|release-artifacts}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -113,9 +114,24 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runReleaseNotes(ctx, arguments[1:], deps)
 	case "release-upx":
 		return runReleaseUPX(ctx, arguments[1:], deps)
+	case "release-artifacts":
+		return runReleaseArtifacts(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleaseArtifacts(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-artifacts", arguments); err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseArtifacts(ctx, cirunner.ReleaseArtifactsOptions{
+		Root: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("record exact GoReleaser artifacts: %w", err)
+	}
+	return nil
 }
 
 func runReleaseUPX(ctx context.Context, arguments []string, deps dependencies) error {

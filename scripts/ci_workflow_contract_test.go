@@ -394,6 +394,45 @@ func TestReleaseWorkflowUsesOneGoOwnedUPXBootstrapCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesOneGoOwnedArtifactMatrixCommand(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	step := namedWorkflowStep(t, workflow, "Record exact release asset matrix")
+	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-artifacts\n"); got != 1 {
+		t.Errorf("release artifact matrix command count = %d, want 1", got)
+	}
+	for _, marker := range []string{
+		"        working-directory: .release-verifier\n",
+		"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n",
+	} {
+		if !strings.Contains(step, marker) {
+			t.Errorf("release artifact matrix step lacks immutable verifier marker %q", marker)
+		}
+	}
+	for _, marker := range []string{"run: |", "jq ", "sort ", "artifacts.json", "expected-release-assets.txt"} {
+		if strings.Contains(step, marker) {
+			t.Errorf("release artifact matrix step retains shell-owned marker %q", marker)
+		}
+	}
+	goreleaser := strings.Index(workflow, "      - name: Run GoReleaser\n")
+	verifier := strings.Index(workflow, "      - name: Checkout immutable release verifier\n")
+	artifacts := strings.Index(workflow, "      - name: Record exact release asset matrix\n")
+	oci := strings.Index(workflow, "      - name: Record exact release commit and OCI evidence\n")
+	if goreleaser < 0 || verifier < goreleaser || artifacts < verifier || oci < artifacts {
+		t.Error("release artifact matrix is not ordered after immutable verifier checkout and before OCI evidence")
+	}
+	verifierStep := namedWorkflowStep(t, workflow, "Checkout immutable release verifier")
+	for _, marker := range []string{
+		"uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+		"ref: ${{ github.sha }}", "path: .release-verifier", "fetch-depth: 1", "clean: true", "persist-credentials: false",
+	} {
+		if !strings.Contains(verifierStep, marker) {
+			t.Errorf("immutable verifier checkout lacks %q", marker)
+		}
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

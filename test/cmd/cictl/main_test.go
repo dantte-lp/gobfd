@@ -155,6 +155,17 @@ func TestRunDispatchesReleaseUPXFromWorkflowEnvironment(t *testing.T) {
 	}
 }
 
+func TestRunDispatchesReleaseArtifactsFromImmutableVerifierEnvironment(t *testing.T) {
+	t.Parallel()
+
+	err := run(context.Background(), []string{"release-artifacts"}, dependencies{
+		getenv: func(string) string { return "" },
+	})
+	if err == nil || strings.Contains(err.Error(), "unknown CI command") {
+		t.Fatalf("run(release-artifacts) error = %v, want dispatched verifier environment validation", err)
+	}
+}
+
 func TestRunReleaseBuildReadsTagAndSHA(t *testing.T) {
 	t.Parallel()
 

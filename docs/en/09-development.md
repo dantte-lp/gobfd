@@ -480,6 +480,24 @@ still-open root whose directory identity matches the one created; the final
 pathname operation can only remove an empty directory and never recursively
 deletes a pre-existing or replacement tree.
 
+After GoReleaser creates the draft, the commit-pinned checkout action creates a
+separate `.release-verifier` checkout at the exact workflow SHA with no
+persistent credentials. `cictl release-artifacts` runs from that clean source,
+revalidates the original workspace HEAD against both `GITHUB_SHA` and the
+rooted preflight commit receipt, binds the workspace pathname to its opened
+root, then reads the bounded regular `dist/artifacts.json`. Before typed
+decoding, a structural JSON pass rejects invalid UTF-8,
+duplicate object members, and noncanonical case variants of contract fields.
+The typed decoder requires the exact two Linux archives, four Debian/RPM packages, two
+archive-matched CycloneDX SBOMs, and `checksums.txt` for the canonical release
+version. Every selected path must be the exact relative `dist/<asset>` path;
+non-release GoReleaser records such as binaries and OCI metadata are ignored.
+Duplicate, missing, extra, misnamed, unsafe-path, or cross-platform release
+assets fail closed. The command atomically writes sorted mode `0644`
+`expected-checksummed-assets.txt` and `expected-release-assets.txt` receipts
+under a validated `RUNNER_TEMP` root; the latter also includes the fixed report
+archive, OCI digest receipt, and supplemental checksum receipt names.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

@@ -119,6 +119,11 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 		"      - name: Extract release notes from CHANGELOG.md\n" +
 			"        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
 			"        run: go run ./test/cmd/cictl release-notes\n",
+		"      - name: Checkout immutable release verifier\n",
+		"        working-directory: .release-verifier\n" +
+			"        env:\n" +
+			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
+			"        run: go run ./test/cmd/cictl release-artifacts\n",
 		"gh release upload \"$GITHUB_REF_NAME\" \\",
 		"Refuse existing release, draft, or versioned OCI tag",
 		"Verify exact release draft",
