@@ -63,7 +63,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
-				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes}: %w",
+				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|release-upx}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -111,9 +111,24 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runReleasePreflight(ctx, arguments[1:], deps)
 	case "release-notes":
 		return runReleaseNotes(ctx, arguments[1:], deps)
+	case "release-upx":
+		return runReleaseUPX(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleaseUPX(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-upx", arguments); err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseUPX(ctx, cirunner.ReleaseUPXOptions{
+		RunnerTemp: deps.getenv("RUNNER_TEMP"), GitHubPath: deps.getenv("GITHUB_PATH"),
+		Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify UPX prerequisite: %w", err)
+	}
+	return nil
 }
 
 func runReleaseNotes(ctx context.Context, arguments []string, deps dependencies) error {

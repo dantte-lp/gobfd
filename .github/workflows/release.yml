@@ -147,64 +147,8 @@ jobs:
 
       - name: Verify UPX prerequisite
         env:
-          UPX_VERSION: "4.2.2"
-          UPX_SHA256: "915c8e844f835de03b9cc311ff185aedec79d757aee9d7133a528b9e89c463bb"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          upx_root="$RUNNER_TEMP/gobfd-upx-$UPX_VERSION"
-          if [ -e "$upx_root" ] || [ -L "$upx_root" ]; then
-            echo "UPX prerequisite directory collision: $upx_root" >&2
-            exit 1
-          fi
-          upx_download_dir="$upx_root/download"
-          upx_bin_dir="$upx_root/bin"
-          mkdir "$upx_root"
-          mkdir "$upx_download_dir" "$upx_bin_dir"
-
-          upx_archive_name="upx-${UPX_VERSION}-amd64_linux.tar.xz"
-          upx_archive="$upx_download_dir/$upx_archive_name"
-          gh release download "v$UPX_VERSION" \
-            --repo upx/upx \
-            --pattern "$upx_archive_name" \
-            --dir "$upx_download_dir"
-          shopt -s nullglob dotglob
-          download_entries=("$upx_download_dir"/*)
-          if [ "${#download_entries[@]}" -ne 1 ] || \
-            [ "${download_entries[0]:-}" != "$upx_archive" ] || \
-            [ -L "$upx_archive" ] || [ ! -f "$upx_archive" ] || \
-            [ ! -s "$upx_archive" ]; then
-            echo "UPX download did not produce exactly one nonempty regular archive" >&2
-            exit 1
-          fi
-          (
-            cd "$upx_download_dir"
-            printf '%s  %s\n' "$UPX_SHA256" "$upx_archive_name" \
-              | sha256sum --check --strict -
-          )
-
-          tar xJf "$upx_archive" --strip-components=1 -C "$upx_bin_dir"
-          upx_path="$upx_bin_dir/upx"
-          if [ ! -f "$upx_path" ] || [ ! -s "$upx_path" ] || \
-            [ ! -x "$upx_path" ]; then
-            echo "verified UPX archive does not contain an executable upx" >&2
-            exit 1
-          fi
-          if ! upx_output="$("$upx_path" --version 2>&1)"; then
-            echo "UPX prerequisite failed; expected upx $UPX_VERSION" >&2
-            echo "actual: ${upx_output:-command unavailable}" >&2
-            exit 1
-          fi
-          upx_first_line="${upx_output%%$'\n'*}"
-          expected_upx_line="upx $UPX_VERSION"
-          if [ "$upx_first_line" != "$expected_upx_line" ]; then
-            echo "UPX prerequisite failed" >&2
-            echo "expected first line: $expected_upx_line" >&2
-            echo "actual first line: $upx_first_line" >&2
-            exit 1
-          fi
-          printf '%s\n' "$upx_bin_dir" >>"$GITHUB_PATH"
+        run: go run ./test/cmd/cictl release-upx
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3

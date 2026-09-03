@@ -563,10 +563,11 @@ func (r *recordingRunner) Run(_ context.Context, name string, args ...string) er
 }
 
 type specInvocation struct {
-	name string
-	args []string
-	dir  string
-	env  []string
+	name       string
+	args       []string
+	dir        string
+	env        []string
+	executable bool
 }
 
 type recordingSpecRunner struct {

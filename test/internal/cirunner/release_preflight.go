@@ -331,8 +331,22 @@ func writeRootedReceipt(root *os.Root, name string, data []byte) (returnErr erro
 }
 
 func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string, limit int) (returnErr error) {
+	return writeRootedModeArtifact(root, name, data, purpose, limit, benchmarkArtifactMode)
+}
+
+func writeRootedModeArtifact(
+	root *os.Root,
+	name string,
+	data []byte,
+	purpose string,
+	limit int,
+	mode os.FileMode,
+) (returnErr error) {
 	if root == nil || len(data) > limit {
 		return fmt.Errorf("%s %s exceeds its bounded contract: %w", purpose, name, errInvalidConfig)
+	}
+	if !mode.IsRegular() || mode.Perm() == 0 {
+		return fmt.Errorf("%s %s has invalid output mode %#o: %w", purpose, name, mode, errInvalidConfig)
 	}
 	random := [16]byte{}
 	if _, err := rand.Read(random[:]); err != nil {
@@ -348,7 +362,7 @@ func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string
 			returnErr = errors.Join(returnErr, fmt.Errorf("remove temporary %s %s: %w", purpose, name, err))
 		}
 	}()
-	if err := temporary.Chmod(benchmarkArtifactMode); err != nil {
+	if err := temporary.Chmod(mode.Perm()); err != nil {
 		return errors.Join(
 			fmt.Errorf("set temporary %s %s mode: %w", purpose, name, err),
 			wrapOptional("close temporary "+purpose+" "+name, temporary.Close()),
@@ -375,7 +389,7 @@ func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string
 	if err != nil {
 		return fmt.Errorf("inspect published %s %s: %w", purpose, name, err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != benchmarkArtifactMode || info.Size() != int64(len(data)) {
+	if !info.Mode().IsRegular() || info.Mode().Perm() != mode.Perm() || info.Size() != int64(len(data)) {
 		return fmt.Errorf("published %s %s violates mode or size contract: %w", purpose, name, errInvalidConfig)
 	}
 	return nil

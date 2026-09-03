@@ -464,6 +464,22 @@ The commit-pinned `anchore/sbom-action/download-syft` action owns PATH
 registration for the exact `v1.51.0` version input. The release workflow does
 not add a second shell wrapper or mutable Syft shim after that action.
 
+`cictl release-upx` owns the UPX prerequisite without a shell extractor. It
+streams the exact UPX `v4.2.2` amd64 Linux asset from `gh release download`
+into a new `RUNNER_TEMP` root, enforces the pinned size and SHA-256, sends the
+archive to fixed `xz -d -c -q` arguments, and validates the complete tar entry
+set, types, sizes, and modes in Go. Only the verified executable is written
+atomically with mode `0755`. Decompression consumes the same open file whose
+bytes were hashed, and the version check executes the verified open UPX file;
+rooted identity checks reject pathname replacement before publication. Its
+first `upx --version` line must be exactly `upx 4.2.2` before the rooted bin
+directory is appended to the validated regular `GITHUB_PATH` file. `GH_TOKEN`
+is inherited only by `gh`, is stripped from `xz` and `upx`, and is never placed
+in arguments or artifacts. On failure, recursive cleanup is confined to the
+still-open root whose directory identity matches the one created; the final
+pathname operation can only remove an empty directory and never recursively
+deletes a pre-existing or replacement tree.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

@@ -376,6 +376,24 @@ func TestReleaseWorkflowUsesPinnedActionOwnedSyftPath(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesOneGoOwnedUPXBootstrapCommand(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	step := namedWorkflowStep(t, workflow, "Verify UPX prerequisite")
+	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-upx\n"); got != 1 {
+		t.Errorf("release UPX command count = %d, want 1", got)
+	}
+	for _, marker := range []string{"run: |", "UPX_VERSION:", "UPX_SHA256:", "gh release", "sha256sum", "tar x", "GITHUB_PATH\""} {
+		if strings.Contains(step, marker) {
+			t.Errorf("UPX step retains shell-owned marker %q", marker)
+		}
+	}
+	if !strings.Contains(step, "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}") {
+		t.Error("UPX step no longer inherits GH_TOKEN")
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 
