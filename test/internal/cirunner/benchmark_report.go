@@ -71,9 +71,9 @@ type benchmarkComparisonRow struct {
 
 // BenchmarkReport runs benchstat, classifies regressions, and publishes visualizable reports.
 func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
-	if err != nil {
-		return err
+	root, rootErr := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if rootErr != nil {
+		return rootErr
 	}
 	if options.Runner == nil {
 		return fmt.Errorf("benchmark report command runner is required: %w", errInvalidConfig)
@@ -81,13 +81,13 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 	if err := validateBenchmarkReleaseContext(options.ReleaseContext); err != nil {
 		return err
 	}
-	oldPath, err := validateRootFile(root, options.Old, "old benchmark input", false)
-	if err != nil {
-		return err
+	oldPath, oldPathErr := validateRootFile(root, options.Old, "old benchmark input", false)
+	if oldPathErr != nil {
+		return oldPathErr
 	}
-	newPath, err := validateRootFile(root, options.New, "new benchmark input", false)
-	if err != nil {
-		return err
+	newPath, newPathErr := validateRootFile(root, options.New, "new benchmark input", false)
+	if newPathErr != nil {
+		return newPathErr
 	}
 	if _, err := readRegularFile(oldPath, "old benchmark input", benchmarkInputLimit); err != nil {
 		return err
@@ -153,9 +153,9 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 	if csvOutput.Len() == 0 {
 		return fmt.Errorf("benchstat CSV output is empty: %w", errInvalidConfig)
 	}
-	comparison, err := parseBenchmarkCSV(csvOutput.Bytes(), notesOutput.String())
-	if err != nil {
-		return err
+	comparison, comparisonErr := parseBenchmarkCSV(csvOutput.Bytes(), notesOutput.String())
+	if comparisonErr != nil {
+		return comparisonErr
 	}
 	if release := options.ReleaseContext; release != nil {
 		comparison.Baseline = release.Baseline

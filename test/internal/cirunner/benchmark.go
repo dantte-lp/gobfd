@@ -30,9 +30,9 @@ type BenchmarkRunOptions struct {
 
 // BenchmarkRun runs the fixed CI benchmark set and writes a fresh raw result.
 func BenchmarkRun(ctx context.Context, options BenchmarkRunOptions) error {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
-	if err != nil {
-		return err
+	root, rootErr := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if rootErr != nil {
+		return rootErr
 	}
 	if err := validateBenchmarkRegex(options.Regex); err != nil {
 		return err
@@ -40,9 +40,9 @@ func BenchmarkRun(ctx context.Context, options BenchmarkRunOptions) error {
 	if options.Runner == nil {
 		return fmt.Errorf("benchmark command runner is required: %w", errInvalidConfig)
 	}
-	output, err := validateRootFile(root, options.Output, "benchmark output", true)
-	if err != nil {
-		return err
+	output, outputErr := validateRootFile(root, options.Output, "benchmark output", true)
+	if outputErr != nil {
+		return outputErr
 	}
 	return runBenchmarkCommand(ctx, root, output, options.Regex, options.Runner)
 }
@@ -59,13 +59,13 @@ type BenchmarkBaseOptions struct {
 
 // BenchmarkBase benchmarks a base ref in a temporary worktree and always removes it.
 func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
-	if err != nil {
-		return err
+	root, rootErr := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if rootErr != nil {
+		return rootErr
 	}
-	runnerTemp, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
-	if err != nil {
-		return err
+	runnerTemp, runnerTempErr := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
+	if runnerTempErr != nil {
+		return runnerTempErr
 	}
 	if err := validateBenchmarkRef(options.Ref); err != nil {
 		return err
@@ -76,9 +76,9 @@ func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
 	if options.Runner == nil {
 		return fmt.Errorf("benchmark command runner is required: %w", errInvalidConfig)
 	}
-	output, err := validateRootFile(root, options.Output, "base benchmark output", true)
-	if err != nil {
-		return err
+	output, outputErr := validateRootFile(root, options.Output, "base benchmark output", true)
+	if outputErr != nil {
+		return outputErr
 	}
 	if err := resetArtifact(output, "base benchmark output"); err != nil {
 		return err

@@ -71,9 +71,9 @@ func BufFetchBase(ctx context.Context, root, base string, runner SpecRunner) err
 
 // BufBreaking checks the current protobuf API against the pull request base branch.
 func BufBreaking(ctx context.Context, root, base string, runner SpecRunner) error {
-	root, err := validateAbsoluteExistingDirectory(root, "repository root")
-	if err != nil {
-		return err
+	root, rootErr := validateAbsoluteExistingDirectory(root, "repository root")
+	if rootErr != nil {
+		return rootErr
 	}
 	if err := validateGitHubBaseRef(base); err != nil {
 		return err
@@ -89,9 +89,9 @@ func BufBreaking(ctx context.Context, root, base string, runner SpecRunner) erro
 	}); err != nil {
 		return fmt.Errorf("resolve Buf base commit: %w", err)
 	}
-	commit, err := validateCommitID(revision.String())
-	if err != nil {
-		return err
+	commit, commitErr := validateCommitID(revision.String())
+	if commitErr != nil {
+		return commitErr
 	}
 	if err := runner.RunCommand(ctx, CommandSpec{
 		Name: "buf", Args: []string{"breaking", "--against", ".git#commit=" + commit}, Dir: root,
