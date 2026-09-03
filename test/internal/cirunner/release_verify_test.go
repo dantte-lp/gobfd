@@ -31,8 +31,8 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("VerifyReleaseDraft() error = %v", err)
 	}
-	if len(runner.calls) != 8 {
-		t.Fatalf("release draft verification command count = %d, want 8", len(runner.calls))
+	if len(runner.calls) != 9 {
+		t.Fatalf("release draft verification command count = %d, want 9", len(runner.calls))
 	}
 	for index, call := range runner.calls {
 		wantEnvironment := environment
@@ -50,6 +50,222 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 	}
 	if got := runner.calls[7]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDraftArgs) {
 		t.Errorf("release draft view call = %#v, want gh %q in %s", got, wantDraftArgs, root)
+	}
+	downloadDirectory := filepath.Join(runnerTemp, releaseAssetDownloadDirectory)
+	wantDownloadArgs := []string{
+		"release", "download", "v0.6.2", "--repo", "dantte-lp/gobfd", "--dir", downloadDirectory,
+	}
+	if got := runner.calls[8]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDownloadArgs) {
+		t.Errorf("release asset download call = %#v, want gh %q in %s", got, wantDownloadArgs, root)
+	}
+	for _, name := range assets {
+		info, err := os.Lstat(filepath.Join(downloadDirectory, name))
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			t.Errorf("downloaded release asset %s info = %#v, error = %v", name, info, err)
+		}
+	}
+}
+
+func TestVerifyReleaseDraftRejectsDownloadDirectoryCollision(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	artifactRoot := t.TempDir()
+	runnerTemp := t.TempDir()
+	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+	downloadDirectory := filepath.Join(runnerTemp, releaseAssetDownloadDirectory)
+	if err := os.Mkdir(downloadDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(downloadDirectory, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+		Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+	})
+	if err == nil || !containsError(err, "download directory collision") {
+		t.Fatalf("VerifyReleaseDraft() error = %v, want download directory collision", err)
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Fatalf("pre-existing download directory was changed: %v", statErr)
+	}
+	if len(runner.calls) != 8 {
+		t.Fatalf("command count before collision = %d, want 8", len(runner.calls))
+	}
+}
+
+func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string, []string)
+		want   string
+	}{
+		{name: "symlink", mutate: func(t *testing.T, directory string, assets []string) {
+			name := filepath.Join(directory, assets[0])
+			if err := os.Remove(name); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(assets[1], name); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "nonempty regular file"},
+		{name: "directory", mutate: func(t *testing.T, directory string, assets []string) {
+			name := filepath.Join(directory, assets[0])
+			if err := os.Remove(name); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(name, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "nonempty regular file"},
+		{name: "empty", mutate: func(t *testing.T, directory string, assets []string) {
+			if err := os.WriteFile(filepath.Join(directory, assets[0]), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "nonempty regular file"},
+		{name: "oversized", mutate: func(t *testing.T, directory string, assets []string) {
+			if err := os.Truncate(filepath.Join(directory, assets[0]), releaseArtifactLimit+1); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "bounded nonempty regular file"},
+		{name: "missing", mutate: func(t *testing.T, directory string, assets []string) {
+			if err := os.Remove(filepath.Join(directory, assets[0])); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "exact manifest"},
+		{name: "extra", mutate: func(t *testing.T, directory string, _ []string) {
+			if err := os.WriteFile(filepath.Join(directory, "unexpected"), []byte("asset"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "exact manifest"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			artifactRoot := t.TempDir()
+			runnerTemp := t.TempDir()
+			assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+			writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+			runner := newReleaseVerifyRunner(t, assets, "release notes")
+			runner.afterDownload = func(directory string) {
+				test.mutate(t, directory, assets)
+			}
+			err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+				Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+				RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+				Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+			})
+			if err == nil || !containsError(err, test.want) {
+				t.Fatalf("VerifyReleaseDraft() error = %v, want %q", err, test.want)
+			}
+			if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("owned invalid download directory cleanup error = %v, want not exist", statErr)
+			}
+		})
+	}
+}
+
+func TestVerifyReleaseDraftCleansPartialDownloadAfterCommandFailure(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	artifactRoot := t.TempDir()
+	runnerTemp := t.TempDir()
+	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner.downloadErr = errors.New("injected download failure")
+	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+		Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+	})
+	if err == nil || !containsError(err, "download exact release assets") {
+		t.Fatalf("VerifyReleaseDraft() error = %v, want command failure", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("partial download directory cleanup error = %v, want not exist", statErr)
+	}
+}
+
+func TestVerifyReleaseDraftRejectsReplacedDownloadRootWithoutRemovingReplacement(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	artifactRoot := t.TempDir()
+	runnerTemp := t.TempDir()
+	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	downloadDirectory := filepath.Join(runnerTemp, releaseAssetDownloadDirectory)
+	runner.afterDownload = func(string) {
+		if err := os.Rename(downloadDirectory, downloadDirectory+"-owned"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(downloadDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(downloadDirectory, "sentinel"), []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+		Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+	})
+	if err == nil || !containsError(err, "download directory ownership changed") {
+		t.Fatalf("VerifyReleaseDraft() error = %v, want download root replacement rejection", err)
+	}
+	if data, readErr := os.ReadFile(filepath.Join(downloadDirectory, "sentinel")); readErr != nil || string(data) != "preserve" {
+		t.Fatalf("replacement sentinel = %q, error = %v", data, readErr)
+	}
+}
+
+func TestVerifyReleaseDraftRejectsVerifierRootReplacedDuringDownload(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	root := filepath.Join(parent, "verifier")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifactRoot := t.TempDir()
+	runnerTemp := t.TempDir()
+	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
+	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
+	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner.afterDownload = func(string) {
+		if err := os.Rename(root, root+"-owned"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "sentinel"), []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
+		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
+		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
+		Environment: []string{"GH_TOKEN=secret", "PATH=/usr/bin"}, Runner: runner,
+	})
+	if err == nil || !containsError(err, "release verifier root after release asset download") {
+		t.Fatalf("VerifyReleaseDraft() error = %v, want verifier root replacement rejection", err)
+	}
+	if data, readErr := os.ReadFile(filepath.Join(root, "sentinel")); readErr != nil || string(data) != "preserve" {
+		t.Fatalf("replacement verifier sentinel = %q, error = %v", data, readErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("download directory after verifier replacement = %v, want not exist", statErr)
 	}
 }
 
@@ -156,12 +372,14 @@ func writeReleaseVerifyFile(t *testing.T, root, name string, data []byte) {
 }
 
 type releaseVerifyRunner struct {
-	t           *testing.T
-	assets      []string
-	manifest    int
-	releaseView []byte
-	calls       []specInvocation
-	afterRun    func(CommandSpec)
+	t             *testing.T
+	assets        []string
+	manifest      int
+	releaseView   []byte
+	calls         []specInvocation
+	afterRun      func(CommandSpec)
+	afterDownload func(string)
+	downloadErr   error
 }
 
 func newReleaseVerifyRunner(t *testing.T, assets []string, body string) *releaseVerifyRunner {
@@ -176,6 +394,19 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 	runner.calls = append(runner.calls, specInvocation{
 		name: spec.Name, args: append([]string(nil), spec.Args...), dir: spec.Dir, env: append([]string(nil), spec.Env...),
 	})
+	if spec.Name == "gh" && len(spec.Args) == 7 && slices.Equal(spec.Args[:5], []string{
+		"release", "download", "v0.6.2", "--repo", "dantte-lp/gobfd",
+	}) && spec.Args[5] == "--dir" {
+		for _, name := range runner.assets {
+			if err := os.WriteFile(filepath.Join(spec.Args[6], name), []byte("asset"), 0o600); err != nil {
+				return err
+			}
+		}
+		if runner.afterDownload != nil {
+			runner.afterDownload(spec.Args[6])
+		}
+		return runner.downloadErr
+	}
 	if spec.Stdout == nil {
 		return errors.New("release verification command lacks captured stdout")
 	}
