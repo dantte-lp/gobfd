@@ -112,7 +112,6 @@ func runBenchmark(ctx context.Context, arguments []string, deps dependencies) er
 func runBenchmarkBase(ctx context.Context, arguments []string, deps dependencies) error {
 	flags := flag.NewFlagSet("benchmark-base", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	ref := flags.String("ref", "", "base Git ref")
 	output := flags.String("output", "old.txt", "raw base benchmark output")
 	if err := flags.Parse(arguments); err != nil {
 		return fmt.Errorf("parse benchmark-base flags: %w", err)
@@ -125,7 +124,8 @@ func runBenchmarkBase(ctx context.Context, arguments []string, deps dependencies
 		return fmt.Errorf("resolve repository root: %w", err)
 	}
 	if err := cirunner.BenchmarkBase(ctx, cirunner.BenchmarkBaseOptions{
-		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), Ref: *ref, Output: *output,
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		Ref: "origin/" + deps.getenv("GITHUB_BASE_REF"), Output: *output,
 		Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("run base benchmarks: %w", err)

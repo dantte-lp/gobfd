@@ -134,9 +134,8 @@ func TestCIWorkflowBenchmarkStepsUseGoOwner(t *testing.T) {
 	}{
 		{step: "Run benchmarks (PR)", command: "go run ./test/cmd/cictl benchmark-run --output new.txt"},
 		{
-			step: "Run benchmarks (base)",
-			command: "go run ./test/cmd/cictl benchmark-base " +
-				"--ref origin/${{ github.event.pull_request.base.ref }} --output old.txt",
+			step:    "Run benchmarks (base)",
+			command: "go run ./test/cmd/cictl benchmark-base --output old.txt",
 		},
 		{
 			step:    "Normalize renamed benchmarks and validate inputs",
@@ -156,6 +155,13 @@ func TestCIWorkflowBenchmarkStepsUseGoOwner(t *testing.T) {
 			for _, marker := range []string{"run: |", "run: >", "awk ", "sed ", "grep ", "git config --global"} {
 				if strings.Contains(step, marker) {
 					t.Errorf("workflow step %q retains shell marker %q", test.step, marker)
+				}
+			}
+			if test.step == "Run benchmarks (base)" {
+				for _, marker := range []string{"${{", "--ref"} {
+					if strings.Contains(step, marker) {
+						t.Errorf("workflow base benchmark step exposes ref marker %q to the shell", marker)
+					}
 				}
 			}
 		})

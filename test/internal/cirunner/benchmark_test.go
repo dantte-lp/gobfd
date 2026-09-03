@@ -110,6 +110,32 @@ func TestBenchmarkBaseAlwaysRemovesTemporaryWorktree(t *testing.T) {
 	}
 }
 
+func TestBenchmarkBaseCleansUpAfterPartialWorktreeAddFailure(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("partial worktree add failure")
+	runner := &partialAddSpecRunner{err: wantErr}
+	err := BenchmarkBase(context.Background(), BenchmarkBaseOptions{
+		Root: t.TempDir(), RunnerTemp: t.TempDir(), Ref: "origin/main", Output: "old.txt",
+		Regex: "^BenchmarkRequired$", Runner: runner,
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("BenchmarkBase() error = %v, want wrapped add error", err)
+	}
+	if len(runner.calls) != 3 {
+		t.Fatalf("partial-add command count = %d, want validation, add, cleanup", len(runner.calls))
+	}
+	cleanup := runner.calls[2]
+	if cleanup.name != "git" || !reflect.DeepEqual(cleanup.args[len(cleanup.args)-3:], []string{
+		"worktree", "remove", runner.worktree,
+	}) {
+		t.Errorf("partial-add cleanup = %#v, want git worktree remove", cleanup)
+	}
+	if runner.cleanupContextErr != nil {
+		t.Errorf("partial-add cleanup context error = %v, want detached context", runner.cleanupContextErr)
+	}
+}
+
 func TestBenchmarkBaseCleanupSurvivesBenchmarkCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -451,6 +477,32 @@ func (r *cancelingSpecRunner) RunCommand(ctx context.Context, _ CommandSpec) err
 		return context.Canceled
 	}
 	if r.calls == 4 {
+		r.cleanupContextErr = ctx.Err()
+	}
+	return nil
+}
+
+type partialAddSpecRunner struct {
+	calls             []specInvocation
+	err               error
+	worktree          string
+	cleanupContextErr error
+}
+
+func (r *partialAddSpecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
+	r.calls = append(r.calls, specInvocation{
+		name: spec.Name,
+		args: append([]string(nil), spec.Args...),
+		dir:  spec.Dir,
+	})
+	if len(r.calls) == 2 {
+		r.worktree = spec.Args[len(spec.Args)-2]
+		if err := os.Mkdir(r.worktree, 0o755); err != nil {
+			return err
+		}
+		return r.err
+	}
+	if len(r.calls) == 3 {
 		r.cleanupContextErr = ctx.Err()
 	}
 	return nil

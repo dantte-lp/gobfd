@@ -98,20 +98,20 @@ func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
 	}); err != nil {
 		return fmt.Errorf("validate benchmark base ref: %w", err)
 	}
-	if err := options.Runner.RunCommand(ctx, CommandSpec{
+	addErr := options.Runner.RunCommand(ctx, CommandSpec{
 		Name: "git", Dir: root,
 		Args: append(append([]string(nil), gitPrefix...), "worktree", "add", "--detach", worktree, options.Ref),
-	}); err != nil {
-		return fmt.Errorf("create benchmark base worktree: %w", err)
+	})
+	if addErr != nil {
+		cleanupErr := removeBenchmarkWorktree(ctx, root, worktree, gitPrefix, options.Runner)
+		return errors.Join(
+			fmt.Errorf("create benchmark base worktree: %w", addErr),
+			wrapOptional("remove partially created benchmark base worktree", cleanupErr),
+		)
 	}
 
 	runErr := runBenchmarkCommand(ctx, worktree, output, options.Regex, options.Runner)
-	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), benchmarkCleanupLimit)
-	defer cancelCleanup()
-	cleanupErr := options.Runner.RunCommand(cleanupCtx, CommandSpec{
-		Name: "git", Dir: root,
-		Args: append(append([]string(nil), gitPrefix...), "worktree", "remove", worktree),
-	})
+	cleanupErr := removeBenchmarkWorktree(ctx, root, worktree, gitPrefix, options.Runner)
 	if runErr != nil || cleanupErr != nil {
 		return errors.Join(
 			wrapOptional("run base benchmarks", runErr),
@@ -119,6 +119,21 @@ func BenchmarkBase(ctx context.Context, options BenchmarkBaseOptions) error {
 		)
 	}
 	return nil
+}
+
+func removeBenchmarkWorktree(
+	ctx context.Context,
+	root string,
+	worktree string,
+	gitPrefix []string,
+	runner SpecRunner,
+) error {
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), benchmarkCleanupLimit)
+	defer cancelCleanup()
+	return runner.RunCommand(cleanupCtx, CommandSpec{
+		Name: "git", Dir: root,
+		Args: append(append([]string(nil), gitPrefix...), "worktree", "remove", worktree),
+	})
 }
 
 func runBenchmarkCommand(ctx context.Context, workDir, output, regex string, runner SpecRunner) error {

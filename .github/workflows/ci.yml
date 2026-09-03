@@ -228,7 +228,7 @@ jobs:
         run: go run ./test/cmd/cictl benchmark-run --output new.txt
 
       - name: Run benchmarks (base)
-        run: go run ./test/cmd/cictl benchmark-base --ref origin/${{ github.event.pull_request.base.ref }} --output old.txt
+        run: go run ./test/cmd/cictl benchmark-base --output old.txt
 
       - name: Normalize renamed benchmarks and validate inputs
         run: go run ./test/cmd/cictl benchmark-normalize --old old.txt --new new.txt
