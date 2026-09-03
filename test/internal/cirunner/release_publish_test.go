@@ -212,7 +212,7 @@ func writeReleasePublishFixture(t *testing.T, artifactRoot, runnerTemp string) [
 	t.Helper()
 	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-	releaseView := marshalReleaseDraftView(t, true, "v0.6.2", "release notes", assets)
+	releaseView := marshalReleaseDraftView(t, "release notes", assets)
 	remote, err := validateExactReleaseDraft(
 		releaseView, "v0.6.2", "dantte-lp/gobfd", []byte("release notes\n"), assets,
 	)

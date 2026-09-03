@@ -581,5 +581,9 @@ func (output *boundedPreflightOutput) Write(data []byte) (int, error) {
 	if len(data) > output.limit-output.Len() {
 		return 0, fmt.Errorf("release preflight response exceeds %d bytes: %w", output.limit, errInvalidConfig)
 	}
-	return output.Buffer.Write(data)
+	written, err := output.Buffer.Write(data)
+	if err != nil {
+		return written, fmt.Errorf("buffer release preflight response: %w", err)
+	}
+	return written, nil
 }

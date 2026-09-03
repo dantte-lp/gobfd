@@ -24,7 +24,7 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 	runnerTemp := t.TempDir()
 	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	environment := []string{"GH_TOKEN=secret", "PATH=/usr/bin", "DOCKER_CONFIG=/docker"}
 	if err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
 		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
@@ -110,7 +110,7 @@ func TestVerifyReleaseDraftRejectsInvalidRemoteAssetIdentity(t *testing.T) {
 			runnerTemp := t.TempDir()
 			assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 			writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-			runner := newReleaseVerifyRunner(t, assets, "release notes")
+			runner := newReleaseVerifyRunner(t, assets)
 			mutateReleaseDraftAssets(t, runner, test.mutate)
 			err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
 				Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
@@ -146,7 +146,7 @@ func TestVerifyReleaseDraftRejectsDownloadDirectoryCollision(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("preserve"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
 		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
 		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
@@ -179,7 +179,7 @@ func TestVerifyReleaseDraftRejectsReceiptCollisionAndCleansOwnedDownload(t *test
 	if err := os.Symlink(target, receiptPath); err != nil {
 		t.Fatal(err)
 	}
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
 		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
 		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd",
@@ -271,7 +271,7 @@ func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory
 			runnerTemp := t.TempDir()
 			assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 			writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-			runner := newReleaseVerifyRunner(t, assets, "release notes")
+			runner := newReleaseVerifyRunner(t, assets)
 			runner.afterDownload = func(directory string) {
 				test.mutate(t, directory, assets)
 			}
@@ -298,7 +298,7 @@ func TestVerifyReleaseDraftCleansPartialDownloadAfterCommandFailure(t *testing.T
 	runnerTemp := t.TempDir()
 	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	runner.downloadErr = errors.New("injected download failure")
 	err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
 		Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
@@ -321,7 +321,7 @@ func TestVerifyReleaseDraftRejectsReplacedDownloadRootWithoutRemovingReplacement
 	runnerTemp := t.TempDir()
 	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	downloadDirectory := filepath.Join(runnerTemp, releaseAssetDownloadDirectory)
 	runner.afterDownload = func(string) {
 		if err := os.Rename(downloadDirectory, downloadDirectory+"-owned"); err != nil {
@@ -359,7 +359,7 @@ func TestVerifyReleaseDraftRejectsVerifierRootReplacedDuringDownload(t *testing.
 	runnerTemp := t.TempDir()
 	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	runner.afterDownload = func(string) {
 		if err := os.Rename(root, root+"-owned"); err != nil {
 			t.Fatal(err)
@@ -399,7 +399,7 @@ func TestVerifyReleaseDraftRejectsReplacedVerifierRoot(t *testing.T) {
 	runnerTemp := t.TempDir()
 	assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-	runner := newReleaseVerifyRunner(t, assets, "release notes")
+	runner := newReleaseVerifyRunner(t, assets)
 	runner.afterRun = func(CommandSpec) {
 		if len(runner.calls) != 8 {
 			return
@@ -442,13 +442,13 @@ func TestVerifyReleaseDraftRejectsChangedEvidence(t *testing.T) {
 		}, want: "OCI digest receipt changed"},
 		{name: "draft body", mutate: func(t *testing.T, _ string, _ string, runner *releaseVerifyRunner) {
 			t.Helper()
-			runner.releaseView = marshalReleaseDraftView(t, true, "v0.6.2", "other notes", runner.assets)
+			runner.releaseView = marshalReleaseDraftView(t, "other notes", runner.assets)
 		}, want: "draft body"},
 		{name: "duplicate asset", mutate: func(t *testing.T, _ string, _ string, runner *releaseVerifyRunner) {
 			t.Helper()
 			assets := append([]string(nil), runner.assets...)
 			assets[len(assets)-1] = assets[0]
-			runner.releaseView = marshalReleaseDraftView(t, true, "v0.6.2", "release notes", assets)
+			runner.releaseView = marshalReleaseDraftView(t, "release notes", assets)
 		}, want: "draft asset set"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -458,7 +458,7 @@ func TestVerifyReleaseDraftRejectsChangedEvidence(t *testing.T) {
 			runnerTemp := t.TempDir()
 			assets := expectedReleaseAssetNames("0.6.2", "v0.6.2")
 			writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
-			runner := newReleaseVerifyRunner(t, assets, "release notes")
+			runner := newReleaseVerifyRunner(t, assets)
 			test.mutate(t, artifactRoot, runnerTemp, runner)
 			err := VerifyReleaseDraft(context.Background(), VerifyReleaseDraftOptions{
 				Root: root, ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
@@ -512,11 +512,11 @@ type releaseVerifyRunner struct {
 	downloadErr   error
 }
 
-func newReleaseVerifyRunner(t *testing.T, assets []string, body string) *releaseVerifyRunner {
+func newReleaseVerifyRunner(t *testing.T, assets []string) *releaseVerifyRunner {
 	t.Helper()
 	return &releaseVerifyRunner{
 		t: t, assets: append([]string(nil), assets...),
-		releaseView: marshalReleaseDraftView(t, true, "v0.6.2", body, assets),
+		releaseView: marshalReleaseDraftView(t, "release notes", assets),
 	}
 }
 
@@ -568,7 +568,7 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 	return err
 }
 
-func marshalReleaseDraftView(t *testing.T, draft bool, tag, body string, assets []string) []byte {
+func marshalReleaseDraftView(t *testing.T, body string, assets []string) []byte {
 	t.Helper()
 	items := make([]map[string]any, 0, len(assets))
 	dataByName := validReleaseAssetData(t)
@@ -584,7 +584,7 @@ func marshalReleaseDraftView(t *testing.T, draft bool, tag, body string, assets 
 		})
 	}
 	data, err := json.Marshal(map[string]any{
-		"isDraft": draft, "tagName": tag, "body": body, "assets": items,
+		"isDraft": true, "tagName": "v0.6.2", "body": body, "assets": items,
 	})
 	if err != nil {
 		t.Fatal(err)

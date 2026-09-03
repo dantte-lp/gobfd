@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-const protoToolDirectoryMode = 0o755
-
 // ProtoOptions configures generated protobuf verification and its test seams.
 type ProtoOptions struct {
 	Root        string
@@ -33,10 +31,10 @@ func ProtoVerify(ctx context.Context, options ProtoOptions) error {
 	}
 	toolsRoot := filepath.Join(runnerTemp, "gobfd-proto-tools")
 	binDir := filepath.Join(toolsRoot, "bin")
-	if err := ensureDirectory(toolsRoot, "protobuf tools", protoToolDirectoryMode); err != nil {
+	if err := ensureDirectory(toolsRoot, "protobuf tools"); err != nil {
 		return err
 	}
-	if err := ensureDirectory(binDir, "protobuf tools bin", protoToolDirectoryMode); err != nil {
+	if err := ensureDirectory(binDir, "protobuf tools bin"); err != nil {
 		return err
 	}
 

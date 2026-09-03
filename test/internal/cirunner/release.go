@@ -102,11 +102,11 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		output = io.Discard
 	}
 	versionDirectory := filepath.Join(root, "testdata", "benchmarks", version)
-	if directoryErr := ensureDirectory(versionDirectory, "release benchmark", reportDirectoryMode); directoryErr != nil {
+	if directoryErr := ensureDirectory(versionDirectory, "release benchmark"); directoryErr != nil {
 		return directoryErr
 	}
 	if directoryErr := ensureDirectory(
-		filepath.Join(root, "reports", "benchmarks"), "release report", reportDirectoryMode,
+		filepath.Join(root, "reports", "benchmarks"), "release report",
 	); directoryErr != nil {
 		return directoryErr
 	}
@@ -219,7 +219,7 @@ func ReleaseBenchmarkMetadata(ctx context.Context, options ReleaseMetadataOption
 	}
 	data = append(data, '\n')
 	directory := filepath.Join(root, "testdata", "benchmarks", version)
-	if err := ensureDirectory(directory, "release benchmark metadata", reportDirectoryMode); err != nil {
+	if err := ensureDirectory(directory, "release benchmark metadata"); err != nil {
 		return err
 	}
 	return writeAtomicArtifact(filepath.Join(directory, "meta.json"), data, "release benchmark metadata")
@@ -245,7 +245,7 @@ func ReleaseBenchmarkComparison(ctx context.Context, options ReleaseComparisonOp
 	}
 	reportDirectory := filepath.Join(root, "reports", "benchmarks")
 	if directoryErr := ensureDirectory(
-		reportDirectory, "release benchmark comparison", reportDirectoryMode,
+		reportDirectory, "release benchmark comparison",
 	); directoryErr != nil {
 		return directoryErr
 	}
@@ -312,7 +312,7 @@ func ReleaseReportsArchive(root, version string) (returnErr error) {
 	}
 	reports := filepath.Join(root, "reports")
 	benchmarks := filepath.Join(reports, "benchmarks")
-	if directoryErr := ensureDirectory(benchmarks, "release benchmark reports", reportDirectoryMode); directoryErr != nil {
+	if directoryErr := ensureDirectory(benchmarks, "release benchmark reports"); directoryErr != nil {
 		return directoryErr
 	}
 	repositoryRoot, err := os.OpenRoot(root)

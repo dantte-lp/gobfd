@@ -202,7 +202,10 @@ func removeOwnedUPXRoot(root *os.Root, name string, expected os.FileInfo) error 
 	if expected == nil || !os.SameFile(current, expected) {
 		return fmt.Errorf("partial UPX prerequisite ownership changed: %w", errInvalidConfig)
 	}
-	return root.Remove(name)
+	if err := root.Remove(name); err != nil {
+		return fmt.Errorf("remove partial UPX prerequisite root: %w", err)
+	}
+	return nil
 }
 
 func clearOwnedUPXRoot(root *os.Root) error {
@@ -296,7 +299,10 @@ func (writer *upxDownloadWriter) Write(data []byte) (int, error) {
 		_, _ = writer.hash.Write(data[:written])
 		writer.count += int64(written)
 	}
-	return written, err
+	if err != nil {
+		return written, fmt.Errorf("write UPX archive: %w", err)
+	}
+	return written, nil
 }
 
 func (writer *upxDownloadWriter) sum() string {
@@ -395,7 +401,13 @@ func (reader *upxDownloadReader) Read(data []byte) (int, error) {
 		if count > 0 {
 			return 0, fmt.Errorf("UPX archive exceeds %d bytes: %w", reader.limit, errInvalidConfig)
 		}
-		return 0, err
+		if err == io.EOF {
+			return 0, io.EOF
+		}
+		if err != nil {
+			return 0, fmt.Errorf("probe UPX archive limit: %w", err)
+		}
+		return 0, nil
 	}
 	if int64(len(data)) > reader.limit-reader.count {
 		data = data[:reader.limit-reader.count]
@@ -405,7 +417,13 @@ func (reader *upxDownloadReader) Read(data []byte) (int, error) {
 		_, _ = reader.hash.Write(data[:count])
 		reader.count += int64(count)
 	}
-	return count, err
+	if err == io.EOF {
+		return count, io.EOF
+	}
+	if err != nil {
+		return count, fmt.Errorf("read UPX archive: %w", err)
+	}
+	return count, nil
 }
 
 func (reader *upxDownloadReader) sum() string {
@@ -454,7 +472,11 @@ func (buffer *synchronizedBoundedBuffer) Write(data []byte) (int, error) {
 	if len(data) > buffer.limit-buffer.data.Len() {
 		return 0, fmt.Errorf("captured command output exceeds %d bytes: %w", buffer.limit, errInvalidConfig)
 	}
-	return buffer.data.Write(data)
+	written, err := buffer.data.Write(data)
+	if err != nil {
+		return written, fmt.Errorf("buffer captured command output: %w", err)
+	}
+	return written, nil
 }
 
 func (buffer *synchronizedBoundedBuffer) Bytes() []byte {

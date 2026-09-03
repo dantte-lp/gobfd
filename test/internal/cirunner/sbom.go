@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	reportDirectoryMode = 0o755
-	reportFileMode      = 0o644
-	syftModule          = "github.com/anchore/syft/cmd/syft@v1.51.0"
+	reportFileMode = 0o644
+	syftModule     = "github.com/anchore/syft/cmd/syft@v1.51.0"
 )
 
 // SBOMOptions configures generation of the separate runtime and tools SBOMs.
@@ -29,7 +28,7 @@ func SBOM(ctx context.Context, options SBOMOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureDirectory(reportDir, "SBOM report", reportDirectoryMode); err != nil {
+	if err := ensureDirectory(reportDir, "SBOM report"); err != nil {
 		return err
 	}
 

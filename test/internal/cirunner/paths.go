@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const directoryMode os.FileMode = 0o755
+
 func validateSafeDirectory(path, purpose string, rejectRoot bool) (string, error) {
 	if path == "" || strings.ContainsAny(path, "\r\n") {
 		return "", fmt.Errorf("%s directory %q: %w", purpose, path, errInvalidConfig)
@@ -47,7 +49,7 @@ func inspectDirectoryTree(path, purpose string) error {
 	return nil
 }
 
-func ensureDirectory(path, purpose string, mode os.FileMode) error {
+func ensureDirectory(path, purpose string) error {
 	absolute, err := validateSafeDirectory(path, purpose, true)
 	if err != nil {
 		return err
@@ -68,15 +70,15 @@ func ensureDirectory(path, purpose string, mode os.FileMode) error {
 					purpose, current, info.Mode(), errInvalidConfig)
 			}
 		case errors.Is(lstatErr, os.ErrNotExist):
-			if mkdirErr := os.Mkdir(current, mode); mkdirErr != nil {
+			if mkdirErr := os.Mkdir(current, directoryMode); mkdirErr != nil {
 				return fmt.Errorf("create %s directory %s: %w", purpose, current, mkdirErr)
 			}
 		default:
 			return fmt.Errorf("inspect %s path component %s: %w", purpose, current, lstatErr)
 		}
 	}
-	if err := os.Chmod(absolute, mode); err != nil {
-		return fmt.Errorf("set %s directory %s mode %#o: %w", purpose, absolute, mode, err)
+	if err := os.Chmod(absolute, directoryMode); err != nil {
+		return fmt.Errorf("set %s directory %s mode %#o: %w", purpose, absolute, directoryMode, err)
 	}
 	return nil
 }

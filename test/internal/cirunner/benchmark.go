@@ -130,10 +130,13 @@ func removeBenchmarkWorktree(
 ) error {
 	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), benchmarkCleanupLimit)
 	defer cancelCleanup()
-	return runner.RunCommand(cleanupCtx, CommandSpec{
+	if err := runner.RunCommand(cleanupCtx, CommandSpec{
 		Name: "git", Dir: root,
 		Args: append(append([]string(nil), gitPrefix...), "worktree", "remove", worktree),
-	})
+	}); err != nil {
+		return fmt.Errorf("run git worktree remove: %w", err)
+	}
+	return nil
 }
 
 func runBenchmarkCommand(ctx context.Context, workDir, output, regex string, runner SpecRunner) error {
@@ -300,7 +303,7 @@ func validateRootFile(root, name, purpose string, createParent bool) (string, er
 	}
 	parent := filepath.Dir(path)
 	if createParent && parent != root {
-		if err := ensureDirectory(parent, purpose+" parent", reportDirectoryMode); err != nil {
+		if err := ensureDirectory(parent, purpose+" parent"); err != nil {
 			return "", err
 		}
 	} else if err := inspectDirectoryTree(parent, purpose+" parent"); err != nil {

@@ -193,7 +193,7 @@ func validateStrictJSONDocument(data []byte, purpose string) error {
 func validateUniqueJSONValue(decoder *json.Decoder) error {
 	token, err := decoder.Token()
 	if err != nil {
-		return err
+		return fmt.Errorf("read JSON value token: %w", err)
 	}
 	delimiter, compound := token.(json.Delim)
 	if !compound {
@@ -205,7 +205,7 @@ func validateUniqueJSONValue(decoder *json.Decoder) error {
 		for decoder.More() {
 			keyToken, err := decoder.Token()
 			if err != nil {
-				return err
+				return fmt.Errorf("read JSON object key: %w", err)
 			}
 			key, ok := keyToken.(string)
 			if !ok {
