@@ -16,14 +16,9 @@ const releaseAssetDownloadDirectory = "verified-release-assets"
 func downloadExactReleaseAssets(
 	ctx context.Context,
 	runner SpecRunner,
-	commandRoot *os.Root,
-	runnerTempRoot *os.Root,
-	commandDirectory string,
-	runnerTempPath string,
-	repository string,
-	refName string,
-	environment []string,
-	expectedAssets []string,
+	commandRoot, runnerTempRoot *os.Root,
+	commandDirectory, runnerTempPath, repository, refName string,
+	environment, expectedAssets []string,
 	validateContents func(*os.Root) error,
 	commitValidatedContents func() error,
 ) (returnErr error) {
@@ -33,40 +28,9 @@ func downloadExactReleaseAssets(
 	if commitValidatedContents == nil {
 		return fmt.Errorf("release asset commit callback is required: %w", errInvalidConfig)
 	}
-	if err := validateRootPathIdentity(
-		runnerTempRoot, runnerTempPath, "RUNNER_TEMP before release asset download",
-	); err != nil {
-		return err
-	}
-	if _, err := runnerTempRoot.Lstat(releaseAssetDownloadDirectory); err == nil {
-		return fmt.Errorf("release asset download directory collision: %w", errInvalidConfig)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect release asset download directory: %w", err)
-	}
-	if err := runnerTempRoot.Mkdir(releaseAssetDownloadDirectory, 0o700); err != nil {
-		return fmt.Errorf("create release asset download directory: %w", err)
-	}
-	createdInfo, err := runnerTempRoot.Lstat(releaseAssetDownloadDirectory)
-	if err != nil || !createdInfo.IsDir() {
-		return errors.Join(
-			fmt.Errorf("inspect created release asset download directory: %w", errors.Join(err, errInvalidConfig)),
-			removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo),
-		)
-	}
-	downloadRoot, err := runnerTempRoot.OpenRoot(releaseAssetDownloadDirectory)
+	downloadRoot, createdInfo, err := openOwnedReleaseDownloadRoot(runnerTempRoot, runnerTempPath)
 	if err != nil {
-		return errors.Join(
-			fmt.Errorf("open release asset download root: %w", err),
-			removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo),
-		)
-	}
-	openedInfo, err := downloadRoot.Stat(".")
-	if err != nil || !os.SameFile(openedInfo, createdInfo) {
-		return errors.Join(
-			fmt.Errorf("release asset download root identity changed: %w", errors.Join(err, errInvalidConfig)),
-			wrapOptional("close unowned release asset download root", downloadRoot.Close()),
-			removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo),
-		)
+		return err
 	}
 	keep := false
 	defer func() {
@@ -78,7 +42,6 @@ func downloadExactReleaseAssets(
 			returnErr = errors.Join(returnErr, removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo))
 		}
 	}()
-
 	downloadPath := filepath.Join(runnerTempPath, releaseAssetDownloadDirectory)
 	if err := runner.RunCommand(ctx, CommandSpec{
 		Name: "gh",
@@ -89,27 +52,21 @@ func downloadExactReleaseAssets(
 	}); err != nil {
 		return fmt.Errorf("download exact release assets: %w", err)
 	}
-	if err := validateOwnedReleaseDownloadRoot(
-		runnerTempRoot, downloadRoot, createdInfo, expectedAssets,
-	); err != nil {
+	if err := validateOwnedReleaseDownloadRoot(runnerTempRoot, downloadRoot, createdInfo, expectedAssets); err != nil {
 		return err
 	}
 	if err := validateContents(downloadRoot); err != nil {
 		return err
 	}
-	if err := validateOwnedReleaseDownloadRoot(
-		runnerTempRoot, downloadRoot, createdInfo, expectedAssets,
-	); err != nil {
+	if err := validateOwnedReleaseDownloadRoot(runnerTempRoot, downloadRoot, createdInfo, expectedAssets); err != nil {
 		return err
 	}
-	if err := validateRootPathIdentity(
-		commandRoot, commandDirectory, "release verifier root after release asset download",
-	); err != nil {
+	if err := validateRootPathIdentity(commandRoot, commandDirectory,
+		"release verifier root after release asset download"); err != nil {
 		return err
 	}
-	if err := validateRootPathIdentity(
-		runnerTempRoot, runnerTempPath, "RUNNER_TEMP after release asset download",
-	); err != nil {
+	if err := validateRootPathIdentity(runnerTempRoot, runnerTempPath,
+		"RUNNER_TEMP after release asset download"); err != nil {
 		return err
 	}
 	if err := commitValidatedContents(); err != nil {
@@ -117,6 +74,48 @@ func downloadExactReleaseAssets(
 	}
 	keep = true
 	return nil
+}
+
+func openOwnedReleaseDownloadRoot(
+	runnerTempRoot *os.Root,
+	runnerTempPath string,
+) (*os.Root, os.FileInfo, error) {
+	if err := validateRootPathIdentity(
+		runnerTempRoot, runnerTempPath, "RUNNER_TEMP before release asset download",
+	); err != nil {
+		return nil, nil, err
+	}
+	if _, err := runnerTempRoot.Lstat(releaseAssetDownloadDirectory); err == nil {
+		return nil, nil, fmt.Errorf("release asset download directory collision: %w", errInvalidConfig)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, fmt.Errorf("inspect release asset download directory: %w", err)
+	}
+	if err := runnerTempRoot.Mkdir(releaseAssetDownloadDirectory, 0o700); err != nil {
+		return nil, nil, fmt.Errorf("create release asset download directory: %w", err)
+	}
+	createdInfo, err := runnerTempRoot.Lstat(releaseAssetDownloadDirectory)
+	if err != nil || !createdInfo.IsDir() {
+		return nil, nil, errors.Join(
+			fmt.Errorf("inspect created release asset download directory: %w", errors.Join(err, errInvalidConfig)),
+			removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo),
+		)
+	}
+	downloadRoot, err := runnerTempRoot.OpenRoot(releaseAssetDownloadDirectory)
+	if err != nil {
+		return nil, nil, errors.Join(
+			fmt.Errorf("open release asset download root: %w", err),
+			removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo),
+		)
+	}
+	openedInfo, err := downloadRoot.Stat(".")
+	if err != nil || !os.SameFile(openedInfo, createdInfo) {
+		return nil, nil, errors.Join(
+			fmt.Errorf("release asset download root identity changed: %w", errors.Join(err, errInvalidConfig)),
+			wrapOptional("close unowned release asset download root", downloadRoot.Close()),
+			removeOwnedReleaseDownloadRoot(runnerTempRoot, createdInfo),
+		)
+	}
+	return downloadRoot, createdInfo, nil
 }
 
 func validateOwnedReleaseDownloadRoot(
