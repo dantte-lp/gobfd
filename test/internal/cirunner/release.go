@@ -101,43 +101,13 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 	if output == nil {
 		output = io.Discard
 	}
-	versionDirectory := filepath.Join(root, "testdata", "benchmarks", version)
-	if directoryErr := ensureDirectory(versionDirectory, "release benchmark"); directoryErr != nil {
-		return directoryErr
-	}
-	if directoryErr := ensureDirectory(
-		filepath.Join(root, "reports", "benchmarks"), "release report",
-	); directoryErr != nil {
-		return directoryErr
-	}
-	type benchmarkTarget struct {
-		file    string
-		pkg     string
-		content []byte
-	}
-	targets := []benchmarkTarget{
+	targets := []releaseBenchmarkTarget{
 		{file: "benchmark-bfd.txt", pkg: "./internal/bfd/"},
 		{file: "benchmark-netio.txt", pkg: "./internal/netio/"},
 	}
-	paths := make([]string, len(targets)+1)
-	for index := range targets {
-		paths[index], err = validateRootFile(root, filepath.Join("testdata", "benchmarks", version, targets[index].file), "release benchmark", false)
-		if err != nil {
-			return err
-		}
-	}
-	paths[len(targets)], err = validateRootFile(root, filepath.Join("testdata", "benchmarks", version, "benchmark.txt"), "combined release benchmark", false)
+	paths, err := prepareReleaseBenchmarkTargets(root, version, targets)
 	if err != nil {
 		return err
-	}
-	for index, path := range paths {
-		purpose := "release benchmark"
-		if index == len(targets) {
-			purpose = "combined release benchmark"
-		}
-		if err := resetArtifact(path, purpose); err != nil {
-			return err
-		}
 	}
 	for index := range targets {
 		artifact, openErr := os.OpenFile(paths[index], os.O_WRONLY|os.O_TRUNC, benchmarkArtifactMode)
@@ -155,7 +125,10 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		})
 		closeErr := artifact.Close()
 		if runErr != nil || closeErr != nil {
-			return errors.Join(wrapOptional("run release benchmark", runErr), wrapOptional("close release benchmark", closeErr))
+			return errors.Join(
+				wrapOptional("run release benchmark", runErr),
+				wrapOptional("close release benchmark", closeErr),
+			)
 		}
 		if captured.Len() == 0 {
 			return fmt.Errorf("release benchmark output for %s is empty: %w", targets[index].pkg, errInvalidConfig)
@@ -164,6 +137,52 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 	}
 	combined := append(append([]byte(nil), targets[0].content...), targets[1].content...)
 	return writeAtomicArtifact(paths[len(targets)], combined, "combined release benchmark")
+}
+
+type releaseBenchmarkTarget struct {
+	file    string
+	pkg     string
+	content []byte
+}
+
+func prepareReleaseBenchmarkTargets(root, version string, targets []releaseBenchmarkTarget) ([]string, error) {
+	versionDirectory := filepath.Join(root, "testdata", "benchmarks", version)
+	if directoryErr := ensureDirectory(versionDirectory, "release benchmark"); directoryErr != nil {
+		return nil, directoryErr
+	}
+	if directoryErr := ensureDirectory(
+		filepath.Join(root, "reports", "benchmarks"), "release report",
+	); directoryErr != nil {
+		return nil, directoryErr
+	}
+	paths := make([]string, len(targets)+1)
+	var err error
+	for index := range targets {
+		paths[index], err = validateRootFile(
+			root, filepath.Join("testdata", "benchmarks", version, targets[index].file),
+			"release benchmark", false,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	paths[len(targets)], err = validateRootFile(
+		root, filepath.Join("testdata", "benchmarks", version, "benchmark.txt"),
+		"combined release benchmark", false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	for index, path := range paths {
+		purpose := "release benchmark"
+		if index == len(targets) {
+			purpose = "combined release benchmark"
+		}
+		if err := resetArtifact(path, purpose); err != nil {
+			return nil, err
+		}
+	}
+	return paths, nil
 }
 
 // ReleaseMetadataOptions supplies benchmark metadata inputs.
@@ -373,46 +392,7 @@ func writeTarGzip(path, reports string, reportsRoot *os.Root) (returnErr error) 
 	gzipWriter := gzip.NewWriter(file)
 	tarWriter := tar.NewWriter(gzipWriter)
 	walkErr := filepath.WalkDir(reports, func(name string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk release report %s: %w", name, walkErr)
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return fmt.Errorf("inspect release report %s: %w", name, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
-			return fmt.Errorf("release report %s has unsupported mode %s: %w", name, info.Mode(), errInvalidConfig)
-		}
-		relative, err := filepath.Rel(reports, name)
-		if err != nil {
-			return fmt.Errorf("resolve release report path %s: %w", name, err)
-		}
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return fmt.Errorf("create release report archive header for %s: %w", name, err)
-		}
-		header.Name = filepath.ToSlash(filepath.Join("reports", relative))
-		if info.IsDir() {
-			header.Name += "/"
-		}
-		if headerErr := tarWriter.WriteHeader(header); headerErr != nil {
-			return fmt.Errorf("write release report archive header for %s: %w", name, headerErr)
-		}
-		if info.IsDir() {
-			return nil
-		}
-		input, err := openReportArchiveFile(reportsRoot, relative, info)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(tarWriter, input)
-		if copyErr == nil {
-			copyErr = verifyOpenedRegularFile(input, info, "release report "+relative)
-		}
-		return errors.Join(
-			wrapOptional("copy release report "+name, copyErr),
-			wrapOptional("close release report "+name, input.Close()),
-		)
+		return writeReleaseReportEntry(tarWriter, reports, reportsRoot, name, entry, walkErr)
 	})
 	closeErr := errors.Join(
 		wrapOptional("close release report tar writer", tarWriter.Close()),
@@ -422,6 +402,52 @@ func writeTarGzip(path, reports string, reportsRoot *os.Root) (returnErr error) 
 		return errors.Join(walkErr, closeErr)
 	}
 	return nil
+}
+
+func writeReleaseReportEntry(
+	target *tar.Writer, reports string, reportsRoot *os.Root,
+	name string, entry fs.DirEntry, walkErr error,
+) error {
+	if walkErr != nil {
+		return fmt.Errorf("walk release report %s: %w", name, walkErr)
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return fmt.Errorf("inspect release report %s: %w", name, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return fmt.Errorf("release report %s has unsupported mode %s: %w", name, info.Mode(), errInvalidConfig)
+	}
+	relative, err := filepath.Rel(reports, name)
+	if err != nil {
+		return fmt.Errorf("resolve release report path %s: %w", name, err)
+	}
+	header, err := tar.FileInfoHeader(info, "")
+	if err != nil {
+		return fmt.Errorf("create release report archive header for %s: %w", name, err)
+	}
+	header.Name = filepath.ToSlash(filepath.Join("reports", relative))
+	if info.IsDir() {
+		header.Name += "/"
+	}
+	if headerErr := target.WriteHeader(header); headerErr != nil {
+		return fmt.Errorf("write release report archive header for %s: %w", name, headerErr)
+	}
+	if info.IsDir() {
+		return nil
+	}
+	input, err := openReportArchiveFile(reportsRoot, relative, info)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(target, input)
+	if copyErr == nil {
+		copyErr = verifyOpenedRegularFile(input, info, "release report "+relative)
+	}
+	return errors.Join(
+		wrapOptional("copy release report "+name, copyErr),
+		wrapOptional("close release report "+name, input.Close()),
+	)
 }
 
 func openReportArchiveFile(reportsRoot *os.Root, name string, expected fs.FileInfo) (*os.File, error) {
