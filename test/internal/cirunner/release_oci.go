@@ -11,6 +11,8 @@ const (
 	ociReferenceTypeAnnotation   = "vnd.docker.reference.type"
 	ociReferenceDigestAnnotation = "vnd.docker.reference.digest"
 	ociAttestationManifestType   = "attestation-manifest"
+	ociSLSABuildTypeV1           = "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md"
+	releaseOCIImageCount         = 3
 )
 
 type ociManifestIndex struct {
@@ -34,6 +36,267 @@ type releaseOCIImageEvidence struct {
 	Digest       string
 	Runnable     map[string]string
 	Attestations map[string]string
+}
+
+type ociAttestationManifest struct {
+	Layers []ociAttestationLayer `json:"layers"`
+}
+
+type ociAttestationLayer struct {
+	Annotations map[string]string `json:"annotations"`
+}
+
+type ociSPDXDocument struct {
+	SPDXID            string            `json:"SPDXID"`
+	DataLicense       string            `json:"dataLicense"`
+	SPDXVersion       string            `json:"spdxVersion"`
+	DocumentNamespace string            `json:"documentNamespace"`
+	Packages          []json.RawMessage `json:"packages"`
+}
+
+type ociSLSAProvenance struct {
+	BuildDefinition struct {
+		BuildType            string            `json:"buildType"`
+		ResolvedDependencies []json.RawMessage `json:"resolvedDependencies"`
+	} `json:"buildDefinition"`
+	RunDetails struct {
+		Builder struct {
+			ID string `json:"id"`
+		} `json:"builder"`
+		Metadata struct {
+			InvocationID string `json:"invocationId"`
+			StartedOn    string `json:"startedOn"`
+			FinishedOn   string `json:"finishedOn"`
+		} `json:"metadata"`
+	} `json:"runDetails"`
+}
+
+func validateReleaseOCIAttestations(
+	ctx context.Context,
+	runner SpecRunner,
+	root string,
+	evidence []releaseOCIImageEvidence,
+	environment []string,
+) error {
+	repositoryRoot, err := validateAbsoluteExistingDirectory(root, "repository root")
+	if err != nil {
+		return err
+	}
+	if runner == nil || len(evidence) != releaseOCIImageCount {
+		return fmt.Errorf("OCI attestation evidence and command runner are required: %w", errInvalidConfig)
+	}
+	dockerEnvironment := withoutEnvironmentKeys(environment, "GH_TOKEN", "GITHUB_TOKEN")
+	for _, image := range evidence {
+		for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+			runnableDigest, exists := image.Runnable[platform]
+			if !exists {
+				return fmt.Errorf("OCI image %s lacks runnable platform %s: %w", image.Image, platform, errInvalidConfig)
+			}
+			attestationDigest, exists := image.Attestations[runnableDigest]
+			if !exists {
+				return fmt.Errorf("OCI image %s lacks attestation for %s: %w", image.Image, platform, errInvalidConfig)
+			}
+			if err := validateOCIAttestationManifest(
+				ctx, runner, repositoryRoot, image.Image, attestationDigest, dockerEnvironment,
+			); err != nil {
+				return err
+			}
+			if err := validateOCISBOM(ctx, runner, repositoryRoot, image.Image, platform, dockerEnvironment); err != nil {
+				return err
+			}
+			if err := validateOCIProvenance(ctx, runner, repositoryRoot, image.Image, platform, dockerEnvironment); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateOCIAttestationManifest(
+	ctx context.Context,
+	runner SpecRunner,
+	root string,
+	image string,
+	digest string,
+	environment []string,
+) error {
+	if !canonicalOCIDigest(digest) {
+		return fmt.Errorf("OCI attestation for %s has invalid digest: %w", image, errInvalidConfig)
+	}
+	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
+		Name: "docker", Args: []string{"buildx", "imagetools", "inspect", "--raw", image + "@" + digest},
+		Dir: root, Env: environment,
+	}, "inspect OCI attestation manifest "+image)
+	if err != nil {
+		return err
+	}
+	if err := validateStrictJSONDocument(data, "OCI attestation manifest "+image); err != nil {
+		return err
+	}
+	if err := validateOCIAttestationJSONFields(data, image); err != nil {
+		return err
+	}
+	manifest := ociAttestationManifest{}
+	if err := decodeJSONDocument(data, &manifest, "OCI attestation manifest "+image); err != nil {
+		return err
+	}
+	hasSPDX := false
+	hasSLSA := false
+	for _, layer := range manifest.Layers {
+		predicateType := layer.Annotations["in-toto.io/predicate-type"]
+		hasSPDX = hasSPDX || predicateType == "https://spdx.dev/Document"
+		hasSLSA = hasSLSA || strings.HasPrefix(predicateType, "https://slsa.dev/provenance/")
+	}
+	if len(manifest.Layers) == 0 || !hasSPDX || !hasSLSA {
+		return fmt.Errorf("OCI attestation manifest %s lacks SPDX or SLSA layers: %w", image, errInvalidConfig)
+	}
+	return nil
+}
+
+func validateOCISBOM(
+	ctx context.Context,
+	runner SpecRunner,
+	root string,
+	image string,
+	platform string,
+	environment []string,
+) error {
+	format := `{{json (index .SBOM "` + platform + `").SPDX}}`
+	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
+		Name: "docker", Args: []string{"buildx", "imagetools", "inspect", image, "--format", format},
+		Dir: root, Env: environment,
+	}, "inspect OCI SPDX SBOM "+image+" "+platform)
+	if err != nil {
+		return err
+	}
+	if err := validateStrictJSONDocument(data, "OCI SPDX SBOM "+image+" "+platform); err != nil {
+		return err
+	}
+	if _, err := decodeRequiredJSONObject(
+		data, "OCI SPDX SBOM fields", []string{"SPDXID", "dataLicense", "spdxVersion", "documentNamespace", "packages"},
+	); err != nil {
+		return err
+	}
+	document := ociSPDXDocument{}
+	if err := decodeJSONDocument(data, &document, "OCI SPDX SBOM "+image+" "+platform); err != nil {
+		return err
+	}
+	if document.SPDXID != "SPDXRef-DOCUMENT" || document.DataLicense != "CC0-1.0" ||
+		!strings.HasPrefix(document.SPDXVersion, "SPDX-") || document.DocumentNamespace == "" || len(document.Packages) == 0 {
+		return fmt.Errorf("OCI SPDX SBOM %s %s violates its document contract: %w", image, platform, errInvalidConfig)
+	}
+	return nil
+}
+
+func validateOCIProvenance(
+	ctx context.Context,
+	runner SpecRunner,
+	root string,
+	image string,
+	platform string,
+	environment []string,
+) error {
+	format := `{{json (index .Provenance "` + platform + `").SLSA}}`
+	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
+		Name: "docker", Args: []string{"buildx", "imagetools", "inspect", image, "--format", format},
+		Dir: root, Env: environment,
+	}, "inspect OCI SLSA provenance "+image+" "+platform)
+	if err != nil {
+		return err
+	}
+	if err := validateStrictJSONDocument(data, "OCI SLSA provenance "+image+" "+platform); err != nil {
+		return err
+	}
+	if err := validateOCIProvenanceJSONFields(data); err != nil {
+		return err
+	}
+	provenance := ociSLSAProvenance{}
+	if err := decodeJSONDocument(data, &provenance, "OCI SLSA provenance "+image+" "+platform); err != nil {
+		return err
+	}
+	if provenance.BuildDefinition.BuildType != ociSLSABuildTypeV1 ||
+		len(provenance.BuildDefinition.ResolvedDependencies) == 0 ||
+		provenance.RunDetails.Metadata.InvocationID == "" || provenance.RunDetails.Metadata.StartedOn == "" ||
+		provenance.RunDetails.Metadata.FinishedOn == "" {
+		return fmt.Errorf("OCI SLSA provenance %s %s violates its payload contract: %w", image, platform, errInvalidConfig)
+	}
+	return nil
+}
+
+func validateOCIAttestationJSONFields(data []byte, image string) error {
+	root, err := decodeRequiredJSONObject(data, "OCI attestation fields "+image, []string{"layers"})
+	if err != nil {
+		return err
+	}
+	layers := []map[string]json.RawMessage{}
+	if err := decodeJSONDocument(root["layers"], &layers, "OCI attestation layer fields "+image); err != nil {
+		return err
+	}
+	for index, layer := range layers {
+		if layer == nil {
+			return fmt.Errorf("OCI attestation layer %s/%d is not an object: %w", image, index, errInvalidConfig)
+		}
+		if err := rejectJSONFieldAliases(layer, []string{"annotations"}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOCIProvenanceJSONFields(data []byte) error {
+	root, err := decodeRequiredJSONObject(data, "OCI provenance fields", []string{"buildDefinition", "runDetails"})
+	if err != nil {
+		return err
+	}
+	_, err = decodeRequiredJSONObject(
+		root["buildDefinition"], "OCI provenance build definition fields", []string{"buildType", "resolvedDependencies"},
+	)
+	if err != nil {
+		return err
+	}
+	runDetails, err := decodeRequiredJSONObject(
+		root["runDetails"], "OCI provenance run details fields", []string{"builder", "metadata"},
+	)
+	if err != nil {
+		return err
+	}
+	builder, err := decodeRequiredJSONObject(runDetails["builder"], "OCI provenance builder fields", []string{"id"})
+	if err != nil {
+		return err
+	}
+	var builderID any
+	if err := decodeJSONDocument(builder["id"], &builderID, "OCI provenance builder id"); err != nil {
+		return err
+	}
+	if _, valid := builderID.(string); !valid {
+		return fmt.Errorf("OCI provenance builder id is not a string: %w", errInvalidConfig)
+	}
+	if _, err := decodeRequiredJSONObject(
+		runDetails["metadata"], "OCI provenance metadata fields",
+		[]string{"invocationId", "startedOn", "finishedOn"},
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func decodeRequiredJSONObject(data []byte, purpose string, required []string) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+	if err := decodeJSONDocument(data, &fields, purpose); err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		return nil, fmt.Errorf("%s is not an object: %w", purpose, errInvalidConfig)
+	}
+	if err := rejectJSONFieldAliases(fields, required); err != nil {
+		return nil, err
+	}
+	for _, name := range required {
+		if _, exists := fields[name]; !exists {
+			return nil, fmt.Errorf("%s lacks field %q: %w", purpose, name, errInvalidConfig)
+		}
+	}
+	return fields, nil
 }
 
 func inspectReleaseOCIManifests(
