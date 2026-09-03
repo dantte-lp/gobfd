@@ -46,16 +46,8 @@ func validateRemoteReleaseAsset(
 	index int,
 	repository string,
 ) (releaseRemoteAssetIdentity, error) {
-	fields := []string{"apiUrl", "digest", "id", "name", "size", "state"}
-	if err := rejectJSONFieldAliases(asset, fields); err != nil {
-		return releaseRemoteAssetIdentity{}, fmt.Errorf("release draft asset %d: %w", index, err)
-	}
-	for _, field := range fields {
-		if _, exists := asset[field]; !exists {
-			return releaseRemoteAssetIdentity{}, fmt.Errorf(
-				"release draft asset %d lacks %s: %w", index, field, errInvalidConfig,
-			)
-		}
+	if err := validateRemoteReleaseAssetFields(asset, index); err != nil {
+		return releaseRemoteAssetIdentity{}, err
 	}
 	nodeID, err := decodeRequiredJSONString(asset["id"], "release draft asset node ID")
 	if err != nil {
@@ -100,6 +92,19 @@ func validateRemoteReleaseAsset(
 	return releaseRemoteAssetIdentity{
 		NodeID: nodeID, DatabaseID: databaseID, Name: name, Size: *size, Digest: digest, State: state,
 	}, nil
+}
+
+func validateRemoteReleaseAssetFields(asset map[string]json.RawMessage, index int) error {
+	fields := []string{"apiUrl", "digest", "id", "name", "size", "state"}
+	if err := rejectJSONFieldAliases(asset, fields); err != nil {
+		return fmt.Errorf("release draft asset %d: %w", index, err)
+	}
+	for _, field := range fields {
+		if _, exists := asset[field]; !exists {
+			return fmt.Errorf("release draft asset %d lacks %s: %w", index, field, errInvalidConfig)
+		}
+	}
+	return nil
 }
 
 func canonicalReleaseAssetNodeID(value string) bool {
@@ -162,6 +167,41 @@ func parseReleaseAssetIdentityReceipt(
 	expectedAssets []string,
 	remote []releaseRemoteAssetIdentity,
 ) ([]releaseAssetIdentityRecord, error) {
+	rawRecords, err := parseReleaseAssetIdentityReceiptRecords(data, refName)
+	if err != nil {
+		return nil, err
+	}
+	if len(rawRecords) != len(expectedAssets) || len(remote) != len(expectedAssets) {
+		return nil, fmt.Errorf("release asset identity receipt set is incomplete: %w", errInvalidConfig)
+	}
+	records := make([]releaseAssetIdentityRecord, 0, len(rawRecords))
+	nodeIDs := make(map[string]struct{}, len(rawRecords))
+	databaseIDs := make(map[uint64]struct{}, len(rawRecords))
+	for index, raw := range rawRecords {
+		record, err := parseReleaseAssetIdentityRecord(raw, index)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := nodeIDs[record.NodeID]; exists {
+			return nil, fmt.Errorf("release asset identity receipt duplicates node ID: %w", errInvalidConfig)
+		}
+		if _, exists := databaseIDs[record.DatabaseID]; exists {
+			return nil, fmt.Errorf("release asset identity receipt duplicates REST ID: %w", errInvalidConfig)
+		}
+		nodeIDs[record.NodeID] = struct{}{}
+		databaseIDs[record.DatabaseID] = struct{}{}
+		if record.Name != expectedAssets[index] || !releaseAssetIdentityMatchesRemote(record, remote[index]) {
+			return nil, fmt.Errorf(
+				"release asset identity receipt record %d differs from exact remote asset: %w",
+				index, errInvalidConfig,
+			)
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
+func parseReleaseAssetIdentityReceiptRecords(data []byte, refName string) ([]map[string]json.RawMessage, error) {
 	if err := validateStrictJSONDocument(data, "release asset identity receipt"); err != nil {
 		return nil, err
 	}
@@ -194,79 +234,93 @@ func parseReleaseAssetIdentityReceipt(
 	if err := decodeJSONDocument(root["assets"], &rawRecords, "release asset identity receipt assets"); err != nil {
 		return nil, err
 	}
-	if len(rawRecords) != len(expectedAssets) || len(remote) != len(expectedAssets) {
-		return nil, fmt.Errorf("release asset identity receipt set is incomplete: %w", errInvalidConfig)
+	return rawRecords, nil
+}
+
+func parseReleaseAssetIdentityRecord(
+	raw map[string]json.RawMessage,
+	index int,
+) (releaseAssetIdentityRecord, error) {
+	if err := validateReleaseAssetIdentityRecordFields(raw, index); err != nil {
+		return releaseAssetIdentityRecord{}, err
 	}
-	records := make([]releaseAssetIdentityRecord, 0, len(rawRecords))
-	nodeIDs := make(map[string]struct{}, len(rawRecords))
-	databaseIDs := make(map[uint64]struct{}, len(rawRecords))
+	nodeID, err := decodeRequiredJSONString(raw["node_id"], "release asset identity receipt node ID")
+	if err != nil || !canonicalReleaseAssetNodeID(nodeID) {
+		return releaseAssetIdentityRecord{}, fmt.Errorf(
+			"release asset identity receipt node ID is not canonical: %w",
+			errors.Join(err, errInvalidConfig),
+		)
+	}
+	var databaseID *uint64
+	if decodeErr := decodeJSONDocument(
+		raw["database_id"], &databaseID, "release asset identity receipt REST ID",
+	); decodeErr != nil {
+		return releaseAssetIdentityRecord{}, decodeErr
+	}
+	if databaseID == nil || *databaseID == 0 {
+		return releaseAssetIdentityRecord{}, fmt.Errorf(
+			"release asset identity receipt REST ID is not positive: %w", errInvalidConfig,
+		)
+	}
+	name, err := decodeRequiredJSONString(raw["name"], "release asset identity receipt name")
+	if err != nil {
+		return releaseAssetIdentityRecord{}, err
+	}
+	var size *int64
+	if decodeErr := decodeJSONDocument(raw["size"], &size, "release asset identity receipt size"); decodeErr != nil {
+		return releaseAssetIdentityRecord{}, decodeErr
+	}
+	if size == nil || *size <= 0 || *size > releaseArtifactLimit {
+		return releaseAssetIdentityRecord{}, fmt.Errorf(
+			"release asset identity receipt size is outside bounds: %w", errInvalidConfig,
+		)
+	}
+	digest, err := decodeRequiredJSONString(raw["digest"], "release asset identity receipt digest")
+	if err != nil || !canonicalOCIDigest(digest) {
+		return releaseAssetIdentityRecord{}, fmt.Errorf(
+			"release asset identity receipt digest is not canonical: %w",
+			errors.Join(err, errInvalidConfig),
+		)
+	}
+	state, err := decodeReceiptAssetState(raw["state"])
+	if err != nil {
+		return releaseAssetIdentityRecord{}, err
+	}
+	return releaseAssetIdentityRecord{
+		NodeID: nodeID, DatabaseID: *databaseID, Name: name, Size: *size, Digest: digest, State: state,
+	}, nil
+}
+
+func validateReleaseAssetIdentityRecordFields(raw map[string]json.RawMessage, index int) error {
 	fields := []string{"node_id", "database_id", "name", "size", "digest", "state"}
-	for index, raw := range rawRecords {
-		if raw == nil {
-			return nil, fmt.Errorf("release asset identity receipt record %d is not an object: %w", index, errInvalidConfig)
-		}
-		if err := rejectJSONFieldAliases(raw, fields); err != nil {
-			return nil, fmt.Errorf("release asset identity receipt record %d: %w", index, err)
-		}
-		if len(raw) != len(fields) {
-			return nil, fmt.Errorf("release asset identity receipt record %d has unexpected fields: %w", index, errInvalidConfig)
-		}
-		for _, field := range fields {
-			if _, exists := raw[field]; !exists {
-				return nil, fmt.Errorf(
-					"release asset identity receipt record %d lacks %s: %w", index, field, errInvalidConfig,
-				)
-			}
-		}
-		nodeID, err := decodeRequiredJSONString(raw["node_id"], "release asset identity receipt node ID")
-		if err != nil || !canonicalReleaseAssetNodeID(nodeID) {
-			return nil, fmt.Errorf("release asset identity receipt node ID is not canonical: %w", errors.Join(err, errInvalidConfig))
-		}
-		var databaseID *uint64
-		if decodeErr := decodeJSONDocument(
-			raw["database_id"], &databaseID, "release asset identity receipt REST ID",
-		); decodeErr != nil {
-			return nil, decodeErr
-		}
-		if databaseID == nil || *databaseID == 0 {
-			return nil, fmt.Errorf("release asset identity receipt REST ID is not positive: %w", errInvalidConfig)
-		}
-		name, err := decodeRequiredJSONString(raw["name"], "release asset identity receipt name")
-		if err != nil {
-			return nil, err
-		}
-		var size *int64
-		if decodeErr := decodeJSONDocument(raw["size"], &size, "release asset identity receipt size"); decodeErr != nil {
-			return nil, decodeErr
-		}
-		if size == nil || *size <= 0 || *size > releaseArtifactLimit {
-			return nil, fmt.Errorf("release asset identity receipt size is outside bounds: %w", errInvalidConfig)
-		}
-		digest, err := decodeRequiredJSONString(raw["digest"], "release asset identity receipt digest")
-		if err != nil || !canonicalOCIDigest(digest) {
-			return nil, fmt.Errorf("release asset identity receipt digest is not canonical: %w", errors.Join(err, errInvalidConfig))
-		}
-		state, err := decodeRequiredJSONString(raw["state"], "release asset identity receipt state")
-		if err != nil || state != "uploaded" {
-			return nil, fmt.Errorf("release asset identity receipt state is not uploaded: %w", errors.Join(err, errInvalidConfig))
-		}
-		if _, exists := nodeIDs[nodeID]; exists {
-			return nil, fmt.Errorf("release asset identity receipt duplicates node ID: %w", errInvalidConfig)
-		}
-		if _, exists := databaseIDs[*databaseID]; exists {
-			return nil, fmt.Errorf("release asset identity receipt duplicates REST ID: %w", errInvalidConfig)
-		}
-		nodeIDs[nodeID] = struct{}{}
-		databaseIDs[*databaseID] = struct{}{}
-		record := releaseAssetIdentityRecord{
-			NodeID: nodeID, DatabaseID: *databaseID, Name: name, Size: *size, Digest: digest, State: state,
-		}
-		if name != expectedAssets[index] || !releaseAssetIdentityMatchesRemote(record, remote[index]) {
-			return nil, fmt.Errorf("release asset identity receipt record %d differs from exact remote asset: %w", index, errInvalidConfig)
-		}
-		records = append(records, record)
+	if raw == nil {
+		return fmt.Errorf("release asset identity receipt record %d is not an object: %w", index, errInvalidConfig)
 	}
-	return records, nil
+	if err := rejectJSONFieldAliases(raw, fields); err != nil {
+		return fmt.Errorf("release asset identity receipt record %d: %w", index, err)
+	}
+	if len(raw) != len(fields) {
+		return fmt.Errorf("release asset identity receipt record %d has unexpected fields: %w", index, errInvalidConfig)
+	}
+	for _, field := range fields {
+		if _, exists := raw[field]; !exists {
+			return fmt.Errorf(
+				"release asset identity receipt record %d lacks %s: %w", index, field, errInvalidConfig,
+			)
+		}
+	}
+	return nil
+}
+
+func decodeReceiptAssetState(data []byte) (string, error) {
+	state, err := decodeRequiredJSONString(data, "release asset identity receipt state")
+	if err != nil || state != "uploaded" {
+		return "", fmt.Errorf(
+			"release asset identity receipt state is not uploaded: %w",
+			errors.Join(err, errInvalidConfig),
+		)
+	}
+	return state, nil
 }
 
 func releaseAssetIdentityMatchesRemote(record releaseAssetIdentityRecord, remote releaseRemoteAssetIdentity) bool {
@@ -281,24 +335,9 @@ func publishReleaseAssetIdentityReceipt(
 	if root == nil || len(data) > releaseAssetIdentityReceiptLimit {
 		return nil, fmt.Errorf("release asset identity receipt exceeds its bounded contract: %w", errInvalidConfig)
 	}
-	random := [16]byte{}
-	if _, err := rand.Read(random[:]); err != nil {
-		return nil, fmt.Errorf("generate temporary release asset identity receipt name: %w", err)
-	}
-	temporaryName := "." + releaseAssetIdentityReceiptName + "-" + hex.EncodeToString(random[:])
-	temporary, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	temporary, temporaryName, ownedTemporaryInfo, err := createReleaseAssetIdentityTemporary(root)
 	if err != nil {
-		return nil, fmt.Errorf("create temporary release asset identity receipt: %w", err)
-	}
-	ownedTemporaryInfo, err := temporary.Stat()
-	if err != nil || !ownedTemporaryInfo.Mode().IsRegular() {
-		return nil, errors.Join(
-			fmt.Errorf(
-				"inspect owned temporary release asset identity receipt: %w",
-				errors.Join(err, errInvalidConfig),
-			),
-			wrapOptional("close temporary release asset identity receipt", temporary.Close()),
-		)
+		return nil, err
 	}
 	defer func() {
 		returnErr = errors.Join(
@@ -308,8 +347,46 @@ func publishReleaseAssetIdentityReceipt(
 			),
 		)
 	}()
+	if err := writeReleaseAssetIdentityTemporary(temporary, data); err != nil {
+		return nil, err
+	}
+	if err := validateReleaseAssetIdentityTemporary(
+		root, temporaryName, ownedTemporaryInfo, int64(len(data)),
+	); err != nil {
+		return nil, err
+	}
+	if err := root.Link(temporaryName, releaseAssetIdentityReceiptName); err != nil {
+		return nil, fmt.Errorf("publish release asset identity receipt without replacement: %w", err)
+	}
+	return inspectPublishedReleaseAssetIdentity(root, temporaryName, ownedTemporaryInfo)
+}
+
+func createReleaseAssetIdentityTemporary(root *os.Root) (*os.File, string, os.FileInfo, error) {
+	random := [16]byte{}
+	if _, err := rand.Read(random[:]); err != nil {
+		return nil, "", nil, fmt.Errorf("generate temporary release asset identity receipt name: %w", err)
+	}
+	temporaryName := "." + releaseAssetIdentityReceiptName + "-" + hex.EncodeToString(random[:])
+	temporary, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("create temporary release asset identity receipt: %w", err)
+	}
+	ownedTemporaryInfo, err := temporary.Stat()
+	if err != nil || !ownedTemporaryInfo.Mode().IsRegular() {
+		return nil, "", nil, errors.Join(
+			fmt.Errorf(
+				"inspect owned temporary release asset identity receipt: %w",
+				errors.Join(err, errInvalidConfig),
+			),
+			wrapOptional("close temporary release asset identity receipt", temporary.Close()),
+		)
+	}
+	return temporary, temporaryName, ownedTemporaryInfo, nil
+}
+
+func writeReleaseAssetIdentityTemporary(temporary *os.File, data []byte) error {
 	if chmodErr := temporary.Chmod(benchmarkArtifactMode); chmodErr != nil {
-		return nil, errors.Join(
+		return errors.Join(
 			fmt.Errorf("set temporary release asset identity receipt mode: %w", chmodErr),
 			wrapOptional("close temporary release asset identity receipt", temporary.Close()),
 		)
@@ -323,23 +400,37 @@ func publishReleaseAssetIdentityReceipt(
 	}
 	closeErr := temporary.Close()
 	if writeErr != nil || closeErr != nil {
-		return nil, errors.Join(
+		return errors.Join(
 			wrapOptional("write temporary release asset identity receipt", writeErr),
 			wrapOptional("close temporary release asset identity receipt", closeErr),
 		)
 	}
-	temporaryInfo, err := root.Lstat(temporaryName)
+	return nil
+}
+
+func validateReleaseAssetIdentityTemporary(
+	root *os.Root,
+	name string,
+	expected os.FileInfo,
+	size int64,
+) error {
+	temporaryInfo, err := root.Lstat(name)
 	if err != nil || !temporaryInfo.Mode().IsRegular() ||
-		!os.SameFile(temporaryInfo, ownedTemporaryInfo) ||
-		temporaryInfo.Mode().Perm() != benchmarkArtifactMode || temporaryInfo.Size() != int64(len(data)) {
-		return nil, fmt.Errorf(
+		!os.SameFile(temporaryInfo, expected) ||
+		temporaryInfo.Mode().Perm() != benchmarkArtifactMode || temporaryInfo.Size() != size {
+		return fmt.Errorf(
 			"temporary release asset identity receipt violates mode or size contract: %w",
 			errors.Join(err, errInvalidConfig),
 		)
 	}
-	if err := root.Link(temporaryName, releaseAssetIdentityReceiptName); err != nil {
-		return nil, fmt.Errorf("publish release asset identity receipt without replacement: %w", err)
-	}
+	return nil
+}
+
+func inspectPublishedReleaseAssetIdentity(
+	root *os.Root,
+	temporaryName string,
+	expected os.FileInfo,
+) (os.FileInfo, error) {
 	currentTemporary, temporaryErr := root.Lstat(temporaryName)
 	currentPublished, publishedErr := root.Lstat(releaseAssetIdentityReceiptName)
 	if publishedErr != nil {
@@ -348,10 +439,9 @@ func publishReleaseAssetIdentityReceipt(
 			errors.Join(publishedErr, errInvalidConfig),
 		)
 	}
-	if os.SameFile(currentPublished, ownedTemporaryInfo) {
-		published = currentPublished
+	if os.SameFile(currentPublished, expected) {
 		if temporaryErr != nil {
-			return published, fmt.Errorf(
+			return currentPublished, fmt.Errorf(
 				"inspect temporary release asset identity receipt after publish: %w",
 				temporaryErr,
 			)
@@ -362,11 +452,11 @@ func publishReleaseAssetIdentityReceipt(
 			errInvalidConfig,
 		)
 	}
-	if !os.SameFile(currentTemporary, ownedTemporaryInfo) {
-		return published, fmt.Errorf(
+	if !os.SameFile(currentTemporary, expected) {
+		return currentPublished, fmt.Errorf(
 			"temporary release asset identity receipt ownership changed after publish: %w",
 			errInvalidConfig,
 		)
 	}
-	return published, nil
+	return currentPublished, nil
 }
