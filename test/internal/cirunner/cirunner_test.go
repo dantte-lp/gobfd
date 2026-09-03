@@ -295,6 +295,9 @@ func TestSBOMRejectsMissingEmptyAndNonregularArtifacts(t *testing.T) {
 		}},
 		{name: "nonregular", write: func(t *testing.T, path string) {
 			t.Helper()
+			if err := os.Remove(path); err != nil {
+				t.Fatalf("remove prepared artifact: %v", err)
+			}
 			if err := os.Mkdir(path, 0o755); err != nil {
 				t.Fatalf("create directory artifact: %v", err)
 			}
@@ -321,6 +324,30 @@ func TestSBOMRejectsMissingEmptyAndNonregularArtifacts(t *testing.T) {
 				t.Errorf("runner calls = %d, want stop after invalid first artifact", got)
 			}
 		})
+	}
+}
+
+func TestSBOMRejectsStaleRegularArtifactWhenScannerDoesNotRewrite(t *testing.T) {
+	t.Parallel()
+
+	reportDir := filepath.Join(t.TempDir(), "reports", "security")
+	if err := os.MkdirAll(reportDir, 0o755); err != nil {
+		t.Fatalf("create report directory: %v", err)
+	}
+	stale := filepath.Join(reportDir, "runtime-sbom.cdx.json")
+	if err := os.WriteFile(stale, []byte("stale\n"), 0o600); err != nil {
+		t.Fatalf("seed stale runtime SBOM: %v", err)
+	}
+	runner := &recordingSpecRunner{}
+	err := SBOM(context.Background(), SBOMOptions{ReportDir: reportDir, Runner: runner})
+	if err == nil {
+		t.Fatal("SBOM() error = nil, want stale artifact failure")
+	}
+	if !strings.Contains(err.Error(), "runtime SBOM artifact") {
+		t.Errorf("SBOM() error = %q, want runtime artifact context", err)
+	}
+	if got := len(runner.calls); got != 1 {
+		t.Errorf("runner calls = %d, want stop after no-op runtime scan", got)
 	}
 }
 

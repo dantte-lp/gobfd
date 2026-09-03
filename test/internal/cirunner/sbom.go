@@ -43,7 +43,7 @@ func SBOM(ctx context.Context, options SBOMOptions) error {
 	}
 	for _, report := range reports {
 		output := filepath.Join(reportDir, report.output)
-		if err := rejectNonregularArtifact(output, report.name); err != nil {
+		if err := prepareArtifact(output, report.name); err != nil {
 			return err
 		}
 		spec := CommandSpec{
@@ -60,6 +60,20 @@ func SBOM(ctx context.Context, options SBOMOptions) error {
 		if err := validateArtifact(output, report.name); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func prepareArtifact(path, name string) error {
+	if err := rejectNonregularArtifact(path, name); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, reportFileMode)
+	if err != nil {
+		return fmt.Errorf("prepare %s SBOM artifact: %w", name, err)
+	}
+	if err := errors.Join(file.Chmod(reportFileMode), file.Close()); err != nil {
+		return fmt.Errorf("set fresh %s SBOM artifact mode: %w", name, err)
 	}
 	return nil
 }

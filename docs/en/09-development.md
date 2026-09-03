@@ -360,9 +360,11 @@ directory command.
 
 `cictl sbom --report-dir reports/security` runs the two pinned Syft module-file
 scans directly, keeps the runtime and tools CycloneDX reports separate, and
-requires each artifact to be a non-empty regular file. The helper creates the
-report directory with mode `0755` and normalizes completed artifacts to mode
-`0644`; scanner or artifact validation failures fail the step. The existing
+requires each artifact to be a non-empty regular file. Before each scan, the
+helper truncates only its expected regular output so stale content cannot pass
+validation. It creates the report directory with mode `0755` and normalizes
+completed artifacts to mode `0644`; scanner or artifact validation failures
+fail the step. The existing
 `always()` execution and `dependency-security-reports` artifact contract are
 unchanged.
 
