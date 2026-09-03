@@ -32,6 +32,7 @@ type dependencies struct {
 	now        func() time.Time
 	runner     cirunner.CommandRunner
 	specRunner cirunner.SpecRunner
+	stdout     io.Writer
 }
 
 func run(ctx context.Context, arguments []string, deps dependencies) error {
@@ -53,8 +54,15 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	if deps.specRunner == nil {
 		deps.specRunner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
 	}
+	if deps.stdout == nil {
+		deps.stdout = os.Stdout
+	}
 	if len(arguments) == 0 {
-		return fmt.Errorf("usage: cictl {sonar-mode|build|sbom|proto-verify}: %w", flag.ErrHelp)
+		return fmt.Errorf(
+			"usage: cictl {sonar-mode|build|sbom|proto-verify|"+
+				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report}: %w",
+			flag.ErrHelp,
+		)
 	}
 
 	switch arguments[0] {
@@ -66,9 +74,114 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runSBOM(ctx, arguments[1:], deps)
 	case "proto-verify":
 		return runProtoVerify(ctx, arguments[1:], deps)
+	case "benchmark-run":
+		return runBenchmark(ctx, arguments[1:], deps)
+	case "benchmark-base":
+		return runBenchmarkBase(ctx, arguments[1:], deps)
+	case "benchmark-normalize":
+		return runBenchmarkNormalize(arguments[1:], deps)
+	case "benchmark-report":
+		return runBenchmarkReport(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runBenchmark(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	output := flags.String("output", "new.txt", "raw benchmark output")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-run flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-run arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkRun(ctx, cirunner.BenchmarkRunOptions{
+		Root: root, Output: *output, Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("run head benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkBase(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-base", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	ref := flags.String("ref", "", "base Git ref")
+	output := flags.String("output", "old.txt", "raw base benchmark output")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-base flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-base arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkBase(ctx, cirunner.BenchmarkBaseOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), Ref: *ref, Output: *output,
+		Regex: deps.getenv("BENCH_REGEX"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("run base benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkNormalize(arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-normalize", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	oldName := flags.String("old", "old.txt", "old benchmark input")
+	newName := flags.String("new", "new.txt", "new benchmark input")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-normalize flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-normalize arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.NormalizeBenchmarks(root, []string{*oldName, *newName}); err != nil {
+		return fmt.Errorf("normalize benchmark inputs: %w", err)
+	}
+	return nil
+}
+
+func runBenchmarkReport(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("benchmark-report", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	oldName := flags.String("old", "old.txt", "old benchmark input")
+	newName := flags.String("new", "new.txt", "new benchmark input")
+	markdown := flags.String("markdown", "bench-report.md", "Markdown report")
+	htmlReport := flags.String("html", "bench-comparison.html", "HTML report")
+	jsonReport := flags.String("json", "bench-comparison.json", "structured JSON report")
+	csvReport := flags.String("csv", "bench-regression/bench-csv.txt", "benchstat CSV output")
+	notes := flags.String("notes", "bench-regression/benchstat-notes.txt", "benchstat notes")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse benchmark-report flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected benchmark-report arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BenchmarkReport(ctx, cirunner.BenchmarkReportOptions{
+		Root: root, Old: *oldName, New: *newName, Markdown: *markdown, HTML: *htmlReport,
+		JSON: *jsonReport, CSV: *csvReport, Notes: *notes,
+		StepSummary: deps.getenv("GITHUB_STEP_SUMMARY"), Warning: deps.stdout, Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("generate benchmark comparison reports: %w", err)
+	}
+	return nil
 }
 
 func runSBOM(ctx context.Context, arguments []string, deps dependencies) error {

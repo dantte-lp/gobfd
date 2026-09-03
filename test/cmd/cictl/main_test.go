@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,25 @@ import (
 
 	"github.com/dantte-lp/gobfd/test/internal/cirunner"
 )
+
+func TestRunDispatchesBenchmarkModes(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("working directory unavailable")
+	for _, mode := range []string{"benchmark-run", "benchmark-base", "benchmark-normalize", "benchmark-report"} {
+		mode := mode
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			err := run(context.Background(), []string{mode}, dependencies{
+				getwd: func() (string, error) { return "", wantErr },
+			})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("run(%q) error = %v, want working-directory error", mode, err)
+			}
+		})
+	}
+}
 
 func TestRunSonarModeReadsGitHubEnvironment(t *testing.T) {
 	t.Parallel()

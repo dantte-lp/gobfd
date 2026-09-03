@@ -374,6 +374,25 @@ temporary bin directory, and prepends that directory to `PATH` only for
 `buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb`; a generator
 build, generation, or generated-code drift failure stops the step.
 
+The benchmark job is also Go-owned. `cictl benchmark-run` executes the fixed
+package, timeout, sample-count, and memory-report arguments from the repository
+root and writes a fresh `new.txt`. `cictl benchmark-base` validates the
+`origin/<base>` ref, creates its detached worktree only below `RUNNER_TEMP`, and
+uses command-scoped `git -c safe.directory=<root>` configuration. A detached,
+bounded cleanup context removes that worktree even when the benchmark command
+fails or its parent context is cancelled; repository-global Git configuration
+is not changed.
+
+`cictl benchmark-normalize` rewrites only the three exact historical aliases
+and requires `RecvDecodeLookupEnqueue`, `RecvDecodeFSM`, and `TxMarshalJitter`
+in both raw inputs. `cictl benchmark-report` invokes the pinned `benchstat`
+tool for text and CSV output, parses CSV with Go's `encoding/csv`, preserves the
+existing warning-only `>10%` critical/report-only policy, and appends report-only
+rows and tool notes to `GITHUB_STEP_SUMMARY`. It atomically publishes mode
+`0644` Markdown, escaped HTML, raw CSV/notes, and the versioned
+`bench-comparison.json`; stale or non-regular artifacts cannot satisfy the
+gate.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

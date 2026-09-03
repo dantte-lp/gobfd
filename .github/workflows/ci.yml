@@ -225,115 +225,16 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Run benchmarks (PR)
-        run: >
-          go test -buildvcs=false -bench="$BENCH_REGEX" -benchmem -count=6 -run='^$'
-          -timeout=120s ./internal/bfd/ ./internal/netio/ > new.txt
-
-      - name: Create base branch worktree
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git worktree add --detach ../gobfd-base origin/${{ github.event.pull_request.base.ref }}
+        run: go run ./test/cmd/cictl benchmark-run --output new.txt
 
       - name: Run benchmarks (base)
-        run: |
-          (
-            cd ../gobfd-base
-            go test -buildvcs=false -bench="$BENCH_REGEX" -benchmem -count=6 -run='^$' \
-              -timeout=120s ./internal/bfd/ ./internal/netio/
-          ) > old.txt
+        run: go run ./test/cmd/cictl benchmark-base --ref origin/${{ github.event.pull_request.base.ref }} --output old.txt
 
       - name: Normalize renamed benchmarks and validate inputs
-        run: |
-          for benchmark_file in old.txt new.txt; do
-            sed -E -i \
-              -e 's/^BenchmarkFullRecvPathCodec([/-])/BenchmarkRecvDecodeFSM\1/' \
-              -e 's/^BenchmarkFullRecvPath([/-])/BenchmarkRecvDecodeLookupEnqueue\1/' \
-              -e 's/^BenchmarkFullTxPath([/-])/BenchmarkTxMarshalJitter\1/' \
-              "$benchmark_file"
-            for benchmark_name in \
-              RecvDecodeLookupEnqueue RecvDecodeFSM TxMarshalJitter
-            do
-              if ! grep -Eq "^Benchmark${benchmark_name}(-[0-9]+)?[[:space:]]" "$benchmark_file"; then
-                echo "mandatory benchmark ${benchmark_name} is absent from ${benchmark_file}" >&2
-                exit 1
-              fi
-            done
-          done
+        run: go run ./test/cmd/cictl benchmark-normalize --old old.txt --new new.txt
 
       - name: Compare benchmarks
-        run: |
-          echo "## Benchmark comparison" > bench-report.md
-          echo '```' >> bench-report.md
-          go tool -modfile=tools/go.mod benchstat old.txt new.txt >> bench-report.md 2>&1 || true
-          echo '```' >> bench-report.md
-          cat bench-report.md
-
-      - name: Generate HTML comparison
-        run: |
-          {
-            echo '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Benchmark Comparison</title>'
-            echo '<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}'
-            echo 'pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;line-height:1.6;border:1px solid #0f3460}</style>'
-            echo '</head><body><h1 style="color:#00d4ff">Benchmark Comparison</h1><pre>'
-            go tool -modfile=tools/go.mod benchstat old.txt new.txt 2>/dev/null || echo "benchstat comparison failed"
-            echo '</pre></body></html>'
-          } > bench-comparison.html
-
-      - name: Check for regressions (>10%)
-        run: |
-          mkdir -p bench-regression
-          go tool -modfile=tools/go.mod benchstat -format csv old.txt new.txt \
-            > bench-regression/bench-csv.txt \
-            2> bench-regression/benchstat-notes.txt
-          awk -F, '
-            BEGIN {
-              critical = "^(ManagerDemux1000Sessions|ManagerLookup1000Sessions|RecvDecodeLookupEnqueue|RecvDecodeFSM|"
-              critical = critical "TxMarshalJitter|SessionRecvPacket|ControlPacketMarshal|ControlPacketUnmarshal|"
-              critical = critical "ControlPacketRoundTrip|BuildInnerPacket|StripInnerPacket|VXLANHeaderMarshal|"
-              critical = critical "VXLANHeaderUnmarshal|GeneveHeaderMarshal|GeneveHeaderUnmarshal)-"
-            }
-            $2 == "sec/op" { metric = "sec/op"; next }
-            $2 == "B/op" || $2 == "allocs/op" { metric = $2; next }
-            metric == "sec/op" && $6 ~ /^\+[0-9.]+%/ {
-              pct = $6
-              gsub(/[+%]/, "", pct)
-              if (pct + 0 < 10) {
-                next
-              }
-              if ($1 ~ critical && (($2 + 0) >= 0.0000001 || ($4 + 0) >= 0.0000001)) {
-                print $1 "," $6 "," $7 >> "bench-regression/critical-regressions.csv"
-              } else if (($2 + 0) >= 0.000000001 || ($4 + 0) >= 0.000000001) {
-                print $1 "," $6 "," $7 >> "bench-regression/reported-regressions.csv"
-              } else {
-                next
-              }
-            }
-          ' bench-regression/bench-csv.txt
-
-          if [ -s bench-regression/reported-regressions.csv ]; then
-            {
-              echo "### Report-only benchmark regressions"
-              echo ""
-              echo "| Benchmark | Delta | Significance |"
-              echo "| --- | ---: | --- |"
-              awk -F, '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }' bench-regression/reported-regressions.csv
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -s bench-regression/benchstat-notes.txt ]; then
-            {
-              echo "### benchstat notes"
-              echo ""
-              echo '```'
-              cat bench-regression/benchstat-notes.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -s bench-regression/critical-regressions.csv ]; then
-            echo "::warning::Critical benchmark regression detected (>10%). Review bench-report.md."
-            cat bench-regression/critical-regressions.csv
-          fi
+        run: go run ./test/cmd/cictl benchmark-report
 
       - name: Upload benchmark artifacts
         if: always()
@@ -345,6 +246,9 @@ jobs:
             new.txt
             bench-report.md
             bench-comparison.html
+            bench-comparison.json
+            bench-regression/bench-csv.txt
+            bench-regression/benchstat-notes.txt
           retention-days: 30
 
       - name: Post benchmark comment on PR

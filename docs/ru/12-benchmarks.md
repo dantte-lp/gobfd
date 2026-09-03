@@ -259,6 +259,17 @@ FSMTransitionUpRecvUp-8      20.1n ± 1%   20.3n ± 2%       ~ (p=0.485 n=6)
 | E2E timing data | Diagnostic only; не performance regression gate. |
 | Vendor profile timing | Diagnostic only; не comparable между licensed или operator-provided images. |
 | Regression scope | Protocol hot paths в `internal/bfd` и `internal/netio`. |
+| Regression action | Значимое увеличение `sec/op` минимум на 10% классифицируется как critical или report-only по существующим порогам длительности; CI выдаёт warning и сохраняет решение неблокирующим. |
+| Evidence | Артефакт сохраняет нормализованные `old.txt` и `new.txt`, Markdown, экранированный HTML, CSV/notes benchstat и JSON схемы `gobfd.benchmark-comparison.v1`. |
+
+CI-хелпер запускает benchmark-команды head и base напрямую, без shell-программы
+в workflow. Base checkout создаётся как detached временный Git worktree внутри
+`RUNNER_TEMP` и удаляется как после успешного запуска, так и после ошибки
+бенчмарка. JSON-артефакт содержит для каждой строки сравнения benchstat единицу
+измерения, имя бенчмарка, значения base и head, форматированную дельту,
+статистическую значимость и классификацию регрессии `none`, `reported` или
+`critical`. Это стабильный машиночитаемый вход для визуализации;
+`bench-report.md` остаётся источником PR-комментария.
 
 #### HTML-отчёт
 

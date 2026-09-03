@@ -259,6 +259,17 @@ A regression shows as a positive percentage (e.g., `+12.3%`). Investigate any re
 | E2E timing data | Diagnostic only; not a performance regression gate. |
 | Vendor profile timing | Diagnostic only; not comparable across licensed or operator-provided images. |
 | Regression scope | Protocol hot paths in `internal/bfd` and `internal/netio`. |
+| Regression action | A significant `sec/op` increase of at least 10% is classified as critical or report-only by the existing duration thresholds; CI emits a warning and keeps the decision non-blocking. |
+| Evidence | The artifact keeps normalized `old.txt` and `new.txt`, Markdown, escaped HTML, benchstat CSV/notes, and schema `gobfd.benchmark-comparison.v1` JSON. |
+
+The CI helper runs the head and base benchmark commands directly, without a
+workflow shell program. The base checkout is a detached temporary Git worktree
+below `RUNNER_TEMP` and is removed on both success and benchmark failure. The
+JSON artifact contains one row per benchstat comparison with the unit,
+benchmark name, base and head values, formatted delta, significance, and
+`none`, `reported`, or `critical` regression classification. This is the
+stable machine-readable input for dashboards; `bench-report.md` remains the PR
+comment source.
 
 #### HTML Report
 

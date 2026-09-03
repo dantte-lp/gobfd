@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec" //nolint:depguard // CI invokes only fixed commands assembled by this package.
 )
 
@@ -15,6 +16,9 @@ type CommandSpec struct {
 	Args []string
 	Dir  string
 	Env  []string
+	// Stdout and Stderr override the runner streams for artifact-producing commands.
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // SpecRunner executes a typed command without a shell.
@@ -34,7 +38,13 @@ func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	command.Dir = spec.Dir
 	command.Env = spec.Env
 	command.Stdout = r.Stdout
+	if spec.Stdout != nil {
+		command.Stdout = spec.Stdout
+	}
 	command.Stderr = r.Stderr
+	if spec.Stderr != nil {
+		command.Stderr = spec.Stderr
+	}
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("run %s command: %w", spec.Name, err)
 	}

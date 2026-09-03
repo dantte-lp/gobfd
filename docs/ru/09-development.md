@@ -381,6 +381,26 @@ bin-каталоге и добавляет его в начало `PATH` тол�
 хелпер запускает `git diff --exit-code -- pkg/bfdpb`; ошибка сборки генератора,
 генерации или drift сгенерированного кода завершает шаг.
 
+Benchmark job также реализован на Go. `cictl benchmark-run` запускает из корня
+репозитория фиксированные аргументы пакетов, timeout, количества семплов и
+отчёта по памяти и записывает свежий `new.txt`. `cictl benchmark-base`
+проверяет ref `origin/<base>`, создаёт detached worktree только внутри
+`RUNNER_TEMP` и использует ограниченную одной командой настройку
+`git -c safe.directory=<root>`. Отделённый ограниченный контекст очистки
+удаляет worktree даже при ошибке benchmark-команды или отмене родительского
+контекста; глобальная Git-конфигурация репозитория не изменяется.
+
+`cictl benchmark-normalize` переписывает только три точных исторических alias
+и требует наличия `RecvDecodeLookupEnqueue`, `RecvDecodeFSM` и
+`TxMarshalJitter` в обоих исходных результатах. `cictl benchmark-report`
+запускает закреплённый `benchstat` для text и CSV, разбирает CSV стандартным
+пакетом Go `encoding/csv`, сохраняет существующую warning-only политику
+critical/report-only для регрессий `>10%` и добавляет report-only строки и
+заметки инструмента в `GITHUB_STEP_SUMMARY`. Markdown, экранированный HTML,
+исходные CSV/notes и версионированный `bench-comparison.json` атомарно
+публикуются с режимом `0644`; устаревшие или не обычные файлы не могут пройти
+gate.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в
