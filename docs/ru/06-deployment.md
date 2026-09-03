@@ -191,6 +191,16 @@ podman compose -f deployments/compose/compose.dev.yml up -d --build
 podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./internal/bfd -race -count=1
 ```
 
+Четыре testcontainers gate с отчётами используют Go-owned binary `e2ectl`,
+который Make собирает внутри development-контейнера перед запуском:
+
+| Цель | Каталог отчёта |
+|---|---|
+| `make e2e-core-testcontainers` | `reports/e2e/core/run.*` |
+| `make int-bgp-failover-testcontainers` | `reports/e2e/bgp-fast-failover/run.*` |
+| `make int-haproxy-testcontainers` | `reports/e2e/haproxy-health/run.*` |
+| `make int-observability-testcontainers` | `reports/e2e/observability/run.*` |
+
 #### Production-стек
 
 ```bash

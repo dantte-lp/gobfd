@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec" //nolint:depguard // Contract regression executes fixed Bash pipeline semantics without invoking Podman.
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,8 +16,9 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	makefile := readContractFile(t, filepath.Join(root, "Makefile"))
 	for _, required := range []string{
 		"int-observability:\n\tgo run ./test/cmd/integrationctl observability",
-		"int-observability-testcontainers:",
-		"-tags e2e_observability_testcontainers ./test/e2e/observability",
+		"int-observability-testcontainers: e2ectl-build",
+		"--build-tags e2e_observability_testcontainers",
+		"./test/e2e/observability/...",
 	} {
 		if !strings.Contains(makefile, required) {
 			t.Fatalf("Makefile lacks observability compatibility contract %q", required)
@@ -71,39 +71,6 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	if !strings.Contains(derived, "http://172.25.0.30:9090") ||
 		strings.Contains(derived, "http://prometheus-observability:9090") {
 		t.Fatalf("minimally derived Grafana datasource has unexpected URL: %q", derived)
-	}
-}
-
-func TestObservabilityMakeRecipePreservesPipelineFailures(t *testing.T) {
-	makefile := readContractFile(t, filepath.Join(repositoryRoot(t), "Makefile"))
-	for _, required := range []string{
-		`report_dir="$$(mktemp -d "$${report_parent}/run.XXXXXXXX")"`,
-		`pipeline_status=("$${PIPESTATUS[@]}")`,
-		`test "$${#pipeline_status[@]}" -eq 2`,
-		`test "$${pipeline_status[0]}" -eq 0`,
-		`test "$${pipeline_status[1]}" -eq 0`,
-		`E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_OWNER`,
-	} {
-		if !strings.Contains(makefile, required) {
-			t.Fatalf("observability Make recipe lacks failure-safe contract %q", required)
-		}
-	}
-}
-
-func TestPipelineStatusRejectsTeeFailure(t *testing.T) {
-	startCommand := exec.CommandContext(t.Context(), filepath.Join(t.TempDir(), "missing-bash"))
-	if startErr := startCommand.Run(); commandExitedAsExpected(startErr, nil) {
-		t.Fatal("pipeline contract misclassified a command start error as the expected process exit")
-	}
-
-	command := exec.CommandContext(t.Context(), "bash", "-o", "pipefail", "-c",
-		`printf x | tee /dev/full >/dev/null; `+
-			`pipeline_status=("${PIPESTATUS[@]}"); `+
-			`test "${#pipeline_status[@]}" -eq 2 && `+
-			`test "${pipeline_status[0]}" -eq 0 && test "${pipeline_status[1]}" -eq 0`)
-	output, err := command.CombinedOutput()
-	if !commandExitedAsExpected(err, output) {
-		t.Fatalf("tee failure result = %v, output = %q; want process exit 1", err, output)
 	}
 }
 

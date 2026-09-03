@@ -35,6 +35,7 @@ COMPOSE_PROJECT_NAME ?= $(PROJECT_SLUG)
 COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) $(COMPOSE) -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
+E2ECTL_BIN := /tmp/gobfd-e2ectl
 GOLANGCI_LINT ?= go tool -modfile=tools/go.mod golangci-lint
 SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
@@ -45,7 +46,7 @@ SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-versi
         test-report report-all \
         coverage profile \
         up down restart logs clean tidy \
-        dev-ps dev-project dev-ensure \
+        dev-ps dev-project dev-ensure e2ectl-build \
         e2e-help e2e-core e2e-core-testcontainers \
         e2e-routing e2e-routing-test e2e-rfc e2e-rfc-test e2e-overlay e2e-overlay-test e2e-linux e2e-linux-test e2e-vendor e2e-vendor-test \
 	interop-project-validate interop interop-test interop-testcontainers interop-up interop-down interop-logs \
@@ -103,6 +104,9 @@ dev-ensure:
 	fi; \
 	$(DC) up -d --no-build dev
 
+e2ectl-build: dev-ensure
+	$(EXEC) go build -trimpath -o $(E2ECTL_BIN) ./test/cmd/e2ectl
+
 # === S10 Extended E2E Targets ===
 
 e2e-help:
@@ -117,10 +121,10 @@ e2e-help:
 
 e2e-core: e2e-core-testcontainers
 
-e2e-core-testcontainers: dev-ensure
+e2e-core-testcontainers: e2ectl-build
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_core_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...
-	go run ./test/cmd/e2ectl core
+	$(EXEC) $(E2ECTL_BIN) core
 e2e-routing: interop-project-validate
 	$(DC) up -d --build --force-recreate dev
 	go run ./test/cmd/e2ectl routing
@@ -358,10 +362,10 @@ INT_EXABGP_DC := $(COMPOSE) -f deployments/integrations/exabgp-anycast/compose.y
 
 int-bgp-failover: int-bgp-failover-testcontainers
 
-int-bgp-failover-testcontainers: dev-ensure
+int-bgp-failover-testcontainers: e2ectl-build
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_bgp_failover_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/bgp-failover/...
-	go run ./test/cmd/e2ectl bgp-fast-failover
+	$(EXEC) $(E2ECTL_BIN) bgp-fast-failover
 
 int-bgp-failover-up:
 	$(INT_BGP_DC) up --build -d
@@ -375,10 +379,10 @@ int-bgp-failover-logs:
 int-haproxy:
 	go run ./test/cmd/integrationctl haproxy
 
-int-haproxy-testcontainers: dev-ensure
+int-haproxy-testcontainers: e2ectl-build
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_haproxy_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/haproxy-health/...
-	go run ./test/cmd/e2ectl haproxy-health
+	$(EXEC) $(E2ECTL_BIN) haproxy-health
 
 int-haproxy-up:
 	$(INT_HAPROXY_DC) up --build -d
@@ -392,10 +396,10 @@ int-haproxy-logs:
 int-observability:
 	go run ./test/cmd/integrationctl observability
 
-int-observability-testcontainers: dev-ensure
+int-observability-testcontainers: e2ectl-build
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_observability_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/observability/...
-	go run ./test/cmd/e2ectl observability
+	$(EXEC) $(E2ECTL_BIN) observability
 
 int-observability-up:
 	$(INT_OBS_DC) up --build -d

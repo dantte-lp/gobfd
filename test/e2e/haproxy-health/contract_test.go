@@ -257,32 +257,3 @@ func TestResourceSnapshotReplacesWithPrivateMode(t *testing.T) {
 		t.Fatalf("resource snapshot = %q, want atomically replaced content", contents)
 	}
 }
-
-func TestHAProxyCompatibilityMakeRecipeContract(t *testing.T) {
-	contents, err := os.ReadFile(filepath.Join(repositoryRoot(t), "Makefile"))
-	if err != nil {
-		t.Fatalf("read Makefile: %v", err)
-	}
-	start := strings.Index(string(contents), "int-haproxy-testcontainers:")
-	if start < 0 {
-		t.Fatal("Makefile lacks int-haproxy-testcontainers target")
-	}
-	recipe := string(contents[start:])
-	if next := strings.Index(recipe[1:], "\nint-haproxy-up:"); next >= 0 {
-		recipe = recipe[:next+1]
-	}
-	for _, required := range []string{
-		"umask 077;", "./test/e2e/haproxy-health", `test_status="$${PIPESTATUS[0]}"`,
-		`test -s "$${report_dir}/go-test.json"`,
-	} {
-		if !strings.Contains(recipe, required) {
-			t.Fatalf("compatibility recipe lacks %q:\n%s", required, recipe)
-		}
-	}
-	if strings.Contains(recipe, " -run ") {
-		t.Fatalf("compatibility recipe filters tagged package tests:\n%s", recipe)
-	}
-	if got := strings.Count(recipe, "go test "); got != 1 {
-		t.Fatalf("compatibility recipe go test invocations = %d, want one:\n%s", got, recipe)
-	}
-}

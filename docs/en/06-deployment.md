@@ -204,6 +204,16 @@ podman compose -f deployments/compose/compose.dev.yml exec -T dev go test ./inte
 make build && make test
 ```
 
+Four report-producing testcontainers gates use the Go-owned `e2ectl` binary,
+which Make builds inside the development container before execution:
+
+| Target | Report directory |
+|---|---|
+| `make e2e-core-testcontainers` | `reports/e2e/core/run.*` |
+| `make int-bgp-failover-testcontainers` | `reports/e2e/bgp-fast-failover/run.*` |
+| `make int-haproxy-testcontainers` | `reports/e2e/haproxy-health/run.*` |
+| `make int-observability-testcontainers` | `reports/e2e/observability/run.*` |
+
 #### Production Stack
 
 `deployments/compose/compose.yml` -- production stack with Prometheus and Grafana:
