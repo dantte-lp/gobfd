@@ -16,13 +16,13 @@ func TestSonarModeAppendsOnlySelectedMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		token string
-		actor string
-		want  string
+		name         string
+		tokenPresent string
+		actor        string
+		want         string
 	}{
-		{name: "token available", token: "do-not-persist-this-token", actor: "developer", want: "mode=run\n"},
-		{name: "Dependabot without token", actor: "dependabot[bot]", want: "mode=skip-dependabot\n"},
+		{name: "token available", tokenPresent: "true", actor: "developer", want: "mode=run\n"},
+		{name: "Dependabot without token", tokenPresent: "false", actor: "dependabot[bot]", want: "mode=skip-dependabot\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -32,7 +32,7 @@ func TestSonarModeAppendsOnlySelectedMode(t *testing.T) {
 			if err := os.WriteFile(output, []byte("existing=value\n"), 0o600); err != nil {
 				t.Fatalf("seed GitHub output: %v", err)
 			}
-			if err := SonarMode(SonarOptions{Token: test.token, Actor: test.actor, Output: output}); err != nil {
+			if err := SonarMode(SonarOptions{TokenPresent: test.tokenPresent, Actor: test.actor, Output: output}); err != nil {
 				t.Fatalf("SonarMode() error = %v", err)
 			}
 			got, err := os.ReadFile(output)
@@ -42,9 +42,6 @@ func TestSonarModeAppendsOnlySelectedMode(t *testing.T) {
 			want := "existing=value\n" + test.want
 			if string(got) != want {
 				t.Errorf("GitHub output = %q, want %q", got, want)
-			}
-			if test.token != "" && strings.Contains(string(got), test.token) {
-				t.Error("GitHub output contains the Sonar token")
 			}
 		})
 	}
@@ -57,7 +54,7 @@ func TestSonarModeFailsClosedWithoutToken(t *testing.T) {
 	if err := os.WriteFile(output, []byte("existing=value\n"), 0o600); err != nil {
 		t.Fatalf("seed GitHub output: %v", err)
 	}
-	err := SonarMode(SonarOptions{Actor: "developer", Output: output})
+	err := SonarMode(SonarOptions{TokenPresent: "false", Actor: "developer", Output: output})
 	if err == nil {
 		t.Fatal("SonarMode() error = nil, want fail-closed error")
 	}
@@ -73,16 +70,43 @@ func TestSonarModeFailsClosedWithoutToken(t *testing.T) {
 	}
 }
 
+func TestSonarModeRejectsMissingOrInvalidPresence(t *testing.T) {
+	t.Parallel()
+
+	for _, present := range []string{"", "TRUE", "1", "yes", "unexpected"} {
+		present := present
+		t.Run(present, func(t *testing.T) {
+			t.Parallel()
+
+			output := filepath.Join(t.TempDir(), "github-output")
+			if err := os.WriteFile(output, nil, 0o600); err != nil {
+				t.Fatalf("create GitHub output: %v", err)
+			}
+			err := SonarMode(SonarOptions{TokenPresent: present, Actor: "dependabot[bot]", Output: output})
+			if err == nil {
+				t.Fatal("SonarMode() error = nil, want invalid presence error")
+			}
+			if !strings.Contains(err.Error(), "SONAR_TOKEN_PRESENT") {
+				t.Errorf("SonarMode() error = %q, want input context", err)
+			}
+			got, readErr := os.ReadFile(output)
+			if readErr != nil {
+				t.Fatalf("read GitHub output: %v", readErr)
+			}
+			if len(got) != 0 {
+				t.Errorf("GitHub output changed for invalid presence: %q", got)
+			}
+		})
+	}
+}
+
 func TestSonarModeWrapsOutputErrors(t *testing.T) {
 	t.Parallel()
 
 	missing := filepath.Join(t.TempDir(), "missing", "github-output")
-	err := SonarMode(SonarOptions{Token: "secret", Output: missing})
+	err := SonarMode(SonarOptions{TokenPresent: "true", Output: missing})
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("SonarMode() error = %v, want wrapped os.ErrNotExist", err)
-	}
-	if strings.Contains(err.Error(), "secret") {
-		t.Error("SonarMode() error contains the Sonar token")
 	}
 }
 

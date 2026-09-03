@@ -67,9 +67,9 @@ func runSonarMode(arguments []string, deps dependencies) error {
 		return fmt.Errorf("unexpected sonar-mode arguments: %w", flag.ErrHelp)
 	}
 	if err := cirunner.SonarMode(cirunner.SonarOptions{
-		Token:  deps.getenv("SONAR_TOKEN"),
-		Actor:  *actor,
-		Output: *output,
+		TokenPresent: deps.getenv("SONAR_TOKEN_PRESENT"),
+		Actor:        *actor,
+		Output:       *output,
 	}); err != nil {
 		return fmt.Errorf("select Sonar workflow mode: %w", err)
 	}

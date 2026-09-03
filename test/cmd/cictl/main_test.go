@@ -17,12 +17,17 @@ func TestRunSonarModeReadsGitHubEnvironment(t *testing.T) {
 		t.Fatalf("create GitHub output: %v", err)
 	}
 	values := map[string]string{
-		"SONAR_TOKEN":   "never-print-this",
-		"GITHUB_ACTOR":  "developer",
-		"GITHUB_OUTPUT": output,
+		"SONAR_TOKEN_PRESENT": "true",
+		"GITHUB_ACTOR":        "developer",
+		"GITHUB_OUTPUT":       output,
 	}
 	err := run(context.Background(), []string{"sonar-mode"}, dependencies{
-		getenv: func(name string) string { return values[name] },
+		getenv: func(name string) string {
+			if name == "SONAR_TOKEN" {
+				t.Fatal("cictl read the raw SONAR_TOKEN")
+			}
+			return values[name]
+		},
 	})
 	if err != nil {
 		t.Fatalf("run() error = %v", err)

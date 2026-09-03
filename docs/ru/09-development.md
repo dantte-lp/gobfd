@@ -345,12 +345,14 @@ HTML реализованы на Go. ExaBGP остаётся внешним immu
 
 ### CI-хелперы без shell
 
-В затронутых шагах GitHub Actions остаётся по одной Go-команде. `cictl
-sonar-mode` читает `SONAR_TOKEN`, `GITHUB_ACTOR` и `GITHUB_OUTPUT`, затем
-добавляет `mode=run`, если секрет задан, или `mode=skip-dependabot` только для
-`dependabot[bot]` без секрета. Остальные запуски без токена завершаются
-ошибкой; id шага, граница передачи секрета через environment и последующие
-условия по mode не меняются.
+В затронутых шагах GitHub Actions остаётся по одной Go-команде. Репозиторный
+код получает только строгий boolean `SONAR_TOKEN_PRESENT`, а также
+`GITHUB_ACTOR` и `GITHUB_OUTPUT`; исходный `SONAR_TOKEN` доступен только
+закреплённому SonarSource scanner action. `cictl sonar-mode` добавляет
+`mode=run` для `true` или `mode=skip-dependabot` только для `false` и точного
+actor `dependabot[bot]`. Некорректные и отсутствующие значения, как и другие
+запуски без токена, завершаются ошибкой; id шага и последующие условия по mode
+не меняются.
 
 `cictl build --output /tmp/gobfd-build` проверяет `GITHUB_SHA`, формирует
 восьмизначные CI version metadata и время сборки UTC RFC3339, после чего

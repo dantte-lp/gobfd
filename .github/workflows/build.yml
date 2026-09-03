@@ -29,7 +29,7 @@ jobs:
       - name: Check Sonar token
         id: sonar-token
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN_PRESENT: ${{ secrets.SONAR_TOKEN != '' }}
         run: go run ./test/cmd/cictl sonar-mode
 
       - name: SonarQube Scan

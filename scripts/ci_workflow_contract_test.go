@@ -13,6 +13,7 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 		workflow  string
 		step      string
 		command   string
+		required  []string
 		forbidden []string
 	}{
 		{
@@ -20,7 +21,8 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 			workflow:  "../.github/workflows/build.yml",
 			step:      "Check Sonar token",
 			command:   "go run ./test/cmd/cictl sonar-mode",
-			forbidden: []string{"shell: bash", "run: |", "mode=run", "skip-dependabot", "SONAR_TOKEN is required"},
+			required:  []string{"SONAR_TOKEN_PRESENT: ${{ secrets.SONAR_TOKEN != '' }}"},
+			forbidden: []string{"SONAR_TOKEN:", "shell: bash", "run: |", "mode=run", "skip-dependabot", "SONAR_TOKEN is required"},
 		},
 		{
 			name:      "binary build",
@@ -43,6 +45,11 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 			}
 			if got := strings.Count(step, "\n        run:"); got != 1 {
 				t.Errorf("workflow step %q has %d run programs, want exactly one", test.step, got)
+			}
+			for _, marker := range test.required {
+				if !strings.Contains(step, marker) {
+					t.Errorf("workflow step %q lacks required marker %q", test.step, marker)
+				}
 			}
 			for _, marker := range test.forbidden {
 				if strings.Contains(step, marker) {

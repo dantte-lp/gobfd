@@ -338,12 +338,13 @@ are Go-owned. ExaBGP remains an external immutable interop image.
 
 ### Shell-Free CI Helpers
 
-The affected GitHub Actions steps contain one Go command each. `cictl
-sonar-mode` reads `SONAR_TOKEN`, `GITHUB_ACTOR`, and `GITHUB_OUTPUT`, then
-appends `mode=run` when the secret is present or `mode=skip-dependabot` only
-for `dependabot[bot]` without the secret. Other missing-token runs fail closed;
-the step id, secret environment boundary, and downstream mode conditions stay
-unchanged.
+The affected GitHub Actions steps contain one Go command each. Repository code
+receives only the strict `SONAR_TOKEN_PRESENT` boolean, plus `GITHUB_ACTOR` and
+`GITHUB_OUTPUT`; the raw `SONAR_TOKEN` is limited to the pinned SonarSource
+scanner action. `cictl sonar-mode` appends `mode=run` for `true` or
+`mode=skip-dependabot` only for `false` with the exact `dependabot[bot]` actor.
+Invalid or missing values and other missing-token runs fail closed; the step
+id and downstream mode conditions stay unchanged.
 
 `cictl build --output /tmp/gobfd-build` validates `GITHUB_SHA`, derives the
 eight-character CI version metadata and UTC RFC3339 build time, and invokes

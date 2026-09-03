@@ -22,21 +22,24 @@ var (
 
 // SonarOptions supplies the inputs used to select the Sonar workflow mode.
 type SonarOptions struct {
-	Token  string
-	Actor  string
-	Output string
+	TokenPresent string
+	Actor        string
+	Output       string
 }
 
 // SonarMode appends the selected Sonar policy mode to the GitHub output file.
 func SonarMode(options SonarOptions) error {
 	mode := ""
-	switch {
-	case options.Token != "":
+	switch options.TokenPresent {
+	case "true":
 		mode = "run"
-	case options.Actor == "dependabot[bot]":
+	case "false":
+		if options.Actor != "dependabot[bot]" {
+			return fmt.Errorf("SONAR_TOKEN is required for non-Dependabot SonarQube scans: %w", errInvalidConfig)
+		}
 		mode = "skip-dependabot"
 	default:
-		return fmt.Errorf("SONAR_TOKEN is required for non-Dependabot SonarQube scans: %w", errInvalidConfig)
+		return fmt.Errorf("SONAR_TOKEN_PRESENT must be exactly true or false: %w", errInvalidConfig)
 	}
 	if options.Output == "" {
 		return fmt.Errorf("GITHUB_OUTPUT is required for Sonar mode: %w", errInvalidConfig)
