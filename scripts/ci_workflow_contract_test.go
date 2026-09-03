@@ -174,6 +174,14 @@ func TestCIWorkflowResidualShellStepsUseOneGoCommand(t *testing.T) {
 			required:  []string{"if: github.event_name == 'pull_request'"},
 			forbidden: []string{"${{ github.event.pull_request.base.ref }}", "buf breaking --against", "run: |", "run: >"},
 		},
+		{
+			name:      "commit policy",
+			workflow:  "../.github/workflows/ci.yml",
+			step:      "Validate PR title",
+			command:   "go run ./test/cmd/cictl commit-policy",
+			required:  []string{"PR_TITLE: ${{ github.event.pull_request.title }}"},
+			forbidden: []string{"$PR_TITLE", "repoquality commit", "run: |", "run: >"},
+		},
 	}
 
 	for _, test := range tests {

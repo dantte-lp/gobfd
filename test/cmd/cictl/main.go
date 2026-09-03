@@ -59,7 +59,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	}
 	if len(arguments) == 0 {
 		return fmt.Errorf(
-			"usage: cictl {sonar-mode|sonar-skip-notice|build|test-coverage|"+
+			"usage: cictl {sonar-mode|sonar-skip-notice|build|test-coverage|commit-policy|"+
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report}: %w",
 			flag.ErrHelp,
@@ -75,6 +75,8 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runBuild(ctx, arguments[1:], deps)
 	case "test-coverage":
 		return runTestCoverage(ctx, arguments[1:], deps)
+	case "commit-policy":
+		return runCommitPolicy(ctx, arguments[1:], deps)
 	case "buf-fetch-base":
 		return runBufFetchBase(ctx, arguments[1:], deps)
 	case "buf-breaking":
@@ -118,6 +120,20 @@ func runTestCoverage(ctx context.Context, arguments []string, deps dependencies)
 	}
 	if err := cirunner.TestCoverage(ctx, root, deps.specRunner); err != nil {
 		return fmt.Errorf("run CI coverage tests: %w", err)
+	}
+	return nil
+}
+
+func runCommitPolicy(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("commit-policy", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.CommitPolicy(ctx, root, deps.getenv("PR_TITLE"), deps.specRunner); err != nil {
+		return fmt.Errorf("run commit policy: %w", err)
 	}
 	return nil
 }

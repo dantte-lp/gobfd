@@ -36,11 +36,16 @@ func TestRunResidualCIModesUseFixedInputs(t *testing.T) {
 		},
 		{
 			name: "Buf fetch", mode: "buf-fetch-base", wantName: "git",
-			wantArgs: []string{"fetch", "origin", "release/v0.6"},
+			wantArgs: []string{
+				"fetch", "origin",
+				"+refs/heads/release/v0.6:refs/remotes/origin/release/v0.6",
+			},
 		},
 		{
-			name: "Buf compatibility", mode: "buf-breaking", wantName: "buf",
-			wantArgs: []string{"breaking", "--against", ".git#branch=origin/release/v0.6"},
+			name: "commit policy", mode: "commit-policy", wantName: "go",
+			wantArgs: []string{
+				"run", "./test/cmd/repoquality", "commit", "--message", "fix(ci): preserve $title literally",
+			},
 		},
 	}
 	for _, test := range tests {
@@ -49,7 +54,12 @@ func TestRunResidualCIModesUseFixedInputs(t *testing.T) {
 
 			runner := &specCommandRecorder{}
 			err := run(context.Background(), []string{test.mode}, dependencies{
-				getenv:     func(name string) string { return values[name] },
+				getenv: func(name string) string {
+					if name == "PR_TITLE" {
+						return "fix(ci): preserve $title literally"
+					}
+					return values[name]
+				},
 				getwd:      func() (string, error) { return root, nil },
 				specRunner: runner,
 			})

@@ -130,7 +130,7 @@ jobs:
       - name: Validate PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: go run ./test/cmd/repoquality commit --message "$PR_TITLE"
+        run: go run ./test/cmd/cictl commit-policy
 
   vulnerability-check:
     name: Vulnerability audit

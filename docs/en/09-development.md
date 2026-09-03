@@ -356,9 +356,17 @@ the workflow.
 
 `cictl test-coverage` invokes the pinned `gotestsum` tool directly with the
 existing JUnit, JSON, format, race, count, and atomic coverage arguments. Child
-stdout, stderr, and failures remain attached to the workflow step. The
-JUnit-to-HTML command remains unchanged but is expressed as a single workflow
-command rather than a folded scalar.
+stdout, stderr, and failures remain attached to the workflow step. Before the
+command starts, the helper validates and truncates only `unit-report.xml`,
+`unit-report.json`, `coverage.out`, and `unit-report.html` as regular mode
+`0644` files, so a failed run cannot expose stale evidence. The JUnit-to-HTML
+command remains unchanged but is expressed as a single workflow command rather
+than a folded scalar.
+
+`cictl commit-policy` passes the `PR_TITLE` environment value as one direct
+argument to the existing Go repository-quality command. The pull-request-only
+job, environment mapping, child streams, and failure behavior remain intact
+without shell expansion.
 
 `toolbootstrap podman-runtime` also verifies `jq --version` through its fixed
 command allowlist, so the test-tools step remains one Go command and fails if
@@ -383,10 +391,12 @@ temporary bin directory, and prepends that directory to `PATH` only for
 build, generation, or generated-code drift failure stops the step.
 
 `cictl buf-fetch-base` and `cictl buf-breaking` read the pull request base only
-from the built-in `GITHUB_BASE_REF`, reject unsafe branch names, and invoke
-fixed `git fetch` and `buf breaking` argument vectors without workflow
-expression interpolation. Both steps retain their pull-request-only conditions
-and fail on command errors.
+from the built-in `GITHUB_BASE_REF` and validate it as a branch name. Fetching
+uses the exact forced full refspec from `refs/heads/<base>` to
+`refs/remotes/origin/<base>`. The breaking check resolves that remote ref to
+one 40- or 64-hex commit ID and passes `.git#commit=<sha>` to Buf, so branch
+characters cannot be interpreted as Buf source parameters. Both steps retain
+their pull-request-only conditions and fail on command errors.
 
 The benchmark job is also Go-owned. `cictl benchmark-run` executes the fixed
 package, timeout, sample-count, and memory-report arguments from the repository
