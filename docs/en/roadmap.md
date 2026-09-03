@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-08-28. Beads is the task
+> Status projection from Beads, reconciled on 2026-09-04. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -94,7 +94,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
-| Interop, scale, security, and release qualification | Open |
+| Interop, scale, security, and release qualification | In progress; local release-quality gate remediation and independent review are active |
 
 The accepted C01.1 core provides a canonical session key separate from packet
 demultiplexing, serialized typed configuration, compatibility/API, and

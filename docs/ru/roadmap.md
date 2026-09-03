@@ -4,7 +4,7 @@
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Цель](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Проекция состояния Beads, сверенная 2026-08-28. Реестр задач находится в
+> Проекция состояния Beads, сверенная 2026-09-04. Реестр задач находится в
 > Beads; этот документ объясняет публичную последовательность релизов и не
 > является независимым checklist.
 
@@ -94,7 +94,7 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
-| Interop, scale, security и release qualification | Открыто |
+| Interop, scale, security и release qualification | В работе; выполняются локальное исправление release-quality gates и независимая проверка |
 
 Принятый core C01.1 предоставляет канонический ключ сессии, отделённый от
 packet demultiplexing, сериализованные типизированные claims конфигурации,
