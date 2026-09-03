@@ -117,16 +117,8 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
 	requireContractStrings(t, "release workflow", workflow, []string{
 		"      - name: Extract release notes from CHANGELOG.md\n" +
-			"        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: |\n",
-		"previous_release_tag=\"$(gh api --paginate",
-		"map(select(.draft == false and .prerelease == false and",
-		". != $current",
-		"startswith($prefix)",
-		"sort_by(.semver)",
-		"// ($published | sort_by(.semver) | last)",
-		"## GoBFD ${GITHUB_REF_NAME}",
-		"blob/${GITHUB_REF_NAME}/CHANGELOG.md",
-		"compare/${previous_release_tag}...${GITHUB_REF_NAME}",
+			"        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
+			"        run: go run ./test/cmd/cictl release-notes\n",
 		"gh release upload \"$GITHUB_REF_NAME\" \\",
 		"Refuse existing release, draft, or versioned OCI tag",
 		"Verify exact release draft",

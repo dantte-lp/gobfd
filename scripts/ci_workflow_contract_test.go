@@ -342,6 +342,26 @@ func TestReleaseWorkflowImmutablePreflightUsesOneGoCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowNotesUseOneGoCommand(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	step := namedWorkflowStep(t, workflow, "Extract release notes from CHANGELOG.md")
+	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-notes\n"); got != 1 {
+		t.Errorf("release notes command count = %d, want 1", got)
+	}
+	for _, marker := range []string{
+		"run: |", "gh api", "jq ", "awk ", "grep ", "$GITHUB_", "${{ github.",
+	} {
+		if strings.Contains(step, marker) {
+			t.Errorf("release notes step retains shell-owned marker %q", marker)
+		}
+	}
+	if !strings.Contains(step, "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}") {
+		t.Error("release notes no longer inherits GH_TOKEN")
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

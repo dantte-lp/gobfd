@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 )
 
@@ -241,14 +240,11 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 }
 
 func parseStableReleaseVersion(refName string) (string, string, error) {
-	if len(refName) > 128 || hasControl(refName) {
+	version, canonical := parseCanonicalReleaseTag(refName)
+	if !canonical {
 		return "", "", fmt.Errorf("release tag is not canonical stable SemVer: %q: %w", refName, errInvalidConfig)
 	}
-	matches := regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).FindStringSubmatch(refName)
-	if len(matches) != 4 {
-		return "", "", fmt.Errorf("release tag is not canonical stable SemVer: %q: %w", refName, errInvalidConfig)
-	}
-	return strings.TrimPrefix(refName, "v"), "release/v" + matches[1] + "." + matches[2], nil
+	return strings.TrimPrefix(refName, "v"), "release/v" + version.Major + "." + version.Minor, nil
 }
 
 func parseGitHubRepository(value string) (string, string, error) {
@@ -331,27 +327,31 @@ func prepareReleaseReceipts(runnerTemp string) (*os.Root, []string, error) {
 }
 
 func writeRootedReceipt(root *os.Root, name string, data []byte) (returnErr error) {
-	if root == nil || len(data) > releaseReceiptLimit {
-		return fmt.Errorf("release identity receipt %s exceeds its bounded contract: %w", name, errInvalidConfig)
+	return writeRootedArtifact(root, name, data, "release identity receipt", releaseReceiptLimit)
+}
+
+func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string, limit int) (returnErr error) {
+	if root == nil || len(data) > limit {
+		return fmt.Errorf("%s %s exceeds its bounded contract: %w", purpose, name, errInvalidConfig)
 	}
 	random := [16]byte{}
 	if _, err := rand.Read(random[:]); err != nil {
-		return fmt.Errorf("generate temporary release receipt name: %w", err)
+		return fmt.Errorf("generate temporary %s name: %w", purpose, err)
 	}
 	temporaryName := "." + name + "-" + hex.EncodeToString(random[:])
 	temporary, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("create temporary release identity receipt %s: %w", name, err)
+		return fmt.Errorf("create temporary %s %s: %w", purpose, name, err)
 	}
 	defer func() {
 		if err := root.Remove(temporaryName); err != nil && !errors.Is(err, os.ErrNotExist) {
-			returnErr = errors.Join(returnErr, fmt.Errorf("remove temporary release identity receipt %s: %w", name, err))
+			returnErr = errors.Join(returnErr, fmt.Errorf("remove temporary %s %s: %w", purpose, name, err))
 		}
 	}()
 	if err := temporary.Chmod(benchmarkArtifactMode); err != nil {
 		return errors.Join(
-			fmt.Errorf("set temporary release identity receipt %s mode: %w", name, err),
-			wrapOptional("close temporary release identity receipt "+name, temporary.Close()),
+			fmt.Errorf("set temporary %s %s mode: %w", purpose, name, err),
+			wrapOptional("close temporary "+purpose+" "+name, temporary.Close()),
 		)
 	}
 	written, writeErr := temporary.Write(data)
@@ -364,19 +364,19 @@ func writeRootedReceipt(root *os.Root, name string, data []byte) (returnErr erro
 	closeErr := temporary.Close()
 	if writeErr != nil || closeErr != nil {
 		return errors.Join(
-			wrapOptional("write temporary release identity receipt "+name, writeErr),
-			wrapOptional("close temporary release identity receipt "+name, closeErr),
+			wrapOptional("write temporary "+purpose+" "+name, writeErr),
+			wrapOptional("close temporary "+purpose+" "+name, closeErr),
 		)
 	}
 	if err := root.Rename(temporaryName, name); err != nil {
-		return fmt.Errorf("publish release identity receipt %s: %w", name, err)
+		return fmt.Errorf("publish %s %s: %w", purpose, name, err)
 	}
 	info, err := root.Lstat(name)
 	if err != nil {
-		return fmt.Errorf("inspect published release identity receipt %s: %w", name, err)
+		return fmt.Errorf("inspect published %s %s: %w", purpose, name, err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm() != benchmarkArtifactMode || info.Size() != int64(len(data)) {
-		return fmt.Errorf("published release identity receipt %s violates mode or size contract: %w", name, errInvalidConfig)
+		return fmt.Errorf("published %s %s violates mode or size contract: %w", purpose, name, errInvalidConfig)
 	}
 	return nil
 }
@@ -394,14 +394,7 @@ func runReleasePreflightJSON(ctx context.Context, runner SpecRunner, spec Comman
 	if err != nil {
 		return err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(output))
-	if err := decoder.Decode(destination); err != nil {
-		return fmt.Errorf("decode %s JSON: %w", purpose, err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("decode %s JSON trailing data: %w", purpose, errInvalidConfig)
-	}
-	return nil
+	return decodeJSONDocument(output, destination, purpose)
 }
 
 func runReleasePreflightCommand(ctx context.Context, runner SpecRunner, spec CommandSpec, purpose string) ([]byte, error) {

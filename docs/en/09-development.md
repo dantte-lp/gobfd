@@ -450,6 +450,16 @@ object receipts under an `os.Root` anchored at the validated `RUNNER_TEMP`.
 `GH_TOKEN` is inherited by `gh` through the process environment; it is never
 placed in an argument vector or artifact.
 
+`cictl release-notes` then queries every GitHub Releases page with a fixed
+`gh api --paginate --slurp` argument vector. It considers published canonical
+stable SemVer tags, preferring the highest previous release in the current
+major/minor line and otherwise the highest previous release overall;
+structurally valid noncanonical tags are ignored. The command requires real
+calendar dates plus categorized entries in the exact current-to-previous
+`CHANGELOG.md` range, then atomically writes a bounded regular mode `0644`
+`release-notes.md` through a repository-rooted Go 1.27 `os.Root`. `GH_TOKEN`
+is inherited by `gh` and never appears in arguments or output.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

@@ -128,6 +128,7 @@ func TestRunDispatchesReleaseReportModes(t *testing.T) {
 	for _, mode := range []string{
 		"release-test-report", "release-benchmarks", "release-benchmark-metadata",
 		"release-benchmark-comparison", "release-reports-archive", "release-preflight",
+		"release-notes",
 	} {
 		mode := mode
 		t.Run(mode, func(t *testing.T) {
