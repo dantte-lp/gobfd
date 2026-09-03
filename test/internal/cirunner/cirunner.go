@@ -29,7 +29,7 @@ type SonarOptions struct {
 
 // SonarMode appends the selected Sonar policy mode to the GitHub output file.
 func SonarMode(options SonarOptions) error {
-	mode := ""
+	var mode string
 	switch options.TokenPresent {
 	case "true":
 		mode = "run"

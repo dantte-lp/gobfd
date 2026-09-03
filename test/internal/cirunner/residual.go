@@ -58,7 +58,7 @@ func BufFetchBase(ctx context.Context, root, base string, runner SpecRunner) err
 		return err
 	}
 	if runner == nil {
-		return fmt.Errorf("Buf fetch command runner is required: %w", errInvalidConfig)
+		return fmt.Errorf("buf fetch command runner is required: %w", errInvalidConfig)
 	}
 	refspec := "+refs/heads/" + base + ":refs/remotes/origin/" + base
 	if err := runner.RunCommand(ctx, CommandSpec{
@@ -79,7 +79,7 @@ func BufBreaking(ctx context.Context, root, base string, runner SpecRunner) erro
 		return err
 	}
 	if runner == nil {
-		return fmt.Errorf("Buf breaking command runner is required: %w", errInvalidConfig)
+		return fmt.Errorf("buf breaking command runner is required: %w", errInvalidConfig)
 	}
 	remoteRef := "refs/remotes/origin/" + base
 	var revision bytes.Buffer
@@ -126,9 +126,9 @@ func validateCommitID(output string) (string, error) {
 		return "", fmt.Errorf("resolved Buf base commit must be one 40- or 64-hex ID: %w", errInvalidConfig)
 	}
 	for _, character := range commit {
-		if !((character >= '0' && character <= '9') ||
-			(character >= 'a' && character <= 'f') ||
-			(character >= 'A' && character <= 'F')) {
+		if (character < '0' || character > '9') &&
+			(character < 'a' || character > 'f') &&
+			(character < 'A' || character > 'F') {
 			return "", fmt.Errorf("resolved Buf base commit must be one 40- or 64-hex ID: %w", errInvalidConfig)
 		}
 	}

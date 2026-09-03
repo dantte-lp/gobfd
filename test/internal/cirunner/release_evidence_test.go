@@ -108,7 +108,7 @@ func TestReleaseEvidenceRunsPostValidationAfterUploadFailure(t *testing.T) {
 	writeReleaseEvidenceFile(t, artifactRoot, reportName, []byte("verified report"))
 	writeReleaseDigestReceipt(t, artifactRoot, validReleaseDigestReceipt("0.6.5"))
 	wantErr := errors.New("partial upload")
-	runner := &releaseEvidenceTestRunner{run: func(spec CommandSpec) error {
+	runner := &releaseEvidenceTestRunner{run: func(_ CommandSpec) error {
 		if err := os.WriteFile(filepath.Join(artifactRoot, reportName), []byte("changed report!"), 0o600); err != nil {
 			return err
 		}

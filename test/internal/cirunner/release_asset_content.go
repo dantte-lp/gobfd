@@ -336,7 +336,7 @@ func validateReleaseReportsArchive(data []byte) (returnErr error) {
 			if name == "reports" {
 				foundReportsRoot = true
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if !strings.HasPrefix(name, "reports/") {
 				return fmt.Errorf("release reports regular file %s is not a reports descendant: %w", name, errInvalidConfig)
 			}

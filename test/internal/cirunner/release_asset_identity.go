@@ -140,10 +140,7 @@ func renderReleaseAssetIdentityReceipt(
 		if asset.Digest != snapshot.Digest {
 			return nil, fmt.Errorf("release asset %s digest differs from validated local snapshot: %w", asset.Name, errInvalidConfig)
 		}
-		receipt.Assets = append(receipt.Assets, releaseAssetIdentityRecord{
-			NodeID: asset.NodeID, DatabaseID: asset.DatabaseID, Name: asset.Name,
-			Size: asset.Size, Digest: asset.Digest, State: asset.State,
-		})
+		receipt.Assets = append(receipt.Assets, releaseAssetIdentityRecord(asset))
 	}
 	if len(receipt.Assets) != len(local) {
 		return nil, fmt.Errorf("release asset identity receipt set is incomplete: %w", errInvalidConfig)
