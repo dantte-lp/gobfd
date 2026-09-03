@@ -524,6 +524,7 @@ func (r *runner) bestEffortCommand(ctx context.Context, argv ...string) {
 }
 
 func secureFile(path string) (*os.File, error) {
+	// #nosec G703 -- every caller joins fixed artifact names or allowlisted suite names beneath runner.reportDir.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create artifact %s: %w", path, err)

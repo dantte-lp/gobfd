@@ -201,7 +201,7 @@ func (r *runner) appendLoggedCommand(ctx context.Context, suite string, argv ...
 	if err != nil {
 		return fmt.Errorf("read %s Go test JSON: %w", suite, err)
 	}
-	//nolint:gosec // Suite is selected from the fixed routingSuite table above.
+	// #nosec G703 -- suite is selected only from the fixed routingSuite table above.
 	if err := os.WriteFile(filepath.Join(r.reportDir, suite, goTestLogName), data, 0o600); err != nil {
 		return fmt.Errorf("write %s Go test log: %w", suite, err)
 	}

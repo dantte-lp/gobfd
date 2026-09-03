@@ -219,8 +219,7 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 			return err
 		}
 	}
-	writeBenchmarkWarnings(options.Warning, comparison)
-	return nil
+	return writeBenchmarkWarnings(options.Warning, comparison)
 }
 
 func validateBenchmarkReleaseContext(release *BenchmarkReleaseContext) error {
@@ -427,9 +426,9 @@ func appendBenchmarkSummary(path string, comparison benchmarkComparison) error {
 	return nil
 }
 
-func writeBenchmarkWarnings(output io.Writer, comparison benchmarkComparison) {
+func writeBenchmarkWarnings(output io.Writer, comparison benchmarkComparison) error {
 	if output == nil {
-		return
+		return nil
 	}
 	wroteHeader := false
 	for _, row := range comparison.ComparisonRows {
@@ -437,14 +436,19 @@ func writeBenchmarkWarnings(output io.Writer, comparison benchmarkComparison) {
 			continue
 		}
 		if !wroteHeader {
-			_, _ = io.WriteString(
+			if _, err := io.WriteString(
 				output,
 				"::warning::Critical benchmark regression detected (>=10%). Review bench-report.md.\n",
-			)
+			); err != nil {
+				return fmt.Errorf("write critical benchmark warning header: %w", err)
+			}
 			wroteHeader = true
 		}
-		_, _ = fmt.Fprintf(output, "%s,%s,%s\n", row.Name, row.Delta, row.Significance)
+		if _, err := fmt.Fprintf(output, "%s,%s,%s\n", row.Name, row.Delta, row.Significance); err != nil {
+			return fmt.Errorf("write critical benchmark warning row: %w", err)
+		}
 	}
+	return nil
 }
 
 func escapeMarkdownCell(value string) string {

@@ -429,7 +429,7 @@ func validateUPXTar(data []byte, asset upxAssetContract) ([]byte, error) {
 			if _, err := io.ReadFull(reader, executable); err != nil {
 				return nil, fmt.Errorf("read UPX executable entry: %w", err)
 			}
-		} else if copied, err := io.Copy(io.Discard, reader); err != nil || copied != expected.size {
+		} else if copied, err := io.CopyN(io.Discard, reader, expected.size); err != nil || copied != expected.size {
 			return nil, fmt.Errorf("read UPX tar entry %s: %w", expected.name, errors.Join(err, errInvalidConfig))
 		}
 	}

@@ -349,6 +349,19 @@ geomean,0,,0,,?,
 	}
 }
 
+func TestWriteBenchmarkWarningsReturnsRowWriteError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("warning output unavailable")
+	output := &failOnWrite{failAt: 2, err: wantErr}
+	err := writeBenchmarkWarnings(output, benchmarkComparison{ComparisonRows: []benchmarkComparisonRow{{
+		Name: "BenchmarkRecvDecodeFSM-8", RegressionClassification: "critical",
+	}}})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("writeBenchmarkWarnings() error = %v, want wrapped row write error", err)
+	}
+}
+
 func TestBenchmarkReportClearsStaleArtifactsBeforeBenchstatFailure(t *testing.T) {
 	t.Parallel()
 
@@ -505,6 +518,20 @@ type partialAddSpecRunner struct {
 	err               error
 	worktree          string
 	cleanupContextErr error
+}
+
+type failOnWrite struct {
+	writes int
+	failAt int
+	err    error
+}
+
+func (w *failOnWrite) Write(data []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failAt {
+		return 0, w.err
+	}
+	return len(data), nil
 }
 
 func (r *partialAddSpecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {

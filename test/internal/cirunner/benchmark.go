@@ -391,10 +391,12 @@ func writeAtomicArtifact(path string, data []byte, purpose string) error {
 		return fmt.Errorf("create temporary %s: %w", purpose, err)
 	}
 	temporaryName := temporary.Name()
-	defer func() { _ = os.Remove(temporaryName) }()
 	if err := temporary.Chmod(benchmarkArtifactMode); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("set temporary %s mode: %w", purpose, err)
+		return errors.Join(
+			fmt.Errorf("set temporary %s mode: %w", purpose, err),
+			wrapOptional("close temporary "+purpose, temporary.Close()),
+			wrapOptional("remove temporary "+purpose, os.Remove(temporaryName)),
+		)
 	}
 	written, writeErr := temporary.Write(data)
 	if writeErr == nil && written != len(data) {
@@ -408,10 +410,14 @@ func writeAtomicArtifact(path string, data []byte, purpose string) error {
 		return errors.Join(
 			wrapOptional("write temporary "+purpose, writeErr),
 			wrapOptional("close temporary "+purpose, closeErr),
+			wrapOptional("remove temporary "+purpose, os.Remove(temporaryName)),
 		)
 	}
 	if err := os.Rename(temporaryName, path); err != nil {
-		return fmt.Errorf("publish %s %s: %w", purpose, path, err)
+		return errors.Join(
+			fmt.Errorf("publish %s %s: %w", purpose, path, err),
+			wrapOptional("remove temporary "+purpose, os.Remove(temporaryName)),
+		)
 	}
 	if err := os.Chmod(path, benchmarkArtifactMode); err != nil {
 		return fmt.Errorf("set %s %s mode: %w", purpose, path, err)

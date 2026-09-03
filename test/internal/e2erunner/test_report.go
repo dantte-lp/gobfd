@@ -73,6 +73,7 @@ func secureReportDirectory(root, reportPath string) (string, string, error) {
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return "", "", fmt.Errorf("create %s report parent: %w", reportPath, err)
 	}
+	// #nosec G302 -- an owner-only directory requires execute permission for traversal.
 	if err := os.Chmod(parent, 0o700); err != nil {
 		return "", "", fmt.Errorf("secure %s report parent: %w", reportPath, err)
 	}
@@ -80,6 +81,7 @@ func secureReportDirectory(root, reportPath string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("create exclusive %s report directory: %w", reportPath, err)
 	}
+	// #nosec G302 -- an owner-only directory requires execute permission for traversal.
 	if err := os.Chmod(reportDir, 0o700); err != nil {
 		secureErr := fmt.Errorf("secure %s report directory: %w", reportPath, err)
 		if removeErr := os.Remove(reportDir); removeErr != nil {
