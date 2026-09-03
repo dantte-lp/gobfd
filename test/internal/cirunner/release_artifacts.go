@@ -40,22 +40,7 @@ type goReleaserArtifactExtra struct {
 
 // ReleaseArtifacts validates GoReleaser's release-asset matrix and writes its exact expected manifests.
 func ReleaseArtifacts(ctx context.Context, options ReleaseArtifactsOptions) (returnErr error) {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
-	if err != nil {
-		return err
-	}
-	runnerTemp, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
-	if err != nil {
-		return err
-	}
-	version, _, err := parseStableReleaseVersion(options.RefName)
-	if err != nil {
-		return err
-	}
-	if options.Runner == nil {
-		return fmt.Errorf("release artifact command runner is required: %w", errInvalidConfig)
-	}
-	expectedWorkflowSHA, err := validateFullCommitSHA(options.SHA, "GITHUB_SHA")
+	root, runnerTemp, version, expectedWorkflowSHA, err := validateReleaseArtifactOptions(options)
 	if err != nil {
 		return err
 	}
@@ -79,26 +64,61 @@ func ReleaseArtifacts(ctx context.Context, options ReleaseArtifactsOptions) (ret
 	); verifyErr != nil {
 		return verifyErr
 	}
-	manifest, err := readRootedRegularFile(
-		repositoryRoot, "dist/artifacts.json", "GoReleaser artifact manifest", releaseArtifactsManifestLimit,
-	)
+	artifacts, err := readGoReleaserArtifacts(repositoryRoot)
 	if err != nil {
 		return err
-	}
-	if validationErr := validateStrictJSONDocument(manifest, "GoReleaser artifact manifest"); validationErr != nil {
-		return validationErr
-	}
-	artifacts := []goReleaserArtifact{}
-	if decodeErr := decodeJSONDocument(manifest, &artifacts, "GoReleaser artifact manifest"); decodeErr != nil {
-		return decodeErr
-	}
-	if validationErr := validateGoReleaserArtifactFields(manifest); validationErr != nil {
-		return validationErr
 	}
 	checksummed, release, err := validateGoReleaserArtifactMatrix(artifacts, version, options.RefName)
 	if err != nil {
 		return err
 	}
+	return writeReleaseArtifactManifests(receiptRoot, checksummed, release)
+}
+
+func validateReleaseArtifactOptions(options ReleaseArtifactsOptions) (string, string, string, string, error) {
+	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if err != nil {
+		return "", "", "", "", err
+	}
+	runnerTemp, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
+	if err != nil {
+		return "", "", "", "", err
+	}
+	version, _, err := parseStableReleaseVersion(options.RefName)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if options.Runner == nil {
+		return "", "", "", "", fmt.Errorf("release artifact command runner is required: %w", errInvalidConfig)
+	}
+	expectedWorkflowSHA, err := validateFullCommitSHA(options.SHA, "GITHUB_SHA")
+	if err != nil {
+		return "", "", "", "", err
+	}
+	return root, runnerTemp, version, expectedWorkflowSHA, nil
+}
+
+func readGoReleaserArtifacts(repositoryRoot *os.Root) ([]goReleaserArtifact, error) {
+	manifest, err := readRootedRegularFile(
+		repositoryRoot, "dist/artifacts.json", "GoReleaser artifact manifest", releaseArtifactsManifestLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStrictJSONDocument(manifest, "GoReleaser artifact manifest"); err != nil {
+		return nil, err
+	}
+	artifacts := []goReleaserArtifact{}
+	if err := decodeJSONDocument(manifest, &artifacts, "GoReleaser artifact manifest"); err != nil {
+		return nil, err
+	}
+	if err := validateGoReleaserArtifactFields(manifest); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func writeReleaseArtifactManifests(receiptRoot *os.Root, checksummed, release []string) error {
 	outputs := []struct {
 		name string
 		data []byte
@@ -201,40 +221,49 @@ func validateUniqueJSONValue(decoder *json.Decoder) error {
 	}
 	switch delimiter {
 	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return fmt.Errorf("read JSON object key: %w", err)
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return fmt.Errorf("JSON object key is not a string: %w", errInvalidConfig)
-			}
-			if _, exists := seen[key]; exists {
-				return fmt.Errorf("duplicate JSON object member %q: %w", key, errInvalidConfig)
-			}
-			seen[key] = struct{}{}
-			if err := validateUniqueJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil || closing != json.Delim('}') {
-			return errors.Join(err, errInvalidConfig)
-		}
+		return validateUniqueJSONObject(decoder)
 	case '[':
-		for decoder.More() {
-			if err := validateUniqueJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil || closing != json.Delim(']') {
-			return errors.Join(err, errInvalidConfig)
-		}
+		return validateUniqueJSONArray(decoder)
 	default:
 		return fmt.Errorf("unexpected JSON delimiter %q: %w", delimiter, errInvalidConfig)
+	}
+}
+
+func validateUniqueJSONObject(decoder *json.Decoder) error {
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return fmt.Errorf("read JSON object key: %w", err)
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return fmt.Errorf("JSON object key is not a string: %w", errInvalidConfig)
+		}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate JSON object member %q: %w", key, errInvalidConfig)
+		}
+		seen[key] = struct{}{}
+		if err := validateUniqueJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return errors.Join(err, errInvalidConfig)
+	}
+	return nil
+}
+
+func validateUniqueJSONArray(decoder *json.Decoder) error {
+	for decoder.More() {
+		if err := validateUniqueJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim(']') {
+		return errors.Join(err, errInvalidConfig)
 	}
 	return nil
 }
@@ -296,30 +325,9 @@ func validateGoReleaserArtifactMatrix(
 		if err != nil {
 			return nil, nil, fmt.Errorf("GoReleaser artifact %d: %w", index, err)
 		}
-		switch artifact.Type {
-		case "Archive":
-			if artifact.GoOS != "linux" || !supportedReleaseArch(artifact.GoArch) ||
-				name != "gobfd_"+version+"_linux_"+artifact.GoArch+".tar.gz" {
-				return nil, nil, fmt.Errorf("GoReleaser archive %q violates the release matrix: %w", name, errInvalidConfig)
-			}
-			checksummed = append(checksummed, name)
-			release = append(release, name)
-		case "Linux Package":
-			if artifact.GoOS != "linux" || !supportedReleaseArch(artifact.GoArch) ||
-				(artifact.Extra.Format != "deb" && artifact.Extra.Format != "rpm") ||
-				name != "gobfd_"+version+"_linux_"+artifact.GoArch+"."+artifact.Extra.Format {
-				return nil, nil, fmt.Errorf("GoReleaser Linux package %q violates the release matrix: %w", name, errInvalidConfig)
-			}
-			checksummed = append(checksummed, name)
-			release = append(release, name)
-		case "SBOM":
-			checksummed = append(checksummed, name)
-			release = append(release, name)
-		case "Checksum":
-			if name != "checksums.txt" {
-				return nil, nil, fmt.Errorf("GoReleaser checksum %q is not canonical: %w", name, errInvalidConfig)
-			}
-			release = append(release, name)
+		checksummed, release, err = appendGoReleaserArtifact(checksummed, release, artifact, name, version)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	sort.Strings(checksummed)
@@ -331,6 +339,37 @@ func validateGoReleaserArtifactMatrix(
 		return nil, nil, fmt.Errorf("GoReleaser release artifact matrix differs from the exact contract: %w", errInvalidConfig)
 	}
 	return checksummed, expectedRelease, nil
+}
+
+func appendGoReleaserArtifact(
+	checksummed, release []string,
+	artifact goReleaserArtifact,
+	name, version string,
+) ([]string, []string, error) {
+	switch artifact.Type {
+	case "Archive":
+		if artifact.GoOS != "linux" || !supportedReleaseArch(artifact.GoArch) ||
+			name != "gobfd_"+version+"_linux_"+artifact.GoArch+".tar.gz" {
+			return nil, nil, fmt.Errorf("GoReleaser archive %q violates the release matrix: %w", name, errInvalidConfig)
+		}
+		return append(checksummed, name), append(release, name), nil
+	case "Linux Package":
+		if artifact.GoOS != "linux" || !supportedReleaseArch(artifact.GoArch) ||
+			(artifact.Extra.Format != "deb" && artifact.Extra.Format != "rpm") ||
+			name != "gobfd_"+version+"_linux_"+artifact.GoArch+"."+artifact.Extra.Format {
+			return nil, nil, fmt.Errorf("GoReleaser Linux package %q violates the release matrix: %w", name, errInvalidConfig)
+		}
+		return append(checksummed, name), append(release, name), nil
+	case "SBOM":
+		return append(checksummed, name), append(release, name), nil
+	case "Checksum":
+		if name != "checksums.txt" {
+			return nil, nil, fmt.Errorf("GoReleaser checksum %q is not canonical: %w", name, errInvalidConfig)
+		}
+		return checksummed, append(release, name), nil
+	default:
+		return checksummed, release, nil
+	}
 }
 
 func expectedChecksummedArtifactNames(version string) []string {
