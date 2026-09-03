@@ -124,6 +124,85 @@ func TestCIWorkflowSupplyChainAndProtoStepsUseOneGoCommand(t *testing.T) {
 	}
 }
 
+func TestCIWorkflowResidualShellStepsUseOneGoCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		workflow  string
+		step      string
+		command   string
+		required  []string
+		forbidden []string
+	}{
+		{
+			name:      "Sonar skip notice",
+			workflow:  "../.github/workflows/build.yml",
+			step:      "SonarQube skipped for Dependabot",
+			command:   "go run ./test/cmd/cictl sonar-skip-notice",
+			required:  []string{"if: steps.sonar-token.outputs.mode == 'skip-dependabot'"},
+			forbidden: []string{"run: >", "echo ", "Dependabot SONAR_TOKEN"},
+		},
+		{
+			name:      "coverage test",
+			workflow:  "../.github/workflows/ci.yml",
+			step:      "Test with coverage",
+			command:   "go run ./test/cmd/cictl test-coverage",
+			forbidden: []string{"run: |", "gotestsum", "\\\\"},
+		},
+		{
+			name:      "JUnit HTML report",
+			workflow:  "../.github/workflows/ci.yml",
+			step:      "Generate HTML test report",
+			command:   "go run ./test/cmd/junitreport --root . --input unit-report.xml --output unit-report.html",
+			required:  []string{"if: always()"},
+			forbidden: []string{"run: >", "run: |"},
+		},
+		{
+			name:      "Buf base fetch",
+			workflow:  "../.github/workflows/ci.yml",
+			step:      "Fetch base branch for buf breaking",
+			command:   "go run ./test/cmd/cictl buf-fetch-base",
+			required:  []string{"if: github.event_name == 'pull_request'"},
+			forbidden: []string{"${{ github.event.pull_request.base.ref }}", "git fetch", "run: |", "run: >"},
+		},
+		{
+			name:      "Buf compatibility",
+			workflow:  "../.github/workflows/ci.yml",
+			step:      "buf breaking",
+			command:   "go run ./test/cmd/cictl buf-breaking",
+			required:  []string{"if: github.event_name == 'pull_request'"},
+			forbidden: []string{"${{ github.event.pull_request.base.ref }}", "buf breaking --against", "run: |", "run: >"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			workflow := readContractFile(t, test.workflow)
+			step := namedWorkflowStep(t, workflow, test.step)
+			wantRun := "        run: " + test.command + "\n"
+			if strings.Count(step, wantRun) != 1 {
+				t.Errorf("workflow step %q must contain exactly one %q", test.step, strings.TrimSpace(wantRun))
+			}
+			if got := strings.Count(step, "\n        run:"); got != 1 {
+				t.Errorf("workflow step %q has %d run programs, want exactly one", test.step, got)
+			}
+			for _, marker := range test.required {
+				if !strings.Contains(step, marker) {
+					t.Errorf("workflow step %q lacks required marker %q", test.step, marker)
+				}
+			}
+			for _, marker := range test.forbidden {
+				if strings.Contains(step, marker) {
+					t.Errorf("workflow step %q retains shell marker %q", test.step, marker)
+				}
+			}
+		})
+	}
+}
+
 func TestCIWorkflowBenchmarkStepsUseGoOwner(t *testing.T) {
 	t.Parallel()
 

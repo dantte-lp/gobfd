@@ -59,7 +59,8 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	}
 	if len(arguments) == 0 {
 		return fmt.Errorf(
-			"usage: cictl {sonar-mode|build|sbom|proto-verify|"+
+			"usage: cictl {sonar-mode|sonar-skip-notice|build|test-coverage|"+
+				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report}: %w",
 			flag.ErrHelp,
 		)
@@ -68,8 +69,16 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	switch arguments[0] {
 	case "sonar-mode":
 		return runSonarMode(arguments[1:], deps)
+	case "sonar-skip-notice":
+		return runSonarSkipNotice(arguments[1:], deps)
 	case "build":
 		return runBuild(ctx, arguments[1:], deps)
+	case "test-coverage":
+		return runTestCoverage(ctx, arguments[1:], deps)
+	case "buf-fetch-base":
+		return runBufFetchBase(ctx, arguments[1:], deps)
+	case "buf-breaking":
+		return runBufBreaking(ctx, arguments[1:], deps)
 	case "sbom":
 		return runSBOM(ctx, arguments[1:], deps)
 	case "proto-verify":
@@ -85,6 +94,67 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runSonarSkipNotice(arguments []string, deps dependencies) error {
+	if err := rejectArguments("sonar-skip-notice", arguments); err != nil {
+		return err
+	}
+	const message = "Skipping SonarQube scan because this run was triggered by Dependabot " +
+		"and no Dependabot SONAR_TOKEN secret is available.\n"
+	if _, err := io.WriteString(deps.stdout, message); err != nil {
+		return fmt.Errorf("write SonarQube skip notice: %w", err)
+	}
+	return nil
+}
+
+func runTestCoverage(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("test-coverage", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.TestCoverage(ctx, root, deps.specRunner); err != nil {
+		return fmt.Errorf("run CI coverage tests: %w", err)
+	}
+	return nil
+}
+
+func runBufFetchBase(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("buf-fetch-base", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BufFetchBase(ctx, root, deps.getenv("GITHUB_BASE_REF"), deps.specRunner); err != nil {
+		return fmt.Errorf("fetch Buf base branch: %w", err)
+	}
+	return nil
+}
+
+func runBufBreaking(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("buf-breaking", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.BufBreaking(ctx, root, deps.getenv("GITHUB_BASE_REF"), deps.specRunner); err != nil {
+		return fmt.Errorf("check Buf compatibility: %w", err)
+	}
+	return nil
+}
+
+func rejectArguments(name string, arguments []string) error {
+	if len(arguments) != 0 {
+		return fmt.Errorf("unexpected %s arguments: %w", name, flag.ErrHelp)
+	}
+	return nil
 }
 
 func runBenchmark(ctx context.Context, arguments []string, deps dependencies) error {

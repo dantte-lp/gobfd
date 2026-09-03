@@ -1,16 +1,115 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dantte-lp/gobfd/test/internal/cirunner"
 )
+
+func TestRunResidualCIModesUseFixedInputs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	values := map[string]string{"GITHUB_BASE_REF": "release/v0.6"}
+	tests := []struct {
+		name     string
+		mode     string
+		wantName string
+		wantArgs []string
+	}{
+		{
+			name: "coverage", mode: "test-coverage", wantName: "go",
+			wantArgs: []string{
+				"tool", "-modfile=tools/go.mod", "gotestsum",
+				"--junitfile", "unit-report.xml", "--jsonfile", "unit-report.json",
+				"--format", "short-verbose", "--", "-buildvcs=false", "./...", "-race", "-count=1",
+				"-coverprofile=coverage.out", "-covermode=atomic",
+			},
+		},
+		{
+			name: "Buf fetch", mode: "buf-fetch-base", wantName: "git",
+			wantArgs: []string{"fetch", "origin", "release/v0.6"},
+		},
+		{
+			name: "Buf compatibility", mode: "buf-breaking", wantName: "buf",
+			wantArgs: []string{"breaking", "--against", ".git#branch=origin/release/v0.6"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			runner := &specCommandRecorder{}
+			err := run(context.Background(), []string{test.mode}, dependencies{
+				getenv:     func(name string) string { return values[name] },
+				getwd:      func() (string, error) { return root, nil },
+				specRunner: runner,
+			})
+			if err != nil {
+				t.Fatalf("run(%q) error = %v", test.mode, err)
+			}
+			if len(runner.specs) != 1 {
+				t.Fatalf("run(%q) command count = %d, want 1", test.mode, len(runner.specs))
+			}
+			if runner.specs[0].Name != test.wantName {
+				t.Errorf("run(%q) command = %q, want %q", test.mode, runner.specs[0].Name, test.wantName)
+			}
+			if !reflect.DeepEqual(runner.specs[0].Args, test.wantArgs) {
+				t.Errorf("run(%q) arguments = %q, want %q", test.mode, runner.specs[0].Args, test.wantArgs)
+			}
+			if runner.specs[0].Dir != root {
+				t.Errorf("run(%q) directory = %q, want %q", test.mode, runner.specs[0].Dir, root)
+			}
+			if runner.specs[0].Stdout != nil || runner.specs[0].Stderr != nil {
+				t.Errorf("run(%q) overrides child output streams", test.mode)
+			}
+		})
+	}
+
+	wantErr := errors.New("command failed")
+	err := run(context.Background(), []string{"test-coverage"}, dependencies{
+		getwd:      func() (string, error) { return root, nil },
+		specRunner: &specCommandRecorder{err: wantErr},
+	})
+	if !errors.Is(err, wantErr) {
+		t.Errorf("run(test-coverage) error = %v, want wrapped command failure", err)
+	}
+
+	runner := &specCommandRecorder{}
+	err = run(context.Background(), []string{"buf-fetch-base"}, dependencies{
+		getenv:     func(string) string { return "release/v0.6\n--upload-pack=bad" },
+		getwd:      func() (string, error) { return root, nil },
+		specRunner: runner,
+	})
+	if err == nil {
+		t.Error("run(buf-fetch-base) accepted a control character in GITHUB_BASE_REF")
+	}
+	if len(runner.specs) != 0 {
+		t.Errorf("run(buf-fetch-base) ran %d commands for unsafe GITHUB_BASE_REF", len(runner.specs))
+	}
+}
+
+func TestRunSonarSkipNoticePreservesMessage(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	if err := run(context.Background(), []string{"sonar-skip-notice"}, dependencies{stdout: &output}); err != nil {
+		t.Fatalf("run(sonar-skip-notice) error = %v", err)
+	}
+	want := "Skipping SonarQube scan because this run was triggered by Dependabot " +
+		"and no Dependabot SONAR_TOKEN secret is available.\n"
+	if output.String() != want {
+		t.Errorf("Sonar skip message = %q, want %q", output.String(), want)
+	}
+}
 
 func TestRunDispatchesBenchmarkModes(t *testing.T) {
 	t.Parallel()

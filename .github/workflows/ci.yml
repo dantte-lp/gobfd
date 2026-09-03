@@ -36,19 +36,11 @@ jobs:
         run: go run ./test/cmd/toolbootstrap podman-runtime
 
       - name: Test with coverage
-        run: |
-          go tool -modfile=tools/go.mod gotestsum \
-            --junitfile unit-report.xml \
-            --jsonfile unit-report.json \
-            --format short-verbose \
-            -- -buildvcs=false ./... -race -count=1 \
-               -coverprofile=coverage.out -covermode=atomic
+        run: go run ./test/cmd/cictl test-coverage
 
       - name: Generate HTML test report
         if: always()
-        run: >
-          go run ./test/cmd/junitreport --root .
-          --input unit-report.xml --output unit-report.html
+        run: go run ./test/cmd/junitreport --root . --input unit-report.xml --output unit-report.html
 
       - name: Upload test reports
         if: always()
@@ -194,11 +186,11 @@ jobs:
 
       - name: Fetch base branch for buf breaking
         if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.event.pull_request.base.ref }}
+        run: go run ./test/cmd/cictl buf-fetch-base
 
       - name: buf breaking
         if: github.event_name == 'pull_request'
-        run: buf breaking --against '.git#branch=origin/${{ github.event.pull_request.base.ref }}'
+        run: go run ./test/cmd/cictl buf-breaking
 
   benchmark:
     name: Benchmark comparison

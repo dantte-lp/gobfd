@@ -40,6 +40,4 @@ jobs:
 
       - name: SonarQube skipped for Dependabot
         if: steps.sonar-token.outputs.mode == 'skip-dependabot'
-        run: >
-          echo "Skipping SonarQube scan because this run was triggered by Dependabot
-          and no Dependabot SONAR_TOKEN secret is available."
+        run: go run ./test/cmd/cictl sonar-skip-notice

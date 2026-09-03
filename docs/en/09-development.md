@@ -345,12 +345,20 @@ scanner action. `cictl sonar-mode` appends `mode=run` for `true` or
 `mode=skip-dependabot` only for `false` with the exact `dependabot[bot]` actor.
 Invalid or missing values and other missing-token runs fail closed; the step
 id and downstream mode conditions stay unchanged.
+`cictl sonar-skip-notice` emits the existing Dependabot skip explanation from
+repository-owned Go code when that mode is selected.
 
 `cictl build --output /tmp/gobfd-build` validates `GITHUB_SHA`, derives the
 eight-character CI version metadata and UTC RFC3339 build time, and invokes
 `go build` directly for the four supported binaries. It preserves the pinned
 Go 1.27 setup and build flags without embedding a multi-line shell program in
 the workflow.
+
+`cictl test-coverage` invokes the pinned `gotestsum` tool directly with the
+existing JUnit, JSON, format, race, count, and atomic coverage arguments. Child
+stdout, stderr, and failures remain attached to the workflow step. The
+JUnit-to-HTML command remains unchanged but is expressed as a single workflow
+command rather than a folded scalar.
 
 `toolbootstrap podman-runtime` also verifies `jq --version` through its fixed
 command allowlist, so the test-tools step remains one Go command and fails if
@@ -373,6 +381,12 @@ directories, builds both generators from `tools/go.mod` below a dedicated
 temporary bin directory, and prepends that directory to `PATH` only for
 `buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb`; a generator
 build, generation, or generated-code drift failure stops the step.
+
+`cictl buf-fetch-base` and `cictl buf-breaking` read the pull request base only
+from the built-in `GITHUB_BASE_REF`, reject unsafe branch names, and invoke
+fixed `git fetch` and `buf breaking` argument vectors without workflow
+expression interpolation. Both steps retain their pull-request-only conditions
+and fail on command errors.
 
 The benchmark job is also Go-owned. `cictl benchmark-run` executes the fixed
 package, timeout, sample-count, and memory-report arguments from the repository

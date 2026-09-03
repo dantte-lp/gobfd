@@ -353,11 +353,19 @@ HTML реализованы на Go. ExaBGP остаётся внешним immu
 actor `dependabot[bot]`. Некорректные и отсутствующие значения, как и другие
 запуски без токена, завершаются ошибкой; id шага и последующие условия по mode
 не меняются.
+`cictl sonar-skip-notice` выводит существующее объяснение пропуска для
+Dependabot из репозиторного Go-кода, когда выбран этот mode.
 
 `cictl build --output /tmp/gobfd-build` проверяет `GITHUB_SHA`, формирует
 восьмизначные CI version metadata и время сборки UTC RFC3339, после чего
 напрямую вызывает `go build` для четырёх поддерживаемых бинарных файлов. Pin
 Go 1.27 и build flags сохраняются без многострочной shell-программы в workflow.
+
+`cictl test-coverage` напрямую запускает закреплённый `gotestsum` с
+существующими аргументами JUnit, JSON, format, race, count и atomic coverage.
+Stdout, stderr и ошибки дочернего процесса остаются связанными с шагом
+workflow. Команда преобразования JUnit в HTML не меняется, но записана одной
+строкой workflow вместо folded scalar.
 
 `toolbootstrap podman-runtime` также проверяет `jq --version` через фиксированный
 allowlist команд, поэтому шаг установки тестовых инструментов остаётся одной
@@ -380,6 +388,12 @@ Syft scan для module-файлов, разделяет runtime и tools Cyclon
 bin-каталоге и добавляет его в начало `PATH` только для `buf generate`. Затем
 хелпер запускает `git diff --exit-code -- pkg/bfdpb`; ошибка сборки генератора,
 генерации или drift сгенерированного кода завершает шаг.
+
+`cictl buf-fetch-base` и `cictl buf-breaking` читают base pull request только из
+встроенного `GITHUB_BASE_REF`, отклоняют небезопасные имена веток и вызывают
+фиксированные векторы аргументов `git fetch` и `buf breaking` без интерполяции
+workflow expression. Оба шага сохраняют условия только для pull request и
+завершаются ошибкой при ошибке команды.
 
 Benchmark job также реализован на Go. `cictl benchmark-run` запускает из корня
 репозитория фиксированные аргументы пакетов, timeout, количества семплов и
