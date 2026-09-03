@@ -63,7 +63,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
-				"release-benchmark-comparison|release-reports-archive}: %w",
+				"release-benchmark-comparison|release-reports-archive|release-preflight}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -107,9 +107,25 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runReleaseBenchmarkComparison(ctx, arguments[1:], deps)
 	case "release-reports-archive":
 		return runReleaseReportsArchive(arguments[1:], deps)
+	case "release-preflight":
+		return runReleasePreflight(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleasePreflight(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-preflight", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleasePreflight(ctx, cirunner.ReleasePreflightOptions{
+		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), RefName: deps.getenv("GITHUB_REF_NAME"),
+		SHA: deps.getenv("GITHUB_SHA"), Repository: deps.getenv("GITHUB_REPOSITORY"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("refuse mutable release identity: %w", err)
+	}
+	return nil
 }
 
 func runReleaseBuild(ctx context.Context, arguments []string, deps dependencies) error {

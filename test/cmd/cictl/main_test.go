@@ -127,7 +127,7 @@ func TestRunDispatchesReleaseReportModes(t *testing.T) {
 	wantErr := errors.New("working directory unavailable")
 	for _, mode := range []string{
 		"release-test-report", "release-benchmarks", "release-benchmark-metadata",
-		"release-benchmark-comparison", "release-reports-archive",
+		"release-benchmark-comparison", "release-reports-archive", "release-preflight",
 	} {
 		mode := mode
 		t.Run(mode, func(t *testing.T) {

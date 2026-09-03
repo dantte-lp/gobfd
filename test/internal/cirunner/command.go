@@ -29,7 +29,7 @@ type SpecRunner interface {
 // RunCommand executes a typed direct child command and preserves its output streams.
 func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	switch spec.Name {
-	case "buf", "git", "go":
+	case "buf", "gh", "git", "go":
 	default:
 		return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
 	}

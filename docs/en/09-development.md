@@ -440,6 +440,16 @@ commands. Evidence copying uses a repository `os.Root`; archive reads use a
 separate Go 1.27 `os.Root` rooted at `reports/`. Both verify the opened regular
 file against its expected identity and size.
 
+Before release creation, `cictl release-preflight` validates the canonical
+stable SemVer tag, `GITHUB_REPOSITORY`, the checked-out commit, the annotated
+tag object, and the exact `release/vMAJOR.MINOR` branch head. It queries GitHub
+with fixed `git` and `gh` argument vectors, decodes GraphQL and paginated GHCR
+JSON in Go, and refuses an existing release or draft and any of the three
+versioned OCI tags. The command writes fresh mode `0644` commit, branch, and tag
+object receipts under an `os.Root` anchored at the validated `RUNNER_TEMP`.
+`GH_TOKEN` is inherited by `gh` through the process environment; it is never
+placed in an argument vector or artifact.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

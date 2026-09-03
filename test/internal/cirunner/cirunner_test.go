@@ -237,6 +237,17 @@ func TestExecRunnerRejectsCommandsOutsideCIAllowlist(t *testing.T) {
 	}
 }
 
+func TestExecRunnerAllowlistIncludesGitHubCLI(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := (ExecRunner{}).RunCommand(ctx, CommandSpec{Name: "gh", Args: []string{"--version"}})
+	if errors.Is(err, errCommandNotAllowed) {
+		t.Fatalf("RunCommand(gh) error = %v, want deliberately allowlisted executable", err)
+	}
+}
+
 func TestSBOMRunsPinnedScansAndValidatesArtifacts(t *testing.T) {
 	t.Parallel()
 
