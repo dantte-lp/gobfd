@@ -309,12 +309,8 @@ func validateRootFile(root, name, purpose string, createParent bool) (string, er
 	} else if err := inspectDirectoryTree(parent, purpose+" parent"); err != nil {
 		return "", err
 	}
-	if info, statErr := os.Lstat(path); statErr == nil {
-		if !info.Mode().IsRegular() {
-			return "", fmt.Errorf("%s %s has mode %s: %w", purpose, path, info.Mode(), errInvalidConfig)
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect %s %s: %w", purpose, path, statErr)
+	if err := validateRegularOrMissingFile(path, purpose); err != nil {
+		return "", err
 	}
 	return path, nil
 }
@@ -331,12 +327,8 @@ func openFreshArtifact(path, purpose string) (*os.File, error) {
 }
 
 func resetArtifact(path, purpose string) error {
-	if info, err := os.Lstat(path); err == nil {
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%s %s has mode %s: %w", purpose, path, info.Mode(), errInvalidConfig)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect %s %s: %w", purpose, path, err)
+	if err := validateRegularOrMissingFile(path, purpose); err != nil {
+		return err
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, benchmarkArtifactMode)
 	if err != nil {
@@ -344,6 +336,20 @@ func resetArtifact(path, purpose string) error {
 	}
 	if err := errors.Join(file.Chmod(benchmarkArtifactMode), file.Close()); err != nil {
 		return fmt.Errorf("secure %s %s: %w", purpose, path, err)
+	}
+	return nil
+}
+
+func validateRegularOrMissingFile(path, purpose string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect %s %s: %w", purpose, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s %s has mode %s: %w", purpose, path, info.Mode(), errInvalidConfig)
 	}
 	return nil
 }

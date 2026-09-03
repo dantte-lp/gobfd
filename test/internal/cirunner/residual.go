@@ -142,10 +142,17 @@ func validateGitHubBaseRef(value string) error {
 		strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.ContainsAny(value, " \\~^:?*[") {
 		return fmt.Errorf("GITHUB_BASE_REF must be a safe branch name: %w", errInvalidConfig)
 	}
-	for component := range strings.SplitSeq(value, "/") {
-		if strings.HasPrefix(component, ".") || strings.HasSuffix(component, ".lock") {
-			return fmt.Errorf("GITHUB_BASE_REF must be a safe branch name: %w", errInvalidConfig)
-		}
+	if hasUnsafeGitHubBaseRefComponent(value) {
+		return fmt.Errorf("GITHUB_BASE_REF must be a safe branch name: %w", errInvalidConfig)
 	}
 	return nil
+}
+
+func hasUnsafeGitHubBaseRefComponent(value string) bool {
+	for component := range strings.SplitSeq(value, "/") {
+		if strings.HasPrefix(component, ".") || strings.HasSuffix(component, ".lock") {
+			return true
+		}
+	}
+	return false
 }
