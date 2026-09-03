@@ -95,7 +95,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: golangci-lint v2
-        run: make lint-ci
+        run: go run ./test/cmd/cictl lint
 
   lint-docs:
     name: Lint (docs)

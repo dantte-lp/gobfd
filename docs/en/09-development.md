@@ -287,9 +287,15 @@ make lint
 
 The tool is pinned by the `tool` directive in the isolated `tools/go.mod` module.
 Local linting is container-only: `make lint` reconciles the dev service and
-runs the prebuilt pinned binary inside it. `make lint-ci` is the inner contract
-for CI containers and deliberately refuses to run on the host. The dev service
-defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go runtime soft limit,
+runs the prebuilt pinned binary inside it. Both CI workflows and the
+`make lint-ci` compatibility target call the shell-free `cictl lint` command.
+It refuses host execution, fixes `GOMAXPROCS=2` and `GOMEMLIMIT=1500MiB`,
+verifies the pinned binary version and 92 enabled nondeprecated linters, and
+runs the base plus all 17 build-tag profiles through direct Go argument vectors.
+The development image selects its prebuilt `/go/bin/golangci-lint`; minimal CI
+Go containers use the same pinned tools module when `GOLANGCI_LINT` is unset.
+The dev service defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go
+runtime soft limit,
 no swap beyond that hard limit, and 1,024 PIDs. Go and golangci-lint caches are
 kept in the disposable container layer. The image includes the C compiler and
 runtime headers required by the Linux Go race detector, so race gates never
@@ -418,6 +424,8 @@ rows and tool notes to `GITHUB_STEP_SUMMARY`. It atomically publishes mode
 gate.
 
 The release workflow's test and report jobs use the same shell-free boundary.
+The complete workflow forbids explicit `shell:` declarations and multiline or
+folded `run` programs; executable steps remain single scalar commands.
 `cictl release-build` derives release metadata from `GITHUB_REF_NAME` and
 `GITHUB_SHA` and builds the four supported binaries with fixed arguments. Both
 tool-install steps call `toolbootstrap podman-runtime` once; that command
@@ -551,6 +559,9 @@ digest receipt. Before changing an alias, it snapshots the complete existing
 OCI index for `latest`, `debian-trixie`, and `oraclelinux10`. It then promotes
 the verified primary index to the first two aliases and the verified Oracle
 Linux 10 index to the third, and verifies every resulting index descriptor.
+This uses Docker's documented
+[`imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
+single-source index-copy behavior; no platform manifest is flattened.
 Any mutation or verification failure restores and verifies every prior alias
 digest under an independent bounded rollback context. Docker never receives a
 GitHub token.
@@ -561,7 +572,9 @@ tag and body, the exact 12 remote asset identities, and every local digest
 receipt byte used by the preceding checks. Only after its opened roots have
 closed successfully does it execute the single terminal
 `gh release edit <tag> --repo <owner/repository> --draft=false --latest`
-mutation. The workflow performs no later release command or fallible step.
+mutation with the documented
+[`gh release edit`](https://cli.github.com/manual/gh_release_edit) flags. The
+workflow performs no later release command or fallible step.
 
 ### Dependency Inventory
 

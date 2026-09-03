@@ -36,7 +36,6 @@ COMPOSE_FILE := deployments/compose/compose.dev.yml
 DC := COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME) $(COMPOSE) -p $(COMPOSE_PROJECT_NAME) -f $(COMPOSE_FILE)
 EXEC := $(DC) exec -T dev
 E2ECTL_BIN := /tmp/gobfd-e2ectl
-GOLANGCI_LINT ?= go tool -modfile=tools/go.mod golangci-lint
 SEMGREP ?= semgrep
 SEMGREP_CONFIG ?= p/golang
 SEMGREP_COMMON_FLAGS := --config $(SEMGREP_CONFIG) --metrics=off --disable-version-check --timeout 15 --no-git-ignore --include='*.go' .
@@ -535,73 +534,13 @@ benchmark-report:
 
 # === Quality ===
 
-LINT_ENABLED_COUNT := 92
-
-define run_lint_tag
-	@tag='$(1)'; \
-		files="$$(grep -RIl --include='*.go' "^//go:build .*\\<$$tag\\>" .)"; \
-		constrained="$$(printf '%s\n' "$$files" | sed '/^$$/d' | wc -l)"; \
-		inputs="$$(go list -buildvcs=false -tags "$$tag" -f '{{range .GoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' $(2))"; \
-		input_count="$$(printf '%s\n' "$$inputs" | sed '/^$$/d' | wc -l)"; \
-		test "$$constrained" -gt 0 || { echo "lint-ci: tag $$tag has no constrained source files"; exit 1; }; \
-		test "$$input_count" -gt 0 || { echo "lint-ci: tag $$tag produced no Go inputs"; exit 1; }; \
-		echo "lint-ci: tag $$tag ($$constrained constrained files, $$input_count Go inputs)"
-	$(GOLANGCI_LINT) run --build-tags '$(1)' ./...
-endef
-
 lint: dev-ensure
-	$(EXEC) make lint-ci
+	$(EXEC) go run ./test/cmd/cictl lint
 
 # lint-ci deliberately has no Podman dependency so the exact same contract runs
 # inside the pinned development container and GitHub's Go job container.
 lint-ci:
-	@test -e /.dockerenv || test -e /run/.containerenv || { \
-		echo "lint-ci is container-only; use 'make lint' locally"; exit 2; \
-	}
-	$(GOLANGCI_LINT) config verify
-	@packages="$$(go list -buildvcs=false -f '{{.ImportPath}}' ./...)"; \
-		package_count="$$(printf '%s\n' "$$packages" | sed '/^$$/d' | wc -l)"; \
-		production_inputs="$$(go list -buildvcs=false -f '{{range .GoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' ./...)"; \
-		production_input_count="$$(printf '%s\n' "$$production_inputs" | sed '/^$$/d' | wc -l)"; \
-		test_inputs="$$(go list -buildvcs=false -f '{{range .TestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$$.ImportPath}}/{{.}}{{"\n"}}{{end}}' ./...)"; \
-		test_input_count="$$(printf '%s\n' "$$test_inputs" | sed '/^$$/d' | wc -l)"; \
-		test "$$package_count" -gt 0 || { echo "lint-ci: base selector produced no packages"; exit 1; }; \
-		test "$$production_input_count" -gt 0 || { echo "lint-ci: base selector produced no production Go inputs"; exit 1; }; \
-		test "$$test_input_count" -gt 0 || { echo "lint-ci: base selector produced no test Go inputs"; exit 1; }; \
-		echo "lint-ci: base ($$package_count packages, $$production_input_count production inputs, $$test_input_count test inputs)"
-	@module_version="$$(go list -modfile=tools/go.mod -m -f '{{.Version}}' github.com/golangci/golangci-lint/v2)"; \
-		binary_version="v$$($(GOLANGCI_LINT) version --short)"; \
-		test "$$module_version" = "$$binary_version" || { \
-			echo "lint-ci: module $$module_version != binary $$binary_version"; exit 1; \
-		}; \
-		linters="$$($(GOLANGCI_LINT) linters)"; \
-		enabled="$$(printf '%s\n' "$$linters" | awk '/^Enabled by your configuration/{active=1;next}/^Disabled by your configuration/{active=0} active && /^[a-z0-9_]+:/{count++} END{print count+0}')"; \
-		deprecated="$$(printf '%s\n' "$$linters" | awk '/^Enabled by your configuration/{active=1;next}/^Disabled by your configuration/{active=0} active && /\[deprecated\]/{count++} END{print count+0}')"; \
-		test "$$enabled" -eq "$(LINT_ENABLED_COUNT)" || { \
-			echo "lint-ci: enabled $$enabled linters, expected $(LINT_ENABLED_COUNT)"; exit 1; \
-		}; \
-		test "$$deprecated" -eq 0 || { \
-			echo "lint-ci: $$deprecated deprecated linters are enabled"; exit 1; \
-		}; \
-		echo "lint-ci: $$enabled linters enabled, 0 deprecated, version $$binary_version"
-	$(GOLANGCI_LINT) run ./...
-	$(call run_lint_tag,integration,./test/integration/...)
-	$(call run_lint_tag,testcontainers,./test/internal/containertest/...)
-	$(call run_lint_tag,e2e_core_testcontainers,./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/core/...)
-	$(call run_lint_tag,e2e_bgp_failover_testcontainers,./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/bgp-failover/...)
-	$(call run_lint_tag,e2e_haproxy_testcontainers,./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/haproxy-health/...)
-	$(call run_lint_tag,e2e_observability_testcontainers,./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/observability/...)
-	$(call run_lint_tag,e2e_linux,./test/e2e/linux/...)
-	$(call run_lint_tag,e2e_overlay,./test/e2e/overlay/...)
-	$(call run_lint_tag,e2e_vendor,./test/e2e/vendor/...)
-	$(call run_lint_tag,interop,./test/interop/...)
-	$(call run_lint_tag,interop_testcontainers,./test/interop/...)
-	$(call run_lint_tag,interop_bgp,./test/interop-bgp/...)
-	$(call run_lint_tag,interop_bgp_testcontainers,./test/interop-bgp/...)
-	$(call run_lint_tag,interop_clab,./test/interop-clab/...)
-	$(call run_lint_tag,interop_rfc,./test/interop-rfc/...)
-	$(call run_lint_tag,interop_rfc_testcontainers,./test/interop-rfc/...)
-	$(call run_lint_tag,dependencyinventory_generate,./test/cmd/dependencyinventory/...)
+	go run ./test/cmd/cictl lint
 
 lint-fix:
 	$(EXEC) /go/bin/golangci-lint run --fix ./...

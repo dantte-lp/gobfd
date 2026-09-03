@@ -292,9 +292,15 @@ make lint
 Инструмент закреплён директивой `tool` в изолированном модуле `tools/go.mod`.
 Локальный lint выполняется только в контейнере: `make lint` приводит dev-сервис
 к актуальной конфигурации и запускает в нём заранее собранный закреплённый
-бинарник. `make lint-ci` является внутренним контрактом для CI-контейнеров и
-намеренно отказывается запускаться на хосте. По умолчанию dev-сервис ограничен
-4 CPU, жёстким лимитом памяти 8 GiB, мягким лимитом Go runtime 6 GiB, без swap
+бинарник. Оба CI workflow и compatibility-цель `make lint-ci` вызывают
+реализованную без shell команду `cictl lint`. Она запрещает запуск на хосте,
+фиксирует `GOMAXPROCS=2` и `GOMEMLIMIT=1500MiB`, проверяет версию закреплённого
+бинарника и 92 включённых nondeprecated линтера, затем прямыми векторами
+аргументов Go запускает базовый и все 17 build-tag profiles. Development image
+выбирает заранее собранный `/go/bin/golangci-lint`, а
+минимальные Go-контейнеры CI используют тот же закреплённый tools module, если
+`GOLANGCI_LINT` не задана. По умолчанию dev-сервис ограничен 4 CPU, жёстким
+лимитом памяти 8 GiB, мягким лимитом Go runtime 6 GiB, без swap
 сверх жёсткого лимита и 1 024 PID. Кэши Go и golangci-lint остаются в удаляемом
 слое контейнера. Образ содержит C-компилятор и runtime-заголовки, необходимые
 Linux race detector Go, поэтому race-гейты не устанавливают пакеты во время
@@ -427,6 +433,8 @@ critical/report-only для регрессий `>=10%` и добавляет rep
 gate.
 
 Test и report jobs release workflow используют ту же границу без shell.
+Во всём workflow запрещены явные объявления `shell:` и многострочные или
+folded `run`-программы; исполняемые шаги остаются одиночными scalar-командами.
 `cictl release-build` получает release metadata из `GITHUB_REF_NAME` и
 `GITHUB_SHA` и собирает четыре поддерживаемых бинарных файла с фиксированными
 аргументами. Оба шага установки инструментов однократно вызывают
@@ -569,7 +577,12 @@ release workflow; она также запускается из immutable verifi
 полный существующий OCI index для `latest`, `debian-trixie` и
 `oraclelinux10`. Затем проверенный primary index назначается первым двум
 aliases, а проверенный Oracle Linux 10 index — третьему, после чего сверяется
-каждый descriptor получившихся indexes. При любой ошибке mutation или
+каждый descriptor получившихся indexes. Используется документированное Docker
+поведение
+[`imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
+для копирования единственного source index; platform manifest не
+преобразуется в плоский image.
+При любой ошибке mutation или
 verification все прежние digest aliases восстанавливаются и проверяются в
 независимом ограниченном rollback context. Docker не получает GitHub token.
 
@@ -579,7 +592,9 @@ draft, точные identity 12 remote assets и каждый байт лока�
 receipts, использованный предыдущими проверками. Только после успешного
 закрытия opened roots выполняется единственная терминальная mutation
 `gh release edit <tag> --repo <owner/repository> --draft=false --latest`.
-После неё workflow не выполняет другие release-команды или fallible steps.
+Флаги соответствуют документации
+[`gh release edit`](https://cli.github.com/manual/gh_release_edit). После этой
+mutation workflow не выполняет другие release-команды или fallible steps.
 
 ### Инвентаризация зависимостей
 

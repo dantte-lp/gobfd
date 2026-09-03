@@ -31,6 +31,13 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 			command:   "go run ./test/cmd/cictl build --output /tmp/gobfd-build",
 			forbidden: []string{"shell: bash", "run: |", "VERSION=", "GIT_COMMIT=", "BUILD_DATE=", "go build"},
 		},
+		{
+			name:      "repository lint",
+			workflow:  "../.github/workflows/ci.yml",
+			step:      "golangci-lint v2",
+			command:   "go run ./test/cmd/cictl lint",
+			forbidden: []string{"make lint-ci", "shell:", "run: |", "run: >"},
+		},
 	}
 
 	for _, test := range tests {
@@ -322,6 +329,53 @@ func TestReleaseWorkflowTestAndReportStepsUseGoOwners(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowHasNoEmbeddedShellPrograms(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	wantCommands := map[string]int{
+		"go run ./test/cmd/cictl release-build":                1,
+		"go run ./test/cmd/toolbootstrap podman-runtime":       2,
+		"go test -buildvcs=false ./... -race -count=1":         1,
+		"go run ./scripts/vuln-audit.go":                       1,
+		"go run ./test/cmd/cictl lint":                         1,
+		"go run ./test/cmd/cictl release-test-report":          1,
+		"go run ./test/cmd/cictl release-benchmarks":           1,
+		"go run ./test/cmd/cictl release-benchmark-metadata":   1,
+		"go run ./test/cmd/cictl release-benchmark-comparison": 1,
+		"go run ./test/cmd/cictl release-reports-archive":      1,
+		"go run ./test/cmd/cictl release-preflight":            1,
+		"go run ./test/cmd/cictl release-notes":                1,
+		"go run ./test/cmd/cictl release-upx":                  1,
+		"go run ./test/cmd/cictl release-artifacts":            1,
+		"go run ./test/cmd/cictl release-oci-evidence":         1,
+		"go run ./test/cmd/cictl release-evidence":             1,
+		"go run ./test/cmd/cictl release-verify":               1,
+		"go run ./test/cmd/cictl release-promote":              1,
+		"go run ./test/cmd/cictl release-publish":              1,
+	}
+	gotCommands := make(map[string]int)
+	for line := range strings.SplitSeq(workflow, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "shell:") {
+			t.Errorf("release workflow retains explicit shell declaration %q", trimmed)
+		}
+		if command, found := strings.CutPrefix(trimmed, "run:"); found {
+			gotCommands[strings.TrimSpace(command)]++
+		}
+	}
+	for command, count := range gotCommands {
+		if wantCommands[command] != count {
+			t.Errorf("release workflow command %q count = %d, want %d", command, count, wantCommands[command])
+		}
+	}
+	for command, count := range wantCommands {
+		if gotCommands[command] != count {
+			t.Errorf("release workflow command %q count = %d, want %d", command, gotCommands[command], count)
+		}
+	}
+}
+
 func TestReleaseWorkflowImmutablePreflightUsesOneGoCommand(t *testing.T) {
 	t.Parallel()
 
@@ -525,7 +579,6 @@ func TestReleaseWorkflowUsesGoOwnedCloseoutCommands(t *testing.T) {
 		{step: "Publish verified release", command: "release-publish"},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(test.command, func(t *testing.T) {
 			t.Parallel()
 

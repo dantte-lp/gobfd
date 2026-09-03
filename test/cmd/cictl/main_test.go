@@ -219,6 +219,19 @@ func TestRunDispatchesReleaseCloseoutFromImmutableVerifierEnvironment(t *testing
 	}
 }
 
+func TestRunDispatchesLint(t *testing.T) {
+	t.Parallel()
+
+	err := run(context.Background(), []string{"lint"}, dependencies{
+		getwd:      func() (string, error) { return t.TempDir(), nil },
+		environ:    func() []string { return nil },
+		specRunner: &specCommandRecorder{},
+	})
+	if err == nil || strings.Contains(err.Error(), "unknown CI command") {
+		t.Fatalf("run(lint) error = %v, want dispatched lint input validation", err)
+	}
+}
+
 func TestRunReleaseBuildReadsTagAndSHA(t *testing.T) {
 	t.Parallel()
 

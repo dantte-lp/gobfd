@@ -52,7 +52,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Lint
-        run: make lint-ci
+        run: go run ./test/cmd/cictl lint
 
   reports:
     runs-on: ubuntu-latest

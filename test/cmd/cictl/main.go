@@ -59,7 +59,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	}
 	if len(arguments) == 0 {
 		return fmt.Errorf(
-			"usage: cictl {sonar-mode|sonar-skip-notice|build|test-coverage|commit-policy|"+
+			"usage: cictl {sonar-mode|sonar-skip-notice|build|lint|test-coverage|commit-policy|"+
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
@@ -77,6 +77,8 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runSonarSkipNotice(arguments[1:], deps)
 	case "build":
 		return runBuild(ctx, arguments[1:], deps)
+	case "lint":
+		return runLint(ctx, arguments[1:], deps)
 	case "test-coverage":
 		return runTestCoverage(ctx, arguments[1:], deps)
 	case "commit-policy":
@@ -130,6 +132,22 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runLint(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("lint", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve lint repository root: %w", err)
+	}
+	if err := cirunner.Lint(ctx, cirunner.LintOptions{
+		Root: root, Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("run repository lint profiles: %w", err)
+	}
+	return nil
 }
 
 func runReleasePromote(ctx context.Context, arguments []string, deps dependencies) error {

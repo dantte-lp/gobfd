@@ -47,9 +47,17 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	}
 
 	makefile := readContractFile(t, "../Makefile")
-	if !strings.Contains(makefile, "go tool -modfile=tools/go.mod golangci-lint") {
-		t.Error("Makefile does not run golangci-lint from the repository root through tools/go.mod")
+	if strings.Contains(makefile, "GOLANGCI_LINT ?=") {
+		t.Error("Makefile retains the obsolete golangci-lint command override")
 	}
+	lintHelper := readContractFile(t, "../test/internal/cirunner/lint.go")
+	requireContractStrings(t, "lint CI helper", lintHelper, []string{
+		`prebuiltLintPath            = "/go/bin/golangci-lint"`,
+		`toolsModuleFlag             = "-modfile=tools/go.mod"`,
+		`name == "GOLANGCI_LINT"`,
+		`goToolSubcommand, toolsModuleFlag, "golangci-lint"`,
+		`case prebuiltLintPath:`,
+	})
 
 	workflow := readContractFile(t, "../.github/workflows/ci.yml")
 	for _, forbidden := range []string{

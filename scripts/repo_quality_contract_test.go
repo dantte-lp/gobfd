@@ -42,12 +42,18 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 	sonarProject := readContractFile(t, "../sonar-project.properties")
 
 	requireContractStrings(t, "Makefile", makefile, []string{
+		"lint-ci:\n\tgo run ./test/cmd/cictl lint\n",
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/repoquality commit --message",
 		"go tool -modfile=tools/go.mod yamlfmt -lint .",
 		"go tool -modfile=tools/go.mod misspell -error",
 		"go run ./test/cmd/junitreport --root .",
 	})
+	for _, marker := range []string{"define run_lint_tag", "LINT_ENABLED_COUNT :=", "grep -RIl --include='*.go'"} {
+		if strings.Contains(makefile, marker) {
+			t.Errorf("Makefile retains shell-owned lint marker %q", marker)
+		}
+	}
 	requireContractStrings(t, "CI workflow", workflow, []string{
 		"go run ./test/cmd/repoquality markdown --root .",
 		"go run ./test/cmd/cictl commit-policy",
@@ -157,16 +163,26 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	}
 	upload := strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-evidence")
 	preflight := strings.Index(workflow, "Refuse existing release, draft, or versioned OCI tag")
+	notes := strings.Index(workflow, "Extract release notes from CHANGELOG.md")
 	goreleaser := strings.Index(workflow, "Run GoReleaser")
+	artifacts := strings.Index(workflow, "Record exact release asset matrix")
+	ociEvidence := strings.Index(workflow, "Record exact release OCI evidence")
+	reportsDownload := strings.Index(workflow, "Download reports archive")
 	verification := strings.LastIndex(workflow, "Verify exact release draft")
 	promotion := strings.LastIndex(workflow, "Promote verified OCI aliases")
 	publication := strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-publish")
-	if preflight < 0 || goreleaser < preflight || upload < goreleaser ||
+	if preflight < 0 || notes < preflight || goreleaser < notes || artifacts < goreleaser ||
+		ociEvidence < artifacts || reportsDownload < ociEvidence || upload < reportsDownload ||
 		verification < upload || promotion < verification || publication < promotion {
-		t.Error("release ordering is not preflight, draft, upload, verification, alias promotion, then publication")
+		t.Error("release ordering is not preflight, notes, draft, artifact and OCI evidence, " +
+			"upload, verification, alias promotion, then publication")
 	}
 	if strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-") != publication {
 		t.Error("publishing is not the final release command")
+	}
+	publicationStep := strings.LastIndex(workflow, "\n      - name: Publish verified release\n")
+	if publicationStep < 0 || strings.LastIndex(workflow, "\n      - ") != publicationStep {
+		t.Error("release publication is not the final workflow step")
 	}
 }
 

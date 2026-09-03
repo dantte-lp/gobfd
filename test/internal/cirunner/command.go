@@ -50,10 +50,13 @@ type SpecRunner interface {
 
 // RunCommand executes a typed direct child command and preserves its output streams.
 func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
-	switch spec.Name {
-	case "buf", "docker", "gh", "git", "go", "upx", "xz":
-	default:
-		return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
+	if spec.Name != prebuiltLintPath {
+		switch spec.Name {
+		//nolint:goconst // Executable names belong together in the explicit command allowlist.
+		case "buf", "docker", "gh", "git", "go", "upx", "xz":
+		default:
+			return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
+		}
 	}
 	executable := spec.Name
 	var extraFiles []*os.File
