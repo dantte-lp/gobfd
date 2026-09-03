@@ -544,6 +544,25 @@ links and special entries; it requires an explicit `reports/` directory and
 bounded regular descendants. Only `gh` inherits GitHub tokens; Git and Docker
 receive an explicitly token-stripped environment.
 
+`cictl release-promote` is the only OCI alias-promotion command in the release
+workflow and also runs from the immutable verifier checkout. It revalidates
+the annotated tag, target commit, release branch, and exact three-line OCI
+digest receipt. Before changing an alias, it snapshots the complete existing
+OCI index for `latest`, `debian-trixie`, and `oraclelinux10`. It then promotes
+the verified primary index to the first two aliases and the verified Oracle
+Linux 10 index to the third, and verifies every resulting index descriptor.
+Any mutation or verification failure restores and verifies every prior alias
+digest under an independent bounded rollback context. Docker never receives a
+GitHub token.
+
+`cictl release-publish` is the final release command. It first verifies the
+three promoted alias indexes, then revalidates the live Git identity, draft
+tag and body, the exact 12 remote asset identities, and every local digest
+receipt byte used by the preceding checks. Only after its opened roots have
+closed successfully does it execute the single terminal
+`gh release edit <tag> --repo <owner/repository> --draft=false --latest`
+mutation. The workflow performs no later release command or fallible step.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

@@ -136,9 +136,19 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
 			"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
 			"        run: go run ./test/cmd/cictl release-verify\n",
+		"      - name: Promote verified OCI aliases\n" +
+			"        working-directory: .release-verifier\n" +
+			"        env:\n" +
+			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
+			"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
+			"        run: go run ./test/cmd/cictl release-promote\n",
+		"      - name: Publish verified release\n" +
+			"        working-directory: .release-verifier\n" +
+			"        env:\n" +
+			"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n" +
+			"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n" +
+			"        run: go run ./test/cmd/cictl release-publish\n",
 		"Refuse existing release, draft, or versioned OCI tag",
-		"Promote verified OCI aliases",
-		"gh release edit \"$GITHUB_REF_NAME\" --draft=false",
 	})
 	for _, forbidden := range []string{"--clobber", "--notes-file", " --notes "} {
 		if strings.Contains(workflow, forbidden) {
@@ -150,13 +160,13 @@ func TestReleasePublishesVerifiedDraftLast(t *testing.T) {
 	goreleaser := strings.Index(workflow, "Run GoReleaser")
 	verification := strings.LastIndex(workflow, "Verify exact release draft")
 	promotion := strings.LastIndex(workflow, "Promote verified OCI aliases")
-	publication := strings.LastIndex(workflow, "gh release edit \"$GITHUB_REF_NAME\" --draft=false")
+	publication := strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-publish")
 	if preflight < 0 || goreleaser < preflight || upload < goreleaser ||
 		verification < upload || promotion < verification || publication < promotion {
 		t.Error("release ordering is not preflight, draft, upload, verification, alias promotion, then publication")
 	}
-	if strings.LastIndex(workflow, "gh release ") != publication {
-		t.Error("publishing is not the final gh release mutation")
+	if strings.LastIndex(workflow, "run: go run ./test/cmd/cictl release-") != publication {
+		t.Error("publishing is not the final release command")
 	}
 }
 

@@ -64,7 +64,8 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
-				"release-upx|release-artifacts|release-oci-evidence|release-evidence|release-verify}: %w",
+				"release-upx|release-artifacts|release-oci-evidence|release-evidence|release-verify|"+
+				"release-promote|release-publish}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -122,9 +123,49 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runReleaseEvidence(ctx, arguments[1:], deps)
 	case "release-verify":
 		return runReleaseVerify(ctx, arguments[1:], deps)
+	case "release-promote":
+		return runReleasePromote(ctx, arguments[1:], deps)
+	case "release-publish":
+		return runReleasePublish(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleasePromote(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-promote", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release verifier root for OCI alias promotion: %w", err)
+	}
+	if err := cirunner.PromoteReleaseOCIAliases(ctx, cirunner.PromoteReleaseOCIAliasesOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("promote verified OCI aliases: %w", err)
+	}
+	return nil
+}
+
+func runReleasePublish(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-publish", arguments); err != nil {
+		return err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve release verifier root for publication: %w", err)
+	}
+	if err := cirunner.PublishVerifiedRelease(ctx, cirunner.PublishVerifiedReleaseOptions{
+		Root: root, ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Repository: deps.getenv("GITHUB_REPOSITORY"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("publish verified release: %w", err)
+	}
+	return nil
 }
 
 func runReleaseVerify(ctx context.Context, arguments []string, deps dependencies) error {

@@ -513,6 +513,48 @@ func TestReleaseWorkflowUsesOneGoOwnedDraftVerificationCommand(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesGoOwnedCloseoutCommands(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	tests := []struct {
+		step    string
+		command string
+	}{
+		{step: "Promote verified OCI aliases", command: "release-promote"},
+		{step: "Publish verified release", command: "release-publish"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.command, func(t *testing.T) {
+			t.Parallel()
+
+			step := namedWorkflowStep(t, workflow, test.step)
+			wantRun := "        run: go run ./test/cmd/cictl " + test.command + "\n"
+			for _, marker := range []string{
+				"        working-directory: .release-verifier\n",
+				"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n",
+				"          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
+				wantRun,
+			} {
+				if !strings.Contains(step, marker) {
+					t.Errorf("release closeout step %q lacks immutable verifier marker %q", test.step, marker)
+				}
+			}
+			if got := strings.Count(step, wantRun); got != 1 {
+				t.Errorf("release closeout command %q count = %d, want 1", test.command, got)
+			}
+			for _, marker := range []string{
+				"run: |", "jq ", "awk ", "diff ", "gh release ", "docker buildx ",
+			} {
+				if strings.Contains(step, marker) {
+					t.Errorf("release closeout step %q retains shell-owned marker %q", test.step, marker)
+				}
+			}
+		})
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

@@ -562,6 +562,25 @@ members, trailing data, unsafe или duplicate paths, links и special entries;
 Только `gh` наследует GitHub tokens; Git и Docker получают явно очищенное от
 токенов окружение.
 
+`cictl release-promote` — единственная команда продвижения OCI aliases в
+release workflow; она также запускается из immutable verifier checkout.
+Команда повторно проверяет annotated tag, целевой commit, release branch и
+точный трёхстрочный OCI digest receipt. До изменения alias она сохраняет
+полный существующий OCI index для `latest`, `debian-trixie` и
+`oraclelinux10`. Затем проверенный primary index назначается первым двум
+aliases, а проверенный Oracle Linux 10 index — третьему, после чего сверяется
+каждый descriptor получившихся indexes. При любой ошибке mutation или
+verification все прежние digest aliases восстанавливаются и проверяются в
+независимом ограниченном rollback context. Docker не получает GitHub token.
+
+`cictl release-publish` — последняя release-команда. Сначала она проверяет три
+продвинутых alias indexes, затем повторно сверяет live Git identity, tag и body
+draft, точные identity 12 remote assets и каждый байт локальных digest
+receipts, использованный предыдущими проверками. Только после успешного
+закрытия opened roots выполняется единственная терминальная mutation
+`gh release edit <tag> --repo <owner/repository> --draft=false --latest`.
+После неё workflow не выполняет другие release-команды или fallible steps.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в

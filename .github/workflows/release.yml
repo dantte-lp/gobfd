@@ -200,120 +200,15 @@ jobs:
         run: go run ./test/cmd/cictl release-verify
 
       - name: Promote verified OCI aliases
+        working-directory: .release-verifier
         env:
+          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
-          expected_branch="$(cat "$RUNNER_TEMP/expected-release-branch.txt")"
-          expected_tag_object="$(cat \
-            "$RUNNER_TEMP/expected-release-tag-object.txt")"
-          tag_ref="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
-          if [ "$(jq -er '.object.type' <<<"$tag_ref")" != "tag" ] || \
-            [ "$(jq -er '.object.sha' <<<"$tag_ref")" != \
-              "$expected_tag_object" ]; then
-            echo "release tag identity changed before OCI alias promotion" >&2
-            exit 1
-          fi
-          tag_object="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/tags/${expected_tag_object}")"
-          if [ "$(jq -er '.object.type' <<<"$tag_object")" != "commit" ] || \
-            [ "$(jq -er '.object.sha' <<<"$tag_object")" != \
-              "$expected_commit" ]; then
-            echo "release tag target changed before OCI alias promotion" >&2
-            exit 1
-          fi
-          branch_ref="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${expected_branch}")"
-          if [ "$(jq -er '.object.type' <<<"$branch_ref")" != "commit" ] || \
-            [ "$(jq -er '.object.sha' <<<"$branch_ref")" != \
-              "$expected_commit" ]; then
-            echo "release branch changed before OCI alias promotion" >&2
-            exit 1
-          fi
-
-          version="${GITHUB_REF_NAME#v}"
-          repository="ghcr.io/dantte-lp/gobfd"
-          primary_image="$repository:$version"
-          debian_image="$repository:${version}-debian-trixie"
-          oracle_image="$repository:${version}-oraclelinux10"
-          primary_digest="$(awk -v image="$primary_image" \
-            '$1 == image { print $2 }' release-image-digests.txt)"
-          debian_digest="$(awk -v image="$debian_image" \
-            '$1 == image { print $2 }' release-image-digests.txt)"
-          oracle_digest="$(awk -v image="$oracle_image" \
-            '$1 == image { print $2 }' release-image-digests.txt)"
-          if [[ ! "$primary_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || \
-            [ "$primary_digest" != "$debian_digest" ] || \
-            [[ ! "$oracle_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "versioned OCI digest receipt is incomplete or inconsistent" >&2
-            exit 1
-          fi
-
-          docker buildx imagetools create \
-            --tag "$repository:latest" \
-            --tag "$repository:debian-trixie" \
-            "$repository@$primary_digest"
-          docker buildx imagetools create \
-            --tag "$repository:oraclelinux10" \
-            "$repository@$oracle_digest"
-
-          for alias_record in \
-            "$repository:latest $primary_digest" \
-            "$repository:debian-trixie $primary_digest" \
-            "$repository:oraclelinux10 $oracle_digest"; do
-            alias_image="${alias_record%% *}"
-            expected_digest="${alias_record#* }"
-            alias_manifest="$(docker buildx imagetools inspect \
-              --format '{{json .Manifest}}' "$alias_image")"
-            actual_digest="$(jq -er '
-              .digest |
-              select(type == "string" and test("^sha256:[0-9a-f]{64}$"))
-            ' <<<"$alias_manifest")"
-            if [ "$actual_digest" != "$expected_digest" ]; then
-              echo "$alias_image does not reference the verified OCI index" >&2
-              exit 1
-            fi
-          done
+        run: go run ./test/cmd/cictl release-promote
 
       - name: Publish verified release
+        working-directory: .release-verifier
         env:
+          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          expected_commit="$(cat "$RUNNER_TEMP/expected-release-commit.txt")"
-          expected_branch="$(cat "$RUNNER_TEMP/expected-release-branch.txt")"
-          expected_tag_object="$(cat \
-            "$RUNNER_TEMP/expected-release-tag-object.txt")"
-          tag_ref="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}")"
-          branch_ref="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/git/ref/heads/${expected_branch}")"
-          if [ "$(jq -er '.object.type' <<<"$tag_ref")" != "tag" ] || \
-            [ "$(jq -er '.object.sha' <<<"$tag_ref")" != \
-              "$expected_tag_object" ] || \
-            [ "$(jq -er '.object.type' <<<"$branch_ref")" != "commit" ] || \
-            [ "$(jq -er '.object.sha' <<<"$branch_ref")" != \
-              "$expected_commit" ]; then
-            echo "release identity changed before publication" >&2
-            exit 1
-          fi
-          release_json="$(gh release view "$GITHUB_REF_NAME" \
-            --json isDraft,tagName,body,assets)"
-          expected_body="$(cat release-notes.md)"
-          actual_body="$(jq -er '.body | select(type == "string")' \
-            <<<"$release_json")"
-          if [ "$(jq -er '.isDraft' <<<"$release_json")" != "true" ] || \
-            [ "$(jq -er '.tagName' <<<"$release_json")" != \
-              "$GITHUB_REF_NAME" ] || [ "$actual_body" != "$expected_body" ]; then
-            echo "release draft changed after evidence verification" >&2
-            exit 1
-          fi
-          jq -r '.assets[].name' <<<"$release_json" | LC_ALL=C sort -u \
-            >"$RUNNER_TEMP/final-release-assets.txt"
-          diff -u "$RUNNER_TEMP/expected-release-assets.txt" \
-            "$RUNNER_TEMP/final-release-assets.txt"
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+        run: go run ./test/cmd/cictl release-publish
