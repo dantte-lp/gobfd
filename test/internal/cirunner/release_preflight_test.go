@@ -23,25 +23,26 @@ func TestReleasePreflightUsesExactIdentityAndWritesReceipts(t *testing.T) {
 	root := t.TempDir()
 	runnerTemp := t.TempDir()
 	runner := newPreflightRunner(t, nil)
+	environment := []string{"GH_TOKEN=secret", "PATH=/usr/bin"}
 	err := ReleasePreflight(context.Background(), ReleasePreflightOptions{
 		Root: root, RunnerTemp: runnerTemp, RefName: "v0.6.2", SHA: preflightCommit,
-		Repository: "dantte-lp/gobfd", Runner: runner,
+		Repository: "dantte-lp/gobfd", Environment: environment, Runner: runner,
 	})
 	if err != nil {
 		t.Fatalf("ReleasePreflight() error = %v", err)
 	}
 	want := []specInvocation{
-		{name: "git", args: []string{"rev-parse", "HEAD"}, dir: root},
-		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}, dir: root},
-		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}, dir: root},
-		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/ref/heads/release/v0.6"}, dir: root},
+		{name: "git", args: []string{"rev-parse", "HEAD"}, dir: root, env: []string{"PATH=/usr/bin"}},
+		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}, dir: root, env: environment},
+		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}, dir: root, env: environment},
+		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/ref/heads/release/v0.6"}, dir: root, env: environment},
 		{name: "gh", args: []string{
 			"api", "graphql", "-f", "query=" + releasePreflightGraphQLQuery,
 			"-F", "owner=dantte-lp", "-F", "name=gobfd", "-F", "tag=v0.6.2",
-		}, dir: root},
+		}, dir: root, env: environment},
 		{name: "gh", args: []string{
 			"api", "--paginate", "/users/dantte-lp/packages/container/gobfd/versions?per_page=100", "--slurp",
-		}, dir: root},
+		}, dir: root, env: environment},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Errorf("preflight calls = %#v, want %#v", runner.calls, want)
@@ -201,6 +202,12 @@ func TestReleasePreflightRejectsMismatchedRemoteIdentity(t *testing.T) {
 		{name: "lightweight tag", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
 			runner.tagRefResponse = fmt.Sprintf(`{"ref":"refs/tags/v0.6.2","object":{"type":"commit","sha":%q}}`, preflightCommit)
 		}, want: "annotated tag"},
+		{name: "case alias tag ref field", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
+			runner.tagRefResponse = fmt.Sprintf(
+				`{"ref":"refs/tags/v0.6.2","Ref":"refs/tags/v0.6.2","object":{"type":"tag","sha":%q}}`,
+				preflightTagObject,
+			)
+		}, want: "noncanonical JSON field"},
 		{name: "tag target", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
 			runner.tagObjectResponse = fmt.Sprintf(`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`, preflightTagObject, otherCommit)
 		}, want: "annotated tag does not target"},
@@ -220,6 +227,46 @@ func TestReleasePreflightRejectsMismatchedRemoteIdentity(t *testing.T) {
 			test.mutate(runner, &options)
 			if err := ReleasePreflight(context.Background(), options); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("ReleasePreflight() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestReleaseGitHubJSONValidatorsRejectCaseAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		data     string
+		validate func([]byte) error
+	}{
+		{
+			name: "git ref object",
+			data: `{"ref":"refs/tags/v0.6.2","object":{"type":"tag","Type":"tag","sha":"` +
+				preflightTagObject + `"}}`,
+			validate: validateReleaseGitRefJSON,
+		},
+		{
+			name: "git tag",
+			data: `{"sha":"` + preflightTagObject + `","tag":"v0.6.2","Tag":"v0.6.2",` +
+				`"object":{"type":"commit","sha":"` + preflightCommit + `"}}`,
+			validate: validateReleaseGitTagJSON,
+		},
+		{
+			name:     "GraphQL data",
+			data:     `{"data":{"repository":{"release":null}},"Data":{"repository":{"release":null}}}`,
+			validate: validateReleaseGraphQLResponseJSON,
+		},
+		{
+			name:     "package metadata",
+			data:     `[[{"metadata":{"container":{"tags":[]}},"Metadata":{"container":{"tags":[]}}}]]`,
+			validate: validateReleasePackagePagesJSON,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := test.validate([]byte(test.data)); err == nil || !strings.Contains(err.Error(), "noncanonical JSON field") {
+				t.Fatalf("validator error = %v, want noncanonical JSON field", err)
 			}
 		})
 	}

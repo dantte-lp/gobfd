@@ -283,12 +283,7 @@ func validateGoReleaserArtifactMatrix(
 	expectedChecksummed := expectedChecksummedArtifactNames(version)
 	expectedGoReleaserRelease := append([]string{"checksums.txt"}, expectedChecksummed...)
 	sort.Strings(expectedGoReleaserRelease)
-	expectedRelease := append([]string(nil), expectedGoReleaserRelease...)
-	expectedRelease = append(
-		expectedRelease, "gobfd-"+refName+"-reports.tar.gz",
-		"release-evidence-checksums.txt", "release-image-digests.txt",
-	)
-	sort.Strings(expectedRelease)
+	expectedRelease := expectedReleaseAssetNames(version, refName)
 
 	checksummed := make([]string, 0, len(expectedChecksummed))
 	release := make([]string, 0, len(expectedRelease))
@@ -344,6 +339,16 @@ func expectedChecksummedArtifactNames(version string) []string {
 		prefix := "gobfd_" + version + "_linux_" + arch
 		names = append(names, prefix+".deb", prefix+".rpm", prefix+".tar.gz", prefix+".tar.gz.sbom.json")
 	}
+	sort.Strings(names)
+	return names
+}
+
+func expectedReleaseAssetNames(version, refName string) []string {
+	names := append([]string{"checksums.txt"}, expectedChecksummedArtifactNames(version)...)
+	names = append(
+		names, "gobfd-"+refName+"-reports.tar.gz",
+		"release-evidence-checksums.txt", "release-image-digests.txt",
+	)
 	sort.Strings(names)
 	return names
 }

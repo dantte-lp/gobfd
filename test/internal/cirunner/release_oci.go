@@ -115,18 +115,12 @@ func ReleaseOCIEvidence(ctx context.Context, options ReleaseOCIEvidenceOptions) 
 	if evidence[0].Digest != evidence[1].Digest {
 		return fmt.Errorf("primary and Debian versioned OCI tags differ: %w", errInvalidConfig)
 	}
-	var receipt strings.Builder
-	for _, image := range evidence {
-		receipt.WriteString(image.Image)
-		receipt.WriteByte(' ')
-		receipt.WriteString(image.Digest)
-		receipt.WriteByte('\n')
-	}
+	receipt := renderReleaseOCIDigestReceipt(evidence)
 	if err := validateRootPathIdentity(receiptRoot, receiptRootPath, "OCI digest receipt root before publication"); err != nil {
 		return err
 	}
 	if err := writeRootedArtifact(
-		receiptRoot, receiptName, []byte(receipt.String()), "OCI digest receipt", releaseOCIDigestReceiptLimit,
+		receiptRoot, receiptName, receipt, "OCI digest receipt", releaseOCIDigestReceiptLimit,
 	); err != nil {
 		return err
 	}
@@ -134,6 +128,17 @@ func ReleaseOCIEvidence(ctx context.Context, options ReleaseOCIEvidenceOptions) 
 		return err
 	}
 	return nil
+}
+
+func renderReleaseOCIDigestReceipt(evidence []releaseOCIImageEvidence) []byte {
+	var receipt strings.Builder
+	for _, image := range evidence {
+		receipt.WriteString(image.Image)
+		receipt.WriteByte(' ')
+		receipt.WriteString(image.Digest)
+		receipt.WriteByte('\n')
+	}
+	return []byte(receipt.String())
 }
 
 func validateReleaseOCIAttestations(

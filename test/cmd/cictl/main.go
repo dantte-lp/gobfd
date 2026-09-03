@@ -206,7 +206,8 @@ func runReleasePreflight(ctx context.Context, arguments []string, deps dependenc
 	}
 	if err := cirunner.ReleasePreflight(ctx, cirunner.ReleasePreflightOptions{
 		Root: root, RunnerTemp: deps.getenv("RUNNER_TEMP"), RefName: deps.getenv("GITHUB_REF_NAME"),
-		SHA: deps.getenv("GITHUB_SHA"), Repository: deps.getenv("GITHUB_REPOSITORY"), Runner: deps.specRunner,
+		SHA: deps.getenv("GITHUB_SHA"), Repository: deps.getenv("GITHUB_REPOSITORY"),
+		Environment: deps.environ(), Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("refuse mutable release identity: %w", err)
 	}

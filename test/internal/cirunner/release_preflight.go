@@ -31,12 +31,13 @@ query($owner: String!, $name: String!, $tag: String!) {
 
 // ReleasePreflightOptions supplies immutable release identity inputs.
 type ReleasePreflightOptions struct {
-	Root       string
-	RunnerTemp string
-	RefName    string
-	SHA        string
-	Repository string
-	Runner     SpecRunner
+	Root        string
+	RunnerTemp  string
+	RefName     string
+	SHA         string
+	Repository  string
+	Environment []string
+	Runner      SpecRunner
 }
 
 type releaseGitObject struct {
@@ -101,6 +102,16 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 	if options.Runner == nil {
 		return fmt.Errorf("release preflight command runner is required: %w", errInvalidConfig)
 	}
+	repositoryRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("open repository root for release preflight: %w", err)
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, wrapOptional("close repository preflight root", repositoryRoot.Close()))
+	}()
+	if err := validateRootPathIdentity(repositoryRoot, root, "repository root before release preflight"); err != nil {
+		return err
+	}
 	receiptRoot, receipts, err := prepareReleaseReceipts(runnerTemp)
 	if err != nil {
 		return err
@@ -109,65 +120,11 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP receipt root", receiptRoot.Close()))
 	}()
 
-	headOutput, err := runReleasePreflightCommand(ctx, options.Runner, CommandSpec{
-		Name: "git", Args: []string{"rev-parse", "HEAD"}, Dir: root,
-	}, "resolve checked-out release commit")
+	tagObjectSHA, err := verifyReleaseGitIdentity(
+		ctx, options.Runner, root, owner, repository, options.RefName, releaseBranch, expectedCommit, options.Environment,
+	)
 	if err != nil {
 		return err
-	}
-	head, err := parseCommandSHA(headOutput, "git rev-parse HEAD")
-	if err != nil {
-		return err
-	}
-	if expectedCommit != head {
-		return fmt.Errorf("checked-out commit does not equal the workflow tag commit: %w", errInvalidConfig)
-	}
-
-	tagRef := releaseGitRef{}
-	if err := runReleasePreflightJSON(ctx, options.Runner, CommandSpec{
-		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/tags/" + options.RefName}, Dir: root,
-	}, "read annotated release tag ref", &tagRef); err != nil {
-		return err
-	}
-	tagObjectSHA, err := validateFullCommitSHA(tagRef.Object.SHA, "release tag object SHA")
-	if err != nil {
-		return err
-	}
-	if tagRef.Ref != "refs/tags/"+options.RefName || tagRef.Object.Type != "tag" {
-		return fmt.Errorf("release tag must be an exact annotated tag ref: %s: %w", options.RefName, errInvalidConfig)
-	}
-
-	tagObject := releaseGitTag{}
-	if err := runReleasePreflightJSON(ctx, options.Runner, CommandSpec{
-		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/tags/" + tagObjectSHA}, Dir: root,
-	}, "read annotated release tag object", &tagObject); err != nil {
-		return err
-	}
-	tagSHA, err := validateFullCommitSHA(tagObject.SHA, "annotated tag object SHA")
-	if err != nil {
-		return err
-	}
-	tagTargetSHA, err := validateFullCommitSHA(tagObject.Object.SHA, "annotated tag target SHA")
-	if err != nil {
-		return err
-	}
-	if tagSHA != tagObjectSHA || tagObject.Tag != options.RefName ||
-		tagObject.Object.Type != "commit" || tagTargetSHA != expectedCommit {
-		return fmt.Errorf("annotated tag does not target the checked-out release commit: %w", errInvalidConfig)
-	}
-
-	branchRef := releaseGitRef{}
-	if err := runReleasePreflightJSON(ctx, options.Runner, CommandSpec{
-		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/heads/" + releaseBranch}, Dir: root,
-	}, "read release branch ref", &branchRef); err != nil {
-		return err
-	}
-	branchSHA, err := validateFullCommitSHA(branchRef.Object.SHA, "release branch head SHA")
-	if err != nil {
-		return err
-	}
-	if branchRef.Ref != "refs/heads/"+releaseBranch || branchRef.Object.Type != "commit" || branchSHA != expectedCommit {
-		return fmt.Errorf("%s does not equal the exact %s head: %w", options.RefName, releaseBranch, errInvalidConfig)
 	}
 	releaseResponse := releaseGraphQLResponse{}
 	if err := runReleasePreflightJSON(ctx, options.Runner, CommandSpec{
@@ -176,8 +133,8 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 			"api", "graphql", "-f", "query=" + releasePreflightGraphQLQuery,
 			"-F", "owner=" + owner, "-F", "name=" + repository, "-F", "tag=" + options.RefName,
 		},
-		Dir: root,
-	}, "query existing release", &releaseResponse); err != nil {
+		Dir: root, Env: options.Environment,
+	}, "query existing release", &releaseResponse, validateReleaseGraphQLResponseJSON); err != nil {
 		return err
 	}
 	if err := validateAbsentRelease(releaseResponse, options.RefName); err != nil {
@@ -190,8 +147,8 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 		Args: []string{
 			"api", "--paginate", "/users/" + owner + "/packages/container/" + repository + "/versions?per_page=100", "--slurp",
 		},
-		Dir: root,
-	}, "list versioned OCI tags", &packagePages); err != nil {
+		Dir: root, Env: options.Environment,
+	}, "list OCI versions", &packagePages, validateReleasePackagePagesJSON); err != nil {
 		return err
 	}
 	if len(packagePages) == 0 {
@@ -231,12 +188,93 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 			return fmt.Errorf("versioned OCI tag already exists: %s: %w", tag, errInvalidConfig)
 		}
 	}
+	if err := validateRootPathIdentity(repositoryRoot, root, "repository root after release preflight"); err != nil {
+		return err
+	}
 	for index, value := range []string{expectedCommit, releaseBranch, tagObjectSHA} {
 		if err := writeRootedReceipt(receiptRoot, receipts[index], []byte(value+"\n")); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func verifyReleaseGitIdentity(
+	ctx context.Context,
+	runner SpecRunner,
+	root string,
+	owner string,
+	repository string,
+	refName string,
+	releaseBranch string,
+	expectedCommit string,
+	environment []string,
+) (string, error) {
+	headOutput, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
+		Name: "git", Args: []string{"rev-parse", "HEAD"}, Dir: root,
+		Env: withoutEnvironmentKeys(environment, "GH_TOKEN", "GITHUB_TOKEN"),
+	}, "resolve checked-out release commit")
+	if err != nil {
+		return "", err
+	}
+	head, err := parseCommandSHA(headOutput, "git rev-parse HEAD")
+	if err != nil {
+		return "", err
+	}
+	if expectedCommit != head {
+		return "", fmt.Errorf("checked-out commit does not equal the workflow tag commit: %w", errInvalidConfig)
+	}
+
+	tagRef := releaseGitRef{}
+	if err := runReleasePreflightJSON(ctx, runner, CommandSpec{
+		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/tags/" + refName},
+		Dir: root, Env: environment,
+	}, "read annotated release tag ref", &tagRef, validateReleaseGitRefJSON); err != nil {
+		return "", err
+	}
+	tagObjectSHA, err := validateFullCommitSHA(tagRef.Object.SHA, "release tag object SHA")
+	if err != nil {
+		return "", err
+	}
+	if tagRef.Ref != "refs/tags/"+refName || tagRef.Object.Type != "tag" {
+		return "", fmt.Errorf("release tag must be an exact annotated tag ref: %s: %w", refName, errInvalidConfig)
+	}
+
+	tagObject := releaseGitTag{}
+	if err := runReleasePreflightJSON(ctx, runner, CommandSpec{
+		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/tags/" + tagObjectSHA},
+		Dir: root, Env: environment,
+	}, "read annotated release tag object", &tagObject, validateReleaseGitTagJSON); err != nil {
+		return "", err
+	}
+	tagSHA, err := validateFullCommitSHA(tagObject.SHA, "annotated tag object SHA")
+	if err != nil {
+		return "", err
+	}
+	tagTargetSHA, err := validateFullCommitSHA(tagObject.Object.SHA, "annotated tag target SHA")
+	if err != nil {
+		return "", err
+	}
+	if tagSHA != tagObjectSHA || tagObject.Tag != refName ||
+		tagObject.Object.Type != "commit" || tagTargetSHA != expectedCommit {
+		return "", fmt.Errorf("annotated tag does not target the checked-out release commit: %w", errInvalidConfig)
+	}
+
+	branchRef := releaseGitRef{}
+	if err := runReleasePreflightJSON(ctx, runner, CommandSpec{
+		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/heads/" + releaseBranch},
+		Dir: root, Env: environment,
+	}, "read release branch ref", &branchRef, validateReleaseGitRefJSON); err != nil {
+		return "", err
+	}
+	branchSHA, err := validateFullCommitSHA(branchRef.Object.SHA, "release branch head SHA")
+	if err != nil {
+		return "", err
+	}
+	if branchRef.Ref != "refs/heads/"+releaseBranch || branchRef.Object.Type != "commit" || branchSHA != expectedCommit {
+		return "", fmt.Errorf("%s does not equal the exact %s head: %w", refName, releaseBranch, errInvalidConfig)
+	}
+	return tagObjectSHA, nil
 }
 
 func parseStableReleaseVersion(refName string) (string, string, error) {
@@ -403,12 +441,101 @@ func parseCommandSHA(output []byte, purpose string) (string, error) {
 	return validateFullCommitSHA(value, purpose)
 }
 
-func runReleasePreflightJSON(ctx context.Context, runner SpecRunner, spec CommandSpec, purpose string, destination any) error {
+func runReleasePreflightJSON(
+	ctx context.Context,
+	runner SpecRunner,
+	spec CommandSpec,
+	purpose string,
+	destination any,
+	validateFields func([]byte) error,
+) error {
 	output, err := runReleasePreflightCommand(ctx, runner, spec, purpose)
 	if err != nil {
 		return err
 	}
+	if err := validateStrictJSONDocument(output, purpose); err != nil {
+		return fmt.Errorf("validate %s structure: %w", purpose, err)
+	}
+	if err := validateFields(output); err != nil {
+		return fmt.Errorf("validate %s fields: %w", purpose, err)
+	}
 	return decodeJSONDocument(output, destination, purpose)
+}
+
+func validateReleaseGitRefJSON(data []byte) error {
+	fields, err := decodeRequiredJSONObject(data, "release git ref", []string{"ref", "object"})
+	if err != nil {
+		return err
+	}
+	_, err = decodeRequiredJSONObject(fields["object"], "release git ref object", []string{"type", "sha"})
+	return err
+}
+
+func validateReleaseGitTagJSON(data []byte) error {
+	fields, err := decodeRequiredJSONObject(data, "release git tag", []string{"sha", "tag", "object"})
+	if err != nil {
+		return err
+	}
+	_, err = decodeRequiredJSONObject(fields["object"], "release git tag object", []string{"type", "sha"})
+	return err
+}
+
+func validateReleaseGraphQLResponseJSON(data []byte) error {
+	fields := map[string]json.RawMessage{}
+	if err := decodeJSONDocument(data, &fields, "release GraphQL response"); err != nil {
+		return err
+	}
+	if fields == nil {
+		return fmt.Errorf("release GraphQL response is not an object: %w", errInvalidConfig)
+	}
+	if err := rejectJSONFieldAliases(fields, []string{"errors", "data"}); err != nil {
+		return err
+	}
+	dataJSON, exists := fields["data"]
+	if !exists {
+		return fmt.Errorf("release GraphQL response lacks data: %w", errInvalidConfig)
+	}
+	dataFields, err := decodeRequiredJSONObject(dataJSON, "release GraphQL data", []string{"repository"})
+	if err != nil {
+		return err
+	}
+	_, err = decodeRequiredJSONObject(
+		dataFields["repository"], "release GraphQL repository", []string{"release"},
+	)
+	return err
+}
+
+func validateReleasePackagePagesJSON(data []byte) error {
+	pages := []json.RawMessage{}
+	if err := decodeJSONDocument(data, &pages, "release package pages"); err != nil {
+		return err
+	}
+	for pageIndex, pageJSON := range pages {
+		page := []json.RawMessage{}
+		if err := decodeJSONDocument(pageJSON, &page, fmt.Sprintf("release package page %d", pageIndex)); err != nil {
+			return err
+		}
+		for itemIndex, itemJSON := range page {
+			item, err := decodeRequiredJSONObject(
+				itemJSON, fmt.Sprintf("release package page %d item %d", pageIndex, itemIndex), []string{"metadata"},
+			)
+			if err != nil {
+				return err
+			}
+			metadata, err := decodeRequiredJSONObject(
+				item["metadata"], "release package metadata", []string{"container"},
+			)
+			if err != nil {
+				return err
+			}
+			if _, err := decodeRequiredJSONObject(
+				metadata["container"], "release package container", []string{"tags"},
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func runReleasePreflightCommand(ctx context.Context, runner SpecRunner, spec CommandSpec, purpose string) ([]byte, error) {
