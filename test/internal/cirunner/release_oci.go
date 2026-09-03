@@ -157,30 +157,45 @@ func validateReleaseOCIAttestations(
 	}
 	dockerEnvironment := withoutEnvironmentKeys(environment, "GH_TOKEN", "GITHUB_TOKEN")
 	for _, image := range evidence {
-		if !canonicalOCIDigest(image.Digest) {
-			return fmt.Errorf("OCI image %s has invalid index digest: %w", image.Image, errInvalidConfig)
+		if err := validateReleaseOCIImageAttestations(
+			ctx, runner, repositoryRoot, image, dockerEnvironment,
+		); err != nil {
+			return err
 		}
-		pinnedImage := image.Image + "@" + image.Digest
-		for _, platform := range []string{"linux/amd64", "linux/arm64"} {
-			runnableDigest, exists := image.Runnable[platform]
-			if !exists {
-				return fmt.Errorf("OCI image %s lacks runnable platform %s: %w", image.Image, platform, errInvalidConfig)
-			}
-			attestationDigest, exists := image.Attestations[runnableDigest]
-			if !exists {
-				return fmt.Errorf("OCI image %s lacks attestation for %s: %w", image.Image, platform, errInvalidConfig)
-			}
-			if err := validateOCIAttestationManifest(
-				ctx, runner, repositoryRoot, image.Image, attestationDigest, dockerEnvironment,
-			); err != nil {
-				return err
-			}
-			if err := validateOCISBOM(ctx, runner, repositoryRoot, pinnedImage, platform, dockerEnvironment); err != nil {
-				return err
-			}
-			if err := validateOCIProvenance(ctx, runner, repositoryRoot, pinnedImage, platform, dockerEnvironment); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+func validateReleaseOCIImageAttestations(
+	ctx context.Context,
+	runner SpecRunner,
+	root string,
+	image releaseOCIImageEvidence,
+	environment []string,
+) error {
+	if !canonicalOCIDigest(image.Digest) {
+		return fmt.Errorf("OCI image %s has invalid index digest: %w", image.Image, errInvalidConfig)
+	}
+	pinnedImage := image.Image + "@" + image.Digest
+	for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+		runnableDigest, exists := image.Runnable[platform]
+		if !exists {
+			return fmt.Errorf("OCI image %s lacks runnable platform %s: %w", image.Image, platform, errInvalidConfig)
+		}
+		attestationDigest, exists := image.Attestations[runnableDigest]
+		if !exists {
+			return fmt.Errorf("OCI image %s lacks attestation for %s: %w", image.Image, platform, errInvalidConfig)
+		}
+		if err := validateOCIAttestationManifest(
+			ctx, runner, root, image.Image, attestationDigest, environment,
+		); err != nil {
+			return err
+		}
+		if err := validateOCISBOM(ctx, runner, root, pinnedImage, platform, environment); err != nil {
+			return err
+		}
+		if err := validateOCIProvenance(ctx, runner, root, pinnedImage, platform, environment); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -441,32 +456,9 @@ func validateOCIManifestIndex(image string, index ociManifestIndex) (releaseOCII
 			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s duplicates descriptor digest: %w", image, errInvalidConfig)
 		}
 		descriptorDigests[descriptor.Digest] = struct{}{}
-		referenceType, hasReferenceType := descriptor.Annotations[ociReferenceTypeAnnotation]
-		referenceDigest, hasReferenceDigest := descriptor.Annotations[ociReferenceDigestAnnotation]
-		if !hasReferenceType && !hasReferenceDigest {
-			platform := descriptor.Platform.OS + "/" + descriptor.Platform.Architecture
-			if platform != "linux/amd64" && platform != "linux/arm64" {
-				return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s has unexpected runnable platform %s: %w", image, platform, errInvalidConfig)
-			}
-			if _, duplicate := runnable[platform]; duplicate {
-				return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s has duplicate or linked runnable platform %s: %w", image, platform, errInvalidConfig)
-			}
-			runnable[platform] = descriptor.Digest
-			continue
+		if err := addOCIManifestDescriptor(image, descriptor, runnable, attestations); err != nil {
+			return releaseOCIImageEvidence{}, err
 		}
-		if !hasReferenceType || !hasReferenceDigest || referenceType != ociAttestationManifestType ||
-			descriptor.Platform.OS != "unknown" ||
-			descriptor.Platform.Architecture != "unknown" {
-			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s has unexpected referenced descriptor: %w", image, errInvalidConfig)
-		}
-		subject := referenceDigest
-		if !canonicalOCIDigest(subject) {
-			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s has invalid attestation subject: %w", image, errInvalidConfig)
-		}
-		if _, duplicate := attestations[subject]; duplicate {
-			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s duplicates attestation subject: %w", image, errInvalidConfig)
-		}
-		attestations[subject] = descriptor.Digest
 	}
 	if len(runnable) != 2 || len(attestations) != 2 {
 		return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s lacks exact runnable and attestation pairs: %w", image, errInvalidConfig)
@@ -479,6 +471,39 @@ func validateOCIManifestIndex(image string, index ociManifestIndex) (releaseOCII
 	return releaseOCIImageEvidence{
 		Image: image, Digest: index.Digest, Runnable: runnable, Attestations: attestations,
 	}, nil
+}
+
+func addOCIManifestDescriptor(
+	image string,
+	descriptor ociManifestDescriptor,
+	runnable map[string]string,
+	attestations map[string]string,
+) error {
+	referenceType, hasReferenceType := descriptor.Annotations[ociReferenceTypeAnnotation]
+	referenceDigest, hasReferenceDigest := descriptor.Annotations[ociReferenceDigestAnnotation]
+	if !hasReferenceType && !hasReferenceDigest {
+		platform := descriptor.Platform.OS + "/" + descriptor.Platform.Architecture
+		if platform != "linux/amd64" && platform != "linux/arm64" {
+			return fmt.Errorf("OCI index %s has unexpected runnable platform %s: %w", image, platform, errInvalidConfig)
+		}
+		if _, duplicate := runnable[platform]; duplicate {
+			return fmt.Errorf("OCI index %s has duplicate or linked runnable platform %s: %w", image, platform, errInvalidConfig)
+		}
+		runnable[platform] = descriptor.Digest
+		return nil
+	}
+	if !hasReferenceType || !hasReferenceDigest || referenceType != ociAttestationManifestType ||
+		descriptor.Platform.OS != "unknown" || descriptor.Platform.Architecture != "unknown" {
+		return fmt.Errorf("OCI index %s has unexpected referenced descriptor: %w", image, errInvalidConfig)
+	}
+	if !canonicalOCIDigest(referenceDigest) {
+		return fmt.Errorf("OCI index %s has invalid attestation subject: %w", image, errInvalidConfig)
+	}
+	if _, duplicate := attestations[referenceDigest]; duplicate {
+		return fmt.Errorf("OCI index %s duplicates attestation subject: %w", image, errInvalidConfig)
+	}
+	attestations[referenceDigest] = descriptor.Digest
+	return nil
 }
 
 func canonicalOCIDigest(value string) bool {
