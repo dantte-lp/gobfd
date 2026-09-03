@@ -131,6 +131,9 @@ func SetupPodmanRuntime(ctx context.Context, options RuntimeOptions) (RuntimeRep
 	if err := ensurePodman(ctx); err != nil {
 		return RuntimeReport{}, err
 	}
+	if err := verifyJQ(ctx, execOutputRunner{}); err != nil {
+		return RuntimeReport{}, err
+	}
 	compose, err := InstallCompose(ctx, ComposeOptions{InstallDir: options.InstallDir})
 	if err != nil {
 		return RuntimeReport{}, err

@@ -26,9 +26,12 @@ func main() {
 }
 
 type dependencies struct {
-	getenv func(string) string
-	now    func() time.Time
-	runner cirunner.CommandRunner
+	getenv     func(string) string
+	getwd      func() (string, error)
+	environ    func() []string
+	now        func() time.Time
+	runner     cirunner.CommandRunner
+	specRunner cirunner.SpecRunner
 }
 
 func run(ctx context.Context, arguments []string, deps dependencies) error {
@@ -38,11 +41,20 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 	if deps.now == nil {
 		deps.now = time.Now
 	}
+	if deps.getwd == nil {
+		deps.getwd = os.Getwd
+	}
+	if deps.environ == nil {
+		deps.environ = os.Environ
+	}
 	if deps.runner == nil {
 		deps.runner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
 	}
+	if deps.specRunner == nil {
+		deps.specRunner = cirunner.ExecRunner{Stdout: os.Stdout, Stderr: os.Stderr}
+	}
 	if len(arguments) == 0 {
-		return fmt.Errorf("usage: cictl {sonar-mode|build}: %w", flag.ErrHelp)
+		return fmt.Errorf("usage: cictl {sonar-mode|build|sbom|proto-verify}: %w", flag.ErrHelp)
 	}
 
 	switch arguments[0] {
@@ -50,9 +62,56 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runSonarMode(arguments[1:], deps)
 	case "build":
 		return runBuild(ctx, arguments[1:], deps)
+	case "sbom":
+		return runSBOM(ctx, arguments[1:], deps)
+	case "proto-verify":
+		return runProtoVerify(ctx, arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runSBOM(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("sbom", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	reportDir := flags.String("report-dir", "reports/security", "SBOM report directory")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse SBOM flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected SBOM arguments: %w", flag.ErrHelp)
+	}
+	if err := cirunner.SBOM(ctx, cirunner.SBOMOptions{
+		ReportDir: *reportDir,
+		Runner:    deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("generate CI SBOMs: %w", err)
+	}
+	return nil
+}
+
+func runProtoVerify(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("proto-verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse proto-verify flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected proto-verify arguments: %w", flag.ErrHelp)
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	if err := cirunner.ProtoVerify(ctx, cirunner.ProtoOptions{
+		Root:        root,
+		RunnerTemp:  deps.getenv("RUNNER_TEMP"),
+		Environment: deps.environ(),
+		Runner:      deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("verify generated protobuf code: %w", err)
+	}
+	return nil
 }
 
 func runSonarMode(arguments []string, deps dependencies) error {

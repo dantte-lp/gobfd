@@ -14,9 +14,30 @@ const commandWaitDelay = 5 * time.Second
 
 var errCommandNotAllowed = errors.New("bootstrap command is not allowlisted")
 
+type outputRunner interface {
+	Output(ctx context.Context, name string, arguments, environment []string) (string, error)
+}
+
+type execOutputRunner struct{}
+
+func (execOutputRunner) Output(
+	ctx context.Context,
+	name string,
+	arguments, environment []string,
+) (string, error) {
+	return commandOutput(ctx, name, arguments, environment)
+}
+
+func verifyJQ(ctx context.Context, runner outputRunner) error {
+	if _, err := runner.Output(ctx, "jq", []string{"--version"}, nil); err != nil {
+		return fmt.Errorf("verify jq runtime: %w", err)
+	}
+	return nil
+}
+
 func commandPath(name string) (string, error) {
 	switch name {
-	case "podman", "sudo":
+	case "jq", "podman", "sudo":
 	default:
 		return "", fmt.Errorf("resolve bootstrap command %q: %w", name, errCommandNotAllowed)
 	}
@@ -29,7 +50,7 @@ func commandPath(name string) (string, error) {
 
 func commandOutput(ctx context.Context, name string, arguments, environment []string) (string, error) {
 	path := name
-	if name == "podman" {
+	if name == "jq" || name == "podman" {
 		var err error
 		path, err = commandPath(name)
 		if err != nil {

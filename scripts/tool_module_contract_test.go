@@ -60,10 +60,15 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 			t.Errorf("CI workflow installs generator outside the isolated tools module: %q", forbidden)
 		}
 	}
-	requireContractStrings(t, "CI workflow", workflow, []string{
-		"go build -modfile=tools/go.mod -o \"$RUNNER_TEMP/bin/protoc-gen-go\" google.golang.org/protobuf/cmd/protoc-gen-go",
-		"go build -modfile=tools/go.mod -o \"$RUNNER_TEMP/bin/protoc-gen-connect-go\" " +
-			"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+	if !strings.Contains(workflow, "go run ./test/cmd/cictl proto-verify") {
+		t.Error("CI workflow does not delegate protobuf verification to cictl")
+	}
+	protoHelper := readContractFile(t, "../test/internal/cirunner/proto.go")
+	requireContractStrings(t, "protobuf CI helper", protoHelper, []string{
+		"\"build\", \"-modfile=tools/go.mod\", \"-o\", filepath.Join(binDir, \"protoc-gen-go\")",
+		"\"google.golang.org/protobuf/cmd/protoc-gen-go\"",
+		"\"build\", \"-modfile=tools/go.mod\", \"-o\", filepath.Join(binDir, \"protoc-gen-connect-go\")",
+		"\"connectrpc.com/connect/cmd/protoc-gen-connect-go\"",
 	})
 }
 

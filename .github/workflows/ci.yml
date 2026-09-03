@@ -33,9 +33,7 @@ jobs:
         run: go run ./test/cmd/cictl build --output /tmp/gobfd-build
 
       - name: Install test tools
-        run: |
-          go run ./test/cmd/toolbootstrap podman-runtime
-          jq --version
+        run: go run ./test/cmd/toolbootstrap podman-runtime
 
       - name: Test with coverage
         run: |
@@ -157,21 +155,11 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Vulnerability Audit
-        run: |
-          mkdir -p reports/security
-          go run ./scripts/vuln-audit.go --report-dir reports/security
+        run: go run ./scripts/vuln-audit.go --report-dir reports/security
 
       - name: Generate separate runtime and tools SBOMs
         if: always()
-        run: |
-          go run github.com/anchore/syft/cmd/syft@v1.51.0 scan file:go.mod \
-            --override-default-catalogers go-module-file-cataloger \
-            --quiet --output cyclonedx-json=reports/security/runtime-sbom.cdx.json
-          go run github.com/anchore/syft/cmd/syft@v1.51.0 scan file:tools/go.mod \
-            --override-default-catalogers go-module-file-cataloger \
-            --quiet --output cyclonedx-json=reports/security/tools-sbom.cdx.json
-          test -s reports/security/runtime-sbom.cdx.json
-          test -s reports/security/tools-sbom.cdx.json
+        run: go run ./test/cmd/cictl sbom --report-dir reports/security
 
       - name: Upload dependency security reports
         if: always()
@@ -202,13 +190,7 @@ jobs:
         run: buf lint
 
       - name: Verify generated protobuf code
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          go build -modfile=tools/go.mod -o "$RUNNER_TEMP/bin/protoc-gen-go" google.golang.org/protobuf/cmd/protoc-gen-go
-          go build -modfile=tools/go.mod -o "$RUNNER_TEMP/bin/protoc-gen-connect-go" connectrpc.com/connect/cmd/protoc-gen-connect-go
-          export PATH="$RUNNER_TEMP/bin:$PATH"
-          buf generate
-          git diff --exit-code -- pkg/bfdpb
+        run: go run ./test/cmd/cictl proto-verify
 
       - name: Fetch base branch for buf breaking
         if: github.event_name == 'pull_request'

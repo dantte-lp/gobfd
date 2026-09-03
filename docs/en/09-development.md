@@ -352,6 +352,26 @@ eight-character CI version metadata and UTC RFC3339 build time, and invokes
 Go 1.27 setup and build flags without embedding a multi-line shell program in
 the workflow.
 
+`toolbootstrap podman-runtime` also verifies `jq --version` through its fixed
+command allowlist, so the test-tools step remains one Go command and fails if
+the required JSON tool is unavailable. The vulnerability audit creates its own
+report directory; the workflow delegates to it directly without a separate
+directory command.
+
+`cictl sbom --report-dir reports/security` runs the two pinned Syft module-file
+scans directly, keeps the runtime and tools CycloneDX reports separate, and
+requires each artifact to be a non-empty regular file. The helper creates the
+report directory with mode `0755` and normalizes completed artifacts to mode
+`0644`; scanner or artifact validation failures fail the step. The existing
+`always()` execution and `dependency-security-reports` artifact contract are
+unchanged.
+
+`cictl proto-verify` requires safe absolute repository and `RUNNER_TEMP`
+directories, builds both generators from `tools/go.mod` below a dedicated
+temporary bin directory, and prepends that directory to `PATH` only for
+`buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb`; a generator
+build, generation, or generated-code drift failure stops the step.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

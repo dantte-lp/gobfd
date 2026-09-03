@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dantte-lp/gobfd/test/internal/cirunner"
 )
 
 func TestRunSonarModeReadsGitHubEnvironment(t *testing.T) {
@@ -64,6 +66,56 @@ func TestRunBuildReadsGitHubSHAAndOutputFlag(t *testing.T) {
 	}
 }
 
+func TestRunSBOMUsesReportDirectoryFlag(t *testing.T) {
+	t.Parallel()
+
+	reportDir := filepath.Join(t.TempDir(), "reports", "security")
+	runner := &specCommandRecorder{afterRun: func(arguments []string) {
+		for index, argument := range arguments {
+			if argument == "--output" && index+1 < len(arguments) {
+				output := strings.TrimPrefix(arguments[index+1], "cyclonedx-json=")
+				if err := os.WriteFile(output, []byte("{}\n"), 0o644); err != nil {
+					t.Fatalf("write simulated SBOM: %v", err)
+				}
+				return
+			}
+		}
+		t.Fatalf("SBOM command lacks output argument: %q", arguments)
+	}}
+	if err := run(context.Background(), []string{"sbom", "--report-dir", reportDir}, dependencies{
+		specRunner: runner,
+	}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if got := len(runner.names); got != 2 {
+		t.Errorf("SBOM command count = %d, want 2", got)
+	}
+}
+
+func TestRunProtoVerifyReadsRunnerEnvironment(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	runnerTemp := t.TempDir()
+	runner := &specCommandRecorder{}
+	if err := run(context.Background(), []string{"proto-verify"}, dependencies{
+		getenv: func(name string) string {
+			if name == "RUNNER_TEMP" {
+				return runnerTemp
+			}
+			return ""
+		},
+		getwd:      func() (string, error) { return root, nil },
+		environ:    func() []string { return []string{"PATH=/usr/bin"} },
+		specRunner: runner,
+	}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if got := len(runner.names); got != 4 {
+		t.Errorf("protobuf command count = %d, want 4", got)
+	}
+}
+
 func TestRunRejectsUnknownModeWithoutEnvironmentLeak(t *testing.T) {
 	t.Parallel()
 
@@ -84,5 +136,18 @@ type commandRecorder struct {
 
 func (r *commandRecorder) Run(_ context.Context, name string, _ ...string) error {
 	r.names = append(r.names, name)
+	return nil
+}
+
+type specCommandRecorder struct {
+	names    []string
+	afterRun func([]string)
+}
+
+func (r *specCommandRecorder) RunCommand(_ context.Context, spec cirunner.CommandSpec) error {
+	r.names = append(r.names, spec.Name)
+	if r.afterRun != nil {
+		r.afterRun(spec.Args)
+	}
 	return nil
 }
