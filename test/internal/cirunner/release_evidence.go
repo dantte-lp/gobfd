@@ -255,7 +255,17 @@ func validateReleaseEvidenceSnapshot(
 	return nil
 }
 
+type releaseOCIImageDigest struct {
+	Image  string
+	Digest string
+}
+
 func validateReleaseOCIDigestReceipt(data []byte, version string) error {
+	_, err := parseReleaseOCIDigestReceipt(data, version)
+	return err
+}
+
+func parseReleaseOCIDigestReceipt(data []byte, version string) ([]releaseOCIImageDigest, error) {
 	expectedImages := []string{
 		"ghcr.io/dantte-lp/gobfd:" + version,
 		"ghcr.io/dantte-lp/gobfd:" + version + "-debian-trixie",
@@ -263,20 +273,20 @@ func validateReleaseOCIDigestReceipt(data []byte, version string) error {
 	}
 	lines := strings.Split(string(data), "\n")
 	if len(lines) != len(expectedImages)+1 || lines[len(lines)-1] != "" {
-		return fmt.Errorf("OCI digest receipt must contain exactly three newline-terminated records: %w", errInvalidConfig)
+		return nil, fmt.Errorf("OCI digest receipt must contain exactly three newline-terminated records: %w", errInvalidConfig)
 	}
-	digests := make([]string, len(expectedImages))
+	records := make([]releaseOCIImageDigest, len(expectedImages))
 	for index, expectedImage := range expectedImages {
 		image, digest, found := strings.Cut(lines[index], " ")
 		if !found || image != expectedImage || strings.ContainsAny(digest, " \t\r") || !canonicalOCIDigest(digest) {
-			return fmt.Errorf("OCI digest receipt record %d is not canonical: %w", index, errInvalidConfig)
+			return nil, fmt.Errorf("OCI digest receipt record %d is not canonical: %w", index, errInvalidConfig)
 		}
-		digests[index] = digest
+		records[index] = releaseOCIImageDigest{Image: image, Digest: digest}
 	}
-	if digests[0] != digests[1] {
-		return fmt.Errorf("primary and Debian OCI digest receipt records differ: %w", errInvalidConfig)
+	if records[0].Digest != records[1].Digest {
+		return nil, fmt.Errorf("primary and Debian OCI digest receipt records differ: %w", errInvalidConfig)
 	}
-	return nil
+	return records, nil
 }
 
 func formatReleaseSHA256Line(data []byte, name string) []byte {

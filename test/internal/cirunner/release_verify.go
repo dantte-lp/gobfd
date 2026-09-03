@@ -85,35 +85,7 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 		return err
 	}
 
-	commitReceipt, err := readRootedRegularFile(
-		runnerTemp, "expected-release-commit.txt", "expected release commit receipt", releaseReceiptLimit,
-	)
-	if err != nil {
-		return err
-	}
-	receiptCommit, err := parseCommandSHA(commitReceipt, "expected release commit receipt")
-	if err != nil {
-		return err
-	}
-	if receiptCommit != expectedCommit {
-		return fmt.Errorf("release commit receipt differs from GITHUB_SHA: %w", errInvalidConfig)
-	}
-	branchReceipt, err := readRootedRegularFile(
-		runnerTemp, "expected-release-branch.txt", "expected release branch receipt", releaseReceiptLimit,
-	)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(branchReceipt, []byte(releaseBranch+"\n")) {
-		return fmt.Errorf("release branch receipt differs from canonical tag branch: %w", errInvalidConfig)
-	}
-	tagReceipt, err := readRootedRegularFile(
-		runnerTemp, "expected-release-tag-object.txt", "expected release tag object receipt", releaseReceiptLimit,
-	)
-	if err != nil {
-		return err
-	}
-	receiptTagObject, err := parseCommandSHA(tagReceipt, "expected release tag object receipt")
+	receiptTagObject, err := readExpectedReleaseIdentityReceipts(runnerTemp, expectedCommit, releaseBranch)
 	if err != nil {
 		return err
 	}
