@@ -507,22 +507,6 @@ func verifyUPXVersion(
 	return nil
 }
 
-func withoutEnvironmentKeys(environment []string, names ...string) []string {
-	blocked := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		blocked[name] = struct{}{}
-	}
-	result := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		name, _, found := strings.Cut(entry, "=")
-		if _, remove := blocked[name]; found && remove {
-			continue
-		}
-		result = append(result, entry)
-	}
-	return result
-}
-
 func validateGitHubPath(path string) error {
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || hasControl(path) {
 		return fmt.Errorf("GITHUB_PATH must be an absolute clean path without control characters: %w", errInvalidConfig)

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec" //nolint:depguard // CI invokes only fixed commands assembled by this package.
+	"strings"
 )
 
 var errCommandNotAllowed = errors.New("CI command is not allowlisted")
@@ -26,6 +27,22 @@ type CommandSpec struct {
 	Stderr io.Writer
 }
 
+func withoutEnvironmentKeys(environment []string, names ...string) []string {
+	blocked := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		blocked[name] = struct{}{}
+	}
+	result := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if _, remove := blocked[name]; found && remove {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
 // SpecRunner executes a typed command without a shell.
 type SpecRunner interface {
 	RunCommand(ctx context.Context, spec CommandSpec) error
@@ -34,7 +51,7 @@ type SpecRunner interface {
 // RunCommand executes a typed direct child command and preserves its output streams.
 func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	switch spec.Name {
-	case "buf", "gh", "git", "go", "upx", "xz":
+	case "buf", "docker", "gh", "git", "go", "upx", "xz":
 	default:
 		return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
 	}
