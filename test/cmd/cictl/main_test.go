@@ -166,6 +166,17 @@ func TestRunDispatchesReleaseArtifactsFromImmutableVerifierEnvironment(t *testin
 	}
 }
 
+func TestRunDispatchesReleaseOCIEvidenceFromWorkflowEnvironment(t *testing.T) {
+	t.Parallel()
+
+	err := run(context.Background(), []string{"release-oci-evidence"}, dependencies{
+		getenv: func(string) string { return "" },
+	})
+	if err == nil || strings.Contains(err.Error(), "unknown CI command") {
+		t.Fatalf("run(release-oci-evidence) error = %v, want dispatched environment validation", err)
+	}
+}
+
 func TestRunReleaseBuildReadsTagAndSHA(t *testing.T) {
 	t.Parallel()
 

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -208,6 +210,112 @@ func TestValidateReleaseOCIAttestationsRejectsInvalidPayloads(t *testing.T) {
 	}
 }
 
+func TestReleaseOCIEvidenceWritesExactDigestReceipt(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	receiptRoot := t.TempDir()
+	runner := &ociManifestRunner{raw: validReleaseOCICommandOutputs(t, false)}
+	if err := ReleaseOCIEvidence(context.Background(), ReleaseOCIEvidenceOptions{
+		Root: root, ReceiptRoot: receiptRoot, RefName: "v0.6.5",
+		Environment: []string{"PATH=/usr/bin"}, Runner: runner,
+	}); err != nil {
+		t.Fatalf("ReleaseOCIEvidence() error = %v", err)
+	}
+	want := "ghcr.io/dantte-lp/gobfd:0.6.5 " + testOCIDigest("1") + "\n" +
+		"ghcr.io/dantte-lp/gobfd:0.6.5-debian-trixie " + testOCIDigest("1") + "\n" +
+		"ghcr.io/dantte-lp/gobfd:0.6.5-oraclelinux10 " + testOCIDigest("3") + "\n"
+	data, err := os.ReadFile(receiptRoot + "/release-image-digests.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Errorf("release image digest receipt = %q, want %q", data, want)
+	}
+	info, err := os.Stat(receiptRoot + "/release-image-digests.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode() != 0o644 {
+		t.Errorf("release image digest receipt mode = %s, want -rw-r--r--", info.Mode())
+	}
+	if len(runner.calls) != 21 {
+		t.Errorf("release OCI evidence command count = %d, want 21", len(runner.calls))
+	}
+	for index, call := range runner.calls {
+		if call.dir != root {
+			t.Errorf("release OCI evidence command %d directory = %q, want %q", index, call.dir, root)
+		}
+	}
+}
+
+func TestReleaseOCIEvidenceRejectsPrimaryDebianDigestMismatch(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	receiptRoot := t.TempDir()
+	runner := &ociManifestRunner{raw: validReleaseOCICommandOutputs(t, true)}
+	if err := ReleaseOCIEvidence(context.Background(), ReleaseOCIEvidenceOptions{
+		Root: root, ReceiptRoot: receiptRoot, RefName: "v0.6.5", Runner: runner,
+	}); err == nil {
+		t.Fatal("ReleaseOCIEvidence() error = nil, want primary/Debian mismatch")
+	}
+	if _, err := os.Lstat(receiptRoot + "/release-image-digests.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("failed release image digest receipt error = %v, want not exist", err)
+	}
+}
+
+func TestReleaseOCIEvidenceRejectsReplacedReceiptRoot(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	receiptRoot := filepath.Join(parent, "workspace")
+	if err := os.Mkdir(receiptRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	delegate := &ociManifestRunner{raw: validReleaseOCICommandOutputs(t, false)}
+	runner := &hookedSpecRunner{delegate: delegate, hook: func() error {
+		if err := os.Rename(receiptRoot, receiptRoot+".replaced"); err != nil {
+			return err
+		}
+		return os.Mkdir(receiptRoot, 0o755)
+	}}
+	if err := ReleaseOCIEvidence(context.Background(), ReleaseOCIEvidenceOptions{
+		Root: t.TempDir(), ReceiptRoot: receiptRoot, RefName: "v0.6.5", Runner: runner,
+	}); err == nil {
+		t.Fatal("ReleaseOCIEvidence() error = nil, want replaced receipt root rejection")
+	}
+	if _, err := os.Lstat(receiptRoot + "/release-image-digests.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("replacement root receipt error = %v, want not exist", err)
+	}
+	if _, err := os.Lstat(receiptRoot + ".replaced/release-image-digests.txt"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("opened root receipt error = %v, want not exist", err)
+	}
+}
+
+func validReleaseOCICommandOutputs(t *testing.T, mismatch bool) [][]byte {
+	t.Helper()
+	primary := validOCIManifestIndex("1")
+	debian := primary
+	if mismatch {
+		debian = validOCIManifestIndex("2")
+	}
+	manifests := []ociManifestIndex{primary, debian, validOCIManifestIndex("3")}
+	outputs := make([][]byte, 0, 3+releaseOCIImageCount*6)
+	for _, manifest := range manifests {
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outputs = append(outputs, data)
+	}
+	rawAttestation, spdx, provenance := validOCIPayloads(t)
+	for range releaseOCIImageCount * 2 {
+		outputs = append(outputs, rawAttestation, spdx, provenance)
+	}
+	return outputs
+}
+
 func validReleaseOCIEvidence(t *testing.T) []releaseOCIImageEvidence {
 	t.Helper()
 	images := []string{
@@ -296,6 +404,22 @@ type ociManifestRunner struct {
 	manifests []ociManifestIndex
 	raw       [][]byte
 	calls     []specInvocation
+}
+
+type hookedSpecRunner struct {
+	delegate SpecRunner
+	hook     func() error
+}
+
+func (runner *hookedSpecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
+	if runner.hook != nil {
+		hook := runner.hook
+		runner.hook = nil
+		if err := hook(); err != nil {
+			return err
+		}
+	}
+	return runner.delegate.RunCommand(ctx, spec)
 }
 
 func (runner *ociManifestRunner) RunCommand(_ context.Context, spec CommandSpec) error {

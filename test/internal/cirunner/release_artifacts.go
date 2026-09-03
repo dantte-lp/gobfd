@@ -155,13 +155,22 @@ func verifyReleaseArtifactCommit(
 	if actual != expected {
 		return fmt.Errorf("checked-out commit changed before reading GoReleaser artifacts: %w", errInvalidConfig)
 	}
-	currentRoot, err := repositoryRoot.Stat(".")
-	if err != nil || !currentRoot.IsDir() {
-		return fmt.Errorf("repository root changed before reading GoReleaser artifacts: %w", errors.Join(err, errInvalidConfig))
+	if err := validateRootPathIdentity(
+		repositoryRoot, repositoryDirectory, "repository root before reading GoReleaser artifacts",
+	); err != nil {
+		return err
 	}
-	currentPath, err := os.Lstat(repositoryDirectory)
-	if err != nil || !currentPath.IsDir() || !os.SameFile(currentRoot, currentPath) {
-		return fmt.Errorf("repository pathname changed before reading GoReleaser artifacts: %w", errors.Join(err, errInvalidConfig))
+	return nil
+}
+
+func validateRootPathIdentity(root *os.Root, path, purpose string) error {
+	opened, err := root.Stat(".")
+	if err != nil || !opened.IsDir() {
+		return fmt.Errorf("%s opened root is invalid: %w", purpose, errors.Join(err, errInvalidConfig))
+	}
+	current, err := os.Lstat(path)
+	if err != nil || !current.IsDir() || !os.SameFile(opened, current) {
+		return fmt.Errorf("%s pathname identity changed: %w", purpose, errors.Join(err, errInvalidConfig))
 	}
 	return nil
 }

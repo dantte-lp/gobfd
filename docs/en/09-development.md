@@ -498,6 +498,17 @@ assets fail closed. The command atomically writes sorted mode `0644`
 under a validated `RUNNER_TEMP` root; the latter also includes the fixed report
 archive, OCI digest receipt, and supplemental checksum receipt names.
 
+`cictl release-oci-evidence` runs from the immutable verifier checkout and
+replaces the release workflow's OCI shell loop. It inspects the fixed primary,
+Debian Trixie, and Oracle Linux 10 versioned references with direct Buildx
+argv, requires exactly `linux/amd64` and
+`linux/arm64` plus their linked attestation manifests, and validates each
+platform's SPDX document and BuildKit SLSA v1 provenance. Docker receives the
+workflow environment without `GH_TOKEN` or `GITHUB_TOKEN`. Only after all
+three images pass does the command atomically publish mode `0644`
+`release-image-digests.txt` through the separately rooted original workspace
+in fixed order; the primary and Debian digests must be identical.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

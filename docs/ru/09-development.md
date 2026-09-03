@@ -513,6 +513,18 @@ CycloneDX SBOM, соответствующих archive, и `checksums.txt` дл�
 включает фиксированные имена reports archive, OCI digest receipt и
 supplemental checksum receipt.
 
+`cictl release-oci-evidence` запускается из immutable verifier checkout и
+заменяет shell-цикл проверки OCI в release workflow. Команда вызывает Buildx
+прямыми фиксированными аргументами для
+версионированных primary, Debian Trixie и Oracle Linux 10 образов, требует
+ровно `linux/amd64` и `linux/arm64` вместе с привязанными attestation
+manifest и проверяет SPDX document и BuildKit SLSA v1 provenance каждой
+платформы. Docker получает окружение workflow без `GH_TOKEN` и
+`GITHUB_TOKEN`. Только после успешной проверки всех трёх образов команда
+атомарно публикует `release-image-digests.txt` режима `0644` через отдельно
+открытый root исходного workspace в фиксированном порядке; digest primary и
+Debian должен совпадать.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в

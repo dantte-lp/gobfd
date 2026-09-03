@@ -3,7 +3,9 @@ package cirunner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -13,7 +15,17 @@ const (
 	ociAttestationManifestType   = "attestation-manifest"
 	ociSLSABuildTypeV1           = "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md"
 	releaseOCIImageCount         = 3
+	releaseOCIDigestReceiptLimit = 1 << 10
 )
+
+// ReleaseOCIEvidenceOptions supplies the immutable OCI release identity and output root.
+type ReleaseOCIEvidenceOptions struct {
+	Root        string
+	ReceiptRoot string
+	RefName     string
+	Environment []string
+	Runner      SpecRunner
+}
 
 type ociManifestIndex struct {
 	Digest    string                  `json:"digest"`
@@ -69,6 +81,59 @@ type ociSLSAProvenance struct {
 			FinishedOn   string `json:"finishedOn"`
 		} `json:"metadata"`
 	} `json:"runDetails"`
+}
+
+// ReleaseOCIEvidence validates all versioned OCI images and atomically records their index digests.
+func ReleaseOCIEvidence(ctx context.Context, options ReleaseOCIEvidenceOptions) (returnErr error) {
+	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if err != nil {
+		return err
+	}
+	receiptRootPath, err := validateAbsoluteExistingDirectory(options.ReceiptRoot, "OCI digest receipt root")
+	if err != nil {
+		return err
+	}
+	receiptRoot, err := os.OpenRoot(receiptRootPath)
+	if err != nil {
+		return fmt.Errorf("open OCI digest receipt root: %w", err)
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, wrapOptional("close OCI digest receipt root", receiptRoot.Close()))
+	}()
+	const receiptName = "release-image-digests.txt"
+	if err := validateRootedRegularTarget(receiptRoot, receiptName, "OCI digest receipt"); err != nil {
+		return err
+	}
+
+	evidence, err := inspectReleaseOCIManifests(ctx, options.Runner, root, options.RefName, options.Environment)
+	if err != nil {
+		return err
+	}
+	if err := validateReleaseOCIAttestations(ctx, options.Runner, root, evidence, options.Environment); err != nil {
+		return err
+	}
+	if evidence[0].Digest != evidence[1].Digest {
+		return fmt.Errorf("primary and Debian versioned OCI tags differ: %w", errInvalidConfig)
+	}
+	var receipt strings.Builder
+	for _, image := range evidence {
+		receipt.WriteString(image.Image)
+		receipt.WriteByte(' ')
+		receipt.WriteString(image.Digest)
+		receipt.WriteByte('\n')
+	}
+	if err := validateRootPathIdentity(receiptRoot, receiptRootPath, "OCI digest receipt root before publication"); err != nil {
+		return err
+	}
+	if err := writeRootedArtifact(
+		receiptRoot, receiptName, []byte(receipt.String()), "OCI digest receipt", releaseOCIDigestReceiptLimit,
+	); err != nil {
+		return err
+	}
+	if err := validateRootPathIdentity(receiptRoot, receiptRootPath, "OCI digest receipt root after publication"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateReleaseOCIAttestations(

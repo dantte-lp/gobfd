@@ -418,7 +418,7 @@ func TestReleaseWorkflowUsesOneGoOwnedArtifactMatrixCommand(t *testing.T) {
 	goreleaser := strings.Index(workflow, "      - name: Run GoReleaser\n")
 	verifier := strings.Index(workflow, "      - name: Checkout immutable release verifier\n")
 	artifacts := strings.Index(workflow, "      - name: Record exact release asset matrix\n")
-	oci := strings.Index(workflow, "      - name: Record exact release commit and OCI evidence\n")
+	oci := strings.Index(workflow, "      - name: Record exact release OCI evidence\n")
 	if goreleaser < 0 || verifier < goreleaser || artifacts < verifier || oci < artifacts {
 		t.Error("release artifact matrix is not ordered after immutable verifier checkout and before OCI evidence")
 	}
@@ -429,6 +429,32 @@ func TestReleaseWorkflowUsesOneGoOwnedArtifactMatrixCommand(t *testing.T) {
 	} {
 		if !strings.Contains(verifierStep, marker) {
 			t.Errorf("immutable verifier checkout lacks %q", marker)
+		}
+	}
+}
+
+func TestReleaseWorkflowUsesOneGoOwnedOCIEvidenceCommand(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	step := namedWorkflowStep(t, workflow, "Record exact release OCI evidence")
+	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-oci-evidence\n"); got != 1 {
+		t.Errorf("release OCI evidence command count = %d, want 1", got)
+	}
+	for _, marker := range []string{
+		"        working-directory: .release-verifier\n",
+		"          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}\n",
+	} {
+		if !strings.Contains(step, marker) {
+			t.Errorf("release OCI evidence step lacks immutable verifier marker %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		"run: |", "jq ", "awk ", "diff ", "for ", "while ", "expected-release-platforms",
+		"release-attestation-", "release-sbom-", "release-provenance-",
+	} {
+		if strings.Contains(step, marker) {
+			t.Errorf("release OCI evidence step retains shell-owned marker %q", marker)
 		}
 	}
 }
