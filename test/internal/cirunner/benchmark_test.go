@@ -253,12 +253,21 @@ geomean,0,,0,,?,
 		}
 	}}
 	var warning bytes.Buffer
-	if err := BenchmarkReport(context.Background(), BenchmarkReportOptions{
+	options := BenchmarkReportOptions{
 		Root: root, Old: "old.txt", New: "new.txt", Markdown: "bench-report.md",
 		HTML: "bench-comparison.html", JSON: "bench-comparison.json",
 		CSV: "bench-regression/bench-csv.txt", Notes: "bench-regression/benchstat-notes.txt",
 		StepSummary: summary, Warning: &warning, Runner: runner,
-	}); err != nil {
+	}
+	withoutSummary := options
+	withoutSummary.StepSummary = ""
+	if err := BenchmarkReport(context.Background(), withoutSummary); err == nil {
+		t.Fatal("BenchmarkReport() with default empty step summary error = nil, want rejection")
+	}
+	if got := len(runner.calls); got != 0 {
+		t.Fatalf("benchstat invocation count after rejected empty summary = %d, want 0", got)
+	}
+	if err := BenchmarkReport(context.Background(), options); err != nil {
 		t.Fatalf("BenchmarkReport() error = %v", err)
 	}
 	if got := len(runner.calls); got != 2 {
@@ -293,6 +302,9 @@ geomean,0,,0,,?,
 		Notes []string `json:"notes"`
 	}
 	structuredJSON := readTestFile(t, filepath.Join(root, "bench-comparison.json"))
+	if strings.Contains(structuredJSON, `"version"`) || strings.Contains(structuredJSON, `"generated_at"`) {
+		t.Errorf("generic PR benchmark report gained release context: %s", structuredJSON)
+	}
 	if err := json.Unmarshal([]byte(structuredJSON), &structured); err != nil {
 		t.Fatalf("decode structured benchmark report: %v", err)
 	}

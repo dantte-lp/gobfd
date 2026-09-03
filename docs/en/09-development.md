@@ -417,6 +417,29 @@ rows and tool notes to `GITHUB_STEP_SUMMARY`. It atomically publishes mode
 `bench-comparison.json`; stale or non-regular artifacts cannot satisfy the
 gate.
 
+The release workflow's test and report jobs use the same shell-free boundary.
+`cictl release-build` derives release metadata from `GITHUB_REF_NAME` and
+`GITHUB_SHA` and builds the four supported binaries with fixed arguments. Both
+tool-install steps call `toolbootstrap podman-runtime` once; that command
+already verifies `jq`, so the workflow does not repeat the check.
+
+`cictl release-test-report` runs the pinned `gotestsum` command and renders the
+existing JUnit XML, JSON, and HTML paths. `cictl release-benchmarks` retains six
+samples for the BFD and netio packages, mirrors each raw result to the job log,
+and writes the existing per-package and combined evidence. The metadata mode
+writes the version, short commit, UTC date, Go version, and count as JSON.
+When a baseline exists, the comparison mode preserves the text and HTML names
+and also writes Markdown, CSV, notes, and versioned structured JSON. Release
+HTML and JSON comparisons identify the baseline, release version, and UTC
+generation time. Fixed benchmark and comparison outputs are prevalidated and
+cleared before work starts, including when no baseline exists, so stale files
+cannot enter the archive. Finally, `cictl release-reports-archive` copies the
+release benchmark evidence into `reports/` and creates the existing
+`gobfd-<version>-reports.tar.gz` artifact without shell globbing or archive
+commands. Evidence copying uses a repository `os.Root`; archive reads use a
+separate Go 1.27 `os.Root` rooted at `reports/`. Both verify the opened regular
+file against its expected identity and size.
+
 ### Dependency Inventory
 
 The machine-readable supply-chain snapshot lives in

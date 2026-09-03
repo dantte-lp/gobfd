@@ -88,10 +88,11 @@ func (r ExecRunner) Run(ctx context.Context, name string, args ...string) error 
 
 // BuildOptions supplies build metadata, output location, and test seams.
 type BuildOptions struct {
-	SHA    string
-	Output string
-	Now    func() time.Time
-	Runner CommandRunner
+	Version string
+	SHA     string
+	Output  string
+	Now     func() time.Time
+	Runner  CommandRunner
 }
 
 // Build compiles the four supported binaries with deterministic command lines.
@@ -118,11 +119,15 @@ func Build(ctx context.Context, options BuildOptions) error {
 		now = options.Now
 	}
 	buildDate := now().UTC().Format(time.RFC3339)
+	version := "ci-" + shortSHA
+	if options.Version != "" {
+		version = options.Version
+	}
 	ldflags := fmt.Sprintf(
-		"-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=ci-%s "+
+		"-s -w -X github.com/dantte-lp/gobfd/internal/version.Version=%s "+
 			"-X github.com/dantte-lp/gobfd/internal/version.GitCommit=%s "+
 			"-X github.com/dantte-lp/gobfd/internal/version.BuildDate=%s",
-		shortSHA,
+		version,
 		shortSHA,
 		buildDate,
 	)

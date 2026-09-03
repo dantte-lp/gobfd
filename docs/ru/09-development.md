@@ -426,6 +426,31 @@ critical/report-only для регрессий `>=10%` и добавляет rep
 публикуются с режимом `0644`; устаревшие или не обычные файлы не могут пройти
 gate.
 
+Test и report jobs release workflow используют ту же границу без shell.
+`cictl release-build` получает release metadata из `GITHUB_REF_NAME` и
+`GITHUB_SHA` и собирает четыре поддерживаемых бинарных файла с фиксированными
+аргументами. Оба шага установки инструментов однократно вызывают
+`toolbootstrap podman-runtime`; эта команда уже проверяет `jq`, поэтому workflow
+не повторяет проверку.
+
+`cictl release-test-report` запускает закреплённый `gotestsum` и формирует
+существующие JUnit XML, JSON и HTML пути. `cictl release-benchmarks` сохраняет
+шесть семплов для пакетов BFD и netio, дублирует каждый исходный результат в
+лог job и записывает существующие раздельные и объединённые evidence-файлы.
+Metadata mode записывает version, короткий commit, UTC date, Go version и count
+в JSON. При наличии baseline comparison mode сохраняет имена text и HTML, а
+также создаёт Markdown, CSV, notes и версионированный структурированный JSON.
+Release-сравнения HTML и JSON указывают baseline, release version и UTC-время
+создания. Фиксированные benchmark- и comparison-файлы предварительно
+проверяются и очищаются до запуска работы, в том числе при отсутствии baseline,
+поэтому устаревшие файлы не попадают в архив. Наконец,
+`cictl release-reports-archive` копирует release benchmark evidence в
+`reports/` и создаёт существующий артефакт `gobfd-<version>-reports.tar.gz` без
+shell globbing и archive-команд. Копирование evidence использует repository
+`os.Root`, а чтение файлов для архива — отдельный Go 1.27 `os.Root` с корнем в
+`reports/`. Обе границы сверяют открытый обычный файл с ожидаемыми идентичностью
+и размером.
+
 ### Инвентаризация зависимостей
 
 Машиночитаемый snapshot цепочки поставки находится в

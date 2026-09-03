@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -28,18 +29,32 @@ type BenchmarkReportOptions struct {
 	Root        string
 	Old         string
 	New         string
+	Text        string
 	Markdown    string
 	HTML        string
 	JSON        string
 	CSV         string
 	Notes       string
 	StepSummary string
-	Warning     io.Writer
-	Runner      SpecRunner
+	// SkipStepSummary is reserved for release reports, which have no Actions step-summary contract.
+	SkipStepSummary bool
+	ReleaseContext  *BenchmarkReleaseContext
+	Warning         io.Writer
+	Runner          SpecRunner
+}
+
+// BenchmarkReleaseContext adds release-only context without changing generic PR reports.
+type BenchmarkReleaseContext struct {
+	Baseline    string
+	Version     string
+	GeneratedAt time.Time
 }
 
 type benchmarkComparison struct {
 	SchemaVersion  string                   `json:"schema_version"`
+	Baseline       string                   `json:"baseline,omitempty"`
+	Version        string                   `json:"version,omitempty"`
+	GeneratedAt    string                   `json:"generated_at,omitempty"`
 	ComparisonRows []benchmarkComparisonRow `json:"comparison_rows"`
 	Notes          []string                 `json:"notes"`
 }
@@ -62,6 +77,9 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 	}
 	if options.Runner == nil {
 		return fmt.Errorf("benchmark report command runner is required: %w", errInvalidConfig)
+	}
+	if err := validateBenchmarkReleaseContext(options.ReleaseContext); err != nil {
+		return err
 	}
 	oldPath, err := validateRootFile(root, options.Old, "old benchmark input", false)
 	if err != nil {
@@ -92,8 +110,17 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 		}
 		outputs[purpose] = path
 	}
-	if err := validateStepSummary(options.StepSummary); err != nil {
-		return err
+	if options.Text != "" {
+		path, pathErr := validateRootFile(root, options.Text, "benchmark text report", true)
+		if pathErr != nil {
+			return pathErr
+		}
+		outputs["benchmark text report"] = path
+	}
+	if !options.SkipStepSummary {
+		if err := validateStepSummary(options.StepSummary); err != nil {
+			return err
+		}
 	}
 	for purpose, path := range outputs {
 		if err := resetArtifact(path, purpose); err != nil {
@@ -130,6 +157,11 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 	if err != nil {
 		return err
 	}
+	if release := options.ReleaseContext; release != nil {
+		comparison.Baseline = release.Baseline
+		comparison.Version = release.Version
+		comparison.GeneratedAt = release.GeneratedAt.UTC().Format(time.RFC3339)
+	}
 
 	markdown := "## Benchmark comparison\n\n```text\n" + textOutput.String()
 	if !strings.HasSuffix(markdown, "\n") {
@@ -142,6 +174,17 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 		"border:1px solid #0f3460;overflow-x:auto}</style></head><body>" +
 		"<h1 style=\"color:#00d4ff\">Benchmark Comparison</h1><pre>" +
 		html.EscapeString(textOutput.String()) + "</pre></body></html>\n"
+	if release := options.ReleaseContext; release != nil {
+		title := "GoBFD Benchmark Comparison: " + html.EscapeString(release.Baseline) + " vs " + html.EscapeString(release.Version)
+		metadata := html.EscapeString(release.Baseline) + " vs " + html.EscapeString(release.Version) +
+			" &mdash; " + html.EscapeString(release.GeneratedAt.UTC().Format(time.RFC3339))
+		htmlReport = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>" + title + "</title>" +
+			"<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}" +
+			"h1{color:#00d4ff}pre{background:#16213e;padding:1.5em;border-radius:8px;font-size:14px;" +
+			"line-height:1.6;border:1px solid #0f3460;overflow-x:auto}.meta{color:#888;font-size:13px}</style>" +
+			"</head><body><h1>GoBFD Benchmark Comparison</h1><p class=\"meta\">" + metadata + "</p><pre>" +
+			html.EscapeString(textOutput.String()) + "</pre></body></html>\n"
+	}
 	jsonReport, err := json.MarshalIndent(comparison, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode structured benchmark report: %w", err)
@@ -159,15 +202,36 @@ func BenchmarkReport(ctx context.Context, options BenchmarkReportOptions) error 
 		{outputs["benchstat CSV"], csvOutput.Bytes(), "benchstat CSV"},
 		{outputs["benchstat notes"], notesOutput.Bytes(), "benchstat notes"},
 	}
+	if path := outputs["benchmark text report"]; path != "" {
+		artifacts = append(artifacts, struct {
+			path    string
+			data    []byte
+			purpose string
+		}{path, textOutput.Bytes(), "benchmark text report"})
+	}
 	for _, artifact := range artifacts {
 		if err := writeAtomicArtifact(artifact.path, artifact.data, artifact.purpose); err != nil {
 			return err
 		}
 	}
-	if err := appendBenchmarkSummary(options.StepSummary, comparison); err != nil {
-		return err
+	if !options.SkipStepSummary {
+		if err := appendBenchmarkSummary(options.StepSummary, comparison); err != nil {
+			return err
+		}
 	}
 	writeBenchmarkWarnings(options.Warning, comparison)
+	return nil
+}
+
+func validateBenchmarkReleaseContext(release *BenchmarkReleaseContext) error {
+	if release == nil {
+		return nil
+	}
+	if release.Baseline == "" || release.Version == "" || release.GeneratedAt.IsZero() ||
+		len(release.Baseline) > comparisonCellLimit || len(release.Version) > comparisonCellLimit ||
+		hasControl(release.Baseline) || hasControl(release.Version) {
+		return fmt.Errorf("release benchmark context is invalid: %w", errInvalidConfig)
+	}
 	return nil
 }
 

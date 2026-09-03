@@ -55,9 +55,7 @@ func TestRepositoryQualityGatesHaveNoNodeRuntime(t *testing.T) {
 		"go run ./test/cmd/junitreport --root .",
 	})
 	requireContractStrings(t, "release workflow", releaseWorkflow, []string{
-		"go run ./test/cmd/junitreport --root .",
-		"--input reports/tests/unit-report.xml",
-		"--output reports/tests/unit-report.html",
+		"go run ./test/cmd/cictl release-test-report",
 	})
 	requireContractStrings(t, "Sonar project", sonarProject, []string{
 		"internal/netio/listener_linux.go",

@@ -61,7 +61,9 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return fmt.Errorf(
 			"usage: cictl {sonar-mode|sonar-skip-notice|build|test-coverage|commit-policy|"+
 				"buf-fetch-base|buf-breaking|sbom|proto-verify|"+
-				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report}: %w",
+				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
+				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
+				"release-benchmark-comparison|release-reports-archive}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -93,9 +95,113 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return runBenchmarkNormalize(arguments[1:], deps)
 	case "benchmark-report":
 		return runBenchmarkReport(ctx, arguments[1:], deps)
+	case "release-build":
+		return runReleaseBuild(ctx, arguments[1:], deps)
+	case "release-test-report":
+		return runReleaseTestReport(ctx, arguments[1:], deps)
+	case "release-benchmarks":
+		return runReleaseBenchmarks(ctx, arguments[1:], deps)
+	case "release-benchmark-metadata":
+		return runReleaseBenchmarkMetadata(ctx, arguments[1:], deps)
+	case "release-benchmark-comparison":
+		return runReleaseBenchmarkComparison(ctx, arguments[1:], deps)
+	case "release-reports-archive":
+		return runReleaseReportsArchive(arguments[1:], deps)
 	default:
 		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
 	}
+}
+
+func runReleaseBuild(ctx context.Context, arguments []string, deps dependencies) error {
+	flags := flag.NewFlagSet("release-build", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	output := flags.String("output", "/tmp/gobfd-release-build", "release binary output directory")
+	if err := flags.Parse(arguments); err != nil {
+		return fmt.Errorf("parse release-build flags: %w", err)
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected release-build arguments: %w", flag.ErrHelp)
+	}
+	if err := cirunner.ReleaseBuild(ctx, cirunner.ReleaseBuildOptions{
+		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Output: *output, Now: deps.now, Runner: deps.runner,
+	}); err != nil {
+		return fmt.Errorf("build release binaries: %w", err)
+	}
+	return nil
+}
+
+func runReleaseTestReport(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-test-report", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseTestReport(ctx, root, deps.specRunner); err != nil {
+		return fmt.Errorf("generate release test report: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBenchmarks(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-benchmarks", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseBenchmarks(
+		ctx, root, deps.getenv("GITHUB_REF_NAME"), deps.stdout, deps.specRunner,
+	); err != nil {
+		return fmt.Errorf("run release benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBenchmarkMetadata(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-benchmark-metadata", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseBenchmarkMetadata(ctx, cirunner.ReleaseMetadataOptions{
+		Root: root, Version: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"),
+		Now: deps.now, Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("generate release benchmark metadata: %w", err)
+	}
+	return nil
+}
+
+func runReleaseBenchmarkComparison(ctx context.Context, arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-benchmark-comparison", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseBenchmarkComparison(ctx, cirunner.ReleaseComparisonOptions{
+		Root: root, Version: deps.getenv("GITHUB_REF_NAME"), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("compare release benchmarks: %w", err)
+	}
+	return nil
+}
+
+func runReleaseReportsArchive(arguments []string, deps dependencies) error {
+	root, err := releaseRoot("release-reports-archive", arguments, deps)
+	if err != nil {
+		return err
+	}
+	if err := cirunner.ReleaseReportsArchive(root, deps.getenv("GITHUB_REF_NAME")); err != nil {
+		return fmt.Errorf("create release reports archive: %w", err)
+	}
+	return nil
+}
+
+func releaseRoot(name string, arguments []string, deps dependencies) (string, error) {
+	if err := rejectArguments(name, arguments); err != nil {
+		return "", err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	return root, nil
 }
 
 func runSonarSkipNotice(arguments []string, deps dependencies) error {

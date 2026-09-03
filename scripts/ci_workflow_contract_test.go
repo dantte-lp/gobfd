@@ -274,6 +274,54 @@ func TestCIWorkflowBenchmarkStepsUseGoOwner(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowTestAndReportStepsUseGoOwners(t *testing.T) {
+	t.Parallel()
+
+	workflow := readContractFile(t, "../.github/workflows/release.yml")
+	tests := []struct {
+		step    string
+		command string
+	}{
+		{step: "Build", command: "go run ./test/cmd/cictl release-build"},
+		{step: "Install test tools", command: "go run ./test/cmd/toolbootstrap podman-runtime"},
+		{step: "Install report tools", command: "go run ./test/cmd/toolbootstrap podman-runtime"},
+		{step: "Run tests with JUnit output", command: "go run ./test/cmd/cictl release-test-report"},
+		{step: "Run benchmarks", command: "go run ./test/cmd/cictl release-benchmarks"},
+		{step: "Generate benchmark metadata", command: "go run ./test/cmd/cictl release-benchmark-metadata"},
+		{step: "Compare with baseline", command: "go run ./test/cmd/cictl release-benchmark-comparison"},
+		{step: "Create reports archive", command: "go run ./test/cmd/cictl release-reports-archive"},
+	}
+	for _, test := range tests {
+		t.Run(test.step, func(t *testing.T) {
+			t.Parallel()
+
+			step := namedWorkflowStep(t, workflow, test.step)
+			wantRun := "        run: " + test.command + "\n"
+			if strings.Count(step, wantRun) != 1 {
+				t.Errorf("release step %q must contain exactly one %q", test.step, strings.TrimSpace(wantRun))
+			}
+			if got := strings.Count(step, "\n        run:"); got != 1 {
+				t.Errorf("release step %q has %d run programs, want exactly one", test.step, got)
+			}
+			for _, marker := range []string{
+				"run: |", "run: >", "shell: bash", "mkdir ", " tee ", " cat ", " cp ", "tar -",
+				"VERSION=", "GIT_COMMIT=", "BUILD_DATE=", "go build", "go test", "benchstat",
+			} {
+				if strings.Contains(step, marker) {
+					t.Errorf("release step %q retains shell marker %q", test.step, marker)
+				}
+			}
+		})
+	}
+
+	reportsUpload := namedWorkflowStep(t, workflow, "Upload reports archive")
+	for _, marker := range []string{"name: release-reports", "path: gobfd-*-reports.tar.gz", "retention-days: 90"} {
+		if !strings.Contains(reportsUpload, marker) {
+			t.Errorf("release reports upload lacks %q", marker)
+		}
+	}
+}
+
 func namedWorkflowStep(t *testing.T, workflow, name string) string {
 	t.Helper()
 

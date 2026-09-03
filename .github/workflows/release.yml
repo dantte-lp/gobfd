@@ -25,29 +25,10 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Build
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          GIT_COMMIT="${GITHUB_SHA::8}"
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          LDFLAGS="-s -w \
-            -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-            -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-            -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-          install -d -m 0755 /tmp/gobfd-release-build
-          go build -buildvcs=false -ldflags="${LDFLAGS}" \
-            -o /tmp/gobfd-release-build/gobfd ./cmd/gobfd
-          go build -buildvcs=false -ldflags="${LDFLAGS}" \
-            -o /tmp/gobfd-release-build/gobfdctl ./cmd/gobfdctl
-          go build -buildvcs=false -ldflags="${LDFLAGS}" \
-            -o /tmp/gobfd-release-build/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-          go build -buildvcs=false -ldflags="${LDFLAGS}" \
-            -o /tmp/gobfd-release-build/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
+        run: go run ./test/cmd/cictl release-build
 
       - name: Install test tools
-        run: |
-          go run ./test/cmd/toolbootstrap podman-runtime
-          jq --version
+        run: go run ./test/cmd/toolbootstrap podman-runtime
 
       - name: Test
         run: go test -buildvcs=false ./... -race -count=1
@@ -95,70 +76,22 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Install report tools
-        run: |
-          go run ./test/cmd/toolbootstrap podman-runtime
-          jq --version
+        run: go run ./test/cmd/toolbootstrap podman-runtime
 
       - name: Run tests with JUnit output
-        run: |
-          mkdir -p reports/tests
-          go tool -modfile=tools/go.mod gotestsum \
-            --junitfile reports/tests/unit-report.xml \
-            --jsonfile reports/tests/unit-report.json \
-            --format short-verbose \
-            -- -buildvcs=false ./... -race -count=1
-          go run ./test/cmd/junitreport --root . \
-            --input reports/tests/unit-report.xml \
-            --output reports/tests/unit-report.html
+        run: go run ./test/cmd/cictl release-test-report
 
       - name: Run benchmarks
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          mkdir -p reports/benchmarks "testdata/benchmarks/${VERSION}"
-          go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' -timeout=120s \
-            ./internal/bfd/ | tee "testdata/benchmarks/${VERSION}/benchmark-bfd.txt"
-          go test -buildvcs=false -bench=. -benchmem -count=6 -run='^$' -timeout=120s \
-            ./internal/netio/ | tee "testdata/benchmarks/${VERSION}/benchmark-netio.txt"
-          cat "testdata/benchmarks/${VERSION}/benchmark-bfd.txt" \
-              "testdata/benchmarks/${VERSION}/benchmark-netio.txt" \
-              > "testdata/benchmarks/${VERSION}/benchmark.txt"
+        run: go run ./test/cmd/cictl release-benchmarks
 
       - name: Generate benchmark metadata
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          printf '{"version":"%s","commit":"%s","date":"%s","go":"%s","count":6}\n' \
-            "${VERSION}" "${GITHUB_SHA::8}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "$(go env GOVERSION)" \
-            > "testdata/benchmarks/${VERSION}/meta.json"
+        run: go run ./test/cmd/cictl release-benchmark-metadata
 
       - name: Compare with baseline
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          if [ -f testdata/benchmarks/baseline.txt ]; then
-            go tool -modfile=tools/go.mod benchstat testdata/benchmarks/baseline.txt \
-              "testdata/benchmarks/${VERSION}/benchmark.txt" \
-              | tee reports/benchmarks/comparison-vs-baseline.txt
-            {
-              echo '<!DOCTYPE html><html><head><meta charset="utf-8">'
-              echo '<title>GoBFD Benchmark Comparison: baseline vs '"${VERSION}"'</title>'
-              echo '<style>body{font-family:system-ui;margin:2em;background:#1a1a2e;color:#e0e0e0}'
-              echo 'h1{color:#00d4ff}pre{background:#16213e;padding:1.5em;border-radius:8px;'
-              echo 'font-size:14px;line-height:1.6;border:1px solid #0f3460}'
-              echo '.meta{color:#888;font-size:13px}</style></head><body>'
-              echo '<h1>GoBFD Benchmark Comparison</h1>'
-              echo '<p class="meta">baseline vs '"${VERSION}"' &mdash; '"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'</p><pre>'
-              cat reports/benchmarks/comparison-vs-baseline.txt
-              echo '</pre></body></html>'
-            } > reports/benchmarks/comparison-vs-baseline.html
-          fi
+        run: go run ./test/cmd/cictl release-benchmark-comparison
 
       - name: Create reports archive
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          cp "testdata/benchmarks/${VERSION}"/*.txt reports/benchmarks/ 2>/dev/null || true
-          cp "testdata/benchmarks/${VERSION}/meta.json" reports/benchmarks/ 2>/dev/null || true
-          tar -czf "gobfd-${VERSION}-reports.tar.gz" reports/
+        run: go run ./test/cmd/cictl release-reports-archive
 
       - name: Upload reports archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

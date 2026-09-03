@@ -121,6 +121,50 @@ func TestRunSonarSkipNoticePreservesMessage(t *testing.T) {
 	}
 }
 
+func TestRunDispatchesReleaseReportModes(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("working directory unavailable")
+	for _, mode := range []string{
+		"release-test-report", "release-benchmarks", "release-benchmark-metadata",
+		"release-benchmark-comparison", "release-reports-archive",
+	} {
+		mode := mode
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			err := run(context.Background(), []string{mode}, dependencies{
+				getwd: func() (string, error) { return "", wantErr },
+			})
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("run(%q) error = %v, want working-directory error", mode, err)
+			}
+		})
+	}
+}
+
+func TestRunReleaseBuildReadsTagAndSHA(t *testing.T) {
+	t.Parallel()
+
+	runner := &commandRecorder{}
+	output := filepath.Join(t.TempDir(), "build")
+	values := map[string]string{
+		"GITHUB_REF_NAME": "v0.6.2",
+		"GITHUB_SHA":      strings.Repeat("a", 40),
+	}
+	err := run(context.Background(), []string{"release-build", "--output", output}, dependencies{
+		getenv: func(name string) string { return values[name] },
+		now:    func() time.Time { return time.Unix(0, 0) },
+		runner: runner,
+	})
+	if err != nil {
+		t.Fatalf("run(release-build) error = %v", err)
+	}
+	if len(runner.names) != 4 {
+		t.Errorf("release build command count = %d, want 4", len(runner.names))
+	}
+}
+
 func TestRunDispatchesBenchmarkModes(t *testing.T) {
 	t.Parallel()
 
