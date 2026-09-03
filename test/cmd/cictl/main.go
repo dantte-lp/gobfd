@@ -70,67 +70,114 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		)
 	}
 
-	switch arguments[0] {
+	command, commandArguments := arguments[0], arguments[1:]
+	if handled, err := runCoreCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	if handled, err := runBenchmarkCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	if handled, err := runReleaseCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	return fmt.Errorf("unknown CI command %q: %w", command, flag.ErrHelp)
+}
+
+func runCoreCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
 	case "sonar-mode":
-		return runSonarMode(arguments[1:], deps)
+		return true, runSonarMode(arguments, deps)
 	case "sonar-skip-notice":
-		return runSonarSkipNotice(arguments[1:], deps)
+		return true, runSonarSkipNotice(arguments, deps)
 	case "build":
-		return runBuild(ctx, arguments[1:], deps)
+		return true, runBuild(ctx, arguments, deps)
 	case "lint":
-		return runLint(ctx, arguments[1:], deps)
+		return true, runLint(ctx, arguments, deps)
 	case "test-coverage":
-		return runTestCoverage(ctx, arguments[1:], deps)
+		return true, runTestCoverage(ctx, arguments, deps)
 	case "commit-policy":
-		return runCommitPolicy(ctx, arguments[1:], deps)
+		return true, runCommitPolicy(ctx, arguments, deps)
 	case "buf-fetch-base":
-		return runBufFetchBase(ctx, arguments[1:], deps)
+		return true, runBufFetchBase(ctx, arguments, deps)
 	case "buf-breaking":
-		return runBufBreaking(ctx, arguments[1:], deps)
+		return true, runBufBreaking(ctx, arguments, deps)
 	case "sbom":
-		return runSBOM(ctx, arguments[1:], deps)
+		return true, runSBOM(ctx, arguments, deps)
 	case "proto-verify":
-		return runProtoVerify(ctx, arguments[1:], deps)
-	case "benchmark-run":
-		return runBenchmark(ctx, arguments[1:], deps)
-	case "benchmark-base":
-		return runBenchmarkBase(ctx, arguments[1:], deps)
-	case "benchmark-normalize":
-		return runBenchmarkNormalize(arguments[1:], deps)
-	case "benchmark-report":
-		return runBenchmarkReport(ctx, arguments[1:], deps)
-	case "release-build":
-		return runReleaseBuild(ctx, arguments[1:], deps)
-	case "release-test-report":
-		return runReleaseTestReport(ctx, arguments[1:], deps)
-	case "release-benchmarks":
-		return runReleaseBenchmarks(ctx, arguments[1:], deps)
-	case "release-benchmark-metadata":
-		return runReleaseBenchmarkMetadata(ctx, arguments[1:], deps)
-	case "release-benchmark-comparison":
-		return runReleaseBenchmarkComparison(ctx, arguments[1:], deps)
-	case "release-reports-archive":
-		return runReleaseReportsArchive(arguments[1:], deps)
-	case "release-preflight":
-		return runReleasePreflight(ctx, arguments[1:], deps)
-	case "release-notes":
-		return runReleaseNotes(ctx, arguments[1:], deps)
-	case "release-upx":
-		return runReleaseUPX(ctx, arguments[1:], deps)
-	case "release-artifacts":
-		return runReleaseArtifacts(ctx, arguments[1:], deps)
-	case "release-oci-evidence":
-		return runReleaseOCIEvidence(ctx, arguments[1:], deps)
-	case "release-evidence":
-		return runReleaseEvidence(ctx, arguments[1:], deps)
-	case "release-verify":
-		return runReleaseVerify(ctx, arguments[1:], deps)
-	case "release-promote":
-		return runReleasePromote(ctx, arguments[1:], deps)
-	case "release-publish":
-		return runReleasePublish(ctx, arguments[1:], deps)
+		return true, runProtoVerify(ctx, arguments, deps)
 	default:
-		return fmt.Errorf("unknown CI command %q: %w", arguments[0], flag.ErrHelp)
+		return false, nil
+	}
+}
+
+func runBenchmarkCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "benchmark-run":
+		return true, runBenchmark(ctx, arguments, deps)
+	case "benchmark-base":
+		return true, runBenchmarkBase(ctx, arguments, deps)
+	case "benchmark-normalize":
+		return true, runBenchmarkNormalize(arguments, deps)
+	case "benchmark-report":
+		return true, runBenchmarkReport(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runReleaseCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	if handled, err := runReleaseReportCommand(ctx, command, arguments, deps); handled {
+		return true, err
+	}
+
+	switch command {
+	case "release-build":
+		return true, runReleaseBuild(ctx, arguments, deps)
+	case "release-preflight":
+		return true, runReleasePreflight(ctx, arguments, deps)
+	case "release-upx":
+		return true, runReleaseUPX(ctx, arguments, deps)
+	case "release-artifacts":
+		return true, runReleaseArtifacts(ctx, arguments, deps)
+	case "release-oci-evidence":
+		return true, runReleaseOCIEvidence(ctx, arguments, deps)
+	case "release-evidence":
+		return true, runReleaseEvidence(ctx, arguments, deps)
+	case "release-verify":
+		return true, runReleaseVerify(ctx, arguments, deps)
+	case "release-promote":
+		return true, runReleasePromote(ctx, arguments, deps)
+	case "release-publish":
+		return true, runReleasePublish(ctx, arguments, deps)
+	default:
+		return false, nil
+	}
+}
+
+func runReleaseReportCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	switch command {
+	case "release-test-report":
+		return true, runReleaseTestReport(ctx, arguments, deps)
+	case "release-benchmarks":
+		return true, runReleaseBenchmarks(ctx, arguments, deps)
+	case "release-benchmark-metadata":
+		return true, runReleaseBenchmarkMetadata(ctx, arguments, deps)
+	case "release-benchmark-comparison":
+		return true, runReleaseBenchmarkComparison(ctx, arguments, deps)
+	case "release-reports-archive":
+		return true, runReleaseReportsArchive(arguments, deps)
+	case "release-notes":
+		return true, runReleaseNotes(ctx, arguments, deps)
+	default:
+		return false, nil
 	}
 }
 
