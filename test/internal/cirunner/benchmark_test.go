@@ -430,8 +430,6 @@ func TestValidateStepSummaryRejectsRelativeAndSymlinkPaths(t *testing.T) {
 }
 
 func TestBenchmarkOperationsRejectControlCharactersAndEscapingPaths(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	runner := &recordingSpecRunner{}
 	tests := []struct {

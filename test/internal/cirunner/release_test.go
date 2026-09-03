@@ -110,6 +110,8 @@ func TestReleaseBenchmarksPrevalidateAndClearFixedEvidence(t *testing.T) {
 	t.Parallel()
 
 	t.Run("command failure clears every target", func(t *testing.T) {
+		t.Parallel()
+
 		root := t.TempDir()
 		directory := filepath.Join(root, "testdata/benchmarks/v0.6.2")
 		if err := os.MkdirAll(directory, 0o755); err != nil {
@@ -134,6 +136,8 @@ func TestReleaseBenchmarksPrevalidateAndClearFixedEvidence(t *testing.T) {
 	})
 
 	t.Run("nonregular target is rejected before mutation", func(t *testing.T) {
+		t.Parallel()
+
 		root := t.TempDir()
 		directory := filepath.Join(root, "testdata/benchmarks/v0.6.2")
 		if err := os.MkdirAll(filepath.Join(directory, "benchmark.txt"), 0o755); err != nil {
