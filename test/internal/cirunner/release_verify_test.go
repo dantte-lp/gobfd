@@ -530,13 +530,13 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 	case spec.Name == "git" && reflect.DeepEqual(spec.Args, []string{"rev-parse", "HEAD"}):
 		data = []byte(preflightCommit + "\n")
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}):
-		data = []byte(fmt.Sprintf(`{"ref":"refs/tags/v0.6.2","object":{"type":"tag","sha":%q}}`, preflightTagObject))
+		data = fmt.Appendf(nil, `{"ref":"refs/tags/v0.6.2","object":{"type":"tag","sha":%q}}`, preflightTagObject)
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}):
-		data = []byte(fmt.Sprintf(
+		data = fmt.Appendf(nil,
 			`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`, preflightTagObject, preflightCommit,
-		))
+		)
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/heads/release/v0.6"}):
-		data = []byte(fmt.Sprintf(`{"ref":"refs/heads/release/v0.6","object":{"type":"commit","sha":%q}}`, preflightCommit))
+		data = fmt.Appendf(nil, `{"ref":"refs/heads/release/v0.6","object":{"type":"commit","sha":%q}}`, preflightCommit)
 	case spec.Name == "docker" && runner.manifest < releaseOCIImageCount:
 		markers := []string{"1", "1", "3"}
 		var err error
