@@ -18,6 +18,7 @@
 - [Make Targets](#make-targets)
 - [Testing Strategy](#testing-strategy)
 - [Linting](#linting)
+- [Shell-Free CI Helpers](#shell-free-ci-helpers)
 - [Protobuf Workflow](#protobuf-workflow)
 - [Go 1.27 Baseline](#go-127-baseline)
 - [Code Conventions](#code-conventions)
@@ -334,6 +335,21 @@ mode with the repository's line-preserving `.yamlfmt.yaml` policy.
 The repository owns no Python source, environment, manifest, or lock file.
 Vendor image preparation, spelling, YAML policy, and JUnit-to-HTML conversion
 are Go-owned. ExaBGP remains an external immutable interop image.
+
+### Shell-Free CI Helpers
+
+The affected GitHub Actions steps contain one Go command each. `cictl
+sonar-mode` reads `SONAR_TOKEN`, `GITHUB_ACTOR`, and `GITHUB_OUTPUT`, then
+appends `mode=run` when the secret is present or `mode=skip-dependabot` only
+for `dependabot[bot]` without the secret. Other missing-token runs fail closed;
+the step id, secret environment boundary, and downstream mode conditions stay
+unchanged.
+
+`cictl build --output /tmp/gobfd-build` validates `GITHUB_SHA`, derives the
+eight-character CI version metadata and UTC RFC3339 build time, and invokes
+`go build` directly for the four supported binaries. It preserves the pinned
+Go 1.27 setup and build flags without embedding a multi-line shell program in
+the workflow.
 
 ### Dependency Inventory
 

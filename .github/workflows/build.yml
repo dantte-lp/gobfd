@@ -30,18 +30,7 @@ jobs:
         id: sonar-token
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        shell: bash
-        run: |
-          if [ -n "${SONAR_TOKEN:-}" ]; then
-            echo "mode=run" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "${GITHUB_ACTOR}" = "dependabot[bot]" ]; then
-            echo "mode=skip-dependabot" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "SONAR_TOKEN is required for non-Dependabot SonarQube scans" >&2
-          exit 1
+        run: go run ./test/cmd/cictl sonar-mode
 
       - name: SonarQube Scan
         if: steps.sonar-token.outputs.mode == 'run'
