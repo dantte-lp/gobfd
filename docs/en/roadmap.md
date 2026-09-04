@@ -100,8 +100,8 @@ The first release-quality maintainability tranche is accepted: all 85 measured
 strict-lint findings are resolved, with the pinned cyclop, funlen, and gocognit
 subset now reporting zero issues without configuration weakening.
 The follow-up complete base profile exposed 151 additional diagnostics. The
-first 48 are resolved; 104 schema, deferred-return, line-length, and stale
-suppression findings remain before the build-tag profiles can be qualified.
+first 49 are resolved; 103 schema, deferred-return, and line-length findings
+remain before the build-tag profiles can be qualified.
 Two pre-existing `GITHUB_PATH` publication defects found during review were
 resolved as separate Beads release blockers, outside the lint refactor.
 
