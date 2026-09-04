@@ -26,15 +26,15 @@ func TestNewGeneveConnLoopbackLifecycle(t *testing.T) {
 		t.Skipf("Geneve loopback socket unavailable: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := conn.Close(); err != nil {
-			t.Errorf("Close: %v", err)
+		if closeErr := conn.Close(); closeErr != nil {
+			t.Errorf("Close: %v", closeErr)
 		}
 	})
 
-	if err := conn.SendEncapsulated(
+	if sendErr := conn.SendEncapsulated(
 		t.Context(), makePayload(24), netip.MustParseAddr("127.0.0.1"),
-	); err != nil {
-		t.Fatalf("SendEncapsulated: %v", err)
+	); sendErr != nil {
+		t.Fatalf("SendEncapsulated: %v", sendErr)
 	}
 	payload, _, err := conn.RecvDecapsulated(t.Context())
 	if !errors.Is(err, netio.ErrGeneveVAPIdentityUnavailable) || payload != nil {
