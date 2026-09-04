@@ -67,7 +67,7 @@ list a fixed version.
 
 | Field | Value |
 |-------|-------|
-| **Module** | `golang.org/x/crypto v0.55.0` (indirect) |
+| **Module** | `golang.org/x/crypto v0.56.0` (indirect) |
 | **Affected package** | `golang.org/x/crypto/openpgp` (absent from the build graph) |
 | **Known advisory** | `GO-2026-5932` |
 | **Allowlist mode** | Exact-module inventory findings only |

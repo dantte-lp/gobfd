@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated `golang.org/x/crypto` to `v0.56.0` in the runtime and tools module
+  graphs, fixing the reachable SSH denial-of-service vulnerabilities
+  GO-2026-6354 and GO-2026-6355.
 - Release notes now include every maintenance entry since the previous
   published stable release in the same line, plus tag-bound changelog and
   comparison links. Release closeout also requires the accepted stable history

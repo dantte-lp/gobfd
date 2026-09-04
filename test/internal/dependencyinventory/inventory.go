@@ -292,7 +292,7 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	inv := Inventory{
 		Schema:         SchemaID,
 		SchemaVersion:  currentSchemaVersion,
-		AuditedAt:      "2026-08-26T00:00:00Z",
+		AuditedAt:      "2026-09-04T00:00:00Z",
 		GoPackageCount: packageCount,
 	}
 	for _, definition := range []struct{ id, manifest, sum string }{

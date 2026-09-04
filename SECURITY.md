@@ -82,7 +82,7 @@ fixed release.
 
 ### GO-2026-5932 — x/crypto/openpgp denial of service
 
-`golang.org/x/crypto v0.55.0` is reported at module level for
+`golang.org/x/crypto v0.56.0` is reported at module level for
 [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932). The advisory affects the
 unmaintained `golang.org/x/crypto/openpgp` package, which is absent from GoBFD's
 build dependency graph.

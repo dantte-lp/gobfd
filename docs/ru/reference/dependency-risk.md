@@ -68,7 +68,7 @@ NEXT_HOP. По состоянию на 2026-08-20 база Go vulnerability data
 
 | Поле | Значение |
 |------|----------|
-| **Модуль** | `golang.org/x/crypto v0.55.0` (непрямая зависимость) |
+| **Модуль** | `golang.org/x/crypto v0.56.0` (непрямая зависимость) |
 | **Затронутый пакет** | `golang.org/x/crypto/openpgp` (отсутствует в build graph) |
 | **Известный advisory** | `GO-2026-5932` |
 | **Режим allowlist** | Только inventory findings точного модуля |
