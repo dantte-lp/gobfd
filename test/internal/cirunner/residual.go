@@ -35,9 +35,9 @@ func TestCoverage(ctx context.Context, root string, runner SpecRunner) error {
 	spec := CommandSpec{
 		Name: "go",
 		Args: []string{
-			"tool", "-modfile=tools/go.mod", "gotestsum",
+			"tool", toolsModuleFlag, "gotestsum",
 			"--junitfile", "unit-report.xml", "--jsonfile", "unit-report.json",
-			"--format", "short-verbose", "--", "-buildvcs=false", "./...", "-race", "-count=1",
+			formatFlag, "short-verbose", "--", buildVCSDisabledFlag, "./...", "-race", "-count=1",
 			"-coverprofile=coverage.out", "-covermode=atomic",
 		},
 		Dir: root,

@@ -174,7 +174,7 @@ func prepareBenchmarkOutputs(root string, options BenchmarkReportOptions) (map[s
 }
 
 func runBenchstatReport(ctx context.Context, root string, options BenchmarkReportOptions) (benchmarkReportData, error) {
-	baseArguments := []string{"tool", "-modfile=tools/go.mod", "benchstat", options.Old, options.New}
+	baseArguments := []string{"tool", toolsModuleFlag, "benchstat", options.Old, options.New}
 	var textOutput bytes.Buffer
 	textErr := options.Runner.RunCommand(ctx, CommandSpec{
 		Name: "go", Args: append([]string(nil), baseArguments...), Dir: root,
@@ -190,7 +190,7 @@ func runBenchstatReport(ctx context.Context, root string, options BenchmarkRepor
 
 	var csvOutput bytes.Buffer
 	var notesOutput bytes.Buffer
-	csvArguments := []string{"tool", "-modfile=tools/go.mod", "benchstat", "-format", "csv", options.Old, options.New}
+	csvArguments := []string{"tool", toolsModuleFlag, "benchstat", "-format", "csv", options.Old, options.New}
 	if err := options.Runner.RunCommand(ctx, CommandSpec{
 		Name: "go", Args: csvArguments, Dir: root, Stdout: &csvOutput, Stderr: &notesOutput,
 	}); err != nil {

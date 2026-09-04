@@ -147,7 +147,7 @@ func runBenchmarkCommand(ctx context.Context, workDir, output, regex string, run
 	spec := CommandSpec{
 		Name: "go",
 		Args: []string{
-			"test", "-buildvcs=false", "-bench=" + regex, "-benchmem", "-count=6",
+			"test", buildVCSDisabledFlag, "-bench=" + regex, "-benchmem", "-count=6",
 			"-run=^$", "-timeout=120s", "./internal/bfd/", "./internal/netio/",
 		},
 		Dir:    workDir,

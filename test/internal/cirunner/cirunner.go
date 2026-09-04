@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const buildOutputMode = 0o755
+const (
+	buildOutputMode      = 0o755
+	buildVCSDisabledFlag = "-buildvcs=false"
+	formatFlag           = "--format"
+)
 
 var (
 	// ErrInvalidSHA reports a GITHUB_SHA that cannot identify a Git commit.
@@ -134,7 +138,7 @@ func Build(ctx context.Context, options BuildOptions) error {
 	for _, name := range []string{"gobfd", "gobfdctl", "gobfd-haproxy-agent", "gobfd-exabgp-bridge"} {
 		arguments := []string{
 			"build",
-			"-buildvcs=false",
+			buildVCSDisabledFlag,
 			"-ldflags=" + ldflags,
 			"-o",
 			filepath.Join(options.Output, name),

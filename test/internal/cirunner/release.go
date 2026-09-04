@@ -70,10 +70,10 @@ func ReleaseTestReport(ctx context.Context, root string, runner SpecRunner) erro
 	if err := runner.RunCommand(ctx, CommandSpec{
 		Name: "go",
 		Args: []string{
-			"tool", "-modfile=tools/go.mod", "gotestsum",
+			"tool", toolsModuleFlag, "gotestsum",
 			"--junitfile", "reports/tests/unit-report.xml",
 			"--jsonfile", "reports/tests/unit-report.json",
-			"--format", "short-verbose", "--", "-buildvcs=false", "./...", "-race", "-count=1",
+			formatFlag, "short-verbose", "--", buildVCSDisabledFlag, "./...", "-race", "-count=1",
 		},
 		Dir: root,
 	}); err != nil {
@@ -118,7 +118,7 @@ func ReleaseBenchmarks(ctx context.Context, root, version string, output io.Writ
 		runErr := runner.RunCommand(ctx, CommandSpec{
 			Name: "go",
 			Args: []string{
-				"test", "-buildvcs=false", "-bench=.", "-benchmem", "-count=6",
+				"test", buildVCSDisabledFlag, "-bench=.", "-benchmem", "-count=6",
 				"-run=^$", "-timeout=120s", targets[index].pkg,
 			},
 			Dir: root, Stdout: io.MultiWriter(output, artifact, &captured),
