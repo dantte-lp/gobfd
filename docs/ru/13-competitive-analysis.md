@@ -83,17 +83,17 @@ future work.
 
 | Возможность | GoBFD | FRR bfdd | BIRD3 | Holo 0.9.0 |
 |-------------|:-----:|:--------:|:-----:|:----------:|
-| RFC 5880 (базовый BFD) | Да | Да | Да | Да |
-| RFC 5881 (IPv4/IPv6) | Да | Да | Да | Да |
-| RFC 5882 (универсальное применение) | Да | Да | Да | Да |
-| RFC 5883 (multihop) | Да | Да | Да | Да |
-| Echo mode (RFC 9747) | Да | Да | Нет | Не документировано |
-| Demand mode | Да | Частично | Нет | Не документировано |
+| RFC 5880 (базовый BFD) | Частичный asynchronous core | Да | Да | Да |
+| RFC 5881 (IPv4/IPv6) | Частичный numbered-multiaccess profile | Да | Да | Да |
+| RFC 5882 (универсальное применение) | Частичная application integration | Да | Да | Да |
+| RFC 5883 (multihop) | Ограниченный GTSM profile | Да | Да | Да |
+| Unaffiliated echo (RFC 9747) | Preview | Неприменимо | Нет | Не документировано |
+| Demand mode | Нет; только декодирование полей | Частично | Нет | Не документировано |
 | Auth MD5 (RFC 5880 §6.7) | Да | Да | Ограничено | Не документировано |
 | Auth SHA1 (RFC 5880 §6.7) | Да | Да | Ограничено | Не документировано |
-| Бит CPI (Control Plane Independent) | Да | Частично | Нет | Не документировано |
-| VXLAN BFD (RFC 8971) | Userspace backend | Нет | Нет | Не документировано |
-| Geneve BFD (RFC 9521) | Userspace backend | Нет | Нет | Не документировано |
+| Бит CPI (Control Plane Independent) | Не выставляется при TX | Частично | Нет | Не документировано |
+| VXLAN BFD (RFC 8971) | Небезопасный/неполный preview | Нет | Нет | Не документировано |
+| Geneve BFD (RFC 9521) | Небезопасный/неполный preview | Нет | Нет | Не документировано |
 | Micro-BFD (RFC 7130) | Partial integration | Нет | Нет | Не документировано |
 | Zero-alloc hot path | Да | N/A (C) | N/A (C) | Нет опубликованных данных |
 | Интеграция с GoBGP | Да | N/A | N/A | N/A |

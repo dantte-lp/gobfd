@@ -1,6 +1,7 @@
 # GoBFD — BFD Protocol Daemon
 
-Go 1.27 implementation of Bidirectional Forwarding Detection (RFC 5880/5881).
+Go 1.27 implementation of Bidirectional Forwarding Detection with explicit
+partial RFC 5880/5881 boundaries.
 Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProxy bridge), `gobfd-exabgp-bridge` (ExaBGP bridge).
 
 ## Commands
@@ -8,7 +9,7 @@ Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProx
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
 go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
-go tool -modfile=tools/go.mod golangci-lint run ./... # линтер (v2, строгий)
+make lint                                          # линтер (v2, 92 линтера + 17 build-tag profiles)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
 make interop                                       # interop tests (FRR + BIRD3 + Holo + Thoro/bfd, 4 peers)

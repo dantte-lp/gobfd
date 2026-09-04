@@ -3,7 +3,7 @@
 ![Linux](https://img.shields.io/badge/Linux-Hosts-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![BGP](https://img.shields.io/badge/BGP-Fast_Failover-00ADD8?style=for-the-badge)
-![Overlay](https://img.shields.io/badge/Overlay-VXLAN%20%7C%20Geneve-6f42c1?style=for-the-badge)
+![Overlay](https://img.shields.io/badge/Overlay-Lab_Only-ea4335?style=for-the-badge)
 
 > Runbooks for deploying and validating GoBFD in Linux, Kubernetes, BGP, and overlay-network environments.
 
@@ -20,6 +20,9 @@
   inner TTL/Hop Limit 255.
 - RFC 9521 Geneve BFD: Geneve BFD for point-to-point Geneve tunnels with inner
   TTL/Hop Limit 255 and traffic-managed rate assumptions.
+- The current VXLAN/Geneve userspace receive paths are unsafe/incomplete
+  previews: inner-packet validation and complete tunnel-session identity
+  binding are not production-qualified.
 - Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
   when `hostNetwork: true` is set.
 - Vendor examples remain optional and must cite public vendor documentation.
@@ -31,7 +34,7 @@
 | BGP failover | Linux routing host or lab pair with FRR/GoBGP | `deployments/integrations/bgp-fast-failover/` |
 | Kubernetes daemon | One GoBFD instance per node with host networking | `deployments/integrations/kubernetes/` |
 | Observability | Prometheus alerts and Grafana dashboard | `deployments/integrations/observability/` |
-| Overlay endpoint | Dedicated VXLAN/Geneve management endpoint | `docs/en/linux-advanced-bfd-applicability.md` |
+| Overlay lab | Isolated VXLAN/Geneve validation only | [ADR-0003](./adr/0003-linux-advanced-bfd-applicability.md) |
 
 ## Kubernetes Host-Network Daemon
 

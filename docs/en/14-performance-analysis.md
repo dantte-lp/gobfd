@@ -405,8 +405,9 @@ release gates. Component benchmarks do not promote an RFC from partial or
 experimental to supported.
 
 The matrix covers base, transport, and extension RFCs at different maturity
-levels. RFC 5881 and RFC 7419 are marked implemented; the remaining entries are
-partial, constrained, preview, not implemented, planned, or stub capabilities.
+levels. RFC 7419 is implemented, while RFC 5881 is a partial
+numbered-multiaccess profile; the remaining entries are partial, constrained,
+preview, not implemented, planned, or stub capabilities.
 Raw RFC counts are therefore not a valid implementation or product comparison.
 
 See [08-rfc-compliance.md](./08-rfc-compliance.md) for the full compliance matrix.

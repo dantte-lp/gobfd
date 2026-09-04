@@ -7,8 +7,8 @@
 
 ## Context
 
-GoBFD поставляет userspace-реализации RFC 7130 Micro-BFD, RFC 8971 BFD
-для VXLAN и RFC 9521 BFD для Geneve. У каждого режима свои
+GoBFD поставляет userspace-пути Micro-BFD и неполные preview-пути RFC 8971
+BFD для VXLAN и RFC 9521 BFD для Geneve. У каждого режима свои
 ownership-ограничения в Linux: kernel bonding, OVS, OVN,
 NetworkManager, Cilium, Calico и NSX могут уже владеть
 соответствующим устройством или сокетом. Единое декларативное описание
@@ -30,8 +30,8 @@ production-ограничений, перечисленных в этой зап
 | Mode | Linux fit | Текущее состояние GoBFD | Production gap |
 |---|---:|---:|---|
 | Micro-BFD | High | Per-member сессии, агрегатное состояние, kernel-bond, OVSDB и NetworkManager пути enforcement | Выделенные API/CLI create-flows и расширение interop-матрицы |
-| VXLAN BFD | High для VTEP/NVE проверок | `userspace-udp` VXLAN socket и codec | Owner-специфичные интеграции kernel/OVS/OVN/Cilium/Calico/NSX |
-| Geneve BFD | Medium-High для OVN/NSX/OVS | `userspace-udp` Geneve socket и codec | Owner-специфичные dataplane-интеграции и rate-policy |
+| VXLAN BFD | Только lab или изолированный endpoint | Небезопасный/неполный `userspace-udp` preview | Валидация inner packet, tunnel identity и owner-specific интеграции kernel/OVS/OVN/Cilium/Calico/NSX |
+| Geneve BFD | Только lab или изолированный endpoint | Небезопасный/неполный `userspace-udp` preview | Валидация inner packet, tunnel identity, owner-specific dataplane-интеграции и rate-policy |
 
 ### Micro-BFD в Linux
 
@@ -79,6 +79,8 @@ Production-ограничения:
    появления реализации и interop-evidence.
 4. Стартовая диагностика должна сообщать о конфликтах ownership
    сокета с actionable-ошибками.
+5. Receive validation и полная привязка tunnel-session identity не завершены;
+   этот путь не прошёл production qualification.
 
 ### Geneve BFD в Linux
 
@@ -101,6 +103,8 @@ Production-ограничения:
    BFD-rate, чтобы избежать ложных отказов из-за congestion.
 4. Owner-специфичные backend требуют отдельной реализации и
    interop-тестов.
+5. Receive validation и полная привязка tunnel-session identity не завершены;
+   этот путь не прошёл production qualification.
 
 ### Матрица применимости
 
@@ -108,8 +112,8 @@ Production-ограничения:
 |---|---:|---|
 | Linux router либо NFV-appliance с LACP-uplinks | High | Backend kernel bonding, OVS либо NetworkManager выбран явно |
 | Bare-metal Kubernetes node | Medium | `hostNetwork` и host-interface ownership policy |
-| EVPN/VXLAN validation endpoint | High | Выделенный Management VNI endpoint либо owner-специфичный VXLAN backend |
-| OVN/NSX/Geneve gateway | Medium-High | Выделенный endpoint либо owner-специфичный Geneve backend |
+| EVPN/VXLAN validation endpoint | Только lab | Изолированный Management VNI endpoint до завершения receive validation и identity binding |
+| OVN/NSX/Geneve gateway | Только lab | Изолированный endpoint до завершения receive validation и identity binding |
 | Interop-лаборатория против EOS/FRR/Linux | High | Явный namespace, socket и interface ownership |
 | Generic application-host без LAG/overlay ownership | Low | Предпочтителен внешний routing-демон либо BFD сетевого устройства |
 

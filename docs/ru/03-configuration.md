@@ -188,6 +188,11 @@ unsolicited:
 ```
 
 > **Примечание**: Ключ с пустой строкой `""` соответствует слушателю по умолчанию (без привязки к интерфейсу).
+>
+> **Небезопасный preview**: пустой `allowed_prefixes` принимает любой валидный
+> source address, а `max_sessions <= 0` не задаёт лимит. Не включайте
+> unsolicited BFD на недоверенном интерфейсе до реализации connected-subnet
+> admission и обязательного положительного resource bound.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 
@@ -302,6 +307,10 @@ backend `userspace-udp` владеет `local:4789`; если kernel VXLAN, OVS/
 Cilium, Calico, NSX или другой dataplane уже владеет тем же socket, нужен будущий
 owner-specific backend.
 
+> **Небезопасный preview**: receive-side валидация inner IP/UDP и полная
+> привязка tunnel-session identity не завершены. Используйте только в
+> изолированной лаборатории; backend не прошёл production qualification.
+
 Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
 
 Пример:
@@ -345,6 +354,10 @@ BFD Control пакеты инкапсулируются в Geneve (внешни�
 (control) = 1, C бит (critical) = 0. Текущий backend `userspace-udp` владеет
 `local:6081`; если kernel Geneve, OVS/OVN, NSX или другой dataplane уже
 владеет тем же socket, нужен будущий owner-specific backend.
+
+> **Небезопасный preview**: receive-side валидация inner IP/UDP и полная
+> привязка tunnel-session identity не завершены. Используйте только в
+> изолированной лаборатории; backend не прошёл production qualification.
 
 Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
 

@@ -133,16 +133,16 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC | Title | Status |
 |---|---|---|
 | RFC 5880 | BFD Base Protocol | Asynchronous core; partial |
-| RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Implemented |
+| RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Partial; numbered-multiaccess profile |
 | RFC 5882 | Generic Application of BFD | Application integration partial |
 | RFC 5883 | BFD for Multihop Paths | Constrained GTSM profile; arbitrary-hop qualification pending |
 | RFC 7419 | Common Interval Support | Implemented |
 | RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v3 emits Cease/2 |
-| RFC 9468 | Unsolicited BFD | Preview |
+| RFC 9468 | Unsolicited BFD | Unsafe preview; admission defaults fail open |
 | RFC 9747 | Unaffiliated BFD Echo | Preview |
 | RFC 7130 | Micro-BFD for LAG | Preview; owner integration partial |
-| RFC 8971 | BFD for VXLAN | Preview userspace backend |
-| RFC 9521 | BFD for Geneve | Preview userspace backend |
+| RFC 8971 | BFD for VXLAN | Unsafe/incomplete userspace preview |
+| RFC 9521 | BFD for Geneve | Unsafe/incomplete userspace preview |
 | RFC 9764 | BFD Large Packets | Partial; authenticated padding incomplete |
 | RFC 5884 | BFD for MPLS LSPs | Stub |
 | RFC 5885 | BFD for PW VCCV | Stub |
@@ -166,7 +166,8 @@ allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
 
 - Table-driven FSM matching RFC 5880 Section 6.8.6 (no if-else chains)
 - Five authentication modes (Simple Password, Keyed MD5/SHA1, Meticulous MD5/SHA1)
-- RFC 9747 Echo, RFC 7130 Micro-BFD protocol, RFC 8971 VXLAN userspace backend, and RFC 9521 Geneve userspace backend support
+- RFC 9747 Echo and RFC 7130 Micro-BFD preview paths, plus unsafe/incomplete
+  RFC 8971 VXLAN and RFC 9521 Geneve userspace previews
 - BFD flap dampening for BGP integration (implementation policy informed by RFC 5882 Section 3.1)
 - Zero-allocation packet codec with pre-built cached packets
 - ConnectRPC/gRPC API + CLI with interactive shell

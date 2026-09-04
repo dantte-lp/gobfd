@@ -1,16 +1,16 @@
 # RFC Compliance
 
 [![RFC 5880](https://img.shields.io/badge/RFC_5880-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
-[![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
+[![RFC 5881](https://img.shields.io/badge/RFC_5881-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
 [![RFC 5882](https://img.shields.io/badge/RFC_5882-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
 [![RFC 5883](https://img.shields.io/badge/RFC_5883-Constrained-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
 [![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
-[![RFC 9468](https://img.shields.io/badge/RFC_9468-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
+[![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
 [![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
@@ -45,16 +45,16 @@
 | RFC | Title | Status | Notes |
 |---|---|---|---|
 | [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Incoming Poll reply exists; local/crossed Poll and Demand procedures are incomplete |
-| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Implemented** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
+| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Partial; numbered-multiaccess profile** | UDP 3784, TTL=255, and explicit interface binding exist; initial-demux coverage remains incomplete |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Application integration partial** | State delivery and actuator convergence remain incomplete; penalty dampening is implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784 with TTL>=254 permits at most one intermediate router; arbitrary-hop qualification is pending |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Not implemented** | GoBGP v3 emits Cease/2; the Cease/10 text is only an operator annotation |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Preview** | Passive session auto-creation and policy exist; stable qualification is pending |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Empty prefix policy accepts any source and nonpositive session limits are unbounded |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Preview userspace backend** | Owner-specific dataplane integration is not implemented |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Preview userspace backend** | Owner-specific dataplane integration is not implemented |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe/incomplete preview** | Inner-packet validation, tunnel identity, and owner-specific dataplane integration are incomplete |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe/incomplete preview** | Inner-packet validation, tunnel identity, and owner-specific dataplane integration are incomplete |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | Unauthenticated padding and DF exist; authenticated padded hashing is incomplete |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
@@ -174,6 +174,10 @@ AdminDown completion is tracked for v1.
 | `SO_BINDTODEVICE` | Applied when interface is specified |
 | Separate IPv4/IPv6 listeners | Separate `ipv4.PacketConn` / `ipv6.PacketConn` |
 
+The implemented boundary is the numbered-multiaccess single-hop profile with
+an explicit interface. Initial demultiplexing for the complete RFC 5881 scope,
+including point-to-point behavior, remains open and is not production-qualified.
+
 ### RFC 5882 Implementation Notes
 
 **Implementation**: [`internal/gobgp/`](../../internal/gobgp/)
@@ -252,14 +256,19 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 |---|---|
 | Disabled by default (MUST) | `unsolicited.enabled: false` default |
 | Per-interface policy (MUST) | `UnsolicitedInterfaceConfig` per interface |
-| Source address validation (MUST) | `AllowedPrefixes` ACL check |
+| Source address validation (MUST) | `AllowedPrefixes` ACL check when configured; an empty list currently accepts any valid source |
 | Single-hop only (MUST) | `SessionTypeSingleHop` enforced |
 | Local discriminator allocation (MUST) | `DiscriminatorAllocator` for passive sessions |
 | Configurable timers (SHOULD) | `UnsolicitedSessionDefaults` |
-| Max session limit | `MaxSessions` prevents resource exhaustion |
+| Max session limit | A positive `MaxSessions` enforces a limit; zero or a negative value is currently unlimited |
 | Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
 
 Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet. The `MaxSessions` quota is reserved atomically before creation and released on create failure, explicit destroy, or cleanup of a passive Down session after `CleanupTimeout`.
+
+This preview is fail-open when `AllowedPrefixes` is empty and unbounded when
+`MaxSessions <= 0`. Do not enable it on an untrusted interface until
+connected-subnet admission and a mandatory positive resource bound are
+enforced.
 
 ### RFC 9747 Implementation Notes
 
@@ -342,7 +351,7 @@ explicit.
 
 ### RFC 8971 Implementation Notes
 
-**Status**: Userspace backend implemented; owner-specific backends planned
+**Status**: Unsafe/incomplete preview; owner-specific backends planned
 
 **Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -363,7 +372,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips VXLAN + inner headers, delivers to `Manager.DemuxWithWire` |
 | Backend model | `NewVXLANOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive hardening | Reuses bounded jumbo receive buffers; expected malformed/non-management packets are dropped at debug level |
+| Receive validation | Overlay headers and VNI are checked, but inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination, and full tunnel identity are not yet validated |
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 
@@ -382,10 +391,13 @@ VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns UDP 4789 
 same local address/namespace, GoBFD fails closed for reserved backend names
 until an owner-specific integration exists. Sender reconciliation reuses the
 runtime backend already serving the receiver and does not bind a second socket.
+The receive path also reuses first-peer socket identity and synthesizes TTL 255
+for delivery. It is therefore unsafe for production until complete inner-packet
+validation and tunnel-session identity binding are implemented.
 
 ### RFC 9521 Implementation Notes
 
-**Status**: Userspace backend implemented; owner-specific backends planned
+**Status**: Unsafe/incomplete preview; owner-specific backends planned
 
 **Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -407,7 +419,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips Geneve + inner headers, delivers to `Manager.DemuxWithWire` |
 | Backend model | `NewGeneveOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive hardening | Reuses bounded jumbo receive buffers; expected malformed/non-management packets are dropped at debug level |
+| Receive validation | Overlay headers and VNI are checked, but inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination, and full tunnel identity are not yet validated |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 
@@ -430,6 +442,9 @@ Reserved owner-specific backend names fail closed until those integrations
 exist. RFC 9521 also inherits the Geneve requirement to run in a traffic-managed
 controlled environment or otherwise provision BFD transmit rates to avoid
 congestion-driven false failure detection.
+The receive path also reuses first-peer socket identity and synthesizes TTL 255
+for delivery. It is therefore unsafe for production until complete inner-packet
+validation and tunnel-session identity binding are implemented.
 
 ### RFC 9764 Implementation Notes
 

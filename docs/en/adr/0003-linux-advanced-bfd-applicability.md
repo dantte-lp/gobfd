@@ -7,8 +7,8 @@
 
 ## Context
 
-GoBFD ships userspace implementations of RFC 7130 Micro-BFD, RFC 8971
-BFD for VXLAN, and RFC 9521 BFD for Geneve. Each mode has distinct
+GoBFD ships userspace Micro-BFD paths and incomplete preview paths for RFC
+8971 BFD for VXLAN and RFC 9521 BFD for Geneve. Each mode has distinct
 ownership constraints on Linux: kernel bonding, OVS, OVN, NetworkManager,
 Cilium, Calico, and NSX may already own the relevant device or socket.
 A single declarative statement of applicability and required ownership
@@ -28,8 +28,8 @@ fixed set of production constraints listed in this record.
 | Mode | Linux fit | Current GoBFD state | Production gap |
 |---|---:|---:|---|
 | Micro-BFD | High | Per-member sessions, aggregate state, kernel-bond, OVSDB and NetworkManager enforcement paths | Dedicated API/CLI create flows and broader interop matrix |
-| VXLAN BFD | High for VTEP/NVE checks | `userspace-udp` VXLAN socket and codec | Owner-specific kernel/OVS/OVN/Cilium/Calico/NSX integrations |
-| Geneve BFD | Medium-High for OVN/NSX/OVS | `userspace-udp` Geneve socket and codec | Owner-specific dataplane integrations and rate policy |
+| VXLAN BFD | Lab or isolated endpoint only | Unsafe/incomplete `userspace-udp` preview | Inner-packet validation, tunnel identity, and owner-specific kernel/OVS/OVN/Cilium/Calico/NSX integrations |
+| Geneve BFD | Lab or isolated endpoint only | Unsafe/incomplete `userspace-udp` preview | Inner-packet validation, tunnel identity, owner-specific dataplane integrations, and rate policy |
 
 ### Micro-BFD on Linux
 
@@ -75,6 +75,8 @@ Production constraints:
    and interop evidence exist.
 4. Startup diagnostics must report socket ownership conflicts with
    actionable errors.
+5. Receive validation and full tunnel-session identity binding are incomplete;
+   this path is not production-qualified.
 
 ### Geneve BFD on Linux
 
@@ -96,6 +98,8 @@ Production constraints:
    rates to avoid congestion-driven false failures.
 4. Owner-specific backends require separate implementation and interop
    tests.
+5. Receive validation and full tunnel-session identity binding are incomplete;
+   this path is not production-qualified.
 
 ### Applicability matrix
 
@@ -103,8 +107,8 @@ Production constraints:
 |---|---:|---|
 | Linux router or NFV appliance with LACP uplinks | High | Kernel bonding, OVS, or NetworkManager backend selected explicitly |
 | Bare-metal Kubernetes node | Medium | `hostNetwork` and host interface ownership policy |
-| EVPN/VXLAN validation endpoint | High | Dedicated Management VNI endpoint or owner-specific VXLAN backend |
-| OVN/NSX/Geneve gateway | Medium-High | Dedicated endpoint or owner-specific Geneve backend |
+| EVPN/VXLAN validation endpoint | Lab only | Isolated Management VNI endpoint until receive validation and identity binding are complete |
+| OVN/NSX/Geneve gateway | Lab only | Isolated endpoint until receive validation and identity binding are complete |
 | Interop lab against EOS/FRR/Linux | High | Explicit namespace, socket, and interface ownership |
 | Generic application host without LAG/overlay ownership | Low | External routing daemon or network device BFD preferred |
 

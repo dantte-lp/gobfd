@@ -14,14 +14,16 @@ runs them through `benchstat` to catch performance regressions (>10% threshold).
 ## Running Benchmarks
 
 ```sh
-make benchmark          # Run all benchmarks (6 iterations, benchstat)
-make benchmark-all      # Run including race detector and memory profiling
+make benchmark          # Run BFD package benchmarks (6 iterations, benchmem)
+make benchmark-all      # Run all package benchmarks (6 iterations, benchmem)
 make profile            # Generate pprof CPU profile
 ```
 
 ## Results
 
-Measured on Go 1.26, 8 vCPU container (Podman). All results are median of 6 iterations.
+Historical baseline measured on Go 1.26 in an 8 vCPU Podman container. All
+results below are medians of 6 iterations and are not a current Go 1.27
+qualification receipt.
 
 ### Packet Codec
 
@@ -156,14 +158,16 @@ GoBFD содержит 34 микробенчмарка отдельных эта
 ## Запуск бенчмарков
 
 ```sh
-make benchmark          # Все бенчмарки (6 итераций, benchstat)
-make benchmark-all      # С race detector и профилированием памяти
+make benchmark          # Бенчмарки BFD-пакета (6 итераций, benchmem)
+make benchmark-all      # Бенчмарки всех пакетов (6 итераций, benchmem)
 make profile            # Генерация CPU-профиля pprof
 ```
 
 ## Результаты
 
-Измерено на Go 1.26, контейнер 8 vCPU (Podman). Все результаты — медиана 6 итераций.
+Исторический baseline измерен на Go 1.26 в Podman-контейнере с 8 vCPU. Все
+результаты ниже — медиана 6 итераций, а не актуальный qualification receipt
+для Go 1.27.
 
 ### Кодек пакетов
 

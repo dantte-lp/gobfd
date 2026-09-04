@@ -192,6 +192,11 @@ unsolicited:
 ```
 
 > **Note**: The empty string key `""` matches the default listener (no interface binding). Use this for raw socket listeners that don't report an interface name.
+>
+> **Unsafe preview**: an empty `allowed_prefixes` list accepts any valid source
+> address, and `max_sessions <= 0` is unlimited. Do not enable unsolicited BFD
+> on an untrusted interface until connected-subnet admission and a mandatory
+> positive resource bound are implemented.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 
@@ -301,6 +306,10 @@ micro_bfd:
 
 BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns the same socket.
 
+> **Unsafe preview**: receive-side inner IP/UDP validation and complete
+> tunnel-session identity binding are incomplete. Use only in an isolated lab;
+> this backend is not production-qualified.
+
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 
 Example:
@@ -340,6 +349,10 @@ vxlan:
 | `geneve.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
 BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0. The current `userspace-udp` backend owns `local:6081`; use a future owner-specific backend rather than this mode when kernel Geneve, OVS/OVN, NSX, or another dataplane already owns the same socket.
+
+> **Unsafe preview**: receive-side inner IP/UDP validation and complete
+> tunnel-session identity binding are incomplete. Use only in an isolated lab;
+> this backend is not production-qualified.
 
 Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
 

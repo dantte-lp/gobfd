@@ -41,7 +41,7 @@ runtime-контракты `bfd.v1` и YAML. Она обновляет зави�
 | Toolchain Go 1.27 и обновление CI | Готово |
 | Go-owned Podman testcontainers harness | Готово |
 | Миграция interop, integration и E2E orchestration | Готово |
-| Удаление Python-инструментов репозитория и контракт Docker Compose v5 | Готово |
+| Ограниченный Python 3.14.7/uv tooling island и контракт Docker Compose v5 | Готово |
 | Инвентарь лицензий, SBOM, OCI provenance и уязвимостей | Готово |
 | Граница образов Debian trixie / Oracle Linux 10 | Готово |
 | Исправление публичных RFC- и benchmark-заявлений | Готово |
@@ -58,6 +58,10 @@ Release-задача `gobfd-qj0.8.1.15` завершена после испра
 отдельный forward-port. Qualification `gobfd-qj0.8.1.7` и независимая проверка
 `gobfd-qj0.8.1.8` завершены после исправления и приёмки всех 13 дочерних
 находок.
+
+Эти строки v0.6 описывают принятый объём maintenance-релиза. Они не означают,
+что более поздние находки внешнего аудита, отслеживаемые для v1, исправлены в
+стабильной линии.
 
 ## Сверка legacy S12
 
@@ -90,11 +94,12 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 | Часть поставки | Статус |
 |---|---|
 | Корректность RFC core и учёт потерь | Открыто |
-| Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.4b |
+| Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.7 |
+| Удаление repository-owned shell | В работе; остаются 2 tracked nFPM lifecycle scripts, 3 workflow setup blocks и 16 embedded shell fixtures |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
-| Interop, scale, security и release qualification | В работе; строгий локальный release-quality gate зелёный, более широкая interop-, scale- и security-квалификация остаётся открытой |
+| Interop, scale, security и release qualification | В работе; строгий локальный release-quality gate прошёл в чистом worktree, более широкая interop-, scale- и security-квалификация остаётся открытой |
 
 Первая часть maintainability-работ по release-quality принята: устранены все 85
 измеренных strict-lint findings, а закреплённый набор cyclop, funlen и gocognit
@@ -104,6 +109,7 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 сообщают ноль замечаний без ослабления конфигурации.
 Два ранее существовавших дефекта публикации `GITHUB_PATH`, найденные при review,
 устранены как отдельные release blockers в Beads вне lint-refactor.
+В текущем дереве `dev` нет tracked Python source или Python manifests.
 
 Принятый core C01.1 предоставляет канонический ключ сессии, отделённый от
 packet demultiplexing, сериализованные типизированные claims конфигурации,

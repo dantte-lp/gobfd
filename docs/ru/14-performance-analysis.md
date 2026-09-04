@@ -403,8 +403,9 @@ CPU или runtime resources; API, metrics, configuration и другая раб
 partial или experimental в supported.
 
 Матрица охватывает базовые, transport и extension RFC с разной степенью
-готовности. RFC 5881 и RFC 7419 отмечены как реализованные; остальные entries
-имеют статус partial, constrained, preview, not implemented, planned или stub.
+готовности. RFC 7419 реализован, а RFC 5881 ограничен частичным
+numbered-multiaccess profile; остальные entries имеют статус partial,
+constrained, preview, not implemented, planned или stub.
 Поэтому простой подсчёт RFC не является корректным сравнением реализации или
 продукта.
 

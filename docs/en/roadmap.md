@@ -41,7 +41,7 @@ qualification `gobfd-qj0.8.1.7` is accepted and the baseline is **Done**.
 | Go 1.27 toolchain and CI refresh | Done |
 | Go-owned Podman testcontainers harness | Done |
 | Interop, integration, and E2E orchestration migration | Done |
-| Removal of repository Python tooling and Docker Compose v5 contract | Done |
+| Bounded Python 3.14.7/uv tooling island and Docker Compose v5 contract | Done |
 | License, SBOM, OCI provenance, and vulnerability inventory | Done |
 | Debian trixie / Oracle Linux 10 image boundary | Done |
 | RFC and benchmark public-claim correction | Done |
@@ -57,6 +57,10 @@ PRs `#67` and `#68` delivered the accepted correction to `release/v0.6` and
 `master`; this `dev` history contains the separate forward-port. Qualification
 `gobfd-qj0.8.1.7` and independent review `gobfd-qj0.8.1.8` are complete after
 all 13 child findings were resolved and accepted.
+
+These v0.6 rows describe the accepted maintenance release scope. They do not
+claim that later external-audit findings tracked for v1 are fixed on the
+stable line.
 
 ## Legacy S12 reconciliation
 
@@ -90,11 +94,12 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Delivery slice | Status |
 |---|---|
 | RFC core correctness and loss accounting | Open |
-| Ownership and configuration reconciliation | In progress; C01.1 through C01.4b implemented |
+| Ownership and configuration reconciliation | In progress; C01.1 through C01.7 implemented |
+| Repository-owned shell removal | In progress; 2 tracked nFPM lifecycle scripts, 3 workflow setup blocks, and 16 embedded shell fixtures remain |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
-| Interop, scale, security, and release qualification | In progress; the strict local release-quality gate is green, while broader interop, scale, and security qualification remains open |
+| Interop, scale, security, and release qualification | In progress; the strict local release-quality gate passed in a clean worktree, while broader interop, scale, and security qualification remains open |
 
 The first release-quality maintainability tranche is accepted: all 85 measured
 strict-lint findings are resolved, with the pinned cyclop, funlen, and gocognit
@@ -104,6 +109,7 @@ The follow-up complete base profile exposed 151 additional diagnostics. All
 now report zero issues without configuration weakening.
 Two pre-existing `GITHUB_PATH` publication defects found during review were
 resolved as separate Beads release blockers, outside the lint refactor.
+The current `dev` tree contains no tracked Python source or Python manifests.
 
 The accepted C01.1 core provides a canonical session key separate from packet
 demultiplexing, serialized typed configuration, compatibility/API, and

@@ -117,8 +117,8 @@ make lint-commit MSG='fix(interop): run RFC tests from the dev container'
 
 ### Linting
 
-The project uses golangci-lint v2 with a strict configuration (68 linters).
-Your code must pass:
+The project uses golangci-lint v2 with a strict 92-linter base configuration
+and 17 build-tag profiles. Your code must pass the canonical wrapper:
 
 ```bash
 make lint

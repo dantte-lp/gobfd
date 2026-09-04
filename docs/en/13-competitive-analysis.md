@@ -84,17 +84,17 @@ work.
 
 | Feature | GoBFD | FRR bfdd | BIRD3 | Holo 0.9.0 |
 |---------|:-----:|:--------:|:-----:|:----------:|
-| RFC 5880 (base BFD) | Yes | Yes | Yes | Yes |
-| RFC 5881 (IPv4/IPv6) | Yes | Yes | Yes | Yes |
-| RFC 5882 (generic application) | Yes | Yes | Yes | Yes |
-| RFC 5883 (multihop) | Yes | Yes | Yes | Yes |
-| Echo mode (RFC 9747) | Yes | Yes | No | Not documented |
-| Demand mode | Yes | Partial | No | Not documented |
+| RFC 5880 (base BFD) | Partial asynchronous core | Yes | Yes | Yes |
+| RFC 5881 (IPv4/IPv6) | Partial numbered-multiaccess profile | Yes | Yes | Yes |
+| RFC 5882 (generic application) | Partial application integration | Yes | Yes | Yes |
+| RFC 5883 (multihop) | Constrained GTSM profile | Yes | Yes | Yes |
+| Unaffiliated echo (RFC 9747) | Preview | Not applicable | No | Not documented |
+| Demand mode | No; fields decoded only | Partial | No | Not documented |
 | Auth MD5 (RFC 5880 §6.7) | Yes | Yes | Limited | Not documented |
 | Auth SHA1 (RFC 5880 §6.7) | Yes | Yes | Limited | Not documented |
-| CPI bit (Control Plane Independent) | Yes | Partial | No | Not documented |
-| VXLAN BFD (RFC 8971) | Userspace backend | No | No | Not documented |
-| Geneve BFD (RFC 9521) | Userspace backend | No | No | Not documented |
+| CPI bit (Control Plane Independent) | No on transmit | Partial | No | Not documented |
+| VXLAN BFD (RFC 8971) | Unsafe/incomplete preview | No | No | Not documented |
+| Geneve BFD (RFC 9521) | Unsafe/incomplete preview | No | No | Not documented |
 | Micro-BFD (RFC 7130) | Partial integration | No | No | Not documented |
 | Zero-alloc hot path | Yes | N/A (C) | N/A (C) | No published data |
 | GoBGP integration | Yes | N/A | N/A | N/A |

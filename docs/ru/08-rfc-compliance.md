@@ -1,16 +1,16 @@
 # Соответствие RFC
 
 [![RFC 5880](https://img.shields.io/badge/RFC_5880-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5880)
-[![RFC 5881](https://img.shields.io/badge/RFC_5881-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
+[![RFC 5881](https://img.shields.io/badge/RFC_5881-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5881)
 [![RFC 5882](https://img.shields.io/badge/RFC_5882-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5882)
 [![RFC 5883](https://img.shields.io/badge/RFC_5883-Constrained-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc5883)
 [![RFC 7419](https://img.shields.io/badge/RFC_7419-Implemented-34a853?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7419)
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
-[![RFC 9468](https://img.shields.io/badge/RFC_9468-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
+[![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
 [![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
-[![RFC 8971](https://img.shields.io/badge/RFC_8971-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
-[![RFC 9521](https://img.shields.io/badge/RFC_9521-Userspace_Backend-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
+[![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
+[![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
 [![RFC 7880](https://img.shields.io/badge/RFC_7880-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7880)
 [![RFC 7881](https://img.shields.io/badge/RFC_7881-Planned-2196f3?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7881)
@@ -45,16 +45,16 @@
 | RFC | Название | Статус | Примечания |
 |---|---|---|---|
 | [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Ответ Final на входящий Poll есть; локальный/crossed Poll и Demand procedures не завершены |
-| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Реализован** | UDP 3784, TTL=255, `SO_BINDTODEVICE` |
+| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Частично; numbered-multiaccess profile** | UDP 3784, TTL=255 и явная привязка к интерфейсу реализованы; initial demux покрыт не полностью |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Application integration частичная** | State delivery и actuator convergence не завершены; penalty dampening является implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784 с TTL>=254 допускает не более одного промежуточного router; arbitrary-hop qualification не завершена |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v3 отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Preview** | Автосоздание и policy существуют; стабильная квалификация не завершена |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Пустой prefix policy принимает любой source, неположительный session limit не ограничен |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Preview userspace backend** | Owner-specific dataplane integration не реализован |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Preview userspace backend** | Owner-specific dataplane integration не реализован |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный/неполный preview** | Inner-packet validation, tunnel identity и owner-specific dataplane integration не завершены |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный/неполный preview** | Inner-packet validation, tunnel identity и owner-specific dataplane integration не завершены |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Padding без auth и DF реализованы; hashing authenticated padding не завершён |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
@@ -157,6 +157,10 @@ best-effort путь: текущая реализация не подтверж�
 | `SO_BINDTODEVICE` | Применяется при указании интерфейса |
 | Раздельные IPv4/IPv6 слушатели | Раздельные `ipv4.PacketConn` / `ipv6.PacketConn` |
 
+Реализованная граница — numbered-multiaccess single-hop profile с явным
+интерфейсом. Initial demultiplexing для полного объёма RFC 5881, включая
+point-to-point behavior, остаётся открытым и не прошёл production qualification.
+
 ### Заметки по RFC 5882
 
 Реализация: [`internal/gobgp/`](../../internal/gobgp/)
@@ -201,7 +205,11 @@ RFC 9384 требует Cease NOTIFICATION subcode 10 ("BFD Down") при раз
 
 Реализация: [`internal/bfd/unsolicited.go`](../../internal/bfd/unsolicited.go), [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
 
-RFC 9468 позволяет динамически создавать пассивные сессии при получении BFD-пакетов от неизвестных пиров. Автосоздание выполняется в `Manager.demuxByPeer()` с политикой per-interface и ограничением `MaxSessions`. Квота `MaxSessions` резервируется атомарно до создания и освобождается при ошибке создания, явном удалении или cleanup пассивной Down-сессии после `CleanupTimeout`.
+RFC 9468 позволяет динамически создавать пассивные сессии при получении BFD-пакетов от неизвестных пиров. Автосоздание выполняется в `Manager.demuxByPeer()` с политикой per-interface. Положительный `MaxSessions` ограничивает число сессий; нулевое или отрицательное значение оставляет его неограниченным. Пустой `AllowedPrefixes` принимает любой валидный source address без проверки connected subnet. Квота резервируется атомарно до создания и освобождается при ошибке создания, явном удалении или cleanup пассивной Down-сессии после `CleanupTimeout`.
+
+Эта preview-возможность fail-open при пустом `AllowedPrefixes` и не ограничена
+при `MaxSessions <= 0`. Её нельзя включать на недоверенном интерфейсе до
+реализации connected-subnet admission и обязательного положительного лимита.
 
 ### Заметки по RFC 9747
 
@@ -283,7 +291,7 @@ available bond port profile при явном `owner_policy: networkmanager-dbus
 
 ### Заметки по RFC 8971
 
-**Статус**: Userspace backend реализован; owner-specific backends planned
+**Статус**: Небезопасный/неполный preview; owner-specific backends planned
 
 Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -304,7 +312,7 @@ RFC 8971 определяет BFD в VXLAN-инкапсуляции для об�
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
 | Цикл OverlayReceiver | Снимает VXLAN + inner заголовки, доставляет в `Manager.DemuxWithWire` |
 | Модель backend | `NewVXLANOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Усиление receive path | Переиспользует ограниченные jumbo receive buffers; ожидаемые malformed/non-management пакеты отбрасываются на debug-уровне |
+| Валидация receive path | Overlay-заголовки и VNI проверяются, но inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination и полная tunnel identity пока не валидируются |
 | Декларативные пиры | `vxlan.peers[]` в конфиге, реконсиляция при SIGHUP |
 | Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
 
@@ -324,10 +332,13 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 closed до появления owner-specific integration. Sender reconciliation
 использует runtime backend, который уже обслуживает receiver, и не bind-ит
 второй socket.
+Receive path также переиспользует socket identity первого peer и синтезирует
+TTL 255 при доставке. Поэтому он небезопасен для production до полной
+валидации inner packet и привязки tunnel-session identity.
 
 ### Заметки по RFC 9521
 
-**Статус**: Userspace backend реализован; owner-specific backends planned
+**Статус**: Небезопасный/неполный preview; owner-specific backends planned
 
 Реализация: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -349,7 +360,7 @@ RFC 9521 определяет BFD в Geneve-инкапсуляции для об
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
 | Цикл OverlayReceiver | Снимает Geneve + inner заголовки, доставляет в `Manager.DemuxWithWire` |
 | Модель backend | `NewGeneveOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Усиление receive path | Переиспользует ограниченные jumbo receive buffers; ожидаемые malformed/non-management пакеты отбрасываются на debug-уровне |
+| Валидация receive path | Overlay-заголовки и VNI проверяются, но inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination и полная tunnel identity пока не валидируются |
 | Декларативные пиры | `geneve.peers[]` в конфиге, переопределение VNI per-peer, реконсиляция при SIGHUP |
 | Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
 
@@ -372,6 +383,9 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 интеграций. RFC 9521 также наследует требование Geneve работать в
 traffic-managed controlled environment или явно ограничивать BFD transmit rate,
 чтобы не получать ложные отказы из-за перегрузки.
+Receive path также переиспользует socket identity первого peer и синтезирует
+TTL 255 при доставке. Поэтому он небезопасен для production до полной
+валидации inner packet и привязки tunnel-session identity.
 
 ### Заметки по RFC 9764
 
