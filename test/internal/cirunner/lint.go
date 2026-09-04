@@ -330,7 +330,7 @@ func countBuildTagFiles(root, tag string) (int, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "vendor") {
+		if entry.IsDir() && (entry.Name() == ".git" || path == "vendor") {
 			return fs.SkipDir
 		}
 		if entry.IsDir() || filepath.Ext(path) != ".go" {

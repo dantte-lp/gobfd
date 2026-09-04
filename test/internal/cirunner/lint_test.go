@@ -62,6 +62,28 @@ func TestLintRefusesHostExecution(t *testing.T) {
 	}
 }
 
+func TestCountBuildTagFilesSkipsOnlyRootVendor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, path := range []string{"vendor/root.go", "test/e2e/vendor/nested.go"} {
+		path = filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("create fixture directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("//go:build e2e_vendor\n\npackage fixture\n"), 0o600); err != nil {
+			t.Fatalf("write tagged fixture: %v", err)
+		}
+	}
+	got, err := countBuildTagFiles(root, "e2e_vendor")
+	if err != nil {
+		t.Fatalf("countBuildTagFiles() error = %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("countBuildTagFiles() = %d, want 1", got)
+	}
+}
+
 type lintTestRunner struct {
 	calls []CommandSpec
 }
