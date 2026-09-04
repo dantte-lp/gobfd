@@ -65,7 +65,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"benchmark-run|benchmark-base|benchmark-normalize|benchmark-report|"+
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
-				"release-upx|release-artifacts|release-oci-evidence|release-evidence|release-verify|"+
+				"release-upx|release-artifacts|release-assets-upload|release-oci-evidence|release-evidence|release-verify|"+
 				"release-promote|release-publish}: %w",
 			flag.ErrHelp,
 		)
@@ -146,6 +146,8 @@ func runReleaseCommand(
 		return true, runReleaseUPX(ctx, arguments, deps)
 	case "release-artifacts":
 		return true, runReleaseArtifacts(ctx, arguments, deps)
+	case "release-assets-upload":
+		return true, runReleaseAssetsUpload(ctx, arguments, deps)
 	case "release-oci-evidence":
 		return true, runReleaseOCIEvidence(ctx, arguments, deps)
 	case "release-evidence":
@@ -295,6 +297,19 @@ func runReleaseArtifacts(ctx context.Context, arguments []string, deps dependenc
 		RefName: deps.getenv("GITHUB_REF_NAME"), SHA: deps.getenv("GITHUB_SHA"), Runner: deps.specRunner,
 	}); err != nil {
 		return fmt.Errorf("record exact GoReleaser artifacts: %w", err)
+	}
+	return nil
+}
+
+func runReleaseAssetsUpload(ctx context.Context, arguments []string, deps dependencies) error {
+	if err := rejectArguments("release-assets-upload", arguments); err != nil {
+		return err
+	}
+	if err := cirunner.UploadReleaseAssets(ctx, cirunner.UploadReleaseAssetsOptions{
+		ArtifactRoot: deps.getenv("RELEASE_ARTIFACT_ROOT"), RunnerTemp: deps.getenv("RUNNER_TEMP"),
+		RefName: deps.getenv("GITHUB_REF_NAME"), Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return fmt.Errorf("upload exact GoReleaser assets: %w", err)
 	}
 	return nil
 }

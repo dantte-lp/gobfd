@@ -491,6 +491,16 @@ identity matches the one created; the final pathname operation can only remove
 an empty directory and never recursively deletes a pre-existing or replacement
 tree.
 
+GoReleaser creates the draft with `release.skip_upload` and does not upload
+primary assets itself. Its nFPM DEB packages execute the package-internal Go
+lifecycle binary directly. `go -C tools run ./cmd/packagefinalize` replaces
+the two RPMs with equivalent packages whose `POSTINPROG` and `PREUNPROG` tags
+point to the packaged native lifecycle binary, then refreshes both
+`dist/artifacts.json` and `dist/checksums.txt`. After `cictl release-artifacts`
+validates the exact two archives and four packages, `cictl
+release-assets-upload` uploads only that receipt-bound matrix and revalidates
+its checksums before and after the upload.
+
 After GoReleaser creates the draft, the commit-pinned checkout action creates a
 separate `.release-verifier` checkout at the exact workflow SHA with no
 persistent credentials. `cictl release-artifacts` runs from that clean source,

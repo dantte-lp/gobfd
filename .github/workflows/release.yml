@@ -159,6 +159,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Finalize shellless packages
+        run: go -C tools run ./cmd/packagefinalize
+
       - name: Checkout immutable release verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -173,6 +176,13 @@ jobs:
         env:
           RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}
         run: go run ./test/cmd/cictl release-artifacts
+
+      - name: Upload exact release asset matrix
+        working-directory: .release-verifier
+        env:
+          RELEASE_ARTIFACT_ROOT: ${{ github.workspace }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./test/cmd/cictl release-assets-upload
 
       - name: Record exact release OCI evidence
         working-directory: .release-verifier

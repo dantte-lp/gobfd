@@ -505,6 +505,16 @@ UPX не удаляется. `GH_TOKEN` наследуется только пр
 только пустой каталог и никогда рекурсивно не удаляет существующее или
 подменённое дерево.
 
+GoReleaser создаёт draft с `release.skip_upload` и сам не загружает primary
+assets. DEB-пакеты nFPM напрямую исполняют package-internal Go lifecycle
+binary. Команда `go -C tools run ./cmd/packagefinalize` заменяет два RPM
+эквивалентными пакетами, где tags `POSTINPROG` и `PREUNPROG` указывают на
+упакованный нативный lifecycle binary, затем обновляет `dist/artifacts.json` и
+`dist/checksums.txt`. После проверки точных двух archives и четырёх packages
+командой `cictl release-artifacts`, `cictl release-assets-upload` загружает
+только matrix из проверенного receipt и повторно проверяет checksums до и после
+загрузки.
+
 После создания draft в GoReleaser commit-pinned checkout action создаёт
 отдельный чистый checkout `.release-verifier` на точном workflow SHA без
 сохранённых credentials. `cictl release-artifacts` запускается из этого

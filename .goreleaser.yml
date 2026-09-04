@@ -65,6 +65,19 @@ builds:
       - -X github.com/dantte-lp/gobfd/internal/version.GitCommit={{.ShortCommit}}
       - -X github.com/dantte-lp/gobfd/internal/version.BuildDate={{.Date}}
 
+  - id: gobfd-package-lifecycle
+    main: ./internal/cmd/gobfd-package-lifecycle
+    binary: gobfd-package-lifecycle
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
 upx:
   - enabled: true
     compress: best
@@ -74,6 +87,7 @@ upx:
 
 archives:
   - id: default
+    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -88,6 +102,7 @@ checksum:
 release:
   draft: true
   mode: keep-existing
+  skip_upload: true
 
 sboms:
   - artifacts: archive
@@ -99,6 +114,7 @@ changelog:
 
 nfpms:
   - id: packages
+    ids: [gobfd, gobfdctl, gobfd-haproxy-agent, gobfd-exabgp-bridge]
     package_name: gobfd
     vendor: dantte-lp
     homepage: https://github.com/dantte-lp/gobfd
@@ -115,13 +131,23 @@ nfpms:
         type: config|noreplace
       - src: deployments/systemd/gobfd.service
         dst: /usr/lib/systemd/system/gobfd.service
-    scripts:
-      postinstall: deployments/nfpm/postinstall.sh
-      preremove: deployments/nfpm/preremove.sh
+      - src: deployments/systemd/gobfd.sysusers
+        dst: /usr/lib/sysusers.d/gobfd.conf
+      - src: deployments/systemd/gobfd.tmpfiles
+        dst: /usr/lib/tmpfiles.d/gobfd.conf
+      - src: dist/gobfd-package-lifecycle_linux_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/gobfd-package-lifecycle
+        dst: /usr/libexec/gobfd-postinstall
+        packager: rpm
+      - src: dist/gobfd-package-lifecycle_linux_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/gobfd-package-lifecycle
+        dst: /usr/libexec/gobfd-preremove
+        packager: rpm
     overrides:
       deb:
         dependencies:
           - systemd
+        scripts:
+          postinstall: dist/gobfd-package-lifecycle_linux_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/gobfd-package-lifecycle
+          preremove: dist/gobfd-package-lifecycle_linux_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/gobfd-package-lifecycle
       rpm:
         dependencies:
           - systemd

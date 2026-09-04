@@ -10,14 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added the package-internal Go lifecycle owner and declarative systemd
-  sysusers/tmpfiles inputs as the staged foundation for shellless DEB/RPM
-  lifecycle hooks, without changing the four public binaries.
+  sysusers/tmpfiles inputs for shellless DEB/RPM lifecycle hooks, without
+  changing the four public binaries.
 
 ### Changed
 
 - Replaced all 16 shell-shebang fixtures embedded in Go tests with guarded
   Go helper processes while preserving argv, streams, exit, cancellation, and
   owned-resource cleanup contracts.
+- Replaced the final two tracked nFPM shell hooks with native Go executables.
+  Release packaging now rewrites RPM lifecycle program tags, refreshes the
+  GoReleaser artifact manifest and checksums, validates the exact package
+  matrix, and uploads it to the draft only after validation.
 - Reconciled the public roadmap, release-branch design, and executable plan
   with the published immutable v0.6.4 evidence after resolving and accepting
   all three P1 maintenance-review findings in Beads.
@@ -27,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `golang.org/x/crypto` to `v0.56.0` in the runtime and tools module
   graphs, fixing the reachable SSH denial-of-service vulnerabilities
   GO-2026-6354 and GO-2026-6355.
+- Updated the isolated tools graph to `github.com/ulikunitz/xz v0.5.16` and
+  `github.com/klauspost/compress v1.18.7`, removing GO-2025-3922 and
+  GO-2026-5841 from release packaging dependencies.
 - Release notes now include every maintenance entry since the previous
   published stable release in the same line, plus tag-bound changelog and
   comparison links. Release closeout also requires the accepted stable history

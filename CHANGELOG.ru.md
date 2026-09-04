@@ -10,14 +10,18 @@
 ### Добавлено
 
 - Добавлены package-internal Go lifecycle owner и декларативные systemd inputs
-  sysusers/tmpfiles как основа shellless lifecycle hooks DEB/RPM без изменения
-  четырёх публичных binaries.
+  sysusers/tmpfiles для shellless lifecycle hooks DEB/RPM без изменения четырёх
+  публичных binaries.
 
 ### Изменено
 
 - Все 16 shell-shebang fixtures, встроенных в Go-тесты, заменены на guarded
   Go helper processes с сохранением контрактов argv, потоков, exit status,
   отмены и cleanup owned resources.
+- Последние два tracked shell hook nFPM заменены нативными Go executables.
+  Release packaging теперь переписывает RPM lifecycle program tags, обновляет
+  artifact manifest и checksums GoReleaser, проверяет точную package matrix и
+  загружает её в draft только после проверки.
 - Публичные roadmap, дизайн release-веток и исполняемый план сверены с
   опубликованными неизменяемыми evidence v0.6.4 после исправления и приёмки
   всех трёх P1-находок maintenance-ревью в Beads.
@@ -27,6 +31,9 @@
 - `golang.org/x/crypto` обновлён до `v0.56.0` в runtime- и tools-графах, что
   устраняет достижимые SSH denial-of-service уязвимости GO-2026-6354 и
   GO-2026-6355.
+- Изолированный tools-граф обновлён до `github.com/ulikunitz/xz v0.5.16` и
+  `github.com/klauspost/compress v1.18.7`, что устраняет GO-2025-3922 и
+  GO-2026-5841 из зависимостей release packaging.
 - Release notes теперь включают все maintenance-записи после предыдущего
   опубликованного стабильного релиза в той же линии, а также привязанные к тегу
   ссылки на changelog и сравнение. Release closeout также требует, чтобы
