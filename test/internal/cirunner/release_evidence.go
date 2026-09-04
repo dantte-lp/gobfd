@@ -174,7 +174,7 @@ func prepareReleaseEvidenceStage(
 	verifierRoot *os.Root,
 	verifierRootPath string,
 	files []releaseEvidenceFile,
-) (stageRoot *os.Root, stageInfo os.FileInfo, returnErr error) {
+) (_ *os.Root, _ os.FileInfo, returnErr error) {
 	if err := validateRootPathIdentity(
 		verifierRoot, verifierRootPath, "release verifier root before staging snapshot",
 	); err != nil {
@@ -188,6 +188,8 @@ func prepareReleaseEvidenceStage(
 	if err := verifierRoot.Mkdir(releaseEvidenceStageName, 0o700); err != nil {
 		return nil, nil, fmt.Errorf("create release evidence staging directory: %w", err)
 	}
+	var stageRoot *os.Root
+	var stageInfo os.FileInfo
 	defer func() {
 		if returnErr == nil {
 			return

@@ -443,11 +443,11 @@ func prepareReleaseReceipts(runnerTemp string) (*os.Root, []string, error) {
 	return root, names, nil
 }
 
-func writeRootedReceipt(root *os.Root, name string, data []byte) (returnErr error) {
+func writeRootedReceipt(root *os.Root, name string, data []byte) error {
 	return writeRootedArtifact(root, name, data, "release identity receipt", releaseReceiptLimit)
 }
 
-func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string, limit int) (returnErr error) {
+func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string, limit int) error {
 	return writeRootedModeArtifact(root, name, data, purpose, limit, benchmarkArtifactMode)
 }
 

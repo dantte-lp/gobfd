@@ -332,7 +332,7 @@ func releaseAssetIdentityMatchesRemote(record releaseAssetIdentityRecord, remote
 func publishReleaseAssetIdentityReceipt(
 	root *os.Root,
 	data []byte,
-) (published os.FileInfo, returnErr error) {
+) (_ os.FileInfo, returnErr error) {
 	if root == nil || len(data) > releaseAssetIdentityReceiptLimit {
 		return nil, fmt.Errorf("release asset identity receipt exceeds its bounded contract: %w", errInvalidConfig)
 	}

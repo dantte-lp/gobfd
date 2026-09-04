@@ -594,7 +594,7 @@ func validateGitHubPath(path string) error {
 	return nil
 }
 
-func appendGitHubPath(path, binDirectory string) (published bool, returnErr error) {
+func appendGitHubPath(path, binDirectory string) (_ bool, returnErr error) {
 	if err := validateGitHubPath(path); err != nil {
 		return false, err
 	}
