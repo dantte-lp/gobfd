@@ -205,13 +205,14 @@ func parseReleaseAssetIdentityReceiptRecords(data []byte, refName string) ([]map
 	if err := validateStrictJSONDocument(data, "release asset identity receipt"); err != nil {
 		return nil, err
 	}
+	requiredFields := []string{"schema_version", "tag", "assets"}
 	root, err := decodeRequiredJSONObject(
-		data, "release asset identity receipt", []string{"schema_version", "tag", "assets"},
+		data, "release asset identity receipt", requiredFields,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if len(root) != 3 {
+	if len(root) != len(requiredFields) {
 		return nil, fmt.Errorf("release asset identity receipt has unexpected fields: %w", errInvalidConfig)
 	}
 	var schemaVersion *int

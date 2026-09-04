@@ -399,7 +399,9 @@ func validGitHubRepositoryName(value string) bool {
 }
 
 func validateFullCommitSHA(value, purpose string) (string, error) {
-	if len(value) != 40 {
+	const fullCommitSHACharacterCount = 40
+
+	if len(value) != fullCommitSHACharacterCount {
 		return "", fmt.Errorf("%s must be exactly 40 lowercase hexadecimal characters: %w", purpose, ErrInvalidSHA)
 	}
 	for _, character := range value {

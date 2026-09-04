@@ -22,6 +22,7 @@ const (
 	releaseChecksumFileLimit    = 64 << 10
 	releaseReportsExpandedLimit = 256 << 20
 	releaseReportsEntryLimit    = 4096
+	releaseSBOMCount            = 2
 )
 
 type releaseAssetSnapshot struct {
@@ -99,7 +100,7 @@ func validateMainReleaseAssets(
 		)
 	}
 	sbomNames := releaseSBOMNames(expectedChecksummed)
-	if len(sbomNames) != 2 {
+	if len(sbomNames) != releaseSBOMCount {
 		return nil, nil, nil, fmt.Errorf(
 			"canonical release matrix does not contain exactly two SBOMs: %w", errInvalidConfig,
 		)
@@ -125,7 +126,7 @@ func validateMainReleaseAssets(
 }
 
 func releaseSBOMNames(names []string) []string {
-	sbomNames := make([]string, 0, 2)
+	sbomNames := make([]string, 0, releaseSBOMCount)
 	for _, name := range names {
 		if strings.HasSuffix(name, ".sbom.json") {
 			sbomNames = append(sbomNames, name)

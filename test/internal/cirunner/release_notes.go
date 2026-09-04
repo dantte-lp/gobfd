@@ -223,8 +223,9 @@ func parseCanonicalReleaseTag(tag string) (canonicalReleaseVersion, bool) {
 	if len(tag) > 128 || hasControl(tag) {
 		return canonicalReleaseVersion{}, false
 	}
-	matches := regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).FindStringSubmatch(tag)
-	if len(matches) != 4 {
+	pattern := regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	matches := pattern.FindStringSubmatch(tag)
+	if len(matches) != pattern.NumSubexp()+1 {
 		return canonicalReleaseVersion{}, false
 	}
 	return canonicalReleaseVersion{Tag: tag, Major: matches[1], Minor: matches[2], Patch: matches[3]}, true

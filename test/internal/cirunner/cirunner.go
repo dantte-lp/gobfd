@@ -156,7 +156,9 @@ func Build(ctx context.Context, options BuildOptions) error {
 }
 
 func validateSHA(sha string) (string, error) {
-	if len(sha) < 8 {
+	const shortCommitSHACharacterCount = 8
+
+	if len(sha) < shortCommitSHACharacterCount {
 		return "", fmt.Errorf("GITHUB_SHA must contain at least 8 hexadecimal characters: %w", ErrInvalidSHA)
 	}
 	for _, character := range sha {
@@ -167,5 +169,5 @@ func validateSHA(sha string) (string, error) {
 		}
 		return "", fmt.Errorf("GITHUB_SHA contains a non-hexadecimal character: %w", ErrInvalidSHA)
 	}
-	return sha[:8], nil
+	return sha[:shortCommitSHACharacterCount], nil
 }
