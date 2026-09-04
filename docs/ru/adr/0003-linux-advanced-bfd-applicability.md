@@ -79,8 +79,8 @@ Production-ограничения:
    появления реализации и interop-evidence.
 4. Стартовая диагностика должна сообщать о конфликтах ownership
    сокета с actionable-ошибками.
-5. Receive validation и полная привязка tunnel-session identity не завершены;
-   этот путь не прошёл production qualification.
+5. Identity поддерживаемого IPv4 Format A проверяется точно; путь остаётся
+   unqualified из-за незавершённой owner-specific dataplane integration.
 
 ### Geneve BFD в Linux
 
@@ -103,8 +103,8 @@ Production-ограничения:
    BFD-rate, чтобы избежать ложных отказов из-за congestion.
 4. Owner-специфичные backend требуют отдельной реализации и
    interop-тестов.
-5. Receive validation и полная привязка tunnel-session identity не завершены;
-   этот путь не прошёл production qualification.
+5. Требуется явная IPv4 Format A VAP identity с exact match; unsupported
+   formats fail closed, owner-specific integration не завершена.
 
 ### Матрица применимости
 
@@ -112,8 +112,8 @@ Production-ограничения:
 |---|---:|---|
 | Linux router либо NFV-appliance с LACP-uplinks | High | Backend kernel bonding, OVS либо NetworkManager выбран явно |
 | Bare-metal Kubernetes node | Medium | `hostNetwork` и host-interface ownership policy |
-| EVPN/VXLAN validation endpoint | Только lab | Изолированный Management VNI endpoint до завершения receive validation и identity binding |
-| OVN/NSX/Geneve gateway | Только lab | Изолированный endpoint до завершения receive validation и identity binding |
+| EVPN/VXLAN validation endpoint | Только lab | Изолированный Management VNI endpoint до появления owner-specific dataplane integration |
+| OVN/NSX/Geneve gateway | Только lab | Явная Format A VAP identity и изолированный socket ownership |
 | Interop-лаборатория против EOS/FRR/Linux | High | Явный namespace, socket и interface ownership |
 | Generic application-host без LAG/overlay ownership | Low | Предпочтителен внешний routing-демон либо BFD сетевого устройства |
 

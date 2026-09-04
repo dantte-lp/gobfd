@@ -306,11 +306,12 @@ micro_bfd:
 
 BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns the same socket.
 
-> **Unsafe preview**: receive-side inner IP/UDP validation and complete
-> tunnel-session identity binding are incomplete. Use only in an isolated lab;
-> this backend is not production-qualified.
+> **Unsafe preview**: the supported IPv4 Format A profile is validated and
+> bound to its exact tunnel identity. The userspace socket ownership model is
+> still suitable only for an isolated endpoint; this backend is not production-qualified.
 
-Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
+Peers are reconciled on SIGHUP reload. Session identity includes the backend,
+outer endpoints, Management VNI, inner endpoints, address family, and MAC tuple.
 
 Example:
 ```yaml
@@ -344,17 +345,22 @@ vxlan:
 | `geneve.peers[].peer` | string | -- | Remote NVE IP address |
 | `geneve.peers[].local` | string | -- | Local NVE IP address |
 | `geneve.peers[].vni` | uint32 | -- | Override `default_vni` for this peer (0 = use default) |
+| `geneve.peers[].inner_peer` | string | -- | Required remote Format A VAP IPv4 address |
+| `geneve.peers[].inner_local` | string | -- | Required local Format A VAP IPv4 address |
+| `geneve.peers[].peer_mac` | string | -- | Required remote Format A VAP unicast MAC |
+| `geneve.peers[].local_mac` | string | -- | Required local Format A VAP unicast MAC |
 | `geneve.peers[].desired_min_tx` | duration | -- | Override default TX interval for this peer |
 | `geneve.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `geneve.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
 BFD Control packets are encapsulated in Geneve (outer UDP port 6081) with Format A (Ethernet payload, Protocol Type 0x6558). Per RFC 9521 Section 4: O bit (control) is set to 1, C bit (critical) is set to 0. The current `userspace-udp` backend owns `local:6081`; use a future owner-specific backend rather than this mode when kernel Geneve, OVS/OVN, NSX, or another dataplane already owns the same socket.
 
-> **Unsafe preview**: receive-side inner IP/UDP validation and complete
-> tunnel-session identity binding are incomplete. Use only in an isolated lab;
-> this backend is not production-qualified.
+> **Unsafe preview**: configured IPv4 Format A VAP identities are validated and
+> bound exactly. Missing VAP identity, other address families, and other Geneve
+> payload formats fail closed. The userspace socket ownership model remains lab-only.
 
-Peers are reconciled on SIGHUP reload. Session key: `(peer, local)`.
+Peers are reconciled on SIGHUP reload. Session identity includes the backend,
+outer endpoints, VNI, both VAP IP/MAC endpoints, and address family.
 
 Example:
 ```yaml
@@ -368,9 +374,17 @@ geneve:
   peers:
     - peer: "10.0.0.2"
       local: "10.0.0.1"
+      inner_peer: "192.0.2.2"
+      inner_local: "192.0.2.1"
+      peer_mac: "02:00:00:00:00:02"
+      local_mac: "02:00:00:00:00:01"
     - peer: "10.0.0.3"
       local: "10.0.0.1"
       vni: 200
+      inner_peer: "192.0.2.4"
+      inner_local: "192.0.2.3"
+      peer_mac: "02:00:00:00:00:04"
+      local_mac: "02:00:00:00:00:03"
       desired_min_tx: "300ms"
       required_min_rx: "300ms"
       detect_mult: 5
@@ -621,6 +635,7 @@ skipped. Already accepted source changes are not rolled back.
 | Geneve `default_vni` and per-peer `vni` must be <= 16777215 | `ErrInvalidGeneveVNI` |
 | Geneve `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | Geneve `peer` must be a valid IP address | `ErrInvalidGenevePeer` |
+| Geneve Format A VAP IP/MAC tuple must be complete, IPv4, and unicast | `ErrGeneveVAPIdentityUnavailable` |
 | No duplicate Geneve session keys | `ErrDuplicateGeneveSessionKey` |
 
 ### Defaults

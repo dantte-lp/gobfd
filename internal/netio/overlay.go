@@ -55,6 +55,10 @@ type OverlayConn interface {
 	Close() error
 }
 
+type scopedOverlayConn interface {
+	SendEncapsulatedFor(ctx context.Context, payload []byte, scope bfd.TransportScope) error
+}
+
 // OverlayMeta holds metadata extracted from a received tunnel packet.
 // Used for session demultiplexing: BFD sessions over tunnels are keyed
 // by (VTEP/NVE IP, VNI) rather than by interface name.
@@ -74,6 +78,98 @@ type OverlayMeta struct {
 
 	// TTL is the Time-to-Live from the inner IPv4 header.
 	TTL uint8
+
+	// TransportScope is the exact configured tunnel and Format A identity
+	// matched by the received packet.
+	TransportScope bfd.TransportScope
+}
+
+type overlayReceiveKey struct {
+	kind           bfd.TransportScopeKind
+	outerPeerAddr  netip.Addr
+	outerLocalAddr netip.Addr
+	innerPeerAddr  netip.Addr
+	innerLocalAddr netip.Addr
+	addressFamily  bfd.AddressFamily
+	peerMAC        [6]byte
+	localMAC       [6]byte
+	vni            uint32
+}
+
+func receiveKeyForScope(scope bfd.TransportScope) overlayReceiveKey {
+	return overlayReceiveKey{
+		kind:           scope.Kind,
+		outerPeerAddr:  scope.OuterPeerAddr.Unmap(),
+		outerLocalAddr: scope.OuterLocalAddr.Unmap(),
+		innerPeerAddr:  scope.InnerPeerAddr.Unmap(),
+		innerLocalAddr: scope.InnerLocalAddr.Unmap(),
+		addressFamily:  scope.AddressFamily,
+		peerMAC:        scope.PeerMAC,
+		localMAC:       scope.LocalMAC,
+		vni:            scope.VNI,
+	}
+}
+
+func receiveKeyForPacket(
+	kind bfd.TransportScopeKind,
+	outerPeer, outerLocal netip.Addr,
+	vni uint32,
+	packet innerPacket,
+) overlayReceiveKey {
+	return overlayReceiveKey{
+		kind: kind, outerPeerAddr: outerPeer.Unmap(), outerLocalAddr: outerLocal.Unmap(),
+		innerPeerAddr: packet.srcIP, innerLocalAddr: packet.dstIP,
+		addressFamily: bfd.AddressFamilyIPv4,
+		peerMAC:       packet.srcMAC, localMAC: packet.dstMAC, vni: vni,
+	}
+}
+
+func validateOverlayScopes(
+	kind bfd.TransportScopeKind,
+	localAddr netip.Addr,
+	scopes []bfd.TransportScope,
+) error {
+	seen := make(map[overlayReceiveKey]struct{}, len(scopes))
+	for _, scope := range scopes {
+		if scope.Kind != kind || scope.Owner == "" || scope.Backend == "" ||
+			scope.VNI > 0x00ff_ffff || scope.AddressFamily != bfd.AddressFamilyIPv4 ||
+			scope.OuterLocalAddr.Unmap() != localAddr.Unmap() ||
+			!scope.OuterPeerAddr.Is4() || !scope.OuterLocalAddr.Is4() ||
+			!scope.InnerPeerAddr.Is4() || !scope.InnerLocalAddr.Is4() {
+			return fmt.Errorf("overlay scope %+v: %w", scope, ErrOverlayIdentityMismatch)
+		}
+		key := receiveKeyForScope(scope)
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("duplicate overlay wire identity %+v: %w", key, ErrOverlayIdentityMismatch)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func openScopedOverlayUDP(
+	localAddr netip.Addr,
+	port uint16,
+	kind bfd.TransportScopeKind,
+	scopes []bfd.TransportScope,
+) (*net.UDPConn, map[overlayReceiveKey]bfd.TransportScope, error) {
+	if len(scopes) > 0 {
+		if err := validateOverlayScopes(kind, localAddr, scopes); err != nil {
+			return nil, nil, err
+		}
+	}
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: localAddr.AsSlice(), Port: int(port)})
+	if err != nil {
+		return nil, nil, fmt.Errorf("listen overlay UDP %s:%d: %w", localAddr, port, err)
+	}
+	if len(scopes) == 0 {
+		return conn, nil, nil
+	}
+	scopeMap := make(map[overlayReceiveKey]bfd.TransportScope, len(scopes))
+	for _, scope := range scopes {
+		scopeMap[receiveKeyForScope(scope)] = scope
+	}
+	return conn, scopeMap, nil
 }
 
 // -------------------------------------------------------------------------
@@ -100,6 +196,10 @@ var (
 	// ErrOverlayPacketTruncated indicates the receive buffer did not contain
 	// the complete UDP datagram.
 	ErrOverlayPacketTruncated = errors.New("overlay: truncated UDP datagram")
+
+	// ErrOverlayIdentityMismatch indicates that no exact configured tunnel and
+	// Format A identity matched the received packet.
+	ErrOverlayIdentityMismatch = errors.New("overlay: tunnel identity mismatch")
 )
 
 func readOverlayDatagram(conn *net.UDPConn, buf []byte) (int, *net.UDPAddr, error) {
@@ -131,13 +231,20 @@ func validateInnerDestination(got, want netip.Addr) error {
 // The BFD Session calls SendPacket(ctx, bfdPayload, peerAddr), and the
 // OverlaySender wraps the payload in the appropriate tunnel encapsulation.
 type OverlaySender struct {
-	conn OverlayConn
+	conn     OverlayConn
+	scope    bfd.TransportScope
+	isScoped bool
 }
 
 // NewOverlaySender creates a PacketSender that wraps BFD payloads in
 // tunnel encapsulation before sending.
-func NewOverlaySender(conn OverlayConn) *OverlaySender {
-	return &OverlaySender{conn: conn}
+func NewOverlaySender(conn OverlayConn, scope ...bfd.TransportScope) *OverlaySender {
+	sender := &OverlaySender{conn: conn}
+	if len(scope) > 0 {
+		sender.scope = scope[0]
+		sender.isScoped = true
+	}
+	return sender
 }
 
 // SendPacket implements bfd.PacketSender by delegating to the OverlayConn's
@@ -147,6 +254,16 @@ func (s *OverlaySender) SendPacket(
 	buf []byte,
 	addr netip.Addr,
 ) error {
+	if s.isScoped {
+		scopedConn, ok := s.conn.(scopedOverlayConn)
+		if !ok {
+			return fmt.Errorf("overlay send for exact scope: %w", ErrOverlayIdentityMismatch)
+		}
+		if err := scopedConn.SendEncapsulatedFor(ctx, buf, s.scope); err != nil {
+			return fmt.Errorf("overlay send to %s: %w", s.scope.OuterPeerAddr, err)
+		}
+		return nil
+	}
 	if err := s.conn.SendEncapsulated(ctx, buf, addr); err != nil {
 		return fmt.Errorf("overlay send to %s: %w", addr, err)
 	}
@@ -247,10 +364,17 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	}
 
 	// Step 3: Build bfd.PacketMeta from overlay metadata.
+	srcAddr := ometa.TransportScope.InnerPeerAddr
+	dstAddr := ometa.TransportScope.InnerLocalAddr
+	if !srcAddr.IsValid() || !dstAddr.IsValid() {
+		srcAddr = ometa.SrcAddr
+		dstAddr = ometa.DstAddr
+	}
 	meta := bfd.PacketMeta{
-		SrcAddr: ometa.SrcAddr,
-		DstAddr: ometa.DstAddr,
-		TTL:     ometa.TTL,
+		SrcAddr:        srcAddr,
+		DstAddr:        dstAddr,
+		TTL:            ometa.TTL,
+		TransportScope: ometa.TransportScope,
 	}
 
 	// Step 4: Copy raw wire bytes only when auth verification needs stable
@@ -279,6 +403,7 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 func isExpectedOverlayDrop(err error) bool {
 	expected := []error{
 		ErrOverlayVNIMismatch,
+		ErrOverlayIdentityMismatch,
 		ErrOverlayInvalidAddr,
 		ErrInnerPacketTooShort,
 		ErrInnerBadEtherType,

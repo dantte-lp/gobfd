@@ -75,8 +75,8 @@ Production constraints:
    and interop evidence exist.
 4. Startup diagnostics must report socket ownership conflicts with
    actionable errors.
-5. Receive validation and full tunnel-session identity binding are incomplete;
-   this path is not production-qualified.
+5. The supported IPv4 Format A identity is validated exactly; this path remains
+   unqualified because owner-specific dataplane integration is incomplete.
 
 ### Geneve BFD on Linux
 
@@ -98,8 +98,8 @@ Production constraints:
    rates to avoid congestion-driven false failures.
 4. Owner-specific backends require separate implementation and interop
    tests.
-5. Receive validation and full tunnel-session identity binding are incomplete;
-   this path is not production-qualified.
+5. Explicit IPv4 Format A VAP identity is required and matched exactly;
+   unsupported formats fail closed, and owner-specific integration is incomplete.
 
 ### Applicability matrix
 
@@ -107,8 +107,8 @@ Production constraints:
 |---|---:|---|
 | Linux router or NFV appliance with LACP uplinks | High | Kernel bonding, OVS, or NetworkManager backend selected explicitly |
 | Bare-metal Kubernetes node | Medium | `hostNetwork` and host interface ownership policy |
-| EVPN/VXLAN validation endpoint | Lab only | Isolated Management VNI endpoint until receive validation and identity binding are complete |
-| OVN/NSX/Geneve gateway | Lab only | Isolated endpoint until receive validation and identity binding are complete |
+| EVPN/VXLAN validation endpoint | Lab only | Isolated Management VNI endpoint until owner-specific dataplane integration exists |
+| OVN/NSX/Geneve gateway | Lab only | Explicit Format A VAP identity and isolated socket ownership |
 | Interop lab against EOS/FRR/Linux | High | Explicit namespace, socket, and interface ownership |
 | Generic application host without LAG/overlay ownership | Low | External routing daemon or network device BFD preferred |
 

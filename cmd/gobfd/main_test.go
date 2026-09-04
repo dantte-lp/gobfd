@@ -1727,6 +1727,85 @@ func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
 	}
 }
 
+func TestGeneveOverlayCandidatesKeepExactVAPIdentity(t *testing.T) {
+	t.Parallel()
+
+	conn := stubOverlayConn{}
+	cfg := config.DefaultConfig()
+	cfg.Geneve.Enabled = true
+	cfg.Geneve.DefaultVNI = 100
+	cfg.Geneve.DefaultDesiredMinTx = time.Second
+	cfg.Geneve.DefaultRequiredMinRx = time.Second
+	cfg.Geneve.DefaultDetectMultiplier = 3
+	cfg.Geneve.Peers = []config.GenevePeerConfig{
+		{
+			Peer: "198.51.100.1", Local: "198.51.100.2", VNI: 100,
+			InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+			PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+		},
+		{
+			Peer: "198.51.100.1", Local: "198.51.100.2", VNI: 200,
+			InnerPeer: "192.0.2.3", InnerLocal: "192.0.2.4",
+			PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:04",
+		},
+	}
+	firstScope, err := geneveTransportScope(cfg, cfg.Geneve.Peers[0])
+	if err != nil {
+		t.Fatalf("geneveTransportScope(first): %v", err)
+	}
+	secondScope, err := geneveTransportScope(cfg, cfg.Geneve.Peers[1])
+	if err != nil {
+		t.Fatalf("geneveTransportScope(second): %v", err)
+	}
+	runtime := &overlayRuntime{geneveSessions: map[bfd.TransportScope]netio.OverlayConn{
+		firstScope: conn, secondScope: conn,
+	}}
+	params := buildOverlayTunnelParams(cfg, runtime)[1]
+	desired, conns, err := compileOverlaySessionCandidates(params)
+	if err != nil {
+		t.Fatalf("compileOverlaySessionCandidates: %v", err)
+	}
+	if len(desired) != 2 || len(conns) != 2 {
+		t.Fatalf("compiled candidates = %d/%d, want 2/2", len(desired), len(conns))
+	}
+	if desired[0].SessionConfig.TransportScope == desired[1].SessionConfig.TransportScope {
+		t.Fatal("distinct Geneve VNI/VAP tuples collapsed to one transport scope")
+	}
+	if desired[0].SessionConfig.PeerAddr != firstScope.InnerPeerAddr ||
+		desired[1].SessionConfig.PeerAddr != secondScope.InnerPeerAddr {
+		t.Fatalf("inner peers = %s/%s, want %s/%s",
+			desired[0].SessionConfig.PeerAddr, desired[1].SessionConfig.PeerAddr,
+			firstScope.InnerPeerAddr, secondScope.InnerPeerAddr)
+	}
+}
+
+func TestCreateOverlayConnGroupsUsesEveryLocalEndpoint(t *testing.T) {
+	t.Parallel()
+
+	first := bfd.TransportScope{
+		Kind:           bfd.TransportScopeVXLAN,
+		OuterLocalAddr: netip.MustParseAddr("192.0.2.1"),
+	}
+	second := first
+	second.OuterLocalAddr = netip.MustParseAddr("192.0.2.2")
+	groups := map[netip.Addr][]bfd.TransportScope{
+		first.OuterLocalAddr:  {first},
+		second.OuterLocalAddr: {second},
+	}
+	var built []netip.Addr
+	sf := &udpSenderFactory{portAlloc: netio.NewSourcePortAllocator()}
+	bySession, conns := createOverlayConnGroups(
+		groups, sf, slog.New(slog.DiscardHandler),
+		func(local netip.Addr, _ uint16, _ []bfd.TransportScope) (netio.OverlayConn, error) {
+			built = append(built, local)
+			return stubOverlayConn{}, nil
+		},
+	)
+	if len(built) != 2 || len(conns) != 2 || len(bySession) != 2 {
+		t.Fatalf("listeners/sessions = %d/%d/%d, want 2/2/2", len(built), len(conns), len(bySession))
+	}
+}
+
 func TestBuildOverlaySessionConfig(t *testing.T) {
 	t.Parallel()
 

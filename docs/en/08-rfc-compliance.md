@@ -53,8 +53,8 @@
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Empty prefix policy accepts any source and nonpositive session limits are unbounded |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe/incomplete preview** | Complete tunnel identity and owner-specific dataplane integration are incomplete |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Fail-closed preview** | Configuration and receive fail closed until normative VAP MAC/IP identity and owner-specific dataplane integration are available |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | Unauthenticated padding and DF exist; authenticated padded hashing is incomplete |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
@@ -372,7 +372,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips VXLAN + inner headers, delivers to `Manager.DemuxWithWire` |
 | Backend model | `NewVXLANOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive validation | Overlay headers and VNI plus inner Format A MAC, IPv4 IHL/length/fragmentation/checksum/TTL/destination, and UDP port/length/checksum are checked; full tunnel identity is not yet validated |
+| Receive validation | Overlay headers and the full outer/VNI/inner IPv4/MAC tuple are matched exactly before discriminator demux; malformed inner framing is rejected |
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 
@@ -391,12 +391,13 @@ VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns UDP 4789 
 same local address/namespace, GoBFD fails closed for reserved backend names
 until an owner-specific integration exists. Sender reconciliation reuses the
 runtime backend already serving the receiver and does not bind a second socket.
-The receive path also reuses first-peer socket identity. It is therefore unsafe
-for production until complete tunnel-session identity binding is implemented.
+Listeners are grouped by local VTEP and each session sender retains its exact
+tunnel scope. The userspace backend remains unsafe where another dataplane owns
+the same UDP socket.
 
 ### RFC 9521 Implementation Notes
 
-**Status**: Fail-closed preview; VAP identity and owner-specific backends planned
+**Status**: Unsafe preview; explicit Format A VAP identity required
 
 **Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -406,8 +407,8 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 |---|---|
 | Outer UDP port 6081 | `netio.GenevePort = 6081`, `GeneveConn` through explicit `userspace-udp` backend |
 | Geneve header codec | `MarshalGeneveHeader` / `UnmarshalGeneveHeader` |
-| O bit (control) = 1 | RFC 9521 Section 4: set on send; receive codec validation exists but is unreachable while VAP identity is unavailable |
-| C bit (critical) = 0 | RFC 9521 Section 4: cleared on send; receive codec validation exists but is unreachable while VAP identity is unavailable |
+| O bit (control) = 1 | RFC 9521 Section 4: set on send and validated on receive |
+| C bit (critical) = 0 | RFC 9521 Section 4: cleared on send and validated on receive |
 | Protocol Type 0x6558 | Format A: Ethernet payload (`GeneveProtocolEthernet`); receive codec validation exists |
 | VNI validation (24-bit) | `ErrInvalidGeneveVNI` config validation; receive codec validation exists |
 | Version validation | `ErrGeneveInvalidVersion` (only version 0 supported) |
@@ -416,11 +417,11 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
 | Session type | `SessionTypeGeneve` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
-| OverlayReceiver loop | Never reaches `Manager.DemuxWithWire` while Geneve VAP identity is unavailable |
+| OverlayReceiver loop | Reaches `Manager.DemuxWithWire` only after exact configured VAP identity matches |
 | Backend model | `NewGeneveOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive validation | Fails closed with `ErrGeneveVAPIdentityUnavailable`; the codec parser exists, but the fixed Format A MAC and outer NVE/local IP are not treated as normative VAP identity |
+| Receive validation | Matches outer endpoints, VNI, inner VAP IPs, address family, and source/destination MACs before BFD demux |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
-| Config validation | VNI range, peer addresses, detect_mult, and duplicate keys are checked, then enabled peers fail closed with `ErrGeneveVAPIdentityUnavailable` |
+| Config validation | VNI range, outer IPv4 endpoints, detect_mult, duplicate keys, and complete unicast VAP MAC/IPv4 identity are checked |
 
 Packet encapsulation stack (Format A):
 ```
@@ -434,16 +435,11 @@ Key differences from VXLAN BFD (RFC 8971):
 - O bit control flag indicates management/control traffic
 - Sessions originate/terminate at VAPs, not directly at NVEs
 
-**Linux production limitation**: `geneve.backend: userspace-udp` can own a UDP
-socket on `localAddr:6081`, but configuration and receive fail closed because
-the normative VAP destination MAC/IP identity is not modeled. The fixed Format A
-MAC and the outer NVE/local IP are not substitutes for that identity. The backend
-also does not integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
-Reserved owner-specific backend names fail closed until those integrations
-exist. RFC 9521 also inherits the Geneve requirement to run in a traffic-managed
-controlled environment or otherwise provision BFD transmit rates to avoid
-congestion-driven false failure detection.
-Complete tunnel-session identity binding remains a separate incomplete boundary.
+**Linux production limitation**: `geneve.backend: userspace-udp` requires
+explicit local and remote VAP MAC/IPv4 identity. Missing identity, IPv6 inner
+payloads, Format B, and other protocol types fail closed. Exact scopes can share
+one local listener without aliasing VNI/VAP tuples. The backend does not
+integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
 
 ### RFC 9764 Implementation Notes
 

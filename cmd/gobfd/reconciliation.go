@@ -580,6 +580,7 @@ type compiledControlSessionCandidate struct {
 type compiledOverlayCandidate struct {
 	owner   bfd.SessionOwner
 	conn    netio.OverlayConn
+	conns   []netio.OverlayConn
 	desired []bfd.ReconcileConfig
 }
 
@@ -606,12 +607,12 @@ func compileControlSessionCandidate(
 	params := buildOverlayTunnelParams(cfg, runtime)
 	var overlays [2]compiledOverlayCandidate
 	for i, overlay := range params {
-		desired, compileErr := compileOverlaySessionCandidates(overlay)
+		desired, conns, compileErr := compileOverlaySessionCandidates(overlay)
 		if compileErr != nil {
 			return compiledControlSessionCandidate{}, compileErr
 		}
 		overlays[i] = compiledOverlayCandidate{
-			owner: overlay.owner, conn: overlay.conn, desired: desired,
+			owner: overlay.owner, conns: conns, desired: desired,
 		}
 	}
 
@@ -762,19 +763,25 @@ func applyCompiledOverlay(
 	source reconciliationSource,
 	candidate compiledOverlayCandidate,
 ) sourceApplyResult {
-	if len(candidate.desired) > 0 && candidate.conn == nil {
-		return failedSourceResult(
-			bfd.ReconcileErrorCreate,
-			overlayBackendUnavailableError(source),
-		)
+	if len(candidate.conns) == 0 && candidate.conn != nil {
+		candidate.conns = make([]netio.OverlayConn, len(candidate.desired))
+		for i := range candidate.conns {
+			candidate.conns[i] = candidate.conn
+		}
+	}
+	if len(candidate.desired) != len(candidate.conns) {
+		return failedSourceResult(bfd.ReconcileErrorCreate, overlayBackendUnavailableError(source))
+	}
+	for _, conn := range candidate.conns {
+		if conn == nil {
+			return failedSourceResult(bfd.ReconcileErrorCreate, overlayBackendUnavailableError(source))
+		}
 	}
 	desired := make([]bfd.ReconcileConfig, len(candidate.desired))
 	copy(desired, candidate.desired)
-	if len(desired) > 0 {
-		sender := netio.NewOverlaySender(candidate.conn)
-		for i := range desired {
-			desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
-		}
+	for i := range desired {
+		sender := netio.NewOverlaySender(candidate.conns[i], desired[i].SessionConfig.TransportScope)
+		desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
 	}
 	return sourceResultFromBFD(applyOverlayDesiredSessions(
 		ctx, mgr, candidate.owner, desired,

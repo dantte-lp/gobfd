@@ -238,10 +238,12 @@ func (m *Manager) startSession(ctx context.Context, entry *sessionEntry, sess *S
 }
 
 func demuxKeyFromSessionConfig(cfg SessionConfig) packetDemuxKey {
+	cfg = canonicalSessionConfig(cfg)
 	return packetDemuxKey{
-		peerAddr:  cfg.PeerAddr,
-		localAddr: cfg.LocalAddr,
-		ifName:    cfg.Interface,
+		peerAddr:       cfg.PeerAddr,
+		localAddr:      cfg.LocalAddr,
+		ifName:         cfg.Interface,
+		transportScope: packetTransportScope(cfg.TransportScope),
 	}
 }
 
@@ -448,24 +450,17 @@ func (m *Manager) LookupByPeer(key packetDemuxKey) (*Session, bool) {
 func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) error {
 	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
 	if pkt.YourDiscriminator != 0 {
-		sess, ok := m.LookupByDiscriminator(pkt.YourDiscriminator)
-		if !ok {
-			return fmt.Errorf(
-				"demux: your discriminator %d not found: %w",
-				pkt.YourDiscriminator, ErrDemuxNoMatch,
-			)
-		}
-		sess.RecvPacket(pkt)
-		return nil
+		return m.demuxByDiscr(pkt, meta, nil)
 	}
 
 	// Tier 2: lookup by peer key when Your Discriminator == 0.
 	// RFC 5880 Section 6.8.6: Your Discriminator may be zero only when
 	// State is Down or AdminDown (validated by UnmarshalControlPacket step 7b).
 	key := packetDemuxKey{
-		peerAddr:  meta.SrcAddr.Unmap(),
-		localAddr: meta.DstAddr.Unmap(),
-		ifName:    meta.IfName,
+		peerAddr:       meta.SrcAddr.Unmap(),
+		localAddr:      meta.DstAddr.Unmap(),
+		ifName:         meta.IfName,
+		transportScope: packetTransportScope(meta.TransportScope),
 	}
 
 	sess, ok := m.LookupByPeer(key)
@@ -489,7 +484,7 @@ func (m *Manager) DemuxWithWire(
 ) error {
 	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
 	if pkt.YourDiscriminator != 0 {
-		return m.demuxByDiscr(pkt, wire)
+		return m.demuxByDiscr(pkt, meta, wire)
 	}
 
 	// Tier 2: lookup by peer key when Your Discriminator == 0.
@@ -497,15 +492,24 @@ func (m *Manager) DemuxWithWire(
 }
 
 // demuxByDiscr routes a packet by Your Discriminator (tier 1).
-func (m *Manager) demuxByDiscr(pkt *ControlPacket, wire []byte) error {
-	sess, ok := m.LookupByDiscriminator(pkt.YourDiscriminator)
+func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) error {
+	m.mu.RLock()
+	entry, ok := m.sessions[pkt.YourDiscriminator]
+	m.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf(
 			"demux: your discriminator %d not found: %w",
 			pkt.YourDiscriminator, ErrDemuxNoMatch,
 		)
 	}
-	sess.RecvPacket(pkt, wire)
+	if expected := packetTransportScope(entry.key.TransportScope); expected.Kind != TransportScopeBase &&
+		expected != packetTransportScope(meta.TransportScope) {
+		return fmt.Errorf(
+			"demux: discriminator %d transport scope mismatch: %w",
+			pkt.YourDiscriminator, ErrDemuxNoMatch,
+		)
+	}
+	entry.session.RecvPacket(pkt, wire)
 	return nil
 }
 
@@ -518,9 +522,10 @@ func (m *Manager) demuxByPeer(
 	wire []byte,
 ) error {
 	key := packetDemuxKey{
-		peerAddr:  meta.SrcAddr.Unmap(),
-		localAddr: meta.DstAddr.Unmap(),
-		ifName:    meta.IfName,
+		peerAddr:       meta.SrcAddr.Unmap(),
+		localAddr:      meta.DstAddr.Unmap(),
+		ifName:         meta.IfName,
+		transportScope: packetTransportScope(meta.TransportScope),
 	}
 
 	sess, ok := m.LookupByPeer(key)

@@ -307,11 +307,12 @@ backend `userspace-udp` владеет `local:4789`; если kernel VXLAN, OVS/
 Cilium, Calico, NSX или другой dataplane уже владеет тем же socket, нужен будущий
 owner-specific backend.
 
-> **Небезопасный preview**: receive-side валидация inner IP/UDP и полная
-> привязка tunnel-session identity не завершены. Используйте только в
-> изолированной лаборатории; backend не прошёл production qualification.
+> **Небезопасный preview**: поддерживаемый IPv4 Format A профиль валидируется
+> и точно привязывается к tunnel identity. Userspace socket ownership по-прежнему
+> подходит только для изолированной лаборатории; backend не production-qualified.
 
-Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
+Пиры реконсилируются при SIGHUP. Identity включает backend, outer endpoints,
+Management VNI, inner endpoints, address family и MAC tuple.
 
 Пример:
 ```yaml
@@ -345,6 +346,10 @@ vxlan:
 | `geneve.peers[].peer` | string | -- | IP удалённого NVE |
 | `geneve.peers[].local` | string | -- | IP локального NVE |
 | `geneve.peers[].vni` | uint32 | -- | Переопределение `default_vni` для этого пира (0 = по умолчанию) |
+| `geneve.peers[].inner_peer` | string | -- | Обязательный IPv4-адрес remote VAP Format A |
+| `geneve.peers[].inner_local` | string | -- | Обязательный IPv4-адрес local VAP Format A |
+| `geneve.peers[].peer_mac` | string | -- | Обязательный unicast MAC remote VAP Format A |
+| `geneve.peers[].local_mac` | string | -- | Обязательный unicast MAC local VAP Format A |
 | `geneve.peers[].desired_min_tx` | duration | -- | Переопределение TX-интервала для этого пира |
 | `geneve.peers[].required_min_rx` | duration | -- | Переопределение RX-интервала для этого пира |
 | `geneve.peers[].detect_mult` | uint32 | -- | Переопределение множителя обнаружения для этого пира |
@@ -355,11 +360,12 @@ BFD Control пакеты инкапсулируются в Geneve (внешни�
 `local:6081`; если kernel Geneve, OVS/OVN, NSX или другой dataplane уже
 владеет тем же socket, нужен будущий owner-specific backend.
 
-> **Небезопасный preview**: receive-side валидация inner IP/UDP и полная
-> привязка tunnel-session identity не завершены. Используйте только в
-> изолированной лаборатории; backend не прошёл production qualification.
+> **Небезопасный preview**: настроенные IPv4 Format A VAP identities
+> валидируются и привязываются точно. Неполная VAP identity, другие address
+> families и другие Geneve payload formats fail closed. Userspace socket ownership остаётся lab-only.
 
-Пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local)`.
+Пиры реконсилируются при SIGHUP. Identity включает backend, outer endpoints,
+VNI, оба VAP IP/MAC endpoint и address family.
 
 Пример:
 ```yaml
@@ -373,9 +379,17 @@ geneve:
   peers:
     - peer: "10.0.0.2"
       local: "10.0.0.1"
+      inner_peer: "192.0.2.2"
+      inner_local: "192.0.2.1"
+      peer_mac: "02:00:00:00:00:02"
+      local_mac: "02:00:00:00:00:01"
     - peer: "10.0.0.3"
       local: "10.0.0.1"
       vni: 200
+      inner_peer: "192.0.2.4"
+      inner_local: "192.0.2.3"
+      peer_mac: "02:00:00:00:00:04"
+      local_mac: "02:00:00:00:00:03"
       desired_min_tx: "300ms"
       required_min_rx: "300ms"
       detect_mult: 5
@@ -620,6 +634,7 @@ source VXLAN или Geneve без работающего backend считает�
 | Geneve `default_vni` и per-peer `vni` должны быть <= 16777215 | `ErrInvalidGeneveVNI` |
 | Geneve `backend` должен быть `userspace-udp`; зарезервированные non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | Geneve `peer` должен быть валидным IP-адресом | `ErrInvalidGenevePeer` |
+| Geneve Format A VAP IP/MAC tuple должен быть полным, IPv4 и unicast | `ErrGeneveVAPIdentityUnavailable` |
 | Нет дублирующих ключей Geneve-сессий | `ErrDuplicateGeneveSessionKey` |
 
 ### Значения по умолчанию

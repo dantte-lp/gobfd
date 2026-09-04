@@ -36,7 +36,7 @@ func TestDecapGenevePacket_HappyPath(t *testing.T) {
 	}
 
 	c := newTestGeneveConn()
-	payload, hdr, _, _, err := c.decapGenevePacket(pkt)
+	payload, hdr, err := c.decapGenevePacket(pkt)
 	if err != nil {
 		t.Fatalf("decapGenevePacket: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestDecapGenevePacket_TooShort(t *testing.T) {
 	t.Parallel()
 
 	c := newTestGeneveConn()
-	_, _, _, _, err := c.decapGenevePacket(make([]byte, GeneveHeaderMinSize-1))
+	_, _, err := c.decapGenevePacket(make([]byte, GeneveHeaderMinSize-1))
 	if !errors.Is(err, ErrGeneveHeaderTooShort) {
 		t.Fatalf("expected ErrGeneveHeaderTooShort, got %v", err)
 	}

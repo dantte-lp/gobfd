@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/netip"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/overlay"
 )
 
@@ -45,6 +46,7 @@ type VXLANOverlayBackendConfig struct {
 	ManagementVNI uint32
 	SourcePort    uint16
 	Logger        *slog.Logger
+	Scopes        []bfd.TransportScope
 }
 
 // GeneveOverlayBackendConfig configures a Geneve BFD overlay backend.
@@ -54,6 +56,7 @@ type GeneveOverlayBackendConfig struct {
 	VNI        uint32
 	SourcePort uint16
 	Logger     *slog.Logger
+	Scopes     []bfd.TransportScope
 }
 
 // NewVXLANOverlayBackend creates the configured VXLAN BFD overlay backend.
@@ -68,6 +71,9 @@ func NewVXLANOverlayBackend(cfg VXLANOverlayBackendConfig) (OverlayConn, error) 
 
 	if !backend.Implemented() {
 		return nil, fmt.Errorf("vxlan overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
+	}
+	if len(cfg.Scopes) > 0 {
+		return NewVXLANConnForScopes(cfg.LocalAddr, cfg.SourcePort, cfg.Scopes, overlayBackendLogger(cfg.Logger))
 	}
 	return NewVXLANConn(cfg.LocalAddr, cfg.ManagementVNI, cfg.SourcePort, overlayBackendLogger(cfg.Logger))
 }
@@ -84,6 +90,9 @@ func NewGeneveOverlayBackend(cfg GeneveOverlayBackendConfig) (OverlayConn, error
 
 	if !backend.Implemented() {
 		return nil, fmt.Errorf("geneve overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
+	}
+	if len(cfg.Scopes) > 0 {
+		return NewGeneveConnForScopes(cfg.LocalAddr, cfg.SourcePort, cfg.Scopes, overlayBackendLogger(cfg.Logger))
 	}
 	return NewGeneveConn(cfg.LocalAddr, cfg.VNI, cfg.SourcePort, overlayBackendLogger(cfg.Logger))
 }

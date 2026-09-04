@@ -44,6 +44,13 @@ type TransportScope struct {
 	Backend         string
 	VNI             uint32
 	VAP             uint32
+	OuterPeerAddr   netip.Addr
+	OuterLocalAddr  netip.Addr
+	InnerPeerAddr   netip.Addr
+	InnerLocalAddr  netip.Addr
+	AddressFamily   AddressFamily
+	PeerMAC         [6]byte
+	LocalMAC        [6]byte
 }
 
 // SessionKey is the comparable canonical identity of one wire session. It is
@@ -144,7 +151,32 @@ func canonicalSessionConfig(cfg SessionConfig) SessionConfig {
 	if cfg.LocalAddr.IsValid() {
 		cfg.LocalAddr = cfg.LocalAddr.Unmap()
 	}
+	cfg.TransportScope = canonicalTransportScope(cfg.TransportScope)
 	return cfg
+}
+
+func canonicalTransportScope(scope TransportScope) TransportScope {
+	if scope.OuterPeerAddr.IsValid() {
+		scope.OuterPeerAddr = scope.OuterPeerAddr.Unmap()
+	}
+	if scope.OuterLocalAddr.IsValid() {
+		scope.OuterLocalAddr = scope.OuterLocalAddr.Unmap()
+	}
+	if scope.InnerPeerAddr.IsValid() {
+		scope.InnerPeerAddr = scope.InnerPeerAddr.Unmap()
+	}
+	if scope.InnerLocalAddr.IsValid() {
+		scope.InnerLocalAddr = scope.InnerLocalAddr.Unmap()
+	}
+	return scope
+}
+
+func packetTransportScope(scope TransportScope) TransportScope {
+	scope = canonicalTransportScope(scope)
+	if scope.Kind != TransportScopeVXLAN && scope.Kind != TransportScopeGeneve {
+		return TransportScope{}
+	}
+	return scope
 }
 
 func sessionKeyFromConfig(cfg SessionConfig) (SessionKey, error) {

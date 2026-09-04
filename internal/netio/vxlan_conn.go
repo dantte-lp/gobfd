@@ -22,6 +22,8 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // vxlanBufSize is the receive buffer size for VXLAN packets.
@@ -50,6 +52,7 @@ type VXLANConn struct {
 	logger        *slog.Logger
 	mu            sync.Mutex
 	closed        bool
+	scopes        map[overlayReceiveKey]bfd.TransportScope
 }
 
 // NewVXLANConn creates a VXLAN tunnel connection for BFD.
@@ -67,17 +70,35 @@ func NewVXLANConn(
 	srcPort uint16,
 	logger *slog.Logger,
 ) (*VXLANConn, error) {
-	laddr := &net.UDPAddr{
-		IP:   localAddr.AsSlice(),
-		Port: int(VXLANPort),
-	}
+	return newVXLANConn(localAddr, managementVNI, srcPort, nil, logger)
+}
 
-	conn, err := net.ListenUDP("udp4", laddr)
+// NewVXLANConnForScopes creates one listener for a local VTEP and binds every
+// accepted packet and send operation to an exact configured tunnel identity.
+func NewVXLANConnForScopes(
+	localAddr netip.Addr,
+	srcPort uint16,
+	scopes []bfd.TransportScope,
+	logger *slog.Logger,
+) (*VXLANConn, error) {
+	return newVXLANConn(localAddr, 0, srcPort, scopes, logger)
+}
+
+func newVXLANConn(
+	localAddr netip.Addr,
+	managementVNI uint32,
+	srcPort uint16,
+	scopes []bfd.TransportScope,
+	logger *slog.Logger,
+) (*VXLANConn, error) {
+	conn, scopeMap, err := openScopedOverlayUDP(
+		localAddr, VXLANPort, bfd.TransportScopeVXLAN, scopes,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("vxlan: bind %s:%d: %w", localAddr, VXLANPort, err)
+		return nil, fmt.Errorf("vxlan: open %s:%d: %w", localAddr, VXLANPort, err)
 	}
 
-	return &VXLANConn{
+	c := &VXLANConn{
 		conn:          conn,
 		managementVNI: managementVNI,
 		localAddr:     localAddr,
@@ -89,7 +110,9 @@ func NewVXLANConn(
 			slog.String("local", localAddr.String()),
 			slog.Uint64("mgmt_vni", uint64(managementVNI)),
 		),
-	}, nil
+		scopes: scopeMap,
+	}
+	return c, nil
 }
 
 // SendEncapsulated wraps a BFD Control payload in VXLAN encapsulation
@@ -107,10 +130,37 @@ func (c *VXLANConn) SendEncapsulated(
 	bfdPayload []byte,
 	dstAddr netip.Addr,
 ) error {
+	scope := bfd.TransportScope{
+		Kind: bfd.TransportScopeVXLAN, VNI: c.managementVNI,
+		OuterPeerAddr: dstAddr, OuterLocalAddr: c.localAddr,
+		InnerPeerAddr: dstAddr, InnerLocalAddr: c.localAddr,
+		AddressFamily: bfd.AddressFamilyIPv4,
+		PeerMAC:       innerSrcMAC, LocalMAC: innerDstMAC,
+	}
+	return c.sendEncapsulated(bfdPayload, scope)
+}
+
+// SendEncapsulatedFor sends using an exact configured VXLAN identity.
+func (c *VXLANConn) SendEncapsulatedFor(
+	_ context.Context,
+	bfdPayload []byte,
+	scope bfd.TransportScope,
+) error {
+	if c.scopes == nil {
+		return fmt.Errorf("vxlan send: %w", ErrOverlayIdentityMismatch)
+	}
+	configured, ok := c.scopes[receiveKeyForScope(scope)]
+	if !ok || configured != scope {
+		return fmt.Errorf("vxlan send: %w", ErrOverlayIdentityMismatch)
+	}
+	return c.sendEncapsulated(bfdPayload, scope)
+}
+
+func (c *VXLANConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScope) error {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return fmt.Errorf("vxlan send to %s: %w", dstAddr, ErrOverlayRecvClosed)
+		return fmt.Errorf("vxlan send to %s: %w", scope.OuterPeerAddr, ErrOverlayRecvClosed)
 	}
 	c.mu.Unlock()
 	c.sendMu.Lock()
@@ -122,8 +172,10 @@ func (c *VXLANConn) SendEncapsulated(
 	}
 	buf := c.sendBuf
 	// Build inner packet: Ethernet + IPv4 + UDP + BFD in the owned buffer.
-	innerPkt, err := BuildInnerPacketInto(
-		buf[VXLANHeaderSize:], bfdPayload, c.localAddr, dstAddr, c.srcPort,
+	innerPkt, err := buildInnerPacketInto(
+		buf[VXLANHeaderSize:], bfdPayload,
+		scope.InnerLocalAddr, scope.InnerPeerAddr, c.srcPort,
+		scope.PeerMAC, scope.LocalMAC,
 	)
 	if err != nil {
 		return fmt.Errorf("vxlan build inner: %w", err)
@@ -133,17 +185,17 @@ func (c *VXLANConn) SendEncapsulated(
 	totalLen := VXLANHeaderSize + len(innerPkt)
 
 	// Marshal VXLAN header with Management VNI.
-	if _, err := MarshalVXLANHeader(buf[:VXLANHeaderSize], c.managementVNI); err != nil {
+	if _, err := MarshalVXLANHeader(buf[:VXLANHeaderSize], scope.VNI); err != nil {
 		return fmt.Errorf("vxlan marshal header: %w", err)
 	}
 
 	// Send to remote VTEP on port 4789.
 	dst := &net.UDPAddr{
-		IP:   dstAddr.AsSlice(),
+		IP:   scope.OuterPeerAddr.AsSlice(),
 		Port: int(VXLANPort),
 	}
 	if _, err := c.conn.WriteToUDP(buf[:totalLen], dst); err != nil {
-		return fmt.Errorf("vxlan send to %s:%d: %w", dstAddr, VXLANPort, err)
+		return fmt.Errorf("vxlan send to %s:%d: %w", scope.OuterPeerAddr, VXLANPort, err)
 	}
 
 	return nil
@@ -172,14 +224,19 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
 
-	data := c.readBuf[:n]
+	return c.decapVXLANDatagram(c.readBuf[:n], remoteAddr)
+}
 
+func (c *VXLANConn) decapVXLANDatagram(
+	data []byte,
+	remoteAddr *net.UDPAddr,
+) ([]byte, OverlayMeta, error) {
 	// Need at least VXLAN header + minimum inner overhead.
 	minSize := VXLANHeaderSize + InnerOverheadIPv4
-	if n < minSize {
+	if len(data) < minSize {
 		return nil, OverlayMeta{}, fmt.Errorf(
 			"vxlan recv: packet %d bytes, need at least %d: %w",
-			n, minSize, ErrInnerPacketTooShort)
+			len(data), minSize, ErrInnerPacketTooShort)
 	}
 
 	// Parse VXLAN header.
@@ -188,8 +245,8 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
 
-	// Validate Management VNI (RFC 8971 Section 3).
-	if vxlanHdr.VNI != c.managementVNI {
+	// Validate Management VNI for the legacy single-profile connection.
+	if c.scopes == nil && vxlanHdr.VNI != c.managementVNI {
 		return nil, OverlayMeta{}, fmt.Errorf(
 			"vxlan recv: VNI %d, expected management VNI %d: %w",
 			vxlanHdr.VNI, c.managementVNI, ErrOverlayVNIMismatch)
@@ -197,11 +254,8 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 
 	// Strip inner packet headers and extract BFD payload.
 	innerData := data[VXLANHeaderSize:]
-	bfdPayload, _, innerDst, ttl, err := stripInnerPacket(innerData)
+	packet, err := parseInnerPacket(innerData)
 	if err != nil {
-		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
-	}
-	if err := validateInnerDestination(innerDst, c.localAddr); err != nil {
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
 
@@ -217,10 +271,27 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 		SrcAddr: srcAddr.Unmap(),
 		DstAddr: c.localAddr,
 		VNI:     vxlanHdr.VNI,
-		TTL:     ttl,
+		TTL:     packet.ttl,
 	}
+	if c.scopes == nil {
+		if packet.dstMAC != innerDstMAC {
+			return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", ErrInnerBadDestinationMAC)
+		}
+		if err := validateInnerDestination(packet.dstIP, c.localAddr); err != nil {
+			return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
+		}
+		return packet.payload, meta, nil
+	}
+	key := receiveKeyForPacket(
+		bfd.TransportScopeVXLAN, srcAddr, c.localAddr, vxlanHdr.VNI, packet,
+	)
+	scope, ok := c.scopes[key]
+	if !ok {
+		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", ErrOverlayIdentityMismatch)
+	}
+	meta.TransportScope = scope
 
-	return bfdPayload, meta, nil
+	return packet.payload, meta, nil
 }
 
 // Close releases the underlying UDP socket.

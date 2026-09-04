@@ -1380,14 +1380,34 @@ func TestValidateGeneveErrors(t *testing.T) {
 			wantErr: config.ErrDuplicateGeneveSessionKey,
 		},
 		{
-			name: "geneve peers without VAP identity",
+			name: "geneve peers with exact Format A VAP identity",
 			modify: func(cfg *config.Config) {
 				cfg.Geneve.Enabled = true
 				cfg.Geneve.DefaultVNI = 42
 				cfg.Geneve.Peers = []config.GenevePeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100},
-					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100,
+						InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+						PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+					},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr,
+						InnerPeer: "192.0.2.3", InnerLocal: "192.0.2.4",
+						PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:04",
+					},
 				}
+			},
+		},
+		{
+			name: "geneve unsupported inner IPv6 fails closed",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: testLocalAddr,
+					InnerPeer: "2001:db8::1", InnerLocal: "192.0.2.2",
+					PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+				}}
 			},
 			wantErr: config.ErrGeneveVAPIdentityUnavailable,
 		},

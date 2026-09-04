@@ -336,31 +336,12 @@ func microListenerCapabilities(cfg *config.Config) map[microListenerCapability]s
 	return result
 }
 
-func vxlanCapability(cfg *config.Config) overlayCapability {
-	if !cfg.VXLAN.Enabled || len(cfg.VXLAN.Peers) == 0 {
-		return overlayCapability{}
-	}
-	addr, err := cfg.VXLAN.Peers[0].LocalAddr()
-	if err != nil || !addr.IsValid() {
-		return overlayCapability{}
-	}
-	return overlayCapability{configured: true, local: addr}
+func vxlanCapability(_ *config.Config) overlayCapability {
+	return overlayCapability{}
 }
 
-func geneveCapability(cfg *config.Config) overlayCapability {
-	if !cfg.Geneve.Enabled || len(cfg.Geneve.Peers) == 0 {
-		return overlayCapability{}
-	}
-	peer := cfg.Geneve.Peers[0]
-	addr, err := peer.LocalAddr()
-	if err != nil || !addr.IsValid() {
-		return overlayCapability{}
-	}
-	vni := peer.VNI
-	if vni == 0 {
-		vni = cfg.Geneve.DefaultVNI
-	}
-	return overlayCapability{configured: true, local: addr, vni: vni}
+func geneveCapability(_ *config.Config) overlayCapability {
+	return overlayCapability{}
 }
 
 func vxlanPeerLocalCapabilities(cfg *config.Config) map[string]netip.Addr {
@@ -385,7 +366,7 @@ func genevePeerLocalCapabilities(cfg *config.Config) map[string]netip.Addr {
 	for _, peer := range cfg.Geneve.Peers {
 		addr, err := peer.LocalAddr()
 		if err == nil && addr.IsValid() {
-			result[peer.GeneveSessionKey()] = addr
+			result[peer.GeneveSessionKey(cfg.Geneve.DefaultVNI)] = addr
 		}
 	}
 	return result
@@ -397,7 +378,7 @@ func genevePeerVNICapabilities(cfg *config.Config) map[string]uint32 {
 		return result
 	}
 	for _, peer := range cfg.Geneve.Peers {
-		result[peer.GeneveSessionKey()] = effectiveGeneveVNI(peer, cfg.Geneve.DefaultVNI)
+		result[peer.GeneveSessionKey(cfg.Geneve.DefaultVNI)] = effectiveGeneveVNI(peer, cfg.Geneve.DefaultVNI)
 	}
 	return result
 }
@@ -407,7 +388,7 @@ func (c startupRuntimeContract) supportsGenevePeerVNIs(cfg *config.Config) bool 
 		return true
 	}
 	for _, peer := range cfg.Geneve.Peers {
-		key := peer.GeneveSessionKey()
+		key := peer.GeneveSessionKey(cfg.Geneve.DefaultVNI)
 		effectiveVNI := effectiveGeneveVNI(peer, cfg.Geneve.DefaultVNI)
 		if startupVNI, exists := c.genevePeerVNIs[key]; exists {
 			if startupVNI != effectiveVNI {

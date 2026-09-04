@@ -101,6 +101,10 @@ type PacketMeta struct {
 
 	// IfName is the interface name on which the packet was received.
 	IfName string
+
+	// TransportScope is the exact overlay identity extracted from the wire.
+	// It is empty for base and Micro-BFD transports.
+	TransportScope TransportScope
 }
 
 // -------------------------------------------------------------------------
@@ -113,9 +117,10 @@ type PacketMeta struct {
 // For single-hop (RFC 5881 Section 3): match by (PeerAddr, LocalAddr, IfName).
 // For multi-hop (RFC 5883): match by (PeerAddr, LocalAddr) — IfName is empty.
 type packetDemuxKey struct {
-	peerAddr  netip.Addr
-	localAddr netip.Addr
-	ifName    string
+	peerAddr       netip.Addr
+	localAddr      netip.Addr
+	ifName         string
+	transportScope TransportScope
 }
 
 type managerLifecycleState uint8

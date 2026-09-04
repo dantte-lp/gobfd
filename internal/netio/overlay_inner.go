@@ -13,7 +13,6 @@ package netio
 // geneve_conn.go respectively.
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -67,6 +66,13 @@ var innerDstMAC = [6]byte{0x00, 0x52, 0x02, 0x00, 0x00, 0x00}
 // innerSrcMAC is a locally administered MAC address for inner Ethernet.
 // Bit 1 of the first octet is set (locally administered flag).
 var innerSrcMAC = [6]byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
+
+// VXLANFormatAPeerMAC returns the supported RFC 8971 profile's received
+// source MAC identity.
+func VXLANFormatAPeerMAC() [6]byte { return innerSrcMAC }
+
+// VXLANFormatALocalMAC returns the RFC 8971 Format A destination MAC.
+func VXLANFormatALocalMAC() [6]byte { return innerDstMAC }
 
 // -------------------------------------------------------------------------
 // Inner Packet Errors
@@ -170,6 +176,16 @@ func BuildInnerPacketInto(
 	srcIP, dstIP netip.Addr,
 	srcPort uint16,
 ) ([]byte, error) {
+	return buildInnerPacketInto(dst, bfdPayload, srcIP, dstIP, srcPort, innerSrcMAC, innerDstMAC)
+}
+
+func buildInnerPacketInto(
+	dst []byte,
+	bfdPayload []byte,
+	srcIP, dstIP netip.Addr,
+	srcPort uint16,
+	srcMAC, dstMAC [6]byte,
+) ([]byte, error) {
 	if !srcIP.Is4() || !dstIP.Is4() {
 		return nil, fmt.Errorf("build inner packet: src=%s dst=%s: %w",
 			srcIP, dstIP, ErrInnerIPv4Only)
@@ -187,9 +203,9 @@ func BuildInnerPacketInto(
 
 	// --- Inner Ethernet Header (bytes 0-13) ---
 	// Dst MAC (bytes 0-5): IANA BFD-for-VXLAN MAC (RFC 8971 Section 3.1).
-	copy(buf[0:6], innerDstMAC[:])
+	copy(buf[0:6], dstMAC[:])
 	// Src MAC (bytes 6-11): locally administered.
-	copy(buf[6:12], innerSrcMAC[:])
+	copy(buf[6:12], srcMAC[:])
 	// EtherType (bytes 12-13): 0x0800 (IPv4).
 	binary.BigEndian.PutUint16(buf[12:14], innerEtherTypeIPv4)
 
@@ -288,36 +304,60 @@ type innerIPv4Packet struct {
 	ttl uint8
 }
 
+type innerPacket struct {
+	payload []byte
+	srcIP   netip.Addr
+	dstIP   netip.Addr
+	srcMAC  [6]byte
+	dstMAC  [6]byte
+	ttl     uint8
+}
+
 func stripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, uint8, error) {
-	if len(buf) < InnerOverheadIPv4 {
+	packet, err := parseInnerPacket(buf)
+	if err != nil {
+		return nil, netip.Addr{}, netip.Addr{}, 0, err
+	}
+	if packet.dstMAC != innerDstMAC {
 		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: destination MAC=%02x:%02x:%02x:%02x:%02x:%02x: %w",
+			packet.dstMAC[0], packet.dstMAC[1], packet.dstMAC[2],
+			packet.dstMAC[3], packet.dstMAC[4], packet.dstMAC[5], ErrInnerBadDestinationMAC)
+	}
+	return packet.payload, packet.srcIP, packet.dstIP, packet.ttl, nil
+}
+
+func parseInnerPacket(buf []byte) (innerPacket, error) {
+	var packet innerPacket
+	if len(buf) < InnerOverheadIPv4 {
+		return packet, fmt.Errorf(
 			"strip inner packet: got %d bytes, need %d: %w",
 			len(buf), InnerOverheadIPv4, ErrInnerPacketTooShort)
 	}
-	if !bytes.Equal(buf[:len(innerDstMAC)], innerDstMAC[:]) {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
-			"strip inner packet: destination MAC=%02x:%02x:%02x:%02x:%02x:%02x: %w",
-			buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], ErrInnerBadDestinationMAC)
-	}
+	copy(packet.dstMAC[:], buf[:6])
+	copy(packet.srcMAC[:], buf[6:12])
 
 	// Validate EtherType (bytes 12-13).
 	etherType := binary.BigEndian.Uint16(buf[12:14])
 	if etherType != innerEtherTypeIPv4 {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return packet, fmt.Errorf(
 			"strip inner packet: EtherType=0x%04x: %w",
 			etherType, ErrInnerBadEtherType)
 	}
 
 	ipPacket, err := parseInnerIPv4(buf[InnerEthSize:])
 	if err != nil {
-		return nil, netip.Addr{}, netip.Addr{}, 0, err
+		return packet, err
 	}
 	payload, err := parseInnerUDP(ipPacket)
 	if err != nil {
-		return nil, netip.Addr{}, netip.Addr{}, 0, err
+		return packet, err
 	}
-
-	return payload, netip.AddrFrom4(ipPacket.src), netip.AddrFrom4(ipPacket.dst), ipPacket.ttl, nil
+	packet.payload = payload
+	packet.srcIP = netip.AddrFrom4(ipPacket.src)
+	packet.dstIP = netip.AddrFrom4(ipPacket.dst)
+	packet.ttl = ipPacket.ttl
+	return packet, nil
 }
 
 func parseInnerIPv4(ip []byte) (innerIPv4Packet, error) {
