@@ -277,6 +277,12 @@ linters:
         text: "import 'os/exec' is not allowed"
         linters:
           - depguard
+      # The package lifecycle owner executes only fixed systemd command argv;
+      # keep the exception on its single process boundary.
+      - path: ^internal/cmd/gobfd-package-lifecycle/main\.go$
+        text: "import 'os/exec' is not allowed"
+        linters:
+          - depguard
       - path: internal/bfd/packet.go
         text: "Function 'UnmarshalControlPacket' has too many statements"
         linters:

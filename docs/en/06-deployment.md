@@ -78,6 +78,18 @@ Packages are built by GoReleaser v2 and include:
 - `/usr/lib/systemd/system/gobfd.service` systemd unit
 - `gobfd` system user and group
 
+The repository owns package lifecycle behavior in the package-internal
+`internal/cmd/gobfd-package-lifecycle` executable. It maps only the supported
+Debian and RPM install, upgrade, and final-removal phases to fixed systemd
+commands. The declarative inputs are `deployments/systemd/gobfd.sysusers` and
+`deployments/systemd/gobfd.tmpfiles`; they create the non-login `gobfd` system
+identity and `/etc/gobfd` ownership without changing the four public-binary
+contract.
+
+Package-generator wiring and native DEB/RPM artifact validation are separate
+delivery steps. The existing nFPM hooks remain in place until those package
+artifacts prove the shellless lifecycle path end to end.
+
 #### From Source
 
 ```bash

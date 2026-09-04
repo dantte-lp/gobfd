@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the package-internal Go lifecycle owner and declarative systemd
+  sysusers/tmpfiles inputs as the staged foundation for shellless DEB/RPM
+  lifecycle hooks, without changing the four public binaries.
+
 ### Changed
 
 - Replaced all 16 shell-shebang fixtures embedded in Go tests with guarded

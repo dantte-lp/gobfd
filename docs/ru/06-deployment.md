@@ -78,6 +78,18 @@ gobfdctl session list
 - systemd-юнит `/usr/lib/systemd/system/gobfd.service`
 - Системного пользователя и группу `gobfd`
 
+Поведение lifecycle пакетов принадлежит package-internal executable
+`internal/cmd/gobfd-package-lifecycle`. Он преобразует только поддерживаемые
+фазы установки, обновления и окончательного удаления Debian/RPM в фиксированные
+команды systemd. Декларативные inputs
+`deployments/systemd/gobfd.sysusers` и
+`deployments/systemd/gobfd.tmpfiles` создают системную non-login identity
+`gobfd` и ownership `/etc/gobfd`, не меняя контракт четырёх публичных binaries.
+
+Подключение к генератору пакетов и проверка нативных DEB/RPM artifacts остаются
+отдельными этапами. Существующие nFPM hooks сохраняются, пока package artifacts
+не подтвердят shellless lifecycle path end to end.
+
 #### Из исходников
 
 ```bash

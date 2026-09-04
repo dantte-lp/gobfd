@@ -7,6 +7,12 @@
 
 ## [Не выпущено]
 
+### Добавлено
+
+- Добавлены package-internal Go lifecycle owner и декларативные systemd inputs
+  sysusers/tmpfiles как основа shellless lifecycle hooks DEB/RPM без изменения
+  четырёх публичных binaries.
+
 ### Изменено
 
 - Все 16 shell-shebang fixtures, встроенных в Go-тесты, заменены на guarded
