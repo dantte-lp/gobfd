@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -286,6 +285,6 @@ func (runner *releasePublishRunner) RunCommand(_ context.Context, spec CommandSp
 	if spec.Stdout == nil {
 		return fmt.Errorf("release publication command lacks captured stdout: %s %q", spec.Name, spec.Args)
 	}
-	_, err := io.Writer(spec.Stdout).Write(data)
+	_, err := spec.Stdout.Write(data)
 	return err
 }

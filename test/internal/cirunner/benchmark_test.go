@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -475,12 +476,7 @@ func TestBenchmarkOperationsRejectControlCharactersAndEscapingPaths(t *testing.T
 }
 
 func containsArgument(arguments []string, value string) bool {
-	for _, argument := range arguments {
-		if argument == value {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(arguments, value)
 }
 
 func readTestFile(t *testing.T, path string) string {

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -561,7 +560,7 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 	default:
 		return fmt.Errorf("unexpected release verification command: %s %q", spec.Name, spec.Args)
 	}
-	_, err := io.Writer(spec.Stdout).Write(data)
+	_, err := spec.Stdout.Write(data)
 	if err == nil && runner.afterRun != nil {
 		runner.afterRun(spec)
 	}

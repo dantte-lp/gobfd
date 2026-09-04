@@ -3,8 +3,8 @@ package cirunner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -291,7 +291,7 @@ func (runner *releasePromotionRunner) RunCommand(ctx context.Context, spec Comma
 			return ctx.Err()
 		}
 		if runner.createCount == runner.failCreateAt {
-			return fmt.Errorf("injected create failure")
+			return errors.New("injected create failure")
 		}
 		return nil
 	case spec.Name == "docker" && runner.aliasIndex < len(runner.aliasDigests):
@@ -309,6 +309,6 @@ func (runner *releasePromotionRunner) RunCommand(ctx context.Context, spec Comma
 	if spec.Stdout == nil {
 		return fmt.Errorf("release promotion command lacks captured stdout: %s %q", spec.Name, spec.Args)
 	}
-	_, err := io.Writer(spec.Stdout).Write(data)
+	_, err := spec.Stdout.Write(data)
 	return err
 }

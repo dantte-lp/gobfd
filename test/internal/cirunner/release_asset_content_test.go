@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -207,8 +209,9 @@ func writeValidDownloadedReleaseAssets(t *testing.T, directory string) {
 func validReleaseAssetData(t *testing.T) map[string][]byte {
 	t.Helper()
 	assets := make(map[string][]byte)
-	var mainChecksums []byte
-	for _, name := range expectedChecksummedArtifactNames("0.6.2") {
+	names := expectedChecksummedArtifactNames("0.6.2")
+	mainChecksums := make([]byte, 0, releaseSHA256LinesCapacity(names))
+	for _, name := range names {
 		data := []byte("asset:" + name)
 		if strings.HasSuffix(name, ".sbom.json") {
 			data = []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","metadata":{"component":{"name":"gobfd"}},"components":[{"name":"gobfd"}]}`)
@@ -230,8 +233,9 @@ func validReleaseAssetData(t *testing.T) map[string][]byte {
 
 func rewriteMainChecksums(t *testing.T, directory string) {
 	t.Helper()
-	var checksums []byte
-	for _, name := range expectedChecksummedArtifactNames("0.6.2") {
+	names := expectedChecksummedArtifactNames("0.6.2")
+	checksums := make([]byte, 0, releaseSHA256LinesCapacity(names))
+	for _, name := range names {
 		data, err := os.ReadFile(filepath.Join(directory, name))
 		if err != nil {
 			t.Fatal(err)
@@ -239,6 +243,14 @@ func rewriteMainChecksums(t *testing.T, directory string) {
 		checksums = append(checksums, formatReleaseSHA256Line(data, name)...)
 	}
 	writeReleaseVerifyFile(t, directory, "checksums.txt", checksums)
+}
+
+func releaseSHA256LinesCapacity(names []string) int {
+	capacity := len(names) * (hex.EncodedLen(sha256.Size) + len("  \n"))
+	for _, name := range names {
+		capacity += len(name)
+	}
+	return capacity
 }
 
 func rewriteSupplementalEvidence(t *testing.T, directory string, report []byte) {

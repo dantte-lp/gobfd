@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -331,7 +331,7 @@ func validReleaseOCIEvidence(t *testing.T) []releaseOCIImageEvidence {
 	}
 	evidence := make([]releaseOCIImageEvidence, 0, len(images))
 	for index, image := range images {
-		item, err := validateOCIManifestIndex(image, validOCIManifestIndex(fmt.Sprintf("%d", index+1)))
+		item, err := validateOCIManifestIndex(image, validOCIManifestIndex(strconv.Itoa(index+1)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -403,7 +403,7 @@ func validOCIManifestIndex(marker string) ociManifestIndex {
 
 func testOCIDigest(marker string) string {
 	digest := sha256.Sum256([]byte(marker))
-	return "sha256:" + fmt.Sprintf("%x", digest)
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 type ociManifestRunner struct {
@@ -448,6 +448,6 @@ func (runner *ociManifestRunner) RunCommand(_ context.Context, spec CommandSpec)
 	if spec.Stdout == nil {
 		return errors.New("OCI manifest stdout is nil")
 	}
-	_, err = io.Writer(spec.Stdout).Write(data)
+	_, err = spec.Stdout.Write(data)
 	return err
 }
