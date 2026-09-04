@@ -49,6 +49,17 @@ type upxTarEntry struct {
 	kind byte
 }
 
+type upxRelease struct {
+	runnerRoot      *os.Root
+	root            *os.Root
+	runnerTemp      string
+	rootName        string
+	createdInfo     os.FileInfo
+	created         bool
+	published       bool
+	openedOwnedRoot bool
+}
+
 func defaultUPXAssetContract() upxAssetContract {
 	return upxAssetContract{
 		version:       "4.2.2",
@@ -93,73 +104,96 @@ func ReleaseUPX(ctx context.Context, options ReleaseUPXOptions) (returnErr error
 	if contractErr := validateUPXAssetContract(asset); contractErr != nil {
 		return contractErr
 	}
-
 	runnerRoot, err := os.OpenRoot(runnerTemp)
 	if err != nil {
 		return fmt.Errorf("open RUNNER_TEMP for UPX prerequisite: %w", err)
 	}
-	upxRootName := upxRootNamePrefix + asset.version
-	created := false
-	published := false
-	var createdInfo os.FileInfo
-	var upxRoot *os.Root
-	openedOwnedRoot := false
+	release := &upxRelease{
+		runnerRoot: runnerRoot,
+		runnerTemp: runnerTemp,
+		rootName:   upxRootNamePrefix + asset.version,
+	}
 	defer func() {
-		if returnErr != nil && !published && openedOwnedRoot {
-			returnErr = errors.Join(returnErr, wrapOptional("clear partial UPX prerequisite", clearOwnedUPXRoot(upxRoot)))
-		}
-		if upxRoot != nil {
-			returnErr = errors.Join(returnErr, wrapOptional("close UPX prerequisite root", upxRoot.Close()))
-		}
-		if returnErr != nil && !published && created {
-			returnErr = errors.Join(returnErr, wrapOptional(
-				"remove partial UPX prerequisite",
-				removeOwnedUPXRoot(runnerRoot, upxRootName, createdInfo),
-			))
-		}
-		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP for UPX prerequisite", runnerRoot.Close()))
+		returnErr = release.close(returnErr)
 	}()
-	if _, statErr := runnerRoot.Lstat(upxRootName); statErr == nil {
-		return fmt.Errorf("UPX prerequisite directory collision: %s: %w", filepath.Join(runnerTemp, upxRootName), errInvalidConfig)
+	if err := release.prepare(); err != nil {
+		return err
+	}
+	return release.install(ctx, options, asset)
+}
+
+func (release *upxRelease) close(returnErr error) error {
+	if returnErr != nil && !release.published && release.openedOwnedRoot {
+		returnErr = errors.Join(
+			returnErr,
+			wrapOptional("clear partial UPX prerequisite", clearOwnedUPXRoot(release.root)),
+		)
+	}
+	if release.root != nil {
+		returnErr = errors.Join(returnErr, wrapOptional("close UPX prerequisite root", release.root.Close()))
+	}
+	if returnErr != nil && !release.published && release.created {
+		returnErr = errors.Join(returnErr, wrapOptional(
+			"remove partial UPX prerequisite",
+			removeOwnedUPXRoot(release.runnerRoot, release.rootName, release.createdInfo),
+		))
+	}
+	return errors.Join(
+		returnErr,
+		wrapOptional("close RUNNER_TEMP for UPX prerequisite", release.runnerRoot.Close()),
+	)
+}
+
+func (release *upxRelease) prepare() error {
+	if _, statErr := release.runnerRoot.Lstat(release.rootName); statErr == nil {
+		return fmt.Errorf(
+			"UPX prerequisite directory collision: %s: %w",
+			filepath.Join(release.runnerTemp, release.rootName), errInvalidConfig,
+		)
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return fmt.Errorf("inspect UPX prerequisite directory: %w", statErr)
 	}
-	if mkdirErr := runnerRoot.Mkdir(upxRootName, upxDirectoryMode); mkdirErr != nil {
-		return fmt.Errorf("create UPX prerequisite directory: %w", mkdirErr)
+	if err := release.runnerRoot.Mkdir(release.rootName, upxDirectoryMode); err != nil {
+		return fmt.Errorf("create UPX prerequisite directory: %w", err)
 	}
-	created = true
-	createdInfo, err = runnerRoot.Lstat(upxRootName)
+	release.created = true
+	createdInfo, err := release.runnerRoot.Lstat(release.rootName)
+	release.createdInfo = createdInfo
 	if err != nil || !createdInfo.IsDir() {
 		return fmt.Errorf("inspect created UPX prerequisite directory: %w", errors.Join(err, errInvalidConfig))
 	}
-	upxRoot, err = runnerRoot.OpenRoot(upxRootName)
+	release.root, err = release.runnerRoot.OpenRoot(release.rootName)
 	if err != nil {
 		return fmt.Errorf("open UPX prerequisite directory: %w", err)
 	}
-	openedInfo, err := upxRoot.Stat(".")
-	if err != nil || !os.SameFile(openedInfo, createdInfo) {
+	openedInfo, err := release.root.Stat(".")
+	if err != nil || !os.SameFile(openedInfo, release.createdInfo) {
 		return fmt.Errorf("opened UPX prerequisite root identity changed: %w", errors.Join(err, errInvalidConfig))
 	}
-	openedOwnedRoot = true
+	release.openedOwnedRoot = true
 	for _, name := range []string{"download", "bin"} {
-		if mkdirErr := upxRoot.Mkdir(name, upxDirectoryMode); mkdirErr != nil {
-			return fmt.Errorf("create UPX %s directory: %w", name, mkdirErr)
+		if err := release.root.Mkdir(name, upxDirectoryMode); err != nil {
+			return fmt.Errorf("create UPX %s directory: %w", name, err)
 		}
 	}
+	return nil
+}
 
+func (release *upxRelease) install(ctx context.Context, options ReleaseUPXOptions, asset upxAssetContract) error {
+	directory := filepath.Join(release.runnerTemp, release.rootName)
 	commandEnvironment := withoutEnvironmentKeys(options.Environment, "GH_TOKEN", "GITHUB_TOKEN")
 	archive, err := downloadUPXArchive(
-		ctx, options.Runner, upxRoot, filepath.Join(runnerTemp, upxRootName), options.Environment, asset,
+		ctx, options.Runner, release.root, directory, options.Environment, asset,
 	)
 	if err != nil {
 		return err
 	}
 	tarData, err := decompressUPXArchive(
-		ctx, options.Runner, archive, filepath.Join(runnerTemp, upxRootName), commandEnvironment, asset,
+		ctx, options.Runner, archive, directory, commandEnvironment, asset,
 	)
 	if err == nil {
 		err = verifyRootedPathIdentity(
-			upxRoot, "download/"+asset.archiveName, archive, "UPX archive after decompression",
+			release.root, "download/"+asset.archiveName, archive, "UPX archive after decompression",
 		)
 	}
 	closeErr := archive.Close()
@@ -170,21 +204,20 @@ func ReleaseUPX(ctx context.Context, options ReleaseUPXOptions) (returnErr error
 	if err != nil {
 		return err
 	}
-	if writeErr := writeUPXExecutable(upxRoot, upxData, asset.entriesUPXSize()); writeErr != nil {
+	if writeErr := writeUPXExecutable(release.root, upxData, asset.entriesUPXSize()); writeErr != nil {
 		return writeErr
 	}
-	binDirectory := filepath.Join(runnerTemp, upxRootName, "bin")
+	binDirectory := filepath.Join(directory, "bin")
 	if verifyErr := verifyUPXVersion(
-		ctx, options.Runner, upxRoot, filepath.Join(runnerTemp, upxRootName),
-		binDirectory, commandEnvironment, asset,
+		ctx, options.Runner, release.root, directory, binDirectory, commandEnvironment, asset,
 	); verifyErr != nil {
 		return verifyErr
 	}
-	currentRootInfo, err := runnerRoot.Lstat(upxRootName)
-	if err != nil || !os.SameFile(currentRootInfo, createdInfo) {
+	currentRootInfo, err := release.runnerRoot.Lstat(release.rootName)
+	if err != nil || !os.SameFile(currentRootInfo, release.createdInfo) {
 		return fmt.Errorf("verified UPX prerequisite root identity changed: %w", errors.Join(err, errInvalidConfig))
 	}
-	published, err = appendGitHubPath(options.GitHubPath, binDirectory)
+	release.published, err = appendGitHubPath(options.GitHubPath, binDirectory)
 	if err != nil {
 		return err
 	}
@@ -244,10 +277,8 @@ func writeUPXExecutable(root *os.Root, data []byte, expectedSize int64) error {
 }
 
 func validateUPXAssetContract(asset upxAssetContract) error {
-	if asset.version != "4.2.2" || asset.archiveName != "upx-"+asset.version+"-amd64_linux.tar.xz" ||
-		filepath.Base(asset.archiveName) != asset.archiveName || hasControl(asset.archiveName) ||
-		asset.archiveSize <= 0 || asset.tarSize <= 0 || len(asset.entries) == 0 {
-		return fmt.Errorf("invalid UPX asset contract: %w", errInvalidConfig)
+	if err := validateUPXAssetMetadata(asset); err != nil {
+		return err
 	}
 	digest, err := hex.DecodeString(asset.archiveSHA256)
 	if err != nil || len(digest) != sha256.Size {
@@ -256,11 +287,8 @@ func validateUPXAssetContract(asset upxAssetContract) error {
 	seen := make(map[string]struct{}, len(asset.entries))
 	rootPrefix := "upx-" + asset.version + "-amd64_linux/"
 	for _, entry := range asset.entries {
-		if !strings.HasPrefix(entry.name, rootPrefix) || hasControl(entry.name) || entry.size < 0 ||
-			entry.size > asset.tarSize ||
-			(entry.kind != tar.TypeDir && entry.kind != tar.TypeReg) ||
-			(entry.kind == tar.TypeDir && (entry.name != rootPrefix || entry.size != 0)) {
-			return fmt.Errorf("invalid UPX tar entry contract %q: %w", entry.name, errInvalidConfig)
+		if err := validateUPXTarEntryContract(entry, rootPrefix, asset.tarSize); err != nil {
+			return err
 		}
 		if _, exists := seen[entry.name]; exists {
 			return fmt.Errorf("duplicate UPX tar entry contract %q: %w", entry.name, errInvalidConfig)
@@ -269,6 +297,25 @@ func validateUPXAssetContract(asset upxAssetContract) error {
 	}
 	if asset.entriesUPXSize() <= 0 {
 		return fmt.Errorf("UPX executable is absent from the asset contract: %w", errInvalidConfig)
+	}
+	return nil
+}
+
+func validateUPXAssetMetadata(asset upxAssetContract) error {
+	if asset.version != "4.2.2" || asset.archiveName != "upx-"+asset.version+"-amd64_linux.tar.xz" ||
+		filepath.Base(asset.archiveName) != asset.archiveName || hasControl(asset.archiveName) ||
+		asset.archiveSize <= 0 || asset.tarSize <= 0 || len(asset.entries) == 0 {
+		return fmt.Errorf("invalid UPX asset contract: %w", errInvalidConfig)
+	}
+	return nil
+}
+
+func validateUPXTarEntryContract(entry upxTarEntry, rootPrefix string, tarSize int64) error {
+	if !strings.HasPrefix(entry.name, rootPrefix) || hasControl(entry.name) || entry.size < 0 ||
+		entry.size > tarSize ||
+		(entry.kind != tar.TypeDir && entry.kind != tar.TypeReg) ||
+		(entry.kind == tar.TypeDir && (entry.name != rootPrefix || entry.size != 0)) {
+		return fmt.Errorf("invalid UPX tar entry contract %q: %w", entry.name, errInvalidConfig)
 	}
 	return nil
 }
