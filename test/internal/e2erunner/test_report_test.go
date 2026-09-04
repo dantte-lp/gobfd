@@ -216,7 +216,10 @@ func runFakeGo() {
 		os.Exit(125)
 	}
 	if os.Getenv(fakeGoSilent) != "1" {
-		fmt.Print(fakeGoOutput)
+		if _, writeErr := os.Stdout.WriteString(fakeGoOutput); writeErr != nil {
+			fmt.Fprintln(os.Stderr, writeErr)
+			os.Exit(125)
+		}
 	}
 	code, err := strconv.Atoi(os.Getenv(fakeGoExit))
 	if err == nil {

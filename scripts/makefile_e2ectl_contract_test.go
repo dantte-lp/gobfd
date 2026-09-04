@@ -41,7 +41,11 @@ func TestMakefileReportPipelinesDelegateToE2ECTL(t *testing.T) {
 			t.Errorf("Makefile e2ectl-build target lacks %q", required)
 		}
 	}
-	for field := range strings.FieldsSeq(makefile[:strings.Index(makefile, "# === Lifecycle ===")]) {
+	beforeLifecycle, _, found := strings.Cut(makefile, "# === Lifecycle ===")
+	if !found {
+		t.Fatal("Makefile lifecycle marker is missing")
+	}
+	for field := range strings.FieldsSeq(beforeLifecycle) {
 		if field == "shell" {
 			t.Error("Makefile retains shell in .PHONY")
 		}

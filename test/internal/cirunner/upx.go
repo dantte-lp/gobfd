@@ -633,13 +633,13 @@ func appendGitHubPath(path, binDirectory string) (published bool, returnErr erro
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		data = append(data, '\n')
 	}
-	appended := append(data, binDirectory...)
-	appended = append(appended, '\n')
-	if len(appended) > githubPathLimit {
+	data = append(data, binDirectory...)
+	data = append(data, '\n')
+	if len(data) > githubPathLimit {
 		return false, fmt.Errorf("updated GITHUB_PATH exceeds %d bytes: %w", githubPathLimit, errInvalidConfig)
 	}
 	return writeRootedModeArtifactState(
-		parentRoot, name, appended, "GITHUB_PATH", githubPathLimit, expected.Mode().Perm(),
+		parentRoot, name, data, "GITHUB_PATH", githubPathLimit, expected.Mode().Perm(),
 		inspectPublishedRootedModeArtifact,
 	)
 }

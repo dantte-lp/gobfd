@@ -689,6 +689,7 @@ func validateAbsentRelease(response releaseGraphQLResponse, refName string) erro
 
 type boundedPreflightOutput struct {
 	bytes.Buffer
+
 	limit int
 }
 

@@ -17,9 +17,10 @@ import (
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	err := run(ctx, os.Args[1:], dependencies{})
+	cancel()
 
-	if err := run(ctx, os.Args[1:], dependencies{}); err != nil {
+	if err != nil {
 		slog.Error("CI command failed", "error", err)
 		os.Exit(1)
 	}

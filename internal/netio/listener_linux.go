@@ -18,18 +18,16 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 	}
 
 	// Apply read buffer tuning if configured.
-	if cfg.ReadBufferSize > 0 {
-		if setter, ok := conn.(interface{ SetReadBuffer(bytes int) error }); ok {
-			if err := setter.SetReadBuffer(cfg.ReadBufferSize); err != nil {
-				closeErr := conn.Close()
-				if closeErr != nil {
-					closeErr = fmt.Errorf("close listener after read buffer failure: %w", closeErr)
-				}
-				return nil, errors.Join(
-					fmt.Errorf("set read buffer to %d: %w", cfg.ReadBufferSize, err),
-					closeErr,
-				)
+	if setter, ok := conn.(interface{ SetReadBuffer(bytes int) error }); ok && cfg.ReadBufferSize > 0 {
+		if err := setter.SetReadBuffer(cfg.ReadBufferSize); err != nil {
+			closeErr := conn.Close()
+			if closeErr != nil {
+				closeErr = fmt.Errorf("close listener after read buffer failure: %w", closeErr)
 			}
+			return nil, errors.Join(
+				fmt.Errorf("set read buffer to %d: %w", cfg.ReadBufferSize, err),
+				closeErr,
+			)
 		}
 	}
 
