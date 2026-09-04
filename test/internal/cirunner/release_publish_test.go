@@ -69,11 +69,15 @@ func TestPublishVerifiedReleaseRejectsDriftWithoutMutation(t *testing.T) {
 		{name: "draft body", mutate: func(_ *testing.T, _ string, _ string, runner *releasePublishRunner) {
 			runner.releaseView = []byte(strings.Replace(string(runner.releaseView), "release notes", "changed", 1))
 		}, want: "draft body"},
-		{name: "draft changes during alias checks", mutate: func(_ *testing.T, _ string, _ string, runner *releasePublishRunner) {
-			runner.afterAlias = func(int) {
-				runner.releaseView = []byte(strings.Replace(string(runner.releaseView), "release notes", "changed", 1))
-			}
-		}, want: "draft body"},
+		{
+			name: "draft changes during alias checks",
+			mutate: func(_ *testing.T, _ string, _ string, runner *releasePublishRunner) {
+				runner.afterAlias = func(int) {
+					runner.releaseView = []byte(strings.Replace(string(runner.releaseView), "release notes", "changed", 1))
+				}
+			},
+			want: "draft body",
+		},
 		{name: "remote asset identity", mutate: func(t *testing.T, _ string, _ string, runner *releasePublishRunner) {
 			t.Helper()
 			proxy := &releaseVerifyRunner{releaseView: runner.releaseView}
@@ -252,7 +256,9 @@ func (runner *releasePublishRunner) RunCommand(_ context.Context, spec CommandSp
 		data = []byte(preflightCommit + "\n")
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}):
 		data = fmt.Appendf(nil, `{"ref":"refs/tags/v0.6.2","object":{"type":"tag","sha":%q}}`, preflightTagObject)
-	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}):
+	case spec.Name == "gh" && slices.Equal(spec.Args, []string{
+		"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject,
+	}):
 		data = fmt.Appendf(nil,
 			`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`, preflightTagObject, preflightCommit,
 		)

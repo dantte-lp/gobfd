@@ -34,7 +34,10 @@ func TestReleasePreflightUsesExactIdentityAndWritesReceipts(t *testing.T) {
 	want := []specInvocation{
 		{name: "git", args: []string{"rev-parse", "HEAD"}, dir: root, env: []string{"PATH=/usr/bin"}},
 		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}, dir: root, env: environment},
-		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}, dir: root, env: environment},
+		{
+			name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject},
+			dir: root, env: environment,
+		},
 		{name: "gh", args: []string{"api", "repos/dantte-lp/gobfd/git/ref/heads/release/v0.6"}, dir: root, env: environment},
 		{name: "gh", args: []string{
 			"api", "graphql", "-f", "query=" + releasePreflightGraphQLQuery,
@@ -95,10 +98,20 @@ func TestReleasePreflightRejectsExistingReleaseAndVersionTags(t *testing.T) {
 		packageTags     []string
 		want            string
 	}{
-		{name: "existing draft", releaseResponse: `{"data":{"repository":{"release":{"id":"R_1","isDraft":true,"tagName":"v0.6.2"}}}}`, want: "release or draft already exists"},
+		{
+			name:            "existing draft",
+			releaseResponse: `{"data":{"repository":{"release":{"id":"R_1","isDraft":true,"tagName":"v0.6.2"}}}}`,
+			want:            "release or draft already exists",
+		},
 		{name: "plain version", packageTags: []string{"0.6.2"}, want: "versioned OCI tag already exists: 0.6.2"},
-		{name: "Debian version", packageTags: []string{"0.6.2-debian-trixie"}, want: "versioned OCI tag already exists: 0.6.2-debian-trixie"},
-		{name: "Oracle Linux version", packageTags: []string{"0.6.2-oraclelinux10"}, want: "versioned OCI tag already exists: 0.6.2-oraclelinux10"},
+		{
+			name: "Debian version", packageTags: []string{"0.6.2-debian-trixie"},
+			want: "versioned OCI tag already exists: 0.6.2-debian-trixie",
+		},
+		{
+			name: "Oracle Linux version", packageTags: []string{"0.6.2-oraclelinux10"},
+			want: "versioned OCI tag already exists: 0.6.2-oraclelinux10",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -197,7 +210,9 @@ func TestReleasePreflightRejectsMismatchedRemoteIdentity(t *testing.T) {
 			options.SHA = otherCommit
 		}, want: "checked-out commit"},
 		{name: "lightweight tag", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
-			runner.tagRefResponse = fmt.Sprintf(`{"ref":"refs/tags/v0.6.2","object":{"type":"commit","sha":%q}}`, preflightCommit)
+			runner.tagRefResponse = fmt.Sprintf(
+				`{"ref":"refs/tags/v0.6.2","object":{"type":"commit","sha":%q}}`, preflightCommit,
+			)
 		}, want: "annotated tag"},
 		{name: "case alias tag ref field", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
 			runner.tagRefResponse = fmt.Sprintf(
@@ -206,10 +221,15 @@ func TestReleasePreflightRejectsMismatchedRemoteIdentity(t *testing.T) {
 			)
 		}, want: "noncanonical JSON field"},
 		{name: "tag target", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
-			runner.tagObjectResponse = fmt.Sprintf(`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`, preflightTagObject, otherCommit)
+			runner.tagObjectResponse = fmt.Sprintf(
+				`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`,
+				preflightTagObject, otherCommit,
+			)
 		}, want: "annotated tag does not target"},
 		{name: "branch head", mutate: func(runner *preflightRunner, _ *ReleasePreflightOptions) {
-			runner.branchResponse = fmt.Sprintf(`{"ref":"refs/heads/release/v0.6","object":{"type":"commit","sha":%q}}`, otherCommit)
+			runner.branchResponse = fmt.Sprintf(
+				`{"ref":"refs/heads/release/v0.6","object":{"type":"commit","sha":%q}}`, otherCommit,
+			)
 		}, want: "exact release/v0.6 head"},
 	}
 	for _, test := range tests {

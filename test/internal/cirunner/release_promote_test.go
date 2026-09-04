@@ -133,9 +133,18 @@ func TestPromoteReleaseOCIAliasesRollsBackAfterSecondMutationFailure(t *testing.
 		t.Fatalf("commands after second mutation failure and rollback = %d, want 15", len(runner.calls))
 	}
 	wantRollback := [][]string{
-		{"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:latest", "ghcr.io/dantte-lp/gobfd@" + oldPrimary},
-		{"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:debian-trixie", "ghcr.io/dantte-lp/gobfd@" + oldPrimary},
-		{"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:oraclelinux10", "ghcr.io/dantte-lp/gobfd@" + oldOracle},
+		{
+			"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:latest",
+			"ghcr.io/dantte-lp/gobfd@" + oldPrimary,
+		},
+		{
+			"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:debian-trixie",
+			"ghcr.io/dantte-lp/gobfd@" + oldPrimary,
+		},
+		{
+			"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:oraclelinux10",
+			"ghcr.io/dantte-lp/gobfd@" + oldOracle,
+		},
 	}
 	for index, want := range wantRollback {
 		if got := runner.calls[9+index].args; !reflect.DeepEqual(got, want) {
@@ -278,13 +287,17 @@ func (runner *releasePromotionRunner) RunCommand(ctx context.Context, spec Comma
 		data = []byte(preflightCommit + "\n")
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}):
 		data = fmt.Appendf(nil, `{"ref":"refs/tags/v0.6.2","object":{"type":"tag","sha":%q}}`, preflightTagObject)
-	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}):
+	case spec.Name == "gh" && slices.Equal(spec.Args, []string{
+		"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject,
+	}):
 		data = fmt.Appendf(nil,
 			`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`, preflightTagObject, preflightCommit,
 		)
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/heads/release/v0.6"}):
 		data = fmt.Appendf(nil, `{"ref":"refs/heads/release/v0.6","object":{"type":"commit","sha":%q}}`, preflightCommit)
-	case spec.Name == "docker" && len(spec.Args) >= 3 && slices.Equal(spec.Args[:3], []string{"buildx", "imagetools", "create"}):
+	case spec.Name == "docker" && len(spec.Args) >= 3 && slices.Equal(
+		spec.Args[:3], []string{"buildx", "imagetools", "create"},
+	):
 		runner.createCount++
 		if runner.createCount == runner.cancelCreateAt {
 			runner.cancel()

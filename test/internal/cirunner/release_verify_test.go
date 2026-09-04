@@ -119,10 +119,14 @@ func TestVerifyReleaseDraftRejectsInvalidRemoteAssetIdentity(t *testing.T) {
 			if err == nil || !containsError(err, test.want) {
 				t.Fatalf("VerifyReleaseDraft() error = %v, want %q", err, test.want)
 			}
-			if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetIdentityReceiptName)); !errors.Is(statErr, os.ErrNotExist) {
+			if _, statErr := os.Lstat(
+				filepath.Join(runnerTemp, releaseAssetIdentityReceiptName),
+			); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("invalid remote asset wrote identity receipt: %v", statErr)
 			}
-			if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+			if _, statErr := os.Lstat(
+				filepath.Join(runnerTemp, releaseAssetDownloadDirectory),
+			); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("invalid remote asset retained download directory: %v", statErr)
 			}
 		})
@@ -187,7 +191,9 @@ func TestVerifyReleaseDraftRejectsReceiptCollisionAndCleansOwnedDownload(t *test
 	if err == nil || !containsError(err, "release asset identity receipt") {
 		t.Fatalf("VerifyReleaseDraft() error = %v, want receipt collision", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(
+		filepath.Join(runnerTemp, releaseAssetDownloadDirectory),
+	); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("receipt collision retained owned download directory: %v", statErr)
 	}
 	if info, statErr := os.Lstat(receiptPath); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -282,7 +288,9 @@ func TestVerifyReleaseDraftRejectsInvalidDownloadedAssetsAndCleansOwnedDirectory
 			if err == nil || !containsError(err, test.want) {
 				t.Fatalf("VerifyReleaseDraft() error = %v, want %q", err, test.want)
 			}
-			if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+			if _, statErr := os.Lstat(
+				filepath.Join(runnerTemp, releaseAssetDownloadDirectory),
+			); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("owned invalid download directory cleanup error = %v, want not exist", statErr)
 			}
 		})
@@ -307,7 +315,9 @@ func TestVerifyReleaseDraftCleansPartialDownloadAfterCommandFailure(t *testing.T
 	if err == nil || !containsError(err, "download exact release assets") {
 		t.Fatalf("VerifyReleaseDraft() error = %v, want command failure", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(
+		filepath.Join(runnerTemp, releaseAssetDownloadDirectory),
+	); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("partial download directory cleanup error = %v, want not exist", statErr)
 	}
 }
@@ -341,7 +351,9 @@ func TestVerifyReleaseDraftRejectsReplacedDownloadRootWithoutRemovingReplacement
 	if err == nil || !containsError(err, "download directory ownership changed") {
 		t.Fatalf("VerifyReleaseDraft() error = %v, want download root replacement rejection", err)
 	}
-	if data, readErr := os.ReadFile(filepath.Join(downloadDirectory, "sentinel")); readErr != nil || string(data) != "preserve" {
+	if data, readErr := os.ReadFile(
+		filepath.Join(downloadDirectory, "sentinel"),
+	); readErr != nil || string(data) != "preserve" {
 		t.Fatalf("replacement sentinel = %q, error = %v", data, readErr)
 	}
 }
@@ -381,7 +393,9 @@ func TestVerifyReleaseDraftRejectsVerifierRootReplacedDuringDownload(t *testing.
 	if data, readErr := os.ReadFile(filepath.Join(root, "sentinel")); readErr != nil || string(data) != "preserve" {
 		t.Fatalf("replacement verifier sentinel = %q, error = %v", data, readErr)
 	}
-	if _, statErr := os.Lstat(filepath.Join(runnerTemp, releaseAssetDownloadDirectory)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(
+		filepath.Join(runnerTemp, releaseAssetDownloadDirectory),
+	); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("download directory after verifier replacement = %v, want not exist", statErr)
 	}
 }
@@ -541,7 +555,9 @@ func (runner *releaseVerifyRunner) RunCommand(_ context.Context, spec CommandSpe
 		data = []byte(preflightCommit + "\n")
 	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/ref/tags/v0.6.2"}):
 		data = fmt.Appendf(nil, `{"ref":"refs/tags/v0.6.2","object":{"type":"tag","sha":%q}}`, preflightTagObject)
-	case spec.Name == "gh" && slices.Equal(spec.Args, []string{"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject}):
+	case spec.Name == "gh" && slices.Equal(spec.Args, []string{
+		"api", "repos/dantte-lp/gobfd/git/tags/" + preflightTagObject,
+	}):
 		data = fmt.Appendf(nil,
 			`{"sha":%q,"tag":"v0.6.2","object":{"type":"commit","sha":%q}}`, preflightTagObject, preflightCommit,
 		)

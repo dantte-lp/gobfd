@@ -47,8 +47,13 @@ func TestReleaseTestReportRunsPinnedGotestsumAndRendersHTML(t *testing.T) {
 	runner := &recordingSpecRunner{afterRun: func(spec CommandSpec) {
 		junit := argumentAfter(t, spec.Args, "--junitfile")
 		jsonReport := argumentAfter(t, spec.Args, "--jsonfile")
-		if err := os.WriteFile(filepath.Join(spec.Dir, junit), []byte(
-			`<testsuites tests="1"><testsuite name="unit" tests="1"><testcase name="ok"/></testsuite></testsuites>`), 0o644); err != nil {
+		if err := os.WriteFile(
+			filepath.Join(spec.Dir, junit),
+			[]byte(
+				`<testsuites tests="1"><testsuite name="unit" tests="1"><testcase name="ok"/></testsuite></testsuites>`,
+			),
+			0o644,
+		); err != nil {
 			t.Fatalf("write simulated JUnit: %v", err)
 		}
 		if err := os.WriteFile(filepath.Join(spec.Dir, jsonReport), []byte("{}\n"), 0o644); err != nil {
@@ -91,8 +96,22 @@ func TestReleaseBenchmarksPreserveRawAndCombinedEvidence(t *testing.T) {
 		t.Fatalf("ReleaseBenchmarks() error = %v", err)
 	}
 	want := []specInvocation{
-		{name: "go", args: []string{"test", "-buildvcs=false", "-bench=.", "-benchmem", "-count=6", "-run=^$", "-timeout=120s", "./internal/bfd/"}, dir: root},
-		{name: "go", args: []string{"test", "-buildvcs=false", "-bench=.", "-benchmem", "-count=6", "-run=^$", "-timeout=120s", "./internal/netio/"}, dir: root},
+		{
+			name: "go",
+			args: []string{
+				"test", "-buildvcs=false", "-bench=.", "-benchmem", "-count=6", "-run=^$", "-timeout=120s",
+				"./internal/bfd/",
+			},
+			dir: root,
+		},
+		{
+			name: "go",
+			args: []string{
+				"test", "-buildvcs=false", "-bench=.", "-benchmem", "-count=6", "-run=^$", "-timeout=120s",
+				"./internal/netio/",
+			},
+			dir: root,
+		},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Errorf("release benchmark calls = %#v, want %#v", runner.calls, want)
@@ -217,7 +236,10 @@ func TestReleaseBenchmarkComparisonPublishesTextHTMLAndJSON(t *testing.T) {
 	if err := os.MkdirAll(versionDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{filepath.Join(root, "testdata/benchmarks/baseline.txt"), filepath.Join(versionDir, "benchmark.txt")} {
+	for _, path := range []string{
+		filepath.Join(root, "testdata/benchmarks/baseline.txt"),
+		filepath.Join(versionDir, "benchmark.txt"),
+	} {
 		if err := os.WriteFile(path, []byte(requiredBenchmarkFixture), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -241,7 +263,9 @@ RecvDecodeFSM-8,2e-7,1%,2.1e-7,1%,+5.00%,p=0.01 n=6
 	}); err != nil {
 		t.Fatalf("ReleaseBenchmarkComparison() error = %v", err)
 	}
-	for _, name := range []string{"comparison-vs-baseline.txt", "comparison-vs-baseline.html", "comparison-vs-baseline.json"} {
+	for _, name := range []string{
+		"comparison-vs-baseline.txt", "comparison-vs-baseline.html", "comparison-vs-baseline.json",
+	} {
 		if info, err := os.Stat(filepath.Join(root, "reports/benchmarks", name)); err != nil || info.Size() == 0 {
 			t.Errorf("comparison artifact %s missing or empty: %v", name, err)
 		}
