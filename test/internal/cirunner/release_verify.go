@@ -24,80 +24,104 @@ type VerifyReleaseDraftOptions struct {
 	Runner       SpecRunner
 }
 
+type releaseDraftVerification struct {
+	options                                VerifyReleaseDraftOptions
+	root, artifactRootPath, runnerTempPath string
+	version, releaseBranch, expectedCommit string
+	owner, repository                      string
+	verifierRoot, artifactRoot, runnerTemp *os.Root
+}
+
 // VerifyReleaseDraft revalidates release identity, OCI receipts, and the exact draft manifest.
 func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) (returnErr error) {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "release verifier root")
+	verification, err := validateReleaseDraftVerification(options)
 	if err != nil {
 		return err
 	}
-	artifactRootPath, err := validateAbsoluteExistingDirectory(options.ArtifactRoot, "release artifact root")
-	if err != nil {
-		return err
-	}
-	runnerTempPath, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
-	if err != nil {
-		return err
-	}
-	version, releaseBranch, err := parseStableReleaseVersion(options.RefName)
-	if err != nil {
-		return err
-	}
-	expectedCommit, err := validateFullCommitSHA(options.SHA, "GITHUB_SHA")
-	if err != nil {
-		return err
-	}
-	owner, repository, err := parseGitHubRepository(options.Repository)
-	if err != nil {
-		return err
-	}
-	if options.Runner == nil {
-		return fmt.Errorf("release draft verification command runner is required: %w", errInvalidConfig)
-	}
-
-	verifierRoot, err := os.OpenRoot(root)
+	verification.verifierRoot, err = os.OpenRoot(verification.root)
 	if err != nil {
 		return fmt.Errorf("open release verifier root for draft verification: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, wrapOptional("close release verifier draft root", verifierRoot.Close()))
+		returnErr = errors.Join(
+			returnErr,
+			wrapOptional("close release verifier draft root", verification.verifierRoot.Close()),
+		)
 	}()
-	artifactRoot, err := os.OpenRoot(artifactRootPath)
+	verification.artifactRoot, err = os.OpenRoot(verification.artifactRootPath)
 	if err != nil {
 		return fmt.Errorf("open release artifact root for verification: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, wrapOptional("close release artifact verification root", artifactRoot.Close()))
+		returnErr = errors.Join(
+			returnErr,
+			wrapOptional("close release artifact verification root", verification.artifactRoot.Close()),
+		)
 	}()
-	runnerTemp, err := os.OpenRoot(runnerTempPath)
+	verification.runnerTemp, err = os.OpenRoot(verification.runnerTempPath)
 	if err != nil {
 		return fmt.Errorf("open RUNNER_TEMP for release verification: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, wrapOptional("close RUNNER_TEMP release verification root", runnerTemp.Close()))
+		returnErr = errors.Join(
+			returnErr,
+			wrapOptional("close RUNNER_TEMP release verification root", verification.runnerTemp.Close()),
+		)
 	}()
-	if identityErr := validateRootPathIdentity(
-		verifierRoot, root, "release verifier root before verification",
-	); identityErr != nil {
-		return identityErr
-	}
-	if identityErr := validateRootPathIdentity(
-		artifactRoot, artifactRootPath, "release artifact root before verification",
-	); identityErr != nil {
-		return identityErr
-	}
-	if identityErr := validateRootPathIdentity(
-		runnerTemp, runnerTempPath, "RUNNER_TEMP before release verification",
-	); identityErr != nil {
-		return identityErr
-	}
+	return verifyReleaseDraft(ctx, &verification)
+}
 
-	receiptTagObject, err := readExpectedReleaseIdentityReceipts(runnerTemp, expectedCommit, releaseBranch)
+func validateReleaseDraftVerification(options VerifyReleaseDraftOptions) (releaseDraftVerification, error) {
+	verification := releaseDraftVerification{options: options}
+	var err error
+	verification.root, err = validateAbsoluteExistingDirectory(options.Root, "release verifier root")
+	if err != nil {
+		return releaseDraftVerification{}, err
+	}
+	verification.artifactRootPath, err = validateAbsoluteExistingDirectory(
+		options.ArtifactRoot, "release artifact root",
+	)
+	if err != nil {
+		return releaseDraftVerification{}, err
+	}
+	verification.runnerTempPath, err = validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
+	if err != nil {
+		return releaseDraftVerification{}, err
+	}
+	verification.version, verification.releaseBranch, err = parseStableReleaseVersion(options.RefName)
+	if err != nil {
+		return releaseDraftVerification{}, err
+	}
+	verification.expectedCommit, err = validateFullCommitSHA(options.SHA, "GITHUB_SHA")
+	if err != nil {
+		return releaseDraftVerification{}, err
+	}
+	verification.owner, verification.repository, err = parseGitHubRepository(options.Repository)
+	if err != nil {
+		return releaseDraftVerification{}, err
+	}
+	if options.Runner == nil {
+		return releaseDraftVerification{}, fmt.Errorf(
+			"release draft verification command runner is required: %w", errInvalidConfig,
+		)
+	}
+	return verification, nil
+}
+
+func verifyReleaseDraft(ctx context.Context, verification *releaseDraftVerification) error {
+	if err := verification.validateRoots("before verification", "before release verification"); err != nil {
+		return err
+	}
+	receiptTagObject, err := readExpectedReleaseIdentityReceipts(
+		verification.runnerTemp, verification.expectedCommit, verification.releaseBranch,
+	)
 	if err != nil {
 		return err
 	}
-
 	actualTagObject, err := verifyReleaseGitIdentity(
-		ctx, options.Runner, root, owner, repository, options.RefName, releaseBranch, expectedCommit, options.Environment,
+		ctx, verification.options.Runner, verification.root,
+		verification.owner, verification.repository, verification.options.RefName,
+		verification.releaseBranch, verification.expectedCommit, verification.options.Environment,
 	)
 	if err != nil {
 		return err
@@ -105,101 +129,146 @@ func VerifyReleaseDraft(ctx context.Context, options VerifyReleaseDraftOptions) 
 	if actualTagObject != receiptTagObject {
 		return fmt.Errorf("release tag object receipt changed after preflight: %w", errInvalidConfig)
 	}
+	remoteAssets, expectedAssets, err := verifyReleaseDraftEvidence(ctx, verification)
+	if err != nil {
+		return err
+	}
+	if err := verification.validateRoots("after verification", "after release verification"); err != nil {
+		return err
+	}
+	return verifyDownloadedReleaseAssets(ctx, verification, remoteAssets, expectedAssets)
+}
 
+func (verification *releaseDraftVerification) validateRoots(phase, runnerPhase string) error {
+	if err := validateRootPathIdentity(
+		verification.verifierRoot, verification.root, "release verifier root "+phase,
+	); err != nil {
+		return err
+	}
+	if err := validateRootPathIdentity(
+		verification.artifactRoot, verification.artifactRootPath, "release artifact root "+phase,
+	); err != nil {
+		return err
+	}
+	return validateRootPathIdentity(
+		verification.runnerTemp, verification.runnerTempPath, "RUNNER_TEMP "+runnerPhase,
+	)
+}
+
+func verifyReleaseDraftEvidence(
+	ctx context.Context,
+	verification *releaseDraftVerification,
+) ([]releaseRemoteAssetIdentity, []string, error) {
+	if err := verifyReleaseDraftOCI(ctx, verification); err != nil {
+		return nil, nil, err
+	}
+	expectedAssets := expectedReleaseAssetNames(verification.version, verification.options.RefName)
+	expectedAssetReceipt, err := readRootedRegularFile(
+		verification.runnerTemp, "expected-release-assets.txt",
+		"expected release asset manifest", releaseArtifactsManifestLimit,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !bytes.Equal(expectedAssetReceipt, renderArtifactNames(expectedAssets)) {
+		return nil, nil, fmt.Errorf("expected release asset manifest is not canonical: %w", errInvalidConfig)
+	}
+	releaseNotes, err := readRootedRegularFile(
+		verification.artifactRoot, "release-notes.md", "release notes", releaseNotesLimit,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	draftData, err := runReleasePreflightCommand(ctx, verification.options.Runner, CommandSpec{
+		Name: "gh",
+		Args: []string{
+			ghReleaseCommand, "view", verification.options.RefName, ghRepositoryFlag,
+			verification.owner + "/" + verification.repository,
+			"--json", "isDraft,tagName,body,assets",
+		},
+		Dir: verification.root, Env: verification.options.Environment,
+	}, "read exact release draft")
+	if err != nil {
+		return nil, nil, err
+	}
+	if validationErr := validateStrictJSONDocument(draftData, "release draft"); validationErr != nil {
+		return nil, nil, validationErr
+	}
+	remoteAssets, err := validateExactReleaseDraft(
+		draftData, verification.options.RefName,
+		verification.owner+"/"+verification.repository, releaseNotes, expectedAssets,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return remoteAssets, expectedAssets, nil
+}
+
+func verifyReleaseDraftOCI(ctx context.Context, verification *releaseDraftVerification) error {
 	digestReceipt, err := readRootedRegularFile(
-		artifactRoot, "release-image-digests.txt", "release OCI digest receipt", releaseOCIDigestReceiptLimit,
+		verification.artifactRoot, "release-image-digests.txt",
+		"release OCI digest receipt", releaseOCIDigestReceiptLimit,
 	)
 	if err != nil {
 		return err
 	}
-	if digestErr := validateReleaseOCIDigestReceipt(digestReceipt, version); digestErr != nil {
-		return digestErr
+	if validationErr := validateReleaseOCIDigestReceipt(digestReceipt, verification.version); validationErr != nil {
+		return validationErr
 	}
 	ociEvidence, err := inspectReleaseOCIManifests(
-		ctx, options.Runner, root, options.RefName, options.Environment,
+		ctx, verification.options.Runner, verification.root,
+		verification.options.RefName, verification.options.Environment,
 	)
 	if err != nil {
 		return err
 	}
 	if actual := renderReleaseOCIDigestReceipt(ociEvidence); !bytes.Equal(actual, digestReceipt) {
-		return fmt.Errorf("release OCI digest receipt changed after evidence recording: %w", errInvalidConfig)
+		return fmt.Errorf(
+			"release OCI digest receipt changed after evidence recording: %w", errInvalidConfig,
+		)
 	}
+	return nil
+}
 
-	expectedAssets := expectedReleaseAssetNames(version, options.RefName)
-	expectedAssetReceipt, err := readRootedRegularFile(
-		runnerTemp, "expected-release-assets.txt", "expected release asset manifest", releaseArtifactsManifestLimit,
-	)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(expectedAssetReceipt, renderArtifactNames(expectedAssets)) {
-		return fmt.Errorf("expected release asset manifest is not canonical: %w", errInvalidConfig)
-	}
-	releaseNotes, err := readRootedRegularFile(artifactRoot, "release-notes.md", "release notes", releaseNotesLimit)
-	if err != nil {
-		return err
-	}
-	draftData, err := runReleasePreflightCommand(ctx, options.Runner, CommandSpec{
-		Name: "gh",
-		Args: []string{
-			"release", "view", options.RefName, "--repo", owner + "/" + repository,
-			"--json", "isDraft,tagName,body,assets",
-		},
-		Dir: root, Env: options.Environment,
-	}, "read exact release draft")
-	if err != nil {
-		return err
-	}
-	if validationErr := validateStrictJSONDocument(draftData, "release draft"); validationErr != nil {
-		return validationErr
-	}
-	remoteAssets, err := validateExactReleaseDraft(
-		draftData, options.RefName, owner+"/"+repository, releaseNotes, expectedAssets,
-	)
-	if err != nil {
-		return err
-	}
-	if err := validateRootPathIdentity(verifierRoot, root, "release verifier root after verification"); err != nil {
-		return err
-	}
-	if err := validateRootPathIdentity(artifactRoot, artifactRootPath, "release artifact root after verification"); err != nil {
-		return err
-	}
-	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP after release verification"); err != nil {
-		return err
-	}
+func verifyDownloadedReleaseAssets(
+	ctx context.Context,
+	verification *releaseDraftVerification,
+	remoteAssets []releaseRemoteAssetIdentity,
+	expectedAssets []string,
+) error {
 	localAssets := make(map[string]releaseAssetSnapshot, len(expectedAssets))
 	var identityReceipt []byte
-	if err := downloadExactReleaseAssets(
-		ctx, options.Runner, verifierRoot, runnerTemp, root, runnerTempPath,
-		owner+"/"+repository, options.RefName, options.Environment, expectedAssets,
+	return downloadExactReleaseAssets(
+		ctx, verification.options.Runner, verification.verifierRoot, verification.runnerTemp,
+		verification.root, verification.runnerTempPath,
+		verification.owner+"/"+verification.repository, verification.options.RefName,
+		verification.options.Environment, expectedAssets,
 		func(downloadRoot *os.Root) error {
 			contentErr := validateReleaseAssetContentsWithEvidence(
-				downloadRoot, artifactRoot, runnerTemp, version, options.RefName, localAssets,
+				downloadRoot, verification.artifactRoot, verification.runnerTemp,
+				verification.version, verification.options.RefName, localAssets,
 			)
 			var identityErr error
 			if contentErr == nil {
 				identityReceipt, identityErr = renderReleaseAssetIdentityReceipt(
-					options.RefName, remoteAssets, localAssets,
+					verification.options.RefName, remoteAssets, localAssets,
 				)
 			}
 			return errors.Join(
 				contentErr,
 				identityErr,
 				validateRootPathIdentity(
-					artifactRoot, artifactRootPath, "release artifact root after asset content verification",
+					verification.artifactRoot, verification.artifactRootPath,
+					"release artifact root after asset content verification",
 				),
 			)
 		},
 		func() error {
 			return writeAndVerifyReleaseAssetIdentityReceipt(
-				runnerTemp, runnerTempPath, identityReceipt,
+				verification.runnerTemp, verification.runnerTempPath, identityReceipt,
 			)
 		},
-	); err != nil {
-		return err
-	}
-	return nil
+	)
 }
 
 func writeAndVerifyReleaseAssetIdentityReceipt(
@@ -207,7 +276,9 @@ func writeAndVerifyReleaseAssetIdentityReceipt(
 	runnerTempPath string,
 	identityReceipt []byte,
 ) (returnErr error) {
-	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP before asset identity receipt"); err != nil {
+	if err := validateRootPathIdentity(
+		runnerTemp, runnerTempPath, "RUNNER_TEMP before asset identity receipt",
+	); err != nil {
 		return err
 	}
 	publishedInfo, publishErr := publishReleaseAssetIdentityReceipt(runnerTemp, identityReceipt)
@@ -226,7 +297,9 @@ func writeAndVerifyReleaseAssetIdentityReceipt(
 	if publishErr != nil {
 		return publishErr
 	}
-	if err := validateRootPathIdentity(runnerTemp, runnerTempPath, "RUNNER_TEMP after asset identity receipt"); err != nil {
+	if err := validateRootPathIdentity(
+		runnerTemp, runnerTempPath, "RUNNER_TEMP after asset identity receipt",
+	); err != nil {
 		return err
 	}
 	writtenReceipt, err := readRootedRegularFile(
@@ -295,6 +368,14 @@ func validateExactReleaseDraft(
 	if err := decodeJSONDocument(fields["assets"], &assetFields, "release draft assets"); err != nil {
 		return nil, err
 	}
+	return validateExactReleaseAssets(assetFields, repository, expectedAssets)
+}
+
+func validateExactReleaseAssets(
+	assetFields []map[string]json.RawMessage,
+	repository string,
+	expectedAssets []string,
+) ([]releaseRemoteAssetIdentity, error) {
 	remoteAssets := make([]releaseRemoteAssetIdentity, 0, len(assetFields))
 	nodeIDs := make(map[string]struct{}, len(assetFields))
 	databaseIDs := make(map[uint64]struct{}, len(assetFields))
