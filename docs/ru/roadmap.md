@@ -94,14 +94,14 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |
-| Interop, scale, security и release qualification | В работе; выполняются локальное исправление release-quality gates и независимая проверка |
+| Interop, scale, security и release qualification | В работе; строгий локальный release-quality gate зелёный, более широкая interop-, scale- и security-квалификация остаётся открытой |
 
 Первая часть maintainability-работ по release-quality принята: устранены все 85
 измеренных strict-lint findings, а закреплённый набор cyclop, funlen и gocognit
 теперь сообщает ноль замечаний без ослабления конфигурации.
-Последующий полный base profile выявил ещё 151 diagnostic. Первые 49 устранены;
-до проверки build-tag profiles остаются 103 замечания по схемам, deferred
-returns и длине строк.
+Последующий полный base profile выявил ещё 151 diagnostic. Все 151 устранены;
+закреплённый base profile из 92 линтеров и все 17 build-tag profiles теперь
+сообщают ноль замечаний без ослабления конфигурации.
 Два ранее существовавших дефекта публикации `GITHUB_PATH`, найденные при review,
 устранены как отдельные release blockers в Beads вне lint-refactor.
 

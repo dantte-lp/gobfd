@@ -94,14 +94,14 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
-| Interop, scale, security, and release qualification | In progress; local release-quality gate remediation and independent review are active |
+| Interop, scale, security, and release qualification | In progress; the strict local release-quality gate is green, while broader interop, scale, and security qualification remains open |
 
 The first release-quality maintainability tranche is accepted: all 85 measured
 strict-lint findings are resolved, with the pinned cyclop, funlen, and gocognit
 subset now reporting zero issues without configuration weakening.
-The follow-up complete base profile exposed 151 additional diagnostics. The
-first 49 are resolved; 103 schema, deferred-return, and line-length findings
-remain before the build-tag profiles can be qualified.
+The follow-up complete base profile exposed 151 additional diagnostics. All
+151 are resolved, and the pinned 92-linter base plus all 17 build-tag profiles
+now report zero issues without configuration weakening.
 Two pre-existing `GITHUB_PATH` publication defects found during review were
 resolved as separate Beads release blockers, outside the lint refactor.
 
