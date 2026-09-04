@@ -96,6 +96,47 @@ func TestAppendGitHubPathSeparatesRecords(t *testing.T) {
 	}
 }
 
+func TestWriteRootedModeArtifactReportsCommitState(t *testing.T) {
+	t.Parallel()
+
+	postRenameErr := errors.New("post-rename inspection failed")
+	for _, test := range []struct {
+		name          string
+		limit         int
+		inspect       rootedModeArtifactInspector
+		wantCommitted bool
+	}{
+		{name: "pre-rename failure", inspect: inspectPublishedRootedModeArtifact},
+		{
+			name:          "post-rename failure",
+			limit:         4,
+			inspect:       func(*os.Root, string, string, os.FileMode, int64) error { return postRenameErr },
+			wantCommitted: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			root, err := os.OpenRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = root.Close() })
+			committed, err := writeRootedModeArtifactState(
+				root, "artifact", []byte("data"), "test artifact", test.limit, 0o600, test.inspect,
+			)
+			if committed != test.wantCommitted || err == nil {
+				t.Fatalf("writeRootedModeArtifactState() = %t, %v; want %t, error", committed, err, test.wantCommitted)
+			}
+			if test.wantCommitted {
+				if _, statErr := root.Lstat("artifact"); statErr != nil || !errors.Is(err, postRenameErr) {
+					t.Fatalf("post-rename result = %t, %v; artifact error = %v", committed, err, statErr)
+				}
+			}
+		})
+	}
+}
+
 func TestReleaseUPXProductionAssetContract(t *testing.T) {
 	t.Parallel()
 

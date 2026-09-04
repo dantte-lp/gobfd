@@ -449,6 +449,8 @@ func writeRootedArtifact(root *os.Root, name string, data []byte, purpose string
 	return writeRootedModeArtifact(root, name, data, purpose, limit, benchmarkArtifactMode)
 }
 
+type rootedModeArtifactInspector func(*os.Root, string, string, os.FileMode, int64) error
+
 func writeRootedModeArtifact(
 	root *os.Root,
 	name string,
@@ -456,10 +458,25 @@ func writeRootedModeArtifact(
 	purpose string,
 	limit int,
 	mode os.FileMode,
-) (returnErr error) {
+) error {
+	_, err := writeRootedModeArtifactState(
+		root, name, data, purpose, limit, mode, inspectPublishedRootedModeArtifact,
+	)
+	return err
+}
+
+func writeRootedModeArtifactState(
+	root *os.Root,
+	name string,
+	data []byte,
+	purpose string,
+	limit int,
+	mode os.FileMode,
+	inspect rootedModeArtifactInspector,
+) (_ bool, returnErr error) {
 	temporary, temporaryName, err := createRootedModeArtifactTemporary(root, name, data, purpose, limit, mode)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() {
 		if cleanupErr := root.Remove(temporaryName); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
@@ -467,7 +484,7 @@ func writeRootedModeArtifact(
 		}
 	}()
 	if chmodErr := temporary.Chmod(mode.Perm()); chmodErr != nil {
-		return errors.Join(
+		return false, errors.Join(
 			fmt.Errorf("set temporary %s %s mode: %w", purpose, name, chmodErr),
 			wrapOptional("close temporary "+purpose+" "+name, temporary.Close()),
 		)
@@ -481,19 +498,27 @@ func writeRootedModeArtifact(
 	}
 	closeErr := temporary.Close()
 	if writeErr != nil || closeErr != nil {
-		return errors.Join(
+		return false, errors.Join(
 			wrapOptional("write temporary "+purpose+" "+name, writeErr),
 			wrapOptional("close temporary "+purpose+" "+name, closeErr),
 		)
 	}
 	if renameErr := root.Rename(temporaryName, name); renameErr != nil {
-		return fmt.Errorf("publish %s %s: %w", purpose, name, renameErr)
+		return false, fmt.Errorf("publish %s %s: %w", purpose, name, renameErr)
 	}
+	committed := true
+	inspectErr := inspect(root, name, purpose, mode, int64(len(data)))
+	return committed, inspectErr
+}
+
+func inspectPublishedRootedModeArtifact(
+	root *os.Root, name, purpose string, mode os.FileMode, size int64,
+) error {
 	info, err := root.Lstat(name)
 	if err != nil {
 		return fmt.Errorf("inspect published %s %s: %w", purpose, name, err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != mode.Perm() || info.Size() != int64(len(data)) {
+	if !info.Mode().IsRegular() || info.Mode().Perm() != mode.Perm() || info.Size() != size {
 		return fmt.Errorf("published %s %s violates mode or size contract: %w", purpose, name, errInvalidConfig)
 	}
 	return nil
