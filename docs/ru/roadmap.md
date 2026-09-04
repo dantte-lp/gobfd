@@ -95,7 +95,7 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 |---|---|
 | Корректность RFC core и учёт потерь | Открыто |
 | Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.7 |
-| Удаление repository-owned shell | В работе; остаются 2 tracked nFPM lifecycle scripts, 3 workflow setup blocks и 16 embedded shell fixtures |
+| Удаление repository-owned shell | В работе; остаются 2 tracked nFPM lifecycle scripts и 3 workflow setup blocks; embedded shell fixtures: 0 |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
 | Независимая проверка реализации | Открыто |

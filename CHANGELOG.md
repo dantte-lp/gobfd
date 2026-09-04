@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced all 16 shell-shebang fixtures embedded in Go tests with guarded
+  Go helper processes while preserving argv, streams, exit, cancellation, and
+  owned-resource cleanup contracts.
 - Reconciled the public roadmap, release-branch design, and executable plan
   with the published immutable v0.6.4 evidence after resolving and accepting
   all three P1 maintenance-review findings in Beads.

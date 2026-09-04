@@ -779,6 +779,7 @@ func TestTrackedOperationalTextFallbackSkipsOnlyRepositoryMetadataAndBinary(t *t
 	for _, relative := range []string{
 		filepath.Join(".git", "config"),
 		filepath.Join(".beads", "issues.jsonl"),
+		filepath.Join(".worktrees", "other", "ignored.txt"),
 		filepath.Join("reports", "e2e", "report.txt"),
 	} {
 		path := filepath.Join(root, relative)
@@ -807,9 +808,26 @@ func TestTrackedOperationalTextFallbackSkipsOnlyRepositoryMetadataAndBinary(t *t
 	if err := os.WriteFile(filepath.Join(root, "safe.txt"), []byte("safe\n"), 0o600); err != nil {
 		t.Fatalf("write safe fixture: %v", err)
 	}
+	nestedWorktree := filepath.Join("nested", ".worktrees", "visible.txt")
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(nestedWorktree)), 0o750); err != nil {
+		t.Fatalf("create nested worktree fixture directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, nestedWorktree), []byte("safe\n"), 0o600); err != nil {
+		t.Fatalf("write nested worktree fixture: %v", err)
+	}
 
 	if err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed}); err != nil {
 		t.Fatalf("fallback rejected exact metadata or binary skips: %v", err)
+	}
+	paths, walkErr := walkOperationalPaths(t.Context(), root)
+	if walkErr != nil {
+		t.Fatalf("walk fallback metadata fixture: %v", walkErr)
+	}
+	if slices.Contains(paths, filepath.ToSlash(filepath.Join(".worktrees", "other", "ignored.txt"))) {
+		t.Fatal("fallback exposed top-level .worktrees metadata")
+	}
+	if !slices.Contains(paths, filepath.ToSlash(nestedWorktree)) {
+		t.Fatal("fallback hid nested .worktrees path outside the top-level metadata scope")
 	}
 }
 
@@ -1302,20 +1320,7 @@ func TestBenchmarkComposeConfigCommandUsesAbsolutePath(t *testing.T) {
 
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "compose-provider.log")
-	if err := writeExecutable(filepath.Join(fakeBin, "podman"), `#!/usr/bin/env bash
-set -euo pipefail
-test "$#" -eq 4
-test "$1" = "compose"
-test "$2" = "-f"
-case "$3" in
-  /*) ;;
-  *) exit 41 ;;
-esac
-test "$4" = "config"
-printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
-`); err != nil {
-		t.Fatalf("write fake podman compose: %v", err)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "benchmark-compose")
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	command := benchmarkComposeConfigCommand(t.Context(), root)
@@ -1329,7 +1334,7 @@ printf '%s\n' "$*" >"${BENCH_COMMAND_LOG:?}"
 	if command.Dir != root {
 		t.Fatalf("benchmark Compose working directory = %q, want %q", command.Dir, root)
 	}
-	command.Env = append(command.Env, "BENCH_COMMAND_LOG="+commandLog)
+	command.Env = append(command.Env, fakeModeEnv, fakeRaceOptions, "BENCH_COMMAND_LOG="+commandLog)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("execute benchmark Compose command: %v\n%s", err, output)
 	}
@@ -1351,25 +1356,7 @@ func TestDevEnsureUsesComposeServiceID(t *testing.T) {
 
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	if err := writeExecutable(filepath.Join(fakeBin, "podman"), `#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$*" >>"${PODMAN_COMMAND_LOG:?}"
-case "$*" in
-  "compose -p dev-contract -f deployments/compose/compose.dev.yml ps --all --quiet dev")
-    printf '%s\n' immutable-dev-id
-    ;;
-  "inspect immutable-dev-id --format "*Mounts*)
-    printf '%s\n' "${EXPECTED_ROOT:?}"
-    ;;
-  "compose -p dev-contract -f deployments/compose/compose.dev.yml up -d --no-build dev")
-    ;;
-  *)
-    exit 97
-    ;;
-esac
-`); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "dev-ensure")
 
 	command := exec.CommandContext(
 		t.Context(),
@@ -1377,6 +1364,8 @@ esac
 	)
 	command.Dir = root
 	command.Env = append(os.Environ(),
+		fakeModeEnv,
+		fakeRaceOptions,
 		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"PODMAN_COMMAND_LOG="+commandLog,
 		"EXPECTED_ROOT="+root,
@@ -1976,7 +1965,7 @@ func walkOperationalPathsBounded(ctx context.Context, root string, maxEntries in
 }
 
 func fallbackMetadataPath(relative string) bool {
-	for _, metadata := range []string{".git", ".beads", ".venv", "reports"} {
+	for _, metadata := range []string{".git", ".beads", ".venv", ".worktrees", "reports"} {
 		if relative == metadata || strings.HasPrefix(relative, metadata+"/") {
 			return true
 		}

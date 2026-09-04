@@ -9,6 +9,9 @@
 
 ### Изменено
 
+- Все 16 shell-shebang fixtures, встроенных в Go-тесты, заменены на guarded
+  Go helper processes с сохранением контрактов argv, потоков, exit status,
+  отмены и cleanup owned resources.
 - Публичные roadmap, дизайн release-веток и исполняемый план сверены с
   опубликованными неизменяемыми evidence v0.6.4 после исправления и приёмки
   всех трёх P1-находок maintenance-ревью в Beads.

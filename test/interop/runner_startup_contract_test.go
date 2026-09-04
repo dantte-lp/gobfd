@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec" //nolint:depguard // Contract test executes the repository runner with isolated fake Podman commands.
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,18 @@ const holoSemanticPodmanArgs = "exec immutable-holo-id holo-cli --no-colors --no
 
 const holoSemanticCommandLog = "podman " + holoSemanticPodmanArgs
 
+const (
+	interopFakeMode = "GOBFD_INTEROP_FAKE_MODE"
+	fakeRaceOptions = "GORACE=atexit_sleep_ms=0"
+)
+
+func TestMain(m *testing.M) {
+	if mode := os.Getenv(interopFakeMode); mode != "" {
+		os.Exit(runInteropFakeCommand(mode, filepath.Base(os.Args[0]), os.Args[1:]))
+	}
+	os.Exit(m.Run())
+}
+
 func TestProjectControlHoloSemanticGate(t *testing.T) {
 	t.Parallel()
 
@@ -40,12 +53,14 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 	tests := map[string]struct {
 		loaderLog    string
 		wantSecondUp bool
+		wantCleanup  bool
 		want         string
 	}{
 		"valid exact configuration": {wantSecondUp: true},
 		"partial invalid loader log": {
-			loaderLog: "% failed to parse one startup line",
-			want:      "Holo configuration loader reported parser or commit errors",
+			loaderLog:   "% failed to parse one startup line",
+			wantCleanup: true,
+			want:        "Holo configuration loader reported parser or commit errors",
 		},
 	}
 	for name, test := range tests {
@@ -55,76 +70,12 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 			fakeBin := t.TempDir()
 			stateDir := t.TempDir()
 			commandLog := filepath.Join(t.TempDir(), "commands.log")
-			composeFake := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
-if [[ "$*" == *" up -d holo holo-config" ]]; then
-    : > "${INTEROP_FAKE_STATE_DIR}/started"
-fi
-if [[ "$*" == *" up -d --no-deps gobfd frr bird3 tshark thoro" ]]; then
-    : > "${INTEROP_FAKE_STATE_DIR}/phase2"
-fi
-`
-			podmanFake := `#!/usr/bin/env bash
-if [[ "${1:-}" == "compose" ]]; then
-    shift
-    exec docker-compose "$@"
-fi
-printf 'podman %s\n' "$*" >> "${INTEROP_FAKE_COMMAND_LOG}"
-label="label=com.docker.compose.project=gobfd-interop"
-case "$*" in
-    "ps -a --no-trunc --filter ${label} --format {{.ID}}")
-        if [[ -f "${INTEROP_FAKE_STATE_DIR}/started" ]]; then
-            [[ -f "${INTEROP_FAKE_STATE_DIR}/holo-removed" ]] || printf '%s\n' immutable-holo-id
-            [[ -f "${INTEROP_FAKE_STATE_DIR}/loader-removed" ]] || printf '%s\n' immutable-holo-config-id
-        fi
-        ;;
-    "network ls --no-trunc --filter ${label} --format {{.ID}}"|"volume ls --filter ${label} --format {{.Name}}") ;;
-    "container exists immutable-holo-id")
-        [[ -f "${INTEROP_FAKE_STATE_DIR}/holo-removed" ]] && exit 1
-        ;;
-    "container exists immutable-holo-config-id")
-        [[ -f "${INTEROP_FAKE_STATE_DIR}/loader-removed" ]] && exit 1
-        ;;
-    "rm -f -- immutable-holo-id") : > "${INTEROP_FAKE_STATE_DIR}/holo-removed" ;;
-    "rm -f -- immutable-holo-config-id") : > "${INTEROP_FAKE_STATE_DIR}/loader-removed" ;;
-    "wait immutable-holo-config-id") printf '%s\n' 0 ;;
-    "inspect --format {{.State.ExitCode}} immutable-holo-config-id") printf '%s\n' 0 ;;
-    "logs immutable-holo-config-id") printf '%s' "${INTEROP_FAKE_LOADER_LOG:-}" ;;
-    "exec immutable-holo-id holo-cli --version") printf '%s\n' 'Holo command-line interface 0.5.0' ;;
-    "${semantic_command}")
-        printf '%s\n' "${INTEROP_FAKE_SEMANTIC_CONFIG}"
-        ;;
-    *)
-        if [[ "${1:-}" == container && "${2:-}" == exists ]]; then
-            [[ -f "${INTEROP_FAKE_STATE_DIR}/started" ]] && exit 0
-            exit 1
-        fi
-        if [[ "${1:-}" == inspect && "$*" == *"index .Config.Labels"* ]]; then
-            container_name="${@: -1}"
-            printf 'immutable-%s-id|gobfd-interop\n' "${container_name%-interop}"
-            exit 0
-        fi
-        exit 9
-        ;;
-esac
-`
-			podmanFake = strings.Replace(
-				podmanFake,
-				"label=\"label=com.docker.compose.project=gobfd-interop\"",
-				"label=\"label=com.docker.compose.project=gobfd-interop\"\n"+
-					"semantic_command=\""+holoSemanticPodmanArgs+"\"",
-				1,
-			)
-			for command, contents := range map[string]string{
-				"podman":         podmanFake,
-				"docker-compose": composeFake,
-			} {
-				if writeErr := writeExecutable(filepath.Join(fakeBin, command), contents); writeErr != nil {
-					t.Fatalf("write fake %s: %v", command, writeErr)
-				}
-			}
+			fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "holo-semantic")
+			installFakeCommand(t, fakeBin, "docker-compose", "holo-semantic")
 			cmd := projectControlCommand(t.Context(), root, "up")
 			cmd.Env = append(os.Environ(),
+				fakeModeEnv,
+				fakeRaceOptions,
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
 				"INTEROP_FAKE_STATE_DIR="+stateDir,
@@ -168,6 +119,71 @@ esac
 			if secondUp != test.wantSecondUp {
 				t.Fatalf("project control second phase = %t, want %t; commands:\n%s", secondUp, test.wantSecondUp, commands)
 			}
+			if !test.wantCleanup {
+				return
+			}
+			assertCommandSubsequence(t, string(commands), []string{
+				"podman inspect --type container --format {{json .}} immutable-holo-id",
+				"podman inspect --type container --format {{json .}} immutable-holo-config-id",
+				"podman rm -f -- immutable-holo-id",
+				"podman container exists immutable-holo-id",
+				"podman rm -f -- immutable-holo-config-id",
+				"podman container exists immutable-holo-config-id",
+				"podman ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}",
+			})
+			for _, marker := range []string{"holo-removed", "loader-removed"} {
+				if _, statErr := os.Stat(filepath.Join(stateDir, marker)); statErr != nil {
+					t.Errorf("cleanup marker %s: %v", marker, statErr)
+				}
+			}
+			absence := exec.CommandContext(
+				t.Context(), filepath.Join(fakeBin, "podman"),
+				"ps", "-a", "--no-trunc", "--filter",
+				"label=com.docker.compose.project=gobfd-interop", "--format", "{{.ID}}",
+			)
+			absence.Env = cmd.Env
+			remaining, absenceErr := absence.CombinedOutput()
+			if absenceErr != nil || len(remaining) != 0 {
+				t.Fatalf("cleaned helper resources = %q, error = %v; want none", remaining, absenceErr)
+			}
+		})
+	}
+}
+
+func TestHoloSemanticHelperRejectsExtraComposeServices(t *testing.T) {
+	tests := map[string]struct {
+		arguments []string
+		marker    string
+	}{
+		"phase one": {
+			arguments: []string{"up", "-d", "holo", "holo-config", "unintended-extra-service"},
+			marker:    "started",
+		},
+		"phase two": {
+			arguments: []string{
+				"up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
+				"unintended-extra-service",
+			},
+			marker: "phase2",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			t.Setenv("INTEROP_FAKE_COMMAND_LOG", filepath.Join(t.TempDir(), "commands.log"))
+			t.Setenv("INTEROP_FAKE_STATE_DIR", stateDir)
+			arguments := append([]string{
+				"-p", "gobfd-interop", "-f", filepath.Join(t.TempDir(), "compose.yml"),
+			}, test.arguments...)
+
+			if code := runInteropFakeCommand("holo-semantic", "docker-compose", arguments); code == 0 {
+				t.Errorf("helper accepted compose %s arguments with an extra service", name)
+			}
+			if _, err := os.Stat(filepath.Join(stateDir, test.marker)); err == nil {
+				t.Errorf("helper created %s marker for compose %s arguments with an extra service", test.marker, name)
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("inspect unexpected %s marker: %v", test.marker, err)
+			}
 		})
 	}
 }
@@ -181,17 +197,17 @@ func TestMakeRejectsInvalidInteropProjectBeforeCommand(t *testing.T) {
 	}
 	fakeBin := t.TempDir()
 	commandMarker := filepath.Join(t.TempDir(), "compose-provider-called")
-	composeFake := "#!/usr/bin/env bash\nprintf '%s\\n' called > \"${INTEROP_FAKE_MAKE_MARKER}\"\n"
-	if err := writeExecutable(filepath.Join(fakeBin, "podman"), composeFake); err != nil {
-		t.Fatalf("write fake podman compose: %v", err)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "make-marker")
 	injectionMarker := filepath.Join(t.TempDir(), "injected")
 	projectName := "safe; printf injected > " + injectionMarker + "; #"
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "make", "--no-print-directory", "interop-up", "INTEROP_PROJECT_NAME="+projectName)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "INTEROP_FAKE_MAKE_MARKER="+commandMarker)
+	cmd.Env = append(os.Environ(),
+		fakeModeEnv, fakeRaceOptions, "PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_MAKE_MARKER="+commandMarker,
+	)
 	output, runErr := cmd.CombinedOutput()
 	if runErr == nil {
 		t.Fatalf("make accepted invalid INTEROP_PROJECT_NAME; output:\n%s", output)
@@ -211,17 +227,17 @@ func TestMakeDoesNotExpandNestedProjectFunctions(t *testing.T) {
 	}
 	fakeBin := t.TempDir()
 	commandMarker := filepath.Join(t.TempDir(), "compose-provider-called")
-	composeFake := "#!/usr/bin/env bash\nprintf '%s\\n' called > \"${INTEROP_FAKE_MAKE_MARKER}\"\n"
-	if err := writeExecutable(filepath.Join(fakeBin, "podman"), composeFake); err != nil {
-		t.Fatalf("write fake podman compose: %v", err)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "make-marker")
 	shellMarker := filepath.Join(t.TempDir(), "make-shell-expanded")
 	projectName := "$(info MAKE-INFO-EXPANDED)$(shell printf expanded > " + shellMarker + ")safe"
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "make", "--no-print-directory", "interop-up", "INTEROP_PROJECT_NAME="+projectName)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"), "INTEROP_FAKE_MAKE_MARKER="+commandMarker)
+	cmd.Env = append(os.Environ(),
+		fakeModeEnv, fakeRaceOptions, "PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"INTEROP_FAKE_MAKE_MARKER="+commandMarker,
+	)
 	output, runErr := cmd.CombinedOutput()
 	if runErr == nil {
 		t.Fatalf("make accepted nested-function INTEROP_PROJECT_NAME; output:\n%s", output)
@@ -249,33 +265,14 @@ func TestProjectControlLockRunRejectsArbitraryLabelledResource(t *testing.T) {
 			fakeBin := t.TempDir()
 			commandLog := filepath.Join(t.TempDir(), "podman.log")
 			marker := filepath.Join(t.TempDir(), "command-ran")
-			fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "$*" == "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
-    [[ "${INTEROP_FAKE_RESOURCE_KIND}" == container ]] && printf '%s\n' arbitrary-container-id
-    exit 0
-fi
-if [[ "$*" == "network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
-    [[ "${INTEROP_FAKE_RESOURCE_KIND}" == network ]] && printf '%s\n' arbitrary-network-id
-    exit 0
-fi
-if [[ "$*" == "volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}" ]]; then
-    [[ "${INTEROP_FAKE_RESOURCE_KIND}" == volume ]] && printf '%s\n' arbitrary-volume-name
-    exit 0
-fi
-if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
-    exit 1
-fi
-exit 0
-`
-			if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
-				t.Fatalf("write fake podman: %v", writeErr)
-			}
+			fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "arbitrary-resource")
 			cmd := projectControlCommand(
 				t.Context(), root,
 				"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
 			)
 			cmd.Env = append(os.Environ(),
+				fakeModeEnv,
+				fakeRaceOptions,
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_PODMAN_LOG="+commandLog,
 				"INTEROP_FAKE_RESOURCE_KIND="+resourceKind,
@@ -305,33 +302,14 @@ func TestProjectControlLockRunRequiresAllMandatoryContainers(t *testing.T) {
 	}
 	fakeBin := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "command-ran")
-	fakePodman := `#!/usr/bin/env bash
-if [[ "$*" == "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" ]]; then
-    printf '%s\n' immutable-gobfd-id
-    exit 0
-fi
-if [[ "${1:-}" == "network" || "${1:-}" == "volume" ]]; then
-    exit 0
-fi
-if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
-    [[ "${3:-}" == "scapy-interop" ]] && exit 1
-    exit 0
-fi
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    name="${@: -1}"
-    printf 'immutable-%s-id|gobfd-interop\n' "${name%-interop}"
-    exit 0
-fi
-exit 9
-`
-	if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
-		t.Fatalf("write fake podman: %v", writeErr)
-	}
+	fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "mandatory-containers")
 	cmd := projectControlCommand(
 		t.Context(), root,
 		"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
 	)
 	cmd.Env = append(os.Environ(),
+		fakeModeEnv,
+		fakeRaceOptions,
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
 		"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
 	)
@@ -371,38 +349,19 @@ func TestProjectControlLockRunRejectsEveryMissingMandatoryContainer(t *testing.T
 			},
 		},
 	}
-	fakePodman := `#!/usr/bin/env bash
-if [[ "${1:-}" == "ps" && "$*" == *"label=com.docker.compose.project=${INTEROP_PROJECT_NAME}"* ]]; then
-    printf '%s\n' arbitrary-project-container-id
-    exit 0
-fi
-if [[ "${1:-}" == "network" || "${1:-}" == "volume" ]]; then
-    exit 0
-fi
-if [[ "${1:-}" == "container" && "${2:-}" == "exists" ]]; then
-    [[ "${3:-}" == "${INTEROP_FAKE_MISSING_CONTAINER}" ]] && exit 1
-    exit 0
-fi
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    name="${@: -1}"
-    printf 'immutable-%s-id|%s\n' "${name}" "${INTEROP_PROJECT_NAME}"
-    exit 0
-fi
-exit 9
-`
 	for _, testCase := range testCases {
 		for _, missingContainer := range testCase.containers {
 			t.Run(testCase.kind+"/"+missingContainer, func(t *testing.T) {
 				fakeBin := t.TempDir()
 				marker := filepath.Join(t.TempDir(), "command-ran")
-				if writeErr := writeExecutable(filepath.Join(fakeBin, "podman"), fakePodman); writeErr != nil {
-					t.Fatalf("write fake podman: %v", writeErr)
-				}
+				fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "missing-mandatory")
 				cmd := projectControlCommand(
 					t.Context(), root,
 					"lock-run", "--", "bash", "-c", `printf ran > "$1"`, "lock-run-command", marker,
 				)
 				cmd.Env = append(os.Environ(),
+					fakeModeEnv,
+					fakeRaceOptions,
 					"PATH="+fakeBin+":"+os.Getenv("PATH"),
 					"INTEROP_PROJECT_KIND="+testCase.kind,
 					"INTEROP_PROJECT_NAME="+testCase.project,
@@ -547,11 +506,345 @@ func projectControlCommand(ctx context.Context, root string, args ...string) *ex
 	return cmd
 }
 
-func writeExecutable(path, contents string) error {
-	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
-		return fmt.Errorf("write executable %s: %w", path, err)
+func installFakeCommand(t *testing.T, directory, name, mode string) string {
+	t.Helper()
+	if strings.ContainsRune(name, filepath.Separator) {
+		t.Fatalf("invalid fake executable name %q", name)
 	}
-	return nil
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	if err := os.Symlink(executable, filepath.Join(directory, name)); err != nil {
+		t.Fatalf("install fake %s: %v", name, err)
+	}
+	return interopFakeMode + "=" + mode
+}
+
+func runInteropFakeCommand(mode, command string, args []string) int {
+	joined := strings.Join(args, " ")
+	switch mode {
+	case "benchmark-compose":
+		if len(args) != 4 || args[0] != "compose" || args[1] != "-f" || args[3] != "config" {
+			return 1
+		}
+		if !filepath.IsAbs(args[2]) {
+			return 41
+		}
+		return fakeAppend("BENCH_COMMAND_LOG", "", joined)
+	case "dev-ensure":
+		if code := fakeAppend("PODMAN_COMMAND_LOG", "", joined); code != 0 {
+			return code
+		}
+		switch {
+		case joined == "compose -p dev-contract -f deployments/compose/compose.dev.yml ps --all --quiet dev":
+			fmt.Fprintln(os.Stdout, "immutable-dev-id")
+		case args[0] == "inspect" && strings.Contains(joined, "Mounts"):
+			fmt.Fprintln(os.Stdout, os.Getenv("EXPECTED_ROOT"))
+		case joined == "compose -p dev-contract -f deployments/compose/compose.dev.yml up -d --no-build dev":
+		default:
+			return 97
+		}
+		return 0
+	case "holo-semantic":
+		if command == "docker-compose" || len(args) != 0 && args[0] == "compose" {
+			if len(args) != 0 && args[0] == "compose" {
+				args = args[1:]
+				joined = strings.Join(args, " ")
+			}
+			if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", joined); code != 0 {
+				return code
+			}
+			validPrefix := len(args) >= 4 &&
+				args[0] == "-p" && args[1] == "gobfd-interop" &&
+				args[2] == "-f" && filepath.IsAbs(args[3])
+			if validPrefix && slices.Equal(args[4:], []string{"up", "-d", "holo", "holo-config"}) {
+				return fakeStateMarker("started")
+			}
+			if validPrefix && slices.Equal(args[4:], []string{
+				"up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
+			}) {
+				return fakeStateMarker("phase2")
+			}
+			if len(args) > 4 && args[4] == "up" {
+				return 9
+			}
+			return 0
+		}
+		return runHoloPodmanFake(args, joined)
+	case "make-marker":
+		return fakeWrite("INTEROP_FAKE_MAKE_MARKER", []byte("called\n"))
+	case "arbitrary-resource":
+		if code := fakeAppend("INTEROP_FAKE_PODMAN_LOG", "", joined); code != 0 {
+			return code
+		}
+		switch joined {
+		case "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}":
+			if os.Getenv("INTEROP_FAKE_RESOURCE_KIND") == "container" {
+				fmt.Fprintln(os.Stdout, "arbitrary-container-id")
+			}
+		case "network ls --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}":
+			if os.Getenv("INTEROP_FAKE_RESOURCE_KIND") == "network" {
+				fmt.Fprintln(os.Stdout, "arbitrary-network-id")
+			}
+		case "volume ls --filter label=com.docker.compose.project=gobfd-interop --format {{.Name}}":
+			if os.Getenv("INTEROP_FAKE_RESOURCE_KIND") == "volume" {
+				fmt.Fprintln(os.Stdout, "arbitrary-volume-name")
+			}
+		default:
+			if len(args) >= 2 && args[0] == "container" && args[1] == "exists" {
+				return 1
+			}
+		}
+		return 0
+	case "mandatory-containers":
+		return runMandatoryContainersFake(args, joined)
+	case "missing-mandatory":
+		return runMissingMandatoryFake(args, joined)
+	case "owned-container":
+		if code := fakeAppend("INTEROP_FAKE_PODMAN_LOG", "", joined); code != 0 {
+			return code
+		}
+		if fakeLabelInspect(args, joined) {
+			if args[len(args)-1] == "foreign-interop" {
+				fmt.Fprintln(os.Stdout, "foreign-id|foreign-project")
+			} else {
+				fmt.Fprintln(os.Stdout, "immutable-owned-id|gobfd-interop")
+			}
+		}
+		return 0
+	case "holo-stop":
+		return runHoloStopFake(args, joined)
+	case "tshark-cancel":
+		if code := fakeAppend("TSHARK_QUERY_COMMAND_LOG", "", joined); code != 0 {
+			return code
+		}
+		if len(args) != 0 && args[0] == "inspect" && args[len(args)-1] == "tshark-interop" {
+			fmt.Fprintln(os.Stdout, "immutable-tshark-id|gobfd-interop")
+			return 0
+		}
+		if joined == "exec immutable-tshark-id tshark -r /captures/bfd.pcapng" {
+			if code := fakeWrite("TSHARK_QUERY_STARTED", nil); code != 0 {
+				return code
+			}
+			return fakeBlock()
+		}
+		return 9
+	case "tshark-streams":
+		if code := fakeAppend("INTEROP_FAKE_PODMAN_LOG", "", joined); code != 0 {
+			return code
+		}
+		if fakeLabelInspect(args, joined) {
+			fmt.Fprintln(os.Stdout, "immutable-tshark-id|gobfd-interop")
+			return 0
+		}
+		tsharkBaseArgs := []string{
+			"exec", "immutable-tshark-id", "tshark", "-r", "/captures/bfd.pcapng",
+		}
+		successArgs := append(slices.Clone(tsharkBaseArgs),
+			"-Y", "bfd", "-T", "fields",
+			"-e", "frame.number", "-e", "bfd.min_rx",
+			"-E", "separator=\t", "-E", "header=n",
+		)
+		failureArgs := append(slices.Clone(tsharkBaseArgs), "-Y", "bfd")
+		if slices.Equal(args, successArgs) || slices.Equal(args, failureArgs) {
+			fmt.Fprintln(os.Stderr, `Running as user "root" and group "root". This could be dangerous.`)
+			if os.Getenv("INTEROP_FAKE_TSHARK_FAIL") == "true" {
+				fmt.Fprintln(os.Stderr, "capture read failed")
+				return 17
+			}
+			fmt.Fprint(os.Stdout, "41\t300000\n42\t300000\n")
+			return 0
+		}
+		return 9
+	default:
+		fmt.Fprintf(os.Stderr, "unknown interop fake mode %q\n", mode)
+		return 125
+	}
+}
+
+func runHoloPodmanFake(args []string, joined string) int {
+	if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "podman ", joined); code != 0 {
+		return code
+	}
+	stateDir := os.Getenv("INTEROP_FAKE_STATE_DIR")
+	label := "label=com.docker.compose.project=gobfd-interop"
+	switch joined {
+	case "ps -a --no-trunc --filter " + label + " --format {{.ID}}":
+		if fakeExists(filepath.Join(stateDir, "started")) {
+			if !fakeExists(filepath.Join(stateDir, "holo-removed")) {
+				fmt.Fprintln(os.Stdout, "immutable-holo-id")
+			}
+			if !fakeExists(filepath.Join(stateDir, "loader-removed")) {
+				fmt.Fprintln(os.Stdout, "immutable-holo-config-id")
+			}
+		}
+	case "network ls --no-trunc --filter " + label + " --format {{.ID}}",
+		"volume ls --filter " + label + " --format {{.Name}}":
+	case "container exists immutable-holo-id":
+		if fakeExists(filepath.Join(stateDir, "holo-removed")) {
+			return 1
+		}
+	case "container exists immutable-holo-config-id":
+		if fakeExists(filepath.Join(stateDir, "loader-removed")) {
+			return 1
+		}
+	case "rm -f -- immutable-holo-id":
+		return fakeStateMarker("holo-removed")
+	case "rm -f -- immutable-holo-config-id":
+		return fakeStateMarker("loader-removed")
+	case "wait immutable-holo-config-id", "inspect --format {{.State.ExitCode}} immutable-holo-config-id":
+		fmt.Fprintln(os.Stdout, "0")
+	case "logs immutable-holo-config-id":
+		fmt.Fprint(os.Stdout, os.Getenv("INTEROP_FAKE_LOADER_LOG"))
+	case "exec immutable-holo-id holo-cli --version":
+		fmt.Fprintln(os.Stdout, "Holo command-line interface 0.5.0")
+	case holoSemanticPodmanArgs:
+		fmt.Fprintln(os.Stdout, os.Getenv("INTEROP_FAKE_SEMANTIC_CONFIG"))
+	default:
+		if len(args) != 0 && joined == "inspect --type container --format {{json .}} "+args[len(args)-1] {
+			fmt.Fprintf(os.Stdout,
+				`{"Id":%q,"Config":{"Labels":{"com.docker.compose.project":"gobfd-interop"}},`+
+					`"Mounts":[{"Type":"bind"}]}`+"\n",
+				args[len(args)-1],
+			)
+			return 0
+		}
+		if len(args) >= 2 && args[0] == "container" && args[1] == "exists" {
+			if fakeExists(filepath.Join(stateDir, "started")) {
+				return 0
+			}
+			return 1
+		}
+		if fakeLabelInspect(args, joined) {
+			name := strings.TrimSuffix(args[len(args)-1], "-interop")
+			fmt.Fprintf(os.Stdout, "immutable-%s-id|gobfd-interop\n", name)
+			return 0
+		}
+		return 9
+	}
+	return 0
+}
+
+func runMandatoryContainersFake(args []string, joined string) int {
+	if joined == "ps -a --no-trunc --filter label=com.docker.compose.project=gobfd-interop --format {{.ID}}" {
+		fmt.Fprintln(os.Stdout, "immutable-gobfd-id")
+		return 0
+	}
+	if len(args) != 0 && (args[0] == "network" || args[0] == "volume") {
+		return 0
+	}
+	if len(args) >= 3 && args[0] == "container" && args[1] == "exists" {
+		if args[2] == "scapy-interop" {
+			return 1
+		}
+		return 0
+	}
+	if fakeLabelInspect(args, joined) {
+		name := strings.TrimSuffix(args[len(args)-1], "-interop")
+		fmt.Fprintf(os.Stdout, "immutable-%s-id|gobfd-interop\n", name)
+		return 0
+	}
+	return 9
+}
+
+func runMissingMandatoryFake(args []string, joined string) int {
+	project := os.Getenv("INTEROP_PROJECT_NAME")
+	if len(args) != 0 && args[0] == "ps" && strings.Contains(joined, "label=com.docker.compose.project="+project) {
+		fmt.Fprintln(os.Stdout, "arbitrary-project-container-id")
+		return 0
+	}
+	if len(args) != 0 && (args[0] == "network" || args[0] == "volume") {
+		return 0
+	}
+	if len(args) >= 3 && args[0] == "container" && args[1] == "exists" {
+		if args[2] == os.Getenv("INTEROP_FAKE_MISSING_CONTAINER") {
+			return 1
+		}
+		return 0
+	}
+	if fakeLabelInspect(args, joined) {
+		fmt.Fprintf(os.Stdout, "immutable-%s-id|%s\n", args[len(args)-1], project)
+		return 0
+	}
+	return 9
+}
+
+func runHoloStopFake(args []string, joined string) int {
+	if code := fakeAppend("INTEROP_FAKE_PODMAN_LOG", "", joined); code != 0 {
+		return code
+	}
+	if fakeLabelInspect(args, joined) {
+		fmt.Fprintln(os.Stdout, "immutable-holo-id|gobfd-interop")
+		return 0
+	}
+	if joined != "stop --time 5 immutable-holo-id" {
+		return 9
+	}
+	switch os.Getenv("INTEROP_FAKE_STOP_MODE") {
+	case "", "success":
+		fmt.Fprintln(os.Stdout, "immutable-holo-id")
+		return 0
+	case "failure":
+		fmt.Fprintln(os.Stderr, "daemon refused bounded stop")
+		return 17
+	case "block":
+		if code := fakeWrite("INTEROP_FAKE_STOP_STARTED", nil); code != 0 {
+			return code
+		}
+		return fakeBlock()
+	default:
+		return 9
+	}
+}
+
+func fakeLabelInspect(args []string, joined string) bool {
+	return len(args) != 0 && args[0] == "inspect" && strings.Contains(joined, "index .Config.Labels")
+}
+
+func fakeAppend(environmentName, prefix, line string) int {
+	path := os.Getenv(environmentName)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 125
+	}
+	_, err = fmt.Fprintln(file, prefix+line)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 125
+	}
+	return 0
+}
+
+func fakeWrite(environmentName string, contents []byte) int {
+	if err := os.WriteFile(os.Getenv(environmentName), contents, 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 125
+	}
+	return 0
+}
+
+func fakeStateMarker(name string) int {
+	if err := os.WriteFile(filepath.Join(os.Getenv("INTEROP_FAKE_STATE_DIR"), name), nil, 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 125
+	}
+	return 0
+}
+
+func fakeExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func fakeBlock() int {
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func secondComposeUpCommands(commandLog string) []string {

@@ -351,19 +351,10 @@ func stopHoloContainer(ctx context.Context) (string, error) {
 func TestProjectContainerCommandUsesExactOwnedID(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    case "${@: -1}" in
-        foreign-interop) printf '%s\n' 'foreign-id|foreign-project' ;;
-        *) printf '%s\n' 'immutable-owned-id|gobfd-interop' ;;
-    esac
-fi
-`
-	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	installFakeCommand(t, fakeBin, "podman", "owned-container")
 	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv(interopFakeMode, "owned-container")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
 
@@ -393,26 +384,10 @@ func TestStopHoloContainerUsesBoundedExactCommand(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
 	startedPath := filepath.Join(t.TempDir(), "stop-started")
-	fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    printf '%s\n' 'immutable-holo-id|gobfd-interop'
-    exit 0
-fi
-if [[ "$*" == "stop --time 5 immutable-holo-id" ]]; then
-    case "${INTEROP_FAKE_STOP_MODE:-success}" in
-        success) printf '%s\n' immutable-holo-id ;;
-        failure) printf '%s\n' 'daemon refused bounded stop' >&2; exit 17 ;;
-        block) : > "${INTEROP_FAKE_STOP_STARTED}"; exec /bin/sleep 10 ;;
-    esac
-    exit 0
-fi
-exit 9
-`
-	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	installFakeCommand(t, fakeBin, "podman", "holo-stop")
 	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv(interopFakeMode, "holo-stop")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
 	t.Setenv("INTEROP_FAKE_STOP_STARTED", startedPath)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
@@ -1371,27 +1346,10 @@ func TestTsharkQueryContextError(t *testing.T) {
 	podmanPath := filepath.Join(tempDir, "podman")
 	startedPath := filepath.Join(tempDir, "started")
 	commandLog := filepath.Join(tempDir, "podman.log")
-	fakePodman := `#!/bin/sh
-printf '%s\n' "$*" >> "${TSHARK_QUERY_COMMAND_LOG}"
-case "$*" in
-    "inspect --type container --format "*" tshark-interop")
-        printf '%s\n' 'immutable-tshark-id|gobfd-interop'
-        ;;
-    "exec immutable-tshark-id tshark -r /captures/bfd.pcapng")
-        : > "${TSHARK_QUERY_STARTED}"
-        exec /bin/sleep 10
-        ;;
-    *) exit 9 ;;
-esac
-`
-	if err := os.WriteFile(
-		podmanPath,
-		[]byte(fakePodman),
-		0o700,
-	); err != nil {
-		t.Fatalf("write fake podman command: %v", err)
-	}
+	installFakeCommand(t, tempDir, filepath.Base(podmanPath), "tshark-cancel")
 	t.Setenv("PATH", tempDir)
+	t.Setenv(interopFakeMode, "tshark-cancel")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("TSHARK_QUERY_STARTED", startedPath)
 	t.Setenv("TSHARK_QUERY_COMMAND_LOG", commandLog)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
@@ -1446,27 +1404,10 @@ esac
 func TestTsharkQueryKeepsSuccessfulStderrOutOfRows(t *testing.T) {
 	fakeBin := t.TempDir()
 	commandLog := filepath.Join(t.TempDir(), "podman.log")
-	fakePodman := `#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${INTEROP_FAKE_PODMAN_LOG}"
-if [[ "${1:-}" == "inspect" && "$*" == *"index .Config.Labels"* ]]; then
-    printf '%s\n' 'immutable-tshark-id|gobfd-interop'
-    exit 0
-fi
-if [[ "${1:-}" == "exec" && "${2:-}" == "immutable-tshark-id" ]]; then
-    printf '%s\n' 'Running as user "root" and group "root". This could be dangerous.' >&2
-    if [[ "${INTEROP_FAKE_TSHARK_FAIL:-}" == "true" ]]; then
-        printf '%s\n' 'capture read failed' >&2
-        exit 17
-    fi
-    printf '41\t300000\n42\t300000\n'
-    exit 0
-fi
-exit 9
-`
-	if err := os.WriteFile(filepath.Join(fakeBin, "podman"), []byte(fakePodman), 0o755); err != nil {
-		t.Fatalf("write fake podman: %v", err)
-	}
+	installFakeCommand(t, fakeBin, "podman", "tshark-streams")
 	t.Setenv("PATH", fakeBin+":"+os.Getenv("PATH"))
+	t.Setenv(interopFakeMode, "tshark-streams")
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	t.Setenv("INTEROP_FAKE_PODMAN_LOG", commandLog)
 	t.Setenv("INTEROP_PROJECT_NAME", "gobfd-interop")
 
@@ -1477,6 +1418,16 @@ exit 9
 	wantRows := [][]string{{"41", "300000"}, {"42", "300000"}}
 	if fmt.Sprint(rows) != fmt.Sprint(wantRows) {
 		t.Fatalf("tshark rows = %v, want stdout-only %v", rows, wantRows)
+	}
+
+	bogus := exec.CommandContext(
+		t.Context(), filepath.Join(fakeBin, "podman"),
+		"exec", "immutable-tshark-id", "definitely-not-tshark",
+	)
+	bogusOutput, bogusErr := bogus.CombinedOutput()
+	var bogusExit *exec.ExitError
+	if !errors.As(bogusErr, &bogusExit) || bogusExit.ExitCode() != 9 {
+		t.Fatalf("bogus tshark helper command error = %v, output = %q; want exit 9", bogusErr, bogusOutput)
 	}
 
 	t.Setenv("INTEROP_FAKE_TSHARK_FAIL", "true")

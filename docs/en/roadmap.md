@@ -95,7 +95,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 |---|---|
 | RFC core correctness and loss accounting | Open |
 | Ownership and configuration reconciliation | In progress; C01.1 through C01.7 implemented |
-| Repository-owned shell removal | In progress; 2 tracked nFPM lifecycle scripts, 3 workflow setup blocks, and 16 embedded shell fixtures remain |
+| Repository-owned shell removal | In progress; 2 tracked nFPM lifecycle scripts and 3 workflow setup blocks remain; embedded shell fixtures: 0 |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
