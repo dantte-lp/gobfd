@@ -96,8 +96,8 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 | Independent implementation review | Open |
 | Interop, scale, security, and release qualification | In progress; local release-quality gate remediation and independent review are active |
 
-The first release-quality maintainability tranche is accepted: 70 of the 85
-measured strict-lint findings are resolved, and the remaining 15 stay tracked
+The first release-quality maintainability tranche is accepted: 73 of the 85
+measured strict-lint findings are resolved, and the remaining 12 stay tracked
 in Beads for ordered OCI, release, and bootstrap remediation.
 
 The accepted C01.1 core provides a canonical session key separate from packet
