@@ -99,6 +99,9 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 Первая часть maintainability-работ по release-quality принята: устранены все 85
 измеренных strict-lint findings, а закреплённый набор cyclop, funlen и gocognit
 теперь сообщает ноль замечаний без ослабления конфигурации.
+Последующий полный base profile выявил ещё 151 diagnostic. Первые 48 устранены;
+до проверки build-tag profiles остаются 103 замечания по схемам, deferred
+returns и длине строк.
 Два ранее существовавших дефекта публикации `GITHUB_PATH`, найденные при review,
 устранены как отдельные release blockers в Beads вне lint-refactor.
 
