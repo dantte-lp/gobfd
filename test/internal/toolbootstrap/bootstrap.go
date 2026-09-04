@@ -79,22 +79,9 @@ func DefaultInstallDir() (string, error) {
 // InstallCompose downloads, verifies, and atomically installs the pinned Go
 // Compose provider.
 func InstallCompose(ctx context.Context, options ComposeOptions) (ComposeReport, error) {
-	if options.Version == "" {
-		options.Version = ComposeVersion
-	}
-	if options.Version != ComposeVersion {
-		return ComposeReport{}, fmt.Errorf("docker Compose %s: %w", options.Version, errUnsupportedVersion)
-	}
-	if options.InstallDir == "" || strings.ContainsAny(options.InstallDir, "\r\n") {
-		return ComposeReport{}, fmt.Errorf("docker Compose install directory %q: %w", options.InstallDir, os.ErrInvalid)
-	}
-	if !filepath.IsAbs(options.InstallDir) {
-		return ComposeReport{}, fmt.Errorf("docker Compose install directory %q must be absolute: %w",
-			options.InstallDir, errUnsafeInstallDirectory)
-	}
-	asset, assetErr := composeAssetFor(runtime.GOARCH)
-	if assetErr != nil {
-		return ComposeReport{}, assetErr
+	version, asset, validationErr := validateComposeOptions(options)
+	if validationErr != nil {
+		return ComposeReport{}, validationErr
 	}
 	installDir, directoryErr := prepareComposeInstallDirectory(options.InstallDir)
 	if directoryErr != nil {
@@ -120,7 +107,7 @@ func InstallCompose(ctx context.Context, options ComposeOptions) (ComposeReport,
 		return ComposeReport{}, abortComposeInstall(installRoot, temporary, temporaryName, nil,
 			fmt.Errorf("stat temporary Compose provider: %w", statErr))
 	}
-	if downloadErr := downloadCompose(ctx, options.Version, asset, temporary); downloadErr != nil {
+	if downloadErr := downloadCompose(ctx, version, asset, temporary); downloadErr != nil {
 		return ComposeReport{}, abortComposeInstall(installRoot, temporary, temporaryName, temporaryInfo, downloadErr)
 	}
 	if syncErr := temporary.Sync(); syncErr != nil {
@@ -137,6 +124,35 @@ func InstallCompose(ctx context.Context, options ComposeOptions) (ComposeReport,
 			fmt.Errorf("close temporary Compose provider: %w", closeErr),
 		)
 	}
+	return publishCompose(ctx, version, installDir, installRoot, temporaryName, temporaryInfo)
+}
+
+func validateComposeOptions(options ComposeOptions) (string, composeAsset, error) {
+	version := options.Version
+	if version == "" {
+		version = ComposeVersion
+	}
+	if version != ComposeVersion {
+		return "", composeAsset{}, fmt.Errorf("docker Compose %s: %w", version, errUnsupportedVersion)
+	}
+	if options.InstallDir == "" || strings.ContainsAny(options.InstallDir, "\r\n") {
+		return "", composeAsset{}, fmt.Errorf("docker Compose install directory %q: %w", options.InstallDir, os.ErrInvalid)
+	}
+	if !filepath.IsAbs(options.InstallDir) {
+		return "", composeAsset{}, fmt.Errorf("docker Compose install directory %q must be absolute: %w",
+			options.InstallDir, errUnsafeInstallDirectory)
+	}
+	asset, err := composeAssetFor(runtime.GOARCH)
+	return version, asset, err
+}
+
+func publishCompose(
+	ctx context.Context,
+	version, installDir string,
+	installRoot *os.Root,
+	temporaryName string,
+	temporaryInfo os.FileInfo,
+) (ComposeReport, error) {
 	verified, openErr := installRoot.Open(temporaryName)
 	if openErr != nil {
 		return ComposeReport{}, failClosedComposeInstall(installRoot, temporaryName, temporaryInfo,
@@ -154,10 +170,10 @@ func InstallCompose(ctx context.Context, options ComposeOptions) (ComposeReport,
 			fmt.Errorf("verify temporary Compose provider: %w", commandErr),
 		)
 	}
-	if actual != options.Version {
+	if actual != version {
 		return ComposeReport{}, failOpenComposeInstall(installRoot, verified, temporaryName, temporaryInfo,
 			fmt.Errorf("docker Compose provider version %s, want %s: %w",
-				actual, options.Version, errUnexpectedVersion),
+				actual, version, errUnexpectedVersion),
 		)
 	}
 	const targetName = "docker-compose"
