@@ -77,32 +77,19 @@ type releasePackageContainer struct {
 	Tags json.RawMessage `json:"tags"`
 }
 
+type releasePreflightInputs struct {
+	root, runnerTemp                       string
+	version, releaseBranch, expectedCommit string
+	owner, repository                      string
+}
+
 // ReleasePreflight refuses mutable or colliding release identities before publication starts.
 func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (returnErr error) {
-	root, err := validateAbsoluteExistingDirectory(options.Root, "repository root")
+	inputs, err := validateReleasePreflightInputs(options)
 	if err != nil {
 		return err
 	}
-	runnerTemp, err := validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
-	if err != nil {
-		return err
-	}
-	version, releaseBranch, err := parseStableReleaseVersion(options.RefName)
-	if err != nil {
-		return err
-	}
-	expectedCommit, err := validateFullCommitSHA(options.SHA, "GITHUB_SHA")
-	if err != nil {
-		return err
-	}
-	owner, repository, err := parseGitHubRepository(options.Repository)
-	if err != nil {
-		return err
-	}
-	if options.Runner == nil {
-		return fmt.Errorf("release preflight command runner is required: %w", errInvalidConfig)
-	}
-	repositoryRoot, err := os.OpenRoot(root)
+	repositoryRoot, err := os.OpenRoot(inputs.root)
 	if err != nil {
 		return fmt.Errorf("open repository root for release preflight: %w", err)
 	}
@@ -110,11 +97,11 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 		returnErr = errors.Join(returnErr, wrapOptional("close repository preflight root", repositoryRoot.Close()))
 	}()
 	if identityErr := validateRootPathIdentity(
-		repositoryRoot, root, "repository root before release preflight",
+		repositoryRoot, inputs.root, "repository root before release preflight",
 	); identityErr != nil {
 		return identityErr
 	}
-	receiptRoot, receipts, err := prepareReleaseReceipts(runnerTemp)
+	receiptRoot, receipts, err := prepareReleaseReceipts(inputs.runnerTemp)
 	if err != nil {
 		return err
 	}
@@ -123,79 +110,153 @@ func ReleasePreflight(ctx context.Context, options ReleasePreflightOptions) (ret
 	}()
 
 	tagObjectSHA, err := verifyReleaseGitIdentity(
-		ctx, options.Runner, root, owner, repository, options.RefName, releaseBranch, expectedCommit, options.Environment,
+		ctx, options.Runner, inputs.root, inputs.owner, inputs.repository,
+		options.RefName, inputs.releaseBranch, inputs.expectedCommit, options.Environment,
 	)
 	if err != nil {
 		return err
 	}
+	if err := verifyAbsentGitHubRelease(ctx, options, inputs); err != nil {
+		return err
+	}
+	if err := verifyAbsentReleasePackageTags(ctx, options, inputs); err != nil {
+		return err
+	}
+	if err := validateRootPathIdentity(
+		repositoryRoot, inputs.root, "repository root after release preflight",
+	); err != nil {
+		return err
+	}
+	for index, value := range []string{inputs.expectedCommit, inputs.releaseBranch, tagObjectSHA} {
+		if err := writeRootedReceipt(receiptRoot, receipts[index], []byte(value+"\n")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReleasePreflightInputs(options ReleasePreflightOptions) (releasePreflightInputs, error) {
+	inputs := releasePreflightInputs{}
+	var err error
+	inputs.root, err = validateAbsoluteExistingDirectory(options.Root, "repository root")
+	if err != nil {
+		return releasePreflightInputs{}, err
+	}
+	inputs.runnerTemp, err = validateAbsoluteExistingDirectory(options.RunnerTemp, "RUNNER_TEMP")
+	if err != nil {
+		return releasePreflightInputs{}, err
+	}
+	inputs.version, inputs.releaseBranch, err = parseStableReleaseVersion(options.RefName)
+	if err != nil {
+		return releasePreflightInputs{}, err
+	}
+	inputs.expectedCommit, err = validateFullCommitSHA(options.SHA, "GITHUB_SHA")
+	if err != nil {
+		return releasePreflightInputs{}, err
+	}
+	inputs.owner, inputs.repository, err = parseGitHubRepository(options.Repository)
+	if err != nil {
+		return releasePreflightInputs{}, err
+	}
+	if options.Runner == nil {
+		return releasePreflightInputs{}, fmt.Errorf("release preflight command runner is required: %w", errInvalidConfig)
+	}
+	return inputs, nil
+}
+
+func verifyAbsentGitHubRelease(
+	ctx context.Context, options ReleasePreflightOptions, inputs releasePreflightInputs,
+) error {
 	releaseResponse := releaseGraphQLResponse{}
 	if err := runReleasePreflightJSON(ctx, options.Runner, CommandSpec{
 		Name: "gh",
 		Args: []string{
 			"api", "graphql", "-f", "query=" + releasePreflightGraphQLQuery,
-			"-F", "owner=" + owner, "-F", "name=" + repository, "-F", "tag=" + options.RefName,
+			"-F", "owner=" + inputs.owner, "-F", "name=" + inputs.repository, "-F", "tag=" + options.RefName,
 		},
-		Dir: root, Env: options.Environment,
+		Dir: inputs.root, Env: options.Environment,
 	}, "query existing release", &releaseResponse, validateReleaseGraphQLResponseJSON); err != nil {
 		return err
 	}
-	if err := validateAbsentRelease(releaseResponse, options.RefName); err != nil {
-		return err
-	}
+	return validateAbsentRelease(releaseResponse, options.RefName)
+}
 
+func verifyAbsentReleasePackageTags(
+	ctx context.Context, options ReleasePreflightOptions, inputs releasePreflightInputs,
+) error {
 	packagePages := [][]*releasePackageVersion{}
 	if err := runReleasePreflightJSON(ctx, options.Runner, CommandSpec{
 		Name: "gh",
 		Args: []string{
-			"api", "--paginate", "/users/" + owner + "/packages/container/" + repository + "/versions?per_page=100", "--slurp",
+			"api", "--paginate", "/users/" + inputs.owner + "/packages/container/" +
+				inputs.repository + "/versions?per_page=100", "--slurp",
 		},
-		Dir: root, Env: options.Environment,
+		Dir: inputs.root, Env: options.Environment,
 	}, "list OCI versions", &packagePages, validateReleasePackagePagesJSON); err != nil {
 		return err
 	}
-	if len(packagePages) == 0 {
-		return fmt.Errorf("paginated OCI versions response has no pages: %w", errInvalidConfig)
+	existingTags, err := collectReleasePackageTags(packagePages)
+	if err != nil {
+		return err
 	}
-	existingTags := make(map[string]struct{})
-	for pageIndex, page := range packagePages {
-		if page == nil {
-			return fmt.Errorf("paginated OCI versions page %d is null: %w", pageIndex, errInvalidConfig)
-		}
-		for itemIndex, packageVersion := range page {
-			if packageVersion == nil || packageVersion.Metadata == nil || packageVersion.Metadata.Container == nil {
-				return fmt.Errorf("OCI versions page %d item %d lacks container metadata: %w", pageIndex, itemIndex, errInvalidConfig)
-			}
-			tagsJSON := bytes.TrimSpace(packageVersion.Metadata.Container.Tags)
-			if len(tagsJSON) == 0 || bytes.Equal(tagsJSON, []byte("null")) {
-				return fmt.Errorf("OCI versions page %d item %d lacks an explicit tags array: %w", pageIndex, itemIndex, errInvalidConfig)
-			}
-			tagValues := []json.RawMessage{}
-			if err := json.Unmarshal(tagsJSON, &tagValues); err != nil {
-				return fmt.Errorf("decode OCI versions page %d item %d tags: %w", pageIndex, itemIndex, err)
-			}
-			for tagIndex, tagJSON := range tagValues {
-				var tag *string
-				if err := json.Unmarshal(tagJSON, &tag); err != nil || tag == nil {
-					return fmt.Errorf(
-						"decode OCI versions page %d item %d tag %d as string: %w",
-						pageIndex, itemIndex, tagIndex, errors.Join(err, errInvalidConfig),
-					)
-				}
-				existingTags[*tag] = struct{}{}
-			}
-		}
-	}
-	for _, tag := range []string{version, version + "-debian-trixie", version + "-oraclelinux10"} {
+	for _, tag := range []string{
+		inputs.version,
+		inputs.version + "-debian-trixie",
+		inputs.version + "-oraclelinux10",
+	} {
 		if _, exists := existingTags[tag]; exists {
 			return fmt.Errorf("versioned OCI tag already exists: %s: %w", tag, errInvalidConfig)
 		}
 	}
-	if err := validateRootPathIdentity(repositoryRoot, root, "repository root after release preflight"); err != nil {
-		return err
+	return nil
+}
+
+func collectReleasePackageTags(packagePages [][]*releasePackageVersion) (map[string]struct{}, error) {
+	if len(packagePages) == 0 {
+		return nil, fmt.Errorf("paginated OCI versions response has no pages: %w", errInvalidConfig)
 	}
-	for index, value := range []string{expectedCommit, releaseBranch, tagObjectSHA} {
-		if err := writeRootedReceipt(receiptRoot, receipts[index], []byte(value+"\n")); err != nil {
-			return err
+	existingTags := make(map[string]struct{})
+	for pageIndex, page := range packagePages {
+		if page == nil {
+			return nil, fmt.Errorf("paginated OCI versions page %d is null: %w", pageIndex, errInvalidConfig)
+		}
+		if err := collectReleasePackagePageTags(existingTags, pageIndex, page); err != nil {
+			return nil, err
+		}
+	}
+	return existingTags, nil
+}
+
+func collectReleasePackagePageTags(
+	existingTags map[string]struct{}, pageIndex int, page []*releasePackageVersion,
+) error {
+	for itemIndex, packageVersion := range page {
+		if packageVersion == nil || packageVersion.Metadata == nil || packageVersion.Metadata.Container == nil {
+			return fmt.Errorf(
+				"OCI versions page %d item %d lacks container metadata: %w",
+				pageIndex, itemIndex, errInvalidConfig,
+			)
+		}
+		tagsJSON := bytes.TrimSpace(packageVersion.Metadata.Container.Tags)
+		if len(tagsJSON) == 0 || bytes.Equal(tagsJSON, []byte("null")) {
+			return fmt.Errorf(
+				"OCI versions page %d item %d lacks an explicit tags array: %w",
+				pageIndex, itemIndex, errInvalidConfig,
+			)
+		}
+		tagValues := []json.RawMessage{}
+		if err := json.Unmarshal(tagsJSON, &tagValues); err != nil {
+			return fmt.Errorf("decode OCI versions page %d item %d tags: %w", pageIndex, itemIndex, err)
+		}
+		for tagIndex, tagJSON := range tagValues {
+			var tag *string
+			if err := json.Unmarshal(tagJSON, &tag); err != nil || tag == nil {
+				return fmt.Errorf(
+					"decode OCI versions page %d item %d tag %d as string: %w",
+					pageIndex, itemIndex, tagIndex, errors.Join(err, errInvalidConfig),
+				)
+			}
+			existingTags[*tag] = struct{}{}
 		}
 	}
 	return nil
@@ -227,6 +288,35 @@ func verifyReleaseGitIdentity(
 		return "", fmt.Errorf("checked-out commit does not equal the workflow tag commit: %w", errInvalidConfig)
 	}
 
+	tagObjectSHA, err := verifyAnnotatedReleaseTag(
+		ctx, runner, root, owner, repository, refName, expectedCommit, environment,
+	)
+	if err != nil {
+		return "", err
+	}
+	branchRef := releaseGitRef{}
+	if branchErr := runReleasePreflightJSON(ctx, runner, CommandSpec{
+		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/heads/" + releaseBranch},
+		Dir: root, Env: environment,
+	}, "read release branch ref", &branchRef, validateReleaseGitRefJSON); branchErr != nil {
+		return "", branchErr
+	}
+	branchSHA, err := validateFullCommitSHA(branchRef.Object.SHA, "release branch head SHA")
+	if err != nil {
+		return "", err
+	}
+	if branchRef.Ref != "refs/heads/"+releaseBranch || branchRef.Object.Type != "commit" || branchSHA != expectedCommit {
+		return "", fmt.Errorf("%s does not equal the exact %s head: %w", refName, releaseBranch, errInvalidConfig)
+	}
+	return tagObjectSHA, nil
+}
+
+func verifyAnnotatedReleaseTag(
+	ctx context.Context,
+	runner SpecRunner,
+	root, owner, repository, refName, expectedCommit string,
+	environment []string,
+) (string, error) {
 	tagRef := releaseGitRef{}
 	if tagRefErr := runReleasePreflightJSON(ctx, runner, CommandSpec{
 		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/tags/" + refName},
@@ -260,21 +350,6 @@ func verifyReleaseGitIdentity(
 	if tagSHA != tagObjectSHA || tagObject.Tag != refName ||
 		tagObject.Object.Type != "commit" || tagTargetSHA != expectedCommit {
 		return "", fmt.Errorf("annotated tag does not target the checked-out release commit: %w", errInvalidConfig)
-	}
-
-	branchRef := releaseGitRef{}
-	if branchErr := runReleasePreflightJSON(ctx, runner, CommandSpec{
-		Name: "gh", Args: []string{"api", "repos/" + owner + "/" + repository + "/git/ref/heads/" + releaseBranch},
-		Dir: root, Env: environment,
-	}, "read release branch ref", &branchRef, validateReleaseGitRefJSON); branchErr != nil {
-		return "", branchErr
-	}
-	branchSHA, err := validateFullCommitSHA(branchRef.Object.SHA, "release branch head SHA")
-	if err != nil {
-		return "", err
-	}
-	if branchRef.Ref != "refs/heads/"+releaseBranch || branchRef.Object.Type != "commit" || branchSHA != expectedCommit {
-		return "", fmt.Errorf("%s does not equal the exact %s head: %w", refName, releaseBranch, errInvalidConfig)
 	}
 	return tagObjectSHA, nil
 }
@@ -382,20 +457,9 @@ func writeRootedModeArtifact(
 	limit int,
 	mode os.FileMode,
 ) (returnErr error) {
-	if root == nil || len(data) > limit {
-		return fmt.Errorf("%s %s exceeds its bounded contract: %w", purpose, name, errInvalidConfig)
-	}
-	if !mode.IsRegular() || mode.Perm() == 0 {
-		return fmt.Errorf("%s %s has invalid output mode %#o: %w", purpose, name, mode, errInvalidConfig)
-	}
-	random := [16]byte{}
-	if _, err := rand.Read(random[:]); err != nil {
-		return fmt.Errorf("generate temporary %s name: %w", purpose, err)
-	}
-	temporaryName := "." + name + "-" + hex.EncodeToString(random[:])
-	temporary, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	temporary, temporaryName, err := createRootedModeArtifactTemporary(root, name, data, purpose, limit, mode)
 	if err != nil {
-		return fmt.Errorf("create temporary %s %s: %w", purpose, name, err)
+		return err
 	}
 	defer func() {
 		if cleanupErr := root.Remove(temporaryName); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
@@ -433,6 +497,32 @@ func writeRootedModeArtifact(
 		return fmt.Errorf("published %s %s violates mode or size contract: %w", purpose, name, errInvalidConfig)
 	}
 	return nil
+}
+
+func createRootedModeArtifactTemporary(
+	root *os.Root,
+	name string,
+	data []byte,
+	purpose string,
+	limit int,
+	mode os.FileMode,
+) (*os.File, string, error) {
+	if root == nil || len(data) > limit {
+		return nil, "", fmt.Errorf("%s %s exceeds its bounded contract: %w", purpose, name, errInvalidConfig)
+	}
+	if !mode.IsRegular() || mode.Perm() == 0 {
+		return nil, "", fmt.Errorf("%s %s has invalid output mode %#o: %w", purpose, name, mode, errInvalidConfig)
+	}
+	random := [16]byte{}
+	if _, err := rand.Read(random[:]); err != nil {
+		return nil, "", fmt.Errorf("generate temporary %s name: %w", purpose, err)
+	}
+	temporaryName := "." + name + "-" + hex.EncodeToString(random[:])
+	temporary, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, "", fmt.Errorf("create temporary %s %s: %w", purpose, name, err)
+	}
+	return temporary, temporaryName, nil
 }
 
 func parseCommandSHA(output []byte, purpose string) (string, error) {
