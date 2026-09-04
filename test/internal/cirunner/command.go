@@ -52,7 +52,6 @@ type SpecRunner interface {
 func (r ExecRunner) RunCommand(ctx context.Context, spec CommandSpec) error {
 	if spec.Name != prebuiltLintPath {
 		switch spec.Name {
-		//nolint:goconst // Executable names belong together in the explicit command allowlist.
 		case "buf", "docker", "gh", "git", "go", "upx", "xz":
 		default:
 			return fmt.Errorf("run CI command %q: %w", spec.Name, errCommandNotAllowed)
