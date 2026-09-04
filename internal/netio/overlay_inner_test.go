@@ -578,11 +578,15 @@ func TestStripInnerPacketValidation(t *testing.T) {
 			return pkt
 		}},
 		{"udp_length_short", func(pkt []byte) []byte {
-			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], uint16(len(pkt)-netio.InnerOverheadIPv4+7))
+			binary.BigEndian.PutUint16(
+				pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], uint16(len(pkt)-netio.InnerOverheadIPv4+7),
+			)
 			return pkt
 		}},
 		{"udp_length_beyond_ip", func(pkt []byte) []byte {
-			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], uint16(len(pkt)-netio.InnerOverheadIPv4+9))
+			binary.BigEndian.PutUint16(
+				pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], uint16(len(pkt)-netio.InnerOverheadIPv4+9),
+			)
 			return pkt
 		}},
 		{"udp_checksum", func(pkt []byte) []byte {

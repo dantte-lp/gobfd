@@ -281,6 +281,13 @@ func StripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, error) {
 	return payload, src, dst, err
 }
 
+type innerIPv4Packet struct {
+	udp []byte
+	src [4]byte
+	dst [4]byte
+	ttl uint8
+}
+
 func stripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, uint8, error) {
 	if len(buf) < InnerOverheadIPv4 {
 		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
@@ -301,78 +308,110 @@ func stripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, uint8, error)
 			etherType, ErrInnerBadEtherType)
 	}
 
-	ipOff := InnerEthSize
-	ip := buf[ipOff:]
+	ipPacket, err := parseInnerIPv4(buf[InnerEthSize:])
+	if err != nil {
+		return nil, netip.Addr{}, netip.Addr{}, 0, err
+	}
+	payload, err := parseInnerUDP(ipPacket)
+	if err != nil {
+		return nil, netip.Addr{}, netip.Addr{}, 0, err
+	}
+
+	return payload, netip.AddrFrom4(ipPacket.src), netip.AddrFrom4(ipPacket.dst), ipPacket.ttl, nil
+}
+
+func parseInnerIPv4(ip []byte) (innerIPv4Packet, error) {
+	var packet innerIPv4Packet
+	if len(ip) < InnerIPv4Size+InnerUDPSize {
+		return packet, fmt.Errorf("strip inner packet: IPv4 packet=%d: %w", len(ip), ErrInnerBadIPLength)
+	}
 	ipVersion := ip[0] >> 4
 	if ipVersion != 4 {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return packet, fmt.Errorf(
 			"strip inner packet: IP version=%d: %w",
 			ipVersion, ErrInnerBadIPVersion)
 	}
 	ipHeaderLen := int(ip[0]&0x0f) * 4
 	if ipHeaderLen < InnerIPv4Size || ipHeaderLen+InnerUDPSize > len(ip) {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return packet, fmt.Errorf(
 			"strip inner packet: IPv4 header length=%d packet=%d: %w",
 			ipHeaderLen, len(ip), ErrInnerBadIHL)
 	}
 	ipTotalLen := int(binary.BigEndian.Uint16(ip[2:4]))
 	if ipTotalLen != len(ip) || ipTotalLen < ipHeaderLen+InnerUDPSize {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return packet, fmt.Errorf(
 			"strip inner packet: IPv4 total length=%d packet=%d header=%d: %w",
 			ipTotalLen, len(ip), ipHeaderLen, ErrInnerBadIPLength)
 	}
-	if flagsFragment := binary.BigEndian.Uint16(ip[6:8]); flagsFragment&^uint16(0x4000) != 0 {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+
+	packet, err := validateInnerIPv4Header(ip[:ipHeaderLen])
+	if err != nil {
+		return packet, err
+	}
+	packet.udp = ip[ipHeaderLen:ipTotalLen]
+	return packet, nil
+}
+
+func validateInnerIPv4Header(header []byte) (innerIPv4Packet, error) {
+	var packet innerIPv4Packet
+	if len(header) < InnerIPv4Size {
+		return packet, fmt.Errorf("strip inner packet: IPv4 header=%d: %w", len(header), ErrInnerBadIHL)
+	}
+	if flagsFragment := binary.BigEndian.Uint16(header[6:8]); flagsFragment&^uint16(0x4000) != 0 {
+		return packet, fmt.Errorf(
 			"strip inner packet: IPv4 flags/fragment offset=0x%04x: %w",
 			flagsFragment, ErrInnerFragmented)
 	}
-	if ipv4HeaderChecksum(ip[:ipHeaderLen]) != 0 {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+	if ipv4HeaderChecksum(header) != 0 {
+		return packet, fmt.Errorf(
 			"strip inner packet: %w", ErrInnerBadIPChecksum)
 	}
 
-	ipProto := ip[9]
+	ipProto := header[9]
 	if ipProto != innerIPv4Protocol {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return packet, fmt.Errorf(
 			"strip inner packet: IP protocol=%d: %w",
 			ipProto, ErrInnerBadProtocol)
 	}
-	ttl := ip[8]
-	if ttl != innerIPv4TTL {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
-			"strip inner packet: IPv4 TTL=%d: %w", ttl, ErrInnerBadTTL)
+	packet.ttl = header[8]
+	if packet.ttl != innerIPv4TTL {
+		return packet, fmt.Errorf(
+			"strip inner packet: IPv4 TTL=%d: %w", packet.ttl, ErrInnerBadTTL)
 	}
+	packet.src = [4]byte{header[12], header[13], header[14], header[15]}
+	packet.dst = [4]byte{header[16], header[17], header[18], header[19]}
+	return packet, nil
+}
 
-	udp := ip[ipHeaderLen:ipTotalLen]
+func parseInnerUDP(packet innerIPv4Packet) ([]byte, error) {
+	udp := packet.udp
+	if len(udp) < InnerUDPSize {
+		return nil, fmt.Errorf("strip inner packet: UDP length=%d: %w", len(udp), ErrInnerBadUDPLength)
+	}
 	udpSrcPort := binary.BigEndian.Uint16(udp[:2])
 	if udpSrcPort < sourcePortMin || udpSrcPort > sourcePortMax {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"strip inner packet: UDP source port=%d: %w",
 			udpSrcPort, ErrInnerBadUDPSourcePort)
 	}
 	udpDstPort := binary.BigEndian.Uint16(udp[2:4])
 	if udpDstPort != innerBFDDstPort {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"strip inner packet: UDP destination port=%d: %w",
 			udpDstPort, ErrInnerBadUDPDestinationPort)
 	}
-	udpLen := int(binary.BigEndian.Uint16(udp[4:6]))
-	if udpLen < InnerUDPSize || udpLen != len(udp) {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+	udpLen := binary.BigEndian.Uint16(udp[4:6])
+	if udpLen < InnerUDPSize || int(udpLen) != len(udp) {
+		return nil, fmt.Errorf(
 			"strip inner packet: UDP length=%d IP payload=%d: %w",
 			udpLen, len(udp), ErrInnerBadUDPLength)
 	}
-	if binary.BigEndian.Uint16(udp[6:8]) != 0 && !validUDPIPv4Checksum(ip, udp) {
-		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+	if binary.BigEndian.Uint16(udp[6:8]) != 0 && !validUDPIPv4Checksum(packet.src, packet.dst, udp, udpLen) {
+		return nil, fmt.Errorf(
 			"strip inner packet: %w", ErrInnerBadUDPChecksum)
 	}
 
-	// Extract source and destination IP addresses.
-	var src4, dst4 [4]byte
-	copy(src4[:], ip[12:16])
-	copy(dst4[:], ip[16:20])
-
-	return udp[InnerUDPSize:], netip.AddrFrom4(src4), netip.AddrFrom4(dst4), ttl, nil
+	return udp[InnerUDPSize:], nil
 }
 
 // -------------------------------------------------------------------------
@@ -386,12 +425,12 @@ func ipv4HeaderChecksum(hdr []byte) uint16 {
 	return internetChecksum(hdr, 0)
 }
 
-func validUDPIPv4Checksum(ip, udp []byte) bool {
-	sum := uint32(binary.BigEndian.Uint16(ip[12:14])) +
-		uint32(binary.BigEndian.Uint16(ip[14:16])) +
-		uint32(binary.BigEndian.Uint16(ip[16:18])) +
-		uint32(binary.BigEndian.Uint16(ip[18:20])) +
-		uint32(ip[9]) + uint32(len(udp))
+func validUDPIPv4Checksum(src, dst [4]byte, udp []byte, udpLen uint16) bool {
+	sum := (uint32(src[0]) << 8) + uint32(src[1]) +
+		(uint32(src[2]) << 8) + uint32(src[3]) +
+		(uint32(dst[0]) << 8) + uint32(dst[1]) +
+		(uint32(dst[2]) << 8) + uint32(dst[3]) +
+		uint32(innerIPv4Protocol) + uint32(udpLen)
 	return internetChecksum(udp, sum) == 0
 }
 

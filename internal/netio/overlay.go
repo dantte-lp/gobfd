@@ -105,7 +105,7 @@ var (
 func readOverlayDatagram(conn *net.UDPConn, buf []byte) (int, *net.UDPAddr, error) {
 	n, _, flags, remoteAddr, err := conn.ReadMsgUDP(buf, nil)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("read overlay UDP datagram: %w", err)
 	}
 	if flags&syscall.MSG_TRUNC != 0 {
 		return 0, nil, ErrOverlayPacketTruncated

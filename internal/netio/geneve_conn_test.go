@@ -31,11 +31,17 @@ func TestNewGeneveConnLoopbackLifecycle(t *testing.T) {
 		}
 	})
 
-	if err := conn.SendEncapsulated(t.Context(), makePayload(24), netip.MustParseAddr("127.0.0.1")); err != nil {
+	if err := conn.SendEncapsulated(
+		t.Context(), makePayload(24), netip.MustParseAddr("127.0.0.1"),
+	); err != nil {
 		t.Fatalf("SendEncapsulated: %v", err)
 	}
-	if payload, _, err := conn.RecvDecapsulated(t.Context()); !errors.Is(err, netio.ErrGeneveVAPIdentityUnavailable) || payload != nil {
-		t.Fatalf("RecvDecapsulated payload length=%d error=%v, want ErrGeneveVAPIdentityUnavailable", len(payload), err)
+	payload, _, err := conn.RecvDecapsulated(t.Context())
+	if !errors.Is(err, netio.ErrGeneveVAPIdentityUnavailable) || payload != nil {
+		t.Fatalf(
+			"RecvDecapsulated payload length=%d error=%v, want ErrGeneveVAPIdentityUnavailable",
+			len(payload), err,
+		)
 	}
 }
 

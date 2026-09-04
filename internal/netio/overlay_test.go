@@ -107,8 +107,11 @@ func TestOverlayRecvRejectsWrongInnerDestination(t *testing.T) {
 		t.Fatalf("open sender: %v", err)
 	}
 	defer sender.Close()
-	if _, err := sender.WriteToUDP(packet, net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, netio.VXLANPort))); err != nil {
-		t.Fatalf("send packet: %v", err)
+	if _, writeErr := sender.WriteToUDP(
+		packet,
+		net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, netio.VXLANPort)),
+	); writeErr != nil {
+		t.Fatalf("send packet: %v", writeErr)
 	}
 
 	if _, _, err := conn.RecvDecapsulated(t.Context()); !errors.Is(err, netio.ErrOverlayInnerDstMismatch) {
@@ -165,8 +168,11 @@ func TestOverlayRecvRejectsTruncatedDatagram(t *testing.T) {
 				t.Fatalf("open sender: %v", err)
 			}
 			defer sender.Close()
-			if _, err := sender.WriteToUDP(packet, net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, tt.port))); err != nil {
-				t.Fatalf("send packet: %v", err)
+			if _, writeErr := sender.WriteToUDP(
+				packet,
+				net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, tt.port)),
+			); writeErr != nil {
+				t.Fatalf("send packet: %v", writeErr)
 			}
 
 			got, _, err := conn.RecvDecapsulated(t.Context())
@@ -378,7 +384,6 @@ func TestOverlayReceiver_DropsExpectedOverlayErrorsWithoutWarn(t *testing.T) {
 		netio.ErrGeneveVAPIdentityUnavailable,
 	}
 	for _, dropErr := range tests {
-		dropErr := dropErr
 		t.Run(dropErr.Error(), func(t *testing.T) {
 			t.Parallel()
 			callCount := 0

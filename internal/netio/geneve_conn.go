@@ -192,8 +192,8 @@ func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, e
 		}
 		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
 	}
-	if err := c.validateVAPIdentity(); err != nil {
-		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
+	if vapErr := c.validateVAPIdentity(); vapErr != nil {
+		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", vapErr)
 	}
 
 	bfdPayload, geneveHdr, innerDst, ttl, err := c.decapGenevePacket(c.readBuf[:n])
