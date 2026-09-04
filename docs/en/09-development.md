@@ -481,12 +481,15 @@ atomically with mode `0755`. Decompression consumes the same open file whose
 bytes were hashed, and the version check executes the verified open UPX file;
 rooted identity checks reject pathname replacement before publication. Its
 first `upx --version` line must be exactly `upx 4.2.2` before the rooted bin
-directory is appended to the validated regular `GITHUB_PATH` file. `GH_TOKEN`
-is inherited only by `gh`, is stripped from `xz` and `upx`, and is never placed
-in arguments or artifacts. On failure, recursive cleanup is confined to the
-still-open root whose directory identity matches the one created; the final
-pathname operation can only remove an empty directory and never recursively
-deletes a pre-existing or replacement tree.
+directory is appended as a separate newline-delimited record to the validated
+regular `GITHUB_PATH` file. Once the rooted rename commits that record,
+publication remains recorded even if post-commit inspection or cleanup fails,
+so the referenced UPX root is preserved. `GH_TOKEN` is inherited only by `gh`,
+is stripped from `xz` and `upx`, and is never placed in arguments or artifacts.
+On failure, recursive cleanup is confined to the still-open root whose directory
+identity matches the one created; the final pathname operation can only remove
+an empty directory and never recursively deletes a pre-existing or replacement
+tree.
 
 After GoReleaser creates the draft, the commit-pinned checkout action creates a
 separate `.release-verifier` checkout at the exact workflow SHA with no

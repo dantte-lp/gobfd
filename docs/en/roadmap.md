@@ -99,8 +99,8 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 The first release-quality maintainability tranche is accepted: all 85 measured
 strict-lint findings are resolved, with the pinned cyclop, funlen, and gocognit
 subset now reporting zero issues without configuration weakening.
-Two pre-existing `GITHUB_PATH` publication defects found during review remain
-separate release blockers in Beads; they were not folded into the lint refactor.
+Two pre-existing `GITHUB_PATH` publication defects found during review were
+resolved as separate Beads release blockers, outside the lint refactor.
 
 The accepted C01.1 core provides a canonical session key separate from packet
 demultiplexing, serialized typed configuration, compatibility/API, and

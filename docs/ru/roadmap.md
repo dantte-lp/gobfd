@@ -100,7 +100,7 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 измеренных strict-lint findings, а закреплённый набор cyclop, funlen и gocognit
 теперь сообщает ноль замечаний без ослабления конфигурации.
 Два ранее существовавших дефекта публикации `GITHUB_PATH`, найденные при review,
-остаются отдельными release blockers в Beads и не включены в lint-refactor.
+устранены как отдельные release blockers в Beads вне lint-refactor.
 
 Принятый core C01.1 предоставляет канонический ключ сессии, отделённый от
 packet demultiplexing, сериализованные типизированные claims конфигурации,
