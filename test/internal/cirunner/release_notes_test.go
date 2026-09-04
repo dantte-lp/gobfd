@@ -99,10 +99,22 @@ func TestReleaseNotesRejectsMalformedReleasesAndIncompleteChangelog(t *testing.T
 		changelog string
 	}{
 		{name: "null page", releases: `[null]`, changelog: validReleaseNotesChangelog},
-		{name: "missing published tag", releases: `[[{"draft":false,"prerelease":false}]]`, changelog: validReleaseNotesChangelog},
-		{name: "impossible date", releases: validReleaseNotesResponse, changelog: strings.Replace(validReleaseNotesChangelog, "2026-09-03", "2026-99-99", 1)},
-		{name: "missing category", releases: validReleaseNotesResponse, changelog: strings.Replace(validReleaseNotesChangelog, "### Fixed\n\n", "", 1)},
-		{name: "missing entry", releases: validReleaseNotesResponse, changelog: strings.Replace(validReleaseNotesChangelog, "- Current fix.\n", "Current fix.\n", 1)},
+		{
+			name: "missing published tag", releases: `[[{"draft":false,"prerelease":false}]]`,
+			changelog: validReleaseNotesChangelog,
+		},
+		{
+			name: "impossible date", releases: validReleaseNotesResponse,
+			changelog: strings.Replace(validReleaseNotesChangelog, "2026-09-03", "2026-99-99", 1),
+		},
+		{
+			name: "missing category", releases: validReleaseNotesResponse,
+			changelog: strings.Replace(validReleaseNotesChangelog, "### Fixed\n\n", "", 1),
+		},
+		{
+			name: "missing entry", releases: validReleaseNotesResponse,
+			changelog: strings.Replace(validReleaseNotesChangelog, "- Current fix.\n", "Current fix.\n", 1),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

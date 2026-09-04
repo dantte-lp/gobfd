@@ -72,7 +72,8 @@ func TestValidateReleaseAssetContentsRejectsInvalidEvidence(t *testing.T) {
 		{name: "SBOM duplicate field", mutate: func(t *testing.T, download, _, _ string) {
 			t.Helper()
 			name := expectedChecksummedArtifactNames("0.6.2")[3]
-			data := `{"bomFormat":"CycloneDX","bomFormat":"CycloneDX","specVersion":"1.6","metadata":{"component":{}},"components":[{"name":"gobfd"}]}`
+			data := `{"bomFormat":"CycloneDX","bomFormat":"CycloneDX","specVersion":"1.6",` +
+				`"metadata":{"component":{}},"components":[{"name":"gobfd"}]}`
 			if err := os.WriteFile(filepath.Join(download, name), []byte(data), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -214,7 +215,10 @@ func validReleaseAssetData(t *testing.T) map[string][]byte {
 	for _, name := range names {
 		data := []byte("asset:" + name)
 		if strings.HasSuffix(name, ".sbom.json") {
-			data = []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6","metadata":{"component":{"name":"gobfd"}},"components":[{"name":"gobfd"}]}`)
+			data = []byte(
+				`{"bomFormat":"CycloneDX","specVersion":"1.6",` +
+					`"metadata":{"component":{"name":"gobfd"}},"components":[{"name":"gobfd"}]}`,
+			)
 		}
 		assets[name] = data
 		mainChecksums = append(mainChecksums, formatReleaseSHA256Line(data, name)...)

@@ -161,11 +161,17 @@ func TestValidateReleaseOCIAttestationsChecksBothPlatforms(t *testing.T) {
 			want := [][]string{
 				{"buildx", "imagetools", "inspect", "--raw", image.Image + "@" + image.Attestations[image.Runnable[platform]]},
 				{"buildx", "imagetools", "inspect", pinnedImage, "--format", `{{json (index .SBOM "` + platform + `").SPDX}}`},
-				{"buildx", "imagetools", "inspect", pinnedImage, "--format", `{{json (index .Provenance "` + platform + `").SLSA}}`},
+				{
+					"buildx", "imagetools", "inspect", pinnedImage, "--format",
+					`{{json (index .Provenance "` + platform + `").SLSA}}`,
+				},
 			}
 			for offset, wantArgs := range want {
 				if got := runner.calls[callIndex+offset].args; !reflect.DeepEqual(got, wantArgs) {
-					t.Errorf("OCI payload args image=%d platform=%s offset=%d = %q, want %q", imageIndex, platform, offset, got, wantArgs)
+					t.Errorf(
+						"OCI payload args image=%d platform=%s offset=%d = %q, want %q",
+						imageIndex, platform, offset, got, wantArgs,
+					)
 				}
 			}
 		}
@@ -188,19 +194,24 @@ func TestValidateReleaseOCIAttestationsRejectsInvalidPayloads(t *testing.T) {
 		{
 			name: "empty SPDX packages",
 			raw: [][]byte{rawAttestation, []byte(
-				`{"SPDXID":"SPDXRef-DOCUMENT","dataLicense":"CC0-1.0","spdxVersion":"SPDX-2.3","documentNamespace":"urn:test","packages":[]}`,
+				`{"SPDXID":"SPDXRef-DOCUMENT","dataLicense":"CC0-1.0","spdxVersion":"SPDX-2.3",` +
+					`"documentNamespace":"urn:test","packages":[]}`,
 			)},
 		},
 		{
 			name: "missing provenance builder id",
 			raw: [][]byte{rawAttestation, spdx, []byte(
-				`{"buildDefinition":{"buildType":"` + ociSLSABuildTypeV1 + `","resolvedDependencies":[{}]},"runDetails":{"builder":{},"metadata":{"invocationId":"id","startedOn":"start","finishedOn":"finish"}}}`,
+				`{"buildDefinition":{"buildType":"` + ociSLSABuildTypeV1 +
+					`","resolvedDependencies":[{}]},"runDetails":{"builder":{},` +
+					`"metadata":{"invocationId":"id","startedOn":"start","finishedOn":"finish"}}}`,
 			)},
 		},
 		{
 			name: "null provenance builder id",
 			raw: [][]byte{rawAttestation, spdx, []byte(
-				`{"buildDefinition":{"buildType":"` + ociSLSABuildTypeV1 + `","resolvedDependencies":[{}]},"runDetails":{"builder":{"id":null},"metadata":{"invocationId":"id","startedOn":"start","finishedOn":"finish"}}}`,
+				`{"buildDefinition":{"buildType":"` + ociSLSABuildTypeV1 +
+					`","resolvedDependencies":[{}]},"runDetails":{"builder":{"id":null},` +
+					`"metadata":{"invocationId":"id","startedOn":"start","finishedOn":"finish"}}}`,
 			)},
 		},
 	} {

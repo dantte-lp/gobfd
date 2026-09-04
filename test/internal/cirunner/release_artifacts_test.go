@@ -168,10 +168,22 @@ func validGoReleaserArtifacts() []goReleaserArtifact {
 	return []goReleaserArtifact{
 		{Type: "Archive", Path: "dist/gobfd_0.6.5_linux_amd64.tar.gz", GoOS: "linux", GoArch: "amd64"},
 		{Type: "Archive", Path: "dist/gobfd_0.6.5_linux_arm64.tar.gz", GoOS: "linux", GoArch: "arm64"},
-		{Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_amd64.deb", GoOS: "linux", GoArch: "amd64", Extra: goReleaserArtifactExtra{Format: "deb"}},
-		{Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_amd64.rpm", GoOS: "linux", GoArch: "amd64", Extra: goReleaserArtifactExtra{Format: "rpm"}},
-		{Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_arm64.deb", GoOS: "linux", GoArch: "arm64", Extra: goReleaserArtifactExtra{Format: "deb"}},
-		{Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_arm64.rpm", GoOS: "linux", GoArch: "arm64", Extra: goReleaserArtifactExtra{Format: "rpm"}},
+		{
+			Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_amd64.deb", GoOS: "linux", GoArch: "amd64",
+			Extra: goReleaserArtifactExtra{Format: "deb"},
+		},
+		{
+			Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_amd64.rpm", GoOS: "linux", GoArch: "amd64",
+			Extra: goReleaserArtifactExtra{Format: "rpm"},
+		},
+		{
+			Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_arm64.deb", GoOS: "linux", GoArch: "arm64",
+			Extra: goReleaserArtifactExtra{Format: "deb"},
+		},
+		{
+			Type: "Linux Package", Path: "dist/gobfd_0.6.5_linux_arm64.rpm", GoOS: "linux", GoArch: "arm64",
+			Extra: goReleaserArtifactExtra{Format: "rpm"},
+		},
 		{Type: "SBOM", Path: "dist/gobfd_0.6.5_linux_amd64.tar.gz.sbom.json"},
 		{Type: "SBOM", Path: "dist/gobfd_0.6.5_linux_arm64.tar.gz.sbom.json"},
 		{Type: "Checksum", Path: "dist/checksums.txt"},
@@ -201,7 +213,9 @@ func writeRawGoReleaserArtifactsFixture(t *testing.T, root string, data []byte) 
 func prepareReleaseArtifactCommit(t *testing.T, runnerTemp string) *recordingSpecRunner {
 	t.Helper()
 	commit := strings.Repeat("a", 40)
-	if err := os.WriteFile(filepath.Join(runnerTemp, "expected-release-commit.txt"), []byte(commit+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(runnerTemp, "expected-release-commit.txt"), []byte(commit+"\n"), 0o644,
+	); err != nil {
 		t.Fatal(err)
 	}
 	return &recordingSpecRunner{afterRun: func(spec CommandSpec) {
