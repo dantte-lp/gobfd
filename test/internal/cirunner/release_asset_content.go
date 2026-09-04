@@ -259,7 +259,7 @@ func validateReleaseChecksums(
 			return nil, nil, err
 		}
 		digest := sha256.Sum256(data)
-		if fmt.Sprintf("%x", digest) != records[name] {
+		if hex.EncodeToString(digest[:]) != records[name] {
 			return nil, nil, fmt.Errorf("release asset %s SHA-256 mismatch: %w", name, errInvalidConfig)
 		}
 		evidence[name] = releaseAssetSnapshot{Size: int64(len(data)), Digest: "sha256:" + records[name]}
@@ -275,7 +275,7 @@ func validateReleaseChecksums(
 
 func snapshotReleaseAsset(data []byte) releaseAssetSnapshot {
 	digest := sha256.Sum256(data)
-	return releaseAssetSnapshot{Size: int64(len(data)), Digest: fmt.Sprintf("sha256:%x", digest)}
+	return releaseAssetSnapshot{Size: int64(len(data)), Digest: "sha256:" + hex.EncodeToString(digest[:])}
 }
 
 func validateReleaseCycloneDXSBOM(data []byte, name string) error {

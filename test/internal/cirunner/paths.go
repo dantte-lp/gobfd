@@ -32,7 +32,7 @@ func inspectDirectoryTree(path, purpose string) error {
 	volume := filepath.VolumeName(path)
 	current := volume + string(filepath.Separator)
 	relative := strings.TrimPrefix(path, current)
-	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+	for component := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		if component == "" {
 			continue
 		}
@@ -57,7 +57,7 @@ func ensureDirectory(path, purpose string) error {
 	volume := filepath.VolumeName(absolute)
 	current := volume + string(filepath.Separator)
 	relative := strings.TrimPrefix(absolute, current)
-	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+	for component := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		if component == "" {
 			continue
 		}

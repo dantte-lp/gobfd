@@ -274,7 +274,7 @@ func extractReleaseChangelogRange(
 	rangeText := changelog[start:stop]
 	hasCategory := false
 	hasEntry := false
-	for _, line := range strings.Split(rangeText, "\n") {
+	for line := range strings.SplitSeq(rangeText, "\n") {
 		hasCategory = hasCategory || strings.HasPrefix(line, "### ")
 		hasEntry = hasEntry || strings.HasPrefix(line, "- ")
 	}

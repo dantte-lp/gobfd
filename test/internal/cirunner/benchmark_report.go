@@ -420,7 +420,7 @@ func allEmpty(record []string) bool {
 
 func nonemptyLines(value string) []string {
 	lines := make([]string, 0)
-	for _, line := range strings.Split(value, "\n") {
+	for line := range strings.SplitSeq(value, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			lines = append(lines, line)

@@ -270,7 +270,7 @@ func normalizeBenchmarkData(data string) string {
 
 func containsTopLevelBenchmark(data, name string) bool {
 	want := "Benchmark" + name
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
