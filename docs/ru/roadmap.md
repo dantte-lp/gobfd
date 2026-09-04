@@ -96,9 +96,11 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 | Независимая проверка реализации | Открыто |
 | Interop, scale, security и release qualification | В работе; выполняются локальное исправление release-quality gates и независимая проверка |
 
-Первая часть maintainability-работ по release-quality принята: устранены 78 из
-85 измеренных strict-lint findings, а оставшиеся 7 последовательно
+Первая часть maintainability-работ по release-quality принята: устранены 82 из
+85 измеренных strict-lint findings, а оставшиеся 3 последовательно
 отслеживаются в Beads для исправления OCI, release и bootstrap-кода.
+Два ранее существовавших дефекта публикации `GITHUB_PATH`, найденные при review,
+остаются отдельными release blockers в Beads и не включены в lint-refactor.
 
 Принятый core C01.1 предоставляет канонический ключ сессии, отделённый от
 packet demultiplexing, сериализованные типизированные claims конфигурации,
