@@ -61,7 +61,8 @@ func TestReleaseUPXUsesPinnedAssetAndAppendsVerifiedBinaryPath(t *testing.T) {
 		t.Errorf("extracted UPX = %q, %v", data, err)
 	}
 	assertExactMode(t, upxPath, 0o755)
-	if data, err := os.ReadFile(githubPath); err != nil || string(data) != "/existing/bin\n"+filepath.Join(root, "bin")+"\n" {
+	if data, err := os.ReadFile(githubPath); err != nil ||
+		string(data) != "/existing/bin\n"+filepath.Join(root, "bin")+"\n" {
 		t.Errorf("GITHUB_PATH = %q, %v", data, err)
 	}
 }
@@ -142,7 +143,8 @@ func TestReleaseUPXProductionAssetContract(t *testing.T) {
 
 	asset := defaultUPXAssetContract()
 	if asset.version != "4.2.2" || asset.archiveName != "upx-4.2.2-amd64_linux.tar.xz" ||
-		asset.archiveSize != 590172 || asset.archiveSHA256 != "915c8e844f835de03b9cc311ff185aedec79d757aee9d7133a528b9e89c463bb" ||
+		asset.archiveSize != 590172 ||
+		asset.archiveSHA256 != "915c8e844f835de03b9cc311ff185aedec79d757aee9d7133a528b9e89c463bb" ||
 		asset.tarSize != 747520 {
 		t.Fatalf("production UPX contract = %#v", asset)
 	}
@@ -203,12 +205,16 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 		{name: "checksum", mutate: func(_ *testing.T, _ *ReleaseUPXOptions, _ *upxTestRunner, asset *upxAssetContract) {
 			asset.archiveSHA256 = strings.Repeat("0", 64)
 		}},
-		{name: "unexpected tar entry", mutate: func(t *testing.T, _ *ReleaseUPXOptions, runner *upxTestRunner, asset *upxAssetContract) {
+		{name: "unexpected tar entry", mutate: func(t *testing.T, _ *ReleaseUPXOptions,
+			runner *upxTestRunner, asset *upxAssetContract,
+		) {
 			t.Helper()
 			runner.tar = makeUPXTestTar(t, true)
 			asset.tarSize = int64(len(runner.tar))
 		}},
-		{name: "directory collision", mutate: func(t *testing.T, options *ReleaseUPXOptions, _ *upxTestRunner, _ *upxAssetContract) {
+		{name: "directory collision", mutate: func(t *testing.T, options *ReleaseUPXOptions,
+			_ *upxTestRunner, _ *upxAssetContract,
+		) {
 			t.Helper()
 			if err := os.Mkdir(filepath.Join(options.RunnerTemp, "gobfd-upx-4.2.2"), 0o755); err != nil {
 				t.Fatal(err)
@@ -217,7 +223,9 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 		{name: "wrong version", mutate: func(_ *testing.T, _ *ReleaseUPXOptions, runner *upxTestRunner, _ *upxAssetContract) {
 			runner.version = "upx 4.2.1\n"
 		}},
-		{name: "archive replacement after verification", mutate: func(_ *testing.T, _ *ReleaseUPXOptions, runner *upxTestRunner, asset *upxAssetContract) {
+		{name: "archive replacement after verification", mutate: func(_ *testing.T, _ *ReleaseUPXOptions,
+			runner *upxTestRunner, asset *upxAssetContract,
+		) {
 			runner.beforeCommand = func(spec CommandSpec) error {
 				if spec.Name != "xz" {
 					return nil
@@ -229,7 +237,9 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 				return os.WriteFile(archive, bytes.Repeat([]byte("x"), int(asset.archiveSize)), 0o644)
 			}
 		}},
-		{name: "executable replacement during verification", mutate: func(_ *testing.T, _ *ReleaseUPXOptions, runner *upxTestRunner, _ *upxAssetContract) {
+		{name: "executable replacement during verification", mutate: func(_ *testing.T, _ *ReleaseUPXOptions,
+			runner *upxTestRunner, _ *upxAssetContract,
+		) {
 			runner.beforeCommand = func(spec CommandSpec) error {
 				if spec.Name != "upx" {
 					return nil
@@ -241,7 +251,9 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 				return os.WriteFile(executable, []byte("malicious"), 0o755)
 			}
 		}},
-		{name: "root ownership replacement", mutate: func(_ *testing.T, _ *ReleaseUPXOptions, runner *upxTestRunner, _ *upxAssetContract) {
+		{name: "root ownership replacement", mutate: func(_ *testing.T, _ *ReleaseUPXOptions,
+			runner *upxTestRunner, _ *upxAssetContract,
+		) {
 			runner.beforeCommand = func(spec CommandSpec) error {
 				if spec.Name != "upx" {
 					return nil
@@ -255,7 +267,9 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 				return os.WriteFile(filepath.Join(spec.Dir, "sentinel"), []byte("preserve"), 0o644)
 			}
 		}},
-		{name: "symlink GITHUB_PATH", mutate: func(t *testing.T, options *ReleaseUPXOptions, _ *upxTestRunner, _ *upxAssetContract) {
+		{name: "symlink GITHUB_PATH", mutate: func(t *testing.T, options *ReleaseUPXOptions,
+			_ *upxTestRunner, _ *upxAssetContract,
+		) {
 			t.Helper()
 			external := filepath.Join(t.TempDir(), "external")
 			if err := os.WriteFile(external, []byte("preserve\n"), 0o644); err != nil {
@@ -295,7 +309,8 @@ func TestReleaseUPXRejectsInvalidEvidenceAndUnsafePaths(t *testing.T) {
 				t.Fatal("ReleaseUPX() error = nil, want fail-closed rejection")
 			}
 			if test.name == "root ownership replacement" {
-				if data, readErr := os.ReadFile(filepath.Join(options.RunnerTemp, "gobfd-upx-4.2.2", "sentinel")); readErr != nil || string(data) != "preserve" {
+				if data, readErr := os.ReadFile(filepath.Join(options.RunnerTemp,
+					"gobfd-upx-4.2.2", "sentinel")); readErr != nil || string(data) != "preserve" {
 					t.Errorf("replacement UPX root changed: %q, %v", data, readErr)
 				}
 			} else if test.name != "directory collision" {
@@ -330,7 +345,10 @@ func makeUPXTestTar(t *testing.T, unexpected bool) []byte {
 		data   string
 	}{
 		{header: tar.Header{Name: "upx-4.2.2-amd64_linux/", Mode: 0o755, Typeflag: tar.TypeDir}},
-		{header: tar.Header{Name: "upx-4.2.2-amd64_linux/upx", Mode: 0o755, Size: 8, Typeflag: tar.TypeReg}, data: "test upx"},
+		{header: tar.Header{
+			Name: "upx-4.2.2-amd64_linux/upx", Mode: 0o755, Size: 8,
+			Typeflag: tar.TypeReg,
+		}, data: "test upx"},
 	}
 	if unexpected {
 		entries = append(entries, struct {
