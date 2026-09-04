@@ -26,6 +26,7 @@ type demuxCall struct {
 	MyDiscr   uint32
 	YourDiscr uint32
 	SrcAddr   netip.Addr
+	TTL       uint8
 	WireLen   int
 }
 
@@ -36,6 +37,7 @@ func (m *mockDemuxer) DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta,
 		MyDiscr:   pkt.MyDiscriminator,
 		YourDiscr: pkt.YourDiscriminator,
 		SrcAddr:   meta.SrcAddr,
+		TTL:       meta.TTL,
 		WireLen:   len(wire),
 	})
 	return m.err

@@ -352,6 +352,7 @@ func TestParseGenevePacketInnerCorruptions(t *testing.T) {
 			corrupt: func(pkt []byte) {
 				off := netio.GeneveHeaderMinSize + netio.InnerEthSize + 9
 				pkt[off] = 6 // TCP instead of UDP
+				updateIPv4Checksum(pkt[netio.GeneveHeaderMinSize:])
 			},
 			wantError: netio.ErrInnerBadProtocol,
 		},

@@ -53,8 +53,8 @@
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Пустой prefix policy принимает любой source, неположительный session limit не ограничен |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный/неполный preview** | Inner-packet validation, tunnel identity и owner-specific dataplane integration не завершены |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный/неполный preview** | Inner-packet validation, tunnel identity и owner-specific dataplane integration не завершены |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный/неполный preview** | Полная tunnel identity и owner-specific dataplane integration не завершены |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный/неполный preview** | Полная tunnel identity и owner-specific dataplane integration не завершены |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Padding без auth и DF реализованы; hashing authenticated padding не завершён |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
@@ -312,7 +312,7 @@ RFC 8971 определяет BFD в VXLAN-инкапсуляции для об�
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
 | Цикл OverlayReceiver | Снимает VXLAN + inner заголовки, доставляет в `Manager.DemuxWithWire` |
 | Модель backend | `NewVXLANOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Валидация receive path | Overlay-заголовки и VNI проверяются, но inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination и полная tunnel identity пока не валидируются |
+| Валидация receive path | Проверяются overlay-заголовки и VNI, а также MAC Format A, IHL/length/fragmentation/checksum/TTL/destination IPv4 и UDP port/length/checksum; полная tunnel identity пока не валидируется |
 | Декларативные пиры | `vxlan.peers[]` в конфиге, реконсиляция при SIGHUP |
 | Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
 
@@ -332,9 +332,8 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 closed до появления owner-specific integration. Sender reconciliation
 использует runtime backend, который уже обслуживает receiver, и не bind-ит
 второй socket.
-Receive path также переиспользует socket identity первого peer и синтезирует
-TTL 255 при доставке. Поэтому он небезопасен для production до полной
-валидации inner packet и привязки tunnel-session identity.
+Receive path также переиспользует socket identity первого peer. Поэтому он
+небезопасен для production до полной привязки tunnel-session identity.
 
 ### Заметки по RFC 9521
 
@@ -360,7 +359,7 @@ RFC 9521 определяет BFD в Geneve-инкапсуляции для об
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
 | Цикл OverlayReceiver | Снимает Geneve + inner заголовки, доставляет в `Manager.DemuxWithWire` |
 | Модель backend | `NewGeneveOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Валидация receive path | Overlay-заголовки и VNI проверяются, но inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination и полная tunnel identity пока не валидируются |
+| Валидация receive path | Проверяются overlay-заголовки и VNI, а также MAC Format A, IHL/length/fragmentation/checksum/TTL/destination IPv4 и UDP port/length/checksum; полная tunnel identity пока не валидируется |
 | Декларативные пиры | `geneve.peers[]` в конфиге, переопределение VNI per-peer, реконсиляция при SIGHUP |
 | Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
 
@@ -383,9 +382,8 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 интеграций. RFC 9521 также наследует требование Geneve работать в
 traffic-managed controlled environment или явно ограничивать BFD transmit rate,
 чтобы не получать ложные отказы из-за перегрузки.
-Receive path также переиспользует socket identity первого peer и синтезирует
-TTL 255 при доставке. Поэтому он небезопасен для production до полной
-валидации inner packet и привязки tunnel-session identity.
+Receive path также переиспользует socket identity первого peer. Поэтому он
+небезопасен для production до полной привязки tunnel-session identity.
 
 ### Заметки по RFC 9764
 

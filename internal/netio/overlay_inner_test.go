@@ -1,6 +1,7 @@
 package netio_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"net/netip"
@@ -504,6 +505,7 @@ func TestStripInnerPacketBadProtocol(t *testing.T) {
 
 	// Set protocol to TCP (6) instead of UDP (17).
 	pkt[netio.InnerEthSize+9] = 6
+	updateIPv4Checksum(pkt)
 
 	_, _, _, err = netio.StripInnerPacket(pkt)
 	if err == nil {
@@ -511,6 +513,109 @@ func TestStripInnerPacketBadProtocol(t *testing.T) {
 	}
 	if !errors.Is(err, netio.ErrInnerBadProtocol) {
 		t.Errorf("error = %v, want ErrInnerBadProtocol", err)
+	}
+}
+
+func TestStripInnerPacketValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{"destination_mac", func(pkt []byte) []byte { pkt[0] ^= 1; return pkt }},
+		{"ihl_too_small", func(pkt []byte) []byte {
+			pkt[netio.InnerEthSize] = 0x44
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"ihl_out_of_bounds", func(pkt []byte) []byte {
+			pkt[netio.InnerEthSize] = 0x4f
+			return pkt
+		}},
+		{"ip_total_length_short", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+2:], uint16(len(pkt)-netio.InnerEthSize-1))
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"ip_total_length_beyond_buffer", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+2:], uint16(len(pkt)-netio.InnerEthSize+1))
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"trailing_byte", func(pkt []byte) []byte { return append(pkt, 0) }},
+		{"reserved_ip_flag", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+6:], 0xc000)
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"more_fragments", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+6:], 0x6000)
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"fragment_offset", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+6:], 0x4001)
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"ip_checksum", func(pkt []byte) []byte { pkt[netio.InnerEthSize+10] ^= 1; return pkt }},
+		{"wire_ttl", func(pkt []byte) []byte {
+			pkt[netio.InnerEthSize+8] = 254
+			updateIPv4Checksum(pkt)
+			return pkt
+		}},
+		{"udp_destination_port", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+2:], 4784)
+			return pkt
+		}},
+		{"udp_length_too_small", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], 7)
+			return pkt
+		}},
+		{"udp_length_short", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], uint16(len(pkt)-netio.InnerOverheadIPv4+7))
+			return pkt
+		}},
+		{"udp_length_beyond_ip", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], uint16(len(pkt)-netio.InnerOverheadIPv4+9))
+			return pkt
+		}},
+		{"udp_checksum", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+6:], 1)
+			return pkt
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pkt := mustBuildInnerPacket(t)
+			if _, _, _, err := netio.StripInnerPacket(tt.mutate(pkt)); err == nil {
+				t.Fatal("StripInnerPacket accepted malformed packet")
+			}
+		})
+	}
+}
+
+func TestStripInnerPacketAcceptsIPv4OptionsAndUDPChecksum(t *testing.T) {
+	t.Parallel()
+
+	pkt := mustBuildInnerPacket(t)
+	withOptions := make([]byte, len(pkt)+4)
+	copy(withOptions[:netio.InnerEthSize+netio.InnerIPv4Size], pkt[:netio.InnerEthSize+netio.InnerIPv4Size])
+	copy(withOptions[netio.InnerEthSize+netio.InnerIPv4Size+4:], pkt[netio.InnerEthSize+netio.InnerIPv4Size:])
+	withOptions[netio.InnerEthSize] = 0x46
+	binary.BigEndian.PutUint16(withOptions[netio.InnerEthSize+2:], uint16(len(withOptions)-netio.InnerEthSize))
+	updateIPv4Checksum(withOptions)
+	updateUDPChecksum(withOptions)
+
+	payload, _, _, err := netio.StripInnerPacket(withOptions)
+	if err != nil {
+		t.Fatalf("StripInnerPacket rejected valid IPv4 options or UDP checksum: %v", err)
+	}
+	if want := makePayload(24); !bytes.Equal(payload, want) {
+		t.Fatalf("payload = %x, want %x", payload, want)
 	}
 }
 
@@ -595,6 +700,54 @@ func makePayload(size int) []byte {
 		buf[i] = byte(i & 0xFF)
 	}
 	return buf
+}
+
+func mustBuildInnerPacket(t *testing.T) []byte {
+	t.Helper()
+	pkt, err := netio.BuildInnerPacket(
+		makePayload(24),
+		netip.MustParseAddr("10.0.0.1"),
+		netip.MustParseAddr("10.0.0.2"),
+		49152,
+	)
+	if err != nil {
+		t.Fatalf("BuildInnerPacket: %v", err)
+	}
+	return pkt
+}
+
+func updateIPv4Checksum(pkt []byte) {
+	ipOff := netio.InnerEthSize
+	ihl := int(pkt[ipOff]&0x0f) * 4
+	binary.BigEndian.PutUint16(pkt[ipOff+10:], 0)
+	binary.BigEndian.PutUint16(pkt[ipOff+10:], checksum(pkt[ipOff:ipOff+ihl], 0))
+}
+
+func updateUDPChecksum(pkt []byte) {
+	ipOff := netio.InnerEthSize
+	ihl := int(pkt[ipOff]&0x0f) * 4
+	udp := pkt[ipOff+ihl:]
+	binary.BigEndian.PutUint16(udp[6:], 0)
+	sum := uint32(binary.BigEndian.Uint16(pkt[ipOff+12:])) +
+		uint32(binary.BigEndian.Uint16(pkt[ipOff+14:])) +
+		uint32(binary.BigEndian.Uint16(pkt[ipOff+16:])) +
+		uint32(binary.BigEndian.Uint16(pkt[ipOff+18:])) +
+		uint32(pkt[ipOff+9]) + uint32(len(udp))
+	binary.BigEndian.PutUint16(udp[6:], checksum(udp, sum))
+}
+
+func checksum(buf []byte, sum uint32) uint16 {
+	for len(buf) >= 2 {
+		sum += uint32(binary.BigEndian.Uint16(buf))
+		buf = buf[2:]
+	}
+	if len(buf) == 1 {
+		sum += uint32(buf[0]) << 8
+	}
+	for sum>>16 != 0 {
+		sum = sum&0xffff + sum>>16
+	}
+	return ^uint16(sum)
 }
 
 // verifyIPv4Checksum verifies an IPv4 header checksum by computing over the

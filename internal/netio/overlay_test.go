@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"sync"
 	"sync/atomic"
@@ -65,6 +66,9 @@ func testOverlayConnLoopbackLifecycle(
 	if meta.VNI != 100 {
 		t.Fatalf("VNI = %d, want 100", meta.VNI)
 	}
+	if meta.TTL != 255 {
+		t.Fatalf("TTL = %d, want inner wire TTL 255", meta.TTL)
+	}
 
 	err = conn.SendEncapsulated(context.Background(), makePayload(9000), loopback)
 	if !errors.Is(err, netio.ErrInnerPacketBufferTooShort) {
@@ -82,6 +86,65 @@ func testOverlayConnLoopbackLifecycle(
 		netio.ErrOverlayRecvClosed,
 	) {
 		t.Fatalf("SendEncapsulated after Close error = %v, want ErrOverlayRecvClosed", err)
+	}
+}
+
+func TestOverlayRecvRejectsWrongInnerDestination(t *testing.T) {
+	local := netip.MustParseAddr("127.0.0.1")
+	wrong := netip.MustParseAddr("127.0.0.2")
+	tests := []struct {
+		name    string
+		port    uint16
+		newConn func() (netio.OverlayConn, error)
+		packet  func() ([]byte, error)
+	}{
+		{
+			name: "vxlan",
+			port: netio.VXLANPort,
+			newConn: func() (netio.OverlayConn, error) {
+				return netio.NewVXLANConn(local, 100, 49152, slog.New(slog.DiscardHandler))
+			},
+			packet: func() ([]byte, error) {
+				return netio.BuildVXLANPacket(makePayload(24), 100, wrong, wrong, 49152)
+			},
+		},
+		{
+			name: "geneve",
+			port: netio.GenevePort,
+			newConn: func() (netio.OverlayConn, error) {
+				return netio.NewGeneveConn(local, 100, 49152, slog.New(slog.DiscardHandler))
+			},
+			packet: func() ([]byte, error) {
+				return netio.BuildGenevePacket(makePayload(24), 100, wrong, wrong, 49152)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn, err := tt.newConn()
+			if err != nil {
+				t.Skipf("%s loopback socket unavailable: %v", tt.name, err)
+			}
+			defer conn.Close()
+
+			packet, err := tt.packet()
+			if err != nil {
+				t.Fatalf("build packet: %v", err)
+			}
+			sender, err := net.ListenUDP("udp4", nil)
+			if err != nil {
+				t.Fatalf("open sender: %v", err)
+			}
+			defer sender.Close()
+			if _, err := sender.WriteToUDP(packet, net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, tt.port))); err != nil {
+				t.Fatalf("send packet: %v", err)
+			}
+
+			if _, _, err := conn.RecvDecapsulated(t.Context()); !errors.Is(err, netio.ErrOverlayInnerDstMismatch) {
+				t.Fatalf("RecvDecapsulated error = %v, want ErrOverlayInnerDstMismatch", err)
+			}
+		})
 	}
 }
 
@@ -240,6 +303,7 @@ func TestOverlayReceiver_RunDemuxesValidPacket(t *testing.T) {
 					SrcAddr: netip.MustParseAddr("10.0.0.2"),
 					DstAddr: netip.MustParseAddr("10.0.0.1"),
 					VNI:     100,
+					TTL:     254,
 				}, nil
 			}
 			cancel()
@@ -267,6 +331,9 @@ func TestOverlayReceiver_RunDemuxesValidPacket(t *testing.T) {
 	if dmux.calls[0].SrcAddr != netip.MustParseAddr("10.0.0.2") {
 		t.Errorf("SrcAddr = %s, want 10.0.0.2", dmux.calls[0].SrcAddr)
 	}
+	if dmux.calls[0].TTL != 254 {
+		t.Errorf("TTL = %d, want wire metadata value 254", dmux.calls[0].TTL)
+	}
 	if dmux.calls[0].WireLen != 0 {
 		t.Errorf("WireLen = %d, want 0 for unauthenticated overlay packet", dmux.calls[0].WireLen)
 	}
@@ -290,7 +357,8 @@ func TestOverlayReceiver_DropsExpectedOverlayErrorsWithoutWarn(t *testing.T) {
 	}
 
 	handler := &countWarnHandler{}
-	recv := netio.NewOverlayReceiver(conn, &mockDemuxer{}, slog.New(handler))
+	dmux := &mockDemuxer{}
+	recv := netio.NewOverlayReceiver(conn, dmux, slog.New(handler))
 
 	err := recv.Run(ctx)
 	if err != nil {
@@ -299,6 +367,11 @@ func TestOverlayReceiver_DropsExpectedOverlayErrorsWithoutWarn(t *testing.T) {
 
 	if warnings := handler.warnings.Load(); warnings != 0 {
 		t.Errorf("warnings = %d, want 0 for expected overlay drop errors", warnings)
+	}
+	dmux.mu.Lock()
+	defer dmux.mu.Unlock()
+	if len(dmux.calls) != 0 {
+		t.Errorf("demux calls = %d, want 0 for rejected overlay packet", len(dmux.calls))
 	}
 }
 

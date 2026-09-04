@@ -155,7 +155,7 @@ func (c *VXLANConn) SendEncapsulated(
 // Validation performed:
 //   - VXLAN header I flag (VNI valid)
 //   - VNI matches the configured Management VNI (RFC 8971 Section 3)
-//   - Inner packet headers (Ethernet EtherType, IP version, IP protocol)
+//   - Complete supported Format A inner Ethernet, IPv4, and UDP framing
 //
 // Packets with non-matching VNI are silently dropped (they belong to
 // data-plane VNIs, not BFD management traffic).
@@ -196,8 +196,11 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 
 	// Strip inner packet headers and extract BFD payload.
 	innerData := data[VXLANHeaderSize:]
-	bfdPayload, _, _, err := StripInnerPacket(innerData)
+	bfdPayload, _, innerDst, ttl, err := stripInnerPacket(innerData)
 	if err != nil {
+		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
+	}
+	if err := validateInnerDestination(innerDst, c.localAddr); err != nil {
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
 
@@ -213,6 +216,7 @@ func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, er
 		SrcAddr: srcAddr.Unmap(),
 		DstAddr: c.localAddr,
 		VNI:     vxlanHdr.VNI,
+		TTL:     ttl,
 	}
 
 	return bfdPayload, meta, nil

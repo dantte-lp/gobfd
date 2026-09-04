@@ -53,8 +53,8 @@
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Empty prefix policy accepts any source and nonpositive session limits are unbounded |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
-| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe/incomplete preview** | Inner-packet validation, tunnel identity, and owner-specific dataplane integration are incomplete |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe/incomplete preview** | Inner-packet validation, tunnel identity, and owner-specific dataplane integration are incomplete |
+| [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe/incomplete preview** | Complete tunnel identity and owner-specific dataplane integration are incomplete |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe/incomplete preview** | Complete tunnel identity and owner-specific dataplane integration are incomplete |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | Unauthenticated padding and DF exist; authenticated padded hashing is incomplete |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
@@ -372,7 +372,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips VXLAN + inner headers, delivers to `Manager.DemuxWithWire` |
 | Backend model | `NewVXLANOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive validation | Overlay headers and VNI are checked, but inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination, and full tunnel identity are not yet validated |
+| Receive validation | Overlay headers and VNI plus inner Format A MAC, IPv4 IHL/length/fragmentation/checksum/TTL/destination, and UDP port/length/checksum are checked; full tunnel identity is not yet validated |
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 
@@ -391,9 +391,8 @@ VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns UDP 4789 
 same local address/namespace, GoBFD fails closed for reserved backend names
 until an owner-specific integration exists. Sender reconciliation reuses the
 runtime backend already serving the receiver and does not bind a second socket.
-The receive path also reuses first-peer socket identity and synthesizes TTL 255
-for delivery. It is therefore unsafe for production until complete inner-packet
-validation and tunnel-session identity binding are implemented.
+The receive path also reuses first-peer socket identity. It is therefore unsafe
+for production until complete tunnel-session identity binding is implemented.
 
 ### RFC 9521 Implementation Notes
 
@@ -419,7 +418,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Strips Geneve + inner headers, delivers to `Manager.DemuxWithWire` |
 | Backend model | `NewGeneveOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive validation | Overlay headers and VNI are checked, but inner IP checksum, IHL/length, fragmentation, TTL, UDP port/length, destination, and full tunnel identity are not yet validated |
+| Receive validation | Overlay headers and VNI plus inner Format A MAC, IPv4 IHL/length/fragmentation/checksum/TTL/destination, and UDP port/length/checksum are checked; full tunnel identity is not yet validated |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
 | Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
 
@@ -442,9 +441,8 @@ Reserved owner-specific backend names fail closed until those integrations
 exist. RFC 9521 also inherits the Geneve requirement to run in a traffic-managed
 controlled environment or otherwise provision BFD transmit rates to avoid
 congestion-driven false failure detection.
-The receive path also reuses first-peer socket identity and synthesizes TTL 255
-for delivery. It is therefore unsafe for production until complete inner-packet
-validation and tunnel-session identity binding are implemented.
+The receive path also reuses first-peer socket identity. It is therefore unsafe
+for production until complete tunnel-session identity binding is implemented.
 
 ### RFC 9764 Implementation Notes
 

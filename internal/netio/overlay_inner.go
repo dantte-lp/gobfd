@@ -13,6 +13,7 @@ package netio
 // geneve_conn.go respectively.
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -79,11 +80,40 @@ var (
 	// ErrInnerBadEtherType indicates the inner Ethernet EtherType is not IPv4.
 	ErrInnerBadEtherType = errors.New("inner packet: unexpected EtherType, expected 0x0800 (IPv4)")
 
+	// ErrInnerBadDestinationMAC indicates the packet is not addressed to the
+	// supported Format A BFD destination MAC.
+	ErrInnerBadDestinationMAC = errors.New("inner packet: unexpected destination MAC")
+
 	// ErrInnerBadIPVersion indicates the inner IP header version is not 4.
 	ErrInnerBadIPVersion = errors.New("inner packet: IP version is not 4")
 
+	// ErrInnerBadIHL indicates an invalid or out-of-bounds IPv4 header length.
+	ErrInnerBadIHL = errors.New("inner packet: invalid IPv4 header length")
+
+	// ErrInnerBadIPLength indicates the IPv4 total length does not exactly
+	// match the received inner packet.
+	ErrInnerBadIPLength = errors.New("inner packet: invalid IPv4 total length")
+
+	// ErrInnerFragmented indicates forbidden IPv4 fragmentation or reserved flags.
+	ErrInnerFragmented = errors.New("inner packet: fragmented IPv4 packet")
+
+	// ErrInnerBadIPChecksum indicates an invalid IPv4 header checksum.
+	ErrInnerBadIPChecksum = errors.New("inner packet: invalid IPv4 header checksum")
+
 	// ErrInnerBadProtocol indicates the inner IP protocol is not UDP (17).
 	ErrInnerBadProtocol = errors.New("inner packet: IP protocol is not UDP (17)")
+
+	// ErrInnerBadTTL indicates the inner IPv4 TTL is not 255.
+	ErrInnerBadTTL = errors.New("inner packet: IPv4 TTL is not 255")
+
+	// ErrInnerBadUDPDestinationPort indicates the UDP destination is not BFD.
+	ErrInnerBadUDPDestinationPort = errors.New("inner packet: UDP destination port is not 3784")
+
+	// ErrInnerBadUDPLength indicates an invalid or non-exact UDP length.
+	ErrInnerBadUDPLength = errors.New("inner packet: invalid UDP length")
+
+	// ErrInnerBadUDPChecksum indicates an invalid non-zero IPv4 UDP checksum.
+	ErrInnerBadUDPChecksum = errors.New("inner packet: invalid UDP checksum")
 
 	// ErrInnerIPv4Only indicates that only IPv4 inner addresses are supported.
 	ErrInnerIPv4Only = errors.New("inner packet: only IPv4 addresses supported")
@@ -237,83 +267,135 @@ func validateInnerBFDPayloadSize(size int) error {
 // -------------------------------------------------------------------------
 
 // StripInnerPacket strips the inner Ethernet + IPv4 + UDP headers and returns
-// the raw BFD payload bytes along with the inner source and destination IPs.
+// the raw BFD payload bytes and inner source and destination IPs.
 //
 // Validates:
-//   - Buffer length >= InnerOverheadIPv4 (42 bytes)
-//   - EtherType == 0x0800 (IPv4)
-//   - IP version == 4
-//   - IP protocol == 17 (UDP)
-//
-// Does NOT validate:
-//   - IPv4 header checksum (performance: the packet traversed the tunnel correctly)
-//   - UDP checksum (set to 0 by BuildInnerPacket)
-//   - TTL (validated as inner TTL=255 by the session layer)
+//   - Format A destination MAC and IPv4 EtherType
+//   - IPv4 version, IHL, exact total length, flags, checksum, protocol, and TTL
+//   - UDP destination port, exact length, and any non-zero checksum
 func StripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, error) {
+	payload, src, dst, _, err := stripInnerPacket(buf)
+	return payload, src, dst, err
+}
+
+func stripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, uint8, error) {
 	if len(buf) < InnerOverheadIPv4 {
-		return nil, netip.Addr{}, netip.Addr{}, fmt.Errorf(
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
 			"strip inner packet: got %d bytes, need %d: %w",
 			len(buf), InnerOverheadIPv4, ErrInnerPacketTooShort)
+	}
+	if !bytes.Equal(buf[:len(innerDstMAC)], innerDstMAC[:]) {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: destination MAC=%02x:%02x:%02x:%02x:%02x:%02x: %w",
+			buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], ErrInnerBadDestinationMAC)
 	}
 
 	// Validate EtherType (bytes 12-13).
 	etherType := binary.BigEndian.Uint16(buf[12:14])
 	if etherType != innerEtherTypeIPv4 {
-		return nil, netip.Addr{}, netip.Addr{}, fmt.Errorf(
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
 			"strip inner packet: EtherType=0x%04x: %w",
 			etherType, ErrInnerBadEtherType)
 	}
 
-	// Validate IP version (high nibble of byte 14).
 	ipOff := InnerEthSize
-	ipVersion := buf[ipOff] >> 4
+	ip := buf[ipOff:]
+	ipVersion := ip[0] >> 4
 	if ipVersion != 4 {
-		return nil, netip.Addr{}, netip.Addr{}, fmt.Errorf(
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
 			"strip inner packet: IP version=%d: %w",
 			ipVersion, ErrInnerBadIPVersion)
 	}
+	ipHeaderLen := int(ip[0]&0x0f) * 4
+	if ipHeaderLen < InnerIPv4Size || ipHeaderLen+InnerUDPSize > len(ip) {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: IPv4 header length=%d packet=%d: %w",
+			ipHeaderLen, len(ip), ErrInnerBadIHL)
+	}
+	ipTotalLen := int(binary.BigEndian.Uint16(ip[2:4]))
+	if ipTotalLen != len(ip) || ipTotalLen < ipHeaderLen+InnerUDPSize {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: IPv4 total length=%d packet=%d header=%d: %w",
+			ipTotalLen, len(ip), ipHeaderLen, ErrInnerBadIPLength)
+	}
+	if flagsFragment := binary.BigEndian.Uint16(ip[6:8]); flagsFragment&^uint16(0x4000) != 0 {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: IPv4 flags/fragment offset=0x%04x: %w",
+			flagsFragment, ErrInnerFragmented)
+	}
+	if ipv4HeaderChecksum(ip[:ipHeaderLen]) != 0 {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: %w", ErrInnerBadIPChecksum)
+	}
 
-	// Validate IP protocol (byte 23 = ipOff + 9).
-	ipProto := buf[ipOff+9]
+	ipProto := ip[9]
 	if ipProto != innerIPv4Protocol {
-		return nil, netip.Addr{}, netip.Addr{}, fmt.Errorf(
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
 			"strip inner packet: IP protocol=%d: %w",
 			ipProto, ErrInnerBadProtocol)
+	}
+	ttl := ip[8]
+	if ttl != innerIPv4TTL {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: IPv4 TTL=%d: %w", ttl, ErrInnerBadTTL)
+	}
+
+	udp := ip[ipHeaderLen:ipTotalLen]
+	udpDstPort := binary.BigEndian.Uint16(udp[2:4])
+	if udpDstPort != innerBFDDstPort {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: UDP destination port=%d: %w",
+			udpDstPort, ErrInnerBadUDPDestinationPort)
+	}
+	udpLen := int(binary.BigEndian.Uint16(udp[4:6]))
+	if udpLen < InnerUDPSize || udpLen != len(udp) {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: UDP length=%d IP payload=%d: %w",
+			udpLen, len(udp), ErrInnerBadUDPLength)
+	}
+	if binary.BigEndian.Uint16(udp[6:8]) != 0 && !validUDPIPv4Checksum(ip, udp) {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: %w", ErrInnerBadUDPChecksum)
 	}
 
 	// Extract source and destination IP addresses.
 	var src4, dst4 [4]byte
-	copy(src4[:], buf[ipOff+12:ipOff+16])
-	copy(dst4[:], buf[ipOff+16:ipOff+20])
+	copy(src4[:], ip[12:16])
+	copy(dst4[:], ip[16:20])
 
-	return buf[InnerOverheadIPv4:], netip.AddrFrom4(src4), netip.AddrFrom4(dst4), nil
+	return udp[InnerUDPSize:], netip.AddrFrom4(src4), netip.AddrFrom4(dst4), ttl, nil
 }
 
 // -------------------------------------------------------------------------
 // IPv4 Header Checksum — RFC 1071
 // -------------------------------------------------------------------------
 
-// ipv4HeaderChecksum computes the IPv4 header checksum per RFC 1071.
-// The header MUST have the checksum field set to zero before calling.
-// hdr must be exactly 20 bytes (no options).
+// ipv4HeaderChecksum computes the complete IPv4 header checksum per RFC 1071.
+// The checksum field must be zero when generating a checksum; verifying a
+// header with its stored checksum returns zero.
 func ipv4HeaderChecksum(hdr []byte) uint16 {
-	var sum uint32
+	return internetChecksum(hdr, 0)
+}
 
-	// Sum all 16-bit words in the header.
-	for i := 0; i < len(hdr)-1; i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(hdr[i : i+2]))
+func validUDPIPv4Checksum(ip, udp []byte) bool {
+	sum := uint32(binary.BigEndian.Uint16(ip[12:14])) +
+		uint32(binary.BigEndian.Uint16(ip[14:16])) +
+		uint32(binary.BigEndian.Uint16(ip[16:18])) +
+		uint32(binary.BigEndian.Uint16(ip[18:20])) +
+		uint32(ip[9]) + uint32(len(udp))
+	return internetChecksum(udp, sum) == 0
+}
+
+func internetChecksum(buf []byte, sum uint32) uint16 {
+	for len(buf) >= 2 {
+		sum += uint32(binary.BigEndian.Uint16(buf))
+		buf = buf[2:]
 	}
-
-	// Handle odd byte (not applicable for 20-byte header, but defensive).
-	if len(hdr)%2 != 0 {
-		sum += uint32(hdr[len(hdr)-1]) << 8
+	if len(buf) == 1 {
+		sum += uint32(buf[0]) << 8
 	}
-
-	// Fold 32-bit sum to 16 bits: add carry bits.
 	for sum>>16 != 0 {
 		sum = (sum & 0xFFFF) + (sum >> 16)
 	}
-
-	// One's complement.
 	return ^uint16(sum)
 }

@@ -69,6 +69,9 @@ type OverlayMeta struct {
 	// For VXLAN: the Management VNI (RFC 8971 Section 3).
 	// For Geneve: the VNI from the Geneve header (RFC 9521).
 	VNI uint32
+
+	// TTL is the Time-to-Live from the inner IPv4 header.
+	TTL uint8
 }
 
 // -------------------------------------------------------------------------
@@ -87,7 +90,18 @@ var (
 	// ErrOverlayInvalidAddr indicates the remote address from the outer
 	// UDP packet could not be parsed.
 	ErrOverlayInvalidAddr = errors.New("overlay: invalid remote address")
+
+	// ErrOverlayInnerDstMismatch indicates an inner packet addressed to a
+	// different local tunnel endpoint.
+	ErrOverlayInnerDstMismatch = errors.New("overlay: inner destination address mismatch")
 )
+
+func validateInnerDestination(got, want netip.Addr) error {
+	if got != want.Unmap() {
+		return fmt.Errorf("inner destination=%s local=%s: %w", got, want, ErrOverlayInnerDstMismatch)
+	}
+	return nil
+}
 
 // -------------------------------------------------------------------------
 // OverlaySender — adapts OverlayConn to bfd.PacketSender
@@ -161,7 +175,7 @@ func NewOverlayReceiver(
 // The receive flow for each packet:
 //  1. conn.RecvDecapsulated(ctx) -> raw BFD payload + OverlayMeta
 //  2. bfd.UnmarshalControlPacket(payload) -> ControlPacket
-//  3. Build bfd.PacketMeta from OverlayMeta (TTL=255 from inner header)
+//  3. Build bfd.PacketMeta from OverlayMeta
 //  4. mgr.DemuxWithWire(pkt, meta, wire) -> route to session
 func (r *OverlayReceiver) Run(ctx context.Context) error {
 	r.logger.Info("overlay receiver started")
@@ -216,13 +230,10 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	}
 
 	// Step 3: Build bfd.PacketMeta from overlay metadata.
-	// The inner IPv4 TTL was set to 255 by BuildInnerPacket and is not
-	// modified by the tunnel decapsulation path. We set TTL=255 in the
-	// PacketMeta to satisfy any downstream GTSM validation.
 	meta := bfd.PacketMeta{
 		SrcAddr: ometa.SrcAddr,
 		DstAddr: ometa.DstAddr,
-		TTL:     255, // Inner TTL=255 per RFC 5881 Section 5
+		TTL:     ometa.TTL,
 	}
 
 	// Step 4: Copy raw wire bytes only when auth verification needs stable
@@ -254,8 +265,18 @@ func isExpectedOverlayDrop(err error) bool {
 		ErrOverlayInvalidAddr,
 		ErrInnerPacketTooShort,
 		ErrInnerBadEtherType,
+		ErrInnerBadDestinationMAC,
 		ErrInnerBadIPVersion,
+		ErrInnerBadIHL,
+		ErrInnerBadIPLength,
+		ErrInnerFragmented,
+		ErrInnerBadIPChecksum,
 		ErrInnerBadProtocol,
+		ErrInnerBadTTL,
+		ErrInnerBadUDPDestinationPort,
+		ErrInnerBadUDPLength,
+		ErrInnerBadUDPChecksum,
+		ErrOverlayInnerDstMismatch,
 		ErrVXLANHeaderTooShort,
 		ErrVXLANInvalidFlags,
 		ErrGeneveHeaderTooShort,
