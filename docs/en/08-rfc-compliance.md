@@ -351,7 +351,7 @@ explicit.
 
 ### RFC 8971 Implementation Notes
 
-**Status**: Fail-closed preview; VAP identity and owner-specific backends planned
+**Status**: Unsafe/incomplete preview; owner-specific backends planned
 
 **Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -396,7 +396,7 @@ for production until complete tunnel-session identity binding is implemented.
 
 ### RFC 9521 Implementation Notes
 
-**Status**: Unsafe/incomplete preview; owner-specific backends planned
+**Status**: Fail-closed preview; VAP identity and owner-specific backends planned
 
 **Implementation**: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 

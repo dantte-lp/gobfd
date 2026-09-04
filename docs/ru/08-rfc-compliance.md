@@ -291,7 +291,7 @@ available bond port profile при явном `owner_policy: networkmanager-dbus
 
 ### Заметки по RFC 8971
 
-**Статус**: Fail-closed preview; VAP identity и owner-specific backends planned
+**Статус**: Небезопасный/неполный preview; owner-specific backends planned
 
 Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -337,7 +337,7 @@ Receive path также переиспользует socket identity перво�
 
 ### Заметки по RFC 9521
 
-**Статус**: Небезопасный/неполный preview; owner-specific backends planned
+**Статус**: Fail-closed preview; VAP identity и owner-specific backends planned
 
 Реализация: [`internal/netio/geneve.go`](../../internal/netio/geneve.go), [`internal/netio/geneve_conn.go`](../../internal/netio/geneve_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
