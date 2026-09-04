@@ -271,7 +271,8 @@ func ReleaseBenchmarkComparison(ctx context.Context, options ReleaseComparisonOp
 	comparisonArtifacts := releaseComparisonArtifactNames()
 	comparisonPaths := make([]string, len(comparisonArtifacts))
 	for index, name := range comparisonArtifacts {
-		comparisonPaths[index], err = validateRootFile(root, filepath.Join("reports", "benchmarks", name), "release benchmark comparison", false)
+		comparisonPaths[index], err = validateRootFile(root, filepath.Join("reports", "benchmarks", name),
+			"release benchmark comparison", false)
 		if err != nil {
 			return err
 		}
@@ -343,7 +344,8 @@ func ReleaseReportsArchive(root, version string) (returnErr error) {
 	}()
 	sourceDirectory := filepath.Join("testdata", "benchmarks", version)
 	for _, name := range []string{"benchmark-bfd.txt", "benchmark-netio.txt", "benchmark.txt", "meta.json"} {
-		data, readErr := readRootedRegularFile(repositoryRoot, filepath.Join(sourceDirectory, name), "release benchmark evidence", releaseArtifactLimit)
+		data, readErr := readRootedRegularFile(repositoryRoot, filepath.Join(sourceDirectory, name),
+			"release benchmark evidence", releaseArtifactLimit)
 		if errors.Is(readErr, os.ErrNotExist) {
 			continue
 		}

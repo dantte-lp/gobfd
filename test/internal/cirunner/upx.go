@@ -389,7 +389,8 @@ func downloadUPXArchive(
 		runErr = file.Sync()
 	}
 	if runErr != nil {
-		return nil, errors.Join(wrapOptional("download and verify UPX archive", runErr), wrapOptional("close UPX archive", file.Close()))
+		return nil, errors.Join(wrapOptional("download and verify UPX archive", runErr),
+			wrapOptional("close UPX archive", file.Close()))
 	}
 	info, err := root.Lstat(name)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 || info.Size() != asset.archiveSize {
@@ -402,7 +403,8 @@ func downloadUPXArchive(
 		return nil, errors.Join(err, wrapOptional("close UPX archive", file.Close()))
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return nil, errors.Join(fmt.Errorf("rewind verified UPX archive: %w", err), wrapOptional("close UPX archive", file.Close()))
+		return nil, errors.Join(fmt.Errorf("rewind verified UPX archive: %w", err),
+			wrapOptional("close UPX archive", file.Close()))
 	}
 	return file, nil
 }
@@ -499,7 +501,8 @@ func validateUPXTar(data []byte, asset upxAssetContract) ([]byte, error) {
 		}
 	}
 	if header, err := reader.Next(); err != io.EOF {
-		return nil, fmt.Errorf("UPX tar contains an unexpected trailing entry %v: %w", header, errors.Join(err, errInvalidConfig))
+		return nil, fmt.Errorf("UPX tar contains an unexpected trailing entry %v: %w", header,
+			errors.Join(err, errInvalidConfig))
 	}
 	if len(executable) == 0 {
 		return nil, fmt.Errorf("UPX tar lacks its executable: %w", errInvalidConfig)
@@ -547,7 +550,8 @@ func verifyUPXVersion(
 	}
 	expected, err := binRoot.Lstat("upx")
 	if err != nil {
-		return errors.Join(fmt.Errorf("inspect UPX executable for version verification: %w", err), wrapOptional("close UPX bin directory", binRoot.Close()))
+		return errors.Join(fmt.Errorf("inspect UPX executable for version verification: %w", err),
+			wrapOptional("close UPX bin directory", binRoot.Close()))
 	}
 	executable, err := openRootedRegularFile(binRoot, "upx", expected, "UPX executable")
 	if err != nil {

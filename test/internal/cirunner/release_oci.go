@@ -116,7 +116,8 @@ func ReleaseOCIEvidence(ctx context.Context, options ReleaseOCIEvidenceOptions) 
 		return fmt.Errorf("primary and Debian versioned OCI tags differ: %w", errInvalidConfig)
 	}
 	receipt := renderReleaseOCIDigestReceipt(evidence)
-	if err := validateRootPathIdentity(receiptRoot, receiptRootPath, "OCI digest receipt root before publication"); err != nil {
+	if err := validateRootPathIdentity(receiptRoot, receiptRootPath,
+		"OCI digest receipt root before publication"); err != nil {
 		return err
 	}
 	if err := writeRootedArtifact(
@@ -124,7 +125,8 @@ func ReleaseOCIEvidence(ctx context.Context, options ReleaseOCIEvidenceOptions) 
 	); err != nil {
 		return err
 	}
-	if err := validateRootPathIdentity(receiptRoot, receiptRootPath, "OCI digest receipt root after publication"); err != nil {
+	if err := validateRootPathIdentity(receiptRoot, receiptRootPath,
+		"OCI digest receipt root after publication"); err != nil {
 		return err
 	}
 	return nil
@@ -446,17 +448,20 @@ func inspectReleaseOCIManifests(
 
 func validateOCIManifestIndex(image string, index ociManifestIndex) (releaseOCIImageEvidence, error) {
 	if !canonicalOCIDigest(index.Digest) || len(index.Manifests) != 4 {
-		return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s violates digest or descriptor count: %w", image, errInvalidConfig)
+		return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s violates digest or descriptor count: %w",
+			image, errInvalidConfig)
 	}
 	runnable := make(map[string]string, 2)
 	attestations := make(map[string]string, 2)
 	descriptorDigests := make(map[string]struct{}, len(index.Manifests))
 	for descriptorIndex, descriptor := range index.Manifests {
 		if !canonicalOCIDigest(descriptor.Digest) {
-			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s descriptor %d has invalid digest: %w", image, descriptorIndex, errInvalidConfig)
+			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s descriptor %d has invalid digest: %w",
+				image, descriptorIndex, errInvalidConfig)
 		}
 		if _, duplicate := descriptorDigests[descriptor.Digest]; duplicate {
-			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s duplicates descriptor digest: %w", image, errInvalidConfig)
+			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s duplicates descriptor digest: %w",
+				image, errInvalidConfig)
 		}
 		descriptorDigests[descriptor.Digest] = struct{}{}
 		if err := addOCIManifestDescriptor(image, descriptor, runnable, attestations); err != nil {
@@ -464,11 +469,13 @@ func validateOCIManifestIndex(image string, index ociManifestIndex) (releaseOCII
 		}
 	}
 	if len(runnable) != 2 || len(attestations) != 2 {
-		return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s lacks exact runnable and attestation pairs: %w", image, errInvalidConfig)
+		return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s lacks exact runnable and attestation pairs: %w",
+			image, errInvalidConfig)
 	}
 	for _, digest := range runnable {
 		if _, exists := attestations[digest]; !exists {
-			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s lacks attestation for runnable digest %s: %w", image, digest, errInvalidConfig)
+			return releaseOCIImageEvidence{}, fmt.Errorf("OCI index %s lacks attestation for runnable digest %s: %w",
+				image, digest, errInvalidConfig)
 		}
 	}
 	return releaseOCIImageEvidence{

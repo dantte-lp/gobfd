@@ -228,7 +228,8 @@ func benchmarkHTML(text []byte, release *BenchmarkReleaseContext) string {
 		"<h1 style=\"color:#00d4ff\">Benchmark Comparison</h1><pre>" +
 		html.EscapeString(string(text)) + "</pre></body></html>\n"
 	if release != nil {
-		title := "GoBFD Benchmark Comparison: " + html.EscapeString(release.Baseline) + " vs " + html.EscapeString(release.Version)
+		title := "GoBFD Benchmark Comparison: " + html.EscapeString(release.Baseline) +
+			" vs " + html.EscapeString(release.Version)
 		metadata := html.EscapeString(release.Baseline) + " vs " + html.EscapeString(release.Version) +
 			" &mdash; " + html.EscapeString(release.GeneratedAt.UTC().Format(time.RFC3339))
 		htmlReport = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>" + title + "</title>" +

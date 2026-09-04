@@ -306,7 +306,8 @@ func parseReleaseOCIDigestReceipt(data []byte, version string) ([]releaseOCIImag
 	}
 	lines := strings.Split(string(data), "\n")
 	if len(lines) != len(expectedImages)+1 || lines[len(lines)-1] != "" {
-		return nil, fmt.Errorf("OCI digest receipt must contain exactly three newline-terminated records: %w", errInvalidConfig)
+		return nil, fmt.Errorf("OCI digest receipt must contain exactly three newline-terminated records: %w",
+			errInvalidConfig)
 	}
 	records := make([]releaseOCIImageDigest, len(expectedImages))
 	for index, expectedImage := range expectedImages {

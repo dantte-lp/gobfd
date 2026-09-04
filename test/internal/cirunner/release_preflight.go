@@ -657,7 +657,9 @@ func validateReleasePackagePagesJSON(data []byte) error {
 	return nil
 }
 
-func runReleasePreflightCommand(ctx context.Context, runner SpecRunner, spec CommandSpec, purpose string) ([]byte, error) {
+func runReleasePreflightCommand(
+	ctx context.Context, runner SpecRunner, spec CommandSpec, purpose string,
+) ([]byte, error) {
 	output := &boundedPreflightOutput{limit: releasePreflightResponseLimit}
 	spec.Stdout = output
 	if err := runner.RunCommand(ctx, spec); err != nil {

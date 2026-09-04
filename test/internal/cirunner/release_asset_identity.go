@@ -80,7 +80,8 @@ func validateRemoteReleaseAsset(
 		return releaseRemoteAssetIdentity{}, err
 	}
 	if !canonicalOCIDigest(digest) {
-		return releaseRemoteAssetIdentity{}, fmt.Errorf("release draft asset digest is not canonical SHA-256: %w", errInvalidConfig)
+		return releaseRemoteAssetIdentity{}, fmt.Errorf("release draft asset digest is not canonical SHA-256: %w",
+			errInvalidConfig)
 	}
 	state, err := decodeRequiredJSONString(asset["state"], "release draft asset state")
 	if err != nil {
@@ -140,10 +141,12 @@ func renderReleaseAssetIdentityReceipt(
 			return nil, fmt.Errorf("release asset %s lacks a validated local snapshot: %w", asset.Name, errInvalidConfig)
 		}
 		if asset.Size != snapshot.Size {
-			return nil, fmt.Errorf("release asset %s size differs from validated local snapshot: %w", asset.Name, errInvalidConfig)
+			return nil, fmt.Errorf("release asset %s size differs from validated local snapshot: %w",
+				asset.Name, errInvalidConfig)
 		}
 		if asset.Digest != snapshot.Digest {
-			return nil, fmt.Errorf("release asset %s digest differs from validated local snapshot: %w", asset.Name, errInvalidConfig)
+			return nil, fmt.Errorf("release asset %s digest differs from validated local snapshot: %w",
+				asset.Name, errInvalidConfig)
 		}
 		receipt.Assets = append(receipt.Assets, releaseAssetIdentityRecord(asset))
 	}
@@ -156,7 +159,8 @@ func renderReleaseAssetIdentityReceipt(
 	}
 	data = append(data, '\n')
 	if len(data) > releaseAssetIdentityReceiptLimit {
-		return nil, fmt.Errorf("release asset identity receipt exceeds %d bytes: %w", releaseAssetIdentityReceiptLimit, errInvalidConfig)
+		return nil, fmt.Errorf("release asset identity receipt exceeds %d bytes: %w",
+			releaseAssetIdentityReceiptLimit, errInvalidConfig)
 	}
 	return data, nil
 }

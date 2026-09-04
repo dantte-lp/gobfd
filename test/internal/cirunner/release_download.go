@@ -168,7 +168,8 @@ func validateReleaseDownloadRootIdentity(
 	expectedRootInfo os.FileInfo,
 ) error {
 	currentRootInfo, err := parentRoot.Lstat(releaseAssetDownloadDirectory)
-	if err != nil || expectedRootInfo == nil || !currentRootInfo.IsDir() || !os.SameFile(currentRootInfo, expectedRootInfo) {
+	if err != nil || expectedRootInfo == nil || !currentRootInfo.IsDir() ||
+		!os.SameFile(currentRootInfo, expectedRootInfo) {
 		return fmt.Errorf("release asset download directory ownership changed: %w", errors.Join(err, errInvalidConfig))
 	}
 	openedRootInfo, err := downloadRoot.Stat(".")

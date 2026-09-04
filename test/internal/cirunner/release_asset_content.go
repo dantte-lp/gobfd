@@ -197,7 +197,8 @@ func validateSupplementalReleaseAssets(
 func parseReleaseChecksumRecords(data []byte, purpose string, expectedNames []string) (map[string]string, error) {
 	lines := bytes.Split(data, []byte{'\n'})
 	if len(lines) != len(expectedNames)+1 || len(lines[len(lines)-1]) != 0 {
-		return nil, fmt.Errorf("%s must contain exactly %d newline-terminated records: %w", purpose, len(expectedNames), errInvalidConfig)
+		return nil, fmt.Errorf("%s must contain exactly %d newline-terminated records: %w",
+			purpose, len(expectedNames), errInvalidConfig)
 	}
 	records := make(map[string]string, len(expectedNames))
 	actualNames := make([]string, 0, len(expectedNames))
@@ -208,7 +209,8 @@ func parseReleaseChecksumRecords(data []byte, purpose string, expectedNames []st
 		digestText := string(line[:sha256.Size*2])
 		digest, err := hex.DecodeString(digestText)
 		if err != nil || len(digest) != sha256.Size || hex.EncodeToString(digest) != digestText {
-			return nil, fmt.Errorf("%s record %d has a noncanonical SHA-256: %w", purpose, index, errors.Join(err, errInvalidConfig))
+			return nil, fmt.Errorf("%s record %d has a noncanonical SHA-256: %w", purpose, index,
+				errors.Join(err, errInvalidConfig))
 		}
 		name := string(line[sha256.Size*2+2:])
 		if !isCanonicalReleaseChecksumName(name) {
@@ -439,7 +441,8 @@ func validateReleaseReportsArchiveEnd(limited *io.LimitedReader, source *bytes.R
 	var trailing [1]byte
 	count, trailingErr := limited.Read(trailing[:])
 	if count != 0 || !errors.Is(trailingErr, io.EOF) {
-		return fmt.Errorf("release reports tar stream has trailing or malformed data: %w", errors.Join(trailingErr, errInvalidConfig))
+		return fmt.Errorf("release reports tar stream has trailing or malformed data: %w",
+			errors.Join(trailingErr, errInvalidConfig))
 	}
 	if limited.N == 0 {
 		return fmt.Errorf("release reports archive exceeds expanded size limit: %w", errInvalidConfig)

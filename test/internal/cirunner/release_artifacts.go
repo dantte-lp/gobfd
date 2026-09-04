@@ -333,10 +333,12 @@ func validateGoReleaserArtifactMatrix(
 	sort.Strings(checksummed)
 	sort.Strings(release)
 	if !slices.Equal(checksummed, expectedChecksummed) {
-		return nil, nil, fmt.Errorf("GoReleaser checksummed artifact matrix differs from the exact contract: %w", errInvalidConfig)
+		return nil, nil, fmt.Errorf("GoReleaser checksummed artifact matrix differs from the exact contract: %w",
+			errInvalidConfig)
 	}
 	if !slices.Equal(release, expectedGoReleaserRelease) {
-		return nil, nil, fmt.Errorf("GoReleaser release artifact matrix differs from the exact contract: %w", errInvalidConfig)
+		return nil, nil, fmt.Errorf("GoReleaser release artifact matrix differs from the exact contract: %w",
+			errInvalidConfig)
 	}
 	return checksummed, expectedRelease, nil
 }
