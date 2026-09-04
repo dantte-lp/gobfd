@@ -66,6 +66,36 @@ func TestReleaseUPXUsesPinnedAssetAndAppendsVerifiedBinaryPath(t *testing.T) {
 	}
 }
 
+func TestAppendGitHubPathSeparatesRecords(t *testing.T) {
+	t.Parallel()
+
+	binDirectory := filepath.Join(string(os.PathSeparator), "new", "bin")
+	for _, test := range []struct {
+		name    string
+		initial string
+		want    string
+	}{
+		{name: "missing newline", initial: "/existing/bin", want: "/existing/bin\n" + binDirectory + "\n"},
+		{name: "empty", want: binDirectory + "\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "github-path")
+			if err := os.WriteFile(path, []byte(test.initial), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			published, err := appendGitHubPath(path, binDirectory)
+			if err != nil || !published {
+				t.Fatalf("appendGitHubPath() = %t, %v; want true, nil", published, err)
+			}
+			if data, err := os.ReadFile(path); err != nil || string(data) != test.want {
+				t.Errorf("GITHUB_PATH = %q, %v; want %q", data, err, test.want)
+			}
+		})
+	}
+}
+
 func TestReleaseUPXProductionAssetContract(t *testing.T) {
 	t.Parallel()
 

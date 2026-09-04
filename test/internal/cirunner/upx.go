@@ -630,6 +630,9 @@ func appendGitHubPath(path, binDirectory string) (published bool, returnErr erro
 			}(),
 		)
 	}
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
 	appended := append(data, binDirectory...)
 	appended = append(appended, '\n')
 	if len(appended) > githubPathLimit {
