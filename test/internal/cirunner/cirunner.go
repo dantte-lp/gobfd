@@ -15,6 +15,10 @@ import (
 const (
 	buildOutputMode      = 0o755
 	buildVCSDisabledFlag = "-buildvcs=false"
+	dockerCommand        = "docker"
+	buildxSubcommand     = "buildx"
+	imagetoolsSubcommand = "imagetools"
+	inspectSubcommand    = "inspect"
 	formatFlag           = "--format"
 )
 

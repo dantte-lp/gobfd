@@ -184,16 +184,16 @@ func (promotion *releaseOCIAliasPromotion) promote(
 ) error {
 	commands := []CommandSpec{
 		{
-			Name: "docker", Args: []string{
-				"buildx", "imagetools", "create",
+			Name: dockerCommand, Args: []string{
+				buildxSubcommand, imagetoolsSubcommand, "create",
 				"--tag", imageRepository + ":latest",
 				"--tag", imageRepository + ":debian-trixie",
 				imageRepository + "@" + aliases[0].Digest,
 			}, Dir: promotion.root, Env: dockerEnvironment,
 		},
 		{
-			Name: "docker", Args: []string{
-				"buildx", "imagetools", "create",
+			Name: dockerCommand, Args: []string{
+				buildxSubcommand, imagetoolsSubcommand, "create",
 				"--tag", imageRepository + ":oraclelinux10",
 				imageRepository + "@" + aliases[2].Digest,
 			}, Dir: promotion.root, Env: dockerEnvironment,
@@ -273,8 +273,8 @@ func restoreReleaseOCIAliases(
 	var result error
 	for _, alias := range previous {
 		if err := runner.RunCommand(ctx, CommandSpec{
-			Name: "docker", Args: []string{
-				"buildx", "imagetools", "create", "--tag", alias.Image,
+			Name: dockerCommand, Args: []string{
+				buildxSubcommand, imagetoolsSubcommand, "create", "--tag", alias.Image,
 				imageRepository + "@" + alias.Digest,
 			}, Dir: root, Env: environment,
 		}); err != nil {
@@ -341,8 +341,8 @@ func inspectReleaseOCIAliasDigest(
 	environment []string,
 ) (string, error) {
 	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
-		Name: "docker", Args: []string{
-			"buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}", image,
+		Name: dockerCommand, Args: []string{
+			buildxSubcommand, imagetoolsSubcommand, inspectSubcommand, formatFlag, "{{json .Manifest}}", image,
 		}, Dir: root, Env: environment,
 	}, "inspect promoted OCI alias "+image)
 	if err != nil {

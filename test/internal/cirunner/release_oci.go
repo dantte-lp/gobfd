@@ -213,8 +213,9 @@ func validateOCIAttestationManifest(
 		return fmt.Errorf("OCI attestation for %s has invalid digest: %w", image, errInvalidConfig)
 	}
 	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
-		Name: "docker", Args: []string{"buildx", "imagetools", "inspect", "--raw", image + "@" + digest},
-		Dir: root, Env: environment,
+		Name: dockerCommand,
+		Args: []string{buildxSubcommand, imagetoolsSubcommand, inspectSubcommand, "--raw", image + "@" + digest},
+		Dir:  root, Env: environment,
 	}, "inspect OCI attestation manifest "+image)
 	if err != nil {
 		return err
@@ -252,8 +253,9 @@ func validateOCISBOM(
 ) error {
 	format := `{{json (index .SBOM "` + platform + `").SPDX}}`
 	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
-		Name: "docker", Args: []string{"buildx", "imagetools", "inspect", image, "--format", format},
-		Dir: root, Env: environment,
+		Name: dockerCommand,
+		Args: []string{buildxSubcommand, imagetoolsSubcommand, inspectSubcommand, image, formatFlag, format},
+		Dir:  root, Env: environment,
 	}, "inspect OCI SPDX SBOM "+image+" "+platform)
 	if err != nil {
 		return err
@@ -287,8 +289,9 @@ func validateOCIProvenance(
 ) error {
 	format := `{{json (index .Provenance "` + platform + `").SLSA}}`
 	data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
-		Name: "docker", Args: []string{"buildx", "imagetools", "inspect", image, "--format", format},
-		Dir: root, Env: environment,
+		Name: dockerCommand,
+		Args: []string{buildxSubcommand, imagetoolsSubcommand, inspectSubcommand, image, formatFlag, format},
+		Dir:  root, Env: environment,
 	}, "inspect OCI SLSA provenance "+image+" "+platform)
 	if err != nil {
 		return err
@@ -415,8 +418,8 @@ func inspectReleaseOCIManifests(
 	evidence := make([]releaseOCIImageEvidence, 0, len(images))
 	for _, image := range images {
 		data, err := runReleasePreflightCommand(ctx, runner, CommandSpec{
-			Name: "docker", Args: []string{
-				"buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}", image,
+			Name: dockerCommand, Args: []string{
+				buildxSubcommand, imagetoolsSubcommand, inspectSubcommand, formatFlag, "{{json .Manifest}}", image,
 			}, Dir: repositoryRoot, Env: dockerEnvironment,
 		}, "inspect versioned OCI manifest "+image)
 		if err != nil {
