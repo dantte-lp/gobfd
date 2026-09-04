@@ -54,7 +54,7 @@
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный/неполный preview** | Полная tunnel identity и owner-specific dataplane integration не завершены |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный/неполный preview** | Полная tunnel identity и owner-specific dataplane integration не завершены |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Fail-closed preview** | Конфигурация и receive path fail closed до появления нормативной VAP MAC/IP identity и owner-specific dataplane integration |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Padding без auth и DF реализованы; hashing authenticated padding не завершён |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
@@ -291,7 +291,7 @@ available bond port profile при явном `owner_policy: networkmanager-dbus
 
 ### Заметки по RFC 8971
 
-**Статус**: Небезопасный/неполный preview; owner-specific backends planned
+**Статус**: Fail-closed preview; VAP identity и owner-specific backends planned
 
 Реализация: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -347,21 +347,21 @@ RFC 9521 определяет BFD в Geneve-инкапсуляции для об
 |---|---|
 | Внешний UDP порт 6081 | `netio.GenevePort = 6081`, `GeneveConn` через явный backend `userspace-udp` |
 | Кодек Geneve-заголовка | `MarshalGeneveHeader` / `UnmarshalGeneveHeader` |
-| O бит (control) = 1 | RFC 9521 Section 4: установлен при отправке, проверяется при приёме (`ErrGeneveOBitNotSet`) |
-| C бит (critical) = 0 | RFC 9521 Section 4: сброшен при отправке, проверяется при приёме (`ErrGeneveCBitSet`) |
-| Protocol Type 0x6558 | Format A: Ethernet payload (`GeneveProtocolEthernet`), проверяется при приёме |
-| Валидация VNI (24 бит) | `ErrInvalidGeneveVNI` валидация конфигурации, несовпадение VNI при приёме |
+| O бит (control) = 1 | RFC 9521 Section 4: установлен при отправке; receive codec validation существует, но недостижима без VAP identity |
+| C бит (critical) = 0 | RFC 9521 Section 4: сброшен при отправке; receive codec validation существует, но недостижима без VAP identity |
+| Protocol Type 0x6558 | Format A: Ethernet payload (`GeneveProtocolEthernet`); receive codec validation существует |
+| Валидация VNI (24 бит) | `ErrInvalidGeneveVNI` при валидации конфигурации; receive codec validation существует |
 | Валидация версии | `ErrGeneveInvalidVersion` (только версия 0 поддерживается) |
 | Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
 | Опции переменной длины | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
 | Inner TTL=255 | `BuildInnerPacket()` устанавливает TTL=255 (RFC 5881 GTSM) |
 | Тип сессии | Константа `SessionTypeGeneve` |
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
-| Цикл OverlayReceiver | Снимает Geneve + inner заголовки, доставляет в `Manager.DemuxWithWire` |
+| Цикл OverlayReceiver | Не достигает `Manager.DemuxWithWire`, пока Geneve VAP identity недоступна |
 | Модель backend | `NewGeneveOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
-| Валидация receive path | Проверяются overlay-заголовки и VNI, а также MAC Format A, IHL/length/fragmentation/checksum/TTL/destination IPv4 и UDP port/length/checksum; полная tunnel identity пока не валидируется |
+| Валидация receive path | Fail closed с `ErrGeneveVAPIdentityUnavailable`; codec parser существует, но фиксированный MAC Format A и outer NVE/local IP не считаются нормативной VAP identity |
 | Декларативные пиры | `geneve.peers[]` в конфиге, переопределение VNI per-peer, реконсиляция при SIGHUP |
-| Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
+| Валидация конфигурации | После проверок диапазона VNI, адресов пиров, detect_mult и дубликатов enabled peers fail closed с `ErrGeneveVAPIdentityUnavailable` |
 
 Стек инкапсуляции пакетов (Format A):
 ```
@@ -375,15 +375,16 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 - O-бит управляющий флаг указывает на management/control трафик
 - Сессии создаются/завершаются на уровне VAP, а не напрямую на NVE
 
-**Production-ограничение Linux**: `geneve.backend: userspace-udp` владеет UDP
-сокетом на `localAddr:6081`. Он валидирует RFC 9521 Format A packets, но не
-интегрируется с socket ownership kernel Geneve, OVS/OVN или NSX dataplane.
+**Production-ограничение Linux**: `geneve.backend: userspace-udp` может владеть
+UDP-сокетом на `localAddr:6081`, но конфигурация и receive path fail closed,
+поскольку нормативная destination MAC/IP identity VAP не моделируется.
+Фиксированный MAC Format A и outer NVE/local IP не заменяют эту identity.
+Backend также не интегрируется с socket ownership kernel Geneve, OVS/OVN или NSX dataplane.
 Зарезервированные owner-specific backend names fail closed до появления таких
 интеграций. RFC 9521 также наследует требование Geneve работать в
 traffic-managed controlled environment или явно ограничивать BFD transmit rate,
 чтобы не получать ложные отказы из-за перегрузки.
-Receive path также переиспользует socket identity первого peer. Поэтому он
-небезопасен для production до полной привязки tunnel-session identity.
+Полная привязка tunnel-session identity остаётся отдельной незавершённой границей.
 
 ### Заметки по RFC 9764
 

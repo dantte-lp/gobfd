@@ -109,6 +109,9 @@ var (
 	// ErrInnerBadUDPDestinationPort indicates the UDP destination is not BFD.
 	ErrInnerBadUDPDestinationPort = errors.New("inner packet: UDP destination port is not 3784")
 
+	// ErrInnerBadUDPSourcePort indicates the UDP source is outside the RFC 5881 range.
+	ErrInnerBadUDPSourcePort = errors.New("inner packet: UDP source port is outside 49152-65535")
+
 	// ErrInnerBadUDPLength indicates an invalid or non-exact UDP length.
 	ErrInnerBadUDPLength = errors.New("inner packet: invalid UDP length")
 
@@ -341,6 +344,12 @@ func stripInnerPacket(buf []byte) ([]byte, netip.Addr, netip.Addr, uint8, error)
 	}
 
 	udp := ip[ipHeaderLen:ipTotalLen]
+	udpSrcPort := binary.BigEndian.Uint16(udp[:2])
+	if udpSrcPort < sourcePortMin || udpSrcPort > sourcePortMax {
+		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(
+			"strip inner packet: UDP source port=%d: %w",
+			udpSrcPort, ErrInnerBadUDPSourcePort)
+	}
 	udpDstPort := binary.BigEndian.Uint16(udp[2:4])
 	if udpDstPort != innerBFDDstPort {
 		return nil, netip.Addr{}, netip.Addr{}, 0, fmt.Errorf(

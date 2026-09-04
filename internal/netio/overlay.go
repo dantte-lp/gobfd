@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
+	"syscall"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -94,7 +96,22 @@ var (
 	// ErrOverlayInnerDstMismatch indicates an inner packet addressed to a
 	// different local tunnel endpoint.
 	ErrOverlayInnerDstMismatch = errors.New("overlay: inner destination address mismatch")
+
+	// ErrOverlayPacketTruncated indicates the receive buffer did not contain
+	// the complete UDP datagram.
+	ErrOverlayPacketTruncated = errors.New("overlay: truncated UDP datagram")
 )
+
+func readOverlayDatagram(conn *net.UDPConn, buf []byte) (int, *net.UDPAddr, error) {
+	n, _, flags, remoteAddr, err := conn.ReadMsgUDP(buf, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	if flags&syscall.MSG_TRUNC != 0 {
+		return 0, nil, ErrOverlayPacketTruncated
+	}
+	return n, remoteAddr, nil
+}
 
 func validateInnerDestination(got, want netip.Addr) error {
 	if got != want.Unmap() {
@@ -273,10 +290,13 @@ func isExpectedOverlayDrop(err error) bool {
 		ErrInnerBadIPChecksum,
 		ErrInnerBadProtocol,
 		ErrInnerBadTTL,
+		ErrInnerBadUDPSourcePort,
 		ErrInnerBadUDPDestinationPort,
 		ErrInnerBadUDPLength,
 		ErrInnerBadUDPChecksum,
 		ErrOverlayInnerDstMismatch,
+		ErrOverlayPacketTruncated,
+		ErrGeneveVAPIdentityUnavailable,
 		ErrVXLANHeaderTooShort,
 		ErrVXLANInvalidFlags,
 		ErrGeneveHeaderTooShort,

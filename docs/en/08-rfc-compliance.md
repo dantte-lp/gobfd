@@ -54,7 +54,7 @@
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe/incomplete preview** | Complete tunnel identity and owner-specific dataplane integration are incomplete |
-| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe/incomplete preview** | Complete tunnel identity and owner-specific dataplane integration are incomplete |
+| [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Fail-closed preview** | Configuration and receive fail closed until normative VAP MAC/IP identity and owner-specific dataplane integration are available |
 | [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | Unauthenticated padding and DF exist; authenticated padded hashing is incomplete |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
@@ -351,7 +351,7 @@ explicit.
 
 ### RFC 8971 Implementation Notes
 
-**Status**: Unsafe/incomplete preview; owner-specific backends planned
+**Status**: Fail-closed preview; VAP identity and owner-specific backends planned
 
 **Implementation**: [`internal/netio/vxlan.go`](../../internal/netio/vxlan.go), [`internal/netio/vxlan_conn.go`](../../internal/netio/vxlan_conn.go), [`internal/netio/overlay.go`](../../internal/netio/overlay.go), [`internal/netio/overlay_backend.go`](../../internal/netio/overlay_backend.go), [`internal/netio/overlay_inner.go`](../../internal/netio/overlay_inner.go)
 
@@ -406,21 +406,21 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 |---|---|
 | Outer UDP port 6081 | `netio.GenevePort = 6081`, `GeneveConn` through explicit `userspace-udp` backend |
 | Geneve header codec | `MarshalGeneveHeader` / `UnmarshalGeneveHeader` |
-| O bit (control) = 1 | RFC 9521 Section 4: set on send, validated on receive (`ErrGeneveOBitNotSet`) |
-| C bit (critical) = 0 | RFC 9521 Section 4: cleared on send, validated on receive (`ErrGeneveCBitSet`) |
-| Protocol Type 0x6558 | Format A: Ethernet payload (`GeneveProtocolEthernet`), validated on receive |
-| VNI validation (24-bit) | `ErrInvalidGeneveVNI` config validation, VNI mismatch on receive |
+| O bit (control) = 1 | RFC 9521 Section 4: set on send; receive codec validation exists but is unreachable while VAP identity is unavailable |
+| C bit (critical) = 0 | RFC 9521 Section 4: cleared on send; receive codec validation exists but is unreachable while VAP identity is unavailable |
+| Protocol Type 0x6558 | Format A: Ethernet payload (`GeneveProtocolEthernet`); receive codec validation exists |
+| VNI validation (24-bit) | `ErrInvalidGeneveVNI` config validation; receive codec validation exists |
 | Version validation | `ErrGeneveInvalidVersion` (only version 0 supported) |
 | Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
 | Variable-length options | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
 | Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
 | Session type | `SessionTypeGeneve` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
-| OverlayReceiver loop | Strips Geneve + inner headers, delivers to `Manager.DemuxWithWire` |
+| OverlayReceiver loop | Never reaches `Manager.DemuxWithWire` while Geneve VAP identity is unavailable |
 | Backend model | `NewGeneveOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
-| Receive validation | Overlay headers and VNI plus inner Format A MAC, IPv4 IHL/length/fragmentation/checksum/TTL/destination, and UDP port/length/checksum are checked; full tunnel identity is not yet validated |
+| Receive validation | Fails closed with `ErrGeneveVAPIdentityUnavailable`; the codec parser exists, but the fixed Format A MAC and outer NVE/local IP are not treated as normative VAP identity |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
-| Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
+| Config validation | VNI range, peer addresses, detect_mult, and duplicate keys are checked, then enabled peers fail closed with `ErrGeneveVAPIdentityUnavailable` |
 
 Packet encapsulation stack (Format A):
 ```
@@ -434,15 +434,16 @@ Key differences from VXLAN BFD (RFC 8971):
 - O bit control flag indicates management/control traffic
 - Sessions originate/terminate at VAPs, not directly at NVEs
 
-**Linux production limitation**: `geneve.backend: userspace-udp` owns a UDP
-socket on `localAddr:6081`. It validates RFC 9521 Format A packets, but it does
-not integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
+**Linux production limitation**: `geneve.backend: userspace-udp` can own a UDP
+socket on `localAddr:6081`, but configuration and receive fail closed because
+the normative VAP destination MAC/IP identity is not modeled. The fixed Format A
+MAC and the outer NVE/local IP are not substitutes for that identity. The backend
+also does not integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
 Reserved owner-specific backend names fail closed until those integrations
 exist. RFC 9521 also inherits the Geneve requirement to run in a traffic-managed
 controlled environment or otherwise provision BFD transmit rates to avoid
 congestion-driven false failure detection.
-The receive path also reuses first-peer socket identity. It is therefore unsafe
-for production until complete tunnel-session identity binding is implemented.
+Complete tunnel-session identity binding remains a separate incomplete boundary.
 
 ### RFC 9764 Implementation Notes
 

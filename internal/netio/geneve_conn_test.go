@@ -16,14 +16,27 @@ import (
 // -------------------------------------------------------------------------
 
 func TestNewGeneveConnLoopbackLifecycle(t *testing.T) {
-	testOverlayConnLoopbackLifecycle(t, "Geneve", func() (netio.OverlayConn, error) {
-		return netio.NewGeneveConn(
-			netip.MustParseAddr("127.0.0.1"),
-			100,
-			49152,
-			slog.New(slog.DiscardHandler),
-		)
+	conn, err := netio.NewGeneveConn(
+		netip.MustParseAddr("127.0.0.1"),
+		100,
+		49152,
+		slog.New(slog.DiscardHandler),
+	)
+	if err != nil {
+		t.Skipf("Geneve loopback socket unavailable: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
 	})
+
+	if err := conn.SendEncapsulated(t.Context(), makePayload(24), netip.MustParseAddr("127.0.0.1")); err != nil {
+		t.Fatalf("SendEncapsulated: %v", err)
+	}
+	if payload, _, err := conn.RecvDecapsulated(t.Context()); !errors.Is(err, netio.ErrGeneveVAPIdentityUnavailable) || payload != nil {
+		t.Fatalf("RecvDecapsulated payload length=%d error=%v, want ErrGeneveVAPIdentityUnavailable", len(payload), err)
+	}
 }
 
 func TestBuildGenevePacketRoundTrip(t *testing.T) {

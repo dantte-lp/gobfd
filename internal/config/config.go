@@ -946,6 +946,10 @@ var (
 	// ErrDuplicateGeneveSessionKey indicates two Geneve sessions share the same key.
 	ErrDuplicateGeneveSessionKey = errors.New("duplicate geneve session key")
 
+	// ErrGeneveVAPIdentityUnavailable indicates that Geneve cannot be enabled
+	// until normative VAP MAC/IP identity is configurable.
+	ErrGeneveVAPIdentityUnavailable = errors.New("geneve VAP MAC/IP identity is not configurable")
+
 	// ErrInvalidOverlayBackend indicates an unrecognized overlay dataplane backend.
 	ErrInvalidOverlayBackend = errors.New(
 		"overlay backend must be userspace-udp, kernel, ovs, ovn, cilium, calico, or nsx",
@@ -1303,7 +1307,7 @@ func validateGeneve(cfg GeneveConfig) error {
 		seen[key] = struct{}{}
 	}
 
-	return nil
+	return ErrGeneveVAPIdentityUnavailable
 }
 
 // -------------------------------------------------------------------------

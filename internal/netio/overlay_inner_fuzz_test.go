@@ -94,6 +94,10 @@ func FuzzStripInnerPacketRaw(f *testing.F) {
 			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+2:], 4784)
 			return pkt
 		},
+		func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size:], 49151)
+			return pkt
+		},
 		func(pkt []byte) []byte { pkt[netio.InnerEthSize+10] ^= 1; return pkt },
 	}
 	for _, mutate := range mutations {
@@ -122,8 +126,9 @@ func FuzzStripInnerPacketRaw(f *testing.F) {
 			t.Fatal("accepted fragmented packet or invalid TTL/protocol")
 		}
 		udp := ip[ihl:]
-		if binary.BigEndian.Uint16(udp[2:4]) != 3784 || int(binary.BigEndian.Uint16(udp[4:6])) != len(udp) {
-			t.Fatal("accepted invalid UDP destination port or length")
+		if binary.BigEndian.Uint16(udp[:2]) < 49152 || binary.BigEndian.Uint16(udp[2:4]) != 3784 ||
+			int(binary.BigEndian.Uint16(udp[4:6])) != len(udp) {
+			t.Fatal("accepted invalid UDP source/destination port or length")
 		}
 		if binary.BigEndian.Uint16(udp[6:8]) != 0 && !verifyUDPChecksum(ip, udp) {
 			t.Fatal("accepted invalid UDP checksum")

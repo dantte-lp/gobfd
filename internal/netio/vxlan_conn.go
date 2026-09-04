@@ -158,9 +158,10 @@ func (c *VXLANConn) SendEncapsulated(
 //   - Complete supported Format A inner Ethernet, IPv4, and UDP framing
 //
 // Packets with non-matching VNI are silently dropped (they belong to
-// data-plane VNIs, not BFD management traffic).
+// data-plane VNIs, not BFD management traffic). Datagram truncation is
+// detected before parsing.
 func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	n, remoteAddr, err := c.conn.ReadFromUDP(c.readBuf)
+	n, remoteAddr, err := readOverlayDatagram(c.conn, c.readBuf)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed

@@ -569,6 +569,10 @@ func TestStripInnerPacketValidation(t *testing.T) {
 			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+2:], 4784)
 			return pkt
 		}},
+		{"udp_source_port_below_dynamic_range", func(pkt []byte) []byte {
+			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size:], 49151)
+			return pkt
+		}},
 		{"udp_length_too_small", func(pkt []byte) []byte {
 			binary.BigEndian.PutUint16(pkt[netio.InnerEthSize+netio.InnerIPv4Size+4:], 7)
 			return pkt

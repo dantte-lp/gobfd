@@ -43,6 +43,10 @@ var (
 	// ErrGeneveUnexpectedProto indicates the Geneve Protocol Type is not
 	// 0x6558 (Transparent Ethernet Bridging) for Format A.
 	ErrGeneveUnexpectedProto = errors.New("geneve: unexpected protocol type, expected 0x6558")
+
+	// ErrGeneveVAPIdentityUnavailable indicates that normative local VAP MAC/IP
+	// identity is not yet represented by the Geneve configuration.
+	ErrGeneveVAPIdentityUnavailable = errors.New("geneve: VAP MAC/IP identity is not configured")
 )
 
 // GeneveConn implements OverlayConn for BFD over Geneve tunnels (RFC 9521).
@@ -173,18 +177,12 @@ func (c *GeneveConn) SendEncapsulated(
 	return nil
 }
 
-// RecvDecapsulated reads a Geneve packet, strips the Geneve header and inner
-// packet headers, and returns the raw BFD Control payload with overlay metadata.
-//
-// Validation performed per RFC 9521 Section 4:
-//   - Geneve version == 0 (RFC 8926)
-//   - O bit == 1 (control packet)
-//   - C bit == 0 (no critical options)
-//   - Protocol Type == 0x6558 (Format A: Ethernet payload)
-//   - VNI matches configured VNI
-//   - Complete supported Format A inner Ethernet, IPv4, and UDP framing
+// RecvDecapsulated detects datagram truncation, then fails closed until
+// normative local VAP MAC/IP identity is represented by the Geneve
+// configuration. The existing codec validation remains unreachable from this
+// receive path until that identity is available.
 func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	n, remoteAddr, err := c.conn.ReadFromUDP(c.readBuf)
+	n, remoteAddr, err := readOverlayDatagram(c.conn, c.readBuf)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed
@@ -192,6 +190,9 @@ func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, e
 		if closed {
 			return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", ErrOverlayRecvClosed)
 		}
+		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
+	}
+	if err := c.validateVAPIdentity(); err != nil {
 		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
 	}
 
@@ -219,6 +220,10 @@ func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, e
 	}
 
 	return bfdPayload, meta, nil
+}
+
+func (*GeneveConn) validateVAPIdentity() error {
+	return ErrGeneveVAPIdentityUnavailable
 }
 
 // decapGenevePacket validates and strips Geneve + inner headers from a

@@ -1380,7 +1380,7 @@ func TestValidateGeneveErrors(t *testing.T) {
 			wantErr: config.ErrDuplicateGeneveSessionKey,
 		},
 		{
-			name: "valid geneve peers",
+			name: "geneve peers without VAP identity",
 			modify: func(cfg *config.Config) {
 				cfg.Geneve.Enabled = true
 				cfg.Geneve.DefaultVNI = 42
@@ -1389,6 +1389,7 @@ func TestValidateGeneveErrors(t *testing.T) {
 					{Peer: "10.0.0.3", Local: "10.0.0.4"},
 				}
 			},
+			wantErr: config.ErrGeneveVAPIdentityUnavailable,
 		},
 	}
 
@@ -1549,7 +1550,7 @@ vxlan:
 	}
 }
 
-func TestLoadWithGeneveConfig(t *testing.T) {
+func TestLoadWithGeneveConfigFailsClosedWithoutVAPIdentity(t *testing.T) {
 	t.Parallel()
 
 	yamlContent := `
@@ -1566,23 +1567,8 @@ geneve:
 `
 	path := writeTemp(t, yamlContent)
 
-	cfg, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load error: %v", err)
-	}
-
-	if !cfg.Geneve.Enabled {
-		t.Error("Geneve.Enabled should be true")
-	}
-	if cfg.Geneve.DefaultVNI != 42 {
-		t.Errorf("DefaultVNI = %d, want 42", cfg.Geneve.DefaultVNI)
-	}
-	if cfg.Geneve.Backend != config.OverlayBackendUserspaceUDP {
-		t.Errorf("Geneve.Backend = %q, want %q", cfg.Geneve.Backend, config.OverlayBackendUserspaceUDP)
-	}
-
-	if err := config.Validate(cfg); err != nil {
-		t.Errorf("valid geneve config failed validation: %v", err)
+	if _, err := config.Load(path); !errors.Is(err, config.ErrGeneveVAPIdentityUnavailable) {
+		t.Fatalf("Load() error = %v, want ErrGeneveVAPIdentityUnavailable", err)
 	}
 }
 
