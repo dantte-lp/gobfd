@@ -59,28 +59,28 @@ type ociAttestationLayer struct {
 }
 
 type ociSPDXDocument struct {
-	SPDXID            string            `json:"SPDXID"`
-	DataLicense       string            `json:"dataLicense"`
-	SPDXVersion       string            `json:"spdxVersion"`
-	DocumentNamespace string            `json:"documentNamespace"`
+	SPDXID            string            `json:"SPDXID"`            //nolint:tagliatelle // SPDX 2.3 schema field.
+	DataLicense       string            `json:"dataLicense"`       //nolint:tagliatelle // SPDX 2.3 schema field.
+	SPDXVersion       string            `json:"spdxVersion"`       //nolint:tagliatelle // SPDX 2.3 schema field.
+	DocumentNamespace string            `json:"documentNamespace"` //nolint:tagliatelle // SPDX 2.3 schema field.
 	Packages          []json.RawMessage `json:"packages"`
 }
 
 type ociSLSAProvenance struct {
 	BuildDefinition struct {
-		BuildType            string            `json:"buildType"`
-		ResolvedDependencies []json.RawMessage `json:"resolvedDependencies"`
-	} `json:"buildDefinition"`
+		BuildType            string            `json:"buildType"`            //nolint:tagliatelle // SLSA v1 schema field.
+		ResolvedDependencies []json.RawMessage `json:"resolvedDependencies"` //nolint:tagliatelle // SLSA v1 schema field.
+	} `json:"buildDefinition"` //nolint:tagliatelle // SLSA v1 schema field.
 	RunDetails struct {
 		Builder struct {
 			ID string `json:"id"`
 		} `json:"builder"`
 		Metadata struct {
-			InvocationID string `json:"invocationId"`
-			StartedOn    string `json:"startedOn"`
-			FinishedOn   string `json:"finishedOn"`
+			InvocationID string `json:"invocationId"` //nolint:tagliatelle // SLSA v1 schema field.
+			StartedOn    string `json:"startedOn"`    //nolint:tagliatelle // SLSA v1 schema field.
+			FinishedOn   string `json:"finishedOn"`   //nolint:tagliatelle // SLSA v1 schema field.
 		} `json:"metadata"`
-	} `json:"runDetails"`
+	} `json:"runDetails"` //nolint:tagliatelle // SLSA v1 schema field.
 }
 
 // ReleaseOCIEvidence validates all versioned OCI images and atomically records their index digests.

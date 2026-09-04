@@ -35,7 +35,7 @@ type goReleaserArtifact struct {
 }
 
 type goReleaserArtifactExtra struct {
-	Format string `json:"Format"`
+	Format string `json:"Format"` //nolint:tagliatelle // GoReleaser artifact schema field.
 }
 
 // ReleaseArtifacts validates GoReleaser's release-asset matrix and writes its exact expected manifests.
