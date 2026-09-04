@@ -3,6 +3,7 @@ package interop_test
 import (
 	"bytes"
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -716,7 +717,7 @@ func TestTrackedOperationalTextFallsBackWithoutGitMetadata(t *testing.T) {
 		{
 			name: "removed content",
 			path: func(root, _ string) string {
-				return filepath.Join(root, "docs", "notes.md")
+				return filepath.Join(root, "gobfd")
 			},
 			contents: func(removed string) []byte {
 				return []byte("obsolete peer: " + removed + "\n")
@@ -788,6 +789,18 @@ func TestTrackedOperationalTextFallbackSkipsOnlyRepositoryMetadataAndBinary(t *t
 			t.Fatalf("write metadata fixture: %v", err)
 		}
 	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve Go test executable: %v", err)
+	}
+	if err := os.Link(executable, filepath.Join(root, "gobfd")); err != nil {
+		t.Fatalf("link Go build artifact fixture: %v", err)
+	}
+	for _, relative := range []string{"gobfd", "gobfdctl", "gobfd-haproxy-agent", "gobfd-exabgp-bridge"} {
+		if !fallbackBuildArtifactPath(relative) || fallbackBuildArtifactPath("nested/"+relative) {
+			t.Fatalf("fallback build artifact path classification rejected exact root scope for %s", relative)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(root, "binary.dat"), []byte(removed+"\x00"), 0o600); err != nil {
 		t.Fatalf("write binary fixture: %v", err)
 	}
@@ -809,13 +822,23 @@ func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
 		setup   func(*testing.T, string)
 	}{
 		{
+			name:    "root build artifact directory",
+			wantErr: "is not a regular file",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, "gobfd"), 0o750); err != nil {
+					t.Fatalf("create named build artifact directory: %v", err)
+				}
+			},
+		},
+		{
 			name:    "symlink",
 			wantErr: "is a symlink",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				target := filepath.Join(root, "target.txt")
 				writeFixture(t, target, "safe\n")
-				if err := os.Symlink(target, filepath.Join(root, "link.txt")); err != nil {
+				if err := os.Symlink(target, filepath.Join(root, "gobfd")); err != nil {
 					t.Fatalf("create symlink fixture: %v", err)
 				}
 			},
@@ -826,7 +849,7 @@ func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				var listenConfig net.ListenConfig
-				listener, err := listenConfig.Listen(t.Context(), "unix", filepath.Join(root, "socket"))
+				listener, err := listenConfig.Listen(t.Context(), "unix", filepath.Join(root, "gobfd"))
 				if err != nil {
 					t.Skipf("Unix socket fixture is unavailable: %v", err)
 				}
@@ -839,7 +862,7 @@ func TestTrackedOperationalTextFallbackRejectsUnsafeEntries(t *testing.T) {
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				contents := bytes.Repeat([]byte{'a'}, maxOperationalFileSize+1)
-				if err := os.WriteFile(filepath.Join(root, "large.txt"), contents, 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(root, "gobfd"), contents, 0o700); err != nil {
 					t.Fatalf("write oversize fixture: %v", err)
 				}
 			},
@@ -875,10 +898,11 @@ func TestTrackedOperationalTextPrefersGitTrackedList(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	writeFixture(t, filepath.Join(root, "tracked.txt"), "safe\n")
+	const tracked = "gobfd"
+	writeFixture(t, filepath.Join(root, tracked), "safe\n")
 	removed := "aio" + "bfd"
 	writeFixture(t, filepath.Join(root, "untracked.txt"), removed+"\n")
-	for _, args := range [][]string{{"init", "-q"}, {"add", "--", "tracked.txt"}} {
+	for _, args := range [][]string{{"init", "-q"}, {"add", "--", tracked}} {
 		command := exec.CommandContext(t.Context(), "git", append([]string{"-C", root}, args...)...)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("prepare tracked-list preference fixture: %v\n%s", err, output)
@@ -887,6 +911,11 @@ func TestTrackedOperationalTextPrefersGitTrackedList(t *testing.T) {
 
 	if err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed}); err != nil {
 		t.Fatalf("tracked-list preference scanned untracked content: %v", err)
+	}
+	writeFixture(t, filepath.Join(root, tracked), removed+"\n")
+	err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed})
+	if err == nil || !strings.Contains(err.Error(), "retains removed reference") {
+		t.Fatalf("tracked named build artifact error = %v, want removed-reference diagnostic", err)
 	}
 }
 
@@ -1828,7 +1857,7 @@ func validateTrackedOperationalText(
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
-	paths, err := trackedOperationalPaths(ctx, root)
+	paths, fallback, err := trackedOperationalPaths(ctx, root)
 	if err != nil {
 		return err
 	}
@@ -1837,7 +1866,7 @@ func validateTrackedOperationalText(
 		return fmt.Errorf("open repository root %s: %w", root, err)
 	}
 
-	validationErr := validateTrackedOperationalPaths(ctx, rooted, paths, allowed, removedReferences)
+	validationErr := validateTrackedOperationalPaths(ctx, rooted, paths, fallback, allowed, removedReferences)
 	closeErr := rooted.Close()
 	if validationErr != nil {
 		return validationErr
@@ -1852,6 +1881,7 @@ func validateTrackedOperationalPaths(
 	ctx context.Context,
 	rooted *os.Root,
 	paths []string,
+	fallback bool,
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
@@ -1859,21 +1889,21 @@ func validateTrackedOperationalPaths(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := validateTrackedOperationalPath(rooted, relative, allowed, removedReferences); err != nil {
+		if err := validateTrackedOperationalPath(rooted, relative, fallback, allowed, removedReferences); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func trackedOperationalPaths(ctx context.Context, root string) ([]string, error) {
+func trackedOperationalPaths(ctx context.Context, root string) ([]string, bool, error) {
 	command := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z")
 	output, gitErr := command.Output()
 	if gitErr == nil {
 		deletedCommand := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--deleted")
 		deletedOutput, deletedErr := deletedCommand.Output()
 		if deletedErr != nil {
-			return nil, fmt.Errorf("list deleted tracked repository files: %w", deletedErr)
+			return nil, false, fmt.Errorf("list deleted tracked repository files: %w", deletedErr)
 		}
 		deleted := make(map[string]struct{}, bytes.Count(deletedOutput, []byte{0}))
 		for pathBytes := range bytes.SplitSeq(deletedOutput, []byte{0}) {
@@ -1891,14 +1921,14 @@ func trackedOperationalPaths(ctx context.Context, root string) ([]string, error)
 				paths = append(paths, path)
 			}
 		}
-		return paths, nil
+		return paths, false, nil
 	}
 
 	paths, err := walkOperationalPaths(ctx, root)
 	if err != nil {
-		return nil, fmt.Errorf("list tracked repository files: %w; then walk working tree: %w", gitErr, err)
+		return nil, true, fmt.Errorf("list tracked repository files: %w; then walk working tree: %w", gitErr, err)
 	}
-	return paths, nil
+	return paths, true, nil
 }
 
 func walkOperationalPaths(ctx context.Context, root string) ([]string, error) {
@@ -1934,7 +1964,7 @@ func walkOperationalPathsBounded(ctx context.Context, root string, maxEntries in
 		if entries > maxEntries {
 			return fmt.Errorf("working tree exceeds fallback entry limit %d", maxEntries)
 		}
-		if !entry.IsDir() {
+		if !entry.IsDir() || fallbackBuildArtifactPath(relative) {
 			paths = append(paths, relative)
 		}
 		return nil
@@ -1954,9 +1984,15 @@ func fallbackMetadataPath(relative string) bool {
 	return false
 }
 
+func fallbackBuildArtifactPath(relative string) bool {
+	return relative == "gobfd" || relative == "gobfdctl" ||
+		relative == "gobfd-haproxy-agent" || relative == "gobfd-exabgp-bridge"
+}
+
 func validateTrackedOperationalPath(
 	rooted *os.Root,
 	relative string,
+	fallback bool,
 	allowed map[string]struct{},
 	removedReferences []string,
 ) error {
@@ -1977,6 +2013,15 @@ func validateTrackedOperationalPath(
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("tracked operational path %s is not a regular file", relative)
+	}
+	if fallback && fallbackBuildArtifactPath(relative) {
+		buildArtifact, inspectErr := isFallbackGoBuildArtifact(rooted, clean, info)
+		if inspectErr != nil {
+			return fmt.Errorf("inspect fallback build artifact %s: %w", relative, inspectErr)
+		}
+		if buildArtifact {
+			return nil
+		}
 	}
 	fileSizeLimit := trackedOperationalFileSizeLimit(relative)
 	if info.Size() > int64(fileSizeLimit) {
@@ -2014,6 +2059,43 @@ func validateTrackedOperationalPath(
 
 func readTrackedOperationalFile(rooted *os.Root, relative string, initial os.FileInfo) ([]byte, error) {
 	return readTrackedOperationalFileWithHook(rooted, relative, initial, nil)
+}
+
+func isFallbackGoBuildArtifact(rooted *os.Root, relative string, initial os.FileInfo) (bool, error) {
+	file, err := rooted.Open(relative)
+	if err != nil {
+		return false, fmt.Errorf("open rooted file: %w", err)
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil {
+		_ = file.Close()
+		return false, fmt.Errorf("stat opened file: %w", statErr)
+	}
+	current, lstatErr := rooted.Lstat(relative)
+	if lstatErr != nil {
+		_ = file.Close()
+		return false, fmt.Errorf("lstat opened path: %w", lstatErr)
+	}
+	if !opened.Mode().IsRegular() || current.Mode()&os.ModeSymlink != 0 ||
+		!os.SameFile(initial, opened) || !os.SameFile(current, opened) {
+		_ = file.Close()
+		return false, errors.New("fallback build artifact changed after lstat")
+	}
+	var magic [4]byte
+	_, readErr := file.ReadAt(magic[:], 0)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		_ = file.Close()
+		return false, fmt.Errorf("read executable header: %w", readErr)
+	}
+	goBuild := opened.Mode().Perm()&0o111 != 0 && bytes.Equal(magic[:], []byte("\x7fELF"))
+	if goBuild {
+		_, buildInfoErr := buildinfo.Read(file)
+		goBuild = buildInfoErr == nil
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		return false, fmt.Errorf("close rooted file: %w", closeErr)
+	}
+	return goBuild, nil
 }
 
 func readTrackedOperationalFileWithHook(
