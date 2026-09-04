@@ -17,12 +17,14 @@ func TestCIWorkflowBuildAndSonarStepsDelegateToCICTL(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			name:      "Sonar token",
-			workflow:  "../.github/workflows/build.yml",
-			step:      "Check Sonar token",
-			command:   "go run ./test/cmd/cictl sonar-mode",
-			required:  []string{"SONAR_TOKEN_PRESENT: ${{ secrets.SONAR_TOKEN != '' }}"},
-			forbidden: []string{"SONAR_TOKEN:", "shell: bash", "run: |", "mode=run", "skip-dependabot", "SONAR_TOKEN is required"},
+			name:     "Sonar token",
+			workflow: "../.github/workflows/build.yml",
+			step:     "Check Sonar token",
+			command:  "go run ./test/cmd/cictl sonar-mode",
+			required: []string{"SONAR_TOKEN_PRESENT: ${{ secrets.SONAR_TOKEN != '' }}"},
+			forbidden: []string{
+				"SONAR_TOKEN:", "shell: bash", "run: |", "mode=run", "skip-dependabot", "SONAR_TOKEN is required",
+			},
 		},
 		{
 			name:      "binary build",
@@ -387,7 +389,9 @@ func TestReleaseWorkflowUsesOneGoOwnedUPXBootstrapCommand(t *testing.T) {
 	if got := strings.Count(step, "        run: go run ./test/cmd/cictl release-upx\n"); got != 1 {
 		t.Errorf("release UPX command count = %d, want 1", got)
 	}
-	for _, marker := range []string{"run: |", "UPX_VERSION:", "UPX_SHA256:", "gh release", "sha256sum", "tar x", "GITHUB_PATH\""} {
+	for _, marker := range []string{
+		"run: |", "UPX_VERSION:", "UPX_SHA256:", "gh release", "sha256sum", "tar x", "GITHUB_PATH\"",
+	} {
 		if strings.Contains(step, marker) {
 			t.Errorf("UPX step retains shell-owned marker %q", marker)
 		}

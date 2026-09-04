@@ -73,23 +73,35 @@ func TestReportTargetsRunFixedGoTestsWithSecureArtifacts(t *testing.T) {
 	}{
 		{
 			target: "core", reportPath: "core", artifactEnv: "E2E_CORE_TESTCONTAINERS_ARTIFACT_DIR",
-			wantArgs: []string{"test", "-tags", "e2e_core_testcontainers", "./test/e2e/core", "-race", "-count=1", "-json", "-timeout", "10m", "-run", "^TestCoreDaemonTestcontainers$"},
+			wantArgs: []string{
+				"test", "-tags", "e2e_core_testcontainers", "./test/e2e/core", "-race", "-count=1", "-json",
+				"-timeout", "10m", "-run", "^TestCoreDaemonTestcontainers$",
+			},
 		},
 		{
 			target: "bgp-fast-failover", reportPath: "bgp-fast-failover",
 			artifactEnv: "E2E_BGP_FAILOVER_TESTCONTAINERS_ARTIFACT_DIR",
-			wantArgs:    []string{"test", "-tags", "e2e_bgp_failover_testcontainers", "./test/e2e/bgp-failover", "-race", "-count=1", "-json", "-timeout", "10m", "-run", "^TestBGPFastFailoverTestcontainers$"},
+			wantArgs: []string{
+				"test", "-tags", "e2e_bgp_failover_testcontainers", "./test/e2e/bgp-failover", "-race", "-count=1",
+				"-json", "-timeout", "10m", "-run", "^TestBGPFastFailoverTestcontainers$",
+			},
 		},
 		{
 			target: "haproxy-health", reportPath: "haproxy-health",
 			artifactEnv: "E2E_HAPROXY_TESTCONTAINERS_ARTIFACT_DIR",
-			wantArgs:    []string{"test", "-trimpath", "-tags", "e2e_haproxy_testcontainers", "./test/e2e/haproxy-health", "-race", "-count=1", "-json", "-timeout", "10m"},
+			wantArgs: []string{
+				"test", "-trimpath", "-tags", "e2e_haproxy_testcontainers", "./test/e2e/haproxy-health", "-race",
+				"-count=1", "-json", "-timeout", "10m",
+			},
 		},
 		{
 			target: "observability", reportPath: "observability",
-			artifactEnv:     "E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_DIR",
-			ownerEnv:        "E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_OWNER",
-			wantArgs:        []string{"test", "-trimpath", "-tags", "e2e_observability_testcontainers", "./test/e2e/observability", "-race", "-count=1", "-json", "-timeout", "15m"},
+			artifactEnv: "E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_DIR",
+			ownerEnv:    "E2E_OBSERVABILITY_TESTCONTAINERS_ARTIFACT_OWNER",
+			wantArgs: []string{
+				"test", "-trimpath", "-tags", "e2e_observability_testcontainers", "./test/e2e/observability", "-race",
+				"-count=1", "-json", "-timeout", "15m",
+			},
 			wantOwnerMarker: true,
 		},
 	}
