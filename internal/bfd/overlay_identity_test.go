@@ -125,6 +125,37 @@ func TestOverlayDiscriminatorDemuxValidatesExactTunnelBinding(t *testing.T) {
 	}
 }
 
+func TestBaseDiscriminatorDemuxRejectsOverlayTransport(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	cfg := SessionConfig{
+		PeerAddr: netip.MustParseAddr("192.0.2.10"), LocalAddr: netip.MustParseAddr("192.0.2.20"),
+		Type: SessionTypeSingleHop, Role: RoleActive,
+		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
+	}
+	sess, err := mgr.CreateSession(
+		context.Background(), cfg, NonOwningSenderLeaseFactory(overlayIdentityNoopSender{}),
+	)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	pkt := &ControlPacket{
+		Version: 1, State: StateDown, DetectMult: 3,
+		MyDiscriminator: 100, YourDiscriminator: sess.LocalDiscriminator(),
+		DesiredMinTxInterval: 1_000_000, RequiredMinRxInterval: 1_000_000,
+	}
+	meta := PacketMeta{
+		SrcAddr: cfg.PeerAddr, DstAddr: cfg.LocalAddr, TTL: 255,
+		TransportScope: TransportScope{Kind: TransportScopeVXLAN, VNI: 100},
+	}
+	if err := mgr.DemuxWithWire(pkt, meta, nil); !errors.Is(err, ErrDemuxNoMatch) {
+		t.Fatalf("DemuxWithWire(overlay transport) error = %v, want ErrDemuxNoMatch", err)
+	}
+}
+
 func TestSessionKeyCanonicalizesOverlayMappedIPv4(t *testing.T) {
 	t.Parallel()
 

@@ -370,6 +370,7 @@ func TestReconciliationCoordinatorMissingOverlayBackendIsFailed(t *testing.T) {
 	cfg.VXLAN.DefaultDetectMultiplier = 3
 	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
 		Peer: "192.0.2.220", Local: "192.0.2.221",
+		PeerMAC: "02:00:00:00:00:20", LocalMAC: "02:00:00:00:00:21",
 	}}
 	coordinator := newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), checker)
 

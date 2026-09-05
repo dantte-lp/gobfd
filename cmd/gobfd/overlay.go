@@ -183,13 +183,21 @@ func vxlanTransportScope(
 		return bfd.TransportScope{}, fmt.Errorf(
 			"parse local VTEP address %q: %w", peer.Local, config.ErrInvalidVXLANPeer)
 	}
+	peerMAC, err := peer.PeerMACAddr()
+	if err != nil {
+		return bfd.TransportScope{}, fmt.Errorf("parse peer VTEP MAC: %w", err)
+	}
+	localMAC, err := peer.LocalMACAddr()
+	if err != nil {
+		return bfd.TransportScope{}, fmt.Errorf("parse local VTEP MAC: %w", err)
+	}
 	return bfd.TransportScope{
 		Kind: bfd.TransportScopeVXLAN, Owner: bfd.VXLANReconciliationOwner().ID,
 		Backend: cfg.VXLAN.Backend, VNI: cfg.VXLAN.ManagementVNI,
 		OuterPeerAddr: outerPeer.Unmap(), OuterLocalAddr: outerLocal.Unmap(),
 		InnerPeerAddr: outerPeer.Unmap(), InnerLocalAddr: outerLocal.Unmap(),
 		AddressFamily: bfd.AddressFamilyIPv4,
-		PeerMAC:       netio.VXLANFormatAPeerMAC(), LocalMAC: netio.VXLANFormatALocalMAC(),
+		PeerMAC:       peerMAC, LocalMAC: localMAC,
 	}, nil
 }
 

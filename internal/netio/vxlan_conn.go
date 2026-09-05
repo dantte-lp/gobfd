@@ -135,7 +135,7 @@ func (c *VXLANConn) SendEncapsulated(
 		OuterPeerAddr: dstAddr, OuterLocalAddr: c.localAddr,
 		InnerPeerAddr: dstAddr, InnerLocalAddr: c.localAddr,
 		AddressFamily: bfd.AddressFamilyIPv4,
-		PeerMAC:       innerSrcMAC, LocalMAC: innerDstMAC,
+		PeerMAC:       innerSrcMAC, LocalMAC: innerSrcMAC,
 	}
 	return c.sendEncapsulated(bfdPayload, scope)
 }
@@ -175,7 +175,7 @@ func (c *VXLANConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScope
 	innerPkt, err := buildInnerPacketInto(
 		buf[VXLANHeaderSize:], bfdPayload,
 		scope.InnerLocalAddr, scope.InnerPeerAddr, c.srcPort,
-		scope.PeerMAC, scope.LocalMAC,
+		scope.LocalMAC, innerDstMAC,
 	)
 	if err != nil {
 		return fmt.Errorf("vxlan build inner: %w", err)

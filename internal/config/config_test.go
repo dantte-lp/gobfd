@@ -13,6 +13,8 @@ import (
 
 const (
 	testLocalAddr    = "10.0.0.2"
+	testPeerMAC      = "02:00:00:00:00:01"
+	testLocalMAC     = "02:00:00:00:00:02"
 	testGoBGPAddr    = "127.0.0.1:50051"
 	testStrategyPeer = "disable-peer"
 )
@@ -706,8 +708,11 @@ func TestEchoPeerConfigLocalAddr(t *testing.T) {
 func TestVXLANPeerConfigSessionKey(t *testing.T) {
 	t.Parallel()
 
-	vc := config.VXLANPeerConfig{Peer: "10.0.0.1", Local: testLocalAddr}
-	want := "vxlan|10.0.0.1|10.0.0.2"
+	vc := config.VXLANPeerConfig{
+		Peer: "10.0.0.1", Local: testLocalAddr,
+		PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+	}
+	want := "vxlan|10.0.0.1|10.0.0.2|02:00:00:00:00:01|02:00:00:00:00:02"
 	if got := vc.VXLANSessionKey(); got != want {
 		t.Errorf("VXLANSessionKey() = %q, want %q", got, want)
 	}
@@ -776,6 +781,17 @@ func TestGenevePeerConfigSessionKey(t *testing.T) {
 	want := "geneve|10.0.0.1|10.0.0.2"
 	if got := gc.GeneveSessionKey(); got != want {
 		t.Errorf("GeneveSessionKey() = %q, want %q", got, want)
+	}
+	canonical := config.GenevePeerConfig{
+		Peer: "10.0.0.1", Local: testLocalAddr, VNI: 100,
+		InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+		PeerMAC: "02-00-00-00-00-01", LocalMAC: "02:00:00:00:00:02",
+	}
+	canonical.PeerMAC = "02:00:00:00:00:01"
+	want = canonical.GeneveSessionKey()
+	canonical.PeerMAC = "02-00-00-00-00-01"
+	if got := canonical.GeneveSessionKey(); got != want {
+		t.Errorf("GeneveSessionKey() did not canonicalize MAC: got %q, want %q", got, want)
 	}
 }
 
@@ -1244,12 +1260,40 @@ func TestValidateVXLANErrors(t *testing.T) {
 			wantErr: config.ErrInvalidSessionDetectMult,
 		},
 		{
+			name: "missing vxlan local endpoint",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
+					Peer: "10.0.0.1", PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrInvalidVXLANPeer,
+		},
+		{
+			name: "wildcard vxlan local endpoint",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
+					Peer: "10.0.0.1", Local: "0.0.0.0", PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrInvalidVXLANPeer,
+		},
+		{
+			name: "missing vxlan source MAC identity",
+			modify: func(cfg *config.Config) {
+				cfg.VXLAN.Enabled = true
+				cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: testLocalAddr}}
+			},
+			wantErr: config.ErrVXLANEndpointIdentityUnavailable,
+		},
+		{
 			name: "duplicate vxlan session key",
 			modify: func(cfg *config.Config) {
 				cfg.VXLAN.Enabled = true
 				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr},
-					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{Peer: "10.0.0.1", Local: testLocalAddr, PeerMAC: testPeerMAC, LocalMAC: testLocalMAC},
+					{Peer: "10.0.0.1", Local: testLocalAddr, PeerMAC: testPeerMAC, LocalMAC: "02:00:00:00:00:03"},
 				}
 			},
 			wantErr: config.ErrDuplicateVXLANSessionKey,
@@ -1260,8 +1304,8 @@ func TestValidateVXLANErrors(t *testing.T) {
 				cfg.VXLAN.Enabled = true
 				cfg.VXLAN.ManagementVNI = 100
 				cfg.VXLAN.Peers = []config.VXLANPeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr},
-					{Peer: "10.0.0.3", Local: "10.0.0.4"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, PeerMAC: testPeerMAC, LocalMAC: testLocalMAC},
+					{Peer: "10.0.0.3", Local: "10.0.0.4", PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:04"},
 				}
 			},
 		},
@@ -1373,11 +1417,32 @@ func TestValidateGeneveErrors(t *testing.T) {
 			modify: func(cfg *config.Config) {
 				cfg.Geneve.Enabled = true
 				cfg.Geneve.Peers = []config.GenevePeerConfig{
-					{Peer: "10.0.0.1", Local: testLocalAddr},
-					{Peer: "10.0.0.1", Local: testLocalAddr},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr,
+						InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+						PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+					},
+					{
+						Peer: "10.0.0.1", Local: testLocalAddr,
+						InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+						PeerMAC: "02-00-00-00-00-01", LocalMAC: "02-00-00-00-00-02",
+					},
 				}
 			},
 			wantErr: config.ErrDuplicateGeneveSessionKey,
+		},
+		{
+			name: "wildcard geneve local endpoint",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: "0.0.0.0",
+					InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+					PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrInvalidGenevePeer,
 		},
 		{
 			name: "geneve peers with exact Format A VAP identity",
@@ -1407,6 +1472,32 @@ func TestValidateGeneveErrors(t *testing.T) {
 					Peer: "10.0.0.1", Local: testLocalAddr,
 					InnerPeer: "2001:db8::1", InnerLocal: "192.0.2.2",
 					PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+				}}
+			},
+			wantErr: config.ErrGeneveVAPIdentityUnavailable,
+		},
+		{
+			name: "geneve loopback VAP fails closed",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: testLocalAddr,
+					InnerPeer: "127.0.0.1", InnerLocal: "192.0.2.2",
+					PeerMAC: testPeerMAC, LocalMAC: testLocalMAC,
+				}}
+			},
+			wantErr: config.ErrGeneveVAPIdentityUnavailable,
+		},
+		{
+			name: "geneve zero VAP MAC fails closed",
+			modify: func(cfg *config.Config) {
+				cfg.Geneve.Enabled = true
+				cfg.Geneve.DefaultVNI = 42
+				cfg.Geneve.Peers = []config.GenevePeerConfig{{
+					Peer: "10.0.0.1", Local: testLocalAddr,
+					InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
+					PeerMAC: "00:00:00:00:00:00", LocalMAC: testLocalMAC,
 				}}
 			},
 			wantErr: config.ErrGeneveVAPIdentityUnavailable,
@@ -1547,6 +1638,8 @@ vxlan:
   peers:
     - peer: "10.0.0.1"
       local: "10.0.0.2"
+      peer_mac: "02:00:00:00:00:01"
+      local_mac: "02:00:00:00:00:02"
 `
 	path := writeTemp(t, yamlContent)
 

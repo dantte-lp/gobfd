@@ -30,8 +30,8 @@ production-ограничений, перечисленных в этой зап
 | Mode | Linux fit | Текущее состояние GoBFD | Production gap |
 |---|---:|---:|---|
 | Micro-BFD | High | Per-member сессии, агрегатное состояние, kernel-bond, OVSDB и NetworkManager пути enforcement | Выделенные API/CLI create-flows и расширение interop-матрицы |
-| VXLAN BFD | Только lab или изолированный endpoint | Небезопасный/неполный `userspace-udp` preview | Валидация inner packet, tunnel identity и owner-specific интеграции kernel/OVS/OVN/Cilium/Calico/NSX |
-| Geneve BFD | Только lab или изолированный endpoint | Небезопасный/неполный `userspace-udp` preview | Валидация inner packet, tunnel identity, owner-specific dataplane-интеграции и rate-policy |
+| VXLAN BFD | Только lab или изолированный endpoint | Exact IPv4 Format A `userspace-udp` preview | Owner-specific интеграции kernel/OVS/OVN/Cilium/Calico/NSX |
+| Geneve BFD | Только lab или изолированный endpoint | Exact IPv4 Format A `userspace-udp` preview | Owner-specific dataplane-интеграции и rate-policy |
 
 ### Micro-BFD в Linux
 

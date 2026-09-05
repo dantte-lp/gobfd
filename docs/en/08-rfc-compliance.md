@@ -366,6 +366,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | VNI validation (24-bit) | `ErrInvalidVXLANVNI` config validation |
 | I flag validation | `ErrVXLANInvalidFlags` sentinel |
 | Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
+| Inner source MAC | Per-peer remote/local originating VTEP MACs are required and matched exactly |
 | Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
 | Inner IPv4 checksum | `ipv4HeaderChecksum()` per RFC 1071 |
 | Session type | `SessionTypeVXLAN` constant |
@@ -374,7 +375,7 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Backend model | `NewVXLANOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
 | Receive validation | Overlay headers and the full outer/VNI/inner IPv4/MAC tuple are matched exactly before discriminator demux; malformed inner framing is rejected |
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
-| Config validation | VNI range, peer addresses, detect_mult, duplicate key detection |
+| Config validation | VNI range, concrete IPv4 endpoints, remote/local unicast source MACs, detect_mult, and duplicate wire identity detection |
 
 Packet encapsulation stack:
 ```
@@ -421,7 +422,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Backend model | `NewGeneveOverlayBackend` supports `userspace-udp`; reserved kernel/OVS/OVN/Cilium/Calico/NSX backends fail closed |
 | Receive validation | Matches outer endpoints, VNI, inner VAP IPs, address family, and source/destination MACs before BFD demux |
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
-| Config validation | VNI range, outer IPv4 endpoints, detect_mult, duplicate keys, and complete unicast VAP MAC/IPv4 identity are checked |
+| Config validation | VNI range, concrete outer IPv4 endpoints, detect_mult, duplicate keys, and complete unicast VAP MAC/IPv4 identity are checked |
 
 Packet encapsulation stack (Format A):
 ```
@@ -436,8 +437,8 @@ Key differences from VXLAN BFD (RFC 8971):
 - Sessions originate/terminate at VAPs, not directly at NVEs
 
 **Linux production limitation**: `geneve.backend: userspace-udp` requires
-explicit local and remote VAP MAC/IPv4 identity. Missing identity, IPv6 inner
-payloads, Format B, and other protocol types fail closed. Exact scopes can share
+explicit local and remote VAP MAC/IPv4 identity. Missing or special-use identity
+(unspecified, loopback, multicast), IPv6 inner payloads, Format B, and other protocol types fail closed. Exact scopes can share
 one local listener without aliasing VNI/VAP tuples. The backend does not
 integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
 

@@ -124,6 +124,8 @@ bfd:
 #   peers:
 #     - peer: "10.0.0.2"
 #       local: "10.0.0.1"
+#       peer_mac: "02:00:00:00:00:02"
+#       local_mac: "02:00:00:00:00:01"
 #       desired_min_tx: "300ms"
 #       required_min_rx: "300ms"
 #       detect_mult: 5

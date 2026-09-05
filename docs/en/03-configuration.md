@@ -300,11 +300,13 @@ micro_bfd:
 | `vxlan.default_detect_multiplier` | uint32 | -- | Default detection multiplier |
 | `vxlan.peers[].peer` | string | -- | Remote VTEP IP address |
 | `vxlan.peers[].local` | string | -- | Local VTEP IP address |
+| `vxlan.peers[].peer_mac` | string | -- | Required remote VTEP unicast source MAC |
+| `vxlan.peers[].local_mac` | string | -- | Required local VTEP unicast source MAC |
 | `vxlan.peers[].desired_min_tx` | duration | -- | Override default TX interval for this peer |
 | `vxlan.peers[].required_min_rx` | duration | -- | Override default RX interval for this peer |
 | `vxlan.peers[].detect_mult` | uint32 | -- | Override default detect multiplier for this peer |
 
-BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack includes Ethernet (dst MAC `00:52:02:00:00:00`), IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns the same socket.
+BFD Control packets are encapsulated in VXLAN (outer UDP port 4789) with a dedicated Management VNI. The inner packet stack uses the configured originating VTEP source MAC and the assigned destination MAC `00:52:02:00:00:00`, IPv4 (TTL=255), and UDP (dst 3784) headers. The current `userspace-udp` backend owns `local:4789`; use a future owner-specific backend rather than this mode when kernel VXLAN, OVS/OVN, Cilium, Calico, NSX, or another dataplane already owns the same socket.
 
 > **Unsafe preview**: the supported IPv4 Format A profile is validated and
 > bound to its exact tunnel identity. The userspace socket ownership model is
@@ -325,8 +327,12 @@ vxlan:
   peers:
     - peer: "10.0.0.2"
       local: "10.0.0.1"
+      peer_mac: "02:00:00:00:00:02"
+      local_mac: "02:00:00:00:00:01"
     - peer: "10.0.0.3"
       local: "10.0.0.1"
+      peer_mac: "02:00:00:00:00:03"
+      local_mac: "02:00:00:00:00:01"
       desired_min_tx: "300ms"
       required_min_rx: "300ms"
       detect_mult: 5
@@ -576,9 +582,10 @@ On reload:
    `SERVING`, only if all six converge
 
 `log.level` applies immediately after the complete candidate passes validation.
-The six desired sets reconcile session/group membership: entries may be added,
-removed, or re-keyed when they reuse a control, Echo, Micro-BFD, or overlay
-transport binding opened at startup. BFD defaults and per-entry timers,
+The six desired sets reconcile session/group membership. Control, Echo, and
+Micro-BFD entries may be added, removed, or re-keyed when they reuse a transport
+binding opened at startup. VXLAN and Geneve entries may be removed, but adding
+or re-keying an overlay identity requires a process restart. BFD defaults and per-entry timers,
 padding, authentication, peer, and threshold values apply when a new identity
 is created. Changing the effective parameters of an existing same-key session
 or Micro-BFD group is not an in-place update: reconciliation reports a conflict,
@@ -589,8 +596,8 @@ disabling a source is supported.
 The following settings require a process restart: `grpc.*`, `metrics.*`,
 `log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`,
 `vxlan.backend`, `vxlan.management_vni`, `geneve.backend`,
-`geneve.default_vni`, and any new or re-keyed identity that needs a new local
-address, interface, session type, overlay local binding, or effective Geneve
+`geneve.default_vni`, every new or re-keyed overlay identity, and any other new
+identity that needs a new local address, interface, session type, or effective Geneve
 VNI. A rejected reload logs only
 these bounded field paths, never configuration values or authentication
 secrets. Socket buffer values are included in this startup-only boundary, but
@@ -629,6 +636,7 @@ skipped. Already accepted source changes are not rolled back.
 | Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |
 | No duplicate echo session keys | `ErrDuplicateEchoSessionKey` |
 | VXLAN `management_vni` must be <= 16777215 (24-bit) | `ErrInvalidVXLANVNI` |
+| VXLAN peers require concrete IPv4 local endpoints and remote/local unicast source MACs | `ErrInvalidVXLANPeer` / `ErrVXLANEndpointIdentityUnavailable` |
 | VXLAN `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | VXLAN `peer` must be a valid IP address | `ErrInvalidVXLANPeer` |
 | No duplicate VXLAN session keys | `ErrDuplicateVXLANSessionKey` |

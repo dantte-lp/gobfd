@@ -306,6 +306,7 @@ RFC 8971 определяет BFD в VXLAN-инкапсуляции для об�
 | Валидация VNI (24 бит) | `ErrInvalidVXLANVNI` валидация конфигурации |
 | Валидация I-флага | Сентинел `ErrVXLANInvalidFlags` |
 | Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
+| Inner source MAC | Для каждого пира требуются remote/local MAC исходящих VTEP и exact match |
 | Inner TTL=255 | `BuildInnerPacket()` устанавливает TTL=255 (RFC 5881 GTSM) |
 | Inner IPv4 checksum | `ipv4HeaderChecksum()` по RFC 1071 |
 | Тип сессии | Константа `SessionTypeVXLAN` |
@@ -314,7 +315,7 @@ RFC 8971 определяет BFD в VXLAN-инкапсуляции для об�
 | Модель backend | `NewVXLANOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
 | Валидация receive path | Полный outer/VNI/inner IPv4/MAC tuple точно сопоставляется до discriminator demux; malformed inner framing отклоняется |
 | Декларативные пиры | `vxlan.peers[]` в конфиге, реконсиляция при SIGHUP |
-| Валидация конфигурации | Диапазон VNI, адреса пиров, detect_mult, обнаружение дубликатов |
+| Валидация конфигурации | Диапазон VNI, конкретные IPv4 endpoints, remote/local unicast source MAC, detect_mult и обнаружение дублирующей wire identity |
 
 Стек инкапсуляции пакетов:
 ```
@@ -362,7 +363,7 @@ RFC 9521 определяет BFD в Geneve-инкапсуляции для об
 | Модель backend | `NewGeneveOverlayBackend` поддерживает `userspace-udp`; зарезервированные kernel/OVS/OVN/Cilium/Calico/NSX backend fail closed |
 | Валидация receive path | Сопоставляет outer endpoints, VNI, inner VAP IP, address family и source/destination MAC до BFD demux |
 | Декларативные пиры | `geneve.peers[]` в конфиге, переопределение VNI per-peer, реконсиляция при SIGHUP |
-| Валидация конфигурации | Проверяются VNI, outer IPv4 endpoints, detect_mult, дубликаты и полный unicast VAP MAC/IPv4 tuple |
+| Валидация конфигурации | Проверяются VNI, concrete outer IPv4 endpoints, detect_mult, дубликаты и полный unicast VAP MAC/IPv4 tuple |
 
 Стек инкапсуляции пакетов (Format A):
 ```
@@ -377,7 +378,8 @@ Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD C
 - Сессии создаются/завершаются на уровне VAP, а не напрямую на NVE
 
 **Production-ограничение Linux**: `geneve.backend: userspace-udp` требует
-явные local и remote VAP MAC/IPv4 identities. Неполная identity, inner IPv6,
+явные local и remote VAP MAC/IPv4 identities. Неполная или special-use identity
+(unspecified, loopback, multicast), inner IPv6,
 Format B и другие protocol types fail closed. Exact scopes используют общий
 local listener без aliasing VNI/VAP tuples. Backend не интегрируется с socket
 ownership kernel Geneve, OVS/OVN или NSX dataplane.

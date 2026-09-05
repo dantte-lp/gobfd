@@ -67,13 +67,6 @@ var innerDstMAC = [6]byte{0x00, 0x52, 0x02, 0x00, 0x00, 0x00}
 // Bit 1 of the first octet is set (locally administered flag).
 var innerSrcMAC = [6]byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
 
-// VXLANFormatAPeerMAC returns the supported RFC 8971 profile's received
-// source MAC identity.
-func VXLANFormatAPeerMAC() [6]byte { return innerSrcMAC }
-
-// VXLANFormatALocalMAC returns the RFC 8971 Format A destination MAC.
-func VXLANFormatALocalMAC() [6]byte { return innerDstMAC }
-
 // -------------------------------------------------------------------------
 // Inner Packet Errors
 // -------------------------------------------------------------------------

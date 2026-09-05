@@ -296,13 +296,15 @@ micro_bfd:
 | `vxlan.default_detect_multiplier` | uint32 | -- | Множитель обнаружения по умолчанию |
 | `vxlan.peers[].peer` | string | -- | IP удалённого VTEP |
 | `vxlan.peers[].local` | string | -- | IP локального VTEP |
+| `vxlan.peers[].peer_mac` | string | -- | Обязательный unicast source MAC удалённого VTEP |
+| `vxlan.peers[].local_mac` | string | -- | Обязательный unicast source MAC локального VTEP |
 | `vxlan.peers[].desired_min_tx` | duration | -- | Переопределение TX-интервала для этого пира |
 | `vxlan.peers[].required_min_rx` | duration | -- | Переопределение RX-интервала для этого пира |
 | `vxlan.peers[].detect_mult` | uint32 | -- | Переопределение множителя обнаружения для этого пира |
 
 BFD Control пакеты инкапсулируются в VXLAN (внешний UDP порт 4789) с
-выделенным Management VNI. Внутренний стек включает Ethernet (dst MAC
-`00:52:02:00:00:00`), IPv4 (TTL=255) и UDP (dst 3784) заголовки. Текущий
+выделенным Management VNI. Внутренний стек использует настроенный source MAC
+исходящего VTEP и назначенный dst MAC `00:52:02:00:00:00`, IPv4 (TTL=255) и UDP (dst 3784) заголовки. Текущий
 backend `userspace-udp` владеет `local:4789`; если kernel VXLAN, OVS/OVN,
 Cilium, Calico, NSX или другой dataplane уже владеет тем же socket, нужен будущий
 owner-specific backend.
@@ -326,8 +328,12 @@ vxlan:
   peers:
     - peer: "10.0.0.2"
       local: "10.0.0.1"
+      peer_mac: "02:00:00:00:00:02"
+      local_mac: "02:00:00:00:00:01"
     - peer: "10.0.0.3"
       local: "10.0.0.1"
+      peer_mac: "02:00:00:00:00:03"
+      local_mac: "02:00:00:00:00:01"
       desired_min_tx: "300ms"
       required_min_rx: "300ms"
       detect_mult: 5
@@ -576,9 +582,10 @@ kill -HUP $(pidof gobfd)
    `SERVING`, только если все шесть sources converged
 
 `log.level` применяется сразу после полной валидации candidate. Шесть desired
-sets реконсилируют membership sessions/groups: записи можно добавлять, удалять
-или re-key при повторном использовании control, Echo, Micro-BFD или overlay
-transport binding, открытого при startup. BFD defaults и per-entry timers,
+sets реконсилируют membership sessions/groups. Записи control, Echo и Micro-BFD
+можно добавлять, удалять или re-key при повторном использовании transport binding,
+открытого при startup. Записи VXLAN и Geneve можно удалять, но новая или re-keyed
+overlay identity требует перезапуска процесса. BFD defaults и per-entry timers,
 padding, authentication, peer и threshold values применяются при создании новой
 identity. Изменение effective parameters существующей same-key session или
 Micro-BFD group не является in-place update: reconciliation возвращает
@@ -588,9 +595,9 @@ identity отдельными reload либо перезапустить про�
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
 `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,
-`vxlan.management_vni`, `geneve.backend`, `geneve.default_vni`, а также любая
-новая или re-keyed identity, которой нужен новый local address, interface,
-session type, overlay local binding или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
+`vxlan.management_vni`, `geneve.backend`, `geneve.default_vni`, каждая новая
+или re-keyed overlay identity, а также любая другая новая identity, которой нужен
+новый local address, interface, session type или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
 пути полей, но не значения конфигурации или authentication secrets. Socket
 buffer values входят в startup-only границу, однако их runtime wiring
 отслеживается отдельно и здесь не заявляется.
@@ -628,6 +635,7 @@ source VXLAN или Geneve без работающего backend считает�
 | Echo `detect_mult` должен быть >= 1 | `ErrInvalidEchoDetectMult` |
 | Нет дублирующих ключей echo-сессий | `ErrDuplicateEchoSessionKey` |
 | VXLAN `management_vni` должен быть <= 16777215 (24 бит) | `ErrInvalidVXLANVNI` |
+| VXLAN-пиры требуют конкретный IPv4 local endpoint и remote/local unicast source MAC | `ErrInvalidVXLANPeer` / `ErrVXLANEndpointIdentityUnavailable` |
 | VXLAN `backend` должен быть `userspace-udp`; зарезервированные non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
 | VXLAN `peer` должен быть валидным IP-адресом | `ErrInvalidVXLANPeer` |
 | Нет дублирующих ключей VXLAN-сессий | `ErrDuplicateVXLANSessionKey` |

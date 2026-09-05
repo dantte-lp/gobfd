@@ -855,7 +855,10 @@ func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
 	cfg.VXLAN.DefaultRequiredMinRx = time.Second
 	cfg.VXLAN.DefaultDetectMultiplier = 3
 	cfg.VXLAN.Peers = []config.VXLANPeerConfig{
-		{Peer: "192.0.2.90", Local: "192.0.2.91"},
+		{
+			Peer: "192.0.2.90", Local: "192.0.2.91",
+			PeerMAC: "02:00:00:00:00:90", LocalMAC: "02:00:00:00:00:91",
+		},
 		{Peer: "not-an-address", Local: "192.0.2.91"},
 	}
 	reconcileOverlayTunnels(
@@ -1706,7 +1709,10 @@ func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.VXLAN.Enabled = true
 	cfg.VXLAN.ManagementVNI = 100
-	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{Peer: "10.0.0.1", Local: "10.0.0.2"}}
+	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
+		Peer: "10.0.0.1", Local: "10.0.0.2",
+		PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
+	}}
 	cfg.Geneve.Enabled = true
 	cfg.Geneve.DefaultVNI = 200
 	cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.3", Local: "10.0.0.4"}}

@@ -97,6 +97,10 @@ type overlayReceiveKey struct {
 }
 
 func receiveKeyForScope(scope bfd.TransportScope) overlayReceiveKey {
+	localMAC := scope.LocalMAC
+	if scope.Kind == bfd.TransportScopeVXLAN {
+		localMAC = innerDstMAC
+	}
 	return overlayReceiveKey{
 		kind:           scope.Kind,
 		outerPeerAddr:  scope.OuterPeerAddr.Unmap(),
@@ -105,7 +109,7 @@ func receiveKeyForScope(scope bfd.TransportScope) overlayReceiveKey {
 		innerLocalAddr: scope.InnerLocalAddr.Unmap(),
 		addressFamily:  scope.AddressFamily,
 		peerMAC:        scope.PeerMAC,
-		localMAC:       scope.LocalMAC,
+		localMAC:       localMAC,
 		vni:            scope.VNI,
 	}
 }
@@ -131,11 +135,7 @@ func validateOverlayScopes(
 ) error {
 	seen := make(map[overlayReceiveKey]struct{}, len(scopes))
 	for _, scope := range scopes {
-		if scope.Kind != kind || scope.Owner == "" || scope.Backend == "" ||
-			scope.VNI > 0x00ff_ffff || scope.AddressFamily != bfd.AddressFamilyIPv4 ||
-			scope.OuterLocalAddr.Unmap() != localAddr.Unmap() ||
-			!scope.OuterPeerAddr.Is4() || !scope.OuterLocalAddr.Is4() ||
-			!scope.InnerPeerAddr.Is4() || !scope.InnerLocalAddr.Is4() {
+		if !validOverlayScope(kind, localAddr, scope) {
 			return fmt.Errorf("overlay scope %+v: %w", scope, ErrOverlayIdentityMismatch)
 		}
 		key := receiveKeyForScope(scope)
@@ -145,6 +145,31 @@ func validateOverlayScopes(
 		seen[key] = struct{}{}
 	}
 	return nil
+}
+
+func validOverlayScope(kind bfd.TransportScopeKind, localAddr netip.Addr, scope bfd.TransportScope) bool {
+	if scope.Kind != kind || scope.Owner == "" || scope.Backend == "" ||
+		scope.VNI > 0x00ff_ffff || scope.AddressFamily != bfd.AddressFamilyIPv4 {
+		return false
+	}
+	if scope.OuterLocalAddr.Unmap() != localAddr.Unmap() {
+		return false
+	}
+	return validOverlayOuterAddr(scope.OuterPeerAddr) && validOverlayOuterAddr(scope.OuterLocalAddr) &&
+		validOverlayInnerAddr(scope.InnerPeerAddr) && validOverlayInnerAddr(scope.InnerLocalAddr) &&
+		validUnicastMAC(scope.PeerMAC) && validUnicastMAC(scope.LocalMAC)
+}
+
+func validOverlayOuterAddr(addr netip.Addr) bool {
+	return addr.Is4() && (addr.IsGlobalUnicast() || addr.IsLoopback())
+}
+
+func validOverlayInnerAddr(addr netip.Addr) bool {
+	return addr.Is4() && addr.IsGlobalUnicast()
+}
+
+func validUnicastMAC(addr [6]byte) bool {
+	return addr != [6]byte{} && addr[0]&1 == 0
 }
 
 func openScopedOverlayUDP(

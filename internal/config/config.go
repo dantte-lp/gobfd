@@ -356,6 +356,12 @@ type VXLANPeerConfig struct {
 	// Local is the local VTEP IP address.
 	Local string `koanf:"local"`
 
+	// PeerMAC is the remote VTEP source MAC expected in Format A.
+	PeerMAC string `koanf:"peer_mac"`
+
+	// LocalMAC is the local VTEP source MAC used in Format A.
+	LocalMAC string `koanf:"local_mac"`
+
 	// DesiredMinTx overrides VXLANConfig.DefaultDesiredMinTx when nonzero.
 	DesiredMinTx time.Duration `koanf:"desired_min_tx"`
 
@@ -368,7 +374,11 @@ type VXLANPeerConfig struct {
 
 // VXLANSessionKey returns a unique identifier for the VXLAN session.
 func (vc VXLANPeerConfig) VXLANSessionKey() string {
-	return "vxlan|" + vc.Peer + "|" + vc.Local
+	key := "vxlan|" + canonicalOverlayAddr(vc.Peer) + "|" + canonicalOverlayAddr(vc.Local)
+	if vc.PeerMAC == "" && vc.LocalMAC == "" {
+		return key
+	}
+	return key + "|" + canonicalOverlayMAC(vc.PeerMAC) + "|" + canonicalOverlayMAC(vc.LocalMAC)
 }
 
 // PeerAddr parses the Peer string as a netip.Addr.
@@ -393,6 +403,16 @@ func (vc VXLANPeerConfig) LocalAddr() (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("parse vxlan local %q: %w", vc.Local, err)
 	}
 	return addr, nil
+}
+
+// PeerMACAddr parses the remote Format A VTEP source MAC.
+func (vc VXLANPeerConfig) PeerMACAddr() ([6]byte, error) {
+	return parseRequiredOverlayMAC("vxlan peer MAC", vc.PeerMAC, ErrVXLANEndpointIdentityUnavailable)
+}
+
+// LocalMACAddr parses the local Format A VTEP source MAC.
+func (vc VXLANPeerConfig) LocalMACAddr() ([6]byte, error) {
+	return parseRequiredOverlayMAC("vxlan local MAC", vc.LocalMAC, ErrVXLANEndpointIdentityUnavailable)
 }
 
 // GeneveConfig holds the RFC 9521 BFD for Geneve configuration.
@@ -460,7 +480,7 @@ type GenevePeerConfig struct {
 
 // GeneveSessionKey returns a unique identifier for the Geneve session.
 func (gc GenevePeerConfig) GeneveSessionKey(defaultVNI ...uint32) string {
-	key := "geneve|" + gc.Peer + "|" + gc.Local
+	key := "geneve|" + canonicalOverlayAddr(gc.Peer) + "|" + canonicalOverlayAddr(gc.Local)
 	vni := gc.VNI
 	if vni == 0 && len(defaultVNI) > 0 {
 		vni = defaultVNI[0]
@@ -469,7 +489,8 @@ func (gc GenevePeerConfig) GeneveSessionKey(defaultVNI ...uint32) string {
 		return key
 	}
 	return fmt.Sprintf("%s|%d|%s|%s|%s|%s",
-		key, vni, gc.InnerPeer, gc.InnerLocal, gc.PeerMAC, gc.LocalMAC)
+		key, vni, canonicalOverlayAddr(gc.InnerPeer), canonicalOverlayAddr(gc.InnerLocal),
+		canonicalOverlayMAC(gc.PeerMAC), canonicalOverlayMAC(gc.LocalMAC))
 }
 
 // PeerAddr parses the Peer string as a netip.Addr.
@@ -498,40 +519,59 @@ func (gc GenevePeerConfig) LocalAddr() (netip.Addr, error) {
 
 // InnerPeerAddr parses the remote Format A VAP address.
 func (gc GenevePeerConfig) InnerPeerAddr() (netip.Addr, error) {
-	return parseRequiredOverlayIPv4("geneve inner peer", gc.InnerPeer)
+	return parseRequiredOverlayIPv4("geneve inner peer", gc.InnerPeer, ErrGeneveVAPIdentityUnavailable)
 }
 
 // InnerLocalAddr parses the local Format A VAP address.
 func (gc GenevePeerConfig) InnerLocalAddr() (netip.Addr, error) {
-	return parseRequiredOverlayIPv4("geneve inner local", gc.InnerLocal)
+	return parseRequiredOverlayIPv4("geneve inner local", gc.InnerLocal, ErrGeneveVAPIdentityUnavailable)
 }
 
 // PeerMACAddr parses the remote Format A VAP MAC into a comparable value.
 func (gc GenevePeerConfig) PeerMACAddr() ([6]byte, error) {
-	return parseRequiredOverlayMAC("geneve peer MAC", gc.PeerMAC)
+	return parseRequiredOverlayMAC("geneve peer MAC", gc.PeerMAC, ErrGeneveVAPIdentityUnavailable)
 }
 
 // LocalMACAddr parses the local Format A VAP MAC into a comparable value.
 func (gc GenevePeerConfig) LocalMACAddr() ([6]byte, error) {
-	return parseRequiredOverlayMAC("geneve local MAC", gc.LocalMAC)
+	return parseRequiredOverlayMAC("geneve local MAC", gc.LocalMAC, ErrGeneveVAPIdentityUnavailable)
 }
 
-func parseRequiredOverlayIPv4(field, value string) (netip.Addr, error) {
+func parseRequiredOverlayIPv4(field, value string, identityErr error) (netip.Addr, error) {
 	addr, err := netip.ParseAddr(value)
-	if err != nil || !addr.Is4() {
-		return netip.Addr{}, fmt.Errorf("%s %q: %w", field, value, ErrGeneveVAPIdentityUnavailable)
+	if err != nil || !addr.Is4() || !addr.IsGlobalUnicast() {
+		return netip.Addr{}, fmt.Errorf("%s %q: %w", field, value, identityErr)
 	}
 	return addr.Unmap(), nil
 }
 
-func parseRequiredOverlayMAC(field, value string) ([6]byte, error) {
+func parseRequiredOverlayMAC(field, value string, identityErr error) ([6]byte, error) {
 	var result [6]byte
 	hardwareAddr, err := net.ParseMAC(value)
 	if err != nil || len(hardwareAddr) != len(result) || hardwareAddr[0]&1 != 0 {
-		return result, fmt.Errorf("%s %q: %w", field, value, ErrGeneveVAPIdentityUnavailable)
+		return result, fmt.Errorf("%s %q: %w", field, value, identityErr)
 	}
 	copy(result[:], hardwareAddr)
+	if result == [6]byte{} {
+		return result, fmt.Errorf("%s %q: %w", field, value, identityErr)
+	}
 	return result, nil
+}
+
+func canonicalOverlayAddr(value string) string {
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return value
+	}
+	return addr.Unmap().String()
+}
+
+func canonicalOverlayMAC(value string) string {
+	addr, err := net.ParseMAC(value)
+	if err != nil {
+		return value
+	}
+	return addr.String()
 }
 
 // GoBGPConfig holds the GoBGP integration configuration.
@@ -996,6 +1036,10 @@ var (
 	// ErrDuplicateVXLANSessionKey indicates two VXLAN sessions share the same key.
 	ErrDuplicateVXLANSessionKey = errors.New("duplicate vxlan session key")
 
+	// ErrVXLANEndpointIdentityUnavailable indicates a missing or unsupported
+	// Format A VTEP source MAC identity.
+	ErrVXLANEndpointIdentityUnavailable = errors.New("vxlan Format A VTEP MAC identity is invalid")
+
 	// ErrInvalidGenevePeer indicates a Geneve peer has an invalid peer address.
 	ErrInvalidGenevePeer = errors.New("geneve peer address is invalid")
 
@@ -1308,24 +1352,12 @@ func validateVXLAN(cfg VXLANConfig) error {
 	}
 
 	seen := make(map[string]struct{}, len(cfg.Peers))
+	seenWire := make(map[string]struct{}, len(cfg.Peers))
 
 	for i, peer := range cfg.Peers {
-		peerAddr, err := peer.PeerAddr()
+		peerMAC, err := validateVXLANPeer(i, peer)
 		if err != nil {
-			return fmt.Errorf("vxlan.peers[%d]: %w: %w", i, ErrInvalidVXLANPeer, err)
-		}
-		if !peerAddr.Is4() {
-			return fmt.Errorf("vxlan.peers[%d] peer %q: %w", i, peer.Peer, ErrInvalidVXLANPeer)
-		}
-		if peer.DetectMult > maxBFDWireUint8 {
-			return fmt.Errorf("vxlan.peers[%d] detect_mult %d: %w",
-				i, peer.DetectMult, ErrInvalidSessionDetectMult)
-		}
-		if peer.Local != "" {
-			localAddr, localErr := peer.LocalAddr()
-			if localErr != nil || !localAddr.Is4() {
-				return fmt.Errorf("vxlan.peers[%d] local %q: %w", i, peer.Local, ErrInvalidVXLANPeer)
-			}
+			return err
 		}
 
 		key := peer.VXLANSessionKey()
@@ -1333,9 +1365,38 @@ func validateVXLAN(cfg VXLANConfig) error {
 			return fmt.Errorf("vxlan.peers[%d] key %q: %w", i, key, ErrDuplicateVXLANSessionKey)
 		}
 		seen[key] = struct{}{}
+		wireKey := fmt.Sprintf("%s|%s|%x",
+			canonicalOverlayAddr(peer.Peer), canonicalOverlayAddr(peer.Local), peerMAC)
+		if _, dup := seenWire[wireKey]; dup {
+			return fmt.Errorf("vxlan.peers[%d] wire key %q: %w", i, wireKey, ErrDuplicateVXLANSessionKey)
+		}
+		seenWire[wireKey] = struct{}{}
 	}
 
 	return nil
+}
+
+func validateVXLANPeer(index int, peer VXLANPeerConfig) ([6]byte, error) {
+	peerAddr, err := peer.PeerAddr()
+	if err != nil || !peerAddr.Is4() || !peerAddr.IsGlobalUnicast() {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d] peer %q: %w", index, peer.Peer, ErrInvalidVXLANPeer)
+	}
+	if peer.DetectMult > maxBFDWireUint8 {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d] detect_mult %d: %w",
+			index, peer.DetectMult, ErrInvalidSessionDetectMult)
+	}
+	localAddr, localErr := peer.LocalAddr()
+	if localErr != nil || !localAddr.Is4() || !localAddr.IsGlobalUnicast() {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d] local %q: %w", index, peer.Local, ErrInvalidVXLANPeer)
+	}
+	peerMAC, macErr := peer.PeerMACAddr()
+	if macErr != nil {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d]: %w", index, macErr)
+	}
+	if _, macErr := peer.LocalMACAddr(); macErr != nil {
+		return [6]byte{}, fmt.Errorf("vxlan.peers[%d]: %w", index, macErr)
+	}
+	return peerMAC, nil
 }
 
 // validateGeneve checks the Geneve BFD configuration for logical errors.
@@ -1354,17 +1415,14 @@ func validateGeneve(cfg GeneveConfig) error {
 
 	seen := make(map[string]struct{}, len(cfg.Peers))
 	for i, peer := range cfg.Peers {
+		if err := validateGenevePeer(i, peer); err != nil {
+			return err
+		}
 		key := peer.GeneveSessionKey(cfg.DefaultVNI)
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("geneve.peers[%d] key %q: %w", i, key, ErrDuplicateGeneveSessionKey)
 		}
 		seen[key] = struct{}{}
-	}
-
-	for i, peer := range cfg.Peers {
-		if err := validateGenevePeer(i, peer); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -1375,7 +1433,7 @@ func validateGenevePeer(index int, peer GenevePeerConfig) error {
 	if err != nil {
 		return fmt.Errorf("geneve.peers[%d]: %w: %w", index, ErrInvalidGenevePeer, err)
 	}
-	if !peerAddr.Is4() {
+	if !peerAddr.Is4() || !peerAddr.IsGlobalUnicast() {
 		return fmt.Errorf("geneve.peers[%d] peer %q: %w", index, peer.Peer, ErrInvalidGenevePeer)
 	}
 	if peer.VNI > vniMax {
@@ -1386,7 +1444,7 @@ func validateGenevePeer(index int, peer GenevePeerConfig) error {
 			index, peer.DetectMult, ErrInvalidSessionDetectMult)
 	}
 	localAddr, localErr := peer.LocalAddr()
-	if localErr != nil || !localAddr.Is4() {
+	if localErr != nil || !localAddr.Is4() || !localAddr.IsGlobalUnicast() {
 		return fmt.Errorf("geneve.peers[%d] local %q: %w", index, peer.Local, ErrInvalidGenevePeer)
 	}
 	if _, innerErr := peer.InnerPeerAddr(); innerErr != nil {

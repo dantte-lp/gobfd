@@ -28,8 +28,8 @@ fixed set of production constraints listed in this record.
 | Mode | Linux fit | Current GoBFD state | Production gap |
 |---|---:|---:|---|
 | Micro-BFD | High | Per-member sessions, aggregate state, kernel-bond, OVSDB and NetworkManager enforcement paths | Dedicated API/CLI create flows and broader interop matrix |
-| VXLAN BFD | Lab or isolated endpoint only | Unsafe/incomplete `userspace-udp` preview | Inner-packet validation, tunnel identity, and owner-specific kernel/OVS/OVN/Cilium/Calico/NSX integrations |
-| Geneve BFD | Lab or isolated endpoint only | Unsafe/incomplete `userspace-udp` preview | Inner-packet validation, tunnel identity, owner-specific dataplane integrations, and rate policy |
+| VXLAN BFD | Lab or isolated endpoint only | Exact IPv4 Format A `userspace-udp` preview | Owner-specific kernel/OVS/OVN/Cilium/Calico/NSX integrations |
+| Geneve BFD | Lab or isolated endpoint only | Exact IPv4 Format A `userspace-udp` preview | Owner-specific dataplane integrations and rate policy |
 
 ### Micro-BFD on Linux
 

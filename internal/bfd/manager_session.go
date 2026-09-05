@@ -502,8 +502,7 @@ func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte)
 			pkt.YourDiscriminator, ErrDemuxNoMatch,
 		)
 	}
-	if expected := packetTransportScope(entry.key.TransportScope); expected.Kind != TransportScopeBase &&
-		expected != packetTransportScope(meta.TransportScope) {
+	if expected := packetTransportScope(entry.key.TransportScope); expected != packetTransportScope(meta.TransportScope) {
 		return fmt.Errorf(
 			"demux: discriminator %d transport scope mismatch: %w",
 			pkt.YourDiscriminator, ErrDemuxNoMatch,
