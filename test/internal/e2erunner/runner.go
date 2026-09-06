@@ -223,35 +223,77 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 }
 
 func (r *runner) runOverlay(ctx context.Context) (runErr error) {
+	containerName := fmt.Sprintf("e2e-overlay-%s-%d", r.runID, os.Getpid())
+	testImage := os.Getenv("E2E_OVERLAY_IMAGE")
+	created := false
 	defer func() {
-		r.collectDevDiagnostics(ctx)
+		if created {
+			cleanupCtx := context.WithoutCancel(ctx)
+			r.bestEffortFile(cleanupCtx, containersJSONName, "containers.err", podmanCommand, "inspect", containerName)
+			r.bestEffortFile(cleanupCtx, containersLogName, "containers-log.err", podmanCommand, "logs", containerName)
+			r.bestEffortCommand(cleanupCtx, podmanCommand, "rm", "-f", containerName)
+		}
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
 			environmentTarget: "e2e-overlay", environmentRunID: r.runID, environmentDevProject: r.devProject,
 			environmentRuntime:  podmanCommand,
+			"test_image":        testImage,
+			"isolation":         "podman --network none --cap-drop ALL --cpus 2 --memory 2g --memory-swap 2g --pids-limit 512",
 			"reserved_backends": []string{"kernel", "ovs", "ovn", "cilium", "calico", "nsx"},
 		}), r.writeSummary([]summaryRow{
 			{summaryTarget, "`make e2e-overlay`"},
 			{summaryRunID, "`" + r.runID + "`"},
 			{summaryExitCode, fmt.Sprintf("`%d`", exitCode(runErr))},
+			{"Isolation", "`podman --network none --cap-drop ALL`"},
+			{"Test image", "`" + testImage + "`"},
 			{summaryGoTestJSON, "`" + goTestJSONName + "`"},
 			{summaryGoTestLog, "`" + goTestLogName + "`"},
 			{summaryContainerState, "`" + containersJSONName + "`"},
 			{summaryContainerLogs, "`" + containersLogName + "`"},
-			{"Packet evidence", "`packets.csv`"},
+			{"Codec fixture summary (not a capture)", "`packets.csv`"},
 		}))
 	}()
 
-	err := r.loggedCommand(ctx, r.composeDev(
-		"exec", "-T", "dev", "env", "E2E_OVERLAY_PACKET_CSV=/app/"+r.reportRel+"/packets.csv",
-		"go", "test", "-tags", "e2e_overlay", "-json", "-v", "-count=1", "./test/e2e/overlay/",
-	)...)
-	if err != nil {
+	if testImage == "" {
+		var output strings.Builder
+		if err := r.command(ctx, commandTimeout, &output, r.stderr, r.composeDev("images", "-q", "dev")...); err != nil {
+			return err
+		}
+		images := strings.Fields(output.String())
+		if len(images) != 1 {
+			return fmt.Errorf("resolve Compose dev image: expected one image ID, got %d: %w", len(images), errUsage)
+		}
+		testImage = images[0]
+	}
+	if err := r.command(ctx, testTimeout, r.stdout, r.stderr, r.composeDev(
+		"exec", "-T", "dev", "env", "GOMAXPROCS=2", "GOMEMLIMIT=1500MiB", "CGO_ENABLED=1",
+		"go", "test", "-race", "-p", "2", "-tags", "e2e_overlay", "-c",
+		"-o", "/app/"+r.reportRel+"/e2e-overlay.test", "./test/e2e/overlay/",
+	)...); err != nil {
 		return err
 	}
-	if _, err = fmt.Fprintf(r.stdout, "S10.4 overlay E2E artifacts: %s\n", r.reportDir); err != nil {
+	createArgs := r.overlayContainerArgs(containerName, testImage)
+	if err := r.command(ctx, commandTimeout, io.Discard, r.stderr, createArgs...); err != nil {
+		return err
+	}
+	created = true
+	if err := r.loggedCommand(ctx, podmanCommand, "start", "-a", containerName); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(r.stdout, "S10.4 overlay E2E artifacts: %s\n", r.reportDir); err != nil {
 		return fmt.Errorf("write overlay artifact path: %w", err)
 	}
 	return nil
+}
+
+func (r *runner) overlayContainerArgs(containerName, testImage string) []string {
+	return []string{
+		podmanCommand, "create", "--name", containerName, "--network", "none",
+		"--cpus", "2", "--memory", "2g", "--memory-swap", "2g", "--pids-limit", "512",
+		"--cap-drop", "ALL", "--security-opt", "label=disable", "--image-volume", "ignore", "--workdir", "/report",
+		"-e", "GOMAXPROCS=2", "-e", "GOMEMLIMIT=1500MiB", "-e", "E2E_OVERLAY_PACKET_CSV=/report/packets.csv",
+		"-v", r.reportDir + ":/report:z", testImage,
+		"go", "tool", "test2json", "-t", "./e2e-overlay.test", "-test.v", "-test.timeout=120s",
+	}
 }
 
 func (r *runner) runRFC(ctx context.Context) (runErr error) {

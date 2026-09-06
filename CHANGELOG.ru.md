@@ -9,6 +9,8 @@
 
 ### Добавлено
 
+- Добавлена userspace UDP-квалификация VXLAN/Geneve с race detector, точной
+  изоляцией tunnel, отклонением повреждённых пакетов и logs для сверки с capture.
 - Добавлены package-internal Go lifecycle owner и декларативные systemd inputs
   sysusers/tmpfiles для shellless lifecycle hooks DEB/RPM без изменения четырёх
   публичных binaries.

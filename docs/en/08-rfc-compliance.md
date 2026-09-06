@@ -404,6 +404,10 @@ listener or leave a deadline on subsequent operations. `Close` unblocks pending
 socket I/O. Receive payloads borrow the listener buffer until the next receive,
 so each listener has one receiver loop.
 
+The [overlay wire qualification](./09-development.md#overlay-wire-qualification)
+checks this userspace IPv4 profile with real UDP and capture-correlatable
+results. It does not qualify owner-specific backends or vendor forwarding paths.
+
 ### RFC 9521 Implementation Notes
 
 **Status**: Unsafe preview; explicit Format A VAP identity required

@@ -26,7 +26,7 @@ optional vendor profiles.
 | `make int-bgp-failover` | Implemented S10.2 | Go-owned testcontainers GoBFD/GoBGP/FRR lifecycle, exact route withdrawal/restoration, packet evidence, and exact cleanup. The operational Compose example remains available through its `-up`, `-logs`, and `-down` targets. |
 | `make e2e-routing` | Implemented S10.3 | FRR/BIRD3 BFD interop, GoBGP/ExaBGP BGP+BFD coupling, merged routing artifacts. |
 | `make e2e-rfc` | Implemented S10.4 | RFC 7419, RFC 9384, RFC 9468, RFC 9747 interop stack. |
-| `make e2e-overlay` | Implemented S10.4 | VXLAN/Geneve userspace packet-shape checks and reserved backend fail-closed tests. |
+| `make e2e-overlay` | Implemented S10.4 | Isolated race-enabled VXLAN/Geneve userspace UDP identity, framing, lifecycle, and reserved backend checks. |
 | `make e2e-linux` | Implemented S10.5 | Isolated rtnetlink/veth, kernel-bond, OVS, NetworkManager ownership checks. |
 | `make e2e-vendor` | Implemented S10.6 | Primary Arista/Nokia/SONiC/VyOS profiles, baseline FRR profile, deferred Cisco profile, image availability evidence, and containerlab Podman runtime contract. |
 
@@ -95,6 +95,15 @@ The `e2e-overlay` target also writes:
 ```text
 packets.csv
 ```
+
+This CSV is a synthetic codec fixture summary, not captured packets. The
+runner compiles in the dev container and executes the race binary in a separate
+`--network none` container limited to 2 CPUs and 2 GiB, mounting only its report
+directory and ignoring image-defined volumes. `e2e-overlay-test` uses the same
+owner. The default test image comes from the active Compose dev service;
+`E2E_OVERLAY_IMAGE` can select an explicit compatible image. Wire qualification
+also requires a bounded external capture correlated with the test JSON, as
+described in [development](../../docs/en/09-development.md#overlay-wire-qualification).
 
 The `e2e-linux` target also writes:
 

@@ -265,6 +265,27 @@ The default fuzz duration is 60 seconds. To run longer:
 make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
 ```
 
+#### Overlay Wire Qualification
+
+`make e2e-overlay` runs codec fixtures and real userspace UDP tests with the
+race detector. `TestOverlayUserspaceWire` uses two inner tuples on the same
+outer endpoints and VNI for each of VXLAN and Geneve Format A. It checks
+bidirectional delivery, received TTL=255, identity and malformed-packet
+rejection, deadline cancellation, reuse, and terminal behavior after `Close`.
+Run it in an isolated Linux network namespace with UDP 4789 and 6081 free;
+socket setup failures fail the test. This is not vendor interoperability.
+
+The harness `packets.csv` is a synthetic codec fixture summary, not a capture.
+For capture qualification, use the existing `test/interop/tshark/Containerfile`
+in the test container's network namespace, capturing only loopback UDP 4789
+and 6081. Bound tshark with `-a duration:20 -a filesize:1024`. Correlate the
+pcapng and decoded fields with the discriminators and observed outcomes in
+Go test JSON; a capture alone does not prove rejection. Preserve commands,
+revision, image IDs, limits, and artifact checksums in Beads. Replay the six
+existing overlay fuzz targets with `-race -parallel=2 -fuzztime=20s` and an
+outer timeout. Owner-specific backends and unsupported wire formats remain
+unqualified.
+
 #### Integration Tests
 
 ```bash

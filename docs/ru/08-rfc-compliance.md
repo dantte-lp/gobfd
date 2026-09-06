@@ -345,6 +345,11 @@ context, включая ожидание очереди отправки; отм
 socket I/O. Полученный payload использует буфер listener до следующего receive,
 поэтому у каждого listener один receiver loop.
 
+[Проверка overlay на проводе](./09-development.md#проверка-overlay-на-проводе)
+проверяет этот userspace IPv4-профиль через реальные UDP-пакеты с результатами
+для сверки с capture. Owner-specific backends и vendor forwarding paths она
+не квалифицирует.
+
 ### Заметки по RFC 9521
 
 **Статус**: Небезопасный preview; требуется явная Format A VAP identity

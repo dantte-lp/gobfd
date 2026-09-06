@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added race-enabled VXLAN/Geneve userspace UDP qualification with exact
+  tunnel isolation, malformed-packet rejection, and capture-correlatable logs.
 - Added the package-internal Go lifecycle owner and declarative systemd
   sysusers/tmpfiles inputs for shellless DEB/RPM lifecycle hooks, without
   changing the four public binaries.

@@ -154,8 +154,7 @@ e2e-overlay:
 	$(DC) up -d --build --force-recreate dev
 	go run ./test/cmd/e2ectl overlay
 
-e2e-overlay-test:
-	$(EXEC) go test -tags e2e_overlay -v -count=1 ./test/e2e/overlay/
+e2e-overlay-test: e2e-overlay
 
 e2e-linux:
 	$(DC) up -d --build --force-recreate dev

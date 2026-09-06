@@ -196,6 +196,22 @@ func TestReportTargetRejectsSilentSuccess(t *testing.T) {
 	}
 }
 
+func TestOverlayContainerRunsOnlyPrebuiltTestsInBoundedNamespace(t *testing.T) {
+	t.Parallel()
+	r := &runner{reportDir: t.TempDir()}
+	want := []string{
+		"podman", "create", "--name", "overlay-owned", "--network", "none",
+		"--cpus", "2", "--memory", "2g", "--memory-swap", "2g", "--pids-limit", "512",
+		"--cap-drop", "ALL", "--security-opt", "label=disable", "--image-volume", "ignore", "--workdir", "/report",
+		"-e", "GOMAXPROCS=2", "-e", "GOMEMLIMIT=1500MiB", "-e", "E2E_OVERLAY_PACKET_CSV=/report/packets.csv",
+		"-v", r.reportDir + ":/report:z", "qualified-image",
+		"go", "tool", "test2json", "-t", "./e2e-overlay.test", "-test.v", "-test.timeout=120s",
+	}
+	if got := r.overlayContainerArgs("overlay-owned", "qualified-image"); !slices.Equal(got, want) {
+		t.Fatalf("overlay container argv = %q, want %q", got, want)
+	}
+}
+
 func installFakeGo(t *testing.T) string {
 	t.Helper()
 

@@ -146,10 +146,13 @@ vocabulary validation remain separately tracked follow-up work.
 
 Overlay update (2026-09-06): tasks `gobfd-qj0.8.2.1.9.1` through `.9.3` cover inner-packet
 validation, exact tunnel identity, and listener port/cancellation ownership
-(C-02/C-03, H-22, M-11 through M-14). Local lifecycle evidence does not qualify
-the preview for production: task `.9.4` retains bounded VXLAN/Geneve packet
-capture and fuzz acceptance before the parent closes; owner-specific backends
-remain unavailable.
+(C-02/C-03, H-22, M-11 through M-14). Task `.9.4` adds real UDP qualification:
+32 captured VXLAN/Geneve packets correlate with 12 accepted and 20 rejected
+wire cases; six bounded race-enabled parser fuzz targets pass. Existing parser
+and discriminator regression tests retain the remaining acceptance vectors.
+This qualifies only the tested Linux userspace IPv4 profile, not production
+deployment or vendor interoperability; owner-specific backends remain
+unavailable. Beads retains the exact commands and evidence checksums.
 
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

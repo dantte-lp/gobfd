@@ -269,6 +269,27 @@ make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
 make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
 ```
 
+#### Проверка Overlay на проводе
+
+`make e2e-overlay` запускает codec fixtures и реальные userspace UDP-тесты с
+race detector. `TestOverlayUserspaceWire` использует две inner tuple на общих
+outer endpoints и VNI для VXLAN и Geneve Format A. Проверяются доставка в обе
+стороны, полученный TTL=255, отклонение чужой identity и повреждённых пакетов,
+отмена по deadline, повторное использование и поведение после `Close`.
+Запускать в изолированном Linux network namespace со свободными UDP 4789 и
+6081; ошибка открытия socket завершает тест ошибкой. Это не vendor interop.
+
+`packets.csv` harness — синтетическая сводка codec fixtures, не capture.
+Для capture qualification использовать существующий
+`test/interop/tshark/Containerfile` в network namespace тестового контейнера,
+захватывая только loopback UDP 4789 и 6081. Ограничить tshark параметрами
+`-a duration:20 -a filesize:1024`. Сопоставить pcapng и декодированные поля с
+discriminators и наблюдаемыми результатами в Go test JSON; один capture не
+доказывает отклонение. Сохранить команды, revision, image IDs, лимиты и
+checksums артефактов в Beads. Повторить шесть существующих overlay fuzz targets
+с `-race -parallel=2 -fuzztime=20s` и внешним timeout. Owner-specific backends
+и неподдерживаемые wire formats остаются без квалификации.
+
 #### Интеграционные тесты
 
 ```bash
