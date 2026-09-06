@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -139,6 +140,40 @@ func createConfiguredOverlayConns(
 
 type overlayConnBuilder func(netip.Addr, uint16, []bfd.TransportScope) (netio.OverlayConn, error)
 
+// leasedOverlayConn owns the listener's inner source port. Session senders
+// borrow this connection and never release its lease.
+type leasedOverlayConn struct {
+	netio.OverlayConn
+
+	portAlloc *netio.SourcePortAllocator
+	port      uint16
+	closeOnce sync.Once
+	closeErr  error
+}
+
+func (c *leasedOverlayConn) Close() error {
+	c.closeOnce.Do(func() {
+		c.closeErr = c.OverlayConn.Close()
+		c.portAlloc.Release(c.port)
+	})
+	return c.closeErr
+}
+
+func (c *leasedOverlayConn) SendEncapsulatedFor(
+	ctx context.Context, payload []byte, scope bfd.TransportScope,
+) error {
+	conn, ok := c.OverlayConn.(interface {
+		SendEncapsulatedFor(ctx context.Context, payload []byte, scope bfd.TransportScope) error
+	})
+	if !ok {
+		return fmt.Errorf("overlay scoped send: %w", netio.ErrOverlayIdentityMismatch)
+	}
+	if err := conn.SendEncapsulatedFor(ctx, payload, scope); err != nil {
+		return fmt.Errorf("overlay scoped send: %w", err)
+	}
+	return nil
+}
+
 func createOverlayConnGroups(
 	groups map[netip.Addr][]bfd.TransportScope,
 	sf *udpSenderFactory,
@@ -159,6 +194,7 @@ func createOverlayConnGroups(
 			logger.Error("create overlay listener", slog.String("local", localAddr.String()), slog.String("error", err.Error()))
 			continue
 		}
+		conn = &leasedOverlayConn{OverlayConn: conn, portAlloc: sf.portAlloc, port: srcPort}
 		conns = append(conns, conn)
 		for _, scope := range scopes {
 			bySession[scope] = conn

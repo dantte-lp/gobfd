@@ -144,6 +144,13 @@ bindings; same-key parameter changes remain explicit reconciliation conflicts.
 Socket buffer wiring, ambiguous listener-interface declarations, and strict log
 vocabulary validation remain separately tracked follow-up work.
 
+Overlay update (2026-09-06): tasks `gobfd-qj0.8.2.1.9.1` through `.9.3` cover inner-packet
+validation, exact tunnel identity, and listener port/cancellation ownership
+(C-02/C-03, H-22, M-11 through M-14). Local lifecycle evidence does not qualify
+the preview for production: task `.9.4` retains bounded VXLAN/Geneve packet
+capture and fuzz acceptance before the parent closes; owner-specific backends
+remain unavailable.
+
 RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,
 RFC 5881/5883 transport demultiplexing, RFC 9764 authenticated padding, and

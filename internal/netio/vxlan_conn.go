@@ -17,6 +17,7 @@ package netio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -48,7 +49,8 @@ type VXLANConn struct {
 	srcPort       uint16 // Ephemeral source port for inner UDP header
 	readBuf       []byte
 	sendBuf       []byte
-	sendMu        sync.Mutex
+	sendMu        chan struct{}
+	done          chan struct{}
 	logger        *slog.Logger
 	mu            sync.Mutex
 	closed        bool
@@ -105,6 +107,8 @@ func newVXLANConn(
 		srcPort:       srcPort,
 		readBuf:       make([]byte, vxlanBufSize),
 		sendBuf:       make([]byte, vxlanBufSize),
+		sendMu:        make(chan struct{}, 1),
+		done:          make(chan struct{}),
 		logger: logger.With(
 			slog.String("component", "netio.vxlan_conn"),
 			slog.String("local", localAddr.String()),
@@ -126,7 +130,7 @@ func newVXLANConn(
 //
 // RFC 8971 Section 3: BFD packets MUST use the Management VNI.
 func (c *VXLANConn) SendEncapsulated(
-	_ context.Context,
+	ctx context.Context,
 	bfdPayload []byte,
 	dstAddr netip.Addr,
 ) error {
@@ -137,12 +141,12 @@ func (c *VXLANConn) SendEncapsulated(
 		AddressFamily: bfd.AddressFamilyIPv4,
 		PeerMAC:       innerSrcMAC, LocalMAC: innerSrcMAC,
 	}
-	return c.sendEncapsulated(bfdPayload, scope)
+	return c.sendEncapsulated(ctx, bfdPayload, scope)
 }
 
 // SendEncapsulatedFor sends using an exact configured VXLAN identity.
 func (c *VXLANConn) SendEncapsulatedFor(
-	_ context.Context,
+	ctx context.Context,
 	bfdPayload []byte,
 	scope bfd.TransportScope,
 ) error {
@@ -153,18 +157,14 @@ func (c *VXLANConn) SendEncapsulatedFor(
 	if !ok || configured != scope {
 		return fmt.Errorf("vxlan send: %w", ErrOverlayIdentityMismatch)
 	}
-	return c.sendEncapsulated(bfdPayload, scope)
+	return c.sendEncapsulated(ctx, bfdPayload, scope)
 }
 
-func (c *VXLANConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScope) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return fmt.Errorf("vxlan send to %s: %w", scope.OuterPeerAddr, ErrOverlayRecvClosed)
+func (c *VXLANConn) sendEncapsulated(ctx context.Context, bfdPayload []byte, scope bfd.TransportScope) error {
+	if err := lockOverlaySend(ctx, c.sendMu, c.done); err != nil {
+		return fmt.Errorf("vxlan send to %s: %w", scope.OuterPeerAddr, err)
 	}
-	c.mu.Unlock()
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
+	defer func() { <-c.sendMu }()
 
 	if len(bfdPayload)+VXLANHeaderSize+InnerOverheadIPv4 > len(c.sendBuf) {
 		return fmt.Errorf("vxlan build packet: payload=%d: %w",
@@ -194,7 +194,12 @@ func (c *VXLANConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScope
 		IP:   scope.OuterPeerAddr.AsSlice(),
 		Port: int(VXLANPort),
 	}
-	if _, err := c.conn.WriteToUDP(buf[:totalLen], dst); err != nil {
+	if err := overlayIO(ctx, c.conn.SetWriteDeadline, c.Close, func() error {
+		if _, writeErr := c.conn.WriteToUDP(buf[:totalLen], dst); writeErr != nil {
+			return fmt.Errorf("write overlay datagram: %w", writeErr)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("vxlan send to %s:%d: %w", scope.OuterPeerAddr, VXLANPort, err)
 	}
 
@@ -212,14 +217,14 @@ func (c *VXLANConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScope
 // Packets with non-matching VNI are silently dropped (they belong to
 // data-plane VNIs, not BFD management traffic). Datagram truncation is
 // detected before parsing.
-func (c *VXLANConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	n, remoteAddr, err := readOverlayDatagram(c.conn, c.readBuf)
+func (c *VXLANConn) RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta, error) {
+	n, remoteAddr, err := readOverlayDatagram(ctx, c.conn, c.readBuf, c.Close)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed
 		c.mu.Unlock()
 		if closed {
-			return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", ErrOverlayRecvClosed)
+			return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", errors.Join(ErrOverlayRecvClosed, err))
 		}
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
@@ -303,6 +308,7 @@ func (c *VXLANConn) Close() error {
 		return nil
 	}
 	c.closed = true
+	close(c.done)
 
 	if err := c.conn.Close(); err != nil {
 		return fmt.Errorf("vxlan close: %w", err)

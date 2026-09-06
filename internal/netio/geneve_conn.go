@@ -68,7 +68,8 @@ type GeneveConn struct {
 	srcPort   uint16 // Ephemeral source port for inner UDP header
 	readBuf   []byte
 	sendBuf   []byte
-	sendMu    sync.Mutex
+	sendMu    chan struct{}
+	done      chan struct{}
 	logger    *slog.Logger
 	mu        sync.Mutex
 	closed    bool
@@ -125,6 +126,8 @@ func newGeneveConn(
 		srcPort:   srcPort,
 		readBuf:   make([]byte, geneveBufSize),
 		sendBuf:   make([]byte, geneveBufSize),
+		sendMu:    make(chan struct{}, 1),
+		done:      make(chan struct{}),
 		logger: logger.With(
 			slog.String("component", "netio.geneve_conn"),
 			slog.String("local", localAddr.String()),
@@ -146,7 +149,7 @@ func newGeneveConn(
 //
 // RFC 9521 Section 4: O bit MUST be set, C bit MUST be clear.
 func (c *GeneveConn) SendEncapsulated(
-	_ context.Context,
+	ctx context.Context,
 	bfdPayload []byte,
 	dstAddr netip.Addr,
 ) error {
@@ -157,12 +160,12 @@ func (c *GeneveConn) SendEncapsulated(
 		AddressFamily: bfd.AddressFamilyIPv4,
 		PeerMAC:       innerDstMAC, LocalMAC: innerSrcMAC,
 	}
-	return c.sendEncapsulated(bfdPayload, scope)
+	return c.sendEncapsulated(ctx, bfdPayload, scope)
 }
 
 // SendEncapsulatedFor sends using an exact configured Geneve VAP identity.
 func (c *GeneveConn) SendEncapsulatedFor(
-	_ context.Context,
+	ctx context.Context,
 	bfdPayload []byte,
 	scope bfd.TransportScope,
 ) error {
@@ -173,18 +176,14 @@ func (c *GeneveConn) SendEncapsulatedFor(
 	if !ok || configured != scope {
 		return fmt.Errorf("geneve send: %w", ErrOverlayIdentityMismatch)
 	}
-	return c.sendEncapsulated(bfdPayload, scope)
+	return c.sendEncapsulated(ctx, bfdPayload, scope)
 }
 
-func (c *GeneveConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScope) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return fmt.Errorf("geneve send to %s: %w", scope.OuterPeerAddr, ErrOverlayRecvClosed)
+func (c *GeneveConn) sendEncapsulated(ctx context.Context, bfdPayload []byte, scope bfd.TransportScope) error {
+	if err := lockOverlaySend(ctx, c.sendMu, c.done); err != nil {
+		return fmt.Errorf("geneve send to %s: %w", scope.OuterPeerAddr, err)
 	}
-	c.mu.Unlock()
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
+	defer func() { <-c.sendMu }()
 
 	if len(bfdPayload)+GeneveHeaderMinSize+InnerOverheadIPv4 > len(c.sendBuf) {
 		return fmt.Errorf("geneve build packet: payload=%d: %w",
@@ -222,7 +221,12 @@ func (c *GeneveConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScop
 		IP:   scope.OuterPeerAddr.AsSlice(),
 		Port: int(GenevePort),
 	}
-	if _, err := c.conn.WriteToUDP(buf[:totalLen], dst); err != nil {
+	if err := overlayIO(ctx, c.conn.SetWriteDeadline, c.Close, func() error {
+		if _, writeErr := c.conn.WriteToUDP(buf[:totalLen], dst); writeErr != nil {
+			return fmt.Errorf("write overlay datagram: %w", writeErr)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("geneve send to %s:%d: %w", scope.OuterPeerAddr, GenevePort, err)
 	}
 
@@ -233,14 +237,14 @@ func (c *GeneveConn) sendEncapsulated(bfdPayload []byte, scope bfd.TransportScop
 // normative local VAP MAC/IP identity is represented by the Geneve
 // configuration. The existing codec validation remains unreachable from this
 // receive path until that identity is available.
-func (c *GeneveConn) RecvDecapsulated(_ context.Context) ([]byte, OverlayMeta, error) {
-	n, remoteAddr, err := readOverlayDatagram(c.conn, c.readBuf)
+func (c *GeneveConn) RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta, error) {
+	n, remoteAddr, err := readOverlayDatagram(ctx, c.conn, c.readBuf, c.Close)
 	if err != nil {
 		c.mu.Lock()
 		closed := c.closed
 		c.mu.Unlock()
 		if closed {
-			return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", ErrOverlayRecvClosed)
+			return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", errors.Join(ErrOverlayRecvClosed, err))
 		}
 		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", err)
 	}
@@ -374,6 +378,7 @@ func (c *GeneveConn) Close() error {
 		return nil
 	}
 	c.closed = true
+	close(c.done)
 
 	if err := c.conn.Close(); err != nil {
 		return fmt.Errorf("geneve close: %w", err)

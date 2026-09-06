@@ -396,6 +396,14 @@ Listeners are grouped by local VTEP and each session sender retains its exact
 tunnel scope. The userspace backend remains unsafe where another dataplane owns
 the same UDP socket.
 
+VXLAN and Geneve listeners each own one allocated inner source-port lease;
+closing the listener returns it exactly once. Session senders borrow the shared
+listener and do not release its port. Send and receive operations honor context
+cancellation, including queued writes; cancellation does not close a healthy
+listener or leave a deadline on subsequent operations. `Close` unblocks pending
+socket I/O. Receive payloads borrow the listener buffer until the next receive,
+so each listener has one receiver loop.
+
 ### RFC 9521 Implementation Notes
 
 **Status**: Unsafe preview; explicit Format A VAP identity required

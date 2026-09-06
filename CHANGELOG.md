@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Overlay listeners release their allocated inner source port exactly once on
+  close. VXLAN/Geneve sends and receives honor context cancellation without
+  invalidating the shared listener or subsequent operations.
 - Updated `golang.org/x/crypto` to `v0.56.0` in the runtime and tools module
   graphs, fixing the reachable SSH denial-of-service vulnerabilities
   GO-2026-6354 and GO-2026-6355.

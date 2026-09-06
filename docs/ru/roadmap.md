@@ -146,6 +146,13 @@ reconciliation conflicts. Runtime wiring socket buffers, неоднозначн�
 listener interfaces и строгая проверка log vocabulary остаются отдельными
 отслеживаемыми задачами.
 
+Overlay-обновление (2026-09-06): задачи `gobfd-qj0.8.2.1.9.1` — `.9.3` охватывают проверку inner
+packet, точную tunnel identity и владение портом/отменой операций listener
+(C-02/C-03, H-22, M-11 — M-14). Локальные lifecycle-проверки не подтверждают
+production-готовность preview: задача `.9.4` сохраняет bounded VXLAN/Geneve
+packet capture и fuzz acceptance до закрытия родительской задачи;
+owner-specific backends по-прежнему недоступны.
+
 RFC core начинается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,
 transport demultiplexing RFC 5881/5883, authenticated padding RFC 9764 и

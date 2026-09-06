@@ -49,6 +49,7 @@ type OverlayConn interface {
 	// RecvDecapsulated reads a tunnel packet from the socket, strips the
 	// tunnel header and inner packet headers, and returns the raw BFD
 	// Control payload along with overlay metadata (source VTEP/NVE, VNI).
+	// One receive loop owns the returned buffer until the next receive call.
 	RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta, error)
 
 	// Close releases the underlying UDP socket.
@@ -227,8 +228,19 @@ var (
 	ErrOverlayIdentityMismatch = errors.New("overlay: tunnel identity mismatch")
 )
 
-func readOverlayDatagram(conn *net.UDPConn, buf []byte) (int, *net.UDPAddr, error) {
-	n, _, flags, remoteAddr, err := conn.ReadMsgUDP(buf, nil)
+func readOverlayDatagram(
+	ctx context.Context, conn *net.UDPConn, buf []byte, closeConn func() error,
+) (int, *net.UDPAddr, error) {
+	var n, flags int
+	var remoteAddr *net.UDPAddr
+	err := overlayIO(ctx, conn.SetReadDeadline, closeConn, func() error {
+		var readErr error
+		n, _, flags, remoteAddr, readErr = conn.ReadMsgUDP(buf, nil)
+		if readErr != nil {
+			return fmt.Errorf("read overlay datagram: %w", readErr)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, nil, fmt.Errorf("read overlay UDP datagram: %w", err)
 	}

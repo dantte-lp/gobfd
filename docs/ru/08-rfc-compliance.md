@@ -337,6 +337,14 @@ Listeners группируются по local VTEP, а sender каждой се�
 tunnel scope. Userspace backend остаётся небезопасным там, где тем же UDP
 socket владеет другой dataplane.
 
+Каждый VXLAN/Geneve listener владеет одним выделенным inner source-port lease;
+закрытие listener возвращает порт ровно один раз. Session senders используют
+общий listener без права освобождать его порт. Send и receive учитывают отмену
+context, включая ожидание очереди отправки; отмена не закрывает исправный listener
+и не оставляет deadline для следующих операций. `Close` разблокирует ожидающий
+socket I/O. Полученный payload использует буфер listener до следующего receive,
+поэтому у каждого listener один receiver loop.
+
 ### Заметки по RFC 9521
 
 **Статус**: Небезопасный preview; требуется явная Format A VAP identity

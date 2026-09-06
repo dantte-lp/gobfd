@@ -28,6 +28,9 @@
 
 ### Исправлено
 
+- Overlay listeners возвращают выделенный inner source port ровно один раз при
+  закрытии. VXLAN/Geneve send и receive учитывают отмену context без нарушения
+  работы общего listener и следующих операций.
 - `golang.org/x/crypto` обновлён до `v0.56.0` в runtime- и tools-графах, что
   устраняет достижимые SSH denial-of-service уязвимости GO-2026-6354 и
   GO-2026-6355.
