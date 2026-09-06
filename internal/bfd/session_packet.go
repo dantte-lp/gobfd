@@ -453,36 +453,39 @@ func (s *Session) applyPendingParams() {
 // only when parameters or state change.
 //
 // RFC 5880 Section 6.8.7 specifies all field values for transmitted packets.
-func (s *Session) rebuildCachedPacket() {
+func (s *Session) rebuildCachedPacket() bool {
 	pkt := s.buildControlPacket()
 	// RFC 5880 Section 6.7: sign the packet if auth is configured.
 	if s.auth != nil {
-		s.signCachedPacket(&pkt)
-		return
+		return s.signCachedPacket(&pkt)
 	}
 	if _, err := MarshalControlPacket(&pkt, s.cachedPacket); err != nil {
 		s.logger.Error("failed to marshal cached packet",
 			slog.String("error", err.Error()),
 		)
+		return false
 	}
+	return true
 }
 
 // signCachedPacket applies authentication and serializes the authenticated
 // packet into the cached transmit buffer.
-func (s *Session) signCachedPacket(pkt *ControlPacket) {
+func (s *Session) signCachedPacket(pkt *ControlPacket) bool {
 	if err := s.auth.Sign(
 		s.authState, s.authKeys, pkt, s.cachedPacket, 0,
 	); err != nil {
 		s.logger.Error("auth sign failed",
 			slog.String("error", err.Error()),
 		)
-		return
+		return false
 	}
 	if _, err := MarshalControlPacket(pkt, s.cachedPacket); err != nil {
 		s.logger.Error("failed to marshal authenticated cached packet",
 			slog.String("error", err.Error()),
 		)
+		return false
 	}
+	return true
 }
 
 // buildControlPacket constructs a ControlPacket from current session state.
@@ -501,7 +504,7 @@ func (s *Session) buildControlPacket() ControlPacket {
 		Version:                   Version,
 		Diag:                      s.LocalDiag(),
 		State:                     s.cachedState,
-		Poll:                      s.pollActive,
+		Poll:                      s.pollActive && !s.pendingFinal,
 		Final:                     s.pendingFinal,
 		ControlPlaneIndependent:   false,
 		AuthPresent:               false,
@@ -514,9 +517,6 @@ func (s *Session) buildControlPacket() ControlPacket {
 		RequiredMinRxInterval:     microsecondsFromDuration(s.requiredMinRxInterval),
 		RequiredMinEchoRxInterval: 0, // Echo not implemented in MVP.
 	}
-
-	// Clear pendingFinal after building packet (it was consumed).
-	s.pendingFinal = false
 
 	return pkt
 }

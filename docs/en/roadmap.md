@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-09-04. Beads is the task
+> Status projection from Beads, reconciled on 2026-09-06. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -93,7 +93,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 
 | Delivery slice | Status |
 |---|---|
-| RFC core correctness and loss accounting | Open |
+| RFC core correctness and loss accounting | In progress; Final retry and P/F exclusion implemented |
 | Ownership and configuration reconciliation | In progress; C01.1 through C01.7 implemented |
 | Repository-owned shell removal | In progress; tracked shell scripts and embedded shell fixtures: 0; 3 workflow setup blocks remain |
 | Secure management defaults | Open |
@@ -154,7 +154,12 @@ This qualifies only the tested Linux userspace IPv4 profile, not production
 deployment or vendor interoperability; owner-specific backends remain
 unavailable. Beads retains the exact commands and evidence checksums.
 
-RFC core work begins with the tracked gaps in Poll/Final and Demand procedures,
+Poll/Final task `gobfd-qj0.8.2.1.1.1.1` retains Final intent until successful
+transmission and excludes simultaneous P/F flags (M-03/H-04). Local Poll
+initiation, queued parameter changes, and full crossed-Poll negotiation remain
+in `.1.1.1`; remote Demand and timer handling remain in `.1.1.2`.
+
+RFC core work continues with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,
 RFC 5881/5883 transport demultiplexing, RFC 9764 authenticated padding, and
 fail-closed preview boundaries.

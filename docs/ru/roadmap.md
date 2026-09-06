@@ -4,7 +4,7 @@
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Цель](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Проекция состояния Beads, сверенная 2026-09-04. Реестр задач находится в
+> Проекция состояния Beads, сверенная 2026-09-06. Реестр задач находится в
 > Beads; этот документ объясняет публичную последовательность релизов и не
 > является независимым checklist.
 
@@ -93,7 +93,7 @@ Milestone Beads: `gobfd-qj0.8.2` — **открыт; prerequisite v0.6 прин�
 
 | Часть поставки | Статус |
 |---|---|
-| Корректность RFC core и учёт потерь | Открыто |
+| Корректность RFC core и учёт потерь | В работе; реализованы Final retry и исключение P/F |
 | Reconciliation ownership и конфигурации | В работе; реализованы C01.1--C01.7 |
 | Удаление repository-owned shell | В работе; tracked shell scripts и embedded shell fixtures: 0; остаются 3 workflow setup blocks |
 | Безопасные management defaults | Открыто |
@@ -156,7 +156,12 @@ tests. Это квалифицирует только проверенный Lin
 production deployment или vendor interop; owner-specific backends остаются
 недоступны. Точные команды и checksums evidence сохранены в Beads.
 
-RFC core начинается с отслеживаемых пробелов Poll/Final и Demand procedures,
+Poll/Final-задача `gobfd-qj0.8.2.1.1.1.1` сохраняет Final до успешной отправки
+и исключает одновременные P/F (M-03/H-04). Локальная инициация Poll, очередь
+изменений параметров и полная crossed-Poll negotiation остаются в `.1.1.1`;
+remote Demand и обработка таймеров — в `.1.1.2`.
+
+RFC core продолжается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,
 transport demultiplexing RFC 5881/5883, authenticated padding RFC 9764 и
 fail-closed границ preview-возможностей.

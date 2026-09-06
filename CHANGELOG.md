@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Final replies retain their pending state through signing, encoding, and
+  send failures. Only a successful send clears it; Final suppresses Poll
+  without cancelling the local Poll sequence, and retries bypass periodic
+  transmission suppression.
 - Overlay listeners release their allocated inner source port exactly once on
   close. VXLAN/Geneve sends and receives honor context cancellation without
   invalidating the shared listener or subsequent operations.

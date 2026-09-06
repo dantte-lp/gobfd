@@ -100,10 +100,13 @@ Two-tier demultiplexing:
 
 #### Section 6.5: Poll Sequences
 
-Incoming packets with Poll set schedule a Final reply. The implementation does
-not yet initiate local Poll sequences or implement crossed-Poll, parameter
-commit, and timer semantics completely. The presence of `pollActive` and
-`terminatePollSequence` is therefore not full Section 6.5 compliance.
+Incoming packets with Poll set schedule an immediate Final reply. The pending
+reply survives signing, encoding, and send failures until a successful send;
+retry attempts bypass periodic transmission suppression. Final clears the Poll
+bit in that packet without terminating the local Poll sequence. The
+implementation does not yet initiate local Poll sequences or implement
+parameter commit and timer semantics completely. These reply guarantees are
+not full Section 6.5 compliance.
 
 #### Section 6.7: Authentication
 
@@ -157,7 +160,7 @@ AdminDown completion is tracked for v1.
 | Section | Feature | Rationale |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
-| 6.5 | Complete Poll Sequence procedures | Incoming Poll reply exists; local initiation and crossed/timer semantics are pending |
+| 6.5 | Complete Poll Sequence procedures | Final retry and P/F exclusion exist; local initiation, parameter commit, and timer semantics are pending |
 | 6.6 | Demand Mode | Fields are decoded, but remote Demand behavior and timer procedures are pending |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 

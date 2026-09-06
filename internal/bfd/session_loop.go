@@ -129,6 +129,11 @@ func (s *Session) handleTxTimer(ctx context.Context, txTimer *time.Timer) {
 
 // maybeSendControl checks transmission preconditions and sends if allowed.
 func (s *Session) maybeSendControl(ctx context.Context) {
+	// Final replies are sent without regard to periodic transmission limits.
+	if s.pendingFinal {
+		s.sendControl(ctx)
+		return
+	}
 	// RFC 5880 Section 6.8.7: "A system MUST NOT transmit BFD Control
 	// packets if bfd.RemoteDiscr is zero and the system is taking the
 	// Passive role."
@@ -148,7 +153,10 @@ func (s *Session) maybeSendControl(ctx context.Context) {
 // to the configured size. The Length field in the BFD header retains the
 // actual (unpadded) protocol length; padding follows the BFD PDU.
 func (s *Session) sendControl(ctx context.Context) {
-	s.rebuildCachedPacket()
+	final := s.pendingFinal
+	if !s.rebuildCachedPacket() {
+		return
+	}
 	pktLen := int(s.cachedPacket[3]) // Length field at byte 3
 
 	sendLen := pktLen
@@ -165,6 +173,9 @@ func (s *Session) sendControl(ctx context.Context) {
 			slog.String("error", err.Error()),
 		)
 		return
+	}
+	if final {
+		s.pendingFinal = false
 	}
 	s.packetsSent.Add(1)
 	s.metrics.IncPacketsSent(s.peerAddr, s.localAddr)
