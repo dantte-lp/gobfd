@@ -149,7 +149,7 @@ sessions:
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `default_desired_min_tx` | duration | `"1s"` | Desired Min TX Interval по умолчанию |
-| `default_required_min_rx` | duration | `"1s"` | Required Min RX Interval по умолчанию |
+| `default_required_min_rx` | duration | `"1s"` | Required Min RX Interval по умолчанию; ноль запрашивает остановку периодических Control packets |
 | `default_detect_multiplier` | uint32 | `3` | Множитель обнаружения (ОБЯЗАН быть >= 1) |
 | `align_intervals` | bool | `false` | RFC 7419: выравнивание таймеров до ближайшего общего интервала |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено, допустимо: 24-9000) |
@@ -485,12 +485,24 @@ cross-adapter rollback не входят в эту гарантию.
 | `interface` | string | Нет | Сетевой интерфейс для `SO_BINDTODEVICE` |
 | `type` | string | Нет | `single_hop` (по умолчанию) или `multi_hop` |
 | `desired_min_tx` | duration | Нет | Переопределение TX-интервала |
-| `required_min_rx` | duration | Нет | Переопределение RX-интервала |
+| `required_min_rx` | duration | Нет | Переопределение RX-интервала; явное `"0s"` сохраняется |
 | `detect_mult` | uint32 | Нет | Переопределение множителя обнаружения |
 | `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера (переопределяет `bfd.default_padded_pdu_size`) |
 | `auth.type` | string | Нет | Тип аутентификации RFC 5880: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | uint32 | Если auth включён | Auth Key ID, допустимый диапазон 0-255 |
 | `auth.secret` | string | Если auth включён | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
+
+Для базовых single-hop и multihop сессий пропущенный или null `required_min_rx`
+наследует `bfd.default_required_min_rx`; явное `"0s"` просит пира прекратить
+периодические Control packets (RFC 5880 sections 4.1 и 6.8.18). Ноль сохраняется
+при включённом `align_intervals`. Generic gRPC `AddSession` также сохраняет
+явный нулевой Duration, а пропущенный Duration получает default `1s`.
+Локальный передатчик продолжает следовать receive interval пира; локальный ноль
+сам по себе не выключает локальную передачу и не включает Demand Mode.
+Это начальная конфигурация сессии, не изменение параметров через Poll/Final.
+Правила zero-as-inherit для пиров preview Micro-BFD/VXLAN/Geneve не изменены.
+Значение `sessions` должно быть YAML-списком объектов. Для receive intervals
+boolean и дробные числовые значения отклоняются; используйте строки вроде `"100ms"`.
 
 Аутентификация настраивается через декларативные YAML-сессии или через поля
 gRPC `AddSession`: `auth_type`, `auth_key_id` и `auth_secret`. `auth_key_id`
@@ -619,7 +631,7 @@ source VXLAN или Geneve без работающего backend считает�
 | `grpc.addr` не должен быть пустым | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` должен быть >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` должен быть > 0 | `ErrInvalidDesiredMinTx` |
-| `bfd.default_required_min_rx` должен быть > 0 | `ErrInvalidRequiredMinRx` |
+| `bfd.default_required_min_rx` должен быть >= 0 | `ErrInvalidRequiredMinRx` |
 | `gobgp.addr` не должен быть пустым при включённой интеграции | `ErrEmptyGoBGPAddr` |
 | Включённая `gobgp.strategy` не распознана | `ErrInvalidGoBGPStrategy` |
 | Включённая `gobgp.strategy` распознана, но не реализована (`withdraw-routes`) | `ErrUnsupportedGoBGPStrategy` |

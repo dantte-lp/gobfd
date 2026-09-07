@@ -213,7 +213,16 @@ Poll/Final-задача `gobfd-qj0.8.2.1.1.1.1` сохраняет Final до у
 задача `gobfd-qj0.8.2.1.1.2.1` добавляет пересчёт TX deadline по параметрам
 пира и подавление передачи при remote Demand/нулевом receive interval с
 сохранением Final retry. В родительской `.1.1.2` остаются полные Demand
-procedures, нулевой локальный интервал API/config (H-08) и FRR/BIRD interop.
+procedures, оставшийся объём H-08 и FRR/BIRD interop.
+
+Задача `gobfd-qj0.8.2.1.1.2.2` добавляет начальный нулевой receive interval
+в общее ядро, YAML обычных базовых сессий и generic API. Пропущенные значения
+сохраняют defaults; контракты per-peer overrides preview не изменены.
+Историческая матрица 69 ID выше остаётся снимком указанного SHA.
+H-08 имеет ограниченную реализацию, не полную квалификацию Poll/Demand.
+Прежняя ошибка классификации API вынесена в P2 `gobfd-qj0.8.2.1.3.5`:
+недопустимые receive intervals отклоняются, но могут возвращать `Internal`
+вместо `InvalidArgument`.
 
 RFC core продолжается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,

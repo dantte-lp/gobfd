@@ -113,7 +113,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 	}
 
 	requiredMinRx := sc.RequiredMinRx
-	if requiredMinRx == 0 {
+	if requiredMinRx == 0 && !sc.RequiredMinRxSet {
 		requiredMinRx = defaults.DefaultRequiredMinRx
 	}
 

@@ -113,8 +113,14 @@ Peer receive-interval changes reschedule TX from the last successful send;
 unchanged incoming packets do not postpone it. A zero peer receive interval
 stops periodic TX, as does remote Demand while both ends are Up unless a
 local Poll is active. Immediate Final replies and bounded retries bypass
-these limits. Local API/config acceptance of a zero receive interval remains
-open, as does FRR/BIRD qualification of these procedures.
+these limits. Initial base sessions accept a local zero receive interval through
+YAML and generic `AddSession`, preserving omitted-field defaults. Preview
+per-peer override rules are unchanged; dynamic Poll transactions and FRR/BIRD
+qualification of these procedures remain open.
+
+The session receive path rejects the reserved zero Desired Min TX before
+updating peer state or timers, including packets supplied through `RecvPacket`.
+This prevents a zero detection-timer loop when the local receive interval is zero.
 
 #### Section 6.7: Authentication
 

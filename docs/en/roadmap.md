@@ -210,8 +210,17 @@ transmission and excludes simultaneous P/F flags (M-03/H-04). Local Poll
 initiation, queued parameter changes, and full crossed-Poll negotiation remain
 in `.1.1.1`. Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
-Parent `.1.1.2` retains full Demand procedures, local zero-interval API/config
-support (H-08), and FRR/BIRD interoperability qualification.
+Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,
+and FRR/BIRD interoperability qualification.
+
+Task `gobfd-qj0.8.2.1.1.2.2` adds initial zero receive-interval support in
+the shared core, ordinary base-session YAML and generic API. Omitted values
+keep their defaults; preview per-peer override contracts are unchanged.
+The historical 69-ID matrix above remains a snapshot at its named SHA.
+H-08 has a bounded implementation slice, not full Poll/Demand qualification.
+The existing API error-classification defect is tracked separately as P2
+`gobfd-qj0.8.2.1.3.5`: invalid receive intervals are rejected but can return
+`Internal` instead of `InvalidArgument`.
 
 RFC core work continues with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

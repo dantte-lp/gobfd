@@ -371,6 +371,11 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 	}
 
 	desiredMinTx := durationFromProto(req.GetDesiredMinTxInterval())
+	if rx := req.GetRequiredMinRxInterval(); rx != nil {
+		if err := rx.CheckValid(); err != nil {
+			return bfd.SessionConfig{}, fmt.Errorf("invalid required min RX interval: %w", err)
+		}
+	}
 	requiredMinRx := durationFromProto(req.GetRequiredMinRxInterval())
 
 	detectMult := req.GetDetectMultiplier()

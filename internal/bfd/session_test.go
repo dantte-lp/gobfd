@@ -108,6 +108,47 @@ func makeControlPacket(
 // TestNewSession — RFC 5880 Section 6.8.1 initial state
 // -------------------------------------------------------------------------
 
+// TestSessionZeroRequiredMinRx preserves asynchronous operation with RX zero.
+func TestSessionZeroRequiredMinRx(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		cfg := defaultSessionConfig()
+		cfg.RequiredMinRxInterval = 0
+		sender := &mockSender{}
+		sess := mustNewSession(t, cfg, 42, sender, nil, slog.New(slog.DiscardHandler))
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go sess.Run(ctx)
+		synctest.Sleep(time.Second)
+		if pkt := sender.lastPacket(t); pkt.RequiredMinRxInterval != 0 || pkt.Demand {
+			t.Fatalf("initial packet RX = %d, Demand = %t", pkt.RequiredMinRxInterval, pkt.Demand)
+		}
+		sess.RecvPacket(makeControlPacket(bfd.StateInit, 99, 42))
+		synctest.Wait()
+		if sess.State() != bfd.StateUp || sess.DetectionTime() != 300*time.Millisecond {
+			t.Fatalf("state = %s, detection = %s", sess.State(), sess.DetectionTime())
+		}
+		before := sender.packetCount()
+		synctest.Sleep(100 * time.Millisecond)
+		if sender.packetCount() <= before {
+			t.Fatal("local RX zero suppressed local periodic transmission")
+		}
+		poll := makeControlPacket(bfd.StateUp, 99, 42)
+		poll.Poll = true
+		before = sender.packetCount()
+		sess.RecvPacket(poll)
+		synctest.Wait()
+		pkt := sender.lastPacket(t)
+		if sender.packetCount() != before+1 || !pkt.Final || pkt.Poll || pkt.RequiredMinRxInterval != 0 {
+			t.Fatalf("Poll did not receive an immediate Final with RX zero: %+v", pkt)
+		}
+		synctest.Sleep(300 * time.Millisecond)
+		if sess.State() != bfd.StateDown || sess.LocalDiag() != bfd.DiagControlTimeExpired {
+			t.Fatalf("asynchronous detection did not expire: %s, %s", sess.State(), sess.LocalDiag())
+		}
+	})
+}
+
 // TestNewSession verifies that all initial state variables match
 // RFC 5880 Section 6.8.1 mandatory initialization values.
 func TestNewSession(t *testing.T) {
@@ -189,14 +230,14 @@ func TestNewSessionValidationErrors(t *testing.T) {
 			wantErr:    "desired min TX interval",
 		},
 		{
-			name: "zero RX interval",
+			name: "negative RX interval",
 			cfg: bfd.SessionConfig{
 				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
 				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
 				Type:                  bfd.SessionTypeSingleHop,
 				Role:                  bfd.RoleActive,
 				DesiredMinTxInterval:  time.Second,
-				RequiredMinRxInterval: 0,
+				RequiredMinRxInterval: -time.Microsecond,
 				DetectMultiplier:      3,
 			},
 			localDiscr: 1,

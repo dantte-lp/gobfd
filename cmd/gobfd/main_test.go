@@ -958,6 +958,77 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 // 4.1 — configSessionToBFD
 // =========================================================================
 
+func TestConfigSessionRequiredMinRx(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, defaults, peer string
+		sessions             string
+		want                 time.Duration
+		wantErr              bool
+	}{
+		{name: "omitted", want: time.Second},
+		{name: "inherited", defaults: "default_required_min_rx: 250ms", want: 250 * time.Millisecond},
+		{name: "explicit zero", peer: "required_min_rx: 0s"},
+		{name: "numeric zero", peer: "required_min_rx: 0"},
+		{name: "aligned zero", defaults: "align_intervals: true", peer: "required_min_rx: 0s"},
+		{name: "global zero", defaults: "default_required_min_rx: 0s"},
+		{name: "global null", defaults: "default_required_min_rx: null", want: time.Second},
+		{
+			name: "peer null", defaults: "default_required_min_rx: 250ms", peer: "required_min_rx: null",
+			want: 250 * time.Millisecond,
+		},
+		{
+			name: "positive override", defaults: "align_intervals: true", peer: "required_min_rx: 15ms",
+			want: 20 * time.Millisecond,
+		},
+		{name: "ignored marker", peer: "required_min_rx_set: true\n    '-': true", want: time.Second},
+		{name: "boolean peer", peer: "required_min_rx: false", wantErr: true},
+		{name: "boolean global", defaults: "default_required_min_rx: false", wantErr: true},
+		{name: "fractional peer", peer: "required_min_rx: -0.5", wantErr: true},
+		{name: "fractional global", defaults: "default_required_min_rx: -0.5", wantErr: true},
+		{name: "positive fraction", peer: "required_min_rx: 0.5", wantErr: true},
+		{name: "overflow peer", peer: "required_min_rx: 18446744073709551616", wantErr: true},
+		{name: "overflow global", defaults: "default_required_min_rx: 18446744073709551616", wantErr: true},
+		{name: "numeric positive", peer: "required_min_rx: 100000000", want: 100 * time.Millisecond},
+		{name: "singleton zero", sessions: "sessions:\n  peer: 192.0.2.1\n  required_min_rx: 0s", wantErr: true},
+		{name: "singleton marker", sessions: "sessions:\n  peer: 192.0.2.1\n  '-': true", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := t.TempDir() + "/gobfd.yml"
+			data := "bfd:\n  default_desired_min_tx: 1s\n  " + tt.defaults +
+				"\nsessions:\n  - peer: 192.0.2.1\n    " + tt.peer + "\n"
+			if tt.sessions != "" {
+				data = tt.sessions
+			}
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(path)
+			if tt.wantErr {
+				wantErr := config.ErrInvalidRequiredMinRx
+				if tt.sessions != "" {
+					wantErr = config.ErrInvalidSessionShape
+				}
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("Load error = %v, want %v", err, wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			got, err := configSessionToBFD(cfg.Sessions[0], cfg.BFD)
+			if err != nil {
+				t.Fatalf("configSessionToBFD: %v", err)
+			}
+			if got.RequiredMinRxInterval != tt.want {
+				t.Errorf("required RX = %s, want %s", got.RequiredMinRxInterval, tt.want)
+			}
+		})
+	}
+}
+
 func TestConfigSessionToBFD(t *testing.T) {
 	t.Parallel()
 

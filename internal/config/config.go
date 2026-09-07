@@ -685,6 +685,10 @@ type SessionConfig struct {
 	// RequiredMinRx is the required minimum RX interval (e.g., "100ms").
 	RequiredMinRx time.Duration `koanf:"required_min_rx"`
 
+	// RequiredMinRxSet distinguishes an explicit zero from an inherited interval.
+	// Load derives it from YAML presence; it is not a configuration key.
+	RequiredMinRxSet bool `koanf:"-"`
+
 	// DetectMult is the detection multiplier (must be >= 1).
 	DetectMult uint32 `koanf:"detect_mult"`
 
@@ -872,6 +876,9 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 	if err := k.Load(env.Provider(envPrefix, ".", envKeyMapper), nil); err != nil {
 		return nil, fmt.Errorf("load env overrides: %w", err)
 	}
+	if err := validateRequiredMinRxInput(k); err != nil {
+		return nil, fmt.Errorf("validate required min RX input from %s: %w", path, err)
+	}
 
 	cfg := &Config{}
 	if err := k.Unmarshal("", cfg); err != nil {
@@ -881,8 +888,65 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 	if err := Validate(cfg); err != nil {
 		return nil, fmt.Errorf("validate config from %s: %w", path, err)
 	}
+	applyRequiredMinRxPresence(k, cfg, defaults.BFD.DefaultRequiredMinRx)
 
 	return cfg, nil
+}
+
+// validateRequiredMinRxInput checks raw values before weak decoding can truncate
+// or overflow numbers, or accept a singleton map in place of a session list.
+func validateRequiredMinRxInput(k *koanf.Koanf) error {
+	if !validRequiredMinRxScalar(k.Get("bfd.default_required_min_rx")) {
+		return fmt.Errorf("default_required_min_rx: %w", ErrInvalidRequiredMinRx)
+	}
+	value := k.Get("sessions")
+	if value == nil {
+		return nil
+	}
+	sessions, ok := value.([]any)
+	if !ok {
+		return ErrInvalidSessionShape
+	}
+	for i, value := range sessions {
+		session, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("session %d: %w", i, ErrInvalidSessionShape)
+		}
+		if !validRequiredMinRxScalar(session["required_min_rx"]) {
+			return fmt.Errorf("session %d required_min_rx: %w", i, ErrInvalidRequiredMinRx)
+		}
+	}
+	return nil
+}
+
+func validRequiredMinRxScalar(value any) bool {
+	switch value := value.(type) {
+	case nil, string:
+		return true // Duration strings are checked by the existing decode hook.
+	case int:
+		return value >= 0
+	case int64:
+		return value >= 0
+	case uint64:
+		return value <= math.MaxInt64
+	case float64:
+		// The strict upper bound excludes 2^63, which float64(MaxInt64) rounds to.
+		return value >= 0 && value < math.MaxInt64 && math.Trunc(value) == value
+	default:
+		return false
+	}
+}
+
+// applyRequiredMinRxPresence runs after raw shape validation, so koanf.Slices
+// preserves each session's index in cfg.Sessions.
+func applyRequiredMinRxPresence(k *koanf.Koanf, cfg *Config, defaultRx time.Duration) {
+	if k.Get("bfd.default_required_min_rx") == nil {
+		cfg.BFD.DefaultRequiredMinRx = defaultRx
+	}
+	for i, session := range k.Slices("sessions") {
+		// Always overwrite the marker, including any value supplied under '-'.
+		cfg.Sessions[i].RequiredMinRxSet = session.Get("required_min_rx") != nil
+	}
 }
 
 // envKeyMapper returns the exact supported configuration key for a daemon
@@ -974,10 +1038,13 @@ var (
 	ErrInvalidDesiredMinTx = errors.New("bfd.default_desired_min_tx must be > 0")
 
 	// ErrInvalidRequiredMinRx indicates the required min RX interval is invalid.
-	ErrInvalidRequiredMinRx = errors.New("bfd.default_required_min_rx must be > 0")
+	ErrInvalidRequiredMinRx = errors.New("bfd.default_required_min_rx must be >= 0")
 
 	// ErrInvalidSessionPeer indicates a session has an invalid peer address.
 	ErrInvalidSessionPeer = errors.New("session peer address is invalid")
+
+	// ErrInvalidSessionShape indicates sessions is not a sequence of mappings.
+	ErrInvalidSessionShape = errors.New("sessions must be a sequence of mappings")
 
 	// ErrInvalidSessionType indicates a session has an unrecognized type.
 	ErrInvalidSessionType = errors.New("session type must be single_hop or multi_hop")
@@ -1095,7 +1162,7 @@ func Validate(cfg *Config) error {
 		return ErrInvalidDesiredMinTx
 	}
 
-	if cfg.BFD.DefaultRequiredMinRx <= 0 {
+	if cfg.BFD.DefaultRequiredMinRx < 0 {
 		return ErrInvalidRequiredMinRx
 	}
 

@@ -207,13 +207,6 @@ func TestValidateErrors(t *testing.T) {
 			wantErr: config.ErrInvalidDesiredMinTx,
 		},
 		{
-			name: "zero required min rx",
-			modify: func(cfg *config.Config) {
-				cfg.BFD.DefaultRequiredMinRx = 0
-			},
-			wantErr: config.ErrInvalidRequiredMinRx,
-		},
-		{
 			name: "negative required min rx",
 			modify: func(cfg *config.Config) {
 				cfg.BFD.DefaultRequiredMinRx = -500 * time.Millisecond

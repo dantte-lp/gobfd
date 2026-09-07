@@ -7,6 +7,30 @@ import (
 	"time"
 )
 
+func TestSessionRejectsReservedRemoteTx(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		sess, _, tx, detect := newRemoteTxTestSession(t)
+		sess.requiredMinRxInterval = 0
+		sess.recvCh = make(chan recvItem, 1)
+		pkt := sess.buildControlPacket()
+		pkt.DesiredMinTxInterval = 0
+		sess.RecvPacket(&pkt)
+		sess.handleRecvPacket(t.Context(), <-sess.recvCh, tx, detect)
+		if got := sess.calcDetectionTimeHot(); got <= 0 {
+			t.Errorf("reserved peer TX produced detection time %s", got)
+		}
+		if sess.PacketsReceived() != 0 || !sess.LastPacketReceived().IsZero() {
+			t.Error("reserved peer TX was recorded as valid reception")
+		}
+		select {
+		case <-detect.C:
+			t.Error("reserved peer TX armed an immediately expired detection timer")
+		default:
+		}
+	})
+}
+
 func TestRemoteTxPolicy(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {

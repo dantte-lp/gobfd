@@ -147,7 +147,7 @@ Log level can be changed at runtime via SIGHUP reload without restarting the dae
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `default_desired_min_tx` | duration | `"1s"` | Default Desired Min TX Interval |
-| `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval |
+| `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval; zero requests no periodic Control packets |
 | `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (MUST be >= 1) |
 | `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled, valid: 24-9000) |
@@ -484,12 +484,24 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | `interface` | string | No | Network interface for `SO_BINDTODEVICE` |
 | `type` | string | No | `single_hop` (default) or `multi_hop` |
 | `desired_min_tx` | duration | No | Override default TX interval |
-| `required_min_rx` | duration | No | Override default RX interval |
+| `required_min_rx` | duration | No | Override default RX interval; explicit `"0s"` is preserved |
 | `detect_mult` | uint32 | No | Override default detect multiplier |
 | `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size (overrides `bfd.default_padded_pdu_size`) |
 | `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
+
+For base single-hop and multihop sessions, omitted or null `required_min_rx`
+inherits `bfd.default_required_min_rx`; explicit `"0s"` requests that the peer
+stop periodic Control packets (RFC 5880 sections 4.1 and 6.8.18). Zero remains
+zero with `align_intervals` enabled. Generic gRPC `AddSession` likewise preserves
+a present zero Duration, while an omitted Duration defaults to `1s`.
+The local transmitter still follows the peer's advertised receive interval;
+local zero does not itself disable local transmission or enable Demand Mode.
+This is initial-session configuration, not in-place Poll/Final parameter updates.
+Preview Micro-BFD/VXLAN/Geneve per-peer zero-as-inherit rules are unchanged.
+The `sessions` value must be a YAML sequence of mappings. Receive intervals
+reject booleans and fractional numeric values; use duration strings such as `"100ms"`.
 
 Authentication can be configured through declarative YAML sessions or through
 gRPC `AddSession` fields: `auth_type`, `auth_key_id`, and `auth_secret`.
@@ -620,7 +632,7 @@ skipped. Already accepted source changes are not rolled back.
 | `grpc.addr` must not be empty | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` must be >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` must be > 0 | `ErrInvalidDesiredMinTx` |
-| `bfd.default_required_min_rx` must be > 0 | `ErrInvalidRequiredMinRx` |
+| `bfd.default_required_min_rx` must be >= 0 | `ErrInvalidRequiredMinRx` |
 | `gobgp.addr` must not be empty when enabled | `ErrEmptyGoBGPAddr` |
 | Enabled `gobgp.strategy` is not recognized | `ErrInvalidGoBGPStrategy` |
 | Enabled `gobgp.strategy` is recognized but not implemented (`withdraw-routes`) | `ErrUnsupportedGoBGPStrategy` |

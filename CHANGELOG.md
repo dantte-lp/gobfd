@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Initial base BFD sessions preserve an explicit zero receive interval in YAML
+  and the generic API, while omitted fields retain their defaults. Zero requests
+  peer periodic-control suppression without disabling the local transmitter.
 - Peer receive-interval changes now reschedule control transmission from the
   last successful send. Periodic TX stops for zero peer receive intervals or
   active remote Demand without a local Poll; Final replies remain retryable.

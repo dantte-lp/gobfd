@@ -23,8 +23,10 @@ func (s *Session) handleRecvPacket(
 ) {
 	pkt := item.pkt
 
-	// Steps 8-9: Auth mismatch check.
-	if !s.checkAuthConsistency(pkt) {
+	// RFC 5880 Section 4.1 reserves zero Desired Min TX; accepting it with
+	// local Required Min RX zero would arm a zero-duration detection timer.
+	// Steps 8-9 also discard authentication mismatches before any mutation.
+	if pkt.DesiredMinTxInterval == 0 || !s.checkAuthConsistency(pkt) {
 		return
 	}
 

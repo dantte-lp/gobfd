@@ -208,7 +208,7 @@ var (
 	ErrInvalidTxInterval = errors.New("desired min TX interval must be > 0")
 
 	// ErrInvalidRxInterval indicates the required min RX interval is invalid.
-	ErrInvalidRxInterval = errors.New("required min RX interval must be > 0")
+	ErrInvalidRxInterval = errors.New("required min RX interval must be >= 0")
 
 	// ErrInvalidWireInterval indicates an interval cannot be represented in BFD wire format.
 	ErrInvalidWireInterval = errors.New("wire interval must fit uint32 microseconds")
@@ -503,7 +503,7 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.DesiredMinTxInterval <= 0 {
 		return fmt.Errorf("desired min TX interval %v: %w", cfg.DesiredMinTxInterval, ErrInvalidTxInterval)
 	}
-	if cfg.RequiredMinRxInterval <= 0 {
+	if cfg.RequiredMinRxInterval < 0 {
 		return fmt.Errorf("required min RX interval %v: %w", cfg.RequiredMinRxInterval, ErrInvalidRxInterval)
 	}
 	if cfg.DesiredMinTxInterval > MaxWireInterval {
