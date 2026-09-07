@@ -191,6 +191,17 @@ After a v0.6 fix is accepted, assess whether the defect exists on `master` or
 This makes the release branch authoritative for v0.6 without allowing it to
 silently fork untracked fixes from later lines.
 
+### Branch-aware acceptance
+
+Every acceptance record names its branch, exact commit, and qualification
+evidence. A closed implementation or review task on `dev` does not prove
+delivery to `release/v0.6`, `master`, or an immutable release. Each stable gap
+needs a delivery owner or explicit source-supported inapplicability; absent
+commit ancestry alone does not prove a defect applies to a different runner.
+Keep implementation receipts closed and track stable delivery separately.
+Release closeout requires evidence for the applicable stable branch and
+published tag, not a closed `dev` baseline task.
+
 ## Versioning and changelog contract
 
 - Public versions remain SemVer tags: `vMAJOR.MINOR.PATCH`.
@@ -350,10 +361,15 @@ the Oracle Linux 10 index digest is
 `sha256:eae22d81c6c8c31b9e7c969456203621d1f75b6fa1f17845b868208dbe4b4cef`;
 both contain linux/amd64 and linux/arm64 manifests with linked attestations.
 
-This design's release-line acceptance is complete. The broader maintenance
-milestone remains open on separately tracked P1 review findings
-`gobfd-qj0.8.1.8.8`, `.8.9`, and `.8.10`; they are not silently treated as
-resolved by publication.
+This design's publication acceptance (`gobfd-qj0.8.1.15`) remains complete.
+As reconciled on 2026-09-07, all 13 `gobfd-qj0.8.1.8` review findings remain
+closed as implementation evidence on `dev`; qualification `gobfd-qj0.8.1.7`
+does not qualify the current stable heads. Maintenance `gobfd-qj0.8.1` is
+reopened under `gobfd-qj0.8.1.16`: `.16.2` owns compatible stable corrections
+for findings `.8.8`, `.8.9`, and `.8.11`; `.16.3` owns source-backed stable
+applicability analysis for Go-lifecycle findings `.8.10`, `.8.12`, and `.8.13`.
+The [branch-specific roadmap](../../en/roadmap.md#branch-specific-maintenance-gaps)
+records the compared commits and gaps without rewriting the publication receipt.
 
 ## v0.6.4 closeout correction
 

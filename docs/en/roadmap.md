@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-09-06. Beads is the task
+> Status projection from Beads, reconciled on 2026-09-07. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -12,28 +12,32 @@ The latest published GitHub release is
 [`v0.6.4`](https://github.com/dantte-lp/gobfd/releases/tag/v0.6.4). The immutable
 `v0.6.2` and `v0.6.3` tags remain unpublished failed cuts. The v0.6.4 product
 artifacts and cumulative notes are verified, and the accepted stable history
-and bilingual changelogs have reached `master`. All independent v0.6 review
-findings are resolved and accepted, and final local baseline qualification is
-complete. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP
-v4 development continues on `dev`.
+and bilingual changelogs have reached `master`. The 13 independent review
+findings and final local qualification are accepted on `dev`; this does not
+prove their delivery to stable. Maintenance is reopened for the branch gaps
+below. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP v4
+development continues on `dev`.
 
 ## Status key
 
 | Status | Meaning |
 |---|---|
-| Done | Accepted in the current `dev` history |
+| Done | Accepted in `dev` unless another branch and commit are named; not proof of stable delivery or publication |
 | In progress | Active work or independent review is not complete |
 | Open | Planned in Beads and not yet accepted |
 
 ## v0.6 maintenance baseline
 
-Beads milestone: `gobfd-qj0.8.1` — **Done**.
+Beads milestone: `gobfd-qj0.8.1` — **Open; reopened for stable delivery**
+under `gobfd-qj0.8.1.16`.
 
 The protected `release/v0.6` branch keeps GoBGP v3.37.0 and the existing
 `bfd.v1` and YAML runtime contracts. It updates dependencies, tools, CI,
 reproducibility, documentation, and test infrastructure without adding BFD
-protocol behavior. The v0.6.4 tag, assets, and OCI images are verified; final
-qualification `gobfd-qj0.8.1.7` is accepted and the baseline is **Done**.
+protocol behavior. The v0.6.4 tag, assets, and OCI images are verified.
+Qualification `gobfd-qj0.8.1.7` records the accepted `dev` baseline, not
+qualification of the current stable heads. The following rows describe
+implementation acceptance on `dev`, not the contents of v0.6.4.
 
 | Delivery slice | Status |
 |---|---|
@@ -41,26 +45,45 @@ qualification `gobfd-qj0.8.1.7` is accepted and the baseline is **Done**.
 | Go 1.27 toolchain and CI refresh | Done |
 | Go-owned Podman testcontainers harness | Done |
 | Interop, integration, and E2E orchestration migration | Done |
-| Bounded Python 3.14.7/uv tooling island and Docker Compose v5 contract | Done |
+| Historical Python tooling island and Docker Compose v5 contract | Accepted then; Python retention superseded by the no-Python policy |
 | License, SBOM, OCI provenance, and vulnerability inventory | Done |
 | Debian trixie / Oracle Linux 10 image boundary | Done |
 | RFC and benchmark public-claim correction | Done |
 | Roadmap, Quick Start, architecture, and EN/RU parity | Done |
 | Independent review of all v0.6 slices and P0/P1 remediation | Done |
-| Final local qualification and immutable release evidence | Done |
+| Final local `dev` qualification | Done |
 | Register the isolated `tools/go.mod` with Dependabot | Done |
 
 Release task `gobfd-qj0.8.1.15` is complete after correction: immutable
 `v0.6.4` still points to `b1c0bcd7d2e9abed00368b2082e34f521084c087`, all 12
 assets and OCI indexes remain verified, and its body now covers v0.6.2-v0.6.4.
 PRs `#67` and `#68` delivered the accepted correction to `release/v0.6` and
-`master`; this `dev` history contains the separate forward-port. Qualification
-`gobfd-qj0.8.1.7` and independent review `gobfd-qj0.8.1.8` are complete after
-all 13 child findings were resolved and accepted.
+`master`; this `dev` history contains the separate forward-port. That published
+release receipt remains accepted and is not rewritten by the stable-gap review.
+Independent review `gobfd-qj0.8.1.8` and all 13 child findings remain closed as
+implementation evidence; stable delivery has separate ownership.
 
-These v0.6 rows describe the accepted maintenance release scope. They do not
-claim that later external-audit findings tracked for v1 are fixed on the
-stable line.
+### Branch-specific maintenance gaps
+
+The 2026-09-07 comparison uses `dev` at
+`401f6a6a0adc20cd440f4de2d424327984c49111`, `master` at
+`5680385679d8e03d74226b5fcde269210d63bde8`, and `release/v0.6` at
+`145d7a33571b76f234fd06ccb00798586a40b8d5`. The fix for findings 1–7,
+`e0e85b1`, is an ancestor of all three heads; current behavior is not
+requalified here. The six later fix commits are present only on `dev`:
+
+| Closed finding | Accepted `dev` fix | Current stable gap | Beads delivery owner |
+|---|---|---|---|
+| `gobfd-qj0.8.1.8.8` | `37f1b26` | Unqualified `ENV GOMEMLIMIT=256MiB` in `deployments/docker/Containerfile` | `gobfd-qj0.8.1.16.2` — Open |
+| `gobfd-qj0.8.1.8.9` | `4965ef4` | RFC-count and scratch-image claims in EN/RU performance analysis | `gobfd-qj0.8.1.16.2` — Open |
+| `gobfd-qj0.8.1.8.11` | `c5aa0c2` | SIGHUP no-session-drop claims in EN/RU performance analysis | `gobfd-qj0.8.1.16.2` — Open |
+| `gobfd-qj0.8.1.8.10` | `b3677f8` — image ownership | Stable uses the older guarded shell runner; applicability unproven | `gobfd-qj0.8.1.16.3` — Open |
+| `gobfd-qj0.8.1.8.12` | `0632c99` — host-global lock | Stable lacks this Go lifecycle; applicability unproven | `gobfd-qj0.8.1.16.3` — Open |
+| `gobfd-qj0.8.1.8.13` | `d462b4c` — live identity validation | Stable lacks this Go lifecycle; applicability unproven | `gobfd-qj0.8.1.16.3` — Open |
+
+The last three findings require source-backed applicability analysis, not
+blind backports or new shell changes. Later v1 audit findings are not implied
+to be fixed on stable either. Beads remains the delivery ledger.
 
 ## Legacy S12 reconciliation
 
@@ -84,10 +107,13 @@ authoritative.
 
 ## v1.0.0 production contract
 
-Beads milestone: `gobfd-qj0.8.2` — **Open; the v0.6 prerequisite is accepted**.
+Beads milestone: `gobfd-qj0.8.2` — **Open; the `dev` baseline is accepted,
+stable delivery remains open**.
 
 Development of the v1 product line, including the GoBGP v4 migration, occurs
 on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
+The milestone still depends on `gobfd-qj0.8.1`: acceptance waits for the
+maintenance disposition, while ongoing v1 child development may continue.
 
 ### P0 sequence
 
@@ -95,7 +121,7 @@ on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
 |---|---|
 | RFC core correctness and loss accounting | In progress; Final retry and P/F exclusion implemented |
 | Ownership and configuration reconciliation | In progress; C01.1 through C01.7 implemented |
-| Repository-owned shell removal | In progress; tracked shell scripts and embedded shell fixtures: 0; 3 workflow setup blocks remain |
+| Repository-owned shell removal | In progress on `dev`; zero tracked `.sh`/`.bash` files does not mean zero inline shell |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
 | Independent implementation review | Open |
@@ -109,7 +135,11 @@ The follow-up complete base profile exposed 151 additional diagnostics. All
 now report zero issues without configuration weakening.
 Two pre-existing `GITHUB_PATH` publication defects found during review were
 resolved as separate Beads release blockers, outside the lint refactor.
-The current `dev` tree contains no tracked Python source or Python manifests.
+The current `dev` tree contains no tracked Python source or Python manifests;
+stable Python removal remains under `gobfd-qj0.8.2.8.3.5.2`. Mandatory
+no-shell/no-Python scope is unchanged: Makefile recipes, workflow blocks,
+container commands, test invocations, and Bash packages still require shell
+removal work on `dev`.
 
 The accepted C01.1 core provides a canonical session key separate from packet
 demultiplexing, serialized typed configuration, compatibility/API, and

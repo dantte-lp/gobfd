@@ -130,6 +130,9 @@ repository Python dependency.
 
 - `dev` integrates the next product line and is never tagged for a stable
   release.
+- Acceptance records name the branch, commit, and evidence; closed `dev` tasks
+  do not prove stable delivery. Track each stable gap with an owner or record
+  source-supported inapplicability before release closeout.
 - `master` is the default branch and contains the latest accepted stable state.
 - Supported product lines use branches named `release/vMAJOR.MINOR`.
 - `release/v0.6` retains GoBGP v3.37.0 and the v0.6 public contracts.
