@@ -195,6 +195,102 @@ func TestRemoteTxPollFinalRetry(t *testing.T) {
 	}
 }
 
+func TestSessionSlowToFastPoll(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name     string
+		state    State
+		tx       time.Duration
+		remoteRX time.Duration
+	}{
+		{name: "Down to fast Up", state: StateDown, tx: 100 * time.Millisecond},
+		{name: "Init to fast Up", state: StateInit, tx: 100 * time.Millisecond},
+		{name: "peer keeps slow rate", state: StateDown, tx: 100 * time.Millisecond, remoteRX: 2 * time.Second},
+		{name: "unchanged floor", state: StateDown, tx: time.Second},
+		{name: "above floor", state: StateDown, tx: 2 * time.Second},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				sess, sender, tx, detect := newRemoteTxTestSession(t)
+				sess.cachedState = tt.state
+				sess.state.Store(uint32(tt.state))
+				sess.desiredMinTxInterval = tt.tx
+				pkt := sess.buildControlPacket()
+				pkt.State, pkt.Final = StateInit, true // Final predates the new local Poll.
+				if tt.remoteRX != 0 {
+					pkt.RequiredMinRxInterval = microsecondsFromDuration(tt.remoteRX)
+				}
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				if sess.State() != StateUp || len(sender.packets) != 1 {
+					t.Fatal("Up transition must use exactly its existing immediate send")
+				}
+				assertCachedPacketFlags(t, sender.packets[0], tt.tx < slowTxInterval, false)
+				var sent ControlPacket
+				if err := UnmarshalControlPacket(sender.packets[0], &sent); err != nil {
+					t.Fatal(err)
+				}
+				if sent.DesiredMinTxInterval != microsecondsFromDuration(tt.tx) || sent.MyDiscriminator != sess.localDiscr {
+					t.Fatalf("Up packet did not retain configured TX and discriminator: %+v", sent)
+				}
+				if sess.calcTxIntervalHot() != max(tt.tx, tt.remoteRX) {
+					t.Fatal("local TX decrease was deferred until Final")
+				}
+			})
+		})
+	}
+}
+
+func TestSessionSlowToFastPollLifecycle(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		sess, sender, tx, detect := newRemoteTxTestSession(t)
+		sess.cachedState = StateDown
+		sess.state.Store(uint32(StateDown))
+		sender.failures = 1
+		pkt := sess.buildControlPacket()
+		pkt.State = StateInit
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		if !sess.pollActive || sender.attempts != 1 || len(sender.packets) != 0 {
+			t.Fatal("failed first Up send did not retain local Poll for periodic retry")
+		}
+		// Lost Poll/Final packets leave P set on subsequent timer-driven sends.
+		for range 2 {
+			synctest.Sleep(100 * time.Millisecond)
+			if !fireRemoteTxTimer(sess, tx) {
+				t.Fatal("local Poll retry timer was not armed")
+			}
+			assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
+		}
+		pkt.State, pkt.Poll = StateUp, true
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], false, true)
+		synctest.Sleep(100 * time.Millisecond)
+		if !fireRemoteTxTimer(sess, tx) {
+			t.Fatal("crossed Poll stopped local Poll retries")
+		}
+		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
+		pkt.Poll, pkt.Final = false, true
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		pkt.Final = false
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		synctest.Sleep(100 * time.Millisecond)
+		if !fireRemoteTxTimer(sess, tx) || sess.pollActive {
+			t.Fatal("Final did not end Poll, or unchanged Up restarted it")
+		}
+		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], false, false)
+		for range 2 {
+			sess.handleDetectTimer(t.Context(), tx, detect)
+			if sess.State() != StateDown || sess.pollActive || sess.buildControlPacket().Poll {
+				t.Fatal("non-Up transition retained obsolete Poll")
+			}
+			pkt.State = StateInit
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
+		}
+	})
+}
+
 func newRemoteTxTestSession(t *testing.T) (*Session, *retryCachedPacketSender, *time.Timer, *time.Timer) {
 	t.Helper()
 	sess := newCachedPacketTestSession(MaxPacketSize)

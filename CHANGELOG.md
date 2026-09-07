@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The slow-to-fast Up transition initiates a local Poll when the advertised
+  transmit interval decreases below one second, retaining existing Final retry
+  and P/F exclusion without adding an extra Poll-only transmission.
 - Initial base BFD sessions preserve an explicit zero receive interval in YAML
   and the generic API, while omitted fields retain their defaults. Zero requests
   peer periodic-control suppression without disabling the local transmitter.

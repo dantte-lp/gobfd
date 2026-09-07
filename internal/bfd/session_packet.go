@@ -146,6 +146,9 @@ func (s *Session) executeFSMActions(
 	if result.Changed {
 		s.state.Store(uint32(result.NewState))
 		s.cachedState = result.NewState // goroutine-confined mirror
+		// RFC 5880 Section 6.8.3: advertise the slow-to-fast decrease with
+		// Poll before any Up send; leaving Up discards the obsolete sequence.
+		s.pollActive = result.NewState == StateUp && s.desiredMinTxInterval < slowTxInterval
 		s.logStateChange(result)
 	}
 	for _, action := range result.Actions {

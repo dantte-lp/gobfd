@@ -206,9 +206,11 @@ deployment or vendor interoperability; owner-specific backends remain
 unavailable. Beads retains the exact commands and evidence checksums.
 
 Poll/Final task `gobfd-qj0.8.2.1.1.1.1` retains Final intent until successful
-transmission and excludes simultaneous P/F flags (M-03/H-04). Local Poll
-initiation, queued parameter changes, and full crossed-Poll negotiation remain
-in `.1.1.1`. Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
+transmission and excludes simultaneous P/F flags (M-03/H-04). Child
+`gobfd-qj0.8.2.1.1.1.2` starts local Poll on the slow-to-fast Up transition,
+using existing transmissions. H-05 remains partial: queued parameter changes,
+their four-way timer effects and update integration remain in `.1.1.1`.
+Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,
 and FRR/BIRD interoperability qualification.

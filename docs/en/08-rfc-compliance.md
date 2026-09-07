@@ -104,10 +104,12 @@ Two-tier demultiplexing:
 Incoming packets with Poll set schedule an immediate Final reply. The pending
 reply survives signing, encoding, and send failures until a successful send;
 retry attempts bypass periodic transmission suppression. Final clears the Poll
-bit in that packet without terminating the local Poll sequence. The
-implementation does not yet initiate local Poll sequences or implement
-parameter commit and timer semantics completely. These reply guarantees are
-not full Section 6.5 compliance.
+bit in that packet without terminating the local Poll sequence. Entering Up
+starts a local Poll when the advertised Desired Min TX falls from the one-second
+slow floor to the configured value. It uses existing scheduled/FSM-driven sends;
+leaving Up clears that transition's Poll intent. Queued parameter changes and
+their complete commit/timer semantics remain unimplemented. This is not full
+Section 6.5 compliance.
 
 Peer receive-interval changes reschedule TX from the last successful send;
 unchanged incoming packets do not postpone it. A zero peer receive interval
@@ -174,7 +176,7 @@ AdminDown completion is tracked for v1.
 | Section | Feature | Rationale |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
-| 6.5 | Complete Poll Sequence procedures | Final retry and P/F exclusion exist; local initiation, parameter commit, and timer semantics are pending |
+| 6.5 | Complete Poll Sequence procedures | Slow-to-fast initiation, Final retry and P/F exclusion exist; queued parameter changes, commit and timer semantics are pending |
 | 6.6 | Full Demand Mode | Remote periodic-TX suppression exists; local Demand, complete Poll procedures, and interop qualification remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
