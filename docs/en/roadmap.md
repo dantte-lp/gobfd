@@ -120,6 +120,21 @@ Final qualification `gobfd-qj0.8.2.6` depends on `gobfd-qj0.8.1` for
 maintenance disposition. This does not block the v1 development queue;
 its historical publication prerequisite `gobfd-qj0.8.1.15` remains accepted.
 
+### External audit reconciliation
+
+The [complete gist matrix](./gist-audit-reconciliation.md) reviews all 69 findings
+against `dev@49085d9`: **25 fixed, 9 partial, 34 open, 1 accepted constraint**.
+Partial IDs are H-02, H-06, H-16, H-19, H-23, H-24, H-30, M-05 and M-09.
+Every finding has a Beads owner; the matrix also maps the gist's unnumbered
+regression and final-qualification proposals. These are source-review results,
+not new runtime qualification or proof of stable delivery.
+
+Cross-consumer acceptance `gobfd-qj0.8.2.6.2` joins seven existing implementation
+owners for C-06/H-31 without duplicating their work. Micro-BFD ownership
+`gobfd-qj0.8.2.2.1` explicitly retains shared validation and callbacks outside
+Manager locks (M-09/M-10). The current P0 sequence remains unchanged; companion
+recovery below is corrected to its existing P0 Beads priority.
+
 ### P0 sequence
 
 | Delivery slice | Status |
@@ -129,6 +144,7 @@ its historical publication prerequisite `gobfd-qj0.8.1.15` remains accepted.
 | Repository-owned shell removal | In progress on `dev`; zero tracked `.sh`/`.bash` files does not mean zero inline shell |
 | Secure management defaults | Open |
 | Safe GoBGP v4 reconciliation | Open |
+| Companion recovery and canonical identity | Open |
 | Independent implementation review | Open |
 | Interop, scale, security, and release qualification | In progress; the strict local release-quality gate passed in a clean worktree, while broader interop, scale, and security qualification remains open |
 
@@ -209,7 +225,6 @@ fail-closed preview boundaries.
 | Configurable BFD QoS socket policy with packet evidence | Open |
 | Committed-latency measurement and corrected performance gates | Open |
 | Removal of permanent per-session OS-thread pinning with A/B evidence | Open |
-| Companion binary hardening | Open |
 
 Post-v1 scheduler, kernel, warm-restart, S-BFD, and authentication R&D remains
 outside this release contract and is tracked separately in Beads.

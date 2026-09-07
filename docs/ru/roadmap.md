@@ -120,6 +120,21 @@ Milestone Beads: `gobfd-qj0.8.2` — **Открыто; baseline `dev` приня
 решения maintenance-задач. Это не блокирует очередь разработки v1;
 исторический publication prerequisite `gobfd-qj0.8.1.15` остаётся принятым.
 
+### Сверка внешнего аудита
+
+[Полная матрица gist](../en/gist-audit-reconciliation.md) сверяет все 69 пунктов
+с `dev@49085d9`: **25 исправлено, 9 частично, 34 открыто, 1 принятое ограничение**.
+Частичные пункты: H-02, H-06, H-16, H-19, H-23, H-24, H-30, M-05 и M-09.
+Каждый пункт имеет владельца в Beads; отдельно сопоставлены предложения gist
+по regression tests и финальной квалификации. Это результаты проверки исходников,
+не новая runtime-квалификация и не доказательство поставки в stable.
+
+Сквозная приёмка `gobfd-qj0.8.2.6.2` объединяет семь существующих владельцев
+реализации C-06/H-31 без дублирования работы. Micro-BFD ownership
+`gobfd-qj0.8.2.2.1` явно включает общую валидацию и callbacks вне locks Manager
+(M-09/M-10). Текущая последовательность P0 не изменяется; приоритет companion
+recovery ниже исправлен на уже действующий P0 из Beads.
+
 ### Последовательность P0
 
 | Часть поставки | Статус |
@@ -129,6 +144,7 @@ Milestone Beads: `gobfd-qj0.8.2` — **Открыто; baseline `dev` приня
 | Удаление repository-owned shell | В работе в `dev`; ноль tracked `.sh`/`.bash` файлов не означает отсутствие inline shell |
 | Безопасные management defaults | Открыто |
 | Безопасный переход на GoBGP v4 | Открыто |
+| Восстановление companion binaries и каноническая идентичность | Открыто |
 | Независимая проверка реализации | Открыто |
 | Interop, scale, security и release qualification | В работе; строгий локальный release-quality gate прошёл в чистом worktree, более широкая interop-, scale- и security-квалификация остаётся открытой |
 
@@ -211,7 +227,6 @@ fail-closed границ preview-возможностей.
 | Настраиваемая BFD QoS socket policy с packet evidence | Открыто |
 | Измерение committed latency и корректные performance gates | Открыто |
 | Удаление постоянного OS-thread pinning сессий с A/B evidence | Открыто |
-| Усиление companion binaries | Открыто |
 
 Post-v1 R&D по scheduler, kernel, warm restart, S-BFD и аутентификации находится
 вне этого релизного контракта и отслеживается отдельно в Beads.
