@@ -32,7 +32,8 @@ func (s *Session) Run(ctx context.Context) {
 	defer runtime.UnlockOSThread()
 
 	txInterval := s.calcTxIntervalHot()
-	txTimer := time.NewTimer(s.applyJitter(txInterval))
+	txTimer := time.NewTimer(0)
+	s.resetTxTimer(txTimer)
 	defer txTimer.Stop()
 
 	detectTime := s.calcDetectionTimeHot()
@@ -123,29 +124,31 @@ func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detec
 // handleTxTimer fires on each transmission interval.
 func (s *Session) handleTxTimer(ctx context.Context, txTimer *time.Timer) {
 	s.maybeSendControl(ctx)
-	txInterval := s.calcTxIntervalHot()
-	txTimer.Reset(s.applyJitter(txInterval))
+	s.resetTxTimer(txTimer)
 }
 
 // maybeSendControl checks transmission preconditions and sends if allowed.
 func (s *Session) maybeSendControl(ctx context.Context) {
-	// Final replies are sent without regard to periodic transmission limits.
-	if s.pendingFinal {
+	if s.pendingFinal || s.periodicTxAllowed() {
 		s.sendControl(ctx)
-		return
 	}
+}
+
+// periodicTxAllowed applies RFC 5880 Section 6.8.7 periodic transmission
+// limits. Final replies bypass these limits, including on retry.
+func (s *Session) periodicTxAllowed() bool {
 	// RFC 5880 Section 6.8.7: "A system MUST NOT transmit BFD Control
 	// packets if bfd.RemoteDiscr is zero and the system is taking the
 	// Passive role."
 	if s.role == RolePassive && s.remoteDiscr == 0 {
-		return
+		return false
 	}
 	// RFC 5880 Section 6.8.7: "A system MUST NOT periodically transmit
 	// BFD Control packets if bfd.RemoteMinRxInterval is zero."
 	if s.remoteMinRxInterval == 0 {
-		return
+		return false
 	}
-	s.sendControl(ctx)
+	return !s.remoteDemandMode || s.cachedState != StateUp || s.RemoteState() != StateUp || s.pollActive
 }
 
 // sendControl serializes and sends a BFD Control packet.
@@ -177,6 +180,7 @@ func (s *Session) sendControl(ctx context.Context) {
 	if final {
 		s.pendingFinal = false
 	}
+	s.lastPacketSent = time.Now()
 	s.packetsSent.Add(1)
 	s.metrics.IncPacketsSent(s.peerAddr, s.localAddr)
 }

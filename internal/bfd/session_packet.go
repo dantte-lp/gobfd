@@ -42,6 +42,7 @@ func (s *Session) handleRecvPacket(
 	}
 
 	s.recordValidReceivedPacket()
+	oldTxInterval, oldTxAllowed := s.calcTxIntervalHot(), s.periodicTxAllowed()
 
 	s.mu.Lock()
 	// Step 13: Set bfd.RemoteDiscr = My Discriminator.
@@ -82,6 +83,14 @@ func (s *Session) handleRecvPacket(
 	if s.pendingFinal {
 		s.sendControl(ctx)
 		s.resetTxTimer(txTimer)
+		return
+	}
+
+	// RFC 5880 Sections 6.8.3 and 6.8.6: apply peer-driven changes
+	// immediately, measuring the new interval from the previous send.
+	// Unchanged receives must not postpone the outstanding TX deadline.
+	if oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed() {
+		s.scheduleTxTimer(txTimer, s.lastPacketSent)
 	}
 }
 
@@ -269,11 +278,23 @@ func (s *Session) calcTxIntervalLocked() time.Duration {
 // resetTxTimer resets the TX timer with jittered negotiated interval.
 // Uses session-local PRNG and cached state for hot-path performance.
 func (s *Session) resetTxTimer(txTimer *time.Timer) {
-	interval := s.calcTxIntervalHot()
-	if !txTimer.Stop() {
-		drainTimer(txTimer)
+	// Normal ticks and failed Final retries wait a full interval, avoiding
+	// immediate retry loops when the last successful send is far in the past.
+	s.scheduleTxTimer(txTimer, time.Time{})
+}
+
+// scheduleTxTimer applies the current periodic policy and jitter. previousSend
+// anchors peer-driven interval changes to the previous successful send.
+func (s *Session) scheduleTxTimer(txTimer *time.Timer, previousSend time.Time) {
+	txTimer.Stop()
+	if !s.pendingFinal && !s.periodicTxAllowed() {
+		return
 	}
-	txTimer.Reset(s.applyJitter(interval))
+	var elapsed time.Duration
+	if !previousSend.IsZero() {
+		elapsed = time.Since(previousSend)
+	}
+	txTimer.Reset(max(0, s.applyJitter(s.calcTxIntervalHot())-elapsed))
 }
 
 // resetDetectTimer resets the detection timer with the calculated timeout.

@@ -62,8 +62,9 @@
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Stub** | Интерфейсы определены, ожидает VCCV/LDP |
 
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated с контрольной
-> сессией) не реализован. Поля Demand Mode декодируются, но runtime procedures
-> RFC 5880 Section 6.6 не завершены. Unaffiliated echo (RFC 9747) является
+> сессией) не реализован. Remote Demand подавляет периодический TX, когда оба
+> конца Up и локальный Poll не активен; local Demand и полные procedures
+> RFC 5880 Section 6.6 не реализованы. Unaffiliated echo (RFC 9747) является
 > отдельной preview-реализацией.
 
 ### Заметки по RFC 5880
@@ -96,6 +97,13 @@
 пакете, не завершая локальную Poll sequence. Реализация ещё не инициирует
 локальные Poll-последовательности и не завершает commit параметров и timer
 semantics. Эти гарантии ответа не означают полного соответствия Section 6.5.
+
+Изменения receive interval пира пересчитывают TX от последней успешной
+отправки; неизменившиеся входящие пакеты не откладывают её срок. Нулевой
+receive interval пира останавливает периодический TX, как и remote Demand
+при обоих концах Up без активного локального Poll. Немедленные ответы Final
+и ограниченные по частоте retries обходят эти запреты. Поддержка нулевого
+локального receive interval в API/config и FRR/BIRD-квалификация остаются открытыми.
 
 #### Section 6.7: Аутентификация
 
@@ -143,7 +151,7 @@ best-effort путь: текущая реализация не подтверж�
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Требует контрольной сессии; RFC 9747 unaffiliated echo реализован вместо |
 | 6.5 | Полные Poll Sequence procedures | Есть Final retry и исключение P/F; локальная инициация, commit параметров и timer semantics ожидаются |
-| 6.6 | Demand Mode | Поля декодируются, но remote Demand behavior и timer procedures ожидаются |
+| 6.6 | Полный Demand Mode | Подавление remote periodic TX есть; local Demand, полные Poll procedures и interop qualification остаются открытыми |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
 ### Заметки по RFC 5881

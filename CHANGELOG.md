@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Peer receive-interval changes now reschedule control transmission from the
+  last successful send. Periodic TX stops for zero peer receive intervals or
+  active remote Demand without a local Poll; Final replies remain retryable.
 - Final replies retain their pending state through signing, encoding, and
   send failures. Only a successful send clears it; Final suppresses Poll
   without cancelling the local Poll sequence, and retries bypass periodic

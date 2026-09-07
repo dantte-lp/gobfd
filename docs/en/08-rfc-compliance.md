@@ -62,9 +62,10 @@
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD for PW VCCV | **Stub** | Interfaces defined, pending VCCV/LDP |
 
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated with a control
-> session) is not implemented. Demand Mode fields are decoded, but the RFC
-> 5880 Section 6.6 runtime procedures are incomplete. Unaffiliated echo (RFC
-> 9747) is a separate preview implementation.
+> session) is not implemented. Remote Demand suppresses periodic TX when both
+> ends are Up and no local Poll is active; local Demand and complete RFC 5880
+> Section 6.6 procedures remain unimplemented. Unaffiliated echo (RFC 9747) is
+> a separate preview implementation.
 
 ### RFC 5880 Implementation Notes
 
@@ -107,6 +108,13 @@ bit in that packet without terminating the local Poll sequence. The
 implementation does not yet initiate local Poll sequences or implement
 parameter commit and timer semantics completely. These reply guarantees are
 not full Section 6.5 compliance.
+
+Peer receive-interval changes reschedule TX from the last successful send;
+unchanged incoming packets do not postpone it. A zero peer receive interval
+stops periodic TX, as does remote Demand while both ends are Up unless a
+local Poll is active. Immediate Final replies and bounded retries bypass
+these limits. Local API/config acceptance of a zero receive interval remains
+open, as does FRR/BIRD qualification of these procedures.
 
 #### Section 6.7: Authentication
 
@@ -161,7 +169,7 @@ AdminDown completion is tracked for v1.
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
 | 6.5 | Complete Poll Sequence procedures | Final retry and P/F exclusion exist; local initiation, parameter commit, and timer semantics are pending |
-| 6.6 | Demand Mode | Fields are decoded, but remote Demand behavior and timer procedures are pending |
+| 6.6 | Full Demand Mode | Remote periodic-TX suppression exists; local Demand, complete Poll procedures, and interop qualification remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
 ### RFC 5881 Implementation Notes

@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-09-07. Beads is the task
+> Status projection from Beads, reconciled on 2026-09-08. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -17,6 +17,10 @@ findings and final local qualification are accepted on `dev`; this does not
 prove their delivery to stable. Maintenance is reopened for the branch gaps
 below. The protected `release/v0.6` line keeps GoBGP v3.37.0; v1 and GoBGP v4
 development continues on `dev`.
+
+New releases wait until development and final qualification are complete.
+Intermediate tasks deliver code and local evidence to `dev`, not release
+tags, drafts, or artifacts.
 
 ## Status key
 
@@ -112,8 +116,9 @@ stable delivery remains open**.
 
 Development of the v1 product line, including the GoBGP v4 migration, occurs
 on `dev` and does not change the GoBGP v3.37.0 boundary of `release/v0.6`.
-The milestone still depends on `gobfd-qj0.8.1`: acceptance waits for the
-maintenance disposition, while ongoing v1 child development may continue.
+Final qualification `gobfd-qj0.8.2.6` depends on `gobfd-qj0.8.1` for
+maintenance disposition. This does not block the v1 development queue;
+its historical publication prerequisite `gobfd-qj0.8.1.15` remains accepted.
 
 ### P0 sequence
 
@@ -187,7 +192,10 @@ unavailable. Beads retains the exact commands and evidence checksums.
 Poll/Final task `gobfd-qj0.8.2.1.1.1.1` retains Final intent until successful
 transmission and excludes simultaneous P/F flags (M-03/H-04). Local Poll
 initiation, queued parameter changes, and full crossed-Poll negotiation remain
-in `.1.1.1`; remote Demand and timer handling remain in `.1.1.2`.
+in `.1.1.1`. Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
+updates and remote Demand/zero-receive-interval suppression with Final retry.
+Parent `.1.1.2` retains full Demand procedures, local zero-interval API/config
+support (H-08), and FRR/BIRD interoperability qualification.
 
 RFC core work continues with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,

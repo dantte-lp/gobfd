@@ -372,6 +372,10 @@ type Session struct {
 
 	// --- Hot-path optimizations ---
 
+	// lastPacketSent is the last successful transmission, including monotonic
+	// time, for peer-driven TX deadline changes. Goroutine-confined.
+	lastPacketSent time.Time
+
 	// jitterRng is a session-local PRNG for jitter calculations.
 	// Goroutine-confined to the session goroutine — no synchronization needed.
 	jitterRng jitterRNG

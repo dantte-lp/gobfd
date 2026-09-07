@@ -128,6 +128,9 @@ repository Python dependency.
 
 ## Release branches
 
+- New releases are prepared and published only after development and final
+  qualification are complete. Continue implementation in `dev`; do not create
+  release tags, drafts, or release artifacts during intermediate tasks.
 - `dev` integrates the next product line and is never tagged for a stable
   release.
 - Acceptance records name the branch, commit, and evidence; closed `dev` tasks
