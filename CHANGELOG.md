@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- BGP fast-failover Compose and testcontainers reuse the shared trixie
+  FRR 10.7.1 and GoBGP v3.37.0 recipes with capped builds/runtime. Manual
+  startup uses the existing ownership-checked controller and forbids implicit
+  builds; captures are container-local. The local amd64 race lifecycle passes
+  route withdrawal/restoration, packet evidence and exact resource cleanup.
 - RFC Compose and testcontainers reuse the shared trixie FRR 10.7.1 and
   GoBGP v3.37.0 recipes with explicit BFD/BGP daemon selection, bounded
   builds and all eight runtime containers, host revision metadata and

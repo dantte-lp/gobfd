@@ -765,7 +765,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"c.cleanup(cleanupCtx)",
 		"c.releaseLock()",
 		`"interop-bgp"`,
-		"if c.kind == \"bgp\"",
+		"if c.kind != \"base\"",
 		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build")`,
 	})
 	inventory := contents["target inventory"]

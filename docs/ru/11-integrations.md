@@ -49,6 +49,11 @@ BFD Down инициирует отключение BGP-пира, вызывая 
 
 Подробный runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
 
+Compose и Go testcontainers gate переиспользуют общие рецепты FRR 10.7.1 и
+GoBGP v3.37.0 на Debian trixie. Лимиты сборок — 2 CPU / 2 GiB, runtime —
+1 CPU / 256 MiB / 128 PIDs. Автоматический gate сохраняет проверку отзыва
+и восстановления точного маршрута, packet evidence и удаление своих ресурсов.
+
 Лабораторный пример использует RFC 5881 single-hop BFD пакеты на UDP
 destination port 3784 с TTL 255. Таймеры примера: transmit 300 ms, receive
 300 ms и detect multiplier 3, что даёт ожидаемую цель обнаружения около

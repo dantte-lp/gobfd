@@ -139,7 +139,7 @@ func New(root string, stdout, stderr io.Writer) (*Controller, error) {
 	return NewProject(root, projectName, os.Getenv("INTEROP_PROJECT_KIND"), stdout, stderr)
 }
 
-// NewProject constructs a controller for an explicit base or BGP Compose project.
+// NewProject constructs a controller for an explicit interoperability or failover Compose project.
 func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Controller, error) {
 	if !projectNamePattern.MatchString(projectName) {
 		return nil, &UsageError{Message: fmt.Sprintf(
@@ -164,9 +164,14 @@ func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Cont
 			"gobfd-bgp-interop", "gobgp-interop", "tshark-bgp-interop", "frr-bgp-interop",
 			"bird3-bgp-interop", "gobfd-exabgp-interop", "exabgp-interop",
 		}
+	case "bgp-fast-failover":
+		composeFile = filepath.Join(root, "deployments/integrations/bgp-fast-failover/compose.yml")
+		required = []string{
+			"gobfd-bgp-failover", "gobgp-bgp-failover", "frr-bgp-failover", "tshark-bgp-failover",
+		}
 	default:
 		return nil, &UsageError{Message: fmt.Sprintf(
-			"invalid INTEROP_PROJECT_KIND %q: use base or bgp", kind,
+			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, or bgp-fast-failover", kind,
 		)}
 	}
 
@@ -284,7 +289,7 @@ func (c *Controller) start(ctx context.Context) error {
 	if opErr := c.build(ctx); opErr != nil {
 		return opErr
 	}
-	if c.kind == "bgp" {
+	if c.kind != "base" {
 		if opErr := c.compose(ctx, commandTimeout, "up", "-d", "--no-build"); opErr != nil {
 			return opErr
 		}

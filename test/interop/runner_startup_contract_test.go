@@ -251,8 +251,13 @@ func TestProjectControlBGPBoundedBuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	for _, fail := range []string{"", "true"} {
-		t.Run("build failure="+fail, func(t *testing.T) {
+	for _, testCase := range []struct{ kind, composeFile, frrName, fail string }{
+		{"bgp", "test/interop-bgp/compose.yml", "frr-bgp-interop", ""},
+		{"bgp", "test/interop-bgp/compose.yml", "frr-bgp-interop", "true"},
+		{"bgp-fast-failover", "deployments/integrations/bgp-fast-failover/compose.yml", "frr-bgp-failover", ""},
+		{"bgp-fast-failover", "deployments/integrations/bgp-fast-failover/compose.yml", "frr-bgp-failover", "true"},
+	} {
+		t.Run(testCase.kind+"/build failure="+testCase.fail, func(t *testing.T) {
 			t.Parallel()
 			fakeBin := t.TempDir()
 			commandLog := filepath.Join(t.TempDir(), "commands.log")
@@ -261,13 +266,13 @@ func TestProjectControlBGPBoundedBuild(t *testing.T) {
 			cmd.Env = append(os.Environ(), fakeModeEnv, fakeRaceOptions,
 				"PATH="+fakeBin+":"+os.Getenv("PATH"),
 				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
-				"INTEROP_FAKE_BUILD_FAIL="+fail,
-				"INTEROP_PROJECT_NAME=custom-bgp", "INTEROP_PROJECT_KIND=bgp",
+				"INTEROP_FAKE_BUILD_FAIL="+testCase.fail,
+				"INTEROP_PROJECT_NAME=custom-bgp", "INTEROP_PROJECT_KIND="+testCase.kind,
 				"GOBFD_BUILD_REVISION="+strings.Repeat("a", 40),
 				"COMPOSE_COMPATIBILITY=", "XDG_RUNTIME_DIR="+secureRuntimeDir(t),
 			)
-			if output, runErr := cmd.CombinedOutput(); (runErr != nil) != (fail != "") {
-				t.Fatalf("BGP build failure=%q: error=%v output=%s", fail, runErr, output)
+			if output, runErr := cmd.CombinedOutput(); (runErr != nil) != (testCase.fail != "") {
+				t.Fatalf("BGP build failure=%q: error=%v output=%s", testCase.fail, runErr, output)
 			}
 			commands, err := os.ReadFile(commandLog)
 			if err != nil {
@@ -275,18 +280,18 @@ func TestProjectControlBGPBoundedBuild(t *testing.T) {
 			}
 			log := string(commands)
 			assertCommandSubsequence(t, log, []string{
-				"podman container exists frr-bgp-interop",
-				"podman compose -p custom-bgp -f " + filepath.Join(root, "test/interop-bgp/compose.yml") + " config --format json",
+				"podman container exists " + testCase.frrName,
+				"podman compose -p custom-bgp -f " + filepath.Join(root, testCase.composeFile) + " config --format json",
 				baseBuildLimits + " --tag custom-bgp-frr-bgp --file /rendered/frr/Containerfile ",
 			})
 			assertContainsAll(t, "BGP build metadata", log, []string{
 				"--build-arg VCS_REF=" + strings.Repeat("a", 40), "--build-arg BUILD_DATE=",
 			})
-			if strings.Contains(log, " up -d --no-build") != (fail == "") || strings.Count(log, baseBuildLimits) != 1 {
+			if strings.Contains(log, " up -d --no-build") != (testCase.fail == "") || strings.Count(log, baseBuildLimits) != 1 {
 				t.Fatalf("BGP must build once and start only after success: %s", log)
 			}
 			const projectQuery = "podman ps -a --no-trunc --filter label=com.docker.compose.project=custom-bgp"
-			if fail != "" && strings.Count(log, projectQuery) < 2 {
+			if testCase.fail != "" && strings.Count(log, projectQuery) < 2 {
 				t.Fatalf("failed build did not enter owned cleanup: %s", log)
 			}
 		})

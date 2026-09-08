@@ -20,13 +20,29 @@ func TestBGPFailoverBuildContextContract(t *testing.T) {
 		contract.frrIP != "172.22.0.20" || contract.route != "10.20.0.0/24" {
 		t.Fatalf("failover contract = %+v, want exact deployment addressing", contract)
 	}
-	if contract.gobgpImage != "docker.io/jauderho/gobgp:v3.37.0@sha256:"+
-		"3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37" {
-		t.Fatalf("GoBGP image = %q, want pinned deployment image", contract.gobgpImage)
+	if contract.frrSource != filepath.Join(root, "test/interop/frr") ||
+		contract.gobgpSource != filepath.Join(root, "test/interop/gobgp") {
+		t.Fatalf("failover sources = %+v, want shared native peer recipes", contract)
 	}
-	if contract.frrImage != "quay.io/frrouting/frr:10.7.0@sha256:"+
-		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68" {
-		t.Fatalf("FRR image = %q, want pinned deployment image", contract.frrImage)
+	compose, readErr := os.ReadFile(filepath.Join(root, "deployments/integrations/bgp-fast-failover/compose.yml"))
+	if readErr != nil {
+		t.Fatalf("read failover Compose: %v", readErr)
+	}
+	for _, required := range []string{
+		"context: ../../../test/interop/gobgp", "context: ../../../test/interop/frr",
+		`command: ["mgmtd", "zebra", "bgpd", "bfdd", "staticd"]`,
+	} {
+		if !bytes.Contains(compose, []byte(required)) {
+			t.Errorf("failover Compose lacks shared native peer contract %q", required)
+		}
+	}
+	for _, required := range []string{"cpus: 1", "mem_limit: 256m", "memswap_limit: 256m", "pids_limit: 128"} {
+		if count := bytes.Count(compose, []byte(required)); count != 4 {
+			t.Errorf("failover Compose %q count = %d, want all four services", required, count)
+		}
+	}
+	if bytes.Contains(compose, []byte("captures:/captures")) || bytes.Contains(compose, []byte("\nvolumes:")) {
+		t.Error("failover capture must use container storage for guarded volume-free cleanup")
 	}
 	for _, path := range []string{contract.gobfdConfig, contract.gobgpConfig, contract.frrDaemons, contract.frrConfig} {
 		if _, err := os.Stat(path); err != nil {

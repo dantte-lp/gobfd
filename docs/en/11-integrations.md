@@ -49,6 +49,11 @@ BFD Down triggers BGP peer disable, causing immediate route withdrawal instead o
 
 Detailed runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
 
+Compose and the Go testcontainers gate reuse the shared Debian trixie FRR
+10.7.1 and GoBGP v3.37.0 recipes. Builds use at most 2 CPUs / 2 GiB; runtime
+containers use 1 CPU / 256 MiB / 128 PIDs. The automated gate retains exact
+route withdrawal/restoration, packet evidence and owned-resource cleanup.
+
 The lab uses RFC 5881 single-hop BFD packets on UDP destination port 3784 with
 TTL 255. The example timers are 300 ms transmit, 300 ms receive, and detect
 multiplier 3, giving an expected detection target of about 900 ms before local

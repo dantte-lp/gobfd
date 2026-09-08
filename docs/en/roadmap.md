@@ -256,6 +256,14 @@ in 117.50 seconds with all four race scenarios and no skips, verified resource
 caps, no OOM kills and exact-owned cleanup. Evidence and peer SBOMs are in
 `reports/e2e/rfc-trixie-20260908/`. BASE/BGP/RFC acceptance does not close the
 parent image or timer tasks, full RFC coverage or the existing security gaps.
+BGP fast-failover child `.8.5.2.5.1` passes the local amd64 race lifecycle
+in 142.20 seconds: route withdrawal/restoration, packet evidence, all five
+runtime limits, no OOM and exact cleanup. Compose uses the same trixie peers
+and existing capped lifecycle controller; manual route withdrawal and recovery
+are also verified locally. Evidence and peer SBOMs are in
+`reports/e2e/bgp-failover-trixie-20260908/`. Integration parent `.8.5.2.5`
+remains open for ExaBGP anycast `.8.5.2.5.2`, then Kubernetes immutable
+build/import `.8.5.2.5.3`.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,

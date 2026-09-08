@@ -22,6 +22,12 @@ func TestMakefileReportPipelinesDelegateToE2ECTL(t *testing.T) {
 	} {
 		recipe := makeTargetRecipe(t, makefile, target)
 		want := "$(EXEC) $(E2ECTL_BIN) " + runnerTarget
+		if runnerTarget == "bgp-fast-failover" {
+			want = "$(E2ECTL_BIN) " + runnerTarget
+			if !strings.Contains(recipe, `$(EXEC) env GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`) {
+				t.Error("failover report runner lacks host checkout revision")
+			}
+		}
 		if strings.Count(recipe, want) != 1 {
 			t.Errorf("Makefile target %s must delegate exactly once to %q", target, want)
 		}

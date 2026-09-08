@@ -17,6 +17,11 @@ FRR announces `10.20.0.0/24` to GoBGP. GoBFD monitors FRR with a single-hop
 BFD session and uses the GoBGP integration strategy `disable-peer` when the
 session goes Down.
 
+FRR 10.7.1 and GoBGP v3.37.0 use the shared Debian trixie recipes in
+`test/interop/frr/` and `test/interop/gobgp/`. GoBGP v3 is the compatibility
+line, not the latest upstream major. Builds are limited to 2 CPUs and 2 GiB;
+each runtime container is limited to 1 CPU, 256 MiB and 128 PIDs.
+
 ## RFC Baseline
 
 The packet-level expectations are intentionally small and observable:
@@ -45,7 +50,9 @@ resources:
 make int-bgp-failover
 ```
 
-The operational Compose example remains available for manual inspection:
+The operational Compose example uses the ownership-checked Go controller,
+sequential capped builds and startup without implicit builds. Its packet
+capture stays in container storage; copy it before `-down` if needed:
 
 ```bash
 make int-bgp-failover-up
@@ -57,7 +64,7 @@ make int-bgp-failover-down
 
 ## Failure Drill
 
-The full script performs this sequence:
+The Go testcontainers gate performs this sequence:
 
 1. Build and start the topology.
 2. Wait for the GoBGP to FRR eBGP session to establish.

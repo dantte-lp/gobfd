@@ -366,7 +366,7 @@ interop-clab-down:
 
 # === Integration Examples ===
 
-INT_BGP_DC := $(COMPOSE) -f deployments/integrations/bgp-fast-failover/compose.yml
+INT_BGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-bgp-fast-failover" INTEROP_PROJECT_KIND=bgp-fast-failover $(INTEROP_CTL)
 INT_HAPROXY_DC := $(COMPOSE) -f deployments/integrations/haproxy-health/compose.yml
 INT_OBS_DC := $(COMPOSE) -f deployments/integrations/observability/compose.yml
 INT_EXABGP_DC := $(COMPOSE) -f deployments/integrations/exabgp-anycast/compose.yml
@@ -376,16 +376,17 @@ int-bgp-failover: int-bgp-failover-testcontainers
 int-bgp-failover-testcontainers: e2ectl-build
 	$(EXEC) /go/bin/golangci-lint run --build-tags e2e_bgp_failover_testcontainers \
 		./test/internal/podmanapi/... ./test/internal/containertest/... ./test/e2e/bgp-failover/...
-	$(EXEC) $(E2ECTL_BIN) bgp-fast-failover
+	$(EXEC) env GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})" \
+		$(E2ECTL_BIN) bgp-fast-failover
 
-int-bgp-failover-up:
-	$(INT_BGP_DC) up --build -d
+int-bgp-failover-up: interop-project-validate
+	$(INT_BGP_CTL) up
 
-int-bgp-failover-down:
-	$(INT_BGP_DC) down --volumes --remove-orphans
+int-bgp-failover-down: interop-project-validate
+	$(INT_BGP_CTL) down
 
-int-bgp-failover-logs:
-	$(INT_BGP_DC) logs -f
+int-bgp-failover-logs: interop-project-validate
+	$(INT_BGP_CTL) logs
 
 int-haproxy:
 	go run ./test/cmd/integrationctl haproxy
