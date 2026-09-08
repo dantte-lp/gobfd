@@ -285,10 +285,104 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 				t.Fatal("non-Up transition retained obsolete Poll")
 			}
 			pkt.State = StateInit
+			sender.failures = 1
 			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			pkt.State, pkt.Final = StateUp, true
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			if !sess.pollActive {
+				t.Fatal("Final completed new Poll using an obsolete send confirmation")
+			}
+			pkt.Final = false
+			synctest.Sleep(100 * time.Millisecond)
+			if !fireRemoteTxTimer(sess, tx) {
+				t.Fatal("new Poll was not retried after premature Final")
+			}
 			assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
 		}
 	})
+}
+
+func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name      string
+		failure   string
+		confirmed bool
+		crossed   bool
+	}{
+		{name: "first socket failure", failure: "socket"},
+		{name: "first marshal failure", failure: "marshal"},
+		{name: "first signing failure", failure: "sign"},
+		{name: "first authenticated marshal failure", failure: "authenticated marshal"},
+		{name: "crossed Final only", crossed: true},
+		{name: "successful Poll", confirmed: true},
+		{name: "confirmation survives socket failure", confirmed: true, failure: "socket"},
+		{name: "confirmation survives crossed Final", confirmed: true, crossed: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				sess, sender, tx, detect := newRemoteTxTestSession(t)
+				sess.cachedState = StateDown
+				sess.state.Store(uint32(StateDown))
+				pkt := sess.buildControlPacket()
+				pkt.State = StateInit
+				if tt.confirmed {
+					sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+					assertCachedPacketFlags(t, sender.packets[0], true, false)
+				}
+				switch tt.failure {
+				case "socket":
+					sender.failures = 1
+				case "marshal":
+					sess.cachedPacket = make([]byte, HeaderSize-1)
+				case "sign":
+					sess.auth = failingCachedPacketAuth{}
+				case "authenticated marshal":
+					sess.auth = oversizedCachedPacketAuth{}
+				}
+				pkt.Poll, pkt.AuthPresent = tt.crossed, sess.auth != nil
+				if tt.confirmed && tt.failure != "" {
+					sess.sendControl(t.Context())
+				} else {
+					sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				}
+				wantPackets := 0
+				if tt.confirmed {
+					wantPackets++
+				}
+				if tt.crossed {
+					wantPackets++
+				}
+				if len(sender.packets) != wantPackets || !sess.pollActive {
+					t.Fatal("unexpected send result before incoming Final")
+				}
+				if tt.crossed {
+					assertCachedPacketFlags(t, sender.packets[wantPackets-1], false, true)
+				}
+				sess.auth = nil
+				sess.cachedPacket = make([]byte, MaxPacketSize)
+				pkt.State, pkt.Poll, pkt.Final, pkt.AuthPresent = StateUp, false, true, false
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				if sess.pollActive != !tt.confirmed {
+					t.Fatalf("Poll active after Final = %t, successful Poll sent = %t", sess.pollActive, tt.confirmed)
+				}
+				if !tt.confirmed {
+					synctest.Sleep(100 * time.Millisecond)
+					if !fireRemoteTxTimer(sess, tx) {
+						t.Fatal("premature Final stopped Poll retry")
+					}
+					assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
+					sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				}
+				synctest.Sleep(100 * time.Millisecond)
+				if !fireRemoteTxTimer(sess, tx) || sess.pollActive {
+					t.Fatal("successful Poll followed by Final did not restore ordinary TX")
+				}
+				assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], false, false)
+			})
+		})
+	}
 }
 
 func newRemoteTxTestSession(t *testing.T) (*Session, *retryCachedPacketSender, *time.Timer, *time.Timer) {

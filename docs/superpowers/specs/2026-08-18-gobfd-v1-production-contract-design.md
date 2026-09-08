@@ -181,7 +181,9 @@ The stable core requires these corrections before v1:
 - initiate Poll sequences for local timer changes and the slow-to-fast
   transition; when Poll sequences cross, suspend the local Poll response,
   transmit only `P=0,F=1`, then resume queued local changes; no packet may set
-  both `P=1` and `F=1`;
+  both `P=1` and `F=1`. A received Final completes only a sequence with a
+  successfully transmitted Poll; failed sends and Final-only replies do not
+  establish that confirmation, and new sequences cannot reuse it;
 - recalculate the TX timer when remote `Required Min RX` changes and send an
   immediate control packet when the RFC requires it;
 - order diagnostic updates before logs, notifications, metrics, and immediate

@@ -321,6 +321,9 @@ type Session struct {
 	// pollActive is true when a Poll Sequence is in progress.
 	pollActive bool
 
+	// pollSent records a successful Poll-only send in this sequence. Goroutine-confined.
+	pollSent bool
+
 	// pendingFinal is true when we received a Poll and need to send Final.
 	pendingFinal bool
 

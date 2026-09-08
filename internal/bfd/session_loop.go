@@ -179,6 +179,8 @@ func (s *Session) sendControl(ctx context.Context) {
 	}
 	if final {
 		s.pendingFinal = false
+	} else if s.pollActive {
+		s.pollSent = true
 	}
 	s.lastPacketSent = time.Now()
 	s.packetsSent.Add(1)

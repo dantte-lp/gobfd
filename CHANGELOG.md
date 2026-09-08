@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A peer Final cannot complete a local Poll before a Poll packet is
+  successfully sent. Failed sends and crossed Final-only replies do not
+  confirm transmission, and a new sequence cannot reuse an old confirmation.
 - The slow-to-fast Up transition initiates a local Poll when the advertised
   transmit interval decreases below one second, retaining existing Final retry
   and P/F exclusion without adding an extra Poll-only transmission.

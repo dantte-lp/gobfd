@@ -61,8 +61,9 @@ func (s *Session) handleRecvPacket(
 	// Step 14: Set bfd.RemoteState.
 	s.remoteState.Store(uint32(pkt.State))
 
-	// Poll Sequence: if Final bit set and poll is active, terminate.
-	if pkt.Final && s.pollActive {
+	// RFC 5880 Section 6.8.6: Final terminates a Poll being transmitted,
+	// not one whose initial send failed or only replied to a crossed Poll.
+	if pkt.Final && s.pollActive && s.pollSent {
 		s.terminatePollSequence()
 	}
 
@@ -149,6 +150,7 @@ func (s *Session) executeFSMActions(
 		// RFC 5880 Section 6.8.3: advertise the slow-to-fast decrease with
 		// Poll before any Up send; leaving Up discards the obsolete sequence.
 		s.pollActive = result.NewState == StateUp && s.desiredMinTxInterval < slowTxInterval
+		s.pollSent = false
 		s.logStateChange(result)
 	}
 	for _, action := range result.Actions {
@@ -450,6 +452,7 @@ func (s *Session) calcDetectionTimeHot() time.Duration {
 // receives a packet with Final, the Poll Sequence is terminated.".
 func (s *Session) terminatePollSequence() {
 	s.pollActive = false
+	s.pollSent = false
 	s.applyPendingParams()
 	s.rebuildCachedPacket()
 	s.logger.Debug("poll sequence terminated")

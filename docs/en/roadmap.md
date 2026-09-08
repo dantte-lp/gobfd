@@ -208,8 +208,11 @@ unavailable. Beads retains the exact commands and evidence checksums.
 Poll/Final task `gobfd-qj0.8.2.1.1.1.1` retains Final intent until successful
 transmission and excludes simultaneous P/F flags (M-03/H-04). Child
 `gobfd-qj0.8.2.1.1.1.2` starts local Poll on the slow-to-fast Up transition,
-using existing transmissions. H-05 remains partial: queued parameter changes,
-their four-way timer effects and update integration remain in `.1.1.1`.
+using existing transmissions. Child `.1.1.1.3` accepts its Final only after
+a successful Poll transmission; failed sends and crossed Final-only replies
+cannot confirm an unsent Poll. H-05 remains partial: next P0 child `.1.1.1.4`
+owns queued parameter changes, their four-way timer effects, owner-safe config
+update integration, truthful apply receipts and FRR/BIRD qualification.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,

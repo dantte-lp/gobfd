@@ -176,7 +176,7 @@ AdminDown completion is tracked for v1.
 | Section | Feature | Rationale |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
-| 6.5 | Complete Poll Sequence procedures | Slow-to-fast initiation, Final retry and P/F exclusion exist; queued parameter changes, commit and timer semantics are pending |
+| 6.5 | Complete Poll Sequence procedures | Slow-to-fast initiation, confirmed Poll transmission before Final acceptance, Final retry and P/F exclusion exist; queued parameter changes, commit and timer semantics are pending |
 | 6.6 | Full Demand Mode | Remote periodic-TX suppression exists; local Demand, complete Poll procedures, and interop qualification remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 

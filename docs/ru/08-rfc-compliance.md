@@ -159,7 +159,7 @@ best-effort путь: текущая реализация не подтверж�
 | Секция | Функция | Обоснование |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Требует контрольной сессии; RFC 9747 unaffiliated echo реализован вместо |
-| 6.5 | Полные Poll Sequence procedures | Есть slow-to-fast инициация, Final retry и исключение P/F; очередь изменений, commit параметров и timer semantics ожидаются |
+| 6.5 | Полные Poll Sequence procedures | Есть slow-to-fast инициация, подтверждённая отправка Poll перед приёмкой Final, Final retry и исключение P/F; очередь изменений, commit параметров и timer semantics ожидаются |
 | 6.6 | Полный Demand Mode | Подавление remote periodic TX есть; local Demand, полные Poll procedures и interop qualification остаются открытыми |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
