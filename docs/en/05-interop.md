@@ -11,7 +11,7 @@
 >
 > **Remaining live-run blocker (2026-09-08):** the old pinned FRR `10.7.0`
 > image uses Alpine 3.22.5. BASE now uses qualified Debian FRR `10.7.1`;
-> RFC, E2E and Containerlab targets still using the old image must not run
+> E2E and Containerlab targets still using the old image must not run
 > until their migration in Beads `gobfd-qj0.8.2.8.5.2.4` is accepted.
 > A vendor image name is not an Alpine-policy exception. Timer reload
 > qualification remains separate and has not run.
@@ -26,7 +26,7 @@ capture-dependent detection precision; the manual run also skipped initial
 diagnostic capture. These skips do not prove full RFC compliance.
 Logs, PCAPs and a structured receipt are retained locally under
 `reports/e2e/frr-base-caps-20260908/`. Check shared-host disk headroom before
-each run. BGP is also locally qualified below; RFC, E2E and Containerlab
+each run. BGP and RFC are also locally qualified below; E2E and Containerlab
 migration remain open.
 The historical 10.7.0 baseline below is not relabeled.
 The testcontainers and invalid-vector builds enforce CPU/RAM limits.
@@ -386,7 +386,8 @@ The same pattern applies to ExaBGP: GoBFD sidecar and ExaBGP share a netns at `1
 ![RFC 9384](https://img.shields.io/badge/RFC_9384-Action_Path_Only-ffc107?style=for-the-badge)
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-PASS-34a853?style=for-the-badge)
 
-> Targeted interoperability tests for RFC extensions beyond the base protocol. Each test verifies a specific RFC requirement against FRR in a 7-container topology with packet capture (tshark).
+> Targeted interoperability tests for RFC extensions beyond the base protocol
+> in an eight-container topology with packet capture (tshark).
 
 ### RFC Interop Topology
 
@@ -439,13 +440,26 @@ graph LR
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD configures 80ms timers; with `align_intervals: true`, negotiated interval should be aligned to 100ms. Verified via tshark capture of `DesiredMinTxInterval` field on the wire. | **PASS** |
 | `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. The annotation mentions Cease/10, but GoBGP v3 emits Administrative Shutdown (Cease/2). | **Action path passes; RFC 9384 wire subcode not implemented** |
-
-This test proves BFD-to-BGP teardown and recovery coupling. It does not inspect
-or prove RFC 9384 Cease subcode 10 on the wire.
-| `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) sends BFD packets to GoBFD. No pre-configured session exists. GoBFD auto-creates a passive session per unsolicited policy. Session reaches Up. Pause FRR → session goes Down → cleanup. | **PASS** |
+| `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) initiates BFD with no configured GoBFD session. The test verifies Up packets and five seconds of stability; it does not test unsolicited-session expiry or cleanup. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | GoBFD echo reaches Up through the independent reflector; pause and recovery prove echo failure detection and restoration. | **PASS** |
 
+The RFC 9384 test proves BFD-to-BGP teardown and recovery coupling. It does
+not inspect or prove Cease subcode 10 on the wire.
+
 ### Running RFC Interop Tests
+
+P0 migration `.8.5.2.4.2.3` passed the complete local linux/amd64
+testcontainers gate on 2026-09-08 in 117.50 seconds: all four existing
+race-enabled scenarios passed without skips. FRR 10.7.1 and GoBGP v3.37.0
+use the shared trixie recipes. Five sequential builds have two-CPU / 2 GiB
+limits; all eight containers have one CPU, 256 MiB, no swap and 128 PIDs.
+Inspection found no OOM kills, and exact container/network/image cleanup
+passed. Logs, PCAP, peer CycloneDX/SPDX SBOMs and a JSON acceptance receipt
+are retained in `reports/e2e/rfc-trixie-20260908/`.
+Raw fixed-name Compose lifecycle remains unsupported. This targeted
+acceptance does not qualify arm64, full RFC 9384 wire behavior, unsolicited
+session expiry or timer reloads. The existing GoBGP v3 vulnerability
+exception above remains unchanged; this is not a clean security gate.
 
 Use the Go-owned Podman lifecycle for live validation. It resolves every
 runtime operation to an immutable container ID:

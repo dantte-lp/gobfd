@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a checksum-pinned Debian trixie FRR 10.7.1 peer recipe with local
-  amd64 startup/configuration/stop smoke. BASE and BGP consumers passed local
+  amd64 startup/configuration/stop smoke. BASE, BGP and RFC consumers passed local
   interop qualification; remaining Alpine-backed targets stay blocked.
 - Added bounded in-place TX/RX timer reloads for solely config-owned base
   sessions, with Poll/Final confirmation, explicit RX zero and automatic
@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- RFC Compose and testcontainers reuse the shared trixie FRR 10.7.1 and
+  GoBGP v3.37.0 recipes with explicit BFD/BGP daemon selection, bounded
+  builds and all eight runtime containers, host revision metadata and
+  pre-build image cleanup. The complete local amd64 testcontainers gate passes
+  all four race scenarios without skips and verifies owned-resource cleanup;
+  RFC 9384 wire subcode 10 and unsolicited expiry remain unqualified.
 - BGP Compose and testcontainers definitions use the shared Debian FRR 10.7.1
   recipe with explicit BGP daemons and build/runtime resource caps. Manual
   lifecycle reuses the ownership-checked capped builder. GoBGP v3.37.0 and

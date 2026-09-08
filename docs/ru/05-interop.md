@@ -11,7 +11,7 @@
 >
 > **Оставшийся блокер запуска (2026-09-08):** старый закреплённый образ FRR
 > `10.7.0` использует Alpine 3.22.5. BASE переведён на квалифицированный Debian
-> FRR `10.7.1`; RFC, E2E и Containerlab со старым образом нельзя запускать
+> FRR `10.7.1`; E2E и Containerlab со старым образом нельзя запускать
 > до приёмки их миграции в Beads `gobfd-qj0.8.2.8.5.2.4`.
 > Имя vendor-образа не является исключением из запрета Alpine. Квалификация
 > обновления таймеров остаётся отдельной задачей и ещё не запускалась.
@@ -26,8 +26,8 @@ BIRD3 и зависящее от захвата измерение detection pre
 также пропущено начальное diagnostic capture. Это не полное соответствие RFC.
 Логи, PCAP и структурированная квитанция сохранены локально в
 `reports/e2e/frr-base-caps-20260908/`. Перед каждым запуском проверяйте свободное
-место на общем хосте. BGP также локально квалифицирован ниже;
-переключение RFC, E2E и Containerlab ещё впереди.
+место на общем хосте. BGP и RFC также локально квалифицированы ниже;
+переключение E2E и Containerlab ещё впереди.
 Исторический baseline 10.7.0 ниже не переименовывается.
 Сборки testcontainers и invalid vectors ограничены по CPU/RAM.
 При ручном запуске BASE `interopctl` получает `compose config --format json`
@@ -384,7 +384,8 @@ GoBFD и GoBGP разделяют сетевое пространство имё
 ![RFC 9384](https://img.shields.io/badge/RFC_9384-Action_Path_Only-ffc107?style=for-the-badge)
 ![RFC 9468](https://img.shields.io/badge/RFC_9468-PASS-34a853?style=for-the-badge)
 
-> Целевые interop-тесты для RFC-расширений сверх базового протокола. Каждый тест проверяет конкретное требование RFC против FRR в топологии из 7 контейнеров с захватом пакетов (tshark).
+> Целевые interop-тесты RFC-расширений сверх базового протокола
+> в топологии из восьми контейнеров с захватом пакетов (tshark).
 
 ### Топология RFC Interop
 
@@ -437,13 +438,26 @@ graph LR
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD настроен на 80мс; с `align_intervals: true` интервал должен быть выровнен до 100мс. Верифицируется через tshark-захват поля `DesiredMinTxInterval`. | **PASS** |
 | `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. Annotation упоминает Cease/10, но GoBGP v3 отправляет Administrative Shutdown (Cease/2). | **Action path проходит; wire subcode RFC 9384 не реализован** |
-
-Этот тест доказывает BFD-to-BGP teardown и recovery coupling. Он не проверяет
-и не подтверждает Cease subcode 10 RFC 9384 на wire.
-| `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) отправляет BFD-пакеты к GoBFD. Предварительно настроенной сессии нет. GoBFD автоматически создаёт пассивную сессию по unsolicited-политике. Сессия достигает Up. Пауза FRR → сессия Down → очистка. | **PASS** |
+| `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) инициирует BFD без настроенной сессии GoBFD. Проверяются Up-пакеты и пять секунд стабильности, но не истечение или очистка unsolicited-сессии. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | Echo-сессия GoBFD достигает Up через независимый reflector; пауза и восстановление доказывают обнаружение отказа и возврат сессии. | **PASS** |
 
+Тест RFC 9384 доказывает BFD-to-BGP teardown и recovery coupling, но не
+проверяет и не подтверждает Cease subcode 10 на wire.
+
 ### Запуск RFC Interop тестов
+
+P0-миграция `.8.5.2.4.2.3` прошла полный локальный linux/amd64
+testcontainers gate 2026-09-08 за 117.50 секунды: все четыре существующих
+race-сценария без пропусков. FRR 10.7.1 и GoBGP v3.37.0 используют общие
+рецепты trixie. Пять последовательных сборок ограничены двумя CPU и 2 GiB;
+восемь контейнеров — одним CPU, 256 MiB, без swap и 128 PID.
+OOM не было; удаление точных контейнеров, сети и образов проверено.
+Логи, PCAP, CycloneDX/SPDX SBOM пиров и JSON-квитанция сохранены в
+`reports/e2e/rfc-trixie-20260908/`.
+Прямой Compose lifecycle с фиксированными именами остаётся неподдерживаемым.
+Эта приёмка не квалифицирует arm64, полный wire-контракт RFC 9384,
+истечение unsolicited-сессий или reload таймеров. Существующее исключение
+уязвимости GoBGP v3 выше не изменено; это не чистый security gate.
 
 Для live-проверки используйте Go-owned Podman lifecycle. Каждая runtime-
 операция разрешается в immutable container ID:

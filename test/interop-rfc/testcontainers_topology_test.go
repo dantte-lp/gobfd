@@ -18,20 +18,16 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
-const (
-	rfcTestGoBGPImage = "docker.io/jauderho/gobgp:v3.37.0@sha256:" +
-		"3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37"
-	rfcTestFRRImage = "quay.io/frrouting/frr:10.7.0@sha256:" +
-		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
-	rfcTestProjectLabel = "com.docker.compose.project"
-)
+const rfcTestProjectLabel = "com.docker.compose.project"
 
 type rfcTestResources struct {
 	containerIDs []string
@@ -78,6 +74,42 @@ func runRFCInteropTestcontainers(t *testing.T) {
 	}
 }
 
+func registerRFCTestImageCleanup(
+	ctx context.Context,
+	t *testing.T,
+	endpoint, imageName string,
+	resources *rfcTestResources,
+) {
+	t.Helper()
+
+	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
+	if err != nil {
+		t.Fatalf("create Podman client for image ownership: %v", err)
+	}
+	exists, err := client.ImageExists(ctx, imageName)
+	if err != nil {
+		t.Fatalf("inspect image %s before test: %v", imageName, err)
+	}
+	if exists {
+		t.Fatalf("image %s already exists; refusing ambiguous ownership", imageName)
+	}
+	resources.imageNames = append(resources.imageNames, imageName)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+		defer cancel()
+		exists, err := client.ImageExists(cleanupCtx, imageName)
+		if err != nil {
+			t.Errorf("inspect test-owned image %s during cleanup: %v", imageName, err)
+			return
+		}
+		if exists {
+			if err := client.RemoveImage(cleanupCtx, imageName); err != nil {
+				t.Errorf("remove test-owned image %s: %v", imageName, err)
+			}
+		}
+	})
+}
+
 func startRFCTestTopology(
 	ctx context.Context,
 	t *testing.T,
@@ -86,24 +118,36 @@ func startRFCTestTopology(
 ) {
 	t.Helper()
 	buildID := time.Now().UnixNano()
+	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve RFC peer build metadata: %v", err)
+	}
+	buildArgs := map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate}
+	frrImage := buildRFCTestImage(
+		ctx, t, endpoint, filepath.Join(root, "test/interop/frr"),
+		fmt.Sprintf("localhost/frr-rfc-interop-test:%d", buildID), resources, buildArgs,
+	)
+	gobgpImage := buildRFCTestImage(
+		ctx, t, endpoint, filepath.Join(root, "test/interop/gobgp"),
+		fmt.Sprintf("localhost/gobgp-rfc-interop-test:%d", buildID), resources, buildArgs,
+	)
 	gobfdImage := buildRFCTestImage(
 		ctx, t, endpoint, prepareRFCTestGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-rfc-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/gobfd-rfc-interop-test:%d", buildID), resources, nil,
 	)
 	tsharkImage := buildRFCTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-rfc-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/tshark-rfc-interop-test:%d", buildID), resources, nil,
 	)
 	echoImage := buildRFCTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop-rfc/echo-reflector"),
-		fmt.Sprintf("localhost/echo-reflector-rfc-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/echo-reflector-rfc-interop-test:%d", buildID), resources, nil,
 	)
-	resources.imageNames = append(resources.imageNames, gobfdImage, tsharkImage, echoImage)
 
 	networkName := projectName + "-rfcnet"
 	resources.networkName = networkName
 	//nolint:staticcheck // ProviderPodman plus static IPAM requires this v0.44 API.
-	_, err := containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
+	_, err = containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
 		Name: networkName, Driver: "bridge", Labels: map[string]string{"io.gobfd.test": "rfc-testcontainers"},
 		IPAM: &network.IPAM{Config: []network.IPAMConfig{{
 			Subnet:  netip.MustParsePrefix("172.22.0.0/24"),
@@ -153,7 +197,7 @@ func startRFCTestTopology(
 		{name: frrRFCContainer, directory: "frr", address: frrRFCIP},
 		{name: frrUnsolicitedContainer, directory: "frr-unsolicited", address: frrUnsolicitedIP},
 	} {
-		request := rfcFRRRequest(root, networkName, labels, peer.name, peer.directory, peer.address)
+		request := rfcFRRRequest(root, networkName, labels, frrImage, peer.name, peer.directory, peer.address)
 		addRFCTestContainer(resources, startRFCTestContainer(ctx, t, request))
 	}
 
@@ -174,7 +218,7 @@ func startRFCTestTopology(
 	addRFCTestContainer(resources, gobfd9384)
 
 	gobgp := startRFCTestContainer(ctx, t, testcontainers.ContainerRequest{
-		Image: rfcTestGoBGPImage, Name: gobgpRFCContainer, Labels: labels,
+		Image: gobgpImage, Name: gobgpRFCContainer, Labels: labels,
 		Cmd: []string{"gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"},
 		Files: []testcontainers.ContainerFile{{
 			HostFilePath:      filepath.Join(root, "test/interop-rfc/gobgp/gobgp.toml"),
@@ -189,17 +233,22 @@ func startRFCTestTopology(
 		},
 	})
 	addRFCTestContainer(resources, gobgp)
-	frrBGPRequest := rfcFRRRequest(root, networkName, labels, frrRFCBGPContainer, "frr-bgp", frrRFCBGPIP)
+	frrBGPRequest := rfcFRRRequest(root, networkName, labels, frrImage, frrRFCBGPContainer, "frr-bgp", frrRFCBGPIP)
 	addRFCTestContainer(resources, startRFCTestContainer(ctx, t, frrBGPRequest))
 }
 
 func rfcFRRRequest(
 	root, networkName string,
 	labels map[string]string,
-	name, configDirectory, address string,
+	image, name, configDirectory, address string,
 ) testcontainers.ContainerRequest {
+	daemons := []string{"mgmtd", "zebra", "bfdd", "staticd"}
+	if configDirectory == "frr-bgp" {
+		daemons = []string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}
+	}
 	return testcontainers.ContainerRequest{
-		Image: rfcTestFRRImage, Name: name, Labels: labels, Networks: []string{networkName},
+		Image: image, Name: name, Labels: labels, Networks: []string{networkName},
+		Cmd: daemons,
 		Files: []testcontainers.ContainerFile{
 			{
 				HostFilePath:      filepath.Join(root, "test/interop-rfc", configDirectory, "daemons"),
@@ -232,6 +281,16 @@ func startRFCTestContainer(
 	request testcontainers.ContainerRequest,
 ) testcontainers.Container {
 	t.Helper()
+	modifier := request.HostConfigModifier
+	request.HostConfigModifier = func(hostConfig *container.HostConfig) {
+		if modifier != nil {
+			modifier(hostConfig)
+		}
+		hostConfig.NanoCPUs = 1_000_000_000
+		hostConfig.Memory = 256 << 20
+		hostConfig.MemorySwap = hostConfig.Memory
+		hostConfig.PidsLimit = new(int64(128))
+	}
 	testContainer, err := containertest.Run(ctx, t, request)
 	if testContainer != nil {
 		captureRFCTestLogsOnFailure(ctx, t, testContainer, request.Name)
@@ -268,15 +327,15 @@ func verifyRFCTestVersions(ctx context.Context, t *testing.T, resources *rfcTest
 		{name: "GoBGP", containerName: gobgpRFCContainer, command: []string{"gobgp", "--version"}, version: "3.37.0"},
 		{
 			name: "FRR RFC 7419", containerName: frrRFCContainer,
-			command: []string{"vtysh", "-c", "show version"}, version: "10.7.0",
+			command: []string{"vtysh", "-c", "show version"}, version: "10.7.1",
 		},
 		{
 			name: "FRR RFC 9468", containerName: frrUnsolicitedContainer,
-			command: []string{"vtysh", "-c", "show version"}, version: "10.7.0",
+			command: []string{"vtysh", "-c", "show version"}, version: "10.7.1",
 		},
 		{
 			name: "FRR RFC 9384", containerName: frrRFCBGPContainer,
-			command: []string{"vtysh", "-c", "show version"}, version: "10.7.0",
+			command: []string{"vtysh", "-c", "show version"}, version: "10.7.1",
 		},
 	}
 	for _, check := range checks {
@@ -420,8 +479,15 @@ func assertRFCTestNamesAvailable(ctx context.Context, t *testing.T, endpoint str
 	}
 }
 
-func buildRFCTestImage(ctx context.Context, t *testing.T, endpoint, contextPath, imageName string) string {
+func buildRFCTestImage(
+	ctx context.Context,
+	t *testing.T,
+	endpoint, contextPath, imageName string,
+	resources *rfcTestResources,
+	buildArgs map[string]*string,
+) string {
 	t.Helper()
+	registerRFCTestImageCleanup(ctx, t, endpoint, imageName, resources)
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for %s: %v", imageName, err)
@@ -438,23 +504,19 @@ func buildRFCTestImage(ctx context.Context, t *testing.T, endpoint, contextPath,
 	builtImage, buildErr := dockerProvider.BuildImage(ctx, &testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context: contextPath, Dockerfile: "Containerfile", Repo: repository, Tag: tag, KeepImage: true,
+			BuildArgs: buildArgs,
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.CPUPeriod = 100000
+				options.CPUQuota = 200000
+				options.Memory = 2 << 30
+				options.MemorySwap = 2 << 30
+			},
 		},
 	})
 	closeErr := provider.Close()
 	if joinedErr := errors.Join(buildErr, closeErr); joinedErr != nil {
 		t.Fatalf("build test-owned image %s: %v", imageName, joinedErr)
 	}
-	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
-	if err != nil {
-		t.Fatalf("create Podman client for RFC image cleanup: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		if err := client.RemoveImage(cleanupCtx, builtImage); err != nil {
-			t.Errorf("remove test-owned image %s: %v", builtImage, err)
-		}
-	})
 	return builtImage
 }
 

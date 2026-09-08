@@ -24,6 +24,10 @@ services:
       context: ../..
       dockerfile: deployments/docker/Containerfile
     container_name: gobfd-rfc-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     user: "0:0"
     cap_add:
       - NET_RAW
@@ -40,6 +44,10 @@ services:
       context: ../interop/tshark
       dockerfile: Containerfile
     container_name: tshark-rfc-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     network_mode: "service:gobfd-rfc"
     depends_on:
       - gobfd-rfc
@@ -52,8 +60,18 @@ services:
   # === RFC 7419: FRR BFD-only peer at 172.22.0.20 ===
 
   frr-rfc:
-    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
+    build:
+      context: ../interop/frr
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: frr-rfc-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    command: ["mgmtd", "zebra", "bfdd", "staticd"]
     cap_add:
       - NET_RAW
       - NET_ADMIN
@@ -72,6 +90,10 @@ services:
       context: ../..
       dockerfile: deployments/docker/Containerfile
     container_name: gobfd-rfc9384-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     user: "0:0"
     cap_add:
       - NET_RAW
@@ -84,8 +106,17 @@ services:
         ipv4_address: 172.22.0.30
 
   gobgp-rfc:
-    image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
+    build:
+      context: ../interop/gobgp
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: gobgp-rfc-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     user: "0:0"
     cap_add:
       - NET_BIND_SERVICE
@@ -99,8 +130,18 @@ services:
   # === RFC 9384: FRR BGP+BFD peer at 172.22.0.40 ===
 
   frr-rfc-bgp:
-    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
+    build:
+      context: ../interop/frr
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: frr-rfc-bgp-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    command: ["mgmtd", "zebra", "bgpd", "bfdd", "staticd"]
     cap_add:
       - NET_RAW
       - NET_ADMIN
@@ -119,6 +160,10 @@ services:
       context: ./echo-reflector
       dockerfile: Containerfile
     container_name: echo-reflector-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     networks:
       rfcnet:
         ipv4_address: 172.22.0.60
@@ -126,8 +171,18 @@ services:
   # === RFC 9468: FRR BFD-only peer at 172.22.0.50 (unsolicited) ===
 
   frr-rfc-unsolicited:
-    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
+    build:
+      context: ../interop/frr
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: frr-rfc-unsolicited-interop
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    command: ["mgmtd", "zebra", "bfdd", "staticd"]
     cap_add:
       - NET_RAW
       - NET_ADMIN

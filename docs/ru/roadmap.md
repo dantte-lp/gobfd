@@ -250,12 +250,16 @@ P0-подзадача `.8.5.2.4.2.2.1` заменяет GoBGP Alpine/scratch и 
 системного Python только в runtime ExaBGP записано в `AGENTS.md`; Python
 tooling репозитория запрещён. Оба рецепта имеют локальные BGP- и SBOM-доказательства.
 Полная инвентаризация образов `.8.5.2.1` также выявила Grafana Alpine и
-Prometheus BusyBox. Следующие P0-этапы: RFC `.8.5.2.4.2.3`, интеграции/Kubernetes
+Prometheus BusyBox. Следующие P0-этапы: интеграции/Kubernetes
 `.8.5.2.5`, observability `.8.5.2.6`, Containerlab/vendor-границы `.8.5.2.7`,
 решение по именованному Oracle release-продукту `.8.5.2.8`. Нельзя обозначать
 Debian-артефакт как Oracle Linux или превращать vendor NOS в другую тестируемую
 систему. Holo уже использует trixie; download-only scratch stages не содержат
-исполняемый runtime. Приёмка BASE и BGP не закрывает задачи образа и таймеров.
+исполняемый runtime. RFC-задача `.8.5.2.4.2.3` прошла полный локальный amd64
+testcontainers gate за 117.50 секунды: четыре race-сценария без пропусков,
+проверенные лимиты, отсутствие OOM и удаление своих ресурсов. Доказательства
+и SBOM пиров: `reports/e2e/rfc-trixie-20260908/`. Приёмка BASE/BGP/RFC не
+закрывает задачи образа и таймеров, полный RFC-объём и security-пробелы.
 Задача `gobfd-qj0.8.2.1.1.2.1` добавляет пересчёт TX deadline по параметрам
 пира и подавление передачи при remote Demand/нулевом receive interval с
 сохранением Final retry. В родительской `.1.1.2` остаются полные Demand

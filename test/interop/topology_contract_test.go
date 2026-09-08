@@ -369,6 +369,99 @@ func TestBGPTopologyContract(t *testing.T) {
 	}
 }
 
+func TestRFCTopologyContract(t *testing.T) {
+	t.Parallel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	compose := readContractFile(t, "RFC Compose", filepath.Join(root, "test/interop-rfc/compose.yml"))
+	var topology composeRaw
+	if err := yaml.Unmarshal([]byte(compose), &topology); err != nil {
+		t.Fatalf("decode RFC Compose: %v", err)
+	}
+	assertEqual(t, "RFC service count", len(topology.Services), 8)
+	for name, node := range topology.Services {
+		var limits composeResourceLimits
+		if err := node.Decode(&limits); err != nil {
+			t.Fatalf("decode %s resource limits: %v", name, err)
+		}
+		assertEqual(t, name+" limits", limits, composeResourceLimits{
+			CPUs: 1, Memory: "256m", Swap: "256m", PidsLimit: 128,
+		})
+	}
+	for _, peer := range []struct{ name, directory, recipe string }{
+		{name: "frr-rfc", directory: "frr", recipe: "frr"},
+		{name: "frr-rfc-unsolicited", directory: "frr-unsolicited", recipe: "frr"},
+		{name: "frr-rfc-bgp", directory: "frr-bgp", recipe: "frr"},
+		{name: "gobgp-rfc", directory: "gobgp", recipe: "gobgp"},
+	} {
+		var service struct {
+			Image   string   `yaml:"image"`
+			Command []string `yaml:"command"`
+			Volumes []string `yaml:"volumes"`
+			Build   struct {
+				Context    string            `yaml:"context"`
+				Dockerfile string            `yaml:"dockerfile"`
+				Args       map[string]string `yaml:"args"`
+			} `yaml:"build"`
+		}
+		node := topology.Services[peer.name]
+		if err := node.Decode(&service); err != nil {
+			t.Fatalf("decode RFC peer %s: %v", peer.name, err)
+		}
+		assertEqual(t, peer.name+" external image", service.Image, "")
+		assertEqual(t, peer.name+" shared context", service.Build.Context, "../interop/"+peer.recipe)
+		assertEqual(t, peer.name+" recipe", service.Build.Dockerfile, "Containerfile")
+		assertEqual(t, peer.name+" provenance", service.Build.Args, map[string]string{
+			"VCS_REF": "${VCS_REF:-}", "BUILD_DATE": "${BUILD_DATE:-}",
+		})
+		if peer.recipe == "frr" {
+			daemons := []string{"mgmtd", "zebra", "bfdd", "staticd"}
+			if peer.directory == "frr-bgp" {
+				daemons = []string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}
+			}
+			assertEqual(t, peer.name+" daemons", service.Command, daemons)
+			assertEqual(t, peer.name+" read-only config", service.Volumes, []string{
+				"./" + peer.directory + "/daemons:/etc/frr/daemons:ro,z",
+				"./" + peer.directory + "/frr.conf:/etc/frr/frr.conf:ro,z",
+			})
+			config := readContractFile(t, peer.name+" config",
+				filepath.Join(root, "test/interop-rfc", peer.directory, "frr.conf"))
+			assertContainsAll(t, peer.name+" config version", config, []string{"frr version 10.7.1"})
+		}
+	}
+	topologySource := readContractFile(t, "RFC testcontainers",
+		filepath.Join(root, "test/interop-rfc/testcontainers_topology_test.go"))
+	assertContainsAll(t, "RFC testcontainers contract", topologySource, []string{
+		`filepath.Join(root, "test/interop/frr")`, `filepath.Join(root, "test/interop/gobgp")`,
+		`interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		`[]string{"mgmtd", "zebra", "bfdd", "staticd"}`, `if configDirectory == "frr-bgp"`,
+		`[]string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}`, `version: "10.7.1"`,
+		`ContainerFilePath: "/etc/frr/frr.conf"`, "FileMode:          0o644",
+		"options.CPUPeriod = 100000", "options.CPUQuota = 200000",
+		"options.Memory = 2 << 30", "options.MemorySwap = 2 << 30",
+		"modifier(hostConfig)", "hostConfig.NanoCPUs = 1_000_000_000", "hostConfig.Memory = 256 << 20",
+		"hostConfig.MemorySwap = hostConfig.Memory", "hostConfig.PidsLimit = new(int64(128))",
+	})
+	build := contractSection(t, topologySource, "func buildRFCTestImage(", "func prepareRFCTestGoContext(")
+	assertOrdered(t, "RFC image cleanup before build", build, []string{
+		"registerRFCTestImageCleanup(ctx, t, endpoint, imageName, resources)", "dockerProvider.BuildImage(ctx,",
+	})
+	for _, contents := range []string{compose, topologySource} {
+		for _, legacy := range []string{"quay.io/frrouting/frr", "docker.io/jauderho/gobgp"} {
+			if strings.Contains(contents, legacy) {
+				t.Errorf("RFC topology retains legacy peer image %s", legacy)
+			}
+		}
+	}
+	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
+	target := contractSection(t, makefile, "interop-rfc-testcontainers:", "interop-rfc-up:")
+	assertContainsAll(t, "RFC host build revision", target, []string{
+		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
+	})
+}
+
 func TestInteropOperationalContract(t *testing.T) {
 	t.Parallel()
 

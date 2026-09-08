@@ -330,6 +330,7 @@ interop-rfc-testcontainers: dev-ensure
 	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
 		GOBFD_REQUIRE_PODMAN=1 \
 		INTEROP_RFC_TESTCONTAINERS_ARTIFACT_DIR=/app/reports/e2e/interop-rfc-testcontainers \
+		GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})" \
 		go test -tags interop_rfc_testcontainers -race -count=1 -v -timeout 15m \
 		-run '^TestRFCInteropTopologyTestcontainers$$' ./test/interop-rfc/
 
