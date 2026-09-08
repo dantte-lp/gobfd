@@ -219,7 +219,7 @@ fuzz:
 test-integration:
 	$(EXEC) go test -tags integration ./test/integration/ -race -count=1 -v
 
-# === Interop Tests (FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd — 4-peer topology) ===
+# === Interop Tests (FRR 10.7.1 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd — 4-peer topology) ===
 
 INTEROP_COMPOSE := test/interop/compose.yml
 INTEROP_CTL := go run ./test/cmd/interopctl
@@ -247,6 +247,7 @@ interop-testcontainers: dev-ensure
 	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
 		GOBFD_REQUIRE_PODMAN=1 \
 		INTEROP_TESTCONTAINERS_ARTIFACT_DIR=/app/reports/e2e/interop-testcontainers \
+		GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})" \
 		go test -tags interop_testcontainers -race -count=1 -v -timeout 15m \
 		-run '^TestFourPeerTopologyTestcontainers$$' ./test/interop/
 

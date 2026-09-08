@@ -29,9 +29,10 @@ const (
 )
 
 var (
-	projectNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
-	errUsage           = errors.New("invalid interopctl usage")
-	errControl         = errors.New("interop project control failed")
+	projectNamePattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	buildRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	errUsage             = errors.New("invalid interopctl usage")
+	errControl           = errors.New("interop project control failed")
 )
 
 // UsageError identifies a command-line contract violation.
@@ -277,8 +278,7 @@ func (c *Controller) start(ctx context.Context) error {
 	if opErr := c.assertFixedNamesAvailable(ctx); opErr != nil {
 		return opErr
 	}
-	c.mutation = true
-	if opErr := c.compose(ctx, 10*time.Minute, "build"); opErr != nil {
+	if opErr := c.build(ctx); opErr != nil {
 		return opErr
 	}
 	if c.kind == "bgp" {
@@ -288,7 +288,7 @@ func (c *Controller) start(ctx context.Context) error {
 		c.keepProject = true
 		return nil
 	}
-	if opErr := c.compose(ctx, commandTimeout, "up", "-d", "holo", "holo-config"); opErr != nil {
+	if opErr := c.compose(ctx, commandTimeout, "up", "-d", "--no-build", "holo", "holo-config"); opErr != nil {
 		return opErr
 	}
 	loaderID, err := c.resolveContainerID(ctx, "holo-config-interop")
@@ -313,7 +313,7 @@ func (c *Controller) start(ctx context.Context) error {
 		return err
 	}
 	if opErr := c.compose(
-		ctx, commandTimeout, "up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
+		ctx, commandTimeout, "up", "-d", "--no-build", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
 	); opErr != nil {
 		return opErr
 	}
@@ -326,6 +326,33 @@ func (c *Controller) stop(ctx context.Context) error {
 		return err
 	}
 	return c.cleanup(ctx)
+}
+
+func (c *Controller) build(ctx context.Context) error {
+	if c.kind == "base" {
+		return c.buildBase(ctx)
+	}
+	c.mutation = true
+	return c.compose(ctx, 10*time.Minute, "build")
+}
+
+// BuildMetadata uses a full revision supplied by the host, or resolves the local checkout.
+func BuildMetadata(ctx context.Context, root, revision string) (string, string, error) {
+	if revision == "" {
+		commandCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(commandCtx, "git", "rev-parse", "--verify", "HEAD^{commit}")
+		cmd.Dir = root
+		output, err := cmd.Output()
+		if err != nil {
+			return "", "", fmt.Errorf("resolve interop build checkout revision: %w", err)
+		}
+		revision = strings.TrimSpace(string(output))
+	}
+	if !buildRevisionPattern.MatchString(revision) {
+		return "", "", fmt.Errorf("%w: interop build revision must be a full lowercase SHA-1", errControl)
+	}
+	return revision, time.Now().UTC().Format(time.RFC3339), nil
 }
 
 func (c *Controller) lockRun(ctx context.Context, args []string) error {

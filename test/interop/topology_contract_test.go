@@ -16,8 +16,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 )
 
 const holoImage = "ghcr.io/holo-routing/holo-bundle@sha256:" +
@@ -96,6 +99,8 @@ type composeRaw struct {
 }
 
 type composeGobfdService struct {
+	composeResourceLimits `yaml:",inline"`
+
 	Build         composeBuild                 `yaml:"build"`
 	ContainerName string                       `yaml:"container_name"`
 	User          string                       `yaml:"user"`
@@ -107,6 +112,8 @@ type composeGobfdService struct {
 }
 
 type composeHoloService struct {
+	composeResourceLimits `yaml:",inline"`
+
 	Image         string                       `yaml:"image"`
 	ContainerName string                       `yaml:"container_name"`
 	CapAdd        []string                     `yaml:"cap_add"`
@@ -116,6 +123,8 @@ type composeHoloService struct {
 }
 
 type composeHoloConfigService struct {
+	composeResourceLimits `yaml:",inline"`
+
 	Image         string                       `yaml:"image"`
 	ContainerName string                       `yaml:"container_name"`
 	Volumes       []string                     `yaml:"volumes"`
@@ -123,6 +132,13 @@ type composeHoloConfigService struct {
 	Entrypoint    string                       `yaml:"entrypoint"`
 	Command       []string                     `yaml:"command"`
 	Networks      map[string]composeAttachment `yaml:"networks"`
+}
+
+type composeResourceLimits struct {
+	CPUs      int    `yaml:"cpus"`
+	Memory    string `yaml:"mem_limit"`
+	Swap      string `yaml:"memswap_limit"`
+	PidsLimit int    `yaml:"pids_limit"`
 }
 
 type composeBuild struct {
@@ -248,6 +264,8 @@ func TestInteropOperationalContract(t *testing.T) {
 	}{
 		{name: "Compose topology", path: filepath.Join(root, "test", "interop", "compose.yml")},
 		{name: "FRR configuration", path: filepath.Join(root, "test", "interop", "frr", "frr.conf")},
+		{name: "FRR image", path: filepath.Join(root, "test", "interop", "frr", "Containerfile")},
+		{name: "testcontainers topology", path: filepath.Join(root, "test", "interop", "testcontainers_topology_test.go")},
 		{name: "BIRD image", path: filepath.Join(root, "test", "interop", "bird3", "Containerfile")},
 		{name: "routing runner", path: filepath.Join(root, "test", "internal", "e2erunner", "routing.go")},
 		{name: "target inventory", path: filepath.Join(root, "test", "e2e", "targets.md")},
@@ -299,11 +317,12 @@ func TestInteropOperationalContract(t *testing.T) {
 		"override INTEROP_PROJECT_NAME := $(value INTEROP_PROJECT_NAME)",
 		"export INTEROP_PROJECT_NAME",
 		"INTEROP_CTL := go run ./test/cmd/interopctl",
+		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
 		`env "INTEROP_PROJECT_NAME=$${bgp_project}"`,
-		"FRR 10.7.0 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd",
+		"FRR 10.7.1 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd",
 		"gopls-check: dev-ensure",
 		"go run ./test/cmd/repoquality gopls --root .",
 		"lint-md: dev-ensure",
@@ -320,8 +339,46 @@ func TestInteropOperationalContract(t *testing.T) {
 		t.Error("gopls gate combines mutually exclusive core test backends in one tag profile")
 	}
 	assertContainsAll(t, "Compose topology", contents["Compose topology"], []string{
-		"quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68",
+		"context: ./frr",
+		"VCS_REF: ${VCS_REF:-}",
+		"BUILD_DATE: ${BUILD_DATE:-}",
 	})
+	assertContainsAll(t, "FRR Debian image", contents["FRR image"], []string{
+		"debian:trixie-slim@sha256:",
+		"frr_10.7.1-0~deb13u1_amd64.deb",
+		`ENTRYPOINT ["/usr/lib/frr/watchfrr"]`,
+	})
+	assertContainsAll(t, "testcontainers resource limits", contents["testcontainers topology"], []string{
+		`interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		"options.CPUPeriod = 100000",
+		"options.CPUQuota = 200000",
+		"options.Memory = 2 << 30",
+		"options.MemorySwap = 2 << 30",
+		"hostConfig.NanoCPUs = 1_000_000_000",
+		"hostConfig.Memory = 256 << 20",
+		"hostConfig.MemorySwap = hostConfig.Memory",
+		"hostConfig.PidsLimit = new(int64(128))",
+	})
+	var boundedCompose composeRaw
+	if err := yaml.Unmarshal([]byte(contents["Compose topology"]), &boundedCompose); err != nil {
+		t.Fatalf("decode base Compose resource limits: %v", err)
+	}
+	for name, service := range boundedCompose.Services {
+		var limits composeResourceLimits
+		if err := service.Decode(&limits); err != nil {
+			t.Fatalf("decode %s resource limits: %v", name, err)
+		}
+		memory, pids := "256m", 128
+		if name == "holo" {
+			memory = "512m"
+		}
+		if name == "scapy" {
+			pids = 64
+		}
+		if limits.CPUs != 1 || limits.Memory != memory || limits.Swap != memory || limits.PidsLimit != pids {
+			t.Errorf("%s resource limits = %+v, want CPU=1 memory/swap=%s pids=%d", name, limits, memory, pids)
+		}
+	}
 	if strings.Contains(contents["Compose topology"], "podman exec") {
 		t.Error("Compose topology documents unguarded fixed-name Podman access")
 	}
@@ -340,7 +397,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		}
 	}
 	assertContainsAll(t, "FRR configuration", contents["FRR configuration"], []string{
-		"frr version 10.7.0",
+		"frr version 10.7.1",
 	})
 	assertContainsAll(t, "BIRD image", contents["BIRD image"], []string{
 		"BIRD 3.3.2",
@@ -371,6 +428,32 @@ func TestInteropOperationalContract(t *testing.T) {
 		`$(INTEROP_CTL) lock-run --`,
 	})
 	projectControl := contents["project control"]
+	buildProject := contractSection(t, projectControl,
+		"func (c *Controller) build(ctx context.Context) error {",
+		"func BuildMetadata(ctx context.Context, root, revision string)",
+	)
+	assertOrdered(t, "direct base build dispatch", buildProject, []string{
+		`c.kind == "base"`,
+		`return c.buildBase(ctx)`,
+		"c.mutation = true",
+		`c.compose(ctx, 10*time.Minute, "build")`,
+	})
+	baseBuild := readContractFile(t, "bounded base builds",
+		filepath.Join(root, "test", "internal", "interopproject", "build.go"))
+	assertOrdered(t, "bounded base build metadata", baseBuild, []string{
+		`BuildMetadata(ctx, c.root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		`"compose", "-p", c.projectName, "-f", c.composeFile, "config", "--format", "json"`,
+		"baseBuildArgs(service.Build, image, revision, buildDate)",
+		"c.mutation = true",
+		"c.podmanStream(ctx, 10*time.Minute, args...)",
+	})
+	assertContainsAll(t, "bounded base build limits", baseBuild, []string{
+		`"build", "--cpu-period", "100000", "--cpu-quota", "200000"`,
+		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
+		"decoder.DisallowUnknownFields()",
+		`build.Args["VCS_REF"] = &revision`,
+		`build.Args["BUILD_DATE"] = &buildDate`,
+	})
 	startProject := contractSection(
 		t,
 		projectControl,
@@ -381,14 +464,13 @@ func TestInteropOperationalContract(t *testing.T) {
 		"c.acquireLock()",
 		"c.queryProjectResources(ctx)",
 		"c.assertFixedNamesAvailable(ctx)",
-		"c.mutation = true",
-		`c.compose(ctx, 10*time.Minute, "build")`,
-		`c.compose(ctx, commandTimeout, "up", "-d", "holo", "holo-config")`,
+		"c.build(ctx)",
+		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build", "holo", "holo-config")`,
 		`c.resolveContainerID(ctx, "holo-config-interop")`,
 		`c.podmanText(ctx, 45*time.Second, "wait", loaderID)`,
 		`c.podmanText(ctx, 10*time.Second, "inspect", "--format", "{{.State.ExitCode}}", loaderID)`,
 		"c.verifyHoloConfiguration(ctx, loaderID)",
-		`ctx, commandTimeout, "up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro"`,
+		`ctx, commandTimeout, "up", "-d", "--no-build", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro"`,
 		"c.keepProject = true",
 	})
 	stopProject := contractSection(
@@ -419,6 +501,11 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 
 	taggedGo := contents["tagged Go helper"]
+	assertContainsAll(t, "invalid-vector resource limits", taggedGo, []string{
+		`"--cpu-period", "100000", "--cpu-quota", "200000"`,
+		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
+		`"--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "64"`,
+	})
 	assertContainsAll(t, "tagged Go helper", taggedGo, []string{
 		`defaultInteropProjectName = "gobfd-interop"`,
 		`return projectName + "_bfdnet"`,
@@ -703,6 +790,47 @@ func TestTrackedOperationalTextScansNonGeneratedPublicAPIFile(t *testing.T) {
 	err := validateTrackedOperationalText(t.Context(), root, nil, []string{removed})
 	if err == nil {
 		t.Fatal("non-generated public API file bypassed the operational reference scan")
+	}
+}
+
+func TestInteropBuildMetadata(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "--object-format=sha1"},
+		{
+			"-c", "user.name=Interop Test", "-c", "user.email=interop@example.invalid",
+			"-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "metadata fixture",
+		},
+	} {
+		cmd := exec.CommandContext(t.Context(), "git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("prepare build metadata fixture: %v\n%s", err, output)
+		}
+	}
+	revision, buildDate, err := interopproject.BuildMetadata(t.Context(), root, "")
+	if err != nil {
+		t.Fatalf("resolve build metadata: %v", err)
+	}
+	if len(revision) != 40 {
+		t.Errorf("checkout revision = %q, want full SHA", revision)
+	}
+	if _, err := time.Parse(time.RFC3339, buildDate); err != nil {
+		t.Errorf("parse build timestamp: %v", err)
+	}
+	missingRoot := t.TempDir()
+	if _, _, err := interopproject.BuildMetadata(t.Context(), missingRoot, ""); err == nil {
+		t.Error("build metadata accepted a directory without a Git checkout")
+	}
+	if got, _, err := interopproject.BuildMetadata(t.Context(), missingRoot, revision); err != nil || got != revision {
+		t.Errorf("explicit build revision = %q, %v; want %q without accessible Git metadata", got, err, revision)
+	}
+	for _, invalid := range []string{revision[:7], strings.Repeat("z", 40), revision + "\n"} {
+		if _, _, err := interopproject.BuildMetadata(t.Context(), root, invalid); err == nil {
+			t.Errorf("build metadata accepted invalid explicit revision %q", invalid)
+		}
 	}
 }
 

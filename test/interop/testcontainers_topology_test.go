@@ -19,18 +19,18 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
 const (
 	fourPeerHoloImage = "ghcr.io/holo-routing/holo-bundle@sha256:" +
 		"5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a"
-	fourPeerFRRImage = "quay.io/frrouting/frr:10.7.0@sha256:" +
-		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
 	fourPeerProjectLabel = "com.docker.compose.project"
 )
 
@@ -53,7 +53,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		root := fourPeerRepositoryRoot(t)
 
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
-		registerFourPeerFuzzImageCleanup(ctx, t, endpoint, resources)
+		registerFourPeerImageCleanup(ctx, t, endpoint, bfdFuzzImage, resources)
 		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
 		runFourPeerAssertions(ctx, t, projectName)
 		captureFourPeerPCAP(ctx, t, resources.tshark)
@@ -72,37 +72,37 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 	}
 }
 
-func registerFourPeerFuzzImageCleanup(
+func registerFourPeerImageCleanup(
 	ctx context.Context,
 	t *testing.T,
-	endpoint string,
+	endpoint, imageName string,
 	resources *fourPeerResources,
 ) {
 	t.Helper()
 
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
 	if err != nil {
-		t.Fatalf("create Podman client for BFD fuzz image ownership: %v", err)
+		t.Fatalf("create Podman client for image ownership: %v", err)
 	}
-	exists, err := client.ImageExists(ctx, bfdFuzzImage)
+	exists, err := client.ImageExists(ctx, imageName)
 	if err != nil {
-		t.Fatalf("inspect BFD fuzz image before test: %v", err)
+		t.Fatalf("inspect image %s before test: %v", imageName, err)
 	}
 	if exists {
-		t.Fatalf("BFD fuzz image %s already exists; refusing ambiguous ownership", bfdFuzzImage)
+		t.Fatalf("image %s already exists; refusing ambiguous ownership", imageName)
 	}
-	resources.imageNames = append(resources.imageNames, bfdFuzzImage)
+	resources.imageNames = append(resources.imageNames, imageName)
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 		defer cancel()
-		exists, err := client.ImageExists(cleanupCtx, bfdFuzzImage)
+		exists, err := client.ImageExists(cleanupCtx, imageName)
 		if err != nil {
-			t.Errorf("inspect test-owned BFD fuzz image during cleanup: %v", err)
+			t.Errorf("inspect test-owned image %s during cleanup: %v", imageName, err)
 			return
 		}
 		if exists {
-			if err := client.RemoveImage(cleanupCtx, bfdFuzzImage); err != nil {
-				t.Errorf("remove test-owned BFD fuzz image: %v", err)
+			if err := client.RemoveImage(cleanupCtx, imageName); err != nil {
+				t.Errorf("remove test-owned image %s: %v", imageName, err)
 			}
 		}
 	})
@@ -117,28 +117,36 @@ func startFourPeerTopology(
 	t.Helper()
 
 	buildID := time.Now().UnixNano()
+	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve FRR build metadata: %v", err)
+	}
+	frrImage := buildFourPeerImage(
+		ctx, t, endpoint, filepath.Join(root, "test/interop/frr"),
+		fmt.Sprintf("localhost/frr-interop-test:%d", buildID), resources,
+		map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
+	)
 	gobfdImage := buildFourPeerImage(
 		ctx, t, endpoint, prepareFourPeerGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources, nil,
 	)
 	birdImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-		fmt.Sprintf("localhost/bird3-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/bird3-interop-test:%d", buildID), resources, nil,
 	)
 	thoroImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/thoro"),
-		fmt.Sprintf("localhost/thoro-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/thoro-interop-test:%d", buildID), resources, nil,
 	)
 	tsharkImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources, nil,
 	)
-	resources.imageNames = append(resources.imageNames, gobfdImage, birdImage, thoroImage, tsharkImage)
 
 	networkName := interopNetworkName(projectName)
 	resources.networkName = networkName
 	//nolint:staticcheck // ProviderPodman plus static IPAM requires this v0.44 API.
-	_, err := containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
+	_, err = containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
 		Name:   networkName,
 		Driver: "bridge",
 		Labels: map[string]string{"io.gobfd.test": "four-peer-testcontainers"},
@@ -243,7 +251,7 @@ func startFourPeerTopology(
 	resources.containerIDs = append(resources.containerIDs, tshark.GetContainerID())
 
 	frr := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:    fourPeerFRRImage,
+		Image:    frrImage,
 		Name:     "frr-interop",
 		Labels:   labels,
 		Networks: []string{networkName},
@@ -307,6 +315,19 @@ func startFourPeerContainer(
 ) testcontainers.Container {
 	t.Helper()
 
+	modifier := request.HostConfigModifier
+	request.HostConfigModifier = func(hostConfig *container.HostConfig) {
+		if modifier != nil {
+			modifier(hostConfig)
+		}
+		hostConfig.NanoCPUs = 1_000_000_000
+		hostConfig.Memory = 256 << 20
+		if request.Name == "holo-interop" {
+			hostConfig.Memory = 512 << 20
+		}
+		hostConfig.MemorySwap = hostConfig.Memory
+		hostConfig.PidsLimit = new(int64(128))
+	}
 	testContainer, err := containertest.Run(ctx, t, request)
 	if testContainer != nil {
 		captureFourPeerLogsOnFailure(ctx, t, testContainer, request.Name)
@@ -600,9 +621,12 @@ func buildFourPeerImage(
 	ctx context.Context,
 	t *testing.T,
 	endpoint, contextPath, imageName string,
+	resources *fourPeerResources,
+	buildArgs map[string]*string,
 ) string {
 	t.Helper()
 
+	registerFourPeerImageCleanup(ctx, t, endpoint, imageName, resources)
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for %s: %v", imageName, err)
@@ -623,6 +647,13 @@ func buildFourPeerImage(
 			Repo:       repository,
 			Tag:        tag,
 			KeepImage:  true,
+			BuildArgs:  buildArgs,
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.CPUPeriod = 100000
+				options.CPUQuota = 200000
+				options.Memory = 2 << 30
+				options.MemorySwap = 2 << 30
+			},
 		},
 	})
 	closeErr := provider.Close()
@@ -630,17 +661,6 @@ func buildFourPeerImage(
 		t.Fatalf("build test-owned image %s: %v", imageName, joinedErr)
 	}
 
-	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
-	if err != nil {
-		t.Fatalf("create Podman client for image cleanup: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		if err := client.RemoveImage(cleanupCtx, builtImage); err != nil {
-			t.Errorf("remove test-owned image %s: %v", builtImage, err)
-		}
-	})
 	return builtImage
 }
 

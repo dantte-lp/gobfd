@@ -24,6 +24,10 @@
 
 services:
   gobfd:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../..
       dockerfile: deployments/docker/Containerfile
@@ -43,7 +47,17 @@ services:
         ipv4_address: 172.20.0.10
 
   frr:
-    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
+    build:
+      context: ./frr
+      dockerfile: Containerfile
+      args:
+        # interopctl supplies checkout metadata at build time; render/cleanup need none.
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     container_name: frr-interop
     cap_add:
       - NET_RAW
@@ -57,6 +71,10 @@ services:
         ipv4_address: 172.20.0.20
 
   bird3:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ./bird3
       dockerfile: Containerfile
@@ -71,6 +89,10 @@ services:
         ipv4_address: 172.20.0.30
 
   tshark:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ./tshark
       dockerfile: Containerfile
@@ -83,6 +105,10 @@ services:
       - NET_ADMIN
 
   holo:
+    cpus: 1
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
     image: ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a
     container_name: holo-interop
     cap_add:
@@ -101,6 +127,10 @@ services:
       start_period: 2s
 
   holo-config:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     image: ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a
     container_name: holo-config-interop
     volumes:
@@ -114,6 +144,10 @@ services:
       bfdnet:
 
   thoro:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ./thoro
       dockerfile: Containerfile
@@ -130,6 +164,10 @@ services:
         ipv4_address: 172.20.0.60
 
   scapy:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 64
     build:
       context: ../..
       dockerfile: test/interop/scapy/Containerfile

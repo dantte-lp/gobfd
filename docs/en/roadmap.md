@@ -228,6 +228,14 @@ owns all consumer migrations and local peer qualification. No live timer
 qualification was run. The updated Beads plan reuses project-owned container
 execution, packet capture and daemon JSON receipts, without a new public RPC.
 H-05 remains partial until the compliant topology and wire evidence are accepted.
+
+Consumer child `.8.5.2.4.2.1` passed the local amd64 BASE Compose and
+testcontainers gates with Debian FRR 10.7.1, bounded builds/runtime and verified
+owned-resource cleanup. Child `.8.5.2.4.2.1.1` adds sequential capped manual
+builds and `up --no-build`. Evidence is in
+`reports/e2e/frr-base-caps-20260908/`; capture-dependent RFC skips remain explicit.
+Next P0 child `.8.5.2.4.2.2` covers BGP; RFC, E2E/integrations and Containerlab
+follow. This BASE acceptance does not close the parent image or timer tasks.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,

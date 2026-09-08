@@ -24,6 +24,12 @@
 
 ### Изменено
 
+- Базовые four-peer определения Compose и testcontainers собирают Debian FRR
+  локально и ограничивают ресурсы runtime. Ручные BASE-сборки, сборки
+  testcontainers и генератор invalid vectors также ограничены по CPU/RAM;
+  ручной запуск запрещает неявную сборку. Оба BASE gates локально пройдены
+  на amd64 с явными RFC-пропусками и проверенным cleanup;
+  переключение остальных FRR-потребителей ещё впереди.
 - Все 16 shell-shebang fixtures, встроенных в Go-тесты, заменены на guarded
   Go helper processes с сохранением контрактов argv, потоков, exit status,
   отмены и cleanup owned resources.

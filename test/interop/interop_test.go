@@ -2342,6 +2342,8 @@ func TestBFDInvalidVectors(t *testing.T) {
 	// codec are available to the bounded multi-stage build context.
 	buildOut, err := exec.CommandContext(ctx,
 		"podman", "build",
+		"--cpu-period", "100000", "--cpu-quota", "200000",
+		"--memory", "2g", "--memory-swap", "2g", "--jobs", "1",
 		"-t", bfdFuzzImage,
 		"-f", "scapy/Containerfile",
 		"../..",
@@ -2353,6 +2355,7 @@ func TestBFDInvalidVectors(t *testing.T) {
 	// Run on the existing compose network without disturbing other services.
 	runOut, err := exec.CommandContext(ctx,
 		"podman", "run", "--rm",
+		"--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "64",
 		"--name", "scapy-interop",
 		"--label", "com.docker.compose.project="+projectName,
 		"--network", interopNetworkName(projectName),

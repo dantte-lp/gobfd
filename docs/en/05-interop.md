@@ -1,28 +1,50 @@
 # Interoperability Testing
 
-![FRR](https://img.shields.io/badge/FRR-10.7.0-dc3545?style=for-the-badge)
+![FRR BASE](https://img.shields.io/badge/FRR_BASE-10.7.1-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-3.3.2-28a745?style=for-the-badge)
 ![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
 ![Thoro](https://img.shields.io/badge/Thoro%2Fbfd-Go-6f42c1?style=for-the-badge)
 ![tshark](https://img.shields.io/badge/tshark-Capture-1a73e8?style=for-the-badge)
 
-> Mandatory four-peer interoperability testing with FRR 10.7.0, BIRD 3.3.2,
+> Mandatory four-peer interoperability testing with Debian FRR 10.7.1, BIRD 3.3.2,
 > Holo 0.9.0, and Thoro/bfd in a Podman topology with packet capture.
 >
-> **Live-run blocker (2026-09-08):** registry inspection of the pinned FRR
-> `10.7.0` image confirms an Alpine 3.22.5 base. Do not run the FRR-backed
-> targets below until image replacement is qualified in Beads
-> `gobfd-qj0.8.2.8.5.2.4`. A vendor image name is not an Alpine-policy exception.
-> The current [official Debian repository](https://deb.frrouting.org/) offers
-> FRR `10.7.1` for trixie; that is a replacement candidate, not a qualified peer
-> or evidence for `10.7.0`. Existing test definitions are retained, but timer
-> reload qualification has not run.
+> **Remaining live-run blocker (2026-09-08):** the old pinned FRR `10.7.0`
+> image uses Alpine 3.22.5. BASE now uses qualified Debian FRR `10.7.1`;
+> BGP, RFC, E2E and Containerlab targets still using the old image must not run
+> until their migration in Beads `gobfd-qj0.8.2.8.5.2.4` is accepted.
+> A vendor image name is not an Alpine-policy exception. Timer reload
+> qualification remains separate and has not run.
+
+Base consumer migration is locally accepted in Beads `.8.5.2.4.2.1`:
+`test/interop/compose.yml` and its testcontainers harness use the shared
+Debian FRR 10.7.1 recipe. Manual Compose and testcontainers gates passed on
+linux/amd64 on 2026-09-08; the latter completed in 247.71 seconds with owned
+container, network and image cleanup verified. Each ran the existing nine
+functional tests. Both explicitly skipped BIRD3's source-port deviation and
+capture-dependent detection precision; the manual run also skipped initial
+diagnostic capture. These skips do not prove full RFC compliance.
+Logs, PCAPs and a structured receipt are retained locally under
+`reports/e2e/frr-base-caps-20260908/`. Check shared-host disk headroom before
+each run. BGP, RFC, E2E and Containerlab consumers still require migration.
+The historical 10.7.0 baseline below is not relabeled.
+The testcontainers and invalid-vector builds enforce CPU/RAM limits.
+For manual BASE startup, `interopctl` renders `compose config --format json`
+and builds each active image sequentially with two CPUs, 2 GiB RAM, no swap
+and one build job. Both startup phases use `--no-build`; service limits apply
+separately at runtime. Unsupported build options and `COMPOSE_COMPATIBILITY`
+are rejected before building. Do not use `compose build --print` as a dry run:
+Compose 5.5.0 with `DOCKER_BUILDKIT=0` can start actual builds.
+`make interop-testcontainers` passes the full host checkout revision through
+`GOBFD_BUILD_REVISION`, so an isolated worktree mount does not need access to
+the host Git directory. Direct container invocations must supply the same value
+when Git metadata is unavailable; malformed revisions are rejected.
 
 The replacement recipe is `test/interop/frr/Containerfile`, built with
 `test/interop/frr` as its context. It pins the shared Debian trixie base by
 digest and official FRR `10.7.1-0~deb13u1` / libyang
 `3.13.6-1~deb13u1` packages by architecture-specific SHA-256. The amd64
-startup smoke passes; arm64 runtime and all consumer migrations remain
+startup smoke passes; arm64 runtime and the remaining consumer migrations remain
 unqualified. Historical `10.7.0` results below do not qualify this artifact.
 
 Builds supply the full checkout commit as `VCS_REF` and an RFC 3339
@@ -44,7 +66,7 @@ CycloneDX and SPDX reports are retained locally under
 `reports/frr-debian-20260908/`. Debian dependency resolution is not snapshot
 pinned, so this recipe does not claim bit-reproducible final images.
 Beads `.8.5.2.4.1` covers this artifact slice; `.8.5.2.4.2` owns consumer
-migration and live qualification. The live-run blocker above remains active.
+migration and live qualification. The remaining-consumer blocker above stays active.
 
 ---
 

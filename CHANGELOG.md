@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Base four-peer Compose and testcontainers definitions build the Debian FRR
+  peer locally and bound their runtime resources. Manual BASE builds,
+  testcontainers image builds and the invalid-vector generator also have
+  CPU/RAM limits; manual startup forbids implicit builds. Both BASE gates
+  pass locally on amd64 with explicit RFC skips and verified cleanup;
+  the other FRR consumers remain pending.
 - Replaced all 16 shell-shebang fixtures embedded in Go tests with guarded
   Go helper processes while preserving argv, streams, exit, cancellation, and
   owned-resource cleanup contracts.

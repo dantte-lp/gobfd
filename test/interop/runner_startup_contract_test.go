@@ -31,6 +31,18 @@ const holoSemanticPodmanArgs = "exec immutable-holo-id holo-cli --no-colors --no
 
 const holoSemanticCommandLog = "podman " + holoSemanticPodmanArgs
 
+const baseBuildConfig = `{"services":{
+"bird3":{"build":{"context":"/rendered/bird3","dockerfile":"Containerfile"}},
+"frr":{"image":"localhost/custom-frr:contract","build":{"context":"/rendered/frr","dockerfile":"Containerfile",
+"args":{"EXTRA":"two words","VCS_REF":"old","BUILD_DATE":"old"}}},
+"gobfd":{"build":{"context":"/rendered/root","dockerfile":"deployments/docker/Containerfile"}},
+"holo":{"image":"holo-contract"},"holo-config":{"image":"holo-contract"},
+"thoro":{"build":{"context":"/rendered/thoro","dockerfile":"Containerfile"}},
+"tshark":{"build":{"context":"/rendered/tshark","dockerfile":"Containerfile"}}
+}}`
+
+const baseBuildLimits = "podman build --cpu-period 100000 --cpu-quota 200000 --memory 2g --memory-swap 2g --jobs 1"
+
 const (
 	interopFakeMode = "GOBFD_INTEROP_FAKE_MODE"
 	fakeRaceOptions = "GORACE=atexit_sleep_ms=0"
@@ -81,6 +93,7 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 				"INTEROP_FAKE_STATE_DIR="+stateDir,
 				"INTEROP_FAKE_LOADER_LOG="+test.loaderLog,
 				"INTEROP_FAKE_SEMANTIC_CONFIG="+validHoloRunningConfig,
+				"GOBFD_BUILD_REVISION="+strings.Repeat("a", 40),
 				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
 			)
 			output, runErr := cmd.CombinedOutput()
@@ -99,6 +112,13 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 				t.Fatalf("read fake command log: %v", readErr)
 			}
 			sharedSequence := []string{
+				"-p gobfd-interop -f " + filepath.Join(root, "test", "interop", "compose.yml") +
+					" config --format json",
+				baseBuildLimits + " --tag gobfd-interop-bird3 --file /rendered/bird3/Containerfile ",
+				baseBuildLimits + " --tag localhost/custom-frr:contract --file /rendered/frr/Containerfile ",
+				baseBuildLimits + " --tag gobfd-interop-gobfd --file /rendered/root/deployments/docker/Containerfile ",
+				baseBuildLimits + " --tag gobfd-interop-thoro --file /rendered/thoro/Containerfile ",
+				baseBuildLimits + " --tag gobfd-interop-tshark --file /rendered/tshark/Containerfile ",
 				"podman wait immutable-holo-config-id",
 				"podman inspect --format {{.State.ExitCode}} immutable-holo-config-id",
 				"podman logs immutable-holo-config-id",
@@ -111,11 +131,31 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 			if test.wantSecondUp {
 				sharedSequence = append(sharedSequence,
 					"-p gobfd-interop -f "+filepath.Join(root, "test", "interop", "compose.yml")+
-						" up -d --no-deps gobfd frr bird3 tshark thoro",
+						" up -d --no-build --no-deps gobfd frr bird3 tshark thoro",
 				)
 			}
 			assertCommandSubsequence(t, string(commands), sharedSequence)
-			secondUp := strings.Contains(string(commands), "up -d --no-deps gobfd frr bird3 tshark thoro")
+			if strings.Count(string(commands), baseBuildLimits) != 5 {
+				t.Fatalf("expected exactly five bounded active builds; commands:\n%s", commands)
+			}
+			for line := range strings.Lines(string(commands)) {
+				if !strings.HasPrefix(line, "podman build ") {
+					continue
+				}
+				if strings.Contains(line, "scapy") || strings.Contains(line, "VCS_REF=old") ||
+					strings.Contains(line, "BUILD_DATE=old") {
+					t.Fatalf("unexpected profile or stale metadata in build: %s", line)
+				}
+				assertContainsAll(t, "build metadata", line, []string{
+					"--build-arg VCS_REF=" + strings.Repeat("a", 40), "--build-arg BUILD_DATE=",
+				})
+				if strings.Contains(line, "localhost/custom-frr:contract") &&
+					(!strings.Contains(line, "--build-arg EXTRA=two words") ||
+						!strings.HasSuffix(strings.TrimSpace(line), " /rendered/frr")) {
+					t.Fatalf("FRR build lost rendered arguments/context: %s", line)
+				}
+			}
+			secondUp := strings.Contains(string(commands), "up -d --no-build --no-deps gobfd frr bird3 tshark thoro")
 			if secondUp != test.wantSecondUp {
 				t.Fatalf("project control second phase = %t, want %t; commands:\n%s", secondUp, test.wantSecondUp, commands)
 			}
@@ -150,18 +190,73 @@ func TestProjectControlHoloSemanticGate(t *testing.T) {
 	}
 }
 
+func TestProjectControlBaseBuildFailurePreventsUp(t *testing.T) {
+	t.Parallel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	for name, test := range map[string]struct {
+		config        string
+		fail          string
+		compatibility string
+		builds        int
+	}{
+		"build failure": {fail: "true", builds: 1},
+		"unsupported final build field": {
+			config: strings.Replace(baseBuildConfig, `"context":"/rendered/tshark"`,
+				`"target":"other","context":"/rendered/tshark"`, 1),
+		},
+		"unsupported final service platform": {
+			config: strings.Replace(baseBuildConfig, `"tshark":{"build":`,
+				`"tshark":{"platform":"linux/arm64","build":`, 1),
+		},
+		"invalid render":                 {config: "{"},
+		"empty build plan":               {config: `{"services":{"holo":{"image":"holo-contract"}}}`},
+		"unsupported compatibility mode": {compatibility: "true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fakeBin := t.TempDir()
+			commandLog := filepath.Join(t.TempDir(), "commands.log")
+			fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "holo-semantic")
+			cmd := projectControlCommand(t.Context(), root, "up")
+			cmd.Env = append(os.Environ(), fakeModeEnv, fakeRaceOptions,
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
+				"INTEROP_FAKE_STATE_DIR="+t.TempDir(),
+				"INTEROP_FAKE_BUILD_CONFIG="+test.config,
+				"INTEROP_FAKE_BUILD_FAIL="+test.fail,
+				"COMPOSE_COMPATIBILITY="+test.compatibility,
+				"GOBFD_BUILD_REVISION="+strings.Repeat("a", 40),
+				"XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+			)
+			if output, runErr := cmd.CombinedOutput(); runErr == nil {
+				t.Fatalf("invalid build accepted; output:\n%s", output)
+			}
+			commands, readErr := os.ReadFile(commandLog)
+			if readErr != nil {
+				t.Fatalf("read fake command log: %v", readErr)
+			}
+			if strings.Contains(string(commands), " up ") || strings.Count(string(commands), baseBuildLimits) != test.builds {
+				t.Fatalf("failure must prevent up and permit only %d build attempts; commands:\n%s", test.builds, commands)
+			}
+		})
+	}
+}
+
 func TestHoloSemanticHelperRejectsExtraComposeServices(t *testing.T) {
 	tests := map[string]struct {
 		arguments []string
 		marker    string
 	}{
 		"phase one": {
-			arguments: []string{"up", "-d", "holo", "holo-config", "unintended-extra-service"},
+			arguments: []string{"up", "-d", "--no-build", "holo", "holo-config", "unintended-extra-service"},
 			marker:    "started",
 		},
 		"phase two": {
 			arguments: []string{
-				"up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
+				"up", "-d", "--no-build", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
 				"unintended-extra-service",
 			},
 			marker: "phase2",
@@ -558,11 +653,19 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 			validPrefix := len(args) >= 4 &&
 				args[0] == "-p" && args[1] == "gobfd-interop" &&
 				args[2] == "-f" && filepath.IsAbs(args[3])
-			if validPrefix && slices.Equal(args[4:], []string{"up", "-d", "holo", "holo-config"}) {
+			if validPrefix && slices.Equal(args[4:], []string{"config", "--format", "json"}) {
+				config := os.Getenv("INTEROP_FAKE_BUILD_CONFIG")
+				if config == "" {
+					config = baseBuildConfig
+				}
+				fmt.Fprintln(os.Stdout, config)
+				return 0
+			}
+			if validPrefix && slices.Equal(args[4:], []string{"up", "-d", "--no-build", "holo", "holo-config"}) {
 				return fakeStateMarker("started")
 			}
 			if validPrefix && slices.Equal(args[4:], []string{
-				"up", "-d", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
+				"up", "-d", "--no-build", "--no-deps", "gobfd", "frr", "bird3", "tshark", "thoro",
 			}) {
 				return fakeStateMarker("phase2")
 			}
@@ -669,6 +772,12 @@ func runHoloPodmanFake(args []string, joined string) int {
 	}
 	stateDir := os.Getenv("INTEROP_FAKE_STATE_DIR")
 	label := "label=com.docker.compose.project=gobfd-interop"
+	if len(args) != 0 && args[0] == "build" {
+		if os.Getenv("INTEROP_FAKE_BUILD_FAIL") == "true" {
+			return 17
+		}
+		return 0
+	}
 	switch joined {
 	case "ps -a --no-trunc --filter " + label + " --format {{.ID}}":
 		if fakeExists(filepath.Join(stateDir, "started")) {
