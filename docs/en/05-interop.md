@@ -8,6 +8,15 @@
 
 > Mandatory four-peer interoperability testing with FRR 10.7.0, BIRD 3.3.2,
 > Holo 0.9.0, and Thoro/bfd in a Podman topology with packet capture.
+>
+> **Live-run blocker (2026-09-08):** registry inspection of the pinned FRR
+> `10.7.0` image confirms an Alpine 3.22.5 base. Do not run the FRR-backed
+> targets below until image replacement is qualified in Beads
+> `gobfd-qj0.8.2.8.5.2.4`. A vendor image name is not an Alpine-policy exception.
+> The current [official Debian repository](https://deb.frrouting.org/) offers
+> FRR `10.7.1` for trixie; that is a replacement candidate, not a qualified peer
+> or evidence for `10.7.0`. Existing test definitions are retained, but timer
+> reload qualification has not run.
 
 ---
 

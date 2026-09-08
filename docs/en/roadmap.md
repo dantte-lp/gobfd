@@ -220,7 +220,11 @@ defines approved Final separation, expiry and recovery. Design gate `.4.1`
 and implementation `.1.1.1.4.2` are complete: solely config-owned base sessions
 support bounded TX/RX transactions and automatic completion receipts, with
 local race, lint and independent reviews passed. Live peer qualification
-`.1.1.1.4.3` is next; H-05 remains partial until its wire evidence is accepted.
+`.1.1.1.4.3` is blocked by P0 image replacement `gobfd-qj0.8.2.8.5.2.4`:
+the pinned FRR vendor image was verified to inherit Alpine. No live timer
+qualification was run. The updated Beads plan reuses project-owned container
+execution, packet capture and daemon JSON receipts, without a new public RPC.
+H-05 remains partial until the compliant topology and wire evidence are accepted.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,
