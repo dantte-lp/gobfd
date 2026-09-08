@@ -174,6 +174,11 @@ four-way matrix rather than a blanket "apply after Final" rule:
 Only Poll-class changes promise an unchanged discriminator and uninterrupted
 Up state.
 
+The [timer transaction addendum](2026-09-08-gobfd-timer-update-transactions-design.md)
+records the approved one-active/one-latest-waiting queue and cancellation
+policy. Its detailed expiry, recovery and receipt rules await written-spec
+approval in Beads `gobfd-qj0.8.2.1.1.1.4.1`; they are not implemented behavior.
+
 ## RFC core corrections
 
 The stable core requires these corrections before v1:

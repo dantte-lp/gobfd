@@ -213,6 +213,14 @@ a successful Poll transmission; failed sends and crossed Final-only replies
 cannot confirm an unsent Poll. H-05 remains partial: next P0 child `.1.1.1.4`
 owns queued parameter changes, their four-way timer effects, owner-safe config
 update integration, truthful apply receipts and FRR/BIRD qualification.
+Child `.1.1.1.4.1` records the approved one-active/one-latest-waiting policy
+and cancellation without advertised-value rollback. Its detailed
+[transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
+defines Final separation, expiry and recovery for written-spec approval.
+Current Manager reconciliation rejects
+changed effective parameters; its receipts do not yet expose `Updated`.
+Implementation `.1.1.1.4.2` depends on that approval, followed by live peer
+qualification `.1.1.1.4.3`. These are pending gates, not delivered timer reloads.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,
