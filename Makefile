@@ -25,6 +25,13 @@ ifneq ($(findstring $$,$(_INTEROP_PROJECT_NAME_RAW)),)
 $(error invalid INTEROP_PROJECT_NAME: Make function syntax is forbidden)
 endif
 export INTEROP_PROJECT_NAME
+INTEROP_BGP_PROJECT_NAME ?=
+override INTEROP_BGP_PROJECT_NAME := $(value INTEROP_BGP_PROJECT_NAME)
+_INTEROP_BGP_PROJECT_NAME_RAW := $(value INTEROP_BGP_PROJECT_NAME)
+ifneq ($(findstring $$,$(_INTEROP_BGP_PROJECT_NAME_RAW)),)
+$(error invalid INTEROP_BGP_PROJECT_NAME: Make function syntax is forbidden)
+endif
+export INTEROP_BGP_PROJECT_NAME
 PODMAN_COMPOSE_PROVIDER ?= docker-compose
 PODMAN_COMPOSE_WARNING_LOGS ?= false
 DOCKER_BUILDKIT ?= 0
@@ -274,13 +281,16 @@ integration: interop
 # === BGP+BFD Interop Tests (GoBGP + FRR + BIRD3 + ExaBGP — 3 scenarios) ===
 
 INTEROP_BGP_COMPOSE := test/interop-bgp/compose.yml
-INTEROP_BGP_DC := $(COMPOSE) -f $(INTEROP_BGP_COMPOSE)
+INTEROP_BGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_BGP_PROJECT_NAME:-$${INTEROP_PROJECT_NAME}-bgp}" INTEROP_PROJECT_KIND=bgp $(INTEROP_CTL)
 
 interop-bgp: interop-bgp-testcontainers
 
-interop-bgp-test:
-	$(EXEC) env INTEROP_BGP_COMPOSE_FILE=$(INTEROP_BGP_COMPOSE) \
-		go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
+interop-bgp-test: interop-project-validate
+	$(INTEROP_BGP_CTL) lock-run -- env "COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)" \
+		$(INTEROP_CTL) dev-exec -- \
+		env "INTEROP_PROJECT_NAME=$${INTEROP_BGP_PROJECT_NAME:-$${INTEROP_PROJECT_NAME}-bgp}" \
+		INTEROP_BGP_COMPOSE_FILE=$(INTEROP_BGP_COMPOSE) \
+		go test -tags interop_bgp -race -v -count=1 -timeout 300s ./test/interop-bgp/
 
 interop-bgp-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run \
@@ -288,17 +298,18 @@ interop-bgp-testcontainers: dev-ensure
 	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
 		GOBFD_REQUIRE_PODMAN=1 \
 		INTEROP_BGP_TESTCONTAINERS_ARTIFACT_DIR=/app/reports/e2e/interop-bgp-testcontainers \
+		GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})" \
 		go test -tags interop_bgp_testcontainers -race -count=1 -v -timeout 15m \
 		-run '^TestBGPBFDTopologyTestcontainers$$' ./test/interop-bgp/
 
-interop-bgp-up:
-	$(INTEROP_BGP_DC) up --build -d
+interop-bgp-up: interop-project-validate
+	$(INTEROP_BGP_CTL) up
 
-interop-bgp-down:
-	$(INTEROP_BGP_DC) down --volumes --remove-orphans
+interop-bgp-down: interop-project-validate
+	$(INTEROP_BGP_CTL) down
 
-interop-bgp-logs:
-	$(INTEROP_BGP_DC) logs -f
+interop-bgp-logs: interop-project-validate
+	$(INTEROP_BGP_CTL) logs
 
 # === RFC Interop Tests (RFC 7419 + RFC 9384 + RFC 9468 + RFC 9747) ===
 

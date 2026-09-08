@@ -11,7 +11,7 @@
 >
 > **Remaining live-run blocker (2026-09-08):** the old pinned FRR `10.7.0`
 > image uses Alpine 3.22.5. BASE now uses qualified Debian FRR `10.7.1`;
-> BGP, RFC, E2E and Containerlab targets still using the old image must not run
+> RFC, E2E and Containerlab targets still using the old image must not run
 > until their migration in Beads `gobfd-qj0.8.2.8.5.2.4` is accepted.
 > A vendor image name is not an Alpine-policy exception. Timer reload
 > qualification remains separate and has not run.
@@ -26,7 +26,8 @@ capture-dependent detection precision; the manual run also skipped initial
 diagnostic capture. These skips do not prove full RFC compliance.
 Logs, PCAPs and a structured receipt are retained locally under
 `reports/e2e/frr-base-caps-20260908/`. Check shared-host disk headroom before
-each run. BGP, RFC, E2E and Containerlab consumers still require migration.
+each run. BGP is also locally qualified below; RFC, E2E and Containerlab
+migration remain open.
 The historical 10.7.0 baseline below is not relabeled.
 The testcontainers and invalid-vector builds enforce CPU/RAM limits.
 For manual BASE startup, `interopctl` renders `compose config --format json`
@@ -310,6 +311,35 @@ Each scenario tests three phases:
 
 ### Running BGP+BFD Tests
 
+**BGP trixie qualification passed locally** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
+The approved replacement uses shared recipes under `test/interop/` for FRR,
+GoBGP and ExaBGP. GoBGP retains v3.37.0 for the existing peer contract and is
+built from its pinned upstream commit with Go 1.27.0 on trixie; this is not
+an upgrade to the upstream v4 line. External ExaBGP 5.0.13 uses trixie's system
+Python and its native `python3 -m exabgp` entrypoint, without pip, uv, a custom
+launcher or repository-owned Python source. Its
+[pinned upstream manifest](https://github.com/Exa-Networks/exabgp/blob/edf249571174449f80c72d75eb6933dcabd67f92/pyproject.toml)
+declares no runtime package dependencies. Both source archives are SHA-256
+pinned. This narrowly scoped ExaBGP runtime exception does not permit Python
+development tooling.
+
+On linux/amd64, manual Compose and the complete testcontainers gate passed
+on 2026-09-08; the latter took 200.07 seconds. Both ran all four existing
+race-enabled BGP tests: peer establishment and FRR/BIRD3/ExaBGP failure,
+route withdrawal and recovery, with no skipped tests. Seven containers per
+topology were limited to one CPU, 256 MiB RAM, no swap and 128 PIDs; inspection
+found no OOM kills. Sequential builds were limited to two CPUs and 2 GiB.
+Owned containers, networks and image tags were removed. Logs, PCAPs,
+CycloneDX/SPDX peer SBOMs and the acceptance receipt are retained locally in
+`reports/e2e/bgp-trixie-20260908/`. This does not qualify arm64, remaining image
+consumers, timer reloads or full RFC compliance. Debian package resolution is
+not snapshot-pinned; final images are not claimed to be bit-reproducible.
+Rebasing does not fix GoBGP v3's known `GO-2026-4736`: the strict runtime
+`govulncheck` still reports it. The existing repository exception expires
+2026-09-30; fixed-v4 migration remains in Beads `.8.2.4`. Keep these peers
+isolated from untrusted networks; BGP functionality and SBOMs are not a
+security qualification.
+
 ```bash
 # Authoritative routing aggregate with owned artifacts and cleanup
 make e2e-routing
@@ -319,10 +349,22 @@ make interop-bgp
 ```
 
 The Go lifecycle creates the static network, both GoBFD instances, GoBGP
-v3.37.0, FRR 10.7.0, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
+v3.37.0, FRR 10.7.1, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
 the Podman provider. It runs the same establish, failure, route-withdrawal, and
 recovery assertions, saves a non-empty packet capture, and proves removal of
 all test-owned containers, network, and locally built images.
+
+Both BGP paths select `mgmtd`, `zebra`, `bgpd`, `bfdd` and `staticd` for native
+`watchfrr`. The tracked FRR configuration remains read-only in Compose; these
+tests stop/start peers but do not save configuration. All seven services have
+one CPU, 256 MiB RAM, no additional swap and 128 PIDs. Image builds use the
+two-CPU / 2 GiB limits above. Manual `make interop-bgp-up/down/logs` uses the
+existing ownership-checked controller, with `up --no-build` after capped builds.
+`INTEROP_BGP_PROJECT_NAME` defaults to `${INTEROP_PROJECT_NAME}-bgp`, matching
+the routing aggregate; manual tests use that same project. Shared `dev-exec`
+allows ten minutes for compilation and the five-minute suite, while ordinary
+control commands retain their two-minute bound. The testcontainers
+target passes the host revision and registers image cleanup before building.
 
 ### Key Design: Shared Network Namespaces
 

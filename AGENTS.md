@@ -109,9 +109,21 @@ that exact toolchain. Use the official
 
 The repository owns no Python source, environment, manifest, or lock file.
 Quality gates and report generation are Go-owned. Do not add `pip`, `uv`,
-Python container stages, requirements files, `pyproject.toml`, or Python
-entrypoints. ExaBGP remains an external immutable interop image and is not a
-repository Python dependency.
+requirements files, `pyproject.toml`, or repository-owned Python entrypoints.
+The sole approved runtime exception is external ExaBGP: its checksum-pinned
+upstream source may run with Debian trixie's system Python inside its peer or
+integration image. Do not vendor that source or add a Python development
+environment, package installer, or custom Python launcher to this repository.
+All other Python container stages remain forbidden.
+
+## Container base policy
+
+Use digest-pinned Debian trixie for application build and runtime images.
+Do not substitute Alpine, bookworm or a scratch runtime. Scratch stages that
+only hold checksum-verified downloads contain no executable environment and
+are allowed. Remaining legacy and vendor NOS consumers stay unqualified until
+their separately tracked migration or explicit vendor decision is accepted;
+an upstream image name alone is not an exception.
 
 ## Podman Compose rules
 

@@ -250,6 +250,125 @@ func TestHoloTopologyContract(t *testing.T) {
 	}
 }
 
+func TestBGPTopologyContract(t *testing.T) {
+	t.Parallel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	compose := readContractFile(t, "BGP Compose", filepath.Join(root, "test/interop-bgp/compose.yml"))
+	var topology composeRaw
+	if err := yaml.Unmarshal([]byte(compose), &topology); err != nil {
+		t.Fatalf("decode BGP Compose: %v", err)
+	}
+	assertEqual(t, "BGP service count", len(topology.Services), 7)
+	for _, peer := range []string{"gobgp", "exabgp"} {
+		var service struct {
+			Image string `yaml:"image"`
+			Build struct {
+				Context    string            `yaml:"context"`
+				Dockerfile string            `yaml:"dockerfile"`
+				Args       map[string]string `yaml:"args"`
+			} `yaml:"build"`
+		}
+		node := topology.Services[peer]
+		if err := node.Decode(&service); err != nil {
+			t.Fatalf("decode BGP peer %s: %v", peer, err)
+		}
+		assertEqual(t, peer+" external image", service.Image, "")
+		assertEqual(t, peer+" shared context", service.Build.Context, "../interop/"+peer)
+		assertEqual(t, peer+" recipe", service.Build.Dockerfile, "Containerfile")
+		assertEqual(t, peer+" provenance", service.Build.Args, map[string]string{
+			"VCS_REF": "${VCS_REF:-}", "BUILD_DATE": "${BUILD_DATE:-}",
+		})
+		recipe := readContractFile(t, peer+" recipe", filepath.Join(root, "test/interop", peer, "Containerfile"))
+		assertContainsAll(t, peer+" trixie artifact", recipe, []string{
+			"FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
+			`org.opencontainers.image.revision="${VCS_REF}"`,
+			`org.opencontainers.image.created="${BUILD_DATE}"`,
+		})
+		if peer == "gobgp" {
+			assertContainsAll(t, peer+" source build", recipe, []string{
+				"FROM docker.io/library/golang:1.27.0-trixie@sha256:" +
+					"ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a",
+				"https://codeload.github.com/osrg/gobgp/tar.gz/9bc8e113e4de6b5542cfafe0c64403b129f4e544",
+				"ADD --checksum=sha256:354f4b46f94d08c6f5f064db319a4b029b60e410955d89e96e8ea5552d7aa58a",
+				"CGO_ENABLED=0", `"go", "build", "-trimpath"`, `"./cmd/gobgp", "./cmd/gobgpd"`,
+				"COPY --from=builder /src/LICENSE /usr/share/licenses/gobgp/LICENSE",
+			})
+		} else {
+			assertContainsAll(t, peer+" source runtime", recipe, []string{
+				"https://codeload.github.com/Exa-Networks/exabgp/tar.gz/edf249571174449f80c72d75eb6933dcabd67f92",
+				"ADD --checksum=sha256:dbf1f3789e28d5c06d123c154c1d4432da9378bbd251699bf7932c5b5f880302",
+				"PYTHONPATH=/opt/exabgp/src", `"python3", "iproute2", "dumb-init"`,
+				`ENTRYPOINT ["/usr/bin/dumb-init", "--", "python3", "-m", "exabgp"]`,
+				"exabgp_daemon_user=exa", "exabgp_daemon_daemonize=false",
+			})
+			for _, forbidden := range []string{"RUN pip", "RUN uv", "CMD [", "ENTRYPOINT [\"/bin/sh\""} {
+				if strings.Contains(recipe, forbidden) {
+					t.Errorf("ExaBGP recipe retains forbidden runtime contract %q", forbidden)
+				}
+			}
+		}
+	}
+	for name, node := range topology.Services {
+		var limits composeResourceLimits
+		if err := node.Decode(&limits); err != nil {
+			t.Fatalf("decode %s resource limits: %v", name, err)
+		}
+		assertEqual(t, name+" limits", limits, composeResourceLimits{
+			CPUs: 1, Memory: "256m", Swap: "256m", PidsLimit: 128,
+		})
+	}
+	var frr composeGobfdService
+	node := topology.Services["frr-bgp"]
+	if err := node.Decode(&frr); err != nil {
+		t.Fatalf("decode BGP FRR: %v", err)
+	}
+	assertEqual(t, "BGP FRR recipe", frr.Build, composeBuild{Context: "../interop/frr", Dockerfile: "Containerfile"})
+	assertEqual(t, "BGP FRR daemons", frr.Command, []string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"})
+	assertEqual(t, "BGP FRR read-only config", frr.Volumes, []string{
+		"./frr/daemons:/etc/frr/daemons:ro,z", "./frr/frr.conf:/etc/frr/frr.conf:ro,z",
+	})
+	topologySource := readContractFile(t, "BGP testcontainers",
+		filepath.Join(root, "test/interop-bgp/testcontainers_topology_test.go"))
+	assertContainsAll(t, "BGP testcontainers contract", topologySource, []string{
+		`filepath.Join(root, "test/interop/frr")`,
+		`filepath.Join(root, "test/interop/gobgp")`,
+		`filepath.Join(root, "test/interop/exabgp")`,
+		`Image:  gobgpImage,`, `Image:  exabgpImage,`,
+		`[]string{"python3", "-m", "exabgp", "version"}`,
+		`interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))`,
+		`[]string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"}`,
+		`version: "10.7.1"`,
+		"options.CPUPeriod = 100000", "options.CPUQuota = 200000",
+		"options.Memory = 2 << 30", "options.MemorySwap = 2 << 30",
+		"hostConfig.NanoCPUs = 1_000_000_000", "hostConfig.Memory = 256 << 20",
+		"hostConfig.MemorySwap = hostConfig.Memory", "hostConfig.PidsLimit = new(int64(128))",
+	})
+	build := contractSection(t, topologySource, "func buildBGPTestImage(", "func prepareBGPTestGoContext(")
+	assertOrdered(t, "BGP image cleanup before build", build, []string{
+		"registerBGPTestImageCleanup(ctx, t, endpoint, imageName, resources)", "dockerProvider.BuildImage(ctx,",
+	})
+	for _, contents := range []string{compose, topologySource} {
+		for _, legacy := range []string{"quay.io/frrouting/frr", "docker.io/jauderho/gobgp", "ghcr.io/exa-networks/exabgp"} {
+			if strings.Contains(contents, legacy) {
+				t.Errorf("BGP topology retains legacy peer image %s", legacy)
+			}
+		}
+	}
+	makefile := readContractFile(t, "Makefile", filepath.Join(root, "Makefile"))
+	assertContainsAll(t, "BGP manual ownership", makefile, []string{
+		"interop-bgp-up: interop-project-validate", "interop-bgp-down: interop-project-validate",
+		"interop-bgp-logs: interop-project-validate", "interop-bgp-test: interop-project-validate",
+		"INTEROP_PROJECT_KIND=bgp", `INTEROP_BGP_PROJECT_NAME`,
+	})
+	manual := contractSection(t, makefile, "interop-bgp-up:", "# === RFC Interop Tests")
+	if strings.Contains(manual, "$(INTEROP_BGP_DC)") {
+		t.Error("BGP manual lifecycle bypasses interopctl")
+	}
+}
+
 func TestInteropOperationalContract(t *testing.T) {
 	t.Parallel()
 
@@ -428,26 +547,24 @@ func TestInteropOperationalContract(t *testing.T) {
 		`$(INTEROP_CTL) lock-run --`,
 	})
 	projectControl := contents["project control"]
-	buildProject := contractSection(t, projectControl,
-		"func (c *Controller) build(ctx context.Context) error {",
-		"func BuildMetadata(ctx context.Context, root, revision string)",
-	)
-	assertOrdered(t, "direct base build dispatch", buildProject, []string{
-		`c.kind == "base"`,
-		`return c.buildBase(ctx)`,
-		"c.mutation = true",
-		`c.compose(ctx, 10*time.Minute, "build")`,
+	assertContainsAll(t, "manual suite timeout", projectControl, []string{
+		"devExecTimeout = 10 * time.Minute",
+		`c.podmanStream(ctx, devExecTimeout, append([]string{"exec", devID}, command...)...)`,
 	})
+	if strings.Contains(projectControl, `c.compose(ctx, 10*time.Minute, "build")`) {
+		t.Error("project control bypasses the capped builder")
+	}
 	baseBuild := readContractFile(t, "bounded base builds",
 		filepath.Join(root, "test", "internal", "interopproject", "build.go"))
 	assertOrdered(t, "bounded base build metadata", baseBuild, []string{
 		`BuildMetadata(ctx, c.root, os.Getenv("GOBFD_BUILD_REVISION"))`,
 		`"compose", "-p", c.projectName, "-f", c.composeFile, "config", "--format", "json"`,
-		"baseBuildArgs(service.Build, image, revision, buildDate)",
+		"composeBuildArgs(service.Build, image, revision, buildDate)",
 		"c.mutation = true",
 		"c.podmanStream(ctx, 10*time.Minute, args...)",
 	})
 	assertContainsAll(t, "bounded base build limits", baseBuild, []string{
+		"func (c *Controller) build(ctx context.Context) error {",
 		`"build", "--cpu-period", "100000", "--cpu-quota", "200000"`,
 		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
 		"decoder.DisallowUnknownFields()",
@@ -556,7 +673,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"c.releaseLock()",
 		`"interop-bgp"`,
 		"if c.kind == \"bgp\"",
-		`c.compose(ctx, commandTimeout, "up", "-d")`,
+		`c.compose(ctx, commandTimeout, "up", "-d", "--no-build")`,
 	})
 	inventory := contents["target inventory"]
 	assertContainsAll(t, "target inventory", inventory, []string{

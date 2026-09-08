@@ -234,8 +234,24 @@ testcontainers gates with Debian FRR 10.7.1, bounded builds/runtime and verified
 owned-resource cleanup. Child `.8.5.2.4.2.1.1` adds sequential capped manual
 builds and `up --no-build`. Evidence is in
 `reports/e2e/frr-base-caps-20260908/`; capture-dependent RFC skips remain explicit.
-Next P0 child `.8.5.2.4.2.2` covers BGP; RFC, E2E/integrations and Containerlab
-follow. This BASE acceptance does not close the parent image or timer tasks.
+P0 child `.8.5.2.4.2.2` passed the local amd64 manual and testcontainers
+BGP gates, all four race-enabled functional tests per path without skips,
+bounded build/runtime inspection and owned-resource cleanup. The complete
+testcontainers gate took 200.07 seconds. Scoped race contracts, lint, vet,
+gopls, inventory, Markdown, all ten Compose renders and independent SPEC/QUALITY
+reviews also passed. Evidence is in `reports/e2e/bgp-trixie-20260908/`.
+P0 child `.8.5.2.4.2.2.1` replaces the old GoBGP Alpine/scratch and ExaBGP
+bookworm images with source-pinned trixie recipes. The approved ExaBGP-only
+system-Python runtime exception is recorded in `AGENTS.md`; repository Python
+tooling remains forbidden. Both recipes now have local BGP and SBOM evidence.
+The complete image inventory `.8.5.2.1` also identified Grafana Alpine and
+Prometheus BusyBox runtimes. Ordered remaining P0 slices are RFC consumers
+`.8.5.2.4.2.3`, integrations/Kubernetes `.8.5.2.5`, observability `.8.5.2.6`,
+Containerlab/vendor boundaries `.8.5.2.7`, and the named Oracle release-product
+decision `.8.5.2.8`. Do not relabel a Debian artifact as Oracle Linux or rebase
+a vendor NOS into a different system under test. Holo already uses trixie;
+download-only scratch stages do not contain an executable runtime.
+BASE and BGP acceptance do not close the parent image or timer tasks.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,

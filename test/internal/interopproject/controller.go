@@ -26,6 +26,9 @@ const (
 	holoCLIVersion     = "Holo command-line interface 0.5.0"
 	commandTimeout     = 2 * time.Minute
 	cleanupTimeout     = 5 * time.Minute
+
+	// Allow the five-minute suite timeout plus compilation headroom.
+	devExecTimeout = 10 * time.Minute
 )
 
 var (
@@ -282,7 +285,7 @@ func (c *Controller) start(ctx context.Context) error {
 		return opErr
 	}
 	if c.kind == "bgp" {
-		if opErr := c.compose(ctx, commandTimeout, "up", "-d"); opErr != nil {
+		if opErr := c.compose(ctx, commandTimeout, "up", "-d", "--no-build"); opErr != nil {
 			return opErr
 		}
 		c.keepProject = true
@@ -326,14 +329,6 @@ func (c *Controller) stop(ctx context.Context) error {
 		return err
 	}
 	return c.cleanup(ctx)
-}
-
-func (c *Controller) build(ctx context.Context) error {
-	if c.kind == "base" {
-		return c.buildBase(ctx)
-	}
-	c.mutation = true
-	return c.compose(ctx, 10*time.Minute, "build")
 }
 
 // BuildMetadata uses a full revision supplied by the host, or resolves the local checkout.
@@ -394,7 +389,7 @@ func (c *Controller) devExec(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return c.podmanStream(ctx, commandTimeout, append([]string{"exec", devID}, command...)...)
+	return c.podmanStream(ctx, devExecTimeout, append([]string{"exec", devID}, command...)...)
 }
 
 func commandAfterSeparator(action string, args []string) ([]string, error) {

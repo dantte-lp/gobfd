@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a checksum-pinned Debian trixie FRR 10.7.1 peer recipe with local
-  amd64 startup/configuration/stop smoke. Consumer migration and live interop
-  qualification remain pending; the Alpine-backed targets stay blocked.
+  amd64 startup/configuration/stop smoke. BASE and BGP consumers passed local
+  interop qualification; remaining Alpine-backed targets stay blocked.
 - Added bounded in-place TX/RX timer reloads for solely config-owned base
   sessions, with Poll/Final confirmation, explicit RX zero and automatic
   generation/readiness receipts. Failed transactions remain failed after late
@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- BGP Compose and testcontainers definitions use the shared Debian FRR 10.7.1
+  recipe with explicit BGP daemons and build/runtime resource caps. Manual
+  lifecycle reuses the ownership-checked capped builder. GoBGP v3.37.0 and
+  ExaBGP 5.0.13 now use checksum-pinned upstream source on trixie, with a
+  narrow system-Python runtime exception for external ExaBGP and no Python
+  development tooling. Manual and full testcontainers BGP gates pass locally
+  on amd64: all four race-enabled tests per path, no skips, verified cleanup.
 - Base four-peer Compose and testcontainers definitions build the Debian FRR
   peer locally and bound their runtime resources. Manual BASE builds,
   testcontainers image builds and the invalid-vector generator also have

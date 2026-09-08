@@ -245,6 +245,54 @@ func TestProjectControlBaseBuildFailurePreventsUp(t *testing.T) {
 	}
 }
 
+func TestProjectControlBGPBoundedBuild(t *testing.T) {
+	t.Parallel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	for _, fail := range []string{"", "true"} {
+		t.Run("build failure="+fail, func(t *testing.T) {
+			t.Parallel()
+			fakeBin := t.TempDir()
+			commandLog := filepath.Join(t.TempDir(), "commands.log")
+			fakeModeEnv := installFakeCommand(t, fakeBin, "podman", "bgp-build")
+			cmd := projectControlCommand(t.Context(), root, "up")
+			cmd.Env = append(os.Environ(), fakeModeEnv, fakeRaceOptions,
+				"PATH="+fakeBin+":"+os.Getenv("PATH"),
+				"INTEROP_FAKE_COMMAND_LOG="+commandLog,
+				"INTEROP_FAKE_BUILD_FAIL="+fail,
+				"INTEROP_PROJECT_NAME=custom-bgp", "INTEROP_PROJECT_KIND=bgp",
+				"GOBFD_BUILD_REVISION="+strings.Repeat("a", 40),
+				"COMPOSE_COMPATIBILITY=", "XDG_RUNTIME_DIR="+secureRuntimeDir(t),
+			)
+			if output, runErr := cmd.CombinedOutput(); (runErr != nil) != (fail != "") {
+				t.Fatalf("BGP build failure=%q: error=%v output=%s", fail, runErr, output)
+			}
+			commands, err := os.ReadFile(commandLog)
+			if err != nil {
+				t.Fatalf("read fake command log: %v", err)
+			}
+			log := string(commands)
+			assertCommandSubsequence(t, log, []string{
+				"podman container exists frr-bgp-interop",
+				"podman compose -p custom-bgp -f " + filepath.Join(root, "test/interop-bgp/compose.yml") + " config --format json",
+				baseBuildLimits + " --tag custom-bgp-frr-bgp --file /rendered/frr/Containerfile ",
+			})
+			assertContainsAll(t, "BGP build metadata", log, []string{
+				"--build-arg VCS_REF=" + strings.Repeat("a", 40), "--build-arg BUILD_DATE=",
+			})
+			if strings.Contains(log, " up -d --no-build") != (fail == "") || strings.Count(log, baseBuildLimits) != 1 {
+				t.Fatalf("BGP must build once and start only after success: %s", log)
+			}
+			const projectQuery = "podman ps -a --no-trunc --filter label=com.docker.compose.project=custom-bgp"
+			if fail != "" && strings.Count(log, projectQuery) < 2 {
+				t.Fatalf("failed build did not enter owned cleanup: %s", log)
+			}
+		})
+	}
+}
+
 func TestHoloSemanticHelperRejectsExtraComposeServices(t *testing.T) {
 	tests := map[string]struct {
 		arguments []string
@@ -619,6 +667,36 @@ func installFakeCommand(t *testing.T, directory, name, mode string) string {
 func runInteropFakeCommand(mode, command string, args []string) int {
 	joined := strings.Join(args, " ")
 	switch mode {
+	case "bgp-build":
+		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "podman ", joined); code != 0 {
+			return code
+		}
+		if len(args) == 0 {
+			return 9
+		}
+		switch args[0] {
+		case "container":
+			return 1
+		case "ps", "network", "volume":
+			return 0
+		case "build":
+			if os.Getenv("INTEROP_FAKE_BUILD_FAIL") == "true" {
+				return 17
+			}
+			return 0
+		case "compose":
+			if len(args) >= 5 && args[1] == "-p" && args[2] == "custom-bgp" && args[3] == "-f" && filepath.IsAbs(args[4]) {
+				if slices.Equal(args[5:], []string{"config", "--format", "json"}) {
+					fmt.Fprintln(os.Stdout,
+						`{"services":{"frr-bgp":{"build":{"context":"/rendered/frr","dockerfile":"Containerfile"}}}}`)
+					return 0
+				}
+				if slices.Equal(args[5:], []string{"up", "-d", "--no-build"}) {
+					return 0
+				}
+			}
+		}
+		return 9
 	case "benchmark-compose":
 		if len(args) != 4 || args[0] != "compose" || args[1] != "-f" || args[3] != "config" {
 			return 1

@@ -10,8 +10,8 @@
 ### Добавлено
 
 - Добавлен закреплённый SHA-256 рецепт пира FRR 10.7.1 на Debian trixie
-  с локальным smoke запуска/config/остановки на amd64. Переключение
-  потребителей и live interop ещё впереди; Alpine-сценарии остаются заблокированы.
+  с локальным smoke запуска/config/остановки на amd64. BASE и BGP прошли
+  локальную interop-квалификацию; остальные Alpine-сценарии заблокированы.
 - Добавлен ограниченный in-place reload TX/RX для базовых сессий, принадлежащих
   только config: подтверждение Poll/Final, явный RX zero и автоматическое
   обновление generation/readiness receipts. Поздние ответы не отменяют ошибку
@@ -24,6 +24,14 @@
 
 ### Изменено
 
+- BGP Compose и testcontainers используют общий рецепт Debian FRR 10.7.1
+  с явным выбором BGP-демонов и лимитами сборки/runtime. Ручной lifecycle
+  переиспользует сборку с лимитами и проверкой владения ресурсами.
+  GoBGP v3.37.0 и ExaBGP 5.0.13 используют закреплённые SHA-256 upstream
+  исходники на trixie; системный Python разрешён только для runtime внешнего
+  ExaBGP, без Python tooling. Ручной и полный testcontainers BGP gates
+  пройдены на amd64: все четыре race-теста каждого пути, без пропусков,
+  с проверенным удалением своих ресурсов.
 - Базовые four-peer определения Compose и testcontainers собирают Debian FRR
   локально и ограничивают ресурсы runtime. Ручные BASE-сборки, сборки
   testcontainers и генератор invalid vectors также ограничены по CPU/RAM;

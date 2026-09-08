@@ -1,0 +1,37 @@
+# Shared ExaBGP 5.0.13 artifact; build with this directory as context.
+FROM scratch AS source
+# ExaBGP 5.0.13, peeled upstream tag commit and archive checksum.
+ADD --checksum=sha256:dbf1f3789e28d5c06d123c154c1d4432da9378bbd251699bf7932c5b5f880302 \
+    https://codeload.github.com/Exa-Networks/exabgp/tar.gz/edf249571174449f80c72d75eb6933dcabd67f92 /exabgp.tar.gz
+
+# Debian 13 (trixie-slim); only the approved external peer uses system Python.
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="5.0.13" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.title="GoBFD ExaBGP interoperability peer" \
+      org.opencontainers.image.description="Verified upstream ExaBGP module on Debian system Python" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132" \
+      io.gobfd.upstream.revision="edf249571174449f80c72d75eb6933dcabd67f92"
+
+RUN ["apt-get", "update"]
+RUN ["apt-get", "install", "-y", "--no-install-recommends", "python3", "iproute2", "dumb-init"]
+RUN ["useradd", "-r", "exa"]
+RUN ["install", "-d", "/opt/exabgp", "/etc/exabgp"]
+RUN --mount=type=bind,from=source,target=/source \
+    ["tar", "-xzf", "/source/exabgp.tar.gz", "-C", "/opt/exabgp", "--strip-components=1", "exabgp-edf249571174449f80c72d75eb6933dcabd67f92/src", "exabgp-edf249571174449f80c72d75eb6933dcabd67f92/LICENCE.txt"]
+RUN ["mkfifo", "-m", "600", "/run/exabgp.in", "/run/exabgp.out"]
+RUN ["chown", "exa", "/run/exabgp.in", "/run/exabgp.out"]
+
+ENV PYTHONPATH=/opt/exabgp/src \
+    exabgp_daemon_user=exa \
+    exabgp_daemon_daemonize=false
+
+# Consumers supply server/config arguments; no packaged default configuration.
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "python3", "-m", "exabgp"]

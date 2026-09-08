@@ -19,8 +19,9 @@
 //	go test -tags interop_bgp -v -count=1 -timeout 300s ./test/interop-bgp/
 //
 // Prerequisites:
-//   - Set INTEROP_PROJECT_NAME to the validated project used to create the stack.
-//   - podman compose -p "$INTEROP_PROJECT_NAME" -f test/interop-bgp/compose.yml up --build -d
+//   - make interop-bgp-up starts the guarded stack (default gobfd-interop-bgp).
+//   - Use make interop-bgp-test, or set INTEROP_PROJECT_NAME to that exact BGP
+//     project when invoking go test directly.
 //   - All containers must be running.
 //
 // Every runtime operation resolves the fixed name to an exact project-labelled

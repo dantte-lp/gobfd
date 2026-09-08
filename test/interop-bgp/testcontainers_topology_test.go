@@ -18,22 +18,16 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
+	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
 
-const (
-	bgpTestGoBGPImage = "docker.io/jauderho/gobgp:v3.37.0@sha256:" +
-		"3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37"
-	bgpTestFRRImage = "quay.io/frrouting/frr:10.7.0@sha256:" +
-		"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68"
-	bgpTestExaBGPImage = "ghcr.io/exa-networks/exabgp:5.0.13@sha256:" +
-		"80f64719841fe6192f5b5a3b46edc27270215521438fae8a704f28d221a4680b"
-	bgpTestProjectLabel = "com.docker.compose.project"
-)
+const bgpTestProjectLabel = "com.docker.compose.project"
 
 type bgpTestResources struct {
 	containerIDs []string
@@ -80,6 +74,42 @@ func runBGPBFDTestcontainers(t *testing.T) {
 	}
 }
 
+func registerBGPTestImageCleanup(
+	ctx context.Context,
+	t *testing.T,
+	endpoint, imageName string,
+	resources *bgpTestResources,
+) {
+	t.Helper()
+
+	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
+	if err != nil {
+		t.Fatalf("create Podman client for image ownership: %v", err)
+	}
+	exists, err := client.ImageExists(ctx, imageName)
+	if err != nil {
+		t.Fatalf("inspect image %s before test: %v", imageName, err)
+	}
+	if exists {
+		t.Fatalf("image %s already exists; refusing ambiguous ownership", imageName)
+	}
+	resources.imageNames = append(resources.imageNames, imageName)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+		defer cancel()
+		exists, err := client.ImageExists(cleanupCtx, imageName)
+		if err != nil {
+			t.Errorf("inspect test-owned image %s during cleanup: %v", imageName, err)
+			return
+		}
+		if exists {
+			if err := client.RemoveImage(cleanupCtx, imageName); err != nil {
+				t.Errorf("remove test-owned image %s: %v", imageName, err)
+			}
+		}
+	})
+}
+
 func startBGPTestTopology(
 	ctx context.Context,
 	t *testing.T,
@@ -89,24 +119,41 @@ func startBGPTestTopology(
 	t.Helper()
 
 	buildID := time.Now().UnixNano()
+	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve BGP peer build metadata: %v", err)
+	}
+	buildArgs := map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate}
+	frrImage := buildBGPTestImage(
+		ctx, t, endpoint, filepath.Join(root, "test/interop/frr"),
+		fmt.Sprintf("localhost/frr-bgp-interop-test:%d", buildID), resources,
+		buildArgs,
+	)
+	gobgpImage := buildBGPTestImage(
+		ctx, t, endpoint, filepath.Join(root, "test/interop/gobgp"),
+		fmt.Sprintf("localhost/gobgp-bgp-interop-test:%d", buildID), resources, buildArgs,
+	)
+	exabgpImage := buildBGPTestImage(
+		ctx, t, endpoint, filepath.Join(root, "test/interop/exabgp"),
+		fmt.Sprintf("localhost/exabgp-bgp-interop-test:%d", buildID), resources, buildArgs,
+	)
 	gobfdImage := buildBGPTestImage(
 		ctx, t, endpoint, prepareBGPTestGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-bgp-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/gobfd-bgp-interop-test:%d", buildID), resources, nil,
 	)
 	birdImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-		fmt.Sprintf("localhost/bird3-bgp-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/bird3-bgp-interop-test:%d", buildID), resources, nil,
 	)
 	tsharkImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-bgp-interop-test:%d", buildID),
+		fmt.Sprintf("localhost/tshark-bgp-interop-test:%d", buildID), resources, nil,
 	)
-	resources.imageNames = append(resources.imageNames, gobfdImage, birdImage, tsharkImage)
 
 	networkName := projectName + "-bgpbfdnet"
 	resources.networkName = networkName
 	//nolint:staticcheck // ProviderPodman plus static IPAM requires this v0.44 API.
-	_, err := containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
+	_, err = containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
 		Name:   networkName,
 		Driver: "bridge",
 		Labels: map[string]string{"io.gobfd.test": "bgp-testcontainers"},
@@ -148,7 +195,7 @@ func startBGPTestTopology(
 	resources.containers = append(resources.containers, gobfdBGP)
 
 	gobgp := startBGPTestContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:  bgpTestGoBGPImage,
+		Image:  gobgpImage,
 		Name:   gobgpContainer,
 		Labels: labels,
 		Cmd:    []string{"gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"},
@@ -184,10 +231,11 @@ func startBGPTestTopology(
 	resources.containers = append(resources.containers, tshark)
 
 	frr := startBGPTestContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:    bgpTestFRRImage,
+		Image:    frrImage,
 		Name:     frrContainer,
 		Labels:   labels,
 		Networks: []string{networkName},
+		Cmd:      []string{"mgmtd", "zebra", "bgpd", "bfdd", "staticd"},
 		Files: []testcontainers.ContainerFile{
 			{
 				HostFilePath:      filepath.Join(root, "test/interop-bgp/frr/daemons"),
@@ -252,7 +300,7 @@ func startBGPTestTopology(
 	resources.containers = append(resources.containers, gobfdExaBGP)
 
 	exabgp := startBGPTestContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:  bgpTestExaBGPImage,
+		Image:  exabgpImage,
 		Name:   "exabgp-interop",
 		Labels: labels,
 		Cmd:    []string{"server", "/etc/exabgp/exabgp.conf"},
@@ -285,6 +333,16 @@ func startBGPTestContainer(
 ) testcontainers.Container {
 	t.Helper()
 
+	modifier := request.HostConfigModifier
+	request.HostConfigModifier = func(hostConfig *container.HostConfig) {
+		if modifier != nil {
+			modifier(hostConfig)
+		}
+		hostConfig.NanoCPUs = 1_000_000_000
+		hostConfig.Memory = 256 << 20
+		hostConfig.MemorySwap = hostConfig.Memory
+		hostConfig.PidsLimit = new(int64(128))
+	}
 	testContainer, err := containertest.Run(ctx, t, request)
 	if testContainer != nil {
 		captureBGPTestLogsOnFailure(ctx, t, testContainer, request.Name)
@@ -325,7 +383,7 @@ func verifyBGPTestVersions(ctx context.Context, t *testing.T, resources *bgpTest
 		},
 		{
 			name: "FRR", container: findBGPTestContainer(ctx, t, resources, frrContainer),
-			command: []string{"vtysh", "-c", "show version"}, version: "10.7.0",
+			command: []string{"vtysh", "-c", "show version"}, version: "10.7.1",
 		},
 		{
 			name: "BIRD", container: findBGPTestContainer(ctx, t, resources, bird3Container),
@@ -333,7 +391,7 @@ func verifyBGPTestVersions(ctx context.Context, t *testing.T, resources *bgpTest
 		},
 		{
 			name: "ExaBGP", container: findBGPTestContainer(ctx, t, resources, "exabgp-interop"),
-			command: []string{"exabgp", "version"}, version: "5.0.13",
+			command: []string{"python3", "-m", "exabgp", "version"}, version: "5.0.13",
 		},
 	}
 	for _, check := range checks {
@@ -490,9 +548,12 @@ func buildBGPTestImage(
 	ctx context.Context,
 	t *testing.T,
 	endpoint, contextPath, imageName string,
+	resources *bgpTestResources,
+	buildArgs map[string]*string,
 ) string {
 	t.Helper()
 
+	registerBGPTestImageCleanup(ctx, t, endpoint, imageName, resources)
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for %s: %v", imageName, err)
@@ -513,6 +574,13 @@ func buildBGPTestImage(
 			Repo:       repository,
 			Tag:        tag,
 			KeepImage:  true,
+			BuildArgs:  buildArgs,
+			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
+				options.CPUPeriod = 100000
+				options.CPUQuota = 200000
+				options.Memory = 2 << 30
+				options.MemorySwap = 2 << 30
+			},
 		},
 	})
 	closeErr := provider.Close()
@@ -520,17 +588,6 @@ func buildBGPTestImage(
 		t.Fatalf("build test-owned image %s: %v", imageName, joinedErr)
 	}
 
-	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
-	if err != nil {
-		t.Fatalf("create Podman client for BGP image cleanup: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		if err := client.RemoveImage(cleanupCtx, builtImage); err != nil {
-			t.Errorf("remove test-owned image %s: %v", builtImage, err)
-		}
-	})
 	return builtImage
 }
 

@@ -26,6 +26,10 @@ services:
   # === GoBGP side: gobfd (BFD) + gobgp (BGP) at 172.21.0.10 ===
 
   gobfd-bgp:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../..
       dockerfile: deployments/docker/Containerfile
@@ -42,7 +46,16 @@ services:
         ipv4_address: 172.21.0.10
 
   gobgp:
-    image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    build:
+      context: ../interop/gobgp
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: gobgp-interop
     user: "0:0"
     cap_add:
@@ -55,6 +68,10 @@ services:
     command: ["gobgpd", "-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
 
   tshark-bgp:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../interop/tshark
       dockerfile: Containerfile
@@ -69,7 +86,16 @@ services:
   # === FRR: bgpd + bfdd at 172.21.0.20 (ASN 65002) ===
 
   frr-bgp:
-    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    build:
+      context: ../interop/frr
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: frr-bgp-interop
     cap_add:
       - NET_RAW
@@ -78,6 +104,7 @@ services:
     volumes:
       - ./frr/daemons:/etc/frr/daemons:ro,z
       - ./frr/frr.conf:/etc/frr/frr.conf:ro,z
+    command: ["mgmtd", "zebra", "bgpd", "bfdd", "staticd"]
     networks:
       bgpbfdnet:
         ipv4_address: 172.21.0.20
@@ -85,6 +112,10 @@ services:
   # === BIRD3: BGP + BFD at 172.21.0.30 (ASN 65003) ===
 
   bird3-bgp:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../interop/bird3
       dockerfile: Containerfile
@@ -101,6 +132,10 @@ services:
   # === ExaBGP side: gobfd (BFD) + exabgp (BGP) at 172.21.0.40 ===
 
   gobfd-exabgp:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../..
       dockerfile: deployments/docker/Containerfile
@@ -117,7 +152,16 @@ services:
         ipv4_address: 172.21.0.40
 
   exabgp:
-    image: ghcr.io/exa-networks/exabgp:5.0.13@sha256:80f64719841fe6192f5b5a3b46edc27270215521438fae8a704f28d221a4680b
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    build:
+      context: ../interop/exabgp
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: exabgp-interop
     network_mode: "service:gobfd-exabgp"
     depends_on:

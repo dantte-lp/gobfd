@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-func (c *Controller) buildBase(ctx context.Context) error {
+func (c *Controller) build(ctx context.Context) error {
 	if os.Getenv("COMPOSE_COMPATIBILITY") != "" {
-		return fmt.Errorf("%w: COMPOSE_COMPATIBILITY is unsupported for base builds", errControl)
+		return fmt.Errorf("%w: COMPOSE_COMPATIBILITY is unsupported for interop builds", errControl)
 	}
 	revision, buildDate, err := BuildMetadata(ctx, c.root, os.Getenv("GOBFD_BUILD_REVISION"))
 	if err != nil {
@@ -23,7 +23,7 @@ func (c *Controller) buildBase(ctx context.Context) error {
 	output, err := c.podmanText(ctx, commandTimeout,
 		"compose", "-p", c.projectName, "-f", c.composeFile, "config", "--format", "json")
 	if err != nil {
-		return fmt.Errorf("render base Compose builds: %w", err)
+		return fmt.Errorf("render interop Compose builds: %w", err)
 	}
 	var rendered struct {
 		Services map[string]struct {
@@ -33,7 +33,7 @@ func (c *Controller) buildBase(ctx context.Context) error {
 		} `json:"services"`
 	}
 	if err := decodeSingleJSON([]byte(output), &rendered); err != nil {
-		return fmt.Errorf("decode base Compose builds: %w", err)
+		return fmt.Errorf("decode interop Compose builds: %w", err)
 	}
 	var builds [][]string
 	for _, name := range slices.Sorted(maps.Keys(rendered.Services)) {
@@ -42,21 +42,21 @@ func (c *Controller) buildBase(ctx context.Context) error {
 			continue
 		}
 		if service.Platform != "" {
-			return fmt.Errorf("%w: base Compose service %s build platform is unsupported", errControl, name)
+			return fmt.Errorf("%w: interop Compose service %s build platform is unsupported", errControl, name)
 		}
 		image := service.Image
 		if image == "" {
 			// Compose v5.5.0 pkg/api.GetImageNameOrDefault uses project-service.
 			image = c.projectName + "-" + name
 		}
-		args, err := baseBuildArgs(service.Build, image, revision, buildDate)
+		args, err := composeBuildArgs(service.Build, image, revision, buildDate)
 		if err != nil {
-			return fmt.Errorf("validate base Compose service %s build: %w", name, err)
+			return fmt.Errorf("validate interop Compose service %s build: %w", name, err)
 		}
 		builds = append(builds, args)
 	}
 	if len(builds) == 0 {
-		return fmt.Errorf("%w: base Compose project has no active builds", errControl)
+		return fmt.Errorf("%w: interop Compose project has no active builds", errControl)
 	}
 	// Validate every build before mutation; unsupported Compose options fail closed.
 	c.mutation = true
@@ -68,7 +68,7 @@ func (c *Controller) buildBase(ctx context.Context) error {
 	return nil
 }
 
-func baseBuildArgs(raw json.RawMessage, image, revision, buildDate string) ([]string, error) {
+func composeBuildArgs(raw json.RawMessage, image, revision, buildDate string) ([]string, error) {
 	var build struct {
 		Context    string             `json:"context"`
 		Dockerfile string             `json:"dockerfile"`

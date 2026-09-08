@@ -1,0 +1,34 @@
+# Shared GoBGP v3.37.0 compatibility artifact; build with this directory as context.
+# Go 1.27.0 on Debian 13 (trixie), matching the repository toolchain.
+FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
+
+# GoBGP v3.37.0, immutable upstream commit and archive checksum.
+ADD --checksum=sha256:354f4b46f94d08c6f5f064db319a4b029b60e410955d89e96e8ea5552d7aa58a \
+    https://codeload.github.com/osrg/gobgp/tar.gz/9bc8e113e4de6b5542cfafe0c64403b129f4e544 /tmp/gobgp.tar.gz
+WORKDIR /src
+RUN ["tar", "-xzf", "/tmp/gobgp.tar.gz", "--strip-components=1"]
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local \
+    GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=2
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
+RUN ["go", "build", "-trimpath", "-mod=readonly", "-o", "/out/", "./cmd/gobgp", "./cmd/gobgpd"]
+
+# Debian 13 (trixie-slim), shared repository runtime base.
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="3.37.0" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="GoBFD GoBGP interoperability peer" \
+      org.opencontainers.image.description="GoBGP v3 compatibility peer built from verified upstream source" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132" \
+      io.gobfd.upstream.revision="9bc8e113e4de6b5542cfafe0c64403b129f4e544"
+
+COPY --from=builder /out/gobgp /out/gobgpd /usr/local/bin/
+COPY --from=builder /src/LICENSE /usr/share/licenses/gobgp/LICENSE
+CMD ["gobgpd"]
