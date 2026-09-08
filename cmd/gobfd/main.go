@@ -272,6 +272,10 @@ func startDaemonGoroutines(
 	g.Go(func() error {
 		return runWatchdog(ctx, logger)
 	})
+	g.Go(func() error {
+		coordinator.runTimerUpdateCompletion(ctx, mgr)
+		return nil
+	})
 
 	g.Go(func() error {
 		handleSIGHUP(

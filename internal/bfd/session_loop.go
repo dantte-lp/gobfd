@@ -55,7 +55,13 @@ func (s *Session) runLoop(
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
 ) {
+	updateTimer := time.NewTimer(time.Hour)
+	updateTimer.Stop()
+	defer updateTimer.Stop()
+	defer s.closeTimerUpdates()
 	for {
+		s.processTimerUpdates(txTimer, detectTimer)
+		s.resetUpdateTimer(updateTimer)
 		select {
 		case <-ctx.Done():
 			s.logger.Info("session stopped")
@@ -72,6 +78,8 @@ func (s *Session) runLoop(
 
 		case <-detectTimer.C:
 			s.handleDetectTimer(ctx, txTimer, detectTimer)
+		case <-s.updateWake:
+		case <-updateTimer.C:
 		}
 	}
 }
@@ -180,7 +188,12 @@ func (s *Session) sendControl(ctx context.Context) {
 	if final {
 		s.pendingFinal = false
 	} else if s.pollActive {
+		s.mu.Lock()
+		if !s.pollSent {
+			s.pollStarted = time.Now()
+		}
 		s.pollSent = true
+		s.mu.Unlock()
 	}
 	s.lastPacketSent = time.Now()
 	s.packetsSent.Add(1)

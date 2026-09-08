@@ -176,8 +176,10 @@ Up state.
 
 The [timer transaction addendum](2026-09-08-gobfd-timer-update-transactions-design.md)
 records the approved one-active/one-latest-waiting queue and cancellation
-policy. Its detailed expiry, recovery and receipt rules await written-spec
-approval in Beads `gobfd-qj0.8.2.1.1.1.4.1`; they are not implemented behavior.
+policy and the approved expiry, recovery and receipt rules from Beads
+`gobfd-qj0.8.2.1.1.1.4.1`. Runtime implementation and local validation are
+recorded in `.4.2`; live peer qualification remains `.4.3`. Design approval
+and local checks do not replace that wire evidence.
 
 ## RFC core corrections
 

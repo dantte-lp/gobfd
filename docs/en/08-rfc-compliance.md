@@ -107,9 +107,12 @@ retry attempts bypass periodic transmission suppression. Final clears the Poll
 bit in that packet without terminating the local Poll sequence. Entering Up
 starts a local Poll when the advertised Desired Min TX falls from the one-second
 slow floor to the configured value. It uses existing scheduled/FSM-driven sends;
-leaving Up clears that transition's Poll intent. Queued parameter changes and
-their complete commit/timer semantics remain unimplemented. This is not full
-Section 6.5 compliance.
+config-owned timer updates serialize one active and one latest waiting proposal.
+Final confirms only a successfully transmitted Poll; protected TX increases and
+RX decreases take effect on confirmation. Consecutive transactions use measured
+exchange-time separation. Leaving Up fails update receipts and serializes the
+mandatory slow-floor Poll with recovery. Full Section 6.5 qualification remains
+pending, including live FRR/BIRD reload evidence and the deployed RTT envelope.
 
 Peer receive-interval changes reschedule TX from the last successful send;
 unchanged incoming packets do not postpone it. A zero peer receive interval
@@ -117,8 +120,8 @@ stops periodic TX, as does remote Demand while both ends are Up unless a
 local Poll is active. Immediate Final replies and bounded retries bypass
 these limits. Initial base sessions accept a local zero receive interval through
 YAML and generic `AddSession`, preserving omitted-field defaults. Preview
-per-peer override rules are unchanged; dynamic Poll transactions and FRR/BIRD
-qualification of these procedures remain open.
+per-peer override rules are unchanged. Timer reloads use the same explicit-zero
+semantics; FRR/BIRD qualification of these procedures remains open.
 
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.
@@ -176,7 +179,7 @@ AdminDown completion is tracked for v1.
 | Section | Feature | Rationale |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
-| 6.5 | Complete Poll Sequence procedures | Slow-to-fast initiation, confirmed Poll transmission before Final acceptance, Final retry and P/F exclusion exist; queued parameter changes, commit and timer semantics are pending |
+| 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry and P/F exclusion exist; live reload/RTT qualification remains pending |
 | 6.6 | Full Demand Mode | Remote periodic-TX suppression exists; local Demand, complete Poll procedures, and interop qualification remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 

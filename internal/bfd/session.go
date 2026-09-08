@@ -327,11 +327,23 @@ type Session struct {
 	// pendingFinal is true when we received a Poll and need to send Final.
 	pendingFinal bool
 
-	// pendingDesiredMinTx holds the new value awaiting poll completion.
-	pendingDesiredMinTx time.Duration
-
-	// pendingRequiredMinRx holds the new value awaiting poll completion.
-	pendingRequiredMinRx time.Duration
+	// Timer intent and snapshots are protected by mu. Only the loop changes
+	// active wire/effective values; admission writes the latest waiting slot.
+	timerUpdate   timerUpdateStatus
+	waitingUpdate timerProposal
+	activeUpdate  timerProposal
+	timerRevision uint64
+	updateWake    chan struct{}
+	updateNotify  chan<- struct{}
+	updateClosed  bool
+	// Poll exchange timestamps and recovery gates are loop-owned, under mu
+	// when changed because admission must see the serialization gate.
+	pollStarted          time.Time
+	separateUntil        time.Time
+	failedPollSeparation bool
+	floorHeld            bool
+	recoverOnUp          bool
+	lastValidRecv        time.Time
 
 	// --- Session identity ---
 
@@ -470,6 +482,7 @@ func NewSession(
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
 		ctrlCh:                make(chan sessionControl, 4),
+		updateWake:            make(chan struct{}, 1),
 		cachedPacket:          make([]byte, pktBufSize),
 		logger: logger.With(
 			slog.String("peer", cfg.PeerAddr.String()),

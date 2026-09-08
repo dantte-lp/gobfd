@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added bounded in-place TX/RX timer reloads for solely config-owned base
+  sessions, with Poll/Final confirmation, explicit RX zero and automatic
+  generation/readiness receipts. Failed transactions remain failed after late
+  replies; live FRR/BIRD reload qualification remains pending.
 - Added race-enabled VXLAN/Geneve userspace UDP qualification with exact
   tunnel isolation, malformed-packet rejection, and capture-correlatable logs.
 - Added the package-internal Go lifecycle owner and declarative systemd
@@ -30,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unauthenticated cached Control packet construction no longer allocates a
+  packet object per transmission through the unused authentication branch.
 - A peer Final cannot complete a local Poll before a Poll packet is
   successfully sent. Failed sends and crossed Final-only replies do not
   confirm transmission, and a new sequence cannot reuse an old confirmation.

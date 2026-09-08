@@ -498,7 +498,7 @@ zero with `align_intervals` enabled. Generic gRPC `AddSession` likewise preserve
 a present zero Duration, while an omitted Duration defaults to `1s`.
 The local transmitter still follows the peer's advertised receive interval;
 local zero does not itself disable local transmission or enable Demand Mode.
-This is initial-session configuration, not in-place Poll/Final parameter updates.
+Config-owned timer reloads preserve the same explicit-zero semantics.
 Preview Micro-BFD/VXLAN/Geneve per-peer zero-as-inherit rules are unchanged.
 The `sessions` value must be a YAML sequence of mappings. Receive intervals
 reject booleans and fractional numeric values; use duration strings such as `"100ms"`.
@@ -599,8 +599,22 @@ Micro-BFD entries may be added, removed, or re-keyed when they reuse a transport
 binding opened at startup. VXLAN and Geneve entries may be removed, but adding
 or re-keying an overlay identity requires a process restart. BFD defaults and per-entry timers,
 padding, authentication, peer, and threshold values apply when a new identity
-is created. Changing the effective parameters of an existing same-key session
-or Micro-BFD group is not an in-place update: reconciliation reports a conflict,
+is created. Solely config-owned base sessions also accept in-place changes to
+`desired_min_tx` and `required_min_rx`. One active Poll transaction keeps its
+advertised values; newer reloads replace only the latest waiting proposal.
+When a proposal becomes active, TX increases and RX decreases defer their
+protected local effect until Final; the reverse directions take effect immediately.
+Admission remains `pending`,
+not `updated`, until confirmation. Completion updates the current generation
+and readiness automatically without a second SIGHUP. Timeout or loss of Up
+fails the receipt; a late Final does not turn that failure into success.
+Cancellation after admission does not undo advertised values. The
+[transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
+defines the negotiation budget and startup/recovery separation. Live FRR/BIRD
+reload qualification remains pending; this is not full Poll/Demand compliance.
+
+Other effective-parameter changes to an existing same-key session or Micro-BFD
+group are not in-place updates: reconciliation reports a conflict,
 the generation remains stale, and the operator must remove then add the identity
 in separate reloads or restart the process. Removing the final entry or
 disabling a source is supported.
@@ -620,8 +634,9 @@ source ownership. Removing the final entry for one of these sources does not
 delete sessions owned by another source. Echo sender acquisition failure rolls
 back newly accepted Echo sessions from that pass; SIGHUP remains
 non-transactional across sources and for other runtime apply failures.
-There is no automatic retry in this slice: after a partial apply, a later
-explicit SIGHUP compiles and publishes another desired generation. A configured
+Automatic completion covers admitted base timer transactions, not arbitrary
+failed source operations. Other partial applies still require a later explicit
+SIGHUP to compile and publish another desired generation. A configured
 non-empty VXLAN or Geneve source without its running backend is failed, not
 skipped. Already accepted source changes are not rolled back.
 

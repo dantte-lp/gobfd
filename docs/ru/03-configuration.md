@@ -499,7 +499,7 @@ cross-adapter rollback не входят в эту гарантию.
 явный нулевой Duration, а пропущенный Duration получает default `1s`.
 Локальный передатчик продолжает следовать receive interval пира; локальный ноль
 сам по себе не выключает локальную передачу и не включает Demand Mode.
-Это начальная конфигурация сессии, не изменение параметров через Poll/Final.
+Обновление таймеров через config сохраняет ту же семантику явного нуля.
 Правила zero-as-inherit для пиров preview Micro-BFD/VXLAN/Geneve не изменены.
 Значение `sessions` должно быть YAML-списком объектов. Для receive intervals
 boolean и дробные числовые значения отклоняются; используйте строки вроде `"100ms"`.
@@ -599,8 +599,21 @@ sets реконсилируют membership sessions/groups. Записи control
 открытого при startup. Записи VXLAN и Geneve можно удалять, но новая или re-keyed
 overlay identity требует перезапуска процесса. BFD defaults и per-entry timers,
 padding, authentication, peer и threshold values применяются при создании новой
-identity. Изменение effective parameters существующей same-key session или
-Micro-BFD group не является in-place update: reconciliation возвращает
+identity. Базовые сессии, принадлежащие только config, также принимают in-place
+изменения `desired_min_tx` и `required_min_rx`. Активная Poll-транзакция сохраняет
+объявленные значения; новые reload заменяют только последнее ожидающее изменение.
+После активации предложения увеличение TX и уменьшение RX откладывают защищённый
+локальный эффект до Final; обратные изменения действуют сразу. До подтверждения приём изменения означает
+`pending`, не `updated`. Завершение автоматически обновляет текущее поколение и
+readiness без второго SIGHUP. Таймаут или выход из Up завершают receipt ошибкой;
+поздний Final не превращает её в успех. Отмена после приёма не откатывает
+объявленные значения.
+[Контракт транзакций](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
+определяет срок согласования и разделение startup/recovery Poll. Live FRR/BIRD
+reload qualification ещё впереди; это не полное соответствие Poll/Demand.
+
+Другие изменения effective parameters существующей same-key session или
+Micro-BFD group не являются in-place update: reconciliation возвращает
 conflict, generation остаётся stale, а оператор должен удалить и затем добавить
 identity отдельными reload либо перезапустить процесс. Удаление последней записи
 или отключение source поддерживается.
@@ -619,8 +632,9 @@ Base configuration, Echo, Micro-BFD members, VXLAN и Geneve использую�
 удаляет sessions другого source. Ошибка получения sender для Echo откатывает
 новые принятые Echo sessions этого прохода; SIGHUP остаётся нетранзакционным
 между sources и для других runtime apply failures.
-Автоматического retry в этом slice нет: после частичного apply следующий явный
-SIGHUP компилирует и публикует новое desired generation. Настроенный непустой
+Автоматическое завершение охватывает принятые транзакции базовых таймеров, не
+произвольные ошибки других source operations. Для остальных partial apply
+следующий явный SIGHUP компилирует и публикует новое desired generation. Настроенный непустой
 source VXLAN или Geneve без работающего backend считается failed, а не skipped.
 Уже принятые изменения других sources не откатываются.
 

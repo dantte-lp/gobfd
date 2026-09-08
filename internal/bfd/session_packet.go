@@ -100,7 +100,8 @@ func (s *Session) handleRecvPacket(
 func (s *Session) recordValidReceivedPacket() {
 	s.packetsReceived.Add(1)
 	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
-	s.lastPacketRecv.Store(time.Now().UnixNano())
+	s.lastValidRecv = time.Now()
+	s.lastPacketRecv.Store(s.lastValidRecv.UnixNano())
 }
 
 // checkAuthConsistency validates RFC 5880 Section 6.8.6 steps 8-9.
@@ -145,12 +146,9 @@ func (s *Session) executeFSMActions(
 	detectTimer *time.Timer,
 ) {
 	if result.Changed {
+		s.timerStateChange(result.OldState, result.NewState)
 		s.state.Store(uint32(result.NewState))
 		s.cachedState = result.NewState // goroutine-confined mirror
-		// RFC 5880 Section 6.8.3: advertise the slow-to-fast decrease with
-		// Poll before any Up send; leaving Up discards the obsolete sequence.
-		s.pollActive = result.NewState == StateUp && s.desiredMinTxInterval < slowTxInterval
-		s.pollSent = false
 		s.logStateChange(result)
 	}
 	for _, action := range result.Actions {
@@ -249,7 +247,7 @@ func (s *Session) calcTxInterval() time.Duration {
 
 	desired := s.desiredMinTxInterval
 	// RFC 5880 Section 6.8.3: enforce slow rate when not Up.
-	if s.State() != StateUp && desired < slowTxInterval {
+	if (s.State() != StateUp || s.floorHeld) && desired < slowTxInterval {
 		desired = slowTxInterval
 	}
 	return max(desired, s.remoteMinRxInterval)
@@ -276,7 +274,7 @@ func (s *Session) calcDetectionTime() time.Duration {
 
 func (s *Session) calcTxIntervalLocked() time.Duration {
 	desired := s.desiredMinTxInterval
-	if s.State() != StateUp && desired < slowTxInterval {
+	if (s.State() != StateUp || s.floorHeld) && desired < slowTxInterval {
 		desired = slowTxInterval
 	}
 	return max(desired, s.remoteMinRxInterval)
@@ -425,7 +423,7 @@ func (r *jitterRNG) next() uint64 {
 // MUST only be called from the session goroutine (Run/runLoop).
 func (s *Session) calcTxIntervalHot() time.Duration {
 	desired := s.desiredMinTxInterval
-	if s.cachedState != StateUp && desired < slowTxInterval {
+	if (s.cachedState != StateUp || s.floorHeld) && desired < slowTxInterval {
 		desired = slowTxInterval
 	}
 	return max(desired, s.remoteMinRxInterval)
@@ -451,26 +449,9 @@ func (s *Session) calcDetectionTimeHot() time.Duration {
 // RFC 5880 Section 6.5: "When the system sending the Poll Sequence
 // receives a packet with Final, the Poll Sequence is terminated.".
 func (s *Session) terminatePollSequence() {
-	s.pollActive = false
-	s.pollSent = false
-	s.applyPendingParams()
+	s.finishTimerPoll()
 	s.rebuildCachedPacket()
 	s.logger.Debug("poll sequence terminated")
-}
-
-// applyPendingParams applies deferred parameter changes after poll completion.
-func (s *Session) applyPendingParams() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pendingDesiredMinTx > 0 {
-		s.desiredMinTxInterval = s.pendingDesiredMinTx
-		s.pendingDesiredMinTx = 0
-	}
-	if s.pendingRequiredMinRx > 0 {
-		s.requiredMinRxInterval = s.pendingRequiredMinRx
-		s.pendingRequiredMinRx = 0
-	}
 }
 
 // -------------------------------------------------------------------------
@@ -483,11 +464,12 @@ func (s *Session) applyPendingParams() {
 //
 // RFC 5880 Section 6.8.7 specifies all field values for transmitted packets.
 func (s *Session) rebuildCachedPacket() bool {
-	pkt := s.buildControlPacket()
 	// RFC 5880 Section 6.7: sign the packet if auth is configured.
 	if s.auth != nil {
+		pkt := s.buildControlPacket()
 		return s.signCachedPacket(&pkt)
 	}
+	pkt := s.buildControlPacket()
 	if _, err := MarshalControlPacket(&pkt, s.cachedPacket); err != nil {
 		s.logger.Error("failed to marshal cached packet",
 			slog.String("error", err.Error()),
@@ -524,10 +506,7 @@ func (s *Session) buildControlPacket() ControlPacket {
 	// system MUST set bfd.DesiredMinTxInterval to a value of not less
 	// than one second (1,000,000 microseconds)." This applies to the
 	// wire value so the remote peer calculates correct detection time.
-	wireTxInterval := s.desiredMinTxInterval
-	if s.cachedState != StateUp && wireTxInterval < slowTxInterval {
-		wireTxInterval = slowTxInterval
-	}
+	wire := s.advertisedTimers()
 
 	pkt := ControlPacket{
 		Version:                   Version,
@@ -542,8 +521,8 @@ func (s *Session) buildControlPacket() ControlPacket {
 		DetectMult:                s.detectMult,
 		MyDiscriminator:           s.localDiscr,
 		YourDiscriminator:         s.remoteDiscr,
-		DesiredMinTxInterval:      microsecondsFromDuration(wireTxInterval),
-		RequiredMinRxInterval:     microsecondsFromDuration(s.requiredMinRxInterval),
+		DesiredMinTxInterval:      microsecondsFromDuration(wire.TX),
+		RequiredMinRxInterval:     microsecondsFromDuration(wire.RX),
 		RequiredMinEchoRxInterval: 0, // Echo not implemented in MVP.
 	}
 

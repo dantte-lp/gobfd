@@ -216,11 +216,11 @@ update integration, truthful apply receipts and FRR/BIRD qualification.
 Child `.1.1.1.4.1` records the approved one-active/one-latest-waiting policy
 and cancellation without advertised-value rollback. Its detailed
 [transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
-defines Final separation, expiry and recovery for written-spec approval.
-Current Manager reconciliation rejects
-changed effective parameters; its receipts do not yet expose `Updated`.
-Implementation `.1.1.1.4.2` depends on that approval, followed by live peer
-qualification `.1.1.1.4.3`. These are pending gates, not delivered timer reloads.
+defines approved Final separation, expiry and recovery. Design gate `.4.1`
+and implementation `.1.1.1.4.2` are complete: solely config-owned base sessions
+support bounded TX/RX transactions and automatic completion receipts, with
+local race, lint and independent reviews passed. Live peer qualification
+`.1.1.1.4.3` is next; H-05 remains partial until its wire evidence is accepted.
 Task `gobfd-qj0.8.2.1.1.2.1` adds peer-driven TX deadline
 updates and remote Demand/zero-receive-interval suppression with Final retry.
 Parent `.1.1.2` retains full Demand procedures, the remaining H-08 scope,

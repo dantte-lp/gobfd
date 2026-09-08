@@ -1,8 +1,8 @@
 # Config-owned timer update transactions
 
 Status: queue ordering and cancellation policy approved by the maintainer on
-2026-09-08; independent document review passed. This written contract awaits
-the maintainer's final approval before implementation planning.
+2026-09-08; independent document review passed and the maintainer approved
+continuation into implementation after reviewing this written contract.
 Owner: Beads `gobfd-qj0.8.2.1.1.1.4.1`. Implementation and peer qualification
 remain `.4.2` and `.4.3`; this document is not evidence of runtime support.
 
@@ -10,8 +10,8 @@ remain `.4.2` and `.4.3`; this document is not evidence of runtime support.
 
 Extend `reloadConfig` → `applyBaseSessionCandidates` →
 `Manager.ReconcileSessionsForOwnerDetailed` → the existing Session event loop.
-The current Manager rejects changed effective parameters, the pending interval
-fields have no production writer, and reconciliation receipts lack `Updated`.
+At the pre-implementation baseline, Manager rejected changed effective parameters,
+the pending interval fields had no production writer, and receipts lacked `Updated`.
 Do not add a disconnected update API, public RPC, dependency or queue framework.
 
 In-place changes cover Desired Min TX and Required Min RX for an existing

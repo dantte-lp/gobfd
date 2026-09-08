@@ -128,6 +128,8 @@ const (
 	ReconcileErrorRelease
 	// ReconcileErrorRollback reports one failed new-resource rollback.
 	ReconcileErrorRollback
+	// ReconcileErrorTimerFailed reports a terminal timer negotiation failure.
+	ReconcileErrorTimerFailed
 	// ReconcileErrorCleanup reports cleanup failure after state detachment.
 	ReconcileErrorCleanup
 )
@@ -147,6 +149,8 @@ func (c ReconcileErrorCode) String() string {
 		return "release"
 	case ReconcileErrorRollback:
 		return "rollback"
+	case ReconcileErrorTimerFailed:
+		return "timer_failed"
 	case ReconcileErrorCleanup:
 		return "cleanup"
 	default:
@@ -165,15 +169,16 @@ type ReconcileError struct {
 // reconciliation pass. Created and Released count source claims/resources,
 // not physical shared wire sessions. Failed always equals len(Errors).
 //
-// Pending is intentionally always zero until a later slice introduces typed
-// retryable errors and an automatic retry owner. Runtime errors are never
-// guessed into pending through strings or platform-specific errno values.
+// Pending counts admitted timer transactions; it is not inferred from error
+// text. TimerUpdates qualifies those transactions for read-only observation.
 type ReconcileResult struct {
-	Created  int
-	Released int
-	Pending  int
-	Failed   int
-	Errors   []ReconcileError
+	Created      int
+	Updated      int
+	Released     int
+	Pending      int
+	Failed       int
+	Errors       []ReconcileError
+	TimerUpdates []TimerUpdateRef
 
 	wireCreated   int
 	wireDestroyed int
@@ -182,6 +187,14 @@ type ReconcileResult struct {
 // Err joins the transient causes for compatibility callers and immediate
 // diagnostics. It returns nil when every operation converged.
 func (r ReconcileResult) Err() error {
+	if r.Pending > 0 {
+		errs := make([]error, 0, 1+len(r.Errors))
+		errs = append(errs, ErrTimerUpdatePending)
+		for _, reconcileErr := range r.Errors {
+			errs = append(errs, reconcileErr.Err)
+		}
+		return errors.Join(errs...)
+	}
 	if len(r.Errors) == 1 {
 		return r.Errors[0].Err
 	}

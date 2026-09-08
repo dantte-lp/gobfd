@@ -307,6 +307,8 @@ type Manager struct {
 	// publicNotifyCh is the legacy single-consumer channel exposed via
 	// StateChanges(). New consumers should use SubscribeStateChanges.
 	publicNotifyCh chan StateChange
+	// One daemon consumer; coalesced notifications never carry authoritative state.
+	timerUpdateCh chan struct{}
 
 	subscribers map[chan StateChange]struct{}
 	subMu       sync.RWMutex
@@ -486,6 +488,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		metrics:        noopMetrics{},
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
 		publicNotifyCh: make(chan StateChange, notifyChSize),
+		timerUpdateCh:  make(chan struct{}, 1),
 		subscribers:    make(map[chan StateChange]struct{}),
 		closeDone:      make(chan struct{}),
 		shutdownCh:     make(chan struct{}),

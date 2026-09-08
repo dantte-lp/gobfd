@@ -105,12 +105,14 @@ func (h reconciliationErrorHistogram) Count(code bfd.ReconcileErrorCode) uint32 
 }
 
 type sourceReceipt struct {
-	Source   reconciliationSource
-	Created  int
-	Released int
-	Pending  int
-	Failed   int
-	Errors   reconciliationErrorHistogram
+	Source       reconciliationSource
+	Created      int
+	Updated      int
+	Released     int
+	Pending      int
+	TimerPending int
+	Failed       int
+	Errors       reconciliationErrorHistogram
 }
 
 type generationReceipt struct {
@@ -128,12 +130,15 @@ type reconciliationSnapshot struct {
 }
 
 type sourceApplyResult struct {
-	Created  int
-	Released int
-	Pending  int
-	Failed   int
-	Errors   reconciliationErrorHistogram
-	Err      error
+	Created      int
+	Updated      int
+	Released     int
+	Pending      int
+	TimerPending int
+	Failed       int
+	Errors       reconciliationErrorHistogram
+	Err          error
+	TimerUpdates []bfd.TimerUpdateRef
 }
 
 type sourceApplyFunc func(
@@ -153,6 +158,7 @@ type reconciliationCoordinator struct {
 	applyMu              sync.Mutex
 	retainedCandidate    compiledControlSessionCandidate
 	hasRetainedCandidate bool
+	timerUpdates         []bfd.TimerUpdateRef
 
 	statusMu sync.RWMutex
 	snapshot reconciliationSnapshot
@@ -244,12 +250,17 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	c.statusMu.Unlock()
 	c.setReady(false)
 
+	for i := range retainedCandidate.base {
+		retainedCandidate.base[i].reconcile.DesiredGeneration = generation
+		workingCandidate.base[i].reconcile.DesiredGeneration = generation
+	}
 	if logLevel != nil {
 		logLevel.Set(workingCandidate.logLevel)
 	}
 
 	receipt := generationReceipt{Generation: generation}
 	var sourceResults [sourceCount]sourceApplyResult
+	c.timerUpdates = nil
 	transientErrors := make([]error, 0, sourceCount)
 	for i, source := range reconciliationSources() {
 		var result sourceApplyResult
@@ -265,9 +276,13 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 			result = applySource(ctx, source, workingCandidate)
 		}
 		sourceResults[i] = result
+		if source == sourceBase {
+			c.timerUpdates = slices.Clone(result.TimerUpdates)
+		}
 		receipt.Sources[i] = sourceReceipt{
-			Source: source, Created: result.Created, Released: result.Released,
+			Source: source, Created: result.Created, Updated: result.Updated, Released: result.Released,
 			Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
+			TimerPending: result.TimerPending,
 		}
 		if result.Err != nil {
 			transientErrors = append(transientErrors, result.Err)
@@ -327,6 +342,9 @@ func (c *reconciliationCoordinator) retryPendingSourcesLocked(
 			result = applySource(ctx, source, workingCandidate)
 		}
 		retryResults[i] = result
+		if source == sourceBase {
+			c.timerUpdates = slices.Clone(result.TimerUpdates)
+		}
 		sourceRetried[i] = true
 		receipt.Sources[i] = mergedSourceReceipt(source, prior, result)
 		if result.Err != nil {
@@ -440,7 +458,11 @@ func mergedSourceReceipt(
 	return sourceReceipt{
 		Source:  source,
 		Created: prior.Created + result.Created, Released: prior.Released + result.Released,
+		// Manager reports the generation's confirmed changed sessions, not a
+		// consumable event count. Reinspection must not double-count them.
+		Updated: max(prior.Updated, result.Updated),
 		Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
+		TimerPending: result.TimerPending,
 	}
 }
 
@@ -553,8 +575,10 @@ func (c *reconciliationCoordinator) logResult(snapshot reconciliationSnapshot, t
 func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 	return slog.Group(receipt.Source.String(),
 		slog.Int("created", receipt.Created),
+		slog.Int("updated", receipt.Updated),
 		slog.Int("released", receipt.Released),
 		slog.Int("pending", receipt.Pending),
+		slog.Int("timer_pending", receipt.TimerPending),
 		slog.Int("failed", receipt.Failed),
 		slog.Group("errors",
 			slog.Uint64("lifecycle", uint64(receipt.Errors.Count(bfd.ReconcileErrorLifecycle))),
@@ -564,6 +588,7 @@ func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 			slog.Uint64("release", uint64(receipt.Errors.Count(bfd.ReconcileErrorRelease))),
 			slog.Uint64("rollback", uint64(receipt.Errors.Count(bfd.ReconcileErrorRollback))),
 			slog.Uint64("cleanup", uint64(receipt.Errors.Count(bfd.ReconcileErrorCleanup))),
+			slog.Uint64("timer_failed", uint64(receipt.Errors.Count(bfd.ReconcileErrorTimerFailed))),
 		),
 	)
 }
@@ -791,6 +816,8 @@ func applyCompiledOverlay(
 func sourceResultFromBFD(result bfd.ReconcileResult) sourceApplyResult {
 	converted := sourceApplyResult{
 		Created: result.Created, Released: result.Released,
+		Updated:      result.Updated,
+		TimerPending: result.Pending, TimerUpdates: result.TimerUpdates,
 		Pending: result.Pending, Failed: result.Failed, Err: result.Err(),
 	}
 	for _, reconcileErr := range result.Errors {
@@ -799,6 +826,52 @@ func sourceResultFromBFD(result bfd.ReconcileResult) sourceApplyResult {
 		}
 	}
 	return converted
+}
+
+// runTimerUpdateCompletion observes durable, generation-qualified session
+// receipts. The initial inspection closes the registration/completion race;
+// the capacity-one wake-up never carries state and duplicates may coalesce.
+func (c *reconciliationCoordinator) runTimerUpdateCompletion(
+	ctx context.Context, mgr *bfd.Manager,
+) {
+	wake := mgr.TimerUpdates()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		snapshot := c.Snapshot()
+		c.observeTimerUpdates(snapshot.DesiredGeneration, mgr)
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		}
+	}
+}
+
+func (c *reconciliationCoordinator) observeTimerUpdates(expectedGeneration uint64, mgr *bfd.Manager) {
+	c.applyMu.Lock()
+	defer c.applyMu.Unlock()
+	snapshot := c.Snapshot()
+	prior := snapshot.LastReceipt.Sources[sourceBase]
+	if snapshot.DesiredGeneration != expectedGeneration ||
+		snapshot.LastReceipt.Generation != expectedGeneration || prior.TimerPending == 0 {
+		return
+	}
+	result := sourceResultFromBFD(mgr.ObserveTimerUpdates(c.timerUpdates))
+	receipt := snapshot.LastReceipt
+	base := &receipt.Sources[sourceBase]
+	// Completed references retire from the observation set, so each terminal
+	// receipt contributes once, alongside failures from original admission.
+	base.Updated += result.Updated
+	base.Pending += result.Pending - base.TimerPending
+	base.TimerPending = result.Pending
+	base.Failed += result.Failed
+	base.Errors[bfd.ReconcileErrorTimerFailed] += result.Errors[bfd.ReconcileErrorTimerFailed]
+	c.timerUpdates = result.TimerUpdates
+	if receipt != snapshot.LastReceipt {
+		c.publishReceipt(receipt, result.Err)
+	}
 }
 
 func failedSourceResult(code bfd.ReconcileErrorCode, err error) sourceApplyResult {

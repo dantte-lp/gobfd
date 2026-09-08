@@ -190,16 +190,24 @@ sequenceDiagram
     A->>B: Control(Poll=1, new params)
     Note over B: Acknowledge change
     B->>A: Control(Final=1)
-    Note over A: Apply new parameters
+    Note over A: Confirm protected timer effects
 ```
 
 Key rules:
-- Only one Poll Sequence may be active at a time (RFC 5880 Section 6.5)
-- Pending values stored in `pendingDesiredMinTx` / `pendingRequiredMinRx`
-- `pollActive = true` causes the Poll (P) bit to be set in outgoing packets
-- When Final (F) bit is received, `terminatePollSequence()` applies pending values
 
-> Parameter changes are deferred until poll completion rather than applied immediately. This matches the RFC intent: "A Poll Sequence MUST be used in order to verify that the change has been received."
+- Only one Poll Sequence may be active at a time (RFC 5880 Section 6.5)
+- Config-owned updates retain one active proposal and the latest waiting proposal,
+  including an explicit zero receive interval
+- Poll is advertised until a Final follows a successful Poll send; crossed
+  Final-only replies do not confirm the local Poll
+- While Up, TX increases and RX decreases defer their local effect until Final;
+  TX decreases and RX increases take effect when the proposal becomes active
+
+Consecutive transactions wait the measured exchange duration after Final.
+Expiry fails the receipt without rolling back advertised values. See the
+[transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
+for recovery and generation semantics. Live FRR/BIRD reload qualification remains
+pending; this is not full Section 6.5 compliance.
 
 ### Authentication
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 // -------------------------------------------------------------------------
@@ -124,20 +125,33 @@ func (m *Manager) claimExisting(
 	if !exists {
 		return nil, false, nil
 	}
+	session, err := entry.claimExisting(key, effective, owner, idempotent)
+	return session, true, err
+}
+
+// claimExisting requires Manager.mu and is shared by both registration checks.
+func (entry *sessionEntry) claimExisting(
+	key SessionKey, effective effectiveSessionConfig, owner SessionOwner, idempotent bool,
+) (*Session, error) {
+	status := entry.refreshTimerSnapshot()
+	_, owned := entry.owners[owner]
+	if status.Unresolved && !owned {
+		return nil, ErrSessionParameterConflict
+	}
 	if entry.effective != effective {
-		return nil, true, fmt.Errorf("claim session %+v for owner %+v: %w",
+		return nil, fmt.Errorf("claim session %+v for owner %+v: %w",
 			key, owner, ErrSessionParameterConflict)
 	}
 	if _, owned := entry.owners[owner]; owned {
 		if idempotent {
-			return entry.session, true, nil
+			return entry.session, nil
 		}
-		return nil, true, fmt.Errorf("claim session %+v for owner %+v: %w",
+		return nil, fmt.Errorf("claim session %+v for owner %+v: %w",
 			key, owner, ErrDuplicateSession)
 	}
 
 	entry.owners[owner] = struct{}{}
-	return entry.session, true, nil
+	return entry.session, nil
 }
 
 // allocateAndBuild allocates a discriminator and constructs the session.
@@ -180,22 +194,9 @@ func (m *Manager) registerAndStart(
 
 	m.mu.Lock()
 	if entry, exists := m.sessionsByKey[key]; exists {
-		if entry.effective != effective {
-			m.mu.Unlock()
-			return nil, false, fmt.Errorf("claim session %+v for owner %+v: %w",
-				key, owner, ErrSessionParameterConflict)
-		}
-		if _, owned := entry.owners[owner]; owned {
-			m.mu.Unlock()
-			if idempotent {
-				return entry.session, false, nil
-			}
-			return nil, false, fmt.Errorf("claim session %+v for owner %+v: %w",
-				key, owner, ErrDuplicateSession)
-		}
-		entry.owners[owner] = struct{}{}
+		session, err := entry.claimExisting(key, effective, owner, idempotent)
 		m.mu.Unlock()
-		return entry.session, false, nil
+		return session, false, err
 	}
 	if _, dup := m.sessionsByPeer[demuxKey]; dup {
 		m.mu.Unlock()
@@ -214,6 +215,7 @@ func (m *Manager) registerAndStart(
 		owners:      map[SessionOwner]struct{}{owner: {}},
 		done:        make(chan struct{}),
 	}
+	sess.updateNotify = m.timerUpdateCh
 	// Decouple session lifetime from the parent context so that SIGTERM
 	// does not immediately cancel sessions. Graceful shutdown first sets
 	// AdminDown (DrainAllSessions), waits for packets to be sent, and
@@ -768,6 +770,8 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange
 // The Manager creates sessions that are missing and destroys sessions
 // that no longer appear in the desired set.
 type ReconcileConfig struct {
+	// DesiredGeneration identifies the coordinator's durable desired intent.
+	DesiredGeneration uint64
 	// Key uniquely identifies the session for diffing purposes.
 	// Typically: "peer|local|interface".
 	Key string
@@ -829,6 +833,9 @@ func (m *Manager) reconcileSessionsForOwner(
 		return failedReconcileResult(ReconcileErrorLifecycle, err)
 	}
 	defer op.finish()
+	if contextErr := ctx.Err(); contextErr != nil {
+		return failedReconcileResult(ReconcileErrorLifecycle, contextErr)
+	}
 
 	if !isDeclarativeReconciliationOwner(owner) {
 		return failedReconcileResult(
@@ -857,6 +864,9 @@ func (m *Manager) reconcileSessionsForOwner(
 		ctx, owner, desiredByKey, desiredOrder, currentClaims,
 	)
 	result.Created = claimResult.Created
+	result.Updated = claimResult.Updated
+	result.Pending = claimResult.Pending
+	result.TimerUpdates = claimResult.TimerUpdates
 	result.wireCreated = claimResult.wireCreated
 	result.Errors = append(result.Errors, claimResult.Errors...)
 	result.Failed = len(result.Errors)
@@ -864,23 +874,31 @@ func (m *Manager) reconcileSessionsForOwner(
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
-	for _, cleanupErr := range m.finishRetiredSessions(retired) {
-		addReconcileError(&result, ReconcileErrorCleanup, cleanupErr)
-	}
-	for _, lease := range unusedLeases {
-		if closeErr := closeSenderLeaseError(lease); closeErr != nil {
-			addReconcileError(&result, ReconcileErrorCleanup, closeErr)
-		}
-	}
+	m.finishReconcileCleanup(&result, retired, unusedLeases)
 
 	m.logSessionReconcileResult(result)
 
 	return result
 }
 
+func (m *Manager) finishReconcileCleanup(
+	result *ReconcileResult, retired []retiredSession, unusedLeases []*SenderLease,
+) {
+	for _, cleanupErr := range m.finishRetiredSessions(retired) {
+		addReconcileError(result, ReconcileErrorCleanup, cleanupErr)
+	}
+	for _, lease := range unusedLeases {
+		if closeErr := closeSenderLeaseError(lease); closeErr != nil {
+			addReconcileError(result, ReconcileErrorCleanup, closeErr)
+		}
+	}
+}
+
 func (m *Manager) logSessionReconcileResult(result ReconcileResult) {
 	m.logger.Debug("session reconciliation source result",
 		slog.Int("created", result.Created),
+		slog.Int("updated", result.Updated),
+		slog.Int("pending", result.Pending),
 		slog.Int("released", result.Released),
 		slog.Int("failed", result.Failed),
 		slog.Bool("converged", result.Err() == nil),
@@ -935,8 +953,8 @@ func (m *Manager) ownerClaimSnapshot(
 	desiredByKey map[SessionKey]reconcileCandidate,
 	desiredOrder []SessionKey,
 ) (map[SessionKey]uint32, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	currentClaims := make(map[SessionKey]uint32)
 	for key, entry := range m.sessionsByKey {
@@ -949,7 +967,13 @@ func (m *Manager) ownerClaimSnapshot(
 		if !exists {
 			continue
 		}
-		if entry.effective != desiredByKey[key].effective {
+		status := entry.refreshTimerSnapshot()
+		candidate := desiredByKey[key].effective
+		if entry.canUpdateTimers(owner, candidate) {
+			continue
+		}
+		_, owned := entry.owners[owner]
+		if entry.effective != candidate || (status.Unresolved && !owned) {
 			return nil, fmt.Errorf("reconcile session %+v: %w",
 				key, ErrSessionParameterConflict)
 		}
@@ -1003,6 +1027,10 @@ func (m *Manager) claimDesiredOwnerSessions(
 	newClaims := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
+		if _, owned := currentClaims[key]; owned &&
+			m.reconcileExistingTimers(ctx, key, owner, desiredByKey[key], &result) {
+			continue
+		}
 
 		m.logger.Info("reconcile: claiming desired owner session",
 			slog.Any("key", key),
@@ -1049,6 +1077,100 @@ func (m *Manager) claimDesiredOwnerSessions(
 		}
 	}
 	return result, retired, unusedLeases
+}
+
+func (m *Manager) reconcileExistingTimers(
+	ctx context.Context, key SessionKey, owner SessionOwner, candidate reconcileCandidate, result *ReconcileResult,
+) bool {
+	m.mu.Lock()
+	entry := m.sessionsByKey[key]
+	if !entry.canUpdateTimers(owner, candidate.effective) {
+		m.mu.Unlock()
+		return false
+	}
+	rc := candidate.config
+	status, updateErr := entry.session.admitTimerUpdate(ctx,
+		timerTuple{rc.SessionConfig.DesiredMinTxInterval, rc.SessionConfig.RequiredMinRxInterval}, rc.DesiredGeneration)
+	entry.refreshTimerSnapshot()
+	m.mu.Unlock()
+	switch {
+	case updateErr != nil || status.State == timerUpdateFailed:
+		addReconcileError(result, ReconcileErrorTimerFailed, errors.Join(ErrTimerUpdateFailed, updateErr))
+	case status.State == timerUpdatePending:
+		result.Pending++
+		result.TimerUpdates = append(result.TimerUpdates, TimerUpdateRef{
+			session: entry.session, LocalDiscriminator: entry.session.LocalDiscriminator(),
+			Revision: status.Requested.Revision, Generation: status.Requested.Generation,
+			DesiredMinTxInterval: status.Requested.Tuple.TX, RequiredMinRxInterval: status.Requested.Tuple.RX,
+		})
+	case status.Changed:
+		result.Updated++
+	}
+	return true
+}
+
+func (entry *sessionEntry) canUpdateTimers(owner SessionOwner, candidate effectiveSessionConfig) bool {
+	_, owned := entry.owners[owner]
+	if !owned || len(entry.owners) != 1 || owner != configSessionOwner() ||
+		entry.key.TransportScope.Kind != TransportScopeBase ||
+		(entry.key.Type != SessionTypeSingleHop && entry.key.Type != SessionTypeMultiHop) {
+		return false
+	}
+	current := entry.effective
+	current.DesiredMinTxInterval = candidate.DesiredMinTxInterval
+	current.RequiredMinRxInterval = candidate.RequiredMinRxInterval
+	return current == candidate
+}
+
+// Caller holds Manager.mu. Confirmation is read from the session rather than
+// predicted at admission, including late Finals of terminal failed requests.
+func (entry *sessionEntry) refreshTimerSnapshot() timerUpdateStatus {
+	status := entry.session.timerUpdateSnapshot()
+	entry.effective.DesiredMinTxInterval = status.Confirmed.TX
+	entry.effective.RequiredMinRxInterval = status.Confirmed.RX
+	return status
+}
+
+// TimerUpdates is the single daemon consumer's coalesced wake-up channel.
+// It is intentionally never closed: sessions may notify during shutdown;
+// the consumer's context owns its lifetime.
+func (m *Manager) TimerUpdates() <-chan struct{} { return m.timerUpdateCh }
+
+// TimerUpdateRef identifies one admitted physical-session transaction. It is
+// transient coordinator intent, not a public RPC or a consumable event.
+type TimerUpdateRef struct {
+	session                                     *Session
+	LocalDiscriminator                          uint32
+	Revision, Generation                        uint64
+	DesiredMinTxInterval, RequiredMinRxInterval time.Duration
+}
+
+// ObserveTimerUpdates cannot create resources, admit intent or retry failures.
+// A retired/replaced session never satisfies its predecessor's reference.
+func (m *Manager) ObserveTimerUpdates(refs []TimerUpdateRef) ReconcileResult {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result ReconcileResult
+	for _, ref := range refs {
+		entry, exists := m.sessions[ref.LocalDiscriminator]
+		if !exists || entry.session != ref.session {
+			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)
+			continue
+		}
+		status := entry.session.timerUpdateSnapshot()
+		switch {
+		case status.Requested.Revision != ref.Revision || status.Requested.Generation != ref.Generation ||
+			status.Requested.Tuple != (timerTuple{ref.DesiredMinTxInterval, ref.RequiredMinRxInterval}) ||
+			status.State == timerUpdateFailed:
+			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)
+		case status.State == timerUpdatePending:
+			result.Pending++
+			result.TimerUpdates = append(result.TimerUpdates, ref)
+		case status.Changed:
+			result.Updated++
+		}
+	}
+	return result
 }
 
 func (m *Manager) finishRetiredSessions(retired []retiredSession) []error {

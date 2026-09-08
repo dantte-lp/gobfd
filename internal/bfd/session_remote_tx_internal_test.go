@@ -281,8 +281,9 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], false, false)
 		for range 2 {
 			sess.handleDetectTimer(t.Context(), tx, detect)
-			if sess.State() != StateDown || sess.pollActive || sess.buildControlPacket().Poll {
-				t.Fatal("non-Up transition retained obsolete Poll")
+			if sess.State() != StateDown || !sess.pollActive || sess.pollSent ||
+				sess.buildControlPacket().DesiredMinTxInterval != 1_000_000 {
+				t.Fatal("non-Up transition must retire old Poll and initiate the mandatory floor Poll")
 			}
 			pkt.State = StateInit
 			sender.failures = 1
@@ -293,11 +294,23 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 				t.Fatal("Final completed new Poll using an obsolete send confirmation")
 			}
 			pkt.Final = false
-			synctest.Sleep(100 * time.Millisecond)
+			synctest.Sleep(time.Second)
 			if !fireRemoteTxTimer(sess, tx) {
 				t.Fatal("new Poll was not retried after premature Final")
 			}
 			assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
+			pkt.Final = true
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			synctest.Sleep(time.Until(sess.separateUntil))
+			sess.processTimerUpdates(tx, detect)
+			if !sess.pollActive || sess.buildControlPacket().DesiredMinTxInterval != 100_000 {
+				t.Fatal("floor Poll completion and separation did not start fast recovery")
+			}
+			sess.sendControl(t.Context())
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			synctest.Sleep(time.Until(sess.separateUntil))
+			sess.processTimerUpdates(tx, detect)
+			pkt.Final = false
 		}
 	})
 }

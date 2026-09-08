@@ -125,6 +125,7 @@ func reconcileSessions(
 		logger.Error("session reconciliation had errors",
 			slog.String("error", err.Error()),
 			slog.Int("created", result.Created),
+			slog.Int("updated", result.Updated),
 			slog.Int("released", result.Released),
 			slog.Int("pending", result.Pending),
 			slog.Int("failed", result.Failed),
@@ -135,6 +136,7 @@ func reconcileSessions(
 
 	logger.Info("session reconciliation complete",
 		slog.Int("created", result.Created),
+		slog.Int("updated", result.Updated),
 		slog.Int("released", result.Released),
 	)
 }
