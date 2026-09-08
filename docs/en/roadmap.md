@@ -221,7 +221,10 @@ and implementation `.1.1.1.4.2` are complete: solely config-owned base sessions
 support bounded TX/RX transactions and automatic completion receipts, with
 local race, lint and independent reviews passed. Live peer qualification
 `.1.1.1.4.3` is blocked by P0 image replacement `gobfd-qj0.8.2.8.5.2.4`:
-the pinned FRR vendor image was verified to inherit Alpine. No live timer
+the pinned FRR vendor image was verified to inherit Alpine. Artifact child
+`.8.5.2.4.1` adds the Debian FRR 10.7.1 recipe with amd64 startup/config/stop
+smoke and two SBOM formats; it does not switch consumers. Child `.8.5.2.4.2`
+owns all consumer migrations and local peer qualification. No live timer
 qualification was run. The updated Beads plan reuses project-owned container
 execution, packet capture and daemon JSON receipts, without a new public RPC.
 H-05 remains partial until the compliant topology and wire evidence are accepted.

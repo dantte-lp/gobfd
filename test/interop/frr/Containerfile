@@ -1,0 +1,47 @@
+# Shared native Debian FRR artifact; build with test/interop/frr as context.
+# Package checksums: https://deb.frrouting.org/frr/dists/trixie/frr-10.7/
+ARG TARGETARCH
+
+FROM scratch AS packages-amd64
+# FRR 10.7.1 and libyang 3.13.6, official FRR Debian 13 packages.
+ADD --checksum=sha256:71644aa61241d5e32b2831c26891174c7bf2ef1d0865c1db03b6884fee15b40d \
+    https://deb.frrouting.org/frr/pool/frr-10.7/f/frr/frr_10.7.1-0~deb13u1_amd64.deb /frr.deb
+ADD --checksum=sha256:f8d7f20af2cd4137a1528b259ebc7f91935bf6161c49d87a6871dbd17a5495fd \
+    https://deb.frrouting.org/frr/pool/frr-10.7/liby/libyang3/libyang3_3.13.6-1~deb13u1_amd64.deb /libyang3.deb
+
+FROM scratch AS packages-arm64
+# FRR 10.7.1 and libyang 3.13.6, official FRR Debian 13 packages.
+ADD --checksum=sha256:e1ed2f14024764bfb0fddc62e943eb69c3677bb537cf045f788074c7eccde421 \
+    https://deb.frrouting.org/frr/pool/frr-10.7/f/frr/frr_10.7.1-0~deb13u1_arm64.deb /frr.deb
+ADD --checksum=sha256:8d19883ac37f323a280be342571f8431adf0464463d6847296a4adf760c48eee \
+    https://deb.frrouting.org/frr/pool/frr-10.7/liby/libyang3/libyang3_3.13.6-1~deb13u1_arm64.deb /libyang3.deb
+
+FROM packages-${TARGETARCH} AS packages
+
+# Debian 13 (trixie-slim), shared repository base image.
+FROM docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="10.7.1-0~deb13u1" \
+      org.opencontainers.image.licenses="GPL-2.0-or-later" \
+      org.opencontainers.image.title="GoBFD FRR interoperability peer" \
+      org.opencontainers.image.description="Official FRR Debian packages with native watchfrr supervision" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+
+RUN ["apt-get", "update"]
+# Do not install frr-pythontools; startup/config apply uses packaged vtysh.
+RUN --mount=type=bind,from=packages,target=/packages \
+    ["apt-get", "install", "-y", "--no-install-recommends", "/packages/frr.deb", "/packages/libyang3.deb"]
+RUN ["install", "-d", "-o", "frr", "-g", "frr", "-m", "0775", "/run/frr"]
+COPY daemons /etc/frr/daemons
+
+# Native restart-all also starts mgmtd/staticd; monitor them along with BFD.
+# BGP consumers mount their daemons/frr.conf and add bgpd to this CMD list.
+# watchfrr remains foreground PID 1; packaged startup applies frr.conf via vtysh -b.
+ENTRYPOINT ["/usr/lib/frr/watchfrr"]
+CMD ["mgmtd", "zebra", "bfdd", "staticd"]

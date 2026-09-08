@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a checksum-pinned Debian trixie FRR 10.7.1 peer recipe with local
+  amd64 startup/configuration/stop smoke. Consumer migration and live interop
+  qualification remain pending; the Alpine-backed targets stay blocked.
 - Added bounded in-place TX/RX timer reloads for solely config-owned base
   sessions, with Poll/Final confirmation, explicit RX zero and automatic
   generation/readiness receipts. Failed transactions remain failed after late

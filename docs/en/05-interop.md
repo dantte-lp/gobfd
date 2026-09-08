@@ -18,6 +18,34 @@
 > or evidence for `10.7.0`. Existing test definitions are retained, but timer
 > reload qualification has not run.
 
+The replacement recipe is `test/interop/frr/Containerfile`, built with
+`test/interop/frr` as its context. It pins the shared Debian trixie base by
+digest and official FRR `10.7.1-0~deb13u1` / libyang
+`3.13.6-1~deb13u1` packages by architecture-specific SHA-256. The amd64
+startup smoke passes; arm64 runtime and all consumer migrations remain
+unqualified. Historical `10.7.0` results below do not qualify this artifact.
+
+Builds supply the full checkout commit as `VCS_REF` and an RFC 3339
+`BUILD_DATE`, with `--cpu-period 100000 --cpu-quota 200000 --memory 2g
+--memory-swap 2g --jobs 1`. Native foreground `watchfrr` supervises `mgmtd`,
+`zebra`, `bfdd` and `staticd`; packaged startup applies `/etc/frr/frr.conf`.
+BGP consumers must supply their daemon configuration and include `bgpd` in
+the command. FRR requires `NET_ADMIN`, `NET_RAW` and `SYS_ADMIN`; no host
+network or runtime socket is needed for the isolated startup smoke.
+Python and `frr-pythontools` are not installed. Package-owned startup scripts
+remain external FRR internals; no repository-owned shell launcher is added.
+
+The smoke uses one CPU, 256 MiB, 64 PIDs and `--network none`: the configured
+BFD peer remains Down, with TX/RX 300 ms, while all four daemons are Up.
+Stopping within ten seconds exits with code 0 and removes their host PIDs.
+This is PID-namespace teardown, **not graceful per-daemon shutdown**:
+[watchfrr exits on SIGTERM](https://github.com/FRRouting/frr/blob/frr-10.7.1/watchfrr/watchfrr.c#L1027).
+CycloneDX and SPDX reports are retained locally under
+`reports/frr-debian-20260908/`. Debian dependency resolution is not snapshot
+pinned, so this recipe does not claim bit-reproducible final images.
+Beads `.8.5.2.4.1` covers this artifact slice; `.8.5.2.4.2` owns consumer
+migration and live qualification. The live-run blocker above remains active.
+
 ---
 
 ## Table of Contents
