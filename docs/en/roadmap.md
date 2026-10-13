@@ -54,7 +54,8 @@ Ordered P0 queue:
 4. `gobfd-qj0.8.2.8.5.2.5.2`, `.5.3`, `gobfd-qj0.8.2.8.5.2.7` — ExaBGP
    anycast, Kubernetes and Containerlab move from `jauderho/gobgp:v3.37.0` to
    the shared GoBGP v4.10.0 recipe. ExaBGP anycast is done (gate passed
-   2026-10-13 in 106 s); the capability preflight (step 3) is done.
+   2026-10-13 in 106 s); the capability preflight (step 3) is done. The
+   Containerlab image builds GoBGP v4.10.0 (`.8.5.2.7.1`); vendor runs remain.
 5. `gobfd-qj0.8.6.8` — connect-go v2 migration (eligible 2026-10-14; blocked
    by step 1).
 6. `gobfd-qj0.8.6.5` and `gobfd-qj0.8.2.8.5.2.6` — base image digests,

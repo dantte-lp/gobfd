@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Containerlab GoBFD image builds its GoBGP sidecar as v4.10.0 from the
+  shared source pin instead of copying it from
+  `docker.io/jauderho/gobgp:v3.37.0`; a contract test keeps the pins equal.
+  Vendor NOS interoperability on GoBGP v4 is not qualified yet.
 - Refreshed base images: `debian:trixie-slim` index `a29215f6` (Debian 13.7,
   `trixie-20261005`) for every first-party recipe, `haproxy:3.4.6-trixie`
   (3.4.4-3.4.6 bug fixes, including BUG/MAJOR QUIC, H3 and HTX fixes) and

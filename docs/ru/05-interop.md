@@ -574,8 +574,9 @@ go run ./test/cmd/clabbootstrap --dry-run
 - **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar,
   run-owned ссылкой `localhost/gobfd-clab:<run-id>` и точным image ID.
-  Sidecar берётся из `docker.io/jauderho/gobgp:v3.37.0`, который несовместим
-  с GoBFD в `dev` до миграции в Beads `gobfd-qj0.8.2.8.5.2.7`
+  Sidecar — GoBGP v4.10.0, собранный из того же source pin, что и
+  `test/interop/gobgp`; контрактный тест поддерживает совпадение pin.
+  Совместимость с vendor NOS на GoBGP v4 ещё не квалифицирована
 - **Отчёт об инвентаризации**: итоговый список образов со статусом готовности
 
 Выполните `make interop-clab-bootstrap ARGS=--help` для просмотра всех опций.

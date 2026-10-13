@@ -180,11 +180,6 @@ func publicImages(tags ImageTags, frrReference string) []imageReference {
 		{name: "vyos", reference: "docker.io/muruu1/vyos:" + tags.VyOS},
 		{name: "frr", reference: frrReference},
 		{
-			name: "gobgp",
-			reference: "docker.io/jauderho/gobgp:v3.37.0@sha256:" +
-				"3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37",
-		},
-		{
 			name: "golang",
 			reference: "docker.io/library/golang:1.27.2-trixie@sha256:" +
 				"47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e",

@@ -27,6 +27,10 @@
 
 ### Изменено
 
+- Образ GoBFD для Containerlab собирает sidecar GoBGP v4.10.0 из общего
+  source pin вместо копирования из `docker.io/jauderho/gobgp:v3.37.0`;
+  контрактный тест поддерживает совпадение pin. Совместимость с vendor NOS на
+  GoBGP v4 ещё не квалифицирована.
 - Обновлены базовые образы: индекс `debian:trixie-slim` `a29215f6` (Debian
   13.7, `trixie-20261005`) во всех собственных рецептах, `haproxy:3.4.6-trixie`
   (исправления 3.4.4-3.4.6, включая BUG/MAJOR в QUIC, H3 и HTX) и

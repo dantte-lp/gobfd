@@ -577,8 +577,9 @@ The command handles:
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar, using a
   run-owned `localhost/gobfd-clab:<run-id>` reference and exact image ID. The
-  sidecar comes from `docker.io/jauderho/gobgp:v3.37.0`, which is incompatible
-  with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.7` migrates it
+  sidecar is GoBGP v4.10.0 built from the same source pin as
+  `test/interop/gobgp`; a contract test keeps both pins identical. Vendor
+  interoperability on GoBGP v4 is not qualified yet
 - **Inventory report**: final list of all images with ready/missing status
 
 Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,

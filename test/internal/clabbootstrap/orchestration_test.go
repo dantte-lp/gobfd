@@ -79,8 +79,8 @@ func TestRunKeepsOwnedAndVendorPhasesInGo(t *testing.T) {
 			t.Errorf("owned phase invokes Python directly: %q", command.Arguments)
 		}
 	}
-	if pulls != 7 {
-		t.Errorf("public image pulls = %d, want 7", pulls)
+	if pulls != 6 {
+		t.Errorf("public image pulls = %d, want 6", pulls)
 	}
 	if builds != 1 {
 		t.Errorf("GoBFD image builds = %d, want 1", builds)

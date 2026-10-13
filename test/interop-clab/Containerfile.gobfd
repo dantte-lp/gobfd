@@ -10,7 +10,18 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
     -o /bin/gobfdctl ./cmd/gobfdctl
 
-FROM docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37 AS gobgp
+# GoBGP v4.10.0 from the same immutable source pin as test/interop/gobgp;
+# the topology contract test keeps both pins identical.
+FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS gobgp
+ADD --checksum=sha256:755448f0881b66e4a3795b443dd53825431cda1866d8b38e941e474d51714151 \
+    https://codeload.github.com/osrg/gobgp/tar.gz/da824d99912e02124b53741245ee4186c381adcc /tmp/gobgp.tar.gz
+WORKDIR /src
+RUN ["tar", "-xzf", "/tmp/gobgp.tar.gz", "--strip-components=1"]
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local \
+    GOMAXPROCS=2 GOMEMLIMIT=1500MiB GOFLAGS=-p=2
+RUN ["go", "mod", "download"]
+RUN ["go", "mod", "verify"]
+RUN ["go", "build", "-trimpath", "-mod=readonly", "-o", "/out/", "./cmd/gobgp", "./cmd/gobgpd"]
 
 FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
@@ -19,7 +30,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
-COPY --from=gobgp /usr/local/bin/gobgpd /usr/local/bin/gobgp /usr/local/bin/
+COPY --from=gobgp /out/gobgpd /out/gobgp /usr/local/bin/
 
 EXPOSE 3784/udp 4784/udp 50051 50052 179
 
