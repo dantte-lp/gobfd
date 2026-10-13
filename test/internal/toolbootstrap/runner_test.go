@@ -111,8 +111,10 @@ func TestRemoveComposeTemporaryRefusesReplacement(t *testing.T) {
 	if statErr != nil {
 		t.Fatalf("stat original provider: %v", statErr)
 	}
-	if removeErr := os.Remove(path); removeErr != nil {
-		t.Fatalf("remove original provider: %v", removeErr)
+	// Keep the original inode alive: after a plain remove, XFS may hand the
+	// same inode number to the replacement and os.SameFile would match.
+	if renameErr := os.Rename(path, path+".original"); renameErr != nil {
+		t.Fatalf("move original provider aside: %v", renameErr)
 	}
 	if writeErr := os.WriteFile(path, []byte("replacement"), 0o600); writeErr != nil {
 		t.Fatalf("write replacement provider: %v", writeErr)
