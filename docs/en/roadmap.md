@@ -63,12 +63,13 @@ Status of the first stack-currency queue (end of 2026-10-13, `dev` at
 Ordered P0 queue from 2026-10-14:
 
 1. `gobfd-qj0.8.6.8` — connect-go v2 migration (eligible 2026-10-14).
-2. `gobfd-0dc` — supported GoBGP version statement and PR `#62` disposition.
+2. `gobfd-0dc` — done (`1381879`): supported GoBGP version statement; PR `#62`
+   is superseded, closing it needs maintainer approval.
 3. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe,
    containerlab v0.81.0 (from 2026-10-18), SR Linux 26.7.2; vendor runs need
    a host with containerlab and vendor images.
-4. `gobfd-qj0.8.2.8.5.2.6` — Prometheus v3.15.0 and Grafana 13.2.4 (from
-   2026-10-20) on trixie artifacts.
+4. `gobfd-qj0.8.2.8.5.2.6` — done (`5cf77e9`): Prometheus v3.15.0, Grafana
+   13.2.4 (security exception) and FRR on trixie; gate passed in 172.77 s.
 5. Second passes by eligibility: `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.5`,
    `.8.6.6` (BIRD v3.4.0, ExaBGP 5.0.14).
 6. `gobfd-qj0.8.6.1` — manual Compose requalification on GoBGP v4, after the
