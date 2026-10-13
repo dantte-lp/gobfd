@@ -112,6 +112,12 @@
   6603, 6604, 6605, 6607, 6608, 6610, 6611, 6612, 6613 и 6617. Все потребители
   `golang:1.27.2-trixie` используют один index digest. GO-2026-4736 обрабатывается миграцией на
   GoBGP v4 и записью allowlist на уровне модуля.
+- Runtime-модули обновлены с учётом правила возраста релиза семь дней:
+  `google.golang.org/grpc` v1.84.0, `github.com/knadh/koanf/v2` v2.3.7,
+  `github.com/prometheus/client_model` v0.6.3, `github.com/moby/moby/api`
+  v1.56.1, `github.com/moby/moby/client` v0.6.1 и сгенерированный модуль
+  protovalidate 20260825. koanf v2.3.8, client_golang v1.25.0, moby client
+  v0.6.2 и dbus v5.2.4 последуют с дат допуска.
 
 ## [0.6.4] - 2026-08-27
 

@@ -76,10 +76,12 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 | GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
 | connect-go | Go module | v1.20.0 | v2.0.0 (v1.21.0 on v1) | 2026-10-14 | `.8.6.8` |
 | grpchealth | Go module | v1.5.0 | v2.0.0 | 2026-10-14 | `.8.6.8` |
-| grpc-go | Go module | v1.83.2 | v1.84.0 | now | `.8.6.2` |
-| koanf/v2 | Go module | v2.3.6 | v2.3.8 | now | `.8.6.2` |
-| client_golang | Go module | v1.24.1 | v1.25.0 | now | `.8.6.2` |
-| moby api / client | Go module | v1.55.0 / v0.5.1 | v1.56.1 / v0.6.2 | now | `.8.6.2` |
+| grpc-go | Go module | v1.84.0 | v1.84.0 | current | done |
+| koanf/v2 | Go module | v2.3.7 | v2.3.8 | 2026-10-14 | `.8.6.2` |
+| client_golang | Go module | v1.24.1 | v1.25.0 | 2026-10-15 | `.8.6.2` |
+| client_model | Go module | v0.6.3 | v0.6.3 | current | done |
+| godbus/dbus/v5 | Go module | v5.2.2 | v5.2.4 | 2026-10-20 | `.8.6.2` |
+| moby api / client | Go module | v1.56.1 / v0.6.1 | v1.56.1 / v0.6.2 | 2026-10-15 | `.8.6.2` |
 | golangci-lint | tools module | v2.13.1 | v2.14.0 | now | `.8.6.3` |
 | govulncheck | Go module | v1.7.0 | v1.9.0 | now | `.8.6.3` |
 | osv-scanner | GitHub release | v2.5.1 | v2.7.0 | 2026-10-19 | `.8.6.3` |
