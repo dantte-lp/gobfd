@@ -49,7 +49,7 @@
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Application integration частичная** | State delivery и actuator convergence не завершены; penalty dampening является implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784 с TTL>=254 допускает не более одного промежуточного router; arbitrary-hop qualification не завершена |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
-| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v3 отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
+| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v4, как и v3, отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Пустой prefix policy принимает любой source, неположительный session limit не ограничен |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
@@ -220,7 +220,7 @@ RFC 7419 определяет набор общих интервалов BFD д�
 Реализация: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
 
 RFC 9384 требует Cease NOTIFICATION subcode 10 ("BFD Down") при разрыве BGP
-из-за BFD. GoBGP v3 не позволяет выбрать subcode через `DisablePeer`: текущая
+из-за BFD. GoBGP v4, как и v3, не позволяет выбрать subcode через `DisablePeer`: текущая
 интеграция отправляет Administrative Shutdown (Cease/2), а строка
 `"BFD Down (RFC 9384 Cease/10): diag=..."` служит только для операторской
 корреляции. Поэтому wire-соответствие RFC 9384 не реализовано.

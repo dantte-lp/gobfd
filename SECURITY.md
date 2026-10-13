@@ -66,37 +66,51 @@ network. Security-relevant areas include:
 
 ### GO-2026-4736 — GoBGP NEXT_HOP denial of service
 
-`github.com/osrg/gobgp/v3 v3.37.0` is affected by
-[GO-2026-4736](https://pkg.go.dev/vuln/GO-2026-4736), a denial-of-service
-advisory in GoBGP's handling of the BGP NEXT_HOP path attribute. As of
-2026-08-20, the advisory does not list a fixed GoBGP v3 version.
+[GO-2026-4736](https://pkg.go.dev/vuln/GO-2026-4736) (`CVE-2026-30405`,
+`GHSA-4p9m-8gc4-rw2h`) is a denial-of-service advisory in GoBGP's handling of
+the BGP NEXT_HOP path attribute.
 
-GoBFD uses GoBGP only for the optional GoBGP integration path. Until an upstream
-fix is available, operators should keep the GoBGP gRPC endpoint bound to
-localhost or another trusted management network. For remote GoBGP API endpoints,
-enable `gobgp.tls.enabled` and configure `gobgp.tls.ca_file` / `server_name`.
-Do not expose plaintext GoBGP gRPC to untrusted peers.
+On `dev`, GoBFD uses `github.com/osrg/gobgp/v4 v4.10.0` and imports only
+`github.com/osrg/gobgp/v4/api`. GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched
+(upstream commit `583080a`). The Go vulnerability database lists no fixed
+GoBGP v4 version but limits the advisory to the symbol
+`fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`, which
+GoBFD does not import. Strict `govulncheck` reports no reachable finding;
+module-level `osv-scanner` still reports the advisory. By maintainer decision
+of 2026-10-13, `scripts/vuln-audit.go` accepts only that module-level finding
+for the exact `github.com/osrg/gobgp/v4` module (`ModuleOnly`); a reachable
+symbol fails the audit. The entry expires on 2026-12-31.
 
-The allowlist entry expires on 2026-09-30. Remove it after upgrading GoBGP to a
-fixed release.
+`release/v0.6` keeps `github.com/osrg/gobgp/v3 v3.37.0`, which has no fixed
+GoBGP v3 version. By maintainer decision of 2026-10-13, the v0.6 line accepts
+this risk until 2026-12-31 as a support boundary, with the mitigation that the
+GoBGP API is exposed only on localhost or a trusted management network.
+Delivery of this decision to the stable branch is tracked by Beads
+`gobfd-qj0.8.1.16.4` and is not done.
+
+GoBFD uses GoBGP only for the optional GoBGP integration path. Keep the GoBGP
+gRPC endpoint bound to localhost or another trusted management network. For
+remote GoBGP API endpoints, enable `gobgp.tls.enabled` and configure
+`gobgp.tls.ca_file` / `server_name`. Do not expose plaintext GoBGP gRPC to
+untrusted peers.
 
 ### GO-2026-5932 — x/crypto/openpgp denial of service
 
-`golang.org/x/crypto v0.56.0` is reported at module level for
+`golang.org/x/crypto v0.58.0` is reported at module level for
 [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932). The advisory affects the
-unmaintained `golang.org/x/crypto/openpgp` package, which is absent from GoBFD's
-build dependency graph.
+unmaintained `golang.org/x/crypto/openpgp` package, which is absent from the
+runtime and tools build dependency graphs (`go list -deps`).
 
-The module-inventory exception expires on 2026-09-30. It accepts only findings
+The module-inventory exception expires on 2026-12-31. It accepts only findings
 for the exact `golang.org/x/crypto` module from `govulncheck` or `osv-scanner`.
 A reachable symbol, an `openpgp` package finding, a package mismatch, or an
 unknown scanner fails the audit. Do not add an `openpgp` import; remove the
 exception when the module no longer produces the inventory finding.
 
-CI allowlists only `GO-2026-4736` and the module-only `GO-2026-5932` exception
-in `scripts/vuln-audit.go`. Any other advisory, expired entry, package mismatch,
-unknown scanner, or disallowed reachability reported by the scanners fails the
-vulnerability audit.
+CI allowlists only the module-only `GO-2026-4736` and `GO-2026-5932`
+exceptions in `scripts/vuln-audit.go`. Any other advisory, expired entry,
+package mismatch, unknown scanner, or disallowed reachability reported by the
+scanners fails the vulnerability audit.
 
 CI scans `go.mod` and the isolated `tools/go.mod` as separate OSV inputs. It
 retains raw runtime/tools vulnerability JSON and separate CycloneDX SBOMs in

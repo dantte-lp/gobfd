@@ -49,7 +49,7 @@
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Application integration partial** | State delivery and actuator convergence remain incomplete; penalty dampening is implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784 with TTL>=254 permits at most one intermediate router; arbitrary-hop qualification is pending |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
-| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Not implemented** | GoBGP v3 emits Cease/2; the Cease/10 text is only an operator annotation |
+| [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Not implemented** | GoBGP v4 (like v3) emits Cease/2; the Cease/10 text is only an operator annotation |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Empty prefix policy accepts any source and nonpositive session limits are unbounded |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
@@ -262,7 +262,7 @@ RFC 9384 defines Cease NOTIFICATION subcode 10 ("BFD Down") for BGP sessions tor
 | NOTIFICATION on BFD failure | `DisablePeer` emits Administrative Shutdown (Cease/2) |
 | Diagnostic context | BFD `Diag` code included in the communication string |
 
-GoBGP v3 does not expose per-subcode control in its `DisablePeer` API. The
+GoBGP v4, like v3, does not expose per-subcode control in its `DisablePeer` API. The
 current integration therefore does not implement RFC 9384: it sends Cease
 subcode 2 and places `"BFD Down (RFC 9384 Cease/10): diag=..."` in the RFC 8203
 administrative communication field for operator correlation. Full compliance

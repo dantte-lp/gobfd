@@ -33,33 +33,49 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 
 ---
 
-## osrg/gobgp/v3 — High Risk
+## osrg/gobgp — High Risk
 
 | Field | Value |
 |-------|-------|
-| **Module** | `github.com/osrg/gobgp/v3 v3.37.0` |
+| **Module on `dev`** | `github.com/osrg/gobgp/v4 v4.10.0`; only `github.com/osrg/gobgp/v4/api` is imported |
+| **Module on `release/v0.6`** | `github.com/osrg/gobgp/v3 v3.37.0` |
 | **Used in** | `internal/gobgp/` — optional GoBGP integration |
 | **Known advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
 | **Risk level** | High |
 | **Allowlist owner** | `maintainers` |
-| **Review deadline** | `2026-09-30` |
+| **Review deadline** | `2026-12-31` |
 
 ### Description
 
 GoBGP is affected by a denial-of-service advisory in BGP NEXT_HOP path
-attribute handling. As of 2026-08-20, the Go vulnerability database does not
-list a fixed version.
+attribute handling. GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched (upstream
+commit `583080a`). The Go vulnerability database lists no fixed GoBGP v4
+version and limits the advisory to the symbol `fsmHandler.recvMessageloop` in
+`github.com/osrg/gobgp/v4/pkg/server`, which GoBFD does not import. On `dev`,
+strict `govulncheck@v1.7.0 ./...` reports no reachable vulnerability;
+module-level `osv-scanner` still reports the advisory.
+
+GoBGP v3 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two
+are wire-incompatible. GoBFD on `dev` requires a GoBGP v4 daemon. GoBGP v3.37.0
+on `release/v0.6` has no fixed version.
 
 ### Mitigation
 
 1. **Bounded exposure**: The GoBGP path is optional and should connect only to a
    GoBGP gRPC endpoint on localhost or a trusted management network.
-2. **Controlled CI allowlist**: the `GO-2026-4736` entry includes owner,
-   expiry, reason, and mitigation and accepts only findings under the exact
-   GoBGP v3 module path. Any package mismatch, unknown scanner, additional
-   advisory, or expired allowlist entry fails CI.
-3. **Upgrade trigger**: Remove the allowlist entry after upstream publishes a
-   fixed GoBGP release and `go mod tidy` moves the module to that version.
+2. **Controlled CI allowlist on `dev`**: by maintainer decision of 2026-10-13,
+   the `GO-2026-4736` entry is `ModuleOnly` for the exact
+   `github.com/osrg/gobgp/v4` module and includes owner, expiry, reason, and
+   mitigation. A reachable symbol, package mismatch, unknown scanner,
+   additional advisory, or expired allowlist entry fails CI.
+3. **`release/v0.6` risk acceptance**: by maintainer decision of 2026-10-13,
+   the v0.6 line accepts the GoBGP v3.37.0 risk until 2026-12-31 as a support
+   boundary, with the GoBGP API on localhost or a trusted management network
+   only. Delivery to the stable branch is tracked by Beads
+   `gobfd-qj0.8.1.16.4`.
+4. **Removal trigger**: remove the `dev` allowlist entry when the Go
+   vulnerability database lists a fixed GoBGP v4 version that `go.mod` uses, or
+   when `osv-scanner` no longer reports the advisory.
 
 ---
 
@@ -67,11 +83,11 @@ list a fixed version.
 
 | Field | Value |
 |-------|-------|
-| **Module** | `golang.org/x/crypto v0.56.0` (indirect) |
+| **Module** | `golang.org/x/crypto v0.58.0` (indirect) |
 | **Affected package** | `golang.org/x/crypto/openpgp` (absent from the build graph) |
 | **Known advisory** | `GO-2026-5932` |
 | **Allowlist mode** | Exact-module inventory findings only |
-| **Review deadline** | `2026-09-30` |
+| **Review deadline** | `2026-12-31` |
 
 ### Mitigation
 

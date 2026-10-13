@@ -17,9 +17,12 @@ FRR announces `10.20.0.0/24` to GoBGP. GoBFD monitors FRR with a single-hop
 BFD session and uses the GoBGP integration strategy `disable-peer` when the
 session goes Down.
 
-FRR 10.7.1 and GoBGP v3.37.0 use the shared Debian trixie recipes in
-`test/interop/frr/` and `test/interop/gobgp/`. GoBGP v3 is the compatibility
-line, not the latest upstream major. Builds are limited to 2 CPUs and 2 GiB;
+FRR 10.7.1 and GoBGP v4.10.0 use the shared Debian trixie recipes in
+`test/interop/frr/` and `test/interop/gobgp/`. GoBGP v4.10.0 is built from
+upstream commit `da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.2.
+GoBFD on `dev` requires a GoBGP v4 daemon; a GoBGP v3 daemon is
+wire-incompatible. GoBGP v4 native BFD is disabled by default and is not
+enabled in this example. Builds are limited to 2 CPUs and 2 GiB;
 each runtime container is limited to 1 CPU, 256 MiB and 128 PIDs.
 
 ## RFC Baseline

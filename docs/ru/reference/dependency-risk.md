@@ -33,34 +33,51 @@
 
 ---
 
-## osrg/gobgp/v3 — Высокий риск
+## osrg/gobgp — Высокий риск
 
 | Поле | Значение |
 |------|----------|
-| **Модуль** | `github.com/osrg/gobgp/v3 v3.37.0` |
+| **Модуль в `dev`** | `github.com/osrg/gobgp/v4 v4.10.0`; импортируется только `github.com/osrg/gobgp/v4/api` |
+| **Модуль в `release/v0.6`** | `github.com/osrg/gobgp/v3 v3.37.0` |
 | **Используется в** | `internal/gobgp/` — опциональная интеграция GoBGP |
 | **Известный advisory** | `GO-2026-4736` / `CVE-2026-30405` / `GHSA-4p9m-8gc4-rw2h` |
 | **Уровень риска** | Высокий |
 | **Владелец allowlist** | `maintainers` |
-| **Срок пересмотра** | `2026-09-30` |
+| **Срок пересмотра** | `2026-12-31` |
 
 ### Описание
 
 GoBGP затронут denial-of-service advisory в обработке BGP path attribute
-NEXT_HOP. По состоянию на 2026-08-20 база Go vulnerability database не указывает
-исправленную версию.
+NEXT_HOP. GHSA-4p9m-8gc4-rw2h указывает v4.4.0 как исправленную версию
+(upstream commit `583080a`). Go vulnerability database не указывает
+исправленную версию GoBGP v4 и ограничивает advisory символом
+`fsmHandler.recvMessageloop` в `github.com/osrg/gobgp/v4/pkg/server`, который
+GoBFD не импортирует. В `dev` строгий `govulncheck@v1.7.0 ./...` не
+обнаруживает достижимых уязвимостей; `osv-scanner` на уровне модуля
+по-прежнему сообщает advisory.
+
+GoBGP v3 обслуживает `/apipb.GobgpApi`, v4 — `/api.GoBgpService`; они
+несовместимы по wire. GoBFD в `dev` требует демон GoBGP v4. Для GoBGP v3.37.0
+в `release/v0.6` исправленной версии нет.
 
 ### Митигация
 
 1. **Ограниченная экспозиция**: путь GoBGP является опциональным и должен
    подключаться только к GoBGP gRPC endpoint на localhost или в доверенной
    management-сети.
-2. **Контролируемый CI allowlist**: запись `GO-2026-4736` содержит owner,
-   expiry, reason и mitigation и принимает только findings внутри точного пути
-   модуля GoBGP v3. Package mismatch, неизвестный scanner, дополнительный
+2. **Контролируемый CI allowlist в `dev`**: по решению maintainer от
+   2026-10-13 запись `GO-2026-4736` имеет режим `ModuleOnly` для точного модуля
+   `github.com/osrg/gobgp/v4` и содержит owner, expiry, reason и mitigation.
+   Reachable symbol, package mismatch, неизвестный scanner, дополнительный
    advisory или expired allowlist entry ломает CI.
-3. **Триггер обновления**: удалить allowlist-запись после публикации
-   исправленного релиза GoBGP и обновления модуля через `go mod tidy`.
+3. **Принятие риска в `release/v0.6`**: по решению maintainer от 2026-10-13
+   линия v0.6 принимает риск GoBGP v3.37.0 до 2026-12-31 как границу
+   поддержки при условии, что GoBGP API доступен только на localhost или в
+   доверенной management-сети. Поставка в stable-ветку отслеживается в Beads
+   `gobfd-qj0.8.1.16.4`.
+4. **Триггер удаления**: удалить allowlist-запись в `dev`, когда Go
+   vulnerability database укажет исправленную версию GoBGP v4, используемую в
+   `go.mod`, или когда `osv-scanner` перестанет сообщать advisory.
 
 ---
 
@@ -68,11 +85,11 @@ NEXT_HOP. По состоянию на 2026-08-20 база Go vulnerability data
 
 | Поле | Значение |
 |------|----------|
-| **Модуль** | `golang.org/x/crypto v0.56.0` (непрямая зависимость) |
+| **Модуль** | `golang.org/x/crypto v0.58.0` (непрямая зависимость) |
 | **Затронутый пакет** | `golang.org/x/crypto/openpgp` (отсутствует в build graph) |
 | **Известный advisory** | `GO-2026-5932` |
 | **Режим allowlist** | Только inventory findings точного модуля |
-| **Срок пересмотра** | `2026-09-30` |
+| **Срок пересмотра** | `2026-12-31` |
 
 ### Митигация
 

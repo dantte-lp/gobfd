@@ -250,7 +250,7 @@ make interop-logs
 
 ## Полноцикловое тестирование BGP+BFD
 
-![GoBGP](https://img.shields.io/badge/GoBGP-v3-00ADD8?style=for-the-badge)
+![GoBGP](https://img.shields.io/badge/GoBGP-v4-00ADD8?style=for-the-badge)
 ![FRR](https://img.shields.io/badge/FRR-BGP+BFD-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-BGP+BFD-28a745?style=for-the-badge)
 ![ExaBGP](https://img.shields.io/badge/ExaBGP-5.0-6f42c1?style=for-the-badge)
@@ -310,17 +310,20 @@ graph LR
 
 **BGP на trixie локально квалифицирован** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
 Согласованная замена использует общие рецепты FRR, GoBGP и ExaBGP в
-`test/interop/`. GoBGP сохраняет v3.37.0 для текущего контракта пира и
-собирается из закреплённого upstream commit с Go 1.27.2 на trixie;
-это не обновление на upstream v4. Внешний ExaBGP 5.0.13 использует системный
+`test/interop/`. GoBGP v4.10.0 собирается из upstream commit
+`da824d99912e02124b53741245ee4186c381adcc` с Go 1.27.2 на trixie. GoBGP v3
+обслуживает `/apipb.GobgpApi`, v4 — `/api.GoBgpService`; они несовместимы по
+wire, поэтому GoBFD в `dev` требует демон GoBGP v4. Нативный BFD в GoBGP v4
+по умолчанию выключен, и ни одна конфигурация GoBGP в репозитории его не
+включает. Внешний ExaBGP 5.0.13 использует системный
 Python trixie и native entrypoint `python3 -m exabgp`, без pip, uv, собственного
 launcher и Python-исходников репозитория. Его
 [закреплённый upstream manifest](https://github.com/Exa-Networks/exabgp/blob/edf249571174449f80c72d75eb6933dcabd67f92/pyproject.toml)
 не содержит runtime package dependencies. Оба архива исходников закреплены
 SHA-256. Узкое исключение для runtime ExaBGP не разрешает Python tooling.
 
-На linux/amd64 ручной Compose и полный testcontainers gate пройдены
-2026-09-08; второй занял 200.07 секунды. Каждый выполнил все четыре
+С GoBGP v3.37.0 на linux/amd64 ручной Compose и полный testcontainers gate
+пройдены 2026-09-08; второй занял 200.07 секунды. Каждый выполнил все четыре
 существующих race-теста: установление соседства и отказ FRR/BIRD3/ExaBGP,
 отзыв маршрутов и восстановление, без пропусков. Семь контейнеров каждой
 топологии ограничены одним CPU, 256 MiB RAM, без swap и 128 PID; OOM не было.
@@ -330,11 +333,17 @@ SHA-256. Узкое исключение для runtime ExaBGP не разреш
 Это не квалификация arm64, остальных потребителей образов, reload таймеров
 или полного соответствия RFC. Разрешение Debian-пакетов не закреплено
 snapshot; побитовая воспроизводимость итоговых образов не заявляется.
-Смена базы не исправляет известную `GO-2026-4736` в GoBGP v3: строгий
-`govulncheck` runtime по-прежнему её обнаруживает. Исключение
-репозитория истекло 2026-09-30; решение по веткам — Beads `gobfd-qj0.8.4`,
-переход на исправленную v4 остаётся в Beads `.8.2.4`. Изолируйте этих пиров от недоверенных сетей; функциональные
-BGP-тесты и SBOM не означают security-квалификацию.
+Для `GO-2026-4736` в GoBGP v3.37.0 исправления нет; с GoBGP v4.10.0 строгий
+`govulncheck` runtime не обнаруживает достижимых findings, оставшееся
+исключение на уровне модуля описано в [SECURITY.md](../../SECURITY.md).
+Изолируйте этих пиров от недоверенных сетей; функциональные BGP-тесты и SBOM
+не означают security-квалификацию.
+
+2026-10-13 на commit `f85ca09` на linux/amd64 testcontainers gate
+`TestBGPBFDTopologyTestcontainers` пройден с GoBGP v4.10.0 за 359.25 секунды:
+все четыре race-подтеста (`AllPeersUp`, FRR, BIRD3, ExaBGP) выполнены без
+пропусков, проверка версии GoBGP вернула 4.10.0, контейнеров не осталось.
+Ручной путь Compose на GoBGP v4 не перезапускался.
 
 ```bash
 # Авторитетный routing aggregate с owned artifacts и cleanup
@@ -345,7 +354,7 @@ make interop-bgp
 ```
 
 Go lifecycle напрямую через Podman provider создаёт статическую сеть,
-оба экземпляра GoBFD, GoBGP v3.37.0, FRR 10.7.1, BIRD 3.3.2, ExaBGP 5.0.13
+оба экземпляра GoBFD, GoBGP v4.10.0, FRR 10.7.1, BIRD 3.3.2, ExaBGP 5.0.13
 и tshark. Он выполняет те же проверки установления сессий, отказа, отзыва
 маршрутов и восстановления, сохраняет непустой packet capture и доказывает
 удаление всех test-owned контейнеров, сети и локально собранных образов.
@@ -437,7 +446,7 @@ graph LR
 | Тест | RFC | Описание | Результат |
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD настроен на 80мс; с `align_intervals: true` интервал должен быть выровнен до 100мс. Верифицируется через tshark-захват поля `DesiredMinTxInterval`. | **PASS** |
-| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. Annotation упоминает Cease/10, но GoBGP v3 отправляет Administrative Shutdown (Cease/2). | **Action path проходит; wire subcode RFC 9384 не реализован** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. Annotation упоминает Cease/10, но `DisablePeer` отправляет Administrative Shutdown (Cease/2): так делает GoBGP v3, а `DisablePeerRequest` в GoBGP v4 по-прежнему содержит только поля `address` и `communication`. Результат action path измерен на GoBGP v3.37.0; на v4 этот gate не перезапускался. | **Action path проходит; wire subcode RFC 9384 не реализован** |
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) инициирует BFD без настроенной сессии GoBFD. Проверяются Up-пакеты и пять секунд стабильности, но не истечение или очистка unsolicited-сессии. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | Echo-сессия GoBFD достигает Up через независимый reflector; пауза и восстановление доказывают обнаружение отказа и возврат сессии. | **PASS** |
 
@@ -448,7 +457,7 @@ graph LR
 
 P0-миграция `.8.5.2.4.2.3` прошла полный локальный linux/amd64
 testcontainers gate 2026-09-08 за 117.50 секунды: все четыре существующих
-race-сценария без пропусков. FRR 10.7.1 и GoBGP v3.37.0 используют общие
+race-сценария без пропусков. FRR 10.7.1 и GoBGP v3.37.0 использовали общие
 рецепты trixie. Пять последовательных сборок ограничены двумя CPU и 2 GiB;
 восемь контейнеров — одним CPU, 256 MiB, без swap и 128 PID.
 OOM не было; удаление точных контейнеров, сети и образов проверено.
@@ -456,8 +465,9 @@ OOM не было; удаление точных контейнеров, сет�
 `reports/e2e/rfc-trixie-20260908/`.
 Прямой Compose lifecycle с фиксированными именами остаётся неподдерживаемым.
 Эта приёмка не квалифицирует arm64, полный wire-контракт RFC 9384,
-истечение unsolicited-сессий или reload таймеров. Существующее исключение
-уязвимости GoBGP v3 выше не изменено; это не чистый security gate.
+истечение unsolicited-сессий или reload таймеров и не является security gate.
+Общий рецепт теперь собирает GoBGP v4.10.0; на GoBGP v4 этот gate не
+перезапускался, поэтому RFC interop на GoBGP v4 не квалифицирован.
 
 Для live-проверки используйте Go-owned Podman lifecycle. Каждая runtime-
 операция разрешается в immutable container ID:
@@ -562,7 +572,9 @@ go run ./test/cmd/clabbootstrap --dry-run
 - **Подготовка образа VyOS**: скачивание `docker.io/muruu1/vyos:latest`, tag как `vyos:latest`; ISO build остаётся fallback
 - **Импорт коммерческих образов**: Arista cEOS (`podman load`); Cisco XRd остаётся deferred до появления operator-provided image
 - **Сборка образа GoBFD**: многоэтапный Containerfile с GoBGP sidecar,
-  run-owned ссылкой `localhost/gobfd-clab:<run-id>` и точным image ID
+  run-owned ссылкой `localhost/gobfd-clab:<run-id>` и точным image ID.
+  Sidecar берётся из `docker.io/jauderho/gobgp:v3.37.0`, который несовместим
+  с GoBFD в `dev` до миграции в Beads `gobfd-qj0.8.2.8.5.2.7`
 - **Отчёт об инвентаризации**: итоговый список образов со статусом готовности
 
 Выполните `make interop-clab-bootstrap ARGS=--help` для просмотра всех опций.

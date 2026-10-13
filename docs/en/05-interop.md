@@ -253,7 +253,7 @@ make interop-logs
 
 ## BGP+BFD Full-Cycle Testing
 
-![GoBGP](https://img.shields.io/badge/GoBGP-v3-00ADD8?style=for-the-badge)
+![GoBGP](https://img.shields.io/badge/GoBGP-v4-00ADD8?style=for-the-badge)
 ![FRR](https://img.shields.io/badge/FRR-BGP+BFD-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-BGP+BFD-28a745?style=for-the-badge)
 ![ExaBGP](https://img.shields.io/badge/ExaBGP-5.0-6f42c1?style=for-the-badge)
@@ -313,9 +313,12 @@ Each scenario tests three phases:
 
 **BGP trixie qualification passed locally** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
 The approved replacement uses shared recipes under `test/interop/` for FRR,
-GoBGP and ExaBGP. GoBGP retains v3.37.0 for the existing peer contract and is
-built from its pinned upstream commit with Go 1.27.2 on trixie; this is not
-an upgrade to the upstream v4 line. External ExaBGP 5.0.13 uses trixie's system
+GoBGP and ExaBGP. GoBGP v4.10.0 is built from upstream commit
+`da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.2 on trixie. GoBGP v3
+serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
+wire-incompatible, so `dev` GoBFD requires a GoBGP v4 daemon. GoBGP v4 native
+BFD is disabled by default, and no repository GoBGP configuration enables it.
+External ExaBGP 5.0.13 uses trixie's system
 Python and its native `python3 -m exabgp` entrypoint, without pip, uv, a custom
 launcher or repository-owned Python source. Its
 [pinned upstream manifest](https://github.com/Exa-Networks/exabgp/blob/edf249571174449f80c72d75eb6933dcabd67f92/pyproject.toml)
@@ -323,23 +326,29 @@ declares no runtime package dependencies. Both source archives are SHA-256
 pinned. This narrowly scoped ExaBGP runtime exception does not permit Python
 development tooling.
 
-On linux/amd64, manual Compose and the complete testcontainers gate passed
-on 2026-09-08; the latter took 200.07 seconds. Both ran all four existing
-race-enabled BGP tests: peer establishment and FRR/BIRD3/ExaBGP failure,
-route withdrawal and recovery, with no skipped tests. Seven containers per
-topology were limited to one CPU, 256 MiB RAM, no swap and 128 PIDs; inspection
-found no OOM kills. Sequential builds were limited to two CPUs and 2 GiB.
-Owned containers, networks and image tags were removed. Logs, PCAPs,
-CycloneDX/SPDX peer SBOMs and the acceptance receipt are retained locally in
-`reports/e2e/bgp-trixie-20260908/`. This does not qualify arm64, remaining image
-consumers, timer reloads or full RFC compliance. Debian package resolution is
-not snapshot-pinned; final images are not claimed to be bit-reproducible.
-Rebasing does not fix GoBGP v3's known `GO-2026-4736`: the strict runtime
-`govulncheck` still reports it. The repository exception expired on
-2026-09-30; the per-branch decision is Beads `gobfd-qj0.8.4`, and fixed-v4
-migration remains in Beads `.8.2.4`. Keep these peers
-isolated from untrusted networks; BGP functionality and SBOMs are not a
-security qualification.
+With GoBGP v3.37.0 on linux/amd64, manual Compose and the complete
+testcontainers gate passed on 2026-09-08; the latter took 200.07 seconds.
+Both ran all four existing race-enabled BGP tests: peer establishment and
+FRR/BIRD3/ExaBGP failure, route withdrawal and recovery, with no skipped
+tests. Seven containers per topology were limited to one CPU, 256 MiB RAM,
+no swap and 128 PIDs; inspection found no OOM kills. Sequential builds were
+limited to two CPUs and 2 GiB. Owned containers, networks and image tags were
+removed. Logs, PCAPs, CycloneDX/SPDX peer SBOMs and the acceptance receipt
+are retained locally in `reports/e2e/bgp-trixie-20260908/`. This does not
+qualify arm64, remaining image consumers, timer reloads or full RFC
+compliance. Debian package resolution is not snapshot-pinned; final images are
+not claimed to be bit-reproducible.
+GoBGP v3.37.0 has no fix for `GO-2026-4736`; on GoBGP v4.10.0 the strict
+runtime `govulncheck` reports no reachable finding, and the remaining
+module-level exception is described in [SECURITY.md](../../SECURITY.md).
+Keep these peers isolated from untrusted networks; BGP functionality and SBOMs
+are not a security qualification.
+
+On 2026-10-13, at commit `f85ca09` on linux/amd64, the testcontainers gate
+`TestBGPBFDTopologyTestcontainers` passed with GoBGP v4.10.0 in 359.25
+seconds: all four race-enabled subtests (`AllPeersUp`, FRR, BIRD3, ExaBGP)
+ran without skips, the GoBGP version assertion reported 4.10.0, and no
+containers remained. The manual Compose path was not rerun on GoBGP v4.
 
 ```bash
 # Authoritative routing aggregate with owned artifacts and cleanup
@@ -350,7 +359,7 @@ make interop-bgp
 ```
 
 The Go lifecycle creates the static network, both GoBFD instances, GoBGP
-v3.37.0, FRR 10.7.1, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
+v4.10.0, FRR 10.7.1, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
 the Podman provider. It runs the same establish, failure, route-withdrawal, and
 recovery assertions, saves a non-empty packet capture, and proves removal of
 all test-owned containers, network, and locally built images.
@@ -440,7 +449,7 @@ graph LR
 | Test | RFC | Description | Result |
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD configures 80ms timers; with `align_intervals: true`, negotiated interval should be aligned to 100ms. Verified via tshark capture of `DesiredMinTxInterval` field on the wire. | **PASS** |
-| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. The annotation mentions Cease/10, but GoBGP v3 emits Administrative Shutdown (Cease/2). | **Action path passes; RFC 9384 wire subcode not implemented** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. The annotation mentions Cease/10, but `DisablePeer` sends Administrative Shutdown (Cease/2): GoBGP v3 emits it, and the GoBGP v4 `DisablePeerRequest` still has only `address` and `communication` fields. The action-path result was measured on GoBGP v3.37.0; this gate was not rerun on v4. | **Action path passes; RFC 9384 wire subcode not implemented** |
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) initiates BFD with no configured GoBFD session. The test verifies Up packets and five seconds of stability; it does not test unsolicited-session expiry or cleanup. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | GoBFD echo reaches Up through the independent reflector; pause and recovery prove echo failure detection and restoration. | **PASS** |
 
@@ -452,15 +461,16 @@ not inspect or prove Cease subcode 10 on the wire.
 P0 migration `.8.5.2.4.2.3` passed the complete local linux/amd64
 testcontainers gate on 2026-09-08 in 117.50 seconds: all four existing
 race-enabled scenarios passed without skips. FRR 10.7.1 and GoBGP v3.37.0
-use the shared trixie recipes. Five sequential builds have two-CPU / 2 GiB
+used the shared trixie recipes. Five sequential builds have two-CPU / 2 GiB
 limits; all eight containers have one CPU, 256 MiB, no swap and 128 PIDs.
 Inspection found no OOM kills, and exact container/network/image cleanup
 passed. Logs, PCAP, peer CycloneDX/SPDX SBOMs and a JSON acceptance receipt
 are retained in `reports/e2e/rfc-trixie-20260908/`.
 Raw fixed-name Compose lifecycle remains unsupported. This targeted
 acceptance does not qualify arm64, full RFC 9384 wire behavior, unsolicited
-session expiry or timer reloads. The existing GoBGP v3 vulnerability
-exception above remains unchanged; this is not a clean security gate.
+session expiry or timer reloads, and it is not a security gate. The shared
+recipe now builds GoBGP v4.10.0; this gate was not rerun on GoBGP v4, so RFC
+interop on GoBGP v4 is not qualified.
 
 Use the Go-owned Podman lifecycle for live validation. It resolves every
 runtime operation to an immutable container ID:
@@ -565,7 +575,9 @@ The command handles:
 - **VyOS image preparation**: pulls `docker.io/muruu1/vyos:latest`, tags it as `vyos:latest`, and keeps ISO build as fallback
 - **Commercial image import**: Arista cEOS (`podman load`); Cisco XRd remains deferred until an operator-provided image is available
 - **GoBFD image build**: multi-stage Containerfile with GoBGP sidecar, using a
-  run-owned `localhost/gobfd-clab:<run-id>` reference and exact image ID
+  run-owned `localhost/gobfd-clab:<run-id>` reference and exact image ID. The
+  sidecar comes from `docker.io/jauderho/gobgp:v3.37.0`, which is incompatible
+  with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.7` migrates it
 - **Inventory report**: final list of all images with ready/missing status
 
 Run `make interop-clab-bootstrap ARGS=--help` for all options. HTTPS redirects,

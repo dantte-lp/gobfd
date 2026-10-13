@@ -75,8 +75,23 @@ Ordered P0 queue on `dev`:
 2. `gobfd-qj0.8.2.4.3` — first GoBGP v4 slice. It moves the client and every
    GoBGP daemon consumer together, because v3 `/apipb.GobgpApi` and v4
    `/api.GoBgpService` are wire-incompatible. Removes GO-2026-4736 from `dev`.
+   Implemented on branch `task/gobgp-v4-slice` (`f85ca09`) with GoBGP v4.10.0
+   for the client and the shared peer recipe consumers. Local amd64 gates on
+   2026-10-13: `TestBGPBFDTopologyTestcontainers` passed in 359.25 s (four
+   race-enabled subtests, no skips, GoBGP version 4.10.0); BGP fast-failover
+   testcontainers passed in 105.39 s. The RFC gate and manual Compose paths
+   were not rerun. `govulncheck` reports no reachable GO-2026-4736 finding;
+   the module-level finding remains allowlisted (step 3). ExaBGP anycast,
+   Kubernetes and Containerlab remain on GoBGP v3.37.0 images under
+   `gobfd-qj0.8.2.8.5.2.5.2`, `gobfd-qj0.8.2.8.5.2.5.3` and
+   `gobfd-qj0.8.2.8.5.2.7`.
 3. `gobfd-qj0.8.4` — expired allowlist decisions per ID and branch; the `dev`
-   decision for GO-2026-4736 depends on step 2.
+   decision for GO-2026-4736 depends on step 2. Maintainer decisions of
+   2026-10-13: `dev` uses GoBGP v4.10.0 with a `ModuleOnly` GO-2026-4736 entry
+   for `github.com/osrg/gobgp/v4`, and the GO-2026-5932 `ModuleOnly` entry is
+   renewed, both until 2026-12-31; `release/v0.6` accepts GO-2026-4736 on GoBGP
+   v3.37.0 until 2026-12-31 with the GoBGP API on localhost or a trusted
+   management network only, delivered separately in `gobfd-qj0.8.1.16.4`.
 4. `gobfd-qj0.8.2.1.1.1.4.3` — live timer reload qualification against FRR
    and BIRD.
 5. `.8.5.2.5.2`, `.8.5.2.5.3`, `.8.5.2.6`, `.8.5.2.7`, `.8.5.2.8` — remaining

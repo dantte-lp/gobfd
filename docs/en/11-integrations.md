@@ -39,6 +39,13 @@ All stacks use **podman compose** with OCI containers and include a **tshark** s
 | 4 | ExaBGP Anycast | GoBFD + ExaBGP + GoBGP | 172.24.0.0/24 | `gobfd-exabgp-bridge` |
 | 5 | Kubernetes DaemonSet | GoBFD + GoBGP + k3s | Host network | K8s manifests |
 
+GoBFD on `dev` uses the GoBGP v4 API and requires a GoBGP v4 daemon: GoBGP v3
+`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. The ExaBGP
+Anycast and Kubernetes stacks still use `docker.io/jauderho/gobgp:v3.37.0` and
+are incompatible with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.5.2`
+(ExaBGP Anycast) and `gobfd-qj0.8.2.8.5.2.5.3` (Kubernetes) migrate them.
+They are not qualified.
+
 ---
 
 ## BGP Fast Failover
@@ -50,9 +57,14 @@ BFD Down triggers BGP peer disable, causing immediate route withdrawal instead o
 Detailed runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
 
 Compose and the Go testcontainers gate reuse the shared Debian trixie FRR
-10.7.1 and GoBGP v3.37.0 recipes. Builds use at most 2 CPUs / 2 GiB; runtime
+10.7.1 and GoBGP v4.10.0 recipes. Builds use at most 2 CPUs / 2 GiB; runtime
 containers use 1 CPU / 256 MiB / 128 PIDs. The automated gate retains exact
 route withdrawal/restoration, packet evidence and owned-resource cleanup.
+On 2026-10-13, at commit `f85ca09` on linux/amd64, the gate
+(`e2ectl bgp-fast-failover`,
+`TestBGPFastFailoverTestcontainers/BFD-driven_route_withdrawal_and_restoration`)
+passed with GoBGP v4.10.0 in 105.39 seconds. The manual Compose path was not
+rerun on GoBGP v4.
 
 The lab uses RFC 5881 single-hop BFD packets on UDP destination port 3784 with
 TTL 255. The example timers are 300 ms transmit, 300 ms receive, and detect

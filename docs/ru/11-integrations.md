@@ -39,6 +39,13 @@ GoBFD интегрируется с системами маршрутизаци�
 | 4 | Anycast через ExaBGP | GoBFD + ExaBGP + GoBGP | 172.24.0.0/24 | `gobfd-exabgp-bridge` |
 | 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Host network | K8s-манифесты |
 
+GoBFD в `dev` использует API GoBGP v4 и требует демон GoBGP v4: GoBGP v3
+`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Стеки
+Anycast через ExaBGP и Kubernetes по-прежнему используют
+`docker.io/jauderho/gobgp:v3.37.0` и несовместимы с GoBFD в `dev` до миграции
+в Beads `gobfd-qj0.8.2.8.5.2.5.2` (Anycast через ExaBGP) и
+`gobfd-qj0.8.2.8.5.2.5.3` (Kubernetes). Они не квалифицированы.
+
 ---
 
 ## Быстрое переключение BGP
@@ -50,9 +57,14 @@ BFD Down инициирует отключение BGP-пира, вызывая 
 Подробный runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
 
 Compose и Go testcontainers gate переиспользуют общие рецепты FRR 10.7.1 и
-GoBGP v3.37.0 на Debian trixie. Лимиты сборок — 2 CPU / 2 GiB, runtime —
+GoBGP v4.10.0 на Debian trixie. Лимиты сборок — 2 CPU / 2 GiB, runtime —
 1 CPU / 256 MiB / 128 PIDs. Автоматический gate сохраняет проверку отзыва
 и восстановления точного маршрута, packet evidence и удаление своих ресурсов.
+2026-10-13 на commit `f85ca09` на linux/amd64 gate
+(`e2ectl bgp-fast-failover`,
+`TestBGPFastFailoverTestcontainers/BFD-driven_route_withdrawal_and_restoration`)
+пройден с GoBGP v4.10.0 за 105.39 секунды. Ручной путь Compose на GoBGP v4
+не перезапускался.
 
 Лабораторный пример использует RFC 5881 single-hop BFD пакеты на UDP
 destination port 3784 с TTL 255. Таймеры примера: transmit 300 ms, receive

@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the GoBGP integration client moved from
+  `github.com/osrg/gobgp/v3` v3.37.0 to `github.com/osrg/gobgp/v4` v4.10.0.
+  GoBGP v3 `/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible:
+  GoBFD from `dev` requires a GoBGP v4 daemon. The shared GoBGP peer recipe
+  builds v4.10.0 for the BGP, RFC, BGP fast-failover E2E and integration
+  consumers; the local amd64 BGP+BFD and BGP fast-failover testcontainers
+  gates pass, while the RFC gate and manual Compose paths are not rerun.
+  ExaBGP anycast, Kubernetes and Containerlab still use GoBGP v3.37.0 images
+  and are incompatible until migrated. `release/v0.6` keeps GoBGP v3.37.0.
 - BGP fast-failover Compose and testcontainers reuse the shared trixie
   FRR 10.7.1 and GoBGP v3.37.0 recipes with capped builds/runtime. Manual
   startup uses the existing ownership-checked controller and forbids implicit

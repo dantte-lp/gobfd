@@ -33,7 +33,7 @@ Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (
   benchmark results are not an end-to-end latency or GC guarantee.
 - **Documented RFC coverage.** The asynchronous RFC 5880 core and several
   extensions are available with explicit partial or preview boundaries. RFC
-  9384 wire subcode 10 is not emitted by the current GoBGP v3 API. See
+  9384 wire subcode 10 is not emitted by the current GoBGP v4 API. See
   [RFC Compliance](docs/en/08-rfc-compliance.md) for the exact matrix.
 - **Operational surfaces.** ConnectRPC/gRPC API, Prometheus metrics,
   structured `slog` logging, systemd integration, and a runtime flight
@@ -137,7 +137,7 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 5882 | Generic Application of BFD | Application integration partial |
 | RFC 5883 | BFD for Multihop Paths | Constrained GTSM profile; arbitrary-hop qualification pending |
 | RFC 7419 | Common Interval Support | Implemented |
-| RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v3 emits Cease/2 |
+| RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v4 emits Cease/2 |
 | RFC 9468 | Unsolicited BFD | Unsafe preview; admission defaults fail open |
 | RFC 9747 | Unaffiliated BFD Echo | Preview |
 | RFC 7130 | Micro-BFD for LAG | Preview; owner integration partial |

@@ -24,6 +24,15 @@
 
 ### Изменено
 
+- **Breaking:** клиент интеграции GoBGP переведён с
+  `github.com/osrg/gobgp/v3` v3.37.0 на `github.com/osrg/gobgp/v4` v4.10.0.
+  GoBGP v3 `/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire:
+  GoBFD из `dev` требует демон GoBGP v4. Общий рецепт пира GoBGP собирает
+  v4.10.0 для потребителей BGP, RFC, BGP fast-failover E2E и интеграции;
+  локальные amd64 testcontainers gates BGP+BFD и BGP fast-failover проходят,
+  RFC gate и ручные пути Compose не перезапускались. ExaBGP anycast,
+  Kubernetes и Containerlab по-прежнему используют образы GoBGP v3.37.0 и
+  несовместимы до миграции. `release/v0.6` сохраняет GoBGP v3.37.0.
 - BGP fast-failover Compose и testcontainers переиспользуют общие рецепты
   FRR 10.7.1 и GoBGP v3.37.0 на trixie с лимитами сборок/runtime. Ручной
   запуск использует существующий контроллер владения ресурсами и запрещает

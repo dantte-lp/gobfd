@@ -11,6 +11,14 @@ the GitHub API and Go vulnerability database on 2026-08-27, it remains the
 latest release and is affected by `GO-2026-4736`. Stable v1 uses the first
 compatible fixed v4 release.
 
+**2026-10-13 amendment (GoBGP target):** the maintainer selected GoBGP
+v4.10.0, the latest release (published 2026-10-04), in place of v4.8.0
+(Beads `gobfd-qj0.8.4`). GoBGP v3 `/apipb.GobgpApi` and v4
+`/api.GoBgpService` are wire-incompatible, so `dev` requires a GoBGP v4
+daemon; `release/v0.6` keeps GoBGP v3.37.0. The `GO-2026-4736` allowlist
+entry on `dev` is `ModuleOnly` for `github.com/osrg/gobgp/v4` and expires on
+2026-12-31; see the GoBGP v4 actuator section.
+
 **Delivery priority:** v1 follows the accepted v0.6.2 maintenance baseline and
 closes the documented RFC compliance and production-quality gaps. Every
 component is revalidated against its delivery channel at the v1 release cut;
@@ -306,6 +314,21 @@ release at the design date. Alpha, beta, and RC validation may carry the same
 exact time-bounded exception as v0.6.2. Stable v1.0.0 is blocked until a
 compatible GoBGP v4 release no longer reports the advisory. Renewing or
 broadening the exception requires a separate explicit maintainer decision.
+
+**2026-10-13 amendment:** the maintainer selected GoBGP v4.10.0 (Beads
+`gobfd-qj0.8.4`); the client builds against it instead of v4.8.0. GoBGP v3
+serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
+wire-incompatible, so a GoBFD built from `dev` requires a GoBGP v4 daemon.
+GoBGP v4 native BFD is disabled by default, and no repository GoBGP
+configuration enables it. GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched; the Go
+vulnerability database lists no fixed v4 version and limits `GO-2026-4736` to
+`fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`, which
+GoBFD does not import. Strict `govulncheck` reports no reachable finding;
+module-level `osv-scanner` still reports the advisory. As the separate
+explicit maintainer decision required above, `scripts/vuln-audit.go` carries a
+`ModuleOnly` entry for the exact `github.com/osrg/gobgp/v4` module that
+expires on 2026-12-31. This amendment does not lift the stable v1.0.0
+condition above.
 
 ## Companion binaries
 
