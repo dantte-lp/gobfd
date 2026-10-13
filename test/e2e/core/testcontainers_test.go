@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	testcontainers "github.com/testcontainers/testcontainers-go"
@@ -1225,7 +1227,8 @@ func (topology *coreTopology) requireSessionUp(t *testing.T, name, peerIP string
 	if !ok {
 		t.Fatalf("topology has no daemon %s", name)
 	}
-	client := bfdv1connect.NewBfdServiceClient(http.DefaultClient, daemon.endpoint)
+	client := bfdv1connect.NewBfdServiceClient(
+		connect.NewClient(connecthttp.NewTransport(http.DefaultClient, daemon.endpoint)))
 	deadline := time.NewTimer(60 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(250 * time.Millisecond)

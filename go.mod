@@ -6,8 +6,8 @@ toolchain go1.27.2
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
-	connectrpc.com/connect v1.20.0
-	connectrpc.com/grpchealth v1.5.0
+	connectrpc.com/connect/v2 v2.0.0
+	connectrpc.com/grpchealth/v2 v2.0.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/knadh/koanf/parsers/yaml v1.1.1

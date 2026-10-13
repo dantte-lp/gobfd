@@ -428,7 +428,7 @@ func TestProtoVerifyRunsFixedCommandsWithChildOnlyPATH(t *testing.T) {
 			name: "go",
 			args: []string{
 				"build", "-modfile=tools/go.mod", "-o", filepath.Join(binDir, "protoc-gen-connect-go"),
-				"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+				"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go",
 			},
 			dir: root,
 		},

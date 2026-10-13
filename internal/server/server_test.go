@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -65,13 +66,14 @@ func setupTestServer(t *testing.T) bfdv1connect.BfdServiceClient {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, nil, logger)
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, nil, logger)
 	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	connecthttp.Mount(mux, rpc)
 
 	srv := httptest.NewTestServer(t, mux)
 
-	return bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 }
 
 // validAddRequest returns a valid AddSessionRequest for testing.
@@ -391,11 +393,12 @@ func TestDeleteSessionReleasesSenderAndSourcePortOnce(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	sf := &countingSenderFactory{}
 
-	path, handler := server.New(mgr, sf, logger)
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, sf, logger)
 	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	connecthttp.Mount(mux, rpc)
 	srv := httptest.NewTestServer(t, mux)
-	client := bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 
 	addResp, err := client.AddSession(context.Background(), validAddRequest())
 	if err != nil {

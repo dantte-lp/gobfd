@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/sync/errgroup"
 
@@ -76,7 +78,7 @@ func run() int {
 	// BFD state tracker: maps peer address to current session state.
 	states := &stateMap{m: make(map[string]bfdv1.SessionState)}
 
-	client := bfdv1connect.NewBfdServiceClient(http.DefaultClient, gobfdAddr)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, gobfdAddr)))
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -138,8 +140,14 @@ func watchEvents(
 		return fmt.Errorf("watch session events: %w", err)
 	}
 
-	for stream.Receive() {
-		msg := stream.Msg()
+	var streamErr error
+	for {
+		msg2, err := stream.Receive()
+		if err != nil {
+			streamErr = err
+			break
+		}
+		msg := msg2
 		if msg.GetSession() == nil {
 			continue
 		}
@@ -154,8 +162,11 @@ func watchEvents(
 			slog.String("event_type", msg.GetType().String()),
 		)
 	}
+	if errors.Is(streamErr, io.EOF) {
+		streamErr = nil
+	}
 
-	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+	if err := streamErr; err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("event stream error: %w", err)
 	}
 	return nil

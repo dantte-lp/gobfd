@@ -1,7 +1,7 @@
 package server
 
 import (
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"

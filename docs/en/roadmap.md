@@ -54,7 +54,7 @@ Status of the first stack-currency queue (end of 2026-10-13, `dev` at
 | 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 wait for 2026-10-16 to 2026-10-19 |
 | 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
 | 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
-| 5 | `.8.6.8` connect-go v2 | Open, eligible 2026-10-14 |
+| 5 | `.8.6.8` connect-go v2 | Done on `task/connect-go-v2`; merge from 2026-10-14 21:04 UTC (grpchealth v2 release age) |
 | 6 | `.8.6.5` base images, `.8.5.2.6` observability | Debian, HAProxy, nginx done (`04df88e`); Oracle Linux from 2026-10-19; observability open |
 | 7 | `.8.6.4` Actions, `.8.6.6` peers | Open; several eligible 2026-10-19 |
 | 8 | `.8.2.4.5`, `gobfd-0dc`, `.8.6.1` | Native BFD preflight done (`f5c6e42`); support statement and manual Compose open |
@@ -62,7 +62,8 @@ Status of the first stack-currency queue (end of 2026-10-13, `dev` at
 
 Ordered P0 queue from 2026-10-14:
 
-1. `gobfd-qj0.8.6.8` — connect-go v2 migration (eligible 2026-10-14).
+1. `gobfd-qj0.8.6.8` — connect-go v2 migration: implemented, merge to `dev`
+   from 2026-10-14 21:04 UTC.
 2. `gobfd-0dc` — done (`1381879`): supported GoBGP version statement; PR `#62`
    is superseded, closing it needs maintainer approval.
 3. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe,
@@ -89,8 +90,8 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 |---|---|---|---|---|---|
 | Go toolchain | go.dev | 1.27.2 | 1.27.2 | current | done |
 | GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
-| connect-go | Go module | v1.20.0 | v2.0.0 (v1.21.0 on v1) | 2026-10-14 | `.8.6.8` |
-| grpchealth | Go module | v1.5.0 | v2.0.0 | 2026-10-14 | `.8.6.8` |
+| connect-go | Go module | v2.0.0 | v2.0.0 | current | done |
+| grpchealth | Go module | v2.0.0 | v2.0.0 | current | done |
 | grpc-go | Go module | v1.84.0 | v1.84.0 | current | done |
 | koanf/v2 | Go module | v2.3.8 | v2.3.8 | current | done |
 | client_golang | Go module | v1.24.1 | v1.25.0 | 2026-10-15 | `.8.6.2` |

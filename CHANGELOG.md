@@ -32,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking for Go consumers of `pkg/bfdpb`:** ConnectRPC moved to
+  connect-go v2.0.0 and grpchealth v2.0.0. `bfdv1connect` is regenerated
+  with `protoc-gen-connect-go` v2.0.0: clients take a `*connect.Client`
+  (`connect.NewClient(connecthttp.NewTransport(httpClient, baseURL))`) and
+  handlers register on a `*connect.Server`. The `bfd.v1` wire protocol is
+  unchanged; a test pins grpc-go, `grpc.health.v1`, Connect and gRPC-Web calls.
+  The daemon, `gobfdctl` and both bridges now apply the connect-go v2
+  default 4 MiB per-message read limit instead of no limit.
+
 - Updated GitHub Actions within the release-age rule to peeled commit SHAs:
   `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,

@@ -863,7 +863,7 @@ func declaredToolModule(id, version string) (moduleLicenseIdentity, bool) {
 		"tool:gotestsum":             "gotest.tools/gotestsum",
 		"tool:govulncheck":           "golang.org/x/vuln",
 		"tool:osv_scanner":           "github.com/google/osv-scanner/v2",
-		"tool:protoc_gen_connect_go": "connectrpc.com/connect",
+		"tool:protoc_gen_connect_go": "connectrpc.com/connect/v2",
 		"tool:protoc_gen_go":         "google.golang.org/protobuf",
 		"tool:syft":                  "github.com/anchore/syft",
 		"tool:trivy":                 "github.com/aquasecurity/trivy",
@@ -891,10 +891,10 @@ func runtimeBaseline(path string) string {
 	switch path {
 	case "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go":
 		return "v1.36.11-20260415201107-50325440f8f2.1"
-	case "connectrpc.com/connect":
-		return "v1.19.2"
-	case "connectrpc.com/grpchealth":
-		return "v1.4.0"
+	case "connectrpc.com/connect/v2":
+		return "connectrpc.com/connect@v1.19.2"
+	case "connectrpc.com/grpchealth/v2":
+		return "connectrpc.com/grpchealth@v1.4.0"
 	case "github.com/knadh/koanf/parsers/yaml":
 		return "v1.1.0"
 	case "github.com/knadh/koanf/v2":

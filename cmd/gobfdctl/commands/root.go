@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"os"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/spf13/cobra"
 
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
@@ -34,9 +36,10 @@ var rootCmd = &cobra.Command{
 	Long:  "gobfdctl communicates with the gobfd daemon via ConnectRPC to manage BFD sessions.",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 		baseURL := "http://" + serverAddr
-		client = bfdv1connect.NewBfdServiceClient(http.DefaultClient, baseURL)
-		echoClient = bfdv1connect.NewEchoServiceClient(http.DefaultClient, baseURL)
-		microClient = bfdv1connect.NewMicroBFDServiceClient(http.DefaultClient, baseURL)
+		rpc := connect.NewClient(connecthttp.NewTransport(http.DefaultClient, baseURL))
+		client = bfdv1connect.NewBfdServiceClient(rpc)
+		echoClient = bfdv1connect.NewEchoServiceClient(rpc)
+		microClient = bfdv1connect.NewMicroBFDServiceClient(rpc)
 
 		return nil
 	},

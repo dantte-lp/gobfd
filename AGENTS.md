@@ -95,7 +95,9 @@ that exact toolchain. Use the official
   never in release artifacts.
 - Use generic methods only on concrete internal types when they remove an
   existing abstraction cost. Do not churn public protobuf APIs or interfaces;
-  interface methods still cannot declare type parameters.
+  interface methods still cannot declare type parameters. Exception: on
+  2026-10-13 the maintainer approved regenerating `pkg/bfdpb` for
+  connect-go v2; the `bfd.v1` wire protocol stays unchanged.
 - Do not adopt experimental `simd` or `simd/archsimd`, and never use `unsafe`.
   Reconsider SIMD only after its API is stable and both linux/amd64 and
   linux/arm64 benchmarks prove a material codec benefit.

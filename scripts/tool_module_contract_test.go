@@ -22,7 +22,7 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
 		"golang.org/x/perf/cmd/benchstat",
 		"gotest.tools/gotestsum",
-		"connectrpc.com/connect/cmd/protoc-gen-connect-go",
+		"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go",
 		"google.golang.org/protobuf/cmd/protoc-gen-go",
 	} {
 		if !strings.Contains(toolsModule, required) {
@@ -63,6 +63,7 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	for _, forbidden := range []string{
 		"go install google.golang.org/protobuf/cmd/protoc-gen-go",
 		"go install connectrpc.com/connect/cmd/protoc-gen-connect-go",
+		"go install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("CI workflow installs generator outside the isolated tools module: %q", forbidden)
@@ -76,7 +77,7 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 		"\"build\", toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-go\")",
 		"\"google.golang.org/protobuf/cmd/protoc-gen-go\"",
 		"\"build\", toolsModuleFlag, \"-o\", filepath.Join(binDir, \"protoc-gen-connect-go\")",
-		"\"connectrpc.com/connect/cmd/protoc-gen-connect-go\"",
+		"\"connectrpc.com/connect/v2/cmd/protoc-gen-connect-go\"",
 	})
 }
 

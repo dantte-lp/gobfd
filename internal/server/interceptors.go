@@ -8,53 +8,45 @@ import (
 	"runtime"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 )
 
 // ErrPanicRecovered indicates an RPC handler panicked and was recovered.
 var ErrPanicRecovered = errors.New("panic recovered in rpc handler")
 
-// LoggingInterceptor returns a ConnectRPC unary interceptor that logs every
-// RPC call with the procedure name, duration, and error (if any).
+// LoggingInterceptor returns a ConnectRPC server interceptor that logs every
+// RPC call with the procedure name, duration, and error (if any). In connect
+// v2 server interceptors wrap unary and streaming calls alike; a streaming
+// call is logged when the stream ends.
 //
 // Log level is Info for successful calls and Warn for calls that return errors.
-func LoggingInterceptor(logger *slog.Logger) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+func LoggingInterceptor(logger *slog.Logger) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
 			start := time.Now()
-			resp, err := next(ctx, req)
-			duration := time.Since(start)
+			err := next(ctx, spec, stream)
 
 			attrs := []slog.Attr{
-				slog.String("procedure", req.Spec().Procedure),
-				slog.Duration("duration", duration),
+				slog.String("procedure", spec.Procedure),
+				slog.Duration("duration", time.Since(start)),
 			}
-
 			if err != nil {
 				attrs = append(attrs, slog.String("error", err.Error()))
 				logger.LogAttrs(ctx, slog.LevelWarn, "rpc completed with error", attrs...)
 			} else {
 				logger.LogAttrs(ctx, slog.LevelInfo, "rpc completed", attrs...)
 			}
-
-			return resp, err
+			return err
 		}
 	}
 }
 
-// LoggingInterceptorOption returns a connect.HandlerOption that installs the
-// logging interceptor. This is a convenience wrapper for use with server.New.
-func LoggingInterceptorOption(logger *slog.Logger) connect.HandlerOption {
-	return connect.WithInterceptors(LoggingInterceptor(logger))
-}
-
-// RecoveryInterceptor returns a ConnectRPC unary interceptor that recovers from
-// panics in RPC handlers. On panic, it logs the panic value and stack trace at
-// Error level and returns a CodeInternal error to the client.
-func RecoveryInterceptor(logger *slog.Logger) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		//nolint:nonamedreturns // Named returns required for defer-based panic recovery.
-		return func(ctx context.Context, req connect.AnyRequest) (resp connect.AnyResponse, retErr error) {
+// RecoveryInterceptor returns a ConnectRPC server interceptor that recovers
+// from panics in RPC handlers. On panic, it logs the panic value and stack
+// trace at Error level and returns a CodeInternal error to the client.
+func RecoveryInterceptor(logger *slog.Logger) connect.ServerInterceptor {
+	return func(next connect.ServerFunc) connect.ServerFunc {
+		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) (retErr error) {
 			defer func() {
 				if r := recover(); r != nil {
 					// Capture a stack trace for debugging.
@@ -62,23 +54,17 @@ func RecoveryInterceptor(logger *slog.Logger) connect.UnaryInterceptorFunc {
 					n := runtime.Stack(buf, false)
 
 					logger.ErrorContext(ctx, "panic recovered in rpc handler",
-						slog.String("procedure", req.Spec().Procedure),
+						slog.String("procedure", spec.Procedure),
 						slog.Any("panic", r),
 						slog.String("stack", string(buf[:n])),
 					)
 
 					retErr = connect.NewError(connect.CodeInternal,
-						fmt.Errorf("%s: %w", req.Spec().Procedure, ErrPanicRecovered))
+						fmt.Errorf("%s: %w", spec.Procedure, ErrPanicRecovered).Error())
 				}
 			}()
 
-			return next(ctx, req)
+			return next(ctx, spec, stream)
 		}
 	}
-}
-
-// RecoveryInterceptorOption returns a connect.HandlerOption that installs the
-// recovery interceptor. This is a convenience wrapper for use with server.New.
-func RecoveryInterceptorOption(logger *slog.Logger) connect.HandlerOption {
-	return connect.WithInterceptors(RecoveryInterceptor(logger))
 }

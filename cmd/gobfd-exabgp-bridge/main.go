@@ -12,6 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
@@ -70,7 +73,7 @@ func watchAndAnnounce(
 	prefix string,
 	logger *slog.Logger,
 ) error {
-	client := bfdv1connect.NewBfdServiceClient(http.DefaultClient, gobfdAddr)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, gobfdAddr)))
 
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
@@ -116,8 +119,14 @@ func streamEvents(
 
 	announced := false
 
-	for stream.Receive() {
-		msg := stream.Msg()
+	var streamErr error
+	for {
+		msg2, err := stream.Receive()
+		if err != nil {
+			streamErr = err
+			break
+		}
+		msg := msg2
 		if msg.GetSession() == nil {
 			continue
 		}
@@ -129,8 +138,11 @@ func streamEvents(
 
 		announced = handleStateChange(msg.GetSession().GetLocalState(), announced, peer, prefix, logger)
 	}
+	if errors.Is(streamErr, io.EOF) {
+		streamErr = nil
+	}
 
-	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
+	if err := streamErr; err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("event stream error: %w", err)
 	}
 	return nil

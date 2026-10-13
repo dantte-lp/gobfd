@@ -31,6 +31,15 @@
 
 ### Изменено
 
+- **Breaking для Go-потребителей `pkg/bfdpb`:** ConnectRPC переведён на
+  connect-go v2.0.0 и grpchealth v2.0.0. `bfdv1connect` перегенерирован
+  `protoc-gen-connect-go` v2.0.0: клиенты принимают `*connect.Client`
+  (`connect.NewClient(connecthttp.NewTransport(httpClient, baseURL))`),
+  обработчики регистрируются на `*connect.Server`. Wire-протокол `bfd.v1`
+  не изменён; тест закрепляет вызовы grpc-go, `grpc.health.v1`, Connect и gRPC-Web.
+  Демон, `gobfdctl` и оба моста применяют лимит connect-go v2 по умолчанию
+  4 MiB на сообщение вместо отсутствия лимита.
+
 - GitHub Actions обновлены с учётом правила возраста релиза до peeled
   commit SHA: `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,

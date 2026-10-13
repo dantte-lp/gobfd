@@ -7,7 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/grpchealth/v2"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"

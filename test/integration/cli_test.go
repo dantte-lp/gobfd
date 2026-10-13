@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"go.yaml.in/yaml/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -36,12 +38,13 @@ func newCLITestEnv(t *testing.T) *cliTestEnv {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 
-	path, handler := server.New(mgr, nil, logger)
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, nil, logger)
 	mux := http.NewServeMux()
-	mux.Handle(path, handler)
+	connecthttp.Mount(mux, rpc)
 	srv := httptest.NewTestServer(t, mux)
 
-	client := bfdv1connect.NewBfdServiceClient(srv.Client(), srv.URL)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 
 	return &cliTestEnv{
 		client: client,

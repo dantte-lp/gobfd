@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net/http"
 	"net/netip"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -48,17 +47,17 @@ type MicroBFDServer struct {
 
 var _ bfdv1connect.MicroBFDServiceHandler = (*MicroBFDServer)(nil)
 
-// NewMicroBFD builds a MicroBFDServer with the given Manager and logger.
-func NewMicroBFD(
+// RegisterMicroBFD registers the RFC 7130 Micro-BFD service on rpc.
+func RegisterMicroBFD(
+	rpc *connect.Server,
 	mgr *bfd.Manager,
 	logger *slog.Logger,
-	opts ...connect.HandlerOption,
-) (string, http.Handler) {
+) {
 	srv := &MicroBFDServer{
 		manager: mgr,
 		logger:  logger.With(slog.String("component", "micro-bfd-server")),
 	}
-	return bfdv1connect.NewMicroBFDServiceHandler(srv, opts...)
+	bfdv1connect.RegisterMicroBFDServiceHandler(rpc, srv)
 }
 
 // AddMicroBFDGroup creates a new RFC 7130 micro-BFD group.
@@ -68,7 +67,7 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 ) (*bfdv1.AddMicroBFDGroupResponse, error) {
 	cfg, err := microBFDConfigFromProto(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
 	s.logger.InfoContext(ctx, "AddMicroBFDGroup called",
@@ -85,7 +84,7 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 		if snap.LAGInterface == cfg.LAGInterface {
 			group, err := microGroupSnapshotToProto(snap, cfg)
 			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, err)
+				return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 			}
 			return &bfdv1.AddMicroBFDGroupResponse{
 				Group: group,
@@ -95,7 +94,8 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 
 	return nil, connect.NewError(connect.CodeInternal,
 		fmt.Errorf("micro-bfd group %q created but not visible: %w",
-			cfg.LAGInterface, bfd.ErrMicroBFDGroupNotFound))
+			cfg.LAGInterface, bfd.ErrMicroBFDGroupNotFound).Error(),
+	)
 }
 
 // DeleteMicroBFDGroup removes a micro-BFD group by LAG interface name.
@@ -105,7 +105,7 @@ func (s *MicroBFDServer) DeleteMicroBFDGroup(
 ) (*bfdv1.DeleteMicroBFDGroupResponse, error) {
 	lag := req.GetLagInterface()
 	if lag == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMicroLAGRequired)
+		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMicroLAGRequired.Error()).WithCause(ErrMicroLAGRequired)
 	}
 
 	s.logger.InfoContext(ctx, "DeleteMicroBFDGroup called",
@@ -131,7 +131,7 @@ func (s *MicroBFDServer) ListMicroBFDGroups(
 	for _, snap := range snaps {
 		group, err := microGroupSnapshotToProto(snap, bfd.MicroBFDConfig{})
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 		out.Groups = append(out.Groups, group)
 	}

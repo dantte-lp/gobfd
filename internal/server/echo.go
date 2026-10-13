@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/netip"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -41,14 +40,14 @@ type EchoServer struct {
 
 var _ bfdv1connect.EchoServiceHandler = (*EchoServer)(nil)
 
-// NewEcho builds an EchoServer with the given Manager, SenderFactory
-// and logger. If sf is nil, a noopSenderFactory is used (test mode).
-func NewEcho(
+// RegisterEcho registers the RFC 9747 Echo service on rpc. If sf is nil, a
+// noopSenderFactory is used (test mode).
+func RegisterEcho(
+	rpc *connect.Server,
 	mgr *bfd.Manager,
 	sf SenderFactory,
 	logger *slog.Logger,
-	opts ...connect.HandlerOption,
-) (string, http.Handler) {
+) {
 	if sf == nil {
 		sf = noopSenderFactory{}
 	}
@@ -57,7 +56,7 @@ func NewEcho(
 		senderFactory: sf,
 		logger:        logger.With(slog.String("component", "echo-server")),
 	}
-	return bfdv1connect.NewEchoServiceHandler(srv, opts...)
+	bfdv1connect.RegisterEchoServiceHandler(rpc, srv)
 }
 
 // AddEchoSession creates a new RFC 9747 echo session.
@@ -67,7 +66,7 @@ func (s *EchoServer) AddEchoSession(
 ) (*bfdv1.AddEchoSessionResponse, error) {
 	cfg, err := echoSessionConfigFromProto(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
 	s.logger.InfoContext(ctx, "AddEchoSession called",
@@ -92,7 +91,8 @@ func (s *EchoServer) AddEchoSession(
 
 	return nil, connect.NewError(connect.CodeInternal,
 		fmt.Errorf("echo session %d created but not visible in snapshot: %w",
-			discr, bfd.ErrEchoSessionNotFound))
+			discr, bfd.ErrEchoSessionNotFound).Error(),
+	)
 }
 
 func (s *EchoServer) createEchoSessionWithSenderLease(

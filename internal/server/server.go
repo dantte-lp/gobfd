@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net/http"
 	"net/netip"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -105,14 +104,14 @@ type BFDServer struct {
 // verify interface compliance at compile time.
 var _ bfdv1connect.BfdServiceHandler = (*BFDServer)(nil)
 
-// New creates a new BFDServer and returns the HTTP handler and path.
-// If sf is nil, a noopSenderFactory is used (for testing without sockets).
-func New(
+// Register registers the BFD service on rpc. If sf is nil, a
+// noopSenderFactory is used (for testing without sockets).
+func Register(
+	rpc *connect.Server,
 	mgr *bfd.Manager,
 	sf SenderFactory,
 	logger *slog.Logger,
-	opts ...connect.HandlerOption,
-) (string, http.Handler) {
+) {
 	if sf == nil {
 		sf = noopSenderFactory{}
 	}
@@ -121,7 +120,7 @@ func New(
 		senderFactory: sf,
 		logger:        logger.With(slog.String("component", "server")),
 	}
-	return bfdv1connect.NewBfdServiceHandler(srv, opts...)
+	bfdv1connect.RegisterBfdServiceHandler(rpc, srv)
 }
 
 // AddSession creates a new BFD session with the given parameters.
@@ -136,7 +135,7 @@ func (s *BFDServer) AddSession(
 
 	cfg, err := sessionConfigFromProto(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 
 	sess, err := s.createSessionWithSenderLease(ctx, cfg)
@@ -226,7 +225,8 @@ func (s *BFDServer) GetSession(ctx context.Context, req *bfdv1.GetSessionRequest
 	case *bfdv1.GetSessionRequest_PeerAddress:
 		return s.getSessionByPeerAddress(id.PeerAddress)
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMissingIdentifier)
+		return nil, connect.NewError(connect.CodeInvalidArgument, ErrMissingIdentifier.Error()).
+			WithCause(ErrMissingIdentifier)
 	}
 }
 
@@ -234,7 +234,7 @@ func (s *BFDServer) GetSession(ctx context.Context, req *bfdv1.GetSessionRequest
 func (s *BFDServer) WatchSessionEvents(
 	ctx context.Context,
 	req *bfdv1.WatchSessionEventsRequest,
-	stream *connect.ServerStream[bfdv1.WatchSessionEventsResponse],
+	stream bfdv1connect.BfdServiceWatchSessionEventsServerStream,
 ) error {
 	s.logger.InfoContext(ctx, "WatchSessionEvents called",
 		slog.Bool("include_current", req.GetIncludeCurrent()),
@@ -287,7 +287,7 @@ func (s *BFDServer) getSessionByDiscriminator(discr uint32) (*bfdv1.GetSessionRe
 	sess, ok := s.manager.LookupByDiscriminator(discr)
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound,
-			fmt.Errorf("session with discriminator %d: %w", discr, bfd.ErrSessionNotFound))
+			fmt.Errorf("session with discriminator %d: %w", discr, bfd.ErrSessionNotFound).Error())
 	}
 
 	snap := bfd.SessionSnapshot{
@@ -325,7 +325,7 @@ func (s *BFDServer) getSessionByPeerAddress(peerAddrStr string) (*bfdv1.GetSessi
 	addr, err := netip.ParseAddr(peerAddrStr)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("parse peer address %q: %w", peerAddrStr, err))
+			fmt.Errorf("parse peer address %q: %w", peerAddrStr, err).Error())
 	}
 
 	snapshots := s.manager.Sessions()
@@ -338,7 +338,7 @@ func (s *BFDServer) getSessionByPeerAddress(peerAddrStr string) (*bfdv1.GetSessi
 	}
 
 	return nil, connect.NewError(connect.CodeNotFound,
-		fmt.Errorf("session with peer address %s: %w", addr, bfd.ErrSessionNotFound))
+		fmt.Errorf("session with peer address %s: %w", addr, bfd.ErrSessionNotFound).Error())
 }
 
 // sessionConfigFromProto converts an AddSessionRequest into a bfd.SessionConfig.
@@ -665,16 +665,16 @@ func wrapError(context string, err error) error {
 func mapManagerError(err error, operation string) *connect.Error {
 	switch {
 	case errors.Is(err, bfd.ErrDuplicateSession):
-		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err))
+		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionNotFound):
-		return connect.NewError(connect.CodeNotFound, wrapError(operation, err))
+		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
 		errors.Is(err, bfd.ErrInvalidTxInterval),
 		errors.Is(err, bfd.ErrInvalidSessionType),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
-		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err))
+		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err).Error())
 	default:
-		return connect.NewError(connect.CodeInternal, wrapError(operation, err))
+		return connect.NewError(connect.CodeInternal, wrapError(operation, err).Error())
 	}
 }

@@ -10,8 +10,9 @@ import (
 	"runtime/trace"
 	"time"
 
-	"connectrpc.com/connect"
-	"connectrpc.com/grpchealth"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
+	"connectrpc.com/grpchealth/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -172,27 +173,22 @@ func newGRPCServer(
 ) *http.Server {
 	mux := http.NewServeMux()
 
-	interceptors := []connect.HandlerOption{
-		server.LoggingInterceptorOption(logger),
-		server.RecoveryInterceptorOption(logger),
-	}
+	// BFD, Echo (RFC 9747) and Micro-BFD (RFC 7130) services share one server
+	// with logging and panic recovery. connect v2 bounds each message to its
+	// default read limit (4 MiB) instead of the unbounded v1 behavior.
+	rpc := connect.NewServer(server.LoggingInterceptor(logger), server.RecoveryInterceptor(logger))
+	server.Register(rpc, mgr, sf, logger)
+	server.RegisterEcho(rpc, mgr, sf, logger)
+	server.RegisterMicroBFD(rpc, mgr, logger)
+	connecthttp.Mount(mux, rpc)
 
-	// BFD service handler.
-	path, handler := server.New(mgr, sf, logger, interceptors...)
-	mux.Handle(path, handler)
-
-	// Echo service handler (RFC 9747).
-	echoPath, echoHandler := server.NewEcho(mgr, sf, logger, interceptors...)
-	mux.Handle(echoPath, echoHandler)
-
-	// Micro-BFD service handler (RFC 7130).
-	microPath, microHandler := server.NewMicroBFD(mgr, logger, interceptors...)
-	mux.Handle(microPath, microHandler)
-
-	// gRPC health check handler (grpc.health.v1).
-	// The empty service is dynamic reconciliation readiness. Named health and
-	// BFD services remain SERVING while the process serves requests.
-	mux.Handle(grpchealth.NewHandler(checker))
+	// gRPC health check (grpc.health.v1) on its own server without the RPC
+	// interceptors, as in v1. The empty service is dynamic reconciliation
+	// readiness. Named health and BFD services remain SERVING while the
+	// process serves requests.
+	health := connect.NewServer()
+	grpchealth.Register(health, checker)
+	connecthttp.Mount(mux, health)
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)

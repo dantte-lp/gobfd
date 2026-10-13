@@ -1,6 +1,6 @@
 ARG BUF_VERSION=v1.73.0
 ARG PROTOC_GEN_GO_VERSION=v1.36.12
-ARG PROTOC_GEN_CONNECT_GO_VERSION=v1.20.0
+ARG PROTOC_GEN_CONNECT_GO_VERSION=v2.0.0
 ARG GOPLS_VERSION=v0.23.0
 ARG GOVULNCHECK_VERSION=v1.8.0
 ARG OSV_SCANNER_VERSION=v2.6.0
@@ -77,7 +77,7 @@ RUN go install github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}
 
 # protoc-gen-connect-go — ConnectRPC code generator
-RUN go install connectrpc.com/connect/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO_VERSION}
+RUN go install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go@${PROTOC_GEN_CONNECT_GO_VERSION}
 
 # golangci-lint v2 — build through the isolated tools module so its analyzer
 # closure cannot change the GoBFD runtime module's Minimal Version Selection.
