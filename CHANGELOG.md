@@ -30,23 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GoBFD from `dev` requires a GoBGP v4 daemon. The shared GoBGP peer recipe
   builds v4.10.0 for the BGP, RFC, BGP fast-failover E2E and integration
   consumers; the local amd64 BGP+BFD and BGP fast-failover testcontainers
-  gates pass, while the RFC gate and manual Compose paths are not rerun.
+  gates pass, and the RFC testcontainers gate passes all four race scenarios
+  in 162.12 s; manual Compose paths are not rerun.
   ExaBGP anycast, Kubernetes and Containerlab still use GoBGP v3.37.0 images
   and are incompatible until migrated. `release/v0.6` keeps GoBGP v3.37.0.
 - BGP fast-failover Compose and testcontainers reuse the shared trixie
-  FRR 10.7.1 and GoBGP v3.37.0 recipes with capped builds/runtime. Manual
+  FRR 10.7.1 and GoBGP recipes (v3.37.0 at qualification; v4.10.0 since the
+  GoBGP v4 migration above) with capped builds/runtime. Manual
   startup uses the existing ownership-checked controller and forbids implicit
   builds; captures are container-local. The local amd64 race lifecycle passes
   route withdrawal/restoration, packet evidence and exact resource cleanup.
 - RFC Compose and testcontainers reuse the shared trixie FRR 10.7.1 and
-  GoBGP v3.37.0 recipes with explicit BFD/BGP daemon selection, bounded
+  GoBGP recipes (v3.37.0 at qualification; now v4.10.0) with explicit
+  BFD/BGP daemon selection, bounded
   builds and all eight runtime containers, host revision metadata and
   pre-build image cleanup. The complete local amd64 testcontainers gate passes
   all four race scenarios without skips and verifies owned-resource cleanup;
   RFC 9384 wire subcode 10 and unsolicited expiry remain unqualified.
 - BGP Compose and testcontainers definitions use the shared Debian FRR 10.7.1
   recipe with explicit BGP daemons and build/runtime resource caps. Manual
-  lifecycle reuses the ownership-checked capped builder. GoBGP v3.37.0 and
+  lifecycle reuses the ownership-checked capped builder. GoBGP (then v3.37.0) and
   ExaBGP 5.0.13 now use checksum-pinned upstream source on trixie, with a
   narrow system-Python runtime exception for external ExaBGP and no Python
   development tooling. Manual and full testcontainers BGP gates pass locally
@@ -105,8 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `golang.org/x/net` from `v0.58.0` to `v0.61.0` in the runtime and tools
   module graphs, fixing twelve reachable advisories: GO-2026-6599, 6600, 6603,
   6604, 6605, 6607, 6608, 6610, 6611, 6612, 6613 and 6617. Every
-  `golang:1.27.2-trixie` consumer uses one index digest. GoBGP v3
-  GO-2026-4736 remains open.
+  `golang:1.27.2-trixie` consumer uses one index digest. GO-2026-4736 is
+  handled by the GoBGP v4 migration and its module-level allowlist entry.
 
 ## [0.6.4] - 2026-08-27
 

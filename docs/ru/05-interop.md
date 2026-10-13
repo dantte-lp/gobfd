@@ -446,7 +446,7 @@ graph LR
 | Тест | RFC | Описание | Результат |
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD настроен на 80мс; с `align_intervals: true` интервал должен быть выровнен до 100мс. Верифицируется через tshark-захват поля `DesiredMinTxInterval`. | **PASS** |
-| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. Annotation упоминает Cease/10, но `DisablePeer` отправляет Administrative Shutdown (Cease/2): так делает GoBGP v3, а `DisablePeerRequest` в GoBGP v4 по-прежнему содержит только поля `address` и `communication`. Результат action path измерен на GoBGP v3.37.0; на v4 этот gate не перезапускался. | **Action path проходит; wire subcode RFC 9384 не реализован** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Пауза frr-rfc-bgp → BFD Down → GoBFD вызывает DisablePeer → BGP-сессия разорвана. Снятие паузы → BFD Up → EnablePeer → BGP восстановлен. Annotation упоминает Cease/10, но `DisablePeer` отправляет Administrative Shutdown (Cease/2): так делает GoBGP v3, а `DisablePeerRequest` в GoBGP v4 по-прежнему содержит только поля `address` и `communication`. Action path пройден на GoBGP v3.37.0 и на v4.10.0 (2026-10-13). | **Action path проходит; wire subcode RFC 9384 не реализован** |
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) инициирует BFD без настроенной сессии GoBFD. Проверяются Up-пакеты и пять секунд стабильности, но не истечение или очистка unsolicited-сессии. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | Echo-сессия GoBFD достигает Up через независимый reflector; пауза и восстановление доказывают обнаружение отказа и возврат сессии. | **PASS** |
 
@@ -466,8 +466,9 @@ OOM не было; удаление точных контейнеров, сет�
 Прямой Compose lifecycle с фиксированными именами остаётся неподдерживаемым.
 Эта приёмка не квалифицирует arm64, полный wire-контракт RFC 9384,
 истечение unsolicited-сессий или reload таймеров и не является security gate.
-Общий рецепт теперь собирает GoBGP v4.10.0; на GoBGP v4 этот gate не
-перезапускался, поэтому RFC interop на GoBGP v4 не квалифицирован.
+Общий рецепт теперь собирает GoBGP v4.10.0. 2026-10-13 тот же
+testcontainers gate пройден на GoBGP v4.10.0 за 162.12 секунды на `7559c05`:
+все четыре race-сценария без пропусков, тестовых контейнеров не осталось.
 
 Для live-проверки используйте Go-owned Podman lifecycle. Каждая runtime-
 операция разрешается в immutable container ID:

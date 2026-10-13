@@ -76,7 +76,7 @@ func gobgpCmd(ctx context.Context, args ...string) (string, error) {
 	return containerExec(ctx, gobgpRFCContainer, append([]string{"gobgp"}, args...)...)
 }
 
-// bgpSessionStateName maps a GoBGP v3 protobuf session_state number to its name.
+// bgpSessionStateName maps a GoBGP v4 protobuf session_state number to its name.
 func bgpSessionStateName(state int) string {
 	switch state {
 	case 0:

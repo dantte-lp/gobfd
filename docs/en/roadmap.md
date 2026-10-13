@@ -79,8 +79,8 @@ Ordered P0 queue on `dev`:
    for the client and the shared peer recipe consumers. Local amd64 gates on
    2026-10-13: `TestBGPBFDTopologyTestcontainers` passed in 359.25 s (four
    race-enabled subtests, no skips, GoBGP version 4.10.0); BGP fast-failover
-   testcontainers passed in 105.39 s. The RFC gate and manual Compose paths
-   were not rerun. `govulncheck` reports no reachable GO-2026-4736 finding;
+   testcontainers passed in 105.39 s; the RFC testcontainers gate passed in
+   162.12 s with four race scenarios. Manual Compose paths were not rerun. `govulncheck` reports no reachable GO-2026-4736 finding;
    the module-level finding remains allowlisted (step 3). ExaBGP anycast,
    Kubernetes and Containerlab remain on GoBGP v3.37.0 images under
    `gobfd-qj0.8.2.8.5.2.5.2`, `gobfd-qj0.8.2.8.5.2.5.3` and

@@ -663,7 +663,7 @@ func parseGoBGPNeighborState(output, peerIP string) (int, error) {
 		} `json:"state"`
 	}
 	if err := json.Unmarshal([]byte(output), &neighbors); err != nil {
-		return 0, fmt.Errorf("parse GoBGP v3.37 neighbor JSON: %w", err)
+		return 0, fmt.Errorf("parse GoBGP v4 neighbor JSON: %w", err)
 	}
 	for _, neighbor := range neighbors {
 		if neighbor.State.NeighborAddress == peerIP {
@@ -684,7 +684,7 @@ func (topology *bgpFailoverTopology) goBGPRouteExists(ctx context.Context) (bool
 func parseGoBGPRIB(output, prefix string) (bool, error) {
 	var destinations map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(output), &destinations); err != nil {
-		return false, fmt.Errorf("parse GoBGP v3.37 RIB JSON: %w", err)
+		return false, fmt.Errorf("parse GoBGP v4 RIB JSON: %w", err)
 	}
 	_, exists := destinations[prefix]
 	return exists, nil

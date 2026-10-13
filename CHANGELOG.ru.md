@@ -30,16 +30,19 @@
   GoBFD из `dev` требует демон GoBGP v4. Общий рецепт пира GoBGP собирает
   v4.10.0 для потребителей BGP, RFC, BGP fast-failover E2E и интеграции;
   локальные amd64 testcontainers gates BGP+BFD и BGP fast-failover проходят,
-  RFC gate и ручные пути Compose не перезапускались. ExaBGP anycast,
+  RFC testcontainers gate проходит все четыре race-сценария за 162.12 с,
+  ручные пути Compose не перезапускались. ExaBGP anycast,
   Kubernetes и Containerlab по-прежнему используют образы GoBGP v3.37.0 и
   несовместимы до миграции. `release/v0.6` сохраняет GoBGP v3.37.0.
 - BGP fast-failover Compose и testcontainers переиспользуют общие рецепты
-  FRR 10.7.1 и GoBGP v3.37.0 на trixie с лимитами сборок/runtime. Ручной
+  FRR 10.7.1 и GoBGP (v3.37.0 на момент квалификации, сейчас v4.10.0) на
+  trixie с лимитами сборок/runtime. Ручной
   запуск использует существующий контроллер владения ресурсами и запрещает
   неявные сборки; capture хранится в контейнере. Локальный amd64 race-сценарий
   проходит отзыв/восстановление маршрута, packet evidence и точный cleanup.
 - RFC Compose и testcontainers переиспользуют общие рецепты FRR 10.7.1 и
-  GoBGP v3.37.0 на trixie: явный выбор BFD/BGP-демонов, лимиты сборок и
+  GoBGP (v3.37.0 на момент квалификации, сейчас v4.10.0) на trixie: явный
+  выбор BFD/BGP-демонов, лимиты сборок и
   всех восьми runtime-контейнеров, host revision и очистка образов до сборки.
   Полный локальный amd64 testcontainers gate проходит четыре race-сценария
   без пропусков и проверяет удаление своих ресурсов; wire subcode 10 RFC 9384
@@ -47,7 +50,7 @@
 - BGP Compose и testcontainers используют общий рецепт Debian FRR 10.7.1
   с явным выбором BGP-демонов и лимитами сборки/runtime. Ручной lifecycle
   переиспользует сборку с лимитами и проверкой владения ресурсами.
-  GoBGP v3.37.0 и ExaBGP 5.0.13 используют закреплённые SHA-256 upstream
+  GoBGP (тогда v3.37.0) и ExaBGP 5.0.13 используют закреплённые SHA-256 upstream
   исходники на trixie; системный Python разрешён только для runtime внешнего
   ExaBGP, без Python tooling. Ручной и полный testcontainers BGP gates
   пройдены на amd64: все четыре race-теста каждого пути, без пропусков,
@@ -107,8 +110,8 @@
   `golang.org/x/net` — с `v0.58.0` до `v0.61.0` в runtime- и tools-графах
   модулей, что устраняет двенадцать достижимых advisory: GO-2026-6599, 6600,
   6603, 6604, 6605, 6607, 6608, 6610, 6611, 6612, 6613 и 6617. Все потребители
-  `golang:1.27.2-trixie` используют один index digest. GO-2026-4736 в GoBGP v3
-  остаётся открытой.
+  `golang:1.27.2-trixie` используют один index digest. GO-2026-4736 обрабатывается миграцией на
+  GoBGP v4 и записью allowlist на уровне модуля.
 
 ## [0.6.4] - 2026-08-27
 

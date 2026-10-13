@@ -449,7 +449,7 @@ graph LR
 | Test | RFC | Description | Result |
 |---|---|---|---|
 | `TestRFC7419_CommonIntervalAlignment` | 7419 | GoBFD configures 80ms timers; with `align_intervals: true`, negotiated interval should be aligned to 100ms. Verified via tshark capture of `DesiredMinTxInterval` field on the wire. | **PASS** |
-| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. The annotation mentions Cease/10, but `DisablePeer` sends Administrative Shutdown (Cease/2): GoBGP v3 emits it, and the GoBGP v4 `DisablePeerRequest` still has only `address` and `communication` fields. The action-path result was measured on GoBGP v3.37.0; this gate was not rerun on v4. | **Action path passes; RFC 9384 wire subcode not implemented** |
+| `TestRFC9384_BGPCeaseBFDDown` | 9384 | Pause frr-rfc-bgp → BFD Down → GoBFD calls DisablePeer → verify BGP session torn down. Unpause → BFD Up → EnablePeer → BGP re-established. The annotation mentions Cease/10, but `DisablePeer` sends Administrative Shutdown (Cease/2): GoBGP v3 emits it, and the GoBGP v4 `DisablePeerRequest` still has only `address` and `communication` fields. The action path passed on GoBGP v3.37.0 and on v4.10.0 (2026-10-13). | **Action path passes; RFC 9384 wire subcode not implemented** |
 | `TestRFC9468_UnsolicitedBFD` | 9468 | frr-rfc-unsolicited (172.22.0.50) initiates BFD with no configured GoBFD session. The test verifies Up packets and five seconds of stability; it does not test unsolicited-session expiry or cleanup. | **PASS** |
 | `TestRFC9747_EchoSession` | 9747 | GoBFD echo reaches Up through the independent reflector; pause and recovery prove echo failure detection and restoration. | **PASS** |
 
@@ -469,8 +469,9 @@ are retained in `reports/e2e/rfc-trixie-20260908/`.
 Raw fixed-name Compose lifecycle remains unsupported. This targeted
 acceptance does not qualify arm64, full RFC 9384 wire behavior, unsolicited
 session expiry or timer reloads, and it is not a security gate. The shared
-recipe now builds GoBGP v4.10.0; this gate was not rerun on GoBGP v4, so RFC
-interop on GoBGP v4 is not qualified.
+recipe now builds GoBGP v4.10.0. On 2026-10-13 the same testcontainers gate
+passed on GoBGP v4.10.0 in 162.12 seconds at `7559c05`: all four race
+scenarios passed without skips and no test-owned containers remained.
 
 Use the Go-owned Podman lifecycle for live validation. It resolves every
 runtime operation to an immutable container ID:

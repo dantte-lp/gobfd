@@ -79,7 +79,8 @@
    клиента и потребителей общего рецепта пира. Локальные amd64 gates
    2026-10-13: `TestBGPBFDTopologyTestcontainers` пройден за 359.25 с (четыре
    race-подтеста, без пропусков, версия GoBGP 4.10.0); testcontainers BGP
-   fast-failover пройден за 105.39 с. RFC gate и ручные пути Compose не
+   fast-failover пройден за 105.39 с; RFC testcontainers gate пройден за
+   162.12 с с четырьмя race-сценариями. Ручные пути Compose не
    перезапускались. `govulncheck` не обнаруживает достижимого GO-2026-4736;
    finding на уровне модуля остаётся в allowlist (шаг 3). ExaBGP anycast,
    Kubernetes и Containerlab остаются на образах GoBGP v3.37.0 в рамках
