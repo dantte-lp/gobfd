@@ -291,8 +291,8 @@ func TestBGPTopologyContract(t *testing.T) {
 			assertContainsAll(t, peer+" source build", recipe, []string{
 				"FROM docker.io/library/golang:1.27.2-trixie@sha256:" +
 					"47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e",
-				"https://codeload.github.com/osrg/gobgp/tar.gz/9bc8e113e4de6b5542cfafe0c64403b129f4e544",
-				"ADD --checksum=sha256:354f4b46f94d08c6f5f064db319a4b029b60e410955d89e96e8ea5552d7aa58a",
+				"https://codeload.github.com/osrg/gobgp/tar.gz/da824d99912e02124b53741245ee4186c381adcc",
+				"ADD --checksum=sha256:755448f0881b66e4a3795b443dd53825431cda1866d8b38e941e474d51714151",
 				"CGO_ENABLED=0", `"go", "build", "-trimpath"`, `"./cmd/gobgp", "./cmd/gobgpd"`,
 				"COPY --from=builder /src/LICENSE /usr/share/licenses/gobgp/LICENSE",
 			})

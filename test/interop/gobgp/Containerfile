@@ -1,10 +1,10 @@
-# Shared GoBGP v3.37.0 compatibility artifact; build with this directory as context.
+# Shared GoBGP v4.10.0 peer artifact; build with this directory as context.
 # Go 1.27.2 on Debian 13 (trixie), matching the repository toolchain.
 FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS builder
 
-# GoBGP v3.37.0, immutable upstream commit and archive checksum.
-ADD --checksum=sha256:354f4b46f94d08c6f5f064db319a4b029b60e410955d89e96e8ea5552d7aa58a \
-    https://codeload.github.com/osrg/gobgp/tar.gz/9bc8e113e4de6b5542cfafe0c64403b129f4e544 /tmp/gobgp.tar.gz
+# GoBGP v4.10.0, immutable upstream commit and archive checksum.
+ADD --checksum=sha256:755448f0881b66e4a3795b443dd53825431cda1866d8b38e941e474d51714151 \
+    https://codeload.github.com/osrg/gobgp/tar.gz/da824d99912e02124b53741245ee4186c381adcc /tmp/gobgp.tar.gz
 WORKDIR /src
 RUN ["tar", "-xzf", "/tmp/gobgp.tar.gz", "--strip-components=1"]
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local \
@@ -21,13 +21,13 @@ ARG BUILD_DATE
 LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.version="3.37.0" \
+      org.opencontainers.image.version="4.10.0" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.title="GoBFD GoBGP interoperability peer" \
-      org.opencontainers.image.description="GoBGP v3 compatibility peer built from verified upstream source" \
+      org.opencontainers.image.description="GoBGP v4 peer built from verified upstream source" \
       org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
       org.opencontainers.image.base.digest="sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132" \
-      io.gobfd.upstream.revision="9bc8e113e4de6b5542cfafe0c64403b129f4e544"
+      io.gobfd.upstream.revision="da824d99912e02124b53741245ee4186c381adcc"
 
 COPY --from=builder /out/gobgp /out/gobgpd /usr/local/bin/
 COPY --from=builder /src/LICENSE /usr/share/licenses/gobgp/LICENSE

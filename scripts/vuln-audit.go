@@ -41,16 +41,20 @@ type allowEntry struct {
 
 var allowlist = map[string]allowEntry{
 	"GO-2026-4736": {
-		Package:    "github.com/osrg/gobgp/v3",
-		Owner:      "maintainers",
-		Expires:    "2026-09-30",
-		Reason:     "GoBGP v3 has no fixed release; v4 migration is tracked by gobfd-qj0.8.2.4.",
-		Mitigation: "Keep GoBGP integration on localhost or a trusted management network until upstream ships a fix.",
+		Package: "github.com/osrg/gobgp/v4",
+		Owner:   "maintainers",
+		Expires: "2026-12-31",
+		Reason: "Maintainer decision 2026-10-13 (gobfd-qj0.8.4): GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched, " +
+			"but the Go vulnerability database lists no fixed v4 version and limits the advisory to " +
+			"github.com/osrg/gobgp/v4/pkg/server, which GoBFD does not import.",
+		Mitigation: "Import only the GoBGP v4 api package, keep the reachable govulncheck gate enabled, " +
+			"and keep GoBGP integration on localhost or a trusted management network.",
+		ModuleOnly: true,
 	},
 	"GO-2026-5932": {
 		Package:    "golang.org/x/crypto",
 		Owner:      "maintainers",
-		Expires:    "2026-09-30",
+		Expires:    "2026-12-31",
 		Reason:     "The advisory affects the unmaintained openpgp package, which is absent from the build dependency graph.",
 		Mitigation: "Keep the reachable-package govulncheck gate enabled and reject any openpgp import.",
 		ModuleOnly: true,

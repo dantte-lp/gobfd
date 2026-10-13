@@ -379,7 +379,7 @@ func verifyBGPTestVersions(ctx context.Context, t *testing.T, resources *bgpTest
 	}{
 		{
 			name: "GoBGP", container: findBGPTestContainer(ctx, t, resources, gobgpContainer),
-			command: []string{"gobgp", "--version"}, version: "3.37.0",
+			command: []string{"gobgp", "--version"}, version: "4.10.0",
 		},
 		{
 			name: "FRR", container: findBGPTestContainer(ctx, t, resources, frrContainer),

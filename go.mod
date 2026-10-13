@@ -16,7 +16,7 @@ require (
 	github.com/knadh/koanf/v2 v2.3.6
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
-	github.com/osrg/gobgp/v3 v3.37.0
+	github.com/osrg/gobgp/v4 v4.10.0
 	github.com/ovn-kubernetes/libovsdb v0.8.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2

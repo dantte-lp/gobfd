@@ -324,7 +324,7 @@ func verifyRFCTestVersions(ctx context.Context, t *testing.T, resources *rfcTest
 		command       []string
 		version       string
 	}{
-		{name: "GoBGP", containerName: gobgpRFCContainer, command: []string{"gobgp", "--version"}, version: "3.37.0"},
+		{name: "GoBGP", containerName: gobgpRFCContainer, command: []string{"gobgp", "--version"}, version: "4.10.0"},
 		{
 			name: "FRR RFC 7419", containerName: frrRFCContainer,
 			command: []string{"vtysh", "-c", "show version"}, version: "10.7.1",

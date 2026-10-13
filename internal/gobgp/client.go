@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	apipb "github.com/osrg/gobgp/v3/api"
+	gobgpapi "github.com/osrg/gobgp/v4/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -55,14 +55,14 @@ var (
 // -------------------------------------------------------------------------
 
 // GRPCClient connects to GoBGP's gRPC API and implements the Client interface.
-// It wraps the generated GobgpApiClient with reconnection-friendly patterns.
+// It wraps the generated GoBgpServiceClient with reconnection-friendly patterns.
 //
 // The underlying gRPC connection can use TLS for remote GoBGP APIs. Plaintext
 // remains supported for local deployments where GoBGP listens only on loopback
 // or another trusted management network.
 type GRPCClient struct {
 	conn   *grpc.ClientConn
-	api    apipb.GobgpApiClient
+	api    gobgpapi.GoBgpServiceClient
 	logger *slog.Logger
 
 	mu     sync.RWMutex
@@ -122,7 +122,7 @@ func NewGRPCClient(cfg GRPCClientConfig, logger *slog.Logger) (*GRPCClient, erro
 
 	client := &GRPCClient{
 		conn: conn,
-		api:  apipb.NewGobgpApiClient(conn),
+		api:  gobgpapi.NewGoBgpServiceClient(conn),
 		logger: logger.With(
 			slog.String("component", "gobgp.client"),
 			slog.String("addr", cfg.Addr),
@@ -183,7 +183,7 @@ func (c *GRPCClient) DisablePeer(ctx context.Context, addr string, communication
 	}
 	c.mu.RUnlock()
 
-	_, err := c.api.DisablePeer(ctx, &apipb.DisablePeerRequest{
+	_, err := c.api.DisablePeer(ctx, &gobgpapi.DisablePeerRequest{
 		Address:       addr,
 		Communication: communication,
 	})
@@ -208,7 +208,7 @@ func (c *GRPCClient) EnablePeer(ctx context.Context, addr string) error {
 	}
 	c.mu.RUnlock()
 
-	_, err := c.api.EnablePeer(ctx, &apipb.EnablePeerRequest{
+	_, err := c.api.EnablePeer(ctx, &gobgpapi.EnablePeerRequest{
 		Address: addr,
 	})
 	if err != nil {

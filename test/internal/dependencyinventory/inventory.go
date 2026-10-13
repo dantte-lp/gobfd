@@ -332,12 +332,12 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 			if definition.id == "runtime" {
 				record.Baseline = runtimeBaseline(identity.Path)
 			}
-			if identity.Path == "github.com/osrg/gobgp/v3" {
-				policy = "gobgp-v3-risk"
+			if identity.Path == "github.com/osrg/gobgp/v4" {
+				policy = "gobgp-v4-risk"
 			}
 			record.Coordinates = Coordinates{PURL: goModulePURL(identity.Path, identity.Version)}
 			record.Assessment = assessmentTemplate(policy)
-			if definition.id == "runtime" && policy != "gobgp-v3-risk" {
+			if definition.id == "runtime" && policy != "gobgp-v4-risk" {
 				record.Assessment.Security.Value = "runtime vulnerability policy covers " + identity.Path + "@" + identity.Version
 			}
 			record.RepositoryState = repositoryStateTemplate(policy, pin)
@@ -992,20 +992,13 @@ func assessmentTemplate(name string) Assessment {
 		assessment.Decision = Decision{Status: DecisionDeferred, Reason: "retain only as a tracked mutable interoperability input", Owner: "maintainers", Tracking: "gobfd-qj0.8.1.9", ReviewBy: "2026-09-30"}
 	case "removed-direct-require":
 		assessment = Assessment{ChannelCurrent: none, UpstreamCurrent: none, ReleaseImpact: none, Security: none, License: none, Decision: Decision{Status: DecisionRemoved, Reason: "remove redundant explicit indirect requirement; full selected graphs remain authoritative", Owner: "maintainers", Tracking: "gobfd-qj0.8.1.1"}}
-	case "gobgp-v3-risk":
-		assessment.ChannelCurrent = unverified("selected v3 identity does not independently prove channel currency")
-		assessment.UpstreamCurrent = verified("v3.37.0 final v3 release")
-		assessment.ReleaseImpact = unverified("v3 compatibility is proven by repository tests, not release metadata")
-		assessment.Security = verified("GO-2026-4736; no fixed v3 release")
-		assessment.Decision = adoptedDecision("retain v3.37.0 for v0.6.2 compatibility; v4 migration is separate")
-		assessment.Decision.Status = DecisionRetained
-		assessment.Decision.Tracking = "gobfd-qj0.8.2.4"
 	case "gobgp-v4-risk":
-		assessment.ChannelCurrent = unverified("candidate identity does not independently prove channel currency")
-		assessment.UpstreamCurrent = verified("v4.8.0")
-		assessment.ReleaseImpact = unverified("breaking migration impact remains a separate implementation review")
-		assessment.Security = unverified("candidate vulnerability status is not covered by the selected runtime scan")
-		assessment.Decision = Decision{Status: DecisionDeferred, Reason: "GoBGP v4 remains a separate v1 compatibility migration", Owner: "maintainers", Tracking: "gobfd-qj0.8.2.4", ReviewBy: "2026-09-30"}
+		assessment.ChannelCurrent = unverified("selected v4 identity does not independently prove channel currency")
+		assessment.UpstreamCurrent = verified("v4.10.0 latest release, published 2026-10-04")
+		assessment.ReleaseImpact = unverified("v3 /apipb.GobgpApi and v4 /api.GoBgpService are wire-incompatible; daemon consumers migrate together")
+		assessment.Security = verified("GO-2026-4736 module-level only; GHSA-4p9m-8gc4-rw2h patched in v4.4.0; pkg/server not imported")
+		assessment.Decision = adoptedDecision("adopt v4.10.0 per maintainer decision 2026-10-13")
+		assessment.Decision.Tracking = "gobfd-qj0.8.2.4.3"
 	default:
 		panic("unknown assessment template: " + name)
 	}
@@ -1050,13 +1043,9 @@ func repositoryStateTemplate(name string, pin ImmutablePin) RepositoryState {
 		}
 	case "removed-direct-require":
 		state = RepositoryState{RepositoryArchived: none, ArtifactAvailable: none, ReleaseLineEOL: none}
-	case "gobgp-v3-risk":
-		state.RepositoryArchived = verified("active repository")
-		state.ArtifactAvailable = verified("v3.37.0 available")
-		state.ReleaseLineEOL = verified("v3 release line ended at v3.37.0")
 	case "gobgp-v4-risk":
 		state.RepositoryArchived = verified("active repository")
-		state.ArtifactAvailable = verified("v4.8.0 available")
+		state.ArtifactAvailable = verified("v4.10.0 available")
 		state.ReleaseLineEOL = verified("v4 release line active")
 	}
 	return state
@@ -1281,7 +1270,7 @@ func evidenceContext(
 		return record.ImmutablePin.Value, "podman manifest inspect " + record.ImmutablePin.Value,
 			EvidenceTool{Name: "podman", Version: "5.8.2"}
 	}
-	if (subject == "runtime:github.com/osrg/gobgp/v3" || subject == "interop-daemon:gobgp-v4-candidate") &&
+	if subject == "runtime:github.com/osrg/gobgp/v4" &&
 		(review == "upstream_current" || review == "repository_archived" || review == "artifact_available" || review == "release_line_eol") {
 		query := "gh api repos/osrg/gobgp"
 		switch review {
@@ -1322,17 +1311,6 @@ func specialComponents() []Component {
 		return Component{ID: id, Kind: KindRemoved, Record: record}
 	}
 	return []Component{
-		{
-			ID: "interop-daemon:gobgp-v4-candidate", Kind: KindInteropDaemon,
-			Record: Record{
-				SourceLocations: []SourceLocation{{Path: "docs/superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md", Match: "GoBGP remains on v3.37.0 and GoBGP v4 remains a separate v1 migration"}},
-				Coordinates:     Coordinates{SourceRepository: "https://github.com/osrg/gobgp", PURL: "pkg:golang/github.com/osrg/gobgp/v4@v4.8.0"},
-				Installed:       "not-installed", Target: "v4.8.0", DeliveryChannel: "https://github.com/osrg/gobgp/releases",
-				Assessment:      assessmentTemplate("gobgp-v4-risk"),
-				RepositoryState: repositoryStateTemplate("gobgp-v4-risk", ImmutablePin{Status: PinNotApplicable}),
-				ImmutablePin:    ImmutablePin{Status: PinNotApplicable, Kind: "deferred-candidate", Value: "v4.8.0"},
-			},
-		},
 		removed("removed-go-mod-require:github.com/davecgh/go-spew", "v1.1.1"),
 		removed("removed-go-mod-require:github.com/dlclark/regexp2", "v1.12.0"),
 		removed("removed-go-mod-require:github.com/pmezard/go-difflib", "v1.0.0"),

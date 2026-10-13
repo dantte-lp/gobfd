@@ -575,7 +575,7 @@ func (topology *bgpFailoverTopology) requireVersions(t *testing.T) {
 		command   []string
 		version   string
 	}{
-		{name: "GoBGP", container: topology.gobgpID, command: []string{"gobgp", "--version"}, version: "3.37.0"},
+		{name: "GoBGP", container: topology.gobgpID, command: []string{"gobgp", "--version"}, version: "4.10.0"},
 		{name: "FRR", container: topology.frrID, command: []string{"vtysh", "-c", "show version"}, version: "10.7.1"},
 	} {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
