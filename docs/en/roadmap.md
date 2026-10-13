@@ -91,10 +91,10 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 | syft / trivy | GitHub release | v1.54.1 / v0.75.0 | v1.54.1 / v0.75.0 | current | done |
 | goreleaser | GitHub release | v2.18.2 | v2.18.3 | 2026-10-16 | `.8.6.3` |
 | containerlab | GitHub release | 0.79.0 | v0.81.0 | 2026-10-18 | `.8.5.2.7` |
-| debian:trixie-slim | Docker Hub digest | `d7e12182` | `a29215f6` | now | `.8.6.5` |
-| oraclelinux:10-slim | Docker Hub digest | `965eb786` | `ea76251f` | now | `.8.6.5` |
-| HAProxy | Docker Hub trixie | 3.4.3 | 3.4.6 | now | `.8.6.5` |
-| nginx (mainline) | Docker Hub trixie | 1.31.4 | 1.31.6 | now | `.8.6.5` |
+| debian:trixie-slim | Docker Hub digest | `a29215f6` (13.7) | `a29215f6` | current | done |
+| oraclelinux:10-slim | Docker Hub digest | `965eb786` | `ea76251f` | 2026-10-19 | `.8.6.5` |
+| HAProxy | Docker Hub trixie | 3.4.6 | 3.4.6 | current | done |
+| nginx (mainline) | Docker Hub trixie | 1.31.6 | 1.31.6 | current | done |
 | Prometheus | GitHub release | v3.14.0 | v3.15.0 | now | `.8.5.2.6` |
 | Grafana | GitHub release | 13.2.0 | 13.2.4 | 2026-10-20 | `.8.5.2.6` |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | current | done |

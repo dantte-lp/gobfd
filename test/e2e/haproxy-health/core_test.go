@@ -78,10 +78,10 @@ func newHAProxyHealthContract(root string) haproxyHealthContract {
 		subnet: "172.23.0.0/24", gateway: "172.23.0.1",
 		monitorIP: "172.23.0.10", haproxyIP: "172.23.0.20",
 		backend1IP: "172.23.0.30", backend2IP: "172.23.0.40",
-		haproxyImage: "docker.io/library/haproxy:3.4.3-trixie@sha256:" +
-			"4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5",
-		nginxImage: "docker.io/library/nginx:1.31.4-trixie@sha256:" +
-			"b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0",
+		haproxyImage: "docker.io/library/haproxy:3.4.6-trixie@sha256:" +
+			"e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26",
+		nginxImage: "docker.io/library/nginx:1.31.6-trixie@sha256:" +
+			"60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86",
 		monitorConfig:           filepath.Join(base, "gobfd-monitor/gobfd.yml"),
 		agentConfig:             filepath.Join(base, "haproxy-agent.yml"),
 		backend1Config:          filepath.Join(base, "backend1-bfd/gobfd.yml"),
@@ -289,7 +289,7 @@ RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd
 RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl
 RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
 FROM docker.io/library/debian:trixie-slim@sha256:` +
-		`d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+		`a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 COPY --from=builder /bin/gobfd /bin/gobfd
 COPY --from=builder /bin/gobfdctl /bin/gobfdctl
 COPY --from=builder /bin/gobfd-haproxy-agent /bin/gobfd-haproxy-agent

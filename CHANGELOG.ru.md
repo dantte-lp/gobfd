@@ -27,6 +27,11 @@
 
 ### Изменено
 
+- Обновлены базовые образы: индекс `debian:trixie-slim` `a29215f6` (Debian
+  13.7, `trixie-20261005`) во всех собственных рецептах, `haproxy:3.4.6-trixie`
+  (исправления 3.4.4-3.4.6, включая BUG/MAJOR в QUIC, H3 и HTX) и
+  `nginx:1.31.6-trixie` (исправление HTTP/3 CVE-2026-90439).
+  `oraclelinux:10-slim` последует с 2026-10-19.
 - ExaBGP Anycast использует общий рецепт GoBGP v4.10.0 и образ ExaBGP 5.0.13
   на Debian trixie с `gobfd-exabgp-bridge` вместо
   `docker.io/jauderho/gobgp:v3.37.0` и `ghcr.io/exa-networks/exabgp`. Gate

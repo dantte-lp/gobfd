@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refreshed base images: `debian:trixie-slim` index `a29215f6` (Debian 13.7,
+  `trixie-20261005`) for every first-party recipe, `haproxy:3.4.6-trixie`
+  (3.4.4-3.4.6 bug fixes, including BUG/MAJOR QUIC, H3 and HTX fixes) and
+  `nginx:1.31.6-trixie` (CVE-2026-90439 HTTP/3 fix). `oraclelinux:10-slim`
+  follows from 2026-10-19.
 - ExaBGP Anycast uses the shared GoBGP v4.10.0 recipe and a Debian trixie
   ExaBGP 5.0.13 image with `gobfd-exabgp-bridge` instead of
   `docker.io/jauderho/gobgp:v3.37.0` and `ghcr.io/exa-networks/exabgp`. Its

@@ -755,7 +755,7 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 			SourceRepository: "jauderho/dockerfiles", SourceCommit: "8712248e3458297472e4a4f5e4980a529c69bcf3",
 			LicenseFile: "LICENSE", SPDX: "BSD-3-Clause", LicenseHash: "78daaa3193f2a3e0dd754da96ee2fc6e63af52b350a89e7667b7bf0f0900d9ae",
 		},
-		"docker.io/library/debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132": {
+		"docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f": {
 			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
@@ -763,12 +763,12 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 			SourceRepository: "docker-library/golang", SourceCommit: "8380885ec449224702b989d8792d2e1470a46e89",
 			LicenseFile: "LICENSE", SPDX: "BSD-3-Clause", LicenseHash: "31668de690a9ecc50ba008a701b6bdb4d08ded13df7c319c49466b500eef6f69",
 		},
-		"docker.io/library/haproxy:3.4.3-trixie@sha256:4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5": {
-			SourceRepository: "docker-library/haproxy", SourceCommit: "40955df2217f5cb77f861e709b239cedd43ff613",
+		"docker.io/library/haproxy:3.4.6-trixie@sha256:e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26": {
+			SourceRepository: "docker-library/haproxy", SourceCommit: "0b6d0e8c96b3e06b98929b40260f0fe8b7da6e8d",
 			LicenseFile: "LICENSE", SPDX: "GPL-2.0-only", LicenseHash: "ddb9db7630752f8fdc6898f7c99a99eaeeac5213627ecb093df9c82f56175dc7",
 		},
-		"docker.io/library/nginx:1.31.4-trixie@sha256:b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0": {
-			SourceRepository: "nginx/docker-nginx", SourceCommit: "b8590bd36b4504b9b847fcf2e98a9111dcae85fa",
+		"docker.io/library/nginx:1.31.6-trixie@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86": {
+			SourceRepository: "nginx/docker-nginx", SourceCommit: "a16f1329e13e7273c4103f75d863ca625b75109e",
 			LicenseFile: "LICENSE", SPDX: "BSD-2-Clause", LicenseHash: "5e01e80542c4ee1c1640501bea5bd55e1e2174034343b45e228465c300ce5158",
 		},
 		"docker.io/library/oraclelinux:10-slim@sha256:965eb786602f98a4bc9ca449295d44468e5c8f2ee9175ae04c29f21bf1a9809d": {

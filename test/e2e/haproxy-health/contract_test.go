@@ -43,12 +43,12 @@ func TestHAProxyHealthContract(t *testing.T) {
 		contract.backend1IP != "172.23.0.30" || contract.backend2IP != "172.23.0.40" {
 		t.Fatalf("HAProxy topology addressing = %+v, want exact operational IPAM", contract)
 	}
-	if contract.haproxyImage != "docker.io/library/haproxy:3.4.3-trixie@sha256:"+
-		"4def76cf5d2610255d01fa51b37973d67ddee52f979981fc19117e8d0197bbf5" {
+	if contract.haproxyImage != "docker.io/library/haproxy:3.4.6-trixie@sha256:"+
+		"e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26" {
 		t.Fatalf("HAProxy image = %q, want immutable operational pin", contract.haproxyImage)
 	}
-	if contract.nginxImage != "docker.io/library/nginx:1.31.4-trixie@sha256:"+
-		"b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0" {
+	if contract.nginxImage != "docker.io/library/nginx:1.31.6-trixie@sha256:"+
+		"60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86" {
 		t.Fatalf("nginx image = %q, want immutable operational pin", contract.nginxImage)
 	}
 	for _, path := range []string{
