@@ -2,7 +2,6 @@ package gobgp
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -58,21 +57,21 @@ func TestGRPCClientDrivesGoBGPv4Service(t *testing.T) {
 	go func() { served <- server.Serve(listener) }()
 	t.Cleanup(func() {
 		server.Stop()
-		if err := <-served; err != nil {
-			t.Errorf("serve: %v", err)
+		if serveErr := <-served; serveErr != nil {
+			t.Errorf("serve: %v", serveErr)
 		}
 	})
 
 	client, err := NewGRPCClient(
 		GRPCClientConfig{Addr: listener.Addr().String()},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		slog.New(slog.DiscardHandler),
 	)
 	if err != nil {
 		t.Fatalf("NewGRPCClient: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := client.Close(); err != nil {
-			t.Errorf("Close: %v", err)
+		if closeErr := client.Close(); closeErr != nil {
+			t.Errorf("Close: %v", closeErr)
 		}
 	})
 
