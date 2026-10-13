@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-09-08. Beads is the task
+> Status projection from Beads, reconciled on 2026-10-13. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -29,6 +29,55 @@ tags, drafts, or artifacts.
 | Done | Accepted in `dev` unless another branch and commit are named; not proof of stable delivery or publication |
 | In progress | Active work or independent review is not complete |
 | Open | Planned in Beads and not yet accepted |
+
+## Plan reconciliation 2026-10-13
+
+Heads: `dev` and `origin/dev` at `524ba67`, `origin/master` at `5680385`,
+`origin/release/v0.6` at `145d7a3`. No commits reached any of them after
+2026-09-08. Two task worktrees hold no commits beyond `dev`.
+
+Measured on `dev@524ba67` with local `go1.27.0`:
+
+- `govulncheck@v1.7.0 ./...` exits 1 with 13 reachable advisories. Twelve are
+  fixed in `go1.27.2` and `golang.org/x/net` v0.60.0: GO-2026-6599, 6600,
+  6603, 6604, 6605, 6607, 6608, 6610, 6611, 6612, 6613, 6617. The `go1.27.2`
+  release (2026-10-08) contains security fixes to the go command,
+  `crypto/tls`, `html/template`, `net/http`, `net/textproto` and `os`
+  ([Go release history](https://go.dev/doc/devel/release)). Owner:
+  `gobfd-qj0.8.2.11`, P0.
+- `make vulncheck` exits 1. Allowlist entries GO-2026-4736 (GoBGP v3) and
+  GO-2026-5932 (`x/crypto` openpgp, module-only) expired on 2026-09-30 on
+  `dev`, `master` and `release/v0.6`. GoBGP v4 can fix GO-2026-4736 on `dev`
+  only, because `release/v0.6` keeps GoBGP v3.37.0. Per-branch decision owner:
+  `gobfd-qj0.8.4`, P0. Dates are not extended without a recorded maintainer
+  decision.
+- Stable exposure of `v0.6.4` and the failed `master` nightly E2E run
+  `38376260900` (Compose build of `test/interop/compose.yml`, cause not
+  determined) belong to `gobfd-qj0.8.1.16.4`.
+- Fifteen Dependabot PRs and external PR `#62` target `master`; nine of the
+  sixteen are conflicting. Disposition owner: `gobfd-qj0.8.5`, P2.
+
+Plan changes:
+
+- Final qualification `gobfd-qj0.8.2.6` now depends on `gobfd-qj0.8.2.11` and
+  `gobfd-qj0.8.4`.
+- Live timer qualification `.1.1.1.4.3` depends on the accepted BASE FRR
+  consumer `.8.5.2.4.2.1` instead of the whole image parent. Its harness
+  (`test/interop`) contains no executable Alpine or `quay.io/frrouting`
+  reference. Maintainer confirmation is pending.
+- Q3 tasks `.8.2.2.5.1` and `.8.2.2.8` and task `gobfd-31o` are recorded as
+  stalled, not done.
+
+Ordered P0 queue on `dev`:
+
+1. `gobfd-qj0.8.2.11` — `go1.27.2` and `x/net` v0.60.0.
+2. `gobfd-qj0.8.4` — expired allowlist decisions per ID and branch.
+3. `gobfd-qj0.8.2.1.1.1.4.3` — live timer reload qualification against FRR
+   and BIRD.
+4. `.8.5.2.5.2`, `.8.5.2.5.3`, `.8.5.2.6`, `.8.5.2.7`, `.8.5.2.8` — remaining
+   image consumers and the Oracle Linux product decision.
+5. `gobfd-qj0.8.2.4` — GoBGP v4 reconciliation; closes GO-2026-4736 on `dev`.
+6. Remaining RFC core and ownership children in Beads `bd ready` order.
 
 ## v0.6 maintenance baseline
 
@@ -146,7 +195,7 @@ recovery below is corrected to its existing P0 Beads priority.
 | Safe GoBGP v4 reconciliation | Open |
 | Companion recovery and canonical identity | Open |
 | Independent implementation review | Open |
-| Interop, scale, security, and release qualification | In progress; the strict local release-quality gate passed in a clean worktree, while broader interop, scale, and security qualification remains open |
+| Interop, scale, security, and release qualification | In progress; the strict local release-quality gate passed in a clean worktree on 2026-09-08; on 2026-10-13 the vulnerability gate is red (`gobfd-qj0.8.2.11`, `gobfd-qj0.8.4`); broader interop, scale, and security qualification remains open |
 
 The first release-quality maintainability tranche is accepted: all 85 measured
 strict-lint findings are resolved, with the pinned cyclop, funlen, and gocognit
