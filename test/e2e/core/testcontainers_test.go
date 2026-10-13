@@ -675,7 +675,9 @@ func (topology *coreTopology) requireReloadParity(t *testing.T) {
 	}
 	topology.writeRuntimeConfig(t, "gobfd-a.yml", updatedConfig)
 	topology.requireSessionUp(t, "gobfd-a", gobfdBIP)
-	topology.requireLogContains(t, daemon.container, "configuration reloaded")
+	// The daemon reports a reload as reconciliation of config generation 2.
+	topology.requireLogContains(t, daemon.container,
+		`msg="configuration reconciliation converged" desired_generation=2 applied_generation=2`)
 }
 
 func (topology *coreTopology) requireLogContains(t *testing.T, daemon testcontainers.Container, want string) {
