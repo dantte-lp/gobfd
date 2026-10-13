@@ -46,6 +46,12 @@ are incompatible with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.5.2`
 (ExaBGP Anycast) and `gobfd-qj0.8.2.8.5.2.5.3` (Kubernetes) migrate them.
 They are not qualified.
 
+At startup GoBFD probes the endpoint with the side-effect-free `GetBgp` RPC.
+An endpoint without the v4 API, such as a GoBGP v3 daemon, stops startup
+with "requires GoBGP v4". An unreachable endpoint logs a warning and is
+re-checked in the background with backoff from 1 s to 30 s until the result
+is conclusive; a late incompatible daemon is then logged at error level.
+
 ---
 
 ## BGP Fast Failover

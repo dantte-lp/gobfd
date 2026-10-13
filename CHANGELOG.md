@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a GoBGP capability preflight: startup rejects an endpoint without
+  the GoBGP v4 API (for example a GoBGP v3 daemon) with an actionable error,
+  and an unreachable endpoint is re-checked in the background until the
+  result is conclusive.
 - Added a checksum-pinned Debian trixie FRR 10.7.1 peer recipe with local
   amd64 startup/configuration/stop smoke. BASE, BGP and RFC consumers passed local
   interop qualification; remaining Alpine-backed targets stay blocked.

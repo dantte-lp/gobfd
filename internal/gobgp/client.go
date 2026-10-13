@@ -13,8 +13,10 @@ import (
 
 	gobgpapi "github.com/osrg/gobgp/v4/api"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // -------------------------------------------------------------------------
@@ -48,6 +50,10 @@ var (
 
 	// ErrNoRootCAPEM indicates the configured CA file contained no PEM certificates.
 	ErrNoRootCAPEM = errors.New("no PEM certificates found")
+
+	// ErrIncompatibleServer indicates the endpoint does not serve the GoBGP v4
+	// api.GoBgpService, for example a GoBGP v3 daemon (apipb.GobgpApi).
+	ErrIncompatibleServer = errors.New("gobgp endpoint does not serve the GoBGP v4 API")
 )
 
 // -------------------------------------------------------------------------
@@ -172,6 +178,28 @@ func loadRootCAs(path string) (*x509.CertPool, error) {
 	}
 
 	return pool, nil
+}
+
+// CheckCompatibility probes the endpoint with the side-effect-free GetBgp RPC.
+// It returns ErrIncompatibleServer when the endpoint does not implement the
+// GoBGP v4 service; other errors (unreachable, TLS, deadline) are returned
+// wrapped so callers can treat them as transient.
+func (c *GRPCClient) CheckCompatibility(ctx context.Context) error {
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return fmt.Errorf("check gobgp compatibility: %w", ErrClientClosed)
+	}
+	c.mu.RUnlock()
+
+	_, err := c.api.GetBgp(ctx, &gobgpapi.GetBgpRequest{})
+	if status.Code(err) == codes.Unimplemented {
+		return fmt.Errorf("check gobgp compatibility: %w: %w", ErrIncompatibleServer, err)
+	}
+	if err != nil {
+		return fmt.Errorf("check gobgp compatibility: %w", err)
+	}
+	return nil
 }
 
 // DisablePeer disables a BGP peer by address with an administrative reason.

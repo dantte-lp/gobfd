@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -51,6 +53,12 @@ func startGoBGPHandler(
 		return nil, fmt.Errorf("create gobgp client: %w", err)
 	}
 
+	probeErr := probeGoBGPCompatibility(ctx, client.CheckCompatibility, cfg.ActionTimeout)
+	if errors.Is(probeErr, gobgp.ErrIncompatibleServer) {
+		closeGoBGPClient(client, logger)
+		return nil, fmt.Errorf("gobgp endpoint %s requires GoBGP v4: %w", cfg.Addr, probeErr)
+	}
+
 	handler, err := newGoBGPHandler(client, cfg, logger)
 	if err != nil {
 		closeGoBGPClient(client, logger)
@@ -62,6 +70,8 @@ func startGoBGPHandler(
 		return nil, err
 	}
 
+	reportGoBGPCompatibility(ctx, g, client, cfg, probeErr, logger)
+
 	logger.Info("gobgp integration enabled",
 		slog.String("addr", cfg.Addr),
 		slog.String("strategy", cfg.Strategy),
@@ -71,6 +81,85 @@ func startGoBGPHandler(
 	)
 
 	return client, nil
+}
+
+// GoBGP compatibility re-check backoff while the endpoint is not yet reachable.
+const (
+	goBGPCompatRetryInitial = time.Second
+	goBGPCompatRetryMax     = 30 * time.Second
+)
+
+// reportGoBGPCompatibility logs the startup probe result and, when it was
+// inconclusive, re-checks in the background.
+func reportGoBGPCompatibility(
+	ctx context.Context,
+	g *errgroup.Group,
+	client *gobgp.GRPCClient,
+	cfg config.GoBGPConfig,
+	probeErr error,
+	logger *slog.Logger,
+) {
+	if probeErr == nil {
+		logger.Info("gobgp compatibility preflight passed", slog.String("addr", cfg.Addr))
+		return
+	}
+	logger.Warn("gobgp compatibility preflight inconclusive; re-checking in background",
+		slog.String("addr", cfg.Addr),
+		slog.String("error", probeErr.Error()),
+	)
+	g.Go(func() error {
+		watchGoBGPCompatibility(ctx, client.CheckCompatibility, cfg.Addr, cfg.ActionTimeout, logger)
+		return nil
+	})
+}
+
+// probeGoBGPCompatibility runs one bounded capability probe.
+func probeGoBGPCompatibility(ctx context.Context, check func(context.Context) error, timeout time.Duration) error {
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return check(probeCtx)
+}
+
+// watchGoBGPCompatibility repeats the capability probe with exponential backoff
+// until it is conclusive. GoBGP often starts after GoBFD (for example as a
+// sidecar), so an inconclusive startup probe must not hide a GoBGP v3 daemon
+// until the first BFD Down actuation.
+func watchGoBGPCompatibility(
+	ctx context.Context,
+	check func(context.Context) error,
+	addr string,
+	timeout time.Duration,
+	logger *slog.Logger,
+) {
+	delay := goBGPCompatRetryInitial
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		err := probeGoBGPCompatibility(ctx, check, timeout)
+		switch {
+		case errors.Is(err, gobgp.ErrIncompatibleServer):
+			logger.Error("gobgp endpoint requires GoBGP v4; peer actuation will fail",
+				slog.String("addr", addr),
+				slog.String("error", err.Error()),
+			)
+			return
+		case err == nil:
+			logger.Info("gobgp compatibility preflight passed", slog.String("addr", addr))
+			return
+		}
+		delay = min(2*delay, goBGPCompatRetryMax)
+		logger.Debug("gobgp compatibility preflight still inconclusive",
+			slog.String("addr", addr),
+			slog.String("error", err.Error()),
+			slog.Duration("retry_in", delay),
+		)
+		timer.Reset(delay)
+	}
 }
 
 func newGoBGPHandler(

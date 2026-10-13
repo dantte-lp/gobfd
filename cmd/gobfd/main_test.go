@@ -20,9 +20,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/gobgp"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
@@ -2362,6 +2364,38 @@ func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
 	got := logs.String()
 	if !strings.Contains(got, "gobgp plaintext grpc configured for non-loopback address") {
 		t.Fatalf("log output missing plaintext warning: %s", got)
+	}
+}
+
+// TestStartGoBGPHandlerRejectsIncompatibleEndpoint verifies that startup stops
+// when the configured endpoint does not serve the GoBGP v4 API, as a GoBGP v3
+// daemon does not.
+func TestStartGoBGPHandlerRejectsIncompatibleEndpoint(t *testing.T) {
+	t.Parallel()
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := grpc.NewServer()
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		server.Stop()
+		if serveErr := <-served; serveErr != nil {
+			t.Errorf("serve: %v", serveErr)
+		}
+	})
+
+	_, err = startGoBGPHandler(
+		t.Context(),
+		new(errgroup.Group),
+		config.GoBGPConfig{Enabled: true, Addr: listener.Addr().String(), ActionTimeout: 5 * time.Second},
+		nil,
+		slog.New(slog.DiscardHandler),
+	)
+	if !errors.Is(err, gobgp.ErrIncompatibleServer) {
+		t.Fatalf("startGoBGPHandler() = %v, want ErrIncompatibleServer", err)
 	}
 }
 
