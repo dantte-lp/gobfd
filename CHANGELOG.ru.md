@@ -35,9 +35,10 @@
   commit SHA: `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,
   `docker/setup-qemu-action` v4.4.0, `github/codeql-action` v4.38.2 и
-  `SonarSource/sonarqube-scan-action` v8.3.0. Обновления версий от Dependabot
-  теперь направляются в `dev`; обновления безопасности по-прежнему идут в ветку
-  по умолчанию.
+  `SonarSource/sonarqube-scan-action` v8.3.0. `dependabot.yml` направляет
+  обновления версий в `dev`; GitHub читает его только из ветки по умолчанию,
+  поэтому настройка заработает после попадания в `master`. Обновления
+  безопасности остаются в ветке по умолчанию.
 - Пиры наблюдаемости работают на Debian trixie: Prometheus v3.15.0 и Grafana
   13.2.4 (восемь исправлений CVE в 13.2.1-13.2.3 и четыре в 13.2.4) из
   закреплённых по checksum upstream-архивов в `test/interop/prometheus` и

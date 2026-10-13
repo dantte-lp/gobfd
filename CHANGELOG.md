@@ -36,8 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,
   `docker/setup-qemu-action` v4.4.0, `github/codeql-action` v4.38.2 and
-  `SonarSource/sonarqube-scan-action` v8.3.0. Dependabot version updates now
-  target `dev`; security updates still target the default branch.
+  `SonarSource/sonarqube-scan-action` v8.3.0. `dependabot.yml` routes version
+  updates to `dev`; GitHub reads it from the default branch only, so it takes
+  effect once it reaches `master`. Security updates stay on the default branch.
 - Observability peers run on Debian trixie: Prometheus v3.15.0 and Grafana
   13.2.4 (eight CVE fixes in 13.2.1-13.2.3 and four in 13.2.4) from
   checksum-pinned upstream archives in `test/interop/prometheus` and
