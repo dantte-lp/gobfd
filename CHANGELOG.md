@@ -92,6 +92,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published stable release in the same line, plus tag-bound changelog and
   comparison links. Release closeout also requires the accepted stable history
   and bilingual changelogs to reach `master` before completion.
+- Updated the first-party Go toolchain from `go1.27.0` to `go1.27.2` and
+  `golang.org/x/net` from `v0.58.0` to `v0.61.0` in the runtime and tools
+  module graphs, fixing twelve reachable advisories: GO-2026-6599, 6600, 6603,
+  6604, 6605, 6607, 6608, 6610, 6611, 6612, 6613 and 6617. Every
+  `golang:1.27.2-trixie` consumer uses one index digest. GoBGP v3
+  GO-2026-4736 remains open.
 
 ## [0.6.4] - 2026-08-27
 

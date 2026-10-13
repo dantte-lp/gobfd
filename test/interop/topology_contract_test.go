@@ -289,8 +289,8 @@ func TestBGPTopologyContract(t *testing.T) {
 		})
 		if peer == "gobgp" {
 			assertContainsAll(t, peer+" source build", recipe, []string{
-				"FROM docker.io/library/golang:1.27.0-trixie@sha256:" +
-					"ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a",
+				"FROM docker.io/library/golang:1.27.2-trixie@sha256:" +
+					"47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e",
 				"https://codeload.github.com/osrg/gobgp/tar.gz/9bc8e113e4de6b5542cfafe0c64403b129f4e544",
 				"ADD --checksum=sha256:354f4b46f94d08c6f5f064db319a4b029b60e410955d89e96e8ea5552d7aa58a",
 				"CGO_ENABLED=0", `"go", "build", "-trimpath"`, `"./cmd/gobgp", "./cmd/gobgpd"`,
@@ -507,7 +507,7 @@ func TestInteropOperationalContract(t *testing.T) {
 
 	fuzzImage := contents["BFD fuzz image"]
 	assertContainsAll(t, "BFD fuzz image", fuzzImage, []string{
-		"golang:1.27.0-trixie@sha256:",
+		"golang:1.27.2-trixie@sha256:",
 		"debian:trixie-slim@sha256:",
 		"go build -trimpath -o /out/bfd-fuzz ./test/interop/scapy",
 		`ENTRYPOINT ["/usr/local/bin/bfd-fuzz"]`,

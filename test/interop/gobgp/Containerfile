@@ -1,6 +1,6 @@
 # Shared GoBGP v3.37.0 compatibility artifact; build with this directory as context.
-# Go 1.27.0 on Debian 13 (trixie), matching the repository toolchain.
-FROM docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder
+# Go 1.27.2 on Debian 13 (trixie), matching the repository toolchain.
+FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS builder
 
 # GoBGP v3.37.0, immutable upstream commit and archive checksum.
 ADD --checksum=sha256:354f4b46f94d08c6f5f064db319a4b029b60e410955d89e96e8ea5552d7aa58a \

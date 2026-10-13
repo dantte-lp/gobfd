@@ -311,7 +311,7 @@ graph LR
 **BGP на trixie локально квалифицирован** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
 Согласованная замена использует общие рецепты FRR, GoBGP и ExaBGP в
 `test/interop/`. GoBGP сохраняет v3.37.0 для текущего контракта пира и
-собирается из закреплённого upstream commit с Go 1.27.0 на trixie;
+собирается из закреплённого upstream commit с Go 1.27.2 на trixie;
 это не обновление на upstream v4. Внешний ExaBGP 5.0.13 использует системный
 Python trixie и native entrypoint `python3 -m exabgp`, без pip, uv, собственного
 launcher и Python-исходников репозитория. Его

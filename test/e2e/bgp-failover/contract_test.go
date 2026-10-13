@@ -59,7 +59,7 @@ func TestBGPFailoverBuildContextContract(t *testing.T) {
 		t.Fatalf("read bounded Containerfile: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte("docker.io/library/golang:1.27.0-trixie@sha256:"),
+		[]byte("docker.io/library/golang:1.27.2-trixie@sha256:"),
 		[]byte("CGO_ENABLED=0 go build -trimpath -o /bin/gobfd ./cmd/gobfd"),
 	} {
 		if !bytes.Contains(containerfile, required) {

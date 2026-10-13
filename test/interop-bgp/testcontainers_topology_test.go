@@ -614,8 +614,8 @@ func prepareBGPTestGoContext(t *testing.T, root string) string {
 			t.Fatalf("write %s into bounded BGP build context: %v", name, err)
 		}
 	}
-	const containerfile = "FROM docker.io/library/golang:1.27.0-trixie@sha256:" +
-		"ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a AS builder\n" +
+	const containerfile = "FROM docker.io/library/golang:1.27.2-trixie@sha256:" +
+		"47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS builder\n" +
 		"WORKDIR /src\n" +
 		"COPY go.mod go.sum ./\n" +
 		"RUN go mod download && go mod verify\n" +

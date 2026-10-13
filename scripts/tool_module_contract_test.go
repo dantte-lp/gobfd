@@ -18,7 +18,7 @@ func TestGoToolsUseIsolatedModule(t *testing.T) {
 	for _, required := range []string{
 		"module github.com/dantte-lp/gobfd/tools",
 		"go 1.27",
-		"toolchain go1.27.0",
+		"toolchain go1.27.2",
 		"github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
 		"golang.org/x/perf/cmd/benchstat",
 		"gotest.tools/gotestsum",

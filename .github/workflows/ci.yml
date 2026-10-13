@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
 
       - name: Cache Go modules
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -70,7 +70,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
 
       - name: Test the non-Linux transport boundary
         run: go test ./internal/netio -race -count=1
@@ -84,7 +84,7 @@ jobs:
     name: Lint (Go)
     runs-on: ubuntu-latest
     container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
+      image: docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -105,7 +105,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
 
       - name: Markdown policy
         run: go run ./test/cmd/repoquality markdown --root .
@@ -125,7 +125,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
 
       - name: Validate PR title
         env:
@@ -136,7 +136,7 @@ jobs:
     name: Vulnerability audit
     runs-on: ubuntu-latest
     container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
+      image: docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -171,7 +171,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
 
       - name: Set up buf
         uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1.5.0
@@ -204,7 +204,7 @@ jobs:
       BENCH_REGEX: >-
         ^(BenchmarkControlPacket|BenchmarkFSMTransition|BenchmarkApplyJitter|BenchmarkPacketPool|BenchmarkRecvStateToEvent|BenchmarkFullRecvPath|BenchmarkFullRecvPathCodec|BenchmarkFullTxPath|BenchmarkRecvDecodeLookupEnqueue|BenchmarkRecvDecodeFSM|BenchmarkTxMarshalJitter|BenchmarkSessionRecvPacket|BenchmarkDetectionTimeCalc|BenchmarkCalcTxInterval|BenchmarkDetectionTimeCalcHot|BenchmarkCalcTxIntervalHot|BenchmarkSessionApplyJitter|BenchmarkBuildInnerPacket|BenchmarkStripInnerPacket|BenchmarkVXLANHeader|BenchmarkGeneveHeader)
     container:
-      image: docker.io/library/golang:1.27.0-trixie@sha256:ae28539d2ef595b9a2930dd7f031d9592376829dc0eae7cb869559f7d5812c3a
+      image: docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

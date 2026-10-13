@@ -314,7 +314,7 @@ Each scenario tests three phases:
 **BGP trixie qualification passed locally** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
 The approved replacement uses shared recipes under `test/interop/` for FRR,
 GoBGP and ExaBGP. GoBGP retains v3.37.0 for the existing peer contract and is
-built from its pinned upstream commit with Go 1.27.0 on trixie; this is not
+built from its pinned upstream commit with Go 1.27.2 on trixie; this is not
 an upgrade to the upstream v4 line. External ExaBGP 5.0.13 uses trixie's system
 Python and its native `python3 -m exabgp` entrypoint, without pip, uv, a custom
 launcher or repository-owned Python source. Its
