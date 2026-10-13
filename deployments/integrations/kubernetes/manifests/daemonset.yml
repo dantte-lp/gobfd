@@ -74,7 +74,10 @@ spec:
               memory: 64Mi
 
         - name: gobgp
-          image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
+          # GoBGP v4.10.0 built from test/interop/gobgp and imported by integrationctl.
+          image: gobgp:local
+          imagePullPolicy: Never
+          command: ["gobgpd"]
           args: ["-f", "/etc/gobgp/gobgp.toml", "-l", "info"]
           ports:
             - name: bgp

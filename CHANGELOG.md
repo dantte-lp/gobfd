@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Kubernetes example runs GoBGP v4.10.0 as `gobgp:local`, built from
+  the shared recipe and imported into k3s by `integrationctl`, instead of
+  `docker.io/jauderho/gobgp:v3.37.0`. No repository path uses that image any
+  more. The example has not been run on a live k3s cluster.
 - The Containerlab GoBFD image builds its GoBGP sidecar as v4.10.0 from the
   shared source pin instead of copying it from
   `docker.io/jauderho/gobgp:v3.37.0`; a contract test keeps the pins equal.

@@ -751,10 +751,6 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 			SourceRepository: "grafana/grafana", SourceCommit: "f681b1359f6a0b8ecb9f2c49a88ac72b75bde73b",
 			LicenseFile: "LICENSE", SPDX: "AGPL-3.0-only", LicenseHash: "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
 		},
-		"docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37": {
-			SourceRepository: "jauderho/dockerfiles", SourceCommit: "8712248e3458297472e4a4f5e4980a529c69bcf3",
-			LicenseFile: "LICENSE", SPDX: "BSD-3-Clause", LicenseHash: "78daaa3193f2a3e0dd754da96ee2fc6e63af52b350a89e7667b7bf0f0900d9ae",
-		},
 		"docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f": {
 			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",

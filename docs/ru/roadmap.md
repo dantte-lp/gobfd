@@ -53,10 +53,11 @@
 3. `gobfd-qj0.8.2.4.4` — capability preflight GoBGP отклоняет при старте
    демоны v3 и не-GoBGP.
 4. `gobfd-qj0.8.2.8.5.2.5.2`, `.5.3`, `gobfd-qj0.8.2.8.5.2.7` — ExaBGP
-   anycast, Kubernetes и Containerlab переходят с `jauderho/gobgp:v3.37.0` на
+   anycast, Kubernetes и Containerlab переведены с `jauderho/gobgp:v3.37.0` на
    общий рецепт GoBGP v4.10.0. ExaBGP anycast выполнен (gate пройден
    2026-10-13 за 106 с); capability preflight (шаг 3) выполнен. Образ
    Containerlab собирает GoBGP v4.10.0 (`.8.5.2.7.1`); прогоны с vendor NOS впереди.
+   Kubernetes собирает и импортирует `gobgp:local`; живого прогона k3s ещё нет.
 5. `gobfd-qj0.8.6.8` — миграция на connect-go v2 (допуск с 2026-10-14;
    ждёт шаг 1).
 6. `gobfd-qj0.8.6.5` и `gobfd-qj0.8.2.8.5.2.6` — digest базовых образов,

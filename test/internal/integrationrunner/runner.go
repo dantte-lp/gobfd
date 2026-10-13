@@ -313,18 +313,29 @@ func (r *runner) kubernetesSetup(ctx context.Context) error {
 		return err
 	}
 
-	r.info("Building gobfd:local")
-	containerfile := filepath.Join(r.root, "deployments", "docker", "Containerfile")
-	if err := r.command(ctx, buildTimeout, r.stdout, r.stderr,
-		"podman", "build", "-f", containerfile, "-t", "gobfd:local", r.root,
-	); err != nil {
-		return err
+	for _, image := range []struct{ tag, containerfile, context string }{
+		{"gobfd:local", filepath.Join(r.root, "deployments", "docker", "Containerfile"), r.root},
+		// GoBGP v4 from the shared source-pinned recipe; dev GoBFD needs a v4 daemon.
+		{
+			"gobgp:local", filepath.Join(r.root, "test", "interop", "gobgp", "Containerfile"),
+			filepath.Join(r.root, "test", "interop", "gobgp"),
+		},
+	} {
+		r.info("Building %s", image.tag)
+		if err := r.command(ctx, buildTimeout, r.stdout, r.stderr,
+			"podman", "build", "-f", image.containerfile, "-t", image.tag, image.context,
+		); err != nil {
+			return err
+		}
+		if err := r.importKubernetesImage(ctx, image.tag); err != nil {
+			return err
+		}
 	}
-	return r.importKubernetesImage(ctx)
+	return nil
 }
 
-func (r *runner) importKubernetesImage(ctx context.Context) error {
-	archive, err := os.CreateTemp("/var/tmp", "gobfd-local-*.tar")
+func (r *runner) importKubernetesImage(ctx context.Context, image string) error {
+	archive, err := os.CreateTemp("/var/tmp", "gobfd-k8s-image-*.tar")
 	if err != nil {
 		return fmt.Errorf("create temporary image archive: %w", err)
 	}
@@ -339,14 +350,14 @@ func (r *runner) importKubernetesImage(ctx context.Context) error {
 	}()
 	if err := r.command(
 		ctx, buildTimeout, r.stdout, r.stderr,
-		"podman", "save", "--output", archivePath, "gobfd:local",
+		"podman", "save", "--output", archivePath, image,
 	); err != nil {
 		return err
 	}
 	if err := r.command(ctx, buildTimeout, r.stdout, r.stderr, "k3s", "ctr", "images", "import", archivePath); err != nil {
 		return err
 	}
-	r.info("Imported gobfd:local into the existing K3s image store")
+	r.info("Imported %s into the existing K3s image store", image)
 	return nil
 }
 

@@ -40,10 +40,10 @@ All stacks use **podman compose** with OCI containers and include a **tshark** s
 | 5 | Kubernetes DaemonSet | GoBFD + GoBGP + k3s | Host network | K8s manifests |
 
 GoBFD on `dev` uses the GoBGP v4 API and requires a GoBGP v4 daemon: GoBGP v3
-`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. The
-Kubernetes stack still uses `docker.io/jauderho/gobgp:v3.37.0` and is
-incompatible with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.5.3` migrates
-it; it is not qualified.
+`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. Every
+integration builds GoBGP v4.10.0 from the shared `test/interop/gobgp` recipe.
+The Kubernetes example builds `gobgp:local` from that recipe and imports it
+into k3s next to `gobfd:local`; it has not been run on a live k3s cluster.
 
 At startup GoBFD probes the endpoint with the side-effect-free `GetBgp` RPC.
 An endpoint without the v4 API, such as a GoBGP v3 daemon, stops startup

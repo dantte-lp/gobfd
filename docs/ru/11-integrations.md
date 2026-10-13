@@ -40,10 +40,10 @@ GoBFD интегрируется с системами маршрутизаци�
 | 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Host network | K8s-манифесты |
 
 GoBFD в `dev` использует API GoBGP v4 и требует демон GoBGP v4: GoBGP v3
-`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Стек
-Kubernetes по-прежнему использует `docker.io/jauderho/gobgp:v3.37.0` и
-несовместим с GoBFD в `dev` до миграции в Beads `gobfd-qj0.8.2.8.5.2.5.3`;
-он не квалифицирован.
+`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Все
+интеграции собирают GoBGP v4.10.0 из общего рецепта `test/interop/gobgp`.
+Пример Kubernetes собирает `gobgp:local` из этого рецепта и импортирует его в
+k3s вместе с `gobfd:local`; на живом кластере k3s он не запускался.
 
 При старте GoBFD проверяет endpoint вызовом `GetBgp` без побочных эффектов.
 Endpoint без API v4, например демон GoBGP v3, прерывает старт с сообщением
