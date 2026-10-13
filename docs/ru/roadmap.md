@@ -75,7 +75,7 @@
 2. `gobfd-qj0.8.2.4.3` — первый этап GoBGP v4. Клиент и все потребители демона
    GoBGP переводятся одновременно, так как v3 `/apipb.GobgpApi` и v4
    `/api.GoBgpService` несовместимы по wire. Устраняет GO-2026-4736 в `dev`.
-   Реализовано в ветке `task/gobgp-v4-slice` (`f85ca09`) с GoBGP v4.10.0 для
+   Доставлено в `dev` (`f85ca09`..`8365f1c`) с GoBGP v4.10.0 для
    клиента и потребителей общего рецепта пира. Локальные amd64 gates
    2026-10-13: `TestBGPBFDTopologyTestcontainers` пройден за 359.25 с (четыре
    race-подтеста, без пропусков, версия GoBGP 4.10.0); testcontainers BGP

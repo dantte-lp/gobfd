@@ -75,7 +75,7 @@ Ordered P0 queue on `dev`:
 2. `gobfd-qj0.8.2.4.3` — first GoBGP v4 slice. It moves the client and every
    GoBGP daemon consumer together, because v3 `/apipb.GobgpApi` and v4
    `/api.GoBgpService` are wire-incompatible. Removes GO-2026-4736 from `dev`.
-   Implemented on branch `task/gobgp-v4-slice` (`f85ca09`) with GoBGP v4.10.0
+   Delivered to `dev` (`f85ca09`..`8365f1c`) with GoBGP v4.10.0
    for the client and the shared peer recipe consumers. Local amd64 gates on
    2026-10-13: `TestBGPBFDTopologyTestcontainers` passed in 359.25 s (four
    race-enabled subtests, no skips, GoBGP version 4.10.0); BGP fast-failover
