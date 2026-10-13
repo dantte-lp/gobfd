@@ -779,10 +779,6 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 			SourceRepository: "prometheus/prometheus", SourceCommit: "d7598b7141418fa35be2b5ec5d0fefb634199610",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
 		},
-		"ghcr.io/exa-networks/exabgp:5.0.13@sha256:80f64719841fe6192f5b5a3b46edc27270215521438fae8a704f28d221a4680b": {
-			SourceRepository: "Exa-Networks/exabgp", SourceCommit: "3278b32d6f40669b7465aaee93b46e295b4b2a03",
-			LicenseFile: "LICENCE.txt", SPDX: "BSD-3-Clause", LicenseHash: "19002288545f4fcb273332f0daef938a5c72c638af2de28ab440cc30ad987632",
-		},
 		"ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a": {
 			SourceRepository: "holo-routing/holo", SourceCommit: "947daeb2811b0cb90f457458f35c3b1a3c989b6b",
 			LicenseFile: "LICENSE", SPDX: "MIT", LicenseHash: "eba69e1d2e51315c7bb27f9cad585e6b03829aa2d1ac38d75d1747c939443e9a",

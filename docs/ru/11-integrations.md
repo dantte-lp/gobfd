@@ -40,11 +40,10 @@ GoBFD интегрируется с системами маршрутизаци�
 | 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Host network | K8s-манифесты |
 
 GoBFD в `dev` использует API GoBGP v4 и требует демон GoBGP v4: GoBGP v3
-`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Стеки
-Anycast через ExaBGP и Kubernetes по-прежнему используют
-`docker.io/jauderho/gobgp:v3.37.0` и несовместимы с GoBFD в `dev` до миграции
-в Beads `gobfd-qj0.8.2.8.5.2.5.2` (Anycast через ExaBGP) и
-`gobfd-qj0.8.2.8.5.2.5.3` (Kubernetes). Они не квалифицированы.
+`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Стек
+Kubernetes по-прежнему использует `docker.io/jauderho/gobgp:v3.37.0` и
+несовместим с GoBFD в `dev` до миграции в Beads `gobfd-qj0.8.2.8.5.2.5.3`;
+он не квалифицирован.
 
 При старте GoBFD проверяет endpoint вызовом `GetBgp` без побочных эффектов.
 Endpoint без API v4, например демон GoBGP v3, прерывает старт с сообщением
@@ -281,10 +280,19 @@ graph LR
 ### Быстрый старт
 
 ```bash
-make int-exabgp-anycast        # Полное демо
-make int-exabgp-anycast-up     # Запуск топологии
+make int-exabgp-anycast        # Сборка с лимитами, проверка маршрута, точная очистка
+make int-exabgp-anycast-up     # Сборка с лимитами и запуск без неявных сборок
 make int-exabgp-anycast-down   # Очистка
 ```
+
+GoBGP v4.10.0 и ExaBGP 5.0.13 используют общие рецепты Debian trixie; образ
+anycast добавляет `gobfd-exabgp-bridge` к той же закреплённой среде ExaBGP.
+Каждый контейнер ограничен 1 CPU, 256 MiB и 128 PID; сборки выполняются
+последовательно с 2 CPU и 2 GiB через контроллер проекта с проверкой
+владения. Gate завершается ошибкой, если маршрут не анонсирован, не отозван
+после паузы GoBFD на стороне приёмника или не восстановлен после её снятия.
+2026-10-13 локальный прогон на amd64 прошёл за 106 секунд; контейнеров,
+сетей и томов проекта не осталось, контроллер сохраняет собранные образы.
 
 ---
 

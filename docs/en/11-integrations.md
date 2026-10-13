@@ -40,11 +40,10 @@ All stacks use **podman compose** with OCI containers and include a **tshark** s
 | 5 | Kubernetes DaemonSet | GoBFD + GoBGP + k3s | Host network | K8s manifests |
 
 GoBFD on `dev` uses the GoBGP v4 API and requires a GoBGP v4 daemon: GoBGP v3
-`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. The ExaBGP
-Anycast and Kubernetes stacks still use `docker.io/jauderho/gobgp:v3.37.0` and
-are incompatible with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.5.2`
-(ExaBGP Anycast) and `gobfd-qj0.8.2.8.5.2.5.3` (Kubernetes) migrate them.
-They are not qualified.
+`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. The
+Kubernetes stack still uses `docker.io/jauderho/gobgp:v3.37.0` and is
+incompatible with `dev` GoBFD until Beads `gobfd-qj0.8.2.8.5.2.5.3` migrates
+it; it is not qualified.
 
 At startup GoBFD probes the endpoint with the side-effect-free `GetBgp` RPC.
 An endpoint without the v4 API, such as a GoBGP v3 daemon, stops startup
@@ -280,10 +279,19 @@ The `gobfd-exabgp-bridge` runs as an ExaBGP process:
 ### Quick Start
 
 ```bash
-make int-exabgp-anycast        # Full demo
-make int-exabgp-anycast-up     # Start topology
+make int-exabgp-anycast        # Capped build, route checks, exact cleanup
+make int-exabgp-anycast-up     # Capped build and start without implicit builds
 make int-exabgp-anycast-down   # Cleanup
 ```
+
+GoBGP v4.10.0 and ExaBGP 5.0.13 use the shared Debian trixie recipes; the
+anycast image adds `gobfd-exabgp-bridge` to the same pinned ExaBGP runtime.
+Every container is limited to 1 CPU, 256 MiB and 128 PIDs; builds run
+sequentially with 2 CPUs and 2 GiB through the ownership-checked project
+controller. The gate fails unless the route is announced, withdrawn after the
+receiver-side GoBFD is paused, and restored after it resumes. On 2026-10-13
+the local amd64 run passed in 106 seconds with no remaining project
+containers, networks or volumes; the controller keeps the built images.
 
 ---
 

@@ -369,7 +369,7 @@ interop-clab-down:
 INT_BGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-bgp-fast-failover" INTEROP_PROJECT_KIND=bgp-fast-failover $(INTEROP_CTL)
 INT_HAPROXY_DC := $(COMPOSE) -f deployments/integrations/haproxy-health/compose.yml
 INT_OBS_DC := $(COMPOSE) -f deployments/integrations/observability/compose.yml
-INT_EXABGP_DC := $(COMPOSE) -f deployments/integrations/exabgp-anycast/compose.yml
+INT_EXABGP_CTL := env "INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}-exabgp-anycast" INTEROP_PROJECT_KIND=exabgp-anycast $(INTEROP_CTL)
 
 int-bgp-failover: int-bgp-failover-testcontainers
 
@@ -425,14 +425,14 @@ int-observability-logs:
 int-exabgp-anycast:
 	go run ./test/cmd/integrationctl exabgp-anycast
 
-int-exabgp-anycast-up:
-	$(INT_EXABGP_DC) up --build -d
+int-exabgp-anycast-up: interop-project-validate
+	$(INT_EXABGP_CTL) up
 
-int-exabgp-anycast-down:
-	$(INT_EXABGP_DC) down --volumes --remove-orphans
+int-exabgp-anycast-down: interop-project-validate
+	$(INT_EXABGP_CTL) down
 
-int-exabgp-anycast-logs:
-	$(INT_EXABGP_DC) logs -f
+int-exabgp-anycast-logs: interop-project-validate
+	$(INT_EXABGP_CTL) logs
 
 int-k8s:
 	go run ./test/cmd/integrationctl k8s

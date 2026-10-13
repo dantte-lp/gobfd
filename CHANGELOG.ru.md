@@ -27,6 +27,13 @@
 
 ### Изменено
 
+- ExaBGP Anycast использует общий рецепт GoBGP v4.10.0 и образ ExaBGP 5.0.13
+  на Debian trixie с `gobfd-exabgp-bridge` вместо
+  `docker.io/jauderho/gobgp:v3.37.0` и `ghcr.io/exa-networks/exabgp`. Gate
+  выполняется через контроллер проекта с лимитами и завершается ошибкой, если
+  маршрут не анонсирован, не отозван после отказа BFD на стороне приёмника или
+  не восстановлен. Прежний сценарий ставил на паузу GoBFD, питающий bridge, и
+  только выводил предупреждения.
 - **Breaking:** клиент интеграции GoBGP переведён с
   `github.com/osrg/gobgp/v3` v3.37.0 на `github.com/osrg/gobgp/v4` v4.10.0.
   GoBGP v3 `/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire:

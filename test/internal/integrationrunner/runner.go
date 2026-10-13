@@ -70,7 +70,7 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 	case "observability":
 		return r.composeLifecycle(ctx, "observability", r.observability)
 	case "exabgp-anycast":
-		return r.composeLifecycle(ctx, "exabgp-anycast", r.exabgpAnycast)
+		return r.exabgpAnycastLifecycle(ctx)
 	case "k8s":
 		return r.kubernetes(ctx)
 	case "k8s-up":
@@ -214,64 +214,6 @@ func (r *runner) observability(ctx context.Context) error {
 	r.capture(ctx, "tshark-observability", 0)
 	r.info("Grafana dashboard: http://localhost:3000 (admin/admin)")
 	r.info("Prometheus: http://localhost:9090")
-	return nil
-}
-
-func (r *runner) exabgpAnycast(ctx context.Context) error {
-	r.info("Waiting for BGP route 198.51.100.1/32")
-	announced := false
-	for range 30 {
-		output, err := r.output(ctx, commandTimeout, "podman", "exec", "gobgp-anycast", "gobgp", "global", "rib")
-		if err == nil && strings.Contains(output, "198.51.100.1/32") {
-			announced = true
-			break
-		}
-		if err := sleep(ctx, time.Second); err != nil {
-			return err
-		}
-	}
-	if announced {
-		r.info("Route 198.51.100.1/32 announced")
-	} else {
-		r.warn("Route is not announced yet")
-		r.bestEffort(ctx, "podman", "exec", "gobgp-anycast", "gobgp", "neighbor")
-	}
-	r.bestEffort(ctx, "podman", "exec", "gobgp-anycast", "gobgp", "global", "rib")
-	r.capture(ctx, "tshark-anycast", 5)
-
-	r.info("Pausing gobfd-anycast")
-	if err := r.command(ctx, commandTimeout, r.stdout, r.stderr, "podman", "pause", "gobfd-anycast"); err != nil {
-		return err
-	}
-	if err := sleep(ctx, 8*time.Second); err != nil {
-		return err
-	}
-	output, routeErr := r.output(ctx, commandTimeout, "podman", "exec", "gobgp-anycast", "gobgp", "global", "rib")
-	switch {
-	case routeErr != nil:
-		r.warn("Could not query route withdrawal: %v", routeErr)
-	case strings.Contains(output, "198.51.100.1/32"):
-		r.warn("Route is still present")
-	default:
-		r.info("Route withdrawn; anycast failover succeeded")
-	}
-
-	r.info("Unpausing gobfd-anycast")
-	if commandErr := r.command(
-		ctx, commandTimeout, r.stdout, r.stderr, "podman", "unpause", "gobfd-anycast",
-	); commandErr != nil {
-		return commandErr
-	}
-	if waitErr := sleep(ctx, 15*time.Second); waitErr != nil {
-		return waitErr
-	}
-	output, routeErr = r.output(ctx, commandTimeout, "podman", "exec", "gobgp-anycast", "gobgp", "global", "rib")
-	if routeErr == nil && strings.Contains(output, "198.51.100.1/32") {
-		r.info("Route restored; recovery succeeded")
-	} else {
-		r.warn("Route is not restored yet")
-	}
-	r.capture(ctx, "tshark-anycast", 0)
 	return nil
 }
 

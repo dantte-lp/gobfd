@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- ExaBGP Anycast uses the shared GoBGP v4.10.0 recipe and a Debian trixie
+  ExaBGP 5.0.13 image with `gobfd-exabgp-bridge` instead of
+  `docker.io/jauderho/gobgp:v3.37.0` and `ghcr.io/exa-networks/exabgp`. Its
+  gate runs through the capped project controller and now fails when the
+  route is not announced, withdrawn after a receiver-side BFD failure, or
+  restored. The previous scenario paused the GoBFD instance that feeds the
+  bridge and only logged warnings.
 - **Breaking:** the GoBGP integration client moved from
   `github.com/osrg/gobgp/v3` v3.37.0 to `github.com/osrg/gobgp/v4` v4.10.0.
   GoBGP v3 `/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible:

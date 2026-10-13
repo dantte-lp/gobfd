@@ -9,15 +9,24 @@
 #   172.24.0.20 — gobfd + exabgp (AS 65002, shared netns, announces 198.51.100.1/32)
 #
 # Usage:
-#   podman compose up --build -d
-#   podman exec gobgp-anycast gobgp global rib
-#   podman compose down --volumes --remove-orphans
+#   make int-exabgp-anycast        # capped build, route checks, exact cleanup
+#   make int-exabgp-anycast-up     # capped build and start without implicit builds
+#   make int-exabgp-anycast-down
 
 services:
   # === GoBGP (route receiver) at 172.24.0.10 ===
 
   gobgp:
-    image: docker.io/jauderho/gobgp:v3.37.0@sha256:3bb7304d299c42383c738f5bde2464793e2def9c1ff7fa3f25707a5bb10aee37
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    build:
+      context: ../../../test/interop/gobgp
+      dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: gobgp-anycast
     user: "0:0"
     cap_add:
@@ -32,6 +41,10 @@ services:
   # === GoBFD receiver sidecar (shared netns with gobgp) ===
 
   gobfd-receiver:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile
@@ -50,6 +63,10 @@ services:
   # === GoBFD (BFD daemon) at 172.24.0.20 ===
 
   gobfd:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile
@@ -68,6 +85,10 @@ services:
   # === ExaBGP + bridge (shared netns with gobfd) ===
 
   exabgp:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../../..
       dockerfile: deployments/docker/Containerfile.exabgp
@@ -92,6 +113,10 @@ services:
   # === tshark (BFD packet capture) ===
 
   tshark:
+    cpus: 1
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
     build:
       context: ../../../test/interop/tshark
       dockerfile: Containerfile
@@ -102,11 +127,6 @@ services:
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    volumes:
-      - captures:/captures:z
-
-volumes:
-  captures:
 
 networks:
   exabgp-anycast-net:

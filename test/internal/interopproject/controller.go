@@ -169,9 +169,14 @@ func NewProject(root, projectName, kind string, stdout, stderr io.Writer) (*Cont
 		required = []string{
 			"gobfd-bgp-failover", "gobgp-bgp-failover", "frr-bgp-failover", "tshark-bgp-failover",
 		}
+	case "exabgp-anycast":
+		composeFile = filepath.Join(root, "deployments/integrations/exabgp-anycast/compose.yml")
+		required = []string{
+			"gobgp-anycast", "gobfd-receiver-anycast", "gobfd-anycast", "exabgp-anycast", "tshark-anycast",
+		}
 	default:
 		return nil, &UsageError{Message: fmt.Sprintf(
-			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, or bgp-fast-failover", kind,
+			"invalid INTEROP_PROJECT_KIND %q: use base, bgp, bgp-fast-failover, or exabgp-anycast", kind,
 		)}
 	}
 
