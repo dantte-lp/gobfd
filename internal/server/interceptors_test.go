@@ -1,8 +1,11 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -177,5 +180,43 @@ func TestBothInterceptors(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatal("response is nil")
+	}
+}
+
+func TestLoggingInterceptorLevels(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		want slog.Level
+	}{
+		{"success", nil, slog.LevelInfo},
+		{"client canceled stream", fmt.Errorf("watch session events: %w", context.Canceled), slog.LevelInfo},
+		{"canceled code", connect.NewError(connect.CodeCanceled, "canceled"), slog.LevelInfo},
+		{"handler error", connect.NewError(connect.CodeInternal, "boom"), slog.LevelWarn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			next := func(context.Context, connect.Spec, connect.ServerStream) error { return tc.err }
+			spec := connect.Spec{Procedure: "/bfd.v1.BfdService/WatchSessionEvents"}
+
+			err := server.LoggingInterceptor(logger)(next)(t.Context(), spec, nil)
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("interceptor returned %v, want %v", err, tc.err)
+			}
+			var entry struct {
+				Level string `json:"level"`
+			}
+			if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+				t.Fatalf("decode log %q: %v", buf.String(), err)
+			}
+			if entry.Level != tc.want.String() {
+				t.Fatalf("log level = %s, want %s", entry.Level, tc.want)
+			}
+		})
 	}
 }

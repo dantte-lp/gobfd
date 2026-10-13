@@ -38,7 +38,10 @@
   обработчики регистрируются на `*connect.Server`. Wire-протокол `bfd.v1`
   не изменён; тест закрепляет вызовы grpc-go, `grpc.health.v1`, Connect и gRPC-Web.
   Демон, `gobfdctl` и оба моста применяют лимит connect-go v2 по умолчанию
-  4 MiB на сообщение вместо отсутствия лимита.
+  4 MiB на сообщение вместо отсутствия лимита; один ответ `ListSessions`
+  вмещает около 28 000 сессий по 147 байт.
+  Перехватчики логирования и восстановления охватывают и потоковые вызовы;
+  закрытие `WatchSessionEvents` клиентом логируется как `rpc canceled` на Info.
 
 - GitHub Actions обновлены с учётом правила возраста релиза до peeled
   commit SHA: `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,

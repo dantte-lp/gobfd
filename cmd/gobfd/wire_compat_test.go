@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -8,12 +9,15 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -54,13 +58,63 @@ func TestGRPCServerWireCompatibility(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 
-	t.Run("grpc-go unary", func(t *testing.T) {
+	// One unary call per registered service, so dropping a Register call
+	// from newGRPCServer fails here even though health reports it SERVING.
+	for _, tc := range []struct {
+		method    string
+		req, resp proto.Message
+	}{
+		{"/bfd.v1.BfdService/ListSessions", new(bfdv1.ListSessionsRequest), new(bfdv1.ListSessionsResponse)},
+		{"/bfd.v1.EchoService/ListEchoSessions", new(bfdv1.ListEchoSessionsRequest), new(bfdv1.ListEchoSessionsResponse)},
+		{
+			"/bfd.v1.MicroBFDService/ListMicroBFDGroups",
+			new(bfdv1.ListMicroBFDGroupsRequest), new(bfdv1.ListMicroBFDGroupsResponse),
+		},
+	} {
+		t.Run("grpc-go unary "+tc.method, func(t *testing.T) {
+			t.Parallel()
+
+			if err := conn.Invoke(t.Context(), tc.method, tc.req, tc.resp); err != nil {
+				t.Fatalf("%s over grpc-go: %v", tc.method, err)
+			}
+		})
+	}
+
+	t.Run("grpc-go server stream", func(t *testing.T) {
 		t.Parallel()
 
-		resp := new(bfdv1.ListSessionsResponse)
-		err := conn.Invoke(t.Context(), "/bfd.v1.BfdService/ListSessions", new(bfdv1.ListSessionsRequest), resp)
+		add := &bfdv1.AddSessionRequest{
+			PeerAddress:           "127.0.0.2",
+			LocalAddress:          "127.0.0.1",
+			InterfaceName:         "eth0",
+			Type:                  bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP,
+			DesiredMinTxInterval:  durationpb.New(time.Second),
+			RequiredMinRxInterval: durationpb.New(time.Second),
+			DetectMultiplier:      3,
+		}
+		if err := conn.Invoke(t.Context(), "/bfd.v1.BfdService/AddSession", add, new(bfdv1.AddSessionResponse)); err != nil {
+			t.Fatalf("AddSession over grpc-go: %v", err)
+		}
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true}, "/bfd.v1.BfdService/WatchSessionEvents")
 		if err != nil {
-			t.Fatalf("ListSessions over grpc-go: %v", err)
+			t.Fatalf("open WatchSessionEvents: %v", err)
+		}
+		if err := stream.SendMsg(&bfdv1.WatchSessionEventsRequest{IncludeCurrent: true}); err != nil {
+			t.Fatalf("send WatchSessionEvents request: %v", err)
+		}
+		if err := stream.CloseSend(); err != nil {
+			t.Fatalf("close send: %v", err)
+		}
+		event := new(bfdv1.WatchSessionEventsResponse)
+		if err := stream.RecvMsg(event); err != nil {
+			t.Fatalf("receive WatchSessionEvents: %v", err)
+		}
+		if event.GetType() != bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED ||
+			event.GetSession().GetPeerAddress() != add.GetPeerAddress() {
+			t.Fatalf("first event = %v, want SESSION_ADDED for %s", event, add.GetPeerAddress())
 		}
 	})
 

@@ -19,7 +19,8 @@ var ErrPanicRecovered = errors.New("panic recovered in rpc handler")
 // v2 server interceptors wrap unary and streaming calls alike; a streaming
 // call is logged when the stream ends.
 //
-// Log level is Info for successful calls and Warn for calls that return errors.
+// Log level is Info for successful calls and for calls the client canceled
+// (a closed watch stream is routine), and Warn for other errors.
 func LoggingInterceptor(logger *slog.Logger) connect.ServerInterceptor {
 	return func(next connect.ServerFunc) connect.ServerFunc {
 		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
@@ -30,10 +31,14 @@ func LoggingInterceptor(logger *slog.Logger) connect.ServerInterceptor {
 				slog.String("procedure", spec.Procedure),
 				slog.Duration("duration", time.Since(start)),
 			}
-			if err != nil {
+			switch {
+			case errors.Is(err, context.Canceled) || connect.CodeOf(err) == connect.CodeCanceled:
+				attrs = append(attrs, slog.String("error", err.Error()))
+				logger.LogAttrs(ctx, slog.LevelInfo, "rpc canceled", attrs...)
+			case err != nil:
 				attrs = append(attrs, slog.String("error", err.Error()))
 				logger.LogAttrs(ctx, slog.LevelWarn, "rpc completed with error", attrs...)
-			} else {
+			default:
 				logger.LogAttrs(ctx, slog.LevelInfo, "rpc completed", attrs...)
 			}
 			return err

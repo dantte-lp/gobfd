@@ -39,7 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handlers register on a `*connect.Server`. The `bfd.v1` wire protocol is
   unchanged; a test pins grpc-go, `grpc.health.v1`, Connect and gRPC-Web calls.
   The daemon, `gobfdctl` and both bridges now apply the connect-go v2
-  default 4 MiB per-message read limit instead of no limit.
+  default 4 MiB per-message read limit instead of no limit; one
+  `ListSessions` response holds about 28,000 sessions at 147 bytes each.
+  Logging and recovery interceptors now also cover streaming calls; a
+  client closing `WatchSessionEvents` logs `rpc canceled` at Info.
 
 - Updated GitHub Actions within the release-age rule to peeled commit SHAs:
   `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
