@@ -118,7 +118,7 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (no commit since 2021-05-15) | decision | `.8.6.6` |
 | Nokia SR Linux | GHCR | 25.10.2 | 26.7.2 | now | `.8.5.2.7` |
 | Arista cEOS | vendor portal | 4.36.0.1F | not verified | — | `.8.5.2.7` |
-| GitHub Actions | GitHub release | 11 pins behind | see `.8.6.4` | partly 2026-10-19 | `.8.6.4` |
+| GitHub Actions | GitHub release | 7 of 11 updated | artifact actions, codeql v4.38.3, goreleaser-action v7.3.0, scorecard v2.5.0 | 2026-10-14 to 2026-10-19 | `.8.6.4` |
 
 Arista cEOS currency is unverified: `arista-mcp` was unavailable on
 2026-10-13. XRd, SONiC and VyOS images are vendor-gated or mutable

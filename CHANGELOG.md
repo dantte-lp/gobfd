@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated GitHub Actions within the release-age rule to peeled commit SHAs:
+  `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
+  `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,
+  `docker/setup-qemu-action` v4.4.0, `github/codeql-action` v4.38.2 and
+  `SonarSource/sonarqube-scan-action` v8.3.0. Dependabot version updates now
+  target `dev`; security updates still target the default branch.
 - Observability peers run on Debian trixie: Prometheus v3.15.0 and Grafana
   13.2.4 (eight CVE fixes in 13.2.1-13.2.3 and four in 13.2.4) from
   checksum-pinned upstream archives in `test/interop/prometheus` and

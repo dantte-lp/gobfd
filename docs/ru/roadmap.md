@@ -120,7 +120,7 @@ vendor-образов).
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (коммитов нет с 2021-05-15) | решение | `.8.6.6` |
 | Nokia SR Linux | GHCR | 25.10.2 | 26.7.2 | сейчас | `.8.5.2.7` |
 | Arista cEOS | портал вендора | 4.36.0.1F | не проверено | — | `.8.5.2.7` |
-| GitHub Actions | GitHub release | 11 pin отстают | см. `.8.6.4` | часть с 2026-10-19 | `.8.6.4` |
+| GitHub Actions | GitHub release | 7 из 11 обновлены | artifact actions, codeql v4.38.3, goreleaser-action v7.3.0, scorecard v2.5.0 | с 2026-10-14 по 2026-10-19 | `.8.6.4` |
 
 Актуальность Arista cEOS не проверена: `arista-mcp` был недоступен
 2026-10-13. Образы XRd, SONiC и VyOS выдаются вендором или являются

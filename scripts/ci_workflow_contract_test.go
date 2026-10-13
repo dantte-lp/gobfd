@@ -375,7 +375,7 @@ func TestReleaseWorkflowUsesPinnedActionOwnedSyftPath(t *testing.T) {
 	workflow := readContractFile(t, "../.github/workflows/release.yml")
 	requireContractStrings(t, "release workflow Syft bootstrap", workflow, []string{
 		"      - name: Install Syft\n",
-		"        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0\n",
+		"        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3\n",
 		"          syft-version: v1.54.1\n",
 	})
 	if strings.Contains(workflow, "      - name: Add Syft to PATH\n") {
