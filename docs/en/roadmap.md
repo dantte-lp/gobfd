@@ -70,14 +70,19 @@ Plan changes:
 
 Ordered P0 queue on `dev`:
 
-1. `gobfd-qj0.8.2.11` — `go1.27.2` and `x/net` v0.60.0.
-2. `gobfd-qj0.8.4` — expired allowlist decisions per ID and branch.
-3. `gobfd-qj0.8.2.1.1.1.4.3` — live timer reload qualification against FRR
+1. `gobfd-qj0.8.2.11` — `go1.27.2` and `x/net` v0.61.0; implemented on `dev`;
+   the twelve advisories are no longer reported.
+2. `gobfd-qj0.8.2.4.3` — first GoBGP v4 slice. It moves the client and every
+   GoBGP daemon consumer together, because v3 `/apipb.GobgpApi` and v4
+   `/api.GoBgpService` are wire-incompatible. Removes GO-2026-4736 from `dev`.
+3. `gobfd-qj0.8.4` — expired allowlist decisions per ID and branch; the `dev`
+   decision for GO-2026-4736 depends on step 2.
+4. `gobfd-qj0.8.2.1.1.1.4.3` — live timer reload qualification against FRR
    and BIRD.
-4. `.8.5.2.5.2`, `.8.5.2.5.3`, `.8.5.2.6`, `.8.5.2.7`, `.8.5.2.8` — remaining
+5. `.8.5.2.5.2`, `.8.5.2.5.3`, `.8.5.2.6`, `.8.5.2.7`, `.8.5.2.8` — remaining
    image consumers and the Oracle Linux product decision.
-5. `gobfd-qj0.8.2.4` — GoBGP v4 reconciliation; closes GO-2026-4736 on `dev`.
-6. Remaining RFC core and ownership children in Beads `bd ready` order.
+6. Remaining `gobfd-qj0.8.2.4` reconciliation scope, RFC core and ownership
+   children in Beads `bd ready` order.
 
 ## v0.6 maintenance baseline
 
