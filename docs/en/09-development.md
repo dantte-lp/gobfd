@@ -300,7 +300,7 @@ See [05-interop.md](./05-interop.md) for the 4-peer interop testing framework.
 
 ### Linting
 
-golangci-lint v2.13.1 with a maximum-by-default configuration:
+golangci-lint v2.14.0 with a maximum-by-default configuration:
 
 ```bash
 make lint
@@ -490,7 +490,7 @@ calendar dates plus categorized entries in the exact current-to-previous
 is inherited by `gh` and never appears in arguments or output.
 
 The commit-pinned `anchore/sbom-action/download-syft` action owns PATH
-registration for the exact `v1.51.0` version input. The release workflow does
+registration for the exact `v1.54.1` version input. The release workflow does
 not add a second shell wrapper or mutable Syft shim after that action.
 
 `cictl release-upx` owns the UPX prerequisite without a shell extractor. It

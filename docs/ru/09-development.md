@@ -304,7 +304,7 @@ make test-integration
 
 ### Линтинг
 
-golangci-lint v2.13.1 с конфигурацией maximum-by-default:
+golangci-lint v2.14.0 с конфигурацией maximum-by-default:
 
 ```bash
 make lint
@@ -503,7 +503,7 @@ GHCR JSON в Go и отклоняет существующий release или dr
 попадает в аргументы или вывод.
 
 Commit-pinned action `anchore/sbom-action/download-syft` самостоятельно
-регистрирует PATH для точного version input `v1.51.0`. После action release
+регистрирует PATH для точного version input `v1.54.1`. После action release
 workflow не добавляет второй shell-wrapper или изменяемый Syft shim.
 
 `cictl release-upx` управляет UPX prerequisite без shell extractor. Команда

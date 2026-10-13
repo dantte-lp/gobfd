@@ -266,7 +266,7 @@ func TestSBOMRunsPinnedScansAndValidatesArtifacts(t *testing.T) {
 		{
 			name: "go",
 			args: []string{
-				"run", "github.com/anchore/syft/cmd/syft@v1.51.0", "scan", "file:go.mod",
+				"run", "github.com/anchore/syft/cmd/syft@v1.54.1", "scan", "file:go.mod",
 				"--override-default-catalogers", "go-module-file-cataloger", "--quiet",
 				"--output", "cyclonedx-json=" + filepath.Join(reportDir, "runtime-sbom.cdx.json"),
 			},
@@ -274,7 +274,7 @@ func TestSBOMRunsPinnedScansAndValidatesArtifacts(t *testing.T) {
 		{
 			name: "go",
 			args: []string{
-				"run", "github.com/anchore/syft/cmd/syft@v1.51.0", "scan", "file:tools/go.mod",
+				"run", "github.com/anchore/syft/cmd/syft@v1.54.1", "scan", "file:tools/go.mod",
 				"--override-default-catalogers", "go-module-file-cataloger", "--quiet",
 				"--output", "cyclonedx-json=" + filepath.Join(reportDir, "tools-sbom.cdx.json"),
 			},

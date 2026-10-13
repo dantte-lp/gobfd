@@ -24,7 +24,7 @@ const (
 	httpTimeout     = 5 * time.Second
 	maxHTTPBodySize = 1 << 20
 	kubeconfigPath  = "/etc/rancher/k3s/k3s.yaml"
-	composeVersion  = "5.5.0"
+	composeVersion  = "5.6.0"
 )
 
 var (

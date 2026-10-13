@@ -118,6 +118,12 @@
   v1.56.1, `github.com/moby/moby/client` v0.6.1 и сгенерированный модуль
   protovalidate 20260825. koanf v2.3.8, client_golang v1.25.0, moby client
   v0.6.2 и dbus v5.2.4 последуют с дат допуска.
+- Инструменты разработки и релиза обновлены с учётом правила возраста
+  релиза: golangci-lint v2.14.0 (92 линтера, новых замечаний нет), gosec
+  v2.29.0, govulncheck v1.8.0, osv-scanner v2.6.0, buf v1.73.0, закреплённый
+  по checksum провайдер Docker Compose 5.6.0, syft v1.54.1, trivy v0.75.0 и
+  GoReleaser v2.18.2. govulncheck v1.9.0, osv-scanner v2.7.0 и GoReleaser
+  v2.18.3 последуют с дат допуска.
 
 ## [0.6.4] - 2026-08-27
 

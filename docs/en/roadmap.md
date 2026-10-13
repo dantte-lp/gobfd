@@ -82,13 +82,13 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 | client_model | Go module | v0.6.3 | v0.6.3 | current | done |
 | godbus/dbus/v5 | Go module | v5.2.2 | v5.2.4 | 2026-10-20 | `.8.6.2` |
 | moby api / client | Go module | v1.56.1 / v0.6.1 | v1.56.1 / v0.6.2 | 2026-10-15 | `.8.6.2` |
-| golangci-lint | tools module | v2.13.1 | v2.14.0 | now | `.8.6.3` |
-| govulncheck | Go module | v1.7.0 | v1.9.0 | now | `.8.6.3` |
-| osv-scanner | GitHub release | v2.5.1 | v2.7.0 | 2026-10-19 | `.8.6.3` |
-| buf | GitHub release | v1.72.0 | v1.73.0 | now | `.8.6.3` |
-| Docker Compose provider | GitHub release | 5.5.0 | 5.6.0 | now | `.8.6.3` |
-| syft / trivy | GitHub release | v1.51.0 / v0.74.0 | v1.54.1 / v0.75.0 | now | `.8.6.3` |
-| goreleaser | GitHub release | v2.18.0 | v2.18.3 | now | `.8.6.3` |
+| golangci-lint | tools module | v2.14.0 | v2.14.0 | current | done |
+| govulncheck | Go module | v1.8.0 | v1.9.0 | 2026-10-18 | `.8.6.3` |
+| osv-scanner | GitHub release | v2.6.0 | v2.7.0 | 2026-10-19 | `.8.6.3` |
+| buf | GitHub release | v1.73.0 | v1.73.0 | current | done |
+| Docker Compose provider | GitHub release | 5.6.0 | 5.6.0 | current | done |
+| syft / trivy | GitHub release | v1.54.1 / v0.75.0 | v1.54.1 / v0.75.0 | current | done |
+| goreleaser | GitHub release | v2.18.2 | v2.18.3 | 2026-10-16 | `.8.6.3` |
 | containerlab | GitHub release | 0.79.0 | v0.81.0 | 2026-10-18 | `.8.5.2.7` |
 | debian:trixie-slim | Docker Hub digest | `d7e12182` | `a29215f6` | now | `.8.6.5` |
 | oraclelinux:10-slim | Docker Hub digest | `965eb786` | `ea76251f` | now | `.8.6.5` |

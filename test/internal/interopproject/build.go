@@ -46,7 +46,7 @@ func (c *Controller) build(ctx context.Context) error {
 		}
 		image := service.Image
 		if image == "" {
-			// Compose v5.5.0 pkg/api.GetImageNameOrDefault uses project-service.
+			// Compose v5.6.0 pkg/api.GetImageNameOrDefault uses project-service.
 			image = c.projectName + "-" + name
 		}
 		args, err := composeBuildArgs(service.Build, image, revision, buildDate)

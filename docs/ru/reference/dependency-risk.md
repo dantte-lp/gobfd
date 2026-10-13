@@ -52,7 +52,7 @@ NEXT_HOP. GHSA-4p9m-8gc4-rw2h указывает v4.4.0 как исправле�
 (upstream commit `583080a`). Go vulnerability database не указывает
 исправленную версию GoBGP v4 и ограничивает advisory символом
 `fsmHandler.recvMessageloop` в `github.com/osrg/gobgp/v4/pkg/server`, который
-GoBFD не импортирует. В `dev` строгий `govulncheck@v1.7.0 ./...` не
+GoBFD не импортирует. В `dev` строгий `govulncheck@v1.8.0 ./...` не
 обнаруживает достижимых уязвимостей; `osv-scanner` на уровне модуля
 по-прежнему сообщает advisory.
 

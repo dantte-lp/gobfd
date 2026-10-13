@@ -52,7 +52,7 @@ attribute handling. GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched (upstream
 commit `583080a`). The Go vulnerability database lists no fixed GoBGP v4
 version and limits the advisory to the symbol `fsmHandler.recvMessageloop` in
 `github.com/osrg/gobgp/v4/pkg/server`, which GoBFD does not import. On `dev`,
-strict `govulncheck@v1.7.0 ./...` reports no reachable vulnerability;
+strict `govulncheck@v1.8.0 ./...` reports no reachable vulnerability;
 module-level `osv-scanner` still reports the advisory.
 
 GoBGP v3 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two

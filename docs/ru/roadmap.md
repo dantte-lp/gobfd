@@ -84,13 +84,13 @@
 | client_model | Go-модуль | v0.6.3 | v0.6.3 | актуально | выполнено |
 | godbus/dbus/v5 | Go-модуль | v5.2.2 | v5.2.4 | 2026-10-20 | `.8.6.2` |
 | moby api / client | Go-модуль | v1.56.1 / v0.6.1 | v1.56.1 / v0.6.2 | 2026-10-15 | `.8.6.2` |
-| golangci-lint | tools-модуль | v2.13.1 | v2.14.0 | сейчас | `.8.6.3` |
-| govulncheck | Go-модуль | v1.7.0 | v1.9.0 | сейчас | `.8.6.3` |
-| osv-scanner | GitHub release | v2.5.1 | v2.7.0 | 2026-10-19 | `.8.6.3` |
-| buf | GitHub release | v1.72.0 | v1.73.0 | сейчас | `.8.6.3` |
-| Docker Compose provider | GitHub release | 5.5.0 | 5.6.0 | сейчас | `.8.6.3` |
-| syft / trivy | GitHub release | v1.51.0 / v0.74.0 | v1.54.1 / v0.75.0 | сейчас | `.8.6.3` |
-| goreleaser | GitHub release | v2.18.0 | v2.18.3 | сейчас | `.8.6.3` |
+| golangci-lint | tools-модуль | v2.14.0 | v2.14.0 | актуально | выполнено |
+| govulncheck | Go-модуль | v1.8.0 | v1.9.0 | 2026-10-18 | `.8.6.3` |
+| osv-scanner | GitHub release | v2.6.0 | v2.7.0 | 2026-10-19 | `.8.6.3` |
+| buf | GitHub release | v1.73.0 | v1.73.0 | актуально | выполнено |
+| Docker Compose provider | GitHub release | 5.6.0 | 5.6.0 | актуально | выполнено |
+| syft / trivy | GitHub release | v1.54.1 / v0.75.0 | v1.54.1 / v0.75.0 | актуально | выполнено |
+| goreleaser | GitHub release | v2.18.2 | v2.18.3 | 2026-10-16 | `.8.6.3` |
 | containerlab | GitHub release | 0.79.0 | v0.81.0 | 2026-10-18 | `.8.5.2.7` |
 | debian:trixie-slim | digest Docker Hub | `d7e12182` | `a29215f6` | сейчас | `.8.6.5` |
 | oraclelinux:10-slim | digest Docker Hub | `965eb786` | `ea76251f` | сейчас | `.8.6.5` |

@@ -10,7 +10,7 @@ import (
 
 const (
 	reportFileMode = 0o644
-	syftModule     = "github.com/anchore/syft/cmd/syft@v1.51.0"
+	syftModule     = "github.com/anchore/syft/cmd/syft@v1.54.1"
 )
 
 // SBOMOptions configures generation of the separate runtime and tools SBOMs.

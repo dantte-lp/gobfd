@@ -187,7 +187,7 @@ sudo systemctl status gobfd
 ### Podman Compose
 
 GoBFD uses Podman's external Compose-provider wrapper with the official Docker
-Compose v5.5.0 Go binary. Install the checksum-pinned provider and select it
+Compose v5.6.0 Go binary. Install the checksum-pinned provider and select it
 explicitly; Python `podman-compose` is unsupported:
 
 ```bash

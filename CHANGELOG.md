@@ -116,6 +116,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v1.56.1, `github.com/moby/moby/client` v0.6.1 and the protovalidate
   generated module 20260825. koanf v2.3.8, client_golang v1.25.0, moby client
   v0.6.2 and dbus v5.2.4 follow from their eligibility dates.
+- Updated developer and release tools within the release-age rule:
+  golangci-lint v2.14.0 (92 linters, no new findings), gosec v2.29.0,
+  govulncheck v1.8.0, osv-scanner v2.6.0, buf v1.73.0, the checksum-pinned
+  Docker Compose provider 5.6.0, syft v1.54.1, trivy v0.75.0 and GoReleaser
+  v2.18.2. govulncheck v1.9.0, osv-scanner v2.7.0 and GoReleaser v2.18.3
+  follow from their eligibility dates.
 
 ## [0.6.4] - 2026-08-27
 
