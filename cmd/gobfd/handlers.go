@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"slices"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -26,6 +28,7 @@ func startGoBGPHandler(
 	ctx context.Context,
 	g *errgroup.Group,
 	cfg config.GoBGPConfig,
+	managedPeers []netip.Addr,
 	mgr *bfd.Manager,
 	logger *slog.Logger,
 ) (gobgp.Client, error) {
@@ -53,10 +56,11 @@ func startGoBGPHandler(
 		return nil, fmt.Errorf("create gobgp client: %w", err)
 	}
 
-	probeErr := probeGoBGPCompatibility(ctx, client.CheckCompatibility, cfg.ActionTimeout)
-	if errors.Is(probeErr, gobgp.ErrIncompatibleServer) {
+	preflight := goBGPPreflight(client, managedPeers)
+	probeErr := probeGoBGPCompatibility(ctx, preflight, cfg.ActionTimeout)
+	if goBGPPreflightConclusive(probeErr) {
 		closeGoBGPClient(client, logger)
-		return nil, fmt.Errorf("gobgp endpoint %s requires GoBGP v4: %w", cfg.Addr, probeErr)
+		return nil, goBGPStartupError(cfg.Addr, probeErr)
 	}
 
 	handler, err := newGoBGPHandler(client, cfg, logger)
@@ -70,7 +74,7 @@ func startGoBGPHandler(
 		return nil, err
 	}
 
-	reportGoBGPCompatibility(ctx, g, client, cfg, probeErr, logger)
+	reportGoBGPCompatibility(ctx, g, preflight, cfg, probeErr, logger)
 
 	logger.Info("gobgp integration enabled",
 		slog.String("addr", cfg.Addr),
@@ -94,7 +98,7 @@ const (
 func reportGoBGPCompatibility(
 	ctx context.Context,
 	g *errgroup.Group,
-	client *gobgp.GRPCClient,
+	preflight func(context.Context) error,
 	cfg config.GoBGPConfig,
 	probeErr error,
 	logger *slog.Logger,
@@ -108,9 +112,47 @@ func reportGoBGPCompatibility(
 		slog.String("error", probeErr.Error()),
 	)
 	g.Go(func() error {
-		watchGoBGPCompatibility(ctx, client.CheckCompatibility, cfg.Addr, cfg.ActionTimeout, logger)
+		watchGoBGPCompatibility(ctx, preflight, cfg.Addr, cfg.ActionTimeout, logger)
 		return nil
 	})
+}
+
+// errNativeBFDConflict reports GoBGP neighbors that run native BFD for peers
+// whose BFD sessions GoBFD owns.
+var errNativeBFDConflict = errors.New("gobgp native BFD is enabled for GoBFD-managed peers")
+
+// goBGPPreflight checks the GoBGP v4 API and then rejects managed peers for
+// which GoBGP native BFD is enabled (v1 design: one BFD owner per peer).
+func goBGPPreflight(client *gobgp.GRPCClient, managedPeers []netip.Addr) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if err := client.CheckCompatibility(ctx); err != nil {
+			return fmt.Errorf("gobgp preflight: %w", err)
+		}
+		nativePeers, err := client.NativeBFDPeers(ctx)
+		if err != nil {
+			return fmt.Errorf("check gobgp native BFD: %w", err)
+		}
+		conflicts := slices.DeleteFunc(nativePeers, func(peer netip.Addr) bool {
+			return !slices.Contains(managedPeers, peer)
+		})
+		if len(conflicts) > 0 {
+			return fmt.Errorf("%w: %v", errNativeBFDConflict, conflicts)
+		}
+		return nil
+	}
+}
+
+// goBGPStartupError names the required action for a conclusive preflight failure.
+func goBGPStartupError(addr string, err error) error {
+	if errors.Is(err, gobgp.ErrIncompatibleServer) {
+		return fmt.Errorf("gobgp endpoint %s requires GoBGP v4: %w", addr, err)
+	}
+	return fmt.Errorf("gobgp endpoint %s: %w", addr, err)
+}
+
+// goBGPPreflightConclusive reports whether a preflight error is final.
+func goBGPPreflightConclusive(err error) bool {
+	return errors.Is(err, gobgp.ErrIncompatibleServer) || errors.Is(err, errNativeBFDConflict)
 }
 
 // probeGoBGPCompatibility runs one bounded capability probe.
@@ -144,6 +186,12 @@ func watchGoBGPCompatibility(
 		switch {
 		case errors.Is(err, gobgp.ErrIncompatibleServer):
 			logger.Error("gobgp endpoint requires GoBGP v4; peer actuation will fail",
+				slog.String("addr", addr),
+				slog.String("error", err.Error()),
+			)
+			return
+		case errors.Is(err, errNativeBFDConflict):
+			logger.Error("gobgp native BFD conflicts with GoBFD sessions; disable it for these peers",
 				slog.String("addr", addr),
 				slog.String("error", err.Error()),
 			)
@@ -258,4 +306,16 @@ func loadConfig(path string) (*config.Config, error) {
 		return cfg, nil
 	}
 	return config.DefaultConfig(), nil
+}
+
+// goBGPManagedPeers returns the peer addresses of configured BFD sessions, the
+// peers whose GoBGP state the handler actuates. Sessions are validated at load.
+func goBGPManagedPeers(sessions []config.SessionConfig) []netip.Addr {
+	peers := make([]netip.Addr, 0, len(sessions))
+	for _, session := range sessions {
+		if peer, err := session.PeerAddr(); err == nil {
+			peers = append(peers, peer.Unmap())
+		}
+	}
+	return peers
 }

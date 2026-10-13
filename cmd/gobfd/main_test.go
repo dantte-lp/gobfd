@@ -2355,6 +2355,7 @@ func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
 		new(errgroup.Group),
 		config.GoBGPConfig{Enabled: true, Addr: ""},
 		nil,
+		nil,
 		logger,
 	)
 	if err == nil {
@@ -2392,10 +2393,11 @@ func TestStartGoBGPHandlerRejectsIncompatibleEndpoint(t *testing.T) {
 		new(errgroup.Group),
 		config.GoBGPConfig{Enabled: true, Addr: listener.Addr().String(), ActionTimeout: 5 * time.Second},
 		nil,
+		nil,
 		slog.New(slog.DiscardHandler),
 	)
-	if !errors.Is(err, gobgp.ErrIncompatibleServer) {
-		t.Fatalf("startGoBGPHandler() = %v, want ErrIncompatibleServer", err)
+	if !errors.Is(err, gobgp.ErrIncompatibleServer) || !strings.Contains(err.Error(), "requires GoBGP v4") {
+		t.Fatalf("startGoBGPHandler() = %v, want ErrIncompatibleServer naming GoBGP v4", err)
 	}
 }
 

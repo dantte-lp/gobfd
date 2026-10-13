@@ -6,7 +6,9 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
@@ -200,6 +202,41 @@ func (c *GRPCClient) CheckCompatibility(ctx context.Context) error {
 		return fmt.Errorf("check gobgp compatibility: %w", err)
 	}
 	return nil
+}
+
+// NativeBFDPeers returns the neighbor addresses for which GoBGP v4 native BFD
+// is enabled, in ListPeer order. GoBFD must not own BFD for those peers.
+func (c *GRPCClient) NativeBFDPeers(ctx context.Context) ([]netip.Addr, error) {
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return nil, fmt.Errorf("list gobgp native BFD peers: %w", ErrClientClosed)
+	}
+	c.mu.RUnlock()
+
+	stream, err := c.api.ListPeer(ctx, &gobgpapi.ListPeerRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list gobgp native BFD peers: %w", err)
+	}
+	var peers []netip.Addr
+	for {
+		resp, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			return peers, nil
+		}
+		if recvErr != nil {
+			return nil, fmt.Errorf("list gobgp native BFD peers: %w", recvErr)
+		}
+		if !resp.GetPeer().GetBfd().GetEnabled() {
+			continue
+		}
+		address := resp.GetPeer().GetConf().GetNeighborAddress()
+		peer, parseErr := netip.ParseAddr(address)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse gobgp neighbor address %q: %w", address, parseErr)
+		}
+		peers = append(peers, peer.Unmap())
+	}
 }
 
 // DisablePeer disables a BGP peer by address with an administrative reason.

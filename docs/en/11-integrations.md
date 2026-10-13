@@ -50,6 +50,11 @@ An endpoint without the v4 API, such as a GoBGP v3 daemon, stops startup
 with "requires GoBGP v4". An unreachable endpoint logs a warning and is
 re-checked in the background with backoff from 1 s to 30 s until the result
 is conclusive; a late incompatible daemon is then logged at error level.
+The same preflight lists GoBGP neighbors through `ListPeer` and rejects GoBGP
+v4 native BFD (`[neighbors.bfd.config] enabled = true`) for any peer of a
+configured GoBFD session: one peer must have one BFD owner. Native BFD for
+other neighbors is allowed. Sessions added later through the API are not
+checked.
 
 ---
 
