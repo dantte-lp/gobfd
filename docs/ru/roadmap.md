@@ -4,7 +4,7 @@
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Цель](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Проекция состояния Beads, сверенная 2026-10-13. Реестр задач находится в
+> Проекция состояния Beads, сверенная 2026-10-13 (конец дня). Реестр задач находится в
 > Beads; этот документ объясняет публичную последовательность релизов и не
 > является независимым checklist.
 
@@ -46,30 +46,42 @@
 - ConnectRPC переводится на connect-go v2 сейчас. Это breaking для
   Go-потребителей `pkg/bfdpb`; wire-протокол `bfd.v1` не меняется.
 
-Порядок очереди P0:
+Статус первой очереди актуальности стека (конец 2026-10-13, `dev` на
+`ea34fad`):
 
-1. `gobfd-qj0.8.6.2` — runtime-модули Go (minor и patch).
-2. `gobfd-qj0.8.6.3` — инструменты разработки, сканеры и release-инструменты.
-3. `gobfd-qj0.8.2.4.4` — capability preflight GoBGP отклоняет при старте
-   демоны v3 и не-GoBGP.
-4. `gobfd-qj0.8.2.8.5.2.5.2`, `.5.3`, `gobfd-qj0.8.2.8.5.2.7` — ExaBGP
-   anycast, Kubernetes и Containerlab переведены с `jauderho/gobgp:v3.37.0` на
-   общий рецепт GoBGP v4.10.0. ExaBGP anycast выполнен (gate пройден
-   2026-10-13 за 106 с); capability preflight (шаг 3) выполнен. Образ
-   Containerlab собирает GoBGP v4.10.0 (`.8.5.2.7.1`); прогоны с vendor NOS впереди.
-   Kubernetes собирает и импортирует `gobgp:local`; живого прогона k3s ещё нет.
-5. `gobfd-qj0.8.6.8` — миграция на connect-go v2 (допуск с 2026-10-14;
-   ждёт шаг 1).
-6. `gobfd-qj0.8.6.5` и `gobfd-qj0.8.2.8.5.2.6` — digest базовых образов,
-   HAProxy, nginx, Prometheus и Grafana.
-7. `gobfd-qj0.8.6.4` и `gobfd-qj0.8.6.6` — GitHub Actions и interop-пиры
-   (часть допускается с 2026-10-19).
-8. `gobfd-qj0.8.2.4.5`, `gobfd-0dc`, `gobfd-qj0.8.6.1` — preflight конфликта
-   с нативным BFD, заявление о поддерживаемых версиях, повторная квалификация
-   ручных путей Compose.
-9. `gobfd-qj0.8.4`, `gobfd-qj0.8.2.8.5.2.8` — доставка решений по allowlist
-   и решение по продукту Oracle Linux. P1 `gobfd-qj0.8.6.7` автоматизирует
-   проверку актуальности pin, которые Dependabot не отслеживает.
+| Шаг | Задача | Статус |
+|---|---|---|
+| 1 | `.8.6.2` runtime-модули Go | Проход 1 выполнен (`a0c3a55`); koanf v2.3.8, client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 ждут дат с 2026-10-14 по 2026-10-20 |
+| 2 | `.8.6.3` инструменты | Проход 1 выполнен (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 ждут дат с 2026-10-16 по 2026-10-19 |
+| 3 | `.8.2.4.4` capability preflight | Выполнено (`2816f0c`) |
+| 4 | Anycast, Kubernetes, Containerlab на GoBGP v4 | Anycast выполнен (`7255aeb`); GoBGP в Containerlab выполнен (`a7c58ae`); код Kubernetes выполнен (`2418fb2`), живой прогон заблокирован (нет k3s) |
+| 5 | `.8.6.8` connect-go v2 | Открыто, допуск с 2026-10-14 |
+| 6 | `.8.6.5` базовые образы, `.8.5.2.6` наблюдаемость | Debian, HAProxy, nginx выполнены (`04df88e`); Oracle Linux с 2026-10-19; наблюдаемость открыта |
+| 7 | `.8.6.4` Actions, `.8.6.6` пиры | Открыто; часть допускается с 2026-10-19 |
+| 8 | `.8.2.4.5`, `gobfd-0dc`, `.8.6.1` | Preflight нативного BFD выполнен (`f5c6e42`); заявление о версиях и ручной Compose открыты |
+| 9 | `.8.4`, `.8.5.2.8` | Область `dev` в `.8.4` выполнена, теперь P1 для доставки в stable; решение по Oracle открыто |
+
+Порядок очереди P0 с 2026-10-14:
+
+1. `gobfd-qj0.8.6.8` — миграция на connect-go v2 (допуск с 2026-10-14).
+2. `gobfd-0dc` — заявление о поддерживаемых версиях GoBGP и решение по PR
+   `#62`.
+3. `gobfd-qj0.8.2.8.5.2.7` — FRR в Containerlab на общем trixie-рецепте,
+   containerlab v0.81.0 (с 2026-10-18), SR Linux 26.7.2; прогоны с vendor NOS
+   требуют хоста с containerlab и vendor-образами.
+4. `gobfd-qj0.8.2.8.5.2.6` — Prometheus v3.15.0 и Grafana 13.2.4 (с
+   2026-10-20) на trixie-артефактах.
+5. Вторые проходы по датам допуска: `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.5`,
+   `.8.6.6` (BIRD v3.4.0, ExaBGP 5.0.14).
+6. `gobfd-qj0.8.6.1` — повторная квалификация ручного Compose на GoBGP v4
+   после решения проблемы DNS сборки на хосте `gobfd-qj0.8.6.9` (P1).
+7. `gobfd-qj0.8.2.8.5.2.8` — решение по продукту Oracle Linux (maintainer).
+8. `gobfd-qj0.8.2.4.1`, `.8.2.4.2` — reconciliation desired/applied GoBGP и
+   каноническая идентичность.
+
+Заблокировано окружением: живой прогон Kubernetes `.8.5.2.5.3` (нет k3s),
+прогоны Containerlab с vendor NOS (нет бинарника containerlab и
+vendor-образов).
 
 Матрица версий измерена 2026-10-13. Источники: релизы через `gh api graphql`,
 `proxy.golang.org`, `go list -m -u`, API реестров Docker Hub и GHCR, индекс

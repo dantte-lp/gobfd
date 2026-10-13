@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-10-13. Beads is the task
+> Status projection from Beads, reconciled on 2026-10-13 (end of day). Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -45,29 +45,40 @@ Maintainer decisions:
 - ConnectRPC moves to connect-go v2 now. This breaks Go consumers of
   `pkg/bfdpb`; the `bfd.v1` wire protocol is unchanged.
 
-Ordered P0 queue:
+Status of the first stack-currency queue (end of 2026-10-13, `dev` at
+`ea34fad`):
 
-1. `gobfd-qj0.8.6.2` — runtime Go modules (minor and patch).
-2. `gobfd-qj0.8.6.3` — developer, scanner and release tools.
-3. `gobfd-qj0.8.2.4.4` — GoBGP capability preflight rejects v3 or non-GoBGP
-   daemons at startup.
-4. `gobfd-qj0.8.2.8.5.2.5.2`, `.5.3`, `gobfd-qj0.8.2.8.5.2.7` — ExaBGP
-   anycast, Kubernetes and Containerlab moved from `jauderho/gobgp:v3.37.0` to
-   the shared GoBGP v4.10.0 recipe. ExaBGP anycast is done (gate passed
-   2026-10-13 in 106 s); the capability preflight (step 3) is done. The
-   Containerlab image builds GoBGP v4.10.0 (`.8.5.2.7.1`); vendor runs remain.
-   Kubernetes builds and imports `gobgp:local`; no live k3s run yet.
-5. `gobfd-qj0.8.6.8` — connect-go v2 migration (eligible 2026-10-14; blocked
-   by step 1).
-6. `gobfd-qj0.8.6.5` and `gobfd-qj0.8.2.8.5.2.6` — base image digests,
-   HAProxy, nginx, Prometheus and Grafana.
-7. `gobfd-qj0.8.6.4` and `gobfd-qj0.8.6.6` — GitHub Actions and interop peers
-   (several eligible 2026-10-19).
-8. `gobfd-qj0.8.2.4.5`, `gobfd-0dc`, `gobfd-qj0.8.6.1` — native-BFD conflict
-   preflight, supported-version statement, manual Compose requalification.
-9. `gobfd-qj0.8.4`, `gobfd-qj0.8.2.8.5.2.8` — allowlist delivery and the
-   Oracle Linux product decision. P1 `gobfd-qj0.8.6.7` automates currency
-   checks for pins that Dependabot does not track.
+| Step | Item | Status |
+|---|---|---|
+| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8, client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-14 to 2026-10-20 |
+| 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 wait for 2026-10-16 to 2026-10-19 |
+| 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
+| 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
+| 5 | `.8.6.8` connect-go v2 | Open, eligible 2026-10-14 |
+| 6 | `.8.6.5` base images, `.8.5.2.6` observability | Debian, HAProxy, nginx done (`04df88e`); Oracle Linux from 2026-10-19; observability open |
+| 7 | `.8.6.4` Actions, `.8.6.6` peers | Open; several eligible 2026-10-19 |
+| 8 | `.8.2.4.5`, `gobfd-0dc`, `.8.6.1` | Native BFD preflight done (`f5c6e42`); support statement and manual Compose open |
+| 9 | `.8.4`, `.8.5.2.8` | `.8.4` dev scope done, now P1 for stable delivery; Oracle decision open |
+
+Ordered P0 queue from 2026-10-14:
+
+1. `gobfd-qj0.8.6.8` — connect-go v2 migration (eligible 2026-10-14).
+2. `gobfd-0dc` — supported GoBGP version statement and PR `#62` disposition.
+3. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe,
+   containerlab v0.81.0 (from 2026-10-18), SR Linux 26.7.2; vendor runs need
+   a host with containerlab and vendor images.
+4. `gobfd-qj0.8.2.8.5.2.6` — Prometheus v3.15.0 and Grafana 13.2.4 (from
+   2026-10-20) on trixie artifacts.
+5. Second passes by eligibility: `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.5`,
+   `.8.6.6` (BIRD v3.4.0, ExaBGP 5.0.14).
+6. `gobfd-qj0.8.6.1` — manual Compose requalification on GoBGP v4, after the
+   host build DNS issue `gobfd-qj0.8.6.9` (P1) is resolved.
+7. `gobfd-qj0.8.2.8.5.2.8` — Oracle Linux product decision (maintainer).
+8. `gobfd-qj0.8.2.4.1`, `.8.2.4.2` — GoBGP desired/applied reconciliation and
+   canonical identity.
+
+Blocked by the environment: Kubernetes live run `.8.5.2.5.3` (no k3s),
+Containerlab vendor runs (no containerlab binary or vendor images).
 
 Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 `proxy.golang.org`, `go list -m -u`, Docker Hub and GHCR registry APIs,
