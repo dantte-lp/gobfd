@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Documented GoBGP compatibility in the configuration reference: `dev`
+  supports the tested GoBGP v4.10.0 only, with upgrade steps from GoBGP v3.
 - The GoBGP preflight rejects GoBGP v4 native BFD for peers of configured
   GoBFD sessions, so one peer never has two BFD owners.
 - Added a GoBGP capability preflight: startup rejects an endpoint without

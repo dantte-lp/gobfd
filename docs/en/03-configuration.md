@@ -543,6 +543,29 @@ deployments. Enable `gobgp.tls.enabled` for remote or non-loopback GoBGP API
 endpoints. When GoBGP is enabled with plaintext and `gobgp.addr` is not
 loopback/localhost, GoBFD logs a startup warning.
 
+#### GoBGP Compatibility
+
+| GoBFD line | GoBGP daemon | gRPC service | Evidence |
+|---|---|---|---|
+| `dev` (v1 line) | v4.10.0 | `api.GoBgpService` | BGP+BFD, RFC, fast-failover and ExaBGP anycast gates passed on 2026-10-13 |
+| `release/v0.6` | v3.37.0 | `apipb.GobgpApi` | v0.6 public contract |
+
+GoBFD on `dev` supports GoBGP v4 daemons only; GoBGP v3 and v4 gRPC services
+are wire-incompatible. The support claim covers the tested v4.10.0; earlier
+v4 releases are not tested. GoBGP v4.4.0 is the first release with the
+GHSA-4p9m-8gc4-rw2h NEXT_HOP fix, so do not run older v4 daemons.
+
+Upgrading a GoBGP v3 deployment together with `dev` GoBFD:
+
+1. Upgrade `gobgpd` to v4.10.0 in the same change as GoBFD.
+2. Remove `neighbors.transport.config.ttl` from the GoBGP configuration;
+   GoBGP v4.0.0 removed this option.
+3. Keep GoBGP native BFD disabled (the default) for every peer that has a
+   GoBFD session.
+4. Start GoBFD. Its preflight calls `GetBgp` and `ListPeer`: a v3 endpoint or
+   native BFD on a GoBFD peer stops startup with an actionable error, and an
+   unreachable endpoint is re-checked in the background.
+
 #### Flap Dampening
 
 Prevents rapid BFD oscillation from causing excessive BGP route churn. This
