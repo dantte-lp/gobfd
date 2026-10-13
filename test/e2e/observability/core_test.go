@@ -31,8 +31,9 @@ type observabilityContract struct {
 	subnet, gateway                    string
 	gobfdIP, frrIP                     string
 	prometheusIP, grafanaIP            string
-	frrImage, prometheusImage          string
-	grafanaImage                       string
+	frrRecipe, prometheusRecipe        string
+	grafanaRecipe                      string
+	grafanaVersion                     string
 	gobfdConfig, frrDaemons, frrConfig string
 	prometheusConfig, alertRules       string
 	grafanaDatasource                  string
@@ -146,12 +147,10 @@ func newObservabilityContract(root string) observabilityContract {
 		subnet: "172.25.0.0/24", gateway: "172.25.0.1",
 		gobfdIP: "172.25.0.10", frrIP: "172.25.0.20",
 		prometheusIP: "172.25.0.30", grafanaIP: "172.25.0.40",
-		frrImage: "quay.io/frrouting/frr:10.7.0@sha256:" +
-			"65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68",
-		prometheusImage: "docker.io/prom/prometheus:v3.14.0@sha256:" +
-			"5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
-		grafanaImage: "docker.io/grafana/grafana:13.2.0@sha256:" +
-			"3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b",
+		frrRecipe:                filepath.Join(root, "test/interop/frr"),
+		prometheusRecipe:         filepath.Join(root, "test/interop/prometheus"),
+		grafanaRecipe:            filepath.Join(root, "test/interop/grafana"),
+		grafanaVersion:           "13.2.4",
 		gobfdConfig:              filepath.Join(base, "gobfd/gobfd.yml"),
 		frrDaemons:               filepath.Join(base, "frr/daemons"),
 		frrConfig:                filepath.Join(base, "frr/frr.conf"),

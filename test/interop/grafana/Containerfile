@@ -1,0 +1,59 @@
+# Shared Grafana 13.2.4 artifact on Debian trixie; build with this directory as context.
+# Upstream release archives are checksum-pinned per architecture. The exec-form
+# entrypoint passes the same paths as upstream packaging/docker/run.sh without a shell.
+ARG TARGETARCH
+
+FROM scratch AS archive-amd64
+ADD --checksum=sha256:c48765988fd88572607e4ea670251af8a8e64ab3e360d0f3cf67a6f3587b92ab \
+    https://dl.grafana.com/oss/release/grafana-13.2.4.linux-amd64.tar.gz /grafana.tar.gz
+
+FROM scratch AS archive-arm64
+ADD --checksum=sha256:9517a0d21e2706b54521fbd720803698bba42859ca179e9905cc6b8fb05d67ab \
+    https://dl.grafana.com/oss/release/grafana-13.2.4.linux-arm64.tar.gz /grafana.tar.gz
+
+FROM archive-${TARGETARCH} AS archive
+
+# CA bundle from the pinned repository toolchain image, as in deployments/docker/Containerfile.
+FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS certificates
+
+# Debian 13 (trixie-slim), shared repository runtime base.
+FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="13.2.4" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.title="GoBFD Grafana observability peer" \
+      org.opencontainers.image.description="Verified upstream Grafana OSS release on Debian trixie" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+
+RUN ["apt-get", "update"]
+RUN ["apt-get", "install", "-y", "--no-install-recommends", "tzdata"]
+COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN ["useradd", "-r", "-u", "472", "-g", "0", "-d", "/usr/share/grafana", "grafana"]
+RUN ["install", "-d", "/usr/share/grafana", "/etc/grafana/provisioning/datasources", "/etc/grafana/provisioning/dashboards", "/etc/grafana/provisioning/plugins", "/etc/grafana/provisioning/alerting"]
+RUN ["install", "-d", "-o", "472", "-g", "0", "/var/lib/grafana", "/var/lib/grafana/plugins", "/var/lib/grafana/dashboards", "/var/log/grafana"]
+RUN --mount=type=bind,from=archive,target=/archive \
+    ["tar", "-xzf", "/archive/grafana.tar.gz", "-C", "/usr/share/grafana", "--strip-components=1", "--exclude=*/packaging", "--exclude=*/Dockerfile", "--exclude=*/tools", "--exclude=*/docs"]
+RUN ["cp", "/usr/share/grafana/conf/sample.ini", "/etc/grafana/grafana.ini"]
+
+ENV GF_PATHS_CONFIG=/etc/grafana/grafana.ini \
+    GF_PATHS_DATA=/var/lib/grafana \
+    GF_PATHS_HOME=/usr/share/grafana \
+    GF_PATHS_LOGS=/var/log/grafana \
+    GF_PATHS_PLUGINS=/var/lib/grafana/plugins \
+    GF_PATHS_PROVISIONING=/etc/grafana/provisioning \
+    HOME=/usr/share/grafana
+
+USER 472
+WORKDIR /usr/share/grafana
+EXPOSE 3000
+ENTRYPOINT ["/usr/share/grafana/bin/grafana", "server", \
+    "--homepath=/usr/share/grafana", "--config=/etc/grafana/grafana.ini", "--packaging=docker", \
+    "cfg:default.log.mode=console", "cfg:default.paths.data=/var/lib/grafana", \
+    "cfg:default.paths.logs=/var/log/grafana", "cfg:default.paths.plugins=/var/lib/grafana/plugins", \
+    "cfg:default.paths.provisioning=/etc/grafana/provisioning"]

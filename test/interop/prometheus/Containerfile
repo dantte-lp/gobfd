@@ -1,0 +1,41 @@
+# Shared Prometheus v3.15.0 artifact on Debian trixie; build with this directory as context.
+# Upstream release archives are checksum-pinned per architecture.
+ARG TARGETARCH
+
+FROM scratch AS archive-amd64
+ADD --checksum=sha256:2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 \
+    https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-amd64.tar.gz /prometheus.tar.gz
+
+FROM scratch AS archive-arm64
+ADD --checksum=sha256:f1f90ec08e849d494ca66c611470afc50192f0355f1a61c33f2cbde02d067823 \
+    https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-arm64.tar.gz /prometheus.tar.gz
+
+FROM archive-${TARGETARCH} AS archive
+
+# Debian 13 (trixie-slim), shared repository runtime base.
+FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="3.15.0" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="GoBFD Prometheus observability peer" \
+      org.opencontainers.image.description="Verified upstream Prometheus release on Debian trixie" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+
+RUN ["install", "-d", "-o", "nobody", "-g", "nogroup", "/prometheus", "/etc/prometheus"]
+RUN --mount=type=bind,from=archive,target=/archive \
+    ["tar", "-xzf", "/archive/prometheus.tar.gz", "-C", "/usr/local/bin", "--strip-components=1", "--wildcards", "*/prometheus", "*/promtool"]
+RUN --mount=type=bind,from=archive,target=/archive \
+    ["tar", "-xzf", "/archive/prometheus.tar.gz", "-C", "/etc/prometheus", "--strip-components=1", "--wildcards", "*/prometheus.yml", "*/LICENSE", "*/NOTICE"]
+
+USER nobody
+EXPOSE 9090
+VOLUME ["/prometheus"]
+WORKDIR /prometheus
+ENTRYPOINT ["/usr/local/bin/prometheus"]
+CMD ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]

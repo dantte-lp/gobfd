@@ -228,6 +228,12 @@ loss accounting.
 | BFDAuthFailures | `rate(auth_failures[5m]) > 0` за 30с | Warning |
 | BFDPacketDrops | `rate(packets_dropped[5m]) > 0` за 1м | Warning |
 
+Prometheus v3.15.0, Grafana 13.2.4 и FRR 10.7.1 собираются из закреплённых
+по checksum upstream-артефактов на Debian trixie (`test/interop/prometheus`,
+`test/interop/grafana`, `test/interop/frr`). 2026-10-13 testcontainers gate
+пройден за 172.77 секунды: метрики BFD, алерт, provisioning Grafana, отказ и
+восстановление FRR; тестовых контейнеров и образов не осталось.
+
 ### Быстрый старт
 
 ```bash

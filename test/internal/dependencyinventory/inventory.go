@@ -747,10 +747,6 @@ func applyOCILicenseEvidence(inv *Inventory) {
 
 func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 	licenses := map[string]ociLicenseOverride{
-		"docker.io/grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b": {
-			SourceRepository: "grafana/grafana", SourceCommit: "f681b1359f6a0b8ecb9f2c49a88ac72b75bde73b",
-			LicenseFile: "LICENSE", SPDX: "AGPL-3.0-only", LicenseHash: "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
-		},
 		"docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f": {
 			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
@@ -770,10 +766,6 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 		"docker.io/library/oraclelinux:10-slim@sha256:965eb786602f98a4bc9ca449295d44468e5c8f2ee9175ae04c29f21bf1a9809d": {
 			SourceRepository: "oracle/container-images", SourceCommit: "5c8a1c296acd6e90487cd261d16cf85fd6bcb73f",
 			LicenseFile: "LICENSE", SPDX: "LicenseRef-Oracle-Linux-Agreement", LicenseHash: "22802f1802feb6fbc19f77b89e740937d82f11806c7711a3600b23a8d47fe9d0",
-		},
-		"docker.io/prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0": {
-			SourceRepository: "prometheus/prometheus", SourceCommit: "d7598b7141418fa35be2b5ec5d0fefb634199610",
-			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
 		},
 		"ghcr.io/holo-routing/holo-bundle@sha256:5c1f61475b1623b3eab611921f8319fb0a10492ced3f7da05e656418abb5ca4a": {
 			SourceRepository: "holo-routing/holo", SourceCommit: "947daeb2811b0cb90f457458f35c3b1a3c989b6b",

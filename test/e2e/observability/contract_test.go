@@ -36,12 +36,19 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 		contract.prometheusIP != "172.25.0.30" || contract.grafanaIP != "172.25.0.40" {
 		t.Fatalf("observability addressing = %+v, want exact static IPAM", contract)
 	}
-	for name, image := range map[string]string{
-		"FRR": contract.frrImage, "Prometheus": contract.prometheusImage, "Grafana": contract.grafanaImage,
+	for name, recipe := range map[string]string{
+		"FRR": contract.frrRecipe, "Prometheus": contract.prometheusRecipe, "Grafana": contract.grafanaRecipe,
 	} {
-		if !strings.Contains(image, "@sha256:") {
-			t.Fatalf("%s image %q is not immutable", name, image)
+		containerfile := readContractFile(t, filepath.Join(recipe, "Containerfile"))
+		if !strings.Contains(containerfile, "FROM docker.io/library/debian:trixie-slim@sha256:") ||
+			strings.Contains(strings.ToLower(containerfile), "alpine") ||
+			strings.Contains(containerfile, "busybox") {
+			t.Fatalf("%s recipe %s is not a digest-pinned Debian trixie runtime", name, recipe)
 		}
+	}
+	grafanaRecipe := readContractFile(t, filepath.Join(contract.grafanaRecipe, "Containerfile"))
+	if !strings.Contains(grafanaRecipe, `org.opencontainers.image.version="`+contract.grafanaVersion+`"`) {
+		t.Fatalf("Grafana recipe version label differs from expected health version %s", contract.grafanaVersion)
 	}
 	for _, path := range []string{
 		contract.gobfdConfig, contract.frrDaemons, contract.frrConfig,

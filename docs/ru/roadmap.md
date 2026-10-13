@@ -111,8 +111,8 @@ vendor-образов).
 | oraclelinux:10-slim | digest Docker Hub | `965eb786` | `ea76251f` | 2026-10-19 | `.8.6.5` |
 | HAProxy | Docker Hub trixie | 3.4.6 | 3.4.6 | актуально | выполнено |
 | nginx (mainline) | Docker Hub trixie | 1.31.6 | 1.31.6 | актуально | выполнено |
-| Prometheus | GitHub release | v3.14.0 | v3.15.0 | сейчас | `.8.5.2.6` |
-| Grafana | GitHub release | 13.2.0 | 13.2.4 | 2026-10-20 | `.8.5.2.6` |
+| Prometheus | GitHub release | v3.15.0 | v3.15.0 | актуально | выполнено |
+| Grafana | GitHub release | 13.2.4 | 13.2.4 | актуально (исключение по безопасности) | выполнено |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | актуально | выполнено |
 | BIRD | GitHub tag | v3.3.2 | v3.4.0 | 2026-10-19 | `.8.6.6` |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |

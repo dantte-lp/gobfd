@@ -227,6 +227,13 @@ are placeholders until the v1 loss-accounting work is complete.
 | BFDAuthFailures | `rate(auth_failures[5m]) > 0` for 30s | Warning |
 | BFDPacketDrops | `rate(packets_dropped[5m]) > 0` for 1m | Warning |
 
+Prometheus v3.15.0, Grafana 13.2.4 and FRR 10.7.1 are built from
+checksum-pinned upstream artifacts on Debian trixie
+(`test/interop/prometheus`, `test/interop/grafana`, `test/interop/frr`). On
+2026-10-13 the testcontainers gate passed in 172.77 seconds: BFD metrics,
+alert, Grafana provisioning and FRR failure/recovery, with no remaining
+test-owned containers or images.
+
 ### Quick Start
 
 ```bash

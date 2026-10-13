@@ -37,7 +37,9 @@ services:
   # === FRR (BFD peer) at 172.25.0.20 ===
 
   frr:
-    image: quay.io/frrouting/frr:10.7.0@sha256:65e5967b922572c0565d968388fb06af69d7e9b3b3eea40ad7e3810687667f68
+    build:
+      context: ../../../test/interop/frr
+      dockerfile: Containerfile
     container_name: frr-observability
     cap_add:
       - NET_RAW
@@ -53,7 +55,9 @@ services:
   # === Prometheus ===
 
   prometheus:
-    image: docker.io/prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    build:
+      context: ../../../test/interop/prometheus
+      dockerfile: Containerfile
     container_name: prometheus-observability
     restart: unless-stopped
     ports:
@@ -67,7 +71,9 @@ services:
   # === Grafana ===
 
   grafana:
-    image: docker.io/grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b
+    build:
+      context: ../../../test/interop/grafana
+      dockerfile: Containerfile
     container_name: grafana-observability
     restart: unless-stopped
     ports:

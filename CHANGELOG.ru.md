@@ -31,6 +31,12 @@
 
 ### Изменено
 
+- Пиры наблюдаемости работают на Debian trixie: Prometheus v3.15.0 и Grafana
+  13.2.4 (восемь исправлений CVE в 13.2.1-13.2.3 и четыре в 13.2.4) из
+  закреплённых по checksum upstream-архивов в `test/interop/prometheus` и
+  `test/interop/grafana`, а FRR — из общего trixie-рецепта; образы Grafana на
+  Alpine, Prometheus на BusyBox и FRR на Alpine заменены. Grafana запускается
+  через exec-form entrypoint без upstream shell-обёртки.
 - Пример Kubernetes запускает GoBGP v4.10.0 как `gobgp:local`, собранный из
   общего рецепта и импортируемый в k3s через `integrationctl`, вместо
   `docker.io/jauderho/gobgp:v3.37.0`. Этот образ больше нигде в репозитории не

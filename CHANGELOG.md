@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Observability peers run on Debian trixie: Prometheus v3.15.0 and Grafana
+  13.2.4 (eight CVE fixes in 13.2.1-13.2.3 and four in 13.2.4) from
+  checksum-pinned upstream archives in `test/interop/prometheus` and
+  `test/interop/grafana`, and FRR from the shared trixie recipe, replacing
+  the Grafana Alpine, Prometheus BusyBox and FRR Alpine images. Grafana starts
+  through an exec-form entrypoint without the upstream shell wrapper.
 - The Kubernetes example runs GoBGP v4.10.0 as `gobgp:local`, built from
   the shared recipe and imported into k3s by `integrationctl`, instead of
   `docker.io/jauderho/gobgp:v3.37.0`. No repository path uses that image any

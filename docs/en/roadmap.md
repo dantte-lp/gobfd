@@ -108,8 +108,8 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 | oraclelinux:10-slim | Docker Hub digest | `965eb786` | `ea76251f` | 2026-10-19 | `.8.6.5` |
 | HAProxy | Docker Hub trixie | 3.4.6 | 3.4.6 | current | done |
 | nginx (mainline) | Docker Hub trixie | 1.31.6 | 1.31.6 | current | done |
-| Prometheus | GitHub release | v3.14.0 | v3.15.0 | now | `.8.5.2.6` |
-| Grafana | GitHub release | 13.2.0 | 13.2.4 | 2026-10-20 | `.8.5.2.6` |
+| Prometheus | GitHub release | v3.15.0 | v3.15.0 | current | done |
+| Grafana | GitHub release | 13.2.4 | 13.2.4 | current (security exception) | done |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | current | done |
 | BIRD | GitHub tag | v3.3.2 | v3.4.0 | 2026-10-19 | `.8.6.6` |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
