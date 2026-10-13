@@ -335,8 +335,9 @@ CycloneDX/SPDX peer SBOMs and the acceptance receipt are retained locally in
 consumers, timer reloads or full RFC compliance. Debian package resolution is
 not snapshot-pinned; final images are not claimed to be bit-reproducible.
 Rebasing does not fix GoBGP v3's known `GO-2026-4736`: the strict runtime
-`govulncheck` still reports it. The existing repository exception expires
-2026-09-30; fixed-v4 migration remains in Beads `.8.2.4`. Keep these peers
+`govulncheck` still reports it. The repository exception expired on
+2026-09-30; the per-branch decision is Beads `gobfd-qj0.8.4`, and fixed-v4
+migration remains in Beads `.8.2.4`. Keep these peers
 isolated from untrusted networks; BGP functionality and SBOMs are not a
 security qualification.
 

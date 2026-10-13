@@ -181,7 +181,8 @@ not new runtime qualification or proof of stable delivery.
 Cross-consumer acceptance `gobfd-qj0.8.2.6.2` joins seven existing implementation
 owners for C-06/H-31 without duplicating their work. Micro-BFD ownership
 `gobfd-qj0.8.2.2.1` explicitly retains shared validation and callbacks outside
-Manager locks (M-09/M-10). The current P0 sequence remains unchanged; companion
+Manager locks (M-09/M-10). The gist reconciliation left the P0 sequence
+unchanged; the 2026-10-13 order above supersedes it. Companion
 recovery below is corrected to its existing P0 Beads priority.
 
 ### P0 sequence
@@ -269,7 +270,8 @@ defines approved Final separation, expiry and recovery. Design gate `.4.1`
 and implementation `.1.1.1.4.2` are complete: solely config-owned base sessions
 support bounded TX/RX transactions and automatic completion receipts, with
 local race, lint and independent reviews passed. Live peer qualification
-`.1.1.1.4.3` is blocked by P0 image replacement `gobfd-qj0.8.2.8.5.2.4`:
+`.1.1.1.4.3` was blocked by P0 image replacement `gobfd-qj0.8.2.8.5.2.4`
+until the 2026-10-13 narrowing to BASE child `.8.5.2.4.2.1`:
 the pinned FRR vendor image was verified to inherit Alpine. Artifact child
 `.8.5.2.4.1` adds the Debian FRR 10.7.1 recipe with amd64 startup/config/stop
 smoke and two SBOM formats; it does not switch consumers. Child `.8.5.2.4.2`
