@@ -30,6 +30,84 @@ tags, drafts, or artifacts.
 | In progress | Active work or independent review is not complete |
 | Open | Planned in Beads and not yet accepted |
 
+## Stack currency and GoBGP compatibility
+
+Maintainer direction (2026-10-13): the primary goal is to move the whole `dev`
+stack to current component versions and guarantee GoBGP compatibility. Beads
+epic: `gobfd-qj0.8.6` (P0). Scope is `dev`; `release/v0.6` is limited to
+`gobfd-qj0.8.1.16.4`. Other former P0 work is P1, except security work.
+Components younger than seven days are adopted from their "eligible" date.
+
+Maintainer decisions:
+
+- GoBGP v4.10.0 is the `dev` baseline (`f85ca09`); GoBGP v3 daemons are not
+  supported on `dev`.
+- ConnectRPC moves to connect-go v2 now. This breaks Go consumers of
+  `pkg/bfdpb`; the `bfd.v1` wire protocol is unchanged.
+
+Ordered P0 queue:
+
+1. `gobfd-qj0.8.6.2` — runtime Go modules (minor and patch).
+2. `gobfd-qj0.8.6.3` — developer, scanner and release tools.
+3. `gobfd-qj0.8.2.4.4` — GoBGP capability preflight rejects v3 or non-GoBGP
+   daemons at startup.
+4. `gobfd-qj0.8.2.8.5.2.5.2`, `.5.3`, `gobfd-qj0.8.2.8.5.2.7` — ExaBGP
+   anycast, Kubernetes and Containerlab move from `jauderho/gobgp:v3.37.0` to
+   the shared GoBGP v4.10.0 recipe.
+5. `gobfd-qj0.8.6.8` — connect-go v2 migration (eligible 2026-10-14; blocked
+   by step 1).
+6. `gobfd-qj0.8.6.5` and `gobfd-qj0.8.2.8.5.2.6` — base image digests,
+   HAProxy, nginx, Prometheus and Grafana.
+7. `gobfd-qj0.8.6.4` and `gobfd-qj0.8.6.6` — GitHub Actions and interop peers
+   (several eligible 2026-10-19).
+8. `gobfd-qj0.8.2.4.5`, `gobfd-0dc`, `gobfd-qj0.8.6.1` — native-BFD conflict
+   preflight, supported-version statement, manual Compose requalification.
+9. `gobfd-qj0.8.4`, `gobfd-qj0.8.2.8.5.2.8` — allowlist delivery and the
+   Oracle Linux product decision. P1 `gobfd-qj0.8.6.7` automates currency
+   checks for pins that Dependabot does not track.
+
+Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
+`proxy.golang.org`, `go list -m -u`, Docker Hub and GHCR registry APIs,
+`deb.frrouting.org` package index.
+
+| Component | Channel | `dev` | Latest | Eligible | Owner |
+|---|---|---|---|---|---|
+| Go toolchain | go.dev | 1.27.2 | 1.27.2 | current | done |
+| GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
+| connect-go | Go module | v1.20.0 | v2.0.0 (v1.21.0 on v1) | 2026-10-14 | `.8.6.8` |
+| grpchealth | Go module | v1.5.0 | v2.0.0 | 2026-10-14 | `.8.6.8` |
+| grpc-go | Go module | v1.83.2 | v1.84.0 | now | `.8.6.2` |
+| koanf/v2 | Go module | v2.3.6 | v2.3.8 | now | `.8.6.2` |
+| client_golang | Go module | v1.24.1 | v1.25.0 | now | `.8.6.2` |
+| moby api / client | Go module | v1.55.0 / v0.5.1 | v1.56.1 / v0.6.2 | now | `.8.6.2` |
+| golangci-lint | tools module | v2.13.1 | v2.14.0 | now | `.8.6.3` |
+| govulncheck | Go module | v1.7.0 | v1.9.0 | now | `.8.6.3` |
+| osv-scanner | GitHub release | v2.5.1 | v2.7.0 | 2026-10-19 | `.8.6.3` |
+| buf | GitHub release | v1.72.0 | v1.73.0 | now | `.8.6.3` |
+| Docker Compose provider | GitHub release | 5.5.0 | 5.6.0 | now | `.8.6.3` |
+| syft / trivy | GitHub release | v1.51.0 / v0.74.0 | v1.54.1 / v0.75.0 | now | `.8.6.3` |
+| goreleaser | GitHub release | v2.18.0 | v2.18.3 | now | `.8.6.3` |
+| containerlab | GitHub release | 0.79.0 | v0.81.0 | 2026-10-18 | `.8.5.2.7` |
+| debian:trixie-slim | Docker Hub digest | `d7e12182` | `a29215f6` | now | `.8.6.5` |
+| oraclelinux:10-slim | Docker Hub digest | `965eb786` | `ea76251f` | now | `.8.6.5` |
+| HAProxy | Docker Hub trixie | 3.4.3 | 3.4.6 | now | `.8.6.5` |
+| nginx (mainline) | Docker Hub trixie | 1.31.4 | 1.31.6 | now | `.8.6.5` |
+| Prometheus | GitHub release | v3.14.0 | v3.15.0 | now | `.8.5.2.6` |
+| Grafana | GitHub release | 13.2.0 | 13.2.4 | 2026-10-20 | `.8.5.2.6` |
+| FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | current | done |
+| BIRD | GitHub tag | v3.3.2 | v3.4.0 | 2026-10-19 | `.8.6.6` |
+| ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
+| Holo | GHCR bundle | v0.9.0 | v0.9.0 | current | done |
+| Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (no commit since 2021-05-15) | decision | `.8.6.6` |
+| Nokia SR Linux | GHCR | 25.10.2 | 26.7.2 | now | `.8.5.2.7` |
+| Arista cEOS | vendor portal | 4.36.0.1F | not verified | — | `.8.5.2.7` |
+| GitHub Actions | GitHub release | 11 pins behind | see `.8.6.4` | partly 2026-10-19 | `.8.6.4` |
+
+Arista cEOS currency is unverified: `arista-mcp` was unavailable on
+2026-10-13. XRd, SONiC and VyOS images are vendor-gated or mutable
+third-party tags. The k3s cluster for the Kubernetes example is external and
+unpinned.
+
 ## Plan reconciliation 2026-10-13
 
 Heads: `dev` and `origin/dev` at `524ba67`, `origin/master` at `5680385`,
@@ -68,7 +146,7 @@ Plan changes:
 - Q3 tasks `.8.2.2.5.1` and `.8.2.2.8` and task `gobfd-31o` are recorded as
   stalled, not done.
 
-Ordered P0 queue on `dev`:
+Ordered P0 queue on `dev` (superseded by the stack-currency queue above):
 
 1. `gobfd-qj0.8.2.11` — `go1.27.2` and `x/net` v0.61.0; implemented on `dev`;
    the twelve advisories are no longer reported.
@@ -206,6 +284,10 @@ unchanged; the 2026-10-13 order above supersedes it. Companion
 recovery below is corrected to its existing P0 Beads priority.
 
 ### P0 sequence
+
+Since 2026-10-13 these slices are P1 in Beads, except security work (secure
+management defaults, outbound authentication, unsolicited admission and
+preview boundaries); the stack-currency epic `gobfd-qj0.8.6` leads.
 
 | Delivery slice | Status |
 |---|---|
