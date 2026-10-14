@@ -301,6 +301,10 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 	if detectMult > maxBFDWireUint8 {
 		return nil, fmt.Errorf("unsolicited detect_mult %d: %w", detectMult, errDetectMultOverflow)
 	}
+	auth, authKeys, err := configAuthToBFD(cfg.Auth)
+	if err != nil {
+		return nil, fmt.Errorf("unsolicited auth: %w", err)
+	}
 
 	return &bfd.UnsolicitedPolicy{
 		Enabled:     cfg.Enabled,
@@ -312,6 +316,8 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 			DetectMultiplier:      uint8(detectMult),
 		},
 		CleanupTimeout: cfg.CleanupTimeout,
+		Auth:           auth,
+		AuthKeys:       authKeys,
 	}, nil
 }
 

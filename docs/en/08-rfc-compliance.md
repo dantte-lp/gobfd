@@ -50,7 +50,7 @@
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784 with TTL>=254 permits at most one intermediate router; arbitrary-hop qualification is pending |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Not implemented** | GoBGP v4 (like v3) emits Cease/2; the Cease/10 text is only an operator annotation |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Connected-subnet, session-limit and rate admission enforced; replies from the receiving local tuple; no authentication for auto-created sessions |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Connected-subnet, session-limit and rate admission enforced; replies from the receiving local tuple; optional Meticulous Keyed SHA1 admission |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
@@ -284,15 +284,15 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 | Configurable timers (SHOULD) | `UnsolicitedSessionDefaults` |
 | Bounded admission (Section 6.1) | `max_sessions` must be >= 1 when enabled; new sessions are admitted at up to 10 per second, burst 20 |
 | Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
+| Authentication (RECOMMENDED, Section 6.2) | Optional `unsolicited.auth`, Meticulous Keyed SHA1 only; the triggering packet is verified before a session exists; without it, A-bit packets are refused |
 
 Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet. The `MaxSessions` quota is reserved atomically before creation and released on create failure, explicit destroy, or cleanup of a passive Down session after `CleanupTimeout`.
 
 Each passive session gets its own sender on the local address and interface
 that received the triggering packet, with its own RFC 5881 source port; an IPv6
-link-local address is scoped to the receiving interface. Auto-created sessions
-carry no authentication and `session_defaults` startup validation is
-incomplete (`gobfd-qj0.8.2.1.10.3`). Do not enable it on an untrusted
-interface.
+link-local address is scoped to the receiving interface. `session_defaults`
+startup validation is incomplete (`gobfd-qj0.8.2.1.10.3`). Do not enable it on
+an untrusted interface.
 
 ### RFC 9747 Implementation Notes
 

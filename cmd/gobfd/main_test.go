@@ -2444,3 +2444,21 @@ func TestErrDetectMultOverflow(t *testing.T) {
 		t.Errorf("buildOverlaySessionConfig: expected errDetectMultOverflow, got %v", err)
 	}
 }
+
+func TestBuildUnsolicitedPolicyAuthentication(t *testing.T) {
+	t.Parallel()
+
+	p, err := buildUnsolicitedPolicy(config.UnsolicitedConfig{
+		Enabled: true, MaxSessions: 1,
+		Auth: config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 9, Secret: "unsolicited-sha1"},
+	})
+	if err != nil {
+		t.Fatalf("buildUnsolicitedPolicy: %v", err)
+	}
+	if p.Auth == nil || p.AuthKeys == nil {
+		t.Fatal("policy has no authenticator")
+	}
+	if key := p.AuthKeys.CurrentKey(); key.ID != 9 || key.Type != bfd.AuthTypeMeticulousKeyedSHA1 {
+		t.Fatalf("current key = %d/%v, want 9/Meticulous Keyed SHA1", key.ID, key.Type)
+	}
+}

@@ -1927,3 +1927,35 @@ func TestValidateUnsolicitedMaxSessions(t *testing.T) {
 		}
 	}
 }
+
+// RFC 9468 Section 6.2: if BFD authentication is used, the strongest
+// mechanism the implementation supports MUST be used; for GoBFD that is
+// Meticulous Keyed SHA1.
+func TestValidateUnsolicitedAuth(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		auth    config.AuthConfig
+		wantErr error
+	}{
+		{config.AuthConfig{}, nil},
+		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "unsolicited-sha1"}, nil},
+		{config.AuthConfig{Type: "keyed_sha1", KeyID: 1, Secret: "s"}, config.ErrInvalidUnsolicitedAuthType},
+		{config.AuthConfig{Type: "simple_password", KeyID: 1, Secret: "s"}, config.ErrInvalidUnsolicitedAuthType},
+		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: ""}, config.ErrInvalidSessionAuthSecret},
+		{
+			config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "123456789012345678901"},
+			config.ErrInvalidSessionAuthSecret,
+		},
+		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 256, Secret: "s"}, config.ErrInvalidSessionAuthKeyID},
+	} {
+		cfg := config.DefaultConfig()
+		cfg.Unsolicited.Enabled = true
+		cfg.Unsolicited.MaxSessions = 1
+		cfg.Unsolicited.Auth = tc.auth
+		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
+			t.Errorf("auth %s/%d/%d bytes: Validate error = %v, want %v",
+				tc.auth.Type, tc.auth.KeyID, len(tc.auth.Secret), err, tc.wantErr)
+		}
+	}
+}

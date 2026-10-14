@@ -170,6 +170,9 @@ sessions:
 | `unsolicited.session_defaults.detect_mult` | uint32 | `3` | Множитель обнаружения для автосозданных сессий |
 | `unsolicited.interfaces.<name>.enabled` | bool | `false` | Включить unsolicited на этом интерфейсе |
 | `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Дополнительное ограничение исходных адресов (CIDR); проверка connected subnet действует всегда |
+| `unsolicited.auth.type` | string | `""` | Пусто — без аутентификации, либо `meticulous_keyed_sha1` (RFC 9468, раздел 6.2) |
+| `unsolicited.auth.key_id` | uint32 | `0` | Auth Key ID RFC 5880 (0-255) |
+| `unsolicited.auth.secret` | string | `""` | Ключ SHA1 длиной 1-20 байт |
 
 Пример:
 ```yaml
@@ -199,9 +202,16 @@ unsolicited:
 > Каждая пассивная сессия отвечает с локального адреса и интерфейса, на которые
 > пришёл пакет, со своим source port (IPv4 и IPv6).
 >
-> **Небезопасный preview**: автосозданные сессии не используют
-> аутентификацию, проверка `session_defaults` при запуске неполная. Не
-> включайте unsolicited BFD на недоверенном интерфейсе.
+> **Аутентификация (RFC 9468, раздел 6.2)**: при заданном `unsolicited.auth`
+> пакет, создающий сессию, должен нести верную подпись Meticulous Keyed SHA1
+> настроенного ключа, и сессия подписывает ответы этим ключом. Без
+> `unsolicited.auth` пакет с битом A отклоняется (RFC 5880, раздел 6.8.6).
+> Развёртывание, не способное использовать Meticulous Keyed SHA1, работает без
+> аутентификации; RFC 9468 её только рекомендует.
+>
+> **Небезопасный preview**: проверка `session_defaults` при запуске неполная
+> (`gobfd-qj0.8.2.1.10.3`). Не включайте unsolicited BFD на недоверенном
+> интерфейсе.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 

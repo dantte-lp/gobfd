@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- RFC 9468 unsolicited authentication (Section 6.2): `unsolicited.auth`
+  accepts only `meticulous_keyed_sha1`, the strongest mechanism GoBFD
+  supports. The packet that would create a session is verified before the
+  session exists, and the session signs its replies with the key. Without
+  `unsolicited.auth`, packets with the A bit set are refused (RFC 5880
+  Section 6.8.6). A change to `unsolicited.auth` requires a restart.
 - Documented GoBGP compatibility in the configuration reference: `dev`
   supports the tested GoBGP v4.10.0 only, with upgrade steps from GoBGP v3.
 - The GoBGP preflight rejects GoBGP v4 native BFD for peers of configured

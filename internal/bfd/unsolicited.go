@@ -13,6 +13,7 @@ package bfd
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -44,6 +45,11 @@ var (
 	// ErrUnsolicitedSubnetDenied indicates the source address is not in the
 	// subnet of the local address that received the packet.
 	ErrUnsolicitedSubnetDenied = errors.New("source address not in the receiving interface subnet")
+
+	// ErrUnsolicitedAuthFailed indicates the triggering packet does not
+	// satisfy the unsolicited authentication policy (RFC 9468 Section 6.2,
+	// RFC 5880 Sections 6.7 and 6.8.6).
+	ErrUnsolicitedAuthFailed = errors.New("unsolicited packet authentication failed")
 
 	// ErrUnsolicitedRateLimited indicates the session admission rate is
 	// exhausted.
@@ -88,6 +94,12 @@ type UnsolicitedPolicy struct {
 	// RFC 9468 Section 2: "bfd.DesiredMinTxInterval,
 	// bfd.RequiredMinRxInterval, bfd.DetectMult SHOULD be configurable."
 	SessionDefaults UnsolicitedSessionDefaults
+
+	// Auth and AuthKeys authenticate auto-created sessions (RFC 9468
+	// Section 6.2). With Auth set, only a triggering packet that passes it
+	// creates a session; with Auth nil, a packet with the A bit is refused.
+	Auth     Authenticator
+	AuthKeys AuthKeyStore
 
 	// CleanupTimeout is how long to wait after a passive session goes Down
 	// before deleting it. RFC 9468 Section 2: "the passive side SHOULD
@@ -216,6 +228,45 @@ func matchesAnyPrefix(addr netip.Addr, prefixes []netip.Prefix) bool {
 		}
 	}
 	return false
+}
+
+// admit reserves a session slot for the packet (single-hop TTL 255,
+// interface and prefix policy, session limit, admission rate, connected
+// subnet) and then applies the authentication policy, releasing the slot
+// when authentication fails.
+func (us *unsolicitedState) admit(pkt *ControlPacket, meta PacketMeta, wire []byte) error {
+	if err := us.reserve(meta); err != nil {
+		return err
+	}
+	if err := us.verifyTrigger(pkt, wire); err != nil {
+		us.release()
+		return err
+	}
+	return nil
+}
+
+// verifyTrigger applies the authentication policy to the packet that would
+// create a session. It runs after reserve, so the admission rate limit bounds
+// the digest cost. The session verifies the same packet again with its own
+// state; a fresh AuthState accepts any first sequence number (RFC 5880
+// Section 6.7.3 and 6.7.4, bfd.AuthSeqKnown = 0).
+func (us *unsolicitedState) verifyTrigger(pkt *ControlPacket, wire []byte) error {
+	auth := us.policy.Auth
+	if auth == nil {
+		// RFC 5880 Section 6.8.6: no authentication in use, A bit set.
+		if pkt.AuthPresent {
+			return fmt.Errorf("auth present bit set without unsolicited authentication: %w", ErrUnsolicitedAuthFailed)
+		}
+		return nil
+	}
+	if !pkt.AuthPresent || pkt.Auth == nil {
+		return fmt.Errorf("unauthenticated packet: %w", ErrUnsolicitedAuthFailed)
+	}
+	state := &AuthState{Type: pkt.Auth.Type}
+	if err := auth.Verify(state, us.policy.AuthKeys, pkt, wire, len(wire)); err != nil {
+		return fmt.Errorf("%w: %w", ErrUnsolicitedAuthFailed, err)
+	}
+	return nil
 }
 
 // allowAdmission takes one admission token, refilling the bucket at

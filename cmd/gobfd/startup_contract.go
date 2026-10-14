@@ -29,6 +29,7 @@ const (
 	startupFieldUnsolicitedDesiredMinTx
 	startupFieldUnsolicitedRequiredMinRx
 	startupFieldUnsolicitedDetectMult
+	startupFieldUnsolicitedAuth
 	startupFieldMicroActuatorMode
 	startupFieldMicroActuatorBackend
 	startupFieldMicroActuatorOVSDBEndpoint
@@ -68,6 +69,7 @@ func (f startupFieldID) String() string {
 		"unsolicited.session_defaults.desired_min_tx",
 		"unsolicited.session_defaults.required_min_rx",
 		"unsolicited.session_defaults.detect_mult",
+		"unsolicited.auth",
 		"micro_bfd.actuator.mode",
 		"micro_bfd.actuator.backend",
 		"micro_bfd.actuator.ovsdb_endpoint",
@@ -189,6 +191,25 @@ func cloneUnsolicitedConfig(src config.UnsolicitedConfig) config.UnsolicitedConf
 	return dst
 }
 
+// appendUnsolicitedChanges reports RFC 9468 fields that need a restart.
+func (c startupRuntimeContract) appendUnsolicitedChanges(
+	cfg config.UnsolicitedConfig,
+	appendChanged func(startupFieldID, bool),
+) {
+	appendChanged(startupFieldUnsolicitedEnabled, c.unsolicited.Enabled != cfg.Enabled)
+	appendChanged(startupFieldUnsolicitedMaxSessions, c.unsolicited.MaxSessions != cfg.MaxSessions)
+	appendChanged(startupFieldUnsolicitedCleanupTimeout, c.unsolicited.CleanupTimeout != cfg.CleanupTimeout)
+	appendChanged(startupFieldUnsolicitedInterfaces,
+		!equalUnsolicitedInterfaces(c.unsolicited.Interfaces, cfg.Interfaces))
+	appendChanged(startupFieldUnsolicitedDesiredMinTx,
+		c.unsolicited.SessionDefaults.DesiredMinTx != cfg.SessionDefaults.DesiredMinTx)
+	appendChanged(startupFieldUnsolicitedRequiredMinRx,
+		c.unsolicited.SessionDefaults.RequiredMinRx != cfg.SessionDefaults.RequiredMinRx)
+	appendChanged(startupFieldUnsolicitedDetectMult,
+		c.unsolicited.SessionDefaults.DetectMult != cfg.SessionDefaults.DetectMult)
+	appendChanged(startupFieldUnsolicitedAuth, c.unsolicited.Auth != cfg.Auth)
+}
+
 func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupFieldID {
 	changed := make([]startupFieldID, 0, 8)
 	appendChanged := func(field startupFieldID, condition bool) {
@@ -203,17 +224,7 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldLogFormat, c.logFormat != cfg.Log.Format)
 	appendChanged(startupFieldSocketReadBufferSize, c.socket.ReadBufferSize != cfg.Socket.ReadBufferSize)
 	appendChanged(startupFieldSocketWriteBufferSize, c.socket.WriteBufferSize != cfg.Socket.WriteBufferSize)
-	appendChanged(startupFieldUnsolicitedEnabled, c.unsolicited.Enabled != cfg.Unsolicited.Enabled)
-	appendChanged(startupFieldUnsolicitedMaxSessions, c.unsolicited.MaxSessions != cfg.Unsolicited.MaxSessions)
-	appendChanged(startupFieldUnsolicitedCleanupTimeout, c.unsolicited.CleanupTimeout != cfg.Unsolicited.CleanupTimeout)
-	appendChanged(startupFieldUnsolicitedInterfaces,
-		!equalUnsolicitedInterfaces(c.unsolicited.Interfaces, cfg.Unsolicited.Interfaces))
-	appendChanged(startupFieldUnsolicitedDesiredMinTx,
-		c.unsolicited.SessionDefaults.DesiredMinTx != cfg.Unsolicited.SessionDefaults.DesiredMinTx)
-	appendChanged(startupFieldUnsolicitedRequiredMinRx,
-		c.unsolicited.SessionDefaults.RequiredMinRx != cfg.Unsolicited.SessionDefaults.RequiredMinRx)
-	appendChanged(startupFieldUnsolicitedDetectMult,
-		c.unsolicited.SessionDefaults.DetectMult != cfg.Unsolicited.SessionDefaults.DetectMult)
+	c.appendUnsolicitedChanges(cfg.Unsolicited, appendChanged)
 	appendChanged(startupFieldMicroActuatorMode, c.actuator.Mode != cfg.MicroBFD.Actuator.Mode)
 	appendChanged(startupFieldMicroActuatorBackend, c.actuator.Backend != cfg.MicroBFD.Actuator.Backend)
 	appendChanged(startupFieldMicroActuatorOVSDBEndpoint, c.actuator.OVSDBEndpoint != cfg.MicroBFD.Actuator.OVSDBEndpoint)

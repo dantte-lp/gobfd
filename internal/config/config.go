@@ -126,6 +126,10 @@ type UnsolicitedConfig struct {
 
 	// SessionDefaults holds default timer parameters for auto-created sessions.
 	SessionDefaults UnsolicitedSessionDefaultsConfig `koanf:"session_defaults"`
+
+	// Auth authenticates auto-created sessions and the packets that create
+	// them (RFC 9468 Section 6.2). Only meticulous_keyed_sha1 is accepted.
+	Auth AuthConfig `koanf:"auth"`
 }
 
 // UnsolicitedInterfaceConfig holds per-interface unsolicited BFD settings.
@@ -1147,6 +1151,10 @@ var (
 	// ErrInvalidMicroBFDActuatorAction indicates an unrecognized Micro-BFD actuator action.
 	ErrInvalidMicroBFDActuatorAction = errors.New("micro_bfd.actuator action must be none, remove-member, or add-member")
 
+	// ErrInvalidUnsolicitedAuthType indicates unsolicited authentication
+	// weaker than Meticulous Keyed SHA1 (RFC 9468 Section 6.2).
+	ErrInvalidUnsolicitedAuthType = errors.New("unsolicited.auth.type must be meticulous_keyed_sha1")
+
 	// ErrInvalidUnsolicitedMaxSessions indicates enabled unsolicited BFD
 	// without a positive session limit (RFC 9468 Section 6.1).
 	ErrInvalidUnsolicitedMaxSessions = errors.New("unsolicited.max_sessions must be >= 1 when unsolicited is enabled")
@@ -1195,8 +1203,10 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
-	if cfg.Unsolicited.Enabled && cfg.Unsolicited.MaxSessions < 1 {
-		return ErrInvalidUnsolicitedMaxSessions
+	if cfg.Unsolicited.Enabled {
+		if err := validateUnsolicited(cfg.Unsolicited); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1379,6 +1389,26 @@ func validateSessionAuth(auth AuthConfig) error {
 		if secretLen < 1 || secretLen > 20 {
 			return fmt.Errorf("auth.secret length %d: %w", secretLen, ErrInvalidSessionAuthSecret)
 		}
+	}
+	return nil
+}
+
+// validateUnsolicited checks an enabled RFC 9468 configuration: a positive
+// session limit (Section 6.1) and, when authentication is configured, the
+// strongest mechanism GoBFD supports (Section 6.2).
+func validateUnsolicited(cfg UnsolicitedConfig) error {
+	if cfg.MaxSessions < 1 {
+		return ErrInvalidUnsolicitedMaxSessions
+	}
+	authType := strings.TrimSpace(cfg.Auth.Type)
+	if authType == "" || authType == "none" {
+		return nil
+	}
+	if authType != "meticulous_keyed_sha1" {
+		return fmt.Errorf("unsolicited.auth.type %q: %w", cfg.Auth.Type, ErrInvalidUnsolicitedAuthType)
+	}
+	if err := validateSessionAuth(cfg.Auth); err != nil {
+		return fmt.Errorf("unsolicited.%w", err)
 	}
 	return nil
 }

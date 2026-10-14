@@ -174,6 +174,9 @@ See [GoBGP Integration](#gobgp-integration) for details.
 | `unsolicited.session_defaults.detect_mult` | uint32 | `3` | Default detect multiplier for auto-created sessions |
 | `unsolicited.interfaces.<name>.enabled` | bool | `false` | Enable unsolicited on this interface |
 | `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Further restrict source addresses (CIDR); the connected-subnet check always applies |
+| `unsolicited.auth.type` | string | `""` | Empty for no authentication, or `meticulous_keyed_sha1` (RFC 9468 Section 6.2) |
+| `unsolicited.auth.key_id` | uint32 | `0` | RFC 5880 Auth Key ID (0-255) |
+| `unsolicited.auth.secret` | string | `""` | 1-20 byte SHA1 key |
 
 Example:
 ```yaml
@@ -203,9 +206,16 @@ unsolicited:
 > Each passive session replies from the local address and interface that
 > received the triggering packet, with its own source port (IPv4 and IPv6).
 >
-> **Unsafe preview**: auto-created sessions carry no authentication, and
-> startup validation of `session_defaults` is incomplete. Do not enable
-> unsolicited BFD on an untrusted interface.
+> **Authentication (RFC 9468 Section 6.2)**: with `unsolicited.auth` set, the
+> packet that would create a session must carry a valid Meticulous Keyed SHA1
+> signature for the configured key, and the session signs its replies with
+> it. Without `unsolicited.auth`, a packet with the A bit set is refused
+> (RFC 5880 Section 6.8.6). A deployment that cannot use Meticulous Keyed
+> SHA1 runs without authentication; RFC 9468 only recommends it.
+>
+> **Unsafe preview**: startup validation of `session_defaults` is incomplete
+> (`gobfd-qj0.8.2.1.10.3`). Do not enable unsolicited BFD on an untrusted
+> interface.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 

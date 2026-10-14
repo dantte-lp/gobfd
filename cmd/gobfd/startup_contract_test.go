@@ -42,6 +42,9 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 		{"log format", func(cfg *config.Config) { cfg.Log.Format = "text" }, startupFieldLogFormat},
 		{"socket read buffer", func(cfg *config.Config) { cfg.Socket.ReadBufferSize++ }, startupFieldSocketReadBufferSize},
 		{"gobgp TLS", func(cfg *config.Config) { cfg.GoBGP.TLS.ServerName = "router.example" }, startupFieldGoBGPTLS},
+		{"unsolicited auth", func(cfg *config.Config) {
+			cfg.Unsolicited.Auth = config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "s"}
+		}, startupFieldUnsolicitedAuth},
 		{"new control listener", func(cfg *config.Config) {
 			cfg.Sessions = append(cfg.Sessions, config.SessionConfig{
 				Peer: "192.0.2.2", Local: "127.0.0.2", Interface: "lo",

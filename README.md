@@ -138,7 +138,7 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 5883 | BFD for Multihop Paths | Constrained GTSM profile; arbitrary-hop qualification pending |
 | RFC 7419 | Common Interval Support | Implemented |
 | RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v4 emits Cease/2 |
-| RFC 9468 | Unsolicited BFD | Unsafe preview; admission bounded, no session authentication |
+| RFC 9468 | Unsolicited BFD | Unsafe preview; bounded admission, optional SHA1 authentication |
 | RFC 9747 | Unaffiliated BFD Echo | Preview |
 | RFC 7130 | Micro-BFD for LAG | Preview; owner integration partial |
 | RFC 8971 | BFD for VXLAN | Unsafe/incomplete userspace preview |

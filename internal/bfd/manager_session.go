@@ -561,18 +561,12 @@ func (m *Manager) tryCreateUnsolicited(
 
 	m.ownershipMu.Lock()
 
-	// reserve enforces RFC 9468: single-hop TTL 255 packets only, interface
-	// and prefix policy, the session limit, the admission rate and the
-	// connected subnet of the receiving address.
-	if reserveErr := m.unsolicited.reserve(meta); reserveErr != nil {
+	if admitErr := m.unsolicited.admit(pkt, meta, wire); admitErr != nil {
 		m.ownershipMu.Unlock()
-		return fmt.Errorf(
-			"unsolicited: peer %s on %s: %w",
-			meta.SrcAddr, meta.IfName, reserveErr,
-		)
+		return fmt.Errorf("unsolicited: peer %s on %s: %w", meta.SrcAddr, meta.IfName, admitErr)
 	}
 
-	cfg := unsolicitedSessionConfig(meta, m.unsolicited.policy.SessionDefaults)
+	cfg := unsolicitedSessionConfig(meta, m.unsolicited.policy)
 
 	senderFactory := m.unsolicitedSenderFactory
 	if m.unsolicitedSessionSender != nil {
@@ -612,11 +606,11 @@ func (m *Manager) tryCreateUnsolicited(
 	return nil
 }
 
-func unsolicitedSessionConfig(
-	meta PacketMeta,
-	defaults UnsolicitedSessionDefaults,
-) SessionConfig {
+func unsolicitedSessionConfig(meta PacketMeta, policy *UnsolicitedPolicy) SessionConfig {
+	defaults := policy.SessionDefaults
 	return SessionConfig{
+		Auth:                  policy.Auth,
+		AuthKeys:              policy.AuthKeys,
 		PeerAddr:              meta.SrcAddr,
 		LocalAddr:             meta.DstAddr,
 		Interface:             meta.IfName,

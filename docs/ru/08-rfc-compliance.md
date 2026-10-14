@@ -50,7 +50,7 @@
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784 с TTL>=254 допускает не более одного промежуточного router; arbitrary-hop qualification не завершена |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v4, как и v3, отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Проверки connected subnet, лимита сессий и скорости приёма действуют; ответы с полученного локального кортежа; автосессии без аутентификации |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Проверки connected subnet, лимита сессий и скорости приёма действуют; ответы с полученного локального кортежа; опциональный допуск по Meticulous Keyed SHA1 |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный preview** | Identity поддерживаемого профиля привязана точно; owner-specific dataplane integration не завершена |
@@ -233,9 +233,11 @@ RFC 9468 позволяет динамически создавать пасси
 
 Каждая пассивная сессия получает свой sender на локальном адресе и интерфейсе,
 на которые пришёл пакет, со своим source port RFC 5881; IPv6 link-local адрес
-привязывается к интерфейсу приёма. Автосозданные сессии не используют
-аутентификацию, проверка `session_defaults` при запуске неполная
-(`gobfd-qj0.8.2.1.10.3`). Её нельзя включать на недоверенном интерфейсе.
+привязывается к интерфейсу приёма. Опциональный `unsolicited.auth`
+(только Meticulous Keyed SHA1, раздел 6.2) проверяет пакет до создания
+сессии; без него пакеты с битом A отклоняются. Проверка `session_defaults` при
+запуске неполная (`gobfd-qj0.8.2.1.10.3`). Её нельзя включать на недоверенном
+интерфейсе.
 
 ### Заметки по RFC 9747
 
