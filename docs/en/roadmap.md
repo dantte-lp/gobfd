@@ -132,6 +132,11 @@ before the update:
 3. Security P0 `.8.2.1.8` preview boundaries: the RFC 7130 and RFC 9747
    documentation labels are fixed in `dev`; the code slice waits for the
    step 8 decisions.
+   Security P0 `gobfd-330` management API transport, decided in
+   [the transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
+   (`5879b15`): `.1` Unix socket with peer-UID principals (in progress),
+   `.2` mTLS TCP, then `.3` breaking defaults with migration and `.4`
+   principal-scoped claims. `.1` and `.2` change no default.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
    vendor images.
@@ -227,10 +232,10 @@ Architecture notes for `gobfd-5w0`:
   module: health source, hold-down state machine, GoBGP path owner, drain
   command, metrics.
 
-Priority changes: `.8.2.3.4` slice A is next after `.8.2.1.10.1`, because it
-needs no new decision and closes the packaged wildcard binds. `.8.2.4.6`
-follows `.8.2.3.1` (component readiness). `gobfd-5w0` waits for its blockers
-and a design review.
+Priority changes: `.8.2.3.4` and `.8.2.4.6` are done (`0314466`, `2a4afb1`;
+#86 closed). `.8.2.1.10.1` waits for the `.8.2.1.10.5` listener design, so
+`gobfd-330.1` and `.2` are the next security work. `gobfd-5w0` waits for its
+blockers and a design review.
 
 ## Plan reconciliation 2026-10-13
 

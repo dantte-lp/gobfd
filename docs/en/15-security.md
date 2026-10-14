@@ -57,6 +57,13 @@ Production rules:
   RPCs as write-sensitive network-control operations.
 - Do not expose the control API on an untrusted management network.
 
+Planned v1 boundary (`gobfd-330`,
+[transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)):
+a Unix socket `/run/gobfd/gobfd.sock` (0660, group `gobfd-admin`) by default
+with the kernel peer UID as principal; loopback TCP for reads, with
+mutations only behind an explicit unsafe opt-in; non-loopback TCP only with
+mTLS.
+
 ## GoBGP Integration
 
 GoBFD can connect to GoBGP through `gobgp.addr`. Plaintext mode is acceptable

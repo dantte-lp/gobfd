@@ -58,6 +58,12 @@ Production-правила:
   RPC write-sensitive операциями управления сетью;
 - не публикуйте control API в недоверенную management-сеть.
 
+Плановая граница v1 (`gobfd-330`,
+[решение о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)):
+по умолчанию Unix-сокет `/run/gobfd/gobfd.sock` (0660, группа `gobfd-admin`)
+с UID peer от ядра в качестве принципала; loopback TCP для чтения, изменения
+только через явный небезопасный opt-in; non-loopback TCP только с mTLS.
+
 ## Интеграция с GoBGP
 
 GoBFD подключается к GoBGP через `gobgp.addr`. Plaintext допустим только для
