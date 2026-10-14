@@ -2,6 +2,7 @@ package apiclient_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -72,5 +73,30 @@ func TestEndpointClientDialsUnixSocket(t *testing.T) {
 	defer resp.Body.Close()
 	if body, _ := io.ReadAll(resp.Body); string(body) != "ok" {
 		t.Fatalf("body = %q, want ok", body)
+	}
+}
+
+// gobfd-330.2: client TLS files apply to https:// endpoints only and must
+// load.
+func TestEndpointTLSClientErrors(t *testing.T) {
+	t.Parallel()
+
+	files := apiclient.TLSFiles{CAFile: filepath.Join(t.TempDir(), "missing.pem")}
+	https, err := apiclient.ParseEndpoint("https://127.0.0.1:50052")
+	if err != nil {
+		t.Fatalf("ParseEndpoint: %v", err)
+	}
+	if _, err = https.HTTPClientTLS(files); err == nil {
+		t.Fatal("HTTPClientTLS with a missing CA file succeeded")
+	}
+	plain, err := apiclient.ParseEndpoint("http://127.0.0.1:50052")
+	if err != nil {
+		t.Fatalf("ParseEndpoint: %v", err)
+	}
+	if _, err := plain.HTTPClientTLS(files); !errors.Is(err, apiclient.ErrInvalidEndpoint) {
+		t.Fatalf("HTTPClientTLS on http:// error = %v, want ErrInvalidEndpoint", err)
+	}
+	if c, err := plain.HTTPClientTLS(apiclient.TLSFiles{}); err != nil || c != http.DefaultClient {
+		t.Fatalf("HTTPClientTLS without files = %v, %v; want the default client", c, err)
 	}
 }

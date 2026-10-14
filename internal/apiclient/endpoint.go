@@ -5,11 +5,14 @@ package apiclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 )
@@ -64,4 +67,54 @@ func (e Endpoint) HTTPClient() *http.Client {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		},
 	}}
+}
+
+// TLSFiles are the client-side PEM files for an https:// endpoint: the CA
+// that signed the server certificate and the client certificate and key for
+// mTLS.
+type TLSFiles struct {
+	CAFile   string
+	CertFile string
+	KeyFile  string
+}
+
+// HTTPClientTLS returns the HTTP client for the endpoint with the given
+// client TLS files. Without files it is HTTPClient; files need an https://
+// endpoint.
+func (e Endpoint) HTTPClientTLS(files TLSFiles) (*http.Client, error) {
+	if files == (TLSFiles{}) {
+		return e.HTTPClient(), nil
+	}
+	if !strings.HasPrefix(e.BaseURL, "https://") {
+		return nil, fmt.Errorf("TLS files need an https:// endpoint, got %s: %w", e.BaseURL, ErrInvalidEndpoint)
+	}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if files.CAFile != "" {
+		pem, err := os.ReadFile(files.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read CA file: %w", err)
+		}
+		cfg.RootCAs = x509.NewCertPool()
+		if !cfg.RootCAs.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("CA file %s has no PEM certificate: %w", files.CAFile, ErrInvalidEndpoint)
+		}
+	}
+	if files.CertFile != "" || files.KeyFile != "" {
+		pair, err := tls.LoadX509KeyPair(files.CertFile, files.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load client certificate: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{pair}
+	}
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: cfg, ForceAttemptHTTP2: true}}, nil
+}
+
+// TLSFilesFromEnv reads GOBFD_TLS_CA_FILE, GOBFD_TLS_CERT_FILE and
+// GOBFD_TLS_KEY_FILE, the client TLS files of the companion daemons.
+func TLSFilesFromEnv() TLSFiles {
+	return TLSFiles{
+		CAFile:   os.Getenv("GOBFD_TLS_CA_FILE"),
+		CertFile: os.Getenv("GOBFD_TLS_CERT_FILE"),
+		KeyFile:  os.Getenv("GOBFD_TLS_KEY_FILE"),
+	}
 }

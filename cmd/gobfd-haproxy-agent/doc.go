@@ -20,7 +20,9 @@ The flags are:
 	-gobfd-addr
 		GoBFD ConnectRPC endpoint: http://host:port, https://host:port,
 		unix:///path or a bare host:port. The default is GOBFD_ADDR or
-		http://127.0.0.1:50052.
+		http://127.0.0.1:50052. For an https:// endpoint the client TLS
+		files come from GOBFD_TLS_CA_FILE, GOBFD_TLS_CERT_FILE and
+		GOBFD_TLS_KEY_FILE.
 	-version
 		Print build information and exit.
 */

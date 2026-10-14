@@ -77,7 +77,11 @@ func watchAndAnnounce(
 	if err != nil {
 		return fmt.Errorf("GOBFD_ADDR: %w", err)
 	}
-	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(ep.HTTPClient(), ep.BaseURL)))
+	httpClient, err := ep.HTTPClientTLS(apiclient.TLSFilesFromEnv())
+	if err != nil {
+		return fmt.Errorf("GOBFD_TLS_*: %w", err)
+	}
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL)))
 
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second

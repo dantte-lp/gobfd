@@ -30,6 +30,12 @@ grpc:
   #   path: "/run/gobfd/gobfd.sock"
   #   mode: "0660"
   #   group: "gobfd-admin"
+  # Optional mTLS for the TCP listener; required before binding a
+  # non-loopback address. Files are re-read on every handshake.
+  # tls:
+  #   cert_file: "/etc/gobfd/tls/server.pem"
+  #   key_file: "/etc/gobfd/tls/server.key"
+  #   client_ca_file: "/etc/gobfd/tls/clients-ca.pem"
 
 metrics:
   # Prometheus metrics endpoint. It has no authentication, so it listens on

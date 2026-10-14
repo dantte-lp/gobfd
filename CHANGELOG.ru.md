@@ -9,6 +9,13 @@
 
 ### Добавлено
 
+- mTLS для TCP-listener управления (`grpc.tls.cert_file`, `key_file`,
+  `client_ca_file`; `gobfd-330.2`). Клиенты предъявляют сертификат от CA
+  клиентов; ALPN предлагает HTTP/2 и HTTP/1.1; файлы читаются заново при
+  каждом handshake. Принципал — URI SAN сертификата клиента (SPIFFE) или
+  `dns:<name>`. В `gobfdctl` добавлены `--tls-ca`, `--tls-cert` и
+  `--tls-key`; компаньоны читают `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE`
+  и `GOBFD_TLS_KEY_FILE`. Значения по умолчанию не меняются.
 - Опциональный Unix-сокет управления (`grpc.socket.path`, `mode`, `group`;
   `gobfd-330.1`). Запросы через него несут UID peer от ядра как принципал,
   в логах `principal=uid:<n>`. `gobfdctl --addr`, `gobfd-haproxy-agent` и

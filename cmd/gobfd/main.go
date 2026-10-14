@@ -103,7 +103,9 @@ func run() int {
 	defer mgr.Close()
 
 	// 7. Run servers.
-	warnUnauthenticatedBinds(logger, map[string]string{"grpc": cfg.GRPC.Addr, "metrics": cfg.Metrics.Addr})
+	warnUnauthenticatedBinds(logger, map[string]string{
+		"grpc": unauthenticatedGRPCAddr(cfg.GRPC), "metrics": cfg.Metrics.Addr,
+	})
 	if err := runServers(cfg, mgr, sf, reg, collector, logger, *configPath, logLevel, fr); err != nil {
 		logger.Error("gobfd exited with error",
 			slog.String("error", err.Error()),
@@ -248,8 +250,7 @@ func startHTTPServers(
 
 	if cfg.GRPC.Addr != "" {
 		g.Go(func() error {
-			logger.Info("gRPC server listening", slog.String("addr", cfg.GRPC.Addr))
-			return listenAndServe(ctx, &lc, grpcSrv, cfg.GRPC.Addr)
+			return serveGRPCTCP(ctx, &lc, grpcSrv, cfg.GRPC, logger)
 		})
 	}
 	if cfg.GRPC.Socket.Path != "" {

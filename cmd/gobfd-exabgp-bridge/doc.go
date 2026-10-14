@@ -21,6 +21,9 @@ The environment variables are:
 		GoBFD ConnectRPC endpoint: http://host:port, https://host:port,
 		unix:///path or a bare host:port. The default is
 		http://127.0.0.1:50052.
+	GOBFD_TLS_CA_FILE, GOBFD_TLS_CERT_FILE, GOBFD_TLS_KEY_FILE
+		Client TLS files for an https:// endpoint: the CA of the daemon
+		certificate and the client certificate and key for mTLS.
 	GOBFD_PEER
 		BFD peer address to watch. This variable is required.
 	ANYCAST_PREFIX

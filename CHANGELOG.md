@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- mTLS for the management TCP listener (`grpc.tls.cert_file`, `key_file`,
+  `client_ca_file`; `gobfd-330.2`). Clients must present a certificate from
+  the client CA; ALPN offers HTTP/2 and HTTP/1.1; the files are re-read on
+  every handshake. The principal is the client certificate URI SAN (SPIFFE)
+  or `dns:<name>`. `gobfdctl` gains `--tls-ca`, `--tls-cert` and `--tls-key`;
+  the companions read `GOBFD_TLS_CA_FILE`, `GOBFD_TLS_CERT_FILE` and
+  `GOBFD_TLS_KEY_FILE`. No default changes.
 - Optional management Unix socket (`grpc.socket.path`, `mode`, `group`;
   `gobfd-330.1`). Requests over it carry the kernel-reported peer UID as
   principal, logged as `principal=uid:<n>`. `gobfdctl --addr`,

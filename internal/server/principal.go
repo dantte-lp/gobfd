@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 
+	"connectrpc.com/connect/v2/connecthttp"
 	"golang.org/x/sys/unix"
 )
 
@@ -35,8 +36,25 @@ func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	return context.WithValue(ctx, principalKey{}, "uid:"+strconv.FormatUint(uint64(cred.Uid), 10))
 }
 
-// PrincipalFromContext returns the authenticated request principal.
+// PrincipalFromContext returns the authenticated request principal: the
+// Unix peer UID, or for an mTLS request the verified client certificate's
+// first URI SAN (for example a SPIFFE ID), else its first DNS SAN as
+// "dns:<name>".
 func PrincipalFromContext(ctx context.Context) (string, bool) {
-	principal, ok := ctx.Value(principalKey{}).(string)
-	return principal, ok
+	if principal, ok := ctx.Value(principalKey{}).(string); ok {
+		return principal, true
+	}
+	info, ok := connecthttp.ServerInfoForContext(ctx)
+	if !ok || info.TLS() == nil || len(info.TLS().VerifiedChains) == 0 {
+		return "", false
+	}
+	leaf := info.TLS().VerifiedChains[0][0]
+	switch {
+	case len(leaf.URIs) > 0:
+		return leaf.URIs[0].String(), true
+	case len(leaf.DNSNames) > 0:
+		return "dns:" + leaf.DNSNames[0], true
+	default:
+		return "", false
+	}
 }

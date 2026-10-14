@@ -208,7 +208,7 @@ linters:
       # Cobra command state, ldflags targets, or test-export bridges. Both path
       # and diagnostic text are bounded so any newly added global still fails.
       - path: ^cmd/gobfdctl/commands/
-        text: '^(client|echoClient|microClient|outputFormat|serverAddr|rootCmd|shellCommands) is a global variable'
+        text: '^(client|echoClient|microClient|outputFormat|serverAddr|tlsFiles|rootCmd|shellCommands) is a global variable'
         linters:
           - gochecknoglobals
       - path: ^internal/bfd/packet\.go$

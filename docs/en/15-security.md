@@ -57,6 +57,10 @@ Production rules:
   RPCs as write-sensitive network-control operations.
 - Do not expose the control API on an untrusted management network.
 
+Available now: `grpc.tls` (mTLS with client certificates for the TCP
+listener) and `grpc.socket` (Unix socket with peer-UID principals). Use mTLS
+instead of a local proxy when the API must cross a host boundary.
+
 Planned v1 boundary (`gobfd-330`,
 [transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)):
 a Unix socket `/run/gobfd/gobfd.sock` (0660, group `gobfd-admin`) by default

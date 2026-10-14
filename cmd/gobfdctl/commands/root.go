@@ -28,6 +28,9 @@ var (
 	// serverAddr is the daemon endpoint: host:port, http://, https:// or
 	// unix:///path.
 	serverAddr string
+
+	// tlsFiles are the client TLS files for an https:// endpoint.
+	tlsFiles apiclient.TLSFiles
 )
 
 // rootCmd is the top-level cobra command for gobfdctl.
@@ -40,7 +43,11 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("--addr: %w", err)
 		}
-		rpc := connect.NewClient(connecthttp.NewTransport(ep.HTTPClient(), ep.BaseURL))
+		httpClient, err := ep.HTTPClientTLS(tlsFiles)
+		if err != nil {
+			return fmt.Errorf("--tls-*: %w", err)
+		}
+		rpc := connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL))
 		client = bfdv1connect.NewBfdServiceClient(rpc)
 		echoClient = bfdv1connect.NewEchoServiceClient(rpc)
 		microClient = bfdv1connect.NewMicroBFDServiceClient(rpc)
@@ -56,6 +63,12 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "127.0.0.1:50052",
 		"gobfd daemon endpoint: host:port, http://host:port, https://host:port or unix:///path")
+	rootCmd.PersistentFlags().StringVar(&tlsFiles.CAFile, "tls-ca", "",
+		"CA file that signed the daemon certificate (https:// endpoints)")
+	rootCmd.PersistentFlags().StringVar(&tlsFiles.CertFile, "tls-cert", "",
+		"client certificate file for mTLS (https:// endpoints)")
+	rootCmd.PersistentFlags().StringVar(&tlsFiles.KeyFile, "tls-key", "",
+		"client key file for mTLS (https:// endpoints)")
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table",
 		"output format: table, json, yaml")
 

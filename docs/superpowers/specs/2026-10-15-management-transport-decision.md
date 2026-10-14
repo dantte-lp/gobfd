@@ -133,7 +133,7 @@ defaults with every client already able to follow.
 
 | Risk | Mitigation |
 |---|---|
-| TLS listener without HTTP/2 breaks gRPC clients (ALPN) | Set `Protocols` to HTTP/1.1 + HTTP/2 on the TLS server; wire test with grpc-go over TLS |
+| TLS listener without HTTP/2 breaks gRPC clients (ALPN) | The listener's own `tls.Config` offers `NextProtos {h2, http/1.1}`; measured in `gobfd-330.2`: without `h2` grpc-go fails with "tls: no application protocol", while `Protocols.SetHTTP2` is not needed because the server does not use `ServeTLS` |
 | Stale socket file after a crash blocks startup | Remove an existing socket file only if it is a socket and no server answers on it |
 | Socket created with a loose mode before chmod | Create it inside the 0750 runtime directory, then chmod 0660 before serving |
 | Peer UID differs across user namespaces (containers) | Principals are UIDs as seen by the daemon; document the Kubernetes pod-level `runAsUser`/`fsGroup` requirement for companions |

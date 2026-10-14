@@ -65,6 +65,23 @@ type GRPCConfig struct {
 	// Socket configures the optional Unix socket listener. Requests over it
 	// carry the kernel-reported peer UID as principal (gobfd-330).
 	Socket GRPCSocketConfig `koanf:"socket"`
+
+	// TLS turns the TCP listener into mTLS: clients must present a
+	// certificate from ClientCAFile (gobfd-330.2).
+	TLS GRPCTLSConfig `koanf:"tls"`
+}
+
+// GRPCTLSConfig holds the mTLS files of the TCP management listener. The
+// files are re-read on every handshake, so rotation needs no restart.
+type GRPCTLSConfig struct {
+	CertFile     string `koanf:"cert_file"`
+	KeyFile      string `koanf:"key_file"`
+	ClientCAFile string `koanf:"client_ca_file"`
+}
+
+// Enabled reports whether any mTLS file is configured.
+func (c GRPCTLSConfig) Enabled() bool {
+	return c.CertFile != "" || c.KeyFile != "" || c.ClientCAFile != ""
 }
 
 // GRPCSocketConfig holds the management Unix socket settings.
@@ -1097,6 +1114,10 @@ var (
 	// ErrInvalidGRPCSocket indicates an invalid management socket setting.
 	ErrInvalidGRPCSocket = errors.New("grpc.socket is invalid")
 
+	// ErrInvalidGRPCTLS indicates incomplete mTLS settings or mTLS without a
+	// TCP listener.
+	ErrInvalidGRPCTLS = errors.New("grpc.tls needs cert_file, key_file, client_ca_file and grpc.addr")
+
 	// ErrInvalidDetectMultiplier indicates the detect multiplier is zero.
 	ErrInvalidDetectMultiplier = errors.New("bfd.default_detect_multiplier must be >= 1")
 
@@ -1543,6 +1564,10 @@ func validateUnsolicitedInterfaces(interfaces map[string]UnsolicitedInterfaceCon
 func validateGRPC(cfg GRPCConfig) error {
 	if cfg.Addr == "" && cfg.Socket.Path == "" {
 		return ErrEmptyGRPCAddr
+	}
+	if cfg.TLS.Enabled() && (cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" ||
+		cfg.TLS.ClientCAFile == "" || cfg.Addr == "") {
+		return ErrInvalidGRPCTLS
 	}
 	if cfg.Socket.Path == "" {
 		return nil

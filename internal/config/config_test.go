@@ -2171,3 +2171,44 @@ func TestValidateGRPCSocket(t *testing.T) {
 		t.Fatalf("default grpc.socket = %+v, want disabled with mode 0660", got)
 	}
 }
+
+// gobfd-330.2: mTLS for the TCP listener needs the server certificate, its
+// key and the client CA together, and a TCP address.
+func TestValidateGRPCTLS(t *testing.T) {
+	t.Parallel()
+
+	full := config.GRPCTLSConfig{
+		CertFile: "/etc/gobfd/tls/server.pem", KeyFile: "/etc/gobfd/tls/server.key", ClientCAFile: "/etc/gobfd/tls/ca.pem",
+	}
+	tests := []struct {
+		name    string
+		edit    func(*config.GRPCConfig)
+		wantErr error
+	}{
+		{"complete", func(g *config.GRPCConfig) { g.TLS = full }, nil},
+		{"no client CA", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.TLS.ClientCAFile = ""
+		}, config.ErrInvalidGRPCTLS},
+		{"no key", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.TLS.KeyFile = ""
+		}, config.ErrInvalidGRPCTLS},
+		{"no TCP address", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.Addr = ""
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+		}, config.ErrInvalidGRPCTLS},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			tt.edit(&cfg.GRPC)
+			if err := config.Validate(cfg); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}

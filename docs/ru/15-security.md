@@ -58,6 +58,10 @@ Production-правила:
   RPC write-sensitive операциями управления сетью;
 - не публикуйте control API в недоверенную management-сеть.
 
+Уже доступны: `grpc.tls` (mTLS с сертификатами клиентов для TCP-listener) и
+`grpc.socket` (Unix-сокет с принципалами по UID peer). Если API должен
+пересекать границу хоста, используйте mTLS вместо локального proxy.
+
 Плановая граница v1 (`gobfd-330`,
 [решение о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)):
 по умолчанию Unix-сокет `/run/gobfd/gobfd.sock` (0660, группа `gobfd-admin`)

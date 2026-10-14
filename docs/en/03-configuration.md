@@ -128,9 +128,18 @@ sessions:
 | `socket.path` | string | `""` | Absolute path of the management Unix socket; empty disables it |
 | `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |
 | `socket.group` | string | `""` | Group that owns the socket file; empty keeps the daemon's group |
+| `tls.cert_file` | string | `""` | Server certificate (PEM) of the TCP listener; with `key_file` and `client_ca_file` it enables mTLS |
+| `tls.key_file` | string | `""` | Server private key (PEM) |
+| `tls.client_ca_file` | string | `""` | CA (PEM) that client certificates must chain to |
 
 Requests over the Unix socket carry the kernel-reported peer UID
 (`SO_PEERCRED`) as principal; RPC logs record it as `principal=uid:<n>`.
+With `grpc.tls` the TCP listener requires a client certificate from
+`client_ca_file` and offers HTTP/2 and HTTP/1.1 through ALPN; the principal
+is the certificate's first URI SAN (for example a SPIFFE ID) or else
+`dns:<first DNS SAN>`. The three files are re-read on every handshake, so
+rotation needs no restart; a missing file fails startup. `grpc.tls` requires
+`grpc.addr` and suppresses the startup warning for a non-loopback address.
 Access control is the socket mode and group, so use a dedicated admin group
 rather than the daemon group, which can read `/etc/gobfd`. `grpc.socket` is
 restart-only. The socket becomes the default in `gobfd-330.3`

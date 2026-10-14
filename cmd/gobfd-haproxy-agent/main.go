@@ -186,7 +186,11 @@ func newBFDClient(addr string) (bfdv1connect.BfdServiceClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gobfd endpoint: %w", err)
 	}
-	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(ep.HTTPClient(), ep.BaseURL))), nil
+	httpClient, err := ep.HTTPClientTLS(apiclient.TLSFilesFromEnv())
+	if err != nil {
+		return nil, fmt.Errorf("gobfd endpoint TLS: %w", err)
+	}
+	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL))), nil
 }
 
 // agentCheckListenAddr returns the agent-check listen address for host and
