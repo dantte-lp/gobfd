@@ -166,11 +166,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `golang:1.27.2-trixie` consumer uses one index digest. GO-2026-4736 is
   handled by the GoBGP v4 migration and its module-level allowlist entry.
 - Updated runtime modules within the seven-day release-age rule:
-  `google.golang.org/grpc` v1.84.0, `github.com/knadh/koanf/v2` v2.3.7,
+  `google.golang.org/grpc` v1.84.0, `github.com/knadh/koanf/v2` v2.3.8,
   `github.com/prometheus/client_model` v0.6.3, `github.com/moby/moby/api`
   v1.56.1, `github.com/moby/moby/client` v0.6.1 and the protovalidate
-  generated module 20260825. koanf v2.3.8, client_golang v1.25.0, moby client
-  v0.6.2 and dbus v5.2.4 follow from their eligibility dates.
+  generated module 20260825. client_golang v1.25.0, moby client v0.6.2 and dbus
+  v5.2.4 follow from their eligibility dates.
 - Updated developer and release tools within the release-age rule:
   golangci-lint v2.14.0 (92 linters, no new findings), gosec v2.29.0,
   govulncheck v1.8.0, osv-scanner v2.6.0, buf v1.73.0, the checksum-pinned

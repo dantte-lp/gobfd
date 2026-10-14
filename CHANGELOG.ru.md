@@ -168,11 +168,11 @@
   `golang:1.27.2-trixie` используют один index digest. GO-2026-4736 обрабатывается миграцией на
   GoBGP v4 и записью allowlist на уровне модуля.
 - Runtime-модули обновлены с учётом правила возраста релиза семь дней:
-  `google.golang.org/grpc` v1.84.0, `github.com/knadh/koanf/v2` v2.3.7,
+  `google.golang.org/grpc` v1.84.0, `github.com/knadh/koanf/v2` v2.3.8,
   `github.com/prometheus/client_model` v0.6.3, `github.com/moby/moby/api`
   v1.56.1, `github.com/moby/moby/client` v0.6.1 и сгенерированный модуль
-  protovalidate 20260825. koanf v2.3.8, client_golang v1.25.0, moby client
-  v0.6.2 и dbus v5.2.4 последуют с дат допуска.
+  protovalidate 20260825. client_golang v1.25.0, moby client v0.6.2 и dbus
+  v5.2.4 последуют с дат допуска.
 - Инструменты разработки и релиза обновлены с учётом правила возраста
   релиза: golangci-lint v2.14.0 (92 линтера, новых замечаний нет), gosec
   v2.29.0, govulncheck v1.8.0, osv-scanner v2.6.0, buf v1.73.0, закреплённый

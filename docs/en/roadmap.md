@@ -50,7 +50,7 @@ Status of the first stack-currency queue (end of 2026-10-13, `dev` at
 
 | Step | Item | Status |
 |---|---|---|
-| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8, client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-14 to 2026-10-20 |
+| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8 done; client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-15 to 2026-10-20 |
 | 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 wait for 2026-10-16 to 2026-10-19 |
 | 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
 | 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
@@ -92,7 +92,7 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 | connect-go | Go module | v1.20.0 | v2.0.0 (v1.21.0 on v1) | 2026-10-14 | `.8.6.8` |
 | grpchealth | Go module | v1.5.0 | v2.0.0 | 2026-10-14 | `.8.6.8` |
 | grpc-go | Go module | v1.84.0 | v1.84.0 | current | done |
-| koanf/v2 | Go module | v2.3.7 | v2.3.8 | 2026-10-14 | `.8.6.2` |
+| koanf/v2 | Go module | v2.3.8 | v2.3.8 | current | done |
 | client_golang | Go module | v1.24.1 | v1.25.0 | 2026-10-15 | `.8.6.2` |
 | client_model | Go module | v0.6.3 | v0.6.3 | current | done |
 | godbus/dbus/v5 | Go module | v5.2.2 | v5.2.4 | 2026-10-20 | `.8.6.2` |
