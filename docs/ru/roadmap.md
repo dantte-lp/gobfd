@@ -210,7 +210,7 @@ vendor-образов).
 
 | Issue | Beads | Состояние в `dev` | Остаётся |
 |---|---|---|---|
-| [#86](https://github.com/dantte-lp/gobfd/issues/86) управление пирами GoBGP v4 | `gobfd-qj0.8.2.4.6` (P1), родитель `.8.2.4` | клиент v4.10.0, preflight совместимости и нативного BFD, политика «только v4» и документация, повторы действий, failover e2e на GoBGP v4.10.0 | метрики ошибок RPC GoBGP и сигнал готовности GoBGP; ни один релиз ещё не содержит поддержку v4 |
+| [#86](https://github.com/dantte-lp/gobfd/issues/86) управление пирами GoBGP v4 | `gobfd-qj0.8.2.4.6` (P1), родитель `.8.2.4` | Выполнено, issue закрыт. Клиент v4.10.0, preflight, политика «только v4» и документация, повторы действий, failover e2e на GoBGP v4.10.0, метрики GoBGP и health check `gobfd.gobgp` (`2a4afb1`) | ни один релиз ещё не содержит поддержку v4 |
 | [#87](https://github.com/dantte-lp/gobfd/issues/87) безопасные адреса по умолчанию | `gobfd-qj0.8.2.3.4` (P0), вместе с `gobfd-330` и `.8.2.3.2` | API `:50051` и метрики `:9100` на всех адресах; `gobgp.addr` по умолчанию `127.0.0.1:50051` на том же порту; пакеты ставят `configs/gobfd.example.yml` как `/etc/gobfd/gobfd.yml` с теми же wildcard-адресами; агент HAProxy слушает все адреса | Срез A выполнен (`ff2d70f`): метрики на loopback по умолчанию, `listen_addr` агента (по умолчанию loopback), предупреждение при запуске о non-loopback listener без аутентификации. Транспорт и порт API по умолчанию следуют одобренному дизайну (Unix-сокет, UID peer) в `gobfd-330` |
 | [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP и здоровье HAProxy | `gobfd-5w0` (P2), заблокирован `.8.2.3` и `.8.2.5.2` | не начато | сначала spec дизайна |
 
