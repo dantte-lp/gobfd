@@ -210,6 +210,20 @@ func watchGoBGPCompatibility(
 	}
 }
 
+// goBGPManagedPeer reports whether the manager still has a BFD session to a
+// peer. Session removal publishes no state change, so the GoBGP handler asks
+// before applying a late Down.
+func goBGPManagedPeer(mgr *bfd.Manager) func(peerAddr string) bool {
+	return func(peerAddr string) bool {
+		for _, snap := range mgr.Sessions() {
+			if snap.PeerAddr.String() == peerAddr {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 func newGoBGPHandler(
 	client gobgp.Client,
 	cfg config.GoBGPConfig,
@@ -227,15 +241,8 @@ func newGoBGPHandler(
 			MaxSuppressTime:   cfg.Dampening.MaxSuppressTime,
 			HalfLife:          cfg.Dampening.HalfLife,
 		},
-		Managed: func(peerAddr string) bool {
-			for _, snap := range mgr.Sessions() {
-				if snap.PeerAddr.String() == peerAddr {
-					return true
-				}
-			}
-			return false
-		},
-		Logger: logger,
+		Managed: goBGPManagedPeer(mgr),
+		Logger:  logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create gobgp handler: %w", err)
