@@ -134,8 +134,8 @@ before the update:
    step 8 decisions.
    Security P0 `gobfd-330` management API transport, decided in
    [the transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
-   (`5879b15`): `.1` Unix socket with peer-UID principals (in progress),
-   `.2` mTLS TCP, then `.3` breaking defaults with migration and `.4`
+   (`5879b15`): `.1` Unix socket with peer-UID principals done (`02ffd16`),
+   `.2` mTLS TCP in progress, then `.3` breaking defaults with migration and `.4`
    principal-scoped claims. `.1` and `.2` change no default.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
