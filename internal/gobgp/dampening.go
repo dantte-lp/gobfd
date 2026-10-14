@@ -180,7 +180,9 @@ func (d *Dampener) ShouldSuppress(peerAddr string) bool {
 
 // ShouldSuppressUp returns true if an Up event for the given peer should
 // be suppressed. Up events are suppressed while the peer is in suppressed
-// state to prevent partial recovery signals.
+// state to prevent partial recovery signals. It records no penalty and
+// applies suppression expiry, so the handler also uses it to release a
+// held action of either direction.
 //
 // If dampening is disabled, always returns false.
 func (d *Dampener) ShouldSuppressUp(peerAddr string) bool {

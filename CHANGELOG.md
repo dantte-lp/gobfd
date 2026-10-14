@@ -121,6 +121,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passwords 1 to 16 bytes; reserved and unknown auth types are rejected
   (RFC 5880 Sections 4.2-4.4). A rejected packet leaves the buffer
   unchanged; marshal stays at 0 allocations.
+- The GoBGP handler keeps the newest unapplied DisablePeer or EnablePeer
+  action for each peer. Transient GoBGP failures are retried with backoff
+  from 1 s to 30 s without a new BFD event; InvalidArgument, Unimplemented,
+  PermissionDenied, Unauthenticated and a closed client are not retried. A
+  Down held by flap dampening is applied once suppression lifts (RFC 5882
+  Section 3.1). Handler comments no longer attribute the BGP reaction to
+  RFC 5882 Section 4.3.
 - Unauthenticated cached Control packet construction no longer allocates a
   packet object per transmission through the unused authentication branch.
 - A peer Final cannot complete a local Poll before a Poll packet is
