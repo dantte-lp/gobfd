@@ -58,7 +58,10 @@ func runRFCInteropTestcontainers(t *testing.T) {
 		startRFCTestTopology(ctx, t, endpoint, root, projectName, resources)
 		// Export the capture also when an assertion fails (gobfd-b52).
 		defer func() {
-			if err := captureRFCTestPCAP(ctx, t, resources.tshark); err != nil {
+			// Own deadline: a failure can be the expiry of ctx itself.
+			pcapCtx, cancelPCAP := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancelPCAP()
+			if err := captureRFCTestPCAP(pcapCtx, t, resources.tshark); err != nil {
 				t.Errorf("RFC packet capture artifact: %v", err)
 			}
 		}()

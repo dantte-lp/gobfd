@@ -2045,27 +2045,36 @@ func TestValidateUnsolicitedPolicy(t *testing.T) {
 	}
 }
 
-// The documented session defaults (1s, 1s, 3) apply when the file omits
-// unsolicited.session_defaults.
+// The documented session defaults (1s, 1s, 3) apply to every field the file
+// omits from unsolicited.session_defaults.
 func TestLoadUnsolicitedSessionDefaults(t *testing.T) {
 	t.Parallel()
 
-	path := writeTemp(t, `
+	const base = `
 unsolicited:
   enabled: true
   max_sessions: 4
   interfaces:
     eth0:
       enabled: true
-`)
-	cfg, err := config.Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	want := config.UnsolicitedSessionDefaultsConfig{
-		DesiredMinTx: time.Second, RequiredMinRx: time.Second, DetectMult: 3,
-	}
-	if got := cfg.Unsolicited.SessionDefaults; got != want {
-		t.Fatalf("session defaults = %+v, want %+v", got, want)
+`
+	for _, tc := range []struct {
+		name, yaml string
+		want       config.UnsolicitedSessionDefaultsConfig
+	}{
+		{"omitted", base, config.UnsolicitedSessionDefaultsConfig{
+			DesiredMinTx: time.Second, RequiredMinRx: time.Second, DetectMult: 3,
+		}},
+		{"partial", base + "  session_defaults:\n    desired_min_tx: 300ms\n", config.UnsolicitedSessionDefaultsConfig{
+			DesiredMinTx: 300 * time.Millisecond, RequiredMinRx: time.Second, DetectMult: 3,
+		}},
+	} {
+		cfg, err := config.Load(writeTemp(t, tc.yaml))
+		if err != nil {
+			t.Fatalf("%s: Load: %v", tc.name, err)
+		}
+		if got := cfg.Unsolicited.SessionDefaults; got != tc.want {
+			t.Fatalf("%s: session defaults = %+v, want %+v", tc.name, got, tc.want)
+		}
 	}
 }
