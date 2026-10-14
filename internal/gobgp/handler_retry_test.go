@@ -3,7 +3,9 @@ package gobgp_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -190,5 +192,75 @@ func TestHandlerStopsDuringRetryBackoff(t *testing.T) {
 		if waited := time.Since(start); waited != 0 {
 			t.Fatalf("handler stopped after %v, want immediately", waited)
 		}
+	})
+}
+
+// RFC 5882 Section 4.2: no control protocol action on AdminDown. An
+// operator taking the session AdminDown cancels a Down that is still
+// pending, so a late retry cannot disable a peer GoBFD stopped watching.
+func TestHandlerAdminDownClearsPendingDown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		mock.setError(status.Error(codes.Unavailable, "connection refused"))
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		events <- peerTransition(bfd.StateDown, bfd.StateAdminDown)
+		synctest.Wait()
+
+		mock.setError(nil)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		assertMethods(t, mock)
+	})
+}
+
+// A pending Up survives AdminDown: dropping it would leave a peer that
+// GoBFD disabled stuck disabled.
+func TestHandlerAdminDownKeepsPendingUp(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		mock.setError(status.Error(codes.Unavailable, "connection refused"))
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		events <- peerTransition(bfd.StateUp, bfd.StateAdminDown)
+		synctest.Wait()
+
+		mock.setError(nil)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		assertMethods(t, mock, methodEnablePeer)
+	})
+}
+
+// Session deletion publishes no BFD event, so before a late Down the
+// handler asks whether the peer still has a BFD session; a deleted
+// session's pending Down is dropped.
+func TestHandlerDropsPendingDownForUnmanagedPeer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		mock.setError(status.Error(codes.Unavailable, "connection refused"))
+		var managed atomic.Bool
+		managed.Store(true)
+		h, err := gobgp.NewHandler(gobgp.HandlerConfig{
+			Client:   mock,
+			Strategy: gobgp.StrategyDisablePeer,
+			Managed:  func(string) bool { return managed.Load() },
+			Logger:   slog.Default(),
+		})
+		if err != nil {
+			t.Fatalf("NewHandler: %v", err)
+		}
+		events := runHandler(t, h)
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+
+		managed.Store(false)
+		mock.setError(nil)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		assertMethods(t, mock)
 	})
 }

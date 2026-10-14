@@ -138,8 +138,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from 1 s to 30 s without a new BFD event; InvalidArgument, Unimplemented,
   PermissionDenied, Unauthenticated and a closed client are not retried. A
   Down held by flap dampening is applied once suppression lifts (RFC 5882
-  Section 3.1). Handler comments no longer attribute the BGP reaction to
-  RFC 5882 Section 4.3.
+  Section 3.1). A pending Down is dropped when the session goes AdminDown
+  (RFC 5882 Section 4.2) or no longer exists; a pending Up is kept. Handler
+  comments no longer attribute the BGP reaction to RFC 5882 Section 4.3.
 - Unauthenticated cached Control packet construction no longer allocates a
   packet object per transmission through the unused authentication branch.
 - A peer Final cannot complete a local Poll before a Poll packet is

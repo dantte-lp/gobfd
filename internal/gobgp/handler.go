@@ -84,6 +84,7 @@ type Handler struct {
 	strategy Strategy
 	dampener *Dampener
 	timeout  time.Duration
+	managed  func(peerAddr string) bool
 	logger   *slog.Logger
 
 	// pending is owned by the Run goroutine.
@@ -114,6 +115,12 @@ type HandlerConfig struct {
 	// uses DefaultActionTimeout.
 	ActionTimeout time.Duration
 
+	// Managed reports whether GoBFD still has a BFD session to the peer.
+	// Session deletion publishes no state change, so the handler drops a
+	// pending Down for an unmanaged peer instead of applying it late. Nil
+	// treats every peer as managed.
+	Managed func(peerAddr string) bool
+
 	// Logger is the parent logger. The handler adds its own component tag.
 	Logger *slog.Logger
 }
@@ -139,6 +146,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		strategy: strategy,
 		dampener: NewDampener(cfg.Dampening, cfg.Logger),
 		timeout:  timeout,
+		managed:  cfg.Managed,
 		pending:  make(map[string]*pendingAction),
 		logger: cfg.Logger.With(
 			slog.String("component", "gobgp.handler"),
@@ -218,6 +226,13 @@ func (h *Handler) retryDue(ctx context.Context) {
 	if due == nil || time.Now().Before(due.due) {
 		return
 	}
+	if due.down && h.managed != nil && !h.managed(peerAddr) {
+		delete(h.pending, peerAddr)
+		h.logger.Info("pending BGP Down dropped, peer has no BFD session",
+			slog.String("peer", peerAddr),
+		)
+		return
+	}
 
 	// ShouldSuppressUp records no penalty and applies suppression expiry,
 	// so it releases a held action of either direction.
@@ -245,6 +260,17 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 
 	case isTransitionToUp(sc):
 		h.handleUp(ctx, peerAddr, &pendingAction{sc: sc})
+
+	case sc.NewState == bfd.StateAdminDown:
+		// RFC 5882 Section 4.2: no control protocol action on AdminDown,
+		// so a Down still pending for this peer is dropped. A pending Up
+		// stays: it re-enables a peer GoBFD itself disabled.
+		if p, ok := h.pending[peerAddr]; ok && p.down {
+			delete(h.pending, peerAddr)
+			h.logger.Info("pending BGP Down dropped on BFD AdminDown",
+				slog.String("peer", peerAddr),
+			)
+		}
 
 	default:
 		// Other transitions (e.g., Down->Init) are informational only.

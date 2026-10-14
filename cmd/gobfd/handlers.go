@@ -63,7 +63,7 @@ func startGoBGPHandler(
 		return nil, goBGPStartupError(cfg.Addr, probeErr)
 	}
 
-	handler, err := newGoBGPHandler(client, cfg, logger)
+	handler, err := newGoBGPHandler(client, cfg, mgr, logger)
 	if err != nil {
 		closeGoBGPClient(client, logger)
 		return nil, err
@@ -213,6 +213,7 @@ func watchGoBGPCompatibility(
 func newGoBGPHandler(
 	client gobgp.Client,
 	cfg config.GoBGPConfig,
+	mgr *bfd.Manager,
 	logger *slog.Logger,
 ) (*gobgp.Handler, error) {
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
@@ -225,6 +226,14 @@ func newGoBGPHandler(
 			ReuseThreshold:    cfg.Dampening.ReuseThreshold,
 			MaxSuppressTime:   cfg.Dampening.MaxSuppressTime,
 			HalfLife:          cfg.Dampening.HalfLife,
+		},
+		Managed: func(peerAddr string) bool {
+			for _, snap := range mgr.Sessions() {
+				if snap.PeerAddr.String() == peerAddr {
+					return true
+				}
+			}
+			return false
 		},
 		Logger: logger,
 	})
