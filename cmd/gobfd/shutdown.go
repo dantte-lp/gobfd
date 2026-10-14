@@ -199,5 +199,7 @@ func newGRPCServer(
 		Protocols:           protocols,
 		ReadHeaderTimeout:   10 * time.Second,
 		MaxHeaderValueCount: maxHTTPHeaderValueCount,
+		// Requests over the management socket carry the peer UID principal.
+		ConnContext: server.ConnContext,
 	}
 }

@@ -24,6 +24,12 @@ grpc:
   # gRPC (ConnectRPC) listen address. The API has no authentication, so it
   # listens on loopback; 50051 is the gobgpd default port.
   addr: "127.0.0.1:50052"
+  # Optional management Unix socket; requests over it carry the peer UID as
+  # principal. Use a dedicated admin group, not the daemon group.
+  # socket:
+  #   path: "/run/gobfd/gobfd.sock"
+  #   mode: "0660"
+  #   group: "gobfd-admin"
 
 metrics:
   # Prometheus metrics endpoint. It has no authentication, so it listens on

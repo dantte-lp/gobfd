@@ -33,7 +33,7 @@ gobfdctl [global flags] <command> [subcommand] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--addr` | `127.0.0.1:50052` | gobfd daemon address (host:port) |
+| `--addr` | `127.0.0.1:50052` | gobfd daemon endpoint: `host:port`, `http://host:port`, `https://host:port` or `unix:///path` (management socket) |
 | `--format` | `table` | Output format: `table`, `json`, `yaml` |
 
 ### Session Commands

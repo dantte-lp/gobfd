@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional management Unix socket (`grpc.socket.path`, `mode`, `group`;
+  `gobfd-330.1`). Requests over it carry the kernel-reported peer UID as
+  principal, logged as `principal=uid:<n>`. `gobfdctl --addr`,
+  `gobfd-haproxy-agent` and `gobfd-exabgp-bridge` accept `unix:///path`
+  endpoints as well as `http://` and `https://`. `grpc.addr` may be empty
+  when the socket is set. No default changes.
 - GoBGP integration failures are visible (GitHub #86): metrics
   `gobfd_gobgp_rpc_errors_total{rpc}` and `gobfd_gobgp_endpoint_compatible`,
   and the named health check `gobfd.gobgp`, which is `NOT_SERVING` until the

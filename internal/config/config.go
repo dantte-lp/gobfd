@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,8 +58,27 @@ type SocketConfig struct {
 
 // GRPCConfig holds the ConnectRPC server configuration.
 type GRPCConfig struct {
-	// Addr is the gRPC listen address (default "127.0.0.1:50052").
+	// Addr is the gRPC listen address (default "127.0.0.1:50052"). Empty
+	// disables the TCP listener when Socket.Path is set.
 	Addr string `koanf:"addr"`
+
+	// Socket configures the optional Unix socket listener. Requests over it
+	// carry the kernel-reported peer UID as principal (gobfd-330).
+	Socket GRPCSocketConfig `koanf:"socket"`
+}
+
+// GRPCSocketConfig holds the management Unix socket settings.
+type GRPCSocketConfig struct {
+	// Path is the absolute socket path; empty disables the listener.
+	Path string `koanf:"path"`
+
+	// Mode is the octal permission mode of the socket file (default "0660").
+	// Access control is this mode plus Group.
+	Mode string `koanf:"mode"`
+
+	// Group names the group that owns the socket file; empty keeps the
+	// daemon's group.
+	Group string `koanf:"group"`
 }
 
 // MetricsConfig holds the Prometheus metrics endpoint configuration.
@@ -766,11 +786,8 @@ func (sc SessionConfig) LocalAddr() (netip.Addr, error) {
 // conservative starting point for production deployments.
 func DefaultConfig() *Config {
 	return &Config{
-		GRPC: GRPCConfig{
-			// The API has no authentication, so it listens on loopback; 50051
-			// is the gobgpd default and the default gobgp.addr port.
-			Addr: "127.0.0.1:50052",
-		},
+		// Loopback: the API is unauthenticated; 50051 is the gobgpd port.
+		GRPC: GRPCConfig{Addr: "127.0.0.1:50052", Socket: GRPCSocketConfig{Mode: "0660"}},
 		Metrics: MetricsConfig{
 			// Metrics are unauthenticated; bind beyond loopback explicitly.
 			Addr: "127.0.0.1:9100",
@@ -1022,6 +1039,7 @@ func envKeyMapper(s string) string {
 func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 	defaultMap := map[string]any{
 		"grpc.addr":                          defaults.GRPC.Addr,
+		"grpc.socket.mode":                   defaults.GRPC.Socket.Mode,
 		"metrics.addr":                       defaults.Metrics.Addr,
 		"metrics.path":                       defaults.Metrics.Path,
 		"log.level":                          defaults.Log.Level,
@@ -1074,7 +1092,10 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 // Validation errors.
 var (
 	// ErrEmptyGRPCAddr indicates the gRPC listen address is empty.
-	ErrEmptyGRPCAddr = errors.New("grpc.addr must not be empty")
+	ErrEmptyGRPCAddr = errors.New("grpc.addr or grpc.socket.path must be set")
+
+	// ErrInvalidGRPCSocket indicates an invalid management socket setting.
+	ErrInvalidGRPCSocket = errors.New("grpc.socket is invalid")
 
 	// ErrInvalidDetectMultiplier indicates the detect multiplier is zero.
 	ErrInvalidDetectMultiplier = errors.New("bfd.default_detect_multiplier must be >= 1")
@@ -1215,8 +1236,8 @@ var (
 // Validate checks the configuration for logical errors.
 // Returns the first validation error encountered.
 func Validate(cfg *Config) error {
-	if cfg.GRPC.Addr == "" {
-		return ErrEmptyGRPCAddr
+	if err := validateGRPC(cfg.GRPC); err != nil {
+		return err
 	}
 
 	if cfg.BFD.DefaultDetectMultiplier < 1 {
@@ -1515,6 +1536,33 @@ func validateUnsolicitedInterfaces(interfaces map[string]UnsolicitedInterfaceCon
 		return fmt.Errorf("no enabled interface: %w", ErrInvalidUnsolicitedInterfaces)
 	}
 	return nil
+}
+
+// validateGRPC requires at least one management listener and a usable
+// socket path and mode.
+func validateGRPC(cfg GRPCConfig) error {
+	if cfg.Addr == "" && cfg.Socket.Path == "" {
+		return ErrEmptyGRPCAddr
+	}
+	if cfg.Socket.Path == "" {
+		return nil
+	}
+	if !filepath.IsAbs(cfg.Socket.Path) {
+		return fmt.Errorf("path %q is not absolute: %w", cfg.Socket.Path, ErrInvalidGRPCSocket)
+	}
+	if _, err := ParseSocketMode(cfg.Socket.Mode); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ParseSocketMode parses an octal permission mode such as "0660".
+func ParseSocketMode(mode string) (os.FileMode, error) {
+	perm, err := strconv.ParseUint(mode, 8, 32)
+	if err != nil || perm > 0o777 {
+		return 0, fmt.Errorf("mode %q is not an octal permission 0000-0777: %w", mode, ErrInvalidGRPCSocket)
+	}
+	return os.FileMode(perm), nil
 }
 
 // validateEchoPeers checks each declarative echo peer entry for correctness.

@@ -31,6 +31,9 @@ func LoggingInterceptor(logger *slog.Logger) connect.ServerInterceptor {
 				slog.String("procedure", spec.Procedure),
 				slog.Duration("duration", time.Since(start)),
 			}
+			if principal, ok := PrincipalFromContext(ctx); ok {
+				attrs = append(attrs, slog.String("principal", principal))
+			}
 			switch {
 			case errors.Is(err, context.Canceled) || connect.CodeOf(err) == connect.CodeCanceled:
 				attrs = append(attrs, slog.String("error", err.Error()))

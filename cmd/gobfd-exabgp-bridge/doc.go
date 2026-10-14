@@ -18,7 +18,9 @@ Usage:
 The environment variables are:
 
 	GOBFD_ADDR
-		GoBFD ConnectRPC endpoint. The default is http://127.0.0.1:50052.
+		GoBFD ConnectRPC endpoint: http://host:port, https://host:port,
+		unix:///path or a bare host:port. The default is
+		http://127.0.0.1:50052.
 	GOBFD_PEER
 		BFD peer address to watch. This variable is required.
 	ANYCAST_PREFIX

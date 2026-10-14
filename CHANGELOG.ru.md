@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Опциональный Unix-сокет управления (`grpc.socket.path`, `mode`, `group`;
+  `gobfd-330.1`). Запросы через него несут UID peer от ядра как принципал,
+  в логах `principal=uid:<n>`. `gobfdctl --addr`, `gobfd-haproxy-agent` и
+  `gobfd-exabgp-bridge` принимают endpoint `unix:///path`, а также `http://`
+  и `https://`. `grpc.addr` может быть пустым, если задан сокет. Значения по
+  умолчанию не меняются.
 - Сбои интеграции с GoBGP видны (GitHub #86): метрики
   `gobfd_gobgp_rpc_errors_total{rpc}` и `gobfd_gobgp_endpoint_compatible`, а
   также named health check `gobfd.gobgp`, который находится в `NOT_SERVING`

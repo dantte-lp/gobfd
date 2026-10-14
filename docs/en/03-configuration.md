@@ -124,7 +124,17 @@ sessions:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `addr` | string | `"127.0.0.1:50052"` | gRPC (ConnectRPC) listen address; unauthenticated, so loopback by default, and not 50051, the gobgpd default |
+| `addr` | string | `"127.0.0.1:50052"` | gRPC (ConnectRPC) listen address; unauthenticated, so loopback by default, and not 50051, the gobgpd default. Empty disables TCP when `socket.path` is set |
+| `socket.path` | string | `""` | Absolute path of the management Unix socket; empty disables it |
+| `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |
+| `socket.group` | string | `""` | Group that owns the socket file; empty keeps the daemon's group |
+
+Requests over the Unix socket carry the kernel-reported peer UID
+(`SO_PEERCRED`) as principal; RPC logs record it as `principal=uid:<n>`.
+Access control is the socket mode and group, so use a dedicated admin group
+rather than the daemon group, which can read `/etc/gobfd`. `grpc.socket` is
+restart-only. The socket becomes the default in `gobfd-330.3`
+([transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)).
 
 #### `metrics` -- Prometheus Endpoint
 

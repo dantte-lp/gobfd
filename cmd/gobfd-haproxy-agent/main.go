@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,6 +21,7 @@ import (
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/dantte-lp/gobfd/internal/apiclient"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
@@ -55,10 +55,8 @@ func run() int {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	var (
-		backends   []backendConfig
-		listenAddr string
-	)
+	var backends []backendConfig
+	var listenAddr string
 	if configPath != "" {
 		cfg, err := loadConfig(configPath)
 		if err != nil {
@@ -83,7 +81,11 @@ func run() int {
 	// BFD state tracker: maps peer address to current session state.
 	states := &stateMap{m: make(map[string]bfdv1.SessionState)}
 
-	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, gobfdAddr)))
+	client, err := newBFDClient(gobfdAddr)
+	if err != nil {
+		logger.Error("invalid GoBFD endpoint", slog.String("error", err.Error()))
+		return 1
+	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -175,6 +177,16 @@ func watchEvents(
 		return fmt.Errorf("event stream error: %w", err)
 	}
 	return nil
+}
+
+// newBFDClient builds the GoBFD client for a unix://, http://, https:// or
+// host:port endpoint.
+func newBFDClient(addr string) (bfdv1connect.BfdServiceClient, error) {
+	ep, err := apiclient.ParseEndpoint(addr)
+	if err != nil {
+		return nil, fmt.Errorf("gobfd endpoint: %w", err)
+	}
+	return bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(ep.HTTPClient(), ep.BaseURL))), nil
 }
 
 // agentCheckListenAddr returns the agent-check listen address for host and

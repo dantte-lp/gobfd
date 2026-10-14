@@ -24,7 +24,7 @@ func exposedBeyondLoopback(addr string) bool {
 // unauthenticated requests beyond loopback (GitHub #87).
 func warnUnauthenticatedBinds(logger *slog.Logger, listeners map[string]string) {
 	for name, addr := range listeners {
-		if exposedBeyondLoopback(addr) {
+		if addr != "" && exposedBeyondLoopback(addr) {
 			logger.Warn("unauthenticated listener is reachable beyond loopback",
 				slog.String("listener", name),
 				slog.String("addr", addr),

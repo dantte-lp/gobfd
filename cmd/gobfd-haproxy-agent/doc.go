@@ -18,7 +18,8 @@ The flags are:
 	-config
 		Path to the YAML backend configuration file.
 	-gobfd-addr
-		GoBFD ConnectRPC endpoint. The default is GOBFD_ADDR or
+		GoBFD ConnectRPC endpoint: http://host:port, https://host:port,
+		unix:///path or a bare host:port. The default is GOBFD_ADDR or
 		http://127.0.0.1:50052.
 	-version
 		Print build information and exit.

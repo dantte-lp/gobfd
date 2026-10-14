@@ -8,7 +8,7 @@ operator workflows.
 
 Usage:
 
-	gobfdctl [--addr host:port] [--format table|json|yaml] <command>
+	gobfdctl [--addr host:port|unix:///path] [--format table|json|yaml] <command>
 
 The primary commands are:
 

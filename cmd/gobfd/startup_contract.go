@@ -52,6 +52,7 @@ const (
 	startupFieldMicroListenerBindings
 	startupFieldVXLANListenerBinding
 	startupFieldGeneveListenerBinding
+	startupFieldGRPCSocket
 )
 
 func (f startupFieldID) String() string {
@@ -92,6 +93,7 @@ func (f startupFieldID) String() string {
 		"micro_bfd.groups[].listener_binding",
 		"vxlan.listener_binding",
 		"geneve.listener_binding",
+		"grpc.socket",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -219,6 +221,7 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	}
 
 	appendChanged(startupFieldGRPCAddr, c.grpc.Addr != cfg.GRPC.Addr)
+	appendChanged(startupFieldGRPCSocket, c.grpc.Socket != cfg.GRPC.Socket)
 	appendChanged(startupFieldMetricsAddr, c.metrics.Addr != cfg.Metrics.Addr)
 	appendChanged(startupFieldMetricsPath, c.metrics.Path != cfg.Metrics.Path)
 	appendChanged(startupFieldLogFormat, c.logFormat != cfg.Log.Format)

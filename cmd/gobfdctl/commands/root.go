@@ -2,13 +2,13 @@ package commands
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/spf13/cobra"
 
+	"github.com/dantte-lp/gobfd/internal/apiclient"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
 
@@ -25,7 +25,8 @@ var (
 	// outputFormat controls the output format for all commands (table or json).
 	outputFormat string
 
-	// serverAddr is the daemon address (host:port) for the ConnectRPC connection.
+	// serverAddr is the daemon endpoint: host:port, http://, https:// or
+	// unix:///path.
 	serverAddr string
 )
 
@@ -35,8 +36,11 @@ var rootCmd = &cobra.Command{
 	Short: "CLI client for the GoBFD daemon",
 	Long:  "gobfdctl communicates with the gobfd daemon via ConnectRPC to manage BFD sessions.",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-		baseURL := "http://" + serverAddr
-		rpc := connect.NewClient(connecthttp.NewTransport(http.DefaultClient, baseURL))
+		ep, err := apiclient.ParseEndpoint(serverAddr)
+		if err != nil {
+			return fmt.Errorf("--addr: %w", err)
+		}
+		rpc := connect.NewClient(connecthttp.NewTransport(ep.HTTPClient(), ep.BaseURL))
 		client = bfdv1connect.NewBfdServiceClient(rpc)
 		echoClient = bfdv1connect.NewEchoServiceClient(rpc)
 		microClient = bfdv1connect.NewMicroBFDServiceClient(rpc)
@@ -51,7 +55,7 @@ var rootCmd = &cobra.Command{
 //nolint:gochecknoinits // Cobra command flags and subcommands are registered during package initialization.
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "127.0.0.1:50052",
-		"gobfd daemon address (host:port)")
+		"gobfd daemon endpoint: host:port, http://host:port, https://host:port or unix:///path")
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table",
 		"output format: table, json, yaml")
 

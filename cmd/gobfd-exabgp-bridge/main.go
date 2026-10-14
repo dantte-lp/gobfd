@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +14,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 
+	"github.com/dantte-lp/gobfd/internal/apiclient"
 	appversion "github.com/dantte-lp/gobfd/internal/version"
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
@@ -73,7 +73,11 @@ func watchAndAnnounce(
 	prefix string,
 	logger *slog.Logger,
 ) error {
-	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, gobfdAddr)))
+	ep, err := apiclient.ParseEndpoint(gobfdAddr)
+	if err != nil {
+		return fmt.Errorf("GOBFD_ADDR: %w", err)
+	}
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(ep.HTTPClient(), ep.BaseURL)))
 
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second

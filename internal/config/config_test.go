@@ -2130,3 +2130,44 @@ func TestDefaultAPIPortDiffersFromGoBGP(t *testing.T) {
 		t.Fatalf("grpc.addr port %s collides with GoBGP (gobgp.addr %s, gobgpd default 50051)", apiPort, cfg.GoBGP.Addr)
 	}
 }
+
+// gobfd-330.1: an optional Unix socket listener for the management API.
+func TestValidateGRPCSocket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		edit    func(*config.GRPCConfig)
+		wantErr error
+	}{
+		{"socket disabled by default", func(*config.GRPCConfig) {}, nil},
+		{"socket only", func(g *config.GRPCConfig) {
+			g.Addr = ""
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+		}, nil},
+		{"both disabled", func(g *config.GRPCConfig) { g.Addr = "" }, config.ErrEmptyGRPCAddr},
+		{"relative socket path", func(g *config.GRPCConfig) { g.Socket.Path = "gobfd.sock" }, config.ErrInvalidGRPCSocket},
+		{"mode not octal", func(g *config.GRPCConfig) {
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+			g.Socket.Mode = "rw-rw----"
+		}, config.ErrInvalidGRPCSocket},
+		{"mode beyond permission bits", func(g *config.GRPCConfig) {
+			g.Socket.Path = "/run/gobfd/gobfd.sock"
+			g.Socket.Mode = "4770"
+		}, config.ErrInvalidGRPCSocket},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.DefaultConfig()
+			tt.edit(&cfg.GRPC)
+			if err := config.Validate(cfg); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+	if got := config.DefaultConfig().GRPC.Socket; got.Path != "" || got.Mode != "0660" {
+		t.Fatalf("default grpc.socket = %+v, want disabled with mode 0660", got)
+	}
+}

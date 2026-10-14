@@ -246,10 +246,17 @@ func startHTTPServers(
 ) {
 	lc := net.ListenConfig{}
 
-	g.Go(func() error {
-		logger.Info("gRPC server listening", slog.String("addr", cfg.GRPC.Addr))
-		return listenAndServe(ctx, &lc, grpcSrv, cfg.GRPC.Addr)
-	})
+	if cfg.GRPC.Addr != "" {
+		g.Go(func() error {
+			logger.Info("gRPC server listening", slog.String("addr", cfg.GRPC.Addr))
+			return listenAndServe(ctx, &lc, grpcSrv, cfg.GRPC.Addr)
+		})
+	}
+	if cfg.GRPC.Socket.Path != "" {
+		g.Go(func() error {
+			return serveManagementSocket(ctx, grpcSrv, cfg.GRPC.Socket, logger)
+		})
+	}
 
 	g.Go(func() error {
 		logger.Info("metrics server listening",
