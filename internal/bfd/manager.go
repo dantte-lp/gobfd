@@ -291,18 +291,9 @@ type Manager struct {
 	// nil when unsolicited BFD is not configured.
 	unsolicited *unsolicitedState
 
-	// unsolicitedSenderFactory creates explicit non-owning session leases for
-	// the singleton sender after an unsolicited claim is accepted.
-	unsolicitedSenderFactory SenderLeaseFactory
-
 	// unsolicitedSessionSender creates the sender of one unsolicited session
-	// from the received packet's local address and interface. When set it
-	// takes precedence over unsolicitedSenderFactory.
+	// from the received packet's local address and interface.
 	unsolicitedSessionSender func(PacketMeta) (*SenderLease, error)
-
-	// unsolicitedSenderLease owns the singleton sender shared by all RFC 9468
-	// sessions. Per-session leases are explicitly non-owning.
-	unsolicitedSenderLease *SenderLease
 
 	// microActuator receives RFC 7130 member state transitions after the
 	// Manager updates its MicroBFDGroup aggregate state.
@@ -459,27 +450,6 @@ func WithUnsolicitedPolicy(policy *UnsolicitedPolicy) ManagerOption {
 func WithUnsolicitedSessionSender(f func(PacketMeta) (*SenderLease, error)) ManagerOption {
 	return func(m *Manager) {
 		m.unsolicitedSessionSender = f
-	}
-}
-
-// WithUnsolicitedSender sets the PacketSender used for auto-created
-// unsolicited sessions. Required when unsolicited BFD is enabled.
-func WithUnsolicitedSender(sender PacketSender) ManagerOption {
-	return func(m *Manager) {
-		m.unsolicitedSenderLease = NewSenderLease(sender, nil)
-		m.unsolicitedSenderFactory = NonOwningSenderLeaseFactory(sender)
-	}
-}
-
-// WithUnsolicitedSenderLease gives Manager ownership of the singleton sender
-// shared by all accepted RFC 9468 sessions. Individual session entries use
-// non-owning leases so cleanup cannot close the shared socket.
-func WithUnsolicitedSenderLease(lease *SenderLease) ManagerOption {
-	return func(m *Manager) {
-		m.unsolicitedSenderLease = lease
-		if lease != nil && lease.Sender() != nil {
-			m.unsolicitedSenderFactory = NonOwningSenderLeaseFactory(lease.Sender())
-		}
 	}
 }
 
@@ -721,9 +691,9 @@ func (m *Manager) Close() {
 		return
 	}
 
-	retired, retiredEcho, sharedUnsolicitedLease := m.detachCloseResources()
+	retired, retiredEcho := m.detachCloseResources()
 	m.stopAndWait(retired, retiredEcho)
-	m.releaseCloseResources(retired, retiredEcho, sharedUnsolicitedLease)
+	m.releaseCloseResources(retired, retiredEcho)
 	m.completeClose()
 	m.logger.Info("manager closed")
 }
@@ -746,7 +716,6 @@ func (m *Manager) beginClose() bool {
 func (m *Manager) detachCloseResources() (
 	[]retiredSession,
 	[]retiredEchoSession,
-	*SenderLease,
 ) {
 	m.ownershipMu.Lock()
 	m.mu.Lock()
@@ -758,9 +727,6 @@ func (m *Manager) detachCloseResources() (
 	for discr, entry := range m.echoSessions {
 		retiredEcho = append(retiredEcho, retiredEchoSession{localDiscr: discr, entry: entry})
 	}
-	sharedUnsolicitedLease := m.unsolicitedSenderLease
-	m.unsolicitedSenderLease = nil
-
 	// Clear maps to prevent use-after-close.
 	m.sessions = make(map[uint32]*sessionEntry)
 	m.sessionsByPeer = make(map[packetDemuxKey]*sessionEntry)
@@ -769,7 +735,7 @@ func (m *Manager) detachCloseResources() (
 	m.microGroups = make(map[string]*MicroBFDGroup)
 	m.mu.Unlock()
 	m.ownershipMu.Unlock()
-	return retired, retiredEcho, sharedUnsolicitedLease
+	return retired, retiredEcho
 }
 
 func (m *Manager) stopAndWait(retired []retiredSession, retiredEcho []retiredEchoSession) {
@@ -789,18 +755,12 @@ func (m *Manager) stopAndWait(retired []retiredSession, retiredEcho []retiredEch
 func (m *Manager) releaseCloseResources(
 	retired []retiredSession,
 	retiredEcho []retiredEchoSession,
-	sharedUnsolicitedLease *SenderLease,
 ) {
 	slices.SortFunc(retired, func(a, b retiredSession) int {
 		return cmp.Compare(a.localDiscr, b.localDiscr)
 	})
 	for _, item := range retired {
 		m.finishSessionDestroy(item.localDiscr, item.entry)
-	}
-	if err := sharedUnsolicitedLease.Close(); err != nil {
-		m.logger.Warn("failed to close shared unsolicited sender lease",
-			slog.String("error", err.Error()),
-		)
 	}
 	slices.SortFunc(retiredEcho, func(a, b retiredEchoSession) int {
 		return cmp.Compare(a.localDiscr, b.localDiscr)

@@ -228,9 +228,9 @@ Creation rollback, освобождение последнего claim и зак
 configuration, Micro-BFD и compatibility API используют owning UDP leases,
 которые также возвращают выделенный source port. Overlay sessions используют
 явные non-owning leases, потому что их sender разделяет backend connection.
-RFC 9468 sessions аналогично используют non-owning per-session leases поверх
-одного singleton sender, принадлежащего Manager, поэтому cleanup одной
-unsolicited session не закрывает общий socket.
+Каждая RFC 9468 session владеет UDP lease на локальном адресе и интерфейсе,
+на которые пришёл пакет, создавший её; cleanup session закрывает этот lease
+один раз.
 
 Echo sessions используют ту же границу lease принятой session с отдельными API
 и declarative sources. Compatibility-путь `CreateEchoSession` сохраняет явный

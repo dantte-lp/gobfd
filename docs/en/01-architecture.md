@@ -214,10 +214,9 @@ sender. Creation rollback, release of the last claim, and manager shutdown
 release the accepted lease once; releasing a non-last claim preserves it. Base
 configuration, Micro-BFD, and the compatibility API use owning UDP leases that
 also return the allocated source port. Overlay sessions use explicit
-non-owning leases because their sender shares the backend connection. RFC 9468
-sessions likewise use non-owning per-session leases over one manager-owned
-singleton sender, so cleanup of one unsolicited session cannot close the
-shared socket.
+non-owning leases because their sender shares the backend connection. Each
+RFC 9468 session owns a UDP lease on the local address and interface that
+received its triggering packet; cleanup of the session closes that lease once.
 
 Echo sessions use the same accepted-session lease boundary with separate API
 and declarative sources. The compatibility `CreateEchoSession` path keeps an

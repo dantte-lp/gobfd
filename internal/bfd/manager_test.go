@@ -1138,7 +1138,7 @@ func TestManagerDestroyDoesNotReleaseUnsolicitedClaim(t *testing.T) {
 		slog.Default(),
 		bfd.WithUnsolicitedPolicy(policy),
 		bfd.WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		bfd.WithUnsolicitedSender(noopSender{}),
+		bfd.WithUnsolicitedSessionSender(noopSessionSender),
 	)
 	defer mgr.Close()
 
@@ -1196,7 +1196,7 @@ func TestManagerUnsolicitedCleanupRemovesDownSession(t *testing.T) {
 		slog.Default(),
 		bfd.WithUnsolicitedPolicy(policy),
 		bfd.WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		bfd.WithUnsolicitedSender(noopSender{}),
+		bfd.WithUnsolicitedSessionSender(noopSessionSender),
 	)
 	defer mgr.Close()
 
@@ -1946,4 +1946,10 @@ func searchSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// noopSessionSender hands every unsolicited session a non-owning lease on
+// noopSender.
+func noopSessionSender(bfd.PacketMeta) (*bfd.SenderLease, error) {
+	return bfd.NonOwningSenderLeaseFactory(noopSender{})()
 }

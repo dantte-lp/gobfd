@@ -247,7 +247,7 @@ func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testi
 		slog.New(slog.DiscardHandler),
 		WithUnsolicitedPolicy(policy),
 		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		WithUnsolicitedSender(ownershipNoopSender{}),
+		WithUnsolicitedSessionSender(nonOwningSessionSender(ownershipNoopSender{})),
 	)
 	defer mgr.Close()
 

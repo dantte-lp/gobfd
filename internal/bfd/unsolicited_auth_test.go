@@ -48,7 +48,7 @@ func authManager(t *testing.T, withAuth bool) *Manager {
 		slog.New(slog.DiscardHandler),
 		WithUnsolicitedPolicy(policy),
 		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		WithUnsolicitedSender(senderLeaseTestSender{}),
+		WithUnsolicitedSessionSender(nonOwningSessionSender(senderLeaseTestSender{})),
 	)
 	t.Cleanup(mgr.Close)
 	return mgr

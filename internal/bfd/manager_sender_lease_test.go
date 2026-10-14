@@ -254,7 +254,9 @@ func TestManagerCloseReleasesEveryAcceptedSenderLeaseOnce(t *testing.T) {
 	}
 }
 
-func TestUnsolicitedLastClaimCleanupPreservesSharedSenderLease(t *testing.T) {
+// An unsolicited session owns its sender lease: cleanup closes it once and
+// Manager.Close does not close it again.
+func TestUnsolicitedCleanupClosesSessionLeaseOnce(t *testing.T) {
 	policy := &UnsolicitedPolicy{
 		Enabled:     true,
 		MaxSessions: 1,
@@ -268,15 +270,16 @@ func TestUnsolicitedLastClaimCleanupPreservesSharedSenderLease(t *testing.T) {
 		},
 	}
 	var closes int
-	sharedLease := NewSenderLease(senderLeaseTestSender{}, func() error {
-		closes++
-		return nil
-	})
 	mgr := NewManager(
 		slog.New(slog.DiscardHandler),
 		WithUnsolicitedPolicy(policy),
 		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		WithUnsolicitedSenderLease(sharedLease),
+		WithUnsolicitedSessionSender(func(PacketMeta) (*SenderLease, error) {
+			return NewSenderLease(senderLeaseTestSender{}, func() error {
+				closes++
+				return nil
+			}), nil
+		}),
 	)
 
 	meta := PacketMeta{
@@ -298,12 +301,29 @@ func TestUnsolicitedLastClaimCleanupPreservesSharedSenderLease(t *testing.T) {
 	mgr.mu.RUnlock()
 
 	mgr.cleanupUnsolicitedSession(context.Background(), discr)
-	if closes != 0 {
-		t.Fatalf("shared unsolicited sender closes during session cleanup = %d, want 0", closes)
+	if closes != 1 {
+		t.Fatalf("session sender closes after cleanup = %d, want 1", closes)
 	}
 	mgr.Close()
 	if closes != 1 {
-		t.Fatalf("shared unsolicited sender closes after Manager.Close = %d, want 1", closes)
+		t.Fatalf("session sender closes after Manager.Close = %d, want 1", closes)
+	}
+}
+
+// nonOwningSessionSender hands every unsolicited session a non-owning lease
+// on sender.
+func nonOwningSessionSender(sender PacketSender) func(PacketMeta) (*SenderLease, error) {
+	return func(PacketMeta) (*SenderLease, error) { return NewSenderLease(sender, nil), nil }
+}
+
+// withCloseHook gives mgr a configured session whose sender lease Manager.Close
+// releases while the Manager is Closing and holds no Manager lock.
+func withCloseHook(t *testing.T, mgr *Manager, lease *SenderLease) {
+	t.Helper()
+
+	if _, err := mgr.CreateSession(context.Background(), senderLeaseTestConfig("192.0.2.200"),
+		func() (*SenderLease, error) { return lease, nil }); err != nil {
+		t.Fatalf("CreateSession for the close hook: %v", err)
 	}
 }
 

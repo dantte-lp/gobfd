@@ -66,14 +66,12 @@ func newLifecycleClosingManager(t *testing.T) (*Manager, func()) {
 	releaseEntered := make(chan struct{})
 	releaseCallback := make(chan struct{})
 	closeDone := make(chan struct{})
-	mgr := NewManager(
-		slog.New(slog.DiscardHandler),
-		WithUnsolicitedSenderLease(NewSenderLease(senderLeaseTestSender{}, func() error {
-			close(releaseEntered)
-			<-releaseCallback
-			return nil
-		})),
-	)
+	mgr := NewManager(slog.New(slog.DiscardHandler))
+	withCloseHook(t, mgr, NewSenderLease(senderLeaseTestSender{}, func() error {
+		close(releaseEntered)
+		<-releaseCallback
+		return nil
+	}))
 	go func() {
 		mgr.Close()
 		close(closeDone)
@@ -288,7 +286,8 @@ func TestManagerCloseCallbackCanReenterManagerAPIs(t *testing.T) {
 		)
 		return nil
 	})
-	mgr = NewManager(slog.New(slog.DiscardHandler), WithUnsolicitedSenderLease(lease))
+	mgr = NewManager(slog.New(slog.DiscardHandler))
+	withCloseHook(t, mgr, lease)
 
 	mgr.Close()
 

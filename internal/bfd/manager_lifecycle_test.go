@@ -116,10 +116,8 @@ func TestManagerCloseInvokesSenderReleaseOutsideManagerLocks(t *testing.T) {
 		}
 		return nil
 	})
-	mgr = NewManager(
-		slog.New(slog.DiscardHandler),
-		WithUnsolicitedSenderLease(lease),
-	)
+	mgr = NewManager(slog.New(slog.DiscardHandler))
+	withCloseHook(t, mgr, lease)
 
 	mgr.Close()
 
@@ -365,7 +363,7 @@ func TestManagerClosingRejectsNewClaimsAndSubscriptions(t *testing.T) {
 			slog.New(slog.DiscardHandler),
 			WithUnsolicitedPolicy(policy),
 			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-			WithUnsolicitedSender(senderLeaseTestSender{}),
+			WithUnsolicitedSessionSender(nonOwningSessionSender(senderLeaseTestSender{})),
 		)
 		releaseEntered := make(chan struct{})
 		releaseCallback := make(chan struct{})
@@ -668,21 +666,20 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 				DetectMultiplier:      3,
 			},
 		}
+		cleanupEntered := make(chan struct{})
+		finishCleanup := make(chan struct{})
 		mgr := NewManager(
 			slog.New(slog.DiscardHandler),
 			WithUnsolicitedPolicy(policy),
 			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-			WithUnsolicitedSender(senderLeaseTestSender{}),
+			WithUnsolicitedSessionSender(func(PacketMeta) (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					close(cleanupEntered)
+					<-finishCleanup
+					return nil
+				}), nil
+			}),
 		)
-		cleanupEntered := make(chan struct{})
-		finishCleanup := make(chan struct{})
-		mgr.unsolicitedSenderFactory = func() (*SenderLease, error) {
-			return NewSenderLease(senderLeaseTestSender{}, func() error {
-				close(cleanupEntered)
-				<-finishCleanup
-				return nil
-			}), nil
-		}
 		meta := PacketMeta{
 			SrcAddr: netip.MustParseAddr("192.0.2.90"),
 			DstAddr: netip.MustParseAddr("192.0.2.254"),
