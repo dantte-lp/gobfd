@@ -8,7 +8,7 @@
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
-[![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
+[![RFC 7130](https://img.shields.io/badge/RFC_7130-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
 [![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
 [![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
@@ -163,7 +163,7 @@ best-effort путь: текущая реализация не подтверж�
 
 | Секция | Функция | Обоснование |
 |---|---|---|
-| 6.4 | Affiliated Echo Mode | Требует контрольной сессии; RFC 9747 unaffiliated echo реализован вместо |
+| 6.4 | Affiliated Echo Mode | Требует контрольной сессии; вместо него есть RFC 9747 unaffiliated echo в статусе preview |
 | 6.5 | Полные Poll Sequence procedures | Есть config-owned транзакции таймеров, подтверждённая отправка Poll, Final retry и исключение P/F; live reload/RTT qualification ещё впереди |
 | 6.6 | Полный Demand Mode | Подавление remote periodic TX есть; local Demand, полные Poll procedures и interop qualification остаются открытыми |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
@@ -272,7 +272,7 @@ RFC 9747 определяет unaffiliated BFD echo для обнаружени�
 
 ### Заметки по RFC 7130
 
-**Статус**: Протокол реализован; production integration частичная
+**Статус**: Preview; протокол реализован, production integration частичная
 
 Реализация: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 

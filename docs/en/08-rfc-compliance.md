@@ -8,7 +8,7 @@
 [![RFC 9384](https://img.shields.io/badge/RFC_9384-Not_Implemented-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9384)
 [![RFC 9468](https://img.shields.io/badge/RFC_9468-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9468)
 [![RFC 9747](https://img.shields.io/badge/RFC_9747-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9747)
-[![RFC 7130](https://img.shields.io/badge/RFC_7130-Partial_Production-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
+[![RFC 7130](https://img.shields.io/badge/RFC_7130-Preview-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc7130)
 [![RFC 8971](https://img.shields.io/badge/RFC_8971-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc8971)
 [![RFC 9521](https://img.shields.io/badge/RFC_9521-Unsafe_Preview-ea4335?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9521)
 [![RFC 9764](https://img.shields.io/badge/RFC_9764-Partial-ffc107?style=for-the-badge)](https://datatracker.ietf.org/doc/html/rfc9764)
@@ -178,7 +178,7 @@ AdminDown completion is tracked for v1.
 
 | Section | Feature | Rationale |
 |---|---|---|
-| 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo implemented instead |
+| 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo is provided instead, as a preview |
 | 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry and P/F exclusion exist; live reload/RTT qualification remains pending |
 | 6.6 | Full Demand Mode | Remote periodic-TX suppression exists; local Demand, complete Poll procedures, and interop qualification remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
@@ -327,7 +327,7 @@ Key differences from BFD control sessions:
 
 ### RFC 7130 Implementation Notes
 
-**Status**: Protocol implemented; production integration partial
+**Status**: Preview; protocol implemented, production integration partial
 
 **Implementation**: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 
