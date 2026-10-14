@@ -45,16 +45,15 @@ Maintainer decisions:
 - ConnectRPC moves to connect-go v2 now. This breaks Go consumers of
   `pkg/bfdpb`; the `bfd.v1` wire protocol is unchanged.
 
-Status of the first stack-currency queue (end of 2026-10-13, `dev` at
-`ea34fad`):
+Status of the first stack-currency queue (2026-10-14):
 
 | Step | Item | Status |
 |---|---|---|
-| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8 done; client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-15 to 2026-10-20 |
+| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8 done (`5584967`); client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-15 to 2026-10-20 |
 | 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 wait for 2026-10-16 to 2026-10-19 |
 | 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
 | 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
-| 5 | `.8.6.8` connect-go v2 | Done on `task/connect-go-v2`; merge from 2026-10-14 21:04 UTC (grpchealth v2 release age) |
+| 5 | `.8.6.8` connect-go v2 | Done (`2514ae1`, `707ae7d`); wire compatibility pinned by `TestGRPCServerWireCompatibility` |
 | 6 | `.8.6.5` base images, `.8.5.2.6` observability | Debian, HAProxy, nginx done (`04df88e`); Oracle Linux from 2026-10-19; observability open |
 | 7 | `.8.6.4` Actions, `.8.6.6` peers | Open; several eligible 2026-10-19 |
 | 8 | `.8.2.4.5`, `gobfd-0dc`, `.8.6.1` | Native BFD preflight done (`f5c6e42`); support statement and manual Compose open |
@@ -62,8 +61,8 @@ Status of the first stack-currency queue (end of 2026-10-13, `dev` at
 
 Ordered P0 queue from 2026-10-14:
 
-1. `gobfd-qj0.8.6.8` — connect-go v2 migration: implemented, merge to `dev`
-   from 2026-10-14 21:04 UTC.
+1. `gobfd-qj0.8.6.8` — done (`2514ae1`, `707ae7d`): connect-go v2 and
+   grpchealth v2.
 2. `gobfd-0dc` — done (`1381879`): supported GoBGP version statement; PR `#62`
    is superseded, closing it needs maintainer approval.
 3. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe,
@@ -77,7 +76,12 @@ Ordered P0 queue from 2026-10-14:
    host build DNS issue `gobfd-qj0.8.6.9` (P1) is resolved.
 7. `gobfd-qj0.8.2.8.5.2.8` — Oracle Linux product decision (maintainer).
 8. `gobfd-qj0.8.2.4.1`, `.8.2.4.2` — GoBGP desired/applied reconciliation and
-   canonical identity.
+   canonical identity. Retry and dampening-expiry slice `.8.2.4.1.1` done
+   (`eda8e91`); stream gaps (after `.8.2.1.3.2`) and operator-disabled peers
+   remain.
+9. Security P0 kept by the maintainer: H-03 `.8.2.1.11` done (`1629b3c`);
+   `.8.2.1.10` unsolicited sender ownership and `.8.2.1.8` preview
+   boundaries remain.
 
 Blocked by the environment: Kubernetes live run `.8.5.2.5.3` (no k3s),
 Containerlab vendor runs (no containerlab binary or vendor images).
