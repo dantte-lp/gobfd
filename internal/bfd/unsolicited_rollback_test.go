@@ -110,6 +110,18 @@ func TestUnsolicitedCreateFailureRollsBackReservation(t *testing.T) {
 			if closes != tt.wantCloses {
 				t.Fatalf("lease closes = %d, want %d", closes, tt.wantCloses)
 			}
+			if tt.existing {
+				discr := mgr.Sessions()[0].LocalDiscr
+				mgr.mu.RLock()
+				entry := mgr.sessions[discr]
+				_, claimed := entry.owners[unsolicitedSessionOwner()]
+				owners, marked := len(entry.owners), entry.unsolicited
+				mgr.mu.RUnlock()
+				if claimed || marked || owners != 1 {
+					t.Fatalf("configured session after rollback: owners=%d unsolicited claim=%t marked=%t, want 1, no claim, unmarked",
+						owners, claimed, marked)
+				}
+			}
 
 			if tt.failing == nil {
 				return // the fault is in the policy or the key, not the sender

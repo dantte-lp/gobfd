@@ -891,6 +891,10 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 	if err := validateRequiredMinRxInput(k); err != nil {
 		return nil, fmt.Errorf("validate required min RX input from %s: %w", path, err)
 	}
+	if !validUint8Scalar(k.Get("unsolicited.session_defaults.detect_mult")) {
+		return nil, fmt.Errorf("unsolicited.session_defaults.detect_mult from %s: %w",
+			path, ErrInvalidUnsolicitedSessionDefaults)
+	}
 
 	cfg := &Config{}
 	if err := k.Unmarshal("", cfg); err != nil {
@@ -944,6 +948,27 @@ func validRequiredMinRxScalar(value any) bool {
 	case float64:
 		// The strict upper bound excludes 2^63, which float64(MaxInt64) rounds to.
 		return value >= 0 && value < math.MaxInt64 && math.Trunc(value) == value
+	default:
+		return false
+	}
+}
+
+// validUint8Scalar reports whether a raw numeric value fits uint8 before weak
+// decoding into a wider unsigned field can wrap it into range.
+func validUint8Scalar(value any) bool {
+	switch value := value.(type) {
+	case nil, string:
+		return true // Strings are parsed with range checks by the decoder.
+	case int:
+		return value >= 0 && value <= math.MaxUint8
+	case int64:
+		return value >= 0 && value <= math.MaxUint8
+	case uint32: // the loadDefaults value
+		return value <= math.MaxUint8
+	case uint64:
+		return value <= math.MaxUint8
+	case float64:
+		return value >= 0 && value <= math.MaxUint8 && math.Trunc(value) == value
 	default:
 		return false
 	}

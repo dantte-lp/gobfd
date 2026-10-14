@@ -2078,3 +2078,32 @@ unsolicited:
 		}
 	}
 }
+
+// Weak decoding must not truncate an out-of-range detect_mult into the
+// valid range.
+func TestLoadUnsolicitedDetectMultOverflow(t *testing.T) {
+	t.Parallel()
+
+	path := writeTemp(t, `
+unsolicited:
+  enabled: true
+  max_sessions: 4
+  session_defaults:
+    detect_mult: 4294967299
+  interfaces:
+    eth0:
+      enabled: true
+`)
+	cfg, err := config.Load(path)
+	if !errors.Is(err, config.ErrInvalidUnsolicitedSessionDefaults) {
+		t.Fatalf("Load error = %v (detect_mult %d), want ErrInvalidUnsolicitedSessionDefaults",
+			err, detectMult(cfg))
+	}
+}
+
+func detectMult(cfg *config.Config) uint32 {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.Unsolicited.SessionDefaults.DetectMult
+}
