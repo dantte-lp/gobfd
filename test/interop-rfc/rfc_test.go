@@ -198,26 +198,8 @@ func tsharkLiveFields(
 	fields []string,
 	maxCount int,
 ) ([][]string, error) {
-	if captureDuration < time.Second {
-		captureDuration = time.Second
-	}
-	args := []string{
-		"tshark",
-		"-i", "any",
-		"-f", "udp port 3784 or udp port 3785 or udp port 4784",
-		"-a", fmt.Sprintf("duration:%d", int(captureDuration.Seconds())),
-		"-Y", filter,
-		"-T", "fields",
-	}
-	for _, f := range fields {
-		args = append(args, "-e", f)
-	}
-	args = append(args, "-E", "separator=\t", "-E", "header=n")
-	if maxCount > 0 {
-		args = append(args, "-c", strconv.Itoa(maxCount))
-	}
-
-	output, err := containerExec(ctx, tsharkRFCContainer, args...)
+	output, err := containerExec(ctx, tsharkRFCContainer,
+		tsharkLiveArgs(captureDuration, filter, fields, maxCount)...)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +216,33 @@ func tsharkLiveFields(
 		rows = append(rows, strings.Split(line, "\t"))
 	}
 	return rows, nil
+}
+
+// tsharkLiveArgs builds a live capture of BFD ports for captureDuration
+// (at least one second) that prints fields of up to maxCount packets
+// passing filter; maxCount <= 0 means no limit.
+func tsharkLiveArgs(captureDuration time.Duration, filter string, fields []string, maxCount int) []string {
+	if captureDuration < time.Second {
+		captureDuration = time.Second
+	}
+	args := []string{
+		"tshark",
+		"-i", "any",
+		"-f", "udp port 3784 or udp port 3785 or udp port 4784",
+		"-a", fmt.Sprintf("duration:%d", int(captureDuration.Seconds())),
+		"-Y", filter,
+		"-T", "fields",
+	}
+	for _, f := range fields {
+		args = append(args, "-e", f)
+	}
+	args = append(args, "-E", "separator=\t", "-E", "header=n")
+	// -a packets: counts displayed packets; -c would also count packets
+	// that fail filter and stop on another session's traffic.
+	if maxCount > 0 {
+		args = append(args, "-a", "packets:"+strconv.Itoa(maxCount))
+	}
+	return args
 }
 
 type (
@@ -414,7 +423,8 @@ func dumpGoBGPState(t *testing.T) {
 
 func dumpTsharkCapture(t *testing.T, count int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	// Cleanup runs after t.Context is canceled.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	output, err := containerExec(

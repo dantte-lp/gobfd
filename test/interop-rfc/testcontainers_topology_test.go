@@ -56,9 +56,14 @@ func runRFCInteropTestcontainers(t *testing.T) {
 
 		assertRFCTestNamesAvailable(ctx, t, endpoint)
 		startRFCTestTopology(ctx, t, endpoint, root, projectName, resources)
+		// Export the capture also when an assertion fails (gobfd-b52).
+		defer func() {
+			if err := captureRFCTestPCAP(ctx, t, resources.tshark); err != nil {
+				t.Errorf("RFC packet capture artifact: %v", err)
+			}
+		}()
 		verifyRFCTestVersions(ctx, t, resources)
 		runRFCTestAssertions(ctx, t, projectName)
-		captureRFCTestPCAP(ctx, t, resources.tshark)
 	}) {
 		t.Error("RFC interop testcontainers topology failed")
 	}
@@ -392,39 +397,46 @@ func runRFCTestAssertions(ctx context.Context, t *testing.T, projectName string)
 	}
 }
 
-func captureRFCTestPCAP(ctx context.Context, t *testing.T, tshark testcontainers.Container) {
+// captureRFCTestPCAP copies the background capture to the artifact
+// directory. It returns errors instead of calling t.Fatal so it can run
+// deferred after a failed assertion.
+func captureRFCTestPCAP(ctx context.Context, t *testing.T, tshark testcontainers.Container) error {
 	t.Helper()
+	if tshark == nil {
+		return errors.New("tshark container not started")
+	}
 	input, err := tshark.CopyFileFromContainer(ctx, "/captures/bfd.pcapng")
 	if err != nil {
-		t.Fatalf("copy RFC packet capture: %v", err)
+		return fmt.Errorf("copy: %w", err)
 	}
 	defer input.Close()
 	artifactDirectory := strings.TrimSpace(os.Getenv("INTEROP_RFC_TESTCONTAINERS_ARTIFACT_DIR"))
 	if artifactDirectory == "" {
 		artifactDirectory = t.TempDir()
 	} else if !filepath.IsAbs(artifactDirectory) {
-		t.Fatalf("RFC artifact directory %q must be absolute", artifactDirectory)
+		return fmt.Errorf("artifact directory %q must be absolute", artifactDirectory)
 	} else if mkdirErr := os.MkdirAll(artifactDirectory, 0o700); mkdirErr != nil {
-		t.Fatalf("create RFC artifact directory: %v", mkdirErr)
+		return fmt.Errorf("create artifact directory: %w", mkdirErr)
 	}
 	outputPath := filepath.Join(artifactDirectory, fmt.Sprintf("bfd-rfc-%d.pcapng", time.Now().UnixNano()))
 	output, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		t.Fatalf("create RFC packet capture artifact: %v", err)
+		return fmt.Errorf("create artifact: %w", err)
 	}
 	_, copyErr := io.Copy(output, input)
 	closeErr := output.Close()
 	if joinedErr := errors.Join(copyErr, closeErr); joinedErr != nil {
-		t.Fatalf("persist RFC packet capture artifact: %v", joinedErr)
+		return fmt.Errorf("persist artifact: %w", joinedErr)
 	}
 	info, err := os.Stat(outputPath)
 	if err != nil {
-		t.Fatalf("inspect RFC packet capture artifact: %v", err)
+		return fmt.Errorf("inspect artifact: %w", err)
 	}
 	if info.Size() == 0 {
-		t.Fatal("RFC packet capture artifact is empty")
+		return errors.New("artifact is empty")
 	}
 	t.Logf("RFC packet capture: %s (%d bytes)", outputPath, info.Size())
+	return nil
 }
 
 func captureRFCTestLogsOnFailure(

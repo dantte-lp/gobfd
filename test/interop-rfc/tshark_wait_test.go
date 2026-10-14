@@ -5,6 +5,7 @@ package interop_rfc_test
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -114,5 +115,28 @@ func TestWaitTsharkCountRetriesUntilPacketsAppear(t *testing.T) {
 	}
 	if count != 7 {
 		t.Fatalf("count = %d, want 7", count)
+	}
+}
+
+// gobfd-b52: tshark -c counts packets that fail the -Y display filter, so a
+// live capture with -c stops on the first BFD packet of any session in the
+// shared network namespace. The row limit must use -a packets:, which counts
+// displayed packets only (tshark(1), options -c and -a).
+func TestTsharkLiveArgsLimitDisplayedPackets(t *testing.T) {
+	t.Parallel()
+
+	args := tsharkLiveArgs(3*time.Second, "bfd.sta == 0x03", []string{"frame.number"}, 2)
+	joined := strings.Join(args, " ")
+	if slices.Contains(args, "-c") {
+		t.Fatalf("live capture args use -c: %s", joined)
+	}
+	for _, want := range []string{"-a duration:3", "-a packets:2", "-Y bfd.sta == 0x03"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("live capture args = %s, want %q", joined, want)
+		}
+	}
+	if got := strings.Join(tsharkLiveArgs(0, "bfd", nil, 0), " "); strings.Contains(got, "packets:") ||
+		!strings.Contains(got, "-a duration:1") {
+		t.Fatalf("unlimited capture args = %s, want duration:1 and no packet limit", got)
 	}
 }
