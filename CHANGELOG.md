@@ -45,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   client closing `WatchSessionEvents` logs `rpc canceled` at Info.
 - **Breaking:** RFC 9468 unsolicited admission is bounded and checked
   against the connected subnet (audit findings H-17, H-18). A packet creates
-  a session only when its source belongs to the subnet of the local address
+  a session only when it arrives single-hop with TTL 255 (not on the
+  multi-hop listener), its source belongs to the subnets of the local address
   that received it, is inside `allowed_prefixes` when set and is not the
   local address; an unnumbered receive path is rejected. `max_sessions` must
   be >= 1 when `unsolicited.enabled` is true (configuration validation

@@ -102,6 +102,10 @@ type PacketMeta struct {
 	// IfName is the interface name on which the packet was received.
 	IfName string
 
+	// MultiHop is true when the packet arrived on a multi-hop (RFC 5883)
+	// listener.
+	MultiHop bool
+
 	// TransportScope is the exact overlay identity extracted from the wire.
 	// It is empty for base and Micro-BFD transports.
 	TransportScope TransportScope

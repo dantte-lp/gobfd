@@ -138,6 +138,7 @@ func (l *Listener) RecvPacket(ctx context.Context) (*ReceivedPacket, error) {
 			pkt.Release()
 			continue // Drop packets with invalid TTL silently.
 		}
+		pkt.Meta.MultiHop = l.multiHop
 
 		return pkt, nil
 	}

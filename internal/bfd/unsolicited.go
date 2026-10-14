@@ -62,6 +62,10 @@ const (
 	unsolicitedAdmissionBurst = 20
 )
 
+// singleHopTTL is the TTL/Hop Limit of every single-hop BFD packet
+// (RFC 5881 Section 5, RFC 5082).
+const singleHopTTL = 255
+
 // UnsolicitedPolicy configures the passive side of RFC 9468 unsolicited BFD.
 // When enabled, the Manager auto-creates passive sessions for incoming BFD
 // packets from unknown peers, subject to per-interface policy.
@@ -117,8 +121,9 @@ type unsolicitedState struct {
 	policy       *UnsolicitedPolicy
 	sessionCount atomic.Int32
 
-	// connectedPrefix returns the subnet of a local interface address.
-	connectedPrefix func(local netip.Addr) (netip.Prefix, bool)
+	// connectedPrefix returns the subnets of every host interface address
+	// equal to local.
+	connectedPrefix func(local netip.Addr) []netip.Prefix
 
 	admitMu     sync.Mutex
 	admitTokens float64
@@ -129,7 +134,7 @@ type unsolicitedState struct {
 func newUnsolicitedState(policy *UnsolicitedPolicy) *unsolicitedState {
 	return &unsolicitedState{
 		policy:          policy,
-		connectedPrefix: systemConnectedPrefix,
+		connectedPrefix: systemConnectedPrefixes,
 		admitTokens:     unsolicitedAdmissionBurst,
 		admitLast:       time.Now(),
 	}
@@ -156,9 +161,15 @@ func (us *unsolicitedState) checkInterfacePolicy(srcAddr netip.Addr, ifName stri
 }
 
 // reserve admits a new unsolicited session for the packet described by meta
-// and takes one slot of MaxSessions. Cheap policy checks run first; the
-// admission rate limit runs before the interface-address lookup.
+// and takes one slot of MaxSessions. The single-hop check runs first and
+// cheap policy checks follow; the admission rate limit runs before the
+// interface-address lookup.
 func (us *unsolicitedState) reserve(meta PacketMeta) error {
+	// RFC 9468 Section 6.1: single-hop sessions only, with the RFC 5082
+	// procedures of RFC 5881 Section 5 (TTL/Hop Limit 255).
+	if meta.MultiHop || meta.TTL != singleHopTTL {
+		return ErrUnsolicitedMultihopDenied
+	}
 	if err := us.checkInterfacePolicy(meta.SrcAddr, meta.IfName); err != nil {
 		return err
 	}
@@ -231,17 +242,26 @@ func (us *unsolicitedState) allowAdmission() bool {
 func (us *unsolicitedState) inConnectedSubnet(src, local netip.Addr) bool {
 	src = src.Unmap().WithZone("")
 	local = local.Unmap().WithZone("")
-	prefix, ok := us.connectedPrefix(local)
-	return ok && src != local && prefix.Contains(src)
+	if src == local {
+		return false
+	}
+	for _, prefix := range us.connectedPrefix(local) {
+		if prefix.Contains(src) {
+			return true
+		}
+	}
+	return false
 }
 
-// systemConnectedPrefix returns the subnet of the host interface address
-// equal to local.
-func systemConnectedPrefix(local netip.Addr) (netip.Prefix, bool) {
+// systemConnectedPrefixes returns the subnets of every host interface
+// address equal to local. One address can appear more than once, for
+// example as an anycast /32 on lo and inside a /24 on the uplink.
+func systemConnectedPrefixes(local netip.Addr) []netip.Prefix {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return netip.Prefix{}, false
+		return nil
 	}
+	var prefixes []netip.Prefix
 	for _, a := range addrs {
 		ipNet, ok := a.(*net.IPNet)
 		if !ok {
@@ -252,7 +272,7 @@ func systemConnectedPrefix(local netip.Addr) (netip.Prefix, bool) {
 			continue
 		}
 		ones, _ := ipNet.Mask.Size()
-		return netip.PrefixFrom(ip.Unmap(), ones).Masked(), true
+		prefixes = append(prefixes, netip.PrefixFrom(ip.Unmap(), ones).Masked())
 	}
-	return netip.Prefix{}, false
+	return prefixes
 }

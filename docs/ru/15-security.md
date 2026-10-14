@@ -28,8 +28,12 @@ Security considerations из RFC 5880 и RFC 5881 применяются ко в
 
 RFC 9468 unsolicited BFD остаётся выключенным по умолчанию. При включении GoBFD
 допускает сессию только из подсети локального адреса приёма, в пределах
-`allowed_prefixes`, ниже `max_sessions` (обязателен, >= 1) и не чаще 10 новых
-сессий в секунду. Не включайте unsolicited BFD в anonymous shared segment.
+`allowed_prefixes`, ниже `max_sessions` (обязателен, >= 1), не чаще 10 новых
+сессий в секунду и только из single-hop пакетов с TTL 255. Лимит скорости
+глобальный: хост в сегменте, подделывающий source, может задержать допуск
+легитимных пиров; RFC 9468, раздел 6.1, допускает режим только там, где
+участники не анонимны. Не включайте unsolicited BFD в anonymous shared
+segment.
 
 RFC 9747 unaffiliated Echo наследует требования RFC 5880/5881 и добавляет риск
 spoofing для looped-back Echo-пакетов. Используйте BFD authentication для Echo,

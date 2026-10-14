@@ -138,9 +138,10 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 // convertMeta converts netio.PacketMeta to bfd.PacketMeta.
 func convertMeta(nm PacketMeta) bfd.PacketMeta {
 	return bfd.PacketMeta{
-		SrcAddr: nm.SrcAddr,
-		DstAddr: nm.DstAddr,
-		TTL:     nm.TTL,
-		IfName:  nm.IfName,
+		SrcAddr:  nm.SrcAddr,
+		DstAddr:  nm.DstAddr,
+		TTL:      nm.TTL,
+		IfName:   nm.IfName,
+		MultiHop: nm.MultiHop,
 	}
 }

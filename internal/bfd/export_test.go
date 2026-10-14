@@ -34,13 +34,14 @@ func WithUnsolicitedConnectedPrefix(prefixes ...netip.Prefix) ManagerOption {
 		if m.unsolicited == nil {
 			return
 		}
-		m.unsolicited.connectedPrefix = func(local netip.Addr) (netip.Prefix, bool) {
+		m.unsolicited.connectedPrefix = func(local netip.Addr) []netip.Prefix {
+			var matched []netip.Prefix
 			for _, p := range prefixes {
 				if p.Contains(local) {
-					return p.Masked(), true
+					matched = append(matched, p.Masked())
 				}
 			}
-			return netip.Prefix{}, false
+			return matched
 		}
 	}
 }

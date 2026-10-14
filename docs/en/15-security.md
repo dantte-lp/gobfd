@@ -29,8 +29,10 @@ is possible.
 RFC 9468 unsolicited BFD remains disabled by default. When enabled, GoBFD admits
 a session only from the subnet of the receiving local address, within
 `allowed_prefixes`, below `max_sessions` (required, >= 1) and at up to 10 new
-sessions per second. Do not enable unsolicited BFD on an anonymous shared
-segment.
+sessions per second, and only from single-hop TTL 255 packets. The admission
+rate is global, so an on-link host that spoofs sources can delay legitimate
+peers; RFC 9468 Section 6.1 allows the feature only where participants are not
+anonymous. Do not enable unsolicited BFD on an anonymous shared segment.
 
 RFC 9747 unaffiliated Echo inherits RFC 5880/5881 considerations and adds a
 spoofing concern for looped-back Echo packets. Use BFD authentication for Echo

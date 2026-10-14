@@ -11,15 +11,16 @@ import (
 
 // connectedTo returns a connected-prefix lookup for a host that owns the
 // given interface addresses, in "address/length" form.
-func connectedTo(ifaceAddrs ...string) func(netip.Addr) (netip.Prefix, bool) {
-	return func(local netip.Addr) (netip.Prefix, bool) {
+func connectedTo(ifaceAddrs ...string) func(netip.Addr) []netip.Prefix {
+	return func(local netip.Addr) []netip.Prefix {
+		var prefixes []netip.Prefix
 		for _, s := range ifaceAddrs {
 			p := netip.MustParsePrefix(s)
 			if p.Addr() == local {
-				return p.Masked(), true
+				prefixes = append(prefixes, p.Masked())
 			}
 		}
-		return netip.Prefix{}, false
+		return prefixes
 	}
 }
 
@@ -118,14 +119,14 @@ func TestUnsolicitedReserveRateLimitsAdmission(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		us := newUnsolicitedState(admissionPolicy(1000))
 		lookups := 0
-		us.connectedPrefix = func(local netip.Addr) (netip.Prefix, bool) {
+		us.connectedPrefix = func(local netip.Addr) []netip.Prefix {
 			lookups++
 			return connectedTo("192.0.2.1/16")(local)
 		}
 
 		admit := func(i int) error {
 			src := netip.AddrFrom4([4]byte{192, 0, byte(3 + i/250), byte(1 + i%250)})
-			return us.reserve(PacketMeta{SrcAddr: src, DstAddr: netip.MustParseAddr("192.0.2.1"), IfName: "eth0"})
+			return us.reserve(PacketMeta{SrcAddr: src, DstAddr: netip.MustParseAddr("192.0.2.1"), IfName: "eth0", TTL: 255})
 		}
 
 		for i := range unsolicitedAdmissionBurst {
@@ -156,12 +157,12 @@ func TestUnsolicitedReserveRateLimitsAdmission(t *testing.T) {
 func TestSystemConnectedPrefixLoopback(t *testing.T) {
 	t.Parallel()
 
-	prefix, ok := systemConnectedPrefix(netip.MustParseAddr("127.0.0.1"))
-	if !ok || !prefix.Contains(netip.MustParseAddr("127.0.0.2")) {
-		t.Fatalf("systemConnectedPrefix(127.0.0.1) = %v, %t; want a prefix containing 127.0.0.2", prefix, ok)
+	prefixes := systemConnectedPrefixes(netip.MustParseAddr("127.0.0.1"))
+	if len(prefixes) == 0 || !prefixes[0].Contains(netip.MustParseAddr("127.0.0.2")) {
+		t.Fatalf("systemConnectedPrefixes(127.0.0.1) = %v; want a prefix containing 127.0.0.2", prefixes)
 	}
-	if _, ok := systemConnectedPrefix(netip.MustParseAddr("192.0.2.123")); ok {
-		t.Fatal("systemConnectedPrefix found a prefix for an address the host does not own")
+	if got := systemConnectedPrefixes(netip.MustParseAddr("192.0.2.123")); len(got) != 0 {
+		t.Fatalf("systemConnectedPrefixes found %v for an address the host does not own", got)
 	}
 }
 
@@ -201,5 +202,44 @@ func TestUnsolicitedSessionSenderUsesReceivedTuple(t *testing.T) {
 	mgr.Close()
 	if closes != 1 {
 		t.Fatalf("sender lease closes = %d, want 1", closes)
+	}
+}
+
+// RFC 9468 Section 6.1: unsolicited BFD MUST be limited to single-hop
+// sessions with the RFC 5082 procedures, so only TTL 255 packets from a
+// single-hop listener create sessions. The check runs before the admission
+// rate limit, so off-link traffic cannot spend admission tokens.
+func TestUnsolicitedReserveSingleHopOnly(t *testing.T) {
+	t.Parallel()
+
+	us := newUnsolicitedState(admissionPolicy(1000))
+	us.connectedPrefix = connectedTo("192.0.2.1/24")
+
+	ttl254 := admissionMeta("192.0.2.10", "192.0.2.1")
+	ttl254.TTL = 254
+	multiHop := admissionMeta("192.0.2.11", "192.0.2.1")
+	multiHop.MultiHop = true
+	for range unsolicitedAdmissionBurst + 5 {
+		for _, meta := range []PacketMeta{ttl254, multiHop} {
+			if err := us.reserve(meta); !errors.Is(err, ErrUnsolicitedMultihopDenied) {
+				t.Fatalf("reserve(TTL %d, multihop %t) error = %v, want ErrUnsolicitedMultihopDenied",
+					meta.TTL, meta.MultiHop, err)
+			}
+		}
+	}
+	if err := us.reserve(admissionMeta("192.0.2.12", "192.0.2.1")); err != nil {
+		t.Fatalf("single-hop reserve after denied multi-hop traffic: %v", err)
+	}
+}
+
+// A host can own one address with several prefixes, such as an anycast /32
+// on lo and a /24 on the uplink; any matching subnet admits the source.
+func TestUnsolicitedReserveDuplicateLocalAddress(t *testing.T) {
+	t.Parallel()
+
+	us := newUnsolicitedState(admissionPolicy(10))
+	us.connectedPrefix = connectedTo("192.0.2.1/32", "192.0.2.1/24")
+	if err := us.reserve(admissionMeta("192.0.2.10", "192.0.2.1")); err != nil {
+		t.Fatalf("reserve with /32 and /24 on the local address: %v", err)
 	}
 }

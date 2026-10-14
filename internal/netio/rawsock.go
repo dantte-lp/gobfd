@@ -78,6 +78,10 @@ type PacketMeta struct {
 	//   - Multi-hop (RFC 5883 Section 2): MUST be >= 254
 	TTL uint8
 
+	// MultiHop is true when the packet arrived on a multi-hop (RFC 5883)
+	// listener rather than a single-hop (RFC 5881) one.
+	MultiHop bool
+
 	// IfIndex is the interface index on which the packet was received.
 	// Used for single-hop session binding (SO_BINDTODEVICE).
 	IfIndex int

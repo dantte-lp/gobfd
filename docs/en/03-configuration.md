@@ -194,7 +194,8 @@ unsolicited:
 > **Note**: The empty string key `""` matches the default listener (no interface binding). Use this for raw socket listeners that don't report an interface name.
 >
 > **Admission (RFC 9468 Sections 2 and 6.1)**: a packet creates a session only
-> when its source belongs to the subnet of the local address that received it,
+> when it arrives single-hop with TTL 255, its source belongs to a subnet of
+> the local address that received it,
 > is inside `allowed_prefixes` when that list is set, and is not the local
 > address itself. New sessions are admitted at up to 10 per second (burst 20)
 > and never beyond `max_sessions`. An unnumbered receive path is rejected.

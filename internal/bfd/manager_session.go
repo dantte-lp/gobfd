@@ -561,11 +561,9 @@ func (m *Manager) tryCreateUnsolicited(
 
 	m.ownershipMu.Lock()
 
-	// RFC 9468 Section 6.1: unsolicited BFD is single-hop only.
-	// Multi-hop packets arrive on port 4784; single-hop on 3784.
-	// We use the interface name as a proxy: multi-hop sessions have no interface.
-	// Also validate via policy.
-
+	// reserve enforces RFC 9468: single-hop TTL 255 packets only, interface
+	// and prefix policy, the session limit, the admission rate and the
+	// connected subnet of the receiving address.
 	if reserveErr := m.unsolicited.reserve(meta); reserveErr != nil {
 		m.ownershipMu.Unlock()
 		return fmt.Errorf(

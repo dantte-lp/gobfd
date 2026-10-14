@@ -279,7 +279,7 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 | Disabled by default (MUST) | `unsolicited.enabled: false` default |
 | Per-interface policy (MUST) | `UnsolicitedInterfaceConfig` per interface |
 | Source address validation (MUST) | Source must belong to the subnet of the receiving local address (Section 2); `AllowedPrefixes` narrows it further; unnumbered paths fail closed |
-| Single-hop only (MUST) | `SessionTypeSingleHop` enforced |
+| Single-hop only (MUST, Section 6.1) | Only TTL 255 packets from a single-hop listener create sessions; multi-hop (port 4784) packets are refused |
 | Local discriminator allocation (MUST) | `DiscriminatorAllocator` for passive sessions |
 | Configurable timers (SHOULD) | `UnsolicitedSessionDefaults` |
 | Bounded admission (Section 6.1) | `max_sessions` must be >= 1 when enabled; new sessions are admitted at up to 10 per second, burst 20 |
