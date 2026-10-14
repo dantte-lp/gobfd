@@ -30,6 +30,7 @@ func startGoBGPHandler(
 	cfg config.GoBGPConfig,
 	managedPeers []netip.Addr,
 	mgr *bfd.Manager,
+	status *goBGPStatus,
 	logger *slog.Logger,
 ) (gobgp.Client, error) {
 	if !cfg.Enabled {
@@ -56,14 +57,14 @@ func startGoBGPHandler(
 		return nil, fmt.Errorf("create gobgp client: %w", err)
 	}
 
-	preflight := goBGPPreflight(client, managedPeers)
+	preflight := status.observeProbe(goBGPPreflight(client, managedPeers))
 	probeErr := probeGoBGPCompatibility(ctx, preflight, cfg.ActionTimeout)
 	if goBGPPreflightConclusive(probeErr) {
 		closeGoBGPClient(client, logger)
 		return nil, goBGPStartupError(cfg.Addr, probeErr)
 	}
 
-	handler, err := newGoBGPHandler(client, cfg, mgr, logger)
+	handler, err := newGoBGPHandler(client, cfg, mgr, status.onAction(), logger)
 	if err != nil {
 		closeGoBGPClient(client, logger)
 		return nil, err
@@ -228,6 +229,7 @@ func newGoBGPHandler(
 	client gobgp.Client,
 	cfg config.GoBGPConfig,
 	mgr *bfd.Manager,
+	onAction func(rpc string, err error),
 	logger *slog.Logger,
 ) (*gobgp.Handler, error) {
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
@@ -241,8 +243,9 @@ func newGoBGPHandler(
 			MaxSuppressTime:   cfg.Dampening.MaxSuppressTime,
 			HalfLife:          cfg.Dampening.HalfLife,
 		},
-		Managed: goBGPManagedPeer(mgr),
-		Logger:  logger,
+		Managed:  goBGPManagedPeer(mgr),
+		OnAction: onAction,
+		Logger:   logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create gobgp handler: %w", err)

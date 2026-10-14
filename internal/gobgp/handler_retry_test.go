@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -262,5 +263,56 @@ func TestHandlerDropsPendingDownForUnmanagedPeer(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		assertMethods(t, mock)
+	})
+}
+
+// GitHub #86: every GoBGP action attempt is reported, so failures reach
+// metrics and readiness instead of logs only.
+func TestHandlerReportsEveryActionAttempt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		type result struct {
+			rpc string
+			err bool
+		}
+		var (
+			mu      sync.Mutex
+			results []result
+		)
+		mock := newMockClient()
+		mock.setError(status.Error(codes.Unavailable, "connection refused"))
+		h, err := gobgp.NewHandler(gobgp.HandlerConfig{
+			Client:   mock,
+			Strategy: gobgp.StrategyDisablePeer,
+			Logger:   slog.New(slog.DiscardHandler),
+			OnAction: func(rpc string, actionErr error) {
+				mu.Lock()
+				defer mu.Unlock()
+				results = append(results, result{rpc, actionErr != nil})
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewHandler: %v", err)
+		}
+		events := runHandler(t, h)
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+		mock.setError(nil)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		synctest.Wait()
+
+		mu.Lock()
+		defer mu.Unlock()
+		want := []result{{methodDisablePeer, true}, {methodDisablePeer, false}, {methodEnablePeer, false}}
+		if len(results) != len(want) {
+			t.Fatalf("reported actions = %v, want %v", results, want)
+		}
+		for i := range want {
+			if results[i] != want[i] {
+				t.Fatalf("reported actions = %v, want %v", results, want)
+			}
+		}
 	})
 }

@@ -57,6 +57,14 @@ type Collector struct {
 	// AuthFailures counts authentication verification failures per peer.
 	// RFC 5880 Section 6.7: auth failures cause packet discard.
 	AuthFailures *prometheus.CounterVec
+
+	// GoBGPRPCErrors counts failed GoBGP API calls by RPC, including the
+	// startup and background compatibility preflight.
+	GoBGPRPCErrors *prometheus.CounterVec
+
+	// GoBGPEndpointCompatible is 1 after the GoBGP v4 preflight passed and
+	// 0 while the endpoint is incompatible or not yet checked.
+	GoBGPEndpointCompatible prometheus.Gauge
 }
 
 // NewCollector creates a Collector with all BFD metrics registered against
@@ -79,6 +87,8 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.PacketsDropped,
 		c.StateTransitions,
 		c.AuthFailures,
+		c.GoBGPRPCErrors,
+		c.GoBGPEndpointCompatible,
 	)
 
 	return c
@@ -91,6 +101,18 @@ func newMetrics() *Collector {
 	transitionLabels := []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}
 
 	return &Collector{
+		GoBGPRPCErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: "gobgp",
+			Name:      "rpc_errors_total",
+			Help:      "Total GoBGP API calls that failed, by RPC.",
+		}, []string{"rpc"}),
+		GoBGPEndpointCompatible: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: "gobgp",
+			Name:      "endpoint_compatible",
+			Help:      "1 when the GoBGP endpoint passed the v4 compatibility preflight, else 0.",
+		}),
 		Sessions: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
@@ -195,4 +217,18 @@ func (c *Collector) RecordStateTransition(peer, local netip.Addr, from, to strin
 // given peer. RFC 5880 Section 6.7: auth failures MUST cause packet discard.
 func (c *Collector) IncAuthFailures(peer, local netip.Addr) {
 	c.AuthFailures.WithLabelValues(peer.String(), local.String()).Inc()
+}
+
+// IncGoBGPRPCError counts one failed GoBGP API call.
+func (c *Collector) IncGoBGPRPCError(rpc string) {
+	c.GoBGPRPCErrors.WithLabelValues(rpc).Inc()
+}
+
+// SetGoBGPCompatible records the result of the GoBGP compatibility preflight.
+func (c *Collector) SetGoBGPCompatible(compatible bool) {
+	if compatible {
+		c.GoBGPEndpointCompatible.Set(1)
+		return
+	}
+	c.GoBGPEndpointCompatible.Set(0)
 }

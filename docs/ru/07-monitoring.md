@@ -35,6 +35,8 @@ GoBFD предоставляет метрики Prometheus по настроен
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Отброшенные пакеты (ошибки валидации/буфера) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | Переходы состояний FSM |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |
+| `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
+| `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
 
 #### Примеры запросов
 
@@ -208,7 +210,10 @@ Flight recorder захватывает события планирования, 
 generation и пока последний desired generation остаётся stale, затем `SERVING`
 после полного convergence. Named checks `grpc.health.v1.Health`,
 `bfd.v1.BfdService`, `bfd.v1.EchoService` и `bfd.v1.MicroBFDService` остаются
-`SERVING`. systemd `READY=1` продолжает описывать запуск процесса/listeners, а не
+`SERVING`. При `gobgp.enabled` named check `gobfd.gobgp` находится в
+`NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
+preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха.
+systemd `READY=1` продолжает описывать запуск процесса/listeners, а не
 convergence конфигурации.
 
 ### Связанные документы

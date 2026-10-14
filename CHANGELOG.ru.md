@@ -9,6 +9,11 @@
 
 ### Добавлено
 
+- Сбои интеграции с GoBGP видны (GitHub #86): метрики
+  `gobfd_gobgp_rpc_errors_total{rpc}` и `gobfd_gobgp_endpoint_compatible`, а
+  также named health check `gobfd.gobgp`, который находится в `NOT_SERVING`
+  до успешного preflight GoBGP v4 и после неудачного preflight или действия
+  над пиром.
 - Аутентификация RFC 9468 unsolicited (раздел 6.2): `unsolicited.auth`
   принимает только `meticulous_keyed_sha1`, самый сильный механизм GoBFD.
   Пакет, создающий сессию, проверяется до создания сессии, и сессия

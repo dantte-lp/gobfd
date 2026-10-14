@@ -35,6 +35,8 @@ the v1 loss-accounting work is complete.
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Packets dropped (validation/buffer) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | FSM state transitions |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
+| `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
+| `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
 
 #### Label Values
 
@@ -219,7 +221,10 @@ The flight recorder captures scheduling events, goroutine creation, GC pauses, a
 The empty-service check is `NOT_SERVING` before the first converged generation
 and while the latest desired generation is stale, then `SERVING` after full
 convergence. Named checks for `grpc.health.v1.Health`, `bfd.v1.BfdService`,
-`bfd.v1.EchoService`, and `bfd.v1.MicroBFDService` remain `SERVING`. systemd
+`bfd.v1.EchoService`, and `bfd.v1.MicroBFDService` remain `SERVING`. With
+`gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
+GoBGP v4 preflight passes, and after a failed preflight or a failed
+`DisablePeer`/`EnablePeer` until the next success. systemd
 `READY=1` continues to describe process/listener startup rather than
 configuration convergence.
 

@@ -158,6 +158,7 @@ func TestStartGoBGPHandlerRejectsNativeBFDConflict(t *testing.T) {
 		config.GoBGPConfig{Enabled: true, Addr: startNativeBFDGoBGP(t), ActionTimeout: 5 * time.Second},
 		[]netip.Addr{netip.MustParseAddr("192.0.2.1")},
 		nil,
+		nil,
 		slog.New(slog.DiscardHandler),
 	)
 	if !errors.Is(err, errNativeBFDConflict) {

@@ -248,3 +248,37 @@ func counterValue(t *testing.T, vec *prometheus.CounterVec, labels ...string) fl
 
 	return m.GetCounter().GetValue()
 }
+
+// GitHub #86: GoBGP RPC failures and endpoint compatibility are exported.
+func TestCollectorGoBGPMetrics(t *testing.T) {
+	t.Parallel()
+
+	reg := prometheus.NewRegistry()
+	c := bfdmetrics.NewCollector(reg)
+	c.IncGoBGPRPCError("DisablePeer")
+	c.IncGoBGPRPCError("DisablePeer")
+	c.SetGoBGPCompatible(true)
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	values := map[string]float64{}
+	for _, f := range families {
+		for _, m := range f.GetMetric() {
+			v := m.GetGauge().GetValue() + m.GetCounter().GetValue()
+			values[f.GetName()] = v
+		}
+	}
+	if got := values["gobfd_gobgp_rpc_errors_total"]; got != 2 {
+		t.Fatalf("gobfd_gobgp_rpc_errors_total = %v, want 2", got)
+	}
+	if got := values["gobfd_gobgp_endpoint_compatible"]; got != 1 {
+		t.Fatalf("gobfd_gobgp_endpoint_compatible = %v, want 1", got)
+	}
+	c.SetGoBGPCompatible(false)
+	m := &dto.Metric{}
+	if err := c.GoBGPEndpointCompatible.Write(m); err != nil || m.GetGauge().GetValue() != 0 {
+		t.Fatalf("gobfd_gobgp_endpoint_compatible after false = %v (%v), want 0", m.GetGauge().GetValue(), err)
+	}
+}

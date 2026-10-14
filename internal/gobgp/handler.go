@@ -85,6 +85,7 @@ type Handler struct {
 	dampener *Dampener
 	timeout  time.Duration
 	managed  func(peerAddr string) bool
+	onAction func(rpc string, err error)
 	logger   *slog.Logger
 
 	// pending is owned by the Run goroutine.
@@ -121,6 +122,10 @@ type HandlerConfig struct {
 	// treats every peer as managed.
 	Managed func(peerAddr string) bool
 
+	// OnAction, when set, receives the GoBGP RPC name and result of every
+	// action attempt, including retries. It runs on the handler goroutine.
+	OnAction func(rpc string, err error)
+
 	// Logger is the parent logger. The handler adds its own component tag.
 	Logger *slog.Logger
 }
@@ -147,6 +152,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		dampener: NewDampener(cfg.Dampening, cfg.Logger),
 		timeout:  timeout,
 		managed:  cfg.Managed,
+		onAction: cfg.OnAction,
 		pending:  make(map[string]*pendingAction),
 		logger: cfg.Logger.With(
 			slog.String("component", "gobgp.handler"),
@@ -333,10 +339,15 @@ func (h *Handler) handleUp(ctx context.Context, peerAddr string, p *pendingActio
 // it; a transient error schedules a retry with exponential backoff.
 func (h *Handler) apply(ctx context.Context, peerAddr string, p *pendingAction) {
 	var err error
+	rpc := "EnablePeer"
 	if p.down {
+		rpc = "DisablePeer"
 		err = h.applyDownAction(ctx, peerAddr, p.sc)
 	} else {
 		err = h.applyUpAction(ctx, peerAddr, p.sc)
+	}
+	if h.onAction != nil && ctx.Err() == nil {
+		h.onAction(rpc, err)
 	}
 
 	switch {

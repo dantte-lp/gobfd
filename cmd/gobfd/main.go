@@ -103,7 +103,8 @@ func run() int {
 	defer mgr.Close()
 
 	// 7. Run servers.
-	if err := runServers(cfg, mgr, sf, reg, logger, *configPath, logLevel, fr); err != nil {
+	warnUnauthenticatedBinds(logger, map[string]string{"grpc": cfg.GRPC.Addr, "metrics": cfg.Metrics.Addr})
+	if err := runServers(cfg, mgr, sf, reg, collector, logger, *configPath, logLevel, fr); err != nil {
 		logger.Error("gobfd exited with error",
 			slog.String("error", err.Error()),
 		)
@@ -121,12 +122,12 @@ func runServers(
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
 	reg *prometheus.Registry,
+	collector *bfdmetrics.Collector,
 	logger *slog.Logger,
 	configPath string,
 	logLevel *slog.LevelVar,
 	fr *trace.FlightRecorder,
 ) error {
-	warnUnauthenticatedBinds(logger, map[string]string{"grpc": cfg.GRPC.Addr, "metrics": cfg.Metrics.Addr})
 	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
 	healthChecker := newDaemonHealthChecker()
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, logger)
@@ -162,7 +163,8 @@ func runServers(
 
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
 	// GoBGP integration goroutine (RFC 5882 Section 4.3).
-	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, goBGPManagedPeers(cfg.Sessions), mgr, logger)
+	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, goBGPManagedPeers(cfg.Sessions), mgr,
+		goBGPStatusFor(cfg.GoBGP, healthChecker, collector), logger)
 	if err != nil {
 		return fmt.Errorf("start gobgp handler: %w", err)
 	}

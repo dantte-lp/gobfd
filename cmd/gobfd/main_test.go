@@ -2356,6 +2356,7 @@ func TestStartGoBGPHandlerWarnsForPlaintextNonLoopback(t *testing.T) {
 		config.GoBGPConfig{Enabled: true, Addr: ""},
 		nil,
 		nil,
+		nil,
 		logger,
 	)
 	if err == nil {
@@ -2392,6 +2393,7 @@ func TestStartGoBGPHandlerRejectsIncompatibleEndpoint(t *testing.T) {
 		t.Context(),
 		new(errgroup.Group),
 		config.GoBGPConfig{Enabled: true, Addr: listener.Addr().String(), ActionTimeout: 5 * time.Second},
+		nil,
 		nil,
 		nil,
 		slog.New(slog.DiscardHandler),

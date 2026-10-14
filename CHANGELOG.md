@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GoBGP integration failures are visible (GitHub #86): metrics
+  `gobfd_gobgp_rpc_errors_total{rpc}` and `gobfd_gobgp_endpoint_compatible`,
+  and the named health check `gobfd.gobgp`, which is `NOT_SERVING` until the
+  GoBGP v4 preflight passes and after a failed preflight or peer action.
 - RFC 9468 unsolicited authentication (Section 6.2): `unsolicited.auth`
   accepts only `meticulous_keyed_sha1`, the strongest mechanism GoBFD
   supports. The packet that would create a session is verified before the
