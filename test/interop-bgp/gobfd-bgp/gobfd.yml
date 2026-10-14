@@ -14,7 +14,7 @@
 # GoBFD gRPC is at :50052 (different port to avoid conflict).
 
 grpc:
-  addr: ":50052"
+  addr: "127.0.0.1:50052"
 
 metrics:
   addr: ":9100"

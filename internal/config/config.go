@@ -58,8 +58,9 @@ type SocketConfig struct {
 
 // GRPCConfig holds the ConnectRPC server configuration.
 type GRPCConfig struct {
-	// Addr is the gRPC listen address (default "127.0.0.1:50052"). Empty
-	// disables the TCP listener when Socket.Path is set.
+	// Addr is the optional TCP listen address; empty (the default) opens no
+	// TCP listener. Plaintext TCP must be loopback; a non-loopback address
+	// needs TLS (gobfd-330.3).
 	Addr string `koanf:"addr"`
 
 	// Socket configures the optional Unix socket listener. Requests over it
@@ -69,6 +70,11 @@ type GRPCConfig struct {
 	// TLS turns the TCP listener into mTLS: clients must present a
 	// certificate from ClientCAFile (gobfd-330.2).
 	TLS GRPCTLSConfig `koanf:"tls"`
+
+	// UnsafeLoopbackMutations lets anonymous plaintext loopback TCP clients
+	// call mutating RPCs. Without it they can only read. The gobfd.management
+	// health check is NOT_SERVING while it is set.
+	UnsafeLoopbackMutations bool `koanf:"unsafe_loopback_mutations"`
 }
 
 // GRPCTLSConfig holds the mTLS files of the TCP management listener. The
@@ -803,8 +809,8 @@ func (sc SessionConfig) LocalAddr() (netip.Addr, error) {
 // conservative starting point for production deployments.
 func DefaultConfig() *Config {
 	return &Config{
-		// Loopback: the API is unauthenticated; 50051 is the gobgpd port.
-		GRPC: GRPCConfig{Addr: "127.0.0.1:50052", Socket: GRPCSocketConfig{Mode: "0660"}},
+		// Only the management socket: callers carry a peer-UID principal.
+		GRPC: GRPCConfig{Socket: GRPCSocketConfig{Path: "/run/gobfd/gobfd.sock", Mode: "0660"}},
 		Metrics: MetricsConfig{
 			// Metrics are unauthenticated; bind beyond loopback explicitly.
 			Addr: "127.0.0.1:9100",
@@ -1056,6 +1062,7 @@ func envKeyMapper(s string) string {
 func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 	defaultMap := map[string]any{
 		"grpc.addr":                          defaults.GRPC.Addr,
+		"grpc.socket.path":                   defaults.GRPC.Socket.Path,
 		"grpc.socket.mode":                   defaults.GRPC.Socket.Mode,
 		"metrics.addr":                       defaults.Metrics.Addr,
 		"metrics.path":                       defaults.Metrics.Path,
@@ -1113,6 +1120,10 @@ var (
 
 	// ErrInvalidGRPCSocket indicates an invalid management socket setting.
 	ErrInvalidGRPCSocket = errors.New("grpc.socket is invalid")
+
+	// ErrPlaintextNonLoopbackGRPC indicates a plaintext management TCP
+	// listener on a non-loopback or wildcard address.
+	ErrPlaintextNonLoopbackGRPC = errors.New("grpc.addr is not loopback; set grpc.tls for remote management")
 
 	// ErrInvalidGRPCTLS indicates incomplete mTLS settings or mTLS without a
 	// TCP listener.
@@ -1569,6 +1580,9 @@ func validateGRPC(cfg GRPCConfig) error {
 		cfg.TLS.ClientCAFile == "" || cfg.Addr == "") {
 		return ErrInvalidGRPCTLS
 	}
+	if cfg.Addr != "" && !cfg.TLS.Enabled() && !IsLoopbackListenAddr(cfg.Addr) {
+		return fmt.Errorf("grpc.addr %q: %w", cfg.Addr, ErrPlaintextNonLoopbackGRPC)
+	}
 	if cfg.Socket.Path == "" {
 		return nil
 	}
@@ -1579,6 +1593,20 @@ func validateGRPC(cfg GRPCConfig) error {
 		return err
 	}
 	return nil
+}
+
+// IsLoopbackListenAddr reports whether a host:port listen address binds only
+// loopback: a loopback IP or "localhost". An empty host is a wildcard.
+func IsLoopbackListenAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 // ParseSocketMode parses an octal permission mode such as "0660".

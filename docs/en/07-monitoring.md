@@ -215,13 +215,15 @@ The flight recorder captures scheduling events, goroutine creation, GC pauses, a
 | Endpoint | Port | Path | Description |
 |---|---|---|---|
 | Prometheus metrics | `127.0.0.1:9100` | `/metrics` | Prometheus scrape target |
-| gRPC API | `127.0.0.1:50052` | -- | ConnectRPC/gRPC API |
-| gRPC Health | `127.0.0.1:50052` | `/grpc.health.v1.Health/Check` | Empty service is reconciliation readiness; named services are process/service health |
+| gRPC API | `unix:///run/gobfd/gobfd.sock` | -- | ConnectRPC/gRPC API; optional TCP via `grpc.addr` |
+| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Empty service is reconciliation readiness; named services are process/service health |
 
 The empty-service check is `NOT_SERVING` before the first converged generation
 and while the latest desired generation is stale, then `SERVING` after full
 convergence. Named checks for `grpc.health.v1.Health`, `bfd.v1.BfdService`,
-`bfd.v1.EchoService`, and `bfd.v1.MicroBFDService` remain `SERVING`. With
+`bfd.v1.EchoService`, and `bfd.v1.MicroBFDService` remain `SERVING`.
+`gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
+lets anonymous loopback clients mutate, `SERVING` otherwise. With
 `gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
 GoBGP v4 preflight passes, and after a failed preflight or a failed
 `DisablePeer`/`EnablePeer` until the next success. systemd

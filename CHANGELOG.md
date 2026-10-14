@@ -55,6 +55,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the management API defaults to the Unix socket
+  `/run/gobfd/gobfd.sock` and opens no TCP listener (`gobfd-330.3`,
+  GitHub #87). Plaintext `grpc.addr` on a non-loopback or wildcard address
+  fails startup; use loopback or `grpc.tls`. Anonymous loopback TCP clients
+  can read but get `PermissionDenied` for `AddSession`, `DeleteSession`,
+  `AddEchoSession`, `DeleteEchoSession`, `AddMicroBFDGroup` and
+  `DeleteMicroBFDGroup` unless `grpc.unsafe_loopback_mutations: true`, which
+  is logged and makes the new `gobfd.management` health check `NOT_SERVING`.
+  `gobfdctl --addr`, `gobfd-haproxy-agent` and `gobfd-exabgp-bridge` default
+  to `unix:///run/gobfd/gobfd.sock`. Packages add group `gobfd-admin`
+  (`gobfd.sysusers`), and the systemd unit gains `RuntimeDirectory=gobfd` and
+  `SupplementaryGroups=gobfd-admin`; the packaged configuration sets the
+  socket group `gobfd-admin`. Container images create `/run/gobfd` and drop
+  `EXPOSE 50051`. The Kubernetes example uses the socket with an exec
+  readiness probe. Migration: bind TCP to loopback or add mTLS, move mutating
+  clients to the socket and add operators to `gobfd-admin`.
 - **Breaking:** listeners without authentication default to loopback
   (GitHub #87). `grpc.addr` defaults to `127.0.0.1:50052` and
   `metrics.addr` to `127.0.0.1:9100`, also in `configs/gobfd.example.yml`,

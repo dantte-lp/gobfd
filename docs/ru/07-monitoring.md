@@ -203,14 +203,17 @@ Flight recorder захватывает события планирования, 
 | Endpoint | Порт | Путь | Описание |
 |---|---|---|---|
 | Метрики Prometheus | `127.0.0.1:9100` | `/metrics` | Цель скрапинга Prometheus |
-| gRPC API | `127.0.0.1:50052` | -- | ConnectRPC/gRPC API |
-| gRPC Health | `127.0.0.1:50052` | `/grpc.health.v1.Health/Check` | Пустой service означает reconciliation readiness; named services означают health процесса/service |
+| gRPC API | `unix:///run/gobfd/gobfd.sock` | -- | ConnectRPC/gRPC API; необязательный TCP через `grpc.addr` |
+| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Пустой service означает reconciliation readiness; named services означают health процесса/service |
 
 Проверка с пустым service возвращает `NOT_SERVING` до первого converged
 generation и пока последний desired generation остаётся stale, затем `SERVING`
 после полного convergence. Named checks `grpc.health.v1.Health`,
 `bfd.v1.BfdService`, `bfd.v1.EchoService` и `bfd.v1.MicroBFDService` остаются
-`SERVING`. При `gobgp.enabled` named check `gobfd.gobgp` находится в
+`SERVING`. `gobfd.management` находится в `NOT_SERVING`, пока
+`grpc.unsafe_loopback_mutations` разрешает анонимным клиентам на loopback
+изменять состояние, иначе `SERVING`. При `gobgp.enabled` named check
+`gobfd.gobgp` находится в
 `NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
 preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха.
 systemd `READY=1` продолжает описывать запуск процесса/listeners, а не

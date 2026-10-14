@@ -37,7 +37,9 @@ GoBFD loads configuration from three sources, applied in order (later sources ov
 # See: configs/gobfd.example.yml
 
 grpc:
-  addr: "127.0.0.1:50052"
+  socket:
+    path: "/run/gobfd/gobfd.sock"
+    group: "gobfd-admin"
 
 metrics:
   addr: "127.0.0.1:9100"
@@ -77,7 +79,7 @@ geneve:
 # GoBGP integration (RFC 5882 Section 4.3)
 gobgp:
   enabled: true
-  addr: "127.0.0.1:50052"
+  addr: "127.0.0.1:50051"
   strategy: "disable-peer"   # the only implemented strategy
   action_timeout: "5s"
   tls:
@@ -124,8 +126,9 @@ sessions:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `addr` | string | `"127.0.0.1:50052"` | gRPC (ConnectRPC) listen address; unauthenticated, so loopback by default, and not 50051, the gobgpd default. Empty disables TCP when `socket.path` is set |
-| `socket.path` | string | `""` | Absolute path of the management Unix socket; empty disables it |
+| `addr` | string | `""` | Optional TCP listen address; empty opens no TCP listener. Plaintext must be loopback; a non-loopback address needs `tls` |
+| `unsafe_loopback_mutations` | bool | `false` | Lets anonymous plaintext loopback TCP clients call mutating RPCs; `gobfd.management` health is `NOT_SERVING` while set |
+| `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Absolute path of the management Unix socket; empty disables it |
 | `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |
 | `socket.group` | string | `""` | Group that owns the socket file; empty keeps the daemon's group |
 | `tls.cert_file` | string | `""` | Server certificate (PEM) of the TCP listener; with `key_file` and `client_ca_file` it enables mTLS |
@@ -142,8 +145,21 @@ rotation needs no restart; a missing file fails startup. `grpc.tls` requires
 `grpc.addr` and suppresses the startup warning for a non-loopback address.
 Access control is the socket mode and group, so use a dedicated admin group
 rather than the daemon group, which can read `/etc/gobfd`. `grpc.socket` is
-restart-only. The socket becomes the default in `gobfd-330.3`
-([transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)).
+restart-only ([transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)).
+
+Anonymous callers are plain TCP clients without mTLS, which can bind only
+loopback. They may read (`List*`, `Get*`, `Watch*`) but receive
+`PermissionDenied` for `AddSession`, `DeleteSession`, `AddEchoSession`,
+`DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` unless
+`unsafe_loopback_mutations` is set. Socket and mTLS callers carry a principal
+and may mutate.
+
+**Upgrading from a TCP-only configuration:** a non-loopback plaintext
+`grpc.addr` (for example `":50052"`) now fails startup; bind it to loopback
+or add `grpc.tls`. Move mutating clients to the socket (`gobfdctl --addr
+unix:///run/gobfd/gobfd.sock`, the new default) and add operators to group
+`gobfd-admin`, or set `unsafe_loopback_mutations: true` as a transitional,
+visibly unsafe mode. A configured `grpc.addr` keeps its TCP listener.
 
 #### `metrics` -- Prometheus Endpoint
 
@@ -475,7 +491,7 @@ built-in defaults.
 
 | Environment Variable | Config Key | Example |
 |---|---|---|
-| `GOBFD_GRPC_ADDR` | `grpc.addr` | `"127.0.0.1:50052"` |
+| `GOBFD_GRPC_ADDR` | `grpc.addr` | `"127.0.0.1:50052"` (loopback; default empty) |
 | `GOBFD_METRICS_ADDR` | `metrics.addr` | `"127.0.0.1:9100"` |
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
@@ -745,7 +761,8 @@ skipped. Already accepted source changes are not rolled back.
 
 | Key | Default Value | Rationale |
 |---|---|---|
-| `grpc.addr` | `127.0.0.1:50052` | Loopback, unauthenticated API; 50051 is the gobgpd default |
+| `grpc.addr` | empty | No TCP listener; 50051 stays with gobgpd |
+| `grpc.socket.path` | `/run/gobfd/gobfd.sock` | Management socket with peer-UID principals |
 | `metrics.addr` | `127.0.0.1:9100` | Standard exporter port on loopback; the endpoint has no authentication |
 | `metrics.path` | `/metrics` | Prometheus convention |
 | `log.level` | `info` | Production default |

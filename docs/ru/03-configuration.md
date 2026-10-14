@@ -39,7 +39,9 @@ GoBFD загружает конфигурацию из трёх источник
 # См.: configs/gobfd.example.yml
 
 grpc:
-  addr: "127.0.0.1:50052"
+  socket:
+    path: "/run/gobfd/gobfd.sock"
+    group: "gobfd-admin"
 
 metrics:
   addr: "127.0.0.1:9100"
@@ -79,7 +81,7 @@ geneve:
 # Интеграция с GoBGP (RFC 5882 Section 4.3)
 gobgp:
   enabled: true
-  addr: "127.0.0.1:50052"
+  addr: "127.0.0.1:50051"
   strategy: "disable-peer"   # единственная реализованная стратегия
   action_timeout: "5s"
   tls:
@@ -126,8 +128,9 @@ sessions:
 
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| `addr` | string | `"127.0.0.1:50052"` | Адрес прослушивания gRPC (ConnectRPC); без аутентификации, поэтому loopback, и не 50051 — порт gobgpd по умолчанию. Пустое значение отключает TCP, если задан `socket.path` |
-| `socket.path` | string | `""` | Абсолютный путь Unix-сокета управления; пустое значение отключает его |
+| `addr` | string | `""` | Необязательный TCP-адрес; пустое значение не открывает TCP. Plaintext только на loopback; non-loopback адрес требует `tls` |
+| `unsafe_loopback_mutations` | bool | `false` | Разрешает анонимным plaintext-клиентам на loopback TCP изменяющие RPC; health `gobfd.management` при этом `NOT_SERVING` |
+| `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Абсолютный путь Unix-сокета управления; пустое значение отключает его |
 | `socket.mode` | string | `"0660"` | Восьмеричные права файла сокета |
 | `socket.group` | string | `""` | Группа-владелец файла сокета; пустое значение оставляет группу демона |
 | `tls.cert_file` | string | `""` | Сертификат сервера (PEM) TCP-listener; вместе с `key_file` и `client_ca_file` включает mTLS |
@@ -144,8 +147,22 @@ HTTP/2 и HTTP/1.1 через ALPN; принципал — первый URI SAN 
 отключает предупреждение при запуске для non-loopback адреса. Доступ задают
 права и группа сокета, поэтому нужна отдельная группа администраторов, а не
 группа демона, которая читает `/etc/gobfd`. `grpc.socket` меняется только
-перезапуском. Сокет станет значением по умолчанию в `gobfd-330.3`
-([решение о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)).
+перезапуском ([решение о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)).
+
+Анонимные вызывающие — plaintext TCP-клиенты без mTLS, такой listener может
+быть только на loopback. Они могут читать (`List*`, `Get*`, `Watch*`), но
+получают `PermissionDenied` для `AddSession`, `DeleteSession`,
+`AddEchoSession`, `DeleteEchoSession`, `AddMicroBFDGroup` и
+`DeleteMicroBFDGroup`, если не задан `unsafe_loopback_mutations`. Клиенты
+через сокет и mTLS несут принципал и могут изменять состояние.
+
+**Переход с конфигурации только с TCP:** plaintext `grpc.addr` на non-loopback
+адресе (например, `":50052"`) теперь останавливает запуск; привяжите его к
+loopback или добавьте `grpc.tls`. Переведите изменяющих клиентов на сокет
+(`gobfdctl --addr unix:///run/gobfd/gobfd.sock`, новое значение по
+умолчанию) и добавьте операторов в группу `gobfd-admin`, либо задайте
+`unsafe_loopback_mutations: true` как переходный, явно небезопасный режим.
+Заданный `grpc.addr` сохраняет TCP-listener.
 
 #### `metrics` -- Endpoint Prometheus
 
@@ -476,7 +493,7 @@ YAML, а YAML перекрывает встроенные defaults.
 
 | Переменная | Ключ конфигурации | Пример |
 |---|---|---|
-| `GOBFD_GRPC_ADDR` | `grpc.addr` | `"127.0.0.1:50052"` |
+| `GOBFD_GRPC_ADDR` | `grpc.addr` | `"127.0.0.1:50052"` (loopback; по умолчанию пусто) |
 | `GOBFD_METRICS_ADDR` | `metrics.addr` | `"127.0.0.1:9100"` |
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
@@ -744,7 +761,8 @@ source VXLAN или Geneve без работающего backend считает�
 
 | Ключ | Значение | Обоснование |
 |---|---|---|
-| `grpc.addr` | `127.0.0.1:50052` | Loopback, API без аутентификации; 50051 — порт gobgpd по умолчанию |
+| `grpc.addr` | пусто | Без TCP-listener; 50051 остаётся за gobgpd |
+| `grpc.socket.path` | `/run/gobfd/gobfd.sock` | Сокет управления с принципалами по UID peer |
 | `metrics.addr` | `127.0.0.1:9100` | Стандартный порт экспортёра на loopback; endpoint без аутентификации |
 | `metrics.path` | `/metrics` | Конвенция Prometheus |
 | `log.level` | `info` | Production по умолчанию |

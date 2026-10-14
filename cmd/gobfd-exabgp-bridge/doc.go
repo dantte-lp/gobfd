@@ -10,7 +10,7 @@ the bridge withdraws the prefix.
 
 Usage:
 
-	GOBFD_ADDR=http://127.0.0.1:50052 \
+	GOBFD_ADDR=unix:///run/gobfd/gobfd.sock \
 	GOBFD_PEER=192.0.2.2 \
 	ANYCAST_PREFIX=198.51.100.1/32 \
 	gobfd-exabgp-bridge
@@ -20,7 +20,7 @@ The environment variables are:
 	GOBFD_ADDR
 		GoBFD ConnectRPC endpoint: http://host:port, https://host:port,
 		unix:///path or a bare host:port. The default is
-		http://127.0.0.1:50052.
+		unix:///run/gobfd/gobfd.sock.
 	GOBFD_TLS_CA_FILE, GOBFD_TLS_CERT_FILE, GOBFD_TLS_KEY_FILE
 		Client TLS files for an https:// endpoint: the CA of the daemon
 		certificate and the client certificate and key for mTLS.

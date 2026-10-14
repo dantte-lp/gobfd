@@ -30,7 +30,7 @@ func run() int {
 		return 0
 	}
 
-	gobfdAddr := envOrDefault("GOBFD_ADDR", "http://127.0.0.1:50052")
+	gobfdAddr := envOrDefault("GOBFD_ADDR", "unix:///run/gobfd/gobfd.sock")
 	peer := os.Getenv("GOBFD_PEER")
 	prefix := os.Getenv("ANYCAST_PREFIX")
 

@@ -1,6 +1,8 @@
 FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS builder
 
-RUN groupadd -r gobfd && useradd -r -g gobfd -s /sbin/nologin gobfd
+RUN groupadd -r gobfd && groupadd -r gobfd-admin \
+    && useradd -r -g gobfd -G gobfd-admin -s /sbin/nologin gobfd \
+    && install -d -o gobfd -g gobfd -m 0755 /run/gobfd
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -29,11 +31,13 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/
+# Directory of the default management socket /run/gobfd/gobfd.sock.
+COPY --from=builder --chown=gobfd:gobfd /run/gobfd /run/gobfd
 
 USER gobfd:gobfd
 
 # Set GOMEMLIMIT at deployment time only after workload qualification.
 
-EXPOSE 3784/udp 4784/udp 50051
+EXPOSE 3784/udp 4784/udp
 
 ENTRYPOINT ["/bin/gobfd"]

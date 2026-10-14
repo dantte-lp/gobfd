@@ -55,6 +55,23 @@
 
 ### Изменено
 
+- **Breaking:** API управления по умолчанию работает через Unix-сокет
+  `/run/gobfd/gobfd.sock` и не открывает TCP (`gobfd-330.3`, GitHub #87).
+  Plaintext `grpc.addr` на non-loopback или wildcard адресе останавливает
+  запуск; используйте loopback или `grpc.tls`. Анонимные клиенты на loopback
+  TCP могут читать, но получают `PermissionDenied` для `AddSession`,
+  `DeleteSession`, `AddEchoSession`, `DeleteEchoSession`, `AddMicroBFDGroup`
+  и `DeleteMicroBFDGroup`, если не задан `grpc.unsafe_loopback_mutations:
+  true`; этот режим логируется и переводит новый health check
+  `gobfd.management` в `NOT_SERVING`. `gobfdctl --addr`,
+  `gobfd-haproxy-agent` и `gobfd-exabgp-bridge` по умолчанию используют
+  `unix:///run/gobfd/gobfd.sock`. Пакеты добавляют группу `gobfd-admin`
+  (`gobfd.sysusers`), systemd unit получает `RuntimeDirectory=gobfd` и
+  `SupplementaryGroups=gobfd-admin`; конфигурация из пакета задаёт группу
+  сокета `gobfd-admin`. Образы создают `/run/gobfd` и больше не объявляют
+  `EXPOSE 50051`. Пример Kubernetes использует сокет и exec readiness probe.
+  Миграция: привяжите TCP к loopback или добавьте mTLS, переведите изменяющих
+  клиентов на сокет и добавьте операторов в `gobfd-admin`.
 - **Breaking:** listener без аутентификации по умолчанию слушают loopback
   (GitHub #87). `grpc.addr` по умолчанию `127.0.0.1:50052`, `metrics.addr`
   — `127.0.0.1:9100`, в том числе в `configs/gobfd.example.yml`, который

@@ -42,31 +42,38 @@ packets when the deployment can coordinate keys.
 
 ## ConnectRPC API
 
-The daemon currently serves ConnectRPC over `net/http` with h2c so gRPC clients
-can connect without TLS on localhost. ConnectRPC itself uses regular Go HTTP
-handlers; TLS or mTLS must be provided by the Go HTTP server in a future
-native-TLS change, or by a local sidecar/reverse proxy today.
+The management API can create and delete sessions. Its boundary follows the
+[transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
+(`gobfd-330`):
+
+- By default the daemon serves only the Unix socket `/run/gobfd/gobfd.sock`
+  (mode 0660). The packaged configuration sets group `gobfd-admin`; operators
+  join that group, not `gobfd`, which can read `/etc/gobfd` and its BFD
+  secrets. Each request carries the kernel-reported peer UID as principal
+  (`principal=uid:<n>` in RPC logs).
+- `grpc.addr` adds an optional TCP listener. Plaintext TCP must be loopback;
+  the daemon refuses to start with a non-loopback or wildcard plaintext
+  address. Anonymous loopback clients can read but not mutate unless
+  `grpc.unsafe_loopback_mutations` is set, which is logged at startup and
+  turns the `gobfd.management` health check `NOT_SERVING`.
+- `grpc.tls` turns the TCP listener into mTLS (`RequireAndVerifyClientCert`);
+  it is required for a non-loopback address. The principal is the client
+  certificate URI SAN (SPIFFE) or DNS SAN. Files are re-read on every
+  handshake; revocation is not checked, so use short-lived certificates.
 
 Production rules:
 
-- Keep `grpc.addr` on loopback (default `127.0.0.1:50052`) or in a Unix-local
-  network namespace.
-- If the API must cross a host boundary, terminate mTLS in a local proxy and
-  expose only the proxy to the network.
-- Treat `AddSession`, `DeleteSession`, and future transport-specific create
-  RPCs as write-sensitive network-control operations.
-- Do not expose the control API on an untrusted management network.
+- Keep the default socket and grant access through `gobfd-admin`.
+- Use mTLS for any API access across a host boundary; never expose plaintext.
+- Treat `AddSession`, `DeleteSession`, `AddEchoSession`,
+  `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` as
+  write-sensitive network-control operations.
+- Do not enable `grpc.unsafe_loopback_mutations` on shared hosts or with
+  Kubernetes `hostNetwork`, where loopback is reachable by every host
+  process.
 
-Available now: `grpc.tls` (mTLS with client certificates for the TCP
-listener) and `grpc.socket` (Unix socket with peer-UID principals). Use mTLS
-instead of a local proxy when the API must cross a host boundary.
-
-Planned v1 boundary (`gobfd-330`,
-[transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)):
-a Unix socket `/run/gobfd/gobfd.sock` (0660, group `gobfd-admin`) by default
-with the kernel peer UID as principal; loopback TCP for reads, with
-mutations only behind an explicit unsafe opt-in; non-loopback TCP only with
-mTLS.
+Session claims are not yet scoped to principals; that and mTLS roles follow
+in `gobfd-330.4`.
 
 ## GoBGP Integration
 

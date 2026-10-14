@@ -127,7 +127,9 @@ func TestSystemdDeclarativeInputs(t *testing.T) {
 		{
 			name: "sysusers",
 			path: "deployments/systemd/gobfd.sysusers",
-			want: "u gobfd - \"GoBFD daemon\" /nonexistent -\n",
+			// gobfd-admin owns the management socket; it is separate from the
+			// daemon group, which can read /etc/gobfd (gobfd-330.3).
+			want: "u gobfd - \"GoBFD daemon\" /nonexistent -\ng gobfd-admin -\n",
 		},
 		{
 			name: "tmpfiles",

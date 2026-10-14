@@ -4,7 +4,7 @@
 # announces the anycast prefix; when Down, it withdraws it.
 
 grpc:
-  addr: ":50052"
+  addr: "127.0.0.1:50052"
 
 metrics:
   addr: ":9100"

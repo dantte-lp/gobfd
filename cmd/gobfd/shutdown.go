@@ -176,7 +176,10 @@ func newGRPCServer(
 	// BFD, Echo (RFC 9747) and Micro-BFD (RFC 7130) services share one server
 	// with logging and panic recovery. connect v2 bounds each message to its
 	// default read limit (4 MiB) instead of the unbounded v1 behavior.
-	rpc := connect.NewServer(server.LoggingInterceptor(logger), server.RecoveryInterceptor(logger))
+	// Anonymous loopback TCP callers may only read unless the unsafe opt-in
+	// is set (gobfd-330.3).
+	rpc := connect.NewServer(server.LoggingInterceptor(logger), server.RecoveryInterceptor(logger),
+		server.MutationGuardInterceptor(cfg.UnsafeLoopbackMutations))
 	server.Register(rpc, mgr, sf, logger)
 	server.RegisterEcho(rpc, mgr, sf, logger)
 	server.RegisterMicroBFD(rpc, mgr, logger)
@@ -187,6 +190,11 @@ func newGRPCServer(
 	// readiness. Named health and BFD services remain SERVING while the
 	// process serves requests.
 	health := connect.NewServer()
+	reportManagementSafety(checker, cfg)
+	if cfg.UnsafeLoopbackMutations {
+		logger.Warn("anonymous loopback TCP clients may mutate sessions (grpc.unsafe_loopback_mutations)",
+			slog.String("addr", cfg.Addr))
+	}
 	grpchealth.Register(health, checker)
 	connecthttp.Mount(mux, health)
 	protocols := new(http.Protocols)

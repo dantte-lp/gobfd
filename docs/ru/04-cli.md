@@ -33,7 +33,7 @@ gobfdctl [глобальные флаги] <команда> [подкоманд�
 
 | Флаг | По умолчанию | Описание |
 |---|---|---|
-| `--addr` | `127.0.0.1:50052` | Endpoint демона gobfd: `host:port`, `http://host:port`, `https://host:port` или `unix:///path` (сокет управления) |
+| `--addr` | `unix:///run/gobfd/gobfd.sock` | Endpoint демона gobfd: `host:port`, `http://host:port`, `https://host:port` или `unix:///path` (сокет управления) |
 | `--tls-ca` | `""` | Файл CA, подписавшего сертификат демона (endpoint `https://`) |
 | `--tls-cert` | `""` | Файл сертификата клиента для mTLS |
 | `--tls-key` | `""` | Файл ключа клиента для mTLS |

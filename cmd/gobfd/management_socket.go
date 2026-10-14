@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
+
+	"connectrpc.com/grpchealth/v2"
 
 	"github.com/dantte-lp/gobfd/internal/config"
 )
@@ -38,6 +41,14 @@ func listenManagementSocket(ctx context.Context, cfg config.GRPCSocketConfig) (n
 	mode, err := config.ParseSocketMode(cfg.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("management socket: %w", err)
+	}
+	// The socket directory comes from systemd RuntimeDirectory= or a
+	// container image; create it when missing, as for a root container.
+	// 0755 like systemd RuntimeDirectoryMode=0755: the admin group does not
+	// own the directory, and the socket's own mode is the access gate.
+	//nolint:gosec // G301: group traversal is required; the socket mode gates access.
+	if mkdirErr := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); mkdirErr != nil {
+		return nil, fmt.Errorf("create management socket directory: %w", mkdirErr)
 	}
 	if staleErr := removeStaleSocket(ctx, cfg.Path); staleErr != nil {
 		return nil, staleErr
@@ -119,4 +130,18 @@ func serveManagementSocket(
 		return fmt.Errorf("serve on %s: %w", cfg.Path, err)
 	}
 	return nil
+}
+
+// managementHealthServiceName is the grpc.health.v1 service that reports
+// whether the management API refuses anonymous mutations.
+const managementHealthServiceName = "gobfd.management"
+
+// reportManagementSafety sets gobfd.management to NOT_SERVING while the
+// unsafe loopback mutation opt-in is enabled, SERVING otherwise.
+func reportManagementSafety(checker *grpchealth.StaticChecker, cfg config.GRPCConfig) {
+	status := grpchealth.StatusServing
+	if cfg.UnsafeLoopbackMutations {
+		status = grpchealth.StatusNotServing
+	}
+	checker.SetStatus(managementHealthServiceName, status)
 }

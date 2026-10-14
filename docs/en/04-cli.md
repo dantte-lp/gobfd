@@ -33,7 +33,7 @@ gobfdctl [global flags] <command> [subcommand] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--addr` | `127.0.0.1:50052` | gobfd daemon endpoint: `host:port`, `http://host:port`, `https://host:port` or `unix:///path` (management socket) |
+| `--addr` | `unix:///run/gobfd/gobfd.sock` | gobfd daemon endpoint: `host:port`, `http://host:port`, `https://host:port` or `unix:///path` (management socket) |
 | `--tls-ca` | `""` | CA file that signed the daemon certificate (`https://` endpoints) |
 | `--tls-cert` | `""` | Client certificate file for mTLS |
 | `--tls-key` | `""` | Client key file for mTLS |

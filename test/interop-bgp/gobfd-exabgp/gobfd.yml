@@ -11,7 +11,7 @@
 # GoBFD gRPC is at :50052 (ExaBGP does not use this port).
 
 grpc:
-  addr: ":50052"
+  addr: "127.0.0.1:50052"
 
 metrics:
   addr: ":9101"

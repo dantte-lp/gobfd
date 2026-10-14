@@ -41,15 +41,12 @@ spec:
             - name: bfd-multihop
               containerPort: 4784
               protocol: UDP
-            - name: grpc
-              containerPort: 50052
-              protocol: TCP
             - name: metrics
               containerPort: 9100
               protocol: TCP
           readinessProbe:
-            tcpSocket:
-              port: grpc
+            exec:
+              command: ["/bin/gobfdctl", "--addr", "unix:///run/gobfd/gobfd.sock", "session", "list"]
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:

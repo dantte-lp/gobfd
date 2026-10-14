@@ -3,7 +3,7 @@
 # BFD responder: participates in BFD session with the monitor at 172.23.0.10.
 
 grpc:
-  addr: ":50052"
+  addr: "127.0.0.1:50052"
 
 metrics:
   addr: ":9100"

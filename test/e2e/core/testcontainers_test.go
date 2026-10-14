@@ -22,15 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect/v2"
-	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
-	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
 )
@@ -58,7 +54,6 @@ type coreTopology struct {
 
 type coreDaemon struct {
 	container       testcontainers.Container
-	endpoint        string
 	metricsEndpoint string
 }
 
@@ -276,7 +271,7 @@ func startCoreDaemon(
 	request := testcontainers.ContainerRequest{
 		Image:        imageName,
 		Cmd:          []string{"-config", "/etc/gobfd/gobfd.yml"},
-		ExposedPorts: []string{"50051/tcp", "9100/tcp"},
+		ExposedPorts: []string{"9100/tcp"},
 		Labels: map[string]string{
 			"io.gobfd.test": "e2e-core", "io.gobfd.run": runID, "io.gobfd.role": name,
 		},
@@ -310,15 +305,11 @@ func startCoreDaemon(
 	if err != nil {
 		t.Fatalf("start %s: %v", name, err)
 	}
-	endpoint, err := daemon.PortEndpoint(ctx, "50051/tcp", "http")
-	if err != nil {
-		t.Fatalf("resolve %s gRPC endpoint: %v", name, err)
-	}
 	metricsEndpoint, err := daemon.PortEndpoint(ctx, "9100/tcp", "http")
 	if err != nil {
 		t.Fatalf("resolve %s metrics endpoint: %v", name, err)
 	}
-	return coreDaemon{container: daemon, endpoint: endpoint, metricsEndpoint: metricsEndpoint}
+	return coreDaemon{container: daemon, metricsEndpoint: metricsEndpoint}
 }
 
 func prepareBuildContext(t *testing.T, root string) string {
@@ -1053,24 +1044,14 @@ func (topology *coreTopology) writeEnvironment() error {
 		ComposeFile    string `json:"compose_file"`
 		DevProject     string `json:"dev_project"`
 		PodmanRuntime  string `json:"podman_runtime"`
-		AGRPCPort      int    `json:"a_grpc_port"`
 		AMetricsPort   int    `json:"a_metrics_port"`
-		BGRPCPort      int    `json:"b_grpc_port"`
 		BMetricsPort   int    `json:"b_metrics_port"`
 	}
 	devProject := strings.TrimSpace(os.Getenv("COMPOSE_PROJECT_NAME"))
 	if devProject == "" {
 		devProject = filepath.Base(topology.root)
 	}
-	aGRPCPort, err := mappedEndpointPort(topology.daemons["gobfd-a"].endpoint)
-	if err != nil {
-		return err
-	}
 	aMetricsPort, err := mappedEndpointPort(topology.daemons["gobfd-a"].metricsEndpoint)
-	if err != nil {
-		return err
-	}
-	bGRPCPort, err := mappedEndpointPort(topology.daemons["gobfd-b"].endpoint)
 	if err != nil {
 		return err
 	}
@@ -1082,9 +1063,7 @@ func (topology *coreTopology) writeEnvironment() error {
 		Target: "e2e-core", RunID: topology.runID,
 		ComposeProject: "testcontainers-owned", ComposeFile: "", DevProject: devProject,
 		PodmanRuntime: "podman-testcontainers",
-		AGRPCPort:     aGRPCPort,
 		AMetricsPort:  aMetricsPort,
-		BGRPCPort:     bGRPCPort,
 		BMetricsPort:  bMetricsPort,
 	}
 	contents, err := json.MarshalIndent(document, "", "  ")
@@ -1227,40 +1206,31 @@ func (topology *coreTopology) requireSessionUp(t *testing.T, name, peerIP string
 	if !ok {
 		t.Fatalf("topology has no daemon %s", name)
 	}
-	client := bfdv1connect.NewBfdServiceClient(
-		connect.NewClient(connecthttp.NewTransport(http.DefaultClient, daemon.endpoint)))
-	deadline := time.NewTimer(60 * time.Second)
-	defer deadline.Stop()
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
+	// The API listens on loopback inside the container (gobfd-330.3), so the
+	// check reads it with gobfdctl there instead of a mapped host port.
+	deadline := time.Now().Add(60 * time.Second)
 	var last string
-
 	for {
-		requestCtx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-		response, err := client.ListSessions(requestCtx, &bfdv1.ListSessionsRequest{})
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		exitCode, output, err := containertest.Exec(ctx, daemon.container, []string{
+			"/bin/gobfdctl", "--addr", "127.0.0.1:50051", "--format", "json", "session", "list",
+		})
 		cancel()
-		if err != nil {
-			last = err.Error()
-		} else {
-			last = response.String()
-			for _, session := range response.GetSessions() {
-				if session.GetPeerAddress() == peerIP &&
-					session.GetLocalState() == bfdv1.SessionState_SESSION_STATE_UP &&
-					session.GetRemoteState() == bfdv1.SessionState_SESSION_STATE_UP &&
-					session.GetAuthType() == bfdv1.AuthenticationType_AUTHENTICATION_TYPE_SIMPLE_PASSWORD &&
-					session.GetLocalDiscriminator() != 0 && session.GetRemoteDiscriminator() != 0 {
+		last = fmt.Sprintf("exit=%d err=%v output=%s", exitCode, err, output)
+		var sessions []coreSessionView
+		if err == nil && exitCode == 0 && json.Unmarshal([]byte(output), &sessions) == nil {
+			for _, session := range sessions {
+				if session.PeerAddress == peerIP && session.LocalState == "Up" && session.RemoteState == "Up" &&
+					session.AuthType == "SimplePassword" &&
+					session.LocalDiscriminator != 0 && session.RemoteDiscriminator != 0 {
 					return
 				}
 			}
 		}
-
-		select {
-		case <-ticker.C:
-		case <-deadline.C:
+		if time.Now().After(deadline) {
 			t.Fatalf("%s session with peer %s did not reach authenticated Up; last=%s", name, peerIP, last)
-		case <-t.Context().Done():
-			t.Fatalf("wait for %s session with peer %s: %v", name, peerIP, t.Context().Err())
 		}
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 
@@ -1303,7 +1273,7 @@ func coreConfig(localIP, peerIP string) string {
 
 func coreConfigWithLogLevel(localIP, peerIP, logLevel string) string {
 	return fmt.Sprintf(`grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 metrics:
   addr: ":9100"
   path: "/metrics"

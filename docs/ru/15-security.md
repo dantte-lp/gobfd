@@ -43,30 +43,38 @@ spoofing для looped-back Echo-пакетов. Используйте BFD auth
 
 ## ConnectRPC API
 
-Демон сейчас обслуживает ConnectRPC через `net/http` с h2c, чтобы gRPC-клиенты
-могли подключаться без TLS на localhost. ConnectRPC использует обычные Go HTTP
-handlers; TLS или mTLS должны быть реализованы будущей native-TLS настройкой
-HTTP-сервера либо локальным sidecar/reverse proxy уже сейчас.
+API управления может создавать и удалять сессии. Его граница следует
+[решению о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)
+(`gobfd-330`):
+
+- по умолчанию демон обслуживает только Unix-сокет `/run/gobfd/gobfd.sock`
+  (права 0660). Конфигурация из пакета задаёт группу `gobfd-admin`; операторы
+  вступают в неё, а не в `gobfd`, которая читает `/etc/gobfd` с BFD-секретами.
+  Каждый запрос несёт UID peer от ядра как принципал (`principal=uid:<n>` в
+  логах RPC);
+- `grpc.addr` добавляет необязательный TCP-listener. Plaintext TCP только на
+  loopback; с non-loopback или wildcard адресом без TLS демон не запускается.
+  Анонимные клиенты на loopback могут читать, но не изменять, если не задан
+  `grpc.unsafe_loopback_mutations`; этот режим логируется при запуске и
+  переводит health check `gobfd.management` в `NOT_SERVING`;
+- `grpc.tls` превращает TCP-listener в mTLS (`RequireAndVerifyClientCert`) и
+  обязателен для non-loopback адреса. Принципал — URI SAN (SPIFFE) или DNS SAN
+  сертификата клиента. Файлы читаются при каждом handshake; отзыв не
+  проверяется, поэтому используйте короткоживущие сертификаты.
 
 Production-правила:
 
-- оставляйте `grpc.addr` на loopback (по умолчанию `127.0.0.1:50052`) или в
-  локальном network namespace;
-- если API должен пересекать границу хоста, терминируйте mTLS в локальном
-  proxy и публикуйте в сеть только proxy;
-- считайте `AddSession`, `DeleteSession` и будущие transport-specific create
-  RPC write-sensitive операциями управления сетью;
-- не публикуйте control API в недоверенную management-сеть.
+- оставляйте сокет по умолчанию и выдавайте доступ через `gobfd-admin`;
+- для доступа к API через границу хоста используйте mTLS, plaintext не
+  публикуйте;
+- считайте `AddSession`, `DeleteSession`, `AddEchoSession`,
+  `DeleteEchoSession`, `AddMicroBFDGroup` и `DeleteMicroBFDGroup`
+  write-sensitive операциями управления сетью;
+- не включайте `grpc.unsafe_loopback_mutations` на общих хостах и с
+  Kubernetes `hostNetwork`, где loopback доступен всем процессам хоста.
 
-Уже доступны: `grpc.tls` (mTLS с сертификатами клиентов для TCP-listener) и
-`grpc.socket` (Unix-сокет с принципалами по UID peer). Если API должен
-пересекать границу хоста, используйте mTLS вместо локального proxy.
-
-Плановая граница v1 (`gobfd-330`,
-[решение о транспорте](../superpowers/specs/2026-10-15-management-transport-decision.md)):
-по умолчанию Unix-сокет `/run/gobfd/gobfd.sock` (0660, группа `gobfd-admin`)
-с UID peer от ядра в качестве принципала; loopback TCP для чтения, изменения
-только через явный небезопасный opt-in; non-loopback TCP только с mTLS.
+Claims сессий пока не привязаны к принципалам; это и роли mTLS — в
+`gobfd-330.4`.
 
 ## Интеграция с GoBGP
 

@@ -12,7 +12,7 @@
 # tshark-rfc shares this container's network namespace for packet capture.
 
 grpc:
-  addr: ":50052"
+  addr: "127.0.0.1:50052"
 
 log:
   level: "debug"

@@ -14,7 +14,7 @@
 # as a 4th unique BFD peer implementation for protocol conformance testing.
 
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 
 metrics:
   addr: ":9100"

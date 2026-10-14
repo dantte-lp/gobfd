@@ -61,7 +61,7 @@ var rootCmd = &cobra.Command{
 
 //nolint:gochecknoinits // Cobra command flags and subcommands are registered during package initialization.
 func init() {
-	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "127.0.0.1:50052",
+	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "unix:///run/gobfd/gobfd.sock",
 		"gobfd daemon endpoint: host:port, http://host:port, https://host:port or unix:///path")
 	rootCmd.PersistentFlags().StringVar(&tlsFiles.CAFile, "tls-ca", "",
 		"CA file that signed the daemon certificate (https:// endpoints)")

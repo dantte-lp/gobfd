@@ -15,6 +15,11 @@ WatchdogSec=30s
 # Security hardening
 User=gobfd
 Group=gobfd
+# The management socket /run/gobfd/gobfd.sock is 0660 with group gobfd-admin;
+# operators join gobfd-admin, not gobfd, which can read /etc/gobfd.
+SupplementaryGroups=gobfd-admin
+RuntimeDirectory=gobfd
+RuntimeDirectoryMode=0755
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true

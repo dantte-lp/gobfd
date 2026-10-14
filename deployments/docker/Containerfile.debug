@@ -55,6 +55,6 @@ RUN apt-get update \
 
 COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/gobfd-haproxy-agent /bin/gobfd-exabgp-bridge /usr/local/bin/
 
-EXPOSE 3784/udp 4784/udp 50051
+EXPOSE 3784/udp 4784/udp
 
 ENTRYPOINT ["/usr/local/bin/gobfd"]

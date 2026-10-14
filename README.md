@@ -69,7 +69,7 @@ podman compose -f deployments/compose/compose.yml up -d
 ```mermaid
 graph TB
     subgraph "gobfd daemon"
-        SRV["ConnectRPC<br/>127.0.0.1:50052"]
+        SRV["ConnectRPC<br/>/run/gobfd/gobfd.sock"]
         BFD["BFD Core<br/>FSM + Sessions"]
         NET["Raw Sockets<br/>UDP 3784/4784"]
         BGP["GoBGP Client"]

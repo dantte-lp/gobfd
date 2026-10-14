@@ -38,7 +38,7 @@ const (
 	topologyLinkEnds  = 2
 
 	gobfdConfigHeader = `grpc:
-  addr: ":50052"
+  addr: "127.0.0.1:50052"
 metrics:
   addr: ":9100"
   path: "/metrics"

@@ -37,7 +37,7 @@ func main() {
 }
 
 func parseFlags() (string, string) {
-	addr := flag.String("gobfd-addr", envOrDefault("GOBFD_ADDR", "http://127.0.0.1:50052"), "GoBFD gRPC address")
+	addr := flag.String("gobfd-addr", envOrDefault("GOBFD_ADDR", "unix:///run/gobfd/gobfd.sock"), "GoBFD gRPC address")
 	cfg := flag.String("config", "", "path to YAML config file")
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()

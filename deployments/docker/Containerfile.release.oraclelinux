@@ -3,7 +3,9 @@ FROM docker.io/library/oraclelinux:10-slim@sha256:965eb786602f98a4bc9ca449295d44
 RUN microdnf install -y ca-certificates shadow-utils \
     && microdnf clean all \
     && groupadd -r gobfd \
-    && useradd -r -g gobfd -s /sbin/nologin gobfd
+    && groupadd -r gobfd-admin \
+    && useradd -r -g gobfd -G gobfd-admin -s /sbin/nologin gobfd \
+    && install -d -o gobfd -g gobfd -m 0755 /run/gobfd
 
 ARG TARGETPLATFORM
 
@@ -15,6 +17,6 @@ COPY ${TARGETPLATFORM}/gobfd \
 
 USER gobfd:gobfd
 
-EXPOSE 3784/udp 4784/udp 50051
+EXPOSE 3784/udp 4784/udp
 
 ENTRYPOINT ["/usr/local/bin/gobfd"]

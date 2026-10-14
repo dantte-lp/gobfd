@@ -2041,8 +2041,8 @@ func TestLoadConfig(t *testing.T) {
 			path: "",
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
-				if cfg.GRPC.Addr != "127.0.0.1:50052" {
-					t.Errorf("GRPC.Addr = %q, want 127.0.0.1:50052", cfg.GRPC.Addr)
+				if cfg.GRPC.Addr != "" || cfg.GRPC.Socket.Path != "/run/gobfd/gobfd.sock" {
+					t.Errorf("GRPC = %+v, want only the /run/gobfd/gobfd.sock socket", cfg.GRPC)
 				}
 				if cfg.BFD.DefaultDetectMultiplier != 3 {
 					t.Errorf("DefaultDetectMultiplier = %d, want 3", cfg.BFD.DefaultDetectMultiplier)
@@ -2061,7 +2061,7 @@ func TestLoadConfig(t *testing.T) {
 				if err != nil {
 					t.Fatalf("create temp file: %v", err)
 				}
-				if _, err := f.WriteString("grpc:\n  addr: ':9999'\n"); err != nil {
+				if _, err := f.WriteString("grpc:\n  addr: '127.0.0.1:9999'\n"); err != nil {
 					t.Fatalf("write temp file: %v", err)
 				}
 				f.Close()
@@ -2069,8 +2069,8 @@ func TestLoadConfig(t *testing.T) {
 			}(),
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
-				if cfg.GRPC.Addr != ":9999" {
-					t.Errorf("GRPC.Addr = %q, want :9999", cfg.GRPC.Addr)
+				if cfg.GRPC.Addr != "127.0.0.1:9999" {
+					t.Errorf("GRPC.Addr = %q, want 127.0.0.1:9999", cfg.GRPC.Addr)
 				}
 			},
 		},

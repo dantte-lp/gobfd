@@ -229,7 +229,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 podman compose -f deployments/compose/compose.yml up -d
 
 # Сервисы:
-#   gobfd gRPC API:   127.0.0.1:50052
+#   gobfd API:        unix:///run/gobfd/gobfd.sock (host)
 #   Prometheus:       http://localhost:9090
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
@@ -237,7 +237,7 @@ podman compose -f deployments/compose/compose.yml up -d
 ```mermaid
 graph LR
     subgraph "Podman Compose"
-        G["gobfd<br/>127.0.0.1:50052 gRPC<br/>127.0.0.1:9100 metrics"]
+        G["gobfd<br/>/run/gobfd/gobfd.sock API<br/>127.0.0.1:9100 metrics"]
         P["Prometheus<br/>:9090"]
         GR["Grafana<br/>:3000"]
     end

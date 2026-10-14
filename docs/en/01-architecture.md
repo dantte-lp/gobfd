@@ -438,7 +438,7 @@ gobfd/
 
 | Port | Protocol | Purpose | Status |
 |---|---|---|---|
-| 50052 | ConnectRPC (gRPC) | Session management API | Active |
+| `/run/gobfd/gobfd.sock` | ConnectRPC (gRPC) over a Unix socket | Session management API; optional TCP via `grpc.addr` | Active |
 | 9100 | HTTP | Prometheus metrics (`/metrics`) | Active |
 
 ### Related Documents

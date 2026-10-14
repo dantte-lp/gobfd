@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log/slog"
 	"math"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,10 +25,9 @@ func TestDefaultConfig(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 
-	// gh-87: the API is unauthenticated, so it binds to loopback, on 50052:
-	// gobgpd serves its own API on 50051 by default.
-	if cfg.GRPC.Addr != "127.0.0.1:50052" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, "127.0.0.1:50052")
+	// gobfd-330.3: fresh defaults expose only the management Unix socket.
+	if cfg.GRPC.Addr != "" || cfg.GRPC.Socket.Path != "/run/gobfd/gobfd.sock" || cfg.GRPC.UnsafeLoopbackMutations {
+		t.Errorf("GRPC = %+v, want no TCP listener, socket /run/gobfd/gobfd.sock, no unsafe mutations", cfg.GRPC)
 	}
 
 	// gh-87: metrics are unauthenticated, so they bind to loopback by default.
@@ -93,7 +91,7 @@ func TestLoadFromYAML(t *testing.T) {
 	testLoadYAML(t, yamlLoadCase{
 		yamlContent: `
 grpc:
-  addr: ":60000"
+  addr: "127.0.0.1:60000"
 metrics:
   addr: ":9200"
   path: "/custom-metrics"
@@ -105,7 +103,7 @@ bfd:
   default_required_min_rx: "250ms"
   default_detect_multiplier: 5
 `,
-		wantGRPCAddr:         ":60000",
+		wantGRPCAddr:         "127.0.0.1:60000",
 		wantMetricsAddr:      ":9200",
 		wantMetricsPath:      "/custom-metrics",
 		wantLogLevel:         "debug",
@@ -122,11 +120,11 @@ func TestLoadMergesDefaults(t *testing.T) {
 	testLoadYAML(t, yamlLoadCase{
 		yamlContent: `
 grpc:
-  addr: ":55555"
+  addr: "127.0.0.1:55555"
 log:
   level: "warn"
 `,
-		wantGRPCAddr:         ":55555",
+		wantGRPCAddr:         "127.0.0.1:55555",
 		wantMetricsAddr:      "127.0.0.1:9100",
 		wantMetricsPath:      "/metrics",
 		wantLogLevel:         "warn",
@@ -184,9 +182,10 @@ func TestValidateErrors(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "empty grpc addr",
+			name: "no management listener",
 			modify: func(cfg *config.Config) {
 				cfg.GRPC.Addr = ""
+				cfg.GRPC.Socket.Path = ""
 			},
 			wantErr: config.ErrEmptyGRPCAddr,
 		},
@@ -289,7 +288,7 @@ func TestLoadWithSessions(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 sessions:
   - peer: "10.0.0.1"
     local: "10.0.0.2"
@@ -548,14 +547,14 @@ func TestLoadEnvOverrides(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 log:
   level: "info"
 `
 	path := writeTemp(t, yamlContent)
 
 	// Set env overrides.
-	t.Setenv("GOBFD_GRPC_ADDR", ":60000")
+	t.Setenv("GOBFD_GRPC_ADDR", "127.0.0.1:60000")
 	t.Setenv("GOBFD_LOG_LEVEL", "debug")
 
 	cfg, err := config.Load(path)
@@ -563,8 +562,8 @@ log:
 		t.Fatalf("Load(%q) error: %v", path, err)
 	}
 
-	if cfg.GRPC.Addr != ":60000" {
-		t.Errorf("GRPC.Addr = %q, want %q (from env)", cfg.GRPC.Addr, ":60000")
+	if cfg.GRPC.Addr != "127.0.0.1:60000" {
+		t.Errorf("GRPC.Addr = %q, want %q (from env)", cfg.GRPC.Addr, "127.0.0.1:60000")
 	}
 
 	if cfg.Log.Level != "debug" {
@@ -575,7 +574,7 @@ log:
 func TestLoadEnvOverridesMetrics(t *testing.T) {
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 metrics:
   addr: ":9100"
   path: "/metrics"
@@ -1536,7 +1535,7 @@ func TestLoadWithGoBGPConfig(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 gobgp:
   enabled: true
   addr: "127.0.0.1:50051"
@@ -1594,7 +1593,7 @@ func TestLoadWithEchoConfig(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 echo:
   enabled: true
   peers:
@@ -1628,7 +1627,7 @@ func TestLoadWithVXLANConfig(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 vxlan:
   enabled: true
   backend: "userspace-udp"
@@ -1666,7 +1665,7 @@ func TestLoadWithGeneveConfigFailsClosedWithoutVAPIdentity(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 geneve:
   enabled: true
   backend: "userspace-udp"
@@ -1808,7 +1807,7 @@ socket:
   read_buffer_size: 8388608
   write_buffer_size: 2097152
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 `
 	path := writeTemp(t, yaml)
 	cfg, err := config.Load(path)
@@ -1832,7 +1831,7 @@ socket:
   read_buffer_size: 0
   write_buffer_size: 0
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 `
 	path := writeTemp(t, yaml)
 	cfg, err := config.Load(path)
@@ -1868,7 +1867,7 @@ func TestLoadValidConfigFileViaOsRoot(t *testing.T) {
 
 	yamlContent := `
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50051"
 log:
   level: "info"
 `
@@ -1879,8 +1878,8 @@ log:
 		t.Fatalf("Load(%q) error: %v", path, err)
 	}
 
-	if cfg.GRPC.Addr != ":50051" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":50051")
+	if cfg.GRPC.Addr != "127.0.0.1:50051" {
+		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, "127.0.0.1:50051")
 	}
 }
 
@@ -2112,22 +2111,33 @@ func detectMult(cfg *config.Config) uint32 {
 	return cfg.Unsolicited.SessionDefaults.DetectMult
 }
 
-// gh-87: gobfd and gobgpd start side by side with default settings, and the
-// default GoBGP client endpoint is not GoBFD's own API.
-func TestDefaultAPIPortDiffersFromGoBGP(t *testing.T) {
+// gh-87, gobfd-330.3: plaintext management TCP is loopback only; a
+// non-loopback address needs mTLS. Defaults open no TCP port, so gobfd and
+// gobgpd (50051) start side by side.
+func TestValidateGRPCPlaintextNonLoopback(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.DefaultConfig()
-	_, apiPort, err := net.SplitHostPort(cfg.GRPC.Addr)
-	if err != nil {
-		t.Fatalf("split grpc.addr %q: %v", cfg.GRPC.Addr, err)
-	}
-	_, goBGPPort, err := net.SplitHostPort(cfg.GoBGP.Addr)
-	if err != nil {
-		t.Fatalf("split gobgp.addr %q: %v", cfg.GoBGP.Addr, err)
-	}
-	if apiPort == goBGPPort || apiPort == "50051" {
-		t.Fatalf("grpc.addr port %s collides with GoBGP (gobgp.addr %s, gobgpd default 50051)", apiPort, cfg.GoBGP.Addr)
+	tls := config.GRPCTLSConfig{CertFile: "/c.pem", KeyFile: "/k.pem", ClientCAFile: "/ca.pem"}
+	for _, tc := range []struct {
+		addr    string
+		tls     config.GRPCTLSConfig
+		wantErr error
+	}{
+		{"127.0.0.1:50052", config.GRPCTLSConfig{}, nil},
+		{"[::1]:50052", config.GRPCTLSConfig{}, nil},
+		{"localhost:50052", config.GRPCTLSConfig{}, nil},
+		{":50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{"0.0.0.0:50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{"[::]:50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{"192.0.2.1:50052", config.GRPCTLSConfig{}, config.ErrPlaintextNonLoopbackGRPC},
+		{":50052", tls, nil},
+		{"192.0.2.1:50052", tls, nil},
+	} {
+		cfg := config.DefaultConfig()
+		cfg.GRPC.Addr, cfg.GRPC.TLS = tc.addr, tc.tls
+		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
+			t.Errorf("addr %q tls %t: Validate error = %v, want %v", tc.addr, tc.tls.Enabled(), err, tc.wantErr)
+		}
 	}
 }
 
@@ -2140,12 +2150,15 @@ func TestValidateGRPCSocket(t *testing.T) {
 		edit    func(*config.GRPCConfig)
 		wantErr error
 	}{
-		{"socket disabled by default", func(*config.GRPCConfig) {}, nil},
+		{"socket by default", func(*config.GRPCConfig) {}, nil},
 		{"socket only", func(g *config.GRPCConfig) {
 			g.Addr = ""
 			g.Socket.Path = "/run/gobfd/gobfd.sock"
 		}, nil},
-		{"both disabled", func(g *config.GRPCConfig) { g.Addr = "" }, config.ErrEmptyGRPCAddr},
+		{"both disabled", func(g *config.GRPCConfig) {
+			g.Addr = ""
+			g.Socket.Path = ""
+		}, config.ErrEmptyGRPCAddr},
 		{"relative socket path", func(g *config.GRPCConfig) { g.Socket.Path = "gobfd.sock" }, config.ErrInvalidGRPCSocket},
 		{"mode not octal", func(g *config.GRPCConfig) {
 			g.Socket.Path = "/run/gobfd/gobfd.sock"
@@ -2167,8 +2180,8 @@ func TestValidateGRPCSocket(t *testing.T) {
 			}
 		})
 	}
-	if got := config.DefaultConfig().GRPC.Socket; got.Path != "" || got.Mode != "0660" {
-		t.Fatalf("default grpc.socket = %+v, want disabled with mode 0660", got)
+	if got := config.DefaultConfig().GRPC.Socket; got.Path != "/run/gobfd/gobfd.sock" || got.Mode != "0660" {
+		t.Fatalf("default grpc.socket = %+v, want /run/gobfd/gobfd.sock with mode 0660", got)
 	}
 }
 
@@ -2185,7 +2198,10 @@ func TestValidateGRPCTLS(t *testing.T) {
 		edit    func(*config.GRPCConfig)
 		wantErr error
 	}{
-		{"complete", func(g *config.GRPCConfig) { g.TLS = full }, nil},
+		{"complete", func(g *config.GRPCConfig) {
+			g.TLS = full
+			g.Addr = ":50052"
+		}, nil},
 		{"no client CA", func(g *config.GRPCConfig) {
 			g.TLS = full
 			g.TLS.ClientCAFile = ""
