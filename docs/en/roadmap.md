@@ -80,7 +80,9 @@ Retrospective of 2026-10-14 against the 2026-10-13 queue:
 Ordered P0 queue from 2026-10-15:
 
 1. Land the gated stack at or after 2026-10-14 21:04 UTC with one
-   fast-forward of `dev`; close `.8.6.8`, `.8.2.4.1.2` and `.8.2.1.10.1`.
+   fast-forward of `dev`; close `.8.6.8`. `.8.2.4.1.2` closes with the
+   managed-peer test on `task/unsolicited-auth`; `.8.2.1.10.1` stays open
+   for an IPv6 capture and reload/concurrent lease-close fault injection.
 2. Second passes by eligibility (UTC):
    - 2026-10-15: client_golang v1.25.0 (13:02), moby client v0.6.2 (20:07);
    - 2026-10-16: GoReleaser v2.18.3 (03:28);

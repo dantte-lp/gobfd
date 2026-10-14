@@ -32,7 +32,9 @@ a session only from the subnet of the receiving local address, within
 sessions per second, and only from single-hop TTL 255 packets. The admission
 rate is global, so an on-link host that spoofs sources can delay legitimate
 peers; RFC 9468 Section 6.1 allows the feature only where participants are not
-anonymous. Do not enable unsolicited BFD on an anonymous shared segment.
+anonymous. Set `unsolicited.auth` (Meticulous Keyed SHA1) where both sides can
+share a key: the packet that would create a session is then verified first.
+Do not enable unsolicited BFD on an anonymous shared segment.
 
 RFC 9747 unaffiliated Echo inherits RFC 5880/5881 considerations and adds a
 spoofing concern for looped-back Echo packets. Use BFD authentication for Echo

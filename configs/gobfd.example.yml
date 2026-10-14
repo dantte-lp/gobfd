@@ -68,6 +68,11 @@ bfd:
 #     "":
 #       enabled: true
 #       allowed_prefixes: ["10.0.0.0/8"]
+#   # Optional RFC 9468 Section 6.2 authentication; only meticulous_keyed_sha1.
+#   auth:
+#     type: "meticulous_keyed_sha1"
+#     key_id: 1
+#     secret: "change-me"
 
 # RFC 9747: Unaffiliated BFD Echo. Detects forwarding-path failures
 # without requiring the remote to run BFD. Uses UDP port 3785.
