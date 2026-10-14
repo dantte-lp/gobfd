@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-10-13 (end of day). Beads is the task
+> Status projection from Beads, reconciled on 2026-10-14 (end of day). Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -50,10 +50,10 @@ Status of the first stack-currency queue (2026-10-14):
 | Step | Item | Status |
 |---|---|---|
 | 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8 done (`5584967`); client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-15 to 2026-10-20 |
-| 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 wait for 2026-10-16 to 2026-10-19 |
+| 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3, buf v1.74.0, trivy v0.76.0 wait for 2026-10-16 to 2026-10-21 |
 | 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
 | 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
-| 5 | `.8.6.8` connect-go v2 | Done (`2514ae1`, `707ae7d`); wire compatibility pinned by `TestGRPCServerWireCompatibility`; v2.0.1 from 2026-10-21 |
+| 5 | `.8.6.8` connect-go v2 | Done, in `dev` since `f75c31c` (`2514ae1`, `707ae7d`); wire compatibility pinned by `TestGRPCServerWireCompatibility`; the bead closes after `.8.6.2`; v2.0.1 from 2026-10-21 (`.8.6.10`) |
 | 6 | `.8.6.5` base images, `.8.5.2.6` observability | Debian, HAProxy, nginx done (`04df88e`); Oracle Linux from 2026-10-19; observability open |
 | 7 | `.8.6.4` Actions, `.8.6.6` peers | Open; several eligible 2026-10-19 |
 | 8 | `.8.2.4.5`, `gobfd-0dc`, `.8.6.1` | Native BFD preflight done (`f5c6e42`); support statement and manual Compose open |
@@ -77,28 +77,57 @@ Retrospective of 2026-10-14 against the 2026-10-13 queue:
 - New upstream input: connect-go v2.0.1 (2026-10-14, four bug fixes,
   including draining after a rejected message), eligible 2026-10-21.
 
-Ordered P0 queue from 2026-10-15:
+Retrospective of the 2026-10-14 evening session against the queue of
+2026-10-15 (previous version of this section):
 
-1. Land the gated stack at or after 2026-10-14 21:04 UTC with one
-   fast-forward of `dev`; close `.8.6.8`. `.8.2.4.1.2` closes with the
-   managed-peer test on `task/unsolicited-auth`; `.8.2.1.10.1` stays open
-   for an IPv6 capture and reload/concurrent lease-close fault injection.
-2. Second passes by eligibility (UTC):
-   - 2026-10-15: client_golang v1.25.0 (13:02), moby client v0.6.2 (20:07);
+- Step 1 done: the gated stack and a follow-up slice reached `dev` in one
+  fast-forward `5584967..f75c31c` (20 commits) at 21:05 UTC, after the
+  grpchealth v2.0.0 release-age date. Local gates on `f75c31c`: race 37
+  packages, lint 18 profiles, core 64 s, haproxy-health 75 s,
+  bgp-fast-failover 111 s, exabgp-anycast 108 s, RFC 159 s. GitHub CI does
+  not run on pushes to `dev` (`ci.yml` triggers on `master`, `main` and
+  `release/v*`), so local gates are the only evidence for `dev`.
+- Step 3 went beyond the plan: `.8.2.1.10.2` closed; P1 `.8.2.1.10.3`
+  (policy validation at load and rollback fault injection, `36d5434`,
+  `f75c31c`), `.8.2.1.10.4` (shared-lease removal, `e90e9b1`) and
+  `gobfd-b52` (`e0a22e0`, `06422d7`) closed; `.8.2.4.1.2` closed.
+- Not done: `.8.6.8` stays open because Beads blocks it on `.8.6.2`;
+  `.8.2.1.10.1` (IPv6 capture, lease-close fault injection); `.8.2.1.8`
+  needs maintainer decisions (step 8).
+- Root causes: `gobfd-b52` was tshark `-c` counting packets that fail the
+  display filter (tshark(1)), not capture flush latency. Review found that
+  weak decoding wraps `detect_mult: 4294967299` to 3; fixed for
+  `unsolicited` (`f75c31c`), other fields are `gobfd-4j4`.
+- Process: a mutation script from 2026-10-13 hung for a day on an
+  interactive `cp` prompt (`cp` is aliased to `cp -i` on this host); scripts
+  use `command cp -f`, and background tasks are checked on session resume.
+- Repository hygiene: 15 Dependabot PRs targeting `master` closed with a
+  pointer to `dev`; 5 merged remote branches, 29 merged worktrees and 87
+  merged local branches removed; worktree reports kept under
+  `reports/session-20261014/`.
+- Environment: the root filesystem is at 96% (13 GB free) after the gates.
+
+Ordered P0 queue from 2026-10-15. Read the release notes across each range
+before the update:
+
+1. Second passes by eligibility (UTC):
+   - 2026-10-15: client_golang v1.25.0 (13:02; minimum Go 1.26; breaking
+     changes only in `api/prometheus/v1`, which GoBFD does not import;
+     regenerated Go runtime collector metrics), moby client v0.6.2 (20:07;
+     cancellation during HTTP upgrade);
    - 2026-10-16: GoReleaser v2.18.3 (03:28);
    - 2026-10-18: govulncheck v1.9.0, containerlab v0.81.0;
    - 2026-10-19: osv-scanner v2.7.0, Actions, `oraclelinux:10-slim`, BIRD
      v3.4.0, ExaBGP 5.0.14;
    - 2026-10-20: dbus v5.2.4 (includes v5.2.3 allocation hardening);
-   - 2026-10-21: connect-go v2.0.1.
-3. Security P0: RFC 9468 authentication policy for auto-created sessions —
-   done on `task/unsolicited-auth` (`e8dfd59`, Meticulous Keyed SHA1 only),
-   lands after the stack; `.8.2.1.8` preview boundaries remain. P1
-   `.8.2.1.10.3` policy validation at load and rollback fault injection,
-   `.8.2.1.10.4` shared-lease removal and `gobfd-b52` RFC gate tshark wait
-   (`-c` counted packets outside the display filter) are done on
-   `task/unsolicited-policy`; `.8.2.1.10.1` IPv6 capture and lease-close
-   fault injection remain.
+   - 2026-10-21: connect-go v2.0.1 (`.8.6.10`), buf v1.74.0, trivy v0.76.0
+     (no security fixes listed).
+2. Security P0 `.8.2.1.10.1`: IPv6 packet capture of unsolicited replies and
+   reload/concurrent lease-close fault injection; then close parent
+   `.8.2.1.10`.
+3. Security P0 `.8.2.1.8` preview boundaries: the RFC 7130 and RFC 9747
+   documentation labels are fixed in `dev`; the code slice waits for the
+   step 8 decisions.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
    vendor images.
@@ -107,8 +136,12 @@ Ordered P0 queue from 2026-10-15:
    (P1); `.8.2.4.2` canonical identity.
 6. `gobfd-qj0.8.6.1` — manual Compose requalification on GoBGP v4, after the
    host build DNS issue `gobfd-qj0.8.6.9` (P1).
-7. Maintainer decisions: Oracle Linux `.8.2.8.5.2.8`, closing PR `#62`,
-   filing the GO-2026-4736 vulndb correction, host DNS `.8.6.9`.
+7. `gobfd-4j4` (P2): raw range checks for the remaining `detect_mult` fields.
+8. Maintainer decisions: Oracle Linux `.8.2.8.5.2.8`; closing PR `#62`;
+   filing the GO-2026-4736 vulndb correction; host DNS `.8.6.9`; for
+   `.8.2.1.8`: reject `AddEchoSession` without a running Echo receiver or
+   start one for API sessions, a `micro_bfd.enabled` key, capability status
+   in the API or metrics; running CI on pushes to `dev`.
 
 Done before 2026-10-14 and kept for reference: `gobfd-0dc` supported GoBGP
 version statement (`1381879`), `.8.2.8.5.2.6` observability on trixie
@@ -117,7 +150,7 @@ version statement (`1381879`), `.8.2.8.5.2.6` observability on trixie
 Blocked by the environment: Kubernetes live run `.8.5.2.5.3` (no k3s),
 Containerlab vendor runs (no containerlab binary or vendor images).
 
-Version matrix measured on 2026-10-14. Sources: `gh api graphql` releases,
+Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev rechecked at 21:15 UTC, other channels not rechecked. Sources: `gh api graphql` releases,
 `proxy.golang.org`, `go list -m -u`, Docker Hub and GHCR registry APIs,
 `deb.frrouting.org` package index.
 
@@ -125,7 +158,7 @@ Version matrix measured on 2026-10-14. Sources: `gh api graphql` releases,
 |---|---|---|---|---|---|
 | Go toolchain | go.dev | 1.27.2 | 1.27.2 | current | done |
 | GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
-| connect-go | Go module | v2.0.0 | v2.0.1 | 2026-10-21 | `.8.6.8` |
+| connect-go | Go module | v2.0.0 | v2.0.1 | 2026-10-21 | `.8.6.10` |
 | grpchealth | Go module | v2.0.0 | v2.0.0 | current | done |
 | grpc-go | Go module | v1.84.0 | v1.84.0 | current | done |
 | koanf/v2 | Go module | v2.3.8 | v2.3.8 | current | done |
@@ -136,9 +169,9 @@ Version matrix measured on 2026-10-14. Sources: `gh api graphql` releases,
 | golangci-lint | tools module | v2.14.0 | v2.14.0 | current | done |
 | govulncheck | Go module | v1.8.0 | v1.9.0 | 2026-10-18 | `.8.6.3` |
 | osv-scanner | GitHub release | v2.6.0 | v2.7.0 | 2026-10-19 | `.8.6.3` |
-| buf | GitHub release | v1.73.0 | v1.73.0 | current | done |
+| buf | GitHub release | v1.73.0 | v1.74.0 | 2026-10-21 | `.8.6.3` |
 | Docker Compose provider | GitHub release | 5.6.0 | 5.6.0 | current | done |
-| syft / trivy | GitHub release | v1.54.1 / v0.75.0 | v1.54.1 / v0.75.0 | current | done |
+| syft / trivy | GitHub release | v1.54.1 / v0.75.0 | v1.54.1 / v0.76.0 | trivy 2026-10-21 | `.8.6.3` |
 | goreleaser | GitHub release | v2.18.2 | v2.18.3 | 2026-10-16 | `.8.6.3` |
 | containerlab | GitHub release | 0.79.0 | v0.81.0 | 2026-10-18 | `.8.5.2.7` |
 | debian:trixie-slim | Docker Hub digest | `a29215f6` (13.7) | `a29215f6` | current | done |
