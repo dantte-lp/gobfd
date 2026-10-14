@@ -26,9 +26,11 @@ Echo traffic. Use authentication whenever both peers support it, especially on
 multi-access networks, tunnel monitoring, and any segment where packet spoofing
 is possible.
 
-RFC 9468 unsolicited BFD remains disabled by default. When enabled, it must be
-restricted by interface and source prefixes. Do not enable unsolicited BFD on an
-anonymous shared segment.
+RFC 9468 unsolicited BFD remains disabled by default. When enabled, GoBFD admits
+a session only from the subnet of the receiving local address, within
+`allowed_prefixes`, below `max_sessions` (required, >= 1) and at up to 10 new
+sessions per second. Do not enable unsolicited BFD on an anonymous shared
+segment.
 
 RFC 9747 unaffiliated Echo inherits RFC 5880/5881 considerations and adds a
 spoofing concern for looped-back Echo packets. Use BFD authentication for Echo

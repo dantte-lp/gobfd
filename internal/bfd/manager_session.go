@@ -566,7 +566,7 @@ func (m *Manager) tryCreateUnsolicited(
 	// We use the interface name as a proxy: multi-hop sessions have no interface.
 	// Also validate via policy.
 
-	if reserveErr := m.unsolicited.reserve(meta.SrcAddr, meta.IfName); reserveErr != nil {
+	if reserveErr := m.unsolicited.reserve(meta); reserveErr != nil {
 		m.ownershipMu.Unlock()
 		return fmt.Errorf(
 			"unsolicited: peer %s on %s: %w",

@@ -364,6 +364,7 @@ func TestManagerClosingRejectsNewClaimsAndSubscriptions(t *testing.T) {
 		mgr := NewManager(
 			slog.New(slog.DiscardHandler),
 			WithUnsolicitedPolicy(policy),
+			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
 			WithUnsolicitedSender(senderLeaseTestSender{}),
 		)
 		releaseEntered := make(chan struct{})
@@ -670,6 +671,7 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 		mgr := NewManager(
 			slog.New(slog.DiscardHandler),
 			WithUnsolicitedPolicy(policy),
+			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
 			WithUnsolicitedSender(senderLeaseTestSender{}),
 		)
 		cleanupEntered := make(chan struct{})

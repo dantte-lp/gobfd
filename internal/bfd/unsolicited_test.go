@@ -1,272 +1,110 @@
-package bfd_test
+package bfd
 
 import (
+	"errors"
 	"net/netip"
 	"testing"
-	"time"
-
-	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
-func TestUnsolicitedPolicyCheckDisabled(t *testing.T) {
+// RFC 9468 Section 2: passive unsolicited BFD MUST be disabled by default;
+// Section 6.1: limit the feature to specific interfaces.
+func TestUnsolicitedReserveInterfacePolicy(t *testing.T) {
 	t.Parallel()
 
-	us := bfd.UnsolicitedPolicy{Enabled: false}
-	state := newTestUnsolicitedState(&us)
-
-	err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth0")
-	if err == nil {
-		t.Fatal("expected error for disabled policy")
-	}
-}
-
-func TestUnsolicitedPolicyCheckInterfaceNotEnabled(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled:    true,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth0")
-	if err == nil {
-		t.Fatal("expected error for interface not in policy")
-	}
-}
-
-func TestUnsolicitedPolicyCheckInterfaceDisabled(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled: true,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
-			"eth0": {Enabled: false},
+	tests := []struct {
+		name    string
+		policy  *UnsolicitedPolicy
+		ifName  string
+		wantErr error
+	}{
+		{"policy disabled", &UnsolicitedPolicy{MaxSessions: 1}, "eth0", ErrUnsolicitedDisabled},
+		{
+			"interface not listed", &UnsolicitedPolicy{Enabled: true, MaxSessions: 1},
+			"eth0", ErrUnsolicitedInterfaceNotEnabled,
 		},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth0")
-	if err == nil {
-		t.Fatal("expected error for disabled interface")
-	}
-}
-
-func TestUnsolicitedPolicyCheckAllowedPrefix(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled: true,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
-			"eth0": {
-				Enabled: true,
-				AllowedPrefixes: []netip.Prefix{
-					netip.MustParsePrefix("10.0.0.0/24"),
-				},
+		{
+			"interface disabled",
+			&UnsolicitedPolicy{
+				Enabled: true, MaxSessions: 1,
+				Interfaces: map[string]UnsolicitedInterfaceConfig{"eth0": {}},
 			},
+			"eth0", ErrUnsolicitedInterfaceNotEnabled,
 		},
-		SessionDefaults: bfd.UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	// Allowed.
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth0"); err != nil {
-		t.Fatalf("unexpected error for allowed address: %v", err)
+		{"interface enabled", admissionPolicy(1), "eth0", nil},
+		{"other interface", admissionPolicy(1), "eth1", ErrUnsolicitedInterfaceNotEnabled},
 	}
 
-	// Denied.
-	if err := state.CheckPolicy(netip.MustParseAddr("192.168.1.1"), "eth0"); err == nil {
-		t.Fatal("expected error for denied address")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestUnsolicitedPolicyCheckNoPrefix(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled: true,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
-			"eth0": {
-				Enabled:         true,
-				AllowedPrefixes: nil, // no ACL — allow all
-			},
-		},
-		SessionDefaults: bfd.UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	if err := state.CheckPolicy(netip.MustParseAddr("192.168.1.1"), "eth0"); err != nil {
-		t.Fatalf("unexpected error with no prefix restriction: %v", err)
-	}
-}
-
-func TestUnsolicitedPolicyCheckMaxSessions(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled:     true,
-		MaxSessions: 2,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
-			"eth0": {Enabled: true},
-		},
-		SessionDefaults: bfd.UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	// First two should succeed.
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth0"); err != nil {
-		t.Fatalf("unexpected error for session 1: %v", err)
-	}
-	state.IncrementCount()
-
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.2"), "eth0"); err != nil {
-		t.Fatalf("unexpected error for session 2: %v", err)
-	}
-	state.IncrementCount()
-
-	// Third should be denied.
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.3"), "eth0"); err == nil {
-		t.Fatal("expected error for session limit")
-	}
-
-	// After decrement, should succeed again.
-	state.DecrementCount()
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.3"), "eth0"); err != nil {
-		t.Fatalf("unexpected error after decrement: %v", err)
-	}
-}
-
-func TestUnsolicitedPolicyMultipleInterfaces(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled: true,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
-			"eth0": {
-				Enabled: true,
-				AllowedPrefixes: []netip.Prefix{
-					netip.MustParsePrefix("10.0.0.0/24"),
-				},
-			},
-			"eth1": {
-				Enabled: true,
-				AllowedPrefixes: []netip.Prefix{
-					netip.MustParsePrefix("192.168.1.0/24"),
-				},
-			},
-		},
-		SessionDefaults: bfd.UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	// 10.0.0.1 allowed on eth0 but not eth1.
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth0"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := state.CheckPolicy(netip.MustParseAddr("10.0.0.1"), "eth1"); err == nil {
-		t.Fatal("expected error for 10.0.0.1 on eth1")
-	}
-
-	// 192.168.1.1 allowed on eth1 but not eth0.
-	if err := state.CheckPolicy(netip.MustParseAddr("192.168.1.1"), "eth1"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := state.CheckPolicy(netip.MustParseAddr("192.168.1.1"), "eth0"); err == nil {
-		t.Fatal("expected error for 192.168.1.1 on eth0")
-	}
-}
-
-func TestUnsolicitedPolicyIPv6(t *testing.T) {
-	t.Parallel()
-
-	us := bfd.UnsolicitedPolicy{
-		Enabled: true,
-		Interfaces: map[string]bfd.UnsolicitedInterfaceConfig{
-			"eth0": {
-				Enabled: true,
-				AllowedPrefixes: []netip.Prefix{
-					netip.MustParsePrefix("2001:db8::/32"),
-				},
-			},
-		},
-		SessionDefaults: bfd.UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	state := newTestUnsolicitedState(&us)
-
-	if err := state.CheckPolicy(netip.MustParseAddr("2001:db8::1"), "eth0"); err != nil {
-		t.Fatalf("unexpected error for IPv6 allowed: %v", err)
-	}
-
-	if err := state.CheckPolicy(netip.MustParseAddr("2001:db9::1"), "eth0"); err == nil {
-		t.Fatal("expected error for IPv6 not in prefix")
-	}
-}
-
-// testUnsolicitedState wraps the internal unsolicited state for testing.
-// This adapts the unexported type through the public Manager API patterns.
-type testUnsolicitedState struct {
-	policy *bfd.UnsolicitedPolicy
-	count  int
-}
-
-func newTestUnsolicitedState(policy *bfd.UnsolicitedPolicy) *testUnsolicitedState {
-	return &testUnsolicitedState{policy: policy}
-}
-
-func (ts *testUnsolicitedState) CheckPolicy(srcAddr netip.Addr, ifName string) error {
-	if !ts.policy.Enabled {
-		return bfd.ErrUnsolicitedDisabled
-	}
-
-	ifCfg, ok := ts.policy.Interfaces[ifName]
-	if !ok || !ifCfg.Enabled {
-		return bfd.ErrUnsolicitedInterfaceNotEnabled
-	}
-
-	if len(ifCfg.AllowedPrefixes) > 0 {
-		found := false
-		for _, p := range ifCfg.AllowedPrefixes {
-			if p.Contains(srcAddr) {
-				found = true
-				break
+			us := newUnsolicitedState(tt.policy)
+			us.connectedPrefix = connectedTo("192.0.2.1/24")
+			meta := admissionMeta("192.0.2.10", "192.0.2.1")
+			meta.IfName = tt.ifName
+			if err := us.reserve(meta); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("reserve error = %v, want %v", err, tt.wantErr)
 			}
-		}
-		if !found {
-			return bfd.ErrUnsolicitedPrefixDenied
-		}
+		})
 	}
-
-	if ts.policy.MaxSessions > 0 && ts.count >= ts.policy.MaxSessions {
-		return bfd.ErrUnsolicitedMaxSessions
-	}
-
-	return nil
 }
 
-func (ts *testUnsolicitedState) IncrementCount() { ts.count++ }
+// Allowed prefixes are per interface.
+func TestUnsolicitedReservePrefixesPerInterface(t *testing.T) {
+	t.Parallel()
 
-func (ts *testUnsolicitedState) DecrementCount() {
-	if ts.count > 0 {
-		ts.count--
+	policy := &UnsolicitedPolicy{
+		Enabled:     true,
+		MaxSessions: 10,
+		Interfaces: map[string]UnsolicitedInterfaceConfig{
+			"eth0": {Enabled: true, AllowedPrefixes: []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}},
+			"eth1": {Enabled: true, AllowedPrefixes: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")}},
+		},
+	}
+	us := newUnsolicitedState(policy)
+	us.connectedPrefix = connectedTo("192.0.2.1/24", "198.51.100.1/24")
+
+	for _, tc := range []struct {
+		src, dst, ifName string
+		wantErr          error
+	}{
+		{"192.0.2.10", "192.0.2.1", "eth0", nil},
+		{"198.51.100.10", "198.51.100.1", "eth1", nil},
+		{"198.51.100.11", "198.51.100.1", "eth0", ErrUnsolicitedPrefixDenied},
+		{"192.0.2.11", "192.0.2.1", "eth1", ErrUnsolicitedPrefixDenied},
+	} {
+		meta := admissionMeta(tc.src, tc.dst)
+		meta.IfName = tc.ifName
+		if err := us.reserve(meta); !errors.Is(err, tc.wantErr) {
+			t.Fatalf("reserve(%s on %s) error = %v, want %v", tc.src, tc.ifName, err, tc.wantErr)
+		}
+	}
+}
+
+// MaxSessions bounds reservations, and release returns a slot.
+func TestUnsolicitedReserveSessionLimitAndRelease(t *testing.T) {
+	t.Parallel()
+
+	us := newUnsolicitedState(admissionPolicy(2))
+	us.connectedPrefix = connectedTo("192.0.2.1/24")
+
+	for _, src := range []string{"192.0.2.10", "192.0.2.11"} {
+		if err := us.reserve(admissionMeta(src, "192.0.2.1")); err != nil {
+			t.Fatalf("reserve(%s): %v", src, err)
+		}
+	}
+	if err := us.reserve(admissionMeta("192.0.2.12", "192.0.2.1")); !errors.Is(err, ErrUnsolicitedMaxSessions) {
+		t.Fatalf("reserve beyond limit error = %v, want ErrUnsolicitedMaxSessions", err)
+	}
+
+	us.release()
+	if err := us.reserve(admissionMeta("192.0.2.12", "192.0.2.1")); err != nil {
+		t.Fatalf("reserve after release: %v", err)
+	}
+	us.release()
+	us.release()
+	us.release()
+	if got := us.sessionCount.Load(); got != 0 {
+		t.Fatalf("session count after extra releases = %d, want 0", got)
 	}
 }

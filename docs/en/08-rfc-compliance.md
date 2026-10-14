@@ -50,7 +50,7 @@
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784 with TTL>=254 permits at most one intermediate router; arbitrary-hop qualification is pending |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Not implemented** | GoBGP v4 (like v3) emits Cease/2; the Cease/10 text is only an operator annotation |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Empty prefix policy accepts any source and nonpositive session limits are unbounded |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Connected-subnet, session-limit and rate admission enforced; replies use a shared IPv4 wildcard sender |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session and port 3785 wiring exist; full RFC qualification is pending |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
@@ -278,19 +278,19 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 |---|---|
 | Disabled by default (MUST) | `unsolicited.enabled: false` default |
 | Per-interface policy (MUST) | `UnsolicitedInterfaceConfig` per interface |
-| Source address validation (MUST) | `AllowedPrefixes` ACL check when configured; an empty list currently accepts any valid source |
+| Source address validation (MUST) | Source must belong to the subnet of the receiving local address (Section 2); `AllowedPrefixes` narrows it further; unnumbered paths fail closed |
 | Single-hop only (MUST) | `SessionTypeSingleHop` enforced |
 | Local discriminator allocation (MUST) | `DiscriminatorAllocator` for passive sessions |
 | Configurable timers (SHOULD) | `UnsolicitedSessionDefaults` |
-| Max session limit | A positive `MaxSessions` enforces a limit; zero or a negative value is currently unlimited |
+| Bounded admission (Section 6.1) | `max_sessions` must be >= 1 when enabled; new sessions are admitted at up to 10 per second, burst 20 |
 | Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
 
 Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet. The `MaxSessions` quota is reserved atomically before creation and released on create failure, explicit destroy, or cleanup of a passive Down session after `CleanupTimeout`.
 
-This preview is fail-open when `AllowedPrefixes` is empty and unbounded when
-`MaxSessions <= 0`. Do not enable it on an untrusted interface until
-connected-subnet admission and a mandatory positive resource bound are
-enforced.
+This preview still replies through one shared IPv4 wildcard sender rather than
+the received local address and interface (`gobfd-qj0.8.2.1.10.1`), and
+auto-created sessions carry no authentication. Do not enable it on an untrusted
+interface.
 
 ### RFC 9747 Implementation Notes
 

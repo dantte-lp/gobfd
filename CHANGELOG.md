@@ -43,7 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ListSessions` response holds about 28,000 sessions at 147 bytes each.
   Logging and recovery interceptors now also cover streaming calls; a
   client closing `WatchSessionEvents` logs `rpc canceled` at Info.
-
+- **Breaking:** RFC 9468 unsolicited admission is bounded and checked
+  against the connected subnet (audit findings H-17, H-18). A packet creates
+  a session only when its source belongs to the subnet of the local address
+  that received it, is inside `allowed_prefixes` when set and is not the
+  local address; an unnumbered receive path is rejected. `max_sessions` must
+  be >= 1 when `unsolicited.enabled` is true (configuration validation
+  rejects 0, which used to mean unlimited), and new sessions are admitted at
+  up to 10 per second with a burst of 20. Replies still use one shared IPv4
+  wildcard sender (`gobfd-qj0.8.2.1.10.1`).
 - Updated GitHub Actions within the release-age rule to peeled commit SHAs:
   `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,

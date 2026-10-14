@@ -113,8 +113,8 @@ type UnsolicitedConfig struct {
 	// RFC 9468 Section 2: MUST be disabled by default.
 	Enabled bool `koanf:"enabled"`
 
-	// MaxSessions limits the number of dynamically created sessions.
-	// Zero means no limit.
+	// MaxSessions limits the number of dynamically created sessions. It
+	// must be >= 1 when unsolicited BFD is enabled (RFC 9468 Section 6.1).
 	MaxSessions int `koanf:"max_sessions"`
 
 	// CleanupTimeout is how long to wait after a passive session goes Down
@@ -133,8 +133,9 @@ type UnsolicitedInterfaceConfig struct {
 	// Enabled controls unsolicited BFD on this interface.
 	Enabled bool `koanf:"enabled"`
 
-	// AllowedPrefixes restricts which source addresses can create sessions.
-	// RFC 9468 Section 6.1: apply policy from specific subnets/hosts.
+	// AllowedPrefixes further restricts which source addresses can create
+	// sessions (RFC 9468 Section 6.1). The source must also belong to the
+	// subnet of the local address that received the packet (Section 2).
 	AllowedPrefixes []string `koanf:"allowed_prefixes"`
 }
 
@@ -1145,6 +1146,10 @@ var (
 
 	// ErrInvalidMicroBFDActuatorAction indicates an unrecognized Micro-BFD actuator action.
 	ErrInvalidMicroBFDActuatorAction = errors.New("micro_bfd.actuator action must be none, remove-member, or add-member")
+
+	// ErrInvalidUnsolicitedMaxSessions indicates enabled unsolicited BFD
+	// without a positive session limit (RFC 9468 Section 6.1).
+	ErrInvalidUnsolicitedMaxSessions = errors.New("unsolicited.max_sessions must be >= 1 when unsolicited is enabled")
 )
 
 // Validate checks the configuration for logical errors.
@@ -1188,6 +1193,10 @@ func Validate(cfg *Config) error {
 
 	if err := validateGeneve(cfg.Geneve); err != nil {
 		return err
+	}
+
+	if cfg.Unsolicited.Enabled && cfg.Unsolicited.MaxSessions < 1 {
+		return ErrInvalidUnsolicitedMaxSessions
 	}
 
 	return nil

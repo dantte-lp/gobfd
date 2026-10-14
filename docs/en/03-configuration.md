@@ -167,13 +167,13 @@ See [GoBGP Integration](#gobgp-integration) for details.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `unsolicited.enabled` | bool | `false` | Enable unsolicited BFD (MUST be disabled by default per RFC 9468) |
-| `unsolicited.max_sessions` | int | `0` | Max dynamically created sessions (0 = unlimited) |
+| `unsolicited.max_sessions` | int | `0` | Max dynamically created sessions; must be >= 1 when `enabled` |
 | `unsolicited.cleanup_timeout` | duration | `"0s"` | Wait time before deleting Down passive sessions |
 | `unsolicited.session_defaults.desired_min_tx` | duration | `"1s"` | Default TX interval for auto-created sessions |
 | `unsolicited.session_defaults.required_min_rx` | duration | `"1s"` | Default RX interval for auto-created sessions |
 | `unsolicited.session_defaults.detect_mult` | uint32 | `3` | Default detect multiplier for auto-created sessions |
 | `unsolicited.interfaces.<name>.enabled` | bool | `false` | Enable unsolicited on this interface |
-| `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Restrict source addresses (CIDR notation) |
+| `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Further restrict source addresses (CIDR); the connected-subnet check always applies |
 
 Example:
 ```yaml
@@ -193,10 +193,16 @@ unsolicited:
 
 > **Note**: The empty string key `""` matches the default listener (no interface binding). Use this for raw socket listeners that don't report an interface name.
 >
-> **Unsafe preview**: an empty `allowed_prefixes` list accepts any valid source
-> address, and `max_sessions <= 0` is unlimited. Do not enable unsolicited BFD
-> on an untrusted interface until connected-subnet admission and a mandatory
-> positive resource bound are implemented.
+> **Admission (RFC 9468 Sections 2 and 6.1)**: a packet creates a session only
+> when its source belongs to the subnet of the local address that received it,
+> is inside `allowed_prefixes` when that list is set, and is not the local
+> address itself. New sessions are admitted at up to 10 per second (burst 20)
+> and never beyond `max_sessions`. An unnumbered receive path is rejected.
+>
+> **Unsafe preview**: replies still leave through one shared IPv4 wildcard
+> sender, not the received local address and interface, and auto-created
+> sessions carry no authentication. Do not enable unsolicited BFD on an
+> untrusted interface.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 

@@ -163,13 +163,13 @@ sessions:
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `unsolicited.enabled` | bool | `false` | Включить unsolicited BFD (ОБЯЗАН быть выключен по умолчанию по RFC 9468) |
-| `unsolicited.max_sessions` | int | `0` | Макс. динамически созданных сессий (0 = без ограничений) |
+| `unsolicited.max_sessions` | int | `0` | Макс. динамически созданных сессий; при `enabled` должно быть >= 1 |
 | `unsolicited.cleanup_timeout` | duration | `"0s"` | Время ожидания перед удалением Down пассивных сессий |
 | `unsolicited.session_defaults.desired_min_tx` | duration | `"1s"` | TX-интервал для автосозданных сессий |
 | `unsolicited.session_defaults.required_min_rx` | duration | `"1s"` | RX-интервал для автосозданных сессий |
 | `unsolicited.session_defaults.detect_mult` | uint32 | `3` | Множитель обнаружения для автосозданных сессий |
 | `unsolicited.interfaces.<name>.enabled` | bool | `false` | Включить unsolicited на этом интерфейсе |
-| `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Ограничение исходных адресов (CIDR) |
+| `unsolicited.interfaces.<name>.allowed_prefixes` | []string | `[]` | Дополнительное ограничение исходных адресов (CIDR); проверка connected subnet действует всегда |
 
 Пример:
 ```yaml
@@ -189,10 +189,16 @@ unsolicited:
 
 > **Примечание**: Ключ с пустой строкой `""` соответствует слушателю по умолчанию (без привязки к интерфейсу).
 >
-> **Небезопасный preview**: пустой `allowed_prefixes` принимает любой валидный
-> source address, а `max_sessions <= 0` не задаёт лимит. Не включайте
-> unsolicited BFD на недоверенном интерфейсе до реализации connected-subnet
-> admission и обязательного положительного resource bound.
+> **Приём (RFC 9468, разделы 2 и 6.1)**: пакет создаёт сессию, только если его
+> source принадлежит подсети локального адреса, на который он пришёл, входит в
+> `allowed_prefixes`, когда список задан, и не совпадает с самим локальным
+> адресом. Новые сессии допускаются не чаще 10 в секунду (burst 20) и не сверх
+> `max_sessions`. Ненумерованный путь приёма отклоняется.
+>
+> **Небезопасный preview**: ответы по-прежнему уходят через один общий IPv4
+> wildcard sender, а не с полученного локального адреса и интерфейса;
+> автосозданные сессии не используют аутентификацию. Не включайте unsolicited
+> BFD на недоверенном интерфейсе.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 

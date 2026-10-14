@@ -13,7 +13,9 @@ package bfd
 
 import (
 	"errors"
+	"net"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -38,6 +40,26 @@ var (
 	// ErrUnsolicitedMultihopDenied indicates an attempt to create an unsolicited
 	// session for a multi-hop path, which is prohibited by RFC 9468.
 	ErrUnsolicitedMultihopDenied = errors.New("unsolicited BFD is restricted to single-hop")
+
+	// ErrUnsolicitedSubnetDenied indicates the source address is not in the
+	// subnet of the local address that received the packet.
+	ErrUnsolicitedSubnetDenied = errors.New("source address not in the receiving interface subnet")
+
+	// ErrUnsolicitedRateLimited indicates the session admission rate is
+	// exhausted.
+	ErrUnsolicitedRateLimited = errors.New("unsolicited session admission rate exceeded")
+)
+
+// Admission rate for new unsolicited sessions (token bucket). RFC 9468
+// Section 6.1 requires bounding resource use by unexpected remote systems
+// but sets no rate; an active peer retransmits every second, so a refused
+// peer is admitted on a later packet.
+//
+// ponytail: fixed global rate; make it configurable or per interface if a
+// large IXP needs faster convergence after a restart.
+const (
+	unsolicitedAdmissionRate  = 10 // sessions per second
+	unsolicitedAdmissionBurst = 20
 )
 
 // UnsolicitedPolicy configures the passive side of RFC 9468 unsolicited BFD.
@@ -54,8 +76,8 @@ type UnsolicitedPolicy struct {
 	Interfaces map[string]UnsolicitedInterfaceConfig
 
 	// MaxSessions is the global limit on dynamically created sessions.
-	// Prevents resource exhaustion from excessive unsolicited peers.
-	// Zero means no limit.
+	// Prevents resource exhaustion from excessive unsolicited peers
+	// (RFC 9468 Section 6.1). A value below 1 admits no session.
 	MaxSessions int
 
 	// SessionDefaults provides timer parameters for auto-created sessions.
@@ -74,11 +96,11 @@ type UnsolicitedInterfaceConfig struct {
 	// Enabled controls unsolicited BFD on this specific interface.
 	Enabled bool
 
-	// AllowedPrefixes restricts which source addresses can create sessions.
-	// RFC 9468 Section 2: source address MUST belong to the interface subnet.
-	// RFC 9468 Section 6.1: apply policy from specific subnets/hosts.
-	// Empty means allow any source on the interface subnet (interface
-	// address validation still applies).
+	// AllowedPrefixes further restricts which source addresses can create
+	// sessions (RFC 9468 Section 6.1). The RFC 9468 Section 2 subnet check
+	// always applies: the source must belong to the subnet of the local
+	// address that received the packet. Empty means any source in that
+	// subnet.
 	AllowedPrefixes []netip.Prefix
 }
 
@@ -94,12 +116,22 @@ type UnsolicitedSessionDefaults struct {
 type unsolicitedState struct {
 	policy       *UnsolicitedPolicy
 	sessionCount atomic.Int32
+
+	// connectedPrefix returns the subnet of a local interface address.
+	connectedPrefix func(local netip.Addr) (netip.Prefix, bool)
+
+	admitMu     sync.Mutex
+	admitTokens float64
+	admitLast   time.Time
 }
 
 // newUnsolicitedState creates a new unsolicited state tracker.
 func newUnsolicitedState(policy *UnsolicitedPolicy) *unsolicitedState {
 	return &unsolicitedState{
-		policy: policy,
+		policy:          policy,
+		connectedPrefix: systemConnectedPrefix,
+		admitTokens:     unsolicitedAdmissionBurst,
+		admitLast:       time.Now(),
 	}
 }
 
@@ -123,14 +155,21 @@ func (us *unsolicitedState) checkInterfacePolicy(srcAddr netip.Addr, ifName stri
 	return nil
 }
 
-func (us *unsolicitedState) reserve(srcAddr netip.Addr, ifName string) error {
-	if err := us.checkInterfacePolicy(srcAddr, ifName); err != nil {
+// reserve admits a new unsolicited session for the packet described by meta
+// and takes one slot of MaxSessions. Cheap policy checks run first; the
+// admission rate limit runs before the interface-address lookup.
+func (us *unsolicitedState) reserve(meta PacketMeta) error {
+	if err := us.checkInterfacePolicy(meta.SrcAddr, meta.IfName); err != nil {
 		return err
 	}
-
-	if us.policy.MaxSessions <= 0 {
-		us.sessionCount.Add(1)
-		return nil
+	if int(us.sessionCount.Load()) >= us.policy.MaxSessions {
+		return ErrUnsolicitedMaxSessions
+	}
+	if !us.allowAdmission() {
+		return ErrUnsolicitedRateLimited
+	}
+	if !us.inConnectedSubnet(meta.SrcAddr, meta.DstAddr) {
+		return ErrUnsolicitedSubnetDenied
 	}
 
 	for {
@@ -166,4 +205,54 @@ func matchesAnyPrefix(addr netip.Addr, prefixes []netip.Prefix) bool {
 		}
 	}
 	return false
+}
+
+// allowAdmission takes one admission token, refilling the bucket at
+// unsolicitedAdmissionRate per second up to unsolicitedAdmissionBurst.
+func (us *unsolicitedState) allowAdmission() bool {
+	us.admitMu.Lock()
+	defer us.admitMu.Unlock()
+
+	now := time.Now()
+	us.admitTokens = min(unsolicitedAdmissionBurst,
+		us.admitTokens+now.Sub(us.admitLast).Seconds()*unsolicitedAdmissionRate)
+	us.admitLast = now
+	if us.admitTokens < 1 {
+		return false
+	}
+	us.admitTokens--
+	return true
+}
+
+// inConnectedSubnet reports whether src belongs to the subnet of the local
+// address local (RFC 9468 Section 2). An address the host does not own, an
+// unnumbered receive path and a source equal to the local address fail
+// closed.
+func (us *unsolicitedState) inConnectedSubnet(src, local netip.Addr) bool {
+	src = src.Unmap().WithZone("")
+	local = local.Unmap().WithZone("")
+	prefix, ok := us.connectedPrefix(local)
+	return ok && src != local && prefix.Contains(src)
+}
+
+// systemConnectedPrefix returns the subnet of the host interface address
+// equal to local.
+func systemConnectedPrefix(local netip.Addr) (netip.Prefix, bool) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(ipNet.IP)
+		if !ok || ip.Unmap() != local {
+			continue
+		}
+		ones, _ := ipNet.Mask.Size()
+		return netip.PrefixFrom(ip.Unmap(), ones).Masked(), true
+	}
+	return netip.Prefix{}, false
 }

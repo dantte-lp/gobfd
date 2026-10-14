@@ -53,6 +53,8 @@ bfd:
 
 # RFC 9468: Unsolicited BFD. Auto-creates passive sessions for incoming
 # BFD packets from unknown peers. MUST be disabled by default per RFC.
+# max_sessions is required (>= 1). A source must belong to the subnet of the
+# local address that received the packet; allowed_prefixes narrows it further.
 #
 # unsolicited:
 #   enabled: true

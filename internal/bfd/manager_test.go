@@ -1137,6 +1137,7 @@ func TestManagerDestroyDoesNotReleaseUnsolicitedClaim(t *testing.T) {
 	mgr := bfd.NewManager(
 		slog.Default(),
 		bfd.WithUnsolicitedPolicy(policy),
+		bfd.WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
 		bfd.WithUnsolicitedSender(noopSender{}),
 	)
 	defer mgr.Close()
@@ -1194,6 +1195,7 @@ func TestManagerUnsolicitedCleanupRemovesDownSession(t *testing.T) {
 	mgr := bfd.NewManager(
 		slog.Default(),
 		bfd.WithUnsolicitedPolicy(policy),
+		bfd.WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
 		bfd.WithUnsolicitedSender(noopSender{}),
 	)
 	defer mgr.Close()

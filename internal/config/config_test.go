@@ -1902,3 +1902,28 @@ func writeTemp(t *testing.T, content string) string {
 
 	return path
 }
+
+// RFC 9468 Section 6.1 requires bounded resource use, so an enabled
+// unsolicited mode needs a positive session limit.
+func TestValidateUnsolicitedMaxSessions(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		enabled     bool
+		maxSessions int
+		wantErr     error
+	}{
+		{true, 0, config.ErrInvalidUnsolicitedMaxSessions},
+		{true, -1, config.ErrInvalidUnsolicitedMaxSessions},
+		{true, 1, nil},
+		{false, 0, nil},
+	} {
+		cfg := config.DefaultConfig()
+		cfg.Unsolicited.Enabled = tc.enabled
+		cfg.Unsolicited.MaxSessions = tc.maxSessions
+		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
+			t.Errorf("enabled=%t max_sessions=%d: Validate error = %v, want %v",
+				tc.enabled, tc.maxSessions, err, tc.wantErr)
+		}
+	}
+}
