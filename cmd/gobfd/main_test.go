@@ -2041,8 +2041,8 @@ func TestLoadConfig(t *testing.T) {
 			path: "",
 			check: func(t *testing.T, cfg *config.Config) {
 				t.Helper()
-				if cfg.GRPC.Addr != ":50051" {
-					t.Errorf("GRPC.Addr = %q, want :50051", cfg.GRPC.Addr)
+				if cfg.GRPC.Addr != "127.0.0.1:50052" {
+					t.Errorf("GRPC.Addr = %q, want 127.0.0.1:50052", cfg.GRPC.Addr)
 				}
 				if cfg.BFD.DefaultDetectMultiplier != 3 {
 					t.Errorf("DefaultDetectMultiplier = %d, want 3", cfg.BFD.DefaultDetectMultiplier)

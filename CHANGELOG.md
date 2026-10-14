@@ -43,12 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** listeners without authentication default to loopback
-  (GitHub #87). `metrics.addr` defaults to `127.0.0.1:9100`, also in
-  `configs/gobfd.example.yml`, which packages install as
-  `/etc/gobfd/gobfd.yml`. `gobfd-haproxy-agent` binds agent-check listeners
-  to `127.0.0.1` unless the new `listen_addr` key names another address.
+  (GitHub #87). `grpc.addr` defaults to `127.0.0.1:50052` and
+  `metrics.addr` to `127.0.0.1:9100`, also in `configs/gobfd.example.yml`,
+  which packages install as `/etc/gobfd/gobfd.yml`. Port 50051 is the gobgpd
+  default and the default `gobgp.addr`, so GoBFD and GoBGP now start side by
+  side with defaults, and the API default matches the default of
+  `gobfd-haproxy-agent` and `gobfd-exabgp-bridge`; `gobfdctl --addr` defaults
+  to `127.0.0.1:50052`. `gobfd-haproxy-agent` binds agent-check listeners to
+  `127.0.0.1` unless the new `listen_addr` key names another address.
   Startup logs a warning for an API or metrics listener reachable beyond
-  loopback. The API default transport follows in `gobfd-330`.
+  loopback. API authentication and the Unix-socket default of the v1 design
+  follow in `gobfd-330`.
 - **Breaking for Go consumers of `pkg/bfdpb`:** ConnectRPC moved to
   connect-go v2.0.0 and grpchealth v2.0.0. `bfdv1connect` is regenerated
   with `protoc-gen-connect-go` v2.0.0: clients take a `*connect.Client`

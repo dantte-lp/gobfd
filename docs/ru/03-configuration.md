@@ -39,10 +39,10 @@ GoBFD загружает конфигурацию из трёх источник
 # См.: configs/gobfd.example.yml
 
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50052"
 
 metrics:
-  addr: ":9100"
+  addr: "127.0.0.1:9100"
   path: "/metrics"
 
 log:
@@ -126,7 +126,7 @@ sessions:
 
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| `addr` | string | `":50051"` | Адрес прослушивания gRPC (ConnectRPC) |
+| `addr` | string | `"127.0.0.1:50052"` | Адрес прослушивания gRPC (ConnectRPC); без аутентификации, поэтому loopback, и не 50051 — порт gobgpd по умолчанию |
 
 #### `metrics` -- Endpoint Prometheus
 
@@ -457,7 +457,7 @@ YAML, а YAML перекрывает встроенные defaults.
 
 | Переменная | Ключ конфигурации | Пример |
 |---|---|---|
-| `GOBFD_GRPC_ADDR` | `grpc.addr` | `":50051"` |
+| `GOBFD_GRPC_ADDR` | `grpc.addr` | `"127.0.0.1:50052"` |
 | `GOBFD_METRICS_ADDR` | `metrics.addr` | `"127.0.0.1:9100"` |
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
@@ -725,7 +725,7 @@ source VXLAN или Geneve без работающего backend считает�
 
 | Ключ | Значение | Обоснование |
 |---|---|---|
-| `grpc.addr` | `:50051` | Стандартный порт gRPC |
+| `grpc.addr` | `127.0.0.1:50052` | Loopback, API без аутентификации; 50051 — порт gobgpd по умолчанию |
 | `metrics.addr` | `127.0.0.1:9100` | Стандартный порт экспортёра на loopback; endpoint без аутентификации |
 | `metrics.path` | `/metrics` | Конвенция Prometheus |
 | `log.level` | `info` | Production по умолчанию |

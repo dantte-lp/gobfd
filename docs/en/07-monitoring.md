@@ -20,7 +20,7 @@
 
 ### Prometheus Metrics
 
-GoBFD exposes Prometheus metrics at the configured endpoint (default `:9100/metrics`). All metrics use the `gobfd_bfd_` prefix.
+GoBFD exposes Prometheus metrics at the configured endpoint (default `127.0.0.1:9100/metrics`). All metrics use the `gobfd_bfd_` prefix.
 
 `gobfd_bfd_packets_dropped_total` and `gobfd_bfd_auth_failures_total` are
 registered but are not yet incremented by the production data path. They remain
@@ -214,9 +214,9 @@ The flight recorder captures scheduling events, goroutine creation, GC pauses, a
 
 | Endpoint | Port | Path | Description |
 |---|---|---|---|
-| Prometheus metrics | `:9100` | `/metrics` | Prometheus scrape target |
-| gRPC API | `:50051` | -- | ConnectRPC/gRPC API |
-| gRPC Health | `:50051` | `/grpc.health.v1.Health/Check` | Empty service is reconciliation readiness; named services are process/service health |
+| Prometheus metrics | `127.0.0.1:9100` | `/metrics` | Prometheus scrape target |
+| gRPC API | `127.0.0.1:50052` | -- | ConnectRPC/gRPC API |
+| gRPC Health | `127.0.0.1:50052` | `/grpc.health.v1.Health/Check` | Empty service is reconciliation readiness; named services are process/service health |
 
 The empty-service check is `NOT_SERVING` before the first converged generation
 and while the latest desired generation is stale, then `SERVING` after full

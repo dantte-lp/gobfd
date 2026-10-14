@@ -50,7 +50,7 @@ var rootCmd = &cobra.Command{
 
 //nolint:gochecknoinits // Cobra command flags and subcommands are registered during package initialization.
 func init() {
-	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "localhost:50051",
+	rootCmd.PersistentFlags().StringVar(&serverAddr, "addr", "127.0.0.1:50052",
 		"gobfd daemon address (host:port)")
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table",
 		"output format: table, json, yaml")

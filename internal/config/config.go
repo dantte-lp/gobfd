@@ -57,13 +57,14 @@ type SocketConfig struct {
 
 // GRPCConfig holds the ConnectRPC server configuration.
 type GRPCConfig struct {
-	// Addr is the gRPC listen address (e.g., ":50051").
+	// Addr is the gRPC listen address (default "127.0.0.1:50052").
 	Addr string `koanf:"addr"`
 }
 
 // MetricsConfig holds the Prometheus metrics endpoint configuration.
 type MetricsConfig struct {
-	// Addr is the HTTP listen address for the metrics endpoint (e.g., ":9100").
+	// Addr is the HTTP listen address for the metrics endpoint (default
+	// "127.0.0.1:9100").
 	Addr string `koanf:"addr"`
 	// Path is the URL path for the metrics endpoint (e.g., "/metrics").
 	Path string `koanf:"path"`
@@ -766,7 +767,9 @@ func (sc SessionConfig) LocalAddr() (netip.Addr, error) {
 func DefaultConfig() *Config {
 	return &Config{
 		GRPC: GRPCConfig{
-			Addr: ":50051",
+			// The API has no authentication, so it listens on loopback; 50051
+			// is the gobgpd default and the default gobgp.addr port.
+			Addr: "127.0.0.1:50052",
 		},
 		Metrics: MetricsConfig{
 			// Metrics are unauthenticated; bind beyond loopback explicitly.

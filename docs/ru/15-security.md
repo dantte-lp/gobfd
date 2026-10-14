@@ -50,8 +50,8 @@ HTTP-сервера либо локальным sidecar/reverse proxy уже с�
 
 Production-правила:
 
-- по умолчанию привязывайте `grpc.addr` к `127.0.0.1:50051` или локальному
-  network namespace;
+- оставляйте `grpc.addr` на loopback (по умолчанию `127.0.0.1:50052`) или в
+  локальном network namespace;
 - если API должен пересекать границу хоста, терминируйте mTLS в локальном
   proxy и публикуйте в сеть только proxy;
 - считайте `AddSession`, `DeleteSession` и будущие transport-specific create

@@ -244,7 +244,7 @@ which Make builds inside the development container before execution:
 podman compose -f deployments/compose/compose.yml up -d
 
 # Services:
-#   gobfd gRPC API:   localhost:50051
+#   gobfd gRPC API:   127.0.0.1:50052
 #   Prometheus:       http://localhost:9090
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
@@ -252,7 +252,7 @@ podman compose -f deployments/compose/compose.yml up -d
 ```mermaid
 graph LR
     subgraph "Podman Compose"
-        G["gobfd<br/>:50051 gRPC<br/>:9100 metrics"]
+        G["gobfd<br/>127.0.0.1:50052 gRPC<br/>127.0.0.1:9100 metrics"]
         P["Prometheus<br/>:9090"]
         GR["Grafana<br/>:3000"]
     end

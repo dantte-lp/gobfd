@@ -33,7 +33,7 @@ gobfdctl [глобальные флаги] <команда> [подкоманд�
 
 | Флаг | По умолчанию | Описание |
 |---|---|---|
-| `--addr` | `localhost:50051` | Адрес демона gobfd (host:port) |
+| `--addr` | `127.0.0.1:50052` | Адрес демона gobfd (host:port) |
 | `--format` | `table` | Формат вывода: `table`, `json`, `yaml` |
 
 ### Команды сессий
@@ -274,7 +274,7 @@ gobfdctl session list --format json | jq '.sessions[].state'
 
 ```bash
 # Подключение к удалённому демону
-gobfdctl --addr 10.0.0.1:50051 session list
+gobfdctl --addr 10.0.0.1:50052 session list
 
 # Быстрая настройка сессии для тестирования
 gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \

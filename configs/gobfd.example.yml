@@ -1,7 +1,7 @@
 # GoBFD daemon configuration example.
 #
 # Supported environment overrides:
-#   GOBFD_GRPC_ADDR=:50051
+#   GOBFD_GRPC_ADDR=127.0.0.1:50052
 #   GOBFD_METRICS_ADDR=:9100
 #   GOBFD_METRICS_PATH=/metrics
 #   GOBFD_LOG_LEVEL=debug
@@ -21,8 +21,9 @@
 #   GOBFD_GOBGP_DAMPENING_ENABLED=true
 
 grpc:
-  # gRPC (ConnectRPC) listen address.
-  addr: ":50051"
+  # gRPC (ConnectRPC) listen address. The API has no authentication, so it
+  # listens on loopback; 50051 is the gobgpd default port.
+  addr: "127.0.0.1:50052"
 
 metrics:
   # Prometheus metrics endpoint. It has no authentication, so it listens on

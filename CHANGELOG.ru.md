@@ -43,12 +43,17 @@
 ### Изменено
 
 - **Breaking:** listener без аутентификации по умолчанию слушают loopback
-  (GitHub #87). `metrics.addr` по умолчанию `127.0.0.1:9100`, в том числе в
-  `configs/gobfd.example.yml`, который пакеты ставят как
-  `/etc/gobfd/gobfd.yml`. `gobfd-haproxy-agent` слушает agent-check на
-  `127.0.0.1`, если новый ключ `listen_addr` не задаёт другой адрес. При
-  запуске выводится предупреждение для API или метрик, доступных за
-  пределами loopback. Транспорт API по умолчанию меняется в `gobfd-330`.
+  (GitHub #87). `grpc.addr` по умолчанию `127.0.0.1:50052`, `metrics.addr`
+  — `127.0.0.1:9100`, в том числе в `configs/gobfd.example.yml`, который
+  пакеты ставят как `/etc/gobfd/gobfd.yml`. Порт 50051 — порт gobgpd по
+  умолчанию и `gobgp.addr` по умолчанию, поэтому GoBFD и GoBGP теперь
+  запускаются рядом с настройками по умолчанию, а адрес API совпадает со
+  значением по умолчанию `gobfd-haproxy-agent` и `gobfd-exabgp-bridge`;
+  `gobfdctl --addr` по умолчанию `127.0.0.1:50052`. `gobfd-haproxy-agent`
+  слушает agent-check на `127.0.0.1`, если новый ключ `listen_addr` не задаёт
+  другой адрес. При запуске выводится предупреждение для API или метрик,
+  доступных за пределами loopback. Аутентификация API и Unix-сокет по
+  умолчанию из дизайна v1 — в `gobfd-330`.
 - **Breaking для Go-потребителей `pkg/bfdpb`:** ConnectRPC переведён на
   connect-go v2.0.0 и grpchealth v2.0.0. `bfdv1connect` перегенерирован
   `protoc-gen-connect-go` v2.0.0: клиенты принимают `*connect.Client`

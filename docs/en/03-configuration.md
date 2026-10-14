@@ -37,10 +37,10 @@ GoBFD loads configuration from three sources, applied in order (later sources ov
 # See: configs/gobfd.example.yml
 
 grpc:
-  addr: ":50051"
+  addr: "127.0.0.1:50052"
 
 metrics:
-  addr: ":9100"
+  addr: "127.0.0.1:9100"
   path: "/metrics"
 
 log:
@@ -124,7 +124,7 @@ sessions:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `addr` | string | `":50051"` | gRPC (ConnectRPC) listen address |
+| `addr` | string | `"127.0.0.1:50052"` | gRPC (ConnectRPC) listen address; unauthenticated, so loopback by default, and not 50051, the gobgpd default |
 
 #### `metrics` -- Prometheus Endpoint
 
@@ -456,7 +456,7 @@ built-in defaults.
 
 | Environment Variable | Config Key | Example |
 |---|---|---|
-| `GOBFD_GRPC_ADDR` | `grpc.addr` | `":50051"` |
+| `GOBFD_GRPC_ADDR` | `grpc.addr` | `"127.0.0.1:50052"` |
 | `GOBFD_METRICS_ADDR` | `metrics.addr` | `"127.0.0.1:9100"` |
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
@@ -726,7 +726,7 @@ skipped. Already accepted source changes are not rolled back.
 
 | Key | Default Value | Rationale |
 |---|---|---|
-| `grpc.addr` | `:50051` | Standard gRPC port |
+| `grpc.addr` | `127.0.0.1:50052` | Loopback, unauthenticated API; 50051 is the gobgpd default |
 | `metrics.addr` | `127.0.0.1:9100` | Standard exporter port on loopback; the endpoint has no authentication |
 | `metrics.path` | `/metrics` | Prometheus convention |
 | `log.level` | `info` | Production default |

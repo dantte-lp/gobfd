@@ -49,8 +49,8 @@ native-TLS change, or by a local sidecar/reverse proxy today.
 
 Production rules:
 
-- Bind `grpc.addr` to `127.0.0.1:50051` or a Unix-local network namespace by
-  default.
+- Keep `grpc.addr` on loopback (default `127.0.0.1:50052`) or in a Unix-local
+  network namespace.
 - If the API must cross a host boundary, terminate mTLS in a local proxy and
   expose only the proxy to the network.
 - Treat `AddSession`, `DeleteSession`, and future transport-specific create

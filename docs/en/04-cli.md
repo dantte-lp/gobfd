@@ -33,7 +33,7 @@ gobfdctl [global flags] <command> [subcommand] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--addr` | `localhost:50051` | gobfd daemon address (host:port) |
+| `--addr` | `127.0.0.1:50052` | gobfd daemon address (host:port) |
 | `--format` | `table` | Output format: `table`, `json`, `yaml` |
 
 ### Session Commands
@@ -284,7 +284,7 @@ gobfdctl session list --format json | jq '.sessions[].state'
 
 ```bash
 # Connect to remote daemon
-gobfdctl --addr 10.0.0.1:50051 session list
+gobfdctl --addr 10.0.0.1:50052 session list
 
 # Quick session setup for testing
 gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \

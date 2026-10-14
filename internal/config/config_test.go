@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,8 +26,10 @@ func TestDefaultConfig(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 
-	if cfg.GRPC.Addr != ":50051" {
-		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":50051")
+	// gh-87: the API is unauthenticated, so it binds to loopback, on 50052:
+	// gobgpd serves its own API on 50051 by default.
+	if cfg.GRPC.Addr != "127.0.0.1:50052" {
+		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, "127.0.0.1:50052")
 	}
 
 	// gh-87: metrics are unauthenticated, so they bind to loopback by default.
@@ -2107,4 +2110,23 @@ func detectMult(cfg *config.Config) uint32 {
 		return 0
 	}
 	return cfg.Unsolicited.SessionDefaults.DetectMult
+}
+
+// gh-87: gobfd and gobgpd start side by side with default settings, and the
+// default GoBGP client endpoint is not GoBFD's own API.
+func TestDefaultAPIPortDiffersFromGoBGP(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	_, apiPort, err := net.SplitHostPort(cfg.GRPC.Addr)
+	if err != nil {
+		t.Fatalf("split grpc.addr %q: %v", cfg.GRPC.Addr, err)
+	}
+	_, goBGPPort, err := net.SplitHostPort(cfg.GoBGP.Addr)
+	if err != nil {
+		t.Fatalf("split gobgp.addr %q: %v", cfg.GoBGP.Addr, err)
+	}
+	if apiPort == goBGPPort || apiPort == "50051" {
+		t.Fatalf("grpc.addr port %s collides with GoBGP (gobgp.addr %s, gobgpd default 50051)", apiPort, cfg.GoBGP.Addr)
+	}
 }
