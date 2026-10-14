@@ -90,7 +90,10 @@ func run() int {
 	collector := bfdmetrics.NewCollector(reg)
 
 	// 6. Create BFD session manager with metrics and unsolicited BFD (RFC 9468).
-	mgr, err := newManager(cfg, collector, logger)
+	// One UDP sender factory owns the RFC 5881 source-port allocator for
+	// configured, API and unsolicited sessions.
+	sf := newUDPSenderFactory()
+	mgr, err := newManager(cfg, collector, sf, logger)
 	if err != nil {
 		logger.Error("failed to create BFD manager",
 			slog.String("error", err.Error()),
@@ -100,7 +103,7 @@ func run() int {
 	defer mgr.Close()
 
 	// 7. Run servers.
-	if err := runServers(cfg, mgr, reg, logger, *configPath, logLevel, fr); err != nil {
+	if err := runServers(cfg, mgr, sf, reg, logger, *configPath, logLevel, fr); err != nil {
 		logger.Error("gobfd exited with error",
 			slog.String("error", err.Error()),
 		)
@@ -116,15 +119,13 @@ func run() int {
 func runServers(
 	cfg *config.Config,
 	mgr *bfd.Manager,
+	sf *udpSenderFactory,
 	reg *prometheus.Registry,
 	logger *slog.Logger,
 	configPath string,
 	logLevel *slog.LevelVar,
 	fr *trace.FlightRecorder,
 ) error {
-	// Create real UDP sender factory backed by SourcePortAllocator.
-	sf := newUDPSenderFactory()
-
 	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
 	healthChecker := newDaemonHealthChecker()
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, logger)

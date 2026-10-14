@@ -50,7 +50,7 @@
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784 с TTL>=254 допускает не более одного промежуточного router; arbitrary-hop qualification не завершена |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v4, как и v3, отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
-| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Проверки connected subnet, лимита сессий и скорости приёма действуют; ответы идут через общий IPv4 wildcard sender |
+| [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Проверки connected subnet, лимита сессий и скорости приёма действуют; ответы с полученного локального кортежа; автосессии без аутентификации |
 | [RFC 9747](https://datatracker.ietf.org/doc/html/rfc9747) | Unaffiliated BFD Echo | **Preview** | Echo session и port 3785 wiring существуют; полная RFC-квалификация не завершена |
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный preview** | Identity поддерживаемого профиля привязана точно; owner-specific dataplane integration не завершена |
@@ -231,10 +231,11 @@ RFC 9384 требует Cease NOTIFICATION subcode 10 ("BFD Down") при раз
 
 RFC 9468 позволяет динамически создавать пассивные сессии при получении BFD-пакетов от неизвестных пиров. Автосоздание выполняется в `Manager.demuxByPeer()` с политикой per-interface. Source должен принадлежать подсети локального адреса, на который пришёл пакет (раздел 2); `AllowedPrefixes` дополнительно сужает допуск; ненумерованный путь отклоняется. `max_sessions` при включении должен быть >= 1, новые сессии допускаются не чаще 10 в секунду (burst 20). Квота резервируется атомарно до создания и освобождается при ошибке создания, явном удалении или cleanup пассивной Down-сессии после `CleanupTimeout`.
 
-Эта preview-возможность по-прежнему отвечает через один общий IPv4 wildcard
-sender, а не с полученного локального адреса и интерфейса
-(`gobfd-qj0.8.2.1.10.1`); автосозданные сессии не используют аутентификацию.
-Её нельзя включать на недоверенном интерфейсе.
+Каждая пассивная сессия получает свой sender на локальном адресе и интерфейсе,
+на которые пришёл пакет, со своим source port RFC 5881; IPv6 link-local адрес
+привязывается к интерфейсу приёма. Автосозданные сессии не используют
+аутентификацию, проверка `session_defaults` при запуске неполная
+(`gobfd-qj0.8.2.1.10.3`). Её нельзя включать на недоверенном интерфейсе.
 
 ### Заметки по RFC 9747
 

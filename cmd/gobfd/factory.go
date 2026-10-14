@@ -215,7 +215,12 @@ func configAuthTypeToBFD(authType string) (bfd.AuthType, error) {
 }
 
 // newManager creates a BFD session manager with metrics and optional unsolicited BFD (RFC 9468).
-func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slog.Logger) (*bfd.Manager, error) {
+func newManager(
+	cfg *config.Config,
+	collector *bfdmetrics.Collector,
+	sf *udpSenderFactory,
+	logger *slog.Logger,
+) (*bfd.Manager, error) {
 	opts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
 	actuator, actuatorEnabled, err := buildMicroBFDActuator(cfg.MicroBFD.Actuator, logger)
 	if err != nil {
@@ -229,21 +234,10 @@ func newManager(cfg *config.Config, collector *bfdmetrics.Collector, logger *slo
 		if err != nil {
 			return nil, fmt.Errorf("invalid unsolicited BFD config: %w", err)
 		}
-		opts = append(opts, bfd.WithUnsolicitedPolicy(policy))
-
-		sf := newUDPSenderFactory()
-		sender, srcPort, err := sf.createSenderForSession(netip.IPv4Unspecified(), false, logger)
-		if err != nil {
-			return nil, fmt.Errorf("create unsolicited BFD sender: %w", err)
-		}
-		opts = append(opts, bfd.WithUnsolicitedSenderLease(
-			bfd.NewSenderLease(sender, func() error {
-				if err := sf.CloseSender(srcPort); err != nil {
-					return fmt.Errorf("close unsolicited BFD sender port %d: %w", srcPort, err)
-				}
-				return nil
-			}),
-		))
+		opts = append(opts,
+			bfd.WithUnsolicitedPolicy(policy),
+			bfd.WithUnsolicitedSessionSender(unsolicitedSessionSender(sf, logger)),
+		)
 		logger.Info("unsolicited BFD enabled (RFC 9468)",
 			slog.Int("max_sessions", policy.MaxSessions),
 		)
@@ -319,4 +313,25 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 		},
 		CleanupTimeout: cfg.CleanupTimeout,
 	}, nil
+}
+
+// unsolicitedSessionSender builds the sender of one RFC 9468 passive session
+// on the local address and interface that received the triggering packet,
+// with its own RFC 5881 source port. An IPv6 link-local address is scoped
+// to the receiving interface.
+func unsolicitedSessionSender(
+	sf declarativeSenderFactory,
+	logger *slog.Logger,
+) func(bfd.PacketMeta) (*bfd.SenderLease, error) {
+	return func(meta bfd.PacketMeta) (*bfd.SenderLease, error) {
+		local := meta.DstAddr.Unmap()
+		var opts []netio.SenderOption
+		if meta.IfName != "" {
+			opts = append(opts, netio.WithBindDevice(meta.IfName))
+			if local.Is6() && local.IsLinkLocalUnicast() {
+				local = local.WithZone(meta.IfName)
+			}
+		}
+		return declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)()
+	}
 }

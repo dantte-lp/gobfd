@@ -50,8 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local address; an unnumbered receive path is rejected. `max_sessions` must
   be >= 1 when `unsolicited.enabled` is true (configuration validation
   rejects 0, which used to mean unlimited), and new sessions are admitted at
-  up to 10 per second with a burst of 20. Replies still use one shared IPv4
-  wildcard sender (`gobfd-qj0.8.2.1.10.1`).
+  up to 10 per second with a burst of 20.
 - Updated GitHub Actions within the release-age rule to peeled commit SHAs:
   `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,
@@ -134,6 +133,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- RFC 9468 passive sessions reply from the local address and interface that
+  received the triggering packet, each with its own RFC 5881 source port from
+  the daemon's shared allocator, for IPv4 and IPv6 (audit finding C-07). The
+  shared IPv4 wildcard sender is gone; an IPv6 link-local reply is scoped to
+  the receiving interface.
 - `MarshalControlPacket` validates the authentication section before it
   writes any byte (audit finding H-03). The A bit and the section must
   agree; Auth Len must equal 24 for Keyed MD5, 28 for Keyed SHA1 and 3 plus

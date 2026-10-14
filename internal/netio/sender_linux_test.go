@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestSenderOptionsApply(t *testing.T) {
@@ -63,5 +65,55 @@ func TestNewUDPSenderLoopbackLifecycle(t *testing.T) {
 	sendErr := s.SendPacket(context.Background(), []byte{1}, netip.MustParseAddr("127.0.0.1"))
 	if !errors.Is(sendErr, ErrSocketClosed) {
 		t.Fatalf("SendPacket after Close error = %v, want ErrSocketClosed", sendErr)
+	}
+}
+
+// C-07 evidence: a sender bound to a local address emits from that address
+// and its RFC 5881 source port. 127.0.0.2 differs from the kernel's default
+// loopback source, so the bind, not routing, chooses the source.
+func TestUDPSenderEmitsFromBoundLocalTuple(t *testing.T) {
+	t.Parallel()
+
+	for _, local := range []string{"127.0.0.2", "::1"} {
+		t.Run(local, func(t *testing.T) {
+			t.Parallel()
+
+			localAddr := netip.MustParseAddr(local)
+			network := "udp4"
+			if localAddr.Is6() {
+				network = "udp6"
+			}
+			listener, err := net.ListenUDP(network, net.UDPAddrFromAddrPort(netip.AddrPortFrom(localAddr, 0)))
+			if err != nil {
+				t.Skipf("no %s loopback: %v", network, err)
+			}
+			defer listener.Close()
+			dstPort := netip.MustParseAddrPort(listener.LocalAddr().String()).Port()
+
+			alloc := NewSourcePortAllocator()
+			srcPort, err := alloc.Allocate()
+			if err != nil {
+				t.Fatalf("allocate source port: %v", err)
+			}
+			s, err := NewUDPSender(localAddr, srcPort, false, slog.New(slog.DiscardHandler), WithDstPort(dstPort))
+			if err != nil {
+				t.Fatalf("NewUDPSender: %v", err)
+			}
+			defer s.Close()
+
+			if sendErr := s.SendPacket(t.Context(), []byte{1}, localAddr); sendErr != nil {
+				t.Fatalf("SendPacket: %v", sendErr)
+			}
+			if deadlineErr := listener.SetReadDeadline(time.Now().Add(2 * time.Second)); deadlineErr != nil {
+				t.Fatalf("set deadline: %v", deadlineErr)
+			}
+			_, from, err := listener.ReadFromUDPAddrPort(make([]byte, 16))
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if want := netip.AddrPortFrom(localAddr, srcPort); from != want {
+				t.Fatalf("packet source = %s, want %s", from, want)
+			}
+		})
 	}
 }

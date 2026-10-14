@@ -577,6 +577,9 @@ func (m *Manager) tryCreateUnsolicited(
 	cfg := unsolicitedSessionConfig(meta, m.unsolicited.policy.SessionDefaults)
 
 	senderFactory := m.unsolicitedSenderFactory
+	if m.unsolicitedSessionSender != nil {
+		senderFactory = func() (*SenderLease, error) { return m.unsolicitedSessionSender(meta) }
+	}
 	if senderFactory == nil {
 		m.unsolicited.release()
 		m.ownershipMu.Unlock()

@@ -199,10 +199,12 @@ unsolicited:
 > address itself. New sessions are admitted at up to 10 per second (burst 20)
 > and never beyond `max_sessions`. An unnumbered receive path is rejected.
 >
-> **Unsafe preview**: replies still leave through one shared IPv4 wildcard
-> sender, not the received local address and interface, and auto-created
-> sessions carry no authentication. Do not enable unsolicited BFD on an
-> untrusted interface.
+> Each passive session replies from the local address and interface that
+> received the triggering packet, with its own source port (IPv4 and IPv6).
+>
+> **Unsafe preview**: auto-created sessions carry no authentication, and
+> startup validation of `session_defaults` is incomplete. Do not enable
+> unsolicited BFD on an untrusted interface.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 

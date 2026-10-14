@@ -291,6 +291,11 @@ type Manager struct {
 	// the singleton sender after an unsolicited claim is accepted.
 	unsolicitedSenderFactory SenderLeaseFactory
 
+	// unsolicitedSessionSender creates the sender of one unsolicited session
+	// from the received packet's local address and interface. When set it
+	// takes precedence over unsolicitedSenderFactory.
+	unsolicitedSessionSender func(PacketMeta) (*SenderLease, error)
+
 	// unsolicitedSenderLease owns the singleton sender shared by all RFC 9468
 	// sessions. Per-session leases are explicitly non-owning.
 	unsolicitedSenderLease *SenderLease
@@ -440,6 +445,16 @@ func WithUnsolicitedPolicy(policy *UnsolicitedPolicy) ManagerOption {
 		if policy != nil && policy.Enabled {
 			m.unsolicited = newUnsolicitedState(policy)
 		}
+	}
+}
+
+// WithUnsolicitedSessionSender sets the per-session sender factory for
+// auto-created RFC 9468 sessions. It receives the metadata of the packet that
+// triggered the session, so the reply leaves from the local address and
+// interface that received it. The returned lease belongs to the session.
+func WithUnsolicitedSessionSender(f func(PacketMeta) (*SenderLease, error)) ManagerOption {
+	return func(m *Manager) {
+		m.unsolicitedSessionSender = f
 	}
 }
 

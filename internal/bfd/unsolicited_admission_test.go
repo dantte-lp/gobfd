@@ -2,6 +2,7 @@ package bfd
 
 import (
 	"errors"
+	"log/slog"
 	"net/netip"
 	"testing"
 	"testing/synctest"
@@ -32,6 +33,11 @@ func admissionPolicy(maxSessions int, prefixes ...string) *UnsolicitedPolicy {
 		MaxSessions: maxSessions,
 		Interfaces: map[string]UnsolicitedInterfaceConfig{
 			"eth0": {Enabled: true, AllowedPrefixes: allowed},
+		},
+		SessionDefaults: UnsolicitedSessionDefaults{
+			DesiredMinTxInterval:  time.Second,
+			RequiredMinRxInterval: time.Second,
+			DetectMultiplier:      3,
 		},
 	}
 }
@@ -156,5 +162,44 @@ func TestSystemConnectedPrefixLoopback(t *testing.T) {
 	}
 	if _, ok := systemConnectedPrefix(netip.MustParseAddr("192.0.2.123")); ok {
 		t.Fatal("systemConnectedPrefix found a prefix for an address the host does not own")
+	}
+}
+
+type recordingLeaseSender struct{ senderLeaseTestSender }
+
+// C-07: an unsolicited session gets its own sender for the local address
+// and interface that received the triggering packet, not a shared wildcard
+// sender, and its lease closes exactly once with the session.
+func TestUnsolicitedSessionSenderUsesReceivedTuple(t *testing.T) {
+	t.Parallel()
+
+	var (
+		got    []PacketMeta
+		closes int
+	)
+	mgr := NewManager(
+		slog.New(slog.DiscardHandler),
+		WithUnsolicitedPolicy(admissionPolicy(1)),
+		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("2001:db8:1::/64")),
+		WithUnsolicitedSessionSender(func(meta PacketMeta) (*SenderLease, error) {
+			got = append(got, meta)
+			return NewSenderLease(recordingLeaseSender{}, func() error {
+				closes++
+				return nil
+			}), nil
+		}),
+	)
+
+	meta := admissionMeta("2001:db8:1::10", "2001:db8:1::1")
+	if err := mgr.tryCreateUnsolicited(ownershipDownPacket(41), meta, nil); err != nil {
+		t.Fatalf("tryCreateUnsolicited: %v", err)
+	}
+	if len(got) != 1 || got[0].DstAddr != meta.DstAddr || got[0].IfName != meta.IfName {
+		t.Fatalf("sender requested for %+v, want local %s on %s", got, meta.DstAddr, meta.IfName)
+	}
+
+	mgr.Close()
+	if closes != 1 {
+		t.Fatalf("sender lease closes = %d, want 1", closes)
 	}
 }
