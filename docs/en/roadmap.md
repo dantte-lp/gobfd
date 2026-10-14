@@ -89,9 +89,11 @@ Ordered P0 queue from 2026-10-15:
      v3.4.0, ExaBGP 5.0.14;
    - 2026-10-20: dbus v5.2.4 (includes v5.2.3 allocation hardening);
    - 2026-10-21: connect-go v2.0.1.
-3. Security P0: RFC 9468 authentication policy for auto-created sessions
-   (rest of `.8.2.1.10.2`) and `.8.2.1.8` preview boundaries; then P1
-   `.8.2.1.10.3` default validation and `.8.2.1.10.4` shared-lease cleanup.
+3. Security P0: RFC 9468 authentication policy for auto-created sessions —
+   done on `task/unsolicited-auth` (`e8dfd59`, Meticulous Keyed SHA1 only),
+   lands after the stack; `.8.2.1.8` preview boundaries remain; then P1
+   `.8.2.1.10.3` default validation, `.8.2.1.10.4` shared-lease cleanup and
+   `gobfd-b52` RFC gate tshark wait.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
    vendor images.
