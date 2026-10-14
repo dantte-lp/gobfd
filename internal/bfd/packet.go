@@ -447,9 +447,15 @@ const (
 //	Bytes 20-23: Required Min Echo RX Interval (big-endian uint32, microseconds)
 //	Bytes 24+: Authentication Section (optional)
 func MarshalControlPacket(pkt *ControlPacket, buf []byte) (int, error) {
-	// Calculate total packet length.
+	// Validate the whole packet before writing, so a rejected packet leaves
+	// buf untouched.
+	if pkt.AuthPresent || pkt.Auth != nil {
+		if err := validateOutboundAuth(pkt); err != nil {
+			return 0, fmt.Errorf("marshal control packet: %w", err)
+		}
+	}
 	totalLen := HeaderSize
-	if pkt.AuthPresent && pkt.Auth != nil {
+	if pkt.AuthPresent {
 		totalLen += int(pkt.Auth.Len)
 	}
 
@@ -508,23 +514,52 @@ func MarshalControlPacket(pkt *ControlPacket, buf []byte) (int, error) {
 	binary.BigEndian.PutUint32(buf[20:24], pkt.RequiredMinEchoRxInterval)
 
 	// Optional Authentication Section (RFC 5880 Sections 4.2, 4.3, 4.4).
-	if pkt.AuthPresent && pkt.Auth != nil {
-		if err := marshalAuthSection(pkt.Auth, buf[HeaderSize:]); err != nil {
-			return 0, fmt.Errorf("marshal auth section: %w", err)
-		}
+	if pkt.AuthPresent {
+		marshalAuthSection(pkt.Auth, buf[HeaderSize:])
 	}
 
 	return totalLen, nil
 }
 
-// marshalAuthSection writes the authentication section to buf.
-// buf must be at least Auth.Len bytes. Caller has already verified this.
-func marshalAuthSection(auth *AuthSection, buf []byte) error {
-	if int(auth.Len) > len(buf) {
-		return fmt.Errorf("auth section needs %d bytes, buffer has %d: %w",
-			auth.Len, len(buf), ErrBufTooSmall)
+// validateOutboundAuth checks that the A bit, the authentication section and
+// its per-type length contract agree (RFC 5880 Sections 4.2-4.4).
+func validateOutboundAuth(pkt *ControlPacket) error {
+	if pkt.AuthPresent != (pkt.Auth != nil) {
+		return fmt.Errorf("auth present bit %t with auth section %t: %w",
+			pkt.AuthPresent, pkt.Auth != nil, ErrAuthMismatch)
 	}
+	auth := pkt.Auth
 
+	var wantLen, payload int
+	switch auth.Type {
+	case AuthTypeSimplePassword:
+		payload = len(auth.AuthData)
+		if payload < simplePasswordMinLen || payload > simplePasswordMaxLen {
+			return fmt.Errorf("simple password of %d bytes: %w", payload, ErrAuthLenMismatch)
+		}
+		wantLen = authSimpleHeaderSize + payload
+	case AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5:
+		wantLen, payload = authLenMD5, len(auth.Digest)
+		if payload != md5DigestSize {
+			return fmt.Errorf("MD5 digest of %d bytes: %w", payload, ErrAuthLenMismatch)
+		}
+	case AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1:
+		wantLen, payload = authLenSHA1, len(auth.Digest)
+		if payload != sha1DigestSize {
+			return fmt.Errorf("SHA1 digest of %d bytes: %w", payload, ErrAuthLenMismatch)
+		}
+	default:
+		return fmt.Errorf("auth type %d: %w", auth.Type, ErrInvalidAuthType)
+	}
+	if int(auth.Len) != wantLen {
+		return fmt.Errorf("auth type %d Len %d, want %d: %w", auth.Type, auth.Len, wantLen, ErrAuthLenMismatch)
+	}
+	return nil
+}
+
+// marshalAuthSection writes an authentication section that
+// validateOutboundAuth accepted into buf, which holds at least auth.Len bytes.
+func marshalAuthSection(auth *AuthSection, buf []byte) {
 	// Common header: Auth Type (byte 0), Auth Len (byte 1).
 	buf[0] = uint8(auth.Type)
 	buf[1] = auth.Len
@@ -547,10 +582,8 @@ func marshalAuthSection(auth *AuthSection, buf []byte) error {
 		copy(buf[8:], auth.Digest)
 
 	default:
-		return fmt.Errorf("auth type %d: %w", auth.Type, ErrInvalidAuthType)
+		// Unreachable: validateOutboundAuth rejects every other type.
 	}
-
-	return nil
 }
 
 // -------------------------------------------------------------------------

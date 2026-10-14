@@ -114,6 +114,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `MarshalControlPacket` validates the authentication section before it
+  writes any byte (audit finding H-03). The A bit and the section must
+  agree; Auth Len must equal 24 for Keyed MD5, 28 for Keyed SHA1 and 3 plus
+  the password length for Simple Password; digests must be 16 or 20 bytes,
+  passwords 1 to 16 bytes; reserved and unknown auth types are rejected
+  (RFC 5880 Sections 4.2-4.4). A rejected packet leaves the buffer
+  unchanged; marshal stays at 0 allocations.
 - Unauthenticated cached Control packet construction no longer allocates a
   packet object per transmission through the unused authentication branch.
 - A peer Final cannot complete a local Poll before a Poll packet is

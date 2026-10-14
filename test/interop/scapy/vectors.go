@@ -124,9 +124,11 @@ func truncatedPacketCase() (vectorCase, error) {
 }
 
 func authFlagWithoutSectionCase() (vectorCase, error) {
-	packet := defaultControlPacket(0xF0F00007)
-	packet.AuthPresent = true
-	return singleControlCase("auth_flag_no_section", "A=1, length=24, no_auth_data", packet)
+	payload, err := marshalControlWithAuthBit(defaultControlPacket(0xF0F00007))
+	if err != nil {
+		return vectorCase{}, err
+	}
+	return singleRawCase("auth_flag_no_section", "A=1, length=24, no_auth_data", payload, defaultTTL), nil
 }
 
 func truncatedAuthSectionCase() (vectorCase, error) {
@@ -161,10 +163,13 @@ func allFlagsCase() (vectorCase, error) {
 	packet.Poll = true
 	packet.Final = true
 	packet.ControlPlaneIndependent = true
-	packet.AuthPresent = true
 	packet.Demand = true
 	packet.Multipoint = true
-	return singleControlCase("all_flags_set", "P=F=C=A=D=M=1", packet)
+	payload, err := marshalControlWithAuthBit(packet)
+	if err != nil {
+		return vectorCase{}, err
+	}
+	return singleRawCase("all_flags_set", "P=F=C=A=D=M=1", payload, defaultTTL), nil
 }
 
 func maximumFieldsCase() (vectorCase, error) {
@@ -320,10 +325,23 @@ func marshalControl(packet bfd.ControlPacket) ([]byte, error) {
 	return append([]byte(nil), buffer[:size]...), nil
 }
 
-func rawAuthPacket(discriminator uint32, length byte, auth []byte) ([]byte, error) {
-	packet := defaultControlPacket(discriminator)
-	packet.AuthPresent = true
+// authPresentFlag is the A bit in byte 1 of the BFD Control header
+// (RFC 5880 Section 4.1).
+const authPresentFlag = 0x04
+
+// marshalControlWithAuthBit sets the A bit on a packet without an
+// authentication section, which MarshalControlPacket rejects.
+func marshalControlWithAuthBit(packet bfd.ControlPacket) ([]byte, error) {
 	payload, err := marshalControl(packet)
+	if err != nil {
+		return nil, err
+	}
+	payload[1] |= authPresentFlag
+	return payload, nil
+}
+
+func rawAuthPacket(discriminator uint32, length byte, auth []byte) ([]byte, error) {
+	payload, err := marshalControlWithAuthBit(defaultControlPacket(discriminator))
 	if err != nil {
 		return nil, err
 	}
