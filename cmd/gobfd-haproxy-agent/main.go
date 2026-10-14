@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -54,7 +55,10 @@ func run() int {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	var backends []backendConfig
+	var (
+		backends   []backendConfig
+		listenAddr string
+	)
 	if configPath != "" {
 		cfg, err := loadConfig(configPath)
 		if err != nil {
@@ -65,6 +69,7 @@ func run() int {
 			gobfdAddr = cfg.GoBFDAddr
 		}
 		backends = cfg.Backends
+		listenAddr = cfg.ListenAddr
 	}
 
 	if len(backends) == 0 {
@@ -90,7 +95,7 @@ func run() int {
 	// Start TCP agent-check listeners for each backend.
 	for _, b := range backends {
 		g.Go(func() error {
-			return serveAgentCheck(gCtx, b.Peer, b.AgentPort, states, logger)
+			return serveAgentCheck(gCtx, b.Peer, agentCheckListenAddr(listenAddr, b.AgentPort), states, logger)
 		})
 	}
 
@@ -172,16 +177,25 @@ func watchEvents(
 	return nil
 }
 
+// agentCheckListenAddr returns the agent-check listen address for host and
+// port; an empty host binds to loopback because the listener is
+// unauthenticated.
+func agentCheckListenAddr(host string, port int) string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
 // serveAgentCheck listens on the given TCP port and responds to HAProxy
 // agent-check connections with the BFD state for the specified peer.
 func serveAgentCheck(
 	ctx context.Context,
 	peer string,
-	port int,
+	addr string,
 	states *stateMap,
 	logger *slog.Logger,
 ) error {
-	addr := fmt.Sprintf(":%d", port)
 	lc := net.ListenConfig{}
 
 	ln, err := lc.Listen(ctx, "tcp", addr)
@@ -271,8 +285,12 @@ type backendConfig struct {
 }
 
 type agentConfig struct {
-	GoBFDAddr string          `yaml:"gobfd_addr"`
-	Backends  []backendConfig `yaml:"backends"`
+	GoBFDAddr string `yaml:"gobfd_addr"`
+	// ListenAddr is the host the agent-check listeners bind to; empty means
+	// loopback. HAProxy agent-addr may point at a remote agent, which then
+	// needs an explicit address.
+	ListenAddr string          `yaml:"listen_addr"`
+	Backends   []backendConfig `yaml:"backends"`
 }
 
 func loadConfig(path string) (*agentConfig, error) {

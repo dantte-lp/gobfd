@@ -132,7 +132,7 @@ sessions:
 
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| `addr` | string | `":9100"` | HTTP-адрес для метрик |
+| `addr` | string | `"127.0.0.1:9100"` | HTTP-адрес для метрик; без аутентификации, поэтому по умолчанию loopback |
 | `path` | string | `"/metrics"` | URL-путь для скрапинга Prometheus |
 
 #### `log` -- Логирование
@@ -458,7 +458,7 @@ YAML, а YAML перекрывает встроенные defaults.
 | Переменная | Ключ конфигурации | Пример |
 |---|---|---|
 | `GOBFD_GRPC_ADDR` | `grpc.addr` | `":50051"` |
-| `GOBFD_METRICS_ADDR` | `metrics.addr` | `":9100"` |
+| `GOBFD_METRICS_ADDR` | `metrics.addr` | `"127.0.0.1:9100"` |
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
@@ -726,7 +726,7 @@ source VXLAN или Geneve без работающего backend считает�
 | Ключ | Значение | Обоснование |
 |---|---|---|
 | `grpc.addr` | `:50051` | Стандартный порт gRPC |
-| `metrics.addr` | `:9100` | Стандартный порт экспортёра |
+| `metrics.addr` | `127.0.0.1:9100` | Стандартный порт экспортёра на loopback; endpoint без аутентификации |
 | `metrics.path` | `/metrics` | Конвенция Prometheus |
 | `log.level` | `info` | Production по умолчанию |
 | `log.format` | `json` | Машиночитаемый |

@@ -130,7 +130,7 @@ sessions:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `addr` | string | `":9100"` | HTTP listen address for metrics |
+| `addr` | string | `"127.0.0.1:9100"` | HTTP listen address for metrics; unauthenticated, so loopback by default |
 | `path` | string | `"/metrics"` | URL path for Prometheus scraping |
 
 #### `log` -- Logging
@@ -457,7 +457,7 @@ built-in defaults.
 | Environment Variable | Config Key | Example |
 |---|---|---|
 | `GOBFD_GRPC_ADDR` | `grpc.addr` | `":50051"` |
-| `GOBFD_METRICS_ADDR` | `metrics.addr` | `":9100"` |
+| `GOBFD_METRICS_ADDR` | `metrics.addr` | `"127.0.0.1:9100"` |
 | `GOBFD_METRICS_PATH` | `metrics.path` | `"/metrics"` |
 | `GOBFD_LOG_LEVEL` | `log.level` | `"debug"` |
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
@@ -727,7 +727,7 @@ skipped. Already accepted source changes are not rolled back.
 | Key | Default Value | Rationale |
 |---|---|---|
 | `grpc.addr` | `:50051` | Standard gRPC port |
-| `metrics.addr` | `:9100` | Standard exporter port |
+| `metrics.addr` | `127.0.0.1:9100` | Standard exporter port on loopback; the endpoint has no authentication |
 | `metrics.path` | `/metrics` | Prometheus convention |
 | `log.level` | `info` | Production default |
 | `log.format` | `json` | Machine-parseable |

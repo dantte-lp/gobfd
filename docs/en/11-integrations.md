@@ -164,6 +164,11 @@ The `gobfd-haproxy-agent` binary bridges BFD state to HAProxy's agent-check prot
 - BFD Up → responds `"up ready\n"` → HAProxy marks server operational
 - BFD Down → responds `"down\n"` → HAProxy removes server from rotation
 
+Agent-check listeners have no authentication. They bind to `127.0.0.1` unless
+`listen_addr` in the agent configuration names another address. A HAProxy
+`agent-addr` on another host needs an explicit reachable address; the lab
+configuration sets `listen_addr: "0.0.0.0"`.
+
 ### Quick Start
 
 ```bash

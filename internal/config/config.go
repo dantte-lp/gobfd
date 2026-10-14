@@ -769,7 +769,8 @@ func DefaultConfig() *Config {
 			Addr: ":50051",
 		},
 		Metrics: MetricsConfig{
-			Addr: ":9100",
+			// Metrics are unauthenticated; bind beyond loopback explicitly.
+			Addr: "127.0.0.1:9100",
 			Path: "/metrics",
 		},
 		Log: LogConfig{

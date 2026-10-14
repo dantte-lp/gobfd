@@ -5,6 +5,10 @@
 
 gobfd_addr: "http://127.0.0.1:50052"
 
+# HAProxy reaches the agent through agent-addr on the lab network; the
+# default is loopback because agent-check has no authentication.
+listen_addr: "0.0.0.0"
+
 backends:
   - peer: "172.23.0.30"
     agent_port: 9990

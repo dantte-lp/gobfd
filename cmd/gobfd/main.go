@@ -126,6 +126,7 @@ func runServers(
 	logLevel *slog.LevelVar,
 	fr *trace.FlightRecorder,
 ) error {
+	warnUnauthenticatedBinds(logger, map[string]string{"grpc": cfg.GRPC.Addr, "metrics": cfg.Metrics.Addr})
 	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
 	healthChecker := newDaemonHealthChecker()
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, logger)

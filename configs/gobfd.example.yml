@@ -25,8 +25,9 @@ grpc:
   addr: ":50051"
 
 metrics:
-  # Prometheus metrics endpoint.
-  addr: ":9100"
+  # Prometheus metrics endpoint. It has no authentication, so it listens on
+  # loopback; set a reachable address only on a trusted network.
+  addr: "127.0.0.1:9100"
   path: "/metrics"
 
 log:

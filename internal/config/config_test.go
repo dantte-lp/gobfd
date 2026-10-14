@@ -29,8 +29,9 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("GRPC.Addr = %q, want %q", cfg.GRPC.Addr, ":50051")
 	}
 
-	if cfg.Metrics.Addr != ":9100" {
-		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, ":9100")
+	// gh-87: metrics are unauthenticated, so they bind to loopback by default.
+	if cfg.Metrics.Addr != "127.0.0.1:9100" {
+		t.Errorf("Metrics.Addr = %q, want %q", cfg.Metrics.Addr, "127.0.0.1:9100")
 	}
 
 	if cfg.Metrics.Path != "/metrics" {
@@ -123,7 +124,7 @@ log:
   level: "warn"
 `,
 		wantGRPCAddr:         ":55555",
-		wantMetricsAddr:      ":9100",
+		wantMetricsAddr:      "127.0.0.1:9100",
 		wantMetricsPath:      "/metrics",
 		wantLogLevel:         "warn",
 		wantLogFormat:        "json",
