@@ -122,8 +122,12 @@ before the update:
    - 2026-10-20: dbus v5.2.4 (includes v5.2.3 allocation hardening);
    - 2026-10-21: connect-go v2.0.1 (`.8.6.10`), buf v1.74.0, trivy v0.76.0
      (no security fixes listed).
-2. Security P0 `.8.2.1.10.1`: IPv6 packet capture of unsolicited replies and
-   reload/concurrent lease-close fault injection; then close parent
+2. Security P0 `.8.2.1.10.1`: concurrent admission and reload lease release
+   is done (`bc768d6`); IPv6 packet capture waits for `.8.2.1.10.5` (P1):
+   unsolicited packets are received only on local addresses of configured
+   sessions, because `unsolicited.interfaces` opens no listener. Its listener
+   design (per-family bind with `SO_BINDTODEVICE` next to existing
+   per-address listeners) goes to the maintainer first; then close parent
    `.8.2.1.10`.
 3. Security P0 `.8.2.1.8` preview boundaries: the RFC 7130 and RFC 9747
    documentation labels are fixed in `dev`; the code slice waits for the
