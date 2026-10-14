@@ -115,6 +115,14 @@ func TestUnsolicitedAuthRejectsBadTriggers(t *testing.T) {
 			t.Helper()
 			return signedTrigger(t, unsolicitedAuthKeys(t, unsolicitedAuthKeyID+1))
 		}},
+		{"Keyed SHA1 signature", true, func(t *testing.T) (*ControlPacket, []byte) {
+			t.Helper()
+			return signedWith(t, KeyedSHA1Auth{}, AuthTypeKeyedSHA1)
+		}},
+		{"Simple Password", true, func(t *testing.T) (*ControlPacket, []byte) {
+			t.Helper()
+			return signedWith(t, SimplePasswordAuth{}, AuthTypeSimplePassword)
+		}},
 		{"signed packet without wire bytes", true, func(t *testing.T) (*ControlPacket, []byte) {
 			t.Helper()
 			pkt, _ := signedTrigger(t, unsolicitedAuthKeys(t, unsolicitedAuthKeyID))
@@ -146,4 +154,27 @@ func TestUnsolicitedAuthRejectsBadTriggers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// signedWith signs a trigger with another mechanism under the configured key
+// ID and secret, to prove admission requires Meticulous Keyed SHA1 itself.
+func signedWith(t *testing.T, auth Authenticator, authType AuthType) (*ControlPacket, []byte) {
+	t.Helper()
+
+	keys, err := NewStaticAuthKeyStore(AuthKey{
+		ID: unsolicitedAuthKeyID, Type: authType, Secret: []byte("unsolicited-sha1"),
+	})
+	if err != nil {
+		t.Fatalf("NewStaticAuthKeyStore: %v", err)
+	}
+	pkt := ownershipDownPacket(53)
+	buf := make([]byte, MaxPacketSize)
+	if signErr := auth.Sign(&AuthState{Type: authType, XmitAuthSeq: 7}, keys, pkt, buf, 0); signErr != nil {
+		t.Fatalf("Sign: %v", signErr)
+	}
+	n, err := MarshalControlPacket(pkt, buf)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return pkt, buf[:n]
 }

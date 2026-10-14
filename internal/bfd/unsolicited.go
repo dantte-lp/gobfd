@@ -262,7 +262,7 @@ func (us *unsolicitedState) verifyTrigger(pkt *ControlPacket, wire []byte) error
 	if !pkt.AuthPresent || pkt.Auth == nil {
 		return fmt.Errorf("unauthenticated packet: %w", ErrUnsolicitedAuthFailed)
 	}
-	state := &AuthState{Type: pkt.Auth.Type}
+	state := &AuthState{Type: us.policy.AuthKeys.CurrentKey().Type}
 	if err := auth.Verify(state, us.policy.AuthKeys, pkt, wire, len(wire)); err != nil {
 		return fmt.Errorf("%w: %w", ErrUnsolicitedAuthFailed, err)
 	}
