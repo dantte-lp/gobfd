@@ -53,44 +53,64 @@ Status of the first stack-currency queue (2026-10-14):
 | 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3 wait for 2026-10-16 to 2026-10-19 |
 | 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
 | 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
-| 5 | `.8.6.8` connect-go v2 | Done (`2514ae1`, `707ae7d`); wire compatibility pinned by `TestGRPCServerWireCompatibility` |
+| 5 | `.8.6.8` connect-go v2 | Done (`2514ae1`, `707ae7d`); wire compatibility pinned by `TestGRPCServerWireCompatibility`; v2.0.1 from 2026-10-21 |
 | 6 | `.8.6.5` base images, `.8.5.2.6` observability | Debian, HAProxy, nginx done (`04df88e`); Oracle Linux from 2026-10-19; observability open |
 | 7 | `.8.6.4` Actions, `.8.6.6` peers | Open; several eligible 2026-10-19 |
 | 8 | `.8.2.4.5`, `gobfd-0dc`, `.8.6.1` | Native BFD preflight done (`f5c6e42`); support statement and manual Compose open |
 | 9 | `.8.4`, `.8.5.2.8` | `.8.4` dev scope done, now P1 for stable delivery; Oracle decision open |
 
-Ordered P0 queue from 2026-10-14:
+Retrospective of 2026-10-14 against the 2026-10-13 queue:
 
-1. `gobfd-qj0.8.6.8` — done (`2514ae1`, `707ae7d`): connect-go v2 and
-   grpchealth v2.
-2. `gobfd-0dc` — done (`1381879`): supported GoBGP version statement; PR `#62`
-   is superseded, closing it needs maintainer approval.
-3. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe,
-   containerlab v0.81.0 (from 2026-10-18), SR Linux 26.7.2; vendor runs need
-   a host with containerlab and vendor images.
-4. `gobfd-qj0.8.2.8.5.2.6` — done (`5cf77e9`): Prometheus v3.15.0, Grafana
-   13.2.4 (security exception) and FRR on trixie; gate passed in 172.77 s.
-5. Second passes by eligibility: `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.5`,
-   `.8.6.6` (BIRD v3.4.0, ExaBGP 5.0.14).
+- Delivered to `dev`: koanf v2.3.8 (`5584967`), H-03 outbound authentication
+  validation (`1629b3c`), GoBGP action retry and dampening expiry
+  (`eda8e91`).
+- Gated on one stack, landing 2026-10-14 21:04 UTC: connect-go v2
+  (`2514ae1`, `707ae7d`), pending-Down drop on AdminDown or session removal
+  (`76415f7`), RFC 9468 single-hop, connected-subnet, limit and rate
+  admission (`e8f9a38`, `cc9b40e`) and tuple-bound replies (`59bfee9`).
+- Found by review, not by tests: the retry change could disable an
+  unmanaged peer late (fixed in `76415f7`), and RFC 9468 Section 6.1
+  single-hop was not enforced for port 4784 packets (fixed in `cc9b40e`).
+- Environment: the host root filesystem filled up (1.8 GB free) and was
+  cleaned with maintainer approval; `e2ectl rfc` needs the dev container, so
+  the RFC gate runs through `interop_rfc_testcontainers`.
+- New upstream input: connect-go v2.0.1 (2026-10-14, four bug fixes,
+  including draining after a rejected message), eligible 2026-10-21.
+
+Ordered P0 queue from 2026-10-15:
+
+1. Land the gated stack at or after 2026-10-14 21:04 UTC with one
+   fast-forward of `dev`; close `.8.6.8`, `.8.2.4.1.2` and `.8.2.1.10.1`.
+2. Second passes by eligibility (UTC):
+   - 2026-10-15: client_golang v1.25.0 (13:02), moby client v0.6.2 (20:07);
+   - 2026-10-16: GoReleaser v2.18.3 (03:28);
+   - 2026-10-18: govulncheck v1.9.0, containerlab v0.81.0;
+   - 2026-10-19: osv-scanner v2.7.0, Actions, `oraclelinux:10-slim`, BIRD
+     v3.4.0, ExaBGP 5.0.14;
+   - 2026-10-20: dbus v5.2.4 (includes v5.2.3 allocation hardening);
+   - 2026-10-21: connect-go v2.0.1.
+3. Security P0: RFC 9468 authentication policy for auto-created sessions
+   (rest of `.8.2.1.10.2`) and `.8.2.1.8` preview boundaries; then P1
+   `.8.2.1.10.3` default validation and `.8.2.1.10.4` shared-lease cleanup.
+4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
+   with containerlab v0.81.0; vendor runs need a host with containerlab and
+   vendor images.
+5. GoBGP `.8.2.4.1`: operator-disabled peers (maintainer decision: GoBFD
+   re-enables only peers it disabled) and stream gaps after `.8.2.1.3.2`
+   (P1); `.8.2.4.2` canonical identity.
 6. `gobfd-qj0.8.6.1` — manual Compose requalification on GoBGP v4, after the
-   host build DNS issue `gobfd-qj0.8.6.9` (P1) is resolved.
-7. `gobfd-qj0.8.2.8.5.2.8` — Oracle Linux product decision (maintainer).
-8. `gobfd-qj0.8.2.4.1`, `.8.2.4.2` — GoBGP desired/applied reconciliation and
-   canonical identity. Retry and dampening-expiry slice `.8.2.4.1.1` done
-   (`eda8e91`); a pending Down is dropped on AdminDown or session removal
-   (`.8.2.4.1.2`, `76415f7`); stream gaps (after `.8.2.1.3.2`) and
-   operator-disabled peers remain.
-9. Security P0 kept by the maintainer: H-03 `.8.2.1.11` done (`1629b3c`).
-   RFC 9468 unsolicited `.8.2.1.10`: single-hop, connected-subnet, session
-   limit and rate admission (`.10.2`, `e8f9a38`, `cc9b40e`) and replies from
-   the receiving local tuple (`.10.1`, `59bfee9`); authentication policy for
-   auto-created sessions, `.10.3` default validation and `.10.4` shared-lease
-   cleanup remain. `.8.2.1.8` preview boundaries remain.
+   host build DNS issue `gobfd-qj0.8.6.9` (P1).
+7. Maintainer decisions: Oracle Linux `.8.2.8.5.2.8`, closing PR `#62`,
+   filing the GO-2026-4736 vulndb correction, host DNS `.8.6.9`.
+
+Done before 2026-10-14 and kept for reference: `gobfd-0dc` supported GoBGP
+version statement (`1381879`), `.8.2.8.5.2.6` observability on trixie
+(`5cf77e9`).
 
 Blocked by the environment: Kubernetes live run `.8.5.2.5.3` (no k3s),
 Containerlab vendor runs (no containerlab binary or vendor images).
 
-Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
+Version matrix measured on 2026-10-14. Sources: `gh api graphql` releases,
 `proxy.golang.org`, `go list -m -u`, Docker Hub and GHCR registry APIs,
 `deb.frrouting.org` package index.
 
@@ -98,14 +118,14 @@ Version matrix measured on 2026-10-13. Sources: `gh api graphql` releases,
 |---|---|---|---|---|---|
 | Go toolchain | go.dev | 1.27.2 | 1.27.2 | current | done |
 | GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
-| connect-go | Go module | v2.0.0 | v2.0.0 | current | done |
+| connect-go | Go module | v2.0.0 | v2.0.1 | 2026-10-21 | `.8.6.8` |
 | grpchealth | Go module | v2.0.0 | v2.0.0 | current | done |
 | grpc-go | Go module | v1.84.0 | v1.84.0 | current | done |
 | koanf/v2 | Go module | v2.3.8 | v2.3.8 | current | done |
-| client_golang | Go module | v1.24.1 | v1.25.0 | 2026-10-15 | `.8.6.2` |
+| client_golang | Go module | v1.24.1 | v1.25.0 | 2026-10-15 13:02 | `.8.6.2` |
 | client_model | Go module | v0.6.3 | v0.6.3 | current | done |
 | godbus/dbus/v5 | Go module | v5.2.2 | v5.2.4 | 2026-10-20 | `.8.6.2` |
-| moby api / client | Go module | v1.56.1 / v0.6.1 | v1.56.1 / v0.6.2 | 2026-10-15 | `.8.6.2` |
+| moby api / client | Go module | v1.56.1 / v0.6.1 | v1.56.1 / v0.6.2 | 2026-10-15 20:07 | `.8.6.2` |
 | golangci-lint | tools module | v2.14.0 | v2.14.0 | current | done |
 | govulncheck | Go module | v1.8.0 | v1.9.0 | 2026-10-18 | `.8.6.3` |
 | osv-scanner | GitHub release | v2.6.0 | v2.7.0 | 2026-10-19 | `.8.6.3` |
