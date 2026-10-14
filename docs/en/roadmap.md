@@ -93,9 +93,12 @@ Ordered P0 queue from 2026-10-15:
    - 2026-10-21: connect-go v2.0.1.
 3. Security P0: RFC 9468 authentication policy for auto-created sessions —
    done on `task/unsolicited-auth` (`e8dfd59`, Meticulous Keyed SHA1 only),
-   lands after the stack; `.8.2.1.8` preview boundaries remain; then P1
-   `.8.2.1.10.3` default validation, `.8.2.1.10.4` shared-lease cleanup and
-   `gobfd-b52` RFC gate tshark wait.
+   lands after the stack; `.8.2.1.8` preview boundaries remain. P1
+   `.8.2.1.10.3` policy validation at load and rollback fault injection,
+   `.8.2.1.10.4` shared-lease removal and `gobfd-b52` RFC gate tshark wait
+   (`-c` counted packets outside the display filter) are done on
+   `task/unsolicited-policy`; `.8.2.1.10.1` IPv6 capture and lease-close
+   fault injection remain.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
    vendor images.
