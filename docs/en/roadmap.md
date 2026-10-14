@@ -77,11 +77,15 @@ Ordered P0 queue from 2026-10-14:
 7. `gobfd-qj0.8.2.8.5.2.8` — Oracle Linux product decision (maintainer).
 8. `gobfd-qj0.8.2.4.1`, `.8.2.4.2` — GoBGP desired/applied reconciliation and
    canonical identity. Retry and dampening-expiry slice `.8.2.4.1.1` done
-   (`eda8e91`); stream gaps (after `.8.2.1.3.2`) and operator-disabled peers
-   remain.
-9. Security P0 kept by the maintainer: H-03 `.8.2.1.11` done (`1629b3c`);
-   `.8.2.1.10` unsolicited sender ownership and `.8.2.1.8` preview
-   boundaries remain.
+   (`eda8e91`); a pending Down is dropped on AdminDown or session removal
+   (`.8.2.4.1.2`, `76415f7`); stream gaps (after `.8.2.1.3.2`) and
+   operator-disabled peers remain.
+9. Security P0 kept by the maintainer: H-03 `.8.2.1.11` done (`1629b3c`).
+   RFC 9468 unsolicited `.8.2.1.10`: single-hop, connected-subnet, session
+   limit and rate admission (`.10.2`, `e8f9a38`, `cc9b40e`) and replies from
+   the receiving local tuple (`.10.1`, `59bfee9`); authentication policy for
+   auto-created sessions, `.10.3` default validation and `.10.4` shared-lease
+   cleanup remain. `.8.2.1.8` preview boundaries remain.
 
 Blocked by the environment: Kubernetes live run `.8.5.2.5.3` (no k3s),
 Containerlab vendor runs (no containerlab binary or vendor images).
