@@ -198,6 +198,40 @@ Arista cEOS currency is unverified: `arista-mcp` was unavailable on
 third-party tags. The k3s cluster for the Kubernetes example is external and
 unpinned.
 
+## GitHub issues reconciliation 2026-10-15
+
+Source: `gh api graphql` on `dantte-lp/gobfd` issues (3 open, 0 closed),
+checked against `dev@610ce2e`, the approved
+[v1 design](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
+and the RFC texts named below.
+
+| Issue | Beads | State on `dev` | Remaining |
+|---|---|---|---|
+| [#86](https://github.com/dantte-lp/gobfd/issues/86) GoBGP v4 peer control | `gobfd-qj0.8.2.4.6` (P1), parent `.8.2.4` | v4.10.0 client, capability and native-BFD preflights, v4-only policy and docs, action retries, failover e2e on GoBGP v4.10.0 | GoBGP RPC error metrics and a GoBGP readiness signal; no release contains v4 support yet |
+| [#87](https://github.com/dantte-lp/gobfd/issues/87) secure listen defaults | `gobfd-qj0.8.2.3.4` (P0), with `gobfd-330` and `.8.2.3.2` | API `:50051` and metrics `:9100` on all addresses; default `gobgp.addr` `127.0.0.1:50051` uses the same port; packages install `configs/gobfd.example.yml` as `/etc/gobfd/gobfd.yml` with the same wildcard binds; the HAProxy agent binds every address | Slice A without new decisions: loopback metrics, explicit agent bind address, startup warning on unauthenticated non-loopback binds. The API default transport and port follow the approved design (Unix socket, peer UID principal) in `gobfd-330` |
+| [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP and HAProxy health | `gobfd-5w0` (P2), blocked by `.8.2.3` and `.8.2.5.2` | not started | Design spec first |
+
+Architecture notes for `gobfd-5w0`:
+
+- RFC 4786 Section 4.4.1 couples advertisement to service availability and
+  asks for a minimum delay before re-advertisement.
+- BFD AdminDown is not a reliable withdrawal trigger: RFC 5882 Section 3.2
+  says a system SHOULD NOT report a connectivity failure for AdminDown to a
+  client with its own liveness detection, which BGP has. `bfd.v1` also has no
+  AdminDown RPC.
+- GoBGP v4.10.0 `AddPath`/`DeletePath` (`proto/api/gobgp.proto`) can own the
+  VIP path; `DisablePeer` stays a fallback.
+- HAProxy `show stat` and `show info` on the stats socket report frontend and
+  server state (HAProxy `doc/management.txt`).
+- Shape: a separate companion like `gobfd-exabgp-bridge`, not a daemon
+  module: health source, hold-down state machine, GoBGP path owner, drain
+  command, metrics.
+
+Priority changes: `.8.2.3.4` slice A is next after `.8.2.1.10.1`, because it
+needs no new decision and closes the packaged wildcard binds. `.8.2.4.6`
+follows `.8.2.3.1` (component readiness). `gobfd-5w0` waits for its blockers
+and a design review.
+
 ## Plan reconciliation 2026-10-13
 
 Heads: `dev` and `origin/dev` at `524ba67`, `origin/master` at `5680385`,
