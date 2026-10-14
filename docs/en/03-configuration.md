@@ -213,9 +213,16 @@ unsolicited:
 > (RFC 5880 Section 6.8.6). A deployment that cannot use Meticulous Keyed
 > SHA1 runs without authentication; RFC 9468 only recommends it.
 >
-> **Unsafe preview**: startup validation of `session_defaults` is incomplete
-> (`gobfd-qj0.8.2.1.10.3`). Do not enable unsolicited BFD on an untrusted
-> interface.
+> **Validation**: with `enabled: true`, loading fails unless
+> `session_defaults` intervals are 1µs to 2^32-1µs, `required_min_rx` is
+> nonzero (a passive session that asks the peer not to send never detects a
+> failure and holds its slot), `detect_mult` is 1 to 255, `cleanup_timeout`
+> is >= 0, at least one interface is enabled and every `allowed_prefixes`
+> entry is a valid CIDR.
+>
+> **Unsafe preview**: IPv6 packet-capture qualification and lease-close fault
+> injection are open (`gobfd-qj0.8.2.1.10.1`). Do not enable unsolicited BFD
+> on an untrusted interface.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 

@@ -802,6 +802,13 @@ func DefaultConfig() *Config {
 		Geneve: GeneveConfig{
 			Backend: OverlayBackendUserspaceUDP,
 		},
+		Unsolicited: UnsolicitedConfig{
+			SessionDefaults: UnsolicitedSessionDefaultsConfig{
+				DesiredMinTx:  1 * time.Second,
+				RequiredMinRx: 1 * time.Second,
+				DetectMult:    3,
+			},
+		},
 		GoBGP: GoBGPConfig{
 			Enabled:       false,
 			Addr:          "127.0.0.1:50051",
@@ -1016,6 +1023,10 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"gobgp.dampening.reuse_threshold":    defaults.GoBGP.Dampening.ReuseThreshold,
 		"gobgp.dampening.max_suppress_time":  defaults.GoBGP.Dampening.MaxSuppressTime.String(),
 		"gobgp.dampening.half_life":          defaults.GoBGP.Dampening.HalfLife.String(),
+
+		"unsolicited.session_defaults.desired_min_tx":  defaults.Unsolicited.SessionDefaults.DesiredMinTx.String(),
+		"unsolicited.session_defaults.required_min_rx": defaults.Unsolicited.SessionDefaults.RequiredMinRx.String(),
+		"unsolicited.session_defaults.detect_mult":     defaults.Unsolicited.SessionDefaults.DetectMult,
 	}
 
 	for key, val := range defaultMap {
@@ -1158,6 +1169,18 @@ var (
 	// ErrInvalidUnsolicitedMaxSessions indicates enabled unsolicited BFD
 	// without a positive session limit (RFC 9468 Section 6.1).
 	ErrInvalidUnsolicitedMaxSessions = errors.New("unsolicited.max_sessions must be >= 1 when unsolicited is enabled")
+
+	// ErrInvalidUnsolicitedSessionDefaults indicates unsolicited session
+	// defaults that cannot form a working session: intervals must be
+	// 1µs..2^32-1µs, required_min_rx nonzero, detect_mult 1..255.
+	ErrInvalidUnsolicitedSessionDefaults = errors.New("unsolicited.session_defaults is invalid")
+
+	// ErrInvalidUnsolicitedCleanupTimeout indicates a negative cleanup timeout.
+	ErrInvalidUnsolicitedCleanupTimeout = errors.New("unsolicited.cleanup_timeout must be >= 0")
+
+	// ErrInvalidUnsolicitedInterfaces indicates enabled unsolicited BFD with
+	// no enabled interface or with an unparsable allowed prefix.
+	ErrInvalidUnsolicitedInterfaces = errors.New("unsolicited.interfaces is invalid")
 )
 
 // Validate checks the configuration for logical errors.
@@ -1393,12 +1416,27 @@ func validateSessionAuth(auth AuthConfig) error {
 	return nil
 }
 
+// maxWireInterval is the largest interval the 32-bit microsecond fields of a
+// BFD Control packet carry (RFC 5880 Section 4.1).
+const maxWireInterval = time.Duration(math.MaxUint32) * time.Microsecond
+
 // validateUnsolicited checks an enabled RFC 9468 configuration: a positive
-// session limit (Section 6.1) and, when authentication is configured, the
-// strongest mechanism GoBFD supports (Section 6.2).
+// session limit (Section 6.1), session defaults that form a working session,
+// at least one enabled interface with parsable prefixes and, when
+// authentication is configured, the strongest mechanism GoBFD supports
+// (Section 6.2).
 func validateUnsolicited(cfg UnsolicitedConfig) error {
 	if cfg.MaxSessions < 1 {
 		return ErrInvalidUnsolicitedMaxSessions
+	}
+	if err := validateUnsolicitedSessionDefaults(cfg.SessionDefaults); err != nil {
+		return err
+	}
+	if cfg.CleanupTimeout < 0 {
+		return ErrInvalidUnsolicitedCleanupTimeout
+	}
+	if err := validateUnsolicitedInterfaces(cfg.Interfaces); err != nil {
+		return err
 	}
 	authType := strings.TrimSpace(cfg.Auth.Type)
 	if authType == "" || authType == "none" {
@@ -1409,6 +1447,43 @@ func validateUnsolicited(cfg UnsolicitedConfig) error {
 	}
 	if err := validateSessionAuth(cfg.Auth); err != nil {
 		return fmt.Errorf("unsolicited.%w", err)
+	}
+	return nil
+}
+
+// validateUnsolicitedSessionDefaults requires intervals representable on the
+// wire and a nonzero required_min_rx: a passive session that asks the peer
+// not to send never detects a failure and holds its session slot forever.
+func validateUnsolicitedSessionDefaults(d UnsolicitedSessionDefaultsConfig) error {
+	for name, interval := range map[string]time.Duration{
+		"desired_min_tx":  d.DesiredMinTx,
+		"required_min_rx": d.RequiredMinRx,
+	} {
+		if interval < time.Microsecond || interval > maxWireInterval {
+			return fmt.Errorf("%s %s outside 1µs..%s: %w",
+				name, interval, maxWireInterval, ErrInvalidUnsolicitedSessionDefaults)
+		}
+	}
+	if d.DetectMult < 1 || d.DetectMult > math.MaxUint8 {
+		return fmt.Errorf("detect_mult %d outside 1..255: %w", d.DetectMult, ErrInvalidUnsolicitedSessionDefaults)
+	}
+	return nil
+}
+
+// validateUnsolicitedInterfaces requires one enabled interface and parsable
+// allowed prefixes on every listed interface.
+func validateUnsolicitedInterfaces(interfaces map[string]UnsolicitedInterfaceConfig) error {
+	enabled := false
+	for name, ifCfg := range interfaces {
+		enabled = enabled || ifCfg.Enabled
+		for _, s := range ifCfg.AllowedPrefixes {
+			if _, err := netip.ParsePrefix(s); err != nil {
+				return fmt.Errorf("interface %q prefix %q: %w: %w", name, s, ErrInvalidUnsolicitedInterfaces, err)
+			}
+		}
+	}
+	if !enabled {
+		return fmt.Errorf("no enabled interface: %w", ErrInvalidUnsolicitedInterfaces)
 	}
 	return nil
 }

@@ -57,6 +57,13 @@
   `max_sessions` должен быть >= 1 (проверка конфигурации отклоняет 0, ранее
   означавший отсутствие лимита); новые сессии допускаются не чаще 10 в
   секунду с burst 20.
+- **Breaking:** включённая политика RFC 9468 unsolicited проверяется при
+  загрузке (находка аудита H-19): интервалы `session_defaults` от 1 мкс до
+  2^32-1 мкс, `required_min_rx` ненулевой, `detect_mult` от 1 до 255,
+  `cleanup_timeout` >= 0, хотя бы один интерфейс включён, каждый элемент
+  `allowed_prefixes` — корректный CIDR. Пропущенные `session_defaults`
+  получают документированные 1s, 1s и 3; ранее они были нулевыми, и создание
+  каждой автосессии завершалось ошибкой.
 - GitHub Actions обновлены с учётом правила возраста релиза до peeled
   commit SHA: `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,

@@ -3,6 +3,7 @@ package config_test
 import (
 	"errors"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1918,7 +1919,7 @@ func TestValidateUnsolicitedMaxSessions(t *testing.T) {
 		{true, 1, nil},
 		{false, 0, nil},
 	} {
-		cfg := config.DefaultConfig()
+		cfg := enabledUnsolicitedConfig()
 		cfg.Unsolicited.Enabled = tc.enabled
 		cfg.Unsolicited.MaxSessions = tc.maxSessions
 		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
@@ -1949,13 +1950,122 @@ func TestValidateUnsolicitedAuth(t *testing.T) {
 		},
 		{config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 256, Secret: "s"}, config.ErrInvalidSessionAuthKeyID},
 	} {
-		cfg := config.DefaultConfig()
-		cfg.Unsolicited.Enabled = true
-		cfg.Unsolicited.MaxSessions = 1
+		cfg := enabledUnsolicitedConfig()
 		cfg.Unsolicited.Auth = tc.auth
 		if err := config.Validate(cfg); !errors.Is(err, tc.wantErr) {
 			t.Errorf("auth %s/%d/%d bytes: Validate error = %v, want %v",
 				tc.auth.Type, tc.auth.KeyID, len(tc.auth.Secret), err, tc.wantErr)
 		}
+	}
+}
+
+// enabledUnsolicitedConfig returns a valid configuration with unsolicited BFD
+// enabled on one interface.
+func enabledUnsolicitedConfig() *config.Config {
+	cfg := config.DefaultConfig()
+	cfg.Unsolicited.Enabled = true
+	cfg.Unsolicited.MaxSessions = 1
+	cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{
+		"eth0": {Enabled: true, AllowedPrefixes: []string{"192.0.2.0/24"}},
+	}
+	return cfg
+}
+
+// H-19: an enabled unsolicited policy is validated completely at load, so a
+// policy that could not create a working session never reaches runtime.
+// RFC 9468 Section 2: session defaults SHOULD be configurable; they must
+// also be positive and representable in the 32-bit microsecond wire fields
+// (RFC 5880 Section 4.1).
+func TestValidateUnsolicitedPolicy(t *testing.T) {
+	t.Parallel()
+
+	const maxWire = time.Duration(math.MaxUint32) * time.Microsecond
+	tests := []struct {
+		name    string
+		edit    func(*config.UnsolicitedConfig)
+		wantErr error
+	}{
+		{"valid", func(*config.UnsolicitedConfig) {}, nil},
+		{"wire maximum intervals", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = maxWire
+			u.SessionDefaults.RequiredMinRx = maxWire
+		}, nil},
+		{"zero desired_min_tx", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = 0
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"sub-microsecond desired_min_tx", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = 500 * time.Nanosecond
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"desired_min_tx above wire maximum", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DesiredMinTx = maxWire + time.Microsecond
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		// A passive session that asks the peer not to send never detects a
+		// failure, so it would hold a max_sessions slot forever.
+		{"zero required_min_rx", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.RequiredMinRx = 0
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"required_min_rx above wire maximum", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.RequiredMinRx = maxWire + time.Microsecond
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"zero detect_mult", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DetectMult = 0
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"detect_mult above 255", func(u *config.UnsolicitedConfig) {
+			u.SessionDefaults.DetectMult = 256
+		}, config.ErrInvalidUnsolicitedSessionDefaults},
+		{"negative cleanup_timeout", func(u *config.UnsolicitedConfig) {
+			u.CleanupTimeout = -time.Second
+		}, config.ErrInvalidUnsolicitedCleanupTimeout},
+		{"no interfaces", func(u *config.UnsolicitedConfig) {
+			u.Interfaces = nil
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"no enabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"eth0": {}}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"invalid allowed prefix", func(u *config.UnsolicitedConfig) {
+			u.Interfaces = map[string]config.UnsolicitedInterfaceConfig{
+				"eth0": {Enabled: true, AllowedPrefixes: []string{"192.0.2.0/33"}},
+			}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"invalid prefix on a disabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces["eth1"] = config.UnsolicitedInterfaceConfig{AllowedPrefixes: []string{"bogus"}}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := enabledUnsolicitedConfig()
+			tt.edit(&cfg.Unsolicited)
+			if err := config.Validate(cfg); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// The documented session defaults (1s, 1s, 3) apply when the file omits
+// unsolicited.session_defaults.
+func TestLoadUnsolicitedSessionDefaults(t *testing.T) {
+	t.Parallel()
+
+	path := writeTemp(t, `
+unsolicited:
+  enabled: true
+  max_sessions: 4
+  interfaces:
+    eth0:
+      enabled: true
+`)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := config.UnsolicitedSessionDefaultsConfig{
+		DesiredMinTx: time.Second, RequiredMinRx: time.Second, DetectMult: 3,
+	}
+	if got := cfg.Unsolicited.SessionDefaults; got != want {
+		t.Fatalf("session defaults = %+v, want %+v", got, want)
 	}
 }

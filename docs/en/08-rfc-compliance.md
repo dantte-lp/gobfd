@@ -290,9 +290,12 @@ Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches
 
 Each passive session gets its own sender on the local address and interface
 that received the triggering packet, with its own RFC 5881 source port; an IPv6
-link-local address is scoped to the receiving interface. `session_defaults`
-startup validation is incomplete (`gobfd-qj0.8.2.1.10.3`). Do not enable it on
-an untrusted interface.
+link-local address is scoped to the receiving interface. The enabled policy
+is validated at load: session defaults representable on the wire with a
+nonzero `required_min_rx`, at least one enabled interface and valid
+`allowed_prefixes`. IPv6 packet-capture qualification and lease-close fault
+injection remain open (`gobfd-qj0.8.2.1.10.1`). Do not enable it on an
+untrusted interface.
 
 ### RFC 9747 Implementation Notes
 

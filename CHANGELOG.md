@@ -58,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be >= 1 when `unsolicited.enabled` is true (configuration validation
   rejects 0, which used to mean unlimited), and new sessions are admitted at
   up to 10 per second with a burst of 20.
+- **Breaking:** an enabled RFC 9468 unsolicited policy is validated at load
+  (audit finding H-19): `session_defaults` intervals must be 1µs to
+  2^32-1µs with a nonzero `required_min_rx`, `detect_mult` 1 to 255,
+  `cleanup_timeout` >= 0, at least one interface enabled and every
+  `allowed_prefixes` entry a valid CIDR. Omitted `session_defaults` now take
+  the documented 1s, 1s and 3; they used to be zero, and every auto-created
+  session failed.
 - Updated GitHub Actions within the release-age rule to peeled commit SHAs:
   `anchore/sbom-action` v0.24.3, `bufbuild/buf-action` v1.6.0,
   `codecov/codecov-action` v7.1.1, `docker/setup-buildx-action` v4.4.1,
