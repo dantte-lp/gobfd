@@ -19,8 +19,11 @@ services:
       dockerfile: Containerfile
     container_name: gobfd-prometheus
     restart: unless-stopped
-    ports:
-      - "9090:9090"
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.listen-address=127.0.0.1:9090
     volumes:
       - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
 
@@ -30,8 +33,9 @@ services:
       dockerfile: Containerfile
     container_name: gobfd-grafana
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_ADDR: "127.0.0.1"
     volumes:
       - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
       - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
