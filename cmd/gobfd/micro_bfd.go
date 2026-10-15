@@ -49,10 +49,11 @@ func createMicroBFDListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.
 			seen[key] = struct{}{}
 
 			lnCfg := netio.ListenerConfig{
-				Addr:     localAddr,
-				IfName:   member,
-				Port:     netio.PortMicroBFD,
-				MultiHop: false, // Micro-BFD uses single-hop TTL=255 (RFC 7130 Section 2).
+				ReadBufferSize: cfg.Socket.ReadBufferSize,
+				Addr:           localAddr,
+				IfName:         member,
+				Port:           netio.PortMicroBFD,
+				MultiHop:       false, // Micro-BFD uses single-hop TTL=255 (RFC 7130 Section 2).
 			}
 
 			ln, err := netio.NewListener(lnCfg)

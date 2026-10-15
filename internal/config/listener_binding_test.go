@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -128,7 +129,7 @@ func TestValidateListenerInterfaceBindings(t *testing.T) {
 func TestLoadListenerBindingConflictReportsOnlyBoundedField(t *testing.T) {
 	t.Parallel()
 	for _, echo := range []bool{false, true} {
-		t.Run(fmt.Sprint(echo), func(t *testing.T) {
+		t.Run(strconv.FormatBool(echo), func(t *testing.T) {
 			t.Parallel()
 			section, enabled, wantField := "sessions", "", config.ListenerBindingControlInterface
 			if echo {

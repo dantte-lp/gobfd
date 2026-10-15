@@ -132,9 +132,10 @@ func createControlListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.L
 		seen[key] = struct{}{}
 
 		lnCfg := netio.ListenerConfig{
-			Addr:     localAddr,
-			IfName:   sc.Interface,
-			MultiHop: multiHop,
+			ReadBufferSize: cfg.Socket.ReadBufferSize,
+			Addr:           localAddr,
+			IfName:         sc.Interface,
+			MultiHop:       multiHop,
 		}
 		if multiHop {
 			lnCfg.Port = netio.PortMultiHop
@@ -183,11 +184,12 @@ func createEchoListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.List
 		seen[key] = struct{}{}
 
 		lnCfg := netio.ListenerConfig{
-			Addr:        localAddr,
-			IfName:      ep.Interface,
-			Port:        netio.PortEcho,
-			MultiHop:    false,
-			ExpectedTTL: netio.TTLEchoLoopback,
+			ReadBufferSize: cfg.Socket.ReadBufferSize,
+			Addr:           localAddr,
+			IfName:         ep.Interface,
+			Port:           netio.PortEcho,
+			MultiHop:       false,
+			ExpectedTTL:    netio.TTLEchoLoopback,
 		}
 
 		ln, err := netio.NewListener(lnCfg)

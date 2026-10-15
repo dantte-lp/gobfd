@@ -489,7 +489,20 @@ geneve:
 | `socket.read_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_RCVBUF` в байтах для сокетов слушателей. Увеличенные буферы снижают потерю пакетов при большом количестве сессий. `0` = значение ОС по умолчанию. |
 | `socket.write_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_SNDBUF` в байтах для сокетов отправителей. Увеличенные буферы снижают ошибки `sendto` при всплесках нагрузки. `0` = значение ОС по умолчанию. |
 
-Размеры буферов применяются ко всем BFD-сокетам слушателей и отправителей при создании. Значения передаются напрямую в `setsockopt(SO_RCVBUF)` и `setsockopt(SO_SNDBUF)`.
+Оба значения должны быть неотрицательными целыми числами, представимыми как `int`. `read_buffer_size` применяется к
+общим single-hop и multihop control listeners, Echo listeners и Micro-BFD
+member listeners. `write_buffer_size` применяется к отправителям API и
+декларативных control-сессий, Echo, Micro-BFD и динамически принятых
+unsolicited-сессий. Приём unsolicited BFD использует существующие control
+listeners; настройка не создаёт дополнительные listeners. Двунаправленные
+userspace VXLAN/Geneve-сокеты получают обе настройки. Сокеты управления
+HTTP/Unix и dataplane backends без UDP не входят в эту политику.
+
+Значения запрашиваются через `SO_RCVBUF` / `SO_SNDBUF` при создании сокета.
+Ноль сохраняет соответствующее значение ОС по умолчанию. Ошибка socket option
+прерывает создание сокета и закрывает новый сокет. Политика буферов сохраняется
+при запуске, в том числе для отправителей, создаваемых позже. SIGHUP отклоняет
+изменение любого значения; требуется перезапуск процесса.
 
 **Рекомендации по размерам:**
 
@@ -768,9 +781,9 @@ identity отдельными reload либо перезапустить про�
 `vxlan.management_vni`, `geneve.backend`, `geneve.default_vni`, каждая новая
 или re-keyed overlay identity, а также любая другая новая identity, которой нужен
 новый local address, interface, session type или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
-пути полей, но не значения конфигурации или authentication secrets. Socket
-buffer values входят в startup-only границу, однако их runtime wiring
-отслеживается отдельно и здесь не заявляется.
+пути полей, но не значения конфигурации или authentication secrets. Размеры
+буферов входят в startup-only границу и применяются к поддерживаемым
+UDP-сокетам, описанным в разделе настройки буферов.
 
 Base configuration, Echo, Micro-BFD members, VXLAN и Geneve используют
 раздельный ownership sources. Удаление последней записи одного source не
@@ -787,6 +800,7 @@ source VXLAN или Geneve без работающего backend считает�
 
 | Правило | Ошибка |
 |---|---|
+| `socket.read_buffer_size` / `socket.write_buffer_size` должны быть >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
 | `grpc.addr` не должен быть пустым | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` должен быть >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` должен быть > 0 | `ErrInvalidDesiredMinTx` |

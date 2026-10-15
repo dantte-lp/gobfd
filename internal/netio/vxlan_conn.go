@@ -72,7 +72,7 @@ func NewVXLANConn(
 	srcPort uint16,
 	logger *slog.Logger,
 ) (*VXLANConn, error) {
-	return newVXLANConn(localAddr, managementVNI, srcPort, nil, logger)
+	return newVXLANConn(localAddr, managementVNI, srcPort, nil, logger, 0, 0)
 }
 
 // NewVXLANConnForScopes creates one listener for a local VTEP and binds every
@@ -83,7 +83,7 @@ func NewVXLANConnForScopes(
 	scopes []bfd.TransportScope,
 	logger *slog.Logger,
 ) (*VXLANConn, error) {
-	return newVXLANConn(localAddr, 0, srcPort, scopes, logger)
+	return newVXLANConn(localAddr, 0, srcPort, scopes, logger, 0, 0)
 }
 
 func newVXLANConn(
@@ -92,9 +92,10 @@ func newVXLANConn(
 	srcPort uint16,
 	scopes []bfd.TransportScope,
 	logger *slog.Logger,
+	readBufferSize, writeBufferSize int,
 ) (*VXLANConn, error) {
 	conn, scopeMap, err := openScopedOverlayUDP(
-		localAddr, VXLANPort, bfd.TransportScopeVXLAN, scopes,
+		localAddr, VXLANPort, bfd.TransportScopeVXLAN, scopes, readBufferSize, writeBufferSize,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("vxlan: open %s:%d: %w", localAddr, VXLANPort, err)

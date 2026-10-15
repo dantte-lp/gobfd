@@ -482,7 +482,20 @@ geneve:
 | `socket.read_buffer_size` | int | `4194304` (4 MiB) | `SO_RCVBUF` size in bytes for listener sockets. Larger buffers reduce packet loss under high session counts. Set to `0` to use the OS default. |
 | `socket.write_buffer_size` | int | `4194304` (4 MiB) | `SO_SNDBUF` size in bytes for sender sockets. Larger buffers reduce `sendto` failures under burst conditions. Set to `0` to use the OS default. |
 
-Socket buffer sizes are applied to all BFD listener and sender sockets at creation time. The values are passed directly to `setsockopt(SO_RCVBUF)` and `setsockopt(SO_SNDBUF)`.
+Both values must be nonnegative integers representable as `int`. `read_buffer_size` applies to the shared
+single-hop and multihop control listeners, Echo listeners, and Micro-BFD
+member listeners. `write_buffer_size` applies to API and declarative control,
+Echo, Micro-BFD, and dynamically admitted unsolicited session senders. The
+unsolicited receive path shares the existing control listeners; this setting
+does not provision additional listeners. Userspace VXLAN and Geneve sockets
+are duplex and receive both settings. Management HTTP/Unix sockets and
+non-UDP dataplane backends are outside this policy.
+
+The values are requested through `SO_RCVBUF` / `SO_SNDBUF` at socket creation.
+Zero leaves the corresponding OS default unchanged. A socket-option error
+fails that socket construction and closes the new socket. Buffer policy is
+captured at startup, including for senders created later; changing either
+value through SIGHUP is rejected and requires a process restart.
 
 **Sizing guidelines:**
 
@@ -767,8 +780,8 @@ The following settings require a process restart: `grpc.*`, `metrics.*`,
 identity that needs a new local address, interface, session type, or effective Geneve
 VNI. A rejected reload logs only
 these bounded field paths, never configuration values or authentication
-secrets. Socket buffer values are included in this startup-only boundary, but
-their runtime wiring is tracked separately and is not claimed here.
+secrets. Socket buffer values are included in this startup-only boundary
+and apply to every supported UDP socket described in the socket tuning section.
 
 Base configuration, Echo, Micro-BFD members, VXLAN, and Geneve use distinct
 source ownership. Removing the final entry for one of these sources does not
@@ -785,6 +798,7 @@ skipped. Already accepted source changes are not rolled back.
 
 | Rule | Error |
 |---|---|
+| `socket.read_buffer_size` / `socket.write_buffer_size` must be >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
 | `grpc.addr` must not be empty | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` must be >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` must be > 0 | `ErrInvalidDesiredMinTx` |

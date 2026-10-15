@@ -12,6 +12,7 @@ var ErrAmbiguousListenerInterface = errors.New("ambiguous listener interface bin
 // ListenerBindingField identifies the bounded configuration field causing a conflict.
 type ListenerBindingField uint8
 
+// Bounded listener binding fields reported by configuration validation.
 const (
 	ListenerBindingControlInterface ListenerBindingField = iota
 	ListenerBindingEchoInterface

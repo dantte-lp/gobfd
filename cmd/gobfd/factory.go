@@ -15,10 +15,11 @@ import (
 
 const maxBFDWireUint8 = math.MaxUint8
 
-func newUDPSenderFactory() *udpSenderFactory {
+func newUDPSenderFactory(writeBufferSize int) *udpSenderFactory {
 	return &udpSenderFactory{
-		portAlloc: netio.NewSourcePortAllocator(),
-		senders:   make(map[uint16]*netio.UDPSender),
+		portAlloc:       netio.NewSourcePortAllocator(),
+		writeBufferSize: writeBufferSize,
+		senders:         make(map[uint16]*netio.UDPSender),
 	}
 }
 
@@ -27,22 +28,7 @@ func (f *udpSenderFactory) CreateSender(
 	multiHop bool,
 	logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
-	srcPort, err := f.portAlloc.Allocate()
-	if err != nil {
-		return nil, 0, fmt.Errorf("allocate source port: %w", err)
-	}
-
-	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger)
-	if err != nil {
-		f.portAlloc.Release(srcPort)
-		return nil, 0, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)
-	}
-
-	f.mu.Lock()
-	f.senders[srcPort] = sender
-	f.mu.Unlock()
-
-	return sender, srcPort, nil
+	return f.createSenderForSession(localAddr, multiHop, logger)
 }
 
 func (f *udpSenderFactory) CloseSender(srcPort uint16) error {
@@ -79,7 +65,11 @@ func (f *udpSenderFactory) createSenderForSession(
 		return nil, 0, fmt.Errorf("allocate source port: %w", err)
 	}
 
-	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, senderOpts...)
+	// Copy caller options before appending the immutable startup buffer policy.
+	opts := make([]netio.SenderOption, 0, len(senderOpts)+1)
+	opts = append(opts, senderOpts...)
+	opts = append(opts, netio.WithWriteBuffer(f.writeBufferSize))
+	sender, err := netio.NewUDPSender(localAddr, srcPort, multiHop, logger, opts...)
 	if err != nil {
 		f.portAlloc.Release(srcPort)
 		return nil, 0, fmt.Errorf("create UDP sender %s:%d: %w", localAddr, srcPort, err)

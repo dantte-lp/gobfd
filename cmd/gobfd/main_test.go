@@ -251,7 +251,7 @@ func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
-	sf := newUDPSenderFactory()
+	sf := newUDPSenderFactory(0)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
 	cfg := duplicateMicroBFDConfig()
@@ -272,7 +272,7 @@ func TestReloadConfigDuplicateMicroBFDKeyPreservesStateAndLogLevel(t *testing.T)
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	wantSessions, wantGroups := seedDuplicateMicroBFDTestState(t, mgr)
-	sf := newUDPSenderFactory()
+	sf := newUDPSenderFactory(0)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	level := new(slog.LevelVar)
 	level.Set(slog.LevelInfo)
@@ -640,7 +640,7 @@ func TestReconcileSessionsRejectsWholeCandidateBeforeOpeningSenders(t *testing.T
 	}
 	before := mgr.Sessions()
 
-	sf := newUDPSenderFactory()
+	sf := newUDPSenderFactory(0)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{
@@ -692,7 +692,7 @@ func TestReconcileSessionsForwardsEmptyBaseDesiredSet(t *testing.T) {
 		context.Background(),
 		config.DefaultConfig(),
 		mgr,
-		newUDPSenderFactory(),
+		newUDPSenderFactory(0),
 		slog.New(slog.DiscardHandler),
 	)
 	if err := mgr.DestroySession(context.Background(), shared.LocalDiscriminator()); err != nil {
@@ -729,7 +729,7 @@ func TestReconcileMicroBFDGroupsForwardsEmptyMemberDesiredSet(t *testing.T) {
 		context.Background(),
 		config.DefaultConfig(),
 		mgr,
-		newUDPSenderFactory(),
+		newUDPSenderFactory(0),
 		slog.New(slog.DiscardHandler),
 	)
 	if got := len(mgr.Sessions()); got != 0 {
@@ -798,7 +798,7 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 func TestReconcileMicroBFDCandidateIsValidatedBeforeOpeningSenders(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	sf := newUDPSenderFactory()
+	sf := newUDPSenderFactory(0)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 
 	cfg := config.DefaultConfig()
@@ -926,7 +926,7 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 	}
 	before := mgr.Sessions()
 
-	sf := newUDPSenderFactory()
+	sf := newUDPSenderFactory(0)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	cfg := config.DefaultConfig()
 	cfg.Sessions = []config.SessionConfig{{
