@@ -7,21 +7,25 @@ ordered queue and the v1.0.0 remainder live in the [roadmap](../../en/roadmap.md
 
 ## Continuation after 18:10 UTC
 
-- Accepted code reaches `dev@b7f778c6248bb094652a7d87013ecabc126cea67`.
-  Ten beads are closed: Compose metrics `gobfd-6de`; AddSession snapshot
+- Accepted code reaches local `dev@9eaa4707877505a2439039957e606fd4fdfd3a82`.
+  Twelve beads are closed: Compose metrics `gobfd-6de`; AddSession snapshot
   `gobfd-qj0.8.2.1.3.7`; duplicate auth key ID `gobfd-qj0.8.2.1.14`;
   revisioned deletion `gobfd-qj0.8.2.1.3.6`; companion recovery
   `gobfd-qj0.8.2.5.1` through `gobfd-qj0.8.2.5.3`; dampening telemetry
   `gobfd-qj0.8.2.4.7`; raw multiplier validation `gobfd-4j4`; ambiguous
-  listener binding `gobfd-8f3.8`. Parent security dependencies stay open.
+  listener binding `gobfd-8f3.8`; UDP buffer policy `gobfd-8f3.7`; logging
+  vocabulary `gobfd-8f3.9`. Parent security dependencies stay open.
 - Task worktrees and branches remain under `.worktrees/`; do not delete
   them without approval. Current continuation evidence is under
   `reports/session-20261015-continuation/`, ignored by Git.
-- Critical race checks pass on changed packages. Canonical lint at
-  `5fd67d84873bc6c638894dc33327ab894a029d3d` passes all 18 profiles.
-  Later listener-binding code still needs the integrated lint gate.
+- Combined critical race/shuffle checks pass on all ten changed packages
+  at `32c75ded16ec0cc94f696ed826ea41333e09c94a`, whose source tree is identical
+  to `9eaa4707877505a2439039957e606fd4fdfd3a82`. On that accepted commit,
+  canonical lint passes all 18 profiles, all four binaries build with
+  `CGO_ENABLED=0` and `-trimpath`, and `go vet ./...`, `go mod tidy -diff`
+  and `go mod verify` pass.
 - Strict `govulncheck` at
-  `b7f778c6248bb094652a7d87013ecabc126cea67` reports zero reachable findings,
+  `9eaa4707877505a2439039957e606fd4fdfd3a82` reports zero reachable findings,
   zero vulnerable imported packages and two module-only findings.
 - Companion live gates qualify
   `55e3f94ee2af82bd6cb9377de1708b9e77834341`: HAProxy 97.29 s PASS;
@@ -30,6 +34,14 @@ ordered queue and the v1.0.0 remainder live in the [roadmap](../../en/roadmap.md
 - The unsolicited listener and preview decisions remain pending. Stable
   v1 also retains the explicit GO-2026-4736 condition and the unrun
   24-hour qualification; development exceptions do not lift either gate.
+- Publication target: `task/v1-runtime-recovery-20261015`. Remote `dev`
+  remains at `e6baa6fa416877a3caefb3e68421309578e749b0` as re-fetched after
+  integration. `CONTRIBUTING.md` requires a reviewed PR into `dev`; no
+  explicit waiver was found for the former handoff's direct-push recipe.
+  Even a draft PR starts the complete `go test ./... -race` in
+  `.github/workflows/build.yml`; opening it remains pending under the
+  current critical-tests-only instruction. Do not add skip markers or
+  change workflows to bypass that contract.
 
 ## Original repository state (18:10 UTC)
 
@@ -47,8 +59,10 @@ ordered queue and the v1.0.0 remainder live in the [roadmap](../../en/roadmap.md
 2. Read the roadmap sections "Ordered queue from 2026-10-15" and
    "Remaining work before v1.0.0".
 3. Work in a worktree under `.worktrees/<task>` on a `task/<name>` branch
-   from `dev`; fast-forward `dev` after the gates pass, then push. Sync
-   beads with `bd dolt pull` before and `bd dolt push` after the session.
+   from `dev`; integrate reviewed changes locally after their bounded gates.
+   Publish a feature branch and follow `CONTRIBUTING.md` for the PR into
+   remote `dev`. Sync beads with `bd dolt pull` before and `bd dolt push`
+   after the session.
 
 `bd ready` sorts by priority, not by the queue below. Beads that wait for a
 maintainer decision have status `blocked` (`bd list --status blocked`);

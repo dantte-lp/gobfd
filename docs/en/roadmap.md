@@ -205,12 +205,21 @@ the queue of 2026-10-15 01:20 UTC (below, updated in place):
 
 Continuation on 2026-10-15 after the 18:10 UTC snapshot:
 
-- Closed in `dev`: `gobfd-6de`, `gobfd-qj0.8.2.1.3.7`,
+- Closed in local `dev`: `gobfd-6de`, `gobfd-qj0.8.2.1.3.7`,
   `gobfd-qj0.8.2.1.14`, `gobfd-qj0.8.2.1.3.6`,
   `gobfd-qj0.8.2.5.1` through `gobfd-qj0.8.2.5.3`,
-  `gobfd-qj0.8.2.4.7`, `gobfd-4j4`, and `gobfd-8f3.8`. Accepted code reaches
-  `b7f778c6248bb094652a7d87013ecabc126cea67`. These closures do not close
+  `gobfd-qj0.8.2.4.7`, `gobfd-4j4`, and `gobfd-8f3.7` through
+  `gobfd-8f3.9`. Accepted code reaches
+  `9eaa4707877505a2439039957e606fd4fdfd3a82`. These twelve closures do not close
   parent milestones with remaining security dependencies.
+- UDP buffer policy now reaches every existing daemon UDP construction
+  path; real Linux probes cover control/Echo/Micro-BFD listeners, four sender
+  paths and duplex VXLAN/Geneve. Invalid logging vocabulary fails before
+  startup or reload mutation. The combined critical race gate passes all ten
+  affected packages at the accepted source tree. Final bounded gates at
+  `9eaa4707877505a2439039957e606fd4fdfd3a82`: four binaries built with
+  `CGO_ENABLED=0` and `-trimpath`; 18 canonical lint profiles report zero
+  issues; `go vet ./...`, `go mod tidy -diff` and `go mod verify` pass.
 - Production Compose rendered all ten tracked files. In an isolated shared
   network namespace, the production monitoring configuration reported one
   healthy Prometheus target at `127.0.0.1:9100` and a healthy Grafana data
@@ -221,9 +230,16 @@ Continuation on 2026-10-15 after the 18:10 UTC snapshot:
   and restoration passed. Local evidence is under
   `reports/session-20261015-continuation/`. These gates do not qualify later
   changes or the full v1 release envelope.
-- Strict `govulncheck` at the accepted commit reports zero reachable
+- Strict `govulncheck` at
+  `9eaa4707877505a2439039957e606fd4fdfd3a82` reports zero reachable
   vulnerabilities and zero vulnerable imported packages. Two module-only
   findings remain; they do not establish a clean dependency graph for stable.
+- Remote integration follows the reviewed PR rule in `CONTRIBUTING.md`.
+  Publication uses `task/v1-runtime-recovery-20261015`; `origin/dev` is not
+  updated directly. Opening even a draft PR triggers the full test suite in
+  `.github/workflows/build.yml`, so that step remains pending under the
+  current critical-tests-only instruction. Local acceptance is not remote
+  integration.
 - Stable v1 remains blocked by the approved
   [GoBGP advisory gate and 24-hour qualification contract](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md).
   On 2026-10-15 the [Go vulnerability database](https://vuln.go.dev/ID/GO-2026-4736)
