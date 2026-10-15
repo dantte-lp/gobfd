@@ -579,6 +579,14 @@ fail-closed preview boundaries.
 Post-v1 scheduler, kernel, warm-restart, S-BFD, and authentication R&D remains
 outside this release contract and is tracked separately in Beads.
 
+The [cilium/ebpf evaluation](../superpowers/specs/2026-10-15-ebpf-evaluation.md)
+(2026-10-15, ebpf-go v0.22.0) keeps eBPF out of v1: there is no measured
+receive bottleneck yet, XDP adds BPF privileges and interface ownership
+conflicts, and the pre-1.0 library broke APIs in v0.21.0 and v0.22.0. Socket
+drop counts come from `SO_RXQ_OVFL` instead. An XDP/AF_XDP receive prototype
+(`gobfd-376`, P3) waits for the `.8.2.1.6` latency baseline and the
+`recvmmsg` prototype.
+
 ## Release contracts
 
 - [v0.6.2 maintenance design](../superpowers/specs/2026-08-18-v0.6.2-dependency-refresh-design.md)
