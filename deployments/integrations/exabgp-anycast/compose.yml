@@ -107,6 +107,8 @@ services:
       - exabgp.api.cli=false
       - GOBFD_ADDR=http://127.0.0.1:50052
       - GOBFD_PEER=172.24.0.10
+      - GOBFD_LOCAL=172.24.0.20
+      - GOBFD_SESSION_TYPE=single_hop
       - ANYCAST_PREFIX=198.51.100.1/32
     command: ["server", "/etc/exabgp/exabgp.conf"]
 

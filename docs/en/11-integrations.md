@@ -169,6 +169,16 @@ Agent-check listeners have no authentication. They bind to `127.0.0.1` unless
 `agent-addr` on another host needs an explicit reachable address; the lab
 configuration sets `listen_addr: "0.0.0.0"`.
 
+The agent reconnects Watch after errors and EOF with a cancellable 1–30 second
+backoff. Disconnects and `GAP` invalidate health immediately; a new snapshot
+becomes usable only after `SYNC_COMPLETE`. Unknown, deleted and ambiguous
+sessions return `down`. Each backend can add `local`, `interface` and `type`
+(`single_hop`, `multi_hop`, `micro_bfd`, `vxlan`, `geneve`) to its required
+`peer`. Peer-only configurations continue to work when exactly one session
+matches; add these selectors when multiple sessions share a peer. Even an
+explicit tuple fails closed if the public API cannot distinguish its transport
+scope. Agent ports must be distinct and within 1–65535.
+
 ### Quick Start
 
 ```bash
@@ -292,6 +302,16 @@ The `gobfd-exabgp-bridge` runs as an ExaBGP process:
 - **BFD Down** → writes `withdraw route 198.51.100.1/32 next-hop self` to STDOUT
 - Logs to STDERR (ExaBGP convention)
 - Reconnects to GoBFD with exponential backoff
+
+`GOBFD_PEER` is required. Optional `GOBFD_LOCAL`, `GOBFD_INTERFACE` and
+`GOBFD_SESSION_TYPE` select one session using the same rules as the HAProxy
+agent. `ANYCAST_PREFIX` must be a valid IP prefix. The bridge starts with a
+withdrawal to reconcile a previous process's route. Only a completed snapshot
+or live event proving one selected session Up permits an announcement. Every
+other state, deletion, disconnect, `GAP` or ambiguous match withdraws it.
+Applied announcement state survives Watch reconnects; EOF also reconnects.
+Failed and short stdout writes terminate the bridge without confirming the
+route change.
 
 ### Quick Start
 

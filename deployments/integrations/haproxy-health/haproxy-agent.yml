@@ -11,6 +11,10 @@ listen_addr: "0.0.0.0"
 
 backends:
   - peer: "172.23.0.30"
+    local: "172.23.0.10"
+    type: single_hop
     agent_port: 9990
   - peer: "172.23.0.40"
+    local: "172.23.0.10"
+    type: single_hop
     agent_port: 9991

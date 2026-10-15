@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
@@ -41,6 +41,17 @@ func run() int {
 		logger.Error("GOBFD_PEER and ANYCAST_PREFIX environment variables are required")
 		return 1
 	}
+	selector, err := apiclient.ParseSessionSelector(peer, os.Getenv("GOBFD_LOCAL"),
+		os.Getenv("GOBFD_INTERFACE"), os.Getenv("GOBFD_SESSION_TYPE"))
+	if err != nil {
+		logger.Error("invalid BFD selector", slog.Any("error", err))
+		return 1
+	}
+	route, err := netip.ParsePrefix(prefix)
+	if err != nil {
+		logger.Error("invalid ANYCAST_PREFIX", slog.Any("error", err))
+		return 1
+	}
 
 	logger.Info("gobfd-exabgp-bridge starting",
 		slog.String("gobfd_addr", gobfdAddr),
@@ -51,7 +62,7 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := watchAndAnnounce(ctx, gobfdAddr, peer, prefix, logger); err != nil {
+	if err := watchAndAnnounce(ctx, gobfdAddr, selector, route.Masked().String(), os.Stdout, logger); err != nil {
 		if errors.Is(err, context.Canceled) {
 			logger.Info("gobfd-exabgp-bridge stopped")
 			return 0
@@ -69,8 +80,9 @@ func run() int {
 func watchAndAnnounce(
 	ctx context.Context,
 	gobfdAddr string,
-	peer string,
+	selector apiclient.SessionSelector,
 	prefix string,
+	output io.Writer,
 	logger *slog.Logger,
 ) error {
 	ep, err := apiclient.ParseEndpoint(gobfdAddr)
@@ -83,119 +95,47 @@ func watchAndAnnounce(
 	}
 	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL)))
 
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
-
-	for {
-		err := streamEvents(ctx, client, peer, prefix, logger)
-		if err == nil || errors.Is(err, context.Canceled) {
-			return err
+	route := routeState{output: output, prefix: prefix}
+	err = apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
+		session, selectErr := selector.Select(sessions)
+		if selectErr != nil {
+			logger.Warn("BFD session is ambiguous, withdrawing route", slog.Any("error", selectErr))
 		}
-
-		logger.Warn("stream disconnected, reconnecting",
-			slog.String("error", err.Error()),
-			slog.Duration("backoff", backoff),
-		)
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for reconnect: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
-
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-}
-
-// streamEvents opens a single WatchSessionEvents stream and processes events.
-func streamEvents(
-	ctx context.Context,
-	client bfdv1connect.BfdServiceClient,
-	peer string,
-	prefix string,
-	logger *slog.Logger,
-) error {
-	stream, err := client.WatchSessionEvents(ctx, &bfdv1.WatchSessionEventsRequest{
-		IncludeCurrent: true,
-	})
+		return route.apply(session.GetLocalState() == bfdv1.SessionState_SESSION_STATE_UP)
+	}, logger)
 	if err != nil {
-		return fmt.Errorf("watch session events: %w", err)
-	}
-
-	announced := false
-
-	var streamErr error
-	for {
-		msg2, err := stream.Receive()
-		if err != nil {
-			streamErr = err
-			break
-		}
-		msg := msg2
-		if msg.GetSession() == nil {
-			continue
-		}
-
-		eventPeer := msg.GetSession().GetPeerAddress()
-		if eventPeer != peer {
-			continue
-		}
-
-		announced = handleStateChange(msg.GetSession().GetLocalState(), announced, peer, prefix, logger)
-	}
-	if errors.Is(streamErr, io.EOF) {
-		streamErr = nil
-	}
-
-	if err := streamErr; err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("event stream error: %w", err)
+		return fmt.Errorf("watch ExaBGP route session: %w", err)
 	}
 	return nil
 }
 
-// handleStateChange processes a BFD state change and writes ExaBGP commands to STDOUT.
-// Returns the updated announced state.
-func handleStateChange(
-	state bfdv1.SessionState,
-	announced bool,
-	peer string,
-	prefix string,
-	logger *slog.Logger,
-) bool {
-	switch state {
-	case bfdv1.SessionState_SESSION_STATE_UP:
-		if !announced {
-			fmt.Fprintf(os.Stdout, "announce route %s next-hop self\n", prefix)
-			logger.Info("announced route",
-				slog.String("prefix", prefix),
-				slog.String("peer", peer),
-			)
-			return true
-		}
+// routeState survives Watch reconnects. Unknown process state forces an initial
+// withdrawal, so restarting the bridge also reconciles a stale ExaBGP route.
+type routeState struct {
+	output    io.Writer
+	prefix    string
+	known     bool
+	announced bool
+}
 
-	case bfdv1.SessionState_SESSION_STATE_DOWN,
-		bfdv1.SessionState_SESSION_STATE_ADMIN_DOWN:
-		if announced {
-			fmt.Fprintf(os.Stdout, "withdraw route %s next-hop self\n", prefix)
-			logger.Info("withdrew route",
-				slog.String("prefix", prefix),
-				slog.String("peer", peer),
-			)
-			return false
-		}
-
-	case bfdv1.SessionState_SESSION_STATE_UNSPECIFIED,
-		bfdv1.SessionState_SESSION_STATE_INIT:
-		logger.Debug("ignoring transient BFD state",
-			slog.String("state", state.String()),
-			slog.String("peer", peer),
-		)
+func (r *routeState) apply(up bool) error {
+	if r.known && r.announced == up {
+		return nil
 	}
-
-	return announced
+	verb := "withdraw"
+	if up {
+		verb = "announce"
+	}
+	command := fmt.Sprintf("%s route %s next-hop self\n", verb, r.prefix)
+	n, err := io.WriteString(r.output, command)
+	if err == nil && n != len(command) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		return fmt.Errorf("%s ExaBGP route %s: %w", verb, r.prefix, err)
+	}
+	r.known, r.announced = true, up
+	return nil
 }
 
 func envOrDefault(key, defaultVal string) string {

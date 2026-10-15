@@ -78,8 +78,7 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// BFD state tracker: maps peer address to current session state.
-	states := &stateMap{m: make(map[string]bfdv1.SessionState)}
+	states := newStateMap(backends)
 
 	client, err := newBFDClient(gobfdAddr)
 	if err != nil {
@@ -97,7 +96,8 @@ func run() int {
 	// Start TCP agent-check listeners for each backend.
 	for _, b := range backends {
 		g.Go(func() error {
-			return serveAgentCheck(gCtx, b.Peer, agentCheckListenAddr(listenAddr, b.AgentPort), states, logger)
+			return serveAgentCheck(gCtx, strconv.Itoa(b.AgentPort),
+				agentCheckListenAddr(listenAddr, b.AgentPort), states, logger)
 		})
 	}
 
@@ -115,10 +115,22 @@ func run() int {
 	return 0
 }
 
-// stateMap is a concurrent-safe map of peer addresses to BFD session states.
+// stateMap publishes selected backend states atomically to agent-check readers.
 type stateMap struct {
-	mu sync.RWMutex
-	m  map[string]bfdv1.SessionState
+	mu        sync.RWMutex
+	m         map[string]bfdv1.SessionState
+	selectors map[string]apiclient.SessionSelector
+}
+
+func newStateMap(backends []backendConfig) *stateMap {
+	states := &stateMap{
+		m:         make(map[string]bfdv1.SessionState),
+		selectors: make(map[string]apiclient.SessionSelector, len(backends)),
+	}
+	for _, backend := range backends {
+		states.selectors[strconv.Itoa(backend.AgentPort)] = backend.selector
+	}
+	return states
 }
 
 func (s *stateMap) set(peer string, state bfdv1.SessionState) {
@@ -140,41 +152,23 @@ func watchEvents(
 	states *stateMap,
 	logger *slog.Logger,
 ) error {
-	stream, err := client.WatchSessionEvents(ctx, &bfdv1.WatchSessionEventsRequest{
-		IncludeCurrent: true,
-	})
+	err := apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
+		current := make(map[string]bfdv1.SessionState, len(states.selectors))
+		for backend, selector := range states.selectors {
+			session, err := selector.Select(sessions)
+			if err != nil {
+				logger.Warn("backend session is ambiguous", slog.String("backend", backend), slog.Any("error", err))
+				continue
+			}
+			current[backend] = session.GetLocalState()
+		}
+		states.mu.Lock()
+		states.m = current
+		states.mu.Unlock()
+		return nil
+	}, logger)
 	if err != nil {
-		return fmt.Errorf("watch session events: %w", err)
-	}
-
-	var streamErr error
-	for {
-		msg2, err := stream.Receive()
-		if err != nil {
-			streamErr = err
-			break
-		}
-		msg := msg2
-		if msg.GetSession() == nil {
-			continue
-		}
-
-		peer := msg.GetSession().GetPeerAddress()
-		state := msg.GetSession().GetLocalState()
-		states.set(peer, state)
-
-		logger.Info("BFD state updated",
-			slog.String("peer", peer),
-			slog.String("state", state.String()),
-			slog.String("event_type", msg.GetType().String()),
-		)
-	}
-	if errors.Is(streamErr, io.EOF) {
-		streamErr = nil
-	}
-
-	if err := streamErr; err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("event stream error: %w", err)
+		return fmt.Errorf("watch HAProxy backend sessions: %w", err)
 	}
 	return nil
 }
@@ -297,7 +291,11 @@ func handleAgentCheck(conn net.Conn, peer string, states *stateMap, logger *slog
 // backendConfig maps a BFD peer to an HAProxy agent-check port.
 type backendConfig struct {
 	Peer      string `yaml:"peer"`
+	Local     string `yaml:"local"`
+	Interface string `yaml:"interface"`
+	Type      string `yaml:"type"`
 	AgentPort int    `yaml:"agent_port"`
+	selector  apiclient.SessionSelector
 }
 
 type agentConfig struct {
@@ -332,6 +330,19 @@ func loadConfig(path string) (*agentConfig, error) {
 	cfg := &agentConfig{}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	ports := make(map[int]struct{}, len(cfg.Backends))
+	for i := range cfg.Backends {
+		backend := &cfg.Backends[i]
+		if _, duplicate := ports[backend.AgentPort]; duplicate || backend.AgentPort < 1 || backend.AgentPort > 65535 {
+			return nil, fmt.Errorf("backend %d agent_port %d: %w", i, backend.AgentPort, errors.ErrUnsupported)
+		}
+		ports[backend.AgentPort] = struct{}{}
+		selector, err := apiclient.ParseSessionSelector(backend.Peer, backend.Local, backend.Interface, backend.Type)
+		if err != nil {
+			return nil, fmt.Errorf("backend %d: %w", i, err)
+		}
+		backend.selector = selector
 	}
 
 	return cfg, nil

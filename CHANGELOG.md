@@ -253,6 +253,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Authentication key stores reject duplicate key IDs, including identical
   rotation keys, so transmit and receive key selection cannot disagree.
 
+- HAProxy and ExaBGP companions reconnect Watch after errors and EOF, invalidate
+  state on disconnect or `GAP`, and commit snapshots at `SYNC_COMPLETE`.
+  Session deletion withdraws health and routes. Optional local/interface/type
+  selectors separate same-peer sessions; ambiguous matches fail closed.
+  ExaBGP reconciles routes across reconnects and process restarts and exits on
+  failed or short stdout writes. HAProxy backend ports must be unique.
+
 - `AddSession` returns the same Manager snapshot fields as Get and List,
   including the initial `remote_min_rx_interval`.
 

@@ -2,12 +2,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
-	"log/slog"
-	"os"
+	"syscall"
 	"testing"
-
-	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
 
 const (
@@ -15,237 +13,69 @@ const (
 	testPrefixAddr = "198.51.100.1/32"
 )
 
-// captureStdout redirects os.Stdout to a pipe, calls fn, then returns what was
-// written. This helper is NOT safe for use with t.Parallel() because it mutates
-// the global os.Stdout.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create pipe: %v", err)
+func TestRouteStateReconcilesAcrossDisconnects(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	route := routeState{output: &output, prefix: testPrefixAddr}
+	// Startup withdrawal also repairs a previous bridge process's announcement.
+	for _, up := range []bool{false, false, true, true, false, false, true, false} {
+		if err := route.apply(up); err != nil {
+			t.Fatal(err)
+		}
 	}
-	os.Stdout = w
-
-	fn()
-
-	w.Close()
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("read pipe: %v", err)
-	}
-	os.Stdout = old
-
-	return buf.String()
-}
-
-func newDiscardLogger() *slog.Logger {
-	return slog.New(slog.DiscardHandler)
-}
-
-// ---------------------------------------------------------------------------
-// handleStateChange tests
-// ---------------------------------------------------------------------------
-
-func TestHandleStateChange_UpNotAnnounced(t *testing.T) {
-	// UP + not yet announced -> should announce route, return true.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
-
-	var result bool
-	output := captureStdout(t, func() {
-		result = handleStateChange(
-			bfdv1.SessionState_SESSION_STATE_UP,
-			false, // not announced
-			peer, prefix, logger,
-		)
-	})
-
-	if !result {
-		t.Error("handleStateChange(UP, announced=false) returned false, want true")
-	}
-	want := "announce route 198.51.100.1/32 next-hop self\n"
-	if output != want {
-		t.Errorf("stdout = %q, want %q", output, want)
+	want := "withdraw route 198.51.100.1/32 next-hop self\n" +
+		"announce route 198.51.100.1/32 next-hop self\n" +
+		"withdraw route 198.51.100.1/32 next-hop self\n" +
+		"announce route 198.51.100.1/32 next-hop self\n" +
+		"withdraw route 198.51.100.1/32 next-hop self\n"
+	if output.String() != want {
+		t.Fatalf("commands = %q, want %q", output.String(), want)
 	}
 }
 
-func TestHandleStateChange_UpAlreadyAnnounced(t *testing.T) {
-	// UP + already announced -> idempotent, no output, return true.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
+type failingOutput struct{ err error }
 
-	var result bool
-	output := captureStdout(t, func() {
-		result = handleStateChange(
-			bfdv1.SessionState_SESSION_STATE_UP,
-			true, // already announced
-			peer, prefix, logger,
-		)
-	})
+func (w failingOutput) Write(p []byte) (int, error) { return len(p) - 1, w.err }
 
-	if !result {
-		t.Error("handleStateChange(UP, announced=true) returned false, want true")
-	}
-	if output != "" {
-		t.Errorf("stdout = %q, want empty (idempotent)", output)
-	}
-}
-
-func TestHandleStateChange_DownAnnounced(t *testing.T) {
-	// DOWN + announced -> should withdraw route, return false.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
-
-	var result bool
-	output := captureStdout(t, func() {
-		result = handleStateChange(
-			bfdv1.SessionState_SESSION_STATE_DOWN,
-			true, // was announced
-			peer, prefix, logger,
-		)
-	})
-
-	if result {
-		t.Error("handleStateChange(DOWN, announced=true) returned true, want false")
-	}
-	want := "withdraw route 198.51.100.1/32 next-hop self\n"
-	if output != want {
-		t.Errorf("stdout = %q, want %q", output, want)
-	}
-}
-
-func TestHandleStateChange_DownNotAnnounced(t *testing.T) {
-	// DOWN + not announced -> idempotent, no output, return false.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
-
-	var result bool
-	output := captureStdout(t, func() {
-		result = handleStateChange(
-			bfdv1.SessionState_SESSION_STATE_DOWN,
-			false, // not announced
-			peer, prefix, logger,
-		)
-	})
-
-	if result {
-		t.Error("handleStateChange(DOWN, announced=false) returned true, want false")
-	}
-	if output != "" {
-		t.Errorf("stdout = %q, want empty (idempotent)", output)
-	}
-}
-
-func TestHandleStateChange_InitState(t *testing.T) {
-	// INIT state -> transient, announced unchanged, no output.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
-
-	tests := []struct {
+func TestRouteStateDoesNotConfirmFailedWrite(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
 		name      string
-		announced bool
+		err, want error
 	}{
-		{name: "init while announced", announced: true},
-		{name: "init while not announced", announced: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var result bool
-			output := captureStdout(t, func() {
-				result = handleStateChange(
-					bfdv1.SessionState_SESSION_STATE_INIT,
-					tt.announced,
-					peer, prefix, logger,
-				)
-			})
-
-			if result != tt.announced {
-				t.Errorf("handleStateChange(INIT, announced=%v) = %v, want %v",
-					tt.announced, result, tt.announced)
+		{name: "EPIPE", err: syscall.EPIPE, want: syscall.EPIPE},
+		{name: "short write", want: io.ErrShortWrite},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			route := routeState{output: failingOutput{err: tc.err}, prefix: testPrefixAddr}
+			if err := route.apply(true); !errors.Is(err, tc.want) {
+				t.Fatalf("write error = %v, want %v", err, tc.want)
 			}
-			if output != "" {
-				t.Errorf("stdout = %q, want empty for INIT state", output)
+			if route.known || route.announced {
+				t.Fatal("failed write confirmed a route announcement")
+			}
+			route.known, route.announced = true, true
+			if err := route.apply(false); !errors.Is(err, tc.want) {
+				t.Fatalf("withdraw error = %v, want %v", err, tc.want)
+			}
+			if !route.known || !route.announced {
+				t.Fatal("failed withdrawal changed applied state")
 			}
 		})
 	}
 }
 
-func TestHandleStateChange_AdminDownAnnounced(t *testing.T) {
-	// ADMIN_DOWN + announced -> should withdraw route, return false.
-	// The source code treats ADMIN_DOWN the same as DOWN.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
-
-	var result bool
-	output := captureStdout(t, func() {
-		result = handleStateChange(
-			bfdv1.SessionState_SESSION_STATE_ADMIN_DOWN,
-			true, // was announced
-			peer, prefix, logger,
-		)
-	})
-
-	if result {
-		t.Error("handleStateChange(ADMIN_DOWN, announced=true) returned true, want false")
-	}
-	want := "withdraw route 198.51.100.1/32 next-hop self\n"
-	if output != want {
-		t.Errorf("stdout = %q, want %q", output, want)
-	}
-}
-
-func TestHandleStateChange_UnspecifiedState(t *testing.T) {
-	// UNSPECIFIED state -> transient, announced unchanged, no output.
-	logger := newDiscardLogger()
-	peer := testPeerAddr
-	prefix := testPrefixAddr
-
-	var result bool
-	output := captureStdout(t, func() {
-		result = handleStateChange(
-			bfdv1.SessionState_SESSION_STATE_UNSPECIFIED,
-			false,
-			peer, prefix, logger,
-		)
-	})
-
-	if result {
-		t.Error("handleStateChange(UNSPECIFIED, announced=false) returned true, want false")
-	}
-	if output != "" {
-		t.Errorf("stdout = %q, want empty for UNSPECIFIED state", output)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// envOrDefault tests
-// ---------------------------------------------------------------------------
-
 func TestEnvOrDefault_EnvSet(t *testing.T) {
-	key := "TEST_EXABGP_ENV_SET_" + t.Name()
-	t.Setenv(key, "custom-value")
-
-	got := envOrDefault(key, "fallback")
-	if got != "custom-value" {
-		t.Errorf("envOrDefault(%q) = %q, want %q", key, got, "custom-value")
+	t.Setenv("TEST_BRIDGE_ENV", "custom-value")
+	if got := envOrDefault("TEST_BRIDGE_ENV", "fallback"); got != "custom-value" {
+		t.Fatalf("value = %q", got)
 	}
 }
 
 func TestEnvOrDefault_EnvUnset(t *testing.T) {
-	key := "TEST_EXABGP_ENV_UNSET_" + t.Name()
-	os.Unsetenv(key)
-
-	got := envOrDefault(key, "fallback")
-	if got != "fallback" {
-		t.Errorf("envOrDefault(%q) = %q, want %q", key, got, "fallback")
+	t.Setenv("TEST_BRIDGE_ENV", "")
+	if got := envOrDefault("TEST_BRIDGE_ENV", "fallback"); got != "fallback" {
+		t.Fatalf("value = %q", got)
 	}
 }
