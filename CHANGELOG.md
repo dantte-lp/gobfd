@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Versioned session snapshots and gap-aware Watch streams
+  (`gobfd-qj0.8.2.1.3.2`; H-29, M-08). `bfd.v1` adds `revision` to
+  `ListSessionsResponse`, `GetSessionResponse` and
+  `WatchSessionEventsResponse`, and the event types `GAP` and
+  `SYNC_COMPLETE`. `WatchSessionEvents` subscribes before its snapshot,
+  closes every snapshot with `SYNC_COMPLETE`, and answers a stream that
+  fell behind with `GAP` and a fresh snapshot. State-change events carry
+  local address, interface, session type and revision; Get and List report
+  `remote_min_rx_interval`. `gobfdctl monitor` prints `Gap`, `SyncComplete`
+  and `rev=`. Deleted sessions still publish no event.
+
 - mTLS for the management TCP listener (`grpc.tls.cert_file`, `key_file`,
   `client_ca_file`; `gobfd-330.2`). Clients must present a certificate from
   the client CA; ALPN offers HTTP/2 and HTTP/1.1; the files are re-read on
@@ -55,6 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `GetSession` by a peer address that matches more than one
+  session fails with `FAILED_PRECONDITION` and lists the local
+  discriminators, instead of returning the first match (M-07).
+- The GoBGP handler resyncs after lost BFD state changes
+  (`gobfd-qj0.8.2.4.1`): on a stream gap it rebuilds Down and Up edges from
+  a revisioned snapshot and its last seen state per session, so a peer is
+  no longer left enabled over a failed path or disabled after recovery.
 - **Breaking:** the GoBGP handler acts only on the canonical single-hop or
   multi-hop session of a BGP neighbor (`gobfd-qj0.8.2.4.2`, H-31). Micro-BFD
   member links, VXLAN, Geneve and Echo sessions to the neighbor address no

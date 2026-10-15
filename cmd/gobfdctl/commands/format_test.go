@@ -2,6 +2,7 @@ package commands
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
@@ -49,5 +50,29 @@ func TestShortSessionType(t *testing.T) {
 				t.Errorf("shortSessionType(%s) = %q, want %q", tt.sessType, got, tt.want)
 			}
 		})
+	}
+}
+
+// The monitor shows stream gaps, snapshot ends and event revisions.
+func TestFormatEventShowsGapAndRevision(t *testing.T) {
+	t.Parallel()
+
+	gap := &bfdv1.WatchSessionEventsResponse{
+		Type:     bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP,
+		Revision: 7,
+	}
+	if got := formatEventTable(gap); !strings.Contains(got, "Gap") || !strings.Contains(got, "rev=7") {
+		t.Fatalf("table = %q, want Gap and rev=7", got)
+	}
+	sync := &bfdv1.WatchSessionEventsResponse{
+		Type:     bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE,
+		Revision: 9,
+	}
+	out, err := formatEvent(sync, "json")
+	if err != nil {
+		t.Fatalf("formatEvent: %v", err)
+	}
+	if !strings.Contains(out, `"event_type": "SyncComplete"`) || !strings.Contains(out, `"revision": 9`) {
+		t.Fatalf("json = %s, want SyncComplete and revision 9", out)
 	}
 }

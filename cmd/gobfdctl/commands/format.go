@@ -160,13 +160,14 @@ func formatEventTable(event *bfdv1.WatchSessionEventsResponse) string {
 		discr = sess.GetLocalDiscriminator()
 	}
 
-	return fmt.Sprintf("[%s] %s  peer=%s  state=%s  prev=%s  discr=%d",
+	return fmt.Sprintf("[%s] %s  peer=%s  state=%s  prev=%s  discr=%d  rev=%d",
 		ts,
 		shortEventType(event.GetType()),
 		peer,
 		state,
 		shortState(event.GetPreviousState()),
 		discr,
+		event.GetRevision(),
 	)
 }
 
@@ -217,6 +218,7 @@ type eventView struct {
 	Timestamp     string       `json:"timestamp"         yaml:"timestamp"`
 	EventType     string       `json:"event_type"        yaml:"event_type"`
 	PreviousState string       `json:"previous_state"    yaml:"previous_state"`
+	Revision      uint64       `json:"revision"          yaml:"revision"`
 	Session       *sessionView `json:"session,omitempty" yaml:"session,omitempty"`
 }
 
@@ -273,6 +275,7 @@ func eventToView(event *bfdv1.WatchSessionEventsResponse) *eventView {
 	v := &eventView{
 		EventType:     shortEventType(event.GetType()),
 		PreviousState: shortState(event.GetPreviousState()),
+		Revision:      event.GetRevision(),
 	}
 
 	if ts := event.GetTimestamp(); ts != nil {
@@ -373,6 +376,10 @@ func shortEventType(t bfdv1.WatchSessionEventsResponse_EventType) string {
 		return "SessionAdded"
 	case bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED:
 		return "SessionDeleted"
+	case bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP:
+		return "Gap"
+	case bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE:
+		return "SyncComplete"
 	default:
 		return valueUnknow
 	}

@@ -59,6 +59,10 @@ gobfdctl session show 10.0.0.1
 gobfdctl session show 42
 ```
 
+A peer address that matches more than one session (for example the same
+peer on two interfaces) fails with `FAILED_PRECONDITION` and lists the local
+discriminators; show the session by discriminator instead.
+
 #### Create a session
 
 ```bash
@@ -213,6 +217,13 @@ The monitor uses gRPC server-side streaming. Each event includes:
 - Old state and new state
 - Diagnostic code
 - Event trigger
+- Revision (`rev=`), increasing within one daemon process
+
+A snapshot (`--current`) is a run of `SessionAdded` events closed by
+`SyncComplete`, which carries the revision the snapshot covers. If the
+monitor falls behind the daemon, it receives `Gap` followed by a fresh
+snapshot, with or without `--current`. Deleted sessions publish no event;
+they disappear at the next snapshot.
 
 Press `Ctrl+C` to stop monitoring.
 

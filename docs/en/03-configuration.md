@@ -621,6 +621,11 @@ Up. GoBGP does not expose who disabled a peer, so this record lives in
 memory: after a GoBFD restart, peers that GoBFD had disabled stay disabled
 until an operator enables them (`gobgp neighbor <addr> enable`).
 
+If the handler falls behind the BFD event stream, it receives a gap marker
+and resyncs from a revisioned snapshot: a session it last saw Up and that
+is now Down disables the peer, an Up re-enables a peer GoBFD disabled, and a
+session it never saw that is Down causes no action, as at startup.
+
 #### Session Identity
 
 Only a single-hop or multi-hop session drives a GoBGP neighbor
