@@ -1102,6 +1102,34 @@ func TestValidateDampeningErrors(t *testing.T) {
 			wantErr: config.ErrInvalidDampeningHalfLife,
 		},
 		{
+			// v1 dampening contract: zero bounds would suppress forever.
+			name: "zero reuse threshold",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 5
+				cfg.GoBGP.Dampening.ReuseThreshold = 0
+				cfg.GoBGP.Dampening.HalfLife = 15 * time.Second
+			},
+			wantErr: config.ErrInvalidDampeningThreshold,
+		},
+		{
+			name: "zero max suppress time",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.GoBGP.Dampening.Enabled = true
+				cfg.GoBGP.Dampening.SuppressThreshold = 5
+				cfg.GoBGP.Dampening.ReuseThreshold = 2
+				cfg.GoBGP.Dampening.HalfLife = 15 * time.Second
+				cfg.GoBGP.Dampening.MaxSuppressTime = 0
+			},
+			wantErr: config.ErrInvalidDampeningMaxSuppressTime,
+		},
+		{
 			name: "valid dampening",
 			modify: func(cfg *config.Config) {
 				cfg.GoBGP.Enabled = true

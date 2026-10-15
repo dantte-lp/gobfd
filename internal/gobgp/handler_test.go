@@ -582,11 +582,12 @@ func TestHandlerDampeningIntegration(t *testing.T) {
 
 		calls := mock.getCalls()
 
-		// With threshold=4 and 15s half-life, the tiny decay between rapid
-		// calls is negligible. Events 1-3 pass (penalties ~1,2,3), event 4
-		// reaches threshold (penalty ~4) and is suppressed.
-		if len(calls) < 2 || len(calls) > 4 {
-			t.Errorf("expected 2-4 calls before suppression, got %d: %+v", len(calls), calls)
+		// With threshold=4 and 15s half-life, events 1-3 apply (penalties
+		// ~1,2,3). Event 4 or, after the small decay, event 5 suppresses the
+		// peer, which GoBFD already disabled, so the later Downs are
+		// redundant.
+		if len(calls) < 3 || len(calls) > 4 {
+			t.Errorf("expected 3-4 calls, got %d: %+v", len(calls), calls)
 		}
 
 		for _, c := range calls {
@@ -929,8 +930,8 @@ func TestDampenerMaxSuppressTime(t *testing.T) {
 // -------------------------------------------------------------------------
 
 // TestHandlerFullCycleDamped tests a realistic BFD flap scenario.
-// Uses a fractional threshold (2.5) so that exactly 2 Down events pass
-// before the 3rd triggers suppression. The half-life is 15s, and the
+// Uses a fractional threshold (2.5) so that the 3rd Down triggers
+// suppression. The half-life is 15s, and the
 // total test elapsed time is ~100ms, so the cumulative decay is less
 // than 0.01 penalty units -- far below the 0.5 margin built into the
 // threshold value.
@@ -956,8 +957,9 @@ func TestHandlerFullCycleDamped(t *testing.T) {
 
 		peer := netip.MustParseAddr("10.0.0.1")
 
-		// Send 4 Down/Up cycles. The first 2 Down events pass (penalties ~1, ~2).
-		// The 3rd Down event reaches ~3 which is > 2.5 threshold, so it's suppressed.
+		// Send 4 Down/Up cycles. The 3rd Down reaches penalty ~3 > 2.5 and
+		// suppresses the peer; that Down is still applied (H-27), the
+		// following Up is held, and the 4th Down is redundant.
 		for i := range 4 {
 			events <- bfd.StateChange{
 				LocalDiscr: 1, PeerAddr: peer, Type: bfd.SessionTypeSingleHop,
@@ -994,9 +996,10 @@ func TestHandlerFullCycleDamped(t *testing.T) {
 		}
 
 		// Cycles 1-2: DisablePeer+EnablePeer each (penalties ~1, ~2).
-		// Cycles 3-4: suppressed (penalties ~3+, all > 2.5).
-		if disableCount != 2 {
-			t.Errorf("expected 2 DisablePeer calls (before dampening), got %d", disableCount)
+		// Cycle 3: DisablePeer applied, EnablePeer held. Cycle 4: the Down is
+		// redundant and the Up held.
+		if disableCount != 3 {
+			t.Errorf("expected 3 DisablePeer calls, got %d", disableCount)
 		}
 
 		if enableCount != 2 {

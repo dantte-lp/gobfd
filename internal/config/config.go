@@ -1192,7 +1192,11 @@ var (
 	ErrAmbiguousGoBGPPeer = errors.New("gobgp peer has more than one BFD session")
 
 	// ErrInvalidDampeningThreshold indicates suppress threshold is not greater than reuse.
-	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold")
+	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold > 0")
+
+	// ErrInvalidDampeningMaxSuppressTime indicates a non-positive
+	// max_suppress_time, which would leave recovery unbounded.
+	ErrInvalidDampeningMaxSuppressTime = errors.New("gobgp.dampening.max_suppress_time must be > 0 when dampening is enabled")
 
 	// ErrInvalidDampeningHalfLife indicates the half-life is not positive.
 	ErrInvalidDampeningHalfLife = errors.New("gobgp.dampening.half_life must be > 0 when dampening is enabled")
@@ -1432,8 +1436,12 @@ func validateGoBGP(cfg GoBGPConfig) error {
 
 // validateDampening checks the dampening parameters for logical errors.
 func validateDampening(cfg GoBGPDampeningConfig) error {
-	if cfg.SuppressThreshold <= cfg.ReuseThreshold {
+	if cfg.SuppressThreshold <= cfg.ReuseThreshold || cfg.ReuseThreshold <= 0 {
 		return ErrInvalidDampeningThreshold
+	}
+
+	if cfg.MaxSuppressTime <= 0 {
+		return ErrInvalidDampeningMaxSuppressTime
 	}
 
 	if cfg.HalfLife <= 0 {

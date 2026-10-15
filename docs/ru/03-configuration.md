@@ -677,12 +677,20 @@ GoBFD в `dev` поддерживает только демоны GoBGP v4; gRPC
 Section 3.1 разрешает session-state hysteresis, но не стандартизирует данный
 алгоритм.
 
+Каждый BFD Down добавляет штраф 1, который убывает с периодом `half_life`.
+Демпфирование никогда не задерживает Down: каждый значимый Down сразу
+отключает пир (`gobfd-qj0.8.2.4.1`, H-27). Когда штраф достигает
+`suppress_threshold`, демпфирование удерживает только восстановление: BFD Up
+включает пир после снижения штрафа ниже `reuse_threshold` или по истечении
+`max_suppress_time`. Down во время удерживаемого восстановления отменяет
+его, и пир остаётся отключённым.
+
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `gobgp.dampening.enabled` | bool | `false` | Включить демпфирование |
-| `gobgp.dampening.suppress_threshold` | float64 | `3` | Штраф, выше которого события подавляются |
-| `gobgp.dampening.reuse_threshold` | float64 | `2` | Штраф, ниже которого подавление снимается |
-| `gobgp.dampening.max_suppress_time` | duration | `"60s"` | Максимальная длительность подавления |
+| `gobgp.dampening.suppress_threshold` | float64 | `3` | Штраф, начиная с которого удерживается восстановление |
+| `gobgp.dampening.reuse_threshold` | float64 | `2` | Штраф, ниже которого подавление снимается; должен быть > 0 |
+| `gobgp.dampening.max_suppress_time` | duration | `"60s"` | Максимальная длительность подавления; должна быть > 0 |
 | `gobgp.dampening.half_life` | duration | `"15s"` | Период полураспада штрафа |
 
 ### Горячая перезагрузка (SIGHUP)
@@ -777,7 +785,8 @@ source VXLAN или Geneve без работающего backend считает�
 | Включённая `gobgp.strategy` распознана, но не реализована (`withdraw-routes`) | `ErrUnsupportedGoBGPStrategy` |
 | `gobgp.action_timeout` должен быть > 0 при включённой интеграции | `ErrInvalidGoBGPActionTimeout` |
 | `gobgp.tls.ca_file` / `server_name` требуют `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
-| `gobgp.dampening.suppress_threshold` должен быть > `reuse_threshold` | `ErrInvalidDampeningThreshold` |
+| `gobgp.dampening.suppress_threshold` должен быть > `reuse_threshold` > 0 | `ErrInvalidDampeningThreshold` |
+| `gobgp.dampening.max_suppress_time` должен быть > 0 при включённом демпфировании | `ErrInvalidDampeningMaxSuppressTime` |
 | `gobgp.dampening.half_life` должен быть > 0 при включённом демпфировании | `ErrInvalidDampeningHalfLife` |
 | `peer` сессии должен быть валидным IP-адресом | `ErrInvalidSessionPeer` |
 | `type` сессии должен быть `single_hop` или `multi_hop` | `ErrInvalidSessionType` |

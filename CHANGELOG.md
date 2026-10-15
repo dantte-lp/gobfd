@@ -66,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** GoBGP flap dampening never holds a BFD Down
+  (`gobfd-qj0.8.2.4.1`, H-27, v1 dampening contract). Every qualifying Down
+  disables the peer at once; once suppressed, dampening holds only the
+  recovery Up, and a Down cancels a held recovery. Validation rejects
+  `gobgp.dampening.reuse_threshold <= 0` and `max_suppress_time <= 0`
+  (`ErrInvalidDampeningMaxSuppressTime`).
 - **Breaking:** `GetSession` by a peer address that matches more than one
   session fails with `FAILED_PRECONDITION` and lists the local
   discriminators, instead of returning the first match (M-07).

@@ -672,12 +672,19 @@ Prevents rapid BFD oscillation from causing excessive BGP route churn. This
 penalty-based algorithm is GoBFD implementation policy; RFC 5882 Section 3.1
 permits session-state hysteresis but does not standardize this algorithm.
 
+Each BFD Down adds a penalty of 1 that decays with `half_life`. Dampening
+never holds a Down: every qualifying Down disables the peer at once
+(`gobfd-qj0.8.2.4.1`, H-27). Once the penalty reaches `suppress_threshold`,
+dampening holds only the recovery: BFD Up re-enables the peer after the
+penalty decays below `reuse_threshold` or after `max_suppress_time`. A Down
+while the recovery is held cancels it, and the peer stays disabled.
+
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `gobgp.dampening.enabled` | bool | `false` | Enable flap dampening |
-| `gobgp.dampening.suppress_threshold` | float64 | `3` | Penalty above which events are suppressed |
-| `gobgp.dampening.reuse_threshold` | float64 | `2` | Penalty below which suppression is lifted |
-| `gobgp.dampening.max_suppress_time` | duration | `"60s"` | Maximum suppression duration |
+| `gobgp.dampening.suppress_threshold` | float64 | `3` | Penalty from which recovery is held |
+| `gobgp.dampening.reuse_threshold` | float64 | `2` | Penalty below which suppression is lifted; must be > 0 |
+| `gobgp.dampening.max_suppress_time` | duration | `"60s"` | Maximum suppression duration; must be > 0 |
 | `gobgp.dampening.half_life` | duration | `"15s"` | Penalty decay half-life |
 
 ### Hot Reload (SIGHUP)
@@ -776,7 +783,8 @@ skipped. Already accepted source changes are not rolled back.
 | Enabled `gobgp.strategy` is recognized but not implemented (`withdraw-routes`) | `ErrUnsupportedGoBGPStrategy` |
 | `gobgp.action_timeout` must be > 0 when enabled | `ErrInvalidGoBGPActionTimeout` |
 | `gobgp.tls.ca_file` / `server_name` require `gobgp.tls.enabled: true` | `ErrInvalidGoBGPTLS` |
-| `gobgp.dampening.suppress_threshold` must be > `reuse_threshold` | `ErrInvalidDampeningThreshold` |
+| `gobgp.dampening.suppress_threshold` must be > `reuse_threshold` > 0 | `ErrInvalidDampeningThreshold` |
+| `gobgp.dampening.max_suppress_time` must be > 0 when dampening enabled | `ErrInvalidDampeningMaxSuppressTime` |
 | `gobgp.dampening.half_life` must be > 0 when dampening enabled | `ErrInvalidDampeningHalfLife` |
 | Session `peer` must be a valid IP address | `ErrInvalidSessionPeer` |
 | Session `type` must be `single_hop` or `multi_hop` | `ErrInvalidSessionType` |

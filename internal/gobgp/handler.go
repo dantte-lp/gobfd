@@ -272,8 +272,8 @@ func (h *Handler) retryDue(ctx context.Context) {
 	}
 
 	// ShouldSuppressUp records no penalty and applies suppression expiry,
-	// so it releases a held action of either direction.
-	if h.dampener.ShouldSuppressUp(peerAddr) {
+	// so it releases a held recovery. A Down is never held (H-27).
+	if !due.down && h.dampener.ShouldSuppressUp(peerAddr) {
 		due.due = time.Now().Add(suppressionRecheck)
 		return
 	}
@@ -408,21 +408,23 @@ func (h *Handler) resync(ctx context.Context, gapRevision uint64) {
 
 // handleDown processes a BFD session going Down. RFC 5882 Sections 4.2
 // and 10.2: a failure transition other than AdminDown should tear the EBGP
-// session down. Section 3.1 allows hiding a short Down from clients but
-// requires notification when the session stays Down, so a Down held by
-// dampening stays pending and is applied when suppression lifts.
+// session down. The v1 dampening contract applies every qualifying Down at
+// once; dampening holds only the recovery that follows.
 func (h *Handler) handleDown(ctx context.Context, peerAddr string, p *pendingAction) {
-	h.pending[peerAddr] = p
-
-	// Apply the implementation-defined flap dampening policy before acting.
-	if h.dampener.ShouldSuppress(peerAddr) {
-		h.logger.Warn("BFD Down suppressed by flap dampening",
+	// ShouldSuppress records the flap penalty. v1 dampening contract
+	// (H-27): it never holds a qualifying Down; while suppressed it only
+	// makes a Down redundant for a peer GoBFD already disabled, and that
+	// Down cancels a held recovery.
+	suppressed := h.dampener.ShouldSuppress(peerAddr)
+	if _, ours := h.disabled[peerAddr]; ours && suppressed {
+		delete(h.pending, peerAddr)
+		h.logger.Info("BFD Down while dampened; peer stays disabled",
 			slog.String("peer", peerAddr),
 			slog.String("diag", p.sc.Diag.String()),
 		)
-		p.due = time.Now().Add(suppressionRecheck)
 		return
 	}
+	h.pending[peerAddr] = p
 
 	h.logger.Info("BFD Down, applying BGP action",
 		slog.String("peer", peerAddr),

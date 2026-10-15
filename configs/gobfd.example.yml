@@ -193,8 +193,9 @@ bfd:
 #   addr: "127.0.0.1:50051"
 #   # Only "disable-peer" is implemented; "withdraw-routes" is rejected.
 #   strategy: "disable-peer"
-#   # RFC 5882 Section 3.2: flap dampening prevents rapid BFD oscillation
-#   # from causing excessive BGP route churn.
+#   # Flap dampening (GoBFD policy; RFC 5882 Section 3.1 hysteresis): every
+#   # BFD Down disables the peer at once; past suppress_threshold only the
+#   # re-enable on BFD Up is held until reuse_threshold or max_suppress_time.
 #   dampening:
 #     enabled: false
 #     suppress_threshold: 3

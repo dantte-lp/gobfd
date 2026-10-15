@@ -97,31 +97,65 @@ func TestHandlerRetriesActionAfterGoBGPOutage(t *testing.T) {
 	})
 }
 
-// RFC 5882 Section 3.1: a Down hidden by dampening must still reach BGP
-// when the session stays Down past the suppression period.
-func TestHandlerAppliesSuppressedDownWhenSuppressionLifts(t *testing.T) {
+// v1 dampening contract (H-27): dampening never holds a qualifying Down.
+// Once suppressed it holds only the recovery Up and redundant Downs while
+// the peer stays disabled; a new Down cancels the held recovery, and the
+// recovery is applied when the penalty decays below the reuse threshold.
+func TestHandlerDampeningHoldsOnlyRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mock := newMockClient()
 		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{
 			Enabled:           true,
 			SuppressThreshold: 2,
 			ReuseThreshold:    1,
-			MaxSuppressTime:   60 * time.Second,
+			MaxSuppressTime:   5 * time.Minute,
 			HalfLife:          15 * time.Second,
 		}))
 
 		events <- peerTransition(bfd.StateUp, bfd.StateDown)
 		events <- peerTransition(bfd.StateDown, bfd.StateUp)
-		events <- peerTransition(bfd.StateUp, bfd.StateDown) // penalty 2: suppressed
+		events <- peerTransition(bfd.StateUp, bfd.StateDown) // penalty 2: suppressed, still applied
 		synctest.Wait()
-		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer, methodDisablePeer)
 
-		// The penalty decays below the reuse threshold after one half-life.
+		events <- peerTransition(bfd.StateDown, bfd.StateUp) // recovery held
+		events <- peerTransition(bfd.StateUp, bfd.StateDown) // redundant: cancels the held recovery
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer, methodDisablePeer)
+
+		events <- peerTransition(bfd.StateDown, bfd.StateUp) // recovery held again
+		time.Sleep(20 * time.Second)
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer, methodDisablePeer)
+
+		// Penalty 3 decays below the reuse threshold of 1 after ~24 s.
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
-		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer, methodDisablePeer, methodEnablePeer)
+	})
+}
 
-		time.Sleep(10 * time.Second)
+// A Down whose GoBGP call failed is retried even while the peer is
+// suppressed: suppression never delays the disable.
+func TestHandlerRetriesDownWhileSuppressed(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{
+			Enabled:           true,
+			SuppressThreshold: 2,
+			ReuseThreshold:    1,
+			MaxSuppressTime:   5 * time.Minute,
+			HalfLife:          15 * time.Second,
+		}))
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		synctest.Wait()
+		mock.setError(status.Error(codes.Unavailable, "connection refused"))
+		events <- peerTransition(bfd.StateUp, bfd.StateDown) // suppressed, GoBGP down
+		synctest.Wait()
+		mock.setError(nil)
+		time.Sleep(5 * time.Second)
 		synctest.Wait()
 		assertMethods(t, mock, methodDisablePeer, methodEnablePeer, methodDisablePeer)
 	})
@@ -542,5 +576,29 @@ func TestHandlerResyncEnablesPeerAndIgnoresUnknownDown(t *testing.T) {
 		events <- bfd.StateChange{Gap: true, Revision: 3}
 		synctest.Wait()
 		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+	})
+}
+
+// A Down while the recovery is held cancels it: the peer stays disabled
+// after the penalty decays, because BFD is Down.
+func TestHandlerDampenedDownCancelsHeldRecovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{
+			Enabled:           true,
+			SuppressThreshold: 2,
+			ReuseThreshold:    1,
+			MaxSuppressTime:   5 * time.Minute,
+			HalfLife:          15 * time.Second,
+		}))
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		events <- peerTransition(bfd.StateDown, bfd.StateUp) // recovery held
+		events <- peerTransition(bfd.StateUp, bfd.StateDown) // cancels it
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer, methodDisablePeer)
 	})
 }
