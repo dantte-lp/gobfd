@@ -261,7 +261,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v1 configuration policy rejects authenticated padding targets 24/25;
   target 26 retains larger PDUs. YAML defaults and overrides reject numeric
   wraparound, fractions and boolean conversion before decoding. Authenticated
-  peer interoperability remains pending under `gobfd-qj0.8.2.1.5`.
+  padded TX is qualified with FRR Simple Password and BIRD Keyed SHA1 at
+  128 bytes (`gobfd-qj0.8.2.1.5`), including zero padding and IPv4 DF.
+  Peer RX qualification uses ordinary authenticated PDUs; path MTU and
+  public API padding remain separate.
 
 - Receive complete BFD transport payloads through 9000 bytes without changing
   the 64-byte codec bound (`gobfd-qj0.8.2.1.5.1`). Linux rejects truncated UDP

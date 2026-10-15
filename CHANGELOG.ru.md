@@ -264,8 +264,11 @@
   wire vectors покрывают пять типов аутентификации. Утверждённая политика
   конфигурации v1 отклоняет authenticated padding targets 24/25; target 26
   сохраняет более длинные PDU. YAML defaults и overrides отклоняют numeric
-  wraparound, дроби и boolean conversion до декодирования. Authenticated peer
-  interoperability ожидает проверки в `gobfd-qj0.8.2.1.5`.
+  wraparound, дроби и boolean conversion до декодирования. Authenticated
+  padded TX 128 байт квалифицирован с FRR Simple Password и BIRD Keyed SHA1
+  (`gobfd-qj0.8.2.1.5`): нулевой padding и IPv4 DF подтверждены. Проверка
+  peer RX использует обычные authenticated PDU; path MTU и public API padding
+  остаются отдельными задачами.
 
 - Приём сохраняет полный BFD transport payload до 9000 байт при неизменной
   границе кодека 64 байта (`gobfd-qj0.8.2.1.5.1`). Linux отклоняет усечённые

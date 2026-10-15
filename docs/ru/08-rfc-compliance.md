@@ -55,7 +55,7 @@
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный preview** | Identity поддерживаемого профиля привязана точно; owner-specific dataplane integration не завершена |
 | [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный preview** | Явная IPv4 Format A VAP identity привязана; unsupported formats и неполная identity fail closed |
-| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | PDU-length authentication и padding покрыты локально; authenticated interop ожидает проверки |
+| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | PDU-length authentication покрыта локально; padded TX квалифицирован с FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Stub** | Интерфейсы определены, ожидает LSP Ping |
@@ -485,9 +485,12 @@ length до среза и возвращает заимствованный бу
 transport buffers и не подтверждают поддержку соответствующего path MTU.
 
 Локальное покрытие hash boundary и конфигурации относится к
-`gobfd-qj0.8.2.1.5.2`. Родительская проверка authenticated-padding interop
-`gobfd-qj0.8.2.1.5` остаётся открытой: локальные vectors и buffer limits не
-подтверждают peer interoperability или path MTU. Стабильное соответствие
+`gobfd-qj0.8.2.1.5.2`. [Критический BASE gate](05-interop.md) квалифицирует
+128-байтные Control payload GoBFD к FRR Simple Password и BIRD Keyed SHA1:
+неизменный BFD Length, нулевой padding и IPv4 DF. Обратное направление
+использует обычные authenticated PDU пиров; padded peer-originated traffic
+покрывают локальные vectors, а не этот interop-запуск. Public API padding и
+проверка path MTU остаются отдельными задачами; стабильное соответствие
 RFC 9764 остаётся частичным.
 
 ### RFC 7880/7881 (Планируется)
