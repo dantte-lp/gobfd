@@ -94,7 +94,9 @@ func TestBridgeReconnectsNewGenerationAndWithdrawsOnGap(t *testing.T) {
 	bfdv1connect.RegisterBfdServiceHandler(rpc, svc)
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, rpc)
-	srv := httptest.NewTestServer(t, mux)
+	// The bridge constructs its HTTP client from a real endpoint.
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
 	selector, err := apiclient.ParseSessionSelector(testPeerAddr, "", "", "")
 	if err != nil {
 		t.Fatal(err)
