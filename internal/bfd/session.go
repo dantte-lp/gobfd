@@ -151,6 +151,9 @@ type StateChange struct {
 	// PeerAddr is the remote system's IP address.
 	PeerAddr netip.Addr
 
+	// LocalAddr is the local system's IP address.
+	LocalAddr netip.Addr
+
 	// OldState is the session state before the transition.
 	OldState State
 
@@ -170,6 +173,15 @@ type StateChange struct {
 	// Interface is the network interface name.
 	// Used for micro-BFD dispatch: identifies the LAG member link.
 	Interface string
+
+	// Revision is the Manager dispatch revision, increasing by one per
+	// dispatched change. Zero before dispatch.
+	Revision uint64
+
+	// Gap marks a subscriber-only marker: events before Revision were lost
+	// and the subscriber must resync from Manager.SessionsWithRevision.
+	// Other fields except Timestamp are zero.
+	Gap bool
 }
 
 // PacketSender abstracts sending BFD Control packets over the network.
@@ -635,6 +647,14 @@ func (s *Session) RemoteState() State {
 // LocalDiag returns the current local diagnostic code (atomic read).
 func (s *Session) LocalDiag() Diag {
 	return Diag(s.localDiag.Load()) // #nosec G115 -- session transitions store only valid Diag values 0-8.
+}
+
+// RemoteMinRxInterval returns bfd.RemoteMinRxInterval from the last
+// received packet.
+func (s *Session) RemoteMinRxInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.remoteMinRxInterval
 }
 
 // RemoteDiscriminator returns the remote discriminator learned from the peer.

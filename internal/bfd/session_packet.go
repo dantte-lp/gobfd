@@ -215,6 +215,7 @@ func (s *Session) emitNotification(result FSMResult) {
 	sc := StateChange{
 		LocalDiscr: s.localDiscr,
 		PeerAddr:   s.peerAddr,
+		LocalAddr:  s.localAddr,
 		OldState:   result.OldState,
 		NewState:   result.NewState,
 		Diag:       s.LocalDiag(),

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -176,6 +177,9 @@ type SessionSnapshot struct {
 	// RequiredMinRx is the configured required minimum RX interval.
 	RequiredMinRx time.Duration
 
+	// RemoteMinRx is bfd.RemoteMinRxInterval from the last received packet.
+	RemoteMinRx time.Duration
+
 	// DetectMultiplier is the configured detection multiplier.
 	DetectMultiplier uint8
 
@@ -310,8 +314,12 @@ type Manager struct {
 	// One daemon consumer; coalesced notifications never carry authoritative state.
 	timerUpdateCh chan struct{}
 
-	subscribers map[chan StateChange]struct{}
+	subscribers map[chan StateChange]*subscriber
 	subMu       sync.RWMutex
+
+	// revision numbers dispatched state changes; it is advanced only by the
+	// RunDispatch goroutine, under subMu.
+	revision atomic.Uint64
 
 	logger *slog.Logger
 
@@ -478,7 +486,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
 		publicNotifyCh: make(chan StateChange, notifyChSize),
 		timerUpdateCh:  make(chan struct{}, 1),
-		subscribers:    make(map[chan StateChange]struct{}),
+		subscribers:    make(map[chan StateChange]*subscriber),
 		closeDone:      make(chan struct{}),
 		shutdownCh:     make(chan struct{}),
 		logger:         logger.With(slog.String("component", "bfd.manager")),
@@ -533,7 +541,7 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			if sc.NewState == StateDown {
 				m.scheduleUnsolicitedCleanup(ctx, sc)
 			}
-			m.broadcastStateChange(sc)
+			sc = m.broadcastStateChange(sc)
 
 			// Forward to the legacy single-consumer channel.
 			select {
@@ -554,20 +562,41 @@ func (m *Manager) closeLegacyStateChanges() {
 	})
 }
 
-func (m *Manager) broadcastStateChange(sc StateChange) {
+// subscriber is the delivery state of one SubscribeStateChanges channel,
+// owned by the RunDispatch goroutine.
+type subscriber struct {
+	// overflowed is set once a gap marker is queued and cleared when
+	// delivery resumes.
+	overflowed bool
+}
+
+// broadcastStateChange numbers sc and delivers it to every subscriber. The
+// last buffer slot of a subscriber is reserved for a gap marker, so a slow
+// subscriber learns about lost events even when no further event follows.
+// RunDispatch is the only sender on subscriber channels, so the length
+// check cannot race with another send.
+func (m *Manager) broadcastStateChange(sc StateChange) StateChange {
 	m.subMu.RLock()
 	defer m.subMu.RUnlock()
 
-	for ch := range m.subscribers {
-		select {
-		case ch <- sc:
-		default:
-			m.logger.Warn("state change subscriber channel full, dropping event",
-				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
-				slog.String("new_state", sc.NewState.String()),
+	// Assigned under subMu: a subscriber registered before a revision is
+	// read receives every later revision.
+	sc.Revision = m.revision.Add(1)
+	for ch, sub := range m.subscribers {
+		if len(ch) < cap(ch)-1 {
+			sub.overflowed = false
+			ch <- sc
+			continue
+		}
+		if !sub.overflowed {
+			sub.overflowed = true
+			ch <- StateChange{Gap: true, Revision: sc.Revision, Timestamp: sc.Timestamp}
+			m.logger.Warn("state change subscriber is behind, queued a gap marker",
+				slog.Uint64("revision", sc.Revision),
 			)
 		}
 	}
+	return sc
 }
 
 func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange) {

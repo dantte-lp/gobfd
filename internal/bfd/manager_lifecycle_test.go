@@ -556,6 +556,7 @@ func TestManagerRunDispatchIsSingleRun(t *testing.T) {
 		want := StateChange{LocalDiscr: 801, OldState: StateDown, NewState: StateInit}
 		mgr.rawNotifyCh <- want
 		synctest.Wait()
+		want.Revision = 1
 		select {
 		case got, ok := <-mgr.StateChanges():
 			if !ok {

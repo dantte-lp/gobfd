@@ -471,10 +471,12 @@ func (es *EchoSession) emitNotification(oldState, newState State, diag Diag) {
 	sc := StateChange{
 		LocalDiscr: es.localDiscr,
 		PeerAddr:   es.peerAddr,
+		LocalAddr:  es.localAddr,
 		OldState:   oldState,
 		NewState:   newState,
 		Diag:       diag,
 		Timestamp:  time.Now(),
+		Type:       SessionTypeEcho,
 	}
 	select {
 	case es.notifyCh <- sc:

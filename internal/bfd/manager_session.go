@@ -676,37 +676,65 @@ func (m *Manager) Sessions() []SessionSnapshot {
 	defer m.mu.RUnlock()
 
 	snapshots := make([]SessionSnapshot, 0, len(m.sessions))
-
 	for _, entry := range m.sessions {
-		s := entry.session
-		snapshots = append(snapshots, SessionSnapshot{
-			LocalDiscr:           s.LocalDiscriminator(),
-			RemoteDiscr:          s.RemoteDiscriminator(),
-			PeerAddr:             s.PeerAddr(),
-			LocalAddr:            s.LocalAddr(),
-			Interface:            s.Interface(),
-			Type:                 s.Type(),
-			State:                s.State(),
-			RemoteState:          s.RemoteState(),
-			LocalDiag:            s.LocalDiag(),
-			DesiredMinTx:         s.DesiredMinTxInterval(),
-			RequiredMinRx:        s.RequiredMinRxInterval(),
-			DetectMultiplier:     s.DetectMultiplier(),
-			NegotiatedTxInterval: s.NegotiatedTxInterval(),
-			DetectionTime:        s.DetectionTime(),
-			LastStateChange:      s.LastStateChange(),
-			LastPacketReceived:   s.LastPacketReceived(),
-			PaddedPduSize:        s.PaddedPduSize(),
-			AuthType:             s.AuthType(),
-			Counters: SessionCounters{
-				PacketsSent:      s.PacketsSent(),
-				PacketsReceived:  s.PacketsReceived(),
-				StateTransitions: s.StateTransitions(),
-			},
-		})
+		snapshots = append(snapshots, snapshotOf(entry.session))
 	}
-
 	return snapshots
+}
+
+// SessionsWithRevision returns the session snapshots and the dispatch
+// revision they cover. Every state change with a higher revision happened
+// after the snapshot was read, so a subscriber that subscribes first, then
+// takes this snapshot and skips events up to the revision misses nothing.
+// Events above the revision may repeat state already in the snapshot.
+func (m *Manager) SessionsWithRevision() ([]SessionSnapshot, uint64) {
+	// Read the revision before session state: sessions store their state
+	// before publishing the change.
+	rev := m.revision.Load()
+	return m.Sessions(), rev
+}
+
+// SessionWithRevision returns the snapshot of one session by local
+// discriminator and the dispatch revision it covers.
+func (m *Manager) SessionWithRevision(discr uint32) (SessionSnapshot, uint64, bool) {
+	rev := m.revision.Load()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry, ok := m.sessions[discr]
+	if !ok {
+		return SessionSnapshot{}, rev, false
+	}
+	return snapshotOf(entry.session), rev, true
+}
+
+// snapshotOf copies the exported state of one session.
+func snapshotOf(s *Session) SessionSnapshot {
+	return SessionSnapshot{
+		LocalDiscr:           s.LocalDiscriminator(),
+		RemoteDiscr:          s.RemoteDiscriminator(),
+		PeerAddr:             s.PeerAddr(),
+		LocalAddr:            s.LocalAddr(),
+		Interface:            s.Interface(),
+		Type:                 s.Type(),
+		State:                s.State(),
+		RemoteState:          s.RemoteState(),
+		LocalDiag:            s.LocalDiag(),
+		DesiredMinTx:         s.DesiredMinTxInterval(),
+		RequiredMinRx:        s.RequiredMinRxInterval(),
+		RemoteMinRx:          s.RemoteMinRxInterval(),
+		DetectMultiplier:     s.DetectMultiplier(),
+		NegotiatedTxInterval: s.NegotiatedTxInterval(),
+		DetectionTime:        s.DetectionTime(),
+		LastStateChange:      s.LastStateChange(),
+		LastPacketReceived:   s.LastPacketReceived(),
+		PaddedPduSize:        s.PaddedPduSize(),
+		AuthType:             s.AuthType(),
+		Counters: SessionCounters{
+			PacketsSent:      s.PacketsSent(),
+			PacketsReceived:  s.PacketsReceived(),
+			StateTransitions: s.StateTransitions(),
+		},
+	}
 }
 
 // -------------------------------------------------------------------------
@@ -727,9 +755,11 @@ func (m *Manager) StateChanges() <-chan StateChange {
 }
 
 // SubscribeStateChanges returns a per-consumer channel that receives every
-// manager state change until ctx is cancelled or Manager.Close begins. Slow
-// subscribers drop their own events without affecting other subscribers or
-// session goroutines. Calls made after shutdown begins fail without registering
+// manager state change until ctx is cancelled or Manager.Close begins. Each
+// change carries a dispatch revision. A slow subscriber drops its own events
+// without affecting other subscribers or session goroutines, and receives a
+// StateChange with Gap set in their place: it must resync from
+// SessionsWithRevision. Calls made after shutdown begins fail without registering
 // a subscriber.
 func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange, error) {
 	if err := ctx.Err(); err != nil {
@@ -753,7 +783,7 @@ func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange
 	ch := make(chan StateChange, notifyChSize)
 
 	m.subMu.Lock()
-	m.subscribers[ch] = struct{}{}
+	m.subscribers[ch] = &subscriber{}
 	m.subMu.Unlock()
 
 	m.workers.Go(func() {
