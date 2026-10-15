@@ -482,7 +482,7 @@ geneve:
 | `socket.read_buffer_size` | int | `4194304` (4 MiB) | `SO_RCVBUF` size in bytes for listener sockets. Larger buffers reduce packet loss under high session counts. Set to `0` to use the OS default. |
 | `socket.write_buffer_size` | int | `4194304` (4 MiB) | `SO_SNDBUF` size in bytes for sender sockets. Larger buffers reduce `sendto` failures under burst conditions. Set to `0` to use the OS default. |
 
-Both values must be nonnegative. `read_buffer_size` applies to the shared
+Both values must be nonnegative integers representable as `int`. `read_buffer_size` applies to the shared
 single-hop and multihop control listeners, Echo listeners, and Micro-BFD
 member listeners. `write_buffer_size` applies to API and declarative control,
 Echo, Micro-BFD, and dynamically admitted unsolicited session senders. The

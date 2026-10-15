@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -126,8 +127,8 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 						lease, err = unsolicitedSessionSender(sf, logger)(bfd.PacketMeta{DstAddr: local, IfName: "lo"})
 						if err == nil {
 							t.Cleanup(func() {
-								if err := lease.Close(); err != nil {
-									t.Error(err)
+								if closeErr := lease.Close(); closeErr != nil {
+									t.Error(closeErr)
 								}
 							})
 						}
@@ -170,7 +171,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 			sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
 			_, vxlan := createVXLANConns(cfg, sf, logger)
 			_, geneve := createGeneveConns(cfg, sf, logger)
-			conns := append(vxlan, geneve...)
+			conns := slices.Concat(vxlan, geneve)
 			t.Cleanup(func() {
 				for _, conn := range conns {
 					if err := conn.Close(); err != nil {

@@ -953,6 +953,10 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("validate detect multipliers from %s: %w", path, err)
 	}
 
+	if err := validateSocketBufferInput(k); err != nil {
+		return nil, fmt.Errorf("validate socket buffer input from %s: %w", path, err)
+	}
+
 	cfg := &Config{}
 	if err := k.Unmarshal("", cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
@@ -1379,11 +1383,8 @@ var (
 // Validate checks the configuration for logical errors.
 // Returns the first validation error encountered.
 func Validate(cfg *Config) error {
-	if cfg.Socket.ReadBufferSize < 0 {
-		return ErrInvalidSocketReadBufferSize
-	}
-	if cfg.Socket.WriteBufferSize < 0 {
-		return ErrInvalidSocketWriteBufferSize
+	if err := validateSocket(cfg.Socket); err != nil {
+		return err
 	}
 
 	if err := validateGRPC(cfg.GRPC); err != nil {
@@ -1439,11 +1440,11 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// ErrInvalidSocketReadBufferSize rejects negative receive buffer requests.
-var ErrInvalidSocketReadBufferSize = errors.New("socket.read_buffer_size must be >= 0")
+// ErrInvalidSocketReadBufferSize rejects invalid nonnegative integer receive buffer requests.
+var ErrInvalidSocketReadBufferSize = errors.New("socket.read_buffer_size must be a nonnegative integer fitting int")
 
-// ErrInvalidSocketWriteBufferSize rejects negative send buffer requests.
-var ErrInvalidSocketWriteBufferSize = errors.New("socket.write_buffer_size must be >= 0")
+// ErrInvalidSocketWriteBufferSize rejects invalid nonnegative integer send buffer requests.
+var ErrInvalidSocketWriteBufferSize = errors.New("socket.write_buffer_size must be a nonnegative integer fitting int")
 
 var validMicroBFDActuatorModes = map[string]bool{
 	MicroBFDActuatorModeDisabled: true,
