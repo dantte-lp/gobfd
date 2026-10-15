@@ -59,7 +59,18 @@ enum SessionType {
   SESSION_TYPE_GENEVE = 6;
 }
 
-// BfdSession represents the full state of a BFD session.
+// ObservationCause identifies the committed reason for causal facts.
+enum ObservationCause {
+  OBSERVATION_CAUSE_UNSPECIFIED = 0;
+  OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN = 1;
+  OBSERVATION_CAUSE_REMOTE_DOWN = 2;
+  OBSERVATION_CAUSE_DETECTION_TIMEOUT = 3;
+  OBSERVATION_CAUSE_LOCAL_ADMIN = 4;
+  OBSERVATION_CAUSE_PATH_DOWN = 5;
+  OBSERVATION_CAUSE_CONFIGURATION = 6;
+}
+
+// BfdSession contains snapshot status or partial STATE_CHANGE causal facts.
 message BfdSession {
   string peer_address = 1 [(buf.validate.field).string.ip = true];
   string local_address = 2 [(buf.validate.field).string.ip = true];
@@ -80,6 +91,14 @@ message BfdSession {
   google.protobuf.Timestamp last_state_change = 17;
   google.protobuf.Timestamp last_packet_received = 18;
   SessionCounters counters = 19;
+  // Version covers local state/diagnostic, known remote state/diagnostic,
+  // C-bits and cause only. Timers, configuration and counters are sampled.
+  uint64 observation_version = 20;
+  bool remote_known = 21;
+  DiagnosticCode remote_diagnostic = 22;
+  bool local_control_plane_independent = 23;
+  bool remote_control_plane_independent = 24;
+  ObservationCause cause = 25;
 }
 
 // SessionCounters contains packet and state transition counters for a session.

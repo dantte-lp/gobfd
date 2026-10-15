@@ -104,7 +104,7 @@ type Handler struct {
 
 	// last is the last state seen per base session (owned by the Run
 	// goroutine); a resync rebuilds lost edges from it.
-	last map[uint32]bfd.State
+	last map[uint32]bfd.StateChange
 
 	// resynced holds sessions whose state the last resync set; their next
 	// event is dropped when it only repeats that state.
@@ -184,7 +184,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		timeout:       timeout,
 		actuates:      cfg.Actuates,
 		snapshot:      cfg.Snapshot,
-		last:          make(map[uint32]bfd.State),
+		last:          make(map[uint32]bfd.StateChange),
 		resynced:      make(map[uint32]struct{}),
 		onAction:      cfg.OnAction,
 		pending:       make(map[string]*pendingAction),
@@ -270,7 +270,7 @@ func (h *Handler) retryDue(ctx context.Context) {
 	if due == nil || time.Now().Before(due.due) {
 		return
 	}
-	if due.down && h.actuates != nil && !h.actuates(due.sc) {
+	if due.down && !h.canDisable(due.sc) {
 		delete(h.pending, peerAddr)
 		h.logger.Info("pending BGP Down dropped, session no longer actuates the peer",
 			slog.String("peer", peerAddr),
@@ -299,17 +299,24 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 	if !isBaseSession(sc.Type) {
 		return
 	}
+	previous, seen := h.last[sc.LocalDiscr]
+	if seen && staleObservation(sc, previous) {
+		return
+	}
 	if sc.Deleted {
 		h.forgetSession(sc.LocalDiscr)
 		return
 	}
 	if _, ok := h.resynced[sc.LocalDiscr]; ok {
 		delete(h.resynced, sc.LocalDiscr)
-		if h.last[sc.LocalDiscr] == sc.NewState {
+		if sc.ObservationVersion == 0 && previous.NewState == sc.NewState {
 			return // repeats state the resync already applied
 		}
 	}
-	h.last[sc.LocalDiscr] = sc.NewState
+	h.last[sc.LocalDiscr] = sc
+	if samePathFailure(previous, sc) {
+		return // Diagnostic-only updates retain the original pending failure and penalty.
+	}
 	h.act(ctx, sc)
 }
 
@@ -333,9 +340,17 @@ func isBaseSession(t bfd.SessionType) bool {
 // act applies the BGP action for one base-session transition.
 func (h *Handler) act(ctx context.Context, sc bfd.StateChange) {
 	peerAddr := sc.PeerAddr.Unmap().String()
+	if administrative(sc) {
+		// Administrative intent cancels obsolete failure, preserving owned recovery.
+		if p := h.pending[peerAddr]; p != nil && p.down {
+			delete(h.pending, peerAddr)
+		}
+		h.dampener.Reset(peerAddr)
+		return
+	}
 	// Only a Down is gated: an Up re-enables only a peer GoBFD disabled, and
 	// an ambiguity that later clears publishes no event to re-enable it.
-	if isTransitionToDown(sc) && h.actuates != nil && !h.actuates(sc) {
+	if isTransitionToDown(sc) && !h.canDisable(sc) {
 		h.logger.Debug("ignoring BFD Down, session does not actuate the BGP peer",
 			slog.String("peer", peerAddr),
 			slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
@@ -356,17 +371,6 @@ func (h *Handler) act(ctx context.Context, sc bfd.StateChange) {
 
 	case isTransitionToUp(sc):
 		h.handleUp(ctx, peerAddr, &pendingAction{sc: sc})
-
-	case sc.NewState == bfd.StateAdminDown:
-		// RFC 5882 Section 4.2: no control protocol action on AdminDown,
-		// so a Down still pending for this peer is dropped. A pending Up
-		// stays: it re-enables a peer GoBFD itself disabled.
-		if p, ok := h.pending[peerAddr]; ok && p.down {
-			delete(h.pending, peerAddr)
-			h.logger.Info("pending BGP Down dropped on BFD AdminDown",
-				slog.String("peer", peerAddr),
-			)
-		}
 
 	default:
 		// Other transitions (e.g., Down->Init) are informational only.
@@ -399,25 +403,39 @@ func (h *Handler) resync(ctx context.Context, gapRevision uint64) {
 		}
 		present[snap.LocalDiscr] = struct{}{}
 		h.resynced[snap.LocalDiscr] = struct{}{}
-		prev, ok := h.last[snap.LocalDiscr]
-		if !ok {
-			prev = bfd.StateDown
-		}
-		h.last[snap.LocalDiscr] = snap.State
-		if prev == snap.State {
+		previous, ok := h.last[snap.LocalDiscr]
+		if snap.ObservationVersion != previous.ObservationVersion &&
+			coveredObservation(snap.ObservationVersion, previous.ObservationVersion) {
 			continue
 		}
-		h.act(ctx, bfd.StateChange{
-			LocalDiscr: snap.LocalDiscr,
-			PeerAddr:   snap.PeerAddr,
-			LocalAddr:  snap.LocalAddr,
-			OldState:   prev,
-			NewState:   snap.State,
-			Diag:       snap.LocalDiag,
-			Timestamp:  time.Now(),
-			Type:       snap.Type,
-			Interface:  snap.Interface,
-		})
+		prev := bfd.StateDown
+		if ok && previous.Ref == snap.Ref {
+			prev = previous.NewState
+		}
+		sc := bfd.StateChange{
+			LocalDiscr:         snap.LocalDiscr,
+			PeerAddr:           snap.PeerAddr,
+			LocalAddr:          snap.LocalAddr,
+			OldState:           prev,
+			NewState:           snap.State,
+			Diag:               snap.LocalDiag,
+			Timestamp:          time.Now(),
+			Type:               snap.Type,
+			Interface:          snap.Interface,
+			RemoteKnown:        snap.RemoteKnown,
+			RemoteState:        snap.RemoteState,
+			RemoteDiag:         snap.RemoteDiag,
+			LocalC:             snap.LocalC,
+			RemoteC:            snap.RemoteC,
+			Cause:              snap.Cause,
+			ObservationVersion: snap.ObservationVersion,
+			Ref:                snap.Ref,
+		}
+		h.last[snap.LocalDiscr] = sc
+		if prev != snap.State || administrative(sc) ||
+			(sc.Cause == bfd.CausePathDown && !samePathFailure(previous, sc)) {
+			h.act(ctx, sc)
+		}
 	}
 	for discr := range h.last {
 		if _, ok := present[discr]; !ok {
@@ -550,6 +568,9 @@ func retryable(err error) bool {
 
 // applyDownAction executes the strategy-specific BGP action for BFD Down.
 func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.StateChange) error {
+	if !h.canDisable(sc) {
+		return nil
+	}
 	switch h.strategy {
 	case StrategyDisablePeer:
 		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
@@ -565,6 +586,11 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 					slog.String("peer", peerAddr))
 				return nil
 			}
+		}
+		// A PeerAdminDown read may block while the owner commits AdminDown.
+		// This local preflight cannot make the remote RPC atomic with future commits.
+		if !h.canDisable(sc) {
+			return nil
 		}
 		communication := FormatBFDDownCommunication(sc.Diag)
 		if err := h.client.DisablePeer(actionCtx, peerAddr, communication); err != nil {
@@ -619,7 +645,40 @@ func (h *Handler) applyUpAction(ctx context.Context, peerAddr string, _ bfd.Stat
 // failure detection event.
 func isTransitionToDown(sc bfd.StateChange) bool {
 	return sc.NewState == bfd.StateDown &&
-		(sc.OldState == bfd.StateUp || sc.OldState == bfd.StateInit)
+		(sc.Cause == bfd.CausePathDown || sc.OldState == bfd.StateUp || sc.OldState == bfd.StateInit)
+}
+
+func administrative(sc bfd.StateChange) bool {
+	if sc.Cause == bfd.CausePathDown {
+		return false
+	}
+	return sc.NewState == bfd.StateAdminDown || sc.Cause == bfd.CauseLocalAdmin ||
+		sc.Cause == bfd.CauseRemoteAdminDown || (sc.RemoteKnown && sc.RemoteState == bfd.StateAdminDown)
+}
+
+func coveredObservation(version, previous uint64) bool {
+	return version != 0 && previous != 0 && version <= previous
+}
+
+func staleObservation(current, previous bfd.StateChange) bool {
+	return coveredObservation(current.ObservationVersion, previous.ObservationVersion) ||
+		(current.Deleted && current.Ref != previous.Ref)
+}
+
+func samePathFailure(previous, current bfd.StateChange) bool {
+	return previous.Ref == current.Ref && previous.NewState == bfd.StateDown &&
+		current.NewState == bfd.StateDown && previous.Cause == bfd.CausePathDown && current.Cause == bfd.CausePathDown
+}
+
+func (h *Handler) canDisable(sc bfd.StateChange) bool {
+	if administrative(sc) {
+		return false
+	}
+	if current, ok := h.last[sc.LocalDiscr]; ok &&
+		(current.Ref != sc.Ref || administrative(current)) {
+		return false
+	}
+	return h.actuates == nil || h.actuates(sc)
 }
 
 // isTransitionToUp returns true if the state change represents a session

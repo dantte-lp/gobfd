@@ -132,8 +132,7 @@ func (s *Session) handleAdminDown(
 	detectTimer *time.Timer,
 ) {
 	result := ApplyEvent(s.cachedState, EventAdminDown)
-	s.localDiag.Store(uint32(DiagAdminDown))
-	s.executeFSMActions(ctx, result, txTimer, detectTimer)
+	s.executeFSMActions(ctx, result, txTimer, detectTimer, CauseLocalAdmin)
 	close(receipt)
 	if result.Changed && ctx.Err() == nil {
 		s.maybeSendControl(ctx)
@@ -143,17 +142,16 @@ func (s *Session) handleAdminDown(
 
 func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
 	oldState := s.cachedState
-	s.localDiag.Store(uint32(DiagPathDown))
-	if oldState == StateDown || oldState == StateAdminDown {
+	if oldState == StateAdminDown {
 		return
 	}
 
 	s.executeFSMActions(ctx, FSMResult{
 		OldState: oldState,
 		NewState: StateDown,
-		Changed:  true,
-		Actions:  []Action{ActionNotifyDown, ActionSendControl},
-	}, txTimer, detectTimer)
+		Changed:  oldState != StateDown,
+		Actions:  []Action{ActionSetDiagPathDown, ActionNotifyDown, ActionSendControl},
+	}, txTimer, detectTimer, CausePathDown)
 }
 
 // -------------------------------------------------------------------------
@@ -246,13 +244,16 @@ func (s *Session) handleDetectTimer(
 	s.maybeResetAuthSeqKnown()
 
 	// Use cachedState (goroutine-confined) to avoid atomic load.
-	// RFC 5880 Section 6.8.4: only if bfd.SessionState is Init or Up.
-	if s.cachedState != StateInit && s.cachedState != StateUp {
+	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert.
+	if s.cachedState == StateAdminDown {
 		// Restart detect timer even in Down state to handle re-negotiation.
 		detectTimer.Reset(s.calcDetectionTimeHot())
 		return
 	}
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
+	if s.cachedState == StateDown {
+		s.resetDetectTimer(detectTimer)
+	}
 }
 
 // maybeResetAuthSeqKnown implements RFC 5880 Section 6.8.1:

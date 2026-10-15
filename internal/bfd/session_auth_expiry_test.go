@@ -41,7 +41,10 @@ func TestAuthExpiryDetectionTimerAllStates(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				s, tx, timer := newAuthExpirySession(t)
 				s.cachedState = state
-				s.state.Store(uint32(state))
+				s.mu.Lock()
+				s.localPair.Store(packStateDiag(state, DiagNone))
+				s.observation.State = state
+				s.mu.Unlock()
 				// An exported wall timestamp must not keep authentication alive.
 				s.lastPacketRecv.Store(time.Now().Add(24 * time.Hour).UnixNano())
 				detection := s.calcDetectionTimeHot()

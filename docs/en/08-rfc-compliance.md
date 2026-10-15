@@ -69,6 +69,14 @@
 
 ### RFC 5880 Implementation Notes
 
+The selected Held errata 5205/7240 policy updates a Down timeout to
+`Down/ControlTimeExpired` without a state edge and preserves the diagnostic
+on recovery to Up. Owner publication captures the final causal tuple before
+observers run. The selected graceful administrative policy guards an existing
+AdminDown before local PathDown, preserving diagnostic 7. RFC 5880 Section
+6.8.16 also permits AdminDown with PathDown; diagnostic 7 is this daemon's
+policy, not a universal RFC requirement.
+
 #### Section 4.1: BFD Control Packet Format
 
 **Implementation**: [`internal/bfd/packet.go`](../../internal/bfd/packet.go)
@@ -218,8 +226,10 @@ including point-to-point behavior, remains open and is not production-qualified.
 
 - Section 3.1 permits implementation-defined session-state hysteresis. GoBFD's configurable penalty-based dampening is implementation policy, not an RFC-defined algorithm.
 - Section 10.2 (Interactions with BGP; Section 4.2 for the reaction to state changes): `handler.go` watches BFD state changes and calls GoBGP gRPC API
-  - BFD Down --> `DisablePeer()`
-  - BFD Up --> `EnablePeer()`
+  - Ordinary remote Down/detection failure or explicit local PathDown --> `DisablePeer()`
+  - Local or known remote AdminDown --> no disable (Sections 3.2 and 4.2);
+    the last observed remote AdminDown survives subsequent timeout diagnostics
+  - BFD Up --> `EnablePeer()` only for a peer disabled by this process
   - Generic route withdrawal/restoration is not implemented; when GoBGP
     integration is enabled, the reserved `withdraw-routes` strategy fails
     configuration validation

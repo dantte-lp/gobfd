@@ -281,6 +281,68 @@ func (SessionType) EnumDescriptor() ([]byte, []int) {
 	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{3}
 }
 
+// ObservationCause identifies the committed reason for causal facts.
+type ObservationCause int32
+
+const (
+	ObservationCause_OBSERVATION_CAUSE_UNSPECIFIED       ObservationCause = 0
+	ObservationCause_OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN ObservationCause = 1
+	ObservationCause_OBSERVATION_CAUSE_REMOTE_DOWN       ObservationCause = 2
+	ObservationCause_OBSERVATION_CAUSE_DETECTION_TIMEOUT ObservationCause = 3
+	ObservationCause_OBSERVATION_CAUSE_LOCAL_ADMIN       ObservationCause = 4
+	ObservationCause_OBSERVATION_CAUSE_PATH_DOWN         ObservationCause = 5
+	ObservationCause_OBSERVATION_CAUSE_CONFIGURATION     ObservationCause = 6
+)
+
+// Enum value maps for ObservationCause.
+var (
+	ObservationCause_name = map[int32]string{
+		0: "OBSERVATION_CAUSE_UNSPECIFIED",
+		1: "OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN",
+		2: "OBSERVATION_CAUSE_REMOTE_DOWN",
+		3: "OBSERVATION_CAUSE_DETECTION_TIMEOUT",
+		4: "OBSERVATION_CAUSE_LOCAL_ADMIN",
+		5: "OBSERVATION_CAUSE_PATH_DOWN",
+		6: "OBSERVATION_CAUSE_CONFIGURATION",
+	}
+	ObservationCause_value = map[string]int32{
+		"OBSERVATION_CAUSE_UNSPECIFIED":       0,
+		"OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN": 1,
+		"OBSERVATION_CAUSE_REMOTE_DOWN":       2,
+		"OBSERVATION_CAUSE_DETECTION_TIMEOUT": 3,
+		"OBSERVATION_CAUSE_LOCAL_ADMIN":       4,
+		"OBSERVATION_CAUSE_PATH_DOWN":         5,
+		"OBSERVATION_CAUSE_CONFIGURATION":     6,
+	}
+)
+
+func (x ObservationCause) Enum() *ObservationCause {
+	p := new(ObservationCause)
+	*p = x
+	return p
+}
+
+func (x ObservationCause) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ObservationCause) Descriptor() protoreflect.EnumDescriptor {
+	return file_bfd_v1_bfd_proto_enumTypes[4].Descriptor()
+}
+
+func (ObservationCause) Type() protoreflect.EnumType {
+	return &file_bfd_v1_bfd_proto_enumTypes[4]
+}
+
+func (x ObservationCause) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ObservationCause.Descriptor instead.
+func (ObservationCause) EnumDescriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{4}
+}
+
 // EventType classifies the session event.
 type WatchSessionEventsResponse_EventType int32
 
@@ -327,11 +389,11 @@ func (x WatchSessionEventsResponse_EventType) String() string {
 }
 
 func (WatchSessionEventsResponse_EventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_bfd_v1_bfd_proto_enumTypes[4].Descriptor()
+	return file_bfd_v1_bfd_proto_enumTypes[5].Descriptor()
 }
 
 func (WatchSessionEventsResponse_EventType) Type() protoreflect.EnumType {
-	return &file_bfd_v1_bfd_proto_enumTypes[4]
+	return &file_bfd_v1_bfd_proto_enumTypes[5]
 }
 
 func (x WatchSessionEventsResponse_EventType) Number() protoreflect.EnumNumber {
@@ -343,7 +405,7 @@ func (WatchSessionEventsResponse_EventType) EnumDescriptor() ([]byte, []int) {
 	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{11, 0}
 }
 
-// BfdSession represents the full state of a BFD session.
+// BfdSession contains snapshot status or partial STATE_CHANGE causal facts.
 type BfdSession struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	PeerAddress           string                 `protobuf:"bytes,1,opt,name=peer_address,json=peerAddress,proto3" json:"peer_address,omitempty"`
@@ -365,8 +427,16 @@ type BfdSession struct {
 	LastStateChange       *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=last_state_change,json=lastStateChange,proto3" json:"last_state_change,omitempty"`
 	LastPacketReceived    *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=last_packet_received,json=lastPacketReceived,proto3" json:"last_packet_received,omitempty"`
 	Counters              *SessionCounters       `protobuf:"bytes,19,opt,name=counters,proto3" json:"counters,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Version covers local state/diagnostic, known remote state/diagnostic,
+	// C-bits and cause only. Timers, configuration and counters are sampled.
+	ObservationVersion            uint64           `protobuf:"varint,20,opt,name=observation_version,json=observationVersion,proto3" json:"observation_version,omitempty"`
+	RemoteKnown                   bool             `protobuf:"varint,21,opt,name=remote_known,json=remoteKnown,proto3" json:"remote_known,omitempty"`
+	RemoteDiagnostic              DiagnosticCode   `protobuf:"varint,22,opt,name=remote_diagnostic,json=remoteDiagnostic,proto3,enum=bfd.v1.DiagnosticCode" json:"remote_diagnostic,omitempty"`
+	LocalControlPlaneIndependent  bool             `protobuf:"varint,23,opt,name=local_control_plane_independent,json=localControlPlaneIndependent,proto3" json:"local_control_plane_independent,omitempty"`
+	RemoteControlPlaneIndependent bool             `protobuf:"varint,24,opt,name=remote_control_plane_independent,json=remoteControlPlaneIndependent,proto3" json:"remote_control_plane_independent,omitempty"`
+	Cause                         ObservationCause `protobuf:"varint,25,opt,name=cause,proto3,enum=bfd.v1.ObservationCause" json:"cause,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *BfdSession) Reset() {
@@ -530,6 +600,48 @@ func (x *BfdSession) GetCounters() *SessionCounters {
 		return x.Counters
 	}
 	return nil
+}
+
+func (x *BfdSession) GetObservationVersion() uint64 {
+	if x != nil {
+		return x.ObservationVersion
+	}
+	return 0
+}
+
+func (x *BfdSession) GetRemoteKnown() bool {
+	if x != nil {
+		return x.RemoteKnown
+	}
+	return false
+}
+
+func (x *BfdSession) GetRemoteDiagnostic() DiagnosticCode {
+	if x != nil {
+		return x.RemoteDiagnostic
+	}
+	return DiagnosticCode_DIAGNOSTIC_CODE_UNSPECIFIED
+}
+
+func (x *BfdSession) GetLocalControlPlaneIndependent() bool {
+	if x != nil {
+		return x.LocalControlPlaneIndependent
+	}
+	return false
+}
+
+func (x *BfdSession) GetRemoteControlPlaneIndependent() bool {
+	if x != nil {
+		return x.RemoteControlPlaneIndependent
+	}
+	return false
+}
+
+func (x *BfdSession) GetCause() ObservationCause {
+	if x != nil {
+		return x.Cause
+	}
+	return ObservationCause_OBSERVATION_CAUSE_UNSPECIFIED
 }
 
 // SessionCounters contains packet and state transition counters for a session.
@@ -2088,7 +2200,7 @@ var File_bfd_v1_bfd_proto protoreflect.FileDescriptor
 
 const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\n" +
-	"\x10bfd/v1/bfd.proto\x12\x06bfd.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x90\t\n" +
+	"\x10bfd/v1/bfd.proto\x12\x06bfd.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe9\v\n" +
 	"\n" +
 	"BfdSession\x12*\n" +
 	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
@@ -2111,7 +2223,13 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\tauth_type\x18\x10 \x01(\x0e2\x1a.bfd.v1.AuthenticationTypeR\bauthType\x12F\n" +
 	"\x11last_state_change\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\x0flastStateChange\x12L\n" +
 	"\x14last_packet_received\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastPacketReceived\x123\n" +
-	"\bcounters\x18\x13 \x01(\v2\x17.bfd.v1.SessionCountersR\bcounters\"\xda\x01\n" +
+	"\bcounters\x18\x13 \x01(\v2\x17.bfd.v1.SessionCountersR\bcounters\x12/\n" +
+	"\x13observation_version\x18\x14 \x01(\x04R\x12observationVersion\x12!\n" +
+	"\fremote_known\x18\x15 \x01(\bR\vremoteKnown\x12C\n" +
+	"\x11remote_diagnostic\x18\x16 \x01(\x0e2\x16.bfd.v1.DiagnosticCodeR\x10remoteDiagnostic\x12E\n" +
+	"\x1flocal_control_plane_independent\x18\x17 \x01(\bR\x1clocalControlPlaneIndependent\x12G\n" +
+	" remote_control_plane_independent\x18\x18 \x01(\bR\x1dremoteControlPlaneIndependent\x12.\n" +
+	"\x05cause\x18\x19 \x01(\x0e2\x18.bfd.v1.ObservationCauseR\x05cause\"\xda\x01\n" +
 	"\x0fSessionCounters\x12!\n" +
 	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12)\n" +
 	"\x10packets_received\x18\x02 \x01(\x04R\x0fpacketsReceived\x12'\n" +
@@ -2258,7 +2376,15 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x11SESSION_TYPE_ECHO\x10\x03\x12\x1a\n" +
 	"\x16SESSION_TYPE_MICRO_BFD\x10\x04\x12\x16\n" +
 	"\x12SESSION_TYPE_VXLAN\x10\x05\x12\x17\n" +
-	"\x13SESSION_TYPE_GENEVE\x10\x062\x8e\x03\n" +
+	"\x13SESSION_TYPE_GENEVE\x10\x06*\x93\x02\n" +
+	"\x10ObservationCause\x12!\n" +
+	"\x1dOBSERVATION_CAUSE_UNSPECIFIED\x10\x00\x12'\n" +
+	"#OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN\x10\x01\x12!\n" +
+	"\x1dOBSERVATION_CAUSE_REMOTE_DOWN\x10\x02\x12'\n" +
+	"#OBSERVATION_CAUSE_DETECTION_TIMEOUT\x10\x03\x12!\n" +
+	"\x1dOBSERVATION_CAUSE_LOCAL_ADMIN\x10\x04\x12\x1f\n" +
+	"\x1bOBSERVATION_CAUSE_PATH_DOWN\x10\x05\x12#\n" +
+	"\x1fOBSERVATION_CAUSE_CONFIGURATION\x10\x062\x8e\x03\n" +
 	"\n" +
 	"BfdService\x12C\n" +
 	"\n" +
@@ -2291,108 +2417,111 @@ func file_bfd_v1_bfd_proto_rawDescGZIP() []byte {
 	return file_bfd_v1_bfd_proto_rawDescData
 }
 
-var file_bfd_v1_bfd_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_bfd_v1_bfd_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
 var file_bfd_v1_bfd_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_bfd_v1_bfd_proto_goTypes = []any{
 	(SessionState)(0),                         // 0: bfd.v1.SessionState
 	(DiagnosticCode)(0),                       // 1: bfd.v1.DiagnosticCode
 	(AuthenticationType)(0),                   // 2: bfd.v1.AuthenticationType
 	(SessionType)(0),                          // 3: bfd.v1.SessionType
-	(WatchSessionEventsResponse_EventType)(0), // 4: bfd.v1.WatchSessionEventsResponse.EventType
-	(*BfdSession)(nil),                        // 5: bfd.v1.BfdSession
-	(*SessionCounters)(nil),                   // 6: bfd.v1.SessionCounters
-	(*AddSessionRequest)(nil),                 // 7: bfd.v1.AddSessionRequest
-	(*AddSessionResponse)(nil),                // 8: bfd.v1.AddSessionResponse
-	(*DeleteSessionRequest)(nil),              // 9: bfd.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),             // 10: bfd.v1.DeleteSessionResponse
-	(*ListSessionsRequest)(nil),               // 11: bfd.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),              // 12: bfd.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),                 // 13: bfd.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),                // 14: bfd.v1.GetSessionResponse
-	(*WatchSessionEventsRequest)(nil),         // 15: bfd.v1.WatchSessionEventsRequest
-	(*WatchSessionEventsResponse)(nil),        // 16: bfd.v1.WatchSessionEventsResponse
-	(*EchoSession)(nil),                       // 17: bfd.v1.EchoSession
-	(*AddEchoSessionRequest)(nil),             // 18: bfd.v1.AddEchoSessionRequest
-	(*AddEchoSessionResponse)(nil),            // 19: bfd.v1.AddEchoSessionResponse
-	(*DeleteEchoSessionRequest)(nil),          // 20: bfd.v1.DeleteEchoSessionRequest
-	(*DeleteEchoSessionResponse)(nil),         // 21: bfd.v1.DeleteEchoSessionResponse
-	(*ListEchoSessionsRequest)(nil),           // 22: bfd.v1.ListEchoSessionsRequest
-	(*ListEchoSessionsResponse)(nil),          // 23: bfd.v1.ListEchoSessionsResponse
-	(*MicroBFDGroup)(nil),                     // 24: bfd.v1.MicroBFDGroup
-	(*AddMicroBFDGroupRequest)(nil),           // 25: bfd.v1.AddMicroBFDGroupRequest
-	(*AddMicroBFDGroupResponse)(nil),          // 26: bfd.v1.AddMicroBFDGroupResponse
-	(*DeleteMicroBFDGroupRequest)(nil),        // 27: bfd.v1.DeleteMicroBFDGroupRequest
-	(*DeleteMicroBFDGroupResponse)(nil),       // 28: bfd.v1.DeleteMicroBFDGroupResponse
-	(*ListMicroBFDGroupsRequest)(nil),         // 29: bfd.v1.ListMicroBFDGroupsRequest
-	(*ListMicroBFDGroupsResponse)(nil),        // 30: bfd.v1.ListMicroBFDGroupsResponse
-	(*durationpb.Duration)(nil),               // 31: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),             // 32: google.protobuf.Timestamp
+	(ObservationCause)(0),                     // 4: bfd.v1.ObservationCause
+	(WatchSessionEventsResponse_EventType)(0), // 5: bfd.v1.WatchSessionEventsResponse.EventType
+	(*BfdSession)(nil),                        // 6: bfd.v1.BfdSession
+	(*SessionCounters)(nil),                   // 7: bfd.v1.SessionCounters
+	(*AddSessionRequest)(nil),                 // 8: bfd.v1.AddSessionRequest
+	(*AddSessionResponse)(nil),                // 9: bfd.v1.AddSessionResponse
+	(*DeleteSessionRequest)(nil),              // 10: bfd.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),             // 11: bfd.v1.DeleteSessionResponse
+	(*ListSessionsRequest)(nil),               // 12: bfd.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),              // 13: bfd.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),                 // 14: bfd.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),                // 15: bfd.v1.GetSessionResponse
+	(*WatchSessionEventsRequest)(nil),         // 16: bfd.v1.WatchSessionEventsRequest
+	(*WatchSessionEventsResponse)(nil),        // 17: bfd.v1.WatchSessionEventsResponse
+	(*EchoSession)(nil),                       // 18: bfd.v1.EchoSession
+	(*AddEchoSessionRequest)(nil),             // 19: bfd.v1.AddEchoSessionRequest
+	(*AddEchoSessionResponse)(nil),            // 20: bfd.v1.AddEchoSessionResponse
+	(*DeleteEchoSessionRequest)(nil),          // 21: bfd.v1.DeleteEchoSessionRequest
+	(*DeleteEchoSessionResponse)(nil),         // 22: bfd.v1.DeleteEchoSessionResponse
+	(*ListEchoSessionsRequest)(nil),           // 23: bfd.v1.ListEchoSessionsRequest
+	(*ListEchoSessionsResponse)(nil),          // 24: bfd.v1.ListEchoSessionsResponse
+	(*MicroBFDGroup)(nil),                     // 25: bfd.v1.MicroBFDGroup
+	(*AddMicroBFDGroupRequest)(nil),           // 26: bfd.v1.AddMicroBFDGroupRequest
+	(*AddMicroBFDGroupResponse)(nil),          // 27: bfd.v1.AddMicroBFDGroupResponse
+	(*DeleteMicroBFDGroupRequest)(nil),        // 28: bfd.v1.DeleteMicroBFDGroupRequest
+	(*DeleteMicroBFDGroupResponse)(nil),       // 29: bfd.v1.DeleteMicroBFDGroupResponse
+	(*ListMicroBFDGroupsRequest)(nil),         // 30: bfd.v1.ListMicroBFDGroupsRequest
+	(*ListMicroBFDGroupsResponse)(nil),        // 31: bfd.v1.ListMicroBFDGroupsResponse
+	(*durationpb.Duration)(nil),               // 32: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),             // 33: google.protobuf.Timestamp
 }
 var file_bfd_v1_bfd_proto_depIdxs = []int32{
 	3,  // 0: bfd.v1.BfdSession.type:type_name -> bfd.v1.SessionType
 	0,  // 1: bfd.v1.BfdSession.local_state:type_name -> bfd.v1.SessionState
 	0,  // 2: bfd.v1.BfdSession.remote_state:type_name -> bfd.v1.SessionState
 	1,  // 3: bfd.v1.BfdSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
-	31, // 4: bfd.v1.BfdSession.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	31, // 5: bfd.v1.BfdSession.required_min_rx_interval:type_name -> google.protobuf.Duration
-	31, // 6: bfd.v1.BfdSession.remote_min_rx_interval:type_name -> google.protobuf.Duration
-	31, // 7: bfd.v1.BfdSession.negotiated_tx_interval:type_name -> google.protobuf.Duration
-	31, // 8: bfd.v1.BfdSession.detection_time:type_name -> google.protobuf.Duration
+	32, // 4: bfd.v1.BfdSession.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	32, // 5: bfd.v1.BfdSession.required_min_rx_interval:type_name -> google.protobuf.Duration
+	32, // 6: bfd.v1.BfdSession.remote_min_rx_interval:type_name -> google.protobuf.Duration
+	32, // 7: bfd.v1.BfdSession.negotiated_tx_interval:type_name -> google.protobuf.Duration
+	32, // 8: bfd.v1.BfdSession.detection_time:type_name -> google.protobuf.Duration
 	2,  // 9: bfd.v1.BfdSession.auth_type:type_name -> bfd.v1.AuthenticationType
-	32, // 10: bfd.v1.BfdSession.last_state_change:type_name -> google.protobuf.Timestamp
-	32, // 11: bfd.v1.BfdSession.last_packet_received:type_name -> google.protobuf.Timestamp
-	6,  // 12: bfd.v1.BfdSession.counters:type_name -> bfd.v1.SessionCounters
-	3,  // 13: bfd.v1.AddSessionRequest.type:type_name -> bfd.v1.SessionType
-	31, // 14: bfd.v1.AddSessionRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	31, // 15: bfd.v1.AddSessionRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
-	2,  // 16: bfd.v1.AddSessionRequest.auth_type:type_name -> bfd.v1.AuthenticationType
-	5,  // 17: bfd.v1.AddSessionResponse.session:type_name -> bfd.v1.BfdSession
-	5,  // 18: bfd.v1.ListSessionsResponse.sessions:type_name -> bfd.v1.BfdSession
-	5,  // 19: bfd.v1.GetSessionResponse.session:type_name -> bfd.v1.BfdSession
-	4,  // 20: bfd.v1.WatchSessionEventsResponse.type:type_name -> bfd.v1.WatchSessionEventsResponse.EventType
-	5,  // 21: bfd.v1.WatchSessionEventsResponse.session:type_name -> bfd.v1.BfdSession
-	0,  // 22: bfd.v1.WatchSessionEventsResponse.previous_state:type_name -> bfd.v1.SessionState
-	32, // 23: bfd.v1.WatchSessionEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
-	31, // 24: bfd.v1.EchoSession.tx_interval:type_name -> google.protobuf.Duration
-	0,  // 25: bfd.v1.EchoSession.local_state:type_name -> bfd.v1.SessionState
-	1,  // 26: bfd.v1.EchoSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
-	32, // 27: bfd.v1.EchoSession.last_state_change:type_name -> google.protobuf.Timestamp
-	31, // 28: bfd.v1.AddEchoSessionRequest.tx_interval:type_name -> google.protobuf.Duration
-	17, // 29: bfd.v1.AddEchoSessionResponse.session:type_name -> bfd.v1.EchoSession
-	17, // 30: bfd.v1.ListEchoSessionsResponse.sessions:type_name -> bfd.v1.EchoSession
-	31, // 31: bfd.v1.MicroBFDGroup.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	31, // 32: bfd.v1.MicroBFDGroup.required_min_rx_interval:type_name -> google.protobuf.Duration
-	31, // 33: bfd.v1.AddMicroBFDGroupRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	31, // 34: bfd.v1.AddMicroBFDGroupRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
-	24, // 35: bfd.v1.AddMicroBFDGroupResponse.group:type_name -> bfd.v1.MicroBFDGroup
-	24, // 36: bfd.v1.ListMicroBFDGroupsResponse.groups:type_name -> bfd.v1.MicroBFDGroup
-	7,  // 37: bfd.v1.BfdService.AddSession:input_type -> bfd.v1.AddSessionRequest
-	9,  // 38: bfd.v1.BfdService.DeleteSession:input_type -> bfd.v1.DeleteSessionRequest
-	11, // 39: bfd.v1.BfdService.ListSessions:input_type -> bfd.v1.ListSessionsRequest
-	13, // 40: bfd.v1.BfdService.GetSession:input_type -> bfd.v1.GetSessionRequest
-	15, // 41: bfd.v1.BfdService.WatchSessionEvents:input_type -> bfd.v1.WatchSessionEventsRequest
-	18, // 42: bfd.v1.EchoService.AddEchoSession:input_type -> bfd.v1.AddEchoSessionRequest
-	20, // 43: bfd.v1.EchoService.DeleteEchoSession:input_type -> bfd.v1.DeleteEchoSessionRequest
-	22, // 44: bfd.v1.EchoService.ListEchoSessions:input_type -> bfd.v1.ListEchoSessionsRequest
-	25, // 45: bfd.v1.MicroBFDService.AddMicroBFDGroup:input_type -> bfd.v1.AddMicroBFDGroupRequest
-	27, // 46: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:input_type -> bfd.v1.DeleteMicroBFDGroupRequest
-	29, // 47: bfd.v1.MicroBFDService.ListMicroBFDGroups:input_type -> bfd.v1.ListMicroBFDGroupsRequest
-	8,  // 48: bfd.v1.BfdService.AddSession:output_type -> bfd.v1.AddSessionResponse
-	10, // 49: bfd.v1.BfdService.DeleteSession:output_type -> bfd.v1.DeleteSessionResponse
-	12, // 50: bfd.v1.BfdService.ListSessions:output_type -> bfd.v1.ListSessionsResponse
-	14, // 51: bfd.v1.BfdService.GetSession:output_type -> bfd.v1.GetSessionResponse
-	16, // 52: bfd.v1.BfdService.WatchSessionEvents:output_type -> bfd.v1.WatchSessionEventsResponse
-	19, // 53: bfd.v1.EchoService.AddEchoSession:output_type -> bfd.v1.AddEchoSessionResponse
-	21, // 54: bfd.v1.EchoService.DeleteEchoSession:output_type -> bfd.v1.DeleteEchoSessionResponse
-	23, // 55: bfd.v1.EchoService.ListEchoSessions:output_type -> bfd.v1.ListEchoSessionsResponse
-	26, // 56: bfd.v1.MicroBFDService.AddMicroBFDGroup:output_type -> bfd.v1.AddMicroBFDGroupResponse
-	28, // 57: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:output_type -> bfd.v1.DeleteMicroBFDGroupResponse
-	30, // 58: bfd.v1.MicroBFDService.ListMicroBFDGroups:output_type -> bfd.v1.ListMicroBFDGroupsResponse
-	48, // [48:59] is the sub-list for method output_type
-	37, // [37:48] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	33, // 10: bfd.v1.BfdSession.last_state_change:type_name -> google.protobuf.Timestamp
+	33, // 11: bfd.v1.BfdSession.last_packet_received:type_name -> google.protobuf.Timestamp
+	7,  // 12: bfd.v1.BfdSession.counters:type_name -> bfd.v1.SessionCounters
+	1,  // 13: bfd.v1.BfdSession.remote_diagnostic:type_name -> bfd.v1.DiagnosticCode
+	4,  // 14: bfd.v1.BfdSession.cause:type_name -> bfd.v1.ObservationCause
+	3,  // 15: bfd.v1.AddSessionRequest.type:type_name -> bfd.v1.SessionType
+	32, // 16: bfd.v1.AddSessionRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	32, // 17: bfd.v1.AddSessionRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
+	2,  // 18: bfd.v1.AddSessionRequest.auth_type:type_name -> bfd.v1.AuthenticationType
+	6,  // 19: bfd.v1.AddSessionResponse.session:type_name -> bfd.v1.BfdSession
+	6,  // 20: bfd.v1.ListSessionsResponse.sessions:type_name -> bfd.v1.BfdSession
+	6,  // 21: bfd.v1.GetSessionResponse.session:type_name -> bfd.v1.BfdSession
+	5,  // 22: bfd.v1.WatchSessionEventsResponse.type:type_name -> bfd.v1.WatchSessionEventsResponse.EventType
+	6,  // 23: bfd.v1.WatchSessionEventsResponse.session:type_name -> bfd.v1.BfdSession
+	0,  // 24: bfd.v1.WatchSessionEventsResponse.previous_state:type_name -> bfd.v1.SessionState
+	33, // 25: bfd.v1.WatchSessionEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
+	32, // 26: bfd.v1.EchoSession.tx_interval:type_name -> google.protobuf.Duration
+	0,  // 27: bfd.v1.EchoSession.local_state:type_name -> bfd.v1.SessionState
+	1,  // 28: bfd.v1.EchoSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
+	33, // 29: bfd.v1.EchoSession.last_state_change:type_name -> google.protobuf.Timestamp
+	32, // 30: bfd.v1.AddEchoSessionRequest.tx_interval:type_name -> google.protobuf.Duration
+	18, // 31: bfd.v1.AddEchoSessionResponse.session:type_name -> bfd.v1.EchoSession
+	18, // 32: bfd.v1.ListEchoSessionsResponse.sessions:type_name -> bfd.v1.EchoSession
+	32, // 33: bfd.v1.MicroBFDGroup.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	32, // 34: bfd.v1.MicroBFDGroup.required_min_rx_interval:type_name -> google.protobuf.Duration
+	32, // 35: bfd.v1.AddMicroBFDGroupRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	32, // 36: bfd.v1.AddMicroBFDGroupRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
+	25, // 37: bfd.v1.AddMicroBFDGroupResponse.group:type_name -> bfd.v1.MicroBFDGroup
+	25, // 38: bfd.v1.ListMicroBFDGroupsResponse.groups:type_name -> bfd.v1.MicroBFDGroup
+	8,  // 39: bfd.v1.BfdService.AddSession:input_type -> bfd.v1.AddSessionRequest
+	10, // 40: bfd.v1.BfdService.DeleteSession:input_type -> bfd.v1.DeleteSessionRequest
+	12, // 41: bfd.v1.BfdService.ListSessions:input_type -> bfd.v1.ListSessionsRequest
+	14, // 42: bfd.v1.BfdService.GetSession:input_type -> bfd.v1.GetSessionRequest
+	16, // 43: bfd.v1.BfdService.WatchSessionEvents:input_type -> bfd.v1.WatchSessionEventsRequest
+	19, // 44: bfd.v1.EchoService.AddEchoSession:input_type -> bfd.v1.AddEchoSessionRequest
+	21, // 45: bfd.v1.EchoService.DeleteEchoSession:input_type -> bfd.v1.DeleteEchoSessionRequest
+	23, // 46: bfd.v1.EchoService.ListEchoSessions:input_type -> bfd.v1.ListEchoSessionsRequest
+	26, // 47: bfd.v1.MicroBFDService.AddMicroBFDGroup:input_type -> bfd.v1.AddMicroBFDGroupRequest
+	28, // 48: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:input_type -> bfd.v1.DeleteMicroBFDGroupRequest
+	30, // 49: bfd.v1.MicroBFDService.ListMicroBFDGroups:input_type -> bfd.v1.ListMicroBFDGroupsRequest
+	9,  // 50: bfd.v1.BfdService.AddSession:output_type -> bfd.v1.AddSessionResponse
+	11, // 51: bfd.v1.BfdService.DeleteSession:output_type -> bfd.v1.DeleteSessionResponse
+	13, // 52: bfd.v1.BfdService.ListSessions:output_type -> bfd.v1.ListSessionsResponse
+	15, // 53: bfd.v1.BfdService.GetSession:output_type -> bfd.v1.GetSessionResponse
+	17, // 54: bfd.v1.BfdService.WatchSessionEvents:output_type -> bfd.v1.WatchSessionEventsResponse
+	20, // 55: bfd.v1.EchoService.AddEchoSession:output_type -> bfd.v1.AddEchoSessionResponse
+	22, // 56: bfd.v1.EchoService.DeleteEchoSession:output_type -> bfd.v1.DeleteEchoSessionResponse
+	24, // 57: bfd.v1.EchoService.ListEchoSessions:output_type -> bfd.v1.ListEchoSessionsResponse
+	27, // 58: bfd.v1.MicroBFDService.AddMicroBFDGroup:output_type -> bfd.v1.AddMicroBFDGroupResponse
+	29, // 59: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:output_type -> bfd.v1.DeleteMicroBFDGroupResponse
+	31, // 60: bfd.v1.MicroBFDService.ListMicroBFDGroups:output_type -> bfd.v1.ListMicroBFDGroupsResponse
+	50, // [50:61] is the sub-list for method output_type
+	39, // [39:50] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_bfd_v1_bfd_proto_init() }
@@ -2409,7 +2538,7 @@ func file_bfd_v1_bfd_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bfd_v1_bfd_proto_rawDesc), len(file_bfd_v1_bfd_proto_rawDesc)),
-			NumEnums:      5,
+			NumEnums:      6,
 			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   3,

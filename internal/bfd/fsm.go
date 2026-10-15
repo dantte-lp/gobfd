@@ -108,6 +108,9 @@ const (
 	// ActionSetDiagAdminDown sets bfd.LocalDiag to 7 (Administratively Down).
 	// RFC 5880 Section 6.8.16.
 	ActionSetDiagAdminDown
+
+	// ActionSetDiagPathDown selects diagnostic 5 for an explicit local failure.
+	ActionSetDiagPathDown
 )
 
 // String returns the human-readable name of the action.
@@ -125,6 +128,8 @@ func (a Action) String() string {
 		return "SetDiagNeighborDown"
 	case ActionSetDiagAdminDown:
 		return "SetDiagAdminDown"
+	case ActionSetDiagPathDown:
+		return "SetDiagPathDown"
 	default:
 		return unknownStr
 	}
@@ -243,7 +248,11 @@ var fsmTable = map[stateEvent]transition{
 	//
 	// Down + timer expired: Down is the initial state; detection timer
 	// self-loop on the state diagram (Section 6.2: "UP, ADMIN DOWN, TIMER"
-	// arc on Down). No state change, no actions.
+	// arc on Down). Held erratum 5205 updates the diagnostic without an edge.
+	{StateDown, EventTimerExpired}: {
+		newState: StateDown,
+		actions:  []Action{ActionSetDiagTimeExpired},
+	},
 
 	// Down + recv Down -> Init (RFC 5880 Section 6.8.6).
 	{StateDown, EventRecvDown}: {
@@ -397,8 +406,8 @@ func ApplyEvent(currentState State, event Event) FSMResult {
 	entry := &fsmArray[currentState][event]
 	if !entry.valid {
 		// Event is not applicable in this state. Per RFC 5880 Section 6.8.6,
-		// AdminDown discards all received packets; Down ignores recv Up and
-		// timer expiration. Return unchanged.
+		// AdminDown discards received state events; Down ignores recv Up.
+		// Return unchanged for an unlisted event.
 		return FSMResult{
 			OldState: currentState,
 			NewState: currentState,

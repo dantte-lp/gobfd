@@ -277,7 +277,10 @@ func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testi
 	// Satisfy cleanup's Down-state precondition without a wall-clock wait; the
 	// state field is atomic and the ownership behavior is the subject here.
 	mgr.mu.RLock()
-	mgr.sessions[discr].session.state.Store(uint32(StateDown))
+	mgr.sessions[discr].session.mu.Lock()
+	mgr.sessions[discr].session.localPair.Store(packStateDiag(StateDown, DiagNone))
+	mgr.sessions[discr].session.observation.State = StateDown
+	mgr.sessions[discr].session.mu.Unlock()
 	mgr.mu.RUnlock()
 
 	session, _ := mgr.LookupByDiscriminator(discr)

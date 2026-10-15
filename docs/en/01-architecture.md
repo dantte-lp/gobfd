@@ -280,6 +280,35 @@ FSM transitions in sequence:
 
 ### Goroutine Model
 
+The session owner commits one causal observation under `Session.mu`: local
+state/diagnostic, remote-known/state/diagnostic, local/remote C-bits, cause and
+`ObservationVersion`. A packed atomic local pair also serves scalar getters
+and packet construction. Received remote facts remain staged until the final
+local pair commits. Timer transition handling observes the old state before
+commit; logging, notifications and sends run after the lock is released.
+Diagnostic-only or remote-only changes publish observations without increasing
+state-transition counters or changing `LastStateChange`. Unchanged packets do
+not advance the version.
+
+A Manager-owned clock supplies fresh registration, semantic commit and removal
+versions. `Revision` orders dispatch separately; snapshots may contain an owner
+observation ahead of dispatch. Consumers compare versions per row, including
+before deletion. Internal `SessionRef` prevents discriminator reuse from
+retargeting pending actions. The clock is not a global snapshot watermark.
+Counters, configuration and timer telemetry are sampled outside the causal
+tuple. Watch `STATE_CHANGE` carries partial status; complete registration and
+status lifecycle remains owned by `gobfd-qj0.8.2.1.3.8`.
+
+GoBGP suppresses local/known remote AdminDown and retains that remote fact
+through later timeout diagnostics. Explicit local PathDown remains actionable
+even while already Down. Its cause persists through a later Down timeout;
+the diagnostic becomes 1 without restarting the outstanding routing action.
+Current canonical identity and administrative policy
+are checked before each disable, including after a blocking `PeerAdminDown`
+read. This local preflight cannot make a remote RPC atomic with future BFD
+commits. C-bit reporting retains hard-fail behavior; it adds no graceful
+restart policy.
+
 Each BFD session runs as an independent goroutine with its own timers and
 state. Its context is detached from the daemon signal context so SIGTERM does
 not stop it before the AdminDown drain. `Manager.Close()` cancels the

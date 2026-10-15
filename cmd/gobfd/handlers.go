@@ -220,14 +220,17 @@ func watchGoBGPCompatibility(
 func goBGPActuates(mgr *bfd.Manager, status *goBGPStatus, logger *slog.Logger) func(bfd.StateChange) bool {
 	return func(sc bfd.StateChange) bool {
 		peer := sc.PeerAddr.Unmap()
-		found, base := false, 0
+		found, allowed, base := false, false, 0
 		for _, snap := range mgr.Sessions() {
 			if snap.PeerAddr.Unmap() != peer ||
 				(snap.Type != bfd.SessionTypeSingleHop && snap.Type != bfd.SessionTypeMultiHop) {
 				continue
 			}
 			base++
-			found = found || snap.LocalDiscr == sc.LocalDiscr
+			if snap.LocalDiscr == sc.LocalDiscr && (sc.Ref == (bfd.SessionRef{}) || snap.Ref == sc.Ref) {
+				found = true
+				allowed = goBGPAllowsDown(snap)
+			}
 		}
 		if found && base > 1 {
 			logger.Error("gobgp peer has several BFD sessions, no BGP action taken",
@@ -237,8 +240,14 @@ func goBGPActuates(mgr *bfd.Manager, status *goBGPStatus, logger *slog.Logger) f
 			status.ambiguous()
 			return false
 		}
-		return found
+		return found && allowed
 	}
+}
+
+func goBGPAllowsDown(snap bfd.SessionSnapshot) bool {
+	return snap.Cause == bfd.CausePathDown ||
+		(snap.State != bfd.StateAdminDown && snap.Cause != bfd.CauseLocalAdmin &&
+			snap.Cause != bfd.CauseRemoteAdminDown && (!snap.RemoteKnown || snap.RemoteState != bfd.StateAdminDown))
 }
 
 func newGoBGPHandler(

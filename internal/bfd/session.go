@@ -163,6 +163,15 @@ type StateChange struct {
 	// Diag is the current diagnostic code after the transition.
 	Diag Diag
 
+	RemoteKnown        bool
+	RemoteState        State
+	RemoteDiag         Diag
+	LocalC             bool
+	RemoteC            bool
+	Cause              Cause
+	ObservationVersion uint64
+	Ref                SessionRef
+
 	// Timestamp is when the transition occurred.
 	Timestamp time.Time
 
@@ -186,9 +195,6 @@ type StateChange struct {
 	// and the subscriber must resync from Manager.SessionsWithRevision.
 	// Other fields except Timestamp are zero.
 	Gap bool
-
-	// source distinguishes queued events from a retired session after discriminator reuse.
-	source *Session
 }
 
 // PacketSender abstracts sending BFD Control packets over the network.
@@ -286,7 +292,7 @@ const (
 // Session implements a single BFD session as described in RFC 5880.
 //
 // All mutable state is owned by the session goroutine started via Run().
-// External reads use atomic operations (State, RemoteState, LocalDiag).
+// External reads use a packed atomic local pair or a locked Observation copy.
 // Incoming packets are delivered via RecvPacket() through a buffered channel.
 //
 // The session implements:
@@ -302,14 +308,14 @@ type Session struct {
 
 	// --- RFC 5880 Section 6.8.1 state variables ---
 
-	// state is bfd.SessionState. Atomic for lock-free external reads.
-	state atomic.Uint32
-
-	// remoteState is bfd.RemoteSessionState. Atomic for external reads.
-	remoteState atomic.Uint32
-
-	// localDiag is bfd.LocalDiag. Atomic for external reads.
-	localDiag atomic.Uint32
+	// localPair publishes state and diagnostic in one lock-free read.
+	localPair atomic.Uint32
+	// observation and clock are protected by mu. The owner stages received
+	// remote facts separately until its final local pair can commit with them.
+	observation      Observation
+	observationClock *atomic.Uint64
+	stagedRemote     Observation
+	remoteStaged     bool
 
 	// localDiscr is bfd.LocalDiscr — unique nonzero discriminator.
 	localDiscr uint32
@@ -418,7 +424,7 @@ type Session struct {
 	// Goroutine-confined to the session goroutine — no synchronization needed.
 	jitterRng jitterRNG
 
-	// cachedState mirrors s.state for hot-path reads within the session goroutine.
+	// cachedState mirrors the local pair for owner-loop hot-path reads.
 	// Updated in executeFSMActions on every state change. Avoids
 	// atomic.Uint32.Load() on every timer recalculation.
 	cachedState State
@@ -521,11 +527,10 @@ func NewSession(
 	}
 
 	// RFC 5880 Section 6.8.1: bfd.SessionState MUST be initialized to Down.
-	s.state.Store(uint32(StateDown))
+	s.localPair.Store(packStateDiag(StateDown, DiagNone))
 	// RFC 5880 Section 6.8.1: bfd.RemoteSessionState MUST be initialized to Down.
-	s.remoteState.Store(uint32(StateDown))
+	s.observation = Observation{State: StateDown, RemoteState: StateDown, ObservationVersion: 1}
 	// RFC 5880 Section 6.8.1: bfd.LocalDiag MUST be initialized to zero.
-	s.localDiag.Store(uint32(DiagNone))
 
 	// Initialize auth state if authentication is configured.
 	if err := s.initAuth(cfg); err != nil {
@@ -662,17 +667,17 @@ func (s *Session) LocalDiscriminator() uint32 { return s.localDiscr }
 
 // State returns the current session state (atomic read).
 func (s *Session) State() State {
-	return State(s.state.Load()) // #nosec G115 -- session transitions store only valid State values 0-3.
+	state, _ := s.pairedStateDiag()
+	return state
 }
 
-// RemoteState returns the last reported remote session state (atomic read).
-func (s *Session) RemoteState() State {
-	return State(s.remoteState.Load()) // #nosec G115 -- packet decoding yields only valid State values 0-3.
-}
+// RemoteState returns the last committed remote state under the observation lock.
+func (s *Session) RemoteState() State { return s.Observation().RemoteState }
 
 // LocalDiag returns the current local diagnostic code (atomic read).
 func (s *Session) LocalDiag() Diag {
-	return Diag(s.localDiag.Load()) // #nosec G115 -- session transitions store only valid Diag values 0-8.
+	_, diag := s.pairedStateDiag()
+	return diag
 }
 
 // RemoteMinRxInterval returns bfd.RemoteMinRxInterval from the last

@@ -200,14 +200,23 @@ point-to-point behavior, остаётся открытым и не прошёл 
 
 ### Заметки по RFC 5882
 
+Выбранная policy Held errata 5205/7240 фиксирует timeout в Down как
+`Down/ControlTimeExpired` без перехода и сохраняет диагностику при recovery
+в Up. Причинный кортеж публикуется владельцем после фиксации итоговых фактов.
+Для graceful AdminDown проверка предшествует PathDown и сохраняет Diag=7;
+RFC 5880 Section 6.8.16 допускает AdminDown с PathDown, поэтому Diag=7
+является выбранной policy, а не общим обязательным требованием RFC.
+
 Реализация: [`internal/gobgp/`](../../internal/gobgp/)
 
 - Section 3.1 разрешает implementation-defined session-state hysteresis.
   Настраиваемое penalty-based dampening в GoBFD является implementation policy,
   а не стандартизированным RFC-алгоритмом.
 - Section 10.2 (взаимодействие с BGP; Section 4.2 — реакция на смену состояния): отслеживание состояний BFD и вызов GoBGP gRPC API
-  - BFD Down --> `DisablePeer()`
-  - BFD Up --> `EnablePeer()`
+  - Обычный remote Down/detection failure или явный local PathDown --> `DisablePeer()`
+  - Local или известный remote AdminDown --> без disable (Sections 3.2 и 4.2);
+    последний известный remote AdminDown сохраняется при последующих timeout
+  - BFD Up --> `EnablePeer()` только для peer, отключённого данным процессом
   - Универсальный отзыв/восстановление маршрутов не реализован; при включённой
     интеграции с GoBGP зарезервированная стратегия `withdraw-routes` отклоняется
     при валидации конфигурации

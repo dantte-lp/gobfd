@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"connectrpc.com/grpchealth/v2"
@@ -13,6 +14,50 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
 )
+
+func TestCausalGoBGPCanonicalPolicy(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+		defer mgr.Close()
+		cfg := gobgpTestSession("peer", "127.0.0.1")
+		sess, err := mgr.CreateSession(t.Context(), cfg.SessionConfig, cfg.SenderLeaseFactory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		actuates := goBGPActuates(mgr, nil, slog.New(slog.DiscardHandler))
+		sc := bfd.StateChange{LocalDiscr: sess.LocalDiscriminator(), PeerAddr: cfg.SessionConfig.PeerAddr, Ref: sess.Ref()}
+		if !actuates(sc) {
+			t.Fatal("canonical initial session rejected")
+		}
+		wrong := sc
+		wrong.Ref = new(bfd.Session).Ref()
+		if actuates(wrong) {
+			t.Fatal("different session identity accepted")
+		}
+		sess.RecvPacket(&bfd.ControlPacket{
+			State: bfd.StateAdminDown, Diag: bfd.DiagAdminDown,
+			DetectMult: 3, MyDiscriminator: 7, DesiredMinTxInterval: 1_000_000, RequiredMinRxInterval: 1_000_000,
+		})
+		synctest.Wait()
+		if actuates(sc) {
+			t.Fatal("known current remote AdminDown did not veto historical failure")
+		}
+		if !sess.SetPathDown() {
+			t.Fatal("PathDown admission failed")
+		}
+		synctest.Wait()
+		if !actuates(sc) {
+			t.Fatal("explicit current local PathDown was masked by retained remote AdminDown")
+		}
+		if err := sess.SetAdminDown(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if actuates(sc) {
+			t.Fatal("current local AdminDown did not veto historical failure")
+		}
+	})
+}
 
 func gobgpTestSession(key, local string) bfd.ReconcileConfig {
 	return bfd.ReconcileConfig{

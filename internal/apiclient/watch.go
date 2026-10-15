@@ -11,7 +11,9 @@ import (
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
 
-// WatchSessions projects revisioned Watch events into complete current views.
+// WatchSessions projects revisioned Watch events into causal session views.
+// STATE_CHANGE rows are partial: configuration, timers and counters are not
+// current status after a row replacement. Registration coverage is separate.
 // A nil view invalidates health on startup, GAP and disconnect. Snapshot rows
 // become usable only at SYNC_COMPLETE. Consumer errors are terminal.
 func WatchSessions(ctx context.Context, client bfdv1connect.BfdServiceClient,
@@ -118,6 +120,12 @@ func (v *sessionView) apply(msg *bfdv1.WatchSessionEventsResponse) (bool, error)
 		if session == nil || session.GetLocalDiscriminator() == 0 {
 			return false, fmt.Errorf("session Watch event without identity: %w", errors.ErrUnsupported)
 		}
+		if coveredSessionObservation(v.sessions[session.GetLocalDiscriminator()], session) {
+			if !v.syncing {
+				v.covered = msg.GetRevision()
+			}
+			return false, nil
+		}
 		if msg.GetType() == bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED {
 			delete(v.sessions, session.GetLocalDiscriminator())
 		} else {
@@ -132,4 +140,9 @@ func (v *sessionView) apply(msg *bfdv1.WatchSessionEventsResponse) (bool, error)
 	default:
 		return false, nil
 	}
+}
+
+func coveredSessionObservation(current, incoming *bfdv1.BfdSession) bool {
+	return current.GetObservationVersion() != 0 && incoming.GetObservationVersion() != 0 &&
+		incoming.GetObservationVersion() <= current.GetObservationVersion()
 }

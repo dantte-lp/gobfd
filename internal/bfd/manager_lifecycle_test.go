@@ -557,7 +557,7 @@ func TestManagerRunDispatchIsSingleRun(t *testing.T) {
 
 		session := notificationTestSession(t, mgr)
 		want := StateChange{
-			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, source: session,
+			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, Ref: session.Ref(),
 		}
 		mgr.rawNotifyCh <- want
 		synctest.Wait()
@@ -634,7 +634,7 @@ func TestManagerCloseAndSubscriberCancellationCloseChannelOnce(t *testing.T) {
 		session := notificationTestSession(t, mgr)
 		mgr.subMu.Lock()
 		mgr.rawNotifyCh <- StateChange{
-			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, source: session,
+			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, Ref: session.Ref(),
 		}
 		closeDone := make(chan struct{})
 		go func() {
@@ -704,13 +704,16 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 		}
 		synctest.Wait()
 		mgr.mu.RLock()
-		mgr.sessions[snapshot[0].LocalDiscr].session.state.Store(uint32(StateDown))
+		mgr.sessions[snapshot[0].LocalDiscr].session.mu.Lock()
+		mgr.sessions[snapshot[0].LocalDiscr].session.localPair.Store(packStateDiag(StateDown, DiagNone))
+		mgr.sessions[snapshot[0].LocalDiscr].session.observation.State = StateDown
+		mgr.sessions[snapshot[0].LocalDiscr].session.mu.Unlock()
 		mgr.mu.RUnlock()
 
 		mgr.scheduleUnsolicitedCleanup(context.Background(), StateChange{
 			LocalDiscr: snapshot[0].LocalDiscr,
 			NewState:   StateDown,
-			source:     mgr.sessions[snapshot[0].LocalDiscr].session,
+			Ref:        mgr.sessions[snapshot[0].LocalDiscr].session.Ref(),
 		})
 		<-cleanupEntered
 		closeDone := make(chan struct{})

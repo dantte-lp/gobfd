@@ -188,13 +188,14 @@ func assertCachedPacketFlags(t *testing.T, wire []byte, wantPoll, wantFinal bool
 }
 
 func newCachedPacketTestSession(packetSize int) *Session {
-	return &Session{
+	s := &Session{
 		peerAddr:              netip.MustParseAddr("192.0.2.1"),
 		localAddr:             netip.MustParseAddr("192.0.2.2"),
 		sessionType:           SessionTypeSingleHop,
 		role:                  RoleActive,
 		localDiscr:            42,
 		cachedState:           StateDown,
+		observation:           Observation{State: StateDown, RemoteState: StateDown, ObservationVersion: 1},
 		detectMult:            3,
 		desiredMinTxInterval:  100 * time.Millisecond,
 		requiredMinRxInterval: 100 * time.Millisecond,
@@ -202,4 +203,6 @@ func newCachedPacketTestSession(packetSize int) *Session {
 		logger:                slog.New(slog.DiscardHandler),
 		metrics:               noopMetrics{},
 	}
+	s.localPair.Store(packStateDiag(StateDown, DiagNone))
+	return s
 }

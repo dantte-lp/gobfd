@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Causal session observations carry a coherent local state/diagnostic pair,
+  known remote state/diagnostic, both C-bits, cause and per-row
+  `observation_version` through snapshots, Watch and CLI. C-bit reporting
+  retains the `hard-fail` policy; it does not implement graceful restart.
+  GoBGP preserves local/remote administrative intent across retries and
+  gap resync, and checks current session identity and policy before disable.
+  Watch state-change rows remain partial status (`gobfd-qj0.8.2.1.3.8`).
+
 - GoBGP per-configured-peer metrics for effective decayed flap penalty,
   recovery suppression and its maximum bound, and pending desired Up/Down
   actions with their next retry/recheck timestamp (`gobfd-qj0.8.2.4.7`).

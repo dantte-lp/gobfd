@@ -61,8 +61,9 @@ func (s *Session) handleRecvPacket(
 	s.remoteDetectMult = pkt.DetectMult
 	s.mu.Unlock()
 
-	// Step 14: Set bfd.RemoteState.
-	s.remoteState.Store(uint32(pkt.State))
+	// Stage causal facts; publication waits for the final local FSM result.
+	s.stagedRemote = Observation{RemoteState: pkt.State, RemoteDiag: pkt.Diag, RemoteC: pkt.ControlPlaneIndependent}
+	s.remoteStaged = true
 
 	// RFC 5880 Section 6.8.6: Final terminates a Poll being transmitted,
 	// not one whose initial send failed or only replied to a crossed Poll.
@@ -138,7 +139,21 @@ func (s *Session) applyFSMEvent(
 	detectTimer *time.Timer,
 ) {
 	result := ApplyEvent(s.cachedState, event)
-	s.executeFSMActions(ctx, result, txTimer, detectTimer)
+	cause := s.Observation().Cause
+	switch {
+	case event == EventAdminDown:
+		cause = CauseLocalAdmin
+	case event == EventTimerExpired && s.cachedState != StateAdminDown &&
+		(s.cachedState != StateDown || cause != CausePathDown):
+		cause = CauseDetectionTimeout
+	case event == EventRecvAdminDown && s.cachedState != StateAdminDown:
+		cause = CauseRemoteAdminDown
+	case result.Changed && event == EventRecvDown && result.NewState == StateDown:
+		cause = CauseRemoteDown
+	case result.Changed:
+		cause = CauseUnknown
+	}
+	s.executeFSMActions(ctx, result, txTimer, detectTimer, cause)
 }
 
 // executeFSMActions processes the FSMResult and performs side-effects.
@@ -147,12 +162,31 @@ func (s *Session) executeFSMActions(
 	result FSMResult,
 	txTimer *time.Timer,
 	detectTimer *time.Timer,
+	cause Cause,
 ) {
+	_, diag := s.pairedStateDiag()
+	for _, action := range result.Actions {
+		switch action {
+		case ActionSetDiagTimeExpired:
+			diag = DiagControlTimeExpired
+		case ActionSetDiagNeighborDown:
+			diag = DiagNeighborDown
+		case ActionSetDiagAdminDown:
+			diag = DiagAdminDown
+		case ActionSetDiagPathDown:
+			diag = DiagPathDown
+		case ActionSendControl, ActionNotifyUp, ActionNotifyDown:
+			// These actions do not select a diagnostic.
+		}
+	}
 	if result.Changed {
+		// Timer interruption captures the OLD advertised state before commit.
 		s.timerStateChange(result.OldState, result.NewState)
-		s.state.Store(uint32(result.NewState))
-		s.cachedState = result.NewState // goroutine-confined mirror
-		s.logStateChange(result)
+	}
+	observation, changed := s.commitObservation(result.NewState, diag, cause)
+	s.cachedState = result.NewState
+	if changed {
+		s.logStateChange(result, observation)
 	}
 	for _, action := range result.Actions {
 		s.executeAction(ctx, action, txTimer, detectTimer)
@@ -161,19 +195,21 @@ func (s *Session) executeFSMActions(
 
 // logStateChange logs the FSM transition, updates counters, and emits a
 // StateChange notification.
-func (s *Session) logStateChange(result FSMResult) {
+func (s *Session) logStateChange(result FSMResult, observation Observation) {
 	s.logger.Info("session state changed",
 		slog.String("old_state", result.OldState.String()),
 		slog.String("new_state", result.NewState.String()),
-		slog.String("diag", s.LocalDiag().String()),
+		slog.String("diag", observation.LocalDiag.String()),
 	)
-	s.stateTransitions.Add(1)
-	s.lastStateChange.Store(time.Now().UnixNano())
-	s.metrics.RecordStateTransition(
-		s.peerAddr, s.localAddr,
-		result.OldState.String(), result.NewState.String(),
-	)
-	s.emitNotification(result)
+	if result.Changed {
+		s.stateTransitions.Add(1)
+		s.lastStateChange.Store(time.Now().UnixNano())
+		s.metrics.RecordStateTransition(
+			s.peerAddr, s.localAddr,
+			result.OldState.String(), result.NewState.String(),
+		)
+	}
+	s.emitNotification(result, observation)
 }
 
 // executeAction dispatches a single FSM action.
@@ -199,33 +235,36 @@ func (s *Session) executeAction(
 		s.mu.Unlock()
 		s.resetTxTimer(txTimer)
 		s.resetDetectTimer(detectTimer)
-	case ActionSetDiagTimeExpired:
-		s.localDiag.Store(uint32(DiagControlTimeExpired))
-	case ActionSetDiagNeighborDown:
-		s.localDiag.Store(uint32(DiagNeighborDown))
-	case ActionSetDiagAdminDown:
-		s.localDiag.Store(uint32(DiagAdminDown))
+	case ActionSetDiagTimeExpired, ActionSetDiagNeighborDown, ActionSetDiagAdminDown, ActionSetDiagPathDown:
+		// Diagnostics were committed with the local state before side effects.
 	default:
 		s.logger.Warn("unknown FSM action", slog.Int("action", int(action)))
 	}
 }
 
 // emitNotification sends a StateChange to the notification channel if set.
-func (s *Session) emitNotification(result FSMResult) {
+func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	if s.notifyCh == nil {
 		return
 	}
 	sc := StateChange{
-		LocalDiscr: s.localDiscr,
-		PeerAddr:   s.peerAddr,
-		LocalAddr:  s.localAddr,
-		OldState:   result.OldState,
-		NewState:   result.NewState,
-		Diag:       s.LocalDiag(),
-		Timestamp:  time.Now(),
-		Type:       s.sessionType,
-		Interface:  s.ifName,
-		source:     s,
+		LocalDiscr:         s.localDiscr,
+		PeerAddr:           s.peerAddr,
+		LocalAddr:          s.localAddr,
+		OldState:           result.OldState,
+		NewState:           result.NewState,
+		Diag:               observation.LocalDiag,
+		RemoteKnown:        observation.RemoteKnown,
+		RemoteState:        observation.RemoteState,
+		RemoteDiag:         observation.RemoteDiag,
+		LocalC:             observation.LocalC,
+		RemoteC:            observation.RemoteC,
+		Cause:              observation.Cause,
+		ObservationVersion: observation.ObservationVersion,
+		Ref:                s.Ref(),
+		Timestamp:          time.Now(),
+		Type:               s.sessionType,
+		Interface:          s.ifName,
 	}
 	select {
 	case s.notifyCh <- sc:
@@ -512,11 +551,12 @@ func (s *Session) buildControlPacket() ControlPacket {
 	// than one second (1,000,000 microseconds)." This applies to the
 	// wire value so the remote peer calculates correct detection time.
 	wire := s.advertisedTimers()
+	state, diag := s.pairedStateDiag()
 
 	pkt := ControlPacket{
 		Version:                   Version,
-		Diag:                      s.LocalDiag(),
-		State:                     s.cachedState,
+		Diag:                      diag,
+		State:                     state,
 		Poll:                      s.pollActive && !s.pendingFinal,
 		Final:                     s.pendingFinal,
 		ControlPlaneIndependent:   false,

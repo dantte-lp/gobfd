@@ -234,7 +234,10 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 		if _, err := s.admitTimerUpdate(ctx, tuple, 1); !errors.Is(err, context.Canceled) || s.waitingUpdate.Present {
 			t.Fatal("cancellation before admission retained intent")
 		}
-		s.state.Store(uint32(StateDown))
+		s.mu.Lock()
+		s.localPair.Store(packStateDiag(StateDown, DiagNone))
+		s.observation.State = StateDown
+		s.mu.Unlock()
 		s.cachedState = StateDown
 		ctx, cancel = context.WithCancel(t.Context())
 		first, err := s.admitTimerUpdate(ctx, tuple, 1)
@@ -454,8 +457,11 @@ func BenchmarkSessionTimerUpdate(b *testing.B) {
 		s := newCachedPacketTestSession(MaxPacketSize)
 		s.sender = ownershipNoopSender{}
 		s.cachedState = StateUp
-		s.state.Store(uint32(StateUp))
-		s.remoteState.Store(uint32(StateUp))
+		s.mu.Lock()
+		s.localPair.Store(packStateDiag(StateUp, DiagNone))
+		s.observation.State = StateUp
+		s.mu.Unlock()
+		s.observation.RemoteState = StateUp
 		s.remoteMinRxInterval = 100 * time.Millisecond
 		packet := s.buildControlPacket()
 		tx, detect := time.NewTimer(time.Hour), time.NewTimer(time.Hour)

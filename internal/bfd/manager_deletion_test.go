@@ -55,10 +55,13 @@ func TestManagerDeletionPublishesWithoutDispatch(t *testing.T) {
 				snap := mgr.Sessions()[0]
 				sess, _ := mgr.LookupByDiscriminator(snap.LocalDiscr)
 				synctest.Wait()
-				sess.state.Store(uint32(StateDown))
+				sess.mu.Lock()
+				sess.localPair.Store(packStateDiag(StateDown, DiagNone))
+				sess.observation.State = StateDown
+				sess.mu.Unlock()
 				// Removal must not wait for the dispatcher or a free raw queue slot.
 				for len(mgr.rawNotifyCh) < cap(mgr.rawNotifyCh) {
-					sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
+					sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())
 				}
 				subs := make([]<-chan StateChange, 2)
 				for i := range subs {
@@ -161,11 +164,12 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
-		session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
+		session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, session.Observation())
 		if err = mgr.DestroySession(context.Background(), session.LocalDiscriminator()); err != nil {
 			t.Fatalf("DestroySession: %v", err)
 		}
-		if deletion := <-sub; !deletion.Deleted {
+		deletion := <-sub
+		if !deletion.Deleted || deletion.ObservationVersion == 0 || deletion.Ref != session.Ref() {
 			t.Fatalf("first event = %+v, want deletion", deletion)
 		}
 
@@ -177,6 +181,8 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSession: %v", err)
 		}
+		// Registration must stamp independently of constructor initialization.
+		replacement.observation.ObservationVersion = 0
 		key, err := sessionKeyFromConfig(cfg)
 		if err != nil {
 			t.Fatalf("sessionKeyFromConfig: %v", err)
@@ -188,6 +194,10 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		if _, created, err := mgr.registerAndStart(context.Background(), key, cfg, effective,
 			compatibilityAPISessionOwner(), false, session.LocalDiscriminator(), replacement, lease); err != nil || !created {
 			t.Fatalf("registerAndStart: created=%t, err=%v", created, err)
+		}
+		replacementVersion := replacement.Observation().ObservationVersion
+		if replacementVersion <= deletion.ObservationVersion || replacement.Ref() == session.Ref() {
+			t.Fatalf("replacement v%d <= tombstone v%d or reused identity", replacementVersion, deletion.ObservationVersion)
 		}
 		// A delayed cleanup for the retired unsolicited target must also ignore
 		// a replacement using that discriminator.
@@ -207,9 +217,9 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		if len(sub) != 0 || mgr.Revision() != 1 {
 			t.Fatal("retired state change was published after deletion")
 		}
-		replacement.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
+		replacement.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, replacement.Observation())
 		synctest.Wait()
-		if got := <-sub; got.Deleted || got.Revision != 2 || got.source != replacement {
+		if got := <-sub; got.Deleted || got.Revision != 2 || got.Ref != replacement.Ref() {
 			t.Fatalf("replacement event = %+v, want live replacement revision 2", got)
 		}
 	})
@@ -228,7 +238,7 @@ func TestManagerDeletionOverflowsToGap(t *testing.T) {
 		}
 		go mgr.RunDispatch(ctx)
 		for range notifyChSize - 1 {
-			session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
+			session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, session.Observation())
 			synctest.Wait()
 		}
 		if err := mgr.DestroySession(context.Background(), session.LocalDiscriminator()); err != nil {

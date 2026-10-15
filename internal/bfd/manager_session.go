@@ -227,7 +227,11 @@ func (m *Manager) registerAndStart(
 		owners:      map[SessionOwner]struct{}{owner: {}},
 		done:        make(chan struct{}),
 	}
+	sess.mu.Lock()
 	sess.updateNotify = m.timerUpdateCh
+	sess.observationClock = &m.observationClock
+	sess.observation.ObservationVersion = sess.nextObservationVersionLocked()
+	sess.mu.Unlock()
 	// Decouple session lifetime from the parent context so that SIGTERM
 	// does not immediately cancel sessions. Graceful shutdown first sets
 	// AdminDown (DrainAllSessions), waits for packets to be sent, and
@@ -346,18 +350,29 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	delete(m.sessionsByPeer, entry.demuxKey)
 	delete(m.sessionsByKey, entry.key)
 	session := entry.session
-	state := session.State()
+	session.mu.Lock()
+	observation := session.observation
+	observation.ObservationVersion = session.nextObservationVersionLocked()
+	session.mu.Unlock()
 	m.broadcastStateChange(StateChange{
-		LocalDiscr: localDiscr,
-		PeerAddr:   session.PeerAddr(),
-		LocalAddr:  session.LocalAddr(),
-		OldState:   state,
-		NewState:   state,
-		Diag:       session.LocalDiag(),
-		Timestamp:  time.Now(),
-		Type:       session.Type(),
-		Interface:  session.Interface(),
-		Deleted:    true,
+		LocalDiscr:         localDiscr,
+		PeerAddr:           session.PeerAddr(),
+		LocalAddr:          session.LocalAddr(),
+		OldState:           observation.State,
+		NewState:           observation.State,
+		Diag:               observation.LocalDiag,
+		RemoteKnown:        observation.RemoteKnown,
+		RemoteState:        observation.RemoteState,
+		RemoteDiag:         observation.RemoteDiag,
+		LocalC:             observation.LocalC,
+		RemoteC:            observation.RemoteC,
+		Cause:              observation.Cause,
+		ObservationVersion: observation.ObservationVersion,
+		Ref:                session.Ref(),
+		Timestamp:          time.Now(),
+		Type:               session.Type(),
+		Interface:          session.Interface(),
+		Deleted:            true,
 	})
 	m.mu.Unlock()
 
@@ -734,6 +749,7 @@ func (m *Manager) SessionWithRevision(discr uint32) (SessionSnapshot, uint64, bo
 
 // snapshotOf copies the exported state of one session.
 func snapshotOf(s *Session) SessionSnapshot {
+	observation := s.Observation()
 	return SessionSnapshot{
 		LocalDiscr:           s.LocalDiscriminator(),
 		RemoteDiscr:          s.RemoteDiscriminator(),
@@ -741,9 +757,16 @@ func snapshotOf(s *Session) SessionSnapshot {
 		LocalAddr:            s.LocalAddr(),
 		Interface:            s.Interface(),
 		Type:                 s.Type(),
-		State:                s.State(),
-		RemoteState:          s.RemoteState(),
-		LocalDiag:            s.LocalDiag(),
+		State:                observation.State,
+		RemoteState:          observation.RemoteState,
+		LocalDiag:            observation.LocalDiag,
+		RemoteKnown:          observation.RemoteKnown,
+		RemoteDiag:           observation.RemoteDiag,
+		LocalC:               observation.LocalC,
+		RemoteC:              observation.RemoteC,
+		Cause:                observation.Cause,
+		ObservationVersion:   observation.ObservationVersion,
+		Ref:                  s.Ref(),
 		DesiredMinTx:         s.DesiredMinTxInterval(),
 		RequiredMinRx:        s.RequiredMinRxInterval(),
 		RemoteMinRx:          s.RemoteMinRxInterval(),

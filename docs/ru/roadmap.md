@@ -1,5 +1,12 @@
 # Дорожная карта GoBFD
 
+Development-срез причинных наблюдений (`gobfd-qj0.8.2.1.2.1` и
+`gobfd-qj0.8.2.4.8`) охватывает согласованные scalar facts, версии строк и
+причинную policy GoBGP. Он не квалифицирует stable release или C-bit graceful
+restart. Полнота регистрации/статуса Watch остаётся в `gobfd-qj0.8.2.1.3.8`;
+negotiated graceful drain и bounded I/O — в H-12 (`gobfd-qj0.8.2.1.3.3`).
+Живая проверка peer policy является отдельным gate от локальных causal tests.
+
 ![Текущий релиз](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Цель](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)

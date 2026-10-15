@@ -297,7 +297,10 @@ func TestUnsolicitedCleanupClosesSessionLeaseOnce(t *testing.T) {
 	}
 	discr := snapshots[0].LocalDiscr
 	mgr.mu.RLock()
-	mgr.sessions[discr].session.state.Store(uint32(StateDown))
+	mgr.sessions[discr].session.mu.Lock()
+	mgr.sessions[discr].session.localPair.Store(packStateDiag(StateDown, DiagNone))
+	mgr.sessions[discr].session.observation.State = StateDown
+	mgr.sessions[discr].session.mu.Unlock()
 	mgr.mu.RUnlock()
 
 	session, _ := mgr.LookupByDiscriminator(discr)

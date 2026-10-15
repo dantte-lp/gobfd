@@ -172,6 +172,14 @@ type SessionSnapshot struct {
 	// LocalDiag is the current local diagnostic code (atomic snapshot).
 	LocalDiag Diag
 
+	RemoteKnown        bool
+	RemoteDiag         Diag
+	LocalC             bool
+	RemoteC            bool
+	Cause              Cause
+	ObservationVersion uint64
+	Ref                SessionRef
+
 	// DesiredMinTx is the configured desired minimum TX interval.
 	DesiredMinTx time.Duration
 
@@ -320,6 +328,8 @@ type Manager struct {
 
 	// revision numbers state changes and removals, under subMu.
 	revision atomic.Uint64
+	// observationClock orders semantic causal observations, independently of dispatch.
+	observationClock atomic.Uint64
 
 	logger *slog.Logger
 
@@ -537,7 +547,7 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			m.mu.RLock()
 			if sc.Type != SessionTypeEcho {
 				entry, ok := m.sessions[sc.LocalDiscr]
-				if !ok || entry.session != sc.source {
+				if !ok || entry.session != sc.Ref.session {
 					m.mu.RUnlock()
 					continue
 				}
@@ -616,7 +626,7 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 
 	m.mu.RLock()
 	entry, ok := m.sessions[sc.LocalDiscr]
-	isUnsolicited := ok && entry.session == sc.source && entry.unsolicited
+	isUnsolicited := ok && entry.session == sc.Ref.session && entry.unsolicited
 	m.mu.RUnlock()
 	if !isUnsolicited {
 		return
@@ -635,7 +645,7 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 			case <-timer.C:
 			}
 		}
-		m.cleanupUnsolicitedSession(ctx, sc.source)
+		m.cleanupUnsolicitedSession(ctx, sc.Ref.session)
 	}) {
 		return
 	}

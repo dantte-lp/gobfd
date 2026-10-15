@@ -9,6 +9,14 @@
 
 ### Добавлено
 
+- Причинные наблюдения сессии: согласованные локальные state/diagnostic,
+  известные remote state/diagnostic, оба C-bit, причина и строковая
+  `observation_version` в snapshot, Watch и CLI. Для C-bit сохраняется
+  политика `hard-fail`; graceful restart не реализован. GoBGP сохраняет
+  локальную/удалённую административную причину при retry и gap resync,
+  проверяет текущие identity и policy перед disable. Строки Watch STATE_CHANGE
+  остаются частичным статусом (`gobfd-qj0.8.2.1.3.8`).
+
 - Per-configured-peer метрики GoBGP: flap penalty с decay на момент scrape,
   recovery suppression и его максимальная граница, ожидающие желаемые Up/Down
   с timestamp следующего retry/recheck (`gobfd-qj0.8.2.4.7`). Принятый reload

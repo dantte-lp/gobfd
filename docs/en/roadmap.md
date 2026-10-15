@@ -1,5 +1,13 @@
 # GoBFD Roadmap
 
+The development causal-observation slice (`gobfd-qj0.8.2.1.2.1` and
+`gobfd-qj0.8.2.4.8`) covers coherent scalar facts, per-row versions and
+cause-aware GoBGP policy. It does not qualify a stable release or full C-bit
+graceful restart. Full Watch registration/status remains open in
+`gobfd-qj0.8.2.1.3.8`; negotiated graceful drain and bounded I/O remain open
+under H-12 (`gobfd-qj0.8.2.1.3.3`). Live peer policy qualification is a separate
+gate from local causal tests.
+
 ![Current Release](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)

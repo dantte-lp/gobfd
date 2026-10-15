@@ -8,6 +8,27 @@ import (
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
 
+func TestCausalSessionFormats(t *testing.T) {
+	t.Parallel()
+	s := &bfdv1.BfdSession{
+		ObservationVersion: 500, RemoteKnown: true,
+		RemoteState:                   bfdv1.SessionState_SESSION_STATE_ADMIN_DOWN,
+		RemoteDiagnostic:              bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_ADMIN_DOWN,
+		RemoteControlPlaneIndependent: true, Cause: bfdv1.ObservationCause_OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN,
+	}
+	for _, format := range []string{formatJSON, formatYAML, formatTable} {
+		out, err := formatSession(s, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"500", "true", "AdminDown", "REMOTE_ADMIN_DOWN"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s lacks %q: %s", format, want, out)
+			}
+		}
+	}
+}
+
 func TestMarshalJSONReplacesInvalidUTF8(t *testing.T) {
 	t.Parallel()
 

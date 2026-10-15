@@ -559,22 +559,28 @@ func durationFromProto(d *durationpb.Duration) time.Duration {
 // snapshotToProto converts an internal SessionSnapshot to a proto BfdSession message.
 func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 	pb := &bfdv1.BfdSession{
-		PeerAddress:           snap.PeerAddr.String(),
-		LocalAddress:          snap.LocalAddr.String(),
-		InterfaceName:         snap.Interface,
-		Type:                  sessionTypeToProto(snap.Type),
-		LocalState:            stateToProto(snap.State),
-		RemoteState:           stateToProto(snap.RemoteState),
-		LocalDiagnostic:       diagToProto(snap.LocalDiag),
-		AuthType:              authTypeToProto(snap.AuthType),
-		LocalDiscriminator:    snap.LocalDiscr,
-		RemoteDiscriminator:   snap.RemoteDiscr,
-		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTx),
-		RequiredMinRxInterval: durationpb.New(snap.RequiredMinRx),
-		RemoteMinRxInterval:   durationpb.New(snap.RemoteMinRx),
-		DetectMultiplier:      uint32(snap.DetectMultiplier),
-		NegotiatedTxInterval:  durationpb.New(snap.NegotiatedTxInterval),
-		DetectionTime:         durationpb.New(snap.DetectionTime),
+		PeerAddress:                   snap.PeerAddr.String(),
+		LocalAddress:                  snap.LocalAddr.String(),
+		InterfaceName:                 snap.Interface,
+		Type:                          sessionTypeToProto(snap.Type),
+		LocalState:                    stateToProto(snap.State),
+		RemoteState:                   observedRemoteState(snap.RemoteKnown, snap.RemoteState),
+		LocalDiagnostic:               diagToProto(snap.LocalDiag),
+		RemoteKnown:                   snap.RemoteKnown,
+		RemoteDiagnostic:              observedRemoteDiag(snap.RemoteKnown, snap.RemoteDiag),
+		LocalControlPlaneIndependent:  snap.LocalC,
+		RemoteControlPlaneIndependent: snap.RemoteC,
+		Cause:                         causeToProto(snap.Cause),
+		ObservationVersion:            snap.ObservationVersion,
+		AuthType:                      authTypeToProto(snap.AuthType),
+		LocalDiscriminator:            snap.LocalDiscr,
+		RemoteDiscriminator:           snap.RemoteDiscr,
+		DesiredMinTxInterval:          durationpb.New(snap.DesiredMinTx),
+		RequiredMinRxInterval:         durationpb.New(snap.RequiredMinRx),
+		RemoteMinRxInterval:           durationpb.New(snap.RemoteMinRx),
+		DetectMultiplier:              uint32(snap.DetectMultiplier),
+		NegotiatedTxInterval:          durationpb.New(snap.NegotiatedTxInterval),
+		DetectionTime:                 durationpb.New(snap.DetectionTime),
 		Counters: &bfdv1.SessionCounters{
 			PacketsSent:      snap.Counters.PacketsSent,
 			PacketsReceived:  snap.Counters.PacketsReceived,
@@ -609,17 +615,57 @@ func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
 	return &bfdv1.WatchSessionEventsResponse{
 		Type: eventType,
 		Session: &bfdv1.BfdSession{
-			PeerAddress:        sc.PeerAddr.String(),
-			LocalAddress:       addrString(sc.LocalAddr),
-			InterfaceName:      sc.Interface,
-			Type:               sessionTypeToProto(sc.Type),
-			LocalDiscriminator: sc.LocalDiscr,
-			LocalState:         stateToProto(sc.NewState),
-			LocalDiagnostic:    diagToProto(sc.Diag),
+			PeerAddress:                   sc.PeerAddr.String(),
+			LocalAddress:                  addrString(sc.LocalAddr),
+			InterfaceName:                 sc.Interface,
+			Type:                          sessionTypeToProto(sc.Type),
+			LocalDiscriminator:            sc.LocalDiscr,
+			LocalState:                    stateToProto(sc.NewState),
+			LocalDiagnostic:               diagToProto(sc.Diag),
+			RemoteKnown:                   sc.RemoteKnown,
+			RemoteState:                   observedRemoteState(sc.RemoteKnown, sc.RemoteState),
+			RemoteDiagnostic:              observedRemoteDiag(sc.RemoteKnown, sc.RemoteDiag),
+			LocalControlPlaneIndependent:  sc.LocalC,
+			RemoteControlPlaneIndependent: sc.RemoteC,
+			Cause:                         causeToProto(sc.Cause),
+			ObservationVersion:            sc.ObservationVersion,
 		},
 		PreviousState: stateToProto(sc.OldState),
 		Timestamp:     timestamppb.New(sc.Timestamp),
 		Revision:      sc.Revision,
+	}
+}
+
+func observedRemoteState(known bool, state bfd.State) bfdv1.SessionState {
+	if !known {
+		return bfdv1.SessionState_SESSION_STATE_UNSPECIFIED
+	}
+	return stateToProto(state)
+}
+
+func observedRemoteDiag(known bool, diag bfd.Diag) bfdv1.DiagnosticCode {
+	if !known {
+		return bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_UNSPECIFIED
+	}
+	return diagToProto(diag)
+}
+
+func causeToProto(cause bfd.Cause) bfdv1.ObservationCause {
+	switch cause {
+	case bfd.CauseRemoteAdminDown:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_REMOTE_ADMIN_DOWN
+	case bfd.CauseRemoteDown:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_REMOTE_DOWN
+	case bfd.CauseDetectionTimeout:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_DETECTION_TIMEOUT
+	case bfd.CauseLocalAdmin:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_LOCAL_ADMIN
+	case bfd.CausePathDown:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_PATH_DOWN
+	case bfd.CauseConfiguration:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_CONFIGURATION
+	default:
+		return bfdv1.ObservationCause_OBSERVATION_CAUSE_UNSPECIFIED
 	}
 }
 

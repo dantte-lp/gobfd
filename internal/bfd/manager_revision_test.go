@@ -20,6 +20,25 @@ func notificationTestSession(t *testing.T, mgr *Manager) *Session {
 	return sess
 }
 
+func TestCausalManagerSnapshotAheadOfDispatch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := NewManager(slog.New(slog.DiscardHandler))
+		defer mgr.Close()
+		sess := notificationTestSession(t, mgr)
+		synctest.Wait()
+		initial := sess.Observation().ObservationVersion
+		if initial == 0 || !sess.SetPathDown() {
+			t.Fatal("missing managed registration version or PathDown admission")
+		}
+		synctest.Wait()
+		snaps, revision := mgr.SessionsWithRevision()
+		if revision != 0 || len(snaps) != 1 || snaps[0].Cause != CausePathDown ||
+			snaps[0].ObservationVersion <= initial || snaps[0].State != StateDown || snaps[0].LocalDiag != DiagPathDown {
+			t.Fatalf("snapshot not ahead of dispatch: snapshots=%+v revision=%d", snaps, revision)
+		}
+	})
+}
+
 // A slow subscriber loses events but never silently: the last buffer slot
 // carries a gap marker, which arrives even when no further event follows
 // (H-29, M-08).
@@ -37,7 +56,7 @@ func TestSubscriberOverflowQueuesGapMarker(t *testing.T) {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
 		for range notifyChSize + 10 {
-			sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
+			sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())
 			synctest.Wait()
 		}
 
@@ -63,7 +82,7 @@ func TestSubscriberOverflowQueuesGapMarker(t *testing.T) {
 		}
 
 		// Delivery resumes once the subscriber has drained its buffer.
-		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp})
+		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp}, sess.Observation())
 		synctest.Wait()
 		if sc := <-sub; sc.Gap || sc.LocalDiscr != sess.LocalDiscriminator() {
 			t.Fatalf("event after drain = %+v, want discriminator %d", sc, sess.LocalDiscriminator())
@@ -82,7 +101,7 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 		sess := notificationTestSession(t, mgr)
 		go mgr.RunDispatch(ctx)
 
-		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
+		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())
 		synctest.Wait()
 
 		sub, err := mgr.SubscribeStateChanges(ctx)
@@ -93,7 +112,7 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 		if rev != 1 {
 			t.Fatalf("snapshot revision = %d, want 1", rev)
 		}
-		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp})
+		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp}, sess.Observation())
 		synctest.Wait()
 		if sc := <-sub; sc.Revision != rev+1 {
 			t.Fatalf("event after snapshot revision = %d, want %d", sc.Revision, rev+1)

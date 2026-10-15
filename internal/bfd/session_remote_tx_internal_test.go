@@ -214,7 +214,10 @@ func TestSessionSlowToFastPoll(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				sess, sender, tx, detect := newRemoteTxTestSession(t)
 				sess.cachedState = tt.state
-				sess.state.Store(uint32(tt.state))
+				sess.mu.Lock()
+				sess.localPair.Store(packStateDiag(tt.state, DiagNone))
+				sess.observation.State = tt.state
+				sess.mu.Unlock()
 				sess.desiredMinTxInterval = tt.tx
 				pkt := sess.buildControlPacket()
 				pkt.State, pkt.Final = StateInit, true // Final predates the new local Poll.
@@ -246,7 +249,10 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		sess, sender, tx, detect := newRemoteTxTestSession(t)
 		sess.cachedState = StateDown
-		sess.state.Store(uint32(StateDown))
+		sess.mu.Lock()
+		sess.localPair.Store(packStateDiag(StateDown, DiagNone))
+		sess.observation.State = StateDown
+		sess.mu.Unlock()
 		sender.failures = 1
 		pkt := sess.buildControlPacket()
 		pkt.State = StateInit
@@ -337,7 +343,10 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				sess, sender, tx, detect := newRemoteTxTestSession(t)
 				sess.cachedState = StateDown
-				sess.state.Store(uint32(StateDown))
+				sess.mu.Lock()
+				sess.localPair.Store(packStateDiag(StateDown, DiagNone))
+				sess.observation.State = StateDown
+				sess.mu.Unlock()
 				pkt := sess.buildControlPacket()
 				pkt.State = StateInit
 				if tt.confirmed {
@@ -404,8 +413,11 @@ func newRemoteTxTestSession(t *testing.T) (*Session, *retryCachedPacketSender, *
 	sender := &retryCachedPacketSender{}
 	sess.sender = sender
 	sess.cachedState = StateUp
-	sess.state.Store(uint32(StateUp))
-	sess.remoteState.Store(uint32(StateUp))
+	sess.mu.Lock()
+	sess.localPair.Store(packStateDiag(StateUp, DiagNone))
+	sess.observation.State = StateUp
+	sess.mu.Unlock()
+	sess.observation.RemoteState = StateUp
 	sess.remoteDiscr = 7
 	sess.remoteMinRxInterval = 100 * time.Millisecond
 	tx, detect := time.NewTimer(100*time.Millisecond), time.NewTimer(time.Hour)
