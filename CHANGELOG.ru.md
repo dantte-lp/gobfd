@@ -259,6 +259,11 @@
 
 ### Исправлено
 
+- Конфигурация отклоняет разные interface для одного control listener
+  (parsed local address и single-hop/multi-hop type) или enabled Echo
+  listener (parsed local address) независимо от порядка записей
+  (`gobfd-8f3.8`). Типизированная ошибка содержит только ограниченный
+  идентификатор поля конфигурации; владение listeners не меняется.
 - Конфигурация отклоняет переполнение detection multiplier, дроби и boolean до
   weak decoding для base, Echo, VXLAN, Geneve и Micro-BFD.
 

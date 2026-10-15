@@ -1578,7 +1578,7 @@ func validateSessions(sessions []SessionConfig) error {
 		seen[key] = struct{}{}
 	}
 
-	return nil
+	return validateControlListenerBindings(sessions)
 }
 
 // validateGoBGPPeers rejects two sessions to one peer address when GoBGP is
@@ -1785,7 +1785,7 @@ func validateEchoPeers(cfg EchoConfig) error {
 		seen[key] = struct{}{}
 	}
 
-	return nil
+	return validateEchoListenerBindings(cfg.Peers)
 }
 
 // vniMax is the maximum valid VNI value (24-bit).

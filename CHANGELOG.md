@@ -255,6 +255,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Configuration rejects conflicting interfaces for one control listener
+  (parsed local address and single-hop/multi-hop type), or one enabled Echo
+  listener (parsed local address), regardless of declaration order
+  (`gobfd-8f3.8`). Typed errors identify only the bounded configuration field;
+  listener ownership is unchanged.
 - Configuration rejects detection multiplier overflow and fractional or boolean
   values before weak decoding for base, Echo, VXLAN, Geneve and Micro-BFD fields.
 
