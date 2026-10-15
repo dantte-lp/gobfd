@@ -16,6 +16,7 @@ package interop_test
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -972,6 +973,70 @@ func parseHexOrDec(s string) (uint64, error) {
 	return strconv.ParseUint(s, 0, 64)
 }
 
+func validInteropControlPayload(payload []byte, pduLength int, authType byte) bool {
+	if pduLength < 24 || len(payload) < pduLength || int(payload[3]) != pduLength {
+		return false
+	}
+	if authType == 0 {
+		if payload[1]&0x04 != 0 {
+			return false
+		}
+	} else if pduLength < 27 || payload[1]&0x04 == 0 || payload[24] != authType ||
+		int(payload[25]) != pduLength-24 || payload[26] != 7 {
+		return false
+	}
+	return len(bytes.Trim(payload[pduLength:], "\x00")) == 0
+}
+
+func TestValidInteropControlPayload(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		pduLength int
+		authType  byte
+		truncate  int
+		index     int
+		value     byte
+		want      bool
+	}{
+		"simple password": {40, 1, 128, -1, 0, true},
+		"keyed SHA1":      {52, 4, 128, -1, 0, true},
+		"unauthenticated": {24, 0, 24, -1, 0, true},
+		"empty":           {40, 1, 0, -1, 0, false},
+		"short header":    {40, 1, 3, -1, 0, false},
+		"short PDU":       {23, 0, 128, -1, 0, false},
+		"short auth PDU":  {26, 1, 128, -1, 0, false},
+		"truncated auth":  {40, 1, 26, -1, 0, false},
+		"wrong length":    {40, 1, 128, 3, 128, false},
+		"missing A bit":   {40, 1, 128, 1, 0, false},
+		"unexpected auth": {24, 0, 24, 1, 4, false},
+		"wrong type":      {40, 1, 128, 24, 4, false},
+		"wrong auth size": {40, 1, 128, 25, 15, false},
+		"wrong key":       {40, 1, 128, 26, 8, false},
+		"nonzero padding": {52, 4, 128, 127, 1, false},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			payload := make([]byte, 128)
+			payload[3] = byte(test.pduLength)
+			if test.authType != 0 {
+				payload[1] = 0x04
+				payload[24] = test.authType
+				payload[25] = byte(test.pduLength - 24)
+				payload[26] = 7
+			}
+			if test.index >= 0 {
+				payload[test.index] = test.value
+			}
+			if got := validInteropControlPayload(payload[:test.truncate], test.pduLength, test.authType); got != test.want {
+				t.Errorf("validInteropControlPayload() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func dumpTsharkCapture(t *testing.T, count int) {
 	t.Helper()
 	testDeadline, hasTestDeadline := t.Deadline()
@@ -1571,10 +1636,48 @@ func TestRFCCompliance(t *testing.T) {
 	})
 
 	t.Run("RFC5880_4.1_PacketLength", func(t *testing.T) {
-		// Without authentication, BFD Control is exactly 24 bytes.
-		assertNoPackets(ctx, t,
-			gobfdPkts+" && bfd.message_length != 24",
-			"packet length must be 24 (no auth)")
+		peers := []struct {
+			name          string
+			ip            string
+			pduLength     int
+			authType      byte
+			payloadLength int
+		}{
+			{"FRR", frrIP, 40, 1, 128},
+			{"BIRD3", bird3IP, 52, 4, 128},
+			{"Holo", holoIP, 24, 0, 24},
+			{"Thoro", thoroIP, 24, 0, 24},
+		}
+		for _, peer := range peers {
+			t.Run(peer.name, func(t *testing.T) {
+				rows, err := tsharkFields(ctx, gobfdPkts+" && ip.dst == "+peer.ip,
+					[]string{"udp.length", "ip.flags.df", "udp.payload"}, 0)
+				if err != nil {
+					t.Fatalf("read %s Control packets: %v", peer.name, err)
+				}
+				if len(rows) == 0 {
+					t.Fatal("no GoBFD Control packets captured")
+				}
+				for i, row := range rows {
+					if len(row) != 3 {
+						t.Fatalf("packet %d fields = %v, want UDP length, DF, payload", i, row)
+					}
+					payload, decodeErr := hex.DecodeString(strings.ReplaceAll(row[2], ":", ""))
+					if decodeErr != nil {
+						t.Fatalf("decode packet %d UDP payload: %v", i, decodeErr)
+					}
+					if row[0] != strconv.Itoa(peer.payloadLength+8) || len(payload) != peer.payloadLength ||
+						!validInteropControlPayload(payload, peer.pduLength, peer.authType) {
+						t.Errorf("packet %d violates BFD Length/authentication/zero-padding bounds: %v", i, row)
+					}
+					if peer.payloadLength > peer.pduLength && row[1] != "1" {
+						t.Errorf("padded packet %d DF = %q, want 1", i, row[1])
+					}
+				}
+				t.Logf("validated %d packets: BFD Length=%d, auth type=%d, UDP length=%d",
+					len(rows), peer.pduLength, peer.authType, peer.payloadLength+8)
+			})
+		}
 	})
 
 	t.Run("RFC5881_5_TTL255", func(t *testing.T) {

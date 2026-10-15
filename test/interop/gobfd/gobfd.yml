@@ -1,8 +1,8 @@
 # GoBFD configuration for interoperability testing.
 #
 # BFD sessions are configured:
-#   1. FRR peer at 172.20.0.20 (single-hop, 300ms intervals, detect-mult 3)
-#   2. BIRD3 peer at 172.20.0.30 (single-hop, 300ms intervals, detect-mult 3)
+#   1. FRR peer at 172.20.0.20 (Simple Password, 128-byte UDP payload)
+#   2. BIRD3 peer at 172.20.0.30 (Keyed SHA1, 128-byte UDP payload)
 #   3. Holo peer at 172.20.0.50 (single-hop, 300ms intervals, detect-mult 3)
 #   4. Thoro/bfd peer at 172.20.0.60 (single-hop, 300ms intervals, detect-mult 3, no auth)
 #
@@ -12,6 +12,7 @@
 # Note on Thoro/bfd: auth is NOT enabled because Thoro/bfd does not implement
 # auth verification on the receive path (returns ErrNotImplemented). It serves
 # as a 4th unique BFD peer implementation for protocol conformance testing.
+# The public gobfd-interop key is test data only, never a production secret.
 
 grpc:
   addr: "127.0.0.1:50051"
@@ -36,6 +37,11 @@ sessions:
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
     detect_mult: 3
+    padded_pdu_size: 128
+    auth:
+      type: simple_password
+      key_id: 7
+      secret: gobfd-interop
 
   - peer: "172.20.0.30"
     local: "172.20.0.10"
@@ -43,6 +49,11 @@ sessions:
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
     detect_mult: 3
+    padded_pdu_size: 128
+    auth:
+      type: keyed_sha1
+      key_id: 7
+      secret: gobfd-interop
 
   - peer: "172.20.0.50"
     local: "172.20.0.10"
