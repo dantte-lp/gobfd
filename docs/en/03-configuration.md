@@ -633,8 +633,10 @@ Each neighbor needs one canonical BFD session. With `gobgp.enabled`,
 configuration validation (startup and reload) rejects two `sessions`
 entries to the same peer address (`gobgp peer has more than one BFD
 session`). A second base session created at runtime (API or unsolicited)
-leaves no canonical session: GoBFD logs an error, takes no BGP action for
-the peer and sets the `gobfd.gobgp` health service to `NOT_SERVING`.
+leaves no canonical session: on BFD Down GoBFD logs an error, does not
+disable the peer and sets the `gobfd.gobgp` health service to
+`NOT_SERVING` until the next successful GoBGP action. A peer GoBFD had
+already disabled is still re-enabled on BFD Up.
 
 #### GoBGP Compatibility
 

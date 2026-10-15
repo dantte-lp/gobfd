@@ -60,9 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   member links, VXLAN, Geneve and Echo sessions to the neighbor address no
   longer disable or enable the peer; IPv4-mapped peer addresses are
   unmapped. With `gobgp.enabled`, configuration validation rejects two
-  sessions to the same peer address; a second base session created at
-  runtime blocks BGP actions for the peer and sets `gobfd.gobgp` to
-  `NOT_SERVING`.
+  sessions to the same peer address; with a second base session created at
+  runtime, BFD Down does not disable the peer and sets `gobfd.gobgp` to
+  `NOT_SERVING`, while BFD Up still re-enables a peer GoBFD disabled.
 - The GoBGP handler enables only peers it disabled itself
   (`gobfd-qj0.8.2.4.1`). It reads a neighbor's admin state before
   `DisablePeer` and leaves operator-disabled peers alone on BFD Down and Up.
