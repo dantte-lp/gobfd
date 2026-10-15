@@ -239,7 +239,7 @@ Architecture notes for `gobfd-5w0`:
 
 Priority changes: `.8.2.3.4` and `.8.2.4.6` are done (`0314466`, `2a4afb1`;
 issue #86 closed). `.8.2.1.10.1` waits for the `.8.2.1.10.5` listener design, so
-`gobfd-330` and `.8.2.3.2` are done; GoBGP `.8.2.4.1` (operator-disabled peers, decided) is the next P0. `gobfd-5w0` waits for its
+`gobfd-330` and `.8.2.3.2` are done; GoBGP `.8.2.4.1` operator-disabled peers are done (`384b8a5`: GoBFD enables only peers it disabled); its stream-gap part waits for `.8.2.1.3.2`. `gobfd-5w0` waits for its
 blockers and a design review.
 
 ## Plan reconciliation 2026-10-13
