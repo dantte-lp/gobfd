@@ -136,8 +136,10 @@ before the update:
    [the transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
    (`5879b15`): `.1` Unix socket with peer-UID principals done (`02ffd16`),
    `.2` mTLS TCP done (`aae60cf`), `.3` socket-only defaults with migration
-   done (`319d2bb`, breaking); `.4` principal-scoped claims and mTLS roles
-   in progress.
+   done (`319d2bb`, breaking), `.4` principal-scoped claims and mTLS roles
+   done (`0d949dd`); `gobfd-330` closed, GitHub #87 closed. Next in the
+   same epic: `.8.2.3.2` debug and flight-recorder endpoints, today always
+   served without authentication on the metrics listener.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
    vendor images.
@@ -214,7 +216,7 @@ and the RFC texts named below.
 | Issue | Beads | State on `dev` | Remaining |
 |---|---|---|---|
 | [#86](https://github.com/dantte-lp/gobfd/issues/86) GoBGP v4 peer control | `gobfd-qj0.8.2.4.6` (P1), parent `.8.2.4` | Done; issue closed. v4.10.0 client, preflights, v4-only policy and docs, action retries, failover e2e on GoBGP v4.10.0, GoBGP metrics and the `gobfd.gobgp` health check (`2a4afb1`) | No release contains v4 support yet |
-| [#87](https://github.com/dantte-lp/gobfd/issues/87) secure listen defaults | `gobfd-qj0.8.2.3.4` (P0), with `gobfd-330` and `.8.2.3.2` | API `:50051` and metrics `:9100` on all addresses; default `gobgp.addr` `127.0.0.1:50051` uses the same port; packages install `configs/gobfd.example.yml` as `/etc/gobfd/gobfd.yml` with the same wildcard binds; the HAProxy agent binds every address | `.8.2.3.4` done (`ff2d70f`, `0314466`): API `127.0.0.1:50052` and metrics `127.0.0.1:9100` by default, agent `listen_addr`, startup warning, side-by-side port test; progress comment posted. `gobfd-330.1`–`.3`: Unix socket with peer-UID principals, mTLS, socket-only defaults with anonymous loopback reads only (`319d2bb`). Open: `.4` principal-scoped claims |
+| [#87](https://github.com/dantte-lp/gobfd/issues/87) secure listen defaults | `gobfd-qj0.8.2.3.4` (P0), with `gobfd-330` and `.8.2.3.2` | API `:50051` and metrics `:9100` on all addresses; default `gobgp.addr` `127.0.0.1:50051` uses the same port; packages install `configs/gobfd.example.yml` as `/etc/gobfd/gobfd.yml` with the same wildcard binds; the HAProxy agent binds every address | `.8.2.3.4` done (`ff2d70f`, `0314466`): API `127.0.0.1:50052` and metrics `127.0.0.1:9100` by default, agent `listen_addr`, startup warning, side-by-side port test; Done; issue closed. `gobfd-330.1`–`.4`: Unix socket with peer-UID principals, mTLS, socket-only defaults with anonymous loopback reads only (`319d2bb`), principal-scoped claims and mTLS roles (`0d949dd`) |
 | [#88](https://github.com/dantte-lp/gobfd/issues/88) anycast VIP and HAProxy health | `gobfd-5w0` (P2), blocked by `.8.2.3` and `.8.2.5.2` | not started | Design spec first |
 
 Architecture notes for `gobfd-5w0`:
@@ -235,7 +237,7 @@ Architecture notes for `gobfd-5w0`:
 
 Priority changes: `.8.2.3.4` and `.8.2.4.6` are done (`0314466`, `2a4afb1`;
 issue #86 closed). `.8.2.1.10.1` waits for the `.8.2.1.10.5` listener design, so
-`gobfd-330.1` to `.3` are done and `.4` is the next security work. `gobfd-5w0` waits for its
+`gobfd-330` is done; `.8.2.3.2` (debug endpoints) is the next security work. `gobfd-5w0` waits for its
 blockers and a design review.
 
 ## Plan reconciliation 2026-10-13
