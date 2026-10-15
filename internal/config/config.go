@@ -1196,7 +1196,8 @@ var (
 
 	// ErrInvalidDampeningMaxSuppressTime indicates a non-positive
 	// max_suppress_time, which would leave recovery unbounded.
-	ErrInvalidDampeningMaxSuppressTime = errors.New("gobgp.dampening.max_suppress_time must be > 0 when dampening is enabled")
+	ErrInvalidDampeningMaxSuppressTime = errors.New(
+		"gobgp.dampening.max_suppress_time must be > 0 when dampening is enabled")
 
 	// ErrInvalidDampeningHalfLife indicates the half-life is not positive.
 	ErrInvalidDampeningHalfLife = errors.New("gobgp.dampening.half_life must be > 0 when dampening is enabled")
