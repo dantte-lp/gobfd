@@ -621,6 +621,21 @@ Up. GoBGP does not expose who disabled a peer, so this record lives in
 memory: after a GoBFD restart, peers that GoBFD had disabled stay disabled
 until an operator enables them (`gobgp neighbor <addr> enable`).
 
+#### Session Identity
+
+Only a single-hop or multi-hop session drives a GoBGP neighbor
+(`gobfd-qj0.8.2.4.2`). Micro-BFD member links, VXLAN, Geneve and Echo
+sessions to the neighbor address never disable or enable the BGP peer.
+IPv4-mapped peer addresses (`::ffff:192.0.2.1`) name the same neighbor as
+the plain IPv4 address.
+
+Each neighbor needs one canonical BFD session. With `gobgp.enabled`,
+configuration validation (startup and reload) rejects two `sessions`
+entries to the same peer address (`gobgp peer has more than one BFD
+session`). A second base session created at runtime (API or unsolicited)
+leaves no canonical session: GoBFD logs an error, takes no BGP action for
+the peer and sets the `gobfd.gobgp` health service to `NOT_SERVING`.
+
 #### GoBGP Compatibility
 
 | GoBFD line | GoBGP daemon | gRPC service | Evidence |

@@ -227,7 +227,9 @@ generation и пока последний desired generation остаётся st
 изменять состояние, иначе `SERVING`. При `gobgp.enabled` named check
 `gobfd.gobgp` находится в
 `NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
-preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха.
+preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха,
+а также после BFD-события для соседа с несколькими базовыми сессиями
+(`03-configuration.md`, «Идентичность сессии»).
 systemd `READY=1` продолжает описывать запуск процесса/listeners, а не
 convergence конфигурации.
 

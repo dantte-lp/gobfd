@@ -147,7 +147,9 @@ before the update:
    vendor images.
 5. GoBGP `.8.2.4.1`: operator-disabled peers (maintainer decision: GoBFD
    re-enables only peers it disabled) and stream gaps after `.8.2.1.3.2`
-   (P1); `.8.2.4.2` canonical identity.
+   (P1); `.8.2.4.2` canonical identity done (`8536702`: only the single
+   base session of a neighbor actuates GoBGP), closure waits for
+   `.8.2.1.3.2`.
 6. `gobfd-qj0.8.6.1` — manual Compose requalification on GoBGP v4, after the
    host build DNS issue `gobfd-qj0.8.6.9` (P1).
 7. `gobfd-4j4` (P2): raw range checks for the remaining `detect_mult` fields.
@@ -239,7 +241,7 @@ Architecture notes for `gobfd-5w0`:
 
 Priority changes: `.8.2.3.4` and `.8.2.4.6` are done (`0314466`, `2a4afb1`;
 issue #86 closed). `.8.2.1.10.1` waits for the `.8.2.1.10.5` listener design, so
-`gobfd-330` and `.8.2.3.2` are done; GoBGP `.8.2.4.1` operator-disabled peers are done (`384b8a5`: GoBFD enables only peers it disabled); its stream-gap part waits for `.8.2.1.3.2`. `gobfd-5w0` waits for its
+`gobfd-330` and `.8.2.3.2` are done; GoBGP `.8.2.4.1` operator-disabled peers are done (`384b8a5`: GoBFD enables only peers it disabled); its stream-gap part waits for `.8.2.1.3.2`. GoBGP `.8.2.4.2` canonical identity is done (`8536702`); a per-session GoBGP opt-out is deferred to `gobfd-gyg` (P3). `gobfd-5w0` waits for its
 blockers and a design review.
 
 ## Plan reconciliation 2026-10-13

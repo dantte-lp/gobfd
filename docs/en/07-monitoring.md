@@ -237,7 +237,9 @@ convergence. Named checks for `grpc.health.v1.Health`, `bfd.v1.BfdService`,
 lets anonymous loopback clients mutate, `SERVING` otherwise. With
 `gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
 GoBGP v4 preflight passes, and after a failed preflight or a failed
-`DisablePeer`/`EnablePeer` until the next success. systemd
+`DisablePeer`/`EnablePeer` until the next success; a BFD event for a
+neighbor with more than one base session also sets it `NOT_SERVING`
+(`03-configuration.md`, Session Identity). systemd
 `READY=1` continues to describe process/listener startup rather than
 configuration convergence.
 
