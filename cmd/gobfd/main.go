@@ -134,6 +134,9 @@ func runServers(
 	healthChecker := newDaemonHealthChecker()
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, fr, logger)
 	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
+	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
+	bgpStatus.configuredPeers(goBGPManagedPeers(cfg.Sessions))
+	coordinator.onConfiguredPeers = bgpStatus.configuredPeers
 
 	// errgroup with signal-aware context.
 	ctx, stop := signal.NotifyContext(
@@ -166,7 +169,7 @@ func runServers(
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
 	// GoBGP integration goroutine (RFC 5882 Section 10.2).
 	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, goBGPManagedPeers(cfg.Sessions), mgr,
-		goBGPStatusFor(cfg.GoBGP, healthChecker, collector), logger)
+		bgpStatus, logger)
 	if err != nil {
 		return fmt.Errorf("start gobgp handler: %w", err)
 	}

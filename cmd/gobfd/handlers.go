@@ -267,6 +267,7 @@ func newGoBGPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("create gobgp handler: %w", err)
 	}
+	status.observeHandler(handler)
 	return handler, nil
 }
 

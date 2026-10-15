@@ -204,19 +204,16 @@ func (d *Dampener) ShouldSuppressUp(peerAddr string) bool {
 
 	d.decayPenalty(pp, now)
 
-	// Check if MaxSuppressTime has been exceeded.
-	if pp.suppressed && now.Sub(pp.suppressedSince) >= d.cfg.MaxSuppressTime {
-		d.unsuppress(pp, peerAddr)
-		return false
-	}
-
-	// Check if penalty has decayed below reuse threshold.
-	if pp.suppressed && pp.penalty < d.cfg.ReuseThreshold {
+	if pp.suppressed && d.suppressionExpired(pp, now) {
 		d.unsuppress(pp, peerAddr)
 		return false
 	}
 
 	return pp.suppressed
+}
+
+func (d *Dampener) suppressionExpired(pp *peerPenalty, now time.Time) bool {
+	return now.Sub(pp.suppressedSince) >= d.cfg.MaxSuppressTime || pp.penalty < d.cfg.ReuseThreshold
 }
 
 // Reset removes the penalty tracking for a peer. Used when a peer is

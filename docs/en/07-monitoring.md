@@ -20,7 +20,7 @@
 
 ### Prometheus Metrics
 
-GoBFD exposes Prometheus metrics at the configured endpoint (default `127.0.0.1:9100/metrics`). All metrics use the `gobfd_bfd_` prefix.
+GoBFD exposes Prometheus metrics at the configured endpoint (default `127.0.0.1:9100/metrics`). Metrics use the `gobfd_` namespace.
 
 `gobfd_bfd_packets_dropped_total` and `gobfd_bfd_auth_failures_total` are
 registered but are not yet incremented by the production data path. They remain
@@ -37,6 +37,34 @@ the v1 loss-accounting work is complete.
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
+| `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Effective decayed flap penalty at scrape time |
+| `gobfd_gobgp_dampening_suppressed` | Gauge | `peer_addr` | 1 when recovery would still be held by dampening |
+| `gobfd_gobgp_dampening_suppression_deadline_seconds` | Gauge | `peer_addr` | Unix timestamp of the current maximum suppression bound; 0 when unsuppressed |
+| `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 for the unapplied desired action (`up` or `down`); 0 otherwise |
+| `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp of its next retry or suppression recheck; 0 when none |
+
+GoBGP per-peer metrics exist only with the integration enabled, for peers in
+the latest validated `sessions` configuration. The allowlist changes on accepted
+reloads; removed peers disappear on the next scrape, and invalid candidates
+preserve the previous allowlist. IPv4-mapped addresses are unmapped and
+duplicates are merged. API and unsolicited sessions do not create new metric
+labels. Each configured peer has seven samples across the five gauges,
+including zero-valued `up` and `down` action samples when idle.
+
+Penalty and suppression are evaluated at scrape time using `half_life`,
+`reuse_threshold` and `max_suppress_time`. Once recovery suppression expires,
+the reported penalty is zero, as when the handler releases suppression.
+Observation does not change routing state or record a flap. The suppression
+deadline is `suppressed_since + max_suppress_time`; decay can release recovery
+earlier. This bound describes eligibility for recovery, not RPC completion.
+
+Pending action and deadline reflect the last completed handler event or
+attempt. They cover transient RPC retries and a recovery held by dampening.
+The action deadline is the next scheduled attempt or recheck, and may be in
+the past while an RPC is in progress. It is neither the suppression bound nor
+a guarantee of successful application. Successful application, cancellation,
+session deletion or handler shutdown clears the pending action. AdminDown
+cancels a pending Down; an Up that re-enables a peer GoBFD disabled remains.
 
 #### Label Values
 

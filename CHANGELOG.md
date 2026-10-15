@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GoBGP per-configured-peer metrics for effective decayed flap penalty,
+  recovery suppression and its maximum bound, and pending desired Up/Down
+  actions with their next retry/recheck timestamp (`gobfd-qj0.8.2.4.7`).
+  Accepted reloads replace the peer allowlist; scrapes do not change routing
+  decisions or create labels from API or unsolicited sessions.
 - Versioned session snapshots and gap-aware Watch streams
   (`gobfd-qj0.8.2.1.3.2`; H-29, M-08). `bfd.v1` adds `revision` to
   `ListSessionsResponse`, `GetSessionResponse` and

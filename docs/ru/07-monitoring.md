@@ -20,7 +20,7 @@
 
 ### Метрики Prometheus
 
-GoBFD предоставляет метрики Prometheus по настроенному адресу (по умолчанию `127.0.0.1:9100/metrics`). Все метрики имеют префикс `gobfd_bfd_`.
+GoBFD предоставляет метрики Prometheus по настроенному адресу (по умолчанию `127.0.0.1:9100/metrics`). Метрики используют namespace `gobfd_`.
 
 `gobfd_bfd_packets_dropped_total` и `gobfd_bfd_auth_failures_total`
 зарегистрированы, но production data path пока не увеличивает их значения.
@@ -37,6 +37,35 @@ GoBFD предоставляет метрики Prometheus по настроен
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
+| `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Эффективный flap penalty с decay на момент scrape |
+| `gobfd_gobgp_dampening_suppressed` | Gauge | `peer_addr` | 1, если dampening ещё удерживает восстановление |
+| `gobfd_gobgp_dampening_suppression_deadline_seconds` | Gauge | `peer_addr` | Unix timestamp максимальной границы текущего suppression; 0 без suppression |
+| `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 для неприменённого желаемого действия (`up` или `down`); иначе 0 |
+| `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp следующего retry или suppression recheck; 0 при отсутствии действия |
+
+Per-peer метрики GoBGP существуют только при включённой интеграции для пиров
+из последней валидной конфигурации `sessions`. Allowlist меняется при принятом
+reload; удалённые пиры исчезают при следующем scrape, отклонённый кандидат
+сохраняет прежний allowlist. IPv4-mapped адреса приводятся к IPv4, дубликаты
+объединяются. API и unsolicited sessions не создают новые metric labels.
+Для каждого configured peer выдаются семь samples в пяти gauges, включая
+нулевые action samples `up` и `down` в отсутствие ожидающего действия.
+
+Penalty и suppression вычисляются на момент scrape по `half_life`,
+`reuse_threshold` и `max_suppress_time`. После истечения recovery suppression
+метрика penalty равна нулю, как при снятии suppression обработчиком.
+Наблюдение не изменяет routing state и не регистрирует flap. Граница
+suppression равна `suppressed_since + max_suppress_time`; decay может разрешить
+восстановление раньше. Эта граница определяет допустимость восстановления,
+а не завершение RPC.
+
+Pending action и его deadline отражают последний завершённый event или
+attempt обработчика: retry временной ошибки RPC или удерживаемый recovery.
+Action deadline задаёт следующий запланированный attempt или recheck и может
+оказаться в прошлом во время выполнения RPC. Это не граница suppression и
+не гарантия успешного применения. Успешное применение, отмена, удаление сессии
+или остановка обработчика очищают pending action. AdminDown отменяет
+ожидающий Down; Up для включения ранее отключённого GoBFD пира сохраняется.
 
 #### Примеры запросов
 

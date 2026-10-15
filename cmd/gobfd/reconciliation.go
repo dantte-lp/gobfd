@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"sync"
 
@@ -160,9 +161,10 @@ type reconciliationCoordinator struct {
 	hasRetainedCandidate bool
 	timerUpdates         []bfd.TimerUpdateRef
 
-	statusMu sync.RWMutex
-	snapshot reconciliationSnapshot
-	startup  startupRuntimeContract
+	statusMu          sync.RWMutex
+	snapshot          reconciliationSnapshot
+	startup           startupRuntimeContract
+	onConfiguredPeers func([]netip.Addr)
 
 	logger  *slog.Logger
 	checker *grpchealth.StaticChecker
@@ -206,6 +208,9 @@ func (c *reconciliationCoordinator) reconcile(
 	candidate, err := compileControlSessionCandidate(cfg, overlayRuntime)
 	if err != nil {
 		return err
+	}
+	if c.onConfiguredPeers != nil {
+		c.onConfiguredPeers(goBGPManagedPeers(cfg.Sessions))
 	}
 	c.applyCandidateLocked(ctx, candidate, logLevel, func(
 		ctx context.Context,
