@@ -427,3 +427,31 @@ func TestHandlerUnmapsIPv4MappedPeer(t *testing.T) {
 		}
 	})
 }
+
+// A peer GoBFD disabled is re-enabled on BFD Up even while its session no
+// longer actuates the neighbor: an ambiguity that later clears produces no
+// new event, so a rejected Up would leave the peer disabled.
+func TestHandlerEnablesDisabledPeerWhenSessionStopsActuating(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		var actuating atomic.Bool
+		actuating.Store(true)
+		h, err := gobgp.NewHandler(gobgp.HandlerConfig{
+			Client:   mock,
+			Strategy: gobgp.StrategyDisablePeer,
+			Actuates: func(bfd.StateChange) bool { return actuating.Load() },
+			Logger:   slog.Default(),
+		})
+		if err != nil {
+			t.Fatalf("NewHandler: %v", err)
+		}
+		events := runHandler(t, h)
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+		actuating.Store(false)
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+	})
+}

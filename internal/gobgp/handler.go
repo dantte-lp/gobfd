@@ -123,9 +123,10 @@ type HandlerConfig struct {
 
 	// Actuates reports whether a single-hop or multi-hop session is the
 	// canonical BFD session for its BGP neighbor and still exists. The
-	// handler ignores events it rejects, and before applying a late Down
+	// handler ignores a Down it rejects, and before applying a late Down
 	// asks again with the pending event, because session deletion
-	// publishes no state change. Nil accepts every base session.
+	// publishes no state change. Up is not gated. Nil accepts every base
+	// session.
 	Actuates func(sc bfd.StateChange) bool
 
 	// OnAction, when set, receives the GoBGP RPC name and result of every
@@ -241,7 +242,7 @@ func (h *Handler) retryDue(ctx context.Context) {
 	}
 	if due.down && h.actuates != nil && !h.actuates(due.sc) {
 		delete(h.pending, peerAddr)
-		h.logger.Info("pending BGP Down dropped, peer has no BFD session",
+		h.logger.Info("pending BGP Down dropped, session no longer actuates the peer",
 			slog.String("peer", peerAddr),
 		)
 		return
@@ -265,8 +266,10 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 	if sc.Type != bfd.SessionTypeSingleHop && sc.Type != bfd.SessionTypeMultiHop {
 		return
 	}
-	if h.actuates != nil && !h.actuates(sc) {
-		h.logger.Debug("ignoring BFD state change, session does not actuate the BGP peer",
+	// Only a Down is gated: an Up re-enables only a peer GoBFD disabled, and
+	// an ambiguity that later clears publishes no event to re-enable it.
+	if isTransitionToDown(sc) && h.actuates != nil && !h.actuates(sc) {
+		h.logger.Debug("ignoring BFD Down, session does not actuate the BGP peer",
 			slog.String("peer", peerAddr),
 			slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
 		)
