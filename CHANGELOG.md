@@ -243,6 +243,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Authentication key stores reject duplicate key IDs, including identical
+  rotation keys, so transmit and receive key selection cannot disagree.
+
 - `AddSession` returns the same Manager snapshot fields as Get and List,
   including the initial `remote_min_rx_interval`.
 

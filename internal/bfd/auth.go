@@ -62,6 +62,9 @@ var (
 	// ErrAuthKeyStoreIdentityUnavailable indicates an AuthKeyStore does not
 	// expose the immutable package-owned identity required for shared claims.
 	ErrAuthKeyStoreIdentityUnavailable = errors.New("auth key store has no stable effective identity")
+
+	// ErrAuthDuplicateKeyID indicates ambiguous transmit or receive key selection.
+	ErrAuthDuplicateKeyID = errors.New("duplicate auth key ID")
 )
 
 // -------------------------------------------------------------------------
@@ -117,6 +120,9 @@ func NewStaticAuthKeyStore(current AuthKey, additional ...AuthKey) (*StaticAuthK
 	keys := make(map[uint8]AuthKey, 1+len(additional))
 	keys[current.ID] = current
 	for _, key := range additional {
+		if _, exists := keys[key.ID]; exists {
+			return nil, fmt.Errorf("key ID %d: %w", key.ID, ErrAuthDuplicateKeyID)
+		}
 		if err := validateAuthKey(key); err != nil {
 			return nil, err
 		}
