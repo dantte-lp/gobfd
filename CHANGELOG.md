@@ -255,6 +255,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Authentication sequence expiry uses monotonic last-valid-receive timing
+  (`gobfd-qj0.8.2.1.2.2`, M-04). `AuthSeqKnown` clears at twice the Detection
+  Time in every session state, including before verification when RX wins
+  over a ready timeout; `RcvAuthSeq` is preserved until successful reception.
+  Invalid authentication does not postpone expiry.
+
 - Validate the configured log vocabulary before startup or SIGHUP applies
   changes (`gobfd-8f3.9`): levels accept case-insensitive `debug`, `info`,
   `warn`, `error`; formats require lowercase `json` or `text`. Explicit empty,

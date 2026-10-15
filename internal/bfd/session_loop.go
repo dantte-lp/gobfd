@@ -231,13 +231,12 @@ func (s *Session) maybeResetAuthSeqKnown() {
 	if s.authState == nil || !s.authState.AuthSeqKnown {
 		return
 	}
-	lastNS := s.lastPacketRecv.Load()
-	if lastNS == 0 {
+	if s.lastValidRecv.IsZero() {
 		return
 	}
 
 	detectTime := s.calcDetectionTimeHot()
-	if time.Since(time.Unix(0, lastNS)) < 2*detectTime {
+	if time.Since(s.lastValidRecv) < 2*detectTime {
 		return
 	}
 

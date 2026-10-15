@@ -362,7 +362,8 @@ type Session struct {
 	failedPollSeparation bool
 	floorHeld            bool
 	recoverOnUp          bool
-	lastValidRecv        time.Time
+	// Owner-loop receive time retains monotonic timing; lastPacketRecv is wall-clock telemetry.
+	lastValidRecv time.Time
 
 	// --- Session identity ---
 

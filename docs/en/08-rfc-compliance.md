@@ -146,6 +146,15 @@ Key features:
 - Sequence window: `3 * DetectMult` for non-meticulous
 - `AuthKeyStore` supports multiple keys for hitless rotation
 
+RFC 5880 Section 6.8.1 receive-sequence expiry uses the owner loop's monotonic
+last-valid-receive timestamp. At `2 × DetectionTime` without a valid packet,
+`AuthSeqKnown` is cleared in every session state; `RcvAuthSeq` is retained
+until the next successful authenticated reception replaces it. Authentication
+also checks expiry before verifying a queued packet, so a restarted peer can
+resynchronize even when RX is processed before a ready detection timer.
+Invalid authentication never refreshes the receive timestamp. Exported
+wall-clock receive timestamps do not participate in this decision.
+
 #### Section 6.8.6: Reception of BFD Control Packets
 
 Validation split across two layers:

@@ -32,6 +32,9 @@ func (s *Session) handleRecvPacket(
 
 	// RFC 5880 Section 6.7: verify authentication if configured.
 	if s.auth != nil {
+		// RX may win select while the detection timer is already ready.
+		// Expire the old sequence window before authenticating a restarted peer.
+		s.maybeResetAuthSeqKnown()
 		if err := s.auth.Verify(
 			s.authState, s.authKeys, pkt, item.wire, len(item.wire),
 		); err != nil {
