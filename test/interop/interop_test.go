@@ -1650,8 +1650,9 @@ func TestRFCCompliance(t *testing.T) {
 		}
 		for _, peer := range peers {
 			t.Run(peer.name, func(t *testing.T) {
-				rows, err := tsharkFields(ctx, gobfdPkts+" && ip.dst == "+peer.ip,
-					[]string{"udp.length", "ip.flags.df", "udp.payload"}, 0)
+				filter := gobfdPkts + " && ip.dst == " + peer.ip
+				rows, err := tsharkFields(ctx, filter,
+					[]string{"udp.length", "udp.payload"}, 0)
 				if err != nil {
 					t.Fatalf("read %s Control packets: %v", peer.name, err)
 				}
@@ -1659,10 +1660,10 @@ func TestRFCCompliance(t *testing.T) {
 					t.Fatal("no GoBFD Control packets captured")
 				}
 				for i, row := range rows {
-					if len(row) != 3 {
-						t.Fatalf("packet %d fields = %v, want UDP length, DF, payload", i, row)
+					if len(row) != 2 {
+						t.Fatalf("packet %d fields = %v, want UDP length and payload", i, row)
 					}
-					payload, decodeErr := hex.DecodeString(strings.ReplaceAll(row[2], ":", ""))
+					payload, decodeErr := hex.DecodeString(strings.ReplaceAll(row[1], ":", ""))
 					if decodeErr != nil {
 						t.Fatalf("decode packet %d UDP payload: %v", i, decodeErr)
 					}
@@ -1670,9 +1671,9 @@ func TestRFCCompliance(t *testing.T) {
 						!validInteropControlPayload(payload, peer.pduLength, peer.authType) {
 						t.Errorf("packet %d violates BFD Length/authentication/zero-padding bounds: %v", i, row)
 					}
-					if peer.payloadLength > peer.pduLength && row[1] != "1" {
-						t.Errorf("padded packet %d DF = %q, want 1", i, row[1])
-					}
+				}
+				if peer.payloadLength > peer.pduLength {
+					assertNoPackets(ctx, t, filter+" && ip.flags.df != 1", "padded Control packets must set IPv4 DF")
 				}
 				t.Logf("validated %d packets: BFD Length=%d, auth type=%d, UDP length=%d",
 					len(rows), peer.pduLength, peer.authType, peer.payloadLength+8)
