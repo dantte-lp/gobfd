@@ -41,6 +41,29 @@ Compose 5.5.0 with `DOCKER_BUILDKIT=0` can start actual builds.
 the host Git directory. Direct container invocations must supply the same value
 when Git metadata is unavailable; malformed revisions are rejected.
 
+The current BASE fixtures use Simple Password for FRR and Keyed SHA1 for
+BIRD, with the public test-only key `gobfd-interop` and key ID 7. GoBFD sends
+128-byte UDP payloads to both; Holo and Thoro remain unauthenticated with
+24-byte payloads. FRR uses Simple Password because its pinned
+[SHA1 implementation uses HMAC](https://github.com/FRRouting/frr/blob/frr-10.7.1/bfdd/bfd_packet.c#L532),
+while [BIRD hashes the declared BFD PDU](https://github.com/CZ-NIC/bird/blob/e66773c42f115d80aaaef3b7246953b276a88065/proto/bfd/packets.c#L268).
+GoBFD authentication is not weakened to accommodate either peer.
+
+On 2026-10-15, `task/rfc9764-interop` at
+`e71afa118ae10cac8e8a53e3672f7f7b6cc83afa` passed the critical race-enabled
+manual Compose gate on linux/amd64: all four handshakes, Version, packet
+length/authentication/padding, TTL 255, destination port and source-port range.
+Capture checked 293 FRR-bound and 296 BIRD-bound GoBFD packets with BFD
+Length 40/52, UDP Length 136, zero padding and IPv4 DF; 300 Holo-bound and
+296 Thoro-bound packets retained BFD Length 24 and UDP Length 32. The GoBFD
+API reported local and remote Up for all four peers. Evidence is retained
+locally under `reports/rfc9764-interop/`. This is padded GoBFD TX and ordinary
+authenticated peer RX qualification; peers do not send padding. The full
+functional suite, timer reload and path MTU qualification did not run.
+The invocation used the existing command-scoped container DNS override;
+host resolver remediation remains open. Owned containers, network and images
+are retained after stopping the exact verified container IDs.
+
 The replacement recipe is `test/interop/frr/Containerfile`, built with
 `test/interop/frr` as its context. It pins the shared Debian trixie base by
 digest and official FRR `10.7.1-0~deb13u1` / libyang

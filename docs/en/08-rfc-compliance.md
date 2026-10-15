@@ -55,7 +55,7 @@
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
 | [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
-| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | PDU-length authentication and padding covered locally; authenticated interop pending |
+| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | PDU-length authentication covered locally; padded TX qualified with FRR/BIRD |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
@@ -537,9 +537,12 @@ The extra framing space does not permit inner BFD payloads above 9000 bytes.
 These are transport buffer limits, not a qualification of the path MTU.
 
 Local hash-boundary and configuration coverage is tracked by
-`gobfd-qj0.8.2.1.5.2`. The parent authenticated-padding interoperability gate
-`gobfd-qj0.8.2.1.5` remains open; local vectors and buffer limits do not prove
-peer interoperability or path MTU. Stable RFC 9764 compliance remains partial.
+`gobfd-qj0.8.2.1.5.2`. The [critical BASE gate](05-interop.md) qualifies
+128-byte GoBFD Control payloads toward FRR Simple Password and BIRD Keyed SHA1,
+including unchanged BFD Length, zero padding and IPv4 DF. Both peers transmit
+ordinary authenticated PDUs back to GoBFD; padded peer-originated traffic is
+covered by local vectors, not this interop run. Public API padding and path
+MTU qualification remain separate; stable RFC 9764 compliance remains partial.
 
 ### RFC 7880/7881 (Planned)
 

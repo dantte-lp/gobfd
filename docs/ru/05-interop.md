@@ -42,6 +42,29 @@ BIRD3 и зависящее от захвата измерение detection pre
 к Git-каталогу хоста. При прямом запуске из контейнера без Git-метаданных
 передайте то же значение; некорректные ревизии отклоняются.
 
+Текущие BASE fixtures используют Simple Password для FRR и Keyed SHA1 для
+BIRD с публичным тестовым ключом `gobfd-interop` и key ID 7. GoBFD передаёт
+обоим UDP payload 128 байт; Holo и Thoro используют payload 24 байта без
+аутентификации. Для FRR выбран Simple Password, поскольку закреплённая
+[SHA1-реализация использует HMAC](https://github.com/FRRouting/frr/blob/frr-10.7.1/bfdd/bfd_packet.c#L532),
+а [BIRD хеширует объявленный BFD PDU](https://github.com/CZ-NIC/bird/blob/e66773c42f115d80aaaef3b7246953b276a88065/proto/bfd/packets.c#L268).
+Проверки аутентификации GoBFD сохраняются без ослабления.
+
+На 2026-10-15 критический manual Compose gate с race detector пройден на
+linux/amd64 для `task/rfc9764-interop` в
+`e71afa118ae10cac8e8a53e3672f7f7b6cc83afa`: четыре handshake, Version,
+длина/authentication/padding, TTL 255, destination port и source-port range.
+Capture проверил 293 пакета GoBFD к FRR и 296 к BIRD: BFD Length 40/52,
+UDP Length 136, нулевой padding и IPv4 DF; 300 пакетов к Holo и 296 к Thoro
+сохранили BFD Length 24 и UDP Length 32. Текущий API GoBFD показал local и
+remote Up для четырёх peers. Локальные доказательства сохранены в
+`reports/rfc9764-interop/`. Проверен padded TX GoBFD и обычный authenticated
+RX от peers; peers не передают padding. Полный functional suite, timer
+reload и проверка path MTU не выполнялись. Запуск использовал существующий
+command-scoped DNS override контейнеров; исправление host resolver остаётся
+открытым. Контейнеры остановлены по проверенным точным ID; контейнеры, сеть
+и образы сохранены.
+
 Рецепт замены — `test/interop/frr/Containerfile`, build context —
 `test/interop/frr`. Общая база Debian trixie закреплена digest, официальные
 пакеты FRR `10.7.1-0~deb13u1` / libyang `3.13.6-1~deb13u1` — SHA-256
