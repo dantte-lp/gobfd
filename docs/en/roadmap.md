@@ -137,9 +137,11 @@ before the update:
    (`5879b15`): `.1` Unix socket with peer-UID principals done (`02ffd16`),
    `.2` mTLS TCP done (`aae60cf`), `.3` socket-only defaults with migration
    done (`319d2bb`, breaking), `.4` principal-scoped claims and mTLS roles
-   done (`0d949dd`); `gobfd-330` closed, GitHub #87 closed. Next in the
-   same epic: `.8.2.3.2` debug and flight-recorder endpoints, today always
-   served without authentication on the metrics listener.
+   done (`0d949dd`); `gobfd-330` closed, GitHub #87 closed. `.8.2.3.2`
+   done (`c7bfe14`): the flight recorder dump left the metrics listener and
+   is served, opt-in, only to authenticated management callers. Remaining in
+   epic `.8.2.3`: P1 `.8.2.3.1` component readiness and `.8.2.3.3` systemd
+   syscall/address-family contract.
 4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
    with containerlab v0.81.0; vendor runs need a host with containerlab and
    vendor images.
@@ -237,7 +239,7 @@ Architecture notes for `gobfd-5w0`:
 
 Priority changes: `.8.2.3.4` and `.8.2.4.6` are done (`0314466`, `2a4afb1`;
 issue #86 closed). `.8.2.1.10.1` waits for the `.8.2.1.10.5` listener design, so
-`gobfd-330` is done; `.8.2.3.2` (debug endpoints) is the next security work. `gobfd-5w0` waits for its
+`gobfd-330` and `.8.2.3.2` are done; GoBGP `.8.2.4.1` (operator-disabled peers, decided) is the next P0. `gobfd-5w0` waits for its
 blockers and a design review.
 
 ## Plan reconciliation 2026-10-13
