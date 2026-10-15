@@ -246,6 +246,13 @@
 
 ### Исправлено
 
+- HAProxy и ExaBGP переподключают Watch после ошибки и EOF, сбрасывают состояние
+  при обрыве и `GAP`, применяют снимок после `SYNC_COMPLETE`. Удаление сессии
+  отзывает health и маршрут. Selectors local/interface/type разделяют сессии
+  одного peer; неоднозначность даёт отказ. ExaBGP сверяет маршрут после reconnect
+  и перезапуска процесса, завершается при ошибке или неполной записи stdout.
+  HAProxy backend ports должны различаться.
+
 - `AddSession` возвращает те же поля снимка Manager, что Get и List,
   включая начальное значение `remote_min_rx_interval`.
 

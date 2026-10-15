@@ -309,6 +309,26 @@ func TestLoadConfig_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsInvalidSelectorsAndPorts(t *testing.T) {
+	t.Parallel()
+	for _, backends := range []string{
+		"  - peer: invalid\n    agent_port: 9990\n",
+		"  - peer: 192.0.2.1\n    local: invalid\n    agent_port: 9990\n",
+		"  - peer: 192.0.2.1\n    type: unknown\n    agent_port: 9990\n",
+		"  - peer: 192.0.2.1\n    agent_port: 0\n",
+		"  - peer: 192.0.2.1\n    agent_port: 65536\n",
+		"  - peer: 192.0.2.1\n    agent_port: 9990\n  - peer: 192.0.2.2\n    agent_port: 9990\n",
+	} {
+		path := filepath.Join(t.TempDir(), "agent.yml")
+		if err := os.WriteFile(path, []byte("backends:\n"+backends), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadConfig(path); err == nil {
+			t.Fatalf("accepted invalid backend config %q", backends)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // envOrDefault tests
 // ---------------------------------------------------------------------------
