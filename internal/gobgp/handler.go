@@ -138,9 +138,8 @@ type HandlerConfig struct {
 	// Actuates reports whether a single-hop or multi-hop session is the
 	// canonical BFD session for its BGP neighbor and still exists. The
 	// handler ignores a Down it rejects, and before applying a late Down
-	// asks again with the pending event, because session deletion
-	// publishes no state change. Up is not gated. Nil accepts every base
-	// session.
+	// asks again with the pending event. Deletion cancels pending actions
+	// for that session. Up is not gated. Nil accepts every base session.
 	Actuates func(sc bfd.StateChange) bool
 
 	// Snapshot returns the current sessions and the revision they cover.
@@ -293,6 +292,10 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 	if !isBaseSession(sc.Type) {
 		return
 	}
+	if sc.Deleted {
+		h.forgetSession(sc.LocalDiscr)
+		return
+	}
 	if _, ok := h.resynced[sc.LocalDiscr]; ok {
 		delete(h.resynced, sc.LocalDiscr)
 		if h.last[sc.LocalDiscr] == sc.NewState {
@@ -301,6 +304,16 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 	}
 	h.last[sc.LocalDiscr] = sc.NewState
 	h.act(ctx, sc)
+}
+
+func (h *Handler) forgetSession(discr uint32) {
+	delete(h.last, discr)
+	delete(h.resynced, discr)
+	for peer, pending := range h.pending {
+		if pending.sc.LocalDiscr == discr {
+			delete(h.pending, peer)
+		}
+	}
 }
 
 // isBaseSession reports whether a session describes a BGP neighbor (H-31):
@@ -401,7 +414,7 @@ func (h *Handler) resync(ctx context.Context, gapRevision uint64) {
 	}
 	for discr := range h.last {
 		if _, ok := present[discr]; !ok {
-			delete(h.last, discr)
+			h.forgetSession(discr)
 		}
 	}
 	h.covered = rev

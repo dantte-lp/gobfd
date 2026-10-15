@@ -280,7 +280,8 @@ func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testi
 	mgr.sessions[discr].session.state.Store(uint32(StateDown))
 	mgr.mu.RUnlock()
 
-	mgr.cleanupUnsolicitedSession(context.Background(), discr)
+	session, _ := mgr.LookupByDiscriminator(discr)
+	mgr.cleanupUnsolicitedSession(context.Background(), session)
 	if _, ok := mgr.LookupByDiscriminator(discr); !ok {
 		t.Fatal("unsolicited cleanup removed config-owned wire session")
 	}

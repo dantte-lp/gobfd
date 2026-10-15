@@ -274,9 +274,8 @@ func TestHandlerAdminDownKeepsPendingUp(t *testing.T) {
 	})
 }
 
-// Session deletion publishes no BFD event, so before a late Down the
-// handler asks whether the peer still has a BFD session; a deleted
-// session's pending Down is dropped.
+// Before a late Down the handler rechecks ownership, even when the
+// event removing the session has not reached the handler yet.
 func TestHandlerDropsPendingDownForUnmanagedPeer(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mock := newMockClient()

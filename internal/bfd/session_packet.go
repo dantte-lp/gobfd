@@ -222,6 +222,7 @@ func (s *Session) emitNotification(result FSMResult) {
 		Timestamp:  time.Now(),
 		Type:       s.sessionType,
 		Interface:  s.ifName,
+		source:     s,
 	}
 	select {
 	case s.notifyCh <- sc:

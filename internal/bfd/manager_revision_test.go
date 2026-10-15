@@ -7,6 +7,16 @@ import (
 	"testing/synctest"
 )
 
+func notificationTestSession(t *testing.T, mgr *Manager) *Session {
+	t.Helper()
+	sess, err := mgr.CreateSession(context.Background(), senderLeaseTestConfig("192.0.2.1"),
+		ownershipSenderLeaseFactory())
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	return sess
+}
+
 // A slow subscriber loses events but never silently: the last buffer slot
 // carries a gap marker, which arrives even when no further event follows
 // (H-29, M-08).
@@ -16,22 +26,23 @@ func TestSubscriberOverflowQueuesGapMarker(t *testing.T) {
 		defer mgr.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		sess := notificationTestSession(t, mgr)
 		go mgr.RunDispatch(ctx)
 
 		sub, err := mgr.SubscribeStateChanges(ctx)
 		if err != nil {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
-		for i := range notifyChSize + 10 {
-			mgr.rawNotifyCh <- StateChange{LocalDiscr: uint32(i + 1), OldState: StateDown, NewState: StateInit}
+		for range notifyChSize + 10 {
+			sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
 			synctest.Wait()
 		}
 
 		var last uint64
 		for i := range notifyChSize - 1 {
 			sc := <-sub
-			if sc.Gap || sc.LocalDiscr != uint32(i+1) {
-				t.Fatalf("event %d = %+v, want discriminator %d", i, sc, i+1)
+			if sc.Gap || sc.LocalDiscr != sess.LocalDiscriminator() {
+				t.Fatalf("event %d = %+v, want discriminator %d", i, sc, sess.LocalDiscriminator())
 			}
 			if sc.Revision <= last {
 				t.Fatalf("event %d revision %d not above %d", i, sc.Revision, last)
@@ -49,10 +60,10 @@ func TestSubscriberOverflowQueuesGapMarker(t *testing.T) {
 		}
 
 		// Delivery resumes once the subscriber has drained its buffer.
-		mgr.rawNotifyCh <- StateChange{LocalDiscr: 999, OldState: StateInit, NewState: StateUp}
+		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp})
 		synctest.Wait()
-		if sc := <-sub; sc.Gap || sc.LocalDiscr != 999 {
-			t.Fatalf("event after drain = %+v, want discriminator 999", sc)
+		if sc := <-sub; sc.Gap || sc.LocalDiscr != sess.LocalDiscriminator() {
+			t.Fatalf("event after drain = %+v, want discriminator %d", sc, sess.LocalDiscriminator())
 		}
 	})
 }
@@ -65,9 +76,10 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 		defer mgr.Close()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		sess := notificationTestSession(t, mgr)
 		go mgr.RunDispatch(ctx)
 
-		mgr.rawNotifyCh <- StateChange{LocalDiscr: 1, OldState: StateDown, NewState: StateInit}
+		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
 		synctest.Wait()
 
 		sub, err := mgr.SubscribeStateChanges(ctx)
@@ -78,7 +90,7 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 		if rev != 1 {
 			t.Fatalf("snapshot revision = %d, want 1", rev)
 		}
-		mgr.rawNotifyCh <- StateChange{LocalDiscr: 1, OldState: StateInit, NewState: StateUp}
+		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp})
 		synctest.Wait()
 		if sc := <-sub; sc.Revision != rev+1 {
 			t.Fatalf("event after snapshot revision = %d, want %d", sc.Revision, rev+1)

@@ -300,7 +300,8 @@ func TestUnsolicitedCleanupClosesSessionLeaseOnce(t *testing.T) {
 	mgr.sessions[discr].session.state.Store(uint32(StateDown))
 	mgr.mu.RUnlock()
 
-	mgr.cleanupUnsolicitedSession(context.Background(), discr)
+	session, _ := mgr.LookupByDiscriminator(discr)
+	mgr.cleanupUnsolicitedSession(context.Background(), session)
 	if closes != 1 {
 		t.Fatalf("session sender closes after cleanup = %d, want 1", closes)
 	}

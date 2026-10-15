@@ -222,8 +222,11 @@ The monitor uses gRPC server-side streaming. Each event includes:
 A snapshot (`--current`) is a run of `SessionAdded` events closed by
 `SyncComplete`, which carries the revision the snapshot covers. If the
 monitor falls behind the daemon, it receives `Gap` followed by a fresh
-snapshot, with or without `--current`. Deleted sessions publish no event;
-they disappear at the next snapshot.
+snapshot, with or without `--current`. Releasing the last owner of a wire
+session emits `SessionDeleted` with its identity, final state and revision;
+releasing a shared claim emits no deletion. Later snapshots omit the removed
+session. Removal cancels its pending GoBGP Down and Up actions; it does not
+enable a peer GoBFD previously disabled.
 
 Press `Ctrl+C` to stop monitoring.
 

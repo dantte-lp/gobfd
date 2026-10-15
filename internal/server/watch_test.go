@@ -148,3 +148,46 @@ func TestWatchLoopResyncsAfterGap(t *testing.T) {
 type noopPacketSender struct{}
 
 func (noopPacketSender) SendPacket(context.Context, []byte, netip.Addr) error { return nil }
+
+func TestWatchLoopPublishesSessionDeletion(t *testing.T) {
+	t.Parallel()
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	t.Cleanup(mgr.Close)
+	session, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
+		PeerAddr: netip.MustParseAddr(testPeerAddr), LocalAddr: netip.MustParseAddr(testLocalAddr),
+		Interface: "eth0", Type: bfd.SessionTypeSingleHop, Role: bfd.RoleActive,
+		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
+	}, bfd.NonOwningSenderLeaseFactory(noopPacketSender{}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	sub, err := mgr.SubscribeStateChanges(ctx)
+	if err != nil {
+		t.Fatalf("SubscribeStateChanges: %v", err)
+	}
+	var got []*bfdv1.WatchSessionEventsResponse
+	err = server.WatchLoop(ctx, mgr, sub, true, func(event *bfdv1.WatchSessionEventsResponse) error {
+		got = append(got, event)
+		if event.GetType() == bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE {
+			if deleteErr := mgr.DestroySession(ctx, session.LocalDiscriminator()); deleteErr != nil {
+				t.Fatalf("DestroySession: %v", deleteErr)
+			}
+		} else if len(got) == 3 {
+			cancel()
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WatchLoop: %v, want cancellation", err)
+	}
+	if len(got) != 3 || got[2].GetType() != bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED ||
+		got[2].GetRevision() <= got[1].GetRevision() ||
+		got[2].GetSession().GetLocalDiscriminator() != session.LocalDiscriminator() ||
+		got[2].GetSession().GetPeerAddress() != testPeerAddr ||
+		got[2].GetSession().GetLocalAddress() != testLocalAddr ||
+		got[2].GetSession().GetInterfaceName() != "eth0" {
+		t.Fatalf("Watch events = %v, want snapshot, sync, revisioned deletion with session identity", got)
+	}
+}

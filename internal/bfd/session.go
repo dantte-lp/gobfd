@@ -143,7 +143,7 @@ type SessionConfig struct {
 	PaddedPduSize uint16
 }
 
-// StateChange is emitted when a session FSM transitions between states.
+// StateChange reports a session FSM transition or removal.
 type StateChange struct {
 	// LocalDiscr is the local discriminator of the session.
 	LocalDiscr uint32
@@ -178,10 +178,17 @@ type StateChange struct {
 	// dispatched change. Zero before dispatch.
 	Revision uint64
 
+	// Deleted marks removal of the wire session after its last owner releases it.
+	// State fields describe its final state, not a new FSM transition.
+	Deleted bool
+
 	// Gap marks a subscriber-only marker: events before Revision were lost
 	// and the subscriber must resync from Manager.SessionsWithRevision.
 	// Other fields except Timestamp are zero.
 	Gap bool
+
+	// source distinguishes queued events from a retired session after discriminator reuse.
+	source *Session
 }
 
 // PacketSender abstracts sending BFD Control packets over the network.

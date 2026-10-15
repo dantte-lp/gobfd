@@ -345,6 +345,20 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	delete(m.sessions, localDiscr)
 	delete(m.sessionsByPeer, entry.demuxKey)
 	delete(m.sessionsByKey, entry.key)
+	session := entry.session
+	state := session.State()
+	m.broadcastStateChange(StateChange{
+		LocalDiscr: localDiscr,
+		PeerAddr:   session.PeerAddr(),
+		LocalAddr:  session.LocalAddr(),
+		OldState:   state,
+		NewState:   state,
+		Diag:       session.LocalDiag(),
+		Timestamp:  time.Now(),
+		Type:       session.Type(),
+		Interface:  session.Interface(),
+		Deleted:    true,
+	})
 	m.mu.Unlock()
 
 	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil

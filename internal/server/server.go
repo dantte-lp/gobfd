@@ -628,8 +628,12 @@ func addrString(a netip.Addr) string {
 
 // stateChangeToProto converts an internal StateChange to a WatchSessionEventsResponse.
 func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
+	eventType := bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE
+	if sc.Deleted {
+		eventType = bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED
+	}
 	return &bfdv1.WatchSessionEventsResponse{
-		Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE,
+		Type: eventType,
 		Session: &bfdv1.BfdSession{
 			PeerAddress:        sc.PeerAddr.String(),
 			LocalAddress:       addrString(sc.LocalAddr),
