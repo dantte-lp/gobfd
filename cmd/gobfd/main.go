@@ -139,11 +139,7 @@ func runServers(
 	coordinator.onConfiguredPeers = bgpStatus.configuredPeers
 
 	// errgroup with signal-aware context.
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		syscall.SIGINT,
-		syscall.SIGTERM,
-	)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	sigHUP := make(chan os.Signal, 1)
 	signal.Notify(sigHUP, syscall.SIGHUP)

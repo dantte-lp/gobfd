@@ -81,8 +81,8 @@ func TestLoadRejectsCaseFoldedMultiplierOverflow(t *testing.T) {
 		"sessions:\n  - peer: 192.0.2.1\n    DETECT_MULT: 3\n")); err != nil {
 		t.Fatalf("rejected valid case-folded multiplier: %v", err)
 	}
-	if _, err := config.Load(writeTemp(t,
-		"sessions:\n  - peer: 192.0.2.1\n    detect_mult: 3\n    DETECT_MULT: 4\n")); !errors.Is(err, config.ErrAmbiguousConfigKey) {
+	conflicting := "sessions:\n  - peer: 192.0.2.1\n    detect_mult: 3\n    DETECT_MULT: 4\n"
+	if _, err := config.Load(writeTemp(t, conflicting)); !errors.Is(err, config.ErrAmbiguousConfigKey) {
 		t.Fatalf("conflicting aliases error = %v, want ErrAmbiguousConfigKey", err)
 	}
 }

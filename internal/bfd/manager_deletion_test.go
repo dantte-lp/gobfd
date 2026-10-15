@@ -100,7 +100,7 @@ func TestManagerDeletionKeepsSharedOwnerSession(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateSessionAs(alice): %v", err)
 		}
-		if _, err := mgr.CreateSessionAs(ctx, cfg, ownershipSenderLeaseFactory(), bob); err != nil {
+		if _, err = mgr.CreateSessionAs(ctx, cfg, ownershipSenderLeaseFactory(), bob); err != nil {
 			t.Fatalf("CreateSessionAs(bob): %v", err)
 		}
 		sub, err := mgr.SubscribeStateChanges(ctx)
@@ -134,7 +134,8 @@ func TestManagerDeletionAfterDispatchCancellation(t *testing.T) {
 		if _, ok := <-mgr.StateChanges(); ok {
 			t.Fatal("legacy channel remains open after dispatcher cancellation")
 		}
-		sess, err := mgr.CreateSession(context.Background(), senderLeaseTestConfig("192.0.2.1"), ownershipSenderLeaseFactory())
+		sess, err := mgr.CreateSession(context.Background(), senderLeaseTestConfig("192.0.2.1"),
+			ownershipSenderLeaseFactory())
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
@@ -161,7 +162,7 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
 		session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit})
-		if err := mgr.DestroySession(context.Background(), session.LocalDiscriminator()); err != nil {
+		if err = mgr.DestroySession(context.Background(), session.LocalDiscriminator()); err != nil {
 			t.Fatalf("DestroySession: %v", err)
 		}
 		if deletion := <-sub; !deletion.Deleted {

@@ -1041,64 +1041,74 @@ func validateDetectMultiplierInput(k *koanf.Koanf) error {
 		"vxlan.default_detect_multiplier", "geneve.default_detect_multiplier",
 		"unsolicited.session_defaults.detect_mult",
 	} {
-		value, err := rawCaseFoldedValue(root, path)
+		value, found, err := rawCaseFoldedValue(root, path)
 		if err != nil {
 			return err
 		}
-		if !validUint8Scalar(value) {
+		if found && !validUint8Scalar(value) {
 			return fmt.Errorf("%s: %w", path, ErrDetectMultiplierRange)
 		}
 	}
 	for _, path := range []string{"sessions", "echo.peers", "vxlan.peers", "geneve.peers", "micro_bfd.groups"} {
-		value, err := rawCaseFoldedValue(root, path)
+		value, found, err := rawCaseFoldedValue(root, path)
 		if err != nil {
 			return err
 		}
-		if value == nil {
+		if !found || value == nil {
 			continue
 		}
-		entries, ok := value.([]any)
-		if !ok {
-			return fmt.Errorf("%s: %w", path, ErrInvalidPeerListShape)
+		if err := validatePeerDetectMultipliers(path, value); err != nil {
+			return err
 		}
-		for i, value := range entries {
-			entry, ok := value.(map[string]any)
-			if !ok {
-				return fmt.Errorf("%s[%d]: %w", path, i, ErrInvalidPeerListShape)
-			}
-			multiplier, err := rawCaseFoldedValue(entry, "detect_mult")
-			if err != nil {
-				return fmt.Errorf("%s[%d]: %w", path, i, err)
-			}
-			if !validUint8Scalar(multiplier) {
-				return fmt.Errorf("%s[%d].detect_mult: %w", path, i, ErrDetectMultiplierRange)
-			}
+	}
+	return nil
+}
+
+func validatePeerDetectMultipliers(path string, value any) error {
+	entries, ok := value.([]any)
+	if !ok {
+		return fmt.Errorf("%s: %w", path, ErrInvalidPeerListShape)
+	}
+	for i, value := range entries {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s[%d]: %w", path, i, ErrInvalidPeerListShape)
+		}
+		multiplier, found, err := rawCaseFoldedValue(entry, "detect_mult")
+		if err != nil {
+			return fmt.Errorf("%s[%d]: %w", path, i, err)
+		}
+		if found && !validUint8Scalar(multiplier) {
+			return fmt.Errorf("%s[%d].detect_mult: %w", path, i, ErrDetectMultiplierRange)
 		}
 	}
 	return nil
 }
 
 // Match the decoder's EqualFold lookup without choosing between case aliases.
-func rawCaseFoldedValue(root map[string]any, path string) (any, error) {
+func rawCaseFoldedValue(root map[string]any, path string) (any, bool, error) {
 	var value any = root
-	for _, part := range strings.Split(path, ".") {
+	for part := range strings.SplitSeq(path, ".") {
 		fields, ok := value.(map[string]any)
 		if !ok {
-			return nil, nil
+			return nil, false, nil
 		}
 		var next any
 		found := false
 		for key, field := range fields {
 			if strings.EqualFold(key, part) {
 				if found {
-					return nil, fmt.Errorf("%s: %w", path, ErrAmbiguousConfigKey)
+					return nil, false, fmt.Errorf("%s: %w", path, ErrAmbiguousConfigKey)
 				}
 				next, found = field, true
 			}
 		}
+		if !found {
+			return nil, false, nil
+		}
 		value = next
 	}
-	return value, nil
+	return value, true, nil
 }
 
 // applyRequiredMinRxPresence runs after raw shape validation, so koanf.Slices

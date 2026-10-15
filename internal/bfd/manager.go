@@ -575,7 +575,7 @@ type subscriber struct {
 // last buffer slot of a subscriber is reserved for a gap marker, so a slow
 // subscriber learns about lost events even when no further event follows.
 // subMu serializes dispatch and synchronous session removals.
-func (m *Manager) broadcastStateChange(sc StateChange) StateChange {
+func (m *Manager) broadcastStateChange(sc StateChange) {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
 
@@ -606,7 +606,6 @@ func (m *Manager) broadcastStateChange(sc StateChange) StateChange {
 			)
 		}
 	}
-	return sc
 }
 
 func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange) {

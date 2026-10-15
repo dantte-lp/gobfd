@@ -12,6 +12,7 @@ type DampeningSnapshot struct {
 // PeerStatus combines effective dampening with the last completed handler step.
 type PeerStatus struct {
 	DampeningSnapshot
+
 	Action      string
 	NextAttempt time.Time
 }
