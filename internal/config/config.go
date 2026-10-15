@@ -1391,16 +1391,12 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
-	if cfg.BFD.DefaultDetectMultiplier < 1 {
-		return ErrInvalidDetectMultiplier
+	if err := validateBFD(cfg.BFD); err != nil {
+		return err
 	}
 
-	if cfg.BFD.DefaultDesiredMinTx <= 0 {
-		return ErrInvalidDesiredMinTx
-	}
-
-	if cfg.BFD.DefaultRequiredMinRx < 0 {
-		return ErrInvalidRequiredMinRx
+	if err := validateLog(cfg.Log); err != nil {
+		return err
 	}
 
 	if err := validateGoBGP(cfg.GoBGP); err != nil {
@@ -1437,6 +1433,21 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+func validateBFD(cfg BFDConfig) error {
+	if cfg.DefaultDetectMultiplier < 1 {
+		return ErrInvalidDetectMultiplier
+	}
+
+	if cfg.DefaultDesiredMinTx <= 0 {
+		return ErrInvalidDesiredMinTx
+	}
+
+	if cfg.DefaultRequiredMinRx < 0 {
+		return ErrInvalidRequiredMinRx
+	}
 	return nil
 }
 

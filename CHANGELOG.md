@@ -255,6 +255,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Validate the configured log vocabulary before startup or SIGHUP applies
+  changes (`gobfd-8f3.9`): levels accept case-insensitive `debug`, `info`,
+  `warn`, `error`; formats require lowercase `json` or `text`. Explicit empty,
+  whitespace and unknown values return bounded typed field errors. Invalid
+  reloads preserve generations, health, log level, sessions and sender resources.
+
 - Wire `socket.read_buffer_size` / `socket.write_buffer_size` into control,
   Echo, Micro-BFD and unsolicited UDP paths, and duplex userspace VXLAN/Geneve
   sockets (`gobfd-8f3.7`). Zero preserves OS defaults; invalid nonnegative integer values fail

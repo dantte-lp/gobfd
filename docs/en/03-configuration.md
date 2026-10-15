@@ -182,7 +182,16 @@ visibly unsafe mode. A configured `grpc.addr` keeps its TCP listener.
 | `level` | string | `"info"` | Log level: `debug`, `info`, `warn`, `error` |
 | `format` | string | `"json"` | Output format: `json` (production), `text` (development) |
 
-Log level can be changed at runtime via SIGHUP reload without restarting the daemon.
+Levels are case-insensitive: `debug`, `info`, `warn`, and `error`. Formats must
+be exactly lowercase `json` or `text`. Omitted keys retain defaults `info`
+and `json`; explicit empty strings, whitespace, and unknown values fail
+configuration validation with `ErrInvalidLogLevel` or `ErrInvalidLogFormat`.
+Errors identify the field without printing its value. The same validation
+applies to YAML and environment overrides at startup and on SIGHUP, before
+log level, generation, health, sessions, or sender resources change.
+
+A valid log level can be changed through SIGHUP without restarting the daemon.
+Changing the format requires a restart.
 
 #### `bfd` -- Default BFD Parameters
 
@@ -798,6 +807,8 @@ skipped. Already accepted source changes are not rolled back.
 
 | Rule | Error |
 |---|---|
+| `log.level` must be `debug`, `info`, `warn`, or `error` (case-insensitive) | `ErrInvalidLogLevel` |
+| `log.format` must be exactly `json` or `text` | `ErrInvalidLogFormat` |
 | `socket.read_buffer_size` / `socket.write_buffer_size` must be >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
 | `grpc.addr` must not be empty | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` must be >= 1 | `ErrInvalidDetectMultiplier` |
