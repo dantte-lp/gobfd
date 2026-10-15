@@ -255,6 +255,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Wire `socket.read_buffer_size` / `socket.write_buffer_size` into control,
+  Echo, Micro-BFD and unsolicited UDP paths, and duplex userspace VXLAN/Geneve
+  sockets (`gobfd-8f3.7`). Zero preserves OS defaults; negative values fail
+  configuration validation with bounded field errors. Startup buffer policy
+  also covers later-created senders and remains immutable across SIGHUP.
+
 - Configuration rejects conflicting interfaces for one control listener
   (parsed local address and single-hop/multi-hop type), or one enabled Echo
   listener (parsed local address), regardless of declaration order

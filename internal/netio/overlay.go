@@ -178,6 +178,7 @@ func openScopedOverlayUDP(
 	port uint16,
 	kind bfd.TransportScopeKind,
 	scopes []bfd.TransportScope,
+	readBufferSize, writeBufferSize int,
 ) (*net.UDPConn, map[overlayReceiveKey]bfd.TransportScope, error) {
 	if len(scopes) > 0 {
 		if err := validateOverlayScopes(kind, localAddr, scopes); err != nil {
@@ -187,6 +188,13 @@ func openScopedOverlayUDP(
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: localAddr.AsSlice(), Port: int(port)})
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen overlay UDP %s:%d: %w", localAddr, port, err)
+	}
+	if err := configureOverlayBuffers(conn, readBufferSize, writeBufferSize); err != nil {
+		closeErr := conn.Close()
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close overlay UDP after buffer failure: %w", closeErr)
+		}
+		return nil, nil, errors.Join(err, closeErr)
 	}
 	if len(scopes) == 0 {
 		return conn, nil, nil
@@ -473,4 +481,20 @@ func isExpectedOverlayDrop(err error) bool {
 		}
 	}
 	return false
+}
+
+// configureOverlayBuffers applies the same startup policy to duplex overlay sockets.
+// Zero deliberately leaves the corresponding OS default untouched.
+func configureOverlayBuffers(conn *net.UDPConn, readBufferSize, writeBufferSize int) error {
+	if readBufferSize > 0 {
+		if err := conn.SetReadBuffer(readBufferSize); err != nil {
+			return fmt.Errorf("set overlay UDP read buffer: %w", err)
+		}
+	}
+	if writeBufferSize > 0 {
+		if err := conn.SetWriteBuffer(writeBufferSize); err != nil {
+			return fmt.Errorf("set overlay UDP write buffer: %w", err)
+		}
+	}
+	return nil
 }

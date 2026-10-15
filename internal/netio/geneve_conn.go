@@ -91,7 +91,7 @@ func NewGeneveConn(
 	srcPort uint16,
 	logger *slog.Logger,
 ) (*GeneveConn, error) {
-	return newGeneveConn(localAddr, vni, srcPort, nil, logger)
+	return newGeneveConn(localAddr, vni, srcPort, nil, logger, 0, 0)
 }
 
 // NewGeneveConnForScopes creates one listener for a local NVE with exact
@@ -102,7 +102,7 @@ func NewGeneveConnForScopes(
 	scopes []bfd.TransportScope,
 	logger *slog.Logger,
 ) (*GeneveConn, error) {
-	return newGeneveConn(localAddr, 0, srcPort, scopes, logger)
+	return newGeneveConn(localAddr, 0, srcPort, scopes, logger, 0, 0)
 }
 
 func newGeneveConn(
@@ -111,9 +111,10 @@ func newGeneveConn(
 	srcPort uint16,
 	scopes []bfd.TransportScope,
 	logger *slog.Logger,
+	readBufferSize, writeBufferSize int,
 ) (*GeneveConn, error) {
 	conn, scopeMap, err := openScopedOverlayUDP(
-		localAddr, GenevePort, bfd.TransportScopeGeneve, scopes,
+		localAddr, GenevePort, bfd.TransportScopeGeneve, scopes, readBufferSize, writeBufferSize,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("geneve: open %s:%d: %w", localAddr, GenevePort, err)

@@ -47,6 +47,8 @@ type VXLANOverlayBackendConfig struct {
 	SourcePort    uint16
 	Logger        *slog.Logger
 	Scopes        []bfd.TransportScope
+	// ReadBufferSize and WriteBufferSize request kernel UDP buffers; zero uses OS defaults.
+	ReadBufferSize, WriteBufferSize int
 }
 
 // GeneveOverlayBackendConfig configures a Geneve BFD overlay backend.
@@ -57,6 +59,8 @@ type GeneveOverlayBackendConfig struct {
 	SourcePort uint16
 	Logger     *slog.Logger
 	Scopes     []bfd.TransportScope
+	// ReadBufferSize and WriteBufferSize request kernel UDP buffers; zero uses OS defaults.
+	ReadBufferSize, WriteBufferSize int
 }
 
 // NewVXLANOverlayBackend creates the configured VXLAN BFD overlay backend.
@@ -72,10 +76,12 @@ func NewVXLANOverlayBackend(cfg VXLANOverlayBackendConfig) (OverlayConn, error) 
 	if !backend.Implemented() {
 		return nil, fmt.Errorf("vxlan overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
 	}
+	vni := cfg.ManagementVNI
 	if len(cfg.Scopes) > 0 {
-		return NewVXLANConnForScopes(cfg.LocalAddr, cfg.SourcePort, cfg.Scopes, overlayBackendLogger(cfg.Logger))
+		vni = 0
 	}
-	return NewVXLANConn(cfg.LocalAddr, cfg.ManagementVNI, cfg.SourcePort, overlayBackendLogger(cfg.Logger))
+	return newVXLANConn(cfg.LocalAddr, vni, cfg.SourcePort, cfg.Scopes,
+		overlayBackendLogger(cfg.Logger), cfg.ReadBufferSize, cfg.WriteBufferSize)
 }
 
 // NewGeneveOverlayBackend creates the configured Geneve BFD overlay backend.
@@ -91,10 +97,12 @@ func NewGeneveOverlayBackend(cfg GeneveOverlayBackendConfig) (OverlayConn, error
 	if !backend.Implemented() {
 		return nil, fmt.Errorf("geneve overlay backend %q: %w", backend, ErrUnsupportedOverlayBackend)
 	}
+	vni := cfg.VNI
 	if len(cfg.Scopes) > 0 {
-		return NewGeneveConnForScopes(cfg.LocalAddr, cfg.SourcePort, cfg.Scopes, overlayBackendLogger(cfg.Logger))
+		vni = 0
 	}
-	return NewGeneveConn(cfg.LocalAddr, cfg.VNI, cfg.SourcePort, overlayBackendLogger(cfg.Logger))
+	return newGeneveConn(cfg.LocalAddr, vni, cfg.SourcePort, cfg.Scopes,
+		overlayBackendLogger(cfg.Logger), cfg.ReadBufferSize, cfg.WriteBufferSize)
 }
 
 func overlayBackendLogger(logger *slog.Logger) *slog.Logger {

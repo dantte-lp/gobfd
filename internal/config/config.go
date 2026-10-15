@@ -1379,6 +1379,13 @@ var (
 // Validate checks the configuration for logical errors.
 // Returns the first validation error encountered.
 func Validate(cfg *Config) error {
+	if cfg.Socket.ReadBufferSize < 0 {
+		return ErrInvalidSocketReadBufferSize
+	}
+	if cfg.Socket.WriteBufferSize < 0 {
+		return ErrInvalidSocketWriteBufferSize
+	}
+
 	if err := validateGRPC(cfg.GRPC); err != nil {
 		return err
 	}
@@ -1431,6 +1438,12 @@ func Validate(cfg *Config) error {
 
 	return nil
 }
+
+// ErrInvalidSocketReadBufferSize rejects negative receive buffer requests.
+var ErrInvalidSocketReadBufferSize = errors.New("socket.read_buffer_size must be >= 0")
+
+// ErrInvalidSocketWriteBufferSize rejects negative send buffer requests.
+var ErrInvalidSocketWriteBufferSize = errors.New("socket.write_buffer_size must be >= 0")
 
 var validMicroBFDActuatorModes = map[string]bool{
 	MicroBFDActuatorModeDisabled: true,

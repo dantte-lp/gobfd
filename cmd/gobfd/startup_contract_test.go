@@ -46,6 +46,7 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 		{"metrics path", func(cfg *config.Config) { cfg.Metrics.Path = "/prometheus" }, startupFieldMetricsPath},
 		{"log format", func(cfg *config.Config) { cfg.Log.Format = "text" }, startupFieldLogFormat},
 		{"socket read buffer", func(cfg *config.Config) { cfg.Socket.ReadBufferSize++ }, startupFieldSocketReadBufferSize},
+		{"socket write buffer", func(cfg *config.Config) { cfg.Socket.WriteBufferSize++ }, startupFieldSocketWriteBufferSize},
 		{"gobgp TLS", func(cfg *config.Config) { cfg.GoBGP.TLS.ServerName = "router.example" }, startupFieldGoBGPTLS},
 		{"unsolicited auth", func(cfg *config.Config) {
 			cfg.Unsolicited.Auth = config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "s"}

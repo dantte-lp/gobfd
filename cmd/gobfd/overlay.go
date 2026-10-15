@@ -98,6 +98,7 @@ func createVXLANConns(
 		return netio.NewVXLANOverlayBackend(netio.VXLANOverlayBackendConfig{
 			Backend: netio.OverlayBackendType(cfg.VXLAN.Backend), LocalAddr: localAddr,
 			SourcePort: srcPort, Logger: logger, Scopes: scopes,
+			ReadBufferSize: cfg.Socket.ReadBufferSize, WriteBufferSize: cfg.Socket.WriteBufferSize,
 		})
 	})
 }
@@ -115,6 +116,7 @@ func createGeneveConns(
 		return netio.NewGeneveOverlayBackend(netio.GeneveOverlayBackendConfig{
 			Backend: netio.OverlayBackendType(cfg.Geneve.Backend), LocalAddr: localAddr,
 			SourcePort: srcPort, Logger: logger, Scopes: scopes,
+			ReadBufferSize: cfg.Socket.ReadBufferSize, WriteBufferSize: cfg.Socket.WriteBufferSize,
 		})
 	})
 }

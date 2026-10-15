@@ -371,7 +371,8 @@ func configEchoToBFD(ep config.EchoPeerConfig, defaults config.EchoConfig) (bfd.
 // udpSenderFactory implements server.SenderFactory using real UDP sockets
 // with RFC 5881 source port allocation and TTL=255 (GTSM).
 type udpSenderFactory struct {
-	portAlloc *netio.SourcePortAllocator
-	senders   map[uint16]*netio.UDPSender
-	mu        sync.Mutex
+	portAlloc       *netio.SourcePortAllocator
+	writeBufferSize int
+	senders         map[uint16]*netio.UDPSender
+	mu              sync.Mutex
 }

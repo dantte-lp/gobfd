@@ -259,6 +259,13 @@
 
 ### Исправлено
 
+- `socket.read_buffer_size` / `socket.write_buffer_size` применяются к control,
+  Echo, Micro-BFD и unsolicited UDP-путям, а также к двунаправленным userspace
+  VXLAN/Geneve-сокетам (`gobfd-8f3.7`). Ноль сохраняет настройки ОС;
+  отрицательные значения отклоняются с ограниченными ошибками полей.
+  Политика запуска действует и для создаваемых позже отправителей и остаётся
+  неизменяемой при SIGHUP.
+
 - Конфигурация отклоняет разные interface для одного control listener
   (parsed local address и single-hop/multi-hop type) или enabled Echo
   listener (parsed local address) независимо от порядка записей
