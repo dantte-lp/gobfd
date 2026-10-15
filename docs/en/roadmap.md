@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-10-14 (end of day). Beads is the task
+> Status projection from Beads, reconciled on 2026-10-15 01:20 UTC. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -107,8 +107,63 @@ Retrospective of the 2026-10-14 evening session against the queue of
   `reports/session-20261014/`.
 - Environment: the root filesystem is at 96% (13 GB free) after the gates.
 
-Ordered P0 queue from 2026-10-15. Read the release notes across each range
-before the update:
+Retrospective of the 2026-10-14/15 night session (21:15 to 01:10 UTC)
+against the queue of 2026-10-15 (previous version of the queue below):
+
+- Delivered to `dev`: 31 commits `22abeea..f0e442a`, six of them breaking.
+- GitHub #86 closed: GoBGP metrics and the `gobfd.gobgp` health check
+  (`2a4afb1`, `.8.2.4.6`).
+- GitHub #87 closed: loopback metrics and agent-check (`ff2d70f`), API on
+  `127.0.0.1:50052` (`0314466`), the
+  [transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
+  (`5879b15`) and `gobfd-330` in four phases: Unix socket (`02ffd16`),
+  mTLS (`aae60cf`), socket-only defaults (`319d2bb`), principal-scoped
+  claims and mTLS roles (`0d949dd`).
+- `.8.2.3.2`: the flight recorder dump is served only behind the
+  management boundary (`c7bfe14`).
+- Step 2 in part: concurrent lease release under admission and reload
+  (`bc768d6`); IPv6 capture waits for `.8.2.1.10.5`.
+- Step 5: `.8.2.4.1` operator-disabled peers (`384b8a5`) and `.8.2.4.2`
+  canonical session identity (`8536702`, `d9380e1`); both close after
+  `.8.2.1.3.2`.
+- Outside the queue: the
+  [cilium/ebpf evaluation](../superpowers/specs/2026-10-15-ebpf-evaluation.md)
+  (`b5a24b5`), `gobfd-376` moved to the backlog.
+- Not done: step 1 (no update is eligible before 2026-10-15 13:02 UTC);
+  step 3 `.8.2.1.8` (decisions); step 4 `.8.5.2.7` (containerlab v0.81.0
+  from 2026-10-18); step 6 `.8.6.1` (`.8.6.9`); step 7 `gobfd-4j4`; step 8:
+  no maintainer decision received.
+- Found by review, not by tests: gating BFD Up on the canonical-session
+  check left a peer GoBFD had disabled down after the ambiguity cleared;
+  fixed before the merge (`d9380e1`). grpc-go clients need ALPN `h2` on the
+  mTLS listener (measured, `aae60cf`).
+- New beads: `gobfd-6de` (production Compose Prometheus cannot scrape
+  metrics; predates `ff2d70f`), `gobfd-gyg` (per-session GoBGP opt-out, P3),
+  `gobfd-5w0` (#88 design).
+- Process: `bd update --notes` replaced existing notes on two beads; they
+  were restored from `bd history`, dated entries use `--append-notes`. Edits
+  once landed in the main checkout through `cd` in parallel commands and
+  were moved to the worktree. A gate run on a superseded revision was left
+  to finish, because Ryuk is disabled and an interrupted run leaves
+  containers.
+- Local gates on `f0e442a`: race 38 packages, lint 18 profiles,
+  bgp-fast-failover 110 s, BGP interop 175 s. Root filesystem at 89%
+  (34 GB free).
+
+Priority changes of 2026-10-15, from a scan for open blockers with a lower
+priority than the bead they block:
+
+- `.8.2.1.3.2` P1 to P0: it blocks P0 `.8.2.4.1` and `.8.2.4.2`, whose code
+  is done.
+- `.8.2.1.10.5` P1 to P0: it blocks security P0 `.8.2.1.10.1`.
+- `gobfd-6de` P2 to P1: the documented Compose deployment has no working
+  metrics scrape.
+- Q4 and Q5 slices `.8.2.8.1.4`, `.8.2.8.5.1`, `.8.2.8.6`, `.8.2.8.6.2` and
+  their children (12 beads) P2 to P1: they block P1 sprint closures.
+- Kept: epic `.8.2.3` (P0) depends on epic `.8.2.2` (P1, 13 open beads).
+
+Ordered queue from 2026-10-15. Read the release notes across each range
+before an update:
 
 1. Second passes by eligibility (UTC):
    - 2026-10-15: client_golang v1.25.0 (13:02; minimum Go 1.26; breaking
@@ -122,42 +177,29 @@ before the update:
    - 2026-10-20: dbus v5.2.4 (includes v5.2.3 allocation hardening);
    - 2026-10-21: connect-go v2.0.1 (`.8.6.10`), buf v1.74.0, trivy v0.76.0
      (no security fixes listed).
-2. Security P0 `.8.2.1.10.1`: concurrent admission and reload lease release
-   is done (`bc768d6`); IPv6 packet capture waits for `.8.2.1.10.5` (P1):
-   unsolicited packets are received only on local addresses of configured
-   sessions, because `unsolicited.interfaces` opens no listener. Its listener
-   design (per-family bind with `SO_BINDTODEVICE` next to existing
-   per-address listeners) goes to the maintainer first; then close parent
-   `.8.2.1.10`.
-3. Security P0 `.8.2.1.8` preview boundaries: the RFC 7130 and RFC 9747
-   documentation labels are fixed in `dev`; the code slice waits for the
-   step 8 decisions.
-   Security P0 `gobfd-330` management API transport, decided in
-   [the transport decision](../superpowers/specs/2026-10-15-management-transport-decision.md)
-   (`5879b15`): `.1` Unix socket with peer-UID principals done (`02ffd16`),
-   `.2` mTLS TCP done (`aae60cf`), `.3` socket-only defaults with migration
-   done (`319d2bb`, breaking), `.4` principal-scoped claims and mTLS roles
-   done (`0d949dd`); `gobfd-330` closed, GitHub #87 closed. `.8.2.3.2`
-   done (`c7bfe14`): the flight recorder dump left the metrics listener and
-   is served, opt-in, only to authenticated management callers. Remaining in
-   epic `.8.2.3`: P1 `.8.2.3.1` component readiness and `.8.2.3.3` systemd
-   syscall/address-family contract.
-4. `gobfd-qj0.8.2.8.5.2.7` — Containerlab FRR on the shared trixie recipe
-   with containerlab v0.81.0; vendor runs need a host with containerlab and
-   vendor images.
-5. GoBGP `.8.2.4.1`: operator-disabled peers (maintainer decision: GoBFD
-   re-enables only peers it disabled) and stream gaps after `.8.2.1.3.2`
-   (P1); `.8.2.4.2` canonical identity done (`8536702`, `d9380e1`: only the
-   single base session of a neighbor disables the GoBGP peer), closure waits for
-   `.8.2.1.3.2`.
-6. `gobfd-qj0.8.6.1` — manual Compose requalification on GoBGP v4, after the
-   host build DNS issue `gobfd-qj0.8.6.9` (P1).
-7. `gobfd-4j4` (P2): raw range checks for the remaining `detect_mult` fields.
-8. Maintainer decisions: Oracle Linux `.8.2.8.5.2.8`; closing PR `#62`;
-   filing the GO-2026-4736 vulndb correction; host DNS `.8.6.9`; for
-   `.8.2.1.8`: reject `AddEchoSession` without a running Echo receiver or
-   start one for API sessions, a `micro_bfd.enabled` key, capability status
-   in the API or metrics; running CI on pushes to `dev`.
+2. P0 `.8.2.1.3.2`: versioned session snapshots, unambiguous Get and Watch
+   for same-peer sessions and explicit stream-gap recovery (additive
+   `bfd.v1` fields). Then close `.8.2.4.1`, `.8.2.4.2` and epic `.8.2.4`.
+3. Security P0 `.8.2.1.10.5`: the unsolicited listener design (per-family
+   bind with `SO_BINDTODEVICE` next to the per-address listeners) goes to
+   the maintainer; then IPv6 capture `.8.2.1.10.1` and parent `.8.2.1.10`.
+   `.8.2.1.8` follows the step 9 decisions.
+4. P1 `gobfd-6de`: production Compose scrapes GoBFD metrics, checked
+   through the Prometheus targets API.
+5. P1 `.8.2.5.1` to `.8.2.5.3`: ExaBGP and HAProxy reconnect and canonical
+   identity in the companions, on top of step 2.
+6. P1 `.8.2.3.3` systemd syscall, address-family and FD contract;
+   `.8.2.3.1` component readiness.
+7. `.8.5.2.7` Containerlab FRR from 2026-10-18; `.8.6.1` manual Compose on
+   GoBGP v4 after `.8.6.9`.
+8. `gobfd-4j4` (P2): raw range checks for the remaining `detect_mult`
+   fields.
+9. Maintainer decisions: Oracle Linux `.8.2.8.5.2.8`; closing PR `#62`;
+   filing the GO-2026-4736 vulndb correction; host DNS `.8.6.9`; the
+   `.8.2.1.10.5` listener design; for `.8.2.1.8`: reject `AddEchoSession`
+   without a running Echo receiver or start one for API sessions, a
+   `micro_bfd.enabled` key, capability status in the API or metrics; running
+   CI on pushes to `dev` (`gobfd-20z`).
 
 Done before 2026-10-14 and kept for reference: `gobfd-0dc` supported GoBGP
 version statement (`1381879`), `.8.2.8.5.2.6` observability on trixie
@@ -239,10 +281,44 @@ Architecture notes for `gobfd-5w0`:
   module: health source, hold-down state machine, GoBGP path owner, drain
   command, metrics.
 
-Priority changes: `.8.2.3.4` and `.8.2.4.6` are done (`0314466`, `2a4afb1`;
-issue #86 closed). `.8.2.1.10.1` waits for the `.8.2.1.10.5` listener design, so
-`gobfd-330` and `.8.2.3.2` are done; GoBGP `.8.2.4.1` operator-disabled peers are done (`384b8a5`: GoBFD enables only peers it disabled); its stream-gap part waits for `.8.2.1.3.2`. GoBGP `.8.2.4.2` canonical identity is done (`8536702`, `d9380e1`); a per-session GoBGP opt-out is deferred to `gobfd-gyg` (P3). `gobfd-5w0` waits for its
-blockers and a design review.
+`gobfd-5w0` waits for its blockers and a design review. Priority changes
+are recorded with the 2026-10-15 retrospective above.
+
+## Remaining work before v1.0.0
+
+Beads on 2026-10-15 01:20 UTC: 172 open or in-progress beads in the v1
+scope, epics and the `.8.2` milestone included; the count excludes the root
+`gobfd-qj0.8` and the post-v1 beads listed at the end. Counts are P0/P1/P2.
+
+| Workstream | Beads | Open | State |
+|---|---|---|---|
+| Stack currency | `.8.6` | 11 (9/2/0) | Five in progress; dated second passes 2026-10-15 to 2026-10-21; `.8.6.1` waits for `.8.6.9` |
+| RFC core and loss accounting | `.8.2.1` | 30 (5/22/3) | P0 `.1.3.2`, `.1.8`, `.10`, `.10.1`, `.10.5`; Poll/Final and Demand in progress; live timer qualification `.1.1.1.4.3` open |
+| Performance gates | `.8.2.1.4.1`, `.8.2.1.6`, `.8.2.1.7` | 3 (0/3/0) | Latency baseline, QoS socket policy, OS-thread pinning removal |
+| Ownership and configuration | `.8.2.2`, with `gobfd-8f3` | 13 (0/11/2) | Four in progress; typed replace, Micro-BFD transactions, socket buffers, listener bindings |
+| Secure management | `.8.2.3` | 3 (1/2/0) | `gobfd-330`, `.3.2`, `.3.4` done; `.3.1` and `.3.3` open |
+| GoBGP v4 | `.8.2.4` | 3 (3/0/0) | Code of `.4.1` and `.4.2` done; both wait for `.8.2.1.3.2` |
+| Companions | `.8.2.5` | 4 (0/4/0) | ExaBGP and HAProxy reconnect, canonical identity |
+| Independent review | `.8.2.7` | 1 (0/1/0) | Waits for `.8.2.4` and `.8.2.5` |
+| Quality sprints Q3 to Q6 | `.8.2.8` | 90 (6/81/2), one P3 | Q3 zero shell and Python 12; Q4 artifacts and images 25 (P0: trixie images `.8.5.2`, FRR `.8.5.2.4`, failover and ExaBGP `.8.5.2.5`, Containerlab `.8.5.2.7`, Oracle `.8.5.2.8`); Q5 semantics and Sonar 21; Q6 qualification, documentation, review and closure 27; four more |
+| Release qualification | `.8.2.6` | 3 (0/2/1) | Depends on `.8.1`, `.8.2.4`, `.8.2.5`, `.8.2.7`, `.8.4` |
+| v0.6 maintenance disposition | `.8.1` | 5 (0/5/0) | Required by `.8.2.6` |
+| Vulnerability allowlist | `.8.4` | 1 (0/1/0) | Entries expire 2026-12-31 |
+| Standalone | `gobfd-6de`, `gobfd-20z`, `gobfd-31o`, `gobfd-4j4` | 4 (0/3/1) | Compose metrics, CI on `dev` decision, attribution follow-up (stalled), `detect_mult` range checks |
+
+Critical path: `.8.2.1.3.2`, then `.8.2.4` and `.8.2.5`, then the
+independent review `.8.2.7`, the Q6 closure `.8.2.8.7` and the release
+qualification `.8.2.6`; security P0 `.8.2.1.10` and `.8.2.1.8` and the
+image P0 beads run beside it. The release notes for v1.0.0 must cover the
+breaking changes already on `dev`: connect-go v2 for Go consumers of
+`pkg/bfdpb`, GoBGP v4 daemons only, the management API on the Unix socket
+`/run/gobfd/gobfd.sock` (TCP `127.0.0.1:50052` only when configured, no
+anonymous mutations), metrics on `127.0.0.1:9100`, the flight recorder
+behind the management boundary, and one BFD session per GoBGP neighbor
+(`.8.2.8.7.2.4`).
+
+Outside v1: `gobfd-5w0` (#88 companion), `gobfd-gyg`, `gobfd-376`,
+`gobfd-dor`, `.8.5` (Dependabot on `master`).
 
 ## Plan reconciliation 2026-10-13
 
@@ -430,9 +506,9 @@ preview boundaries); the stack-currency epic `gobfd-qj0.8.6` leads.
 | RFC core correctness and loss accounting | In progress; Final retry and P/F exclusion implemented |
 | Ownership and configuration reconciliation | In progress; C01.1 through C01.7 implemented |
 | Repository-owned shell removal | In progress on `dev`; zero tracked `.sh`/`.bash` files does not mean zero inline shell |
-| Secure management defaults | Open |
-| Safe GoBGP v4 reconciliation | Open |
-| Companion recovery and canonical identity | Open |
+| Secure management defaults | In progress; `gobfd-330`, `.8.2.3.2` and `.8.2.3.4` done; `.8.2.3.1` and `.8.2.3.3` open |
+| Safe GoBGP v4 reconciliation | In progress; v4.10.0 client, preflights, retries, metrics, operator-disabled peers and canonical identity done; stream gaps wait for `.8.2.1.3.2` |
+| Companion recovery and canonical identity | In progress; GoBGP canonical identity done; HAProxy and ExaBGP `.8.2.5` open |
 | Independent implementation review | Open |
 | Interop, scale, security, and release qualification | In progress; the strict local release-quality gate passed in a clean worktree on 2026-09-08; on 2026-10-13 the vulnerability gate is red (`gobfd-qj0.8.2.11`, `gobfd-qj0.8.4`); broader interop, scale, and security qualification remains open |
 
