@@ -198,6 +198,18 @@ Raw error text может появиться только в этом непос
 
 Flight recorder захватывает события планирования, создание горутин, паузы GC и сетевой I/O. При сбое BFD-сессии снимок трассировки может быть сохранён для анализа через `go tool trace`.
 
+HTTP-дамп по умолчанию выключен. С `grpc.flight_recorder: true` он доступен по
+`/debug/flightrecorder` на сервере управления только вызывающим с принципалом
+(Unix-сокет или mTLS-идентичность, разрешённая `grpc.mutating_identities`);
+анонимные клиенты на loopback TCP получают `403` даже при
+`grpc.unsafe_loopback_mutations`. Listener метрик не обслуживает endpoint
+отладки:
+
+```bash
+curl --unix-socket /run/gobfd/gobfd.sock -o trace.out http://localhost/debug/flightrecorder
+go tool trace trace.out
+```
+
 ### Endpoints
 
 | Endpoint | Порт | Путь | Описание |

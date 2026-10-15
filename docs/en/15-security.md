@@ -77,6 +77,10 @@ release another's session (`PermissionDenied`, logged), and
 `grpc.mutating_identities` makes unlisted mTLS identities read-only. Echo and
 Micro-BFD API objects are not yet principal-scoped.
 
+The flight recorder dump (`grpc.flight_recorder`, off by default) is served only on
+the management server and only to callers with a principal; the metrics listener
+serves no debug endpoint.
+
 ## GoBGP Integration
 
 GoBFD can connect to GoBGP through `gobgp.addr`. Plaintext mode is acceptable

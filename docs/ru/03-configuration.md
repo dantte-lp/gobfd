@@ -130,6 +130,7 @@ sessions:
 |---|---|---|---|
 | `addr` | string | `""` | Необязательный TCP-адрес; пустое значение не открывает TCP. Plaintext только на loopback; non-loopback адрес требует `tls` |
 | `mutating_identities` | []string | `[]` | mTLS-идентичности (URI SAN или `dns:<name>`), которым разрешены изменения; если список задан, остальные mTLS-клиенты только читают. Требует `tls` |
+| `flight_recorder` | bool | `false` | Отдаёт дамп runtime trace по `/debug/flightrecorder` на сервере управления вызывающим с принципалом |
 | `unsafe_loopback_mutations` | bool | `false` | Разрешает анонимным plaintext-клиентам на loopback TCP изменяющие RPC; health `gobfd.management` при этом `NOT_SERVING` |
 | `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Абсолютный путь Unix-сокета управления; пустое значение отключает его |
 | `socket.mode` | string | `"0660"` | Восьмеричные права файла сокета |

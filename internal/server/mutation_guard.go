@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -63,6 +64,10 @@ func MutationGuardInterceptor(policy MutationPolicy) connect.ServerInterceptor {
 
 func (p MutationPolicy) check(ctx context.Context) error {
 	principal, ok := PrincipalFromContext(ctx)
+	return p.allows(principal, ok)
+}
+
+func (p MutationPolicy) allows(principal string, ok bool) error {
 	switch {
 	case !ok && !p.AllowAnonymous:
 		return ErrAnonymousMutation
@@ -82,4 +87,20 @@ func apiOwnerFromContext(ctx context.Context) bfd.SessionOwner {
 		return bfd.APISessionOwner(principal)
 	}
 	return bfd.APISessionOwner("local")
+}
+
+// RequirePrincipal wraps a plain HTTP handler on the management server, such
+// as the flight recorder dump, so that only callers with a principal reach
+// it: anonymous callers are refused even under the unsafe loopback opt-in,
+// and with mutating identities set only the listed mTLS identities pass.
+func RequirePrincipal(policy MutationPolicy, next http.Handler) http.Handler {
+	policy.AllowAnonymous = false
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := PrincipalFromRequest(r)
+		if err := policy.allows(principal, ok); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

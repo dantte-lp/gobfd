@@ -719,7 +719,7 @@ register the complete `net/http/pprof` handler set on its public metrics mux.
 
 #### `runtime/trace.FlightRecorder`
 
-An HTTP endpoint exposes the flight recorder for post-mortem trace capture. When enabled, the daemon continuously records the last N seconds of trace data, which can be dumped on demand for debugging latency spikes or deadlocks.
+The daemon continuously records the last N seconds of trace data. With `grpc.flight_recorder: true` the management server serves the dump at `/debug/flightrecorder` to callers with a principal (Unix socket or allowed mTLS identity) for debugging latency spikes or deadlocks; it is off by default and never served on the metrics listener.
 
 #### Swiss Tables
 

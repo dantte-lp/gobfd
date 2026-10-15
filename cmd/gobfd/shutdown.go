@@ -126,17 +126,9 @@ func listenAndServe(ctx context.Context, lc *net.ListenConfig, srv *http.Server,
 
 // newMetricsServer creates an HTTP server for the Prometheus metrics endpoint
 // and optional debug endpoints (flight recorder trace dump).
-func newMetricsServer(
-	cfg config.MetricsConfig,
-	reg *prometheus.Registry,
-	fr *trace.FlightRecorder,
-) *http.Server {
+func newMetricsServer(cfg config.MetricsConfig, reg *prometheus.Registry) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle(cfg.Path, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-
-	if fr != nil {
-		mux.HandleFunc("/debug/flightrecorder", flightRecorderHandler(fr))
-	}
 
 	return &http.Server{
 		Addr:                cfg.Addr,
@@ -169,6 +161,7 @@ func newGRPCServer(
 	mgr *bfd.Manager,
 	sf server.SenderFactory,
 	checker *grpchealth.StaticChecker,
+	fr *trace.FlightRecorder,
 	logger *slog.Logger,
 ) *http.Server {
 	mux := http.NewServeMux()
@@ -178,11 +171,15 @@ func newGRPCServer(
 	// default read limit (4 MiB) instead of the unbounded v1 behavior.
 	// Anonymous loopback TCP callers may only read unless the unsafe opt-in
 	// is set (gobfd-330.3).
+	policy := server.MutationPolicy{
+		AllowAnonymous:     cfg.UnsafeLoopbackMutations,
+		MutatingIdentities: cfg.MutatingIdentities,
+	}
 	rpc := connect.NewServer(server.LoggingInterceptor(logger), server.RecoveryInterceptor(logger),
-		server.MutationGuardInterceptor(server.MutationPolicy{
-			AllowAnonymous:     cfg.UnsafeLoopbackMutations,
-			MutatingIdentities: cfg.MutatingIdentities,
-		}))
+		server.MutationGuardInterceptor(policy))
+	if cfg.FlightRecorder && fr != nil {
+		mux.Handle("/debug/flightrecorder", server.RequirePrincipal(policy, flightRecorderHandler(fr)))
+	}
 	server.Register(rpc, mgr, sf, logger)
 	server.RegisterEcho(rpc, mgr, sf, logger)
 	server.RegisterMicroBFD(rpc, mgr, logger)

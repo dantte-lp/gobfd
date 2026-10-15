@@ -128,6 +128,7 @@ sessions:
 |---|---|---|---|
 | `addr` | string | `""` | Optional TCP listen address; empty opens no TCP listener. Plaintext must be loopback; a non-loopback address needs `tls` |
 | `mutating_identities` | []string | `[]` | mTLS identities (URI SAN or `dns:<name>`) that may mutate; when set, other mTLS clients are read-only. Requires `tls` |
+| `flight_recorder` | bool | `false` | Serves the runtime trace dump at `/debug/flightrecorder` on the management server to callers with a principal |
 | `unsafe_loopback_mutations` | bool | `false` | Lets anonymous plaintext loopback TCP clients call mutating RPCs; `gobfd.management` health is `NOT_SERVING` while set |
 | `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Absolute path of the management Unix socket; empty disables it |
 | `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |

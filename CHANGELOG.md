@@ -55,6 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the flight recorder dump `/debug/flightrecorder` is no
+  longer served on the unauthenticated metrics listener
+  (`gobfd-qj0.8.2.3.2`). With the new `grpc.flight_recorder: true` it is
+  served on the management server to callers with a principal (Unix socket
+  or an mTLS identity allowed by `grpc.mutating_identities`); anonymous
+  loopback callers get `403`. The recorder still runs for the dump on
+  shutdown.
 - API session claims belong to the caller's principal (`gobfd-330.4`,
   GitHub #87): the Unix peer UID, the mTLS identity, or `local` for anonymous
   loopback callers under `grpc.unsafe_loopback_mutations`. `DeleteSession`

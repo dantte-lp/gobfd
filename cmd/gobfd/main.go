@@ -130,9 +130,9 @@ func runServers(
 	logLevel *slog.LevelVar,
 	fr *trace.FlightRecorder,
 ) error {
-	metricsSrv := newMetricsServer(cfg.Metrics, reg, fr)
+	metricsSrv := newMetricsServer(cfg.Metrics, reg)
 	healthChecker := newDaemonHealthChecker()
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, logger)
+	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, fr, logger)
 	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
 
 	// errgroup with signal-aware context.

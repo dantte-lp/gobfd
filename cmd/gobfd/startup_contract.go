@@ -55,6 +55,7 @@ const (
 	startupFieldGRPCSocket
 	startupFieldGRPCTLS
 	startupFieldGRPCMutatingIdentities
+	startupFieldGRPCFlightRecorder
 )
 
 func (f startupFieldID) String() string {
@@ -98,6 +99,7 @@ func (f startupFieldID) String() string {
 		"grpc.socket",
 		"grpc.tls",
 		"grpc.mutating_identities",
+		"grpc.flight_recorder",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -227,6 +229,7 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldGRPCAddr, c.grpc.Addr != cfg.GRPC.Addr)
 	appendChanged(startupFieldGRPCSocket, c.grpc.Socket != cfg.GRPC.Socket)
 	appendChanged(startupFieldGRPCTLS, c.grpc.TLS != cfg.GRPC.TLS)
+	appendChanged(startupFieldGRPCFlightRecorder, c.grpc.FlightRecorder != cfg.GRPC.FlightRecorder)
 	appendChanged(startupFieldGRPCMutatingIdentities,
 		!slices.Equal(c.grpc.MutatingIdentities, cfg.GRPC.MutatingIdentities))
 	appendChanged(startupFieldMetricsAddr, c.metrics.Addr != cfg.Metrics.Addr)

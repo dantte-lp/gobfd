@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
-	"runtime/trace"
 	"strings"
 	"testing"
 	"time"
@@ -2194,7 +2193,6 @@ func TestNewMetricsServerServesMetrics(t *testing.T) {
 	srv := newMetricsServer(
 		config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
 		prometheus.NewRegistry(),
-		nil,
 	)
 	if srv.Addr != "127.0.0.1:0" {
 		t.Fatalf("Addr = %q, want 127.0.0.1:0", srv.Addr)
@@ -2215,28 +2213,17 @@ func TestNewMetricsServerServesMetrics(t *testing.T) {
 	}
 }
 
-func TestNewMetricsServerRegistersFlightRecorderEndpoint(t *testing.T) {
-	fr := trace.NewFlightRecorder(trace.FlightRecorderConfig{
-		MinAge:   flightRecorderMinAge,
-		MaxBytes: flightRecorderMaxBytes,
-	})
-	if err := fr.Start(); err != nil {
-		t.Skipf("flight recorder unavailable: %v", err)
-	}
-	defer fr.Stop()
+// gobfd-qj0.8.2.3.2: the unauthenticated metrics listener serves no debug
+// endpoint; the flight recorder moved behind the management boundary.
+func TestMetricsServerHasNoFlightRecorderEndpoint(t *testing.T) {
+	t.Parallel()
 
-	srv := newMetricsServer(
-		config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
-		prometheus.NewRegistry(),
-		fr,
-	)
-
+	srv := newMetricsServer(config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"}, prometheus.NewRegistry())
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/debug/flightrecorder", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(rec, req)
-
-	if rec.Code == http.StatusNotFound {
-		t.Fatalf("GET /debug/flightrecorder status = %d, endpoint not registered", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /debug/flightrecorder on the metrics listener = %d, want 404", rec.Code)
 	}
 }
 
@@ -2248,7 +2235,7 @@ func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
 	t.Cleanup(mgr.Close)
 
 	srv := newGRPCServer(
-		config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, newDaemonHealthChecker(), logger,
+		config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, newDaemonHealthChecker(), nil, logger,
 	)
 	if srv.Protocols == nil {
 		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
@@ -2275,10 +2262,9 @@ func TestHTTPServersEnforceHeaderValueLimit(t *testing.T) {
 		"metrics": newMetricsServer(
 			config.MetricsConfig{Addr: "127.0.0.1:0", Path: "/metrics"},
 			prometheus.NewRegistry(),
-			nil,
 		),
 		"grpc": newGRPCServer(
-			config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, newDaemonHealthChecker(), logger,
+			config.GRPCConfig{Addr: "127.0.0.1:0"}, mgr, nil, newDaemonHealthChecker(), nil, logger,
 		),
 	}
 	for name, srv := range servers {

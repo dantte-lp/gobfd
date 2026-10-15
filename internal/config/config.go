@@ -80,6 +80,11 @@ type GRPCConfig struct {
 	// (URI SAN such as a SPIFFE ID, or "dns:<name>") that may call mutating
 	// RPCs; other mTLS clients are read-only. It requires TLS (gobfd-330.4).
 	MutatingIdentities []string `koanf:"mutating_identities"`
+
+	// FlightRecorder serves the runtime/trace flight recorder dump at
+	// /debug/flightrecorder on the management server, to callers with a
+	// principal only. Off by default (gobfd-qj0.8.2.3.2).
+	FlightRecorder bool `koanf:"flight_recorder"`
 }
 
 // GRPCTLSConfig holds the mTLS files of the TCP management listener. The

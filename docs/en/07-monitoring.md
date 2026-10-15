@@ -210,6 +210,17 @@ immediate event; it is not retained in the runtime snapshot or used as a label.
 
 The flight recorder captures scheduling events, goroutine creation, GC pauses, and network I/O. On BFD session failure, the trace snapshot can be dumped for analysis with `go tool trace`.
 
+The HTTP dump is off by default. With `grpc.flight_recorder: true` it is served at
+`/debug/flightrecorder` on the management server, to callers with a principal only
+(the Unix socket, or an mTLS identity allowed by `grpc.mutating_identities`); anonymous
+loopback TCP callers get `403` even under `grpc.unsafe_loopback_mutations`. The
+metrics listener serves no debug endpoint:
+
+```bash
+curl --unix-socket /run/gobfd/gobfd.sock -o trace.out http://localhost/debug/flightrecorder
+go tool trace trace.out
+```
+
 ### Endpoints
 
 | Endpoint | Port | Path | Description |

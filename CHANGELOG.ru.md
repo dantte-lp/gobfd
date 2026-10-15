@@ -55,6 +55,12 @@
 
 ### Изменено
 
+- **Breaking:** дамп flight recorder `/debug/flightrecorder` больше не
+  обслуживается на listener метрик без аутентификации (`gobfd-qj0.8.2.3.2`).
+  С новым `grpc.flight_recorder: true` он доступен на сервере управления
+  вызывающим с принципалом (Unix-сокет или mTLS-идентичность, разрешённая
+  `grpc.mutating_identities`); анонимные клиенты на loopback получают `403`.
+  Recorder продолжает работать для дампа при остановке.
 - Claims сессий API принадлежат принципалу вызвавшего (`gobfd-330.4`,
   GitHub #87): UID peer Unix-сокета, mTLS-идентичность или `local` для
   анонимных клиентов на loopback в режиме `grpc.unsafe_loopback_mutations`.

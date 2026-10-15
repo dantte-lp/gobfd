@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
+	"net/http"
 	"strconv"
 
 	"connectrpc.com/connect/v2/connecthttp"
@@ -45,10 +47,26 @@ func PrincipalFromContext(ctx context.Context) (string, bool) {
 		return principal, true
 	}
 	info, ok := connecthttp.ServerInfoForContext(ctx)
-	if !ok || info.TLS() == nil || len(info.TLS().VerifiedChains) == 0 {
+	if !ok {
 		return "", false
 	}
-	leaf := info.TLS().VerifiedChains[0][0]
+	return tlsPrincipal(info.TLS())
+}
+
+// PrincipalFromRequest returns the principal of a plain HTTP request on the
+// management server: the Unix peer UID or the verified mTLS identity.
+func PrincipalFromRequest(r *http.Request) (string, bool) {
+	if principal, ok := r.Context().Value(principalKey{}).(string); ok {
+		return principal, true
+	}
+	return tlsPrincipal(r.TLS)
+}
+
+func tlsPrincipal(state *tls.ConnectionState) (string, bool) {
+	if state == nil || len(state.VerifiedChains) == 0 || len(state.VerifiedChains[0]) == 0 {
+		return "", false
+	}
+	leaf := state.VerifiedChains[0][0]
 	switch {
 	case len(leaf.URIs) > 0:
 		return leaf.URIs[0].String(), true
