@@ -764,6 +764,12 @@ diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,
 RFC 5881/5883 transport demultiplexing, RFC 9764 authenticated padding, and
 fail-closed preview boundaries.
 
+Task `gobfd-qj0.8.2.1.2.3` adds owner-timer RemoteDiscr expiry after one
+Detection Time in every state and enforces the passive unknown-peer transmit
+prohibition for Final retries and direct FSM sends. Last observed causal facts
+remain intact; authentication sequence expiry remains independent at two
+Detection Times. Parent `.1.2` retains its other diagnostic qualification gates.
+
 ### P1 sequence
 
 | Delivery slice | Status |

@@ -172,7 +172,7 @@ func (s *Session) maybeSendControl(ctx context.Context) {
 }
 
 // periodicTxAllowed applies RFC 5880 Section 6.8.7 periodic transmission
-// limits. Final replies bypass these limits, including on retry.
+// limits. Final replies bypass periodic limits, including on retry.
 func (s *Session) periodicTxAllowed() bool {
 	// RFC 5880 Section 6.8.7: "A system MUST NOT transmit BFD Control
 	// packets if bfd.RemoteDiscr is zero and the system is taking the
@@ -193,6 +193,10 @@ func (s *Session) periodicTxAllowed() bool {
 // to the configured size. The Length field in the BFD header retains the
 // actual (unpadded) protocol length; padding follows the BFD PDU.
 func (s *Session) sendControl(ctx context.Context) {
+	// RFC 5880 Section 6.8.7 also prohibits Final and direct FSM sends.
+	if s.role == RolePassive && s.remoteDiscr == 0 {
+		return
+	}
 	final := s.pendingFinal
 	if !s.rebuildCachedPacket() {
 		return
@@ -242,6 +246,10 @@ func (s *Session) handleDetectTimer(
 	detectTimer *time.Timer,
 ) {
 	s.maybeResetAuthSeqKnown()
+	// RFC 5880 Section 6.8.1 expires the wire discriminator in every state.
+	s.mu.Lock()
+	s.remoteDiscr = 0
+	s.mu.Unlock()
 
 	// Use cachedState (goroutine-confined) to avoid atomic load.
 	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert.

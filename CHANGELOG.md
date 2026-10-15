@@ -272,6 +272,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Clear `RemoteDiscr` after one Detection Time in every session state
+  (`gobfd-qj0.8.2.1.2.3`), independently of two-Detection-Time authentication
+  sequence expiry. Preserve the last observed remote administrative facts and
+  causal version when only the wire discriminator changes. Passive sessions
+  with an unknown discriminator retain pending Final replies without sending,
+  including direct FSM sends and retries.
+
 - AdminDown commits exclusively in the session owner loop and returns a
   context-bounded commit receipt, including for pre-Run and full-queue requests
   (`gobfd-qj0.8.2.1.3.3`, H-09 prerequisite). `Run` has one owner for its

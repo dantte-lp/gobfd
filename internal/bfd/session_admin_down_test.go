@@ -122,6 +122,7 @@ func TestSessionAdminDownStartupTransmission(t *testing.T) {
 	}{
 		{name: "active", role: RoleActive, remoteMinRX: time.Microsecond, wantAttempts: 1},
 		{name: "passive unknown peer", role: RolePassive, remoteMinRX: time.Microsecond},
+		{name: "passive unknown peer pending final", role: RolePassive, pendingFinal: true},
 		{name: "passive known peer", role: RolePassive, remoteDiscr: 91, remoteMinRX: time.Microsecond, wantAttempts: 1},
 		{name: "zero remote receive", role: RoleActive},
 		{name: "pending final", role: RoleActive, pendingFinal: true, wantAttempts: 1},

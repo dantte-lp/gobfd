@@ -276,6 +276,13 @@
 
 ### Исправлено
 
+- `RemoteDiscr` сбрасывается после одного Detection Time в любом состоянии
+  сессии (`gobfd-qj0.8.2.1.2.3`) независимо от истечения authentication sequence
+  после двух Detection Time. Последние remote administrative facts и causal
+  version сохраняются, когда меняется только wire discriminator. Passive-сессии
+  с неизвестным discriminator сохраняют pending Final без передачи пакетов,
+  включая прямые FSM sends и повторы.
+
 - AdminDown коммитится только в session owner loop с ограниченным контекстом
   commit receipt, включая pre-Run и заполненную очередь
   (`gobfd-qj0.8.2.1.3.3`, prerequisite H-09). `Run` имеет одного owner за

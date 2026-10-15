@@ -163,6 +163,14 @@ resynchronize even when RX is processed before a ready detection timer.
 Invalid authentication never refreshes the receive timestamp. Exported
 wall-clock receive timestamps do not participate in this decision.
 
+The owner detection timer clears `RemoteDiscr` after one Detection Time in
+Down, Init, Up and AdminDown. The last observed remote state, diagnostic and
+C-bit remain available to causal policy; clearing the wire discriminator alone
+does not publish a new observation. A passive session with `RemoteDiscr = 0`
+does not transmit, including direct FSM sends and pending Final retries
+(Section 6.8.7). The Final obligation remains pending until a valid peer
+discriminator permits a successful send.
+
 #### Section 6.8.6: Reception of BFD Control Packets
 
 Validation split across two layers:

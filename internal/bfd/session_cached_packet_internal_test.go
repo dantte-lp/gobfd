@@ -164,7 +164,7 @@ func TestMaybeSendControlRetriesPendingFinalBeforePeriodicGates(t *testing.T) {
 	sess := newCachedPacketTestSession(MaxPacketSize)
 	sess.sender = sender
 	sess.role = RolePassive
-	sess.remoteDiscr = 0
+	sess.remoteDiscr = 7
 	sess.remoteMinRxInterval = 0
 	sess.pendingFinal = true
 

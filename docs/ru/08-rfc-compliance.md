@@ -146,6 +146,14 @@ Session receive path отклоняет зарезервированный ну�
 обновляет время приёма. Экспортируемый wall-clock timestamp в этом решении
 не используется.
 
+Owner detection timer сбрасывает `RemoteDiscr` после одного Detection Time в
+Down, Init, Up и AdminDown. Последние наблюдавшиеся remote state, diagnostic и
+C-bit сохраняются для causal policy; сброс wire discriminator сам по себе
+не публикует новое observation. Passive-сессия с `RemoteDiscr = 0` не передаёт
+пакеты, включая прямые FSM sends и повторы pending Final (Section 6.8.7).
+Обязательство Final сохраняется до успешной отправки после получения
+корректного peer discriminator.
+
 #### Section 6.8.6: Приём пакетов
 
 Валидация разделена на два уровня:
