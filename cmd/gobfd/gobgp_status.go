@@ -63,6 +63,15 @@ func (s *goBGPStatus) action(rpc string, err error) {
 	s.result(rpc, err)
 }
 
+// ambiguous records a BFD event withheld from GoBGP because the neighbor
+// has no canonical BFD session (H-31).
+func (s *goBGPStatus) ambiguous() {
+	if s == nil {
+		return
+	}
+	s.checker.SetStatus(goBGPHealthServiceName, grpchealth.StatusNotServing)
+}
+
 func (s *goBGPStatus) result(rpc string, err error) {
 	if err != nil {
 		s.metrics.IncGoBGPRPCError(rpc)

@@ -1187,6 +1187,10 @@ var (
 	// ErrInvalidGoBGPTLS indicates inconsistent GoBGP TLS settings.
 	ErrInvalidGoBGPTLS = errors.New("gobgp.tls ca_file/server_name require gobgp.tls.enabled")
 
+	// ErrAmbiguousGoBGPPeer indicates several sessions to one BGP neighbor
+	// while the GoBGP integration is enabled (H-31).
+	ErrAmbiguousGoBGPPeer = errors.New("gobgp peer has more than one BFD session")
+
 	// ErrInvalidDampeningThreshold indicates suppress threshold is not greater than reuse.
 	ErrInvalidDampeningThreshold = errors.New("gobgp.dampening.suppress_threshold must be > reuse_threshold")
 
@@ -1299,6 +1303,10 @@ func Validate(cfg *Config) error {
 	}
 
 	if err := validateSessions(cfg.Sessions); err != nil {
+		return err
+	}
+
+	if err := validateGoBGPPeers(cfg.GoBGP, cfg.Sessions); err != nil {
 		return err
 	}
 
@@ -1479,6 +1487,28 @@ func validateSessions(sessions []SessionConfig) error {
 		seen[key] = struct{}{}
 	}
 
+	return nil
+}
+
+// validateGoBGPPeers rejects two sessions to one peer address when GoBGP is
+// enabled: the handler acts on the BGP neighbor, so each neighbor needs one
+// canonical BFD session (H-31). Sessions are single-hop or multi-hop only.
+func validateGoBGPPeers(gobgp GoBGPConfig, sessions []SessionConfig) error {
+	if !gobgp.Enabled {
+		return nil
+	}
+	seen := make(map[netip.Addr]struct{}, len(sessions))
+	for i, sc := range sessions {
+		peer, err := sc.PeerAddr()
+		if err != nil {
+			return fmt.Errorf("sessions[%d]: %w: %w", i, ErrInvalidSessionPeer, err)
+		}
+		peer = peer.Unmap()
+		if _, dup := seen[peer]; dup {
+			return fmt.Errorf("sessions[%d] peer %s: %w", i, peer, ErrAmbiguousGoBGPPeer)
+		}
+		seen[peer] = struct{}{}
+	}
 	return nil
 }
 

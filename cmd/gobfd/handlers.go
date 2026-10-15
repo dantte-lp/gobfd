@@ -64,7 +64,7 @@ func startGoBGPHandler(
 		return nil, goBGPStartupError(cfg.Addr, probeErr)
 	}
 
-	handler, err := newGoBGPHandler(client, cfg, mgr, status.onAction(), logger)
+	handler, err := newGoBGPHandler(client, cfg, mgr, status, logger)
 	if err != nil {
 		closeGoBGPClient(client, logger)
 		return nil, err
@@ -211,17 +211,33 @@ func watchGoBGPCompatibility(
 	}
 }
 
-// goBGPManagedPeer reports whether the manager still has a BFD session to a
-// peer. Session removal publishes no state change, so the GoBGP handler asks
-// before applying a late Down.
-func goBGPManagedPeer(mgr *bfd.Manager) func(peerAddr string) bool {
-	return func(peerAddr string) bool {
+// goBGPActuates reports whether a base session is the canonical BFD session
+// for its BGP neighbor: it still exists and is the only single-hop or
+// multi-hop session to the peer address (H-31). Session removal publishes no
+// state change, so the GoBGP handler also asks before applying a late Down.
+// Two base sessions to one neighbor leave no canonical session: neither
+// actuates, and the gobfd.gobgp health service reports NOT_SERVING.
+func goBGPActuates(mgr *bfd.Manager, status *goBGPStatus, logger *slog.Logger) func(bfd.StateChange) bool {
+	return func(sc bfd.StateChange) bool {
+		peer := sc.PeerAddr.Unmap()
+		found, base := false, 0
 		for _, snap := range mgr.Sessions() {
-			if snap.PeerAddr.String() == peerAddr {
-				return true
+			if snap.PeerAddr.Unmap() != peer ||
+				(snap.Type != bfd.SessionTypeSingleHop && snap.Type != bfd.SessionTypeMultiHop) {
+				continue
 			}
+			base++
+			found = found || snap.LocalDiscr == sc.LocalDiscr
 		}
-		return false
+		if found && base > 1 {
+			logger.Error("gobgp peer has several BFD sessions, no BGP action taken",
+				slog.String("peer", peer.String()),
+				slog.Int("sessions", base),
+			)
+			status.ambiguous()
+			return false
+		}
+		return found
 	}
 }
 
@@ -229,7 +245,7 @@ func newGoBGPHandler(
 	client gobgp.Client,
 	cfg config.GoBGPConfig,
 	mgr *bfd.Manager,
-	onAction func(rpc string, err error),
+	status *goBGPStatus,
 	logger *slog.Logger,
 ) (*gobgp.Handler, error) {
 	handler, err := gobgp.NewHandler(gobgp.HandlerConfig{
@@ -243,8 +259,8 @@ func newGoBGPHandler(
 			MaxSuppressTime:   cfg.Dampening.MaxSuppressTime,
 			HalfLife:          cfg.Dampening.HalfLife,
 		},
-		Managed:  goBGPManagedPeer(mgr),
-		OnAction: onAction,
+		Actuates: goBGPActuates(mgr, status, logger),
+		OnAction: status.onAction(),
 		Logger:   logger,
 	})
 	if err != nil {

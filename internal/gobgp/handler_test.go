@@ -182,6 +182,7 @@ func TestHandlerBFDDownDisablesPeer(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateUp,
 			NewState:   bfd.StateDown,
 			Diag:       bfd.DiagControlTimeExpired,
@@ -239,6 +240,7 @@ func TestHandlerBFDUpEnablesPeer(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateDown,
 			NewState:   bfd.StateUp,
 			Diag:       bfd.DiagNone,
@@ -287,6 +289,7 @@ func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateDown,
 			NewState:   bfd.StateInit,
 			Diag:       bfd.DiagNone,
@@ -297,6 +300,7 @@ func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 2,
 			PeerAddr:   netip.MustParseAddr("10.0.0.2"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateUp,
 			NewState:   bfd.StateAdminDown,
 			Diag:       bfd.DiagAdminDown,
@@ -307,6 +311,7 @@ func TestHandlerIgnoresNonActionableTransitions(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 3,
 			PeerAddr:   netip.MustParseAddr("10.0.0.3"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateAdminDown,
 			NewState:   bfd.StateDown,
 			Diag:       bfd.DiagNone,
@@ -410,6 +415,7 @@ func TestHandlerGoBGPErrorNonFatal(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateUp,
 			NewState:   bfd.StateDown,
 			Diag:       bfd.DiagControlTimeExpired,
@@ -458,6 +464,7 @@ func TestHandlerActionTimeoutBoundsGoBGPRPC(t *testing.T) {
 	events <- bfd.StateChange{
 		LocalDiscr: 1,
 		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+		Type:       bfd.SessionTypeSingleHop,
 		OldState:   bfd.StateUp,
 		NewState:   bfd.StateDown,
 		Diag:       bfd.DiagControlTimeExpired,
@@ -561,6 +568,7 @@ func TestHandlerDampeningIntegration(t *testing.T) {
 			events <- bfd.StateChange{
 				LocalDiscr: 1,
 				PeerAddr:   peer,
+				Type:       bfd.SessionTypeSingleHop,
 				OldState:   bfd.StateUp,
 				NewState:   bfd.StateDown,
 				Diag:       bfd.DiagControlTimeExpired,
@@ -624,6 +632,7 @@ func TestHandlerDampeningUpSuppressed(t *testing.T) {
 			events <- bfd.StateChange{
 				LocalDiscr: 1,
 				PeerAddr:   peer,
+				Type:       bfd.SessionTypeSingleHop,
 				OldState:   bfd.StateUp,
 				NewState:   bfd.StateDown,
 				Diag:       bfd.DiagControlTimeExpired,
@@ -640,6 +649,7 @@ func TestHandlerDampeningUpSuppressed(t *testing.T) {
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   peer,
+			Type:       bfd.SessionTypeSingleHop,
 			OldState:   bfd.StateDown,
 			NewState:   bfd.StateUp,
 			Diag:       bfd.DiagNone,
@@ -694,6 +704,7 @@ func TestDampeningDisabledPassesAll(t *testing.T) {
 			events <- bfd.StateChange{
 				LocalDiscr: 1,
 				PeerAddr:   peer,
+				Type:       bfd.SessionTypeSingleHop,
 				OldState:   bfd.StateUp,
 				NewState:   bfd.StateDown,
 				Diag:       bfd.DiagControlTimeExpired,
@@ -949,14 +960,14 @@ func TestHandlerFullCycleDamped(t *testing.T) {
 		// The 3rd Down event reaches ~3 which is > 2.5 threshold, so it's suppressed.
 		for i := range 4 {
 			events <- bfd.StateChange{
-				LocalDiscr: 1, PeerAddr: peer,
+				LocalDiscr: 1, PeerAddr: peer, Type: bfd.SessionTypeSingleHop,
 				OldState: bfd.StateUp, NewState: bfd.StateDown,
 				Diag: bfd.DiagControlTimeExpired, Timestamp: time.Now(),
 			}
 			time.Sleep(10 * time.Millisecond)
 
 			events <- bfd.StateChange{
-				LocalDiscr: 1, PeerAddr: peer,
+				LocalDiscr: 1, PeerAddr: peer, Type: bfd.SessionTypeSingleHop,
 				OldState: bfd.StateDown, NewState: bfd.StateUp,
 				Diag: bfd.DiagNone, Timestamp: time.Now(),
 			}

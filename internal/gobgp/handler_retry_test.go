@@ -22,6 +22,7 @@ func peerTransition(from, to bfd.State) bfd.StateChange {
 	return bfd.StateChange{
 		LocalDiscr: 1,
 		PeerAddr:   netip.MustParseAddr("10.0.0.1"),
+		Type:       bfd.SessionTypeSingleHop,
 		OldState:   from,
 		NewState:   to,
 		Diag:       bfd.DiagControlTimeExpired,
@@ -251,7 +252,7 @@ func TestHandlerDropsPendingDownForUnmanagedPeer(t *testing.T) {
 		h, err := gobgp.NewHandler(gobgp.HandlerConfig{
 			Client:   mock,
 			Strategy: gobgp.StrategyDisablePeer,
-			Managed:  func(string) bool { return managed.Load() },
+			Actuates: func(bfd.StateChange) bool { return managed.Load() },
 			Logger:   slog.Default(),
 		})
 		if err != nil {
@@ -354,5 +355,75 @@ func TestHandlerEnablesOnlyPeersItDisabled(t *testing.T) {
 		events <- peerTransition(bfd.StateDown, bfd.StateUp)
 		synctest.Wait()
 		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+	})
+}
+
+// H-31: only base single-hop and multi-hop sessions describe the BGP
+// neighbor. A Micro-BFD member link, overlay or Echo session to the same
+// address must not disable the peer.
+func TestHandlerIgnoresNonBaseSessionTypes(t *testing.T) {
+	for _, typ := range []bfd.SessionType{
+		bfd.SessionTypeEcho, bfd.SessionTypeMicroBFD,
+		bfd.SessionTypeVXLAN, bfd.SessionTypeGeneve, 0,
+	} {
+		t.Run(typ.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				mock := newMockClient()
+				events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+
+				sc := peerTransition(bfd.StateUp, bfd.StateDown)
+				sc.Type = typ
+				events <- sc
+				synctest.Wait()
+				assertMethods(t, mock)
+			})
+		})
+	}
+}
+
+// H-31: the daemon decides whether a session is the canonical BFD session
+// for its BGP neighbor; the handler acts only on events it accepts.
+func TestHandlerActsOnlyOnAcceptedSessions(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		h, err := gobgp.NewHandler(gobgp.HandlerConfig{
+			Client:   mock,
+			Strategy: gobgp.StrategyDisablePeer,
+			Actuates: func(sc bfd.StateChange) bool { return sc.LocalDiscr == 1 },
+			Logger:   slog.Default(),
+		})
+		if err != nil {
+			t.Fatalf("NewHandler: %v", err)
+		}
+		events := runHandler(t, h)
+
+		other := peerTransition(bfd.StateUp, bfd.StateDown)
+		other.LocalDiscr = 2
+		events <- other
+		synctest.Wait()
+		assertMethods(t, mock)
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer)
+	})
+}
+
+// An IPv4-mapped peer address names the same GoBGP neighbor as the plain
+// IPv4 address.
+func TestHandlerUnmapsIPv4MappedPeer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+
+		sc := peerTransition(bfd.StateUp, bfd.StateDown)
+		sc.PeerAddr = netip.MustParseAddr("::ffff:10.0.0.1")
+		events <- sc
+		synctest.Wait()
+
+		calls := mock.getCalls()
+		if len(calls) != 1 || calls[0].addr != "10.0.0.1" {
+			t.Fatalf("GoBGP calls = %+v, want one call for 10.0.0.1", calls)
+		}
 	})
 }

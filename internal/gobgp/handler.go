@@ -84,7 +84,7 @@ type Handler struct {
 	strategy Strategy
 	dampener *Dampener
 	timeout  time.Duration
-	managed  func(peerAddr string) bool
+	actuates func(sc bfd.StateChange) bool
 	onAction func(rpc string, err error)
 	logger   *slog.Logger
 
@@ -121,11 +121,12 @@ type HandlerConfig struct {
 	// uses DefaultActionTimeout.
 	ActionTimeout time.Duration
 
-	// Managed reports whether GoBFD still has a BFD session to the peer.
-	// Session deletion publishes no state change, so the handler drops a
-	// pending Down for an unmanaged peer instead of applying it late. Nil
-	// treats every peer as managed.
-	Managed func(peerAddr string) bool
+	// Actuates reports whether a single-hop or multi-hop session is the
+	// canonical BFD session for its BGP neighbor and still exists. The
+	// handler ignores events it rejects, and before applying a late Down
+	// asks again with the pending event, because session deletion
+	// publishes no state change. Nil accepts every base session.
+	Actuates func(sc bfd.StateChange) bool
 
 	// OnAction, when set, receives the GoBGP RPC name and result of every
 	// action attempt, including retries. It runs on the handler goroutine.
@@ -156,7 +157,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		strategy: strategy,
 		dampener: NewDampener(cfg.Dampening, cfg.Logger),
 		timeout:  timeout,
-		managed:  cfg.Managed,
+		actuates: cfg.Actuates,
 		onAction: cfg.OnAction,
 		pending:  make(map[string]*pendingAction),
 		disabled: make(map[string]struct{}),
@@ -238,7 +239,7 @@ func (h *Handler) retryDue(ctx context.Context) {
 	if due == nil || time.Now().Before(due.due) {
 		return
 	}
-	if due.down && h.managed != nil && !h.managed(peerAddr) {
+	if due.down && h.actuates != nil && !h.actuates(due.sc) {
 		delete(h.pending, peerAddr)
 		h.logger.Info("pending BGP Down dropped, peer has no BFD session",
 			slog.String("peer", peerAddr),
@@ -257,7 +258,20 @@ func (h *Handler) retryDue(ctx context.Context) {
 
 // handleStateChange processes a single BFD state transition.
 func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
-	peerAddr := sc.PeerAddr.String()
+	peerAddr := sc.PeerAddr.Unmap().String()
+
+	// H-31: only base sessions describe the BGP neighbor; a Micro-BFD
+	// member link, overlay or Echo session to the same address does not.
+	if sc.Type != bfd.SessionTypeSingleHop && sc.Type != bfd.SessionTypeMultiHop {
+		return
+	}
+	if h.actuates != nil && !h.actuates(sc) {
+		h.logger.Debug("ignoring BFD state change, session does not actuate the BGP peer",
+			slog.String("peer", peerAddr),
+			slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
+		)
+		return
+	}
 
 	h.logger.Debug("received BFD state change",
 		slog.String("peer", peerAddr),

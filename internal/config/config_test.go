@@ -899,6 +899,29 @@ func TestValidateGoBGPErrors(t *testing.T) {
 			},
 		},
 		{
+			// H-31: one BGP neighbor needs one canonical BFD session.
+			name: "gobgp peer with two base sessions",
+			modify: func(cfg *config.Config) {
+				cfg.GoBGP.Enabled = true
+				cfg.GoBGP.Addr = testGoBGPAddr
+				cfg.GoBGP.Strategy = testStrategyPeer
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"},
+					{Peer: "::ffff:10.0.0.1", Local: testLocalAddr, Type: "multi_hop"},
+				}
+			},
+			wantErr: config.ErrAmbiguousGoBGPPeer,
+		},
+		{
+			name: "two base sessions to one peer without gobgp",
+			modify: func(cfg *config.Config) {
+				cfg.Sessions = []config.SessionConfig{
+					{Peer: "10.0.0.1", Local: testLocalAddr, Interface: "eth0"},
+					{Peer: "10.0.0.1", Local: testLocalAddr, Type: "multi_hop"},
+				}
+			},
+		},
+		{
 			name: "unsupported gobgp withdraw-routes",
 			modify: func(cfg *config.Config) {
 				cfg.GoBGP.Enabled = true
