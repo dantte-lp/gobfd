@@ -949,6 +949,9 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("unsolicited.session_defaults.detect_mult from %s: %w",
 			path, ErrInvalidUnsolicitedSessionDefaults)
 	}
+	if err := validateDetectMultiplierInput(k); err != nil {
+		return nil, fmt.Errorf("validate detect multipliers from %s: %w", path, err)
+	}
 
 	cfg := &Config{}
 	if err := k.Unmarshal("", cfg); err != nil {
@@ -1011,8 +1014,11 @@ func validRequiredMinRxScalar(value any) bool {
 // decoding into a wider unsigned field can wrap it into range.
 func validUint8Scalar(value any) bool {
 	switch value := value.(type) {
-	case nil, string:
-		return true // Strings are parsed with range checks by the decoder.
+	case nil:
+		return true
+	case string:
+		_, err := strconv.ParseUint(value, 0, 8)
+		return err == nil
 	case int:
 		return value >= 0 && value <= math.MaxUint8
 	case int64:
@@ -1026,6 +1032,37 @@ func validUint8Scalar(value any) bool {
 	default:
 		return false
 	}
+}
+
+func validateDetectMultiplierInput(k *koanf.Koanf) error {
+	for _, path := range []string{
+		"bfd.default_detect_multiplier", "echo.default_detect_multiplier",
+		"vxlan.default_detect_multiplier", "geneve.default_detect_multiplier",
+	} {
+		if !validUint8Scalar(k.Get(path)) {
+			return fmt.Errorf("%s: %w", path, ErrDetectMultiplierRange)
+		}
+	}
+	for _, path := range []string{"sessions", "echo.peers", "vxlan.peers", "geneve.peers", "micro_bfd.groups"} {
+		value := k.Get(path)
+		if value == nil {
+			continue
+		}
+		entries, ok := value.([]any)
+		if !ok {
+			return fmt.Errorf("%s: %w", path, ErrInvalidPeerListShape)
+		}
+		for i, value := range entries {
+			entry, ok := value.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s[%d]: %w", path, i, ErrInvalidPeerListShape)
+			}
+			if !validUint8Scalar(entry["detect_mult"]) {
+				return fmt.Errorf("%s[%d].detect_mult: %w", path, i, ErrDetectMultiplierRange)
+			}
+		}
+	}
+	return nil
 }
 
 // applyRequiredMinRxPresence runs after raw shape validation, so koanf.Slices
@@ -1141,6 +1178,12 @@ var (
 
 	// ErrInvalidDetectMultiplier indicates the detect multiplier is zero.
 	ErrInvalidDetectMultiplier = errors.New("bfd.default_detect_multiplier must be >= 1")
+
+	// ErrDetectMultiplierRange indicates raw configuration cannot fit the wire field.
+	ErrDetectMultiplierRange = errors.New("detect multiplier must be an integer between 0 and 255")
+
+	// ErrInvalidPeerListShape rejects weak conversion of a peer/group mapping to a list.
+	ErrInvalidPeerListShape = errors.New("peers or groups must be a sequence of mappings")
 
 	// ErrInvalidDesiredMinTx indicates the desired min TX interval is invalid.
 	ErrInvalidDesiredMinTx = errors.New("bfd.default_desired_min_tx must be > 0")

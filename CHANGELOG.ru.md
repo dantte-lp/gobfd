@@ -254,6 +254,9 @@
 
 ### Исправлено
 
+- Конфигурация отклоняет переполнение detection multiplier, дроби и boolean до
+  weak decoding для base, Echo, VXLAN, Geneve и Micro-BFD.
+
 - Хранилище authentication keys отклоняет повторяющиеся KeyID, включая
   одинаковые rotation keys: выбор ключа передачи и приёма однозначен.
 
