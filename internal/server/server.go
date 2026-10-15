@@ -286,31 +286,42 @@ func (s *BFDServer) watchLoop(
 			if !ok {
 				return nil
 			}
-			if sc.Gap {
-				s.logger.WarnContext(ctx, "watch stream fell behind, resyncing",
-					slog.Uint64("revision", sc.Revision))
-				if err := send(&bfdv1.WatchSessionEventsResponse{
-					Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP,
-					Revision:  sc.Revision,
-					Timestamp: timestamppb.Now(),
-				}); err != nil {
-					return fmt.Errorf("send gap event: %w", err)
-				}
-				rev, err := s.sendSnapshot(send)
-				if err != nil {
-					return err
-				}
-				covered = rev
-				continue
-			}
-			if sc.Revision <= covered {
-				continue
-			}
-			if err := send(stateChangeToProto(sc)); err != nil {
-				return fmt.Errorf("send state change event: %w", err)
+			var err error
+			if covered, err = s.forwardStateChange(ctx, sc, covered, send); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+// forwardStateChange sends one state change unless the snapshot at
+// covered already includes it, or answers a gap marker with GAP and a
+// fresh snapshot. It returns the revision now covered.
+func (s *BFDServer) forwardStateChange(
+	ctx context.Context,
+	sc bfd.StateChange,
+	covered uint64,
+	send func(*bfdv1.WatchSessionEventsResponse) error,
+) (uint64, error) {
+	if sc.Gap {
+		s.logger.WarnContext(ctx, "watch stream fell behind, resyncing",
+			slog.Uint64("revision", sc.Revision))
+		if err := send(&bfdv1.WatchSessionEventsResponse{
+			Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP,
+			Revision:  sc.Revision,
+			Timestamp: timestamppb.Now(),
+		}); err != nil {
+			return covered, fmt.Errorf("send gap event: %w", err)
+		}
+		return s.sendSnapshot(send)
+	}
+	if sc.Revision <= covered {
+		return covered, nil
+	}
+	if err := send(stateChangeToProto(sc)); err != nil {
+		return covered, fmt.Errorf("send state change event: %w", err)
+	}
+	return covered, nil
 }
 
 // sendSnapshot sends every session as SESSION_ADDED and closes the

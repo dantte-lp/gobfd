@@ -25,7 +25,7 @@ func TestGetSessionByPeerAddressAmbiguous(t *testing.T) {
 	t.Parallel()
 
 	client := setupTestServer(t)
-	var discrs []uint32
+	discrs := make([]uint32, 0, 2)
 	for _, iface := range []string{"eth0", "eth1"} {
 		req := validAddRequest()
 		req.InterfaceName = iface
@@ -111,10 +111,16 @@ func TestWatchLoopResyncsAfterGap(t *testing.T) {
 
 			ch := make(chan bfd.StateChange, 4)
 			// Revision 0 is covered by every snapshot of this manager.
-			ch <- bfd.StateChange{LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateAdminDown, NewState: bfd.StateDown}
-			ch <- bfd.StateChange{LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateDown, NewState: bfd.StateInit, Revision: 1}
+			ch <- bfd.StateChange{
+				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateAdminDown, NewState: bfd.StateDown,
+			}
+			ch <- bfd.StateChange{
+				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateDown, NewState: bfd.StateInit, Revision: 1,
+			}
 			ch <- bfd.StateChange{Gap: true, Revision: 2}
-			ch <- bfd.StateChange{LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateInit, NewState: bfd.StateUp, Revision: 3}
+			ch <- bfd.StateChange{
+				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateInit, NewState: bfd.StateUp, Revision: 3,
+			}
 			close(ch)
 
 			var got []string
