@@ -146,10 +146,13 @@ func (s *BFDServer) AddSession(
 		return nil, err
 	}
 
-	snap := snapshotFromSession(sess, cfg)
+	current, err := s.getSessionByDiscriminator(sess.LocalDiscriminator())
+	if err != nil {
+		return nil, err
+	}
 
 	return &bfdv1.AddSessionResponse{
-		Session: snapshotToProto(snap),
+		Session: current.GetSession(),
 	}, nil
 }
 
@@ -551,35 +554,6 @@ func durationFromProto(d *durationpb.Duration) time.Duration {
 		return time.Second
 	}
 	return d.AsDuration()
-}
-
-// snapshotFromSession creates a SessionSnapshot from a live Session and its config.
-// Used immediately after CreateSession when we have both the session pointer and config.
-func snapshotFromSession(sess *bfd.Session, cfg bfd.SessionConfig) bfd.SessionSnapshot {
-	return bfd.SessionSnapshot{
-		LocalDiscr:           sess.LocalDiscriminator(),
-		RemoteDiscr:          sess.RemoteDiscriminator(),
-		PeerAddr:             sess.PeerAddr(),
-		LocalAddr:            sess.LocalAddr(),
-		Interface:            sess.Interface(),
-		Type:                 cfg.Type,
-		State:                sess.State(),
-		RemoteState:          sess.RemoteState(),
-		LocalDiag:            sess.LocalDiag(),
-		DesiredMinTx:         cfg.DesiredMinTxInterval,
-		RequiredMinRx:        cfg.RequiredMinRxInterval,
-		DetectMultiplier:     cfg.DetectMultiplier,
-		AuthType:             sess.AuthType(),
-		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
-		DetectionTime:        sess.DetectionTime(),
-		LastStateChange:      sess.LastStateChange(),
-		LastPacketReceived:   sess.LastPacketReceived(),
-		Counters: bfd.SessionCounters{
-			PacketsSent:      sess.PacketsSent(),
-			PacketsReceived:  sess.PacketsReceived(),
-			StateTransitions: sess.StateTransitions(),
-		},
-	}
 }
 
 // snapshotToProto converts an internal SessionSnapshot to a proto BfdSession message.

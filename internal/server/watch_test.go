@@ -73,6 +73,10 @@ func TestGetSessionMatchesListFields(t *testing.T) {
 		t.Fatalf("ListSessions: %v", err)
 	}
 	g, l := get.GetSession(), list.GetSessions()[0]
+	if got, want := add.GetSession().GetRemoteMinRxInterval().AsDuration(),
+		l.GetRemoteMinRxInterval().AsDuration(); got != want {
+		t.Errorf("AddSession remote_min_rx_interval = %v, want snapshot value %v", got, want)
+	}
 	if g.GetRemoteMinRxInterval() == nil || l.GetRemoteMinRxInterval() == nil {
 		t.Fatalf("remote_min_rx_interval unset: get %v, list %v", g.GetRemoteMinRxInterval(), l.GetRemoteMinRxInterval())
 	}

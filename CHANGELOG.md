@@ -243,6 +243,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `AddSession` returns the same Manager snapshot fields as Get and List,
+  including the initial `remote_min_rx_interval`.
+
 - The remaining RFC 5882 Section 4.3 (Graceful Restart) citations for the
   GoBGP reaction in code, configuration examples and the RFC compliance
   matrix now cite Section 10.2 (Interactions with BGP) (H-27).

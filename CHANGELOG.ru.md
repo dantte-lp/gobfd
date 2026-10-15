@@ -246,6 +246,9 @@
 
 ### Исправлено
 
+- `AddSession` возвращает те же поля снимка Manager, что Get и List,
+  включая начальное значение `remote_min_rx_interval`.
+
 - Оставшиеся ссылки на RFC 5882 Section 4.3 (Graceful Restart) для реакции
   GoBGP в коде, примерах конфигурации и матрице соответствия RFC заменены на
   Section 10.2 (Interactions with BGP) (H-27).
