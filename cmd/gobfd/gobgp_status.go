@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"net/netip"
 
 	"connectrpc.com/grpchealth/v2"
 
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/gobgp"
 	bfdmetrics "github.com/dantte-lp/gobfd/internal/metrics"
 )
 
@@ -24,6 +26,26 @@ const (
 type goBGPStatus struct {
 	checker *grpchealth.StaticChecker
 	metrics *bfdmetrics.Collector
+}
+
+func (s *goBGPStatus) configuredPeers(peers []netip.Addr) {
+	if s != nil {
+		s.metrics.SetGoBGPConfiguredPeers(peers)
+	}
+}
+
+func (s *goBGPStatus) observeHandler(handler *gobgp.Handler) {
+	if s == nil {
+		return
+	}
+	s.metrics.SetGoBGPPeerSource(func(peer string) bfdmetrics.GoBGPPeerState {
+		state := handler.PeerStatus(peer)
+		return bfdmetrics.GoBGPPeerState{
+			Penalty: state.Penalty, Suppressed: state.Suppressed,
+			SuppressionDeadline: state.SuppressionDeadline,
+			Action:              state.Action, NextAttempt: state.NextAttempt,
+		}
+	})
 }
 
 // goBGPStatusFor returns nil when the GoBGP integration is disabled, so no

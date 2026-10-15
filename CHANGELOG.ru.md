@@ -9,6 +9,11 @@
 
 ### Добавлено
 
+- Per-configured-peer метрики GoBGP: flap penalty с decay на момент scrape,
+  recovery suppression и его максимальная граница, ожидающие желаемые Up/Down
+  с timestamp следующего retry/recheck (`gobfd-qj0.8.2.4.7`). Принятый reload
+  заменяет allowlist пиров; scrape не изменяет routing decisions и не создаёт
+  labels из API или unsolicited sessions.
 - Версионированные snapshot сессий и поток Watch с сигналом разрыва
   (`gobfd-qj0.8.2.1.3.2`; H-29, M-08). В `bfd.v1` добавлены `revision` в
   `ListSessionsResponse`, `GetSessionResponse` и

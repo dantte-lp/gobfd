@@ -65,6 +65,8 @@ type Collector struct {
 	// GoBGPEndpointCompatible is 1 after the GoBGP v4 preflight passed and
 	// 0 while the endpoint is incompatible or not yet checked.
 	GoBGPEndpointCompatible prometheus.Gauge
+
+	goBGPPeers *goBGPPeerCollector
 }
 
 // NewCollector creates a Collector with all BFD metrics registered against
@@ -89,6 +91,7 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.AuthFailures,
 		c.GoBGPRPCErrors,
 		c.GoBGPEndpointCompatible,
+		c.goBGPPeers,
 	)
 
 	return c
@@ -101,6 +104,7 @@ func newMetrics() *Collector {
 	transitionLabels := []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}
 
 	return &Collector{
+		goBGPPeers: newGoBGPPeerCollector(),
 		GoBGPRPCErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: "gobgp",

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -92,6 +93,9 @@ type Handler struct {
 
 	// pending is owned by the Run goroutine.
 	pending map[string]*pendingAction
+	// pendingStatus is a separately published value copy for concurrent observers.
+	statusMu      sync.RWMutex
+	pendingStatus map[string]PeerStatus
 
 	// disabled holds the peers this process disabled (owned by the Run
 	// goroutine). GoBFD enables only these: a peer the operator disabled,
@@ -174,17 +178,18 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 	}
 
 	return &Handler{
-		client:   cfg.Client,
-		strategy: strategy,
-		dampener: NewDampener(cfg.Dampening, cfg.Logger),
-		timeout:  timeout,
-		actuates: cfg.Actuates,
-		snapshot: cfg.Snapshot,
-		last:     make(map[uint32]bfd.State),
-		resynced: make(map[uint32]struct{}),
-		onAction: cfg.OnAction,
-		pending:  make(map[string]*pendingAction),
-		disabled: make(map[string]struct{}),
+		client:        cfg.Client,
+		strategy:      strategy,
+		dampener:      NewDampener(cfg.Dampening, cfg.Logger),
+		timeout:       timeout,
+		actuates:      cfg.Actuates,
+		snapshot:      cfg.Snapshot,
+		last:          make(map[uint32]bfd.State),
+		resynced:      make(map[uint32]struct{}),
+		onAction:      cfg.OnAction,
+		pending:       make(map[string]*pendingAction),
+		pendingStatus: make(map[string]PeerStatus),
+		disabled:      make(map[string]struct{}),
 		logger: cfg.Logger.With(
 			slog.String("component", "gobgp.handler"),
 			slog.String("strategy", string(cfg.Strategy)),
@@ -208,6 +213,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 //   - disable-peer: calls GoBGP EnablePeer
 func (h *Handler) Run(ctx context.Context, events <-chan bfd.StateChange) error {
 	h.logger.Info("handler started, consuming BFD state changes")
+	defer h.publishPendingStatus(nil)
 
 	retry := time.NewTimer(time.Hour)
 	retry.Stop()
@@ -230,6 +236,7 @@ func (h *Handler) Run(ctx context.Context, events <-chan bfd.StateChange) error 
 			// One GoBGP call per wakeup keeps the event channel drained.
 			h.retryDue(ctx)
 		}
+		h.publishPendingStatus(h.pending)
 		h.armRetry(retry)
 	}
 }
