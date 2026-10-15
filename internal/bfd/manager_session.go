@@ -694,6 +694,9 @@ func (m *Manager) SessionsWithRevision() ([]SessionSnapshot, uint64) {
 	return m.Sessions(), rev
 }
 
+// Revision returns the revision of the last dispatched state change.
+func (m *Manager) Revision() uint64 { return m.revision.Load() }
+
 // SessionWithRevision returns the snapshot of one session by local
 // discriminator and the dispatch revision it covers.
 func (m *Manager) SessionWithRevision(discr uint32) (SessionSnapshot, uint64, bool) {

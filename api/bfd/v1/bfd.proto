@@ -124,9 +124,14 @@ message ListSessionsRequest {}
 // ListSessionsResponse contains all active BFD sessions.
 message ListSessionsResponse {
   repeated BfdSession sessions = 1;
+  // Revision is the daemon state-change revision the snapshot covers.
+  // Revisions are scoped to one daemon process.
+  uint64 revision = 2;
 }
 
 // GetSessionRequest retrieves a single BFD session by discriminator or peer address.
+// A peer address that matches more than one session fails with
+// FAILED_PRECONDITION and lists the local discriminators to use instead.
 message GetSessionRequest {
   oneof identifier {
     uint32 local_discriminator = 1;
@@ -137,6 +142,8 @@ message GetSessionRequest {
 // GetSessionResponse returns the requested BFD session.
 message GetSessionResponse {
   BfdSession session = 1;
+  // Revision is the daemon state-change revision the snapshot covers.
+  uint64 revision = 2;
 }
 
 // WatchSessionEventsRequest starts a server-side stream of BFD session events.
@@ -148,6 +155,15 @@ message WatchSessionEventsRequest {
 
 // WatchSessionEventsResponse represents a BFD session lifecycle event
 // streamed from WatchSessionEvents RPC.
+//
+// Every state change carries a revision that increases within one daemon
+// process. A snapshot (include_current, or a resync after a gap) is a run
+// of SESSION_ADDED events followed by SYNC_COMPLETE with the revision it
+// covers; later state changes have higher revisions and may repeat state
+// already in the snapshot. When the stream falls behind, the server sends
+// GAP, then a fresh snapshot, whatever include_current was: the client
+// discards its state on GAP and rebuilds it from the snapshot. There is no
+// replay; a reconnecting client starts from a snapshot.
 message WatchSessionEventsResponse {
   // EventType classifies the session event.
   enum EventType {
@@ -155,11 +171,18 @@ message WatchSessionEventsResponse {
     EVENT_TYPE_STATE_CHANGE = 1;
     EVENT_TYPE_SESSION_ADDED = 2;
     EVENT_TYPE_SESSION_DELETED = 3;
+    // GAP: state changes were lost; a snapshot follows. No session.
+    EVENT_TYPE_GAP = 4;
+    // SYNC_COMPLETE: the snapshot ended; revision is the revision it
+    // covers. No session.
+    EVENT_TYPE_SYNC_COMPLETE = 5;
   }
   EventType type = 1;
   BfdSession session = 2;
   SessionState previous_state = 3;
   google.protobuf.Timestamp timestamp = 4;
+  // Revision is the daemon state-change revision of this event.
+  uint64 revision = 5;
 }
 
 // BfdService provides gRPC API for managing BFD sessions.

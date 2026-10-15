@@ -289,6 +289,11 @@ const (
 	WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE    WatchSessionEventsResponse_EventType = 1
 	WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED   WatchSessionEventsResponse_EventType = 2
 	WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED WatchSessionEventsResponse_EventType = 3
+	// GAP: state changes were lost; a snapshot follows. No session.
+	WatchSessionEventsResponse_EVENT_TYPE_GAP WatchSessionEventsResponse_EventType = 4
+	// SYNC_COMPLETE: the snapshot ended; revision is the revision it
+	// covers. No session.
+	WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE WatchSessionEventsResponse_EventType = 5
 )
 
 // Enum value maps for WatchSessionEventsResponse_EventType.
@@ -298,12 +303,16 @@ var (
 		1: "EVENT_TYPE_STATE_CHANGE",
 		2: "EVENT_TYPE_SESSION_ADDED",
 		3: "EVENT_TYPE_SESSION_DELETED",
+		4: "EVENT_TYPE_GAP",
+		5: "EVENT_TYPE_SYNC_COMPLETE",
 	}
 	WatchSessionEventsResponse_EventType_value = map[string]int32{
 		"EVENT_TYPE_UNSPECIFIED":     0,
 		"EVENT_TYPE_STATE_CHANGE":    1,
 		"EVENT_TYPE_SESSION_ADDED":   2,
 		"EVENT_TYPE_SESSION_DELETED": 3,
+		"EVENT_TYPE_GAP":             4,
+		"EVENT_TYPE_SYNC_COMPLETE":   5,
 	}
 )
 
@@ -883,8 +892,11 @@ func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
 
 // ListSessionsResponse contains all active BFD sessions.
 type ListSessionsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sessions      []*BfdSession          `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Sessions []*BfdSession          `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	// Revision is the daemon state-change revision the snapshot covers.
+	// Revisions are scoped to one daemon process.
+	Revision      uint64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -926,7 +938,16 @@ func (x *ListSessionsResponse) GetSessions() []*BfdSession {
 	return nil
 }
 
+func (x *ListSessionsResponse) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
 // GetSessionRequest retrieves a single BFD session by discriminator or peer address.
+// A peer address that matches more than one session fails with
+// FAILED_PRECONDITION and lists the local discriminators to use instead.
 type GetSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Identifier:
@@ -1011,8 +1032,10 @@ func (*GetSessionRequest_PeerAddress) isGetSessionRequest_Identifier() {}
 
 // GetSessionResponse returns the requested BFD session.
 type GetSessionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Session       *BfdSession            `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Session *BfdSession            `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	// Revision is the daemon state-change revision the snapshot covers.
+	Revision      uint64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1052,6 +1075,13 @@ func (x *GetSessionResponse) GetSession() *BfdSession {
 		return x.Session
 	}
 	return nil
+}
+
+func (x *GetSessionResponse) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
 }
 
 // WatchSessionEventsRequest starts a server-side stream of BFD session events.
@@ -1103,12 +1133,23 @@ func (x *WatchSessionEventsRequest) GetIncludeCurrent() bool {
 
 // WatchSessionEventsResponse represents a BFD session lifecycle event
 // streamed from WatchSessionEvents RPC.
+//
+// Every state change carries a revision that increases within one daemon
+// process. A snapshot (include_current, or a resync after a gap) is a run
+// of SESSION_ADDED events followed by SYNC_COMPLETE with the revision it
+// covers; later state changes have higher revisions and may repeat state
+// already in the snapshot. When the stream falls behind, the server sends
+// GAP, then a fresh snapshot, whatever include_current was: the client
+// discards its state on GAP and rebuilds it from the snapshot. There is no
+// replay; a reconnecting client starts from a snapshot.
 type WatchSessionEventsResponse struct {
 	state         protoimpl.MessageState               `protogen:"open.v1"`
 	Type          WatchSessionEventsResponse_EventType `protobuf:"varint,1,opt,name=type,proto3,enum=bfd.v1.WatchSessionEventsResponse_EventType" json:"type,omitempty"`
 	Session       *BfdSession                          `protobuf:"bytes,2,opt,name=session,proto3" json:"session,omitempty"`
 	PreviousState SessionState                         `protobuf:"varint,3,opt,name=previous_state,json=previousState,proto3,enum=bfd.v1.SessionState" json:"previous_state,omitempty"`
 	Timestamp     *timestamppb.Timestamp               `protobuf:"bytes,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Revision is the daemon state-change revision of this event.
+	Revision      uint64 `protobuf:"varint,5,opt,name=revision,proto3" json:"revision,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1169,6 +1210,13 @@ func (x *WatchSessionEventsResponse) GetTimestamp() *timestamppb.Timestamp {
 		return x.Timestamp
 	}
 	return nil
+}
+
+func (x *WatchSessionEventsResponse) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
 }
 
 // EchoSession represents a single RFC 9747 unaffiliated echo session.
@@ -2088,28 +2136,33 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x14DeleteSessionRequest\x12/\n" +
 	"\x13local_discriminator\x18\x01 \x01(\rR\x12localDiscriminator\"\x17\n" +
 	"\x15DeleteSessionResponse\"\x15\n" +
-	"\x13ListSessionsRequest\"F\n" +
+	"\x13ListSessionsRequest\"b\n" +
 	"\x14ListSessionsResponse\x12.\n" +
-	"\bsessions\x18\x01 \x03(\v2\x12.bfd.v1.BfdSessionR\bsessions\"y\n" +
+	"\bsessions\x18\x01 \x03(\v2\x12.bfd.v1.BfdSessionR\bsessions\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\"y\n" +
 	"\x11GetSessionRequest\x121\n" +
 	"\x13local_discriminator\x18\x01 \x01(\rH\x00R\x12localDiscriminator\x12#\n" +
 	"\fpeer_address\x18\x02 \x01(\tH\x00R\vpeerAddressB\f\n" +
 	"\n" +
-	"identifier\"B\n" +
+	"identifier\"^\n" +
 	"\x12GetSessionResponse\x12,\n" +
-	"\asession\x18\x01 \x01(\v2\x12.bfd.v1.BfdSessionR\asession\"D\n" +
+	"\asession\x18\x01 \x01(\v2\x12.bfd.v1.BfdSessionR\asession\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\"D\n" +
 	"\x19WatchSessionEventsRequest\x12'\n" +
-	"\x0finclude_current\x18\x01 \x01(\bR\x0eincludeCurrent\"\x88\x03\n" +
+	"\x0finclude_current\x18\x01 \x01(\bR\x0eincludeCurrent\"\xd6\x03\n" +
 	"\x1aWatchSessionEventsResponse\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.bfd.v1.WatchSessionEventsResponse.EventTypeR\x04type\x12,\n" +
 	"\asession\x18\x02 \x01(\v2\x12.bfd.v1.BfdSessionR\asession\x12;\n" +
 	"\x0eprevious_state\x18\x03 \x01(\x0e2\x14.bfd.v1.SessionStateR\rpreviousState\x128\n" +
-	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"\x82\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x1a\n" +
+	"\brevision\x18\x05 \x01(\x04R\brevision\"\xb4\x01\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17EVENT_TYPE_STATE_CHANGE\x10\x01\x12\x1c\n" +
 	"\x18EVENT_TYPE_SESSION_ADDED\x10\x02\x12\x1e\n" +
-	"\x1aEVENT_TYPE_SESSION_DELETED\x10\x03\"\xc4\x04\n" +
+	"\x1aEVENT_TYPE_SESSION_DELETED\x10\x03\x12\x12\n" +
+	"\x0eEVENT_TYPE_GAP\x10\x04\x12\x1c\n" +
+	"\x18EVENT_TYPE_SYNC_COMPLETE\x10\x05\"\xc4\x04\n" +
 	"\vEchoSession\x12*\n" +
 	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
 	"\rlocal_address\x18\x02 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12%\n" +

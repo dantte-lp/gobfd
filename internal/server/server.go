@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"math"
 	"net/netip"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect/v2"
@@ -211,7 +214,7 @@ func (s *BFDServer) ListSessions(
 ) (*bfdv1.ListSessionsResponse, error) {
 	s.logger.InfoContext(ctx, "ListSessions called")
 
-	snapshots := s.manager.Sessions()
+	snapshots, rev := s.manager.SessionsWithRevision()
 	sessions := make([]*bfdv1.BfdSession, 0, len(snapshots))
 	for _, snap := range snapshots {
 		sessions = append(sessions, snapshotToProto(snap))
@@ -219,6 +222,7 @@ func (s *BFDServer) ListSessions(
 
 	return &bfdv1.ListSessionsResponse{
 		Sessions: sessions,
+		Revision: rev,
 	}, nil
 }
 
@@ -247,26 +251,32 @@ func (s *BFDServer) WatchSessionEvents(
 		slog.Bool("include_current", req.GetIncludeCurrent()),
 	)
 
-	// If requested, send current sessions as SESSION_ADDED events first.
-	if req.GetIncludeCurrent() {
-		snapshots := s.manager.Sessions()
-		for _, snap := range snapshots {
-			resp := &bfdv1.WatchSessionEventsResponse{
-				Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED,
-				Session:   snapshotToProto(snap),
-				Timestamp: timestamppb.Now(),
-			}
-			if err := stream.Send(resp); err != nil {
-				return fmt.Errorf("send current session event: %w", err)
-			}
-		}
-	}
-
-	// Stream state changes from a per-client subscription. Multiple watch
-	// clients must observe the same events rather than competing on one channel.
+	// Subscribe before the snapshot: every change after the revision the
+	// snapshot covers reaches this subscriber (M-08).
 	ch, err := s.manager.SubscribeStateChanges(ctx)
 	if err != nil {
 		return fmt.Errorf("subscribe to session state changes: %w", err)
+	}
+	return s.watchLoop(ctx, ch, req.GetIncludeCurrent(), stream.Send)
+}
+
+// watchLoop streams state changes from ch. With includeCurrent, and after
+// every gap whatever includeCurrent was, it first sends a snapshot of
+// SESSION_ADDED events closed by SYNC_COMPLETE, then skips changes the
+// snapshot already covers.
+func (s *BFDServer) watchLoop(
+	ctx context.Context,
+	ch <-chan bfd.StateChange,
+	includeCurrent bool,
+	send func(*bfdv1.WatchSessionEventsResponse) error,
+) error {
+	covered := s.manager.Revision()
+	if includeCurrent {
+		rev, err := s.sendSnapshot(send)
+		if err != nil {
+			return err
+		}
+		covered = rev
 	}
 	for {
 		select {
@@ -276,12 +286,56 @@ func (s *BFDServer) WatchSessionEvents(
 			if !ok {
 				return nil
 			}
-			resp := stateChangeToProto(sc)
-			if err := stream.Send(resp); err != nil {
+			if sc.Gap {
+				s.logger.WarnContext(ctx, "watch stream fell behind, resyncing",
+					slog.Uint64("revision", sc.Revision))
+				if err := send(&bfdv1.WatchSessionEventsResponse{
+					Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP,
+					Revision:  sc.Revision,
+					Timestamp: timestamppb.Now(),
+				}); err != nil {
+					return fmt.Errorf("send gap event: %w", err)
+				}
+				rev, err := s.sendSnapshot(send)
+				if err != nil {
+					return err
+				}
+				covered = rev
+				continue
+			}
+			if sc.Revision <= covered {
+				continue
+			}
+			if err := send(stateChangeToProto(sc)); err != nil {
 				return fmt.Errorf("send state change event: %w", err)
 			}
 		}
 	}
+}
+
+// sendSnapshot sends every session as SESSION_ADDED and closes the
+// snapshot with SYNC_COMPLETE. It returns the revision the snapshot covers.
+func (s *BFDServer) sendSnapshot(send func(*bfdv1.WatchSessionEventsResponse) error) (uint64, error) {
+	snapshots, rev := s.manager.SessionsWithRevision()
+	now := timestamppb.Now()
+	for _, snap := range snapshots {
+		if err := send(&bfdv1.WatchSessionEventsResponse{
+			Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED,
+			Session:   snapshotToProto(snap),
+			Timestamp: now,
+			Revision:  rev,
+		}); err != nil {
+			return 0, fmt.Errorf("send current session event: %w", err)
+		}
+	}
+	if err := send(&bfdv1.WatchSessionEventsResponse{
+		Type:      bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE,
+		Timestamp: now,
+		Revision:  rev,
+	}); err != nil {
+		return 0, fmt.Errorf("send sync complete event: %w", err)
+	}
+	return rev, nil
 }
 
 // -------------------------------------------------------------------------
@@ -291,39 +345,12 @@ func (s *BFDServer) WatchSessionEvents(
 // getSessionByDiscriminator looks up a session by its local discriminator
 // and returns it as a GetSessionResponse.
 func (s *BFDServer) getSessionByDiscriminator(discr uint32) (*bfdv1.GetSessionResponse, error) {
-	sess, ok := s.manager.LookupByDiscriminator(discr)
+	snap, rev, ok := s.manager.SessionWithRevision(discr)
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound,
 			fmt.Errorf("session with discriminator %d: %w", discr, bfd.ErrSessionNotFound).Error())
 	}
-
-	snap := bfd.SessionSnapshot{
-		LocalDiscr:           sess.LocalDiscriminator(),
-		RemoteDiscr:          sess.RemoteDiscriminator(),
-		PeerAddr:             sess.PeerAddr(),
-		LocalAddr:            sess.LocalAddr(),
-		Interface:            sess.Interface(),
-		Type:                 sess.Type(),
-		State:                sess.State(),
-		RemoteState:          sess.RemoteState(),
-		LocalDiag:            sess.LocalDiag(),
-		DesiredMinTx:         sess.DesiredMinTxInterval(),
-		RequiredMinRx:        sess.RequiredMinRxInterval(),
-		DetectMultiplier:     sess.DetectMultiplier(),
-		NegotiatedTxInterval: sess.NegotiatedTxInterval(),
-		DetectionTime:        sess.DetectionTime(),
-		LastStateChange:      sess.LastStateChange(),
-		LastPacketReceived:   sess.LastPacketReceived(),
-		Counters: bfd.SessionCounters{
-			PacketsSent:      sess.PacketsSent(),
-			PacketsReceived:  sess.PacketsReceived(),
-			StateTransitions: sess.StateTransitions(),
-		},
-	}
-
-	return &bfdv1.GetSessionResponse{
-		Session: snapshotToProto(snap),
-	}, nil
+	return &bfdv1.GetSessionResponse{Session: snapshotToProto(snap), Revision: rev}, nil
 }
 
 // getSessionByPeerAddress iterates all sessions to find one matching the
@@ -335,17 +362,32 @@ func (s *BFDServer) getSessionByPeerAddress(peerAddrStr string) (*bfdv1.GetSessi
 			fmt.Errorf("parse peer address %q: %w", peerAddrStr, err).Error())
 	}
 
-	snapshots := s.manager.Sessions()
+	snapshots, rev := s.manager.SessionsWithRevision()
+	var (
+		match  bfd.SessionSnapshot
+		discrs []string
+	)
 	for _, snap := range snapshots {
 		if snap.PeerAddr == addr {
-			return &bfdv1.GetSessionResponse{
-				Session: snapshotToProto(snap),
-			}, nil
+			match = snap
+			discrs = append(discrs, strconv.FormatUint(uint64(snap.LocalDiscr), 10))
 		}
 	}
-
-	return nil, connect.NewError(connect.CodeNotFound,
-		fmt.Errorf("session with peer address %s: %w", addr, bfd.ErrSessionNotFound).Error())
+	switch len(discrs) {
+	case 0:
+		return nil, connect.NewError(connect.CodeNotFound,
+			fmt.Errorf("session with peer address %s: %w", addr, bfd.ErrSessionNotFound).Error())
+	case 1:
+		return &bfdv1.GetSessionResponse{Session: snapshotToProto(match), Revision: rev}, nil
+	default:
+		// M-07: the peer address is not a session identity. The system
+		// state, not the argument, precludes an answer (gRPC
+		// doc/statuscodes.md, FAILED_PRECONDITION).
+		slices.Sort(discrs)
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Sprintf("peer address %s matches %d sessions; get by local discriminator: %s",
+				addr, len(discrs), strings.Join(discrs, ", ")))
+	}
 }
 
 // sessionConfigFromProto converts an AddSessionRequest into a bfd.SessionConfig.
@@ -544,6 +586,7 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 		RemoteDiscriminator:   snap.RemoteDiscr,
 		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTx),
 		RequiredMinRxInterval: durationpb.New(snap.RequiredMinRx),
+		RemoteMinRxInterval:   durationpb.New(snap.RemoteMinRx),
 		DetectMultiplier:      uint32(snap.DetectMultiplier),
 		NegotiatedTxInterval:  durationpb.New(snap.NegotiatedTxInterval),
 		DetectionTime:         durationpb.New(snap.DetectionTime),
@@ -564,18 +607,30 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 	return pb
 }
 
+// addrString renders a, or "" when a is unset.
+func addrString(a netip.Addr) string {
+	if !a.IsValid() {
+		return ""
+	}
+	return a.String()
+}
+
 // stateChangeToProto converts an internal StateChange to a WatchSessionEventsResponse.
 func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
 	return &bfdv1.WatchSessionEventsResponse{
 		Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE,
 		Session: &bfdv1.BfdSession{
 			PeerAddress:        sc.PeerAddr.String(),
+			LocalAddress:       addrString(sc.LocalAddr),
+			InterfaceName:      sc.Interface,
+			Type:               sessionTypeToProto(sc.Type),
 			LocalDiscriminator: sc.LocalDiscr,
 			LocalState:         stateToProto(sc.NewState),
 			LocalDiagnostic:    diagToProto(sc.Diag),
 		},
 		PreviousState: stateToProto(sc.OldState),
 		Timestamp:     timestamppb.New(sc.Timestamp),
+		Revision:      sc.Revision,
 	}
 }
 
