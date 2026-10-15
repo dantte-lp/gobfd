@@ -204,6 +204,8 @@ and enabled unsolicited defaults must be positive.
 
 Peer and group collections must be lists of mappings; singleton mappings and
 non-mapping list entries are rejected before weak decoding.
+Multiplier lookup follows the decoder's case-insensitive matching; conflicting
+case aliases for a field are rejected.
 
 When `align_intervals` is `true`, `DesiredMinTxInterval` and `RequiredMinRxInterval` are rounded UP to the nearest RFC 7419 common interval (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s). This prevents negotiation mismatches with hardware BFD implementations.
 

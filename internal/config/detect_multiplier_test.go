@@ -60,3 +60,29 @@ func TestLoadRejectsMultiplierListCoercion(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadRejectsCaseFoldedMultiplierOverflow(t *testing.T) {
+	t.Parallel()
+	for _, content := range []string{
+		"sessions:\n  - peer: 192.0.2.1\n    DETECT_MULT: 4294967299\n",
+		"SESSIONS:\n  - peer: 192.0.2.1\n    detect_mult: 4294967299\n",
+		"echo:\n  peers:\n    - DETECT_MULT: 4294967299\n",
+		"vxlan:\n  PEERS:\n    - detect_mult: 4294967299\n",
+		"GENEVE:\n  peers:\n    - detect_mult: 4294967299\n",
+		"micro_bfd:\n  GROUPS:\n    - detect_mult: 4294967299\n",
+		"bfd:\n  DEFAULT_DETECT_MULTIPLIER: 4294967299\n",
+		"unsolicited:\n  SESSION_DEFAULTS:\n    detect_mult: 4294967299\n",
+	} {
+		if _, err := config.Load(writeTemp(t, content)); err == nil {
+			t.Errorf("case-folded input bypassed range validation: %q", content)
+		}
+	}
+	if _, err := config.Load(writeTemp(t,
+		"sessions:\n  - peer: 192.0.2.1\n    DETECT_MULT: 3\n")); err != nil {
+		t.Fatalf("rejected valid case-folded multiplier: %v", err)
+	}
+	if _, err := config.Load(writeTemp(t,
+		"sessions:\n  - peer: 192.0.2.1\n    detect_mult: 3\n    DETECT_MULT: 4\n")); !errors.Is(err, config.ErrAmbiguousConfigKey) {
+		t.Fatalf("conflicting aliases error = %v, want ErrAmbiguousConfigKey", err)
+	}
+}

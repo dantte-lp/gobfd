@@ -206,6 +206,8 @@ boolean отклоняются; переполнение и усечение и�
 
 Коллекции peers и groups должны быть списками mappings. Одиночный mapping и
 элементы списка другого типа отклоняются до weak decoding.
+Поиск multiplier использует тот же case-insensitive matching, что decoder;
+конфликтующие case aliases одного поля отклоняются.
 
 При `align_intervals: true` значения `DesiredMinTxInterval` и `RequiredMinRxInterval` округляются вверх до ближайшего общего интервала RFC 7419 (3.3мс, 10мс, 20мс, 50мс, 100мс, 1с). Это предотвращает несовпадения при согласовании с аппаратными реализациями BFD.
 

@@ -1035,16 +1035,25 @@ func validUint8Scalar(value any) bool {
 }
 
 func validateDetectMultiplierInput(k *koanf.Koanf) error {
+	root := k.Raw()
 	for _, path := range []string{
 		"bfd.default_detect_multiplier", "echo.default_detect_multiplier",
 		"vxlan.default_detect_multiplier", "geneve.default_detect_multiplier",
+		"unsolicited.session_defaults.detect_mult",
 	} {
-		if !validUint8Scalar(k.Get(path)) {
+		value, err := rawCaseFoldedValue(root, path)
+		if err != nil {
+			return err
+		}
+		if !validUint8Scalar(value) {
 			return fmt.Errorf("%s: %w", path, ErrDetectMultiplierRange)
 		}
 	}
 	for _, path := range []string{"sessions", "echo.peers", "vxlan.peers", "geneve.peers", "micro_bfd.groups"} {
-		value := k.Get(path)
+		value, err := rawCaseFoldedValue(root, path)
+		if err != nil {
+			return err
+		}
 		if value == nil {
 			continue
 		}
@@ -1057,12 +1066,39 @@ func validateDetectMultiplierInput(k *koanf.Koanf) error {
 			if !ok {
 				return fmt.Errorf("%s[%d]: %w", path, i, ErrInvalidPeerListShape)
 			}
-			if !validUint8Scalar(entry["detect_mult"]) {
+			multiplier, err := rawCaseFoldedValue(entry, "detect_mult")
+			if err != nil {
+				return fmt.Errorf("%s[%d]: %w", path, i, err)
+			}
+			if !validUint8Scalar(multiplier) {
 				return fmt.Errorf("%s[%d].detect_mult: %w", path, i, ErrDetectMultiplierRange)
 			}
 		}
 	}
 	return nil
+}
+
+// Match the decoder's EqualFold lookup without choosing between case aliases.
+func rawCaseFoldedValue(root map[string]any, path string) (any, error) {
+	var value any = root
+	for _, part := range strings.Split(path, ".") {
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return nil, nil
+		}
+		var next any
+		found := false
+		for key, field := range fields {
+			if strings.EqualFold(key, part) {
+				if found {
+					return nil, fmt.Errorf("%s: %w", path, ErrAmbiguousConfigKey)
+				}
+				next, found = field, true
+			}
+		}
+		value = next
+	}
+	return value, nil
 }
 
 // applyRequiredMinRxPresence runs after raw shape validation, so koanf.Slices
@@ -1184,6 +1220,9 @@ var (
 
 	// ErrInvalidPeerListShape rejects weak conversion of a peer/group mapping to a list.
 	ErrInvalidPeerListShape = errors.New("peers or groups must be a sequence of mappings")
+
+	// ErrAmbiguousConfigKey rejects conflicting case aliases for one decoded field.
+	ErrAmbiguousConfigKey = errors.New("configuration contains conflicting case aliases")
 
 	// ErrInvalidDesiredMinTx indicates the desired min TX interval is invalid.
 	ErrInvalidDesiredMinTx = errors.New("bfd.default_desired_min_tx must be > 0")
