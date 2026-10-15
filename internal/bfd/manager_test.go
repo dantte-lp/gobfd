@@ -1091,7 +1091,9 @@ func TestManagerDrainAllSessions(t *testing.T) {
 		}
 
 		// Drain all sessions.
-		mgr.DrainAllSessions()
+		if err := mgr.DrainAllSessions(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 		time.Sleep(10 * time.Millisecond)
 
 		// Both sessions should be AdminDown.

@@ -605,7 +605,9 @@ func TestSessionSetAdminDownSendsAdminDownPacket(t *testing.T) {
 		sender.packets = nil
 		sender.mu.Unlock()
 
-		sess.SetAdminDown()
+		if err := sess.SetAdminDown(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 		time.Sleep(2 * time.Second)
 
 		if sess.State() != bfd.StateAdminDown {

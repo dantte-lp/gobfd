@@ -744,6 +744,13 @@ The existing API error-classification defect is tracked separately as P2
 `gobfd-qj0.8.2.1.3.5`: invalid receive intervals are rejected but can return
 `Internal` instead of `InvalidArgument`.
 
+Task `gobfd-qj0.8.2.1.3.3` implements the H-09 prerequisite: owner-only
+AdminDown/7 commit receipts, context-bounded queue admission and wait, one-shot
+`Run`, and Manager fanout outside registry, ownership and lifecycle locks.
+Shutdown retains commit errors and the fixed two-second notification window.
+The task remains open for H-12: successful-send retries, negotiated Detection
+Time drain and bounded I/O. A commit receipt does not qualify packet delivery.
+
 RFC core work continues with the tracked gaps in Poll/Final and Demand procedures,
 diagnostic and authentication reset behavior, atomic BFD/AdminDown delivery,
 RFC 5881/5883 transport demultiplexing, RFC 9764 authenticated padding, and

@@ -30,7 +30,7 @@ import (
 // recorder trace, then shuts down HTTP servers.
 //
 // The parent context is already cancelled when this function is called.
-// A fresh timeout context is created internally for server drain.
+// Fresh timeout contexts bound AdminDown commits and HTTP drain separately.
 func gracefulShutdown(
 	ctx context.Context,
 	mgr *bfd.Manager,
@@ -41,11 +41,15 @@ func gracefulShutdown(
 	logger.Info("initiating graceful shutdown")
 	notifyStopping(logger)
 
-	// Drain all BFD sessions: set to AdminDown with DiagAdminDown.
-	// This ensures peers see an intentional shutdown, not a failure.
-	mgr.DrainAllSessions()
+	// The commit deadline is independent of the cancelled signal context.
+	drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+	var shutdownErr error
+	if err := mgr.DrainAllSessions(drainCtx); err != nil {
+		shutdownErr = fmt.Errorf("commit BFD AdminDown: %w", err)
+	}
+	cancelDrain()
 
-	// Wait for final AdminDown packets to be transmitted.
+	// Retain the fixed best-effort notification window pending H-12.
 	time.Sleep(drainTimeout)
 
 	// Explicitly cancel all session goroutines after the drain period.
@@ -65,7 +69,6 @@ func gracefulShutdown(
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	var shutdownErr error
 	for _, srv := range servers {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("shutdown server: %w", err))

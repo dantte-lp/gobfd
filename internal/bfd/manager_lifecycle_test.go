@@ -66,7 +66,9 @@ func TestManagerCloseWaitsForSessionExitBeforeSenderRelease(t *testing.T) {
 		if !sess.running.Load() {
 			t.Fatal("session goroutine did not start")
 		}
-		sess.SetAdminDown()
+		if err := sess.SetAdminDown(t.Context()); err != nil {
+			t.Fatal(err)
+		}
 		<-sender.entered
 
 		closeDone := make(chan struct{})

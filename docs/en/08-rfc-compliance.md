@@ -178,10 +178,13 @@ Steps 8-18 (session): auth consistency, auth verification, state variable update
 
 #### Section 6.8.16: Administrative Control
 
-Graceful shutdown requests AdminDown with Diag=7, waits the fixed two-second
-`drainTimeout`, then cancels session goroutines. This is best effort: the
-current path does not acknowledge transmission or prove peer receipt. Atomic
-AdminDown completion is tracked for v1.
+Graceful shutdown waits up to ten seconds for each captured session owner to
+commit AdminDown/7 under one shared deadline, then keeps the fixed two-second
+`drainTimeout` before cancelling session goroutines. Admission and commit errors
+are returned; no direct atomic fallback changes state outside the owner. The
+receipt precedes the transmit attempt and does not confirm transmission or peer
+receipt. Successful-send retries, negotiated Detection Time drain and bounded
+sender I/O remain H-12 in `gobfd-qj0.8.2.1.3.3`.
 
 #### Not Implemented (RFC 5880)
 

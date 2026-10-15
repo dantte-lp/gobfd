@@ -754,6 +754,13 @@ H-08 имеет ограниченную реализацию, не полную
 недопустимые receive intervals отклоняются, но могут возвращать `Internal`
 вместо `InvalidArgument`.
 
+Задача `gobfd-qj0.8.2.1.3.3` реализует prerequisite H-09: owner-only commit
+receipts AdminDown/7, ограниченные контекстом admission в очередь и ожидание,
+one-shot `Run` и Manager fanout вне registry, ownership и lifecycle locks.
+Shutdown сохраняет commit errors и фиксированное двухсекундное окно уведомления.
+Задача остаётся открытой для H-12: повторов до успешной передачи, negotiated
+Detection Time drain и bounded I/O. Commit receipt не квалифицирует доставку.
+
 RFC core продолжается с отслеживаемых пробелов Poll/Final и Demand procedures,
 диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,
 transport demultiplexing RFC 5881/5883, authenticated padding RFC 9764 и

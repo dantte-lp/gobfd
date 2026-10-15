@@ -374,7 +374,10 @@ graph TB
 
 При SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
-1. `Manager.DrainAllSessions()` -- все сессии переводятся в AdminDown с Diag = Administratively Down (7)
+1. `Manager.DrainAllSessions(ctx)` -- снимок конкретных сессий, освобождение
+   Manager locks и параллельное ожидание commit AdminDown/7 их владельцами.
+   Admission и commit используют общий новый deadline десять секунд, независимый
+   от отменённого signal context; ошибки сохраняются в результате shutdown.
 2. Фиксированное двухсекундное окно `drainTimeout` для отправки AdminDown
 3. `Manager.Close()` -- переход в Closing, отделение sessions, отмена и
    ожидание зарегистрированных Manager goroutines, закрытие notification
@@ -382,9 +385,20 @@ graph TB
 4. Закрытие сокетов слушателей
 5. Остановка HTTP-серверов (gRPC, метрики)
 
-Это best-effort окно уведомления. Текущая реализация не подтверждает отправку и
-не доказывает получение AdminDown каждым пиром; атомарное завершение AdminDown
-остаётся частью контракта v1.
+`Session.SetAdminDown(ctx)` использует существующий control channel, в том числе
+до `Run`. Заполненная очередь ожидает capacity, отмену контекста или выход owner;
+вызывающая сторона не изменяет состояние сессии. Receipt подтверждает state,
+cached state и diagnostic владельца до немедленной попытки передачи. Timeout
+оставляет принятый запрос в очереди; выход owner возвращает `ErrSessionStopped`.
+Повторный запрос подтверждает commit без нового перехода или немедленного TX burst.
+`Run` допускает одного owner за время жизни сессии и обрабатывает стартовые
+команды до передачи по таймеру, сохраняя ограничения Passive role.
+
+Фиксированное окно уведомления остаётся best effort. Commit acknowledgement не
+подтверждает передачу или получение пиром. Повторы до успешной передачи,
+negotiated Detection Time каждой сессии и bounded I/O остаются H-12;
+`Manager.Close()` не ограничен по времени для произвольного блокирующего
+`PacketSender` или sender release callback.
 
 ### Структура проекта
 

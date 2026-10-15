@@ -264,6 +264,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- AdminDown commits exclusively in the session owner loop and returns a
+  context-bounded commit receipt, including for pre-Run and full-queue requests
+  (`gobfd-qj0.8.2.1.3.3`, H-09 prerequisite). `Run` has one owner for its
+  lifetime. Manager drain fans out to captured session identities outside its
+  locks and joins errors; shutdown preserves those errors. Receipts precede TX
+  and do not prove delivery. H-12 retries, negotiated drain and bounded I/O
+  remain open; the fixed two-second notification window is unchanged.
+
 - Verify Keyed MD5/SHA1 over the declared BFD `Length`, including PDU
   extensions and excluding transport padding (`gobfd-qj0.8.2.1.5.2`).
   Independent wire vectors cover all five authentication types. The approved

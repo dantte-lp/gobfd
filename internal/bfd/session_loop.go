@@ -11,7 +11,8 @@ import (
 // Main Goroutine — RFC 5880 Session Lifecycle
 // -------------------------------------------------------------------------
 
-// Run starts the session event loop. It blocks until ctx is cancelled.
+// Run starts the session event loop once. It blocks until ctx is cancelled.
+// Concurrent calls and calls after owner exit return without starting a loop.
 // The session begins in Down state and starts sending BFD Control packets
 // according to the configured role and timing parameters.
 //
@@ -21,11 +22,26 @@ import (
 //  3. Detection timer expires (RFC 5880 Section 6.8.4)
 //  4. Context cancellation (graceful shutdown)
 func (s *Session) Run(ctx context.Context) {
+	s.mu.Lock()
+	if s.running.Load() || s.updateClosed {
+		s.mu.Unlock()
+		return
+	}
+	s.running.Store(true)
+	s.mu.Unlock()
+	defer func() {
+		s.closeTimerUpdates()
+		s.mu.Lock()
+		s.running.Store(false)
+		close(s.ownerDone)
+		s.mu.Unlock()
+	}()
+	if ctx.Err() != nil {
+		return
+	}
 	// Pin the session goroutine to an OS thread for sub-millisecond timer
 	// precision. BFD detection intervals can be as low as 50ms; OS thread
 	// affinity reduces scheduler-induced jitter on timer wakeups.
-	s.running.Store(true)
-	defer s.running.Store(false)
 	s.cachedState = s.State()
 
 	runtime.LockOSThread()
@@ -58,8 +74,17 @@ func (s *Session) runLoop(
 	updateTimer := time.NewTimer(time.Hour)
 	updateTimer.Stop()
 	defer updateTimer.Stop()
-	defer s.closeTimerUpdates()
+	// Pre-Run administrative intent must commit before the first timer TX.
+	for range len(s.ctrlCh) {
+		if ctx.Err() != nil {
+			return
+		}
+		s.handleControlCommand(ctx, <-s.ctrlCh, txTimer, detectTimer)
+	}
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		s.processTimerUpdates(txTimer, detectTimer)
 		s.resetUpdateTimer(updateTimer)
 		select {
@@ -94,20 +119,26 @@ func (s *Session) handleControlCommand(
 	case controlPathDown:
 		s.handlePathDown(ctx, txTimer, detectTimer)
 	case controlAdminDown:
-		s.handleAdminDown(ctx, txTimer, detectTimer)
+		s.handleAdminDown(ctx, cmd.receipt, txTimer, detectTimer)
 	default:
 		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
 	}
 }
 
-func (s *Session) handleAdminDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {
+func (s *Session) handleAdminDown(
+	ctx context.Context,
+	receipt chan struct{},
+	txTimer *time.Timer,
+	detectTimer *time.Timer,
+) {
 	result := ApplyEvent(s.cachedState, EventAdminDown)
-	if !result.Changed {
-		s.localDiag.Store(uint32(DiagAdminDown))
-		return
-	}
-	result.Actions = append(result.Actions, ActionSendControl)
+	s.localDiag.Store(uint32(DiagAdminDown))
 	s.executeFSMActions(ctx, result, txTimer, detectTimer)
+	close(receipt)
+	if result.Changed && ctx.Err() == nil {
+		s.maybeSendControl(ctx)
+		s.resetTxTimer(txTimer)
+	}
 }
 
 func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detectTimer *time.Timer) {

@@ -268,6 +268,14 @@
 
 ### Исправлено
 
+- AdminDown коммитится только в session owner loop с ограниченным контекстом
+  commit receipt, включая pre-Run и заполненную очередь
+  (`gobfd-qj0.8.2.1.3.3`, prerequisite H-09). `Run` имеет одного owner за
+  время жизни сессии. Manager drain выполняет fanout по конкретным сессиям вне
+  locks и объединяет ошибки; shutdown сохраняет их. Receipt предшествует TX и
+  не доказывает доставку. Повторы, negotiated drain и bounded I/O H-12 остаются
+  открытыми; фиксированное двухсекундное окно уведомления сохранено.
+
 - Проверка Keyed MD5/SHA1 использует объявленный BFD `Length`, включая PDU
   extensions и исключая transport padding (`gobfd-qj0.8.2.1.5.2`). Независимые
   wire vectors покрывают пять типов аутентификации. Утверждённая политика

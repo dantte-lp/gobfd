@@ -218,8 +218,11 @@ func WithMetrics(mr MetricsReporter) SessionOption {
 // Session Errors
 // -------------------------------------------------------------------------
 
-// Sentinel errors for Session configuration validation.
+// Sentinel errors for Session operations and configuration validation.
 var (
+	// ErrSessionStopped indicates that the session owner has exited.
+	ErrSessionStopped = errors.New("session stopped")
+
 	// ErrInvalidDetectMult indicates the detect multiplier is zero.
 	ErrInvalidDetectMult = errors.New("detect multiplier must be >= 1")
 
@@ -422,13 +425,14 @@ type Session struct {
 
 	// --- Runtime ---
 
-	sender   PacketSender
-	metrics  MetricsReporter
-	logger   *slog.Logger
-	recvCh   chan recvItem
-	ctrlCh   chan sessionControl
-	notifyCh chan<- StateChange
-	running  atomic.Bool
+	sender    PacketSender
+	metrics   MetricsReporter
+	logger    *slog.Logger
+	recvCh    chan recvItem
+	ctrlCh    chan sessionControl
+	ownerDone chan struct{}
+	notifyCh  chan<- StateChange
+	running   atomic.Bool
 }
 
 // recvItem carries a received BFD Control packet along with the raw
@@ -446,7 +450,8 @@ const (
 )
 
 type sessionControl struct {
-	kind sessionControlKind
+	kind    sessionControlKind
+	receipt chan struct{}
 }
 
 // -------------------------------------------------------------------------
@@ -502,6 +507,7 @@ func NewSession(
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
 		ctrlCh:                make(chan sessionControl, 4),
+		ownerDone:             make(chan struct{}),
 		updateWake:            make(chan struct{}, 1),
 		cachedPacket:          make([]byte, pktBufSize),
 		logger: logger.With(
@@ -785,30 +791,58 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
 	}
 }
 
-// SetAdminDown transitions the session to AdminDown with DiagAdminDown.
+// SetAdminDown waits for the owner to commit AdminDown with DiagAdminDown.
 // RFC 5880 Section 6.8.16: the local system sets bfd.SessionState to
 // AdminDown and bfd.LocalDiag to 7 (Administratively Down).
 //
-// This is used during graceful shutdown to signal the remote peer that
-// the session is being administratively disabled, not failing. The session
-// goroutine will rebuild the cached packet and transmit the AdminDown
-// state on the next TX interval.
-//
-// Thread-safe: when the session goroutine is running, routes the transition
-// through ctrlCh so the goroutine-confined cached state stays coherent.
-func (s *Session) SetAdminDown() {
-	if s.running.Load() {
-		select {
-		case s.ctrlCh <- sessionControl{kind: controlAdminDown}:
-			return
-		default:
-			s.logger.Warn("session control channel full, applying AdminDown directly")
-		}
+// Before Run, requests queue until an owner starts. ctx bounds admission and
+// the commit wait; a timeout does not revoke an admitted request. Success
+// confirms state/diagnostic commit, not packet transmission or peer receipt.
+func (s *Session) SetAdminDown(ctx context.Context) error {
+	receipt, err := s.enqueueAdminDown(ctx)
+	if err != nil {
+		return fmt.Errorf("request AdminDown: %w", err)
 	}
+	return s.waitAdminDown(ctx, receipt)
+}
 
-	s.localDiag.Store(uint32(DiagAdminDown))
-	s.state.Store(uint32(StateAdminDown))
-	s.logger.Info("session set to AdminDown for graceful drain")
+func (s *Session) enqueueAdminDown(ctx context.Context) (<-chan struct{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("admit AdminDown: %w", err)
+	}
+	select {
+	case <-s.ownerDone:
+		return nil, ErrSessionStopped
+	default:
+	}
+	receipt := make(chan struct{})
+	select {
+	case s.ctrlCh <- sessionControl{kind: controlAdminDown, receipt: receipt}:
+		return receipt, nil
+	case <-s.ownerDone:
+		return nil, ErrSessionStopped
+	case <-ctx.Done():
+		return nil, fmt.Errorf("admit AdminDown: %w", ctx.Err())
+	}
+}
+
+func (s *Session) waitAdminDown(ctx context.Context, receipt <-chan struct{}) error {
+	var err error
+	select {
+	case <-receipt:
+		return nil
+	case <-s.ownerDone:
+		err = ErrSessionStopped
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	// A completed commit wins over concurrent cancellation or owner exit.
+	select {
+	case <-receipt:
+		return nil
+	default:
+		return fmt.Errorf("wait for AdminDown commit: %w", err)
+	}
 }
 
 // SetPathDown asks the session goroutine to transition the session to Down

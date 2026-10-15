@@ -355,7 +355,10 @@ graph TB
 
 On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
-1. `Manager.DrainAllSessions()` -- set all sessions to AdminDown with Diag = Administratively Down (7)
+1. `Manager.DrainAllSessions(ctx)` -- capture concrete sessions, release Manager
+   locks, and concurrently wait for their owners to commit AdminDown/7. Admission
+   and commit share a fresh ten-second deadline detached from the cancelled
+   signal context; failures remain in the shutdown error.
 2. Wait the fixed two-second `drainTimeout` window for an AdminDown transmit
 3. `Manager.Close()` -- enter Closing, detach sessions, cancel and wait for
    registered Manager goroutines, close notification channels, and release
@@ -363,9 +366,19 @@ On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 4. Close listener sockets
 5. Shut down HTTP servers (gRPC, metrics)
 
-This is a best-effort notification window. The current implementation does not
-acknowledge transmission or prove that every peer received AdminDown; atomic
-AdminDown completion remains part of the v1 contract.
+`Session.SetAdminDown(ctx)` queues through the existing control channel, including
+before `Run`. A full queue waits for capacity, cancellation, or owner exit; no
+caller changes session state directly. A receipt confirms owner state, cached
+state, and diagnostic before the immediate transmit attempt. Timeout leaves an
+admitted request pending; owner exit returns `ErrSessionStopped`. Repeated requests
+acknowledge the committed state without another transition or immediate TX burst.
+`Run` permits one owner for the session's lifetime and handles queued startup
+controls before timer transmission, preserving Passive-role restrictions.
+
+The fixed notification window remains best effort. Commit acknowledgement does
+not confirm transmission or peer receipt. Successful-send retries, per-session
+negotiated Detection Time and bounded I/O remain H-12; `Manager.Close()` is not
+bounded for an arbitrary blocking `PacketSender` or sender release callback.
 
 ### Project Structure
 

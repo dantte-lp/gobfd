@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"slices"
@@ -699,21 +700,42 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) 
 // Graceful Drain — RFC 5880 Section 6.8.16
 // -------------------------------------------------------------------------
 
-// DrainAllSessions transitions all sessions to AdminDown with
-// DiagAdminDown (RFC 5880 Section 6.8.16). This signals peers that the
-// shutdown is intentional, not a failure. The caller should wait briefly
-// for the final AdminDown packets to be transmitted before closing.
-func (m *Manager) DrainAllSessions() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// DrainAllSessions waits for captured sessions to commit AdminDown/7
+// (RFC 5880 Section 6.8.16). ctx bounds every admission and commit wait.
+// Success does not confirm packet transmission or the peer's state.
+func (m *Manager) DrainAllSessions(ctx context.Context) error {
+	op, err := m.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer op.finish()
 
+	m.mu.RLock()
+	sessions := make([]*Session, 0, len(m.sessions))
 	for _, entry := range m.sessions {
-		entry.session.SetAdminDown()
+		sessions = append(sessions, entry.session)
+	}
+	m.mu.RUnlock()
+	op.unlockMutation()
+
+	errs := make([]error, len(sessions))
+	var workers sync.WaitGroup
+	for i, session := range sessions {
+		workers.Go(func() {
+			if err := session.SetAdminDown(ctx); err != nil {
+				errs[i] = fmt.Errorf("drain session %d: %w", session.localDiscr, err)
+			}
+		})
+	}
+	workers.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
-	m.logger.Info("all sessions set to AdminDown for graceful drain",
-		slog.Int("count", len(m.sessions)),
+	m.logger.Info("all captured sessions committed AdminDown for graceful drain",
+		slog.Int("count", len(sessions)),
 	)
+	return nil
 }
 
 // -------------------------------------------------------------------------
