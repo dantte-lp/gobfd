@@ -131,7 +131,7 @@ func TestRFC9764SignKnownVectors(t *testing.T) {
 			pkt := newTestPacket()
 			buf := make([]byte, 128)
 			keys := newTestKeyStore(1, vector.typ, []byte("vector-key"))
-			if err := auth.Sign(&bfd.AuthState{XmitAuthSeq: 41}, keys, pkt, buf, 0); err != nil {
+			if err = auth.Sign(&bfd.AuthState{XmitAuthSeq: 41}, keys, pkt, buf, 0); err != nil {
 				t.Fatalf("Sign n=0: %v", err)
 			}
 			n, err := bfd.MarshalControlPacket(pkt, buf)

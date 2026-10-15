@@ -746,11 +746,11 @@ func verifyHash(
 		return fmt.Errorf("hash auth key %d: %w",
 			pkt.Auth.KeyID, ErrAuthKeyNotFound)
 	}
-	if err := validateAuthKeyForType(key, p.authType); err != nil {
+	if err = validateAuthKeyForType(key, p.authType); err != nil {
 		return fmt.Errorf("hash auth key %d: %w", pkt.Auth.KeyID, err)
 	}
 
-	if err := checkSeqWindow(state, pkt, p); err != nil {
+	if err = checkSeqWindow(state, pkt, p); err != nil {
 		return err
 	}
 	pduLen, err := validateAuthWire(buf, n, p)

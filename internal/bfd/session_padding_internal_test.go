@@ -32,11 +32,14 @@ func TestRFC9764SessionAuthTransmit(t *testing.T) {
 					t.Fatalf("sent packets = %d, want 1", len(sender.packets))
 				}
 				wire := sender.packets[0]
-				pduLen := 52
-				if typ == AuthTypeSimplePassword {
+				var pduLen int
+				switch typ {
+				case AuthTypeSimplePassword:
 					pduLen = 37
-				} else if typ == AuthTypeKeyedMD5 || typ == AuthTypeMeticulousKeyedMD5 {
+				case AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5:
 					pduLen = 48
+				default:
+					pduLen = 52
 				}
 				if int(wire[3]) != pduLen || len(wire) != max(pduLen, int(size)) {
 					t.Fatalf("Length=%d payload=%d, want Length=%d payload=%d", wire[3], len(wire), pduLen, max(pduLen, int(size)))

@@ -237,10 +237,7 @@ func (c *VXLANConn) RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta, 
 	return c.decapVXLANDatagram(c.readBuf[:n], remoteAddr)
 }
 
-func (c *VXLANConn) decapVXLANDatagram(
-	data []byte,
-	remoteAddr *net.UDPAddr,
-) ([]byte, OverlayMeta, error) {
+func (c *VXLANConn) decapVXLANDatagram(data []byte, remoteAddr *net.UDPAddr) ([]byte, OverlayMeta, error) {
 	// Need at least VXLAN header + minimum inner overhead.
 	minSize := VXLANHeaderSize + InnerOverheadIPv4
 	if len(data) < minSize {

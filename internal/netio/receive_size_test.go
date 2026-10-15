@@ -11,6 +11,7 @@ import (
 
 type sizedReceiveConn struct {
 	PacketConn
+
 	payload  []byte
 	invalid  int
 	borrowed []byte
