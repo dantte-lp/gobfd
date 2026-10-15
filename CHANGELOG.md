@@ -255,6 +255,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Configuration rejects detection multiplier overflow and fractional or boolean
+  values before weak decoding for base, Echo, VXLAN, Geneve and Micro-BFD fields.
+
 - Authentication key stores reject duplicate key IDs, including identical
   rotation keys, so transmit and receive key selection cannot disagree.
 

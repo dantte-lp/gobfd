@@ -190,11 +190,22 @@ Log level can be changed at runtime via SIGHUP reload without restarting the dae
 |---|---|---|---|
 | `default_desired_min_tx` | duration | `"1s"` | Default Desired Min TX Interval |
 | `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval; zero requests no periodic Control packets |
-| `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (MUST be >= 1) |
+| `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (1–255) |
 | `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled, valid: 24-9000) |
 
 These defaults apply to sessions created via gRPC that do not specify their own parameters. Sessions defined in the `sessions` section can override any of these values.
+
+All detection multiplier fields are checked before numeric decoding, including
+Echo, VXLAN, Geneve and Micro-BFD peers and defaults. Values outside 0–255,
+fractions and booleans are rejected instead of wrapping or truncating; zero
+retains its existing inheritance meaning where supported. The base BFD default
+and enabled unsolicited defaults must be positive.
+
+Peer and group collections must be lists of mappings; singleton mappings and
+non-mapping list entries are rejected before weak decoding.
+Multiplier lookup follows the decoder's case-insensitive matching; conflicting
+case aliases for a field are rejected.
 
 When `align_intervals` is `true`, `DesiredMinTxInterval` and `RequiredMinRxInterval` are rounded UP to the nearest RFC 7419 common interval (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s). This prevents negotiation mismatches with hardware BFD implementations.
 

@@ -194,9 +194,20 @@ loopback или добавьте `grpc.tls`. Переведите изменяю
 |---|---|---|---|
 | `default_desired_min_tx` | duration | `"1s"` | Desired Min TX Interval по умолчанию |
 | `default_required_min_rx` | duration | `"1s"` | Required Min RX Interval по умолчанию; ноль запрашивает остановку периодических Control packets |
-| `default_detect_multiplier` | uint32 | `3` | Множитель обнаружения (ОБЯЗАН быть >= 1) |
+| `default_detect_multiplier` | uint32 | `3` | Множитель обнаружения (1–255) |
 | `align_intervals` | bool | `false` | RFC 7419: выравнивание таймеров до ближайшего общего интервала |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено, допустимо: 24-9000) |
+
+Все поля detection multiplier проверяются до численного декодирования, включая
+Echo, VXLAN, Geneve и Micro-BFD peers и defaults. Значения вне 0–255, дроби и
+boolean отклоняются; переполнение и усечение исключены. Ноль сохраняет прежнее
+значение наследования там, где оно поддерживается. Базовый BFD default и
+включённый unsolicited default должны быть положительными.
+
+Коллекции peers и groups должны быть списками mappings. Одиночный mapping и
+элементы списка другого типа отклоняются до weak decoding.
+Поиск multiplier использует тот же case-insensitive matching, что decoder;
+конфликтующие case aliases одного поля отклоняются.
 
 При `align_intervals: true` значения `DesiredMinTxInterval` и `RequiredMinRxInterval` округляются вверх до ближайшего общего интервала RFC 7419 (3.3мс, 10мс, 20мс, 50мс, 100мс, 1с). Это предотвращает несовпадения при согласовании с аппаратными реализациями BFD.
 
