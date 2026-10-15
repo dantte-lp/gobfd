@@ -39,9 +39,11 @@ func newGoBGPPeerCollector() *goBGPPeerCollector {
 		suppressionDeadline: prometheus.NewDesc(namespace+"_gobgp_dampening_suppression_deadline_seconds",
 			"Unix timestamp of the maximum suppression bound, or 0 when not suppressed.", []string{labelPeerAddr}, nil),
 		pending: prometheus.NewDesc(namespace+"_gobgp_pending_action",
-			"1 for the unapplied desired peer action after the last completed handler step.", []string{labelPeerAddr, "action"}, nil),
+			"1 for the unapplied desired peer action after the last completed handler step.",
+			[]string{labelPeerAddr, "action"}, nil),
 		pendingDeadline: prometheus.NewDesc(namespace+"_gobgp_pending_action_deadline_seconds",
-			"Unix timestamp of the next action retry or suppression recheck, or 0 when none.", []string{labelPeerAddr, "action"}, nil),
+			"Unix timestamp of the next action retry or suppression recheck, or 0 when none.",
+			[]string{labelPeerAddr, "action"}, nil),
 	}
 }
 
@@ -93,7 +95,8 @@ func (c *goBGPPeerCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		ch <- prometheus.MustNewConstMetric(c.penalty, prometheus.GaugeValue, state.Penalty, peer)
 		ch <- prometheus.MustNewConstMetric(c.suppressed, prometheus.GaugeValue, suppressed, peer)
-		ch <- prometheus.MustNewConstMetric(c.suppressionDeadline, prometheus.GaugeValue, metricTimestamp(state.SuppressionDeadline), peer)
+		ch <- prometheus.MustNewConstMetric(c.suppressionDeadline, prometheus.GaugeValue,
+			metricTimestamp(state.SuppressionDeadline), peer)
 		for _, action := range [...]string{"up", "down"} {
 			pending, deadline := 0.0, 0.0
 			if state.Action == action {
