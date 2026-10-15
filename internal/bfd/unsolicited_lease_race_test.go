@@ -77,7 +77,9 @@ func TestUnsolicitedLeasesCloseOnceUnderConcurrentAdmissionAndReload(t *testing.
 		wg.Go(func() { // cleanup of sessions that timed out to Down
 			for range rounds {
 				for _, snap := range mgr.Sessions() {
-					mgr.cleanupUnsolicitedSession(context.Background(), snap.LocalDiscr)
+					if session, ok := mgr.LookupByDiscriminator(snap.LocalDiscr); ok {
+						mgr.cleanupUnsolicitedSession(context.Background(), session)
+					}
 				}
 				time.Sleep(200 * time.Millisecond)
 			}

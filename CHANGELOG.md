@@ -18,7 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fell behind with `GAP` and a fresh snapshot. State-change events carry
   local address, interface, session type and revision; Get and List report
   `remote_min_rx_interval`. `gobfdctl monitor` prints `Gap`, `SyncComplete`
-  and `rev=`. Deleted sessions still publish no event.
+  and `rev=`.
+- Revisioned `SESSION_DELETED` events when the last owner releases a wire
+  session through the API, reconciliation or unsolicited cleanup
+  (`gobfd-qj0.8.2.1.3.6`). Events carry the removed session's identity and
+  final state; releasing a shared claim emits no deletion. Snapshots omit
+  removed sessions, and slow subscribers recover through `GAP`. The GoBGP
+  handler forgets removed sessions and cancels their pending Down and Up
+  actions, including when deletion is recovered from a gap snapshot.
 
 - mTLS for the management TCP listener (`grpc.tls.cert_file`, `key_file`,
   `client_ca_file`; `gobfd-330.2`). Clients must present a certificate from
@@ -274,7 +281,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PermissionDenied, Unauthenticated and a closed client are not retried. A
   Down held by flap dampening is applied once suppression lifts (RFC 5882
   Section 3.1). A pending Down is dropped when the session goes AdminDown
-  (RFC 5882 Section 4.2) or no longer exists; a pending Up is kept. Handler
+  (RFC 5882 Section 4.2); a pending Up is kept on AdminDown. Removing the
+  session cancels both pending directions. Handler
   comments no longer attribute the BGP reaction to RFC 5882 Section 4.3.
 - Unauthenticated cached Control packet construction no longer allocates a
   packet object per transmission through the unused authentication branch.

@@ -123,11 +123,8 @@ func (m *Manager) LookupMicroBFDGroup(lagInterface string) (*MicroBFDGroup, bool
 
 // dispatchMicroBFD routes a micro-BFD session state change to the
 // appropriate MicroBFDGroup by finding which group contains the session's
-// interface as a member link.
+// interface as a member link. The caller holds Manager.mu for reading.
 func (m *Manager) dispatchMicroBFD(ctx context.Context, sc StateChange) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	for _, group := range m.microGroups {
 		changed, err := group.UpdateMemberState(sc.Interface, sc.NewState, sc.LocalDiscr)
 		if err != nil {

@@ -553,7 +553,10 @@ func TestManagerRunDispatchIsSingleRun(t *testing.T) {
 			t.Error("second RunDispatch call did not return")
 		}
 
-		want := StateChange{LocalDiscr: 801, OldState: StateDown, NewState: StateInit}
+		session := notificationTestSession(t, mgr)
+		want := StateChange{
+			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, source: session,
+		}
 		mgr.rawNotifyCh <- want
 		synctest.Wait()
 		want.Revision = 1
@@ -626,8 +629,11 @@ func TestManagerCloseAndSubscriberCancellationCloseChannelOnce(t *testing.T) {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
 
+		session := notificationTestSession(t, mgr)
 		mgr.subMu.Lock()
-		mgr.rawNotifyCh <- StateChange{LocalDiscr: 901, OldState: StateDown, NewState: StateInit}
+		mgr.rawNotifyCh <- StateChange{
+			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, source: session,
+		}
 		closeDone := make(chan struct{})
 		go func() {
 			mgr.Close()
@@ -702,6 +708,7 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 		mgr.scheduleUnsolicitedCleanup(context.Background(), StateChange{
 			LocalDiscr: snapshot[0].LocalDiscr,
 			NewState:   StateDown,
+			source:     mgr.sessions[snapshot[0].LocalDiscr].session,
 		})
 		<-cleanupEntered
 		closeDone := make(chan struct{})

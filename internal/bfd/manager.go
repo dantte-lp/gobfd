@@ -317,8 +317,7 @@ type Manager struct {
 	subscribers map[chan StateChange]*subscriber
 	subMu       sync.RWMutex
 
-	// revision numbers dispatched state changes; it is advanced only by the
-	// RunDispatch goroutine, under subMu.
+	// revision numbers state changes and removals, under subMu.
 	revision atomic.Uint64
 
 	logger *slog.Logger
@@ -335,7 +334,7 @@ type Manager struct {
 	shutdownCh chan struct{}
 
 	dispatchStarted bool
-	legacyCloseOnce sync.Once
+	legacyClosed    bool // protected by subMu
 }
 
 // sessionEntry holds a session and its cancellation function.
@@ -534,36 +533,38 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 		case <-m.shutdownCh:
 			return
 		case sc := <-m.rawNotifyCh:
+			m.mu.RLock()
+			if sc.Type != SessionTypeEcho {
+				entry, ok := m.sessions[sc.LocalDiscr]
+				if !ok || entry.session != sc.source {
+					m.mu.RUnlock()
+					continue
+				}
+			}
 			// Dispatch micro-BFD events to the group.
 			if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
 				m.dispatchMicroBFD(ctx, sc)
 			}
+			m.broadcastStateChange(sc)
+			m.mu.RUnlock()
 			if sc.NewState == StateDown {
 				m.scheduleUnsolicitedCleanup(ctx, sc)
-			}
-			sc = m.broadcastStateChange(sc)
-
-			// Forward to the legacy single-consumer channel.
-			select {
-			case m.publicNotifyCh <- sc:
-			default:
-				m.logger.Warn("public notification channel full, dropping state change",
-					slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
-					slog.String("new_state", sc.NewState.String()),
-				)
 			}
 		}
 	}
 }
 
 func (m *Manager) closeLegacyStateChanges() {
-	m.legacyCloseOnce.Do(func() {
+	m.subMu.Lock()
+	defer m.subMu.Unlock()
+	if !m.legacyClosed {
+		m.legacyClosed = true
 		close(m.publicNotifyCh)
-	})
+	}
 }
 
 // subscriber is the delivery state of one SubscribeStateChanges channel,
-// owned by the RunDispatch goroutine.
+// protected by subMu.
 type subscriber struct {
 	// overflowed is set once a gap marker is queued and cleared when
 	// delivery resumes.
@@ -573,11 +574,10 @@ type subscriber struct {
 // broadcastStateChange numbers sc and delivers it to every subscriber. The
 // last buffer slot of a subscriber is reserved for a gap marker, so a slow
 // subscriber learns about lost events even when no further event follows.
-// RunDispatch is the only sender on subscriber channels, so the length
-// check cannot race with another send.
+// subMu serializes dispatch and synchronous session removals.
 func (m *Manager) broadcastStateChange(sc StateChange) StateChange {
-	m.subMu.RLock()
-	defer m.subMu.RUnlock()
+	m.subMu.Lock()
+	defer m.subMu.Unlock()
 
 	// Assigned under subMu: a subscriber registered before a revision is
 	// read receives every later revision.
@@ -596,6 +596,16 @@ func (m *Manager) broadcastStateChange(sc StateChange) StateChange {
 			)
 		}
 	}
+	if !m.legacyClosed {
+		select {
+		case m.publicNotifyCh <- sc:
+		default:
+			m.logger.Warn("public notification channel full, dropping state change",
+				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
+				slog.String("new_state", sc.NewState.String()),
+			)
+		}
+	}
 	return sc
 }
 
@@ -606,7 +616,7 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 
 	m.mu.RLock()
 	entry, ok := m.sessions[sc.LocalDiscr]
-	isUnsolicited := ok && entry.unsolicited
+	isUnsolicited := ok && entry.session == sc.source && entry.unsolicited
 	m.mu.RUnlock()
 	if !isUnsolicited {
 		return
@@ -625,7 +635,7 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 			case <-timer.C:
 			}
 		}
-		m.cleanupUnsolicitedSession(ctx, sc.LocalDiscr)
+		m.cleanupUnsolicitedSession(ctx, sc.source)
 	}) {
 		return
 	}
@@ -643,7 +653,7 @@ func (m *Manager) startWorker(run func()) bool {
 	return true
 }
 
-func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32) {
+func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) {
 	op, err := m.beginOperation()
 	if err != nil {
 		return
@@ -653,8 +663,9 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, localDiscr uint32
 	m.ownershipMu.Lock()
 
 	m.mu.RLock()
+	localDiscr := source.LocalDiscriminator()
 	entry, ok := m.sessions[localDiscr]
-	if !ok || !entry.unsolicited || entry.session.State() != StateDown {
+	if !ok || entry.session != source || !entry.unsolicited || entry.session.State() != StateDown {
 		m.mu.RUnlock()
 		m.ownershipMu.Unlock()
 		return
