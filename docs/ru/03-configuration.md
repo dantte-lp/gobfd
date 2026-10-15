@@ -803,9 +803,11 @@ source VXLAN или Geneve без работающего backend считает�
 | `type` сессии должен быть `single_hop` или `multi_hop` | `ErrInvalidSessionType` |
 | `detect_mult` сессии должен быть >= 1 | `ErrInvalidSessionDetectMult` |
 | Нет дублирующих ключей сессий (peer, local, interface) | `ErrDuplicateSessionKey` |
+| Control sessions с одинаковыми parsed local address и типом listener должны использовать один interface | `ErrAmbiguousListenerInterface` |
 | Echo `peer` должен быть валидным IP-адресом | `ErrInvalidEchoPeer` |
 | Echo `detect_mult` должен быть >= 1 | `ErrInvalidEchoDetectMult` |
 | Нет дублирующих ключей echo-сессий | `ErrDuplicateEchoSessionKey` |
+| Enabled Echo peers с одинаковым parsed local address должны использовать один interface | `ErrAmbiguousListenerInterface` |
 | VXLAN `management_vni` должен быть <= 16777215 (24 бит) | `ErrInvalidVXLANVNI` |
 | VXLAN-пиры требуют конкретный IPv4 local endpoint и remote/local unicast source MAC | `ErrInvalidVXLANPeer` / `ErrVXLANEndpointIdentityUnavailable` |
 | VXLAN `backend` должен быть `userspace-udp`; зарезервированные non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
@@ -816,6 +818,18 @@ source VXLAN или Geneve без работающего backend считает�
 | Geneve `peer` должен быть валидным IP-адресом | `ErrInvalidGenevePeer` |
 | Geneve Format A VAP IP/MAC tuple должен быть полным, IPv4 и unicast | `ErrGeneveVAPIdentityUnavailable` |
 | Нет дублирующих ключей Geneve-сессий | `ErrDuplicateGeneveSessionKey` |
+
+Идентификатор control listener — `(parsed local address, multi-hop flag)`;
+отсутствующий `type` и `single_hop` выбирают один listener. Идентификатор Echo
+listener — parsed local address. Эквивалентные записи IPv6 считаются равными;
+IPv4-mapped адреса сохраняют mapped identity. Все записи одного listener
+должны задавать одинаковый `interface`, включая пустое значение. Конфликт
+отклоняется независимо от порядка конфигурации до открытия listeners.
+Выключенная конфигурация Echo не создаёт конфликт listener.
+
+`ListenerBindingConflictError` оборачивает `ErrAmbiguousListenerInterface`.
+Метод `FieldID()` указывает `sessions[].interface` или `echo.peers[].interface`;
+ошибка не содержит значений адреса или интерфейса.
 
 ### Значения по умолчанию
 

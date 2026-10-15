@@ -801,9 +801,11 @@ skipped. Already accepted source changes are not rolled back.
 | Session `type` must be `single_hop` or `multi_hop` | `ErrInvalidSessionType` |
 | Session `detect_mult` must be >= 1 | `ErrInvalidSessionDetectMult` |
 | No duplicate session keys (peer, local, interface) | `ErrDuplicateSessionKey` |
+| Control sessions sharing a parsed local address and listener type must use the same interface | `ErrAmbiguousListenerInterface` |
 | Echo `peer` must be a valid IP address | `ErrInvalidEchoPeer` |
 | Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |
 | No duplicate echo session keys | `ErrDuplicateEchoSessionKey` |
+| Enabled Echo peers sharing a parsed local address must use the same interface | `ErrAmbiguousListenerInterface` |
 | VXLAN `management_vni` must be <= 16777215 (24-bit) | `ErrInvalidVXLANVNI` |
 | VXLAN peers require concrete IPv4 local endpoints and remote/local unicast source MACs | `ErrInvalidVXLANPeer` / `ErrVXLANEndpointIdentityUnavailable` |
 | VXLAN `backend` must be `userspace-udp`; reserved non-userspace names fail closed | `ErrInvalidOverlayBackend`, `ErrUnsupportedOverlayBackend` |
@@ -814,6 +816,18 @@ skipped. Already accepted source changes are not rolled back.
 | Geneve `peer` must be a valid IP address | `ErrInvalidGenevePeer` |
 | Geneve Format A VAP IP/MAC tuple must be complete, IPv4, and unicast | `ErrGeneveVAPIdentityUnavailable` |
 | No duplicate Geneve session keys | `ErrDuplicateGeneveSessionKey` |
+
+Control listener identity is `(parsed local address, multi-hop flag)`;
+an omitted `type` and `single_hop` select the same listener. Echo listener
+identity is the parsed local address. Equivalent IPv6 spellings compare equal;
+IPv4-mapped addresses retain their mapped identity. Every entry sharing a
+listener must declare the same `interface`, including an empty value.
+Conflicts are rejected regardless of configuration order, before opening
+listeners. Disabled Echo configuration does not create listener conflicts.
+
+`ListenerBindingConflictError` wraps `ErrAmbiguousListenerInterface`.
+Its `FieldID()` identifies `sessions[].interface` or `echo.peers[].interface`;
+the error contains no address or interface values.
 
 ### Defaults
 
