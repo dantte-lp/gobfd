@@ -536,6 +536,31 @@ func TestStaticAuthKeyStoreValidation(t *testing.T) {
 	}
 }
 
+func TestStaticAuthKeyStoreRejectsDuplicateIDs(t *testing.T) {
+	t.Parallel()
+
+	current := bfd.AuthKey{ID: 1, Type: bfd.AuthTypeKeyedSHA1, Secret: []byte("current")}
+	rotation := bfd.AuthKey{ID: 2, Type: bfd.AuthTypeKeyedSHA1, Secret: []byte("rotation")}
+	for _, tt := range []struct {
+		name string
+		keys []bfd.AuthKey
+	}{
+		{name: "current identical", keys: []bfd.AuthKey{current}},
+		{name: "current different secret", keys: []bfd.AuthKey{
+			{ID: current.ID, Type: current.Type, Secret: []byte("other")},
+		}},
+		{name: "receive keys", keys: []bfd.AuthKey{rotation, rotation}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store, err := bfd.NewStaticAuthKeyStore(current, tt.keys...)
+			if !errors.Is(err, bfd.ErrAuthDuplicateKeyID) || store != nil {
+				t.Fatalf("duplicate key ID accepted: store present %v, error %v", store != nil, err)
+			}
+		})
+	}
+}
+
 func TestAuthenticatorsRejectMismatchedKeyType(t *testing.T) {
 	t.Parallel()
 
