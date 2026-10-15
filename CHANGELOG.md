@@ -243,6 +243,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The production Compose stack shares the host network so Prometheus can
+  scrape GoBFD's loopback metrics and Grafana can reach its Prometheus data
+  source (`gobfd-6de`). Prometheus and Grafana now bind only to host loopback
+  on ports 9090 and 3000; remote access requires a tunnel or reverse proxy.
 - The remaining RFC 5882 Section 4.3 (Graceful Restart) citations for the
   GoBGP reaction in code, configuration examples and the RFC compliance
   matrix now cite Section 10.2 (Interactions with BGP) (H-27).

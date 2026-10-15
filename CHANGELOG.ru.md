@@ -246,6 +246,10 @@
 
 ### Исправлено
 
+- Production Compose использует сеть хоста: Prometheus опрашивает loopback
+  metrics GoBFD, Grafana подключается к источнику данных Prometheus
+  (`gobfd-6de`). Prometheus и Grafana теперь слушают только host loopback на
+  портах 9090 и 3000; удалённый доступ требует tunnel или reverse proxy.
 - Оставшиеся ссылки на RFC 5882 Section 4.3 (Graceful Restart) для реакции
   GoBGP в коде, примерах конфигурации и матрице соответствия RFC заменены на
   Section 10.2 (Interactions with BGP) (H-27).

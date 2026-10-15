@@ -249,6 +249,19 @@ podman compose -f deployments/compose/compose.yml up -d
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
 
+All three services share the Linux host network. Prometheus scrapes
+`127.0.0.1:9100`, and Grafana uses `http://127.0.0.1:9090` as its data source.
+Prometheus and Grafana listen only on host loopback; use an SSH tunnel or an
+authenticated reverse proxy for remote access. Host ports 9100, 9090 and 3000
+must be available. After the first scrape (up to 15 seconds), verify the target:
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:9090/api/v1/targets |
+  jq -e '.status == "success" and
+    ([.data.activeTargets[] | select(.labels.job == "gobfd")] |
+      length == 1 and all(.[]; .health == "up" and .lastError == ""))'
+```
+
 ```mermaid
 graph LR
     subgraph "Podman Compose"
