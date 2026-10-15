@@ -4,7 +4,7 @@
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Target](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Status projection from Beads, reconciled on 2026-10-15 02:00 UTC. Beads is the task
+> Status projection from Beads, reconciled on 2026-10-15 18:10 UTC. Beads is the task
 > ledger; this document explains the public release sequence and must not be
 > used as an independent checklist.
 
@@ -162,16 +162,58 @@ priority than the bead they block:
   their children (12 beads) P2 to P1: they block P1 sprint closures.
 - Kept: epic `.8.2.3` (P0) depends on epic `.8.2.2` (P1, 13 open beads).
 
+Retrospective of the 2026-10-15 day session (01:25 to 18:10 UTC) against
+the queue of 2026-10-15 01:20 UTC (below, updated in place):
+
+- Delivered to `dev`: 9 commits `393e0d8..044d776`, three of them breaking.
+- Step 2 done: `.8.2.1.3.2` closed (Manager revisions, gap marker in the
+  reserved last subscriber slot, additive `bfd.v1` revision fields, `GAP`
+  and `SYNC_COMPLETE`, ambiguous `GetSession` fails with
+  `FAILED_PRECONDITION`); `.8.2.4.1` closed (GoBGP resync after a stream gap,
+  dampening that never holds a Down, RFC 5882 Section 10.2 citation);
+  `.8.2.4.2` closed.
+- Not done: step 1 (client_golang v1.25.0 eligible since 13:02 UTC, not
+  started); steps 3 to 9 unchanged; no maintainer decision received.
+- Found by review, not by tests: the H-31 type filter would have dropped the
+  gap marker (the gap check now runs first); stale dampening comments and
+  the RFC 5882 Section 4.3 citation that the 2026-09-08 matrix lists under
+  H-27. Found by tests: duplicate-state filtering broke dampening tests,
+  so it applies only to sessions touched by a resync. One boundary mutation
+  (`<=` to `<`) survived until a covered event was added to the test.
+- Measured: `buf breaking` against `dev` exit 0; a field-deletion probe
+  exits 100.
+- Process: the attribution grep matched a "regenerated ... buf" phrase in a commit
+  message (reworded before the push); `buf breaking` from a worktree needs the repository
+  mounted at its absolute path.
+- New beads: `.8.2.1.3.6` (P1, deletion events), `.8.2.4.7` (P1, dampening
+  observability). No new priority inversion; the only one left is
+  `.8.2.3` on `.8.2.2`.
+- Gates: on `d42553e` race 38 packages, lint 18 profiles, core 69 s,
+  haproxy-health 81 s, bgp-fast-failover 109 s, exabgp-anycast 110 s, BGP
+  interop 176 s; on `d65b994` race 38, lint 18, bgp-fast-failover 110 s, BGP
+  interop 175 s; lint 18 on `35155e3`.
+- Cleanup with maintainer approval: 15 merged task worktrees and their
+  local branches removed (`task/preview-boundaries` was the duplicate of
+  `b0d1620`); worktree reports kept under `reports/session-20261015/`;
+  GoBFD build leftovers removed (41 untagged images, 2 stale buildah
+  working containers, 14 stale gate images); root filesystem free space
+  17 GB to 31 GB.
+- Version recheck at 18:10 UTC (`proxy.golang.org`, go.dev, `gh api
+  graphql`): no change except containerlab v0.81.1 (2026-10-15 08:21,
+  eligible 2026-10-22; Docker management-subnet fix).
+- Handoff: [agent handoff 2026-10-15](../superpowers/plans/2026-10-15-agent-handoff.md).
+
 Ordered queue from 2026-10-15. Read the release notes across each range
 before an update:
 
 1. Second passes by eligibility (UTC):
-   - 2026-10-15: client_golang v1.25.0 (13:02; minimum Go 1.26; breaking
+   - 2026-10-15: client_golang v1.25.0 (13:02, eligible now; minimum Go 1.26; breaking
      changes only in `api/prometheus/v1`, which GoBFD does not import;
      regenerated Go runtime collector metrics), moby client v0.6.2 (20:07;
      cancellation during HTTP upgrade);
    - 2026-10-16: GoReleaser v2.18.3 (03:28);
-   - 2026-10-18: govulncheck v1.9.0, containerlab v0.81.0;
+   - 2026-10-18: govulncheck v1.9.0, containerlab v0.81.0 (v0.81.1 from
+     2026-10-22);
    - 2026-10-19: osv-scanner v2.7.0, Actions, `oraclelinux:10-slim`, BIRD
      v3.4.0, ExaBGP 5.0.14;
    - 2026-10-20: dbus v5.2.4 (includes v5.2.3 allocation hardening);
@@ -211,7 +253,7 @@ version statement (`1381879`), `.8.2.8.5.2.6` observability on trixie
 Blocked by the environment: Kubernetes live run `.8.5.2.5.3` (no k3s),
 Containerlab vendor runs (no containerlab binary or vendor images).
 
-Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev rechecked at 21:15 UTC, other channels not rechecked. Sources: `gh api graphql` releases,
+Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev rechecked on 2026-10-15 at 18:10 UTC, other channels not rechecked. Sources: `gh api graphql` releases,
 `proxy.golang.org`, `go list -m -u`, Docker Hub and GHCR registry APIs,
 `deb.frrouting.org` package index.
 
@@ -234,7 +276,7 @@ Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev re
 | Docker Compose provider | GitHub release | 5.6.0 | 5.6.0 | current | done |
 | syft / trivy | GitHub release | v1.54.1 / v0.75.0 | v1.54.1 / v0.76.0 | trivy 2026-10-21 | `.8.6.3` |
 | goreleaser | GitHub release | v2.18.2 | v2.18.3 | 2026-10-16 | `.8.6.3` |
-| containerlab | GitHub release | 0.79.0 | v0.81.0 | 2026-10-18 | `.8.5.2.7` |
+| containerlab | GitHub release | 0.79.0 | v0.81.1 | v0.81.0 2026-10-18, v0.81.1 2026-10-22 | `.8.5.2.7` |
 | debian:trixie-slim | Docker Hub digest | `a29215f6` (13.7) | `a29215f6` | current | done |
 | oraclelinux:10-slim | Docker Hub digest | `965eb786` | `ea76251f` | 2026-10-19 | `.8.6.5` |
 | HAProxy | Docker Hub trixie | 3.4.6 | 3.4.6 | current | done |
@@ -289,7 +331,7 @@ are recorded with the 2026-10-15 retrospective above.
 
 ## Remaining work before v1.0.0
 
-Beads on 2026-10-15 02:00 UTC: 171 open or in-progress beads in the v1
+Beads on 2026-10-15 18:10 UTC: 171 open or in-progress beads in the v1
 scope, epics and the `.8.2` milestone included; the count excludes the root
 `gobfd-qj0.8` and the post-v1 beads listed at the end. Counts are P0/P1/P2.
 
