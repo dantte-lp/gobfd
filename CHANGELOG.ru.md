@@ -259,6 +259,12 @@
 
 ### Исправлено
 
+- Словарь настроек логирования проверяется до применения запуска или SIGHUP
+  (`gobfd-8f3.9`): уровни `debug`, `info`, `warn`, `error` без учёта регистра;
+  форматы — строчные `json` или `text`. Явные пустые строки, пробелы и
+  неизвестные значения дают ограниченные типизированные ошибки полей.
+  Некорректный reload сохраняет generation, health, log level, sessions и ресурсы отправителей.
+
 - `socket.read_buffer_size` / `socket.write_buffer_size` применяются к control,
   Echo, Micro-BFD и unsolicited UDP-путям, а также к двунаправленным userspace
   VXLAN/Geneve-сокетам (`gobfd-8f3.7`). Ноль сохраняет настройки ОС;

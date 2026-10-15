@@ -186,7 +186,16 @@ loopback или добавьте `grpc.tls`. Переведите изменяю
 | `level` | string | `"info"` | Уровень лога: `debug`, `info`, `warn`, `error` |
 | `format` | string | `"json"` | Формат: `json` (production), `text` (разработка) |
 
-Уровень лога можно изменить в runtime через SIGHUP без перезапуска демона.
+Уровни `debug`, `info`, `warn` и `error` принимаются без учёта регистра.
+Формат должен точно совпадать со строчными `json` или `text`. Пропущенные ключи
+сохраняют значения по умолчанию `info` и `json`; явные пустые строки, пробелы и
+неизвестные значения отклоняются с `ErrInvalidLogLevel` или
+`ErrInvalidLogFormat`. Ошибка содержит имя поля без его значения. Проверка
+действует для YAML и environment overrides при запуске и SIGHUP до изменения
+log level, generation, health, sessions или ресурсов отправителей.
+
+Корректный уровень лога меняется через SIGHUP без перезапуска демона.
+Изменение формата требует перезапуска.
 
 #### `bfd` -- Параметры BFD по умолчанию
 
@@ -800,6 +809,8 @@ source VXLAN или Geneve без работающего backend считает�
 
 | Правило | Ошибка |
 |---|---|
+| `log.level`: `debug`, `info`, `warn` или `error` без учёта регистра | `ErrInvalidLogLevel` |
+| `log.format`: точно `json` или `text` | `ErrInvalidLogFormat` |
 | `socket.read_buffer_size` / `socket.write_buffer_size` должны быть >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
 | `grpc.addr` не должен быть пустым | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` должен быть >= 1 | `ErrInvalidDetectMultiplier` |
