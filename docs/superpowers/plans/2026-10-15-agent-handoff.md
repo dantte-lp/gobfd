@@ -20,7 +20,16 @@ ordered queue and the v1.0.0 remainder live in the [roadmap](../../en/roadmap.md
 2. Read the roadmap sections "Ordered queue from 2026-10-15" and
    "Remaining work before v1.0.0".
 3. Work in a worktree under `.worktrees/<task>` on a `task/<name>` branch
-   from `dev`; fast-forward `dev` after the gates pass, then push.
+   from `dev`; fast-forward `dev` after the gates pass, then push. Sync
+   beads with `bd dolt pull` before and `bd dolt push` after the session.
+
+`bd ready` sorts by priority, not by the queue below. Beads that wait for a
+maintainer decision have status `blocked` (`bd list --status blocked`);
+beads that wait for a release-age date are deferred and return to
+`bd ready` on that date (`.8.2.8.5.2.7` 2026-10-18, `.8.6.6` 2026-10-19,
+`.8.6.10` 2026-10-21). The dated module and tool updates belong to the
+in-progress beads `.8.6.2` (runtime modules), `.8.6.3` (tools), `.8.6.4`
+(Actions) and `.8.6.5` (images); claim them with `bd update <id> --claim`.
 
 Working rules used in this program, beyond `AGENTS.md`:
 
@@ -55,6 +64,9 @@ export GOTOOLCHAIN=go1.27.2 DOCKER_HOST=unix:///run/podman/podman.sock \
   PODMAN_COMPOSE_PROVIDER="$G/docker-compose" PODMAN_COMPOSE_WARNING_LOGS=false \
   DOCKER_BUILDKIT=0
 ```
+
+Export `GOBFD_BUILD_REVISION` again after every commit: the e2e builds tag
+images with it.
 
 | Gate | Command | Last result (SHA, duration) |
 |---|---|---|
@@ -135,10 +147,10 @@ Maintainer decisions pending:
 
 Known open threads from this session:
 
-- `AddSession` still builds its response with `snapshotFromSession`
-  (`internal/server/server.go`) and reports `remote_min_rx_interval` as
-  `0s`, while Get and List report the RFC initial value; use
-  `Manager.SessionWithRevision` or set `RemoteMinRx`.
+- `.8.2.1.3.7` (P2): `AddSession` still builds its response with
+  `snapshotFromSession` (`internal/server/server.go`) and reports
+  `remote_min_rx_interval` as `0s`, while Get and List report the RFC
+  initial value.
 - H-29 stays partial until `.8.2.1.3.1` wires dropped and authentication
   counters; C-06 stays open for drops between a session and the Manager
   dispatcher (`.8.2.1.3.1`).
