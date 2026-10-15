@@ -203,7 +203,35 @@ the queue of 2026-10-15 01:20 UTC (below, updated in place):
   eligible 2026-10-22; Docker management-subnet fix).
 - Handoff: [agent handoff 2026-10-15](../superpowers/plans/2026-10-15-agent-handoff.md).
 
-Ordered queue from 2026-10-15. Read the release notes across each range
+Continuation on 2026-10-15 after the 18:10 UTC snapshot:
+
+- Closed in `dev`: `gobfd-6de`, `gobfd-qj0.8.2.1.3.7`,
+  `gobfd-qj0.8.2.1.14`, `gobfd-qj0.8.2.1.3.6`,
+  `gobfd-qj0.8.2.5.1` through `gobfd-qj0.8.2.5.3`,
+  `gobfd-qj0.8.2.4.7`, `gobfd-4j4`, and `gobfd-8f3.8`. Accepted code reaches
+  `b7f778c6248bb094652a7d87013ecabc126cea67`. These closures do not close
+  parent milestones with remaining security dependencies.
+- Production Compose rendered all ten tracked files. In an isolated shared
+  network namespace, the production monitoring configuration reported one
+  healthy Prometheus target at `127.0.0.1:9100` and a healthy Grafana data
+  source; listeners on ports 3000, 9090 and 9100 remained loopback-only.
+- Companion live qualification at
+  `55e3f94ee2af82bd6cb9377de1708b9e77834341`: HAProxy paused-sidecar
+  exclusion and recovery passed in 97.29 s; ExaBGP announcement, withdrawal
+  and restoration passed. Local evidence is under
+  `reports/session-20261015-continuation/`. These gates do not qualify later
+  changes or the full v1 release envelope.
+- Strict `govulncheck` at the accepted commit reports zero reachable
+  vulnerabilities and zero vulnerable imported packages. Two module-only
+  findings remain; they do not establish a clean dependency graph for stable.
+- Stable v1 remains blocked by the approved
+  [GoBGP advisory gate and 24-hour qualification contract](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md).
+  On 2026-10-15 the [Go vulnerability database](https://vuln.go.dev/ID/GO-2026-4736)
+  still lists no fixed GoBGP v4 range. The development-only exception does
+  not lift that stable gate. The 24-hour qualification has not run.
+
+Ordered queue from 2026-10-15, with accepted continuation slices marked
+below. Read the release notes across each range
 before an update:
 
 1. Second passes by eligibility (UTC):
@@ -222,23 +250,23 @@ before an update:
 2. Done on 2026-10-15: P0 `.8.2.1.3.2` versioned snapshots, unambiguous
    Get and gap-aware Watch (`9385346`, `36fbf75`, `5cd96b6`, `e85a867`, `d42553e`); `.8.2.4.1` GoBGP resync after stream
    gaps (`5cd96b6`) and recovery-only dampening (`9fdd2c9`, `d65b994`,
-   `35155e3`); `.8.2.4.2` closed. Epic `.8.2.4` stays open for `.8.2.4.7`
-   (P1, dampening observability) and its dependency on `.8.2.3`. New:
-   `.8.2.1.3.6` (P1, publish session deletion on Watch).
+   `35155e3`); `.8.2.4.2` closed. Deletion events `.8.2.1.3.6` and
+   dampening observability `.8.2.4.7` are now closed. Epic `.8.2.4` still
+   depends on `.8.2.3`.
 3. Security P0 `.8.2.1.10.5`: the unsolicited listener design (per-family
    bind with `SO_BINDTODEVICE` next to the per-address listeners) goes to
    the maintainer; then IPv6 capture `.8.2.1.10.1` and parent `.8.2.1.10`.
    `.8.2.1.8` follows the step 9 decisions.
-4. P1 `gobfd-6de`: production Compose scrapes GoBFD metrics, checked
-   through the Prometheus targets API.
-5. P1 `.8.2.5.1` to `.8.2.5.3`: ExaBGP and HAProxy reconnect and canonical
-   identity in the companions, on top of step 2.
+4. Done: `gobfd-6de`, production Compose metrics, with the Prometheus
+   targets API check described above.
+5. Done: `.8.2.5.1` to `.8.2.5.3`, ExaBGP and HAProxy reconnect, snapshot
+   recovery and unambiguous identity. Parent `.8.2.5` still waits for `.8.2.3`.
 6. P1 `.8.2.3.3` systemd syscall, address-family and FD contract;
    `.8.2.3.1` component readiness.
 7. `.8.5.2.7` Containerlab FRR from 2026-10-18; `.8.6.1` manual Compose on
    GoBGP v4 after `.8.6.9`.
-8. `gobfd-4j4` (P2): raw range checks for the remaining `detect_mult`
-   fields.
+8. Done: `gobfd-4j4`, raw range, list-shape and case-alias checks for
+   `detect_mult` before weak decoding.
 9. Maintainer decisions: Oracle Linux `.8.2.8.5.2.8`; closing PR `#62`;
    filing the GO-2026-4736 vulndb correction; host DNS `.8.6.9`; the
    `.8.2.1.10.5` listener design; for `.8.2.1.8`: reject `AddEchoSession`
@@ -332,7 +360,9 @@ are recorded with the 2026-10-15 retrospective above.
 ## Remaining work before v1.0.0
 
 Beads on 2026-10-15 18:10 UTC: 171 open or in-progress beads in the v1
-scope, epics and the `.8.2` milestone included; the count excludes the root
+scope, epics and the `.8.2` milestone included. This is the historical
+18:10 snapshot; continuation closures above supersede its task states.
+The count excludes the root
 `gobfd-qj0.8` and the post-v1 beads listed at the end. Counts are P0/P1/P2.
 
 | Workstream | Beads | Open | State |
@@ -351,8 +381,9 @@ scope, epics and the `.8.2` milestone included; the count excludes the root
 | Vulnerability allowlist | `.8.4` | 1 (0/1/0) | Entries expire 2026-12-31 |
 | Standalone | `gobfd-6de`, `gobfd-20z`, `gobfd-31o`, `gobfd-4j4` | 4 (0/3/1) | Compose metrics, CI on `dev` decision, attribution follow-up (stalled), `detect_mult` range checks |
 
-Critical path: `.8.2.5` on top of the revisioned Watch and `.8.2.4.7`, then the
-independent review `.8.2.7`, the Q6 closure `.8.2.8.7` and the release
+Critical path: remaining ownership `.8.2.2` and management `.8.2.3`, then
+parent closures `.8.2.4` and `.8.2.5`, independent review `.8.2.7`, the
+Q6 closure `.8.2.8.7` and the release
 qualification `.8.2.6`; security P0 `.8.2.1.10` and `.8.2.1.8` and the
 image P0 beads run beside it. The release notes for v1.0.0 must cover the
 breaking changes already on `dev`: connect-go v2 for Go consumers of
