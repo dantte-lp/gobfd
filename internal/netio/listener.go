@@ -165,6 +165,12 @@ func (l *Listener) recvOne() (*ReceivedPacket, error) {
 		return nil, fmt.Errorf("listener read: %w", err)
 	}
 
+	bufferSize := len(*bufp)
+	if n < 0 || n > bufferSize {
+		bfd.PacketPool.Put(bufp)
+		return nil, fmt.Errorf("listener read size %d outside buffer %d: %w", n, bufferSize, ErrInvalidReadSize)
+	}
+
 	return &ReceivedPacket{
 		Data: (*bufp)[:n],
 		Meta: meta,

@@ -259,6 +259,13 @@
 
 ### Исправлено
 
+- Приём сохраняет полный BFD transport payload до 9000 байт при неизменной
+  границе кодека 64 байта (`gobfd-qj0.8.2.1.5.1`). Linux отклоняет усечённые
+  UDP datagrams; listeners проверяют read size и возвращают заимствованные
+  буферы. Userspace VXLAN/Geneve учитывают максимальный поддерживаемый framing
+  вокруг inner payload до 9000 байт на RX и TX. Владение authenticated wire
+  сохраняется; hash boundary и interop остаются отдельными проверками.
+
 - Истечение authentication sequence использует монотонное время последнего
   корректного приёма (`gobfd-qj0.8.2.1.2.2`, M-04). `AuthSeqKnown` сбрасывается
   после двух Detection Time в любом состоянии, включая проверку перед

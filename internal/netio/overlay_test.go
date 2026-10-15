@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
@@ -70,9 +71,9 @@ func testOverlayConnLoopbackLifecycle(
 		t.Fatalf("TTL = %d, want inner wire TTL 255", meta.TTL)
 	}
 
-	err = conn.SendEncapsulated(context.Background(), makePayload(9000), loopback)
-	if !errors.Is(err, netio.ErrInnerPacketBufferTooShort) {
-		t.Fatalf("oversized SendEncapsulated error = %v, want ErrInnerPacketBufferTooShort", err)
+	err = conn.SendEncapsulated(context.Background(), makePayload(bfd.MaxPaddedPduSize+1), loopback)
+	if !errors.Is(err, netio.ErrOverlayPayloadTooLarge) {
+		t.Fatalf("oversized SendEncapsulated error = %v, want ErrOverlayPayloadTooLarge", err)
 	}
 
 	if err := conn.Close(); err != nil {
@@ -162,7 +163,8 @@ func TestOverlayRecvRejectsTruncatedDatagram(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build packet: %v", err)
 			}
-			packet = append(packet, 0)
+			// Exceed every supported VXLAN/Geneve framing allowance.
+			packet = append(packet, make([]byte, 1024)...)
 			sender, err := net.ListenUDP("udp4", nil)
 			if err != nil {
 				t.Fatalf("open sender: %v", err)
@@ -381,6 +383,7 @@ func TestOverlayReceiver_DropsExpectedOverlayErrorsWithoutWarn(t *testing.T) {
 		netio.ErrOverlayVNIMismatch,
 		netio.ErrInnerBadUDPSourcePort,
 		netio.ErrOverlayPacketTruncated,
+		netio.ErrOverlayPayloadTooLarge,
 		netio.ErrGeneveVAPIdentityUnavailable,
 	}
 	for _, dropErr := range tests {

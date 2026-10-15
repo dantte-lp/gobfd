@@ -50,9 +50,13 @@ type LinuxPacketConn struct {
 func (c *LinuxPacketConn) ReadPacket(buf []byte) (int, PacketMeta, error) {
 	oob := make([]byte, oobSize)
 
-	n, oobn, _, src, err := c.conn.ReadMsgUDP(buf, oob)
+	n, oobn, flags, src, err := c.conn.ReadMsgUDP(buf, oob)
 	if err != nil {
 		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", err)
+	}
+
+	if flags&unix.MSG_TRUNC != 0 {
+		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", ErrPacketTruncated)
 	}
 
 	meta := parseMeta(src, oob[:oobn])

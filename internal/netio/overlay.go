@@ -227,6 +227,9 @@ var (
 	// different local tunnel endpoint.
 	ErrOverlayInnerDstMismatch = errors.New("overlay: inner destination address mismatch")
 
+	// ErrOverlayPayloadTooLarge indicates that inner BFD exceeds the supported padded payload bound.
+	ErrOverlayPayloadTooLarge = errors.New("overlay: BFD payload exceeds supported maximum")
+
 	// ErrOverlayPacketTruncated indicates the receive buffer did not contain
 	// the complete UDP datagram.
 	ErrOverlayPacketTruncated = errors.New("overlay: truncated UDP datagram")
@@ -466,6 +469,7 @@ func isExpectedOverlayDrop(err error) bool {
 		ErrInnerBadUDPChecksum,
 		ErrOverlayInnerDstMismatch,
 		ErrOverlayPacketTruncated,
+		ErrOverlayPayloadTooLarge,
 		ErrGeneveVAPIdentityUnavailable,
 		ErrVXLANHeaderTooShort,
 		ErrVXLANInvalidFlags,
@@ -495,6 +499,13 @@ func configureOverlayBuffers(conn *net.UDPConn, readBufferSize, writeBufferSize 
 		if err := conn.SetWriteBuffer(writeBufferSize); err != nil {
 			return fmt.Errorf("set overlay UDP write buffer: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateOverlayPayloadSize(size int) error {
+	if size > bfd.MaxPaddedPduSize {
+		return fmt.Errorf("overlay BFD payload size %d exceeds %d: %w", size, bfd.MaxPaddedPduSize, ErrOverlayPayloadTooLarge)
 	}
 	return nil
 }

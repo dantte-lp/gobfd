@@ -1417,8 +1417,8 @@ func TestPacketPool(t *testing.T) {
 	bufp := bfd.PacketPool.Get().(*[]byte)
 	defer bfd.PacketPool.Put(bufp)
 
-	if len(*bufp) != bfd.MaxPacketSize {
-		t.Errorf("PacketPool buffer size: got %d, want %d", len(*bufp), bfd.MaxPacketSize)
+	if len(*bufp) != bfd.MaxPaddedPduSize {
+		t.Errorf("PacketPool buffer size: got %d, want %d", len(*bufp), bfd.MaxPaddedPduSize)
 	}
 }
 

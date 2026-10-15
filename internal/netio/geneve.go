@@ -36,6 +36,9 @@ const (
 	// RFC 8926 Section 3.4: 8 bytes fixed header (Opt Len can extend it).
 	GeneveHeaderMinSize = 8
 
+	// maxGeneveOptionsSize accommodates the six-bit option length in four-byte units.
+	maxGeneveOptionsSize = (1<<6 - 1) * 4
+
 	// GenevePort is the standard Geneve UDP destination port.
 	// RFC 8926 Section 3.3: "IANA has assigned the value 6081".
 	GenevePort uint16 = 6081

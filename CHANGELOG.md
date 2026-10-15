@@ -255,6 +255,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Receive complete BFD transport payloads through 9000 bytes without changing
+  the 64-byte codec bound (`gobfd-qj0.8.2.1.5.1`). Linux rejects truncated UDP
+  datagrams; listeners reject invalid read sizes and return borrowed buffers.
+  Userspace VXLAN/Geneve include maximum supported framing around the same
+  9000-byte inner payload limit, on RX and TX. Authenticated wire ownership
+  is preserved; authentication hash boundaries and interop remain separate gates.
+
 - Authentication sequence expiry uses monotonic last-valid-receive timing
   (`gobfd-qj0.8.2.1.2.2`, M-04). `AuthSeqKnown` clears at twice the Detection
   Time in every session state, including before verification when RX wins

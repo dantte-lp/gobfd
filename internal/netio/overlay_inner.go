@@ -30,6 +30,9 @@ const (
 	// InnerIPv4Size is the fixed IPv4 header size (no options): IHL=5 => 20 bytes.
 	InnerIPv4Size = 20
 
+	// maxInnerIPv4Size accommodates all four-bit IHL values in four-byte units.
+	maxInnerIPv4Size = (1<<4 - 1) * 4
+
 	// InnerUDPSize is the UDP header size: src(2) + dst(2) + len(2) + csum(2).
 	InnerUDPSize = 8
 

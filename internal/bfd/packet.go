@@ -426,7 +426,7 @@ const (
 // MarshalControlPacket serializes a ControlPacket into buf.
 // The buffer MUST be at least HeaderSize bytes (24). For packets with
 // authentication, buf MUST be at least HeaderSize + auth section length.
-// Callers typically provide a MaxPacketSize buffer from PacketPool.
+// Typical codec buffers use MaxPacketSize; PacketPool buffers also hold transport padding.
 //
 // Returns the number of bytes written, or an error if the buffer is
 // too small or the packet contains invalid data.
@@ -779,10 +779,10 @@ func unmarshalHashAuth(buf []byte, auth *AuthSection, expectedLen uint8, digestS
 }
 
 // -------------------------------------------------------------------------
-// PacketPool — sync.Pool for zero-allocation I/O
+// PacketPool — reusable datagram buffers
 // -------------------------------------------------------------------------
 
-// PacketPool provides reusable buffers for BFD packet I/O.
+// PacketPool provides reusable MaxPaddedPduSize buffers for complete BFD datagrams.
 // Callers Get() a *[]byte before receiving, and Put() it after processing.
 //
 // Pattern: gVisor netstack sync.Pool. The pool stores *[]byte (pointer to
@@ -795,7 +795,7 @@ func unmarshalHashAuth(buf []byte, auth *AuthSection, expectedLen uint8, digestS
 //	n, meta, err := conn.ReadPacket(*bufp)
 var PacketPool = sync.Pool{
 	New: func() any {
-		buf := make([]byte, MaxPacketSize)
+		buf := make([]byte, MaxPaddedPduSize)
 		return &buf
 	},
 }

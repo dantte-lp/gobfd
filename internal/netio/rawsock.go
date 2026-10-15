@@ -139,6 +139,12 @@ var (
 	// cannot run on the current operating system.
 	ErrUnsupportedPlatform = errors.New("netio transport requires linux")
 
+	// ErrPacketTruncated indicates that the complete UDP datagram did not fit the read buffer.
+	ErrPacketTruncated = errors.New("BFD UDP datagram truncated")
+
+	// ErrInvalidReadSize indicates a transport returned a size outside its caller-owned buffer.
+	ErrInvalidReadSize = errors.New("invalid packet read size")
+
 	// ErrPoolType indicates the packet pool returned an unexpected type.
 	ErrPoolType = errors.New("packet pool returned unexpected type")
 )

@@ -29,8 +29,9 @@ import (
 )
 
 // geneveBufSize is the receive buffer size for Geneve packets.
-// Sized for jumbo frames (9000 bytes) to avoid truncation.
-const geneveBufSize = 9000
+// Includes maximum supported framing around a MaxPaddedPduSize BFD payload.
+const geneveBufSize = GeneveHeaderMinSize + maxGeneveOptionsSize +
+	InnerEthSize + maxInnerIPv4Size + InnerUDPSize + bfd.MaxPaddedPduSize
 
 // Geneve BFD validation errors.
 var (
@@ -186,6 +187,10 @@ func (c *GeneveConn) sendEncapsulated(ctx context.Context, bfdPayload []byte, sc
 	}
 	defer func() { <-c.sendMu }()
 
+	if err := validateOverlayPayloadSize(len(bfdPayload)); err != nil {
+		return fmt.Errorf("geneve build packet: %w", err)
+	}
+
 	if len(bfdPayload)+GeneveHeaderMinSize+InnerOverheadIPv4 > len(c.sendBuf) {
 		return fmt.Errorf("geneve build packet: payload=%d: %w",
 			len(bfdPayload), ErrInnerPacketBufferTooShort)
@@ -327,6 +332,10 @@ func (c *GeneveConn) decapGeneveInnerPacket(data []byte) (innerPacket, GeneveHea
 	// Strip inner packet headers and extract BFD payload.
 	packet, err = parseInnerPacket(data[geneveTotal:])
 	if err != nil {
+		return packet, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
+	}
+
+	if err := validateOverlayPayloadSize(len(packet.payload)); err != nil {
 		return packet, GeneveHeader{}, fmt.Errorf("geneve recv: %w", err)
 	}
 

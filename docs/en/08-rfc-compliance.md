@@ -507,9 +507,22 @@ RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementati
 | Global default | `bfd.default_padded_pdu_size` in YAML config |
 | Valid range | 24-9000 bytes (24 = minimum BFD Control packet) |
 
-Authenticated padded packets are not complete: the authentication hash must
-cover the RFC 9764 padded length. Stable compliance remains blocked until the
-combined authenticated-padding path is corrected and interoperably verified.
+The direct UDP receive pool holds the complete BFD transport payload through
+9000 bytes; the codec's `MaxPacketSize` remains 64 bytes. Linux rejects
+`MSG_TRUNC` before metadata or packet parsing, and listeners reject invalid
+transport read lengths before slicing while returning the borrowed buffer.
+Authenticated reception retains an owned copy of the complete wire payload.
+
+Userspace overlay UDP payload buffers include framing around the same
+9000-byte inner BFD limit: VXLAN uses 9090 bytes with a 60-byte inner IPv4
+header; Geneve uses 9342 bytes with the same IPv4 header and 252 option bytes.
+The extra framing space does not permit inner BFD payloads above 9000 bytes.
+These are transport buffer limits, not a qualification of the path MTU.
+
+Authenticated padded packets remain unqualified: the authentication hash
+Length boundary is tracked separately by `gobfd-qj0.8.2.1.5.2`. This receive
+buffer correction does not close the combined authenticated-padding or
+interoperability gates. Stable RFC 9764 compliance remains partial.
 
 ### RFC 7880/7881 (Planned)
 

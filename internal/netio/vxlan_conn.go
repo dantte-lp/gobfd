@@ -28,8 +28,8 @@ import (
 )
 
 // vxlanBufSize is the receive buffer size for VXLAN packets.
-// Sized for jumbo frames (9000 bytes) to avoid truncation.
-const vxlanBufSize = 9000
+// Includes maximum supported framing around a MaxPaddedPduSize BFD payload.
+const vxlanBufSize = VXLANHeaderSize + InnerEthSize + maxInnerIPv4Size + InnerUDPSize + bfd.MaxPaddedPduSize
 
 // VXLANConn implements OverlayConn for BFD over VXLAN tunnels (RFC 8971).
 //
@@ -167,6 +167,10 @@ func (c *VXLANConn) sendEncapsulated(ctx context.Context, bfdPayload []byte, sco
 	}
 	defer func() { <-c.sendMu }()
 
+	if err := validateOverlayPayloadSize(len(bfdPayload)); err != nil {
+		return fmt.Errorf("vxlan build packet: %w", err)
+	}
+
 	if len(bfdPayload)+VXLANHeaderSize+InnerOverheadIPv4 > len(c.sendBuf) {
 		return fmt.Errorf("vxlan build packet: payload=%d: %w",
 			len(bfdPayload), ErrInnerPacketBufferTooShort)
@@ -262,6 +266,10 @@ func (c *VXLANConn) decapVXLANDatagram(
 	innerData := data[VXLANHeaderSize:]
 	packet, err := parseInnerPacket(innerData)
 	if err != nil {
+		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
+	}
+
+	if err := validateOverlayPayloadSize(len(packet.payload)); err != nil {
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", err)
 	}
 
