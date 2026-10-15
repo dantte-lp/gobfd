@@ -138,7 +138,7 @@ type SessionConfig struct {
 	// PaddedPduSize is the padded PDU size for BFD Large Packets (RFC 9764).
 	// When nonzero, transmitted BFD Control packets are padded with zeros to
 	// this total length. The DF bit is set to enable path MTU verification.
-	// Valid range: HeaderSize (24) to MaxPaddedPduSize (9000).
+	// Valid range: 24-9000 without auth, 26-9000 with auth (v1 policy).
 	// Zero means no padding (default behavior).
 	PaddedPduSize uint16
 }
@@ -242,7 +242,7 @@ var (
 	ErrInvalidDiscriminator = errors.New("local discriminator must be nonzero")
 
 	// ErrInvalidPaddedPduSize indicates the padded PDU size is out of range.
-	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0 or between 24 and 9000")
+	ErrInvalidPaddedPduSize = errors.New("padded PDU size must be 0, 24-9000 without auth, or 26-9000 with auth")
 
 	// ErrMissingAuthKeyStore indicates authentication was configured without keys.
 	ErrMissingAuthKeyStore = errors.New("auth key store is required when auth is configured")
@@ -567,12 +567,24 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if localDiscr == 0 {
 		return fmt.Errorf("local discriminator: %w", ErrInvalidDiscriminator)
 	}
-	// RFC 9764: PaddedPduSize must be 0 (disabled) or within [HeaderSize, MaxPaddedPduSize].
-	if cfg.PaddedPduSize != 0 && (cfg.PaddedPduSize < HeaderSize || cfg.PaddedPduSize > MaxPaddedPduSize) {
-		return fmt.Errorf("padded PDU size %d: %w", cfg.PaddedPduSize, ErrInvalidPaddedPduSize)
+	if err := ValidatePaddedPduSize(cfg.PaddedPduSize, cfg.Auth != nil); err != nil {
+		return err
 	}
 	if err := validateSessionAuthConfig(cfg); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ValidatePaddedPduSize applies the v1 configured-target policy. RFC 9764 also
+// permits raising a smaller target to the actual session minimum instead.
+func ValidatePaddedPduSize(size uint16, authenticated bool) error {
+	minimum := uint16(MinPacketSizeNoAuth)
+	if authenticated {
+		minimum = MinPacketSizeWithAuth
+	}
+	if size != 0 && (size < minimum || size > MaxPaddedPduSize) {
+		return ErrInvalidPaddedPduSize
 	}
 	return nil
 }

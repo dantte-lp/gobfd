@@ -205,7 +205,7 @@ log level, generation, health, sessions или ресурсов отправит
 | `default_required_min_rx` | duration | `"1s"` | Required Min RX Interval по умолчанию; ноль запрашивает остановку периодических Control packets |
 | `default_detect_multiplier` | uint32 | `3` | Множитель обнаружения (1–255) |
 | `align_intervals` | bool | `false` | RFC 7419: выравнивание таймеров до ближайшего общего интервала |
-| `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено, допустимо: 24-9000) |
+| `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено; targets v1: 24-9000 без auth, 26-9000 с auth; actual PDU не усекается) |
 
 Все поля detection multiplier проверяются до численного декодирования, включая
 Echo, VXLAN, Geneve и Micro-BFD peers и defaults. Значения вне 0–255, дроби и
@@ -590,7 +590,7 @@ cross-adapter rollback не входят в эту гарантию.
 | `desired_min_tx` | duration | Нет | Переопределение TX-интервала |
 | `required_min_rx` | duration | Нет | Переопределение RX-интервала; явное `"0s"` сохраняется |
 | `detect_mult` | uint32 | Нет | Переопределение множителя обнаружения |
-| `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера (переопределяет `bfd.default_padded_pdu_size`) |
+| `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера; ненулевое значение переопределяет `bfd.default_padded_pdu_size`; v1 отклоняет authenticated targets 24/25 и сохраняет более длинный actual PDU |
 | `auth.type` | string | Нет | Тип аутентификации RFC 5880: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | uint32 | Если auth включён | Auth Key ID, допустимый диапазон 0-255 |
 | `auth.secret` | string | Если auth включён | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |

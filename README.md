@@ -143,7 +143,7 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 7130 | Micro-BFD for LAG | Preview; owner integration partial |
 | RFC 8971 | BFD for VXLAN | Unsafe/incomplete userspace preview |
 | RFC 9521 | BFD for Geneve | Unsafe/incomplete userspace preview |
-| RFC 9764 | BFD Large Packets | Partial; authenticated padding incomplete |
+| RFC 9764 | BFD Large Packets | Partial; authenticated peer interoperability pending |
 | RFC 5884 | BFD for MPLS LSPs | Stub |
 | RFC 5885 | BFD for PW VCCV | Stub |
 

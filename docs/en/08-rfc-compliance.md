@@ -55,7 +55,7 @@
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD for LAG | **Preview; owner integration partial** | Protocol and selected actuators exist; production ownership remains constrained |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD for VXLAN Tunnels | **Unsafe preview** | Exact supported-profile identity is bound; owner-specific dataplane integration remains incomplete |
 | [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD for Geneve Tunnels | **Unsafe preview** | Explicit IPv4 Format A VAP identity is bound; unsupported formats and missing identity fail closed |
-| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | Unauthenticated padding and DF exist; authenticated padded hashing is incomplete |
+| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Partial** | PDU-length authentication and padding covered locally; authenticated interop pending |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Planned** | Stateless reflector + initiator for infrastructure liveness |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD for IPv4/IPv6 | **Planned** | Port 7784 encapsulations for S-BFD |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD for MPLS LSPs | **Stub** | Interfaces defined, pending LSP Ping (RFC 4379) |
@@ -505,7 +505,24 @@ RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementati
 | Zero-fill padding | `cachedPacket` extended with zero bytes after BFD payload |
 | Per-session configuration | `padded_pdu_size` in session YAML config |
 | Global default | `bfd.default_padded_pdu_size` in YAML config |
-| Valid range | 24-9000 bytes (24 = minimum BFD Control packet) |
+| Configured target range | 0 disables padding; 24-9000 bytes without authentication, 26-9000 with authentication (v1 policy) |
+
+Keyed MD5 and SHA1 verification hashes exactly the declared BFD `Length`,
+including any PDU extension bytes, after checking that the digest fits within
+`Length` and `Length` fits within the received payload. Transport padding is
+outside this boundary and its contents are not validated, following
+[RFC 9764 Section 3](../rfc/rfc9764.txt) and
+[RFC 5880 Sections 6.7.3-6.7.4](../rfc/rfc5880.txt). Simple Password validates
+the password, not a packet digest. Independent wire vectors cover all five
+authentication types at unpadded, 64-, 128-, and 9000-byte payload sizes.
+
+The approved v1 configuration policy rejects authenticated targets of 24 or
+25 bytes. RFC 9764's YANG typedef also permits raising a smaller configured
+target to the session minimum; rejection is the selected GoBFD policy.
+Valid targets such as 26 never truncate a larger authenticated PDU: transmission
+uses `max(actual PDU length, configured target)`. YAML global defaults and
+per-session overrides apply the same policy before runtime changes; raw
+numeric inputs are checked before weak decoding can wrap or truncate them.
 
 The direct UDP receive pool holds the complete BFD transport payload through
 9000 bytes; the codec's `MaxPacketSize` remains 64 bytes. Linux rejects
@@ -519,10 +536,10 @@ header; Geneve uses 9342 bytes with the same IPv4 header and 252 option bytes.
 The extra framing space does not permit inner BFD payloads above 9000 bytes.
 These are transport buffer limits, not a qualification of the path MTU.
 
-Authenticated padded packets remain unqualified: the authentication hash
-Length boundary is tracked separately by `gobfd-qj0.8.2.1.5.2`. This receive
-buffer correction does not close the combined authenticated-padding or
-interoperability gates. Stable RFC 9764 compliance remains partial.
+Local hash-boundary and configuration coverage is tracked by
+`gobfd-qj0.8.2.1.5.2`. The parent authenticated-padding interoperability gate
+`gobfd-qj0.8.2.1.5` remains open; local vectors and buffer limits do not prove
+peer interoperability or path MTU. Stable RFC 9764 compliance remains partial.
 
 ### RFC 7880/7881 (Planned)
 

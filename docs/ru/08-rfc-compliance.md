@@ -55,7 +55,7 @@
 | [RFC 7130](https://datatracker.ietf.org/doc/html/rfc7130) | Micro-BFD для LAG | **Preview; owner integration частичная** | Протокол и отдельные actuators существуют; production ownership ограничен |
 | [RFC 8971](https://datatracker.ietf.org/doc/html/rfc8971) | BFD для VXLAN туннелей | **Небезопасный preview** | Identity поддерживаемого профиля привязана точно; owner-specific dataplane integration не завершена |
 | [RFC 9521](https://datatracker.ietf.org/doc/html/rfc9521) | BFD для Geneve туннелей | **Небезопасный preview** | Явная IPv4 Format A VAP identity привязана; unsupported formats и неполная identity fail closed |
-| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | Padding без auth и DF реализованы; hashing authenticated padding не завершён |
+| [RFC 9764](https://datatracker.ietf.org/doc/html/rfc9764) | BFD Large Packets | **Частично** | PDU-length authentication и padding покрыты локально; authenticated interop ожидает проверки |
 | [RFC 7880](https://datatracker.ietf.org/doc/html/rfc7880) | Seamless BFD Base | **Планируется** | Stateless рефлектор + инициатор для проверки инфраструктуры |
 | [RFC 7881](https://datatracker.ietf.org/doc/html/rfc7881) | S-BFD для IPv4/IPv6 | **Планируется** | Инкапсуляция на порт 7784 для S-BFD |
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Stub** | Интерфейсы определены, ожидает LSP Ping |
@@ -453,7 +453,24 @@ RFC 9764 определяет BFD Large Packets для проверки MTU пу
 | Заполнение нулями | `cachedPacket` расширяется нулевыми байтами после BFD payload |
 | Конфигурация per-session | `padded_pdu_size` в YAML конфигурации сессии |
 | Глобальное значение по умолчанию | `bfd.default_padded_pdu_size` в YAML конфигурации |
-| Допустимый диапазон | 24-9000 байт (24 = минимальный BFD Control пакет) |
+| Диапазон настроенного target | 0 отключает padding; 24-9000 байт без аутентификации, 26-9000 с аутентификацией (политика v1) |
+
+Проверка Keyed MD5 и SHA1 вычисляет digest точно до объявленного BFD `Length`,
+включая extension bytes внутри PDU. Перед вычислением проверяется, что digest
+помещается в `Length`, а `Length` — в принятый payload. Transport padding
+находится за этой границей; его содержимое не проверяется согласно
+[RFC 9764 Section 3](../rfc/rfc9764.txt) и
+[RFC 5880 Sections 6.7.3-6.7.4](../rfc/rfc5880.txt). Simple Password проверяет
+пароль и не вычисляет digest пакета. Независимые wire vectors покрывают все
+пять типов аутентификации без padding и с payload 64, 128 и 9000 байт.
+
+Утверждённая политика конфигурации v1 отклоняет authenticated targets 24 и
+25 байт. YANG typedef RFC 9764 также допускает увеличение меньшего настроенного
+target до минимума сессии; отклонение — выбранная политика GoBFD.
+Допустимый target 26 не усекает более длинный authenticated PDU: передача
+использует `max(actual PDU length, configured target)`. YAML global default
+и per-session override проверяются по общей политике до runtime changes;
+raw numeric inputs проверяются до возможного wrap или усечения weak decoder.
 
 Пул приёма обычного UDP сохраняет полный BFD transport payload до 9000 байт;
 `MaxPacketSize` кодека остаётся равным 64 байтам. Linux отклоняет `MSG_TRUNC`
@@ -467,10 +484,11 @@ length до среза и возвращает заимствованный бу
 разрешает inner BFD payload больше 9000 байт. Эти ограничения описывают
 transport buffers и не подтверждают поддержку соответствующего path MTU.
 
-Квалификация authenticated padded packets остаётся открытой: authentication
-hash Length boundary отслеживается отдельно в `gobfd-qj0.8.2.1.5.2`.
-Исправление receive buffers не закрывает combined authenticated-padding и
-interop gates. Стабильное соответствие RFC 9764 остаётся частичным.
+Локальное покрытие hash boundary и конфигурации относится к
+`gobfd-qj0.8.2.1.5.2`. Родительская проверка authenticated-padding interop
+`gobfd-qj0.8.2.1.5` остаётся открытой: локальные vectors и buffer limits не
+подтверждают peer interoperability или path MTU. Стабильное соответствие
+RFC 9764 остаётся частичным.
 
 ### RFC 7880/7881 (Планируется)
 

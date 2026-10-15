@@ -201,7 +201,7 @@ Changing the format requires a restart.
 | `default_required_min_rx` | duration | `"1s"` | Default Required Min RX Interval; zero requests no periodic Control packets |
 | `default_detect_multiplier` | uint32 | `3` | Default Detection Multiplier (1–255) |
 | `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
-| `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled, valid: 24-9000) |
+| `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled; v1 targets: 24-9000 without auth, 26-9000 with auth; never truncate the actual PDU) |
 
 These defaults apply to sessions created via gRPC that do not specify their own parameters. Sessions defined in the `sessions` section can override any of these values.
 
@@ -587,7 +587,7 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | `desired_min_tx` | duration | No | Override default TX interval |
 | `required_min_rx` | duration | No | Override default RX interval; explicit `"0s"` is preserved |
 | `detect_mult` | uint32 | No | Override default detect multiplier |
-| `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size (overrides `bfd.default_padded_pdu_size`) |
+| `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size; nonzero overrides `bfd.default_padded_pdu_size`; v1 rejects authenticated targets 24/25 and retains larger actual PDUs |
 | `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |

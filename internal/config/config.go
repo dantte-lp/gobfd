@@ -956,6 +956,9 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 	if err := validateSocketBufferInput(k); err != nil {
 		return nil, fmt.Errorf("validate socket buffer input from %s: %w", path, err)
 	}
+	if err := validatePaddingInput(k); err != nil {
+		return nil, fmt.Errorf("validate padding input from %s: %w", path, err)
+	}
 
 	cfg := &Config{}
 	if err := k.Unmarshal("", cfg); err != nil {
@@ -1404,6 +1407,9 @@ func Validate(cfg *Config) error {
 	}
 
 	if err := validateSessions(cfg.Sessions); err != nil {
+		return err
+	}
+	if err := validatePadding(cfg); err != nil {
 		return err
 	}
 

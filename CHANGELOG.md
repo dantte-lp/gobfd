@@ -255,12 +255,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Verify Keyed MD5/SHA1 over the declared BFD `Length`, including PDU
+  extensions and excluding transport padding (`gobfd-qj0.8.2.1.5.2`).
+  Independent wire vectors cover all five authentication types. The approved
+  v1 configuration policy rejects authenticated padding targets 24/25;
+  target 26 retains larger PDUs. YAML defaults and overrides reject numeric
+  wraparound, fractions and boolean conversion before decoding. Authenticated
+  peer interoperability remains pending under `gobfd-qj0.8.2.1.5`.
+
 - Receive complete BFD transport payloads through 9000 bytes without changing
   the 64-byte codec bound (`gobfd-qj0.8.2.1.5.1`). Linux rejects truncated UDP
   datagrams; listeners reject invalid read sizes and return borrowed buffers.
   Userspace VXLAN/Geneve include maximum supported framing around the same
   9000-byte inner payload limit, on RX and TX. Authenticated wire ownership
-  is preserved; authentication hash boundaries and interop remain separate gates.
+  is preserved; authenticated peer interoperability remains a separate gate.
 
 - Authentication sequence expiry uses monotonic last-valid-receive timing
   (`gobfd-qj0.8.2.1.2.2`, M-04). `AuthSeqKnown` clears at twice the Detection

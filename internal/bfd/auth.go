@@ -753,20 +753,27 @@ func verifyHash(
 	if err := checkSeqWindow(state, pkt, p); err != nil {
 		return err
 	}
-	if err := validateAuthWire(buf, n, p); err != nil {
+	pduLen, err := validateAuthWire(buf, n, p)
+	if err != nil {
 		return err
 	}
 
-	return verifyAndUpdateSeq(state, pkt, key, buf, n, p)
+	return verifyAndUpdateSeq(state, pkt, key, buf, pduLen, p)
 }
 
-func validateAuthWire(buf []byte, n int, p hashParams) error {
+func validateAuthWire(buf []byte, n int, p hashParams) (int, error) {
 	digestEnd := HeaderSize + 8 + p.digestSize
 	if n < digestEnd || len(buf) < n {
-		return fmt.Errorf("hash auth: wire length %d, buffer length %d: %w",
+		return 0, fmt.Errorf("hash auth: wire length %d, buffer length %d: %w",
 			n, len(buf), ErrAuthWireMissing)
 	}
-	return nil
+	// RFC 9764 padding is outside the BFD Length authenticated by RFC 5880.
+	pduLen := int(buf[3])
+	if pduLen < digestEnd || pduLen > n {
+		return 0, fmt.Errorf("hash auth: BFD length %d, wire length %d: %w",
+			pduLen, n, ErrAuthWireMissing)
+	}
+	return pduLen, nil
 }
 
 // validateHashAuth checks the auth section is present and has the

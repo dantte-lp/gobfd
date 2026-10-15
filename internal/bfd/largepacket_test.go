@@ -2,6 +2,7 @@ package bfd_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/netip"
 	"strings"
@@ -287,5 +288,31 @@ func TestLargePacket_PaddedPduSizeAccessor(t *testing.T) {
 
 	if sess2.PaddedPduSize() != 0 {
 		t.Errorf("PaddedPduSize() = %d, want 0", sess2.PaddedPduSize())
+	}
+}
+
+func TestLargePacket_AuthenticatedPaddingPolicy(t *testing.T) {
+	t.Parallel()
+	for _, typ := range []bfd.AuthType{bfd.AuthTypeSimplePassword, bfd.AuthTypeKeyedMD5, bfd.AuthTypeMeticulousKeyedMD5, bfd.AuthTypeKeyedSHA1, bfd.AuthTypeMeticulousKeyedSHA1} {
+		for _, size := range []uint16{0, 24, 25, 26, 128, 9000} {
+			cfg := defaultSessionConfig()
+			cfg.PaddedPduSize = size
+			auth, err := bfd.NewAuthenticator(typ)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Auth = auth
+			cfg.AuthKeys = newTestKeyStore(1, typ, []byte("vector-key"))
+			_, sessionErr := bfd.NewSession(cfg, 44, &mockSender{}, nil, slog.Default())
+			for _, err := range []error{bfd.ValidateSessionConfig(cfg), sessionErr} {
+				if size == 24 || size == 25 {
+					if !errors.Is(err, bfd.ErrInvalidPaddedPduSize) {
+						t.Errorf("auth %s target %d: %v, want ErrInvalidPaddedPduSize", typ, size, err)
+					}
+				} else if err != nil {
+					t.Errorf("auth %s target %d: %v", typ, size, err)
+				}
+			}
+		}
 	}
 }
