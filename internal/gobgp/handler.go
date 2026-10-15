@@ -85,6 +85,7 @@ type Handler struct {
 	dampener *Dampener
 	timeout  time.Duration
 	actuates func(sc bfd.StateChange) bool
+	snapshot func() ([]bfd.SessionSnapshot, uint64)
 	onAction func(rpc string, err error)
 	logger   *slog.Logger
 
@@ -95,6 +96,18 @@ type Handler struct {
 	// goroutine). GoBFD enables only these: a peer the operator disabled,
 	// or one disabled before a restart, is never enabled (.8.2.4.1).
 	disabled map[string]struct{}
+
+	// last is the last state seen per base session (owned by the Run
+	// goroutine); a resync rebuilds lost edges from it.
+	last map[uint32]bfd.State
+
+	// resynced holds sessions whose state the last resync set; their next
+	// event is dropped when it only repeats that state.
+	resynced map[uint32]struct{}
+
+	// covered is the revision of the last resync snapshot; events up to it
+	// are already applied. Zero before the first resync.
+	covered uint64
 }
 
 // pendingAction is the newest BGP action not yet applied for a peer.
@@ -129,6 +142,13 @@ type HandlerConfig struct {
 	// session.
 	Actuates func(sc bfd.StateChange) bool
 
+	// Snapshot returns the current sessions and the revision they cover.
+	// After a subscriber gap the handler resyncs from it: a session last
+	// seen Up and now Down is disabled, an Up re-enables a peer GoBFD
+	// disabled, and a session first seen Down causes no action. Nil leaves
+	// lost events unrecovered.
+	Snapshot func() ([]bfd.SessionSnapshot, uint64)
+
 	// OnAction, when set, receives the GoBGP RPC name and result of every
 	// action attempt, including retries. It runs on the handler goroutine.
 	OnAction func(rpc string, err error)
@@ -159,6 +179,9 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		dampener: NewDampener(cfg.Dampening, cfg.Logger),
 		timeout:  timeout,
 		actuates: cfg.Actuates,
+		snapshot: cfg.Snapshot,
+		last:     make(map[uint32]bfd.State),
+		resynced: make(map[uint32]struct{}),
 		onAction: cfg.OnAction,
 		pending:  make(map[string]*pendingAction),
 		disabled: make(map[string]struct{}),
@@ -259,13 +282,36 @@ func (h *Handler) retryDue(ctx context.Context) {
 
 // handleStateChange processes a single BFD state transition.
 func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
-	peerAddr := sc.PeerAddr.Unmap().String()
-
-	// H-31: only base sessions describe the BGP neighbor; a Micro-BFD
-	// member link, overlay or Echo session to the same address does not.
-	if sc.Type != bfd.SessionTypeSingleHop && sc.Type != bfd.SessionTypeMultiHop {
+	if sc.Gap {
+		h.resync(ctx, sc.Revision)
 		return
 	}
+	if h.covered > 0 && sc.Revision <= h.covered {
+		return // applied by the last resync
+	}
+	if !isBaseSession(sc.Type) {
+		return
+	}
+	if _, ok := h.resynced[sc.LocalDiscr]; ok {
+		delete(h.resynced, sc.LocalDiscr)
+		if h.last[sc.LocalDiscr] == sc.NewState {
+			return // repeats state the resync already applied
+		}
+	}
+	h.last[sc.LocalDiscr] = sc.NewState
+	h.act(ctx, sc)
+}
+
+// isBaseSession reports whether a session describes a BGP neighbor (H-31):
+// a Micro-BFD member link, overlay or Echo session to the same address
+// does not.
+func isBaseSession(t bfd.SessionType) bool {
+	return t == bfd.SessionTypeSingleHop || t == bfd.SessionTypeMultiHop
+}
+
+// act applies the BGP action for one base-session transition.
+func (h *Handler) act(ctx context.Context, sc bfd.StateChange) {
+	peerAddr := sc.PeerAddr.Unmap().String()
 	// Only a Down is gated: an Up re-enables only a peer GoBFD disabled, and
 	// an ambiguity that later clears publishes no event to re-enable it.
 	if isTransitionToDown(sc) && h.actuates != nil && !h.actuates(sc) {
@@ -308,6 +354,56 @@ func (h *Handler) handleStateChange(ctx context.Context, sc bfd.StateChange) {
 			slog.String("transition", sc.OldState.String()+"->"+sc.NewState.String()),
 		)
 	}
+}
+
+// resync rebuilds the edges lost in a subscriber gap from the snapshot and
+// the last state seen per session (.8.2.4.1). A session not seen before
+// starts from Down, so its Down causes no action, as at startup.
+func (h *Handler) resync(ctx context.Context, gapRevision uint64) {
+	if h.snapshot == nil {
+		h.logger.Error("BFD state changes lost and no snapshot to resync from",
+			slog.Uint64("revision", gapRevision))
+		return
+	}
+	snaps, rev := h.snapshot()
+	h.logger.Warn("BFD state changes lost, resyncing GoBGP actions from snapshot",
+		slog.Uint64("gap_revision", gapRevision),
+		slog.Uint64("snapshot_revision", rev),
+	)
+	present := make(map[uint32]struct{}, len(snaps))
+	clear(h.resynced)
+	for _, snap := range snaps {
+		if !isBaseSession(snap.Type) {
+			continue
+		}
+		present[snap.LocalDiscr] = struct{}{}
+		h.resynced[snap.LocalDiscr] = struct{}{}
+		prev, ok := h.last[snap.LocalDiscr]
+		if !ok {
+			prev = bfd.StateDown
+		}
+		h.last[snap.LocalDiscr] = snap.State
+		if prev == snap.State {
+			continue
+		}
+		h.act(ctx, bfd.StateChange{
+			LocalDiscr: snap.LocalDiscr,
+			PeerAddr:   snap.PeerAddr,
+			LocalAddr:  snap.LocalAddr,
+			OldState:   prev,
+			NewState:   snap.State,
+			Diag:       snap.LocalDiag,
+			Timestamp:  time.Now(),
+			Type:       snap.Type,
+			Interface:  snap.Interface,
+		})
+	}
+	for discr := range h.last {
+		if _, ok := present[discr]; !ok {
+			delete(h.last, discr)
+		}
+	}
+	h.covered = rev
 }
 
 // handleDown processes a BFD session going Down. RFC 5882 Sections 4.2

@@ -455,3 +455,92 @@ func TestHandlerEnablesDisabledPeerWhenSessionStopsActuating(t *testing.T) {
 		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
 	})
 }
+
+func snapshotHandler(t *testing.T, mock *mockClient, snaps func() ([]bfd.SessionSnapshot, uint64)) *gobgp.Handler {
+	t.Helper()
+	h, err := gobgp.NewHandler(gobgp.HandlerConfig{
+		Client:   mock,
+		Strategy: gobgp.StrategyDisablePeer,
+		Snapshot: snaps,
+		Logger:   slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	return h
+}
+
+func baseSnapshot(discr uint32, peer string, state bfd.State) bfd.SessionSnapshot {
+	return bfd.SessionSnapshot{
+		LocalDiscr: discr,
+		PeerAddr:   netip.MustParseAddr(peer),
+		Type:       bfd.SessionTypeSingleHop,
+		State:      state,
+	}
+}
+
+// .8.2.4.1: a Down lost in a subscriber gap still disables the peer. The
+// handler rebuilds the edge from its last-known state and the snapshot,
+// then skips buffered events the snapshot covers.
+func TestHandlerResyncAppliesDownLostInGap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, snapshotHandler(t, mock, func() ([]bfd.SessionSnapshot, uint64) {
+			return []bfd.SessionSnapshot{baseSnapshot(1, "10.0.0.1", bfd.StateDown)}, 10
+		}))
+
+		up := peerTransition(bfd.StateDown, bfd.StateUp)
+		up.Revision = 1
+		events <- up
+		synctest.Wait()
+		assertMethods(t, mock)
+
+		events <- bfd.StateChange{Gap: true, Revision: 5}
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer)
+
+		// A stale buffered event the snapshot already covers.
+		stale := peerTransition(bfd.StateDown, bfd.StateUp)
+		stale.Revision = 9
+		events <- stale
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer)
+
+		// A later event that repeats the state the resync applied.
+		repeat := peerTransition(bfd.StateUp, bfd.StateDown)
+		repeat.Revision = 11
+		events <- repeat
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer)
+
+		recovered := peerTransition(bfd.StateDown, bfd.StateUp)
+		recovered.Revision = 12
+		events <- recovered
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+	})
+}
+
+// .8.2.4.1: an Up lost in a gap re-enables a peer GoBFD disabled; a
+// session seen only in the snapshot, Down since startup, causes no action.
+func TestHandlerResyncEnablesPeerAndIgnoresUnknownDown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, snapshotHandler(t, mock, func() ([]bfd.SessionSnapshot, uint64) {
+			return []bfd.SessionSnapshot{
+				baseSnapshot(1, "10.0.0.1", bfd.StateUp),
+				baseSnapshot(2, "10.0.0.2", bfd.StateDown),
+			}, 3
+		}))
+
+		down := peerTransition(bfd.StateUp, bfd.StateDown)
+		down.Revision = 1
+		events <- down
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer)
+
+		events <- bfd.StateChange{Gap: true, Revision: 3}
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+	})
+}

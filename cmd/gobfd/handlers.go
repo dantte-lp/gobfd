@@ -260,6 +260,7 @@ func newGoBGPHandler(
 			HalfLife:          cfg.Dampening.HalfLife,
 		},
 		Actuates: goBGPActuates(mgr, status, logger),
+		Snapshot: mgr.SessionsWithRevision,
 		OnAction: status.onAction(),
 		Logger:   logger,
 	})
