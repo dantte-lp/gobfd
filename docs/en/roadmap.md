@@ -195,7 +195,7 @@ the queue of 2026-10-15 01:20 UTC (below, updated in place):
 - Cleanup with maintainer approval: 15 merged task worktrees and their
   local branches removed (`task/preview-boundaries` was the duplicate of
   `b0d1620`); worktree reports kept under `reports/session-20261015/`;
-  GoBFD build leftovers removed (41 untagged images, 2 stale buildah
+  GoBFD build leftovers removed (47 untagged images, 8 stale buildah
   working containers, 14 stale gate images); root filesystem free space
   17 GB to 31 GB.
 - Version recheck at 18:10 UTC (`proxy.golang.org`, go.dev, `gh api
