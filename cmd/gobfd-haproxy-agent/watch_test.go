@@ -76,11 +76,11 @@ func TestWatchEventsReconnectsAfterEOF(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- watchEvents(ctx, client, states, slog.New(slog.DiscardHandler)) }()
-	wait := func(wantUp bool) {
+	wait := func(want bfdv1.SessionState) {
 		t.Helper()
 		ticker := time.NewTicker(time.Millisecond)
 		defer ticker.Stop()
-		for (states.get(testPeerAddr) == bfdv1.SessionState_SESSION_STATE_UP) != wantUp {
+		for states.get(testPeerAddr) != want {
 			select {
 			case err := <-done:
 				t.Fatalf("watch exited before recovery: %v", err)
@@ -90,19 +90,9 @@ func TestWatchEventsReconnectsAfterEOF(t *testing.T) {
 			}
 		}
 	}
-	wait(true)
+	wait(bfdv1.SessionState_SESSION_STATE_UP)
 	close(svc.loss)
-	wait(false)
-	// Require a new snapshot, rather than stopping at disconnect invalidation.
-	for svc.calls.Load() < 2 {
-		select {
-		case err := <-done:
-			t.Fatalf("watch exited instead of reconnecting: %v", err)
-		case <-ctx.Done():
-			t.Fatal("watch did not reconnect")
-		case <-time.After(time.Millisecond):
-		}
-	}
+	wait(bfdv1.SessionState_SESSION_STATE_DOWN)
 	cancel()
 	<-done
 }
