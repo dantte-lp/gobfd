@@ -18,7 +18,10 @@ func TestLoadPaddingRawValidation(t *testing.T) {
 		{"uppercase", "SESSIONS:\n  - peer: 192.0.2.1\n    PADDED_PDU_SIZE: %s\n"},
 		{"uppercase-default", "bfd:\n  DEFAULT_PADDED_PDU_SIZE: %s\n"},
 	} {
-		for i, scalar := range []string{"65664", "65536", "-1", "128.5", "true", "false", ".nan", ".inf", `"65664"`, `"128.5"`, `"true"`, "[128]", "{value: 128}"} {
+		for i, scalar := range []string{
+			"65664", "65536", "-1", "128.5", "true", "false", ".nan", ".inf",
+			`"65664"`, `"128.5"`, `"true"`, "[128]", "{value: 128}",
+		} {
 			t.Run(fmt.Sprintf("%s/%d", field.name, i), func(t *testing.T) {
 				t.Parallel()
 				_, err := config.Load(writeTemp(t, fmt.Sprintf(field.yaml, scalar)))
@@ -36,7 +39,9 @@ func TestLoadPaddingRawValidation(t *testing.T) {
 func TestLoadPaddingPolicy(t *testing.T) {
 	t.Parallel()
 	for _, global := range []bool{false, true} {
-		for _, auth := range []string{"", "none", "simple_password", "keyed_md5", "meticulous_keyed_md5", "keyed_sha1", "meticulous_keyed_sha1"} {
+		for _, auth := range []string{
+			"", "none", "simple_password", "keyed_md5", "meticulous_keyed_md5", "keyed_sha1", "meticulous_keyed_sha1",
+		} {
 			for _, size := range []uint16{0, 23, 24, 25, 26, 9000, 9001} {
 				t.Run(fmt.Sprintf("global=%t/%s/%d", global, auth, size), func(t *testing.T) {
 					t.Parallel()
@@ -68,7 +73,9 @@ func TestLoadPaddingPolicy(t *testing.T) {
 func TestLoadPaddingCompatibility(t *testing.T) {
 	t.Parallel()
 	for _, scalar := range []string{"null", "0", `"0"`, "24", `"128"`, `"0x80"`, "128.0", "9000"} {
-		cfg, err := config.Load(writeTemp(t, fmt.Sprintf("bfd:\n  default_padded_pdu_size: %s\nsessions:\n  - peer: 192.0.2.1\n    padded_pdu_size: %s\n", scalar, scalar)))
+		contents := fmt.Sprintf("bfd:\n  default_padded_pdu_size: %s\n"+
+			"sessions:\n  - peer: 192.0.2.1\n    padded_pdu_size: %s\n", scalar, scalar)
+		cfg, err := config.Load(writeTemp(t, contents))
 		if err != nil {
 			t.Fatalf("scalar %s: %v", scalar, err)
 		}
@@ -82,7 +89,9 @@ func TestLoadPaddingCompatibility(t *testing.T) {
 	}{
 		{24, 26, false}, {24, 0, true}, {128, 25, true}, {128, 26, false},
 	} {
-		contents := fmt.Sprintf("bfd:\n  default_padded_pdu_size: %d\nsessions:\n  - peer: 192.0.2.1\n    padded_pdu_size: %d\n    auth:\n      type: keyed_sha1\n      key_id: 1\n      secret: vector-key\n", tc.global, tc.override)
+		contents := fmt.Sprintf("bfd:\n  default_padded_pdu_size: %d\n"+
+			"sessions:\n  - peer: 192.0.2.1\n    padded_pdu_size: %d\n"+
+			"    auth:\n      type: keyed_sha1\n      key_id: 1\n      secret: vector-key\n", tc.global, tc.override)
 		_, err := config.Load(writeTemp(t, contents))
 		if tc.invalid != errors.Is(err, bfd.ErrInvalidPaddedPduSize) || (!tc.invalid && err != nil) {
 			t.Fatalf("default %d override %d: %v", tc.global, tc.override, err)
@@ -120,7 +129,10 @@ func TestValidatePaddingBeforeRuntime(t *testing.T) {
 	} {
 		cfg := config.DefaultConfig()
 		cfg.BFD.DefaultPaddedPduSize = tc.global
-		cfg.Sessions = []config.SessionConfig{{Peer: "192.0.2.1", PaddedPduSize: tc.session, Auth: config.AuthConfig{Type: tc.auth, KeyID: 1, Secret: "vector-key"}}}
+		cfg.Sessions = []config.SessionConfig{{
+			Peer: "192.0.2.1", PaddedPduSize: tc.session,
+			Auth: config.AuthConfig{Type: tc.auth, KeyID: 1, Secret: "vector-key"},
+		}}
 		err := config.Validate(cfg)
 		if tc.invalid != errors.Is(err, bfd.ErrInvalidPaddedPduSize) || (!tc.invalid && err != nil) {
 			t.Fatalf("global %d session %d auth %s: %v", tc.global, tc.session, tc.auth, err)

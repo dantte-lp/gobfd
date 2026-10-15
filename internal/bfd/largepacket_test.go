@@ -226,7 +226,7 @@ func TestLargePacket_PaddedPduSize_SmallValue(t *testing.T) {
 
 // TestLargePacket_ReceiverAcceptsOversized verifies that the receiver
 // (UnmarshalControlPacket) accepts packets larger than the BFD Length field.
-// RFC 9764: receivers MUST NOT reject packets with trailing data.
+// RFC 9764 Section 3: receivers SHOULD NOT validate transport padding contents.
 func TestLargePacket_ReceiverAcceptsOversized(t *testing.T) {
 	t.Parallel()
 
@@ -293,7 +293,10 @@ func TestLargePacket_PaddedPduSizeAccessor(t *testing.T) {
 
 func TestLargePacket_AuthenticatedPaddingPolicy(t *testing.T) {
 	t.Parallel()
-	for _, typ := range []bfd.AuthType{bfd.AuthTypeSimplePassword, bfd.AuthTypeKeyedMD5, bfd.AuthTypeMeticulousKeyedMD5, bfd.AuthTypeKeyedSHA1, bfd.AuthTypeMeticulousKeyedSHA1} {
+	for _, typ := range []bfd.AuthType{
+		bfd.AuthTypeSimplePassword, bfd.AuthTypeKeyedMD5, bfd.AuthTypeMeticulousKeyedMD5,
+		bfd.AuthTypeKeyedSHA1, bfd.AuthTypeMeticulousKeyedSHA1,
+	} {
 		for _, size := range []uint16{0, 24, 25, 26, 128, 9000} {
 			cfg := defaultSessionConfig()
 			cfg.PaddedPduSize = size

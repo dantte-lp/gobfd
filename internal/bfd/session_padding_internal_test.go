@@ -7,7 +7,10 @@ import (
 
 func TestRFC9764SessionAuthTransmit(t *testing.T) {
 	t.Parallel()
-	for _, typ := range []AuthType{AuthTypeSimplePassword, AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5, AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1} {
+	for _, typ := range []AuthType{
+		AuthTypeSimplePassword, AuthTypeKeyedMD5, AuthTypeMeticulousKeyedMD5,
+		AuthTypeKeyedSHA1, AuthTypeMeticulousKeyedSHA1,
+	} {
 		for _, size := range []uint16{0, 26, 64, 128, 9000} {
 			t.Run(fmt.Sprintf("%s/%d", typ, size), func(t *testing.T) {
 				t.Parallel()

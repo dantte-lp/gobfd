@@ -11,23 +11,62 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
-// RFC 5880 Sections 6.7.2-6.7.4 vectors, independent of Sign. Keyed digests
-// were calculated by OpenSSL dgst -md5/-sha1 over the literal PDU with
-// "vector-key" zero-padded in the digest slot; extension deadbeef is protected.
-var paddedAuthVectors = []struct {
+type paddedAuthVector struct {
 	name string
 	typ  bfd.AuthType
 	wire string
-}{
-	{"password", bfd.AuthTypeSimplePassword, "20c4032500000064000000c8000f4240000f424000000000010d01766563746f722d6b6579"},
-	{"md5", bfd.AuthTypeKeyedMD5, "20c4033000000064000000c8000f4240000f424000000000021801000000002a7ccecd63d30b50ac1f52d6814ae1726e"},
-	{"meticulous-md5", bfd.AuthTypeMeticulousKeyedMD5, "20c4033000000064000000c8000f4240000f424000000000031801000000002a68875b366052515832f76313eca4620a"},
-	{"sha1", bfd.AuthTypeKeyedSHA1, "20c4033400000064000000c8000f4240000f424000000000041c01000000002a941b6dbd4bfce237a20e76ff50a9e1727165aee7"},
-	{"meticulous-sha1", bfd.AuthTypeMeticulousKeyedSHA1, "20c4033400000064000000c8000f4240000f424000000000051c01000000002a6de969255196c29ec8abcb887b3780c7e2a4e1c7"},
-	{"md5-extension", bfd.AuthTypeKeyedMD5, "20c4033400000064000000c8000f4240000f424000000000021801000000002aa27db9eb8bbf59b260adca214a1eaf67deadbeef"},
-	{"meticulous-md5-extension", bfd.AuthTypeMeticulousKeyedMD5, "20c4033400000064000000c8000f4240000f424000000000031801000000002a82bab0a2e808dc240aaf3d3c4ec0a167deadbeef"},
-	{"sha1-extension", bfd.AuthTypeKeyedSHA1, "20c4033800000064000000c8000f4240000f424000000000041c01000000002aae0e146e436d9fb7ad73422f001e7098c8f03ba9deadbeef"},
-	{"meticulous-sha1-extension", bfd.AuthTypeMeticulousKeyedSHA1, "20c4033800000064000000c8000f4240000f424000000000051c01000000002a6af5864cbdd7c5cee46b1ed3eb6e9aa5faa49a2cdeadbeef"},
+}
+
+// RFC 5880 Sections 6.7.2-6.7.4 vectors, independent of Sign. Keyed digests
+// were calculated by OpenSSL dgst -md5/-sha1 over the literal PDU with
+// "vector-key" zero-padded in the digest slot; extension deadbeef is protected.
+func paddedAuthVectors() []paddedAuthVector {
+	return []paddedAuthVector{
+		{
+			"password", bfd.AuthTypeSimplePassword,
+			"20c4032500000064000000c8000f4240000f424000000000010d01766563746f722d6b6579",
+		},
+		{
+			"md5", bfd.AuthTypeKeyedMD5,
+			"20c4033000000064000000c8000f4240000f424000000000021801000000002a" +
+				"7ccecd63d30b50ac1f52d6814ae1726e",
+		},
+		{
+			"meticulous-md5", bfd.AuthTypeMeticulousKeyedMD5,
+			"20c4033000000064000000c8000f4240000f424000000000031801000000002a" +
+				"68875b366052515832f76313eca4620a",
+		},
+		{
+			"sha1", bfd.AuthTypeKeyedSHA1,
+			"20c4033400000064000000c8000f4240000f424000000000041c01000000002a" +
+				"941b6dbd4bfce237a20e76ff50a9e1727165aee7",
+		},
+		{
+			"meticulous-sha1", bfd.AuthTypeMeticulousKeyedSHA1,
+			"20c4033400000064000000c8000f4240000f424000000000051c01000000002a" +
+				"6de969255196c29ec8abcb887b3780c7e2a4e1c7",
+		},
+		{
+			"md5-extension", bfd.AuthTypeKeyedMD5,
+			"20c4033400000064000000c8000f4240000f424000000000021801000000002a" +
+				"a27db9eb8bbf59b260adca214a1eaf67deadbeef",
+		},
+		{
+			"meticulous-md5-extension", bfd.AuthTypeMeticulousKeyedMD5,
+			"20c4033400000064000000c8000f4240000f424000000000031801000000002a" +
+				"82bab0a2e808dc240aaf3d3c4ec0a167deadbeef",
+		},
+		{
+			"sha1-extension", bfd.AuthTypeKeyedSHA1,
+			"20c4033800000064000000c8000f4240000f424000000000041c01000000002a" +
+				"ae0e146e436d9fb7ad73422f001e7098c8f03ba9deadbeef",
+		},
+		{
+			"meticulous-sha1-extension", bfd.AuthTypeMeticulousKeyedSHA1,
+			"20c4033800000064000000c8000f4240000f424000000000051c01000000002a" +
+				"6af5864cbdd7c5cee46b1ed3eb6e9aa5faa49a2cdeadbeef",
+		},
+	}
 }
 
 func authVectorWire(t *testing.T, encoded string, size int) []byte {
@@ -43,7 +82,7 @@ func authVectorWire(t *testing.T, encoded string, size int) []byte {
 
 func TestRFC9764AuthKnownVectors(t *testing.T) {
 	t.Parallel()
-	for _, vector := range paddedAuthVectors {
+	for _, vector := range paddedAuthVectors() {
 		for _, size := range []int{0, 64, 128, 9000} {
 			for _, nonzeroPadding := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%d/nonzero=%t", vector.name, size, nonzeroPadding), func(t *testing.T) {
@@ -82,7 +121,7 @@ func TestRFC9764AuthKnownVectors(t *testing.T) {
 
 func TestRFC9764SignKnownVectors(t *testing.T) {
 	t.Parallel()
-	for _, vector := range paddedAuthVectors[:5] {
+	for _, vector := range paddedAuthVectors()[:5] {
 		t.Run(vector.name, func(t *testing.T) {
 			t.Parallel()
 			auth, err := bfd.NewAuthenticator(vector.typ)
@@ -109,7 +148,7 @@ func TestRFC9764SignKnownVectors(t *testing.T) {
 
 func TestRFC9764AuthTamperPreservesSequence(t *testing.T) {
 	t.Parallel()
-	for _, vector := range paddedAuthVectors {
+	for _, vector := range paddedAuthVectors() {
 		mutations := map[string]int{"type": 24, "auth-length": 25, "key-id": 26}
 		if vector.typ == bfd.AuthTypeSimplePassword {
 			mutations["password"] = 27
@@ -153,7 +192,7 @@ func TestRFC9764AuthTamperPreservesSequence(t *testing.T) {
 
 func TestRFC9764AuthWireBounds(t *testing.T) {
 	t.Parallel()
-	for _, vector := range paddedAuthVectors[1:5] {
+	for _, vector := range paddedAuthVectors()[1:5] {
 		pduSize := len(vector.wire) / 2
 		for _, tc := range []struct {
 			name                    string
@@ -216,7 +255,7 @@ func TestRFC9764UnauthenticatedBaseline(t *testing.T) {
 
 func TestRFC9764SimplePasswordWireContract(t *testing.T) {
 	t.Parallel()
-	vector := paddedAuthVectors[0]
+	vector := paddedAuthVectors()[0]
 	wire := authVectorWire(t, vector.wire, 0)
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(wire, &pkt); err != nil {
@@ -224,7 +263,8 @@ func TestRFC9764SimplePasswordWireContract(t *testing.T) {
 	}
 	state := &bfd.AuthState{AuthSeqKnown: true, RcvAuthSeq: 41}
 	before := *state
-	if err := (bfd.SimplePasswordAuth{}).Verify(state, newTestKeyStore(1, vector.typ, []byte("vector-key")), &pkt, nil, 0); err != nil {
+	keys := newTestKeyStore(1, vector.typ, []byte("vector-key"))
+	if err := (bfd.SimplePasswordAuth{}).Verify(state, keys, &pkt, nil, 0); err != nil {
 		t.Fatalf("Verify without wire: %v", err)
 	}
 	if *state != before {
