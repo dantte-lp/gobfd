@@ -272,6 +272,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve the learned peer discriminator across valid Down/AdminDown and local
+  PathDown transitions (`gobfd-qj0.8.2.1.2.4`). Poll replies and failed-send Final
+  retries retain the correct `YourDiscriminator`, including in the passive role;
+  the owner detection timer still clears it after one Detection Time of silence.
+
 - Clear `RemoteDiscr` after one Detection Time in every session state
   (`gobfd-qj0.8.2.1.2.3`), independently of two-Detection-Time authentication
   sequence expiry. Preserve the last observed remote administrative facts and

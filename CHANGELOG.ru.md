@@ -276,6 +276,11 @@
 
 ### Исправлено
 
+- Изученный peer discriminator сохраняется при корректных Down/AdminDown и
+  локальном PathDown (`gobfd-qj0.8.2.1.2.4`). Ответы Final на Poll и повторы после
+  ошибки отправки сохраняют корректный `YourDiscriminator`, включая passive role;
+  owner detection timer сбрасывает его после одного Detection Time без приёма.
+
 - `RemoteDiscr` сбрасывается после одного Detection Time в любом состоянии
   сессии (`gobfd-qj0.8.2.1.2.3`) независимо от истечения authentication sequence
   после двух Detection Time. Последние remote administrative facts и causal

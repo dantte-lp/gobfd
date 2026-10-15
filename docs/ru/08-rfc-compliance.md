@@ -154,6 +154,14 @@ C-bit сохраняются для causal policy; сброс wire discriminator
 Обязательство Final сохраняется до успешной отправки после получения
 корректного peer discriminator.
 
+Корректный приём Down/AdminDown и локальный PathDown сохраняют изученный
+дискриминатор до истечения detection timer. Ответ Final на Poll содержит
+`MyDiscriminator` peer, включая passive-сессии и повторы после ошибки отправки
+(Sections 6.8.6–6.8.7). Локальные команды PathDown не переносят срок receive
+detection timer.
+Если Down прерывает ожидающее уменьшение RX, новый Detection Time отсчитывается
+от последнего корректного приёма.
+
 #### Section 6.8.6: Приём пакетов
 
 Валидация разделена на два уровня:

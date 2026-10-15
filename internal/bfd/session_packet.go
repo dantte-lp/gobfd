@@ -229,12 +229,8 @@ func (s *Session) executeAction(
 		s.resetTxTimer(txTimer)
 		s.resetDetectTimer(detectTimer)
 	case ActionNotifyDown:
-		// RFC 5880 Section 6.8.1: reset remoteDiscr on session failure.
-		s.mu.Lock()
-		s.remoteDiscr = 0
-		s.mu.Unlock()
 		s.resetTxTimer(txTimer)
-		s.resetDetectTimer(detectTimer)
+		s.scheduleUpdatedDetection(detectTimer)
 	case ActionSetDiagTimeExpired, ActionSetDiagNeighborDown, ActionSetDiagAdminDown, ActionSetDiagPathDown:
 		// Diagnostics were committed with the local state before side effects.
 	default:

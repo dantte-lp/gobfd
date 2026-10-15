@@ -171,6 +171,14 @@ does not transmit, including direct FSM sends and pending Final retries
 (Section 6.8.7). The Final obligation remains pending until a valid peer
 discriminator permits a successful send.
 
+Valid Down/AdminDown reception and local PathDown retain the learned
+discriminator until detection expiry. A received Poll therefore produces Final
+with the peer's `MyDiscriminator`, including passive sessions and retries after
+a failed send (Sections 6.8.6–6.8.7). Local PathDown commands do not postpone the
+receive detection deadline.
+If Down interrupts a pending RX decrease, the new Detection Time remains
+anchored to the last valid receive.
+
 #### Section 6.8.6: Reception of BFD Control Packets
 
 Validation split across two layers:
