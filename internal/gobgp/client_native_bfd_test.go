@@ -65,3 +65,32 @@ func TestNativeBFDPeersRejectsInvalidNeighborAddress(t *testing.T) {
 		t.Fatal("NativeBFDPeers() error = nil, want invalid neighbor address error")
 	}
 }
+
+// .8.2.4.1: GoBFD reads a neighbor's administrative state before disabling
+// it, so it can leave operator-disabled peers alone.
+func TestPeerAdminDown(t *testing.T) {
+	t.Parallel()
+
+	down := gobgpPeer("192.0.2.1", false)
+	down.State = &gobgpapi.PeerState{AdminState: gobgpapi.PeerState_ADMIN_STATE_DOWN}
+	up := gobgpPeer("192.0.2.2", false)
+	up.State = &gobgpapi.PeerState{AdminState: gobgpapi.PeerState_ADMIN_STATE_UP}
+	addr := startPreflightServer(t, func(s *grpc.Server) {
+		gobgpapi.RegisterGoBgpServiceServer(s, peerListService{peers: []*gobgpapi.Peer{down, up}})
+	})
+	client := newPreflightClient(t, addr)
+	for _, tc := range []struct {
+		peer    string
+		want    bool
+		wantErr bool
+	}{
+		{"192.0.2.1", true, false},
+		{"192.0.2.2", false, false},
+		{"192.0.2.3", false, true},
+	} {
+		got, err := client.PeerAdminDown(t.Context(), tc.peer)
+		if (err != nil) != tc.wantErr || got != tc.want {
+			t.Errorf("PeerAdminDown(%s) = %t, %v; want %t, error %t", tc.peer, got, err, tc.want, tc.wantErr)
+		}
+	}
+}

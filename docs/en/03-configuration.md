@@ -611,6 +611,16 @@ deployments. Enable `gobgp.tls.enabled` for remote or non-loopback GoBGP API
 endpoints. When GoBGP is enabled with plaintext and `gobgp.addr` is not
 loopback/localhost, GoBFD logs a startup warning.
 
+#### Peer Ownership
+
+GoBFD enables only peers it disabled itself (maintainer decision,
+`gobfd-qj0.8.2.4.1`). Before `DisablePeer` it reads the neighbor's GoBGP
+admin state; a peer that is already administratively down (for example
+disabled by an operator) is left alone on BFD Down and on the following BFD
+Up. GoBGP does not expose who disabled a peer, so this record lives in
+memory: after a GoBFD restart, peers that GoBFD had disabled stay disabled
+until an operator enables them (`gobgp neighbor <addr> enable`).
+
 #### GoBGP Compatibility
 
 | GoBFD line | GoBGP daemon | gRPC service | Evidence |

@@ -90,6 +90,11 @@ type Handler struct {
 
 	// pending is owned by the Run goroutine.
 	pending map[string]*pendingAction
+
+	// disabled holds the peers this process disabled (owned by the Run
+	// goroutine). GoBFD enables only these: a peer the operator disabled,
+	// or one disabled before a restart, is never enabled (.8.2.4.1).
+	disabled map[string]struct{}
 }
 
 // pendingAction is the newest BGP action not yet applied for a peer.
@@ -154,6 +159,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		managed:  cfg.Managed,
 		onAction: cfg.OnAction,
 		pending:  make(map[string]*pendingAction),
+		disabled: make(map[string]struct{}),
 		logger: cfg.Logger.With(
 			slog.String("component", "gobgp.handler"),
 			slog.String("strategy", string(cfg.Strategy)),
@@ -413,10 +419,22 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
 		defer cancel()
 
+		if _, ours := h.disabled[peerAddr]; !ours {
+			adminDown, err := h.client.PeerAdminDown(actionCtx, peerAddr)
+			if err != nil {
+				return fmt.Errorf("disable peer %s: %w", peerAddr, err)
+			}
+			if adminDown {
+				h.logger.Info("BGP peer already administratively down; leaving it to the operator",
+					slog.String("peer", peerAddr))
+				return nil
+			}
+		}
 		communication := FormatBFDDownCommunication(sc.Diag)
 		if err := h.client.DisablePeer(actionCtx, peerAddr, communication); err != nil {
 			return fmt.Errorf("disable peer %s: %w", peerAddr, err)
 		}
+		h.disabled[peerAddr] = struct{}{}
 		return nil
 
 	case StrategyWithdrawRoutes:
@@ -432,12 +450,18 @@ func (h *Handler) applyDownAction(ctx context.Context, peerAddr string, sc bfd.S
 func (h *Handler) applyUpAction(ctx context.Context, peerAddr string, _ bfd.StateChange) error {
 	switch h.strategy {
 	case StrategyDisablePeer:
+		if _, ours := h.disabled[peerAddr]; !ours {
+			h.logger.Debug("BFD Up for a peer GoBFD did not disable; not enabling it",
+				slog.String("peer", peerAddr))
+			return nil
+		}
 		actionCtx, cancel := context.WithTimeout(ctx, h.timeout)
 		defer cancel()
 
 		if err := h.client.EnablePeer(actionCtx, peerAddr); err != nil {
 			return fmt.Errorf("enable peer %s: %w", peerAddr, err)
 		}
+		delete(h.disabled, peerAddr)
 		return nil
 
 	case StrategyWithdrawRoutes:

@@ -31,6 +31,8 @@ type mockClient struct {
 	calls  []mockCall
 	err    error // if set, all calls return this error
 	closed bool
+
+	adminDown map[string]bool
 }
 
 type mockCall struct {
@@ -63,6 +65,10 @@ func (b *blockingClient) EnablePeer(ctx context.Context, _ string) error {
 	<-ctx.Done()
 	close(b.done)
 	return ctx.Err()
+}
+
+func (b *blockingClient) PeerAdminDown(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 func (b *blockingClient) Close() error {
@@ -104,6 +110,28 @@ func (m *mockClient) EnablePeer(_ context.Context, addr string) error {
 	})
 
 	return nil
+}
+
+// PeerAdminDown reports the administrative state set by setAdminDown; it is
+// not recorded as a call.
+func (m *mockClient) PeerAdminDown(_ context.Context, addr string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.adminDown[addr], nil
+}
+
+func (m *mockClient) setAdminDown(addr string, down bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.adminDown == nil {
+		m.adminDown = make(map[string]bool)
+	}
+	m.adminDown[addr] = down
 }
 
 func (m *mockClient) Close() error {
@@ -205,29 +233,31 @@ func TestHandlerBFDUpEnablesPeer(t *testing.T) {
 			_ = handler.Run(ctx, events)
 		}()
 
-		// BFD Init -> Up transition.
+		// GoBFD enables only a peer it disabled: Down first, then Up.
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		waitForCalls(t, mock, 1)
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),
-			OldState:   bfd.StateInit,
+			OldState:   bfd.StateDown,
 			NewState:   bfd.StateUp,
 			Diag:       bfd.DiagNone,
 			Timestamp:  time.Now(),
 		}
 
-		waitForCalls(t, mock, 1)
+		waitForCalls(t, mock, 2)
 
 		calls := mock.getCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
+		if len(calls) != 2 {
+			t.Fatalf("expected 2 calls, got %d", len(calls))
 		}
 
-		if calls[0].method != methodEnablePeer {
-			t.Errorf("expected %s, got %s", methodEnablePeer, calls[0].method)
+		if calls[1].method != methodEnablePeer {
+			t.Errorf("expected %s, got %s", methodEnablePeer, calls[1].method)
 		}
 
-		if calls[0].addr != "10.0.0.1" {
-			t.Errorf("expected addr 10.0.0.1, got %s", calls[0].addr)
+		if calls[1].addr != "10.0.0.1" {
+			t.Errorf("expected addr 10.0.0.1, got %s", calls[1].addr)
 		}
 
 		cancel()

@@ -127,7 +127,8 @@ func TestHandlerAppliesSuppressedDownWhenSuppressionLifts(t *testing.T) {
 }
 
 // The newest BFD state wins: an Up that arrives while a Down retry is
-// pending replaces it, so GoBGP ends with the peer enabled.
+// pending replaces it. The Down was never applied, so GoBFD did not disable
+// the peer and sends nothing.
 func TestHandlerNewerEventReplacesPendingAction(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mock := newMockClient()
@@ -141,7 +142,7 @@ func TestHandlerNewerEventReplacesPendingAction(t *testing.T) {
 		mock.setError(nil)
 		time.Sleep(time.Minute)
 		synctest.Wait()
-		assertMethods(t, mock, methodEnablePeer)
+		assertMethods(t, mock)
 	})
 }
 
@@ -221,9 +222,12 @@ func TestHandlerAdminDownClearsPendingDown(t *testing.T) {
 func TestHandlerAdminDownKeepsPendingUp(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		mock := newMockClient()
-		mock.setError(status.Error(codes.Unavailable, "connection refused"))
 		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer)
 
+		mock.setError(status.Error(codes.Unavailable, "connection refused"))
 		events <- peerTransition(bfd.StateDown, bfd.StateUp)
 		events <- peerTransition(bfd.StateUp, bfd.StateAdminDown)
 		synctest.Wait()
@@ -231,7 +235,7 @@ func TestHandlerAdminDownKeepsPendingUp(t *testing.T) {
 		mock.setError(nil)
 		time.Sleep(time.Minute)
 		synctest.Wait()
-		assertMethods(t, mock, methodEnablePeer)
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
 	})
 }
 
@@ -314,5 +318,41 @@ func TestHandlerReportsEveryActionAttempt(t *testing.T) {
 				t.Fatalf("reported actions = %v, want %v", results, want)
 			}
 		}
+	})
+}
+
+// .8.2.4.1 (maintainer decision): GoBFD re-enables only peers it disabled.
+// A peer the operator already disabled is neither disabled nor enabled.
+func TestHandlerLeavesOperatorDisabledPeer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		mock.setAdminDown("10.0.0.1", true)
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		synctest.Wait()
+		assertMethods(t, mock)
+	})
+}
+
+// Without a disable by this process (for example after a restart) an Up
+// does not enable the peer: a stale state cannot enable a peer that the
+// operator may have disabled.
+func TestHandlerEnablesOnlyPeersItDisabled(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		synctest.Wait()
+		assertMethods(t, mock)
+
+		events <- peerTransition(bfd.StateUp, bfd.StateDown)
+		synctest.Wait()
+		events <- peerTransition(bfd.StateDown, bfd.StateUp)
+		synctest.Wait()
+		assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
 	})
 }

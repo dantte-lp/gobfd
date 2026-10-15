@@ -35,6 +35,10 @@ type Client interface {
 	// EnablePeer administratively enables a previously disabled BGP peer.
 	EnablePeer(ctx context.Context, addr string) error
 
+	// PeerAdminDown reports whether the BGP peer is administratively down,
+	// for example disabled by an operator.
+	PeerAdminDown(ctx context.Context, addr string) (bool, error)
+
 	// Close releases the underlying gRPC connection.
 	Close() error
 }
@@ -236,6 +240,36 @@ func (c *GRPCClient) NativeBFDPeers(ctx context.Context) ([]netip.Addr, error) {
 			return nil, fmt.Errorf("parse gobgp neighbor address %q: %w", address, parseErr)
 		}
 		peers = append(peers, peer.Unmap())
+	}
+}
+
+// errPeerNotFound reports a neighbor address unknown to GoBGP.
+var errPeerNotFound = errors.New("gobgp neighbor not found")
+
+// PeerAdminDown reports whether the neighbor's GoBGP admin state is DOWN.
+func (c *GRPCClient) PeerAdminDown(ctx context.Context, addr string) (bool, error) {
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, ErrClientClosed)
+	}
+	c.mu.RUnlock()
+
+	stream, err := c.api.ListPeer(ctx, &gobgpapi.ListPeerRequest{Address: addr})
+	if err != nil {
+		return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, err)
+	}
+	for {
+		resp, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, errPeerNotFound)
+		}
+		if recvErr != nil {
+			return false, fmt.Errorf("read gobgp peer %s admin state: %w", addr, recvErr)
+		}
+		if resp.GetPeer().GetConf().GetNeighborAddress() == addr {
+			return resp.GetPeer().GetState().GetAdminState() == gobgpapi.PeerState_ADMIN_STATE_DOWN, nil
+		}
 	}
 }
 

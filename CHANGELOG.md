@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The GoBGP handler enables only peers it disabled itself
+  (`gobfd-qj0.8.2.4.1`). It reads a neighbor's admin state before
+  `DisablePeer` and leaves operator-disabled peers alone on BFD Down and Up.
+  The record is in memory: after a restart, peers GoBFD had disabled stay
+  disabled until an operator enables them.
 - **Breaking:** the flight recorder dump `/debug/flightrecorder` is no
   longer served on the unauthenticated metrics listener
   (`gobfd-qj0.8.2.3.2`). With the new `grpc.flight_recorder: true` it is
