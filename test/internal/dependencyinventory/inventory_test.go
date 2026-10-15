@@ -83,8 +83,8 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 		inv,
 		"runtime:github.com/ovn-kubernetes/libovsdb",
 		"repository_archived",
-		ReviewVerified,
-		"active",
+		ReviewUnverified,
+		"repository archival state is not independently proven for this record",
 	)
 	assertRepositoryReview(
 		t,
@@ -99,10 +99,10 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 		inv,
 		"runtime:github.com/ovn-kubernetes/libovsdb",
 		"artifact_available",
-		ReviewVerified,
-		"available",
+		ReviewUnverified,
+		"selected identity/checksum recorded; artifact availability not independently observed",
 	)
-	assertRepositoryReview(t, inv, "github-action:actions/checkout", "license", ReviewVerified, "MIT")
+	assertRepositoryReview(t, inv, "github-action:actions/checkout", "license", ReviewUnverified, "MIT")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "channel_current", ReviewUnverified, "immutable commit identity does not prove channel currency")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "security", ReviewUnverified, "immutable pinning does not prove vulnerability status")
 	assertRepositoryComponent(t, inv, "oci-image:docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e", "1.27.2-trixie", "test/interop/thoro/Containerfile")

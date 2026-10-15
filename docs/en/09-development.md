@@ -616,19 +616,34 @@ The machine-readable supply-chain snapshot lives in
 `docs/supply-chain/dependency-inventory.json`. It covers the complete selected
 runtime and isolated-tool module graphs plus repository-declared tools, GitHub
 Actions, OCI images, and interop daemons.
-Regenerate it only after completing the corresponding release-note, security,
-license, archive, and pin review:
+Regeneration records the selected identities and the observations it actually
+collects. Complete release-note, security, archive, and release-line acceptance
+reviews separately:
 
 ```bash
 make dependency-inventory
 make dependency-inventory-check
 ```
 
-Generation resolves each exact selected Go module version through the stable
-deps.dev v3 API and records exact-commit GitHub evidence where deps.dev has no
-license expression.
-Immutable OCI records keep registry availability separate from their canonical
-build-source commit and hashed license file. The check is offline and fails if
+Generation queries the deps.dev v3 API for exact-version Go license evidence.
+Static license overrides and OCI build-source coordinates do not constitute a
+fresh fetch. They remain unverified without a matching recorded observation.
+Local module-list and checksum observations do not establish remote availability,
+upstream currency, archive state, or security status. Security remains unverified
+without an imported graph-bound scan receipt; generation does not import one.
+
+The current `dev` context is explicit in the generator: observation epoch
+`2026-10-15T21:30:03Z`, review date `2026-10-31`, and tracking
+`gobfd-qj0.8.2.8.7`. Current selections are deferred with an owner and review
+date; stable-release adoption and exceptions are not inherited. Reuse is limited
+to this same observation epoch and an exact installed identity and immutable pin,
+with the original subject, review, source, query, result, hash, and observation
+time preserved. Mutable repository observations become stale. Any other prior
+epoch, including the legacy blanket September snapshot, is untrusted for reuse.
+Advancing the epoch requires fresh collection; historical snapshots remain in
+Git.
+
+The check is offline and fails if
 either Go module graph, a declared component, a source location, evidence
 binding, or the Go package count drifts from the reviewed snapshot.
 

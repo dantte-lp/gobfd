@@ -78,6 +78,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dependency inventory generation now uses an explicit `dev` observation epoch
+  and deferred release-line decisions (`gobfd-qj0.8.2.8.7.6`). It records actual
+  exact-version license responses, rejects legacy observation reuse, and leaves
+  uncollected external reviews and security unverified.
+- Updated `dev` module pins to Prometheus `client_golang` v1.25.0 and Moby
+  client v0.6.2 (`gobfd-qj0.8.6.2`). Metrics responses now include negotiated
+  `Vary` headers; the container integration client fixes cancellation and
+  deadlines during HTTP upgrade. The dbus update remains pending its
+  2026-10-20 eligibility date.
 - **Breaking:** GoBGP flap dampening never holds a BFD Down
   (`gobfd-qj0.8.2.4.1`, H-27, v1 dampening contract). Every qualifying Down
   disables the peer at once; once suppressed, dampening holds only the

@@ -40,6 +40,9 @@ const (
 const (
 	currentSchemaVersion  = 2
 	githubRepositoryParts = 2
+	snapshotObservedAt    = "2026-10-15T21:30:03Z"
+	devReviewBy           = "2026-10-31"
+	devTracking           = "gobfd-qj0.8.2.8.7"
 )
 
 // Kind classifies a non-Go dependency or a Go module record.
@@ -285,6 +288,10 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, fmt.Errorf("resolve repository root: %w", err)
 	}
+	prior, err := readInventory(filepath.Join(absoluteRoot, "docs/supply-chain/dependency-inventory.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Inventory{}, fmt.Errorf("read prior dependency inventory: %w", err)
+	}
 	packageCount, err := goPackageCount(ctx, absoluteRoot)
 	if err != nil {
 		return Inventory{}, err
@@ -292,7 +299,7 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	inv := Inventory{
 		Schema:         SchemaID,
 		SchemaVersion:  currentSchemaVersion,
-		AuditedAt:      "2026-09-04T00:00:00Z",
+		AuditedAt:      snapshotObservedAt,
 		GoPackageCount: packageCount,
 	}
 	for _, definition := range []struct{ id, manifest, sum string }{
@@ -337,16 +344,13 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 			}
 			record.Coordinates = Coordinates{PURL: goModulePURL(identity.Path, identity.Version)}
 			record.Assessment = assessmentTemplate(policy)
-			if definition.id == "runtime" && policy != "gobgp-v4-risk" {
-				record.Assessment.Security.Value = "runtime vulnerability policy covers " + identity.Path + "@" + identity.Version
-			}
 			record.RepositoryState = repositoryStateTemplate(policy, pin)
 			if definition.id == "tools" {
 				switch identity.Path {
 				case "github.com/tenntenn/text/transform":
 					record.Coordinates.SourceRepository = "https://github.com/tenntenn/text"
 					record.Assessment.License = Review{
-						Status: ReviewVerified, Value: "MIT", EvidenceIDs: []string{},
+						Status: ReviewUnverified, Value: "MIT", EvidenceIDs: []string{},
 					}
 					record.Assessment.Decision.LicenseException = nil
 				case "github.com/chzyer/logex":
@@ -360,9 +364,6 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 			}
 			if identity.Path == "github.com/ovn-kubernetes/libovsdb" {
 				record.Coordinates.SourceRepository = "https://github.com/ovn-kubernetes/libovsdb"
-				record.RepositoryState.RepositoryArchived = Review{
-					Status: ReviewVerified, Value: "active", EvidenceIDs: []string{},
-				}
 			}
 			module := Module{Record: record, Path: identity.Path, Version: identity.Version, Indirect: identity.Indirect}
 			graph.Modules = append(graph.Modules, module)
@@ -396,7 +397,7 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 		record.RepositoryState = repositoryStateTemplate(assessment, pin)
 		if item.Kind == KindGitHubAction {
 			record.Assessment.License = Review{
-				Status: ReviewVerified, Value: githubActionLicense(actionRepository(item.Installed)), EvidenceIDs: []string{},
+				Status: ReviewUnverified, Value: githubActionLicense(actionRepository(item.Installed)), EvidenceIDs: []string{},
 			}
 			record.RepositoryState.ArtifactAvailable.Value = record.Coordinates.SourceCommit
 			record.Assessment.Decision.LicenseException = nil
@@ -410,38 +411,8 @@ func Build(ctx context.Context, root string) (Inventory, error) {
 	applyOCILicenseEvidence(&inv)
 	sort.Slice(inv.Components, func(i, j int) bool { return inv.Components[i].ID < inv.Components[j].ID })
 	populateEvidence(&inv)
-	applyReviewExceptions(&inv)
+	reuseHistoricalEvidence(&inv, prior)
 	return inv, nil
-}
-
-func applyReviewExceptions(inv *Inventory) {
-	apply := func(id string, record *Record) {
-		decision := &record.Assessment.Decision
-		if decision.Status != DecisionAdopted && decision.Status != DecisionRetained {
-			decision.ReviewException = nil
-			return
-		}
-		reviews := unresolvedReviewNames(*record)
-		if len(reviews) == 0 {
-			decision.ReviewException = nil
-			return
-		}
-		decision.ReviewException = &ReviewException{
-			Reviews: reviews, Owner: "maintainers", ReviewBy: "2026-09-30",
-			Reason:   fmt.Sprintf("v0.6.2 accepts %s at %s while the listed reviews remain unresolved", id, record.Installed),
-			Tracking: "gobfd-qj0.8.1.7.3",
-		}
-	}
-	for graphIndex := range inv.ModuleGraphs {
-		graph := &inv.ModuleGraphs[graphIndex]
-		for moduleIndex := range graph.Modules {
-			module := &graph.Modules[moduleIndex]
-			apply(graph.ID+":"+module.Path, &module.Record)
-		}
-	}
-	for index := range inv.Components {
-		apply(inv.Components[index].ID, &inv.Components[index].Record)
-	}
 }
 
 func unresolvedReviewNames(record Record) []string {
@@ -518,6 +489,10 @@ type ociLicenseOverride struct {
 // CollectLicenseEvidence resolves exact selected Go module versions through the stable deps.dev v3 API.
 // It deliberately leaves records without detected SPDX expressions unverified for explicit resolution.
 func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
+	return collectLicenseEvidence(ctx, inv, &http.Client{Timeout: 20 * time.Second})
+}
+
+func collectLicenseEvidence(ctx context.Context, inv *Inventory, client *http.Client) error {
 	identities := make([]moduleLicenseIdentity, 0)
 	seen := make(map[moduleLicenseIdentity]struct{})
 	for _, graph := range inv.ModuleGraphs {
@@ -548,7 +523,6 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		return identities[i].Path < identities[j].Path
 	})
 
-	client := &http.Client{Timeout: 20 * time.Second}
 	results := make(map[moduleLicenseIdentity]moduleLicenseResult, len(identities))
 	jobs := make(chan moduleLicenseIdentity)
 	errCh := make(chan error, len(identities))
@@ -576,6 +550,7 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		case <-ctx.Done():
 			close(jobs)
 			workers.Wait()
+			invalidateUnobservedLicenses(inv, results)
 			return fmt.Errorf("collect deps.dev licenses: %w", ctx.Err())
 		}
 	}
@@ -587,6 +562,7 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		errs = append(errs, err)
 	}
 	if err := errors.Join(errs...); err != nil {
+		invalidateUnobservedLicenses(inv, results)
 		return fmt.Errorf("collect deps.dev licenses: %w", err)
 	}
 
@@ -599,8 +575,11 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			result := results[moduleLicenseIdentity{Path: module.Path, Version: module.Version}]
 			if len(result.Licenses) == 0 {
 				if override, ok := exactModuleLicense(module.Path, module.Version); ok {
-					module.Assessment.License = Review{Status: ReviewVerified, Value: override.Value, EvidenceIDs: []string{}}
-					module.Assessment.Decision.LicenseException = nil
+					if module.Assessment.License.Value != override.Value ||
+						len(module.Assessment.License.EvidenceIDs) != 1 {
+						module.Assessment.License = Review{Status: ReviewUnverified, Value: override.Value}
+						replaceLicenseEvidence(inv, inv.ModuleGraphs[graphIndex].ID+":"+module.Path, &module.Record, nil)
+					}
 					module.Coordinates.SourceRepository = override.SourceRepository
 					module.Coordinates.SourceCommit = override.SourceCommit
 					continue
@@ -610,6 +589,7 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 					Value:       "deps.dev returned no detected SPDX license expressions for the exact module version",
 					EvidenceIDs: []string{},
 				}
+				replaceLicenseEvidence(inv, inv.ModuleGraphs[graphIndex].ID+":"+module.Path, &module.Record, nil)
 				continue
 			}
 			module.Assessment.License = Review{
@@ -621,6 +601,8 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			if module.Coordinates.SourceRepository == "" {
 				module.Coordinates.SourceRepository = result.SourceRepository
 			}
+			observeDepsDevLicense(inv, inv.ModuleGraphs[graphIndex].ID+":"+module.Path, &module.Record,
+				moduleLicenseIdentity{Path: module.Path, Version: module.Version})
 		}
 	}
 	for componentIndex := range inv.Components {
@@ -643,6 +625,10 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 			continue
 		}
 		if !ok {
+			if _, declared := declaredToolModule(component.ID, component.Installed); declared {
+				component.Assessment.License = Review{Status: ReviewUnverified, Value: "no exact-version SPDX expression returned"}
+				replaceLicenseEvidence(inv, component.ID, &component.Record, nil)
+			}
 			continue
 		}
 		component.Assessment.License = Review{Status: ReviewVerified, Value: result.License, EvidenceIDs: []string{}}
@@ -653,8 +639,10 @@ func CollectLicenseEvidence(ctx context.Context, inv *Inventory) error {
 		if result.SourceCommit != "" {
 			component.Coordinates.SourceCommit = result.SourceCommit
 		}
+		identity, _ := declaredToolModule(component.ID, component.Installed)
+		observeDepsDevLicense(inv, component.ID, &component.Record, identity)
 	}
-	populateEvidence(inv)
+	slices.SortFunc(inv.Evidence, func(left, right Evidence) int { return strings.Compare(left.ID, right.ID) })
 	return nil
 }
 
@@ -729,18 +717,13 @@ func applyOCILicenseEvidence(inv *Inventory) {
 				Value:       "canonical image build source has no independently resolvable license grant at the pinned commit",
 				EvidenceIDs: []string{},
 			}
-			record.Assessment.Decision.LicenseException = &LicenseException{
-				Owner: "maintainers", ReviewBy: "2026-09-30",
-				Reason:   "canonical image build-source tree has no license grant at the exact commit",
-				Tracking: "gobfd-qj0.8.1.9",
-			}
 			continue
 		}
 		value := "canonical-build-source:" + license.SPDX + "; license-source-sha256:" + license.LicenseHash
 		if license.SecondFile != "" {
 			value += "; second-license-source-sha256:" + license.SecondHash
 		}
-		record.Assessment.License = Review{Status: ReviewVerified, Value: value, EvidenceIDs: []string{}}
+		record.Assessment.License = Review{Status: ReviewUnverified, Value: value, EvidenceIDs: []string{}}
 		record.Assessment.Decision.LicenseException = nil
 	}
 }
@@ -921,9 +904,6 @@ func runtimeBaseline(path string) string {
 }
 
 func assessmentTemplate(name string) Assessment {
-	verified := func(value string) Review {
-		return Review{Status: ReviewVerified, Value: value, EvidenceIDs: []string{}}
-	}
 	unverified := func(value string) Review {
 		return Review{Status: ReviewUnverified, Value: value, EvidenceIDs: []string{}}
 	}
@@ -935,75 +915,62 @@ func assessmentTemplate(name string) Assessment {
 		assessment.ChannelCurrent = unverified("selected identity is recorded; channel currency is not independently evidenced")
 		assessment.UpstreamCurrent = unverified("the prior update audit is not reproduced by the offline inventory")
 		assessment.ReleaseImpact = unverified("compatibility impact is covered by release gates, not module-list evidence")
-		assessment.Security = verified("selected graph covered by the recorded vulnerability policy")
-		assessment.Decision = adoptedDecision("adopt the audited direct runtime graph for v0.6.2")
+		assessment.Security = unverified("graph-bound vulnerability scan evidence is not imported by generation")
 	case "runtime-transitive-selected":
 		assessment.ChannelCurrent = Review{Status: ReviewNotApplicable, Value: "latest channel is not the transitive selection contract", EvidenceIDs: []string{}}
 		assessment.UpstreamCurrent = Review{Status: ReviewNotApplicable, Value: "individual latest is not the transitive selection contract", EvidenceIDs: []string{}}
 		assessment.ReleaseImpact = unverified("transitive compatibility impact is covered by repository gates")
-		assessment.Security = verified("selected graph covered by the recorded vulnerability policy")
-		assessment.Decision = adoptedDecision("retain exact transitive versions selected by audited upstream requirements")
+		assessment.Security = unverified("graph-bound vulnerability scan evidence is not imported by generation")
 	case "tools-selected-graph":
 		assessment.ChannelCurrent = Review{Status: ReviewNotApplicable, Value: "latest channel is not the selected tool-closure contract", EvidenceIDs: []string{}}
 		assessment.UpstreamCurrent = Review{Status: ReviewNotApplicable, Value: "individual latest is not the transitive tool selection contract", EvidenceIDs: []string{}}
 		assessment.ReleaseImpact = unverified("tool compatibility impact is covered by repository gates")
 		assessment.Security = unverified("go list evidence does not prove vulnerability status")
-		assessment.Decision = adoptedDecision("adopt the isolated exact tools graph")
 	case "github-action-audited":
 		assessment.ChannelCurrent = unverified("immutable commit identity does not prove channel currency")
 		assessment.UpstreamCurrent = unverified("latest release is not independently evidenced per action record")
 		assessment.ReleaseImpact = unverified("workflow impact is covered by CI rather than external metadata")
 		assessment.Security = unverified("immutable pinning does not prove vulnerability status")
-		assessment.Decision = adoptedDecision("adopt audited immutable workflow action pins")
 	case "oci-digest-audited":
 		assessment.ChannelCurrent = unverified("immutable digest identity does not prove channel currency")
 		assessment.UpstreamCurrent = unverified("registry availability does not prove the latest upstream release")
 		assessment.ReleaseImpact = unverified("image compatibility impact is covered by interop gates")
 		assessment.Security = unverified("per-image vulnerability evidence remains a separate gate")
-		assessment.Decision = adoptedDecision("adopt the audited immutable OCI digest")
 	case "tool-version-audited":
 		assessment.ChannelCurrent = unverified("declared identity does not prove channel currency")
 		assessment.UpstreamCurrent = unverified("latest release is not independently evidenced per tool record")
 		assessment.ReleaseImpact = unverified("tool compatibility impact is covered by repository gates")
 		assessment.Security = unverified("tool-specific scanner evidence remains in the batch audit record")
-		assessment.Decision = adoptedDecision("adopt the audited exact tool version")
 	case "mutable-declared-deferred":
 		assessment.ChannelCurrent = unverified("mutable tag or local image reference")
 		assessment.UpstreamCurrent = unverified("mutable source requires a separate immutable-pin decision")
 		assessment.ReleaseImpact = unverified("deferred until immutable source is available")
 		assessment.Security = unverified("mutable artifact cannot support a reproducible security assessment")
 		assessment.License = unverified("mutable artifact license evidence is not stable")
-		assessment.Decision = Decision{Status: DecisionDeferred, Reason: "retain only as a tracked mutable interoperability input", Owner: "maintainers", Tracking: "gobfd-qj0.8.1.9", ReviewBy: "2026-09-30"}
 	case "removed-direct-require":
 		assessment = Assessment{ChannelCurrent: none, UpstreamCurrent: none, ReleaseImpact: none, Security: none, License: none, Decision: Decision{Status: DecisionRemoved, Reason: "remove redundant explicit indirect requirement; full selected graphs remain authoritative", Owner: "maintainers", Tracking: "gobfd-qj0.8.1.1"}}
 	case "gobgp-v4-risk":
 		assessment.ChannelCurrent = unverified("selected v4 identity does not independently prove channel currency")
-		assessment.UpstreamCurrent = verified("v4.10.0 latest release, published 2026-10-04")
+		assessment.UpstreamCurrent = unverified("current upstream release requires an independent observation")
 		assessment.ReleaseImpact = unverified("v3 /apipb.GobgpApi and v4 /api.GoBgpService are wire-incompatible; daemon consumers migrate together")
-		assessment.Security = verified("GO-2026-4736 module-level only; GHSA-4p9m-8gc4-rw2h patched in v4.4.0; pkg/server not imported")
-		assessment.Decision = adoptedDecision("adopt v4.10.0 per maintainer decision 2026-10-13")
-		assessment.Decision.Tracking = "gobfd-qj0.8.2.4.3"
+		assessment.Security = unverified("graph-bound vulnerability scan evidence is not imported by generation")
 	default:
 		panic("unknown assessment template: " + name)
+	}
+	if name != "removed-direct-require" {
+		assessment.Decision = devDecision()
 	}
 	return assessment
 }
 
-func adoptedDecision(reason string) Decision {
+func devDecision() Decision {
 	return Decision{
-		Status: DecisionAdopted, Reason: reason, Owner: "maintainers", Tracking: "gobfd-qj0.8.1.1",
-		LicenseException: &LicenseException{
-			Owner: "maintainers", ReviewBy: "2026-09-30",
-			Reason:   "complete declared tool and per-version license provenance review",
-			Tracking: "gobfd-qj0.8.1.12",
-		},
+		Status: DecisionDeferred, Reason: "current dev selection awaits release-line acceptance",
+		Owner: "maintainers", Tracking: devTracking, ReviewBy: devReviewBy,
 	}
 }
 
-func repositoryStateTemplate(name string, pin ImmutablePin) RepositoryState {
-	verified := func(value string) Review {
-		return Review{Status: ReviewVerified, Value: value, EvidenceIDs: []string{}}
-	}
+func repositoryStateTemplate(name string, _ ImmutablePin) RepositoryState {
 	unverified := func(value string) Review {
 		return Review{Status: ReviewUnverified, Value: value, EvidenceIDs: []string{}}
 	}
@@ -1014,23 +981,11 @@ func repositoryStateTemplate(name string, pin ImmutablePin) RepositoryState {
 		ReleaseLineEOL:     unverified("release-line EOL is not independently proven for this record"),
 	}
 	switch name {
-	case "runtime-direct-audited":
-		state.ArtifactAvailable = verified("available")
-	case "github-action-audited":
-		state.RepositoryArchived = verified("active")
-		state.ArtifactAvailable = verified("commit available")
-	case "oci-digest-audited":
-		state.ArtifactAvailable = verified("available at immutable digest")
-	case "runtime-transitive-selected", "tools-selected-graph":
-		if pin.Kind == "go-sum" {
-			state.ArtifactAvailable = verified("available with committed go.sum checksum")
-		}
+	case "runtime-direct-audited", "runtime-transitive-selected", "tools-selected-graph", "gobgp-v4-risk":
+		state.ArtifactAvailable = unverified("selected identity/checksum recorded; artifact availability not independently observed")
+	case "github-action-audited", "oci-digest-audited":
 	case "removed-direct-require":
 		state = RepositoryState{RepositoryArchived: none, ArtifactAvailable: none, ReleaseLineEOL: none}
-	case "gobgp-v4-risk":
-		state.RepositoryArchived = verified("active repository")
-		state.ArtifactAvailable = verified("v4.10.0 available")
-		state.ReleaseLineEOL = verified("v4 release line active")
 	}
 	return state
 }
@@ -1136,6 +1091,10 @@ type recordReview struct {
 }
 
 func populateEvidence(inv *Inventory) {
+	prior := make(map[string]Evidence, len(inv.Evidence))
+	for _, evidence := range inv.Evidence {
+		prior[evidence.ID] = evidence
+	}
 	inv.Evidence = []Evidence{}
 	for graphIndex := range inv.ModuleGraphs {
 		graph := &inv.ModuleGraphs[graphIndex]
@@ -1146,7 +1105,7 @@ func populateEvidence(inv *Inventory) {
 			if graph.ID == "tools" {
 				command = "go list -modfile=tools/go.mod -m -json all"
 			}
-			attachRecordEvidence(inv, subject, graph.Manifest, command, EvidenceTool{Name: "go", Version: runtime.Version()}, &module.Record)
+			attachRecordEvidence(inv, subject, graph.Manifest, command, EvidenceTool{Name: "go", Version: runtime.Version()}, &module.Record, prior)
 		}
 	}
 	for componentIndex := range inv.Components {
@@ -1156,7 +1115,7 @@ func populateEvidence(inv *Inventory) {
 			source = component.SourceLocations[0].Path
 		}
 		attachRecordEvidence(inv, component.ID, source, "dependency inventory batch audit",
-			EvidenceTool{Name: "dependencyinventory", Version: "schema-v2"}, &component.Record)
+			EvidenceTool{Name: "dependencyinventory", Version: "schema-v2"}, &component.Record, prior)
 	}
 	sort.Slice(inv.Evidence, func(i, j int) bool { return inv.Evidence[i].ID < inv.Evidence[j].ID })
 }
@@ -1166,6 +1125,7 @@ func attachRecordEvidence(
 	subject, source, command string,
 	tool EvidenceTool,
 	record *Record,
+	prior map[string]Evidence,
 ) {
 	for _, binding := range recordReviews(record) {
 		if binding.review.Status != ReviewVerified && binding.review.Status != ReviewStale {
@@ -1183,6 +1143,13 @@ func attachRecordEvidence(
 			ObservedAt:     inv.AuditedAt,
 			Result:         binding.review.Value,
 			Hash:           evidenceResultHash(binding.review.Value),
+		}
+		if historical, ok := prior[evidence.ID]; ok {
+			candidate := historical
+			candidate.ObservedAt = evidence.ObservedAt
+			if candidate == evidence {
+				evidence = historical
+			}
 		}
 		binding.review.EvidenceIDs = []string{evidence.ID}
 		inv.Evidence = append(inv.Evidence, evidence)
@@ -1207,6 +1174,9 @@ func evidenceContext(
 	tool EvidenceTool,
 	record *Record,
 ) (string, string, EvidenceTool) {
+	if review == "artifact_available" && tool.Name == "go" && strings.HasPrefix(command, "go list ") {
+		return source, command, tool
+	}
 	if review == "license" && strings.HasPrefix(subject, "tool:") {
 		if identity, ok := declaredToolModule(subject, record.Installed); ok {
 			endpoint := depsDevVersionURL(identity.Path, identity.Version)

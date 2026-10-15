@@ -49,7 +49,7 @@ Status of the first stack-currency queue (2026-10-14):
 
 | Step | Item | Status |
 |---|---|---|
-| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8 done (`5584967`); client_golang v1.25.0, moby client v0.6.2, dbus v5.2.4 wait for 2026-10-15 to 2026-10-20 |
+| 1 | `.8.6.2` runtime Go modules | Pass 1 done (`a0c3a55`); koanf v2.3.8 done (`5584967`); pass 2b updates client_golang v1.25.0 and moby client v0.6.2; dbus v5.2.4 waits for 2026-10-20 |
 | 2 | `.8.6.3` tools | Pass 1 done (`a07791e`); govulncheck v1.9.0, osv-scanner v2.7.0, GoReleaser v2.18.3, buf v1.74.0, trivy v0.76.0 wait for 2026-10-16 to 2026-10-21 |
 | 3 | `.8.2.4.4` capability preflight | Done (`2816f0c`) |
 | 4 | Anycast, Kubernetes, Containerlab on GoBGP v4 | Anycast done (`7255aeb`); Containerlab GoBGP done (`a7c58ae`); Kubernetes code done (`2418fb2`), live run blocked (no k3s) |
@@ -251,10 +251,17 @@ below. Read the release notes across each range
 before an update:
 
 1. Second passes by eligibility (UTC):
-   - 2026-10-15: client_golang v1.25.0 (13:02, eligible now; minimum Go 1.26; breaking
-     changes only in `api/prometheus/v1`, which GoBFD does not import;
-     regenerated Go runtime collector metrics), moby client v0.6.2 (20:07;
-     cancellation during HTTP upgrade);
+   - 2026-10-15 pass 2b: pins updated to
+     [client_golang v1.25.0](https://github.com/prometheus/client_golang/releases/tag/v1.25.0)
+     (13:02; minimum Go 1.26; breaking `api/prometheus/v1` changes are unused)
+     and [moby client v0.6.2](https://github.com/moby/moby/releases/tag/client/v0.6.2)
+     (20:07; cancellation and deadlines during HTTP upgrade). Eight selected
+     module versions change; runtime/tools graph counts stay 200/455.
+     Inventory uses an explicit dev observation epoch and deferred decisions
+     (`.8.2.8.7.6`); legacy external evidence is not reused. Generation collects
+     exact-version license responses without claiming fresh upstream or security
+     review. `.8.6.2` remains open
+     for dbus; live Moby/Podman qualification is not part of this pass;
    - 2026-10-16: GoReleaser v2.18.3 (03:28);
    - 2026-10-18: govulncheck v1.9.0, containerlab v0.81.0 (v0.81.1 from
      2026-10-22);
@@ -309,10 +316,10 @@ Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev re
 | grpchealth | Go module | v2.0.0 | v2.0.0 | current | done |
 | grpc-go | Go module | v1.84.0 | v1.84.0 | current | done |
 | koanf/v2 | Go module | v2.3.8 | v2.3.8 | current | done |
-| client_golang | Go module | v1.24.1 | v1.25.0 | 2026-10-15 13:02 | `.8.6.2` |
+| client_golang | Go module | v1.25.0 | v1.25.0 | current | `.8.6.2` |
 | client_model | Go module | v0.6.3 | v0.6.3 | current | done |
 | godbus/dbus/v5 | Go module | v5.2.2 | v5.2.4 | 2026-10-20 | `.8.6.2` |
-| moby api / client | Go module | v1.56.1 / v0.6.1 | v1.56.1 / v0.6.2 | 2026-10-15 20:07 | `.8.6.2` |
+| moby api / client | Go module | v1.56.1 / v0.6.2 | v1.56.1 / v0.6.2 | current | `.8.6.2` |
 | golangci-lint | tools module | v2.14.0 | v2.14.0 | current | done |
 | govulncheck | Go module | v1.8.0 | v1.9.0 | 2026-10-18 | `.8.6.3` |
 | osv-scanner | GitHub release | v2.6.0 | v2.7.0 | 2026-10-19 | `.8.6.3` |

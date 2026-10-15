@@ -635,20 +635,35 @@ mutation workflow не выполняет другие release-команды и
 Машиночитаемый snapshot цепочки поставки находится в
 `docs/supply-chain/dependency-inventory.json`. Он охватывает полные выбранные
 графы runtime и изолированных инструментов, а также объявленные в репозитории
-инструменты, GitHub Actions, OCI-образы и interop-демоны. Перегенерируйте его
-только после проверки release notes,
-безопасности, лицензий, archive status и неизменяемых pin:
+инструменты, GitHub Actions, OCI-образы и interop-демоны. Перегенерация фиксирует
+выбранные identity и фактически полученные observations. Проверки release notes,
+безопасности, archive status и принятие для release line выполняются отдельно:
 
 ```bash
 make dependency-inventory
 make dependency-inventory-check
 ```
 
-Генерация разрешает каждую точную выбранную версию Go-модуля через стабильный
-API deps.dev v3 и записывает GitHub evidence точного commit там, где deps.dev
-не возвращает license expression.
-Для immutable OCI registry availability хранится отдельно от точного commit
-канонического build-source и hash его license-файла. Offline-проверка
+Генерация запрашивает API deps.dev v3 для license evidence точных версий Go.
+Статические license overrides и координаты OCI build-source не означают новый
+запрос: без подходящего записанного observation они остаются unverified.
+Локальные module-list и checksum observations не подтверждают удалённую
+доступность, актуальность upstream, archive state или безопасность. Без
+импортированного graph-bound scan receipt безопасность остаётся unverified;
+генерация такой receipt не импортирует.
+
+Текущий контекст `dev` явно задан в генераторе: observation epoch
+`2026-10-15T21:30:03Z`, дата пересмотра `2026-10-31`, tracking
+`gobfd-qj0.8.2.8.7`. Текущие решения deferred имеют владельца и дату
+пересмотра; принятие и исключения stable release не наследуются. Reuse разрешён
+только внутри того же observation epoch при точном совпадении installed identity
+и immutable pin. Исходные subject, review, source, query, result, hash и время
+observation сохраняются. Изменяемые repository observations становятся stale.
+Любой другой epoch, включая старый snapshot с общей сентябрьской датой, не
+считается доверенным для reuse. При смене epoch требуется новый сбор;
+исторические snapshots сохраняются в Git.
+
+Offline-проверка
 завершается ошибкой при drift любого Go module graph, объявленного компонента,
 source location, evidence binding или числа Go-пакетов относительно
 проверенного snapshot.
