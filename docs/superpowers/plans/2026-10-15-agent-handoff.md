@@ -1,10 +1,37 @@
 # GoBFD agent handoff 2026-10-15
 
-State on 2026-10-15 18:10 UTC. Beads is the task ledger; this note tells the
+Original snapshot: 2026-10-15 18:10 UTC; the continuation below supersedes
+its delivery states. Beads is the task ledger; this note tells the
 next agent where the work stands and how to run the gates on this host. The
 ordered queue and the v1.0.0 remainder live in the [roadmap](../../en/roadmap.md).
 
-## Repository state
+## Continuation after 18:10 UTC
+
+- Accepted code reaches `dev@b7f778c6248bb094652a7d87013ecabc126cea67`.
+  Ten beads are closed: Compose metrics `gobfd-6de`; AddSession snapshot
+  `gobfd-qj0.8.2.1.3.7`; duplicate auth key ID `gobfd-qj0.8.2.1.14`;
+  revisioned deletion `gobfd-qj0.8.2.1.3.6`; companion recovery
+  `gobfd-qj0.8.2.5.1` through `gobfd-qj0.8.2.5.3`; dampening telemetry
+  `gobfd-qj0.8.2.4.7`; raw multiplier validation `gobfd-4j4`; ambiguous
+  listener binding `gobfd-8f3.8`. Parent security dependencies stay open.
+- Task worktrees and branches remain under `.worktrees/`; do not delete
+  them without approval. Current continuation evidence is under
+  `reports/session-20261015-continuation/`, ignored by Git.
+- Critical race checks pass on changed packages. Canonical lint at
+  `5fd67d84873bc6c638894dc33327ab894a029d3d` passes all 18 profiles.
+  Later listener-binding code still needs the integrated lint gate.
+- Strict `govulncheck` at
+  `b7f778c6248bb094652a7d87013ecabc126cea67` reports zero reachable findings,
+  zero vulnerable imported packages and two module-only findings.
+- Companion live gates qualify
+  `55e3f94ee2af82bd6cb9377de1708b9e77834341`: HAProxy 97.29 s PASS;
+  ExaBGP announce/withdraw/restore PASS. Compose metrics were qualified in
+  an isolated shared network namespace, not on the host network.
+- The unsolicited listener and preview decisions remain pending. Stable
+  v1 also retains the explicit GO-2026-4736 condition and the unrun
+  24-hour qualification; development exceptions do not lift either gate.
+
+## Original repository state (18:10 UTC)
 
 - Branch `dev` is the integration branch; `origin/dev` holds every commit
   of this session. `master` and `release/v0.6` were not touched.
@@ -52,6 +79,13 @@ Working rules used in this program, beyond `AGENTS.md`:
 
 The host resolver is split DNS, so Podman builds need a DNS override
 (`gobfd-qj0.8.6.9`), and the Compose provider is bootstrapped locally:
+
+Compile and run Go tools in the pinned Go container. For a Go controller
+that owns Podman through the host socket, compile the controller or test
+binary in that container first, then execute the binary on the host. The
+commands below describe the Go entrypoints; they are not permission to
+use the host Go toolchain. Worktree mounts require
+`--security-opt label=disable`; archive snapshots use `:Z` as below.
 
 ```bash
 G=$HOME/.cache/gobfd-gates
@@ -122,14 +156,11 @@ Ordered queue (details and owners in the roadmap):
    Actions, `oraclelinux:10-slim`, BIRD v3.4.0, ExaBGP 5.0.14 from
    2026-10-19; dbus v5.2.4 from 2026-10-20; connect-go v2.0.1, buf v1.74.0,
    trivy v0.76.0 from 2026-10-21.
-2. P1 `gobfd-6de`: the production Compose Prometheus cannot reach GoBFD
-   metrics (`network_mode: host` daemon, bridge Prometheus, loopback
-   metrics).
-3. P1 `.8.2.5.1` to `.8.2.5.3`: ExaBGP and HAProxy companions reconnect and
-   resync from the revisioned Watch (`GAP`, `SYNC_COMPLETE`) and use
-   canonical session identity; `.8.2.1.3.6` publishes session deletion.
-4. P1 `.8.2.4.7` dampening observability (last open child of epic `.8.2.4`);
-   P1 `.8.2.3.3` systemd syscall, address-family and FD contract; P1
+2. Done: `gobfd-6de`, production Compose metrics; exact scope above.
+3. Done: `.8.2.5.1` to `.8.2.5.3`, companion recovery and identity;
+   `.8.2.1.3.6`, revisioned session deletion.
+4. Done: `.8.2.4.7`, dampening observability. Next: P1 `.8.2.3.3`
+   systemd syscall, address-family and FD contract; P1
    `.8.2.3.1` component readiness.
 5. Security P0 `.8.2.1.10.5` and `.8.2.1.8`: blocked on the maintainer
    decisions below.
@@ -147,10 +178,8 @@ Maintainer decisions pending:
 
 Known open threads from this session:
 
-- `.8.2.1.3.7` (P2): `AddSession` still builds its response with
-  `snapshotFromSession` (`internal/server/server.go`) and reports
-  `remote_min_rx_interval` as `0s`, while Get and List report the RFC
-  initial value.
+- `.8.2.1.3.7` is closed: Add, Get and List use the Manager snapshot and
+  report the same RFC initial receive interval.
 - H-29 stays partial until `.8.2.1.3.1` wires dropped and authentication
   counters; C-06 stays open for drops between a session and the Manager
   dispatcher (`.8.2.1.3.1`).
