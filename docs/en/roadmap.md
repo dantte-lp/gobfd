@@ -584,7 +584,7 @@ The [cilium/ebpf evaluation](../superpowers/specs/2026-10-15-ebpf-evaluation.md)
 receive bottleneck yet, XDP adds BPF privileges and interface ownership
 conflicts, and the pre-1.0 library broke APIs in v0.21.0 and v0.22.0. Socket
 drop counts come from `SO_RXQ_OVFL` instead. An XDP/AF_XDP receive prototype
-(`gobfd-376`, P3) waits for the `.8.2.1.6` latency baseline and the
+(`gobfd-376`, backlog P4) waits for the `.8.2.1.6` latency baseline and the
 `recvmmsg` prototype.
 
 ## Release contracts
