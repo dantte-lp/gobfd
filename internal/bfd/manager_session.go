@@ -688,7 +688,11 @@ func (m *Manager) markSessionUnsolicited(localDiscr uint32) {
 func (m *Manager) Sessions() []SessionSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.sessionsLocked()
+}
 
+// sessionsLocked copies the registry while the caller holds Manager.mu.
+func (m *Manager) sessionsLocked() []SessionSnapshot {
 	snapshots := make([]SessionSnapshot, 0, len(m.sessions))
 	for _, entry := range m.sessions {
 		snapshots = append(snapshots, snapshotOf(entry.session))
@@ -702,10 +706,14 @@ func (m *Manager) Sessions() []SessionSnapshot {
 // takes this snapshot and skips events up to the revision misses nothing.
 // Events above the revision may repeat state already in the snapshot.
 func (m *Manager) SessionsWithRevision() ([]SessionSnapshot, uint64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	// Read the revision before session state: sessions store their state
-	// before publishing the change.
+	// before publishing the change. Hold the registry lock so a deleted
+	// session cannot be replaced between reading the revision and its snapshot.
 	rev := m.revision.Load()
-	return m.Sessions(), rev
+	return m.sessionsLocked(), rev
 }
 
 // Revision returns the revision of the last dispatched state change.
@@ -714,9 +722,9 @@ func (m *Manager) Revision() uint64 { return m.revision.Load() }
 // SessionWithRevision returns the snapshot of one session by local
 // discriminator and the dispatch revision it covers.
 func (m *Manager) SessionWithRevision(discr uint32) (SessionSnapshot, uint64, bool) {
-	rev := m.revision.Load()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	rev := m.revision.Load()
 	entry, ok := m.sessions[discr]
 	if !ok {
 		return SessionSnapshot{}, rev, false
