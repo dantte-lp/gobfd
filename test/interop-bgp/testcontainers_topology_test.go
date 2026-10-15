@@ -431,6 +431,7 @@ func runBGPTestAssertions(ctx context.Context, t *testing.T, projectName string)
 
 	functionalTests := []string{
 		"TestBGPBFD_AllPeersUp",
+		"TestBGPBFD_FRRRemoteAdminDown",
 		"TestBGPBFD_FRR",
 		"TestBGPBFD_BIRD3",
 		"TestBGPBFD_ExaBGP",
