@@ -19,8 +19,9 @@ const penaltyNoiseFloor = 0.001
 // The dampening algorithm follows the classic route flap dampening model
 // (RFC 2439) adapted for BFD: each Down event accumulates a penalty
 // that decays exponentially. When the penalty exceeds the suppress
-// threshold, subsequent events are suppressed until the penalty decays
-// below the reuse threshold.
+// threshold, the peer is suppressed until the penalty decays below the
+// reuse threshold. The handler never holds a Down for a suppressed peer;
+// it holds only the recovery (H-27).
 
 // -------------------------------------------------------------------------
 // Dampening Configuration
@@ -129,9 +130,10 @@ func NewDampener(cfg DampeningConfig, logger *slog.Logger, opts ...DampenerOptio
 	return d
 }
 
-// ShouldSuppress returns true if the given peer's Down event should be
-// suppressed due to excessive flapping. It also records the Down event
-// by incrementing the penalty.
+// ShouldSuppress records a Down event by incrementing the penalty and
+// reports whether the peer is suppressed due to excessive flapping. The
+// handler applies the Down regardless and uses the result only to skip
+// redundant actions and hold the recovery.
 //
 // If dampening is disabled, always returns false.
 //

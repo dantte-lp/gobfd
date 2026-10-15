@@ -205,7 +205,7 @@ including point-to-point behavior, remains open and is not production-qualified.
 **Implementation**: [`internal/gobgp/`](../../internal/gobgp/)
 
 - Section 3.1 permits implementation-defined session-state hysteresis. GoBFD's configurable penalty-based dampening is implementation policy, not an RFC-defined algorithm.
-- Section 4.3 (BFD for BGP): `handler.go` watches BFD state changes and calls GoBGP gRPC API
+- Section 10.2 (Interactions with BGP; Section 4.2 for the reaction to state changes): `handler.go` watches BFD state changes and calls GoBGP gRPC API
   - BFD Down --> `DisablePeer()`
   - BFD Up --> `EnablePeer()`
   - Generic route withdrawal/restoration is not implemented; when GoBGP

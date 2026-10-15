@@ -38,13 +38,13 @@ const (
 const DefaultActionTimeout = 5 * time.Second
 
 // Retry timing for pending GoBGP actions. A failed action is retried with
-// exponential backoff; an action held by dampening is re-checked at a fixed
-// interval until suppression lifts.
+// exponential backoff; a recovery held by dampening is re-checked at a
+// fixed interval until suppression lifts.
 const (
 	actionRetryFirst   = time.Second
 	actionRetryCeiling = 30 * time.Second
 
-	// ponytail: fixed re-check, so a suppressed action lands up to one
+	// ponytail: fixed re-check, so a held recovery lands up to one
 	// interval after suppression ends; compute the exact release time if
 	// that lag matters.
 	suppressionRecheck = time.Second
@@ -76,9 +76,10 @@ var (
 // consuming from the Manager.StateChanges() channel.
 //
 // Each peer keeps its newest unapplied action until GoBGP accepts it: a
-// transient GoBGP failure is retried with backoff, and an action held by
+// transient GoBGP failure is retried with backoff, and a recovery held by
 // dampening is applied once suppression lifts, without waiting for another
-// BFD event. A newer event for the peer replaces the pending action.
+// BFD event. Dampening never holds a Down (H-27). A newer event for the
+// peer replaces the pending action.
 type Handler struct {
 	client   Client
 	strategy Strategy
@@ -201,10 +202,10 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 //	    return handler.Run(gCtx, mgr.StateChanges())
 //	})
 //
-// On BFD Down (with dampening filter):
+// On BFD Down (never held by dampening):
 //   - disable-peer: calls GoBGP DisablePeer
 //
-// On BFD Up (with dampening filter):
+// On BFD Up (held while dampening suppresses the peer):
 //   - disable-peer: calls GoBGP EnablePeer
 func (h *Handler) Run(ctx context.Context, events <-chan bfd.StateChange) error {
 	h.logger.Info("handler started, consuming BFD state changes")

@@ -183,7 +183,7 @@ bfd:
 #       required_min_rx: "300ms"
 #       detect_mult: 5
 
-# GoBGP integration (RFC 5882 Section 4.3).
+# GoBGP integration (RFC 5882 Section 10.2).
 # When enabled, BFD state changes are propagated to a GoBGP instance
 # via its gRPC API. BFD Down triggers BGP peer disable; BFD Up re-enables.
 #

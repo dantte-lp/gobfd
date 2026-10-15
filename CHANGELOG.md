@@ -243,6 +243,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The remaining RFC 5882 Section 4.3 (Graceful Restart) citations for the
+  GoBGP reaction in code, configuration examples and the RFC compliance
+  matrix now cite Section 10.2 (Interactions with BGP) (H-27).
 - RFC 9468 passive sessions reply from the local address and interface that
   received the triggering packet, each with its own RFC 5881 source port from
   the daemon's shared allocator, for IPv4 and IPv6 (audit finding C-07). The

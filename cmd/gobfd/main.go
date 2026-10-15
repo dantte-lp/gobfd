@@ -164,7 +164,7 @@ func runServers(
 	defer lnCleanup()
 
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
-	// GoBGP integration goroutine (RFC 5882 Section 4.3).
+	// GoBGP integration goroutine (RFC 5882 Section 10.2).
 	bgpCloser, err := startGoBGPHandler(gCtx, g, cfg.GoBGP, goBGPManagedPeers(cfg.Sessions), mgr,
 		goBGPStatusFor(cfg.GoBGP, healthChecker, collector), logger)
 	if err != nil {

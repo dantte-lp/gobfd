@@ -192,7 +192,7 @@ point-to-point behavior, остаётся открытым и не прошёл 
 - Section 3.1 разрешает implementation-defined session-state hysteresis.
   Настраиваемое penalty-based dampening в GoBFD является implementation policy,
   а не стандартизированным RFC-алгоритмом.
-- Section 4.3: отслеживание состояний BFD и вызов GoBGP gRPC API
+- Section 10.2 (взаимодействие с BGP; Section 4.2 — реакция на смену состояния): отслеживание состояний BFD и вызов GoBGP gRPC API
   - BFD Down --> `DisablePeer()`
   - BFD Up --> `EnablePeer()`
   - Универсальный отзыв/восстановление маршрутов не реализован; при включённой

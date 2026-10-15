@@ -178,7 +178,7 @@ func TestHandlerBFDDownDisablesPeer(t *testing.T) {
 			_ = handler.Run(ctx, events)
 		}()
 
-		// BFD Up -> Down transition (RFC 5882 Section 4.3).
+		// BFD Up -> Down transition (RFC 5882 Section 10.2).
 		events <- bfd.StateChange{
 			LocalDiscr: 1,
 			PeerAddr:   netip.MustParseAddr("10.0.0.1"),

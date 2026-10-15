@@ -78,7 +78,7 @@ vxlan:
 geneve:
   enabled: false
 
-# Интеграция с GoBGP (RFC 5882 Section 4.3)
+# Интеграция с GoBGP (RFC 5882 Section 10.2)
 gobgp:
   enabled: true
   addr: "127.0.0.1:50051"
@@ -594,7 +594,7 @@ policy отложены.
 
 ### Интеграция с GoBGP
 
-При включении изменения состояния BFD передаются в GoBGP через gRPC API (RFC 5882 Section 4.3):
+При включении изменения состояния BFD передаются в GoBGP через gRPC API (RFC 5882 Section 10.2):
 
 - **BFD Down** --> Отключение BGP-пира (`DisablePeer()`)
 - **BFD Up** --> Включение BGP-пира (`EnablePeer()`)

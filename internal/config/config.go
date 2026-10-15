@@ -635,7 +635,7 @@ func canonicalOverlayMAC(value string) string {
 
 // GoBGPConfig holds the GoBGP integration configuration.
 // When enabled, BFD state changes are propagated to a GoBGP instance
-// via its gRPC API (RFC 5882 Section 4.3).
+// via its gRPC API (RFC 5882 Section 10.2).
 type GoBGPConfig struct {
 	// Enabled controls whether the GoBGP integration is active.
 	// When false (default), BFD state changes are not propagated to BGP.

@@ -7,7 +7,7 @@
 #   3. gobfd-exabgp at 172.21.0.40 (BFD sidecar for ExaBGP ASN 65004)
 #
 # When BFD detects a peer failure, the GoBGP handler calls DisablePeer()
-# to tear down the corresponding BGP session (RFC 5882 Section 4.3).
+# to tear down the corresponding BGP session (RFC 5882 Section 10.2).
 # When BFD recovers, EnablePeer() re-establishes the session.
 #
 # GoBGP gRPC is at localhost:50051 (shared netns).

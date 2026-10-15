@@ -18,7 +18,7 @@ import (
 )
 
 // -------------------------------------------------------------------------
-// GoBGP Integration — RFC 5882 Section 4.3
+// GoBGP Integration — RFC 5882 Section 10.2
 // -------------------------------------------------------------------------
 
 // startGoBGPHandler creates and starts the GoBGP handler goroutine if enabled.
