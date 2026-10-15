@@ -129,6 +129,7 @@ sessions:
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `addr` | string | `""` | Необязательный TCP-адрес; пустое значение не открывает TCP. Plaintext только на loopback; non-loopback адрес требует `tls` |
+| `mutating_identities` | []string | `[]` | mTLS-идентичности (URI SAN или `dns:<name>`), которым разрешены изменения; если список задан, остальные mTLS-клиенты только читают. Требует `tls` |
 | `unsafe_loopback_mutations` | bool | `false` | Разрешает анонимным plaintext-клиентам на loopback TCP изменяющие RPC; health `gobfd.management` при этом `NOT_SERVING` |
 | `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Абсолютный путь Unix-сокета управления; пустое значение отключает его |
 | `socket.mode` | string | `"0660"` | Восьмеричные права файла сокета |
@@ -154,7 +155,13 @@ HTTP/2 и HTTP/1.1 через ALPN; принципал — первый URI SAN 
 получают `PermissionDenied` для `AddSession`, `DeleteSession`,
 `AddEchoSession`, `DeleteEchoSession`, `AddMicroBFDGroup` и
 `DeleteMicroBFDGroup`, если не задан `unsafe_loopback_mutations`. Клиенты
-через сокет и mTLS несут принципал и могут изменять состояние.
+через сокет и mTLS несут принципал и могут изменять состояние; если задан
+`mutating_identities`, это могут только перечисленные mTLS-идентичности.
+Сессия, созданная через API, принадлежит принципалу вызвавшего: другой
+принципал получает `PermissionDenied` от `DeleteSession` (отказ логируется),
+а два принципала, добавившие одну сессию, разделяют её, пока оба её не
+освободят. Анонимные клиенты в режиме `unsafe_loopback_mutations` разделяют
+владельца `local`.
 
 **Переход с конфигурации только с TCP:** plaintext `grpc.addr` на non-loopback
 адресе (например, `":50052"`) теперь останавливает запуск; привяжите его к

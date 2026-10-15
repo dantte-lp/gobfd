@@ -54,6 +54,7 @@ const (
 	startupFieldGeneveListenerBinding
 	startupFieldGRPCSocket
 	startupFieldGRPCTLS
+	startupFieldGRPCMutatingIdentities
 )
 
 func (f startupFieldID) String() string {
@@ -96,6 +97,7 @@ func (f startupFieldID) String() string {
 		"geneve.listener_binding",
 		"grpc.socket",
 		"grpc.tls",
+		"grpc.mutating_identities",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -225,6 +227,8 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldGRPCAddr, c.grpc.Addr != cfg.GRPC.Addr)
 	appendChanged(startupFieldGRPCSocket, c.grpc.Socket != cfg.GRPC.Socket)
 	appendChanged(startupFieldGRPCTLS, c.grpc.TLS != cfg.GRPC.TLS)
+	appendChanged(startupFieldGRPCMutatingIdentities,
+		!slices.Equal(c.grpc.MutatingIdentities, cfg.GRPC.MutatingIdentities))
 	appendChanged(startupFieldMetricsAddr, c.metrics.Addr != cfg.Metrics.Addr)
 	appendChanged(startupFieldMetricsPath, c.metrics.Path != cfg.Metrics.Path)
 	appendChanged(startupFieldLogFormat, c.logFormat != cfg.Log.Format)

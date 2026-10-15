@@ -39,6 +39,9 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 	}{
 		{"grpc address", func(cfg *config.Config) { cfg.GRPC.Addr = ":50052" }, startupFieldGRPCAddr},
 		{"grpc socket", func(cfg *config.Config) { cfg.GRPC.Socket.Path = "/run/gobfd/api.sock" }, startupFieldGRPCSocket},
+		{"grpc mutating identities", func(cfg *config.Config) {
+			cfg.GRPC.MutatingIdentities = []string{"spiffe://gobfd.test/ops"}
+		}, startupFieldGRPCMutatingIdentities},
 		{"metrics path", func(cfg *config.Config) { cfg.Metrics.Path = "/prometheus" }, startupFieldMetricsPath},
 		{"log format", func(cfg *config.Config) { cfg.Log.Format = "text" }, startupFieldLogFormat},
 		{"socket read buffer", func(cfg *config.Config) { cfg.Socket.ReadBufferSize++ }, startupFieldSocketReadBufferSize},

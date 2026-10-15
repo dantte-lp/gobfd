@@ -2228,3 +2228,19 @@ func TestValidateGRPCTLS(t *testing.T) {
 		})
 	}
 }
+
+// gobfd-330.4: mutating identities restrict mTLS callers and need grpc.tls.
+func TestValidateGRPCMutatingIdentities(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.DefaultConfig()
+	cfg.GRPC.MutatingIdentities = []string{"spiffe://gobfd.test/ops"}
+	if err := config.Validate(cfg); !errors.Is(err, config.ErrInvalidGRPCTLS) {
+		t.Fatalf("mutating identities without grpc.tls: Validate error = %v, want ErrInvalidGRPCTLS", err)
+	}
+	cfg.GRPC.Addr = "127.0.0.1:50052"
+	cfg.GRPC.TLS = config.GRPCTLSConfig{CertFile: "/c.pem", KeyFile: "/k.pem", ClientCAFile: "/ca.pem"}
+	if err := config.Validate(cfg); err != nil {
+		t.Fatalf("mutating identities with grpc.tls: %v", err)
+	}
+}

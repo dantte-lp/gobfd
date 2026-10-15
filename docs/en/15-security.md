@@ -72,8 +72,10 @@ Production rules:
   Kubernetes `hostNetwork`, where loopback is reachable by every host
   process.
 
-Session claims are not yet scoped to principals; that and mTLS roles follow
-in `gobfd-330.4`.
+API session claims belong to the caller's principal: one principal cannot
+release another's session (`PermissionDenied`, logged), and
+`grpc.mutating_identities` makes unlisted mTLS identities read-only. Echo and
+Micro-BFD API objects are not yet principal-scoped.
 
 ## GoBGP Integration
 

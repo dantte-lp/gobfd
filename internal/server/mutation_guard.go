@@ -4,9 +4,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"connectrpc.com/connect/v2"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
+
+// ErrIdentityNotMutating reports a mutating RPC from an mTLS identity that is
+// not in the configured mutating identities (gobfd-330.4).
+var ErrIdentityNotMutating = errors.New("mTLS identity is read-only for the management API")
+
+// MutationPolicy decides which callers may call mutating RPCs.
+type MutationPolicy struct {
+	// AllowAnonymous admits callers without a principal (plain loopback
+	// TCP): grpc.unsafe_loopback_mutations.
+	AllowAnonymous bool
+	// MutatingIdentities, when not empty, lists the mTLS identities that may
+	// mutate; other mTLS identities are read-only. Unix socket principals
+	// ("uid:<n>") are gated by the socket mode and group instead.
+	MutatingIdentities []string
+}
 
 // ErrAnonymousMutation reports a mutating RPC from a caller without a
 // transport principal (plain loopback TCP) while the unsafe loopback opt-in
@@ -26,18 +45,41 @@ func isMutating(procedure string) bool {
 	}
 }
 
-// MutationGuardInterceptor refuses mutating RPCs from callers without a
-// principal unless allowAnonymous is set. Reads are never refused.
-func MutationGuardInterceptor(allowAnonymous bool) connect.ServerInterceptor {
+// MutationGuardInterceptor applies policy to mutating RPCs. Reads are never
+// refused.
+func MutationGuardInterceptor(policy MutationPolicy) connect.ServerInterceptor {
 	return func(next connect.ServerFunc) connect.ServerFunc {
 		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
-			if isMutating(spec.Procedure) && !allowAnonymous {
-				if _, ok := PrincipalFromContext(ctx); !ok {
-					err := fmt.Errorf("%s: %w", spec.Procedure, ErrAnonymousMutation)
+			if isMutating(spec.Procedure) {
+				if err := policy.check(ctx); err != nil {
+					err = fmt.Errorf("%s: %w", spec.Procedure, err)
 					return connect.NewError(connect.CodePermissionDenied, err.Error()).WithCause(err)
 				}
 			}
 			return next(ctx, spec, stream)
 		}
 	}
+}
+
+func (p MutationPolicy) check(ctx context.Context) error {
+	principal, ok := PrincipalFromContext(ctx)
+	switch {
+	case !ok && !p.AllowAnonymous:
+		return ErrAnonymousMutation
+	case !ok, strings.HasPrefix(principal, "uid:"), len(p.MutatingIdentities) == 0:
+		return nil
+	case slices.Contains(p.MutatingIdentities, principal):
+		return nil
+	default:
+		return ErrIdentityNotMutating
+	}
+}
+
+// apiOwnerFromContext is the API claim owner of a request: its principal, or
+// "local" for an anonymous caller admitted by the unsafe opt-in.
+func apiOwnerFromContext(ctx context.Context) bfd.SessionOwner {
+	if principal, ok := PrincipalFromContext(ctx); ok {
+		return bfd.APISessionOwner(principal)
+	}
+	return bfd.APISessionOwner("local")
 }

@@ -32,6 +32,8 @@ grpc:
   #   cert_file: "/etc/gobfd/tls/server.pem"
   #   key_file: "/etc/gobfd/tls/server.key"
   #   client_ca_file: "/etc/gobfd/tls/clients-ca.pem"
+  # Optional: only these mTLS identities may mutate; others read.
+  # mutating_identities: ["spiffe://example.org/gobfd-ops"]
   #
   # Management API on a Unix socket; requests carry the caller's peer UID as
   # principal. Operators join group gobfd-admin (not gobfd, which can read

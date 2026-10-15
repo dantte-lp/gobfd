@@ -172,7 +172,7 @@ func (s *BFDServer) createSessionWithSenderLease(
 		}), nil
 	}
 
-	sess, err := s.manager.CreateSession(ctx, cfg, factory)
+	sess, err := s.manager.CreateSessionAs(ctx, cfg, factory, apiOwnerFromContext(ctx))
 	if err != nil {
 		return nil, mapManagerError(err, "add session")
 	}
@@ -190,7 +190,14 @@ func (s *BFDServer) DeleteSession(
 		slog.Uint64("discriminator", uint64(discr)),
 	)
 
-	if err := s.manager.DestroySession(ctx, discr); err != nil {
+	owner := apiOwnerFromContext(ctx)
+	if err := s.manager.DestroySessionAs(ctx, discr, owner); err != nil {
+		if errors.Is(err, bfd.ErrSessionOwnerClaimNotFound) {
+			s.logger.WarnContext(ctx, "DeleteSession refused: the caller holds no claim on the session",
+				slog.Uint64("discriminator", uint64(discr)),
+				slog.String("owner", owner.ID),
+			)
+		}
 		return nil, mapManagerError(err, "delete session")
 	}
 
@@ -668,6 +675,8 @@ func mapManagerError(err error, operation string) *connect.Error {
 		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionNotFound):
 		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
+	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
+		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
 		errors.Is(err, bfd.ErrInvalidTxInterval),

@@ -179,7 +179,10 @@ func newGRPCServer(
 	// Anonymous loopback TCP callers may only read unless the unsafe opt-in
 	// is set (gobfd-330.3).
 	rpc := connect.NewServer(server.LoggingInterceptor(logger), server.RecoveryInterceptor(logger),
-		server.MutationGuardInterceptor(cfg.UnsafeLoopbackMutations))
+		server.MutationGuardInterceptor(server.MutationPolicy{
+			AllowAnonymous:     cfg.UnsafeLoopbackMutations,
+			MutatingIdentities: cfg.MutatingIdentities,
+		}))
 	server.Register(rpc, mgr, sf, logger)
 	server.RegisterEcho(rpc, mgr, sf, logger)
 	server.RegisterMicroBFD(rpc, mgr, logger)

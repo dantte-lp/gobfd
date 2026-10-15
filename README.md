@@ -170,7 +170,10 @@ allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
   RFC 8971 VXLAN and RFC 9521 Geneve userspace previews
 - BFD flap dampening for BGP integration (implementation policy informed by RFC 5882 Section 3.1)
 - Zero-allocation packet codec with pre-built cached packets
-- ConnectRPC/gRPC API + CLI with interactive shell
+- ConnectRPC/gRPC API + CLI with interactive shell; by default only the Unix
+  socket `/run/gobfd/gobfd.sock` with kernel peer-UID principals, optional
+  loopback TCP (anonymous clients read only) and mTLS for remote access;
+  session claims and mutating roles follow the caller's principal
 - Prometheus metrics + Grafana dashboard
 - systemd integration (Type=notify, watchdog, SIGHUP hot reload)
 - 4-peer interop testing (FRR, BIRD3, Holo, Thoro/bfd) + 5 integration examples

@@ -55,6 +55,13 @@
 
 ### Изменено
 
+- Claims сессий API принадлежат принципалу вызвавшего (`gobfd-330.4`,
+  GitHub #87): UID peer Unix-сокета, mTLS-идентичность или `local` для
+  анонимных клиентов на loopback в режиме `grpc.unsafe_loopback_mutations`.
+  `DeleteSession` от другого принципала возвращает `PermissionDenied` и
+  логируется; два принципала, добавившие одну сессию, разделяют её. Новый
+  `grpc.mutating_identities` (требует `grpc.tls`) ограничивает изменяющие RPC
+  перечисленными mTLS-идентичностями; остальные mTLS-клиенты только читают.
 - **Breaking:** API управления по умолчанию работает через Unix-сокет
   `/run/gobfd/gobfd.sock` и не открывает TCP (`gobfd-330.3`, GitHub #87).
   Plaintext `grpc.addr` на non-loopback или wildcard адресе останавливает

@@ -75,6 +75,11 @@ type GRPCConfig struct {
 	// call mutating RPCs. Without it they can only read. The gobfd.management
 	// health check is NOT_SERVING while it is set.
 	UnsafeLoopbackMutations bool `koanf:"unsafe_loopback_mutations"`
+
+	// MutatingIdentities, when not empty, lists the mTLS client identities
+	// (URI SAN such as a SPIFFE ID, or "dns:<name>") that may call mutating
+	// RPCs; other mTLS clients are read-only. It requires TLS (gobfd-330.4).
+	MutatingIdentities []string `koanf:"mutating_identities"`
 }
 
 // GRPCTLSConfig holds the mTLS files of the TCP management listener. The
@@ -1576,12 +1581,8 @@ func validateGRPC(cfg GRPCConfig) error {
 	if cfg.Addr == "" && cfg.Socket.Path == "" {
 		return ErrEmptyGRPCAddr
 	}
-	if cfg.TLS.Enabled() && (cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" ||
-		cfg.TLS.ClientCAFile == "" || cfg.Addr == "") {
-		return ErrInvalidGRPCTLS
-	}
-	if cfg.Addr != "" && !cfg.TLS.Enabled() && !IsLoopbackListenAddr(cfg.Addr) {
-		return fmt.Errorf("grpc.addr %q: %w", cfg.Addr, ErrPlaintextNonLoopbackGRPC)
+	if err := validateGRPCTCP(cfg); err != nil {
+		return err
 	}
 	if cfg.Socket.Path == "" {
 		return nil
@@ -1591,6 +1592,22 @@ func validateGRPC(cfg GRPCConfig) error {
 	}
 	if _, err := ParseSocketMode(cfg.Socket.Mode); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateGRPCTCP requires complete mTLS settings with a TCP address,
+// mutating identities only with mTLS, and plaintext TCP only on loopback.
+func validateGRPCTCP(cfg GRPCConfig) error {
+	if cfg.TLS.Enabled() && (cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" ||
+		cfg.TLS.ClientCAFile == "" || cfg.Addr == "") {
+		return ErrInvalidGRPCTLS
+	}
+	if len(cfg.MutatingIdentities) > 0 && !cfg.TLS.Enabled() {
+		return fmt.Errorf("grpc.mutating_identities: %w", ErrInvalidGRPCTLS)
+	}
+	if cfg.Addr != "" && !cfg.TLS.Enabled() && !IsLoopbackListenAddr(cfg.Addr) {
+		return fmt.Errorf("grpc.addr %q: %w", cfg.Addr, ErrPlaintextNonLoopbackGRPC)
 	}
 	return nil
 }

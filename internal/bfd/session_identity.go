@@ -130,6 +130,14 @@ func isDeclarativeReconciliationOwner(owner SessionOwner) bool {
 		owner == GeneveReconciliationOwner()
 }
 
+// APISessionOwner returns the API claim owner of an authenticated principal
+// (gobfd-330.4): a Unix peer UID ("uid:<n>"), an mTLS identity, or "local"
+// for an anonymous loopback caller under the unsafe opt-in. Each principal
+// releases only its own claims.
+func APISessionOwner(principal string) SessionOwner {
+	return SessionOwner{Source: SessionOwnerSourceCompatibilityAPI, ID: principal}
+}
+
 func compatibilityAPISessionOwner() SessionOwner {
 	return SessionOwner{
 		Source: SessionOwnerSourceCompatibilityAPI,

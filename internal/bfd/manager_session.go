@@ -22,6 +22,18 @@ func (m *Manager) CreateSession(
 	cfg SessionConfig,
 	senderFactory SenderLeaseFactory,
 ) (*Session, error) {
+	return m.CreateSessionAs(ctx, cfg, senderFactory, compatibilityAPISessionOwner())
+}
+
+// CreateSessionAs claims a session for an API owner (see APISessionOwner).
+// A matching session claimed by other owners is shared; a second claim by
+// the same owner returns ErrDuplicateSession.
+func (m *Manager) CreateSessionAs(
+	ctx context.Context,
+	cfg SessionConfig,
+	senderFactory SenderLeaseFactory,
+	owner SessionOwner,
+) (*Session, error) {
 	op, err := m.beginOperation()
 	if err != nil {
 		return nil, err
@@ -30,7 +42,7 @@ func (m *Manager) CreateSession(
 
 	m.ownershipMu.Lock()
 	sess, _, unusedLease, err := m.claimSession(
-		ctx, canonicalSessionConfig(cfg), senderFactory, compatibilityAPISessionOwner(), false,
+		ctx, canonicalSessionConfig(cfg), senderFactory, owner, false,
 	)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
@@ -275,7 +287,14 @@ func (m *Manager) logSessionCreated(cfg SessionConfig, discr uint32) {
 // localDiscr. The wire session is destroyed only when that was its last claim.
 //
 // Returns ErrSessionNotFound if no session exists with the given discriminator.
-func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
+func (m *Manager) DestroySession(ctx context.Context, localDiscr uint32) error {
+	return m.DestroySessionAs(ctx, localDiscr, compatibilityAPISessionOwner())
+}
+
+// DestroySessionAs releases the claim of one API owner. It returns
+// ErrSessionOwnerClaimNotFound when that owner holds no claim on the
+// session, so one principal cannot release another's session.
+func (m *Manager) DestroySessionAs(_ context.Context, localDiscr uint32, owner SessionOwner) error {
 	op, err := m.beginOperation()
 	if err != nil {
 		return err
@@ -283,7 +302,7 @@ func (m *Manager) DestroySession(_ context.Context, localDiscr uint32) error {
 	defer op.finish()
 
 	m.ownershipMu.Lock()
-	_, retired, err := m.detachSessionClaimByDiscriminator(localDiscr, compatibilityAPISessionOwner())
+	_, retired, err := m.detachSessionClaimByDiscriminator(localDiscr, owner)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 	if retired != nil {

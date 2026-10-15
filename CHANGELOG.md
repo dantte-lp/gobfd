@@ -55,6 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- API session claims belong to the caller's principal (`gobfd-330.4`,
+  GitHub #87): the Unix peer UID, the mTLS identity, or `local` for anonymous
+  loopback callers under `grpc.unsafe_loopback_mutations`. `DeleteSession`
+  by another principal returns `PermissionDenied` and is logged; two
+  principals that add the same session share it. New
+  `grpc.mutating_identities` (requires `grpc.tls`) limits mutating RPCs to
+  the listed mTLS identities; other mTLS clients can only read.
 - **Breaking:** the management API defaults to the Unix socket
   `/run/gobfd/gobfd.sock` and opens no TCP listener (`gobfd-330.3`,
   GitHub #87). Plaintext `grpc.addr` on a non-loopback or wildcard address

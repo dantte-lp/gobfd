@@ -43,7 +43,8 @@ func TestMutationGuard(t *testing.T) {
 				called = true
 				return nil
 			})
-			err := MutationGuardInterceptor(tt.unsafe)(next)(tt.ctx, connect.Spec{Procedure: tt.procedure}, nil)
+			guard := MutationGuardInterceptor(MutationPolicy{AllowAnonymous: tt.unsafe})
+			err := guard(next)(tt.ctx, connect.Spec{Procedure: tt.procedure}, nil)
 			if tt.wantDeny {
 				if connect.CodeOf(err) != connect.CodePermissionDenied || called {
 					t.Fatalf("error = %v, called = %t; want PermissionDenied without the handler", err, called)

@@ -127,6 +127,7 @@ sessions:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `addr` | string | `""` | Optional TCP listen address; empty opens no TCP listener. Plaintext must be loopback; a non-loopback address needs `tls` |
+| `mutating_identities` | []string | `[]` | mTLS identities (URI SAN or `dns:<name>`) that may mutate; when set, other mTLS clients are read-only. Requires `tls` |
 | `unsafe_loopback_mutations` | bool | `false` | Lets anonymous plaintext loopback TCP clients call mutating RPCs; `gobfd.management` health is `NOT_SERVING` while set |
 | `socket.path` | string | `"/run/gobfd/gobfd.sock"` | Absolute path of the management Unix socket; empty disables it |
 | `socket.mode` | string | `"0660"` | Octal permission mode of the socket file |
@@ -152,7 +153,12 @@ loopback. They may read (`List*`, `Get*`, `Watch*`) but receive
 `PermissionDenied` for `AddSession`, `DeleteSession`, `AddEchoSession`,
 `DeleteEchoSession`, `AddMicroBFDGroup` and `DeleteMicroBFDGroup` unless
 `unsafe_loopback_mutations` is set. Socket and mTLS callers carry a principal
-and may mutate.
+and may mutate; with `mutating_identities` set, only the listed mTLS
+identities may. A session created through the API belongs to the caller's
+principal: another principal gets `PermissionDenied` from `DeleteSession`
+(logged as a refused release), and two principals that add the same session
+share it until both release it. Anonymous callers under
+`unsafe_loopback_mutations` share the owner `local`.
 
 **Upgrading from a TCP-only configuration:** a non-loopback plaintext
 `grpc.addr` (for example `":50052"`) now fails startup; bind it to loopback
