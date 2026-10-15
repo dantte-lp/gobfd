@@ -19,6 +19,7 @@ import (
 
 type restartingBFD struct {
 	bfdv1connect.UnimplementedBfdServiceHandler
+
 	calls atomic.Int32
 	loss  chan struct{}
 }

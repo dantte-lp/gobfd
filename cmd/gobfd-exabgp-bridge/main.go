@@ -96,13 +96,17 @@ func watchAndAnnounce(
 	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(httpClient, ep.BaseURL)))
 
 	route := routeState{output: output, prefix: prefix}
-	return apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
+	err = apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
 		session, selectErr := selector.Select(sessions)
 		if selectErr != nil {
 			logger.Warn("BFD session is ambiguous, withdrawing route", slog.Any("error", selectErr))
 		}
 		return route.apply(session.GetLocalState() == bfdv1.SessionState_SESSION_STATE_UP)
 	}, logger)
+	if err != nil {
+		return fmt.Errorf("watch ExaBGP route session: %w", err)
+	}
+	return nil
 }
 
 // routeState survives Watch reconnects. Unknown process state forces an initial

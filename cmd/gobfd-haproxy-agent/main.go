@@ -78,13 +78,7 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	states := &stateMap{
-		m:         make(map[string]bfdv1.SessionState),
-		selectors: make(map[string]apiclient.SessionSelector, len(backends)),
-	}
-	for _, backend := range backends {
-		states.selectors[strconv.Itoa(backend.AgentPort)] = backend.selector
-	}
+	states := newStateMap(backends)
 
 	client, err := newBFDClient(gobfdAddr)
 	if err != nil {
@@ -102,7 +96,8 @@ func run() int {
 	// Start TCP agent-check listeners for each backend.
 	for _, b := range backends {
 		g.Go(func() error {
-			return serveAgentCheck(gCtx, strconv.Itoa(b.AgentPort), agentCheckListenAddr(listenAddr, b.AgentPort), states, logger)
+			return serveAgentCheck(gCtx, strconv.Itoa(b.AgentPort),
+				agentCheckListenAddr(listenAddr, b.AgentPort), states, logger)
 		})
 	}
 
@@ -127,6 +122,17 @@ type stateMap struct {
 	selectors map[string]apiclient.SessionSelector
 }
 
+func newStateMap(backends []backendConfig) *stateMap {
+	states := &stateMap{
+		m:         make(map[string]bfdv1.SessionState),
+		selectors: make(map[string]apiclient.SessionSelector, len(backends)),
+	}
+	for _, backend := range backends {
+		states.selectors[strconv.Itoa(backend.AgentPort)] = backend.selector
+	}
+	return states
+}
+
 func (s *stateMap) set(peer string, state bfdv1.SessionState) {
 	s.mu.Lock()
 	s.m[peer] = state
@@ -146,7 +152,7 @@ func watchEvents(
 	states *stateMap,
 	logger *slog.Logger,
 ) error {
-	return apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
+	err := apiclient.WatchSessions(ctx, client, func(sessions []*bfdv1.BfdSession) error {
 		current := make(map[string]bfdv1.SessionState, len(states.selectors))
 		for backend, selector := range states.selectors {
 			session, err := selector.Select(sessions)
@@ -161,6 +167,10 @@ func watchEvents(
 		states.mu.Unlock()
 		return nil
 	}, logger)
+	if err != nil {
+		return fmt.Errorf("watch HAProxy backend sessions: %w", err)
+	}
+	return nil
 }
 
 // newBFDClient builds the GoBFD client for a unix://, http://, https:// or

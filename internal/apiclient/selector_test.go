@@ -11,8 +11,10 @@ import (
 func TestSessionSelectorRejectsAmbiguousIdentity(t *testing.T) {
 	t.Parallel()
 	sessions := []*bfdv1.BfdSession{
-		{PeerAddress: "192.0.2.1", LocalAddress: "192.0.2.2", InterfaceName: "eth0", Type: bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, LocalDiscriminator: 1},
-		{PeerAddress: "::ffff:192.0.2.1", LocalAddress: "192.0.2.3", InterfaceName: "eth1", Type: bfdv1.SessionType_SESSION_TYPE_MULTI_HOP, LocalDiscriminator: 2},
+		{PeerAddress: "192.0.2.1", LocalAddress: "192.0.2.2", InterfaceName: "eth0",
+			Type: bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, LocalDiscriminator: 1},
+		{PeerAddress: "::ffff:192.0.2.1", LocalAddress: "192.0.2.3", InterfaceName: "eth1",
+			Type: bfdv1.SessionType_SESSION_TYPE_MULTI_HOP, LocalDiscriminator: 2},
 	}
 	for _, tc := range []struct {
 		name, local, iface, kind string
@@ -42,7 +44,8 @@ func TestSessionSelectorRejectsAmbiguousIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sel.Select([]*bfdv1.BfdSession{sessions[0], sessions[0]}); !errors.Is(err, apiclient.ErrAmbiguousSession) {
+	_, err = sel.Select([]*bfdv1.BfdSession{sessions[0], sessions[0]})
+	if !errors.Is(err, apiclient.ErrAmbiguousSession) {
 		t.Fatalf("duplicate projection: %v", err)
 	}
 }

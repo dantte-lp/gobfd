@@ -55,12 +55,13 @@ func WatchSessions(ctx context.Context, client bfdv1connect.BfdServiceClient,
 // failures; synced resets backoff after a successfully committed snapshot.
 func watchSessionStream(ctx context.Context, client bfdv1connect.BfdServiceClient,
 	consume func([]*bfdv1.BfdSession) error,
-) (synced, terminal bool, err error) {
+) (bool, bool, error) {
 	stream, err := client.WatchSessionEvents(ctx, &bfdv1.WatchSessionEventsRequest{IncludeCurrent: true})
 	if err != nil {
 		return false, false, fmt.Errorf("open session Watch: %w", err)
 	}
 	defer stream.Close()
+	synced := false
 	view := sessionView{sessions: make(map[uint32]*bfdv1.BfdSession), syncing: true}
 	for {
 		msg, receiveErr := stream.Receive()

@@ -18,7 +18,9 @@ func TestSessionViewGapSnapshotAndDeletion(t *testing.T) {
 	t.Parallel()
 	v := sessionView{sessions: make(map[uint32]*bfdv1.BfdSession), syncing: true}
 	up := func(discr uint32) *bfdv1.BfdSession {
-		return &bfdv1.BfdSession{LocalDiscriminator: discr, PeerAddress: "192.0.2.1", LocalState: bfdv1.SessionState_SESSION_STATE_UP}
+		return &bfdv1.BfdSession{
+			LocalDiscriminator: discr, PeerAddress: "192.0.2.1", LocalState: bfdv1.SessionState_SESSION_STATE_UP,
+		}
 	}
 	for i, step := range []struct {
 		event            bfdv1.WatchSessionEventsResponse_EventType
@@ -38,7 +40,9 @@ func TestSessionViewGapSnapshotAndDeletion(t *testing.T) {
 		{event: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP, rev: 20, changed: true, syncing: true},
 		{event: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE, rev: 20, changed: true},
 	} {
-		changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{Type: step.event, Revision: step.rev, Session: step.session})
+		changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+			Type: step.event, Revision: step.rev, Session: step.session,
+		})
 		if err != nil || changed != step.changed || v.syncing != step.syncing || len(v.sessions) != step.count {
 			t.Fatalf("step %d: changed=%v syncing=%v count=%d err=%v", i, changed, v.syncing, len(v.sessions), err)
 		}
@@ -47,10 +51,13 @@ func TestSessionViewGapSnapshotAndDeletion(t *testing.T) {
 
 type unavailableWatch struct {
 	bfdv1connect.BfdServiceClient
+
 	calls atomic.Int32
 }
 
-func (c *unavailableWatch) WatchSessionEvents(context.Context, *bfdv1.WatchSessionEventsRequest) (bfdv1connect.BfdServiceWatchSessionEventsClientStream, error) {
+func (c *unavailableWatch) WatchSessionEvents(
+	context.Context, *bfdv1.WatchSessionEventsRequest,
+) (bfdv1connect.BfdServiceWatchSessionEventsClientStream, error) {
 	c.calls.Add(1)
 	return bfdv1connect.BfdServiceWatchSessionEventsClientStream{}, syscall.ECONNREFUSED
 }
@@ -72,7 +79,10 @@ func TestWatchSessionsBoundedBackoffAndCancellation(t *testing.T) {
 		if client.calls.Load() != 1 {
 			t.Fatalf("initial attempts %d", client.calls.Load())
 		}
-		for i, wait := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, 30 * time.Second} {
+		waits := []time.Duration{
+			time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, 30 * time.Second,
+		}
+		for i, wait := range waits {
 			synctest.Sleep(wait)
 			if client.calls.Load() != int32(i+2) {
 				t.Fatalf("after %v: attempts=%d, want %d", wait, client.calls.Load(), i+2)
@@ -88,7 +98,8 @@ func TestWatchSessionsBoundedBackoffAndCancellation(t *testing.T) {
 func TestWatchSessionsConsumerErrorIsTerminal(t *testing.T) {
 	t.Parallel()
 	client := &unavailableWatch{}
-	err := WatchSessions(t.Context(), client, func([]*bfdv1.BfdSession) error { return syscall.EPIPE }, slog.New(slog.DiscardHandler))
+	err := WatchSessions(t.Context(), client,
+		func([]*bfdv1.BfdSession) error { return syscall.EPIPE }, slog.New(slog.DiscardHandler))
 	if !errors.Is(err, syscall.EPIPE) || client.calls.Load() != 0 {
 		t.Fatalf("consumer failure = %v, stream attempts %d", err, client.calls.Load())
 	}
