@@ -83,6 +83,7 @@ func (m *Manager) createEchoSession(
 	}
 
 	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	lease.bindInterrupt(sessCtx)
 	entry := &echoSessionEntry{
 		session:     es,
 		cancel:      cancel,
@@ -96,6 +97,7 @@ func (m *Manager) createEchoSession(
 	m.mu.Unlock()
 	m.workers.Go(func() {
 		defer close(entry.done)
+		defer lease.stopInterrupt()
 		es.Run(sessCtx)
 	})
 

@@ -27,16 +27,11 @@ import (
 
 const systemdWatchdogTickDivisor = 2
 
-// shutdownTimeout bounds each AdminDown commit and HTTP shutdown stage.
+// shutdownTimeout bounds the full BFD drain and each HTTP shutdown stage.
 const shutdownTimeout = 10 * time.Second
 
 // errDetectMultOverflow indicates the detect multiplier exceeds uint8 range.
 var errDetectMultOverflow = errors.New("detect multiplier exceeds maximum 255")
-
-// drainTimeout is the time to wait after setting sessions to AdminDown
-// before proceeding with shutdown. It is a best-effort notification window,
-// not a negotiated Detection Time or transmission acknowledgement.
-const drainTimeout = 2 * time.Second
 
 // flightRecorderMinAge is the minimum window age for the flight recorder.
 // Captures the last 500ms of execution traces for debugging BFD failures.

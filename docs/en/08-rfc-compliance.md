@@ -202,13 +202,30 @@ Steps 8-18 (session): auth consistency, auth verification, state variable update
 
 #### Section 6.8.16: Administrative Control
 
-Graceful shutdown waits up to ten seconds for each captured session owner to
-commit AdminDown/7 under one shared deadline, then keeps the fixed two-second
-`drainTimeout` before cancelling session goroutines. Admission and commit errors
-are returned; no direct atomic fallback changes state outside the owner. The
-receipt precedes the transmit attempt and does not confirm transmission or peer
-receipt. Successful-send retries, negotiated Detection Time drain and bounded
-sender I/O remain H-12 in `gobfd-qj0.8.2.1.3.3`.
+Graceful shutdown uses one ten-second deadline for owner commit, the first
+successful AdminDown/7 write, and the notification window recommended here and
+in RFC 5882 Section 8. Failed writes retry through the normal TX timer. The
+window starts at the first successful write and covers both local receive DT
+and `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`; only larger
+negotiations extend it. A shorter deadline returns typed `DrainIncompleteError`.
+Passive unknown-peer and zero remote receive-interval suppression remain
+mandatory; a permitted Final reply can provide the first successful write.
+Owning UDP leases interrupt pending writes and join callbacks before releasing
+resources. Success confirms local writes and time, not peer receipt. Last-claim
+drain is tracked separately in `gobfd-qj0.8.2.1.3.9`.
+
+Local SIGTERM qualification on 2026-10-16 used source patch SHA256
+`d1394d09fb3b902d3e34a5e34467c5aa4c506bd1d71c49416f6176773dc86947`
+over `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`. Capture recorded eight
+AdminDown/7 packets, four each to FRR and BIRD, with TTL 255, multiplier 3,
+advertised TX 1,000,000 microseconds and RX 300,000 microseconds. Drain completion
+followed the first wire packet by 3.000171 seconds for FRR and 3.000147 for BIRD.
+Forty BGP/route samples over 20.280366 seconds retained Established state,
+unchanged uptime and routes `10.20.0.0/24` and `10.30.0.0/24`. These samples do
+not prove uninterrupted state between observations or peer acknowledgement.
+The daemon exited with code 0; all five topology containers were stopped and
+retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
+`f10937cc6a7969bc336e4f1b5217d2f458e5f046236f68530225ef26ec281c68`.
 
 #### Not Implemented (RFC 5880)
 

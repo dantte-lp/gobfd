@@ -402,10 +402,12 @@ graph TB
 При SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
 1. `Manager.DrainAllSessions(ctx)` -- снимок конкретных сессий, освобождение
-   Manager locks и параллельное ожидание commit AdminDown/7 их владельцами.
-   Admission и commit используют общий новый deadline десять секунд, независимый
-   от отменённого signal context; ошибки сохраняются в результате shutdown.
-2. Фиксированное двухсекундное окно `drainTimeout` для отправки AdminDown
+   Manager locks и параллельное ожидание owner commit, успешной записи AdminDown/7
+   и negotiated notification window. Все стадии используют общий новый deadline
+   десять секунд, независимый от отменённого signal context. `DrainIncompleteError`
+   сохраняет стадию, причину suppression и исходную ошибку.
+2. Передача Control в течение окна с retry через существующий TX timer и
+   сохранением RFC transmission suppression
 3. `Manager.Close()` -- переход в Closing, отделение sessions, отмена и
    ожидание зарегистрированных Manager goroutines, закрытие notification
    channels и освобождение sender resources
@@ -421,11 +423,20 @@ cached state и diagnostic владельца до немедленной поп
 `Run` допускает одного owner за время жизни сессии и обрабатывает стартовые
 команды до передачи по таймеру, сохраняя ограничения Passive role.
 
-Фиксированное окно уведомления остаётся best effort. Commit acknowledgement не
-подтверждает передачу или получение пиром. Повторы до успешной передачи,
-negotiated Detection Time каждой сессии и bounded I/O остаются H-12;
-`Manager.Close()` не ограничен по времени для произвольного блокирующего
-`PacketSender` или sender release callback.
+Окно начинается с первой успешной записи AdminDown и равно максимуму local RX
+Detection Time и peer-facing границы
+`localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. Non-Up TX floor
+даёт три секунды для стандартных параметров. Увеличение negotiation продлевает
+deadline; неизменные или меньшие значения не перезапускают и не сокращают окно.
+Конкурентные drain используют общий progress; выход owner до конца окна не
+превращается в успех после ожидания. Успех подтверждает локальные kernel writes
+и длительность уведомления, без подтверждения получения пиром.
+
+Owning UDP sender lease прерывает pending write при отмене сессии и ожидает
+callback до owner completion и освобождения source port. Non-owning shared
+overlay sender не прерывается сессионным lease. `Manager.Close()` не гарантирует
+границу для произвольного внешнего `PacketSender` или release callback. Drain
+при удалении последнего claim остаётся `gobfd-qj0.8.2.1.3.9`.
 
 ### Структура проекта
 

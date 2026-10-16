@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Negotiated AdminDown drain with owner commit, successful-write confirmation,
+  retry through the existing TX timer and a monotonically extended notification
+  window. Short budgets return typed `DrainIncompleteError`; shutdown uses one 10s
+  BFD budget instead of the fixed 2s sleep. Owning UDP leases interrupt blocked
+  writes and join callbacks before owner completion and source-port release.
+  Local SIGTERM capture qualified repeated AdminDown writes to FRR and BIRD and
+  a notification window of at least three seconds, with sampled BGP uptime/routes
+  unchanged. Ordinary `SetAdminDown` remains commit-only; peer receipt and last-claim deconfiguration
+  drain remain separate boundaries. See [RFC compliance](docs/en/08-rfc-compliance.md).
+
 - Causal session observations carry a coherent local state/diagnostic pair,
   known remote state/diagnostic, both C-bits, cause and per-row
   `observation_version` through snapshots, Watch and CLI. C-bit reporting

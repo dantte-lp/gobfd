@@ -4,9 +4,18 @@ The development causal-observation slice (`gobfd-qj0.8.2.1.2.1` and
 `gobfd-qj0.8.2.4.8`) covers coherent scalar facts, per-row versions and
 cause-aware GoBGP policy. It does not qualify a stable release or full C-bit
 graceful restart. Full Watch registration/status remains open in
-`gobfd-qj0.8.2.1.3.8`; negotiated graceful drain and bounded I/O remain open
-under H-12 (`gobfd-qj0.8.2.1.3.3`). Live peer policy qualification is a separate
-gate from local causal tests.
+`gobfd-qj0.8.2.1.3.8`. The RFC core parent `gobfd-qj0.8.2.1.2` and its four
+children were accepted locally through
+`e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; this is not full RFC or release
+qualification. H-12 (`gobfd-qj0.8.2.1.3.3`) now implements successful-write
+confirmation, a negotiated notification window and owning UDP cancellation.
+Local SIGTERM capture qualified eight AdminDown/7 writes to FRR and BIRD and
+notification windows of at least 3.000147 seconds. Forty BGP/route samples over
+20.280366 seconds retained Established state, unchanged uptime and both routes;
+this is sampled evidence, not a continuity or peer-acknowledgement guarantee.
+The exact source patch and scope are recorded in
+[RFC compliance](08-rfc-compliance.md#section-6816-administrative-control).
+Last-claim drain stays separate in `gobfd-qj0.8.2.1.3.9`.
 
 ![Current Release](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)

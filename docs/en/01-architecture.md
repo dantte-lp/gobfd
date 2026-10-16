@@ -385,10 +385,12 @@ graph TB
 On SIGTERM/SIGINT (RFC 5880 Section 6.8.16):
 
 1. `Manager.DrainAllSessions(ctx)` -- capture concrete sessions, release Manager
-   locks, and concurrently wait for their owners to commit AdminDown/7. Admission
-   and commit share a fresh ten-second deadline detached from the cancelled
-   signal context; failures remain in the shutdown error.
-2. Wait the fixed two-second `drainTimeout` window for an AdminDown transmit
+   locks, and concurrently wait for owner commit, a successful AdminDown/7 write,
+   and each negotiated notification window. All stages share a fresh ten-second
+   deadline detached from the cancelled signal context. `DrainIncompleteError`
+   preserves the failed stage, suppression reason and underlying error.
+2. Keep normal Control transmission during that window, retrying failed writes
+   through the existing TX timer and preserving RFC transmission suppression
 3. `Manager.Close()` -- enter Closing, detach sessions, cancel and wait for
    registered Manager goroutines, close notification channels, and release
    sender resources
@@ -404,10 +406,19 @@ acknowledge the committed state without another transition or immediate TX burst
 `Run` permits one owner for the session's lifetime and handles queued startup
 controls before timer transmission, preserving Passive-role restrictions.
 
-The fixed notification window remains best effort. Commit acknowledgement does
-not confirm transmission or peer receipt. Successful-send retries, per-session
-negotiated Detection Time and bounded I/O remain H-12; `Manager.Close()` is not
-bounded for an arbitrary blocking `PacketSender` or sender release callback.
+The drain window starts at the first successful AdminDown write and is the
+maximum of local receive Detection Time and the peer-facing bound
+`localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`. The non-Up TX floor
+makes the default window three seconds. Larger negotiations extend the deadline;
+unchanged or smaller values never restart or shorten it. Concurrent drains share
+progress; owner exit before completion cannot turn into later success. Completion
+confirms local kernel writes and elapsed notification time, not peer receipt.
+
+Manager-owned UDP sender leases interrupt pending writes on session cancellation
+and join that callback before owner completion or source-port release. Non-owning
+shared overlay senders are never interrupted by a session lease. `Manager.Close()`
+does not promise a bound for an arbitrary external `PacketSender` or release
+callback. Last-claim deconfiguration drain remains `gobfd-qj0.8.2.1.3.9`.
 
 ### Project Structure
 

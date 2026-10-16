@@ -57,8 +57,8 @@ func (s *Session) handleRecvPacket(
 	// Step 16: Set bfd.RemoteMinRxInterval.
 	s.remoteMinRxInterval = durationFromMicroseconds(pkt.RequiredMinRxInterval)
 	// Step 17: Set remoteDesiredMinTxInterval + remoteDetectMult.
-	s.remoteDesiredMinTxInterval = durationFromMicroseconds(pkt.DesiredMinTxInterval)
-	s.remoteDetectMult = pkt.DetectMult
+	s.remoteDesiredMinTxInterval, s.remoteDetectMult = durationFromMicroseconds(pkt.DesiredMinTxInterval), pkt.DetectMult
+	s.updateAdminDrainLocked(s.lastValidRecv)
 	s.mu.Unlock()
 
 	// Stage causal facts; publication waits for the final local FSM result.

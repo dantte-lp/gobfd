@@ -31,6 +31,7 @@ func (s *Session) Run(ctx context.Context) {
 	s.mu.Unlock()
 	defer func() {
 		s.closeTimerUpdates()
+		s.senderLease.stopInterrupt()
 		s.mu.Lock()
 		s.running.Store(false)
 		close(s.ownerDone)
@@ -133,8 +134,12 @@ func (s *Session) handleAdminDown(
 ) {
 	result := ApplyEvent(s.cachedState, EventAdminDown)
 	s.executeFSMActions(ctx, result, txTimer, detectTimer, CauseLocalAdmin)
+	s.mu.Lock()
+	s.updateAdminDrainLocked(time.Now())
+	needsSend := s.adminDrain != nil && s.adminDrain.firstSentAt.IsZero()
+	s.mu.Unlock()
 	close(receipt)
-	if result.Changed && ctx.Err() == nil {
+	if (result.Changed || needsSend) && ctx.Err() == nil {
 		s.maybeSendControl(ctx)
 		s.resetTxTimer(txTimer)
 	}
@@ -229,6 +234,9 @@ func (s *Session) sendControl(ctx context.Context) {
 		s.mu.Unlock()
 	}
 	s.lastPacketSent = time.Now()
+	if s.cachedState == StateAdminDown && s.LocalDiag() == DiagAdminDown {
+		s.recordAdminDrainSend(s.lastPacketSent)
+	}
 	s.packetsSent.Add(1)
 	s.metrics.IncPacketsSent(s.peerAddr, s.localAddr)
 }

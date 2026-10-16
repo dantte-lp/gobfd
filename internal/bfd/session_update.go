@@ -175,6 +175,7 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 		s.failedPollSeparation = false
 	}
 	s.promoteTimerUpdateLocked()
+	s.updateAdminDrainLocked(now)
 	s.mu.Unlock()
 	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() {
 		s.scheduleTxTimer(tx, s.lastPacketSent)
@@ -278,6 +279,7 @@ func (s *Session) finishTimerPoll() {
 		// changing a failed update receipt into successful application.
 		s.timerUpdate.Confirmed = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
 	}
+	s.updateAdminDrainLocked(now)
 	s.notifyTimerUpdate()
 }
 
@@ -331,6 +333,9 @@ func (s *Session) closeTimerUpdates() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.updateClosed = true
+	if s.adminDrain != nil && time.Now().Before(s.adminDrain.until) {
+		s.adminDrain.until = time.Time{}
+	}
 	if s.timerUpdate.State == timerUpdatePending {
 		s.failTimerUpdateLocked()
 	}

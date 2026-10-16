@@ -1,15 +1,54 @@
 package bfd
 
-import "sync"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+)
+
+type writeInterrupter interface{ InterruptWrite() error }
 
 // SenderLease couples a session's packet sender with the resource release
 // operation that owns its lifetime. Close is idempotent and returns the same
 // result to every caller.
 type SenderLease struct {
-	sender  PacketSender
-	release func() error
-	once    sync.Once
-	err     error
+	sender        PacketSender
+	release       func() error
+	once          sync.Once
+	err           error
+	interruptStop func() bool
+	interruptDone chan struct{}
+	interruptJoin sync.Once
+	interruptErr  error
+}
+
+func (l *SenderLease) bindInterrupt(ctx context.Context) {
+	if l == nil || l.release == nil {
+		return
+	}
+	sender, ok := l.sender.(writeInterrupter)
+	if !ok {
+		return
+	}
+	l.interruptDone = make(chan struct{})
+	l.interruptStop = context.AfterFunc(ctx, func() {
+		defer close(l.interruptDone)
+		if err := sender.InterruptWrite(); err != nil {
+			l.interruptErr = fmt.Errorf("interrupt owned sender write: %w", err)
+		}
+	})
+}
+
+func (l *SenderLease) stopInterrupt() {
+	if l == nil || l.interruptStop == nil {
+		return
+	}
+	l.interruptJoin.Do(func() {
+		if !l.interruptStop() {
+			<-l.interruptDone
+		}
+	})
 }
 
 // NewSenderLease creates an owning sender lease. A nil release function makes
@@ -33,8 +72,10 @@ func (l *SenderLease) Close() error {
 		return nil
 	}
 	l.once.Do(func() {
+		l.stopInterrupt()
+		l.err = l.interruptErr
 		if l.release != nil {
-			l.err = l.release()
+			l.err = errors.Join(l.err, l.release())
 		}
 	})
 	return l.err

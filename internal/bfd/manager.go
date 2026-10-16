@@ -710,9 +710,9 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) 
 // Graceful Drain — RFC 5880 Section 6.8.16
 // -------------------------------------------------------------------------
 
-// DrainAllSessions waits for captured sessions to commit AdminDown/7
-// (RFC 5880 Section 6.8.16). ctx bounds every admission and commit wait.
-// Success does not confirm packet transmission or the peer's state.
+// DrainAllSessions waits for captured owners to commit AdminDown/7, write it
+// successfully, and maintain the negotiated notification window. ctx bounds
+// all stages; incomplete drains return DrainIncompleteError. No peer receipt is implied.
 func (m *Manager) DrainAllSessions(ctx context.Context) error {
 	op, err := m.beginOperation()
 	if err != nil {
@@ -732,7 +732,7 @@ func (m *Manager) DrainAllSessions(ctx context.Context) error {
 	var workers sync.WaitGroup
 	for i, session := range sessions {
 		workers.Go(func() {
-			if err := session.SetAdminDown(ctx); err != nil {
+			if err := session.drainAdminDown(ctx); err != nil {
 				errs[i] = fmt.Errorf("drain session %d: %w", session.localDiscr, err)
 			}
 		})
@@ -742,7 +742,7 @@ func (m *Manager) DrainAllSessions(ctx context.Context) error {
 		return err
 	}
 
-	m.logger.Info("all captured sessions committed AdminDown for graceful drain",
+	m.logger.Info("all captured sessions completed AdminDown notification window",
 		slog.Int("count", len(sessions)),
 	)
 	return nil

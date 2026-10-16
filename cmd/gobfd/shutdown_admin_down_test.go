@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"testing"
 	"testing/synctest"
@@ -36,8 +37,12 @@ func TestGracefulShutdownAdminDownCommit(t *testing.T) {
 			t.Fatal(err)
 		}
 		cancel()
+		started := time.Now()
 		if err := gracefulShutdown(ctx, mgr, logger, nil); err != nil {
 			t.Fatal(err)
+		}
+		if elapsed := time.Since(started); elapsed != 3*time.Second {
+			t.Errorf("shutdown duration = %s, want negotiated 3s window", elapsed)
 		}
 		if sess.State() != bfd.StateAdminDown || sess.LocalDiag() != bfd.DiagAdminDown {
 			t.Error("cancelled parent prevented AdminDown commit")
@@ -57,12 +62,16 @@ func TestGracefulShutdownAdminDownDeadline(t *testing.T) {
 		<-sender.entered
 		cancel()
 		result := make(chan error, 1)
-		go func() { result <- gracefulShutdown(ctx, mgr, logger, nil) }()
-		synctest.Sleep(shutdownTimeout + drainTimeout + time.Second)
+		server := &http.Server{}
+		stopped := make(chan struct{})
+		server.RegisterOnShutdown(func() { close(stopped) })
+		go func() { result <- gracefulShutdown(ctx, mgr, logger, nil, server) }()
+		synctest.Sleep(shutdownTimeout + time.Second)
 		close(sender.release)
 		if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("blocked owner drain error = %v, want deadline", err)
 		}
+		<-stopped
 	})
 }
 

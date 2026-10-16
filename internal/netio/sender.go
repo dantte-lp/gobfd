@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -284,6 +285,21 @@ func (s *UDPSender) SendPacket(
 			addr, s.dstPort, err)
 	}
 
+	return nil
+}
+
+// InterruptWrite releases pending writes when the owning session is cancelled.
+// The lease joins this operation before releasing its source port.
+func (s *UDPSender) InterruptWrite() error {
+	return interruptOwnedWrite(s.conn, s.Close)
+}
+
+type writeDeadlineSetter interface{ SetWriteDeadline(t time.Time) error }
+
+func interruptOwnedWrite(conn writeDeadlineSetter, closeConn func() error) error {
+	if err := conn.SetWriteDeadline(time.Now()); err != nil {
+		return errors.Join(fmt.Errorf("set owned sender write deadline: %w", err), closeConn())
+	}
 	return nil
 }
 

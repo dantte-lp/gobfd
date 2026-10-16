@@ -304,7 +304,9 @@ const (
 //   - RFC 5880 Section 6.8.7: packet transmission (jitter, cached packet)
 //   - RFC 5880 Section 6.5: Poll Sequence
 type Session struct {
-	mu sync.RWMutex
+	mu          sync.RWMutex
+	adminDrain  *adminDrainProgress
+	senderLease *SenderLease
 
 	// --- RFC 5880 Section 6.8.1 state variables ---
 

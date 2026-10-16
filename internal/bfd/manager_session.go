@@ -238,6 +238,8 @@ func (m *Manager) registerAndStart(
 	// only then calls Manager.Close which cancels each session explicitly.
 	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	entry.cancel = cancel
+	senderLease.bindInterrupt(sessCtx)
+	sess.senderLease = senderLease
 	m.startSession(sessCtx, entry, sess)
 
 	m.sessions[discr] = entry

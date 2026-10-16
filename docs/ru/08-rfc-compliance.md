@@ -180,13 +180,30 @@ detection timer.
 
 #### Section 6.8.16: Административное управление
 
-Graceful shutdown ожидает commit AdminDown/7 владельцами конкретных сессий до
-десяти секунд с одним общим deadline, затем сохраняет фиксированное двухсекундное
-окно `drainTimeout` до отмены горутин. Ошибки admission и commit возвращаются;
-direct atomic fallback вне owner удалён. Receipt предшествует попытке передачи и
-не подтверждает отправку или получение пиром. Повторы до успешной передачи,
-negotiated Detection Time drain и bounded sender I/O остаются H-12 в
-`gobfd-qj0.8.2.1.3.3`.
+Graceful shutdown использует общий deadline десять секунд для owner commit,
+первой успешной записи AdminDown/7 и окна уведомления, рекомендованного здесь и
+в RFC 5882 Section 8. Ошибки записи повторяются через обычный TX timer. Окно
+начинается с первой успешной записи и покрывает local RX DT и
+`localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`; только увеличение
+negotiation продлевает deadline. Короткий deadline возвращает `DrainIncompleteError`.
+Ограничения passive unknown peer и нулевого remote RX сохраняются; разрешённый
+Final может подтвердить первую успешную запись. Owning UDP lease прерывает
+pending write и ожидает callback до освобождения ресурсов. Успех подтверждает
+локальные записи и время, без подтверждения получения пиром. Last-claim drain
+остаётся отдельным: `gobfd-qj0.8.2.1.3.9`.
+
+Локальная SIGTERM квалификация 2026-10-16 использовала source patch SHA256
+`d1394d09fb3b902d3e34a5e34467c5aa4c506bd1d71c49416f6176773dc86947`
+поверх `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`. Capture содержит восемь
+пакетов AdminDown/7, по четыре для FRR и BIRD: TTL 255, multiplier 3,
+advertised TX 1 000 000 микросекунд, RX 300 000 микросекунд. Drain завершён через
+3.000171 секунды после первого wire packet для FRR и 3.000147 для BIRD.
+Сорок BGP/route samples за 20.280366 секунды сохранили Established, неизменный
+uptime и маршруты `10.20.0.0/24`, `10.30.0.0/24`. Samples не доказывают
+непрерывность состояния между наблюдениями или подтверждение получения пиром.
+Daemon завершился с code 0; все пять контейнеров остановлены и сохранены без OOM.
+Доказательства: `reports/h12-wire-20261016/`; PCAP SHA256
+`f10937cc6a7969bc336e4f1b5217d2f458e5f046236f68530225ef26ec281c68`.
 
 #### Не реализовано
 

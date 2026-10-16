@@ -9,6 +9,16 @@
 
 ### Добавлено
 
+- Negotiated AdminDown drain: owner commit, подтверждение успешной записи,
+  retry через существующий TX timer и монотонно продлеваемое окно уведомления.
+  Короткий бюджет возвращает `DrainIncompleteError`; shutdown использует общий BFD
+  бюджет 10s вместо фиксированного sleep 2s. Owning UDP lease прерывает blocked
+  write и ожидает callback до owner completion и освобождения source port.
+  Локальный SIGTERM capture подтвердил повторные AdminDown записи в FRR и BIRD,
+  окно уведомления не менее трёх секунд и неизменные sampled BGP uptime/routes.
+  Обычный `SetAdminDown` подтверждает только commit; получение пиром и drain при
+  удалении последнего claim остаются отдельными. См. [RFC](docs/ru/08-rfc-compliance.md).
+
 - Причинные наблюдения сессии: согласованные локальные state/diagnostic,
   известные remote state/diagnostic, оба C-bit, причина и строковая
   `observation_version` в snapshot, Watch и CLI. Для C-bit сохраняется

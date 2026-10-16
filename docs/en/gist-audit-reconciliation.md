@@ -179,6 +179,17 @@ drafts and artifacts wait until development and final qualification finish.
   EBGP failure handling belong to sections 4.2 and 10.2, respectively, not the
   gist's section 4.3 attribution for generic GoBGP/bridge convergence.
 - H-12 drain behavior maps to RFC 5880 section 6.8.16 and RFC 5882 section 8.
+  The development implementation replaces the historical two-second sleep with
+  owner commit, successful-write confirmation and a negotiated notification
+  window under one ten-second budget. It returns typed incomplete outcomes and
+  interrupts only owning UDP writes before joining their callbacks. The dated
+  finding table above retains its original source observations. Local SIGTERM
+  capture qualified four AdminDown/7 writes per FRR/BIRD peer and at least
+  3.000147 seconds from first wire write to drain completion. Forty BGP samples
+  retained Established state, uptime and both routes; no continuous observation
+  or peer acknowledgement is inferred. The exact source patch is recorded in
+  [RFC compliance](08-rfc-compliance.md#section-6816-administrative-control).
+  Last-claim deconfiguration remains `gobfd-qj0.8.2.1.3.9`.
   Dampening/hysteresis maps to RFC 5882 section 3.1, not AdminDown section 3.2.
   Citation correction does not fix H-27's missing retry/expiry reconciliation.
 - Overlay review uses RFC 8971 sections 5–6 and RFC 9521 sections 4–5.

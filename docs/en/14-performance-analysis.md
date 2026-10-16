@@ -417,7 +417,7 @@ See [08-rfc-compliance.md](./08-rfc-compliance.md) for the full compliance matri
 | Feature | GoBFD | FRR bfdd |
 |---------|-------|----------|
 | Config reload | SIGHUP reconciles membership within startup-open transports; same-key parameter changes conflict and leave the generation stale | Restart required for many changes |
-| Graceful shutdown | AdminDown to all peers → 2s drain → clean close | Process kill (sessions flap) |
+| Graceful shutdown | Owner AdminDown commit → successful write → negotiated notification window within 10s → close; incomplete stages return errors | Process kill (sessions flap) |
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (text parsing) |
 | Metrics | Native Prometheus (`/metrics` endpoint) | SNMP (requires SNMP infrastructure) |
 | Deployment | Single static binary, no dependencies | C dependencies, shared libraries |
