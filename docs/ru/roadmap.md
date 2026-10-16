@@ -297,9 +297,14 @@ delivery.
    только восстановления (`9fdd2c9`, `d65b994`, `35155e3`); `.8.2.4.2`
    закрыт. События удаления `.8.2.1.3.6` и наблюдаемость демпфирования
    `.8.2.4.7` теперь закрыты. Эпик `.8.2.4` сохраняет зависимость от `.8.2.3`.
-3. Security P0 `.8.2.1.10.5`: дизайн listener unsolicited (bind по семейству
-   адресов с `SO_BINDTODEVICE` рядом с listener по адресам) согласуется с
-   maintainer; затем захват IPv6 `.8.2.1.10.1` и родитель `.8.2.1.10`.
+3. Development qualification 2026-10-16: `.8.2.1.10.5` listeners с bind к
+   интерфейсу и `.8.2.1.10.1` dual-stack capture прошли на
+   `task/unsolicited-listeners`, base `f907e8b6ef5c247d4cc9a4a175f87ca8a3e26981`,
+   source patch `6f2f3c4587ba00bee32b599acbe886fa0f014774289b7887fb7232edbba0f786`.
+   Evidence: `reports/unsolicited-listeners-wire-20261016/receipt.md`;
+   четыре Up/Up сессии без настроенных passive sessions, две IPv4 и две IPv6.
+   Stable delivery остаётся неквалифицированной. Остановка TX при natural Down
+   `.8.2.1.10.6` остаётся OPEN до закрытия родителя `.8.2.1.10`.
    `.8.2.1.8` выполняется после решений шага 9.
 4. Выполнено: `gobfd-6de`, метрики production Compose с проверкой API
    targets Prometheus, описанной выше.

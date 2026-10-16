@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
+	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
@@ -63,5 +64,16 @@ func TestUnsolicitedSessionSenderBindsReceivedTuple(t *testing.T) {
 		if len(sf.closed) != 1 || len(sf.open) != 0 {
 			t.Fatalf("closed ports %v, open %v; want one closed", sf.closed, sf.open)
 		}
+	}
+}
+
+func TestBuildUnsolicitedPolicyRejectsUnknownEnabledInterface(t *testing.T) {
+	t.Parallel()
+	_, err := buildUnsolicitedPolicy(config.UnsolicitedConfig{
+		Enabled:    true,
+		Interfaces: map[string]config.UnsolicitedInterfaceConfig{"gobfd-missing": {Enabled: true}},
+	})
+	if err == nil {
+		t.Fatal("unknown enabled interface accepted at startup")
 	}
 }

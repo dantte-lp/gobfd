@@ -85,7 +85,7 @@ bfd:
 #     required_min_rx: "300ms"
 #     detect_mult: 3
 #   interfaces:
-#     "":
+#     eth0: # Replace with the receiving interface name.
 #       enabled: true
 #       allowed_prefixes: ["10.0.0.0/8"]
 #   # Optional RFC 9468 Section 6.2 authentication; only meticulous_keyed_sha1.

@@ -582,6 +582,15 @@ func (m *Manager) demuxByPeer(
 	}
 
 	sess, ok := m.LookupByPeer(key)
+	// A configured address listener may have no interface binding. Preserve
+	// its configured lookup, then use the actual ingress index for admission.
+	if !ok && m.unsolicited != nil && meta.IfName == "" && !meta.MultiHop {
+		meta.IfName = m.unsolicited.interfaceNames[meta.IfIndex]
+		if meta.IfName != "" {
+			key.ifName = meta.IfName
+			sess, ok = m.LookupByPeer(key)
+		}
+	}
 	if ok {
 		sess.RecvPacket(pkt, wire)
 		return nil

@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Wildcard single-hop listeners RFC 9468 для IPv4/IPv6 с bind к интерфейсу
+  принимают unsolicited-пакеты без настроенной сессии на destination address.
+  Настроенные listeners сохраняют peer lookup; неизвестный ingress index
+  разрешается только через startup snapshot включённых интерфейсов. Пустое
+  имя включённого интерфейса отклоняется. Режим остаётся небезопасным preview.
+
 - Negotiated AdminDown drain: owner commit, подтверждение успешной записи,
   retry через существующий TX timer и монотонно продлеваемое окно уведомления.
   Короткий бюджет возвращает `DrainIncompleteError`; shutdown использует общий BFD

@@ -176,6 +176,15 @@ peer и local, interface, network scope и transport scope. IPv4-mapped адре
 нормализуются в IPv4. Этот идентификатор отделён от более узкого ключа packet
 demultiplexing, который используется только для доставки начального пакета.
 
+Для включённых unsolicited-интерфейсов открываются отдельные wildcard
+single-hop listeners IPv4 и IPv6 с `SO_BINDTODEVICE`, независимо от настроенных
+сессий. Ancillary data сохраняет фактический destination и ingress index.
+Сначала выполняется lookup настроенного peer; для несовпавшего пакета unbound
+listener разрешает ingress index по startup snapshot включённых интерфейсов,
+затем выполняются unsolicited lookup и admission. Системный поиск имени
+интерфейса на пути пакета отсутствует. Изменения интерфейсов и политики
+unsolicited требуют перезапуска.
+
 Manager хранит типизированные claims базовой конфигурации, Micro-BFD members,
 VXLAN, Geneve, compatibility/API-пути и unsolicited BFD. Изменения ownership
 сериализованы. Каждый декларативный adapter реконсилирует только свой

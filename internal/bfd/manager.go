@@ -104,6 +104,10 @@ type PacketMeta struct {
 	// IfName is the interface name on which the packet was received.
 	IfName string
 
+	// IfIndex is the receiving interface index from packet ancillary data.
+	// It resolves unsolicited admission after the configured peer lookup.
+	IfIndex int
+
 	// MultiHop is true when the packet arrived on a multi-hop (RFC 5883)
 	// listener.
 	MultiHop bool

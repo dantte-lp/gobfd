@@ -342,7 +342,7 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 | Requirement | Implementation |
 |---|---|
 | Disabled by default (MUST) | `unsolicited.enabled: false` default |
-| Per-interface policy (MUST) | `UnsolicitedInterfaceConfig` per interface |
+| Per-interface policy (MUST) | Explicit nonempty interface names; IPv4/IPv6 wildcard listeners bound with `SO_BINDTODEVICE`, independent of configured sessions |
 | Source address validation (MUST) | Source must belong to the subnet of the receiving local address (Section 2); `AllowedPrefixes` narrows it further; unnumbered paths fail closed |
 | Single-hop only (MUST, Section 6.1) | Only TTL 255 packets from a single-hop listener create sessions; multi-hop (port 4784) packets are refused |
 | Local discriminator allocation (MUST) | `DiscriminatorAllocator` for passive sessions |
@@ -358,8 +358,9 @@ that received the triggering packet, with its own RFC 5881 source port; an IPv6
 link-local address is scoped to the receiving interface. The enabled policy
 is validated at load: session defaults representable on the wire with a
 nonzero `required_min_rx`, at least one enabled interface and valid
-`allowed_prefixes`. IPv6 packet-capture qualification and lease-close fault
-injection remain open (`gobfd-qj0.8.2.1.10.1`). Do not enable it on an
+`allowed_prefixes`. Development qualification covers dual-stack capture and
+78 concurrent sender leases closed once (`gobfd-qj0.8.2.1.10.1`); natural Down
+TX-stop remains open (`gobfd-qj0.8.2.1.10.6`). Do not enable it on an
 untrusted interface.
 
 ### RFC 9747 Implementation Notes

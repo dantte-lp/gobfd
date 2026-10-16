@@ -298,9 +298,14 @@ before an update:
    `35155e3`); `.8.2.4.2` closed. Deletion events `.8.2.1.3.6` and
    dampening observability `.8.2.4.7` are now closed. Epic `.8.2.4` still
    depends on `.8.2.3`.
-3. Security P0 `.8.2.1.10.5`: the unsolicited listener design (per-family
-   bind with `SO_BINDTODEVICE` next to the per-address listeners) goes to
-   the maintainer; then IPv6 capture `.8.2.1.10.1` and parent `.8.2.1.10`.
+3. Development qualification on 2026-10-16: `.8.2.1.10.5` interface-bound
+   listeners and `.8.2.1.10.1` dual-stack capture passed on
+   `task/unsolicited-listeners`, base `f907e8b6ef5c247d4cc9a4a175f87ca8a3e26981`,
+   source patch `6f2f3c4587ba00bee32b599acbe886fa0f014774289b7887fb7232edbba0f786`.
+   Evidence: `reports/unsolicited-listeners-wire-20261016/receipt.md`;
+   four Up/Up sessions with no configured passive session, two IPv4 and two IPv6.
+   Stable delivery remains unqualified. Natural Down TX-stop `.8.2.1.10.6`
+   remains OPEN before parent `.8.2.1.10`.
    `.8.2.1.8` follows the step 9 decisions.
 4. Done: `gobfd-6de`, production Compose metrics, with the Prometheus
    targets API check described above.

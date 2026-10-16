@@ -251,13 +251,16 @@ unsolicited:
     required_min_rx: "300ms"
     detect_mult: 3
   interfaces:
-    "":
+    eth0:
       enabled: true
       allowed_prefixes: ["10.0.0.0/8"]
 ```
 
-> **Note**: The empty string key `""` matches the default listener (no interface binding). Use this for raw socket listeners that don't report an interface name.
->
+Each enabled interface must have an explicit nonempty name. It opens separate
+IPv4 and IPv6 wildcard listeners on UDP 3784 with `SO_BINDTODEVICE`; no configured
+session on the receiving address is required. Disabled interfaces open no
+unsolicited listener. Configured per-address listeners remain available.
+
 > **Admission (RFC 9468 Sections 2 and 6.1)**: a packet creates a session only
 > when it arrives single-hop with TTL 255, its source belongs to a subnet of
 > the local address that received it,

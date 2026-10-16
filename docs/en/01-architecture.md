@@ -164,6 +164,14 @@ addresses, interface, network scope, and transport scope. IPv4-mapped
 addresses are normalized to IPv4. This identity is separate from the smaller
 packet demultiplexing key used only for initial packet delivery.
 
+Enabled unsolicited interfaces open separate IPv4 and IPv6 wildcard single-hop
+listeners bound with `SO_BINDTODEVICE`, independently of configured sessions.
+Ancillary data retains the actual destination and ingress index. Configured
+peer lookup runs first; an unbound listener resolves an unmatched ingress index
+through a startup snapshot of enabled interfaces before unsolicited lookup and
+admission. No packet triggers a system interface-name lookup. Interface changes
+require a restart, as does the unsolicited policy.
+
 The manager records typed claims from base configuration, Micro-BFD members,
 VXLAN, Geneve, the compatibility/API path, and unsolicited BFD. Ownership
 mutations are serialized. Each declarative adapter reconciles only its typed

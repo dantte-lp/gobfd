@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -281,9 +282,16 @@ func buildUnsolicitedPolicy(cfg config.UnsolicitedConfig) (*bfd.UnsolicitedPolic
 			}
 			prefixes = append(prefixes, p)
 		}
+		var ifIndex int
+		if cfg.Enabled && ifCfg.Enabled {
+			iface, err := net.InterfaceByName(name)
+			if err != nil {
+				return nil, fmt.Errorf("resolve unsolicited interface %q: %w", name, err)
+			}
+			ifIndex = iface.Index
+		}
 		interfaces[name] = bfd.UnsolicitedInterfaceConfig{
-			Enabled:         ifCfg.Enabled,
-			AllowedPrefixes: prefixes,
+			Enabled: ifCfg.Enabled, IfIndex: ifIndex, AllowedPrefixes: prefixes,
 		}
 	}
 

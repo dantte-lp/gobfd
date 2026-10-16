@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- RFC 9468 interface-bound IPv4/IPv6 single-hop wildcard listeners accept
+  unsolicited packets without a configured session on the destination address.
+  Configured listeners retain their peer lookup; unmatched ingress indices
+  resolve only through the enabled-interface startup snapshot. Empty enabled
+  interface names are rejected. Unsolicited mode remains an unsafe preview.
+
 - Negotiated AdminDown drain with owner commit, successful-write confirmation,
   retry through the existing TX timer and a monotonically extended notification
   window. Short budgets return typed `DrainIncompleteError`; shutdown uses one 10s

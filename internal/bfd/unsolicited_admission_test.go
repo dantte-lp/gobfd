@@ -243,3 +243,29 @@ func TestUnsolicitedReserveDuplicateLocalAddress(t *testing.T) {
 		t.Fatalf("reserve with /32 and /24 on the local address: %v", err)
 	}
 }
+
+// Unknown ingress indices cannot grow the startup allowlist or create sessions.
+func TestUnsolicitedIngressIndexAllowlist(t *testing.T) {
+	t.Parallel()
+	policy := admissionPolicy(4)
+	policy.Interfaces = map[string]UnsolicitedInterfaceConfig{
+		"lo": {Enabled: true, IfIndex: 17}, "eth0": {Enabled: false, IfIndex: 18},
+	}
+	mgr := NewManager(slog.New(slog.DiscardHandler), WithUnsolicitedPolicy(policy))
+	t.Cleanup(mgr.Close)
+	before := len(mgr.unsolicited.interfaceNames)
+	for _, index := range []int{-1, 0, 18, 1000} {
+		meta := admissionMeta("192.0.2.10", "192.0.2.1")
+		meta.IfName = ""
+		meta.IfIndex = index
+		if err := mgr.DemuxWithWire(ownershipDownPacket(101), meta, nil); !errors.Is(err, ErrUnsolicitedInterfaceNotEnabled) {
+			t.Fatalf("ingress index %d: error=%v, want ErrUnsolicitedInterfaceNotEnabled", index, err)
+		}
+	}
+	if after := len(mgr.unsolicited.interfaceNames); after != before {
+		t.Fatalf("ingress allowlist grew from %d to %d", before, after)
+	}
+	if got := len(mgr.Sessions()); got != 0 {
+		t.Fatalf("unknown ingress created %d sessions", got)
+	}
+}

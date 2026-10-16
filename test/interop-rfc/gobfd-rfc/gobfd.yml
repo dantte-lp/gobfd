@@ -33,10 +33,7 @@ unsolicited:
     required_min_rx: "300ms"
     detect_mult: 3
   interfaces:
-    # Empty string key matches the default listener (no interface binding).
-    # The raw socket listener does not set interface name in PacketMeta,
-    # so the key must be "" to match incoming unsolicited packets.
-    "":
+    eth0:
       enabled: true
       allowed_prefixes: ["172.22.0.0/24"]
 

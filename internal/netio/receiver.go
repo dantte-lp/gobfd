@@ -142,6 +142,7 @@ func convertMeta(nm PacketMeta) bfd.PacketMeta {
 		DstAddr:  nm.DstAddr,
 		TTL:      nm.TTL,
 		IfName:   nm.IfName,
+		IfIndex:  nm.IfIndex,
 		MultiHop: nm.MultiHop,
 	}
 }

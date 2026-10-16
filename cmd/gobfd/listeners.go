@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 
 	"golang.org/x/sync/errgroup"
 
@@ -107,15 +108,59 @@ func createListeners(cfg *config.Config, logger *slog.Logger) (listenersResult, 
 }
 
 // createControlListeners creates BFD Control packet listeners on port 3784
-// (single-hop) and 4784 (multi-hop) for each unique (localAddr, type) pair.
+// (single-hop) and 4784 (multi-hop), including enabled unsolicited interfaces.
 func createControlListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.Listener, error) {
 	type listenerKey struct {
 		addr     netip.Addr
+		ifName   string
 		multiHop bool
 	}
 
 	seen := make(map[listenerKey]struct{})
 	var listeners []*netio.Listener
+	for _, lnCfg := range controlListenerConfigs(cfg) {
+		key := listenerKey{addr: lnCfg.Addr, ifName: lnCfg.IfName, multiHop: lnCfg.MultiHop}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		ln, err := netio.NewListener(lnCfg)
+		if err != nil {
+			closeListeners(listeners, logger)
+			return nil, fmt.Errorf("create listener on %s%%%s (multihop=%v): %w", lnCfg.Addr, lnCfg.IfName, lnCfg.MultiHop, err)
+		}
+		logger.Info("BFD listener started",
+			slog.String("addr", lnCfg.Addr.String()),
+			slog.Bool("multi_hop", lnCfg.MultiHop),
+			slog.String("interface", lnCfg.IfName),
+		)
+		listeners = append(listeners, ln)
+	}
+	return listeners, nil
+}
+
+// controlListenerConfigs puts wildcard listeners before specific listeners so
+// configured sessions with an empty interface retain their receive path.
+func controlListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
+	var configs []netio.ListenerConfig
+	if cfg.Unsolicited.Enabled {
+		names := make([]string, 0, len(cfg.Unsolicited.Interfaces))
+		for name, ifCfg := range cfg.Unsolicited.Interfaces {
+			if ifCfg.Enabled {
+				names = append(names, name)
+			}
+		}
+		slices.Sort(names)
+		for _, name := range names {
+			for _, addr := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+				configs = append(configs, netio.ListenerConfig{
+					Addr: addr, IfName: name, Port: netio.PortSingleHop,
+					ReadBufferSize: cfg.Socket.ReadBufferSize,
+				})
+			}
+		}
+	}
 
 	for _, sc := range cfg.Sessions {
 		localAddr, err := sc.LocalAddr()
@@ -124,13 +169,6 @@ func createControlListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.L
 		}
 
 		multiHop := sc.Type == "multi_hop"
-		key := listenerKey{addr: localAddr, multiHop: multiHop}
-
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-
 		lnCfg := netio.ListenerConfig{
 			ReadBufferSize: cfg.Socket.ReadBufferSize,
 			Addr:           localAddr,
@@ -142,23 +180,10 @@ func createControlListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.L
 		} else {
 			lnCfg.Port = netio.PortSingleHop
 		}
-
-		ln, err := netio.NewListener(lnCfg)
-		if err != nil {
-			closeListeners(listeners, logger)
-			return nil, fmt.Errorf("create listener on %s (multihop=%v): %w", localAddr, multiHop, err)
-		}
-
-		logger.Info("BFD listener started",
-			slog.String("addr", localAddr.String()),
-			slog.Bool("multi_hop", multiHop),
-			slog.String("interface", sc.Interface),
-		)
-
-		listeners = append(listeners, ln)
+		configs = append(configs, lnCfg)
 	}
 
-	return listeners, nil
+	return configs
 }
 
 // createEchoListeners creates listeners on port 3785 for echo packet

@@ -112,6 +112,9 @@ type UnsolicitedInterfaceConfig struct {
 	// Enabled controls unsolicited BFD on this specific interface.
 	Enabled bool
 
+	// IfIndex is resolved at startup by the daemon, never from packet input.
+	IfIndex int
+
 	// AllowedPrefixes further restricts which source addresses can create
 	// sessions (RFC 9468 Section 6.1). The RFC 9468 Section 2 subnet check
 	// always applies: the source must belong to the subnet of the local
@@ -130,8 +133,9 @@ type UnsolicitedSessionDefaults struct {
 
 // unsolicitedState tracks runtime state for unsolicited session management.
 type unsolicitedState struct {
-	policy       *UnsolicitedPolicy
-	sessionCount atomic.Int32
+	policy         *UnsolicitedPolicy
+	interfaceNames map[int]string
+	sessionCount   atomic.Int32
 
 	// connectedPrefix returns the subnets of every host interface address
 	// equal to local.
@@ -144,8 +148,17 @@ type unsolicitedState struct {
 
 // newUnsolicitedState creates a new unsolicited state tracker.
 func newUnsolicitedState(policy *UnsolicitedPolicy) *unsolicitedState {
+	// Bound the startup snapshot to enabled interfaces; unknown packets never
+	// trigger interface lookups before the admission rate limit.
+	names := make(map[int]string, len(policy.Interfaces))
+	for name, cfg := range policy.Interfaces {
+		if cfg.Enabled && name != "" && cfg.IfIndex > 0 {
+			names[cfg.IfIndex] = name
+		}
+	}
 	return &unsolicitedState{
 		policy:          policy,
+		interfaceNames:  names,
 		connectedPrefix: systemConnectedPrefixes,
 		admitTokens:     unsolicitedAdmissionBurst,
 		admitLast:       time.Now(),

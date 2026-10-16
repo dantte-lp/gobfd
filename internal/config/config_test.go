@@ -2076,6 +2076,12 @@ func TestValidateUnsolicitedPolicy(t *testing.T) {
 		{"no enabled interface", func(u *config.UnsolicitedConfig) {
 			u.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"eth0": {}}
 		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"empty enabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces[""] = config.UnsolicitedInterfaceConfig{Enabled: true}
+		}, config.ErrInvalidUnsolicitedInterfaces},
+		{"whitespace enabled interface", func(u *config.UnsolicitedConfig) {
+			u.Interfaces[" "] = config.UnsolicitedInterfaceConfig{Enabled: true}
+		}, config.ErrInvalidUnsolicitedInterfaces},
 		{"invalid allowed prefix", func(u *config.UnsolicitedConfig) {
 			u.Interfaces = map[string]config.UnsolicitedInterfaceConfig{
 				"eth0": {Enabled: true, AllowedPrefixes: []string{"192.0.2.0/33"}},

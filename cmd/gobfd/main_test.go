@@ -1324,7 +1324,7 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 				Enabled:     true,
 				MaxSessions: 100,
 				Interfaces: map[string]config.UnsolicitedInterfaceConfig{
-					"eth0": {
+					"lo": {
 						Enabled:         true,
 						AllowedPrefixes: []string{"10.0.0.0/24", "172.16.0.0/16"},
 					},
@@ -1343,9 +1343,9 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 				if p.MaxSessions != 100 {
 					t.Errorf("MaxSessions = %d, want 100", p.MaxSessions)
 				}
-				ifCfg, ok := p.Interfaces["eth0"]
+				ifCfg, ok := p.Interfaces["lo"]
 				if !ok {
-					t.Fatal("missing eth0 interface")
+					t.Fatal("missing lo interface")
 				}
 				if len(ifCfg.AllowedPrefixes) != 2 {
 					t.Errorf("AllowedPrefixes count = %d, want 2", len(ifCfg.AllowedPrefixes))
@@ -1357,7 +1357,7 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 			cfg: config.UnsolicitedConfig{
 				Enabled: true,
 				Interfaces: map[string]config.UnsolicitedInterfaceConfig{
-					"eth0": {
+					"lo": {
 						Enabled:         true,
 						AllowedPrefixes: []string{"not-a-prefix"},
 					},
@@ -1370,7 +1370,7 @@ func TestBuildUnsolicitedPolicy(t *testing.T) {
 			cfg: config.UnsolicitedConfig{
 				Enabled: true,
 				Interfaces: map[string]config.UnsolicitedInterfaceConfig{
-					"eth0": {Enabled: true},
+					"lo": {Enabled: true},
 				},
 				SessionDefaults: config.UnsolicitedSessionDefaultsConfig{
 					DetectMult: 256,

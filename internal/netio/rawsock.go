@@ -87,7 +87,7 @@ type PacketMeta struct {
 	IfIndex int
 
 	// IfName is the interface name on which the packet was received.
-	// Set by the listener from the interface index when available.
+	// It is the listener's device binding, empty for an unbound listener.
 	IfName string
 }
 

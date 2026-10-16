@@ -1729,6 +1729,9 @@ func validateUnsolicitedSessionDefaults(d UnsolicitedSessionDefaultsConfig) erro
 func validateUnsolicitedInterfaces(interfaces map[string]UnsolicitedInterfaceConfig) error {
 	enabled := false
 	for name, ifCfg := range interfaces {
+		if ifCfg.Enabled && strings.TrimSpace(name) == "" {
+			return fmt.Errorf("enabled interface name is empty: %w", ErrInvalidUnsolicitedInterfaces)
+		}
 		enabled = enabled || ifCfg.Enabled
 		for _, s := range ifCfg.AllowedPrefixes {
 			if _, err := netip.ParsePrefix(s); err != nil {
