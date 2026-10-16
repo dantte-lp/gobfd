@@ -16,8 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes and join callbacks before owner completion and source-port release.
   Local SIGTERM capture qualified repeated AdminDown writes to FRR and BIRD and
   a notification window of at least three seconds, with sampled BGP uptime/routes
-  unchanged. Ordinary `SetAdminDown` remains commit-only; peer receipt and last-claim deconfiguration
-  drain remain separate boundaries. See [RFC compliance](docs/en/08-rfc-compliance.md).
+  unchanged. Ordinary `SetAdminDown` remains commit-only; peer receipt remains
+  a separate boundary. See [RFC compliance](docs/en/08-rfc-compliance.md).
+
+- Final Control-session claim release drains the captured session before
+  cancel/join and sender release. Reconciliation and rollback share one parallel
+  ten-second budget; earlier caller cancellation reports incomplete drain and
+  still releases resources. Non-final claims preserve wire state. Unsolicited
+  failure cleanup skips drain per RFC 9468 Section 2 and checks release errors;
+  API deletion preserves deadline/cancel codes.
+  `Manager.Close()` keeps its raw cleanup after the daemon's global drain.
 
 - Causal session observations carry a coherent local state/diagnostic pair,
   known remote state/diagnostic, both C-bits, cause and per-row

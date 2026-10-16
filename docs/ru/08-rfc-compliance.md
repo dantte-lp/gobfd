@@ -189,8 +189,18 @@ negotiation продлевает deadline. Короткий deadline возвр�
 Ограничения passive unknown peer и нулевого remote RX сохраняются; разрешённый
 Final может подтвердить первую успешную запись. Owning UDP lease прерывает
 pending write и ожидает callback до освобождения ресурсов. Успех подтверждает
-локальные записи и время, без подтверждения получения пиром. Last-claim drain
-остаётся отдельным: `gobfd-qj0.8.2.1.3.9`.
+локальные записи и время, без подтверждения получения пиром.
+
+Освобождение последнего Control-session claim использует этот drain до
+cancel/join и освобождения lease, включая reconciliation rollback.
+Внутренний предел десять секунд учитывает более раннюю отмену caller;
+ошибки неполного drain и release сохраняются. Нефинальный claim не изменяет wire
+state. Reconciliation использует один бюджет для параллельного drain.
+RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны:
+failure cleanup unsolicited Down-сессии выполняет cancel без административного
+drain. Standalone Echo и удаление только Micro-BFD group не владеют этим Control
+exchange. Development-срез не квалифицирует полноту регистрации/статуса Watch
+или stable release.
 
 Локальная SIGTERM квалификация 2026-10-16 использовала source patch SHA256
 `d1394d09fb3b902d3e34a5e34467c5aa4c506bd1d71c49416f6176773dc86947`

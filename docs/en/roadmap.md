@@ -15,7 +15,12 @@ notification windows of at least 3.000147 seconds. Forty BGP/route samples over
 this is sampled evidence, not a continuity or peer-acknowledgement guarantee.
 The exact source patch and scope are recorded in
 [RFC compliance](08-rfc-compliance.md#section-6816-administrative-control).
-Last-claim drain stays separate in `gobfd-qj0.8.2.1.3.9`.
+The last-claim development slice (`gobfd-qj0.8.2.1.3.9`) reuses that drain for
+final Control-session claims before sender release, with one bounded parallel
+budget for reconciliation and explicit incomplete outcomes. Non-final claims
+preserve wire state. RFC 9468 Section 2 failure cleanup stops unsolicited Down
+sessions without administrative drain. This does not close full Watch registration/status or
+qualify stable delivery.
 
 ![Current Release](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)

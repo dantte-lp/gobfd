@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -299,6 +300,8 @@ func TestMapManagerError(t *testing.T) {
 		{"InvalidTxInterval", bfd.ErrInvalidTxInterval, connect.CodeInvalidArgument},
 		{"InvalidSessionType", bfd.ErrInvalidSessionType, connect.CodeInvalidArgument},
 		{"InvalidSessionRole", bfd.ErrInvalidSessionRole, connect.CodeInvalidArgument},
+		{"DrainDeadline", &bfd.DrainIncompleteError{Err: context.DeadlineExceeded}, connect.CodeDeadlineExceeded},
+		{"DrainCanceled", &bfd.DrainIncompleteError{Err: context.Canceled}, connect.CodeCanceled},
 		{"Unknown", errors.New("unknown error"), connect.CodeInternal},
 	}
 

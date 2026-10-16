@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 )
 
 type ownedBlockingSender struct {
@@ -51,9 +52,11 @@ func TestManagerOwnedWriteInterruptJoinsBeforeOwnerDone(t *testing.T) {
 			t.Fatal(err)
 		}
 		<-sender.entered
+		budget, stop := context.WithTimeout(t.Context(), time.Second)
+		defer stop()
 		result := make(chan error, 1)
-		go func() { result <- mgr.DestroySession(t.Context(), s.LocalDiscriminator()) }()
-		synctest.Wait()
+		go func() { result <- mgr.DestroySession(budget, s.LocalDiscriminator()) }()
+		synctest.Sleep(time.Second)
 		select {
 		case <-sender.interruptEntered:
 		default:
@@ -70,8 +73,8 @@ func TestManagerOwnedWriteInterruptJoinsBeforeOwnerDone(t *testing.T) {
 			t.Error("sender released before interrupt callback joined")
 		}
 		close(sender.interruptReturn)
-		if err := <-result; err != nil {
-			t.Error(err)
+		if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("blocked drain error=%v, want deadline", err)
 		}
 		if !released {
 			t.Error("owned lease was not released")
@@ -147,8 +150,8 @@ func TestManagerOwnedInterruptErrorPreserved(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = mgr.DestroySession(t.Context(), s.LocalDiscriminator())
-		if err != nil {
-			t.Fatal(err)
+		if !errors.Is(err, errInterruptTest) || !errors.Is(err, releaseErr) {
+			t.Errorf("destroy lost owned release errors=%v", err)
 		}
 		err = lease.Close()
 		if !errors.Is(err, errInterruptTest) || !errors.Is(err, releaseErr) {

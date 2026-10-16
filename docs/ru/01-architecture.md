@@ -435,8 +435,22 @@ deadline; неизменные или меньшие значения не пе�
 Owning UDP sender lease прерывает pending write при отмене сессии и ожидает
 callback до owner completion и освобождения source port. Non-owning shared
 overlay sender не прерывается сессионным lease. `Manager.Close()` не гарантирует
-границу для произвольного внешнего `PacketSender` или release callback. Drain
-при удалении последнего claim остаётся `gobfd-qj0.8.2.1.3.9`.
+границу для произвольного внешнего `PacketSender` или release callback.
+
+Освобождение последнего Control-session claim отсоединяет сохранённую identity,
+затем использует тот же drain до cancel/join и освобождения sender/discriminator.
+Общий путь охватывает API, base configuration, Micro-BFD members, VXLAN, Geneve
+и rollback принятой новой сессии. Нефинальный claim не
+изменяет wire session. Внутренний предел десять секунд действует и для
+Background; более ранняя отмена caller возвращает `DrainIncompleteError`, после
+чего cleanup освобождает ресурсы. Reconciliation выполняет drain отсоединённых
+сессий параллельно в одном бюджете. Ожидание не удерживает Manager locks;
+замена с тем же ключом не наследует drain прежней сессии. `Manager.Close()`
+выполняет только cancel/join/release: daemon shutdown уже выполнил общий drain.
+Failure cleanup unsolicited Down-сессии выполняет cancel без AdminDown drain:
+RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны.
+Standalone Echo и удаление только Micro-BFD group не имеют Control-session
+AdminDown exchange. Полнота регистрации/статуса Watch остаётся отдельной задачей.
 
 ### Структура проекта
 

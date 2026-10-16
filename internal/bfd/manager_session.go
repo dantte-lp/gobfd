@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -300,7 +301,7 @@ func (m *Manager) DestroySession(ctx context.Context, localDiscr uint32) error {
 // DestroySessionAs releases the claim of one API owner. It returns
 // ErrSessionOwnerClaimNotFound when that owner holds no claim on the
 // session, so one principal cannot release another's session.
-func (m *Manager) DestroySessionAs(_ context.Context, localDiscr uint32, owner SessionOwner) error {
+func (m *Manager) DestroySessionAs(ctx context.Context, localDiscr uint32, owner SessionOwner) error {
 	op, err := m.beginOperation()
 	if err != nil {
 		return err
@@ -312,7 +313,8 @@ func (m *Manager) DestroySessionAs(_ context.Context, localDiscr uint32, owner S
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 	if retired != nil {
-		m.finishSessionDestroy(retired.localDiscr, retired.entry)
+		cleanupErr := errors.Join(m.finishRetiredSessions(ctx, []retiredSession{*retired})...)
+		err = errors.Join(err, cleanupErr)
 	}
 	return err
 }
@@ -965,7 +967,7 @@ func (m *Manager) reconcileSessionsForOwner(
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
-	m.finishReconcileCleanup(&result, retired, unusedLeases)
+	m.finishReconcileCleanup(ctx, &result, retired, unusedLeases)
 
 	m.logSessionReconcileResult(result)
 
@@ -973,9 +975,10 @@ func (m *Manager) reconcileSessionsForOwner(
 }
 
 func (m *Manager) finishReconcileCleanup(
+	ctx context.Context,
 	result *ReconcileResult, retired []retiredSession, unusedLeases []*SenderLease,
 ) {
-	for _, cleanupErr := range m.finishRetiredSessions(retired) {
+	for _, cleanupErr := range m.finishRetiredSessions(ctx, retired) {
 		addReconcileError(result, ReconcileErrorCleanup, cleanupErr)
 	}
 	for _, lease := range unusedLeases {
@@ -1264,12 +1267,29 @@ func (m *Manager) ObserveTimerUpdates(refs []TimerUpdateRef) ReconcileResult {
 	return result
 }
 
-func (m *Manager) finishRetiredSessions(retired []retiredSession) []error {
-	var errs []error
-	for _, item := range retired {
-		if err := m.finishSessionDestroyError(item.localDiscr, item.entry); err != nil {
-			errs = append(errs, err)
-		}
+// Bound final-claim notification with the daemon's shutdown budget.
+const defaultClaimDrainTimeout = 10 * time.Second
+
+func (m *Manager) finishRetiredSessions(ctx context.Context, retired []retiredSession) []error {
+	if len(retired) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultClaimDrainTimeout)
+	defer cancel()
+
+	errs := make([]error, len(retired))
+	var workers sync.WaitGroup
+	for i, item := range retired {
+		workers.Go(func() {
+			if err := item.entry.session.drainAdminDown(ctx); err != nil {
+				errs[i] = fmt.Errorf("drain retired session %d: %w", item.localDiscr, err)
+			}
+		})
+	}
+	workers.Wait()
+	// Preserve the established order of sender release callbacks.
+	for i, item := range retired {
+		errs[i] = errors.Join(errs[i], m.finishSessionDestroyError(item.localDiscr, item.entry))
 	}
 	return errs
 }

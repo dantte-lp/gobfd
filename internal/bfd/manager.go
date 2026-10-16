@@ -689,10 +689,11 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) 
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 	if retired != nil {
-		m.finishSessionDestroy(retired.localDiscr, retired.entry)
+		// RFC 9468 Section 2 failure cleanup must stop Control transmission.
+		err = errors.Join(err, m.finishSessionDestroyError(retired.localDiscr, retired.entry))
 	}
 	if err != nil {
-		m.logger.Debug("unsolicited cleanup skipped",
+		m.logger.Warn("unsolicited cleanup incomplete",
 			slog.Uint64("local_discr", uint64(localDiscr)),
 			slog.String("peer", peer.String()),
 			slog.String("error", err.Error()),

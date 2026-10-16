@@ -418,7 +418,22 @@ Manager-owned UDP sender leases interrupt pending writes on session cancellation
 and join that callback before owner completion or source-port release. Non-owning
 shared overlay senders are never interrupted by a session lease. `Manager.Close()`
 does not promise a bound for an arbitrary external `PacketSender` or release
-callback. Last-claim deconfiguration drain remains `gobfd-qj0.8.2.1.3.9`.
+callback.
+
+Releasing the last Control-session claim detaches its captured identity, then
+uses the same drain before cancel/join and sender/discriminator release. API,
+base configuration, Micro-BFD members, VXLAN, Geneve and
+accepted creation rollback share this path. Non-final claims leave the wire
+session unchanged. A private ten-second cap also bounds Background callers;
+earlier caller cancellation returns `DrainIncompleteError` while cleanup still
+releases resources. Reconciliation drains retired sessions concurrently within
+one budget. No Manager lock is held across the wait, and a same-key replacement
+does not inherit the retired session's drain. `Manager.Close()` only cancels,
+joins and releases; daemon shutdown already drains its captured sessions.
+RFC 9468 Section 2 failure cleanup cancels unsolicited Down sessions without
+AdminDown drain: the passive side must stop Control transmission. Standalone
+Echo and Micro-BFD group-only removal have no Control-session AdminDown
+exchange. Full Watch registration/status remains open separately.
 
 ### Project Structure
 

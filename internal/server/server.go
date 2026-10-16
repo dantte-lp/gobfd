@@ -761,6 +761,10 @@ func wrapError(context string, err error) error {
 // mapManagerError translates bfd.Manager errors into appropriate ConnectRPC error codes.
 func mapManagerError(err error, operation string) *connect.Error {
 	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return connect.NewError(connect.CodeDeadlineExceeded, wrapError(operation, err).Error())
+	case errors.Is(err, context.Canceled):
+		return connect.NewError(connect.CodeCanceled, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrDuplicateSession):
 		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionNotFound):

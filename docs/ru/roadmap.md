@@ -3,9 +3,20 @@
 Development-срез причинных наблюдений (`gobfd-qj0.8.2.1.2.1` и
 `gobfd-qj0.8.2.4.8`) охватывает согласованные scalar facts, версии строк и
 причинную policy GoBGP. Он не квалифицирует stable release или C-bit graceful
-restart. Полнота регистрации/статуса Watch остаётся в `gobfd-qj0.8.2.1.3.8`;
-negotiated graceful drain и bounded I/O — в H-12 (`gobfd-qj0.8.2.1.3.3`).
-Живая проверка peer policy является отдельным gate от локальных causal tests.
+restart. Полнота регистрации и статуса Watch остаётся в `gobfd-qj0.8.2.1.3.8`.
+H-12 (`gobfd-qj0.8.2.1.3.3`) принят в локальном `dev`: подтверждение успешной
+записи, negotiated notification window и отмена owning UDP writes. Локальный
+SIGTERM capture для FRR и BIRD подтвердил повторные AdminDown/7 и окно не менее
+трёх секунд; sampled BGP uptime и routes сохранились. Это не доказывает
+непрерывность между samples или получение пиром. Точная source identity и scope
+указаны в [RFC compliance](08-rfc-compliance.md).
+Development-срез последнего claim (`gobfd-qj0.8.2.1.3.9`) использует тот же drain
+для финального Control-session claim перед освобождением sender, с одним
+ограниченным параллельным бюджетом reconciliation и явным incomplete outcome.
+Нефинальный claim сохраняет wire state. Failure cleanup unsolicited Down-сессии
+останавливает передачу без административного drain по RFC 9468 Section 2.
+Это не закрывает полноту регистрации и статуса Watch и не квалифицирует stable
+delivery.
 
 ![Текущий релиз](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)

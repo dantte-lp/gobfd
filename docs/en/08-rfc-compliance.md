@@ -211,8 +211,18 @@ negotiations extend it. A shorter deadline returns typed `DrainIncompleteError`.
 Passive unknown-peer and zero remote receive-interval suppression remain
 mandatory; a permitted Final reply can provide the first successful write.
 Owning UDP leases interrupt pending writes and join callbacks before releasing
-resources. Success confirms local writes and time, not peer receipt. Last-claim
-drain is tracked separately in `gobfd-qj0.8.2.1.3.9`.
+resources. Success confirms local writes and time, not peer receipt.
+
+Final Control-session claim release uses this drain before cancel/join and
+lease release, including reconciliation rollback.
+The private ten-second cap honors earlier caller cancellation; incomplete drain
+and release errors are preserved. Non-final claims do not change wire state.
+Reconciliation shares one concurrent drain budget. RFC 9468 Section 2 failure
+cleanup of unsolicited Down sessions cancels without this administrative
+exchange, because the passive side must stop Control transmission.
+Standalone Echo and
+Micro-BFD group-only removal do not own this Control exchange. This development
+scope does not qualify full Watch registration/status or a stable release.
 
 Local SIGTERM qualification on 2026-10-16 used source patch SHA256
 `d1394d09fb3b902d3e34a5e34467c5aa4c506bd1d71c49416f6176773dc86947`

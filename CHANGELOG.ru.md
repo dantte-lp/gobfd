@@ -16,8 +16,17 @@
   write и ожидает callback до owner completion и освобождения source port.
   Локальный SIGTERM capture подтвердил повторные AdminDown записи в FRR и BIRD,
   окно уведомления не менее трёх секунд и неизменные sampled BGP uptime/routes.
-  Обычный `SetAdminDown` подтверждает только commit; получение пиром и drain при
-  удалении последнего claim остаются отдельными. См. [RFC](docs/ru/08-rfc-compliance.md).
+  Обычный `SetAdminDown` подтверждает только commit; получение пиром остаётся
+  отдельной границей. См. [RFC](docs/ru/08-rfc-compliance.md).
+
+- Освобождение последнего Control-session claim выполняет drain сохранённой
+  сессии до cancel/join и освобождения sender. Reconciliation и rollback
+  используют один параллельный бюджет десять секунд; ранняя отмена caller
+  сообщает неполный drain и сохраняет cleanup ресурсов. Нефинальный claim
+  сохраняет wire state. Unsolicited failure cleanup пропускает drain по
+  RFC 9468 Section 2 и проверяет ошибки release;
+  API deletion сохраняет deadline/cancel codes. `Manager.Close()` сохраняет
+  raw cleanup после общего drain демона.
 
 - Причинные наблюдения сессии: согласованные локальные state/diagnostic,
   известные remote state/diagnostic, оба C-bit, причина и строковая
