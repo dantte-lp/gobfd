@@ -30,7 +30,9 @@ type demuxCall struct {
 	WireLen   int
 }
 
-func (m *mockDemuxer) DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) error {
+func (m *mockDemuxer) DemuxWithWire(
+	pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
+) (bfd.DeliveryOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, demuxCall{
@@ -40,8 +42,10 @@ func (m *mockDemuxer) DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta,
 		TTL:       meta.TTL,
 		WireLen:   len(wire),
 	})
-	return m.err
+	return bfd.DeliveryQueued, m.err
 }
+
+func (*mockDemuxer) RecordDelivery(bfd.DeliverySource, bfd.DeliveryOutcome) {}
 
 // -------------------------------------------------------------------------
 // Receiver Tests

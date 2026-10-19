@@ -22,10 +22,19 @@
 
 GoBFD exposes Prometheus metrics at the configured endpoint (default `127.0.0.1:9100/metrics`). Metrics use the `gobfd_` namespace.
 
-`gobfd_bfd_packets_dropped_total` and `gobfd_bfd_auth_failures_total` are
-registered but are not yet incremented by the production data path. They remain
-zero and must not be used as operational loss or authentication evidence until
-the v1 loss-accounting work is complete.
+Control session `gobfd_bfd_packets_dropped_total` records queue full/closed,
+owner zero-TX/auth refusals and stop abandonment. `gobfd_bfd_auth_failures_total`
+is the auth subset of those drops. Parser, TTL, unknown-peer and unsolicited
+pre-session refusals appear only in the process-lifetime
+`gobfd_bfd_delivery_outcomes_total{source,outcome}` ledger; they create no peer
+labels. All supported pairs are preinitialized to zero. Every stage has a
+separate denominator: `queued` is not owner `committed`, and stage counts must
+not be summed as packet totals. `read_error` does not prove packet loss.
+ListSessions exposes the same fixed rows as sampled `delivery_counters`,
+including after the last session is deleted; its revision does not cover
+atomic counter sampling. Zero counts may be omitted by protobuf JSON encoding.
+Echo/notification queue accounting (`gobfd-qj0.8.2.1.3.1.2`) and kernel
+`SO_RXQ_OVFL` (`gobfd-qj0.8.2.1.6`) remain outside this Control slice.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
@@ -35,6 +44,7 @@ the v1 loss-accounting work is complete.
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Packets dropped (validation/buffer) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | FSM state transitions |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
+| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control stage decisions, retained after session deletion |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
 | `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Effective decayed flap penalty at scrape time |

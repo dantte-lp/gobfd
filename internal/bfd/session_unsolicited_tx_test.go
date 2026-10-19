@@ -40,7 +40,7 @@ func newUnsolicitedTXOwner(t *testing.T, sender PacketSender, initial State) (*M
 	pkt := ownershipDownPacket(101)
 	pkt.State = initial
 	pkt.DesiredMinTxInterval = 2_000_000
-	if err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.211", "192.0.2.254"), nil); err != nil {
+	if _, err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.211", "192.0.2.254"), nil); err != nil {
 		t.Fatal(err)
 	}
 	sess, _ := mgr.LookupByDiscriminator(mgr.Sessions()[0].LocalDiscr)
@@ -70,7 +70,7 @@ func TestUnsolicitedOwnerStopsAfterNaturalDown(t *testing.T) {
 					pkt.State = StateDown
 					sess.RecvPacket(pkt)
 				case "path":
-					if !sess.SetPathDown() {
+					if sess.SetPathDown() != DeliveryQueued {
 						t.Fatal("queue path failure")
 					}
 				}
@@ -281,7 +281,7 @@ func TestUnsolicitedOwnerPreservesAuthenticatedLifetime(t *testing.T) {
 			return pkt, wire[:int(wire[3])]
 		}
 		pkt, wire := sign(StateDown)
-		if err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.211", "192.0.2.254"), wire); err != nil {
+		if _, err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.211", "192.0.2.254"), wire); err != nil {
 			t.Fatal(err)
 		}
 		sess, _ := mgr.LookupByDiscriminator(mgr.Sessions()[0].LocalDiscr)
@@ -535,7 +535,7 @@ func BenchmarkUnsolicitedOwner(b *testing.B) {
 			b.ResetTimer()
 			for b.Loop() {
 				s.processTimerUpdates(tx, detect)
-				s.handleRecvPacket(ctx, recvItem{pkt: &packet}, tx, detect)
+				s.handleRecvPacket(ctx, recvItem{pkt: packet}, tx, detect)
 				s.handleTxTimer(ctx, tx)
 			}
 		})

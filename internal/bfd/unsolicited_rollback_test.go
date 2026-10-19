@@ -92,7 +92,7 @@ func TestUnsolicitedCreateFailureRollsBackReservation(t *testing.T) {
 				wantSessions = 1
 			}
 
-			if err := mgr.tryCreateUnsolicited(ownershipDownPacket(61), meta, nil); err == nil {
+			if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(61), meta, nil); err == nil {
 				t.Fatal("tryCreateUnsolicited succeeded, want the injected failure")
 			}
 			if got := mgr.unsolicited.sessionCount.Load(); got != 0 {
@@ -129,7 +129,7 @@ func TestUnsolicitedCreateFailureRollsBackReservation(t *testing.T) {
 			failing = nil
 			other := meta
 			other.SrcAddr = netip.MustParseAddr("192.0.2.11")
-			if err := mgr.tryCreateUnsolicited(ownershipDownPacket(62), other, nil); err != nil {
+			if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(62), other, nil); err != nil {
 				t.Fatalf("tryCreateUnsolicited after rollback: %v", err)
 			}
 		})

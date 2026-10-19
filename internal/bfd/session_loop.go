@@ -80,7 +80,9 @@ func (s *Session) runLoop(
 		if ctx.Err() != nil {
 			return
 		}
-		s.handleControlCommand(ctx, <-s.ctrlCh, txTimer, detectTimer)
+		cmd := <-s.ctrlCh
+		s.signalControlSpace()
+		s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
 	}
 	for {
 		if ctx.Err() != nil {
@@ -97,6 +99,7 @@ func (s *Session) runLoop(
 			s.handleRecvPacket(ctx, item, txTimer, detectTimer)
 
 		case cmd := <-s.ctrlCh:
+			s.signalControlSpace()
 			s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
 
 		case <-txTimer.C:
@@ -118,12 +121,19 @@ func (s *Session) handleControlCommand(
 ) {
 	switch cmd.kind {
 	case controlPathDown:
+		if s.cachedState == StateAdminDown {
+			s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
+			return
+		}
 		s.handlePathDown(ctx, txTimer, detectTimer)
 	case controlAdminDown:
 		s.handleAdminDown(ctx, cmd.receipt, txTimer, detectTimer)
 	default:
 		s.logger.Warn("unknown session control command", slog.Int("kind", int(cmd.kind)))
+		s.recordDelivery(DeliveryControlOwner, DeliveryIgnored)
+		return
 	}
+	s.recordDelivery(DeliveryControlOwner, DeliveryCommitted)
 }
 
 func (s *Session) handleAdminDown(

@@ -140,12 +140,67 @@ message DeleteSessionResponse {}
 // ListSessionsRequest retrieves all active BFD sessions.
 message ListSessionsRequest {}
 
-// ListSessionsResponse contains all active BFD sessions.
+// DeliverySource identifies a Control pipeline stage with its own denominator.
+enum DeliverySource {
+  DELIVERY_SOURCE_UNSPECIFIED = 0;
+  DELIVERY_SOURCE_WIRE_PARSE = 1;
+  DELIVERY_SOURCE_BASE_TTL = 2;
+  DELIVERY_SOURCE_OVERLAY_DECAP = 3;
+  DELIVERY_SOURCE_DEMUX = 4;
+  DELIVERY_SOURCE_UNSOLICITED_ADMISSION = 5;
+  DELIVERY_SOURCE_PACKET_ADMISSION = 6;
+  DELIVERY_SOURCE_PACKET_OWNER = 7;
+  DELIVERY_SOURCE_PATH_DOWN_ADMISSION = 8;
+  DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION = 9;
+  DELIVERY_SOURCE_CONTROL_OWNER = 10;
+}
+
+// DeliveryOutcome distinguishes admission, owner commit and terminal refusals.
+enum DeliveryOutcome {
+  DELIVERY_OUTCOME_UNSPECIFIED = 0;
+  DELIVERY_OUTCOME_ACCEPTED = 1;
+  DELIVERY_OUTCOME_PARSER_REJECTED = 2;
+  DELIVERY_OUTCOME_TTL_REJECTED = 3;
+  DELIVERY_OUTCOME_POLICY_REJECTED = 4;
+  DELIVERY_OUTCOME_READ_ERROR = 5;
+  DELIVERY_OUTCOME_FOUND = 6;
+  DELIVERY_OUTCOME_UNKNOWN_SESSION = 7;
+  DELIVERY_OUTCOME_SCOPE_MISMATCH = 8;
+  DELIVERY_OUTCOME_QUEUED = 9;
+  DELIVERY_OUTCOME_QUEUE_FULL = 10;
+  DELIVERY_OUTCOME_CLOSED = 11;
+  DELIVERY_OUTCOME_CAPACITY_REJECTED = 12;
+  DELIVERY_OUTCOME_RATE_REJECTED = 13;
+  DELIVERY_OUTCOME_AUTH_UNEXPECTED = 14;
+  DELIVERY_OUTCOME_AUTH_MISSING = 15;
+  DELIVERY_OUTCOME_AUTH_FAILED = 16;
+  DELIVERY_OUTCOME_SENDER_UNAVAILABLE = 17;
+  DELIVERY_OUTCOME_CREATE_FAILED = 18;
+  DELIVERY_OUTCOME_COMMITTED = 19;
+  DELIVERY_OUTCOME_ZERO_TX = 20;
+  DELIVERY_OUTCOME_ABANDONED = 21;
+  DELIVERY_OUTCOME_CANCELED = 22;
+  DELIVERY_OUTCOME_DEADLINE = 23;
+  DELIVERY_OUTCOME_IGNORED = 24;
+}
+
+// DeliveryCounter samples one fixed process-lifetime bucket. Supported pairs
+// include zero counts; UNSPECIFIED is never recorded. JSON may omit zero count.
+message DeliveryCounter {
+  DeliverySource source = 1;
+  DeliveryOutcome outcome = 2;
+  uint64 count = 3;
+}
+
+// ListSessionsResponse contains active sessions and sampled Control delivery telemetry.
 message ListSessionsResponse {
   repeated BfdSession sessions = 1;
   // Revision is the daemon state-change revision the snapshot covers.
   // Revisions are scoped to one daemon process.
   uint64 revision = 2;
+  // Counters survive session deletion and are sampled once per fixed bucket.
+  // Revision does not atomically cover counters or different pipeline stages.
+  repeated DeliveryCounter delivery_counters = 3;
 }
 
 // GetSessionRequest retrieves a single BFD session by discriminator or peer address.

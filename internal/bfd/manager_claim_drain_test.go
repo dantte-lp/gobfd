@@ -326,13 +326,13 @@ func TestManagerLastClaimUnsolicitedFailureCleanup(t *testing.T) {
 					}),
 				)
 				defer mgr.Close()
-				if err := mgr.tryCreateUnsolicited(ownershipDownPacket(101),
+				if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(101),
 					admissionMeta("192.0.2.210", "192.0.2.254"), nil); err != nil {
 					t.Fatal(err)
 				}
 				s, _ := mgr.LookupByDiscriminator(mgr.Sessions()[0].LocalDiscr)
 				synctest.Wait()
-				if !s.SetPathDown() {
+				if s.SetPathDown() != DeliveryQueued {
 					t.Fatal("queue unsolicited PathDown")
 				}
 				synctest.Wait()

@@ -90,7 +90,7 @@ func TestManagerDrainBoundOnlyExtends(t *testing.T) {
 					pkt.DetectMult = 4
 					window = 8 * time.Second
 				}
-				s.recvCh <- recvItem{pkt: &pkt}
+				s.recvCh <- recvItem{pkt: pkt}
 				synctest.Wait()
 				synctest.Sleep(time.Second)
 				if len(result) != 0 {
@@ -100,13 +100,13 @@ func TestManagerDrainBoundOnlyExtends(t *testing.T) {
 				pkt2.DesiredMinTxInterval = 100000
 				pkt2.RequiredMinRxInterval = 100000
 				pkt2.DetectMult = 1
-				s.recvCh <- recvItem{pkt: &pkt2}
+				s.recvCh <- recvItem{pkt: pkt2}
 				synctest.Wait()
 				synctest.Sleep(window - time.Second - time.Nanosecond)
 				if len(result) != 0 {
 					t.Error("lower negotiation shortened drain window")
 				}
-				s.recvCh <- recvItem{pkt: &pkt2}
+				s.recvCh <- recvItem{pkt: pkt2}
 				synctest.Wait()
 				synctest.Sleep(time.Nanosecond)
 				if err := <-result; err != nil {
@@ -238,7 +238,7 @@ func TestManagerDrainKnownPassiveFinalWithZeroRX(t *testing.T) {
 			Version: 1, State: StateDown, Poll: true, DetectMult: 3,
 			MyDiscriminator: 7, DesiredMinTxInterval: 1000000,
 		}
-		s.recvCh <- recvItem{pkt: &pkt}
+		s.recvCh <- recvItem{pkt: pkt}
 		<-sender.successful
 		synctest.Sleep(3*time.Second - time.Nanosecond)
 		if len(result) != 0 {

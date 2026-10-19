@@ -18,7 +18,8 @@ var ErrNoListeners = errors.New("receiver run: no listeners provided")
 type Demuxer interface {
 	// DemuxWithWire routes a packet to the matching session, passing
 	// raw wire bytes for authentication verification.
-	DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) error
+	DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) (bfd.DeliveryOutcome, error)
+	bfd.DeliveryReporter
 }
 
 // Receiver reads BFD Control packets from one or more Listeners and
@@ -107,12 +108,14 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(raw, &pkt); err != nil {
+		r.demuxer.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryParserRejected)
 		r.logger.Debug("invalid BFD packet",
 			slog.String("src", bfdMeta.SrcAddr.String()),
 			slog.String("error", err.Error()),
 		)
 		return nil // Drop invalid packets silently per RFC 5880 Section 6.8.6.
 	}
+	r.demuxer.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryAccepted)
 
 	// Auth fields are zero-copy slices into raw. If auth is present, copy and
 	// re-parse from stable wire bytes before returning raw to PacketPool.
@@ -125,8 +128,9 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 		}
 	}
 
-	if err := r.demuxer.DemuxWithWire(&pkt, bfdMeta, wire); err != nil {
+	if outcome, err := r.demuxer.DemuxWithWire(&pkt, bfdMeta, wire); err != nil {
 		r.logger.Debug("demux failed",
+			slog.String("outcome", outcome.String()),
 			slog.String("src", bfdMeta.SrcAddr.String()),
 			slog.String("error", err.Error()),
 		)

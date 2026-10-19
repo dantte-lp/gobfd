@@ -186,6 +186,7 @@ func (m *Manager) allocateAndBuild(
 		m.discriminators.Release(discr)
 		return 0, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
+	sess.delivery = m
 
 	return discr, sess, nil
 }
@@ -427,7 +428,7 @@ func (m *Manager) HandleInterfaceEvent(ifName string, up bool) int {
 
 	affected := 0
 	for _, sess := range matches {
-		if sess.SetPathDown() {
+		if sess.SetPathDown() == DeliveryQueued {
 			affected++
 		}
 	}
@@ -488,89 +489,58 @@ func (m *Manager) LookupByPeer(key packetDemuxKey) (*Session, bool) {
 //
 // Returns ErrDemuxNoMatch if no session matches. The caller (listener loop)
 // should log and discard the packet.
-func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) error {
-	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
+func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, error) {
 	if pkt.YourDiscriminator != 0 {
 		return m.demuxByDiscr(pkt, meta, nil)
 	}
-
-	// Tier 2: lookup by peer key when Your Discriminator == 0.
-	// RFC 5880 Section 6.8.6: Your Discriminator may be zero only when
-	// State is Down or AdminDown (validated by UnmarshalControlPacket step 7b).
 	key := packetDemuxKey{
-		peerAddr:       meta.SrcAddr.Unmap(),
-		localAddr:      meta.DstAddr.Unmap(),
-		ifName:         meta.IfName,
-		transportScope: packetTransportScope(meta.TransportScope),
+		peerAddr: meta.SrcAddr.Unmap(), localAddr: meta.DstAddr.Unmap(),
+		ifName: meta.IfName, transportScope: packetTransportScope(meta.TransportScope),
 	}
-
 	sess, ok := m.LookupByPeer(key)
 	if !ok {
-		return fmt.Errorf(
-			"demux: no session for peer %s -> %s (iface=%s): %w",
-			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
-		)
+		m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
+		return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
+			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
 	}
-
-	sess.RecvPacket(pkt)
-	return nil
+	m.RecordDelivery(DeliveryDemux, DeliveryFound)
+	return admitControlPacket(sess, pkt, nil)
 }
 
-// DemuxWithWire routes a packet like Demux but also passes raw wire
-// bytes to the session for authentication verification (RFC 5880 Section 6.7).
-func (m *Manager) DemuxWithWire(
-	pkt *ControlPacket,
-	meta PacketMeta,
-	wire []byte,
-) error {
-	// Tier 1: lookup by Your Discriminator (RFC 5880 Section 6.8.6).
+// DemuxWithWire returns Queued only for admission, never owner commit. A
+// non-nil ancillary lease-close error can accompany a Queued outcome.
+func (m *Manager) DemuxWithWire(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	if pkt.YourDiscriminator != 0 {
 		return m.demuxByDiscr(pkt, meta, wire)
 	}
-
-	// Tier 2: lookup by peer key when Your Discriminator == 0.
 	return m.demuxByPeer(pkt, meta, wire)
 }
 
-// demuxByDiscr routes a packet by Your Discriminator (tier 1).
-func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) error {
+func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	m.mu.RLock()
 	entry, ok := m.sessions[pkt.YourDiscriminator]
 	m.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf(
-			"demux: your discriminator %d not found: %w",
-			pkt.YourDiscriminator, ErrDemuxNoMatch,
-		)
+		m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
+		return DeliveryUnknownSession, fmt.Errorf("demux: your discriminator %d not found: %w",
+			pkt.YourDiscriminator, ErrDemuxNoMatch)
 	}
-	if expected := packetTransportScope(entry.key.TransportScope); expected != packetTransportScope(meta.TransportScope) {
-		return fmt.Errorf(
-			"demux: discriminator %d transport scope mismatch: %w",
-			pkt.YourDiscriminator, ErrDemuxNoMatch,
-		)
+	if packetTransportScope(entry.key.TransportScope) != packetTransportScope(meta.TransportScope) {
+		m.RecordDelivery(DeliveryDemux, DeliveryScopeMismatch)
+		return DeliveryScopeMismatch, fmt.Errorf("demux: discriminator %d transport scope mismatch: %w",
+			pkt.YourDiscriminator, ErrDemuxNoMatch)
 	}
-	entry.session.RecvPacket(pkt, wire)
-	return nil
+	m.RecordDelivery(DeliveryDemux, DeliveryFound)
+	return admitControlPacket(entry.session, pkt, wire)
 }
 
-// demuxByPeer routes a packet by peer key (tier 2).
-// If no matching session exists and unsolicited BFD is enabled (RFC 9468),
-// attempts to auto-create a passive session for the peer.
-func (m *Manager) demuxByPeer(
-	pkt *ControlPacket,
-	meta PacketMeta,
-	wire []byte,
-) error {
+func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	key := packetDemuxKey{
-		peerAddr:       meta.SrcAddr.Unmap(),
-		localAddr:      meta.DstAddr.Unmap(),
-		ifName:         meta.IfName,
-		transportScope: packetTransportScope(meta.TransportScope),
+		peerAddr: meta.SrcAddr.Unmap(), localAddr: meta.DstAddr.Unmap(),
+		ifName: meta.IfName, transportScope: packetTransportScope(meta.TransportScope),
 	}
-
 	sess, ok := m.LookupByPeer(key)
-	// A configured address listener may have no interface binding. Preserve
-	// its configured lookup, then use the actual ingress index for admission.
+	// A configured address listener can have no interface binding.
 	if !ok && m.unsolicited != nil && meta.IfName == "" && !meta.MultiHop {
 		meta.IfName = m.unsolicited.interfaceNames[meta.IfIndex]
 		if meta.IfName != "" {
@@ -579,76 +549,92 @@ func (m *Manager) demuxByPeer(
 		}
 	}
 	if ok {
-		sess.RecvPacket(pkt, wire)
-		return nil
+		m.RecordDelivery(DeliveryDemux, DeliveryFound)
+		return admitControlPacket(sess, pkt, wire)
 	}
-
-	// RFC 9468: attempt unsolicited session creation.
+	m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
 	if m.unsolicited != nil {
 		return m.tryCreateUnsolicited(pkt, meta, wire)
 	}
-
-	return fmt.Errorf(
-		"demux: no session for peer %s -> %s (iface=%s): %w",
-		meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch,
-	)
+	return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
+		meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
 }
 
-// tryCreateUnsolicited validates the unsolicited policy and creates a
-// passive BFD session for the incoming packet (RFC 9468 Section 2).
-func (m *Manager) tryCreateUnsolicited(
-	pkt *ControlPacket,
-	meta PacketMeta,
-	wire []byte,
-) error {
+func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte) (DeliveryOutcome, error) {
+	outcome := sess.RecvPacket(pkt, wire)
+	switch outcome {
+	case DeliveryQueued:
+		return outcome, nil
+	case DeliveryQueueFull:
+		return outcome, ErrDeliveryQueueFull
+	default:
+		return outcome, errors.Join(ErrDeliveryClosed, ErrSessionStopped)
+	}
+}
+
+func (m *Manager) tryCreateUnsolicited(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
 	op, err := m.beginOperation()
 	if err != nil {
-		return err
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryClosed)
+		return DeliveryClosed, err
 	}
 	defer op.finish()
-
 	m.ownershipMu.Lock()
-
 	if admitErr := m.unsolicited.admit(pkt, meta, wire); admitErr != nil {
 		m.ownershipMu.Unlock()
-		return fmt.Errorf("unsolicited: peer %s on %s: %w", meta.SrcAddr, meta.IfName, admitErr)
+		outcome := unsolicitedRejection(m.unsolicited.policy, pkt, admitErr)
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, outcome)
+		return outcome, fmt.Errorf("unsolicited: peer %s on %s: %w", meta.SrcAddr, meta.IfName, admitErr)
 	}
-
 	cfg := unsolicitedSessionConfig(meta, m.unsolicited.policy)
-
 	if m.unsolicitedSessionSender == nil {
 		m.unsolicited.release()
 		m.ownershipMu.Unlock()
-		return fmt.Errorf(
-			"unsolicited: no sender configured for peer %s: %w",
-			meta.SrcAddr, ErrUnsolicitedDisabled,
-		)
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliverySenderUnavailable)
+		return DeliverySenderUnavailable, fmt.Errorf("unsolicited: no sender for peer %s: %w",
+			meta.SrcAddr, ErrUnsolicitedDisabled)
 	}
-
 	senderFactory := func() (*SenderLease, error) { return m.unsolicitedSessionSender(meta) }
-	sess, _, unusedLease, err := m.claimSession(
-		context.Background(), cfg, senderFactory,
-		unsolicitedSessionOwner(), false,
-	)
+	sess, _, unusedLease, err := m.claimSession(context.Background(), cfg, senderFactory, unsolicitedSessionOwner(), false)
 	if err != nil {
 		m.unsolicited.release()
 		m.ownershipMu.Unlock()
 		op.unlockMutation()
+		m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryCreateFailed)
 		if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
 			err = errors.Join(err, closeErr)
 		}
-		return fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
+		return DeliveryCreateFailed, fmt.Errorf("unsolicited: create session for peer %s: %w", meta.SrcAddr, err)
 	}
-
 	m.markSessionUnsolicited(sess.LocalDiscriminator())
-	m.activateUnsolicitedSession(sess, pkt, meta, wire)
+	m.RecordDelivery(DeliveryUnsolicitedAdmission, DeliveryAccepted)
+	outcome, admissionErr := m.activateUnsolicitedSession(sess, pkt, meta, wire)
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 	if closeErr := closeSenderLeaseError(unusedLease); closeErr != nil {
-		return fmt.Errorf("unsolicited: close unused sender for peer %s: %w", meta.SrcAddr, closeErr)
+		return outcome, errors.Join(admissionErr,
+			fmt.Errorf("unsolicited: close unused sender for peer %s: %w", meta.SrcAddr, closeErr))
 	}
+	return outcome, admissionErr
+}
 
-	return nil
+func unsolicitedRejection(policy *UnsolicitedPolicy, pkt *ControlPacket, err error) DeliveryOutcome {
+	switch {
+	case errors.Is(err, ErrUnsolicitedMaxSessions):
+		return DeliveryCapacityRejected
+	case errors.Is(err, ErrUnsolicitedRateLimited):
+		return DeliveryRateRejected
+	case errors.Is(err, ErrUnsolicitedAuthFailed):
+		if policy.Auth == nil && pkt.AuthPresent {
+			return DeliveryAuthUnexpected
+		}
+		if !pkt.AuthPresent || pkt.Auth == nil {
+			return DeliveryAuthMissing
+		}
+		return DeliveryAuthFailed
+	default:
+		return DeliveryPolicyRejected
+	}
 }
 
 func unsolicitedSessionConfig(meta PacketMeta, policy *UnsolicitedPolicy) SessionConfig {
@@ -672,14 +658,14 @@ func (m *Manager) activateUnsolicitedSession(
 	pkt *ControlPacket,
 	meta PacketMeta,
 	wire []byte,
-) {
+) (DeliveryOutcome, error) {
 	m.logger.Info("unsolicited session created (RFC 9468)",
 		slog.String("peer", meta.SrcAddr.String()),
 		slog.String("local", meta.DstAddr.String()),
 		slog.String("interface", meta.IfName),
 		slog.Uint64("local_discr", uint64(sess.LocalDiscriminator())),
 	)
-	sess.RecvPacket(pkt, wire)
+	return admitControlPacket(sess, pkt, wire)
 }
 
 func (m *Manager) markSessionUnsolicited(localDiscr uint32) {
@@ -782,11 +768,7 @@ func snapshotForObservation(s *Session, observation Observation) SessionSnapshot
 		LastPacketReceived:   s.LastPacketReceived(),
 		PaddedPduSize:        s.PaddedPduSize(),
 		AuthType:             s.AuthType(),
-		Counters: SessionCounters{
-			PacketsSent:      s.PacketsSent(),
-			PacketsReceived:  s.PacketsReceived(),
-			StateTransitions: s.StateTransitions(),
-		},
+		Counters:             s.counters(),
 	}
 }
 

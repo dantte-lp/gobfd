@@ -22,9 +22,12 @@ func (s *Session) handleRecvPacket(
 	detectTimer *time.Timer,
 ) {
 	pkt := item.pkt
-	if !s.checkReceivedPacket(item) {
+	if outcome := s.checkReceivedPacket(item); outcome != DeliveryAccepted {
+		s.recordPacketDrop(outcome)
+		s.recordDelivery(DeliveryPacketOwner, outcome)
 		return
 	}
+	defer s.recordDelivery(DeliveryPacketOwner, DeliveryCommitted)
 
 	s.recordValidReceivedPacket()
 	s.expireUnsolicitedSetup()
@@ -89,28 +92,39 @@ func (s *Session) handleRecvPacket(
 	}
 }
 
-func (s *Session) checkReceivedPacket(item recvItem) bool {
+func (s *Session) checkReceivedPacket(item recvItem) DeliveryOutcome {
 	pkt := item.pkt
 	// RFC 5880 Section 4.1 reserves zero Desired Min TX; accepting it with
 	// local Required Min RX zero would arm a zero-duration detection timer.
 	// Steps 8-9 also discard authentication mismatches before any mutation.
-	if pkt.DesiredMinTxInterval == 0 || !s.checkAuthConsistency(pkt) {
-		return false
+	if pkt.DesiredMinTxInterval == 0 {
+		return DeliveryZeroTX
+	}
+	if pkt.AuthPresent && s.auth == nil {
+		return DeliveryAuthUnexpected
+	}
+	if !pkt.AuthPresent && s.auth != nil {
+		return DeliveryAuthMissing
 	}
 	if s.auth == nil {
-		return true
+		return DeliveryAccepted
 	}
+	return s.verifyReceivedAuth(item)
+}
+
+func (s *Session) verifyReceivedAuth(item recvItem) DeliveryOutcome {
 	// RX may win select while the detection timer is already ready.
 	// Expire the old sequence window before authenticating a restarted peer.
 	s.maybeResetAuthSeqKnown()
-	if err := s.auth.Verify(s.authState, s.authKeys, pkt, item.wire, len(item.wire)); err != nil {
+	pkt := item.pkt
+	if err := s.auth.Verify(s.authState, s.authKeys, &pkt, item.wire, len(item.wire)); err != nil {
 		s.logger.Debug("auth verification failed",
 			slog.String("peer", s.peerAddr.String()),
 			slog.String("error", err.Error()),
 		)
-		return false
+		return DeliveryAuthFailed
 	}
-	return true
+	return DeliveryAccepted
 }
 
 func (s *Session) recordValidReceivedPacket() {
@@ -118,25 +132,6 @@ func (s *Session) recordValidReceivedPacket() {
 	s.metrics.IncPacketsReceived(s.peerAddr, s.localAddr)
 	s.lastValidRecv = time.Now()
 	s.lastPacketRecv.Store(s.lastValidRecv.UnixNano())
-}
-
-// checkAuthConsistency validates RFC 5880 Section 6.8.6 steps 8-9.
-func (s *Session) checkAuthConsistency(pkt *ControlPacket) bool {
-	// Step 8: A bit set but no auth configured -> discard.
-	if pkt.AuthPresent && s.auth == nil {
-		s.logger.Warn("discarding packet: auth present but not configured",
-			slog.String("peer", s.peerAddr.String()),
-		)
-		return false
-	}
-	// Step 9: A bit clear but auth configured -> discard.
-	if !pkt.AuthPresent && s.auth != nil {
-		s.logger.Warn("discarding packet: auth not present but configured",
-			slog.String("peer", s.peerAddr.String()),
-		)
-		return false
-	}
-	return true
 }
 
 // -------------------------------------------------------------------------
@@ -198,7 +193,7 @@ func (s *Session) executeFSMActions(
 	observation, changed := s.commitObservation(result.NewState, diag, cause)
 	s.cachedState = result.NewState
 	if changed {
-		s.logStateChange(result, observation)
+		s.logStateChange(ctx, result, observation)
 	}
 	for _, action := range result.Actions {
 		s.executeAction(ctx, action, txTimer, detectTimer)
@@ -207,8 +202,8 @@ func (s *Session) executeFSMActions(
 
 // logStateChange logs the FSM transition, updates counters, and emits a
 // StateChange notification.
-func (s *Session) logStateChange(result FSMResult, observation Observation) {
-	s.logger.Info("session state changed",
+func (s *Session) logStateChange(ctx context.Context, result FSMResult, observation Observation) {
+	s.logger.LogAttrs(ctx, slog.LevelInfo, "session state changed",
 		slog.String("old_state", result.OldState.String()),
 		slog.String("new_state", result.NewState.String()),
 		slog.String("diag", observation.LocalDiag.String()),

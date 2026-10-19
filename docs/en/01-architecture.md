@@ -322,6 +322,25 @@ counters and timestamps are sampled at publication or List boundaries, outside
 that tuple. Owner publication follows counter/`LastStateChange` updates and
 precedes an immediate Control send, so its TX count can precede that send.
 Telemetry does not advance `ObservationVersion` on every packet.
+
+Control delivery has separate stages: wire parse, base TTL or overlay
+decapsulation, demux, unsolicited policy, queue admission and owner processing.
+`Queued` means admission only. Full or stopped queues return typed refusals;
+the caller may reuse the header immediately, while authenticated wire storage
+remains immutable until owner processing. A shared admission/stop lock prevents
+enqueue after terminal drain. A canceled first `Run` abandons queued work once;
+abandoned AdminDown receipts never acknowledge commit. Full AdminDown admission
+still waits for capacity or its context without blocking RX.
+
+`ListSessions.delivery_counters` and fixed-label Prometheus telemetry retain
+process-lifetime stage decisions after session deletion. Each stage has its own
+denominator; summing the ledger does not yield a packet total. Each bucket is
+sampled once in stable pair order, including zero rows; neither lifecycle
+revision nor observation version provides an atomic counter snapshot. Session
+drop/auth counters are projections of terminal reasons, with auth a subset of
+drops; they are not added back into the global ledger. Echo, notification queues
+and kernel `SO_RXQ_OVFL` accounting remain separate work.
+
 Registration publishes `SESSION_ADDED` after registry insertion and before the
 owner starts, including a passive session that stays Down. This lifecycle
 covers the Control registry: base, Micro-BFD, VXLAN/Geneve and unsolicited

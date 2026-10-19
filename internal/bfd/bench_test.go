@@ -389,7 +389,7 @@ func BenchmarkRecvDecodeLookupEnqueue(b *testing.B) {
 		// Step 1: Unmarshal (RFC 5880 Section 6.8.6 steps 1-7).
 		_ = bfd.UnmarshalControlPacket(wire, &pkt)
 		// Step 2: Demux (tier-1 discriminator lookup + channel send).
-		_ = mgr.Demux(&pkt, meta)
+		_, _ = mgr.Demux(&pkt, meta)
 	}
 }
 

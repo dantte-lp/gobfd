@@ -24,10 +24,16 @@ type listenerAdmissionRecorder struct {
 	calls chan listenerAdmission
 }
 
-func (r *listenerAdmissionRecorder) DemuxWithWire(pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte) error {
-	err := r.mgr.DemuxWithWire(pkt, meta, wire)
+func (r *listenerAdmissionRecorder) DemuxWithWire(
+	pkt *bfd.ControlPacket, meta bfd.PacketMeta, wire []byte,
+) (bfd.DeliveryOutcome, error) {
+	outcome, err := r.mgr.DemuxWithWire(pkt, meta, wire)
 	r.calls <- listenerAdmission{meta: meta, err: err}
-	return err
+	return outcome, err
+}
+
+func (r *listenerAdmissionRecorder) RecordDelivery(source bfd.DeliverySource, outcome bfd.DeliveryOutcome) {
+	r.mgr.RecordDelivery(source, outcome)
 }
 
 // Run serially: these tests exercise the real single-hop port in a dedicated network namespace.
@@ -69,7 +75,7 @@ func checkUnsolicitedListenerAdmission(t *testing.T, cfg *config.Config, src, ds
 			t.Error(closeErr)
 		}
 	})
-	listeners, err := createControlListeners(cfg, logger)
+	listeners, err := createControlListeners(cfg, logger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +186,7 @@ func TestUnsolicitedListenersDisabled(t *testing.T) {
 		cfg.Sessions = nil
 		cfg.Unsolicited.Enabled = enabled
 		cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"does-not-exist": {Enabled: !enabled}}
-		listeners, err := createControlListeners(cfg, slog.New(slog.DiscardHandler))
+		listeners, err := createControlListeners(cfg, slog.New(slog.DiscardHandler), nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -28,7 +28,7 @@ func TestCausalManagerSnapshotAheadOfDispatch(t *testing.T) {
 		synctest.Wait()
 		registration := mgr.Revision()
 		initial := sess.Observation().ObservationVersion
-		if initial == 0 || !sess.SetPathDown() {
+		if initial == 0 || sess.SetPathDown() != DeliveryQueued {
 			t.Fatal("missing managed registration version or PathDown admission")
 		}
 		synctest.Wait()

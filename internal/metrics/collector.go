@@ -4,6 +4,8 @@ import (
 	"net/netip"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // -------------------------------------------------------------------------
@@ -47,7 +49,7 @@ type Collector struct {
 	PacketsReceived *prometheus.CounterVec
 
 	// PacketsDropped counts BFD Control packets dropped (validation failures,
-	// full receive channel, demux miss) per peer.
+	// full receive channel, closed admission or abandonment) per session peer.
 	PacketsDropped *prometheus.CounterVec
 
 	// StateTransitions counts FSM state transitions. Each counter is labeled
@@ -57,6 +59,10 @@ type Collector struct {
 	// AuthFailures counts authentication verification failures per peer.
 	// RFC 5880 Section 6.7: auth failures cause packet discard.
 	AuthFailures *prometheus.CounterVec
+
+	// DeliveryOutcomes counts only the fixed Control stage/outcome pairs.
+	DeliveryOutcomes *prometheus.CounterVec
+	deliveryCounters map[[2]uint8]prometheus.Counter
 
 	// GoBGPRPCErrors counts failed GoBGP API calls by RPC, including the
 	// startup and background compatibility preflight.
@@ -89,6 +95,7 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.PacketsDropped,
 		c.StateTransitions,
 		c.AuthFailures,
+		c.DeliveryOutcomes,
 		c.GoBGPRPCErrors,
 		c.GoBGPEndpointCompatible,
 		c.goBGPPeers,
@@ -99,12 +106,14 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 
 // newMetrics creates all Prometheus metric vectors without registering them.
 func newMetrics() *Collector {
+	deliveryOutcomes, deliveryCounters := newDeliveryMetrics()
 	sessionLabels := []string{labelPeerAddr, labelLocalAddr, labelSessionType}
 	peerLabels := []string{labelPeerAddr, labelLocalAddr}
 	transitionLabels := []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}
-
 	return &Collector{
-		goBGPPeers: newGoBGPPeerCollector(),
+		goBGPPeers:       newGoBGPPeerCollector(),
+		DeliveryOutcomes: deliveryOutcomes,
+		deliveryCounters: deliveryCounters,
 		GoBGPRPCErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: "gobgp",
@@ -123,14 +132,12 @@ func newMetrics() *Collector {
 			Name:      "sessions",
 			Help:      "Number of currently active BFD sessions.",
 		}, sessionLabels),
-
 		PacketsSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
 			Name:      "packets_sent_total",
 			Help:      "Total BFD Control packets transmitted.",
 		}, peerLabels),
-
 		PacketsReceived: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
@@ -158,6 +165,26 @@ func newMetrics() *Collector {
 			Name:      "auth_failures_total",
 			Help:      "Total BFD authentication verification failures (RFC 5880 Section 6.7).",
 		}, peerLabels),
+	}
+}
+
+func newDeliveryMetrics() (*prometheus.CounterVec, map[[2]uint8]prometheus.Counter) {
+	vector := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace, Subsystem: subsystem, Name: "delivery_outcomes_total",
+		Help: "Control pipeline decisions by stage and outcome; stages have distinct denominators.",
+	}, []string{"source", "outcome"})
+	counters := make(map[[2]uint8]prometheus.Counter)
+	for _, pair := range bfd.DeliveryCounterPairs() {
+		key := [2]uint8{uint8(pair.Source), uint8(pair.Outcome)}
+		counters[key] = vector.WithLabelValues(pair.Source.String(), pair.Outcome.String())
+	}
+	return vector, counters
+}
+
+// RecordDelivery never creates a series from untrusted input or unsupported pairs.
+func (c *Collector) RecordDelivery(source bfd.DeliverySource, outcome bfd.DeliveryOutcome) {
+	if counter, ok := c.deliveryCounters[[2]uint8{uint8(source), uint8(outcome)}]; ok {
+		counter.Inc()
 	}
 }
 

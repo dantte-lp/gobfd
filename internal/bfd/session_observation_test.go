@@ -28,7 +28,7 @@ func TestCausalObserversSeeCommittedPair(t *testing.T) {
 	}}
 	pkt := s.buildControlPacket()
 	pkt.State = StateAdminDown
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	if !observed {
 		t.Fatal("state transition observer did not run")
 	}
@@ -41,7 +41,7 @@ func TestCausalRemoteAndSameStateVersions(t *testing.T) {
 	s.notifyCh = ch
 	pkt := s.buildControlPacket()
 	pkt.State, pkt.Diag, pkt.ControlPlaneIndependent = StateAdminDown, DiagAdminDown, true
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	first := s.Observation()
 	sc := <-ch
 	snap := snapshotOf(s)
@@ -53,7 +53,7 @@ func TestCausalRemoteAndSameStateVersions(t *testing.T) {
 		snap.ObservationVersion != first.ObservationVersion || snap.RemoteDiag != first.RemoteDiag {
 		t.Fatalf("incoherent causal facts: observation=%+v event=%+v snapshot=%+v", first, sc, snap)
 	}
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	if got := s.Observation(); got != first || len(ch) != 0 {
 		t.Fatalf("unchanged packet changed observation: %+v, queued=%d", got, len(ch))
 	}
@@ -83,7 +83,7 @@ func TestCausalRemoteAndSameStateVersions(t *testing.T) {
 		t.Fatalf("timeout erased explicit local path failure: %+v", timeoutPath)
 	}
 	pkt.State = StateUp // Ignored by the Down FSM; this is not a new PathDown command.
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	if got := s.Observation(); got.LocalDiag != DiagControlTimeExpired || got.Cause != CausePathDown {
 		t.Fatalf("ignored received state changed the retained diagnostic: %+v", got)
 	}
@@ -98,7 +98,7 @@ func TestCausalRecoveryPreservesDiagnostic(t *testing.T) {
 		t.Fatalf("timeout packet: %+v", pkt)
 	}
 	pkt.State = StateInit
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	if s.State() != StateUp || s.LocalDiag() != DiagControlTimeExpired {
 		t.Fatalf("recovery = %+v", s.Observation())
 	}
@@ -165,7 +165,7 @@ func TestCausalRemoteAdminAlreadyDown(t *testing.T) {
 	s.notifyCh = ch
 	pkt := s.buildControlPacket()
 	pkt.State, pkt.Diag = StateAdminDown, DiagAdminDown
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	got := s.Observation()
 	if got.State != StateDown || got.LocalDiag != DiagControlTimeExpired || !got.RemoteKnown ||
 		got.RemoteState != StateAdminDown || got.Cause != CauseRemoteAdminDown ||

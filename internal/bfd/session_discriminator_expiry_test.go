@@ -33,7 +33,7 @@ func TestDownPollRetainsRemoteDiscriminator(t *testing.T) {
 					pkt := s.buildControlPacket()
 					pkt.State, pkt.MyDiscriminator, pkt.YourDiscriminator = transition.remote, 99, s.localDiscr
 					pkt.Poll, pkt.Final = true, false
-					s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+					s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 					if s.RemoteDiscriminator() != 99 || s.State() != StateDown || s.LocalDiag() != DiagNeighborDown {
 						t.Errorf("Down Poll: discriminator=%d observation=%+v", s.RemoteDiscriminator(), s.Observation())
 					}
@@ -78,7 +78,7 @@ func TestPathDownRetainsRemoteDiscriminatorUntilOwnerExpiry(t *testing.T) {
 		go func() { s.runLoop(ctx, tx, detect); close(done) }()
 		defer func() { cancel(); <-done }()
 		synctest.Sleep(detection / 2)
-		if !s.SetPathDown() {
+		if s.SetPathDown() != DeliveryQueued {
 			t.Fatal("PathDown command rejected")
 		}
 		synctest.Wait()
@@ -86,7 +86,7 @@ func TestPathDownRetainsRemoteDiscriminatorUntilOwnerExpiry(t *testing.T) {
 			t.Errorf("PathDown: discriminator=%d observation=%+v", s.RemoteDiscriminator(), s.Observation())
 		}
 		synctest.Sleep(detection / 4)
-		if !s.SetPathDown() {
+		if s.SetPathDown() != DeliveryQueued {
 			t.Fatal("repeated PathDown command rejected")
 		}
 		bad := signedAuthExpiryPacket(t, s, 202)
@@ -135,9 +135,9 @@ func TestDownInterruptionReanchorsDiscriminatorExpiry(t *testing.T) {
 				synctest.Sleep(100 * time.Millisecond)
 				remaining, discriminator := 200*time.Millisecond, uint32(7)
 				if remote {
-					s.recvCh <- recvItem{pkt: &pkt}
+					s.recvCh <- recvItem{pkt: pkt}
 					remaining, discriminator = 300*time.Millisecond, 99
-				} else if !s.SetPathDown() {
+				} else if s.SetPathDown() != DeliveryQueued {
 					t.Fatal("PathDown command rejected")
 				}
 				synctest.Wait()
@@ -274,7 +274,7 @@ func TestPassiveUnknownPeerBlocksEverySendPath(t *testing.T) {
 			}
 			pkt := s.buildControlPacket()
 			pkt.MyDiscriminator = 99
-			s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 			if sender.attempts != 1 || s.pendingFinal || s.PacketsSent() != 1 {
 				t.Fatal("valid peer did not release the retained Final with zero remote receive interval")
 			}

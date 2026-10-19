@@ -154,7 +154,7 @@ func BenchmarkManagerDemux1000Sessions(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = mgr.Demux(pkt, meta)
+		_, _ = mgr.Demux(pkt, meta)
 	}
 }
 

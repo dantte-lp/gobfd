@@ -62,7 +62,7 @@ func TestUnsolicitedAuthAdmitsSignedTrigger(t *testing.T) {
 
 	mgr := authManager(t, true)
 	pkt, wire := signedTrigger(t, unsolicitedAuthKeys(t, unsolicitedAuthKeyID))
-	if err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.10", "192.0.2.1"), wire); err != nil {
+	if _, err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.10", "192.0.2.1"), wire); err != nil {
 		t.Fatalf("tryCreateUnsolicited with a valid signature: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestUnsolicitedAuthRejectsBadTriggers(t *testing.T) {
 
 			mgr := authManager(t, tt.withAuth)
 			pkt, wire := tt.trigger(t)
-			err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.10", "192.0.2.1"), wire)
+			_, err := mgr.tryCreateUnsolicited(pkt, admissionMeta("192.0.2.10", "192.0.2.1"), wire)
 			if !errors.Is(err, ErrUnsolicitedAuthFailed) {
 				t.Fatalf("tryCreateUnsolicited error = %v, want ErrUnsolicitedAuthFailed", err)
 			}

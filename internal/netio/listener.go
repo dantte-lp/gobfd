@@ -45,6 +45,9 @@ type ListenerConfig struct {
 	// TTL/Hop Limit requirement. It is used for RFC 9747 Echo loopback
 	// packets, which MUST be received with TTL/Hop Limit 254.
 	ExpectedTTL uint8
+
+	// Delivery records Control TTL decisions. Echo owns separate accounting.
+	Delivery bfd.DeliveryReporter
 }
 
 // -------------------------------------------------------------------------
@@ -58,6 +61,7 @@ type Listener struct {
 	conn        PacketConn
 	multiHop    bool
 	expectedTTL uint8
+	delivery    bfd.DeliveryReporter
 }
 
 // ReceivedPacket owns one buffer borrowed from bfd.PacketPool.
@@ -82,10 +86,15 @@ func (p *ReceivedPacket) Release() {
 
 // NewListenerFromConn creates a Listener from an existing PacketConn.
 // This is useful for testing with mock connections or custom transports.
-func NewListenerFromConn(conn PacketConn, multiHop bool) *Listener {
+func NewListenerFromConn(conn PacketConn, multiHop bool, delivery ...bfd.DeliveryReporter) *Listener {
+	var reporter bfd.DeliveryReporter
+	if len(delivery) != 0 {
+		reporter = delivery[0]
+	}
 	return &Listener{
 		conn:     conn,
 		multiHop: multiHop,
+		delivery: reporter,
 	}
 }
 
@@ -135,12 +144,20 @@ func (l *Listener) RecvPacket(ctx context.Context) (*ReceivedPacket, error) {
 
 		// Validate GTSM TTL before returning to caller.
 		if err := l.validateTTL(pkt.Meta); err != nil {
+			l.recordTTL(bfd.DeliveryTTLRejected)
 			pkt.Release()
 			continue // Drop packets with invalid TTL silently.
 		}
+		l.recordTTL(bfd.DeliveryAccepted)
 		pkt.Meta.MultiHop = l.multiHop
 
 		return pkt, nil
+	}
+}
+
+func (l *Listener) recordTTL(outcome bfd.DeliveryOutcome) {
+	if l.delivery != nil {
+		l.delivery.RecordDelivery(bfd.DeliveryBaseTTL, outcome)
 	}
 }
 

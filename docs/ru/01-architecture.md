@@ -335,7 +335,28 @@ Control-session Watch передаёт полную API-строку стату�
 кортежа. Публикация владельца следует за обновлением счётчиков/`LastStateChange`
 и предшествует немедленной Control-отправке, поэтому её TX count может ещё не
 учитывать эту отправку. Телеметрия не увеличивает `ObservationVersion` на
-каждом пакете. Регистрация публикует `SESSION_ADDED` после добавления в реестры
+каждом пакете.
+
+Control delivery разделяет wire parse, base TTL или overlay decapsulation,
+demux, unsolicited policy, admission и owner processing. `Queued` подтверждает
+только admission. Полная или остановленная очередь возвращает типизированный
+отказ. Заголовок копируется по значению; authenticated wire storage остаётся
+неизменяемым до owner processing. Общий admission/stop lock запрещает enqueue
+после terminal drain. Первый `Run` с отменённым context один раз учитывает
+оставшуюся работу как abandoned; квитанция abandoned AdminDown не подтверждает
+commit. Полная очередь AdminDown сохраняет ожидание capacity/context без
+блокирования RX.
+
+`ListSessions.delivery_counters` и Prometheus с фиксированными метками хранят
+решения стадий за время жизни процесса, включая удалённые сессии. У каждой стадии
+свой знаменатель; сумма ledger не является количеством пакетов. Каждый bucket
+измеряется один раз в фиксированном порядке, включая нулевые строки; lifecycle
+revision и observation version не обеспечивают atomic snapshot счётчиков.
+Session drop/auth являются проекцией terminal reasons, auth входит в drops;
+проекции не прибавляются повторно в глобальный ledger. Echo, очереди уведомлений
+и kernel `SO_RXQ_OVFL` остаются отдельными задачами.
+
+Регистрация публикует `SESSION_ADDED` после добавления в реестры
 и до запуска владельца, включая пассивную сессию, остающуюся Down.
 Контракт охватывает Control-реестр: base, Micro-BFD, VXLAN/Geneve и unsolicited
 сессии. Регистрация доставляется revisioned-подписчикам без Micro-актуатора

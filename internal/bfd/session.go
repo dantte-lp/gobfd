@@ -425,6 +425,7 @@ type Session struct {
 
 	packetsSent      atomic.Uint64
 	packetsReceived  atomic.Uint64
+	packetDrops      [deliveryOutcomeCount]atomic.Uint64
 	stateTransitions atomic.Uint64
 
 	// lastStateChange stores the Unix nanosecond timestamp of the most
@@ -454,9 +455,11 @@ type Session struct {
 
 	sender    PacketSender
 	metrics   MetricsReporter
+	delivery  DeliveryReporter
 	logger    *slog.Logger
 	recvCh    chan recvItem
 	ctrlCh    chan sessionControl
+	ctrlSpace chan struct{}
 	ownerDone chan struct{}
 	notifyCh  chan<- StateChange
 	running   atomic.Bool
@@ -465,7 +468,7 @@ type Session struct {
 // recvItem carries a received BFD Control packet along with the raw
 // wire bytes needed for authentication verification (RFC 5880 Section 6.7).
 type recvItem struct {
-	pkt  *ControlPacket
+	pkt  ControlPacket
 	wire []byte // raw wire bytes for auth digest verification
 }
 
@@ -534,6 +537,7 @@ func NewSession(
 		notifyCh:              notifyCh,
 		recvCh:                make(chan recvItem, recvChSize),
 		ctrlCh:                make(chan sessionControl, 4),
+		ctrlSpace:             make(chan struct{}, 1),
 		ownerDone:             make(chan struct{}),
 		updateWake:            make(chan struct{}, 1),
 		cachedPacket:          make([]byte, pktBufSize),
@@ -801,20 +805,33 @@ func (s *Session) LastPacketReceived() time.Time {
 
 // RecvPacket delivers a received BFD Control packet to the session for
 // processing. This is safe to call from any goroutine. If the receive
-// channel is full, the packet is dropped (logged at debug level).
+// channel is full or admission is closed, the packet is counted as dropped.
+// Queued confirms admission, not owner validation or commit. The header is
+// copied; authenticated wire storage must remain immutable after admission.
 //
 // wire is the raw packet bytes needed for auth verification. It may be
 // nil if no authentication is configured.
-func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) {
+func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) DeliveryOutcome {
 	var w []byte
 	if len(wire) > 0 {
 		w = wire[0]
 	}
-	select {
-	case s.recvCh <- recvItem{pkt: pkt, wire: w}:
-	default:
-		s.logger.Debug("recv channel full, dropping packet")
+	s.mu.Lock()
+	outcome := DeliveryClosed
+	if !s.updateClosed {
+		select {
+		case s.recvCh <- recvItem{pkt: *pkt, wire: w}:
+			outcome = DeliveryQueued
+		default:
+			outcome = DeliveryQueueFull
+		}
 	}
+	s.mu.Unlock()
+	s.recordDelivery(DeliveryPacketAdmission, outcome)
+	if outcome != DeliveryQueued {
+		s.recordPacketDrop(outcome)
+	}
+	return outcome
 }
 
 // SetAdminDown waits for the owner to commit AdminDown with DiagAdminDown.
@@ -833,22 +850,44 @@ func (s *Session) SetAdminDown(ctx context.Context) error {
 }
 
 func (s *Session) enqueueAdminDown(ctx context.Context) (<-chan struct{}, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("admit AdminDown: %w", err)
-	}
-	select {
-	case <-s.ownerDone:
-		return nil, ErrSessionStopped
-	default:
-	}
 	receipt := make(chan struct{})
+	// Pass a coalesced free-slot wake to another waiter on every exit.
+	defer s.signalControlSpace()
+	for {
+		if err := ctx.Err(); err != nil {
+			outcome := DeliveryCanceled
+			if errors.Is(err, context.DeadlineExceeded) {
+				outcome = DeliveryDeadline
+			}
+			s.recordDelivery(DeliveryAdminDownAdmission, outcome)
+			return nil, fmt.Errorf("admit AdminDown: %w", err)
+		}
+		s.mu.Lock()
+		if s.updateClosed {
+			s.mu.Unlock()
+			s.recordDelivery(DeliveryAdminDownAdmission, DeliveryClosed)
+			return nil, ErrSessionStopped
+		}
+		select {
+		case s.ctrlCh <- sessionControl{kind: controlAdminDown, receipt: receipt}:
+			s.mu.Unlock()
+			s.recordDelivery(DeliveryAdminDownAdmission, DeliveryQueued)
+			return receipt, nil
+		default:
+			s.mu.Unlock()
+		}
+		select {
+		case <-s.ctrlSpace:
+		case <-s.ownerDone:
+		case <-ctx.Done():
+		}
+	}
+}
+
+func (s *Session) signalControlSpace() {
 	select {
-	case s.ctrlCh <- sessionControl{kind: controlAdminDown, receipt: receipt}:
-		return receipt, nil
-	case <-s.ownerDone:
-		return nil, ErrSessionStopped
-	case <-ctx.Done():
-		return nil, fmt.Errorf("admit AdminDown: %w", ctx.Err())
+	case s.ctrlSpace <- struct{}{}:
+	default:
 	}
 }
 
@@ -872,13 +911,19 @@ func (s *Session) waitAdminDown(ctx context.Context, receipt <-chan struct{}) er
 }
 
 // SetPathDown asks the session goroutine to transition the session to Down
-// with DiagPathDown. It returns false if the control channel is full.
-func (s *Session) SetPathDown() bool {
-	select {
-	case s.ctrlCh <- sessionControl{kind: controlPathDown}:
-		return true
-	default:
-		s.logger.Warn("session control channel full, dropping path-down event")
-		return false
+// with DiagPathDown. Queued confirms admission only.
+func (s *Session) SetPathDown() DeliveryOutcome {
+	s.mu.Lock()
+	outcome := DeliveryClosed
+	if !s.updateClosed {
+		select {
+		case s.ctrlCh <- sessionControl{kind: controlPathDown}:
+			outcome = DeliveryQueued
+		default:
+			outcome = DeliveryQueueFull
+		}
 	}
+	s.mu.Unlock()
+	s.recordDelivery(DeliveryPathDownAdmission, outcome)
+	return outcome
 }

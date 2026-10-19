@@ -343,6 +343,196 @@ func (ObservationCause) EnumDescriptor() ([]byte, []int) {
 	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{4}
 }
 
+// DeliverySource identifies a Control pipeline stage with its own denominator.
+type DeliverySource int32
+
+const (
+	DeliverySource_DELIVERY_SOURCE_UNSPECIFIED           DeliverySource = 0
+	DeliverySource_DELIVERY_SOURCE_WIRE_PARSE            DeliverySource = 1
+	DeliverySource_DELIVERY_SOURCE_BASE_TTL              DeliverySource = 2
+	DeliverySource_DELIVERY_SOURCE_OVERLAY_DECAP         DeliverySource = 3
+	DeliverySource_DELIVERY_SOURCE_DEMUX                 DeliverySource = 4
+	DeliverySource_DELIVERY_SOURCE_UNSOLICITED_ADMISSION DeliverySource = 5
+	DeliverySource_DELIVERY_SOURCE_PACKET_ADMISSION      DeliverySource = 6
+	DeliverySource_DELIVERY_SOURCE_PACKET_OWNER          DeliverySource = 7
+	DeliverySource_DELIVERY_SOURCE_PATH_DOWN_ADMISSION   DeliverySource = 8
+	DeliverySource_DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION  DeliverySource = 9
+	DeliverySource_DELIVERY_SOURCE_CONTROL_OWNER         DeliverySource = 10
+)
+
+// Enum value maps for DeliverySource.
+var (
+	DeliverySource_name = map[int32]string{
+		0:  "DELIVERY_SOURCE_UNSPECIFIED",
+		1:  "DELIVERY_SOURCE_WIRE_PARSE",
+		2:  "DELIVERY_SOURCE_BASE_TTL",
+		3:  "DELIVERY_SOURCE_OVERLAY_DECAP",
+		4:  "DELIVERY_SOURCE_DEMUX",
+		5:  "DELIVERY_SOURCE_UNSOLICITED_ADMISSION",
+		6:  "DELIVERY_SOURCE_PACKET_ADMISSION",
+		7:  "DELIVERY_SOURCE_PACKET_OWNER",
+		8:  "DELIVERY_SOURCE_PATH_DOWN_ADMISSION",
+		9:  "DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION",
+		10: "DELIVERY_SOURCE_CONTROL_OWNER",
+	}
+	DeliverySource_value = map[string]int32{
+		"DELIVERY_SOURCE_UNSPECIFIED":           0,
+		"DELIVERY_SOURCE_WIRE_PARSE":            1,
+		"DELIVERY_SOURCE_BASE_TTL":              2,
+		"DELIVERY_SOURCE_OVERLAY_DECAP":         3,
+		"DELIVERY_SOURCE_DEMUX":                 4,
+		"DELIVERY_SOURCE_UNSOLICITED_ADMISSION": 5,
+		"DELIVERY_SOURCE_PACKET_ADMISSION":      6,
+		"DELIVERY_SOURCE_PACKET_OWNER":          7,
+		"DELIVERY_SOURCE_PATH_DOWN_ADMISSION":   8,
+		"DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION":  9,
+		"DELIVERY_SOURCE_CONTROL_OWNER":         10,
+	}
+)
+
+func (x DeliverySource) Enum() *DeliverySource {
+	p := new(DeliverySource)
+	*p = x
+	return p
+}
+
+func (x DeliverySource) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeliverySource) Descriptor() protoreflect.EnumDescriptor {
+	return file_bfd_v1_bfd_proto_enumTypes[5].Descriptor()
+}
+
+func (DeliverySource) Type() protoreflect.EnumType {
+	return &file_bfd_v1_bfd_proto_enumTypes[5]
+}
+
+func (x DeliverySource) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeliverySource.Descriptor instead.
+func (DeliverySource) EnumDescriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{5}
+}
+
+// DeliveryOutcome distinguishes admission, owner commit and terminal refusals.
+type DeliveryOutcome int32
+
+const (
+	DeliveryOutcome_DELIVERY_OUTCOME_UNSPECIFIED        DeliveryOutcome = 0
+	DeliveryOutcome_DELIVERY_OUTCOME_ACCEPTED           DeliveryOutcome = 1
+	DeliveryOutcome_DELIVERY_OUTCOME_PARSER_REJECTED    DeliveryOutcome = 2
+	DeliveryOutcome_DELIVERY_OUTCOME_TTL_REJECTED       DeliveryOutcome = 3
+	DeliveryOutcome_DELIVERY_OUTCOME_POLICY_REJECTED    DeliveryOutcome = 4
+	DeliveryOutcome_DELIVERY_OUTCOME_READ_ERROR         DeliveryOutcome = 5
+	DeliveryOutcome_DELIVERY_OUTCOME_FOUND              DeliveryOutcome = 6
+	DeliveryOutcome_DELIVERY_OUTCOME_UNKNOWN_SESSION    DeliveryOutcome = 7
+	DeliveryOutcome_DELIVERY_OUTCOME_SCOPE_MISMATCH     DeliveryOutcome = 8
+	DeliveryOutcome_DELIVERY_OUTCOME_QUEUED             DeliveryOutcome = 9
+	DeliveryOutcome_DELIVERY_OUTCOME_QUEUE_FULL         DeliveryOutcome = 10
+	DeliveryOutcome_DELIVERY_OUTCOME_CLOSED             DeliveryOutcome = 11
+	DeliveryOutcome_DELIVERY_OUTCOME_CAPACITY_REJECTED  DeliveryOutcome = 12
+	DeliveryOutcome_DELIVERY_OUTCOME_RATE_REJECTED      DeliveryOutcome = 13
+	DeliveryOutcome_DELIVERY_OUTCOME_AUTH_UNEXPECTED    DeliveryOutcome = 14
+	DeliveryOutcome_DELIVERY_OUTCOME_AUTH_MISSING       DeliveryOutcome = 15
+	DeliveryOutcome_DELIVERY_OUTCOME_AUTH_FAILED        DeliveryOutcome = 16
+	DeliveryOutcome_DELIVERY_OUTCOME_SENDER_UNAVAILABLE DeliveryOutcome = 17
+	DeliveryOutcome_DELIVERY_OUTCOME_CREATE_FAILED      DeliveryOutcome = 18
+	DeliveryOutcome_DELIVERY_OUTCOME_COMMITTED          DeliveryOutcome = 19
+	DeliveryOutcome_DELIVERY_OUTCOME_ZERO_TX            DeliveryOutcome = 20
+	DeliveryOutcome_DELIVERY_OUTCOME_ABANDONED          DeliveryOutcome = 21
+	DeliveryOutcome_DELIVERY_OUTCOME_CANCELED           DeliveryOutcome = 22
+	DeliveryOutcome_DELIVERY_OUTCOME_DEADLINE           DeliveryOutcome = 23
+	DeliveryOutcome_DELIVERY_OUTCOME_IGNORED            DeliveryOutcome = 24
+)
+
+// Enum value maps for DeliveryOutcome.
+var (
+	DeliveryOutcome_name = map[int32]string{
+		0:  "DELIVERY_OUTCOME_UNSPECIFIED",
+		1:  "DELIVERY_OUTCOME_ACCEPTED",
+		2:  "DELIVERY_OUTCOME_PARSER_REJECTED",
+		3:  "DELIVERY_OUTCOME_TTL_REJECTED",
+		4:  "DELIVERY_OUTCOME_POLICY_REJECTED",
+		5:  "DELIVERY_OUTCOME_READ_ERROR",
+		6:  "DELIVERY_OUTCOME_FOUND",
+		7:  "DELIVERY_OUTCOME_UNKNOWN_SESSION",
+		8:  "DELIVERY_OUTCOME_SCOPE_MISMATCH",
+		9:  "DELIVERY_OUTCOME_QUEUED",
+		10: "DELIVERY_OUTCOME_QUEUE_FULL",
+		11: "DELIVERY_OUTCOME_CLOSED",
+		12: "DELIVERY_OUTCOME_CAPACITY_REJECTED",
+		13: "DELIVERY_OUTCOME_RATE_REJECTED",
+		14: "DELIVERY_OUTCOME_AUTH_UNEXPECTED",
+		15: "DELIVERY_OUTCOME_AUTH_MISSING",
+		16: "DELIVERY_OUTCOME_AUTH_FAILED",
+		17: "DELIVERY_OUTCOME_SENDER_UNAVAILABLE",
+		18: "DELIVERY_OUTCOME_CREATE_FAILED",
+		19: "DELIVERY_OUTCOME_COMMITTED",
+		20: "DELIVERY_OUTCOME_ZERO_TX",
+		21: "DELIVERY_OUTCOME_ABANDONED",
+		22: "DELIVERY_OUTCOME_CANCELED",
+		23: "DELIVERY_OUTCOME_DEADLINE",
+		24: "DELIVERY_OUTCOME_IGNORED",
+	}
+	DeliveryOutcome_value = map[string]int32{
+		"DELIVERY_OUTCOME_UNSPECIFIED":        0,
+		"DELIVERY_OUTCOME_ACCEPTED":           1,
+		"DELIVERY_OUTCOME_PARSER_REJECTED":    2,
+		"DELIVERY_OUTCOME_TTL_REJECTED":       3,
+		"DELIVERY_OUTCOME_POLICY_REJECTED":    4,
+		"DELIVERY_OUTCOME_READ_ERROR":         5,
+		"DELIVERY_OUTCOME_FOUND":              6,
+		"DELIVERY_OUTCOME_UNKNOWN_SESSION":    7,
+		"DELIVERY_OUTCOME_SCOPE_MISMATCH":     8,
+		"DELIVERY_OUTCOME_QUEUED":             9,
+		"DELIVERY_OUTCOME_QUEUE_FULL":         10,
+		"DELIVERY_OUTCOME_CLOSED":             11,
+		"DELIVERY_OUTCOME_CAPACITY_REJECTED":  12,
+		"DELIVERY_OUTCOME_RATE_REJECTED":      13,
+		"DELIVERY_OUTCOME_AUTH_UNEXPECTED":    14,
+		"DELIVERY_OUTCOME_AUTH_MISSING":       15,
+		"DELIVERY_OUTCOME_AUTH_FAILED":        16,
+		"DELIVERY_OUTCOME_SENDER_UNAVAILABLE": 17,
+		"DELIVERY_OUTCOME_CREATE_FAILED":      18,
+		"DELIVERY_OUTCOME_COMMITTED":          19,
+		"DELIVERY_OUTCOME_ZERO_TX":            20,
+		"DELIVERY_OUTCOME_ABANDONED":          21,
+		"DELIVERY_OUTCOME_CANCELED":           22,
+		"DELIVERY_OUTCOME_DEADLINE":           23,
+		"DELIVERY_OUTCOME_IGNORED":            24,
+	}
+)
+
+func (x DeliveryOutcome) Enum() *DeliveryOutcome {
+	p := new(DeliveryOutcome)
+	*p = x
+	return p
+}
+
+func (x DeliveryOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeliveryOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_bfd_v1_bfd_proto_enumTypes[6].Descriptor()
+}
+
+func (DeliveryOutcome) Type() protoreflect.EnumType {
+	return &file_bfd_v1_bfd_proto_enumTypes[6]
+}
+
+func (x DeliveryOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeliveryOutcome.Descriptor instead.
+func (DeliveryOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{6}
+}
+
 // EventType classifies the session event.
 type WatchSessionEventsResponse_EventType int32
 
@@ -389,11 +579,11 @@ func (x WatchSessionEventsResponse_EventType) String() string {
 }
 
 func (WatchSessionEventsResponse_EventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_bfd_v1_bfd_proto_enumTypes[5].Descriptor()
+	return file_bfd_v1_bfd_proto_enumTypes[7].Descriptor()
 }
 
 func (WatchSessionEventsResponse_EventType) Type() protoreflect.EnumType {
-	return &file_bfd_v1_bfd_proto_enumTypes[5]
+	return &file_bfd_v1_bfd_proto_enumTypes[7]
 }
 
 func (x WatchSessionEventsResponse_EventType) Number() protoreflect.EnumNumber {
@@ -402,7 +592,7 @@ func (x WatchSessionEventsResponse_EventType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WatchSessionEventsResponse_EventType.Descriptor instead.
 func (WatchSessionEventsResponse_EventType) EnumDescriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{11, 0}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{12, 0}
 }
 
 // BfdSession contains snapshot status or partial STATE_CHANGE causal facts.
@@ -1002,20 +1192,85 @@ func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
 	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{6}
 }
 
-// ListSessionsResponse contains all active BFD sessions.
+// DeliveryCounter samples one fixed process-lifetime bucket. Supported pairs
+// include zero counts; UNSPECIFIED is never recorded. JSON may omit zero count.
+type DeliveryCounter struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        DeliverySource         `protobuf:"varint,1,opt,name=source,proto3,enum=bfd.v1.DeliverySource" json:"source,omitempty"`
+	Outcome       DeliveryOutcome        `protobuf:"varint,2,opt,name=outcome,proto3,enum=bfd.v1.DeliveryOutcome" json:"outcome,omitempty"`
+	Count         uint64                 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeliveryCounter) Reset() {
+	*x = DeliveryCounter{}
+	mi := &file_bfd_v1_bfd_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeliveryCounter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeliveryCounter) ProtoMessage() {}
+
+func (x *DeliveryCounter) ProtoReflect() protoreflect.Message {
+	mi := &file_bfd_v1_bfd_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeliveryCounter.ProtoReflect.Descriptor instead.
+func (*DeliveryCounter) Descriptor() ([]byte, []int) {
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DeliveryCounter) GetSource() DeliverySource {
+	if x != nil {
+		return x.Source
+	}
+	return DeliverySource_DELIVERY_SOURCE_UNSPECIFIED
+}
+
+func (x *DeliveryCounter) GetOutcome() DeliveryOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return DeliveryOutcome_DELIVERY_OUTCOME_UNSPECIFIED
+}
+
+func (x *DeliveryCounter) GetCount() uint64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+// ListSessionsResponse contains active sessions and sampled Control delivery telemetry.
 type ListSessionsResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Sessions []*BfdSession          `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
 	// Revision is the daemon state-change revision the snapshot covers.
 	// Revisions are scoped to one daemon process.
-	Revision      uint64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Revision uint64 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	// Counters survive session deletion and are sampled once per fixed bucket.
+	// Revision does not atomically cover counters or different pipeline stages.
+	DeliveryCounters []*DeliveryCounter `protobuf:"bytes,3,rep,name=delivery_counters,json=deliveryCounters,proto3" json:"delivery_counters,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[7]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1027,7 +1282,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[7]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1040,7 +1295,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{7}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*BfdSession {
@@ -1055,6 +1310,13 @@ func (x *ListSessionsResponse) GetRevision() uint64 {
 		return x.Revision
 	}
 	return 0
+}
+
+func (x *ListSessionsResponse) GetDeliveryCounters() []*DeliveryCounter {
+	if x != nil {
+		return x.DeliveryCounters
+	}
+	return nil
 }
 
 // GetSessionRequest retrieves a single BFD session by discriminator or peer address.
@@ -1073,7 +1335,7 @@ type GetSessionRequest struct {
 
 func (x *GetSessionRequest) Reset() {
 	*x = GetSessionRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[8]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1085,7 +1347,7 @@ func (x *GetSessionRequest) String() string {
 func (*GetSessionRequest) ProtoMessage() {}
 
 func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[8]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1098,7 +1360,7 @@ func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{8}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetSessionRequest) GetIdentifier() isGetSessionRequest_Identifier {
@@ -1154,7 +1416,7 @@ type GetSessionResponse struct {
 
 func (x *GetSessionResponse) Reset() {
 	*x = GetSessionResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[9]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1428,7 @@ func (x *GetSessionResponse) String() string {
 func (*GetSessionResponse) ProtoMessage() {}
 
 func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[9]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1441,7 @@ func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{9}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetSessionResponse) GetSession() *BfdSession {
@@ -1208,7 +1470,7 @@ type WatchSessionEventsRequest struct {
 
 func (x *WatchSessionEventsRequest) Reset() {
 	*x = WatchSessionEventsRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[10]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1220,7 +1482,7 @@ func (x *WatchSessionEventsRequest) String() string {
 func (*WatchSessionEventsRequest) ProtoMessage() {}
 
 func (x *WatchSessionEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[10]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1233,7 +1495,7 @@ func (x *WatchSessionEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchSessionEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchSessionEventsRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{10}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WatchSessionEventsRequest) GetIncludeCurrent() bool {
@@ -1268,7 +1530,7 @@ type WatchSessionEventsResponse struct {
 
 func (x *WatchSessionEventsResponse) Reset() {
 	*x = WatchSessionEventsResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[11]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1280,7 +1542,7 @@ func (x *WatchSessionEventsResponse) String() string {
 func (*WatchSessionEventsResponse) ProtoMessage() {}
 
 func (x *WatchSessionEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[11]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1293,7 +1555,7 @@ func (x *WatchSessionEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchSessionEventsResponse.ProtoReflect.Descriptor instead.
 func (*WatchSessionEventsResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{11}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *WatchSessionEventsResponse) GetType() WatchSessionEventsResponse_EventType {
@@ -1363,7 +1625,7 @@ type EchoSession struct {
 
 func (x *EchoSession) Reset() {
 	*x = EchoSession{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[12]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1375,7 +1637,7 @@ func (x *EchoSession) String() string {
 func (*EchoSession) ProtoMessage() {}
 
 func (x *EchoSession) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[12]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1388,7 +1650,7 @@ func (x *EchoSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EchoSession.ProtoReflect.Descriptor instead.
 func (*EchoSession) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{12}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EchoSession) GetPeerAddress() string {
@@ -1482,7 +1744,7 @@ type AddEchoSessionRequest struct {
 
 func (x *AddEchoSessionRequest) Reset() {
 	*x = AddEchoSessionRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[13]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1494,7 +1756,7 @@ func (x *AddEchoSessionRequest) String() string {
 func (*AddEchoSessionRequest) ProtoMessage() {}
 
 func (x *AddEchoSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[13]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1507,7 +1769,7 @@ func (x *AddEchoSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddEchoSessionRequest.ProtoReflect.Descriptor instead.
 func (*AddEchoSessionRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{13}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AddEchoSessionRequest) GetPeerAddress() string {
@@ -1555,7 +1817,7 @@ type AddEchoSessionResponse struct {
 
 func (x *AddEchoSessionResponse) Reset() {
 	*x = AddEchoSessionResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[14]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1567,7 +1829,7 @@ func (x *AddEchoSessionResponse) String() string {
 func (*AddEchoSessionResponse) ProtoMessage() {}
 
 func (x *AddEchoSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[14]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1580,7 +1842,7 @@ func (x *AddEchoSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddEchoSessionResponse.ProtoReflect.Descriptor instead.
 func (*AddEchoSessionResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{14}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AddEchoSessionResponse) GetSession() *EchoSession {
@@ -1600,7 +1862,7 @@ type DeleteEchoSessionRequest struct {
 
 func (x *DeleteEchoSessionRequest) Reset() {
 	*x = DeleteEchoSessionRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[15]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1612,7 +1874,7 @@ func (x *DeleteEchoSessionRequest) String() string {
 func (*DeleteEchoSessionRequest) ProtoMessage() {}
 
 func (x *DeleteEchoSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[15]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1625,7 +1887,7 @@ func (x *DeleteEchoSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEchoSessionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteEchoSessionRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{15}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeleteEchoSessionRequest) GetLocalDiscriminator() uint32 {
@@ -1644,7 +1906,7 @@ type DeleteEchoSessionResponse struct {
 
 func (x *DeleteEchoSessionResponse) Reset() {
 	*x = DeleteEchoSessionResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[16]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1656,7 +1918,7 @@ func (x *DeleteEchoSessionResponse) String() string {
 func (*DeleteEchoSessionResponse) ProtoMessage() {}
 
 func (x *DeleteEchoSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[16]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1669,7 +1931,7 @@ func (x *DeleteEchoSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteEchoSessionResponse.ProtoReflect.Descriptor instead.
 func (*DeleteEchoSessionResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{16}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{17}
 }
 
 // ListEchoSessionsRequest retrieves all active echo sessions.
@@ -1681,7 +1943,7 @@ type ListEchoSessionsRequest struct {
 
 func (x *ListEchoSessionsRequest) Reset() {
 	*x = ListEchoSessionsRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[17]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1693,7 +1955,7 @@ func (x *ListEchoSessionsRequest) String() string {
 func (*ListEchoSessionsRequest) ProtoMessage() {}
 
 func (x *ListEchoSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[17]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1706,7 +1968,7 @@ func (x *ListEchoSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEchoSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListEchoSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{17}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{18}
 }
 
 // ListEchoSessionsResponse contains all active echo sessions.
@@ -1719,7 +1981,7 @@ type ListEchoSessionsResponse struct {
 
 func (x *ListEchoSessionsResponse) Reset() {
 	*x = ListEchoSessionsResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[18]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1731,7 +1993,7 @@ func (x *ListEchoSessionsResponse) String() string {
 func (*ListEchoSessionsResponse) ProtoMessage() {}
 
 func (x *ListEchoSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[18]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1744,7 +2006,7 @@ func (x *ListEchoSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEchoSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListEchoSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{18}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListEchoSessionsResponse) GetSessions() []*EchoSession {
@@ -1788,7 +2050,7 @@ type MicroBFDGroup struct {
 
 func (x *MicroBFDGroup) Reset() {
 	*x = MicroBFDGroup{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[19]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1800,7 +2062,7 @@ func (x *MicroBFDGroup) String() string {
 func (*MicroBFDGroup) ProtoMessage() {}
 
 func (x *MicroBFDGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[19]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1813,7 +2075,7 @@ func (x *MicroBFDGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MicroBFDGroup.ProtoReflect.Descriptor instead.
 func (*MicroBFDGroup) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{19}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *MicroBFDGroup) GetLagInterface() string {
@@ -1903,7 +2165,7 @@ type AddMicroBFDGroupRequest struct {
 
 func (x *AddMicroBFDGroupRequest) Reset() {
 	*x = AddMicroBFDGroupRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[20]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1915,7 +2177,7 @@ func (x *AddMicroBFDGroupRequest) String() string {
 func (*AddMicroBFDGroupRequest) ProtoMessage() {}
 
 func (x *AddMicroBFDGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[20]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1928,7 +2190,7 @@ func (x *AddMicroBFDGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddMicroBFDGroupRequest.ProtoReflect.Descriptor instead.
 func (*AddMicroBFDGroupRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{20}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AddMicroBFDGroupRequest) GetLagInterface() string {
@@ -1997,7 +2259,7 @@ type AddMicroBFDGroupResponse struct {
 
 func (x *AddMicroBFDGroupResponse) Reset() {
 	*x = AddMicroBFDGroupResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[21]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2009,7 +2271,7 @@ func (x *AddMicroBFDGroupResponse) String() string {
 func (*AddMicroBFDGroupResponse) ProtoMessage() {}
 
 func (x *AddMicroBFDGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[21]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2022,7 +2284,7 @@ func (x *AddMicroBFDGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddMicroBFDGroupResponse.ProtoReflect.Descriptor instead.
 func (*AddMicroBFDGroupResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{21}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AddMicroBFDGroupResponse) GetGroup() *MicroBFDGroup {
@@ -2042,7 +2304,7 @@ type DeleteMicroBFDGroupRequest struct {
 
 func (x *DeleteMicroBFDGroupRequest) Reset() {
 	*x = DeleteMicroBFDGroupRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[22]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2054,7 +2316,7 @@ func (x *DeleteMicroBFDGroupRequest) String() string {
 func (*DeleteMicroBFDGroupRequest) ProtoMessage() {}
 
 func (x *DeleteMicroBFDGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[22]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2067,7 +2329,7 @@ func (x *DeleteMicroBFDGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMicroBFDGroupRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMicroBFDGroupRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{22}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DeleteMicroBFDGroupRequest) GetLagInterface() string {
@@ -2086,7 +2348,7 @@ type DeleteMicroBFDGroupResponse struct {
 
 func (x *DeleteMicroBFDGroupResponse) Reset() {
 	*x = DeleteMicroBFDGroupResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[23]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2098,7 +2360,7 @@ func (x *DeleteMicroBFDGroupResponse) String() string {
 func (*DeleteMicroBFDGroupResponse) ProtoMessage() {}
 
 func (x *DeleteMicroBFDGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[23]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2111,7 +2373,7 @@ func (x *DeleteMicroBFDGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMicroBFDGroupResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMicroBFDGroupResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{23}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{24}
 }
 
 // ListMicroBFDGroupsRequest retrieves all active micro-BFD groups.
@@ -2123,7 +2385,7 @@ type ListMicroBFDGroupsRequest struct {
 
 func (x *ListMicroBFDGroupsRequest) Reset() {
 	*x = ListMicroBFDGroupsRequest{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[24]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2135,7 +2397,7 @@ func (x *ListMicroBFDGroupsRequest) String() string {
 func (*ListMicroBFDGroupsRequest) ProtoMessage() {}
 
 func (x *ListMicroBFDGroupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[24]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2148,7 +2410,7 @@ func (x *ListMicroBFDGroupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMicroBFDGroupsRequest.ProtoReflect.Descriptor instead.
 func (*ListMicroBFDGroupsRequest) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{24}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{25}
 }
 
 // ListMicroBFDGroupsResponse contains all active micro-BFD groups.
@@ -2161,7 +2423,7 @@ type ListMicroBFDGroupsResponse struct {
 
 func (x *ListMicroBFDGroupsResponse) Reset() {
 	*x = ListMicroBFDGroupsResponse{}
-	mi := &file_bfd_v1_bfd_proto_msgTypes[25]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2173,7 +2435,7 @@ func (x *ListMicroBFDGroupsResponse) String() string {
 func (*ListMicroBFDGroupsResponse) ProtoMessage() {}
 
 func (x *ListMicroBFDGroupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bfd_v1_bfd_proto_msgTypes[25]
+	mi := &file_bfd_v1_bfd_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2186,7 +2448,7 @@ func (x *ListMicroBFDGroupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMicroBFDGroupsResponse.ProtoReflect.Descriptor instead.
 func (*ListMicroBFDGroupsResponse) Descriptor() ([]byte, []int) {
-	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{25}
+	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListMicroBFDGroupsResponse) GetGroups() []*MicroBFDGroup {
@@ -2254,10 +2516,15 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x14DeleteSessionRequest\x12/\n" +
 	"\x13local_discriminator\x18\x01 \x01(\rR\x12localDiscriminator\"\x17\n" +
 	"\x15DeleteSessionResponse\"\x15\n" +
-	"\x13ListSessionsRequest\"b\n" +
+	"\x13ListSessionsRequest\"\x8a\x01\n" +
+	"\x0fDeliveryCounter\x12.\n" +
+	"\x06source\x18\x01 \x01(\x0e2\x16.bfd.v1.DeliverySourceR\x06source\x121\n" +
+	"\aoutcome\x18\x02 \x01(\x0e2\x17.bfd.v1.DeliveryOutcomeR\aoutcome\x12\x14\n" +
+	"\x05count\x18\x03 \x01(\x04R\x05count\"\xa8\x01\n" +
 	"\x14ListSessionsResponse\x12.\n" +
 	"\bsessions\x18\x01 \x03(\v2\x12.bfd.v1.BfdSessionR\bsessions\x12\x1a\n" +
-	"\brevision\x18\x02 \x01(\x04R\brevision\"y\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\x12D\n" +
+	"\x11delivery_counters\x18\x03 \x03(\v2\x17.bfd.v1.DeliveryCounterR\x10deliveryCounters\"y\n" +
 	"\x11GetSessionRequest\x121\n" +
 	"\x13local_discriminator\x18\x01 \x01(\rH\x00R\x12localDiscriminator\x12#\n" +
 	"\fpeer_address\x18\x02 \x01(\tH\x00R\vpeerAddressB\f\n" +
@@ -2384,7 +2651,47 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"#OBSERVATION_CAUSE_DETECTION_TIMEOUT\x10\x03\x12!\n" +
 	"\x1dOBSERVATION_CAUSE_LOCAL_ADMIN\x10\x04\x12\x1f\n" +
 	"\x1bOBSERVATION_CAUSE_PATH_DOWN\x10\x05\x12#\n" +
-	"\x1fOBSERVATION_CAUSE_CONFIGURATION\x10\x062\x8e\x03\n" +
+	"\x1fOBSERVATION_CAUSE_CONFIGURATION\x10\x06*\x96\x03\n" +
+	"\x0eDeliverySource\x12\x1f\n" +
+	"\x1bDELIVERY_SOURCE_UNSPECIFIED\x10\x00\x12\x1e\n" +
+	"\x1aDELIVERY_SOURCE_WIRE_PARSE\x10\x01\x12\x1c\n" +
+	"\x18DELIVERY_SOURCE_BASE_TTL\x10\x02\x12!\n" +
+	"\x1dDELIVERY_SOURCE_OVERLAY_DECAP\x10\x03\x12\x19\n" +
+	"\x15DELIVERY_SOURCE_DEMUX\x10\x04\x12)\n" +
+	"%DELIVERY_SOURCE_UNSOLICITED_ADMISSION\x10\x05\x12$\n" +
+	" DELIVERY_SOURCE_PACKET_ADMISSION\x10\x06\x12 \n" +
+	"\x1cDELIVERY_SOURCE_PACKET_OWNER\x10\a\x12'\n" +
+	"#DELIVERY_SOURCE_PATH_DOWN_ADMISSION\x10\b\x12(\n" +
+	"$DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION\x10\t\x12!\n" +
+	"\x1dDELIVERY_SOURCE_CONTROL_OWNER\x10\n" +
+	"*\xe2\x06\n" +
+	"\x0fDeliveryOutcome\x12 \n" +
+	"\x1cDELIVERY_OUTCOME_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19DELIVERY_OUTCOME_ACCEPTED\x10\x01\x12$\n" +
+	" DELIVERY_OUTCOME_PARSER_REJECTED\x10\x02\x12!\n" +
+	"\x1dDELIVERY_OUTCOME_TTL_REJECTED\x10\x03\x12$\n" +
+	" DELIVERY_OUTCOME_POLICY_REJECTED\x10\x04\x12\x1f\n" +
+	"\x1bDELIVERY_OUTCOME_READ_ERROR\x10\x05\x12\x1a\n" +
+	"\x16DELIVERY_OUTCOME_FOUND\x10\x06\x12$\n" +
+	" DELIVERY_OUTCOME_UNKNOWN_SESSION\x10\a\x12#\n" +
+	"\x1fDELIVERY_OUTCOME_SCOPE_MISMATCH\x10\b\x12\x1b\n" +
+	"\x17DELIVERY_OUTCOME_QUEUED\x10\t\x12\x1f\n" +
+	"\x1bDELIVERY_OUTCOME_QUEUE_FULL\x10\n" +
+	"\x12\x1b\n" +
+	"\x17DELIVERY_OUTCOME_CLOSED\x10\v\x12&\n" +
+	"\"DELIVERY_OUTCOME_CAPACITY_REJECTED\x10\f\x12\"\n" +
+	"\x1eDELIVERY_OUTCOME_RATE_REJECTED\x10\r\x12$\n" +
+	" DELIVERY_OUTCOME_AUTH_UNEXPECTED\x10\x0e\x12!\n" +
+	"\x1dDELIVERY_OUTCOME_AUTH_MISSING\x10\x0f\x12 \n" +
+	"\x1cDELIVERY_OUTCOME_AUTH_FAILED\x10\x10\x12'\n" +
+	"#DELIVERY_OUTCOME_SENDER_UNAVAILABLE\x10\x11\x12\"\n" +
+	"\x1eDELIVERY_OUTCOME_CREATE_FAILED\x10\x12\x12\x1e\n" +
+	"\x1aDELIVERY_OUTCOME_COMMITTED\x10\x13\x12\x1c\n" +
+	"\x18DELIVERY_OUTCOME_ZERO_TX\x10\x14\x12\x1e\n" +
+	"\x1aDELIVERY_OUTCOME_ABANDONED\x10\x15\x12\x1d\n" +
+	"\x19DELIVERY_OUTCOME_CANCELED\x10\x16\x12\x1d\n" +
+	"\x19DELIVERY_OUTCOME_DEADLINE\x10\x17\x12\x1c\n" +
+	"\x18DELIVERY_OUTCOME_IGNORED\x10\x182\x8e\x03\n" +
 	"\n" +
 	"BfdService\x12C\n" +
 	"\n" +
@@ -2417,111 +2724,117 @@ func file_bfd_v1_bfd_proto_rawDescGZIP() []byte {
 	return file_bfd_v1_bfd_proto_rawDescData
 }
 
-var file_bfd_v1_bfd_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_bfd_v1_bfd_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_bfd_v1_bfd_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_bfd_v1_bfd_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_bfd_v1_bfd_proto_goTypes = []any{
 	(SessionState)(0),                         // 0: bfd.v1.SessionState
 	(DiagnosticCode)(0),                       // 1: bfd.v1.DiagnosticCode
 	(AuthenticationType)(0),                   // 2: bfd.v1.AuthenticationType
 	(SessionType)(0),                          // 3: bfd.v1.SessionType
 	(ObservationCause)(0),                     // 4: bfd.v1.ObservationCause
-	(WatchSessionEventsResponse_EventType)(0), // 5: bfd.v1.WatchSessionEventsResponse.EventType
-	(*BfdSession)(nil),                        // 6: bfd.v1.BfdSession
-	(*SessionCounters)(nil),                   // 7: bfd.v1.SessionCounters
-	(*AddSessionRequest)(nil),                 // 8: bfd.v1.AddSessionRequest
-	(*AddSessionResponse)(nil),                // 9: bfd.v1.AddSessionResponse
-	(*DeleteSessionRequest)(nil),              // 10: bfd.v1.DeleteSessionRequest
-	(*DeleteSessionResponse)(nil),             // 11: bfd.v1.DeleteSessionResponse
-	(*ListSessionsRequest)(nil),               // 12: bfd.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),              // 13: bfd.v1.ListSessionsResponse
-	(*GetSessionRequest)(nil),                 // 14: bfd.v1.GetSessionRequest
-	(*GetSessionResponse)(nil),                // 15: bfd.v1.GetSessionResponse
-	(*WatchSessionEventsRequest)(nil),         // 16: bfd.v1.WatchSessionEventsRequest
-	(*WatchSessionEventsResponse)(nil),        // 17: bfd.v1.WatchSessionEventsResponse
-	(*EchoSession)(nil),                       // 18: bfd.v1.EchoSession
-	(*AddEchoSessionRequest)(nil),             // 19: bfd.v1.AddEchoSessionRequest
-	(*AddEchoSessionResponse)(nil),            // 20: bfd.v1.AddEchoSessionResponse
-	(*DeleteEchoSessionRequest)(nil),          // 21: bfd.v1.DeleteEchoSessionRequest
-	(*DeleteEchoSessionResponse)(nil),         // 22: bfd.v1.DeleteEchoSessionResponse
-	(*ListEchoSessionsRequest)(nil),           // 23: bfd.v1.ListEchoSessionsRequest
-	(*ListEchoSessionsResponse)(nil),          // 24: bfd.v1.ListEchoSessionsResponse
-	(*MicroBFDGroup)(nil),                     // 25: bfd.v1.MicroBFDGroup
-	(*AddMicroBFDGroupRequest)(nil),           // 26: bfd.v1.AddMicroBFDGroupRequest
-	(*AddMicroBFDGroupResponse)(nil),          // 27: bfd.v1.AddMicroBFDGroupResponse
-	(*DeleteMicroBFDGroupRequest)(nil),        // 28: bfd.v1.DeleteMicroBFDGroupRequest
-	(*DeleteMicroBFDGroupResponse)(nil),       // 29: bfd.v1.DeleteMicroBFDGroupResponse
-	(*ListMicroBFDGroupsRequest)(nil),         // 30: bfd.v1.ListMicroBFDGroupsRequest
-	(*ListMicroBFDGroupsResponse)(nil),        // 31: bfd.v1.ListMicroBFDGroupsResponse
-	(*durationpb.Duration)(nil),               // 32: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),             // 33: google.protobuf.Timestamp
+	(DeliverySource)(0),                       // 5: bfd.v1.DeliverySource
+	(DeliveryOutcome)(0),                      // 6: bfd.v1.DeliveryOutcome
+	(WatchSessionEventsResponse_EventType)(0), // 7: bfd.v1.WatchSessionEventsResponse.EventType
+	(*BfdSession)(nil),                        // 8: bfd.v1.BfdSession
+	(*SessionCounters)(nil),                   // 9: bfd.v1.SessionCounters
+	(*AddSessionRequest)(nil),                 // 10: bfd.v1.AddSessionRequest
+	(*AddSessionResponse)(nil),                // 11: bfd.v1.AddSessionResponse
+	(*DeleteSessionRequest)(nil),              // 12: bfd.v1.DeleteSessionRequest
+	(*DeleteSessionResponse)(nil),             // 13: bfd.v1.DeleteSessionResponse
+	(*ListSessionsRequest)(nil),               // 14: bfd.v1.ListSessionsRequest
+	(*DeliveryCounter)(nil),                   // 15: bfd.v1.DeliveryCounter
+	(*ListSessionsResponse)(nil),              // 16: bfd.v1.ListSessionsResponse
+	(*GetSessionRequest)(nil),                 // 17: bfd.v1.GetSessionRequest
+	(*GetSessionResponse)(nil),                // 18: bfd.v1.GetSessionResponse
+	(*WatchSessionEventsRequest)(nil),         // 19: bfd.v1.WatchSessionEventsRequest
+	(*WatchSessionEventsResponse)(nil),        // 20: bfd.v1.WatchSessionEventsResponse
+	(*EchoSession)(nil),                       // 21: bfd.v1.EchoSession
+	(*AddEchoSessionRequest)(nil),             // 22: bfd.v1.AddEchoSessionRequest
+	(*AddEchoSessionResponse)(nil),            // 23: bfd.v1.AddEchoSessionResponse
+	(*DeleteEchoSessionRequest)(nil),          // 24: bfd.v1.DeleteEchoSessionRequest
+	(*DeleteEchoSessionResponse)(nil),         // 25: bfd.v1.DeleteEchoSessionResponse
+	(*ListEchoSessionsRequest)(nil),           // 26: bfd.v1.ListEchoSessionsRequest
+	(*ListEchoSessionsResponse)(nil),          // 27: bfd.v1.ListEchoSessionsResponse
+	(*MicroBFDGroup)(nil),                     // 28: bfd.v1.MicroBFDGroup
+	(*AddMicroBFDGroupRequest)(nil),           // 29: bfd.v1.AddMicroBFDGroupRequest
+	(*AddMicroBFDGroupResponse)(nil),          // 30: bfd.v1.AddMicroBFDGroupResponse
+	(*DeleteMicroBFDGroupRequest)(nil),        // 31: bfd.v1.DeleteMicroBFDGroupRequest
+	(*DeleteMicroBFDGroupResponse)(nil),       // 32: bfd.v1.DeleteMicroBFDGroupResponse
+	(*ListMicroBFDGroupsRequest)(nil),         // 33: bfd.v1.ListMicroBFDGroupsRequest
+	(*ListMicroBFDGroupsResponse)(nil),        // 34: bfd.v1.ListMicroBFDGroupsResponse
+	(*durationpb.Duration)(nil),               // 35: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),             // 36: google.protobuf.Timestamp
 }
 var file_bfd_v1_bfd_proto_depIdxs = []int32{
 	3,  // 0: bfd.v1.BfdSession.type:type_name -> bfd.v1.SessionType
 	0,  // 1: bfd.v1.BfdSession.local_state:type_name -> bfd.v1.SessionState
 	0,  // 2: bfd.v1.BfdSession.remote_state:type_name -> bfd.v1.SessionState
 	1,  // 3: bfd.v1.BfdSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
-	32, // 4: bfd.v1.BfdSession.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	32, // 5: bfd.v1.BfdSession.required_min_rx_interval:type_name -> google.protobuf.Duration
-	32, // 6: bfd.v1.BfdSession.remote_min_rx_interval:type_name -> google.protobuf.Duration
-	32, // 7: bfd.v1.BfdSession.negotiated_tx_interval:type_name -> google.protobuf.Duration
-	32, // 8: bfd.v1.BfdSession.detection_time:type_name -> google.protobuf.Duration
+	35, // 4: bfd.v1.BfdSession.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	35, // 5: bfd.v1.BfdSession.required_min_rx_interval:type_name -> google.protobuf.Duration
+	35, // 6: bfd.v1.BfdSession.remote_min_rx_interval:type_name -> google.protobuf.Duration
+	35, // 7: bfd.v1.BfdSession.negotiated_tx_interval:type_name -> google.protobuf.Duration
+	35, // 8: bfd.v1.BfdSession.detection_time:type_name -> google.protobuf.Duration
 	2,  // 9: bfd.v1.BfdSession.auth_type:type_name -> bfd.v1.AuthenticationType
-	33, // 10: bfd.v1.BfdSession.last_state_change:type_name -> google.protobuf.Timestamp
-	33, // 11: bfd.v1.BfdSession.last_packet_received:type_name -> google.protobuf.Timestamp
-	7,  // 12: bfd.v1.BfdSession.counters:type_name -> bfd.v1.SessionCounters
+	36, // 10: bfd.v1.BfdSession.last_state_change:type_name -> google.protobuf.Timestamp
+	36, // 11: bfd.v1.BfdSession.last_packet_received:type_name -> google.protobuf.Timestamp
+	9,  // 12: bfd.v1.BfdSession.counters:type_name -> bfd.v1.SessionCounters
 	1,  // 13: bfd.v1.BfdSession.remote_diagnostic:type_name -> bfd.v1.DiagnosticCode
 	4,  // 14: bfd.v1.BfdSession.cause:type_name -> bfd.v1.ObservationCause
 	3,  // 15: bfd.v1.AddSessionRequest.type:type_name -> bfd.v1.SessionType
-	32, // 16: bfd.v1.AddSessionRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	32, // 17: bfd.v1.AddSessionRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
+	35, // 16: bfd.v1.AddSessionRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	35, // 17: bfd.v1.AddSessionRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
 	2,  // 18: bfd.v1.AddSessionRequest.auth_type:type_name -> bfd.v1.AuthenticationType
-	6,  // 19: bfd.v1.AddSessionResponse.session:type_name -> bfd.v1.BfdSession
-	6,  // 20: bfd.v1.ListSessionsResponse.sessions:type_name -> bfd.v1.BfdSession
-	6,  // 21: bfd.v1.GetSessionResponse.session:type_name -> bfd.v1.BfdSession
-	5,  // 22: bfd.v1.WatchSessionEventsResponse.type:type_name -> bfd.v1.WatchSessionEventsResponse.EventType
-	6,  // 23: bfd.v1.WatchSessionEventsResponse.session:type_name -> bfd.v1.BfdSession
-	0,  // 24: bfd.v1.WatchSessionEventsResponse.previous_state:type_name -> bfd.v1.SessionState
-	33, // 25: bfd.v1.WatchSessionEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
-	32, // 26: bfd.v1.EchoSession.tx_interval:type_name -> google.protobuf.Duration
-	0,  // 27: bfd.v1.EchoSession.local_state:type_name -> bfd.v1.SessionState
-	1,  // 28: bfd.v1.EchoSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
-	33, // 29: bfd.v1.EchoSession.last_state_change:type_name -> google.protobuf.Timestamp
-	32, // 30: bfd.v1.AddEchoSessionRequest.tx_interval:type_name -> google.protobuf.Duration
-	18, // 31: bfd.v1.AddEchoSessionResponse.session:type_name -> bfd.v1.EchoSession
-	18, // 32: bfd.v1.ListEchoSessionsResponse.sessions:type_name -> bfd.v1.EchoSession
-	32, // 33: bfd.v1.MicroBFDGroup.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	32, // 34: bfd.v1.MicroBFDGroup.required_min_rx_interval:type_name -> google.protobuf.Duration
-	32, // 35: bfd.v1.AddMicroBFDGroupRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
-	32, // 36: bfd.v1.AddMicroBFDGroupRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
-	25, // 37: bfd.v1.AddMicroBFDGroupResponse.group:type_name -> bfd.v1.MicroBFDGroup
-	25, // 38: bfd.v1.ListMicroBFDGroupsResponse.groups:type_name -> bfd.v1.MicroBFDGroup
-	8,  // 39: bfd.v1.BfdService.AddSession:input_type -> bfd.v1.AddSessionRequest
-	10, // 40: bfd.v1.BfdService.DeleteSession:input_type -> bfd.v1.DeleteSessionRequest
-	12, // 41: bfd.v1.BfdService.ListSessions:input_type -> bfd.v1.ListSessionsRequest
-	14, // 42: bfd.v1.BfdService.GetSession:input_type -> bfd.v1.GetSessionRequest
-	16, // 43: bfd.v1.BfdService.WatchSessionEvents:input_type -> bfd.v1.WatchSessionEventsRequest
-	19, // 44: bfd.v1.EchoService.AddEchoSession:input_type -> bfd.v1.AddEchoSessionRequest
-	21, // 45: bfd.v1.EchoService.DeleteEchoSession:input_type -> bfd.v1.DeleteEchoSessionRequest
-	23, // 46: bfd.v1.EchoService.ListEchoSessions:input_type -> bfd.v1.ListEchoSessionsRequest
-	26, // 47: bfd.v1.MicroBFDService.AddMicroBFDGroup:input_type -> bfd.v1.AddMicroBFDGroupRequest
-	28, // 48: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:input_type -> bfd.v1.DeleteMicroBFDGroupRequest
-	30, // 49: bfd.v1.MicroBFDService.ListMicroBFDGroups:input_type -> bfd.v1.ListMicroBFDGroupsRequest
-	9,  // 50: bfd.v1.BfdService.AddSession:output_type -> bfd.v1.AddSessionResponse
-	11, // 51: bfd.v1.BfdService.DeleteSession:output_type -> bfd.v1.DeleteSessionResponse
-	13, // 52: bfd.v1.BfdService.ListSessions:output_type -> bfd.v1.ListSessionsResponse
-	15, // 53: bfd.v1.BfdService.GetSession:output_type -> bfd.v1.GetSessionResponse
-	17, // 54: bfd.v1.BfdService.WatchSessionEvents:output_type -> bfd.v1.WatchSessionEventsResponse
-	20, // 55: bfd.v1.EchoService.AddEchoSession:output_type -> bfd.v1.AddEchoSessionResponse
-	22, // 56: bfd.v1.EchoService.DeleteEchoSession:output_type -> bfd.v1.DeleteEchoSessionResponse
-	24, // 57: bfd.v1.EchoService.ListEchoSessions:output_type -> bfd.v1.ListEchoSessionsResponse
-	27, // 58: bfd.v1.MicroBFDService.AddMicroBFDGroup:output_type -> bfd.v1.AddMicroBFDGroupResponse
-	29, // 59: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:output_type -> bfd.v1.DeleteMicroBFDGroupResponse
-	31, // 60: bfd.v1.MicroBFDService.ListMicroBFDGroups:output_type -> bfd.v1.ListMicroBFDGroupsResponse
-	50, // [50:61] is the sub-list for method output_type
-	39, // [39:50] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	8,  // 19: bfd.v1.AddSessionResponse.session:type_name -> bfd.v1.BfdSession
+	5,  // 20: bfd.v1.DeliveryCounter.source:type_name -> bfd.v1.DeliverySource
+	6,  // 21: bfd.v1.DeliveryCounter.outcome:type_name -> bfd.v1.DeliveryOutcome
+	8,  // 22: bfd.v1.ListSessionsResponse.sessions:type_name -> bfd.v1.BfdSession
+	15, // 23: bfd.v1.ListSessionsResponse.delivery_counters:type_name -> bfd.v1.DeliveryCounter
+	8,  // 24: bfd.v1.GetSessionResponse.session:type_name -> bfd.v1.BfdSession
+	7,  // 25: bfd.v1.WatchSessionEventsResponse.type:type_name -> bfd.v1.WatchSessionEventsResponse.EventType
+	8,  // 26: bfd.v1.WatchSessionEventsResponse.session:type_name -> bfd.v1.BfdSession
+	0,  // 27: bfd.v1.WatchSessionEventsResponse.previous_state:type_name -> bfd.v1.SessionState
+	36, // 28: bfd.v1.WatchSessionEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
+	35, // 29: bfd.v1.EchoSession.tx_interval:type_name -> google.protobuf.Duration
+	0,  // 30: bfd.v1.EchoSession.local_state:type_name -> bfd.v1.SessionState
+	1,  // 31: bfd.v1.EchoSession.local_diagnostic:type_name -> bfd.v1.DiagnosticCode
+	36, // 32: bfd.v1.EchoSession.last_state_change:type_name -> google.protobuf.Timestamp
+	35, // 33: bfd.v1.AddEchoSessionRequest.tx_interval:type_name -> google.protobuf.Duration
+	21, // 34: bfd.v1.AddEchoSessionResponse.session:type_name -> bfd.v1.EchoSession
+	21, // 35: bfd.v1.ListEchoSessionsResponse.sessions:type_name -> bfd.v1.EchoSession
+	35, // 36: bfd.v1.MicroBFDGroup.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	35, // 37: bfd.v1.MicroBFDGroup.required_min_rx_interval:type_name -> google.protobuf.Duration
+	35, // 38: bfd.v1.AddMicroBFDGroupRequest.desired_min_tx_interval:type_name -> google.protobuf.Duration
+	35, // 39: bfd.v1.AddMicroBFDGroupRequest.required_min_rx_interval:type_name -> google.protobuf.Duration
+	28, // 40: bfd.v1.AddMicroBFDGroupResponse.group:type_name -> bfd.v1.MicroBFDGroup
+	28, // 41: bfd.v1.ListMicroBFDGroupsResponse.groups:type_name -> bfd.v1.MicroBFDGroup
+	10, // 42: bfd.v1.BfdService.AddSession:input_type -> bfd.v1.AddSessionRequest
+	12, // 43: bfd.v1.BfdService.DeleteSession:input_type -> bfd.v1.DeleteSessionRequest
+	14, // 44: bfd.v1.BfdService.ListSessions:input_type -> bfd.v1.ListSessionsRequest
+	17, // 45: bfd.v1.BfdService.GetSession:input_type -> bfd.v1.GetSessionRequest
+	19, // 46: bfd.v1.BfdService.WatchSessionEvents:input_type -> bfd.v1.WatchSessionEventsRequest
+	22, // 47: bfd.v1.EchoService.AddEchoSession:input_type -> bfd.v1.AddEchoSessionRequest
+	24, // 48: bfd.v1.EchoService.DeleteEchoSession:input_type -> bfd.v1.DeleteEchoSessionRequest
+	26, // 49: bfd.v1.EchoService.ListEchoSessions:input_type -> bfd.v1.ListEchoSessionsRequest
+	29, // 50: bfd.v1.MicroBFDService.AddMicroBFDGroup:input_type -> bfd.v1.AddMicroBFDGroupRequest
+	31, // 51: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:input_type -> bfd.v1.DeleteMicroBFDGroupRequest
+	33, // 52: bfd.v1.MicroBFDService.ListMicroBFDGroups:input_type -> bfd.v1.ListMicroBFDGroupsRequest
+	11, // 53: bfd.v1.BfdService.AddSession:output_type -> bfd.v1.AddSessionResponse
+	13, // 54: bfd.v1.BfdService.DeleteSession:output_type -> bfd.v1.DeleteSessionResponse
+	16, // 55: bfd.v1.BfdService.ListSessions:output_type -> bfd.v1.ListSessionsResponse
+	18, // 56: bfd.v1.BfdService.GetSession:output_type -> bfd.v1.GetSessionResponse
+	20, // 57: bfd.v1.BfdService.WatchSessionEvents:output_type -> bfd.v1.WatchSessionEventsResponse
+	23, // 58: bfd.v1.EchoService.AddEchoSession:output_type -> bfd.v1.AddEchoSessionResponse
+	25, // 59: bfd.v1.EchoService.DeleteEchoSession:output_type -> bfd.v1.DeleteEchoSessionResponse
+	27, // 60: bfd.v1.EchoService.ListEchoSessions:output_type -> bfd.v1.ListEchoSessionsResponse
+	30, // 61: bfd.v1.MicroBFDService.AddMicroBFDGroup:output_type -> bfd.v1.AddMicroBFDGroupResponse
+	32, // 62: bfd.v1.MicroBFDService.DeleteMicroBFDGroup:output_type -> bfd.v1.DeleteMicroBFDGroupResponse
+	34, // 63: bfd.v1.MicroBFDService.ListMicroBFDGroups:output_type -> bfd.v1.ListMicroBFDGroupsResponse
+	53, // [53:64] is the sub-list for method output_type
+	42, // [42:53] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_bfd_v1_bfd_proto_init() }
@@ -2529,7 +2842,7 @@ func file_bfd_v1_bfd_proto_init() {
 	if File_bfd_v1_bfd_proto != nil {
 		return
 	}
-	file_bfd_v1_bfd_proto_msgTypes[8].OneofWrappers = []any{
+	file_bfd_v1_bfd_proto_msgTypes[9].OneofWrappers = []any{
 		(*GetSessionRequest_LocalDiscriminator)(nil),
 		(*GetSessionRequest_PeerAddress)(nil),
 	}
@@ -2538,8 +2851,8 @@ func file_bfd_v1_bfd_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bfd_v1_bfd_proto_rawDesc), len(file_bfd_v1_bfd_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   26,
+			NumEnums:      8,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

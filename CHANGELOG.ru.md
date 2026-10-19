@@ -9,6 +9,15 @@
 
 ### Добавлено
 
+- Control delivery outcomes разделяют demux, admission, owner commit и
+  terminal loss. Повторное использование заголовка не меняет queued packet;
+  stop закрывает admission и один раз учитывает abandoned RX/control без
+  подтверждения abandoned AdminDown. Фиксированный process-lifetime ledger
+  доступен в ListSessions и `gobfd_bfd_delivery_outcomes_total`; session
+  drop/auth counters передаются в Get/List/Control Watch и Prometheus.
+  Echo/notification queues и kernel receive overflow остаются отдельными
+  задачами; изменения относятся к development scope.
+
 - Control-session Watch публикует регистрацию до запуска владельца, включая
   пассивные сессии, остающиеся Down, и сохраняет полный API-статус по значению
   для additions, observations и removals. Конфигурация, таймеры и счётчики

@@ -22,7 +22,9 @@ var errDuplicateMicroBFDGroupKey = errors.New("duplicate Micro-BFD LAG interface
 // createMicroBFDListeners creates listeners on port 6784 for each unique
 // (localAddr, memberLink) pair across all micro-BFD groups.
 // RFC 7130 Section 2.1: each member link has its own BFD session on port 6784.
-func createMicroBFDListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.Listener, error) {
+func createMicroBFDListeners(
+	cfg *config.Config, logger *slog.Logger, delivery bfd.DeliveryReporter,
+) ([]*netio.Listener, error) {
 	type microKey struct {
 		addr   netip.Addr
 		ifName string
@@ -49,6 +51,7 @@ func createMicroBFDListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.
 			seen[key] = struct{}{}
 
 			lnCfg := netio.ListenerConfig{
+				Delivery:       delivery,
 				ReadBufferSize: cfg.Socket.ReadBufferSize,
 				Addr:           localAddr,
 				IfName:         member,

@@ -192,7 +192,7 @@ func TestUnsolicitedSessionSenderUsesReceivedTuple(t *testing.T) {
 	)
 
 	meta := admissionMeta("2001:db8:1::10", "2001:db8:1::1")
-	if err := mgr.tryCreateUnsolicited(ownershipDownPacket(41), meta, nil); err != nil {
+	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(41), meta, nil); err != nil {
 		t.Fatalf("tryCreateUnsolicited: %v", err)
 	}
 	if len(got) != 1 || got[0].DstAddr != meta.DstAddr || got[0].IfName != meta.IfName {
@@ -258,7 +258,8 @@ func TestUnsolicitedIngressIndexAllowlist(t *testing.T) {
 		meta := admissionMeta("192.0.2.10", "192.0.2.1")
 		meta.IfName = ""
 		meta.IfIndex = index
-		if err := mgr.DemuxWithWire(ownershipDownPacket(101), meta, nil); !errors.Is(err, ErrUnsolicitedInterfaceNotEnabled) {
+		_, err := mgr.DemuxWithWire(ownershipDownPacket(101), meta, nil)
+		if !errors.Is(err, ErrUnsolicitedInterfaceNotEnabled) {
 			t.Fatalf("ingress index %d: error=%v, want ErrUnsolicitedInterfaceNotEnabled", index, err)
 		}
 	}

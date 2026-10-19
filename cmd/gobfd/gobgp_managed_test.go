@@ -43,7 +43,7 @@ func TestCausalGoBGPCanonicalPolicy(t *testing.T) {
 		if actuates(sc) {
 			t.Fatal("known current remote AdminDown did not veto historical failure")
 		}
-		if !sess.SetPathDown() {
+		if sess.SetPathDown() != bfd.DeliveryQueued {
 			t.Fatal("PathDown admission failed")
 		}
 		synctest.Wait()

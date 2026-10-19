@@ -1,5 +1,12 @@
 # GoBFD Roadmap
 
+Control delivery slice `gobfd-qj0.8.2.1.3.1.1` adds typed queue outcomes,
+owner terminal reasons, stop abandonment and a bounded process-lifetime
+ListSessions/Prometheus ledger. Get/List/Control Watch share session drop/auth
+projections. The parent `gobfd-qj0.8.2.1.3.1` remains open for Echo and all
+notification queues in `gobfd-qj0.8.2.1.3.1.2`; kernel `SO_RXQ_OVFL` remains
+`gobfd-qj0.8.2.1.6`. This development slice does not qualify stable delivery.
+
 The development causal-observation slice (`gobfd-qj0.8.2.1.2.1` and
 `gobfd-qj0.8.2.4.8`) covers coherent scalar facts, per-row versions and
 cause-aware GoBGP policy. It does not qualify a stable release or full C-bit

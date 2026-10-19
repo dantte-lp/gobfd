@@ -288,7 +288,7 @@ func TestUnsolicitedCleanupClosesSessionLeaseOnce(t *testing.T) {
 		IfName:  "eth0",
 		TTL:     255,
 	}
-	if err := mgr.tryCreateUnsolicited(ownershipDownPacket(301), meta, nil); err != nil {
+	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(301), meta, nil); err != nil {
 		t.Fatalf("tryCreateUnsolicited: %v", err)
 	}
 	snapshots := mgr.Sessions()

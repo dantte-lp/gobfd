@@ -24,7 +24,7 @@ func TestManagerAdminDownFanoutAndIdentity(t *testing.T) {
 		go func() { ready.Run(ctx); close(readyDone) }()
 		<-sender.entered
 		for range cap(blocked.ctrlCh) {
-			if !blocked.SetPathDown() {
+			if blocked.SetPathDown() != DeliveryQueued {
 				t.Fatal("fill blocked owner queue")
 			}
 		}

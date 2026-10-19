@@ -49,9 +49,11 @@ func TestListenerRejectsInvalidReadSize(t *testing.T) {
 
 type receiveBenchmarkDemux struct{}
 
-func (receiveBenchmarkDemux) DemuxWithWire(*bfd.ControlPacket, bfd.PacketMeta, []byte) error {
-	return nil
+func (receiveBenchmarkDemux) DemuxWithWire(*bfd.ControlPacket, bfd.PacketMeta, []byte) (bfd.DeliveryOutcome, error) {
+	return bfd.DeliveryQueued, nil
 }
+
+func (receiveBenchmarkDemux) RecordDelivery(bfd.DeliverySource, bfd.DeliveryOutcome) {}
 
 // BenchmarkUnauthenticatedRX measures warmed pool/read/parse/demux allocations
 // with an in-memory transport, excluding sockets, session handling and logging.
@@ -84,10 +86,14 @@ type paddedWireDemux struct {
 	auth *bfd.AuthSection
 }
 
-func (d *paddedWireDemux) DemuxWithWire(pkt *bfd.ControlPacket, _ bfd.PacketMeta, wire []byte) error {
+func (d *paddedWireDemux) DemuxWithWire(
+	pkt *bfd.ControlPacket, _ bfd.PacketMeta, wire []byte,
+) (bfd.DeliveryOutcome, error) {
 	d.wire, d.auth = wire, pkt.Auth
-	return nil
+	return bfd.DeliveryQueued, nil
 }
+
+func (*paddedWireDemux) RecordDelivery(bfd.DeliverySource, bfd.DeliveryOutcome) {}
 
 func TestPaddedAuthenticatedReceiveOwnsCompleteWire(t *testing.T) {
 	t.Parallel()

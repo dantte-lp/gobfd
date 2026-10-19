@@ -50,12 +50,14 @@ type MetricsReporter interface {
 	IncPacketsSent(peer, local netip.Addr)
 
 	// IncPacketsReceived increments the received packets counter.
-	// Called after each successfully demultiplexed BFD Control packet.
+	// Called after owner validation of each BFD Control packet.
 	IncPacketsReceived(peer, local netip.Addr)
 
 	// IncPacketsDropped increments the dropped packets counter.
 	// Called when a packet fails validation or cannot be delivered.
 	IncPacketsDropped(peer, local netip.Addr)
+	IncAuthFailures(peer, local netip.Addr)
+	DeliveryReporter
 
 	// RecordStateTransition increments the state transition counter.
 	// Called on each FSM state change with the old and new state names.
@@ -78,6 +80,8 @@ type noopMetrics struct{}
 func (noopMetrics) IncPacketsSent(_, _ netip.Addr)                     { /* no-op */ }
 func (noopMetrics) IncPacketsReceived(_, _ netip.Addr)                 { /* no-op */ }
 func (noopMetrics) IncPacketsDropped(_, _ netip.Addr)                  { /* no-op */ }
+func (noopMetrics) IncAuthFailures(_, _ netip.Addr)                    { /* no-op */ }
+func (noopMetrics) RecordDelivery(DeliverySource, DeliveryOutcome)     { /* no-op */ }
 func (noopMetrics) RecordStateTransition(_, _ netip.Addr, _, _ string) { /* no-op */ }
 func (noopMetrics) RegisterSession(_, _ netip.Addr, _ string)          { /* no-op */ }
 func (noopMetrics) UnregisterSession(_, _ netip.Addr, _ string)        { /* no-op */ }

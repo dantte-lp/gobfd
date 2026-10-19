@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Control delivery outcomes distinguish demux, admission, owner commit and
+  terminal loss. Header reuse cannot alter queued packets; stop closes admission
+  and counts abandoned RX/control work once without acknowledging abandoned
+  AdminDown. A fixed process-lifetime ledger appears in ListSessions and
+  `gobfd_bfd_delivery_outcomes_total`; existing session drop/auth counters reach
+  Get/List/Control Watch and Prometheus. Echo/notification queues and kernel
+  receive overflow remain separately tracked; this is development scope.
+
 - Control-session Watch publishes registration before the owner starts,
   including passive sessions that stay Down, and freezes full API status for
   additions, observations and removals. Configuration, timers and counters are

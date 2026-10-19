@@ -24,8 +24,9 @@ func TestFullWatchRowReplacementClearsZeroStatus(t *testing.T) {
 		RemoteState: bfdv1.SessionState_SESSION_STATE_UP, RemoteDiscriminator: 7,
 		LocalControlPlaneIndependent: true, RemoteControlPlaneIndependent: true,
 		AuthType:             bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1,
-		DesiredMinTxInterval: durationpb.New(time.Second), Counters: &bfdv1.SessionCounters{PacketsReceived: 7},
-		LastStateChange: timestamppb.Now(), LastPacketReceived: timestamppb.Now(),
+		DesiredMinTxInterval: durationpb.New(time.Second),
+		Counters:             &bfdv1.SessionCounters{PacketsReceived: 7, PacketsDropped: 5, AuthFailures: 3},
+		LastStateChange:      timestamppb.Now(), LastPacketReceived: timestamppb.Now(),
 	}
 	v := sessionView{sessions: map[uint32]*bfdv1.BfdSession{42: old}, covered: 1}
 	zero := &bfdv1.BfdSession{
@@ -46,6 +47,7 @@ func TestFullWatchRowReplacementClearsZeroStatus(t *testing.T) {
 		got.GetLocalDiagnostic() != bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_NONE ||
 		got.GetAuthType() != bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE ||
 		got.GetCounters().GetPacketsReceived() != 0 || got.GetDesiredMinTxInterval() != nil ||
+		got.GetCounters().GetPacketsDropped() != 0 || got.GetCounters().GetAuthFailures() != 0 ||
 		got.GetLastStateChange() != nil || got.GetLastPacketReceived() != nil {
 		t.Fatalf("row retained old nonzero status: %v", got)
 	}

@@ -395,14 +395,19 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	// Step 1: Read and decapsulate tunnel packet.
 	bfdPayload, ometa, err := r.conn.RecvDecapsulated(ctx)
 	if err != nil {
+		if ctx.Err() == nil && !errors.Is(err, ErrOverlayRecvClosed) {
+			r.mgr.RecordDelivery(bfd.DeliveryOverlayDecap, overlayDeliveryOutcome(err))
+		}
 		return fmt.Errorf("overlay recv: %w", err)
 	}
+	r.mgr.RecordDelivery(bfd.DeliveryOverlayDecap, bfd.DeliveryAccepted)
 
 	// Step 2: Unmarshal BFD Control packet.
 	// RFC 5880 Section 6.8.6 steps 1-7: version, length, detect mult,
 	// multipoint, my discriminator, your discriminator validation.
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(bfdPayload, &pkt); err != nil {
+		r.mgr.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryParserRejected)
 		r.logger.Debug("invalid BFD packet in overlay",
 			slog.String("src", ometa.SrcAddr.String()),
 			slog.Uint64("vni", uint64(ometa.VNI)),
@@ -410,6 +415,7 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 		)
 		return nil // Drop invalid packets silently per RFC 5880 Section 6.8.6.
 	}
+	r.mgr.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryAccepted)
 
 	// Step 3: Build bfd.PacketMeta from overlay metadata.
 	srcAddr := ometa.TransportScope.InnerPeerAddr
@@ -437,8 +443,9 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	}
 
 	// Step 5: Route to session via manager.
-	if err := r.mgr.DemuxWithWire(&pkt, meta, wire); err != nil {
+	if outcome, err := r.mgr.DemuxWithWire(&pkt, meta, wire); err != nil {
 		r.logger.Debug("overlay demux failed",
+			slog.String("outcome", outcome.String()),
 			slog.String("src", ometa.SrcAddr.String()),
 			slog.Uint64("vni", uint64(ometa.VNI)),
 			slog.String("error", err.Error()),
@@ -446,6 +453,21 @@ func (r *OverlayReceiver) recvOne(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func overlayDeliveryOutcome(err error) bfd.DeliveryOutcome {
+	switch {
+	case errors.Is(err, ErrInnerBadTTL):
+		return bfd.DeliveryTTLRejected
+	case errors.Is(err, ErrOverlayVNIMismatch), errors.Is(err, ErrOverlayIdentityMismatch),
+		errors.Is(err, ErrOverlayInvalidAddr), errors.Is(err, ErrOverlayInnerDstMismatch),
+		errors.Is(err, ErrGeneveVAPIdentityUnavailable):
+		return bfd.DeliveryPolicyRejected
+	case isExpectedOverlayDrop(err):
+		return bfd.DeliveryParserRejected
+	default:
+		return bfd.DeliveryReadError
+	}
 }
 
 func isExpectedOverlayDrop(err error) bool {

@@ -158,5 +158,5 @@ func signedAuthExpiryPacket(t *testing.T, s *Session, seq uint32) recvItem {
 	if err := UnmarshalControlPacket(wire, &parsed); err != nil {
 		t.Fatal(err)
 	}
-	return recvItem{pkt: &parsed, wire: wire}
+	return recvItem{pkt: parsed, wire: wire}
 }

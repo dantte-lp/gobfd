@@ -432,7 +432,7 @@ func TestManagerClosingRejectsNewClaimsAndSubscriptions(t *testing.T) {
 		}()
 		unsolicitedResult := make(chan lifecycleOperationResult, 1)
 		go func() {
-			unsolicitedErr := mgr.tryCreateUnsolicited(
+			_, unsolicitedErr := mgr.tryCreateUnsolicited(
 				ownershipDownPacket(700),
 				PacketMeta{
 					SrcAddr: netip.MustParseAddr("192.0.2.74"),
@@ -703,7 +703,7 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 			IfName:  "eth0",
 			TTL:     255,
 		}
-		if err := mgr.tryCreateUnsolicited(ownershipDownPacket(900), meta, nil); err != nil {
+		if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(900), meta, nil); err != nil {
 			t.Fatalf("tryCreateUnsolicited: %v", err)
 		}
 		snapshot := mgr.Sessions()
@@ -712,7 +712,7 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 		}
 		synctest.Wait()
 		session, ok := mgr.LookupByDiscriminator(snapshot[0].LocalDiscr)
-		if !ok || !session.SetPathDown() {
+		if !ok || session.SetPathDown() != DeliveryQueued {
 			t.Fatal("unsolicited owner did not admit PathDown")
 		}
 		synctest.Wait()

@@ -22,10 +22,19 @@
 
 GoBFD предоставляет метрики Prometheus по настроенному адресу (по умолчанию `127.0.0.1:9100/metrics`). Метрики используют namespace `gobfd_`.
 
-`gobfd_bfd_packets_dropped_total` и `gobfd_bfd_auth_failures_total`
-зарегистрированы, но production data path пока не увеличивает их значения.
-Они остаются равны нулю и не являются эксплуатационным свидетельством потерь
-или ошибок аутентификации до завершения v1 loss accounting.
+Для Control-сессии `gobfd_bfd_packets_dropped_total` учитывает queue full/closed,
+owner zero-TX/auth refusals и stop abandonment. `gobfd_bfd_auth_failures_total`
+является auth-подмножеством drops. Parser, TTL, unknown-peer и unsolicited
+refusals до создания сессии входят только в process-lifetime ledger
+`gobfd_bfd_delivery_outcomes_total{source,outcome}` без peer labels. Все
+поддерживаемые пары заранее имеют нулевую серию. Каждая стадия имеет отдельный
+знаменатель: `queued` не подтверждает owner `committed`, сумма стадий не является
+количеством пакетов. `read_error` не доказывает потерю пакета. ListSessions
+возвращает те же фиксированные строки `delivery_counters`, включая состояние
+после удаления последней сессии; revision не покрывает atomic counter sampling.
+Protobuf JSON может опускать нулевое значение count. Учёт Echo/notification
+queues (`gobfd-qj0.8.2.1.3.1.2`) и kernel `SO_RXQ_OVFL`
+(`gobfd-qj0.8.2.1.6`) остаётся за границей этого Control slice.
 
 | Метрика | Тип | Метки | Описание |
 |---|---|---|---|
@@ -35,6 +44,7 @@ GoBFD предоставляет метрики Prometheus по настроен
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Отброшенные пакеты (ошибки валидации/буфера) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | Переходы состояний FSM |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |
+| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Фиксированные решения стадий Control, сохраняемые после удаления сессии |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
 | `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Эффективный flap penalty с decay на момент scrape |

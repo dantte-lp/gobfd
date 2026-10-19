@@ -294,6 +294,14 @@ the same data model, but whitespace, indentation, and scalar presentation are
 not byte-stable across compatible serializer updates; automation should parse
 YAML rather than compare its rendered bytes.
 
+Control session detail reports `Packets Dropped` and `Auth Failures` from the
+same sampled session counters as Get/List and Control Watch. Auth failures are
+a subset of drops; admitted packets can still fail owner validation or be
+abandoned on stop. Process-lifetime stage totals, including unknown peers and
+deleted sessions, are available through API `ListSessions.delivery_counters`
+and `gobfd_bfd_delivery_outcomes_total`, not the session table. See
+[monitoring](07-monitoring.md) for denominators and remaining queue boundaries.
+
 ```bash
 # JSON output for scripting
 gobfdctl session list --format json

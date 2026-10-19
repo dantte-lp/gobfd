@@ -16,7 +16,7 @@ func TestFullWatchOwnerStatusIsFrozen(t *testing.T) {
 	s.notifyCh = ch
 	pkt := s.buildControlPacket()
 	pkt.State, pkt.Diag, pkt.ControlPlaneIndependent = StateAdminDown, DiagAdminDown, true
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	first := <-ch
 	want := first.Status
 	if want.State != StateDown || !want.RemoteKnown || want.RemoteState != StateAdminDown ||
@@ -28,7 +28,7 @@ func TestFullWatchOwnerStatusIsFrozen(t *testing.T) {
 	}
 	pkt.State, pkt.Diag, pkt.ControlPlaneIndependent = StateDown, DiagNone, false
 	pkt.RequiredMinRxInterval = 900000
-	s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+	s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 	s.mu.Lock()
 	s.desiredMinTxInterval = 2 * time.Second
 	s.mu.Unlock()

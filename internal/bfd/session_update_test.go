@@ -59,7 +59,7 @@ func TestSessionTimerUpdateLatestAndSeparation(t *testing.T) {
 		}
 		pkt := s.buildControlPacket()
 		pkt.Poll, pkt.Final, pkt.RequiredMinRxInterval = true, false, 100_000
-		s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		last := sender.packets[len(sender.packets)-1]
 		assertCachedPacketFlags(t, last, false, true)
 		var reply ControlPacket
@@ -73,7 +73,7 @@ func TestSessionTimerUpdateLatestAndSeparation(t *testing.T) {
 		synctest.Sleep(10 * time.Millisecond)
 		s.sendControl(t.Context()) // A retry must not reset the first-send timestamp.
 		pkt.Poll, pkt.Final = false, true
-		s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		s.processTimerUpdates(tx, detect)
 		if s.pollActive || s.timerUpdateSnapshot().State != timerUpdatePending {
 			t.Fatal("reverse intent bypassed separation")
@@ -89,7 +89,7 @@ func TestSessionTimerUpdateLatestAndSeparation(t *testing.T) {
 			t.Fatal("latest reverse update did not promote after separation")
 		}
 		s.sendControl(t.Context())
-		s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		if status := s.timerUpdateSnapshot(); status.State != timerUpdateApplied || !status.Changed {
 			t.Fatalf("reverse update receipt: %+v", status)
 		}
@@ -132,7 +132,7 @@ func TestSessionTimerUpdateExpiry(t *testing.T) {
 				}
 				pkt := s.buildControlPacket()
 				pkt.Final, pkt.Poll = true, false
-				s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if s.timerUpdateSnapshot().State != timerUpdateFailed || s.activeUpdate.Present {
 					t.Fatal("late Final resurrected failed receipt or failed to retire Poll")
 				}
@@ -185,7 +185,7 @@ func TestSessionTimerUpdateRecovery(t *testing.T) {
 				synctest.Sleep(time.Millisecond)
 				pkt := s.buildControlPacket()
 				pkt.Poll, pkt.Final, pkt.State, pkt.RequiredMinRxInterval = false, false, StateInit, 100_000
-				s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if s.State() != StateUp {
 					t.Fatal("recovery did not return Up")
 				}
@@ -196,7 +196,7 @@ func TestSessionTimerUpdateRecovery(t *testing.T) {
 					t.Fatalf("recovery-held effective TX snapshot = %s, want %s", got, max(proposedTX, time.Second))
 				}
 				pkt.State, pkt.Final = StateUp, true
-				s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if s.pollActive {
 					t.Fatal("Final did not complete recovery stage")
 				}
@@ -207,7 +207,7 @@ func TestSessionTimerUpdateRecovery(t *testing.T) {
 						t.Fatal("floor completion did not start retained slow-to-fast recovery")
 					}
 					s.sendControl(t.Context())
-					s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+					s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 					synctest.Sleep(time.Until(s.separateUntil))
 					s.processTimerUpdates(tx, detect)
 				}
@@ -252,13 +252,13 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 		}
 		pkt := s.buildControlPacket()
 		pkt.State, pkt.Poll = StateInit, false
-		s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		s.processTimerUpdates(tx, detect)
 		if s.activeUpdate.Present || !s.pollActive {
 			t.Fatal("queued update overrode startup Poll")
 		}
 		pkt.State, pkt.Final = StateUp, true
-		s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		synctest.Sleep(time.Microsecond)
 		s.processTimerUpdates(tx, detect)
 		if !s.activeUpdate.Present || s.activeUpdate.Deadline != first.Requested.Deadline {
@@ -302,19 +302,19 @@ func TestSessionTimerUpdateMatrix(t *testing.T) {
 				}
 				pkt.Poll, pkt.Final = false, true
 				pkt.RequiredMinRxInterval = 1 // Peer policy is independent of our proposed RX.
-				s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if !s.pollActive {
 					t.Fatal("early Final completed unsent proposal")
 				}
 				sender.failures = 1
 				s.handleTxTimer(t.Context(), tx)
-				s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if !s.pollActive {
 					t.Fatal("failed send established Poll")
 				}
 				s.handleTxTimer(t.Context(), tx)
 				synctest.Sleep(time.Millisecond)
-				s.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				status := s.timerUpdateSnapshot()
 				if status.State != timerUpdateApplied || s.desiredMinTxInterval != tc.tx || s.requiredMinRxInterval != tc.rx {
 					t.Fatalf("Final not applied: %+v", status)
@@ -471,7 +471,7 @@ func BenchmarkSessionTimerUpdate(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for b.Loop() {
-			s.handleRecvPacket(ctx, recvItem{pkt: &packet}, tx, detect)
+			s.handleRecvPacket(ctx, recvItem{pkt: packet}, tx, detect)
 			s.handleTxTimer(ctx, tx)
 		}
 	})

@@ -257,7 +257,7 @@ func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testi
 		IfName:  "eth0",
 		TTL:     255,
 	}
-	if err := mgr.tryCreateUnsolicited(ownershipDownPacket(101), firstMeta, nil); err != nil {
+	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(101), firstMeta, nil); err != nil {
 		t.Fatalf("tryCreateUnsolicited(first): %v", err)
 	}
 	snapshots := mgr.Sessions()
@@ -301,7 +301,7 @@ func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testi
 
 	secondMeta := firstMeta
 	secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.2")
-	if err := mgr.tryCreateUnsolicited(ownershipDownPacket(102), secondMeta, nil); err != nil {
+	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(102), secondMeta, nil); err != nil {
 		t.Fatalf("tryCreateUnsolicited(second) after quota release: %v", err)
 	}
 }

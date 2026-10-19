@@ -283,6 +283,14 @@ gobfd> exit
 побайтово стабильными при совместимых обновлениях сериализатора; автоматизация
 должна разбирать YAML, а не сравнивать его отрисованный текст.
 
+Control session detail показывает `Packets Dropped` и `Auth Failures` из тех же
+sampled session counters, что Get/List и Control Watch. Auth failures входят в
+drops; принятый в очередь пакет может быть отклонён владельцем или abandoned
+при остановке. Process-lifetime итоги стадий, включая unknown peers и удалённые
+сессии, доступны через API `ListSessions.delivery_counters` и
+`gobfd_bfd_delivery_outcomes_total`. Session table их не отображает. Знаменатели
+и оставшиеся очереди описаны в [мониторинге](07-monitoring.md).
+
 ```bash
 # JSON-вывод для скриптов
 gobfdctl session list --format json

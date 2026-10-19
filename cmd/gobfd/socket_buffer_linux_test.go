@@ -90,7 +90,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 				LAGInterface: "test-bond", LocalAddr: local.String(), MemberLinks: []string{"lo"},
 			}}
-			control, err := createControlListeners(cfg, logger)
+			control, err := createControlListeners(cfg, logger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,7 +100,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { closeListeners(echo, logger) })
-			micro, err := createMicroBFDListeners(cfg, logger)
+			micro, err := createMicroBFDListeners(cfg, logger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

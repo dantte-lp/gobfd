@@ -35,6 +35,7 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 		conn:        conn,
 		multiHop:    cfg.MultiHop,
 		expectedTTL: cfg.ExpectedTTL,
+		delivery:    cfg.Delivery,
 	}, nil
 }
 

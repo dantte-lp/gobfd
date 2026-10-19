@@ -234,6 +234,8 @@ type SessionCounters struct {
 
 	// PacketsReceived is the total BFD Control packets received.
 	PacketsReceived uint64
+	PacketsDropped  uint64
+	AuthFailures    uint64
 
 	// StateTransitions is the total FSM state transitions.
 	StateTransitions uint64
@@ -302,7 +304,8 @@ type Manager struct {
 
 	// metrics is the optional metrics reporter. Never nil -- uses noopMetrics
 	// when no collector is configured.
-	metrics MetricsReporter
+	metrics  MetricsReporter
+	delivery deliveryLedger
 
 	// unsolicited holds the RFC 9468 unsolicited BFD state.
 	// nil when unsolicited BFD is not configured.

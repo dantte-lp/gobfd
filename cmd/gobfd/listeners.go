@@ -29,7 +29,7 @@ func startListenersAndReceivers(
 	logger *slog.Logger,
 ) (func(), error) {
 	//nolint:contextcheck // Listener socket creation uses context.Background() internally.
-	lnResult, err := createListeners(cfg, logger)
+	lnResult, err := createListeners(cfg, logger, mgr)
 	if err != nil {
 		return nil, err
 	}
@@ -74,10 +74,10 @@ type listenersResult struct {
 // the necessary BFD packet listeners. For each unique (localAddr, type) pair
 // a single listener is created on the appropriate port (3784 for single-hop,
 // 4784 for multi-hop, 3785 for echo). Returns the listeners and any error.
-func createListeners(cfg *config.Config, logger *slog.Logger) (listenersResult, error) {
+func createListeners(cfg *config.Config, logger *slog.Logger, delivery bfd.DeliveryReporter) (listenersResult, error) {
 	var result listenersResult
 
-	controlListeners, err := createControlListeners(cfg, logger)
+	controlListeners, err := createControlListeners(cfg, logger, delivery)
 	if err != nil {
 		return listenersResult{}, err
 	}
@@ -95,7 +95,7 @@ func createListeners(cfg *config.Config, logger *slog.Logger) (listenersResult, 
 
 	// Create micro-BFD listeners (port 6784) for each member link (RFC 7130).
 	if len(cfg.MicroBFD.Groups) > 0 {
-		microListeners, err := createMicroBFDListeners(cfg, logger)
+		microListeners, err := createMicroBFDListeners(cfg, logger, delivery)
 		if err != nil {
 			closeListeners(result.control, logger)
 			closeListeners(result.echo, logger)
@@ -109,7 +109,9 @@ func createListeners(cfg *config.Config, logger *slog.Logger) (listenersResult, 
 
 // createControlListeners creates BFD Control packet listeners on port 3784
 // (single-hop) and 4784 (multi-hop), including enabled unsolicited interfaces.
-func createControlListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.Listener, error) {
+func createControlListeners(
+	cfg *config.Config, logger *slog.Logger, delivery bfd.DeliveryReporter,
+) ([]*netio.Listener, error) {
 	type listenerKey struct {
 		addr     netip.Addr
 		ifName   string
@@ -119,6 +121,7 @@ func createControlListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.L
 	seen := make(map[listenerKey]struct{})
 	var listeners []*netio.Listener
 	for _, lnCfg := range controlListenerConfigs(cfg) {
+		lnCfg.Delivery = delivery
 		key := listenerKey{addr: lnCfg.Addr, ifName: lnCfg.IfName, multiHop: lnCfg.MultiHop}
 		if _, exists := seen[key]; exists {
 			continue

@@ -55,7 +55,7 @@ func TestSessionAdminDownQueueDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := newAdminDownTestSession(t, senderLeaseTestSender{}, 42)
 		for range cap(s.ctrlCh) {
-			if !s.SetPathDown() {
+			if s.SetPathDown() != DeliveryQueued {
 				t.Fatal("fill control queue")
 			}
 		}
@@ -218,7 +218,7 @@ func TestSessionAdminDownStoppedOwner(t *testing.T) {
 				s := newAdminDownTestSession(t, sender, 47)
 				if fullQueue {
 					for range cap(s.ctrlCh) {
-						if !s.SetPathDown() {
+						if s.SetPathDown() != DeliveryQueued {
 							t.Fatal("fill control queue")
 						}
 					}

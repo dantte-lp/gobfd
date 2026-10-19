@@ -349,7 +349,6 @@ func (s *Session) advertisedTimers() timerTuple {
 
 func (s *Session) closeTimerUpdates() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.updateClosed = true
 	if s.adminDrain != nil && time.Now().Before(s.adminDrain.until) {
 		s.adminDrain.until = time.Time{}
@@ -358,4 +357,21 @@ func (s *Session) closeTimerUpdates() {
 		s.failTimerUpdateLocked()
 	}
 	s.activeUpdate, s.waitingUpdate = timerProposal{}, timerProposal{}
+	packets, controls := len(s.recvCh), len(s.ctrlCh)
+	for range packets {
+		<-s.recvCh
+	}
+	for range controls {
+		<-s.ctrlCh
+	}
+	s.mu.Unlock()
+	// Callbacks run outside the admission lock; abandoned receipts stay open.
+	for range packets {
+		s.recordPacketDrop(DeliveryAbandoned)
+		s.recordDelivery(DeliveryPacketOwner, DeliveryAbandoned)
+	}
+	for range controls {
+		s.recordDelivery(DeliveryControlOwner, DeliveryAbandoned)
+	}
+	s.signalControlSpace()
 }

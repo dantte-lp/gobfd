@@ -222,10 +222,18 @@ func (s *BFDServer) ListSessions(
 	for _, snap := range snapshots {
 		sessions = append(sessions, snapshotToProto(snap))
 	}
+	rows := s.manager.DeliveryCounters()
+	delivery := make([]*bfdv1.DeliveryCounter, 0, len(rows))
+	for _, row := range rows {
+		delivery = append(delivery, &bfdv1.DeliveryCounter{
+			Source: bfdv1.DeliverySource(row.Source), Outcome: bfdv1.DeliveryOutcome(row.Outcome), Count: row.Count,
+		})
+	}
 
 	return &bfdv1.ListSessionsResponse{
-		Sessions: sessions,
-		Revision: rev,
+		Sessions:         sessions,
+		Revision:         rev,
+		DeliveryCounters: delivery,
 	}, nil
 }
 
@@ -584,6 +592,8 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 		Counters: &bfdv1.SessionCounters{
 			PacketsSent:      snap.Counters.PacketsSent,
 			PacketsReceived:  snap.Counters.PacketsReceived,
+			PacketsDropped:   snap.Counters.PacketsDropped,
+			AuthFailures:     snap.Counters.AuthFailures,
 			StateTransitions: snap.Counters.StateTransitions,
 		},
 	}

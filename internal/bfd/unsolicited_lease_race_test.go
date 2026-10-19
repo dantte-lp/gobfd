@@ -68,7 +68,7 @@ func TestUnsolicitedLeasesCloseOnceUnderConcurrentAdmissionAndReload(t *testing.
 		wg.Go(func() { // admission
 			for round := range rounds {
 				for i, peer := range peers {
-					_ = mgr.tryCreateUnsolicited(ownershipDownPacket(uint32(1000+round*len(peers)+i)),
+					_, _ = mgr.tryCreateUnsolicited(ownershipDownPacket(uint32(1000+round*len(peers)+i)),
 						admissionMeta(peer, "192.0.2.1"), nil)
 				}
 				time.Sleep(150 * time.Millisecond)
@@ -109,7 +109,7 @@ func TestUnsolicitedLeasesCloseOnceUnderConcurrentAdmissionAndReload(t *testing.
 		}
 		time.Sleep(2 * time.Second) // refill admission tokens
 		for i, peer := range peers {
-			_ = mgr.tryCreateUnsolicited(ownershipDownPacket(uint32(9000+i)), admissionMeta(peer, "192.0.2.1"), nil)
+			_, _ = mgr.tryCreateUnsolicited(ownershipDownPacket(uint32(9000+i)), admissionMeta(peer, "192.0.2.1"), nil)
 		}
 		if got := len(mgr.Sessions()); got != len(peers) {
 			t.Fatalf("sessions before Close = %d, want %d", got, len(peers))

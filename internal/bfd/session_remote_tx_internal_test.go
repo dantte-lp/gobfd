@@ -55,7 +55,7 @@ func TestRemoteTxPolicy(t *testing.T) {
 				pkt := sess.buildControlPacket()
 				pkt.State, pkt.Demand, pkt.Poll = tt.state, tt.rx != 0 || tt.pollActive, false
 				pkt.RequiredMinRxInterval = microsecondsFromDuration(tt.rx)
-				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				synctest.Sleep(time.Second)
 				if fired := fireRemoteTxTimer(sess, tx); fired != tt.wantTX {
 					t.Fatalf("periodic timer fired = %t, want %t", fired, tt.wantTX)
@@ -66,7 +66,7 @@ func TestRemoteTxPolicy(t *testing.T) {
 				if tt.wantTX {
 					if tt.pollActive {
 						pkt.Final = true
-						sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+						sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 						synctest.Sleep(time.Second)
 						if fireRemoteTxTimer(sess, tx) {
 							t.Fatal("Demand transmission continued after local Poll completed")
@@ -77,7 +77,7 @@ func TestRemoteTxPolicy(t *testing.T) {
 				// An incoming Final also ends the existing local Poll exception.
 				pkt.Demand, pkt.Final = false, true
 				pkt.RequiredMinRxInterval = 100_000
-				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				synctest.Sleep(100 * time.Millisecond)
 				if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != 1 {
 					t.Fatal("periodic transmission did not resume")
@@ -135,7 +135,7 @@ func TestRemoteTxDeadline(t *testing.T) {
 				}
 				pkt := sess.buildControlPacket()
 				pkt.RequiredMinRxInterval = microsecondsFromDuration(tt.newRX)
-				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if tt.earliest > tt.elapsed {
 					synctest.Sleep(tt.earliest - tt.elapsed - time.Nanosecond)
 					if fireRemoteTxTimer(sess, tx) {
@@ -172,7 +172,7 @@ func TestRemoteTxPollFinalRetry(t *testing.T) {
 				sender.failures = tt.failures
 				pkt := sess.buildControlPacket()
 				pkt.Demand, pkt.Poll, pkt.RequiredMinRxInterval = true, true, tt.rx
-				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if sender.attempts != 1 || sess.pendingFinal != (tt.failures > 0) {
 					t.Fatal("Poll did not attempt an immediate Final with failure retention")
 				}
@@ -224,7 +224,7 @@ func TestSessionSlowToFastPoll(t *testing.T) {
 				if tt.remoteRX != 0 {
 					pkt.RequiredMinRxInterval = microsecondsFromDuration(tt.remoteRX)
 				}
-				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if sess.State() != StateUp || len(sender.packets) != 1 {
 					t.Fatal("Up transition must use exactly its existing immediate send")
 				}
@@ -256,7 +256,7 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 		sender.failures = 1
 		pkt := sess.buildControlPacket()
 		pkt.State = StateInit
-		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		if !sess.pollActive || sender.attempts != 1 || len(sender.packets) != 0 {
 			t.Fatal("failed first Up send did not retain local Poll for periodic retry")
 		}
@@ -269,7 +269,7 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 			assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
 		}
 		pkt.State, pkt.Poll = StateUp, true
-		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], false, true)
 		synctest.Sleep(100 * time.Millisecond)
 		if !fireRemoteTxTimer(sess, tx) {
@@ -277,9 +277,9 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 		}
 		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
 		pkt.Poll, pkt.Final = false, true
-		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		pkt.Final = false
-		sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 		synctest.Sleep(100 * time.Millisecond)
 		if !fireRemoteTxTimer(sess, tx) || sess.pollActive {
 			t.Fatal("Final did not end Poll, or unchanged Up restarted it")
@@ -293,9 +293,9 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 			}
 			pkt.State = StateInit
 			sender.failures = 1
-			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 			pkt.State, pkt.Final = StateUp, true
-			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 			if !sess.pollActive {
 				t.Fatal("Final completed new Poll using an obsolete send confirmation")
 			}
@@ -306,14 +306,14 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 			}
 			assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
 			pkt.Final = true
-			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 			synctest.Sleep(time.Until(sess.separateUntil))
 			sess.processTimerUpdates(tx, detect)
 			if !sess.pollActive || sess.buildControlPacket().DesiredMinTxInterval != 100_000 {
 				t.Fatal("floor Poll completion and separation did not start fast recovery")
 			}
 			sess.sendControl(t.Context())
-			sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 			synctest.Sleep(time.Until(sess.separateUntil))
 			sess.processTimerUpdates(tx, detect)
 			pkt.Final = false
@@ -350,7 +350,7 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 				pkt := sess.buildControlPacket()
 				pkt.State = StateInit
 				if tt.confirmed {
-					sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+					sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 					assertCachedPacketFlags(t, sender.packets[0], true, false)
 				}
 				switch tt.failure {
@@ -367,7 +367,7 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 				if tt.confirmed && tt.failure != "" {
 					sess.sendControl(t.Context())
 				} else {
-					sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+					sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				}
 				wantPackets := 0
 				if tt.confirmed {
@@ -385,7 +385,7 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 				sess.auth = nil
 				sess.cachedPacket = make([]byte, MaxPacketSize)
 				pkt.State, pkt.Poll, pkt.Final, pkt.AuthPresent = StateUp, false, true, false
-				sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				if sess.pollActive != !tt.confirmed {
 					t.Fatalf("Poll active after Final = %t, successful Poll sent = %t", sess.pollActive, tt.confirmed)
 				}
@@ -395,7 +395,7 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 						t.Fatal("premature Final stopped Poll retry")
 					}
 					assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
-					sess.handleRecvPacket(t.Context(), recvItem{pkt: &pkt}, tx, detect)
+					sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				}
 				synctest.Sleep(100 * time.Millisecond)
 				if !fireRemoteTxTimer(sess, tx) || sess.pollActive {

@@ -71,7 +71,7 @@ func TestOverlaySessionsWithSameInnerTupleDifferentVNICoexist(t *testing.T) {
 		SrcAddr: second.PeerAddr, DstAddr: second.LocalAddr, TTL: 255,
 		TransportScope: second.TransportScope,
 	}
-	if err := mgr.DemuxWithWire(pkt, meta, nil); err != nil {
+	if _, err := mgr.DemuxWithWire(pkt, meta, nil); err != nil {
 		t.Fatalf("DemuxWithWire(second overlay identity): %v", err)
 	}
 }
@@ -115,12 +115,12 @@ func TestOverlayDiscriminatorDemuxValidatesExactTunnelBinding(t *testing.T) {
 	mismatch := cfg.TransportScope
 	mismatch.VNI++
 	meta := PacketMeta{SrcAddr: cfg.PeerAddr, DstAddr: cfg.LocalAddr, TTL: 255, TransportScope: mismatch}
-	if err := mgr.DemuxWithWire(pkt, meta, nil); !errors.Is(err, ErrDemuxNoMatch) {
+	if _, err := mgr.DemuxWithWire(pkt, meta, nil); !errors.Is(err, ErrDemuxNoMatch) {
 		t.Fatalf("DemuxWithWire(mismatched tunnel) error = %v, want ErrDemuxNoMatch", err)
 	}
 
 	meta.TransportScope = cfg.TransportScope
-	if err := mgr.DemuxWithWire(pkt, meta, nil); err != nil {
+	if _, err := mgr.DemuxWithWire(pkt, meta, nil); err != nil {
 		t.Fatalf("DemuxWithWire(exact tunnel): %v", err)
 	}
 }
@@ -151,7 +151,7 @@ func TestBaseDiscriminatorDemuxRejectsOverlayTransport(t *testing.T) {
 		SrcAddr: cfg.PeerAddr, DstAddr: cfg.LocalAddr, TTL: 255,
 		TransportScope: TransportScope{Kind: TransportScopeVXLAN, VNI: 100},
 	}
-	if err := mgr.DemuxWithWire(pkt, meta, nil); !errors.Is(err, ErrDemuxNoMatch) {
+	if _, err := mgr.DemuxWithWire(pkt, meta, nil); !errors.Is(err, ErrDemuxNoMatch) {
 		t.Fatalf("DemuxWithWire(overlay transport) error = %v, want ErrDemuxNoMatch", err)
 	}
 }

@@ -43,7 +43,7 @@ func TestManagerDeletionPublishesWithoutDispatch(t *testing.T) {
 						}
 					}
 				case "unsolicited":
-					if err := mgr.tryCreateUnsolicited(ownershipDownPacket(101),
+					if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(101),
 						admissionMeta("192.0.2.1", "192.0.2.254"), nil); err != nil {
 						t.Fatalf("tryCreateUnsolicited: %v", err)
 					}
@@ -56,7 +56,7 @@ func TestManagerDeletionPublishesWithoutDispatch(t *testing.T) {
 				sess, _ := mgr.LookupByDiscriminator(snap.LocalDiscr)
 				synctest.Wait()
 				if removal == "unsolicited" {
-					if !sess.SetPathDown() {
+					if sess.SetPathDown() != DeliveryQueued {
 						t.Fatal("queue unsolicited owner failure")
 					}
 					synctest.Wait()
