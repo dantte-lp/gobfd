@@ -349,6 +349,7 @@ RFC 9468 enables one BFD endpoint to dynamically create passive sessions in resp
 | Configurable timers (SHOULD) | `UnsolicitedSessionDefaults` |
 | Bounded admission (Section 6.1) | `max_sessions` must be >= 1 when enabled; new sessions are admitted at up to 10 per second, burst 20 |
 | Session cleanup on Down (SHOULD) | `CleanupTimeout` configuration |
+| Stop after failure (MUST, Section 2) | The session owner stops non-Final Control TX on natural failure or expiry of its independent setup budget; configured/API claims retain ordinary RFC 5880 behavior |
 | Authentication (RECOMMENDED, Section 6.2) | Optional `unsolicited.auth`, Meticulous Keyed SHA1 only; the triggering packet is verified before a session exists; without it, A-bit packets are refused |
 
 Auto-creation happens in `Manager.demuxByPeer()` when an incoming packet matches no existing session and unsolicited BFD is enabled for the receiving interface. The passive session is created with `RolePassive` and immediately receives the triggering packet. The `MaxSessions` quota is reserved atomically before creation and released on create failure, explicit destroy, or cleanup of a passive Down session after `CleanupTimeout`.
@@ -359,9 +360,27 @@ link-local address is scoped to the receiving interface. The enabled policy
 is validated at load: session defaults representable on the wire with a
 nonzero `required_min_rx`, at least one enabled interface and valid
 `allowed_prefixes`. Development qualification covers dual-stack capture and
-78 concurrent sender leases closed once (`gobfd-qj0.8.2.1.10.1`); natural Down
-TX-stop remains open (`gobfd-qj0.8.2.1.10.6`). Do not enable it on an
-untrusted interface.
+78 concurrent sender leases closed once (`gobfd-qj0.8.2.1.10.1`). Unsolicited
+mode remains an unsafe preview. Do not enable it on an untrusted interface.
+
+Unsolicited setup has an independent budget from
+the first accepted Control packet, extended only to cover a larger observed
+local RX Detection Time. Repeated packets with unchanged timers do not restart
+that budget. Claim-mode changes preserve the original budget and failure latch;
+configured/API claims retain generic TX even if the private budget expires.
+Expiry suppresses exclusively unsolicited TX while retaining the RFC 5880 FSM and
+diagnostic; valid receive silence alone expires the learned discriminator
+after one RX Detection Time and the authentication sequence window after two.
+The next valid authenticated Control packet starts a new local attempt using
+the retained FSM, an implementation policy rather than a distinct wire epoch:
+retained Init plus remote Up becomes Up; retained Down plus remote Up stays
+Down. An initial remote AdminDown also receives the setup budget; AdminDown
+maintenance after a failed attempt preserves suspension. Required Final
+responses and retries, and local AdminDown notification, retain the RFC 5880
+Sections 6.5, 6.8.7 and 6.8.16 procedures. Cleanup qualifies the failed attempt
+under the owner lock before detaching its claim; a previous timer cannot
+retire a later attempt or a locally disabled session. Setup failure signals
+only request cleanup and do not publish a fabricated state transition.
 
 ### RFC 9747 Implementation Notes
 

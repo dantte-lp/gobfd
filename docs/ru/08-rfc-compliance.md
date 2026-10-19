@@ -310,9 +310,28 @@ listeners IPv4 и IPv6 на порту 3784 с `SO_BINDTODEVICE`; настрое
 проверяется при загрузке: значения `session_defaults` представимы на проводе,
 `required_min_rx` ненулевой, хотя бы один интерфейс включён, `allowed_prefixes`
 корректны. Development qualification включает dual-stack capture и однократное
-закрытие 78 конкурентных sender leases (`gobfd-qj0.8.2.1.10.1`); остановка TX
-при natural Down остаётся открытой (`gobfd-qj0.8.2.1.10.6`). Её нельзя включать
-на недоверенном интерфейсе.
+закрытие 78 конкурентных sender leases (`gobfd-qj0.8.2.1.10.1`). Режим остаётся
+небезопасным preview; его нельзя включать на недоверенном интерфейсе.
+
+При единственном unsolicited claim owner останавливает non-Final Control TX
+при natural failure или истечении независимого окна установления. Окно
+отсчитывается от первого принятого Control packet и
+продлевается только до большего наблюдаемого local RX Detection Time.
+Повторные пакеты с теми же таймерами окно не перезапускают. Смена claims сохраняет
+исходное окно и failure latch; configured/API claims сохраняют обычный TX даже
+при истечении private setup window. Истечение окна в чистом unsolicited режиме
+сохраняет FSM и diagnostic RFC 5880; отсутствие валидного RX отдельно сбрасывает
+discriminator через один RX Detection Time, а auth sequence window — через два.
+Следующий валидный аутентифицированный Control packet начинает новую локальную
+попытку на сохранённой FSM. Это implementation policy, а не отдельный wire epoch:
+retained Init с remote Up переходит в Up, retained Down с remote Up остаётся Down.
+Первоначальный remote AdminDown также получает setup window; AdminDown после
+неудачной попытки сохраняет остановку. Final/retry и local AdminDown сохраняют
+процедуры RFC 5880 Sections 6.5, 6.8.7 и 6.8.16. Configured/API claims сохраняют
+обычный passive режим. Cleanup проверяет failed attempt под owner lock перед
+освобождением claim; старый таймер не удаляет более позднюю попытку или локально
+отключённую сессию. Private setup failure запускает только cleanup и не публикует
+фиктивный переход состояния.
 
 ### Заметки по RFC 9747
 

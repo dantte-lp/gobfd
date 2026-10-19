@@ -304,7 +304,9 @@ delivery.
    Evidence: `reports/unsolicited-listeners-wire-20261016/receipt.md`;
    четыре Up/Up сессии без настроенных passive sessions, две IPv4 и две IPv6.
    Stable delivery остаётся неквалифицированной. Остановка TX при natural Down
-   `.8.2.1.10.6` остаётся OPEN до закрытия родителя `.8.2.1.10`.
+   и failed setup `.8.2.1.10.6` использует независимое owner window,
+   сохранённое состояние RFC 5880, учёт ownership и cleanup по локальной попытке;
+   acceptance остаётся pending до закрытия родителя `.8.2.1.10`.
    `.8.2.1.8` выполняется после решений шага 9.
 4. Выполнено: `gobfd-6de`, метрики production Compose с проверкой API
    targets Prometheus, описанной выше.

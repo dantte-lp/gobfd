@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- RFC 9468 owner-local transmission stop after natural failure or an independent
+  setup budget, with learned discriminator/authentication lifetimes preserved.
+  Final replies and local AdminDown retain RFC 5880 behavior; configured/API
+  claims keep ordinary passive operation. Cleanup is qualified by a local
+  attempt identity and cannot retire a later attempt. Unsolicited mode remains
+  an unsafe preview.
+
 - RFC 9468 interface-bound IPv4/IPv6 single-hop wildcard listeners accept
   unsolicited packets without a configured session on the destination address.
   Configured listeners retain their peer lookup; unmatched ingress indices

@@ -55,10 +55,17 @@ func TestManagerDeletionPublishesWithoutDispatch(t *testing.T) {
 				snap := mgr.Sessions()[0]
 				sess, _ := mgr.LookupByDiscriminator(snap.LocalDiscr)
 				synctest.Wait()
-				sess.mu.Lock()
-				sess.localPair.Store(packStateDiag(StateDown, DiagNone))
-				sess.observation.State = StateDown
-				sess.mu.Unlock()
+				if removal == "unsolicited" {
+					if !sess.SetPathDown() {
+						t.Fatal("queue unsolicited owner failure")
+					}
+					synctest.Wait()
+				} else {
+					sess.mu.Lock()
+					sess.localPair.Store(packStateDiag(StateDown, DiagNone))
+					sess.observation.State = StateDown
+					sess.mu.Unlock()
+				}
 				// Removal must not wait for the dispatcher or a free raw queue slot.
 				for len(mgr.rawNotifyCh) < cap(mgr.rawNotifyCh) {
 					sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())

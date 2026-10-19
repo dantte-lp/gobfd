@@ -22,31 +22,12 @@ func (s *Session) handleRecvPacket(
 	detectTimer *time.Timer,
 ) {
 	pkt := item.pkt
-
-	// RFC 5880 Section 4.1 reserves zero Desired Min TX; accepting it with
-	// local Required Min RX zero would arm a zero-duration detection timer.
-	// Steps 8-9 also discard authentication mismatches before any mutation.
-	if pkt.DesiredMinTxInterval == 0 || !s.checkAuthConsistency(pkt) {
+	if !s.checkReceivedPacket(item) {
 		return
 	}
 
-	// RFC 5880 Section 6.7: verify authentication if configured.
-	if s.auth != nil {
-		// RX may win select while the detection timer is already ready.
-		// Expire the old sequence window before authenticating a restarted peer.
-		s.maybeResetAuthSeqKnown()
-		if err := s.auth.Verify(
-			s.authState, s.authKeys, pkt, item.wire, len(item.wire),
-		); err != nil {
-			s.logger.Debug("auth verification failed",
-				slog.String("peer", s.peerAddr.String()),
-				slog.String("error", err.Error()),
-			)
-			return
-		}
-	}
-
 	s.recordValidReceivedPacket()
+	s.expireUnsolicitedSetup()
 	oldTxInterval, oldTxAllowed := s.calcTxIntervalHot(), s.periodicTxAllowed()
 
 	s.mu.Lock()
@@ -59,6 +40,7 @@ func (s *Session) handleRecvPacket(
 	// Step 17: Set remoteDesiredMinTxInterval + remoteDetectMult.
 	s.remoteDesiredMinTxInterval, s.remoteDetectMult = durationFromMicroseconds(pkt.DesiredMinTxInterval), pkt.DetectMult
 	s.updateAdminDrainLocked(s.lastValidRecv)
+	processFSM := s.updateUnsolicitedReceiveLocked(pkt.State)
 	s.mu.Unlock()
 
 	// Stage causal facts; publication waits for the final local FSM result.
@@ -81,7 +63,13 @@ func (s *Session) handleRecvPacket(
 
 	// Apply FSM event based on received state.
 	event := RecvStateToEvent(pkt.State)
-	s.applyFSMEvent(ctx, event, txTimer, detectTimer)
+	if processFSM {
+		s.applyFSMEvent(ctx, event, txTimer, detectTimer)
+	} else {
+		// Publish valid remote facts without advancing a failed attempt.
+		s.executeFSMActions(ctx, FSMResult{OldState: s.cachedState, NewState: s.cachedState},
+			txTimer, detectTimer, s.Observation().Cause)
+	}
 
 	// RFC 5880 Section 6.5: "the receiving system MUST transmit a BFD
 	// Control packet with the Final (F) bit set as soon as practicable."
@@ -99,6 +87,30 @@ func (s *Session) handleRecvPacket(
 	if oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed() {
 		s.scheduleTxTimer(txTimer, s.lastPacketSent)
 	}
+}
+
+func (s *Session) checkReceivedPacket(item recvItem) bool {
+	pkt := item.pkt
+	// RFC 5880 Section 4.1 reserves zero Desired Min TX; accepting it with
+	// local Required Min RX zero would arm a zero-duration detection timer.
+	// Steps 8-9 also discard authentication mismatches before any mutation.
+	if pkt.DesiredMinTxInterval == 0 || !s.checkAuthConsistency(pkt) {
+		return false
+	}
+	if s.auth == nil {
+		return true
+	}
+	// RX may win select while the detection timer is already ready.
+	// Expire the old sequence window before authenticating a restarted peer.
+	s.maybeResetAuthSeqKnown()
+	if err := s.auth.Verify(s.authState, s.authKeys, pkt, item.wire, len(item.wire)); err != nil {
+		s.logger.Debug("auth verification failed",
+			slog.String("peer", s.peerAddr.String()),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	return true
 }
 
 func (s *Session) recordValidReceivedPacket() {
@@ -244,6 +256,7 @@ func (s *Session) emitNotification(result FSMResult, observation Observation) {
 		return
 	}
 	sc := StateChange{
+		unsolicitedAttempt: s.unsolicitedAttempt,
 		LocalDiscr:         s.localDiscr,
 		PeerAddr:           s.peerAddr,
 		LocalAddr:          s.localAddr,

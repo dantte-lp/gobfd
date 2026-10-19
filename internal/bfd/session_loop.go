@@ -150,6 +150,12 @@ func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detec
 	if oldState == StateAdminDown {
 		return
 	}
+	s.mu.Lock()
+	s.unsolicitedStarted = time.Time{}
+	if s.unsolicitedClaimWanted {
+		s.stopUnsolicitedLocked()
+	}
+	s.mu.Unlock()
 
 	s.executeFSMActions(ctx, FSMResult{
 		OldState: oldState,
@@ -165,6 +171,7 @@ func (s *Session) handlePathDown(ctx context.Context, txTimer *time.Timer, detec
 
 // handleTxTimer fires on each transmission interval.
 func (s *Session) handleTxTimer(ctx context.Context, txTimer *time.Timer) {
+	s.expireUnsolicitedSetup()
 	s.maybeSendControl(ctx)
 	s.resetTxTimer(txTimer)
 }
@@ -179,6 +186,9 @@ func (s *Session) maybeSendControl(ctx context.Context) {
 // periodicTxAllowed applies RFC 5880 Section 6.8.7 periodic transmission
 // limits. Final replies bypass periodic limits, including on retry.
 func (s *Session) periodicTxAllowed() bool {
+	if !s.unsolicitedTxAllowed() {
+		return false
+	}
 	// RFC 5880 Section 6.8.7: "A system MUST NOT transmit BFD Control
 	// packets if bfd.RemoteDiscr is zero and the system is taking the
 	// Passive role."
@@ -198,6 +208,9 @@ func (s *Session) periodicTxAllowed() bool {
 // to the configured size. The Length field in the BFD header retains the
 // actual (unpadded) protocol length; padding follows the BFD PDU.
 func (s *Session) sendControl(ctx context.Context) {
+	if !s.unsolicitedTxAllowed() && !s.pendingFinal {
+		return
+	}
 	// RFC 5880 Section 6.8.7 also prohibits Final and direct FSM sends.
 	if s.role == RolePassive && s.remoteDiscr == 0 {
 		return

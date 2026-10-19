@@ -164,6 +164,7 @@ func (entry *sessionEntry) claimExisting(
 	}
 
 	entry.owners[owner] = struct{}{}
+	entry.publishUnsolicitedOwnership()
 	return entry.session, nil
 }
 
@@ -232,6 +233,7 @@ func (m *Manager) registerAndStart(
 	sess.updateNotify = m.timerUpdateCh
 	sess.observationClock = &m.observationClock
 	sess.observation.ObservationVersion = sess.nextObservationVersionLocked()
+	entry.publishUnsolicitedOwnershipLocked()
 	sess.mu.Unlock()
 	// Decouple session lifetime from the parent context so that SIGTERM
 	// does not immediately cancel sessions. Graceful shutdown first sets
@@ -327,10 +329,8 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	entry, ok := m.sessions[localDiscr]
 	if !ok {
 		m.mu.Unlock()
-		return false, nil, fmt.Errorf(
-			"destroy session with discriminator %d: %w",
-			localDiscr, ErrSessionNotFound,
-		)
+		return false, nil, fmt.Errorf("destroy session with discriminator %d: %w",
+			localDiscr, ErrSessionNotFound)
 	}
 	if _, owned := entry.owners[owner]; !owned {
 		m.mu.Unlock()
@@ -345,6 +345,7 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	}
 	if len(entry.owners) > 1 {
 		delete(entry.owners, owner)
+		entry.publishUnsolicitedOwnership()
 		m.mu.Unlock()
 		return false, nil, nil
 	}

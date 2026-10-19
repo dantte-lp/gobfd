@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Остановка передачи RFC 9468 в owner loop после natural failure или истечения
+  независимого окна установления с сохранением сроков discriminator/auth.
+  Final и local AdminDown сохраняют процедуры RFC 5880; configured/API claims
+  сохраняют обычный passive режим. Cleanup проверяет идентификатор локальной
+  попытки и не удаляет более позднюю попытку. Режим остаётся небезопасным preview.
+
 - Wildcard single-hop listeners RFC 9468 для IPv4/IPv6 с bind к интерфейсу
   принимают unsolicited-пакеты без настроенной сессии на destination address.
   Настроенные listeners сохраняют peer lookup; неизвестный ingress index

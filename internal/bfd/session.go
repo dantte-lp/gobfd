@@ -145,6 +145,9 @@ type SessionConfig struct {
 
 // StateChange reports a session FSM transition or removal.
 type StateChange struct {
+	// Private owner notifications never reach subscribers or actuators.
+	unsolicitedFailure bool
+	unsolicitedAttempt uint64
 	// LocalDiscr is the local discriminator of the session.
 	LocalDiscr uint32
 
@@ -356,6 +359,16 @@ type Session struct {
 
 	// pendingFinal is true when we received a Poll and need to send Final.
 	pendingFinal bool
+
+	// Ownership intent uses mu/updateWake; active policy is loop-owned.
+	unsolicitedClaimWanted bool
+	unsolicitedOnlyWanted  bool
+	unsolicitedOnly        bool
+	unsolicitedStopped     bool
+	unsolicitedRetiring    bool
+	unsolicitedAttempt     uint64
+	unsolicitedStarted     time.Time
+	unsolicitedDeadline    time.Time
 
 	// Timer intent and snapshots are protected by mu. Only the loop changes
 	// active wire/effective values; admission writes the latest waiting slot.

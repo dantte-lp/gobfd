@@ -548,24 +548,31 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 		case <-m.shutdownCh:
 			return
 		case sc := <-m.rawNotifyCh:
-			m.mu.RLock()
-			if sc.Type != SessionTypeEcho {
-				entry, ok := m.sessions[sc.LocalDiscr]
-				if !ok || entry.session != sc.Ref.session {
-					m.mu.RUnlock()
-					continue
-				}
-			}
-			// Dispatch micro-BFD events to the group.
-			if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
-				m.dispatchMicroBFD(ctx, sc)
-			}
-			m.broadcastStateChange(sc)
-			m.mu.RUnlock()
-			if sc.NewState == StateDown {
-				m.scheduleUnsolicitedCleanup(ctx, sc)
-			}
+			m.dispatchStateChange(ctx, sc)
 		}
+	}
+}
+
+func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
+	if sc.unsolicitedFailure {
+		m.scheduleUnsolicitedCleanup(ctx, sc)
+		return
+	}
+	m.mu.RLock()
+	if sc.Type != SessionTypeEcho {
+		entry, ok := m.sessions[sc.LocalDiscr]
+		if !ok || entry.session != sc.Ref.session {
+			m.mu.RUnlock()
+			return
+		}
+	}
+	if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
+		m.dispatchMicroBFD(ctx, sc)
+	}
+	m.broadcastStateChange(sc)
+	m.mu.RUnlock()
+	if sc.NewState == StateDown {
+		m.scheduleUnsolicitedCleanup(ctx, sc)
 	}
 }
 
@@ -631,6 +638,11 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 	m.mu.RLock()
 	entry, ok := m.sessions[sc.LocalDiscr]
 	isUnsolicited := ok && entry.session == sc.Ref.session && entry.unsolicited
+	if isUnsolicited {
+		entry.session.mu.RLock()
+		isUnsolicited = entry.session.unsolicitedCleanupAllowedLocked(sc.unsolicitedAttempt)
+		entry.session.mu.RUnlock()
+	}
 	m.mu.RUnlock()
 	if !isUnsolicited {
 		return
@@ -649,7 +661,7 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 			case <-timer.C:
 			}
 		}
-		m.cleanupUnsolicitedSession(ctx, sc.Ref.session)
+		m.cleanupUnsolicitedAttempt(sc.Ref.session, sc.unsolicitedAttempt)
 	}) {
 		return
 	}
@@ -668,6 +680,13 @@ func (m *Manager) startWorker(run func()) bool {
 }
 
 func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) {
+	source.mu.RLock()
+	attempt := source.unsolicitedAttempt
+	source.mu.RUnlock()
+	m.cleanupUnsolicitedAttempt(source, attempt)
+}
+
+func (m *Manager) cleanupUnsolicitedAttempt(source *Session, attempt uint64) {
 	op, err := m.beginOperation()
 	if err != nil {
 		return
@@ -675,17 +694,12 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) 
 	defer op.finish()
 
 	m.ownershipMu.Lock()
-
-	m.mu.RLock()
 	localDiscr := source.LocalDiscriminator()
-	entry, ok := m.sessions[localDiscr]
-	if !ok || entry.session != source || !entry.unsolicited || entry.session.State() != StateDown {
-		m.mu.RUnlock()
+	if !m.retireUnsolicitedAttempt(source, attempt) {
 		m.ownershipMu.Unlock()
 		return
 	}
-	peer := entry.session.PeerAddr()
-	m.mu.RUnlock()
+	peer := source.PeerAddr()
 
 	wireDestroyed, retired, err := m.detachSessionClaimByDiscriminator(
 		localDiscr, unsolicitedSessionOwner(),
@@ -709,6 +723,32 @@ func (m *Manager) cleanupUnsolicitedSession(_ context.Context, source *Session) 
 		slog.String("peer", peer.String()),
 		slog.Bool("wire_destroyed", wireDestroyed),
 	)
+}
+
+// retireUnsolicitedAttempt requires ownershipMu. Session.mu fences the
+// attempt check with claim detachment or the owner's retirement decision.
+func (m *Manager) retireUnsolicitedAttempt(source *Session, attempt uint64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.sessions[source.LocalDiscriminator()]
+	if !ok || entry.session != source || !entry.unsolicited {
+		return false
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if !source.unsolicitedCleanupAllowedLocked(attempt) {
+		return false
+	}
+	if len(entry.owners) > 1 {
+		delete(entry.owners, unsolicitedSessionOwner())
+		entry.unsolicited = false
+		m.unsolicited.release()
+		entry.publishUnsolicitedOwnershipLocked()
+		return false
+	}
+	// The owner cannot resume after this conditional retirement decision.
+	source.unsolicitedRetiring = true
+	return true
 }
 
 // -------------------------------------------------------------------------

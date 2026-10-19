@@ -185,6 +185,19 @@ listener разрешает ingress index по startup snapshot включённ
 интерфейса на пути пакета отсутствует. Изменения интерфейсов и политики
 unsolicited требуют перезапуска.
 
+Owner получает признак единственного unsolicited claim через существующие
+timer-intent lock и wakeup. В этом режиме ownership останавливается
+non-Final Control TX при natural failure или независимом setup deadline.
+Окно покрывает наибольший наблюдаемый local RX Detection Time от начала попытки;
+повторный валидный RX его не перезапускает. Смена claims сохраняет исходное окно
+и failure latch. Configured/API claims сохраняют обычный Control TX даже при
+истечении private setup window. Setup expiry сохраняет FSM и
+diagnostic RFC 5880. Private notification запрашивает cleanup без публикации
+фиктивного перехода состояния. Cleanup проверяет локальную попытку под owner
+lock и запрещает возобновление до удаления единственного claim; shared
+configured/API claims сохраняют wire session. Final и local AdminDown сохраняют
+процедуры RFC 5880.
+
 Manager хранит типизированные claims базовой конфигурации, Micro-BFD members,
 VXLAN, Geneve, compatibility/API-пути и unsolicited BFD. Изменения ownership
 сериализованы. Каждый декларативный adapter реконсилирует только свой

@@ -226,6 +226,19 @@ non-owning leases because their sender shares the backend connection. Each
 RFC 9468 session owns a UDP lease on the local address and interface that
 received its triggering packet; cleanup of the session closes that lease once.
 
+The session owner receives whether the unsolicited claim is the only claim
+through the existing timer-intent lock and wakeup. In that ownership mode,
+natural failure or an independent setup deadline stops non-Final Control TX.
+The deadline covers the greatest observed local RX Detection Time from the
+attempt start; repeated valid RX does not refresh it. Claim-mode changes
+preserve the original budget and failure latch. Configured/API claims retain
+generic Control TX even if the private setup budget expires. Setup expiry retains
+the RFC 5880 FSM and diagnostic. A private notification requests cleanup without
+broadcasting a synthetic state transition. Cleanup checks the local attempt
+under the owner lock and fences resumption before retiring a sole claim;
+shared configured/API claims preserve their wire session. Final replies and
+local AdminDown keep the RFC 5880 procedures.
+
 Echo sessions use the same accepted-session lease boundary with separate API
 and declarative sources. The compatibility `CreateEchoSession` path keeps an
 explicit non-owning raw-sender wrapper, while the API adapter and declarative

@@ -169,6 +169,7 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	oldTX, oldAllowed, oldDetection := s.calcTxIntervalHot(), s.periodicTxAllowed(), s.calcDetectionTimeHot()
 	s.mu.Lock()
 	now := time.Now()
+	unsolicitedFailed := s.processUnsolicitedLocked(now)
 	s.expireTimerUpdatesLocked(now)
 	if !s.separateUntil.IsZero() && !now.Before(s.separateUntil) {
 		s.separateUntil = time.Time{}
@@ -177,6 +178,9 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	s.promoteTimerUpdateLocked()
 	s.updateAdminDrainLocked(now)
 	s.mu.Unlock()
+	if unsolicitedFailed {
+		s.notifyUnsolicitedFailure()
+	}
 	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() {
 		s.scheduleTxTimer(tx, s.lastPacketSent)
 	}
@@ -232,6 +236,9 @@ func (s *Session) failTimerUpdateLocked() {
 func (s *Session) resetUpdateTimer(timer *time.Timer) {
 	s.mu.RLock()
 	deadline := s.separateUntil
+	if !s.unsolicitedDeadline.IsZero() && (deadline.IsZero() || s.unsolicitedDeadline.Before(deadline)) {
+		deadline = s.unsolicitedDeadline
+	}
 	for _, proposal := range [2]timerProposal{s.activeUpdate, s.waitingUpdate} {
 		if proposal.Present && !proposal.Failed && (deadline.IsZero() || proposal.Deadline.Before(deadline)) {
 			deadline = proposal.Deadline
@@ -288,6 +295,17 @@ func (s *Session) finishTimerPoll() {
 func (s *Session) timerStateChange(oldState, newState State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	switch newState {
+	case StateDown:
+		s.unsolicitedStarted = time.Time{}
+		if s.unsolicitedClaimWanted && oldState != StateAdminDown {
+			s.stopUnsolicitedLocked()
+		}
+	case StateUp, StateAdminDown:
+		s.unsolicitedDeadline = time.Time{}
+	case StateInit:
+		// Preserve the attempt budget while establishment is in progress.
+	}
 	if newState != StateUp && oldState == StateUp {
 		s.interruptTimerUpdateLocked()
 	} else if newState == StateUp && !s.pollActive && s.separateUntil.IsZero() {

@@ -304,8 +304,10 @@ before an update:
    source patch `6f2f3c4587ba00bee32b599acbe886fa0f014774289b7887fb7232edbba0f786`.
    Evidence: `reports/unsolicited-listeners-wire-20261016/receipt.md`;
    four Up/Up sessions with no configured passive session, two IPv4 and two IPv6.
-   Stable delivery remains unqualified. Natural Down TX-stop `.8.2.1.10.6`
-   remains OPEN before parent `.8.2.1.10`.
+   Stable delivery remains unqualified. Natural Down and failed-setup TX-stop
+   `.8.2.1.10.6` uses an independent owner budget, retained RFC 5880 state,
+   ownership-aware suppression and attempt-qualified cleanup; acceptance
+   remains pending before parent `.8.2.1.10`.
    `.8.2.1.8` follows the step 9 decisions.
 4. Done: `gobfd-6de`, production Compose metrics, with the Prometheus
    targets API check described above.
