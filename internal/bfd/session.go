@@ -143,11 +143,17 @@ type SessionConfig struct {
 	PaddedPduSize uint16
 }
 
-// StateChange reports a session FSM transition or removal.
+// StateChange reports a session observation, registration or removal.
 type StateChange struct {
 	// Private owner notifications never reach subscribers or actuators.
 	unsolicitedFailure bool
 	unsolicitedAttempt uint64
+	// Status freezes Control-session status at publication. Echo retains its
+	// legacy partial fields until its separate lifecycle contract is implemented.
+	Status SessionSnapshot
+
+	// Added marks registration, without an FSM transition or actuator action.
+	Added bool
 	// LocalDiscr is the local discriminator of the session.
 	LocalDiscr uint32
 

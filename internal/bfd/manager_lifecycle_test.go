@@ -556,12 +556,13 @@ func TestManagerRunDispatchIsSingleRun(t *testing.T) {
 		}
 
 		session := notificationTestSession(t, mgr)
+		registration := mgr.Revision()
 		want := StateChange{
 			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, Ref: session.Ref(),
 		}
 		mgr.rawNotifyCh <- want
 		synctest.Wait()
-		want.Revision = 1
+		want.Revision = registration + 1
 		select {
 		case got, ok := <-mgr.StateChanges():
 			if !ok {
@@ -632,6 +633,9 @@ func TestManagerCloseAndSubscriberCancellationCloseChannelOnce(t *testing.T) {
 		}
 
 		session := notificationTestSession(t, mgr)
+		if added := <-sub; !added.Added || added.Ref != session.Ref() {
+			t.Fatalf("registration = %+v", added)
+		}
 		mgr.subMu.Lock()
 		mgr.rawNotifyCh <- StateChange{
 			LocalDiscr: session.LocalDiscriminator(), OldState: StateDown, NewState: StateInit, Ref: session.Ref(),
@@ -677,6 +681,8 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 		}
 		cleanupEntered := make(chan struct{})
 		finishCleanup := make(chan struct{})
+		var finishOnce sync.Once
+		releaseCleanup := func() { finishOnce.Do(func() { close(finishCleanup) }) }
 		mgr := NewManager(
 			slog.New(slog.DiscardHandler),
 			WithUnsolicitedPolicy(policy),
@@ -689,6 +695,8 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 				}), nil
 			}),
 		)
+		defer mgr.Close()
+		defer releaseCleanup()
 		meta := PacketMeta{
 			SrcAddr: netip.MustParseAddr("192.0.2.90"),
 			DstAddr: netip.MustParseAddr("192.0.2.254"),
@@ -703,19 +711,28 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 			t.Fatalf("unsolicited sessions = %d, want 1", len(snapshot))
 		}
 		synctest.Wait()
-		mgr.mu.RLock()
-		mgr.sessions[snapshot[0].LocalDiscr].session.mu.Lock()
-		mgr.sessions[snapshot[0].LocalDiscr].session.localPair.Store(packStateDiag(StateDown, DiagNone))
-		mgr.sessions[snapshot[0].LocalDiscr].session.observation.State = StateDown
-		mgr.sessions[snapshot[0].LocalDiscr].session.mu.Unlock()
-		mgr.mu.RUnlock()
-
-		mgr.scheduleUnsolicitedCleanup(context.Background(), StateChange{
-			LocalDiscr: snapshot[0].LocalDiscr,
-			NewState:   StateDown,
-			Ref:        mgr.sessions[snapshot[0].LocalDiscr].session.Ref(),
-		})
-		<-cleanupEntered
+		session, ok := mgr.LookupByDiscriminator(snapshot[0].LocalDiscr)
+		if !ok || !session.SetPathDown() {
+			t.Fatal("unsolicited owner did not admit PathDown")
+		}
+		synctest.Wait()
+		var failure StateChange
+		for len(mgr.rawNotifyCh) > 0 {
+			sc := <-mgr.rawNotifyCh
+			if sc.Ref == session.Ref() && sc.Cause == CausePathDown && sc.NewState == StateDown {
+				failure = sc
+			}
+		}
+		if failure.unsolicitedAttempt == 0 {
+			t.Fatal("owner published no qualified PathDown event")
+		}
+		mgr.scheduleUnsolicitedCleanup(context.Background(), failure)
+		synctest.Wait()
+		select {
+		case <-cleanupEntered:
+		default:
+			t.Fatal("qualified failure did not start unsolicited cleanup")
+		}
 		closeDone := make(chan struct{})
 		go func() {
 			mgr.Close()
@@ -728,7 +745,7 @@ func TestManagerCloseWaitsForUnsolicitedCleanupWorker(t *testing.T) {
 		default:
 		}
 
-		close(finishCleanup)
+		releaseCleanup()
 		synctest.Wait()
 		select {
 		case <-closeDone:

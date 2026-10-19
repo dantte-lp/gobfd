@@ -328,10 +328,21 @@ state/diagnostic, remote-known/state/diagnostic, оба C-bit, cause и
 удаления. `Revision` отдельно упорядочивает dispatch; snapshot может опережать
 очередь событий владельца. Версии сравниваются для каждой строки до замены
 или удаления. Внутренний `SessionRef` различает повторное использование
-дискриминатора; clock не является общей snapshot watermark. Счётчики,
-конфигурация и таймерная телеметрия измеряются отдельно. Watch STATE_CHANGE
-содержит частичный статус; полнота регистрации и статуса остаётся в
-`gobfd-qj0.8.2.1.3.8`.
+дискриминатора; clock не является общей snapshot watermark.
+Control-session Watch передаёт полную API-строку статуса по значению.
+Причинный кортеж берётся из явного commit владельца; конфигурация, таймеры,
+счётчики и timestamps измеряются на границе публикации или List отдельно от
+кортежа. Публикация владельца следует за обновлением счётчиков/`LastStateChange`
+и предшествует немедленной Control-отправке, поэтому её TX count может ещё не
+учитывать эту отправку. Телеметрия не увеличивает `ObservationVersion` на
+каждом пакете. Регистрация публикует `SESSION_ADDED` после добавления в реестры
+и до запуска владельца, включая пассивную сессию, остающуюся Down.
+Контракт охватывает Control-реестр: base, Micro-BFD, VXLAN/Geneve и unsolicited
+сессии. Регистрация доставляется revisioned-подписчикам без Micro-актуатора
+и unsolicited cleanup; legacy `StateChanges()` сохраняет FSM/removal events.
+Control updates и tombstones заменяют строку клиента целиком, включая zero,
+false, NONE и отсутствующие timestamps. Echo сохраняет частичные state events;
+его registration/status lifecycle остаётся в `gobfd-qj0.8.2.1.3.10`.
 
 GoBGP сохраняет известный remote AdminDown при последующем timeout и
 подавляет административные Down. Явный локальный PathDown действует и из
@@ -472,7 +483,7 @@ Background; более ранняя отмена caller возвращает `Dr
 Failure cleanup unsolicited Down-сессии выполняет cancel без AdminDown drain:
 RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны.
 Standalone Echo и удаление только Micro-BFD group не имеют Control-session
-AdminDown exchange. Полнота регистрации/статуса Watch остаётся отдельной задачей.
+AdminDown exchange. Регистрация/статус Echo Watch остаются отдельной задачей.
 
 ### Структура проекта
 

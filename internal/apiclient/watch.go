@@ -12,8 +12,9 @@ import (
 )
 
 // WatchSessions projects revisioned Watch events into causal session views.
-// STATE_CHANGE rows are partial: configuration, timers and counters are not
-// current status after a row replacement. Registration coverage is separate.
+// Control rows contain full status sampled at publication or List boundaries;
+// ObservationVersion versions the causal tuple, not packet telemetry. Echo
+// retains legacy partial events and has no complete registration lifecycle.
 // A nil view invalidates health on startup, GAP and disconnect. Snapshot rows
 // become usable only at SYNC_COMPLETE. Consumer errors are terminal.
 func WatchSessions(ctx context.Context, client bfdv1connect.BfdServiceClient,

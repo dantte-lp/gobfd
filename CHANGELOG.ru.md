@@ -9,6 +9,14 @@
 
 ### Добавлено
 
+- Control-session Watch публикует регистрацию до запуска владельца, включая
+  пассивные сессии, остающиеся Down, и сохраняет полный API-статус по значению
+  для additions, observations и removals. Конфигурация, таймеры и счётчики
+  измеряются на границе публикации; `observation_version` покрывает причинный
+  кортеж. Zero/false и отсутствующие timestamps заменяют прежний статус клиента.
+  Echo сохраняет частичные events; его lifecycle остаётся в
+  `gobfd-qj0.8.2.1.3.10`.
+
 - Остановка передачи RFC 9468 в owner loop после natural failure или истечения
   независимого окна установления с сохранением сроков discriminator/auth.
   Final и local AdminDown сохраняют процедуры RFC 5880; configured/API claims
@@ -45,8 +53,8 @@
   `observation_version` в snapshot, Watch и CLI. Для C-bit сохраняется
   политика `hard-fail`; graceful restart не реализован. GoBGP сохраняет
   локальную/удалённую административную причину при retry и gap resync,
-  проверяет текущие identity и policy перед disable. Строки Watch STATE_CHANGE
-  остаются частичным статусом (`gobfd-qj0.8.2.1.3.8`).
+  проверяет текущие identity и policy перед disable. Control Watch передаёт
+  полный измеренный статус (`gobfd-qj0.8.2.1.3.8`); Echo сохраняет частичные events.
 
 - Per-configured-peer метрики GoBGP: flap penalty с decay на момент scrape,
   recovery suppression и его максимальная граница, ожидающие желаемые Up/Down

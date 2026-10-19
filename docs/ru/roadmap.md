@@ -3,7 +3,9 @@
 Development-срез причинных наблюдений (`gobfd-qj0.8.2.1.2.1` и
 `gobfd-qj0.8.2.4.8`) охватывает согласованные scalar facts, версии строк и
 причинную policy GoBGP. Он не квалифицирует stable release или C-bit graceful
-restart. Полнота регистрации и статуса Watch остаётся в `gobfd-qj0.8.2.1.3.8`.
+restart. Control Watch registration/status реализован в `gobfd-qj0.8.2.1.3.8`;
+Echo lifecycle остаётся в `gobfd-qj0.8.2.1.3.10`.
+См. [контракт измерения статуса](01-architecture.md).
 H-12 (`gobfd-qj0.8.2.1.3.3`) принят в локальном `dev`: подтверждение успешной
 записи, negotiated notification window и отмена owning UDP writes. Локальный
 SIGTERM capture для FRR и BIRD подтвердил повторные AdminDown/7 и окно не менее

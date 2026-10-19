@@ -26,13 +26,14 @@ func TestCausalManagerSnapshotAheadOfDispatch(t *testing.T) {
 		defer mgr.Close()
 		sess := notificationTestSession(t, mgr)
 		synctest.Wait()
+		registration := mgr.Revision()
 		initial := sess.Observation().ObservationVersion
 		if initial == 0 || !sess.SetPathDown() {
 			t.Fatal("missing managed registration version or PathDown admission")
 		}
 		synctest.Wait()
 		snaps, revision := mgr.SessionsWithRevision()
-		if revision != 0 || len(snaps) != 1 || snaps[0].Cause != CausePathDown ||
+		if revision != registration || len(snaps) != 1 || snaps[0].Cause != CausePathDown ||
 			snaps[0].ObservationVersion <= initial || snaps[0].State != StateDown || snaps[0].LocalDiag != DiagPathDown {
 			t.Fatalf("snapshot not ahead of dispatch: snapshots=%+v revision=%d", snaps, revision)
 		}
@@ -56,7 +57,7 @@ func TestSubscriberOverflowQueuesGapMarker(t *testing.T) {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
 		for range notifyChSize + 10 {
-			sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())
+			sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, sess.Observation())
 			synctest.Wait()
 		}
 
@@ -82,7 +83,7 @@ func TestSubscriberOverflowQueuesGapMarker(t *testing.T) {
 		}
 
 		// Delivery resumes once the subscriber has drained its buffer.
-		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp}, sess.Observation())
+		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, sess.Observation())
 		synctest.Wait()
 		if sc := <-sub; sc.Gap || sc.LocalDiscr != sess.LocalDiscriminator() {
 			t.Fatalf("event after drain = %+v, want discriminator %d", sc, sess.LocalDiscriminator())
@@ -99,9 +100,10 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sess := notificationTestSession(t, mgr)
+		registration := mgr.Revision()
 		go mgr.RunDispatch(ctx)
 
-		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())
+		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, sess.Observation())
 		synctest.Wait()
 
 		sub, err := mgr.SubscribeStateChanges(ctx)
@@ -109,10 +111,10 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
 		_, rev := mgr.SessionsWithRevision()
-		if rev != 1 {
-			t.Fatalf("snapshot revision = %d, want 1", rev)
+		if rev != registration+1 {
+			t.Fatalf("snapshot revision = %d, want %d", rev, registration+1)
 		}
-		sess.emitNotification(FSMResult{OldState: StateInit, NewState: StateUp}, sess.Observation())
+		sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, sess.Observation())
 		synctest.Wait()
 		if sc := <-sub; sc.Revision != rev+1 {
 			t.Fatalf("event after snapshot revision = %d, want %d", sc.Revision, rev+1)
@@ -128,6 +130,7 @@ func TestSnapshotRevisionCoversReplacementWhileWaitingForRegistry(t *testing.T) 
 			mgr := NewManager(slog.New(slog.DiscardHandler))
 			defer mgr.Close()
 			session := notificationTestSession(t, mgr)
+			registration := mgr.Revision()
 			discr := session.LocalDiscriminator()
 			replacement, err := NewSession(senderLeaseTestConfig("192.0.2.1"), discr,
 				ownershipNoopSender{}, mgr.rawNotifyCh, mgr.logger)
@@ -156,9 +159,9 @@ func TestSnapshotRevisionCoversReplacementWhileWaitingForRegistry(t *testing.T) 
 				mgr.sessions[discr].session = replacement
 			}()
 			got := <-done
-			if len(got.snapshots) != 1 || got.snapshots[0].LocalDiscr != discr || got.revision != 1 {
-				t.Fatalf("replacement snapshot = %+v revision %d, want discriminator %d covered by 1",
-					got.snapshots, got.revision, discr)
+			if len(got.snapshots) != 1 || got.snapshots[0].LocalDiscr != discr || got.revision != registration+1 {
+				t.Fatalf("replacement snapshot = %+v revision %d, want discriminator %d covered by %d",
+					got.snapshots, got.revision, discr, registration+1)
 			}
 		})
 	}

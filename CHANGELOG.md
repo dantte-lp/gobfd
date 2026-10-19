@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Control-session Watch publishes registration before the owner starts,
+  including passive sessions that stay Down, and freezes full API status for
+  additions, observations and removals. Configuration, timers and counters are
+  sampled at publication; `observation_version` still covers the causal tuple.
+  Zero/false values and absent timestamps replace prior client status. Echo
+  keeps legacy partial events; its lifecycle remains `gobfd-qj0.8.2.1.3.10`.
+
 - RFC 9468 owner-local transmission stop after natural failure or an independent
   setup budget, with learned discriminator/authentication lifetimes preserved.
   Final replies and local AdminDown retain RFC 5880 behavior; configured/API
@@ -46,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retains the `hard-fail` policy; it does not implement graceful restart.
   GoBGP preserves local/remote administrative intent across retries and
   gap resync, and checks current session identity and policy before disable.
-  Watch state-change rows remain partial status (`gobfd-qj0.8.2.1.3.8`).
+  Control Watch rows carry full sampled status (`gobfd-qj0.8.2.1.3.8`);
+  Echo retains partial state events.
 
 - GoBGP per-configured-peer metrics for effective decayed flap penalty,
   recovery suppression and its maximum bound, and pending desired Up/Down

@@ -72,6 +72,58 @@ func assertMethods(t *testing.T, m *mockClient, want ...string) {
 	}
 }
 
+func TestFullWatchAddedPreservesPendingAndDampening(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		recovery bool
+	}{{"pending-down", false}, {"held-recovery", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				recovery := tc.recovery
+				mock := newMockClient()
+				h := newTestHandler(t, mock, gobgp.DampeningConfig{
+					Enabled: true, SuppressThreshold: 1, ReuseThreshold: 0.5,
+					MaxSuppressTime: time.Minute, HalfLife: time.Second,
+				})
+				events := runHandler(t, h)
+				if !recovery {
+					mock.setError(errors.New("temporary outage"))
+				}
+				events <- peerTransition(bfd.StateUp, bfd.StateDown)
+				synctest.Wait()
+				if recovery {
+					events <- peerTransition(bfd.StateDown, bfd.StateUp)
+					synctest.Wait()
+				}
+				before := h.PeerStatus("10.0.0.1")
+				if before.Action == "" || !before.Suppressed || before.Penalty == 0 {
+					t.Fatalf("missing pending suppressed action: %+v", before)
+				}
+				added := peerTransition(bfd.StateDown, bfd.StateDown)
+				added.Added, added.Diag = true, bfd.DiagNone
+				added.LocalDiscr, added.Ref, added.ObservationVersion = 2, new(bfd.Session).Ref(), 3
+				events <- added
+				synctest.Wait()
+				if after := h.PeerStatus("10.0.0.1"); after != before {
+					t.Fatalf("registration changed pending action or dampening: before=%+v after=%+v", before, after)
+				}
+				if recovery {
+					assertMethods(t, mock, methodDisablePeer)
+				} else {
+					assertMethods(t, mock)
+				}
+				mock.setError(nil)
+				synctest.Sleep(3 * time.Second)
+				if recovery {
+					assertMethods(t, mock, methodDisablePeer, methodEnablePeer)
+				} else {
+					assertMethods(t, mock, methodDisablePeer)
+				}
+			})
+		})
+	}
+}
+
 // A GoBGP outage must not lose the Down: the handler retries until GoBGP
 // accepts it, without another BFD event.
 func TestHandlerRetriesActionAfterGoBGPOutage(t *testing.T) {

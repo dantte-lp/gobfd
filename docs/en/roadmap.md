@@ -3,8 +3,10 @@
 The development causal-observation slice (`gobfd-qj0.8.2.1.2.1` and
 `gobfd-qj0.8.2.4.8`) covers coherent scalar facts, per-row versions and
 cause-aware GoBGP policy. It does not qualify a stable release or full C-bit
-graceful restart. Full Watch registration/status remains open in
-`gobfd-qj0.8.2.1.3.8`. The RFC core parent `gobfd-qj0.8.2.1.2` and its four
+graceful restart. Control Watch registration/status is implemented by
+`gobfd-qj0.8.2.1.3.8`; Echo lifecycle remains in `gobfd-qj0.8.2.1.3.10`.
+See the [sampling contract](01-architecture.md#goroutine-model).
+The RFC core parent `gobfd-qj0.8.2.1.2` and its four
 children were accepted locally through
 `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; this is not full RFC or release
 qualification. H-12 (`gobfd-qj0.8.2.1.3.3`) now implements successful-write

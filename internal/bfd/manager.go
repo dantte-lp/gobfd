@@ -596,7 +596,7 @@ type subscriber struct {
 // broadcastStateChange numbers sc and delivers it to every subscriber. The
 // last buffer slot of a subscriber is reserved for a gap marker, so a slow
 // subscriber learns about lost events even when no further event follows.
-// subMu serializes dispatch and synchronous session removals.
+// subMu serializes dispatch and synchronous registration/removal.
 func (m *Manager) broadcastStateChange(sc StateChange) {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
@@ -618,7 +618,7 @@ func (m *Manager) broadcastStateChange(sc StateChange) {
 			)
 		}
 	}
-	if !m.legacyClosed {
+	if !sc.Added && !m.legacyClosed {
 		select {
 		case m.publicNotifyCh <- sc:
 		default:

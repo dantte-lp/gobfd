@@ -255,30 +255,23 @@ func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	if s.notifyCh == nil {
 		return
 	}
-	sc := StateChange{
-		unsolicitedAttempt: s.unsolicitedAttempt,
-		LocalDiscr:         s.localDiscr,
-		PeerAddr:           s.peerAddr,
-		LocalAddr:          s.localAddr,
-		OldState:           result.OldState,
-		NewState:           result.NewState,
-		Diag:               observation.LocalDiag,
-		RemoteKnown:        observation.RemoteKnown,
-		RemoteState:        observation.RemoteState,
-		RemoteDiag:         observation.RemoteDiag,
-		LocalC:             observation.LocalC,
-		RemoteC:            observation.RemoteC,
-		Cause:              observation.Cause,
-		ObservationVersion: observation.ObservationVersion,
-		Ref:                s.Ref(),
-		Timestamp:          time.Now(),
-		Type:               s.sessionType,
-		Interface:          s.ifName,
-	}
+	sc := stateChangeOf(snapshotForObservation(s, observation), result.OldState)
+	sc.unsolicitedAttempt = s.unsolicitedAttempt
 	select {
 	case s.notifyCh <- sc:
 	default:
 		s.logger.Warn("notification channel full, dropping state change")
+	}
+}
+
+func stateChangeOf(snap SessionSnapshot, oldState State) StateChange {
+	return StateChange{
+		Status: snap, LocalDiscr: snap.LocalDiscr, PeerAddr: snap.PeerAddr, LocalAddr: snap.LocalAddr,
+		OldState: oldState, NewState: snap.State, Diag: snap.LocalDiag,
+		RemoteKnown: snap.RemoteKnown, RemoteState: snap.RemoteState, RemoteDiag: snap.RemoteDiag,
+		LocalC: snap.LocalC, RemoteC: snap.RemoteC, Cause: snap.Cause,
+		ObservationVersion: snap.ObservationVersion, Ref: snap.Ref,
+		Timestamp: time.Now(), Type: snap.Type, Interface: snap.Interface,
 	}
 }
 

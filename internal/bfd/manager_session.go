@@ -243,11 +243,14 @@ func (m *Manager) registerAndStart(
 	entry.cancel = cancel
 	senderLease.bindInterrupt(sessCtx)
 	sess.senderLease = senderLease
-	m.startSession(sessCtx, entry, sess)
-
 	m.sessions[discr] = entry
 	m.sessionsByPeer[demuxKey] = entry
 	m.sessionsByKey[key] = entry
+	status := snapshotOf(sess)
+	added := stateChangeOf(status, status.State)
+	added.Added = true
+	m.broadcastStateChange(added)
+	m.startSession(sessCtx, entry, sess)
 	m.mu.Unlock()
 
 	return sess, true, nil
@@ -359,26 +362,9 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	observation := session.observation
 	observation.ObservationVersion = session.nextObservationVersionLocked()
 	session.mu.Unlock()
-	m.broadcastStateChange(StateChange{
-		LocalDiscr:         localDiscr,
-		PeerAddr:           session.PeerAddr(),
-		LocalAddr:          session.LocalAddr(),
-		OldState:           observation.State,
-		NewState:           observation.State,
-		Diag:               observation.LocalDiag,
-		RemoteKnown:        observation.RemoteKnown,
-		RemoteState:        observation.RemoteState,
-		RemoteDiag:         observation.RemoteDiag,
-		LocalC:             observation.LocalC,
-		RemoteC:            observation.RemoteC,
-		Cause:              observation.Cause,
-		ObservationVersion: observation.ObservationVersion,
-		Ref:                session.Ref(),
-		Timestamp:          time.Now(),
-		Type:               session.Type(),
-		Interface:          session.Interface(),
-		Deleted:            true,
-	})
+	deleted := stateChangeOf(snapshotForObservation(session, observation), observation.State)
+	deleted.Deleted = true
+	m.broadcastStateChange(deleted)
 	m.mu.Unlock()
 
 	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
@@ -763,7 +749,12 @@ func (m *Manager) SessionWithRevision(discr uint32) (SessionSnapshot, uint64, bo
 
 // snapshotOf copies the exported state of one session.
 func snapshotOf(s *Session) SessionSnapshot {
-	observation := s.Observation()
+	return snapshotForObservation(s, s.Observation())
+}
+
+// snapshotForObservation preserves the committed causal tuple while sampling
+// configuration, timers and counters at this publication or List boundary.
+func snapshotForObservation(s *Session, observation Observation) SessionSnapshot {
 	return SessionSnapshot{
 		LocalDiscr:           s.LocalDiscriminator(),
 		RemoteDiscr:          s.RemoteDiscriminator(),

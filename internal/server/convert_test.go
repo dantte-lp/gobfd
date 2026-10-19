@@ -173,6 +173,7 @@ func TestStateChangeToProto(t *testing.T) {
 	t.Parallel()
 
 	sc := bfd.StateChange{
+		Status:     bfd.SessionSnapshot{LocalDiscr: 42, State: bfd.StateUp, LocalDiag: bfd.DiagNone},
 		LocalDiscr: 42,
 		OldState:   bfd.StateDown,
 		NewState:   bfd.StateUp,
@@ -212,6 +213,7 @@ func TestSnapshotToProto(t *testing.T) {
 		Type:                 bfd.SessionTypeMultiHop,
 		State:                bfd.StateInit,
 		RemoteState:          bfd.StateDown,
+		RemoteKnown:          true,
 		LocalDiag:            bfd.DiagPathDown,
 		AuthType:             bfd.AuthTypeKeyedSHA1,
 		DesiredMinTx:         100 * time.Millisecond,

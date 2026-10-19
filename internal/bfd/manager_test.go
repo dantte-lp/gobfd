@@ -1048,6 +1048,12 @@ func TestManagerStateChangeSubscribersReceiveSameEvent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
+		for _, sub := range []<-chan bfd.StateChange{sub1, sub2} {
+			if added := <-sub; !added.Added || added.NewState != bfd.StateDown ||
+				added.Ref != sess.Ref() || added.Status.ObservationVersion != added.ObservationVersion {
+				t.Fatalf("registration = %+v, want Added/Down for the new session", added)
+			}
+		}
 
 		time.Sleep(2 * time.Second)
 		sess.RecvPacket(makeControlPacket(bfd.StateDown, 42, sess.LocalDiscriminator()))
@@ -1803,6 +1809,38 @@ func TestManagerDispatchMicroBFDCallsActuator(t *testing.T) {
 
 type recordingMicroBFDActuator struct {
 	events chan bfd.MicroBFDMemberEvent
+}
+
+func TestFullWatchAddedDoesNotActuateMicro(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		actuator := &recordingMicroBFDActuator{events: make(chan bfd.MicroBFDMemberEvent, 1)}
+		mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithMicroBFDActuator(actuator))
+		defer mgr.Close()
+		if _, err := mgr.CreateMicroBFDGroup(defaultMicroBFDConfig()); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		sub, err := mgr.SubscribeStateChanges(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := defaultManagerConfig()
+		cfg.Type, cfg.Interface, cfg.Role = bfd.SessionTypeMicroBFD, "eth0", bfd.RolePassive
+		if _, err := mgr.CreateSession(ctx, cfg, bfd.NonOwningSenderLeaseFactory(noopSender{})); err != nil {
+			t.Fatal(err)
+		}
+		go mgr.RunDispatch(ctx)
+		synctest.Wait()
+		if added := <-sub; !added.Added || added.Type != bfd.SessionTypeMicroBFD {
+			t.Fatalf("registration = %+v", added)
+		}
+		select {
+		case event := <-actuator.events:
+			t.Fatalf("registration actuated Micro-BFD: %+v", event)
+		default:
+		}
+	})
 }
 
 func (r *recordingMicroBFDActuator) HandleMicroBFDMemberEvent(

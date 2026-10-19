@@ -316,9 +316,20 @@ versions. `Revision` orders dispatch separately; snapshots may contain an owner
 observation ahead of dispatch. Consumers compare versions per row, including
 before deletion. Internal `SessionRef` prevents discriminator reuse from
 retargeting pending actions. The clock is not a global snapshot watermark.
-Counters, configuration and timer telemetry are sampled outside the causal
-tuple. Watch `STATE_CHANGE` carries partial status; complete registration and
-status lifecycle remains owned by `gobfd-qj0.8.2.1.3.8`.
+Control-session Watch events carry a value copy of the full API status.
+The causal tuple comes from the explicit owner commit; configuration, timers,
+counters and timestamps are sampled at publication or List boundaries, outside
+that tuple. Owner publication follows counter/`LastStateChange` updates and
+precedes an immediate Control send, so its TX count can precede that send.
+Telemetry does not advance `ObservationVersion` on every packet.
+Registration publishes `SESSION_ADDED` after registry insertion and before the
+owner starts, including a passive session that stays Down. This lifecycle
+covers the Control registry: base, Micro-BFD, VXLAN/Geneve and unsolicited
+sessions. It reaches revisioned subscribers without invoking Micro actuators
+or unsolicited cleanup; legacy `StateChanges()` retains FSM/removal events.
+Control updates and tombstones replace the whole client row, including zero,
+false, NONE and absent timestamps. Echo retains its partial state events;
+its registration/status lifecycle remains in `gobfd-qj0.8.2.1.3.10`.
 
 GoBGP suppresses local/known remote AdminDown and retains that remote fact
 through later timeout diagnostics. Explicit local PathDown remains actionable
@@ -454,7 +465,7 @@ joins and releases; daemon shutdown already drains its captured sessions.
 RFC 9468 Section 2 failure cleanup cancels unsolicited Down sessions without
 AdminDown drain: the passive side must stop Control transmission. Standalone
 Echo and Micro-BFD group-only removal have no Control-session AdminDown
-exchange. Full Watch registration/status remains open separately.
+exchange. Echo Watch registration/status remains open separately.
 
 ### Project Structure
 

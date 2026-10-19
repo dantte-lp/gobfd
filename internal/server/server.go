@@ -560,7 +560,7 @@ func durationFromProto(d *durationpb.Duration) time.Duration {
 func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 	pb := &bfdv1.BfdSession{
 		PeerAddress:                   snap.PeerAddr.String(),
-		LocalAddress:                  snap.LocalAddr.String(),
+		LocalAddress:                  addrString(snap.LocalAddr),
 		InterfaceName:                 snap.Interface,
 		Type:                          sessionTypeToProto(snap.Type),
 		LocalState:                    stateToProto(snap.State),
@@ -611,10 +611,12 @@ func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
 	eventType := bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE
 	if sc.Deleted {
 		eventType = bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED
+	} else if sc.Added {
+		eventType = bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED
 	}
-	return &bfdv1.WatchSessionEventsResponse{
-		Type: eventType,
-		Session: &bfdv1.BfdSession{
+	var status *bfdv1.BfdSession
+	if sc.Type == bfd.SessionTypeEcho {
+		status = &bfdv1.BfdSession{
 			PeerAddress:                   sc.PeerAddr.String(),
 			LocalAddress:                  addrString(sc.LocalAddr),
 			InterfaceName:                 sc.Interface,
@@ -629,7 +631,13 @@ func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
 			RemoteControlPlaneIndependent: sc.RemoteC,
 			Cause:                         causeToProto(sc.Cause),
 			ObservationVersion:            sc.ObservationVersion,
-		},
+		}
+	} else {
+		status = snapshotToProto(sc.Status)
+	}
+	return &bfdv1.WatchSessionEventsResponse{
+		Type:          eventType,
+		Session:       status,
 		PreviousState: stateToProto(sc.OldState),
 		Timestamp:     timestamppb.New(sc.Timestamp),
 		Revision:      sc.Revision,

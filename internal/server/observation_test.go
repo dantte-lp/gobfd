@@ -16,6 +16,7 @@ func TestCausalProtoConversion(t *testing.T) {
 			RemoteC: true, Cause: bfd.CauseRemoteAdminDown, ObservationVersion: 500,
 		}
 		sc := bfd.StateChange{
+			Status:   snap,
 			NewState: snap.State, Diag: snap.LocalDiag,
 			RemoteKnown: known, RemoteState: snap.RemoteState, RemoteDiag: snap.RemoteDiag,
 			RemoteC: snap.RemoteC, Cause: snap.Cause, ObservationVersion: snap.ObservationVersion,

@@ -114,16 +114,20 @@ func TestWatchLoopResyncsAfterGap(t *testing.T) {
 			}
 
 			ch := make(chan bfd.StateChange, 4)
-			// Revision 0 is covered by every snapshot of this manager.
+			baseline := mgr.Revision()
+			// The registration revision is covered by every snapshot of this manager.
 			ch <- bfd.StateChange{
 				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateAdminDown, NewState: bfd.StateDown,
+				Status: bfd.SessionSnapshot{LocalDiscr: 7, PeerAddr: cfg.PeerAddr, State: bfd.StateDown}, Revision: baseline,
 			}
 			ch <- bfd.StateChange{
-				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateDown, NewState: bfd.StateInit, Revision: 1,
+				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateDown, NewState: bfd.StateInit, Revision: baseline + 1,
+				Status: bfd.SessionSnapshot{LocalDiscr: 7, PeerAddr: cfg.PeerAddr, State: bfd.StateInit},
 			}
-			ch <- bfd.StateChange{Gap: true, Revision: 2}
+			ch <- bfd.StateChange{Gap: true, Revision: baseline + 2}
 			ch <- bfd.StateChange{
-				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateInit, NewState: bfd.StateUp, Revision: 3,
+				LocalDiscr: 7, PeerAddr: cfg.PeerAddr, OldState: bfd.StateInit, NewState: bfd.StateUp, Revision: baseline + 3,
+				Status: bfd.SessionSnapshot{LocalDiscr: 7, PeerAddr: cfg.PeerAddr, State: bfd.StateUp},
 			}
 			close(ch)
 
@@ -138,9 +142,13 @@ func TestWatchLoopResyncsAfterGap(t *testing.T) {
 				t.Fatalf("WatchLoop: %v", err)
 			}
 
-			want := []string{"STATE_CHANGE@1", "GAP@2", "SESSION_ADDED@0", "SYNC_COMPLETE@0", "STATE_CHANGE@3"}
+			revision := func(offset uint64) string { return strconv.FormatUint(baseline+offset, 10) }
+			want := []string{
+				"STATE_CHANGE@" + revision(1), "GAP@" + revision(2), "SESSION_ADDED@" + revision(0),
+				"SYNC_COMPLETE@" + revision(0), "STATE_CHANGE@" + revision(3),
+			}
 			if includeCurrent {
-				want = append([]string{"SESSION_ADDED@0", "SYNC_COMPLETE@0"}, want...)
+				want = append([]string{"SESSION_ADDED@" + revision(0), "SYNC_COMPLETE@" + revision(0)}, want...)
 			}
 			if strings.Join(got, " ") != strings.Join(want, " ") {
 				t.Fatalf("stream = %v\nwant     %v", got, want)

@@ -10,9 +10,46 @@ import (
 	"testing/synctest"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
+
+func TestFullWatchRowReplacementClearsZeroStatus(t *testing.T) {
+	t.Parallel()
+	old := &bfdv1.BfdSession{
+		LocalDiscriminator: 42, ObservationVersion: 10, RemoteKnown: true,
+		RemoteState: bfdv1.SessionState_SESSION_STATE_UP, RemoteDiscriminator: 7,
+		LocalControlPlaneIndependent: true, RemoteControlPlaneIndependent: true,
+		AuthType:             bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1,
+		DesiredMinTxInterval: durationpb.New(time.Second), Counters: &bfdv1.SessionCounters{PacketsReceived: 7},
+		LastStateChange: timestamppb.Now(), LastPacketReceived: timestamppb.Now(),
+	}
+	v := sessionView{sessions: map[uint32]*bfdv1.BfdSession{42: old}, covered: 1}
+	zero := &bfdv1.BfdSession{
+		LocalDiscriminator: 42, ObservationVersion: 11,
+		LocalState:      bfdv1.SessionState_SESSION_STATE_DOWN,
+		LocalDiagnostic: bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_NONE,
+		AuthType:        bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE,
+	}
+	changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+		Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE, Revision: 2, Session: zero,
+	})
+	if err != nil || !changed {
+		t.Fatalf("zero update: changed=%t err=%v", changed, err)
+	}
+	got := v.sessions[42]
+	if got != zero || got.GetRemoteKnown() || got.GetRemoteDiscriminator() != 0 ||
+		got.GetLocalControlPlaneIndependent() || got.GetRemoteControlPlaneIndependent() ||
+		got.GetLocalDiagnostic() != bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_NONE ||
+		got.GetAuthType() != bfdv1.AuthenticationType_AUTHENTICATION_TYPE_NONE ||
+		got.GetCounters().GetPacketsReceived() != 0 || got.GetDesiredMinTxInterval() != nil ||
+		got.GetLastStateChange() != nil || got.GetLastPacketReceived() != nil {
+		t.Fatalf("row retained old nonzero status: %v", got)
+	}
+}
 
 func TestSessionViewGapSnapshotAndDeletion(t *testing.T) {
 	t.Parallel()

@@ -68,7 +68,7 @@ func TestManagerDeletionPublishesWithoutDispatch(t *testing.T) {
 				}
 				// Removal must not wait for the dispatcher or a free raw queue slot.
 				for len(mgr.rawNotifyCh) < cap(mgr.rawNotifyCh) {
-					sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, sess.Observation())
+					sess.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, sess.Observation())
 				}
 				subs := make([]<-chan StateChange, 2)
 				for i := range subs {
@@ -84,7 +84,9 @@ func TestManagerDeletionPublishesWithoutDispatch(t *testing.T) {
 					case sc := <-sub:
 						if !sc.Deleted || sc.LocalDiscr != snap.LocalDiscr || sc.Revision == 0 ||
 							sc.PeerAddr != snap.PeerAddr || sc.LocalAddr != snap.LocalAddr ||
-							sc.Interface != snap.Interface || sc.Type != snap.Type {
+							sc.Interface != snap.Interface || sc.Type != snap.Type ||
+							sc.Status.ObservationVersion != sc.ObservationVersion || sc.Status.State != sc.NewState ||
+							sc.Status.Ref != sc.Ref || sc.Status.DesiredMinTx != sess.DesiredMinTxInterval() {
 							t.Fatalf("subscriber %d deletion = %+v, want identity %+v and revision", i, sc, snap)
 						}
 					default:
@@ -113,6 +115,7 @@ func TestManagerDeletionKeepsSharedOwnerSession(t *testing.T) {
 		if _, err = mgr.CreateSessionAs(ctx, cfg, ownershipSenderLeaseFactory(), bob); err != nil {
 			t.Fatalf("CreateSessionAs(bob): %v", err)
 		}
+		registration := mgr.Revision()
 		sub, err := mgr.SubscribeStateChanges(ctx)
 		if err != nil {
 			t.Fatalf("SubscribeStateChanges: %v", err)
@@ -120,13 +123,13 @@ func TestManagerDeletionKeepsSharedOwnerSession(t *testing.T) {
 		if err := mgr.DestroySessionAs(ctx, sess.LocalDiscriminator(), alice); err != nil {
 			t.Fatalf("DestroySessionAs(alice): %v", err)
 		}
-		if mgr.Revision() != 0 || len(mgr.Sessions()) != 1 || len(sub) != 0 {
+		if mgr.Revision() != registration || len(mgr.Sessions()) != 1 || len(sub) != 0 {
 			t.Fatal("shared claim release published deletion or removed the session")
 		}
 		if err := mgr.DestroySessionAs(ctx, sess.LocalDiscriminator(), bob); err != nil {
 			t.Fatalf("DestroySessionAs(bob): %v", err)
 		}
-		if len(sub) != 1 || mgr.Revision() != 1 || len(mgr.Sessions()) != 0 {
+		if len(sub) != 1 || mgr.Revision() != registration+1 || len(mgr.Sessions()) != 0 {
 			t.Fatal("last owner release did not publish one deletion")
 		}
 	})
@@ -171,7 +174,7 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SubscribeStateChanges: %v", err)
 		}
-		session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, session.Observation())
+		session.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, session.Observation())
 		if err = mgr.DestroySession(context.Background(), session.LocalDiscriminator()); err != nil {
 			t.Fatalf("DestroySession: %v", err)
 		}
@@ -206,6 +209,10 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		if replacementVersion <= deletion.ObservationVersion || replacement.Ref() == session.Ref() {
 			t.Fatalf("replacement v%d <= tombstone v%d or reused identity", replacementVersion, deletion.ObservationVersion)
 		}
+		added := <-sub
+		if !added.Added || added.Ref != replacement.Ref() || added.Revision != deletion.Revision+1 {
+			t.Fatalf("replacement registration = %+v", added)
+		}
 		// A delayed cleanup for the retired unsolicited target must also ignore
 		// a replacement using that discriminator.
 		mgr.mu.Lock()
@@ -221,13 +228,13 @@ func TestManagerDeletionSuppressesRetiredSessionNotifications(t *testing.T) {
 		defer cancel()
 		go mgr.RunDispatch(ctx)
 		synctest.Wait()
-		if len(sub) != 0 || mgr.Revision() != 1 {
+		if len(sub) != 0 || mgr.Revision() != added.Revision {
 			t.Fatal("retired state change was published after deletion")
 		}
-		replacement.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, replacement.Observation())
+		replacement.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, replacement.Observation())
 		synctest.Wait()
-		if got := <-sub; got.Deleted || got.Revision != 2 || got.Ref != replacement.Ref() {
-			t.Fatalf("replacement event = %+v, want live replacement revision 2", got)
+		if got := <-sub; got.Deleted || got.Added || got.Revision != added.Revision+1 || got.Ref != replacement.Ref() {
+			t.Fatalf("replacement event = %+v, want live replacement revision %d", got, added.Revision+1)
 		}
 	})
 }
@@ -237,6 +244,7 @@ func TestManagerDeletionOverflowsToGap(t *testing.T) {
 		mgr := NewManager(slog.New(slog.DiscardHandler))
 		defer mgr.Close()
 		session := notificationTestSession(t, mgr)
+		registration := mgr.Revision()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sub, err := mgr.SubscribeStateChanges(ctx)
@@ -245,7 +253,7 @@ func TestManagerDeletionOverflowsToGap(t *testing.T) {
 		}
 		go mgr.RunDispatch(ctx)
 		for range notifyChSize - 1 {
-			session.emitNotification(FSMResult{OldState: StateDown, NewState: StateInit}, session.Observation())
+			session.emitNotification(FSMResult{OldState: StateDown, NewState: StateDown}, session.Observation())
 			synctest.Wait()
 		}
 		if err := mgr.DestroySession(context.Background(), session.LocalDiscriminator()); err != nil {
@@ -255,8 +263,8 @@ func TestManagerDeletionOverflowsToGap(t *testing.T) {
 			<-sub
 		}
 		gap := <-sub
-		if !gap.Gap || gap.Revision != notifyChSize {
-			t.Fatalf("last event = %+v, want deletion gap at %d", gap, notifyChSize)
+		if !gap.Gap || gap.Revision != registration+notifyChSize {
+			t.Fatalf("last event = %+v, want deletion gap at %d", gap, registration+notifyChSize)
 		}
 		if snapshots, revision := mgr.SessionsWithRevision(); len(snapshots) != 0 || revision != gap.Revision {
 			t.Fatalf("gap resync snapshot=%+v revision=%d, want empty snapshot at %d", snapshots, revision, gap.Revision)
