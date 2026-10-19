@@ -80,6 +80,7 @@ func TestFullWatchOwnerEventPreservesStatus(t *testing.T) {
 		defer mgr.Close()
 		cfg := watchStatusConfig()
 		cfg.Role = bfd.RoleActive
+		cfg.PaddedPduSize = 26
 		var err error
 		cfg.Auth, err = bfd.NewAuthenticator(bfd.AuthTypeKeyedSHA1)
 		if err != nil {
@@ -119,6 +120,7 @@ func TestFullWatchOwnerEventPreservesStatus(t *testing.T) {
 			status.GetRemoteMinRxInterval() == nil || status.GetNegotiatedTxInterval() == nil ||
 			status.GetDetectionTime() == nil || status.GetDetectMultiplier() != uint32(cfg.DetectMultiplier) ||
 			status.GetAuthType() != bfdv1.AuthenticationType_AUTHENTICATION_TYPE_KEYED_SHA1 ||
+			status.GetPaddedPduSize() != 26 ||
 			status.GetCounters().GetPacketsSent() != before || status.GetCounters().GetStateTransitions() != 1 ||
 			status.GetLastStateChange() == nil {
 			t.Fatalf("owner event lost publication-time status: %v", status)

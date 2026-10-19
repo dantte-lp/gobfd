@@ -530,9 +530,10 @@ RFC 9764 определяет BFD Large Packets для проверки MTU пу
 | Требование | Реализация |
 |---|---|
 | Дополнение пакета до настроенного размера | `SessionConfig.PaddedPduSize`, zero-padding в TX-пути |
-| Установка бита DF (IP_PMTUDISC_DO) | Функциональная опция `WithDFBit()` на `UDPSender` |
+| Установка IPv4 DF (IP_PMTUDISC_DO) | `WithDFBit()` на `UDPSender` для ненулевых targets YAML/API |
 | Заполнение нулями | `cachedPacket` расширяется нулевыми байтами после BFD payload |
-| Конфигурация per-session | `padded_pdu_size` в YAML конфигурации сессии |
+| Конфигурация per-session | YAML `padded_pdu_size`, API `AddSessionRequest.padded_pdu_size`, CLI `--padded-pdu-size` |
+| Статус сессии в API | `BfdSession.padded_pdu_size` передаёт настроенный target в байтах; authenticated PDU может быть длиннее |
 | Глобальное значение по умолчанию | `bfd.default_padded_pdu_size` в YAML конфигурации |
 | Диапазон настроенного target | 0 отключает padding; 24-9000 байт без аутентификации, 26-9000 с аутентификацией (политика v1) |
 
@@ -570,8 +571,8 @@ transport buffers и не подтверждают поддержку соотв
 128-байтные Control payload GoBFD к FRR Simple Password и BIRD Keyed SHA1:
 неизменный BFD Length, нулевой padding и IPv4 DF. Обратное направление
 использует обычные authenticated PDU пиров; padded peer-originated traffic
-покрывают локальные vectors, а не этот interop-запуск. Public API padding и
-проверка path MTU остаются отдельными задачами; стабильное соответствие
+покрывают локальные vectors, а не этот interop-запуск. Проверка path MTU
+остаётся отдельной задачей; стабильное соответствие
 RFC 9764 остаётся частичным.
 
 ### RFC 7880/7881 (Планируется)

@@ -65,6 +65,7 @@ type SenderFactory interface {
 	CreateSender(
 		localAddr netip.Addr,
 		multiHop bool,
+		doNotFragment bool,
 		logger *slog.Logger,
 	) (bfd.PacketSender, uint16, error)
 
@@ -86,6 +87,7 @@ type noopSenderFactory struct{}
 
 func (noopSenderFactory) CreateSender(
 	_ netip.Addr,
+	_ bool,
 	_ bool,
 	_ *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
@@ -165,7 +167,7 @@ func (s *BFDServer) createSessionWithSenderLease(
 	multiHop := cfg.Type == bfd.SessionTypeMultiHop
 	factory := func() (*bfd.SenderLease, error) {
 		sender, srcPort, err := s.senderFactory.CreateSender(
-			cfg.LocalAddr, multiHop, s.logger,
+			cfg.LocalAddr, multiHop, cfg.PaddedPduSize != 0, s.logger,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create API session sender: %w", err)
@@ -441,6 +443,14 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		return bfd.SessionConfig{}, err
 	}
 
+	paddedPduSize := req.GetPaddedPduSize()
+	if paddedPduSize > bfd.MaxPaddedPduSize {
+		return bfd.SessionConfig{}, fmt.Errorf("padded_pdu_size %d: %w", paddedPduSize, bfd.ErrInvalidPaddedPduSize)
+	}
+	if err := bfd.ValidatePaddedPduSize(uint16(paddedPduSize), auth != nil); err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("padded_pdu_size %d: %w", paddedPduSize, err)
+	}
+
 	desiredMinTx, err := durationFromProto(req.GetDesiredMinTxInterval())
 	if err != nil {
 		return bfd.SessionConfig{}, fmt.Errorf("invalid desired min TX interval: %w", err)
@@ -467,6 +477,7 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		DesiredMinTxInterval:  desiredMinTx,
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
+		PaddedPduSize:         uint16(paddedPduSize),
 		Auth:                  auth,
 		AuthKeys:              authKeys,
 	}, nil
@@ -591,6 +602,7 @@ func snapshotToProto(snap bfd.SessionSnapshot) *bfdv1.BfdSession {
 		RequiredMinRxInterval:         durationpb.New(snap.RequiredMinRx),
 		RemoteMinRxInterval:           durationpb.New(snap.RemoteMinRx),
 		DetectMultiplier:              uint32(snap.DetectMultiplier),
+		PaddedPduSize:                 uint32(snap.PaddedPduSize),
 		NegotiatedTxInterval:          durationpb.New(snap.NegotiatedTxInterval),
 		DetectionTime:                 durationpb.New(snap.DetectionTime),
 		Counters: &bfdv1.SessionCounters{
@@ -779,6 +791,7 @@ func mapManagerError(err error, operation string) *connect.Error {
 		errors.Is(err, bfd.ErrInvalidWireInterval),
 		errors.Is(err, bfd.ErrMicroBFDDuplicateMember),
 		errors.Is(err, bfd.ErrInvalidSessionType),
+		errors.Is(err, bfd.ErrInvalidPaddedPduSize),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
 		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err).Error())
 	default:

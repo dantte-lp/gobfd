@@ -90,7 +90,8 @@ gobfdctl session add \
   --local 10.0.0.2 \
   --auth-type keyed-sha1 \
   --auth-key-id 7 \
-  --auth-secret api-auth-secret
+  --auth-secret api-auth-secret \
+  --padded-pdu-size 128
 ```
 
 | Flag | Required | Default | Description |
@@ -102,6 +103,7 @@ gobfdctl session add \
 | `--tx-interval` | No | `1s` | Desired Min TX Interval |
 | `--rx-interval` | No | `1s` | Required Min RX Interval |
 | `--detect-mult` | No | `3` | Detection Multiplier |
+| `--padded-pdu-size` | No | `0` | Target PDU size in bytes: 0 disables padding; 24-9000 without auth, 26-9000 with auth |
 | `--auth-type` | No | `none` | Auth type: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
 | `--auth-key-id` | If auth enabled | `0` | RFC 5880 Auth Key ID, range 0-255 |
 | `--auth-secret` | If auth enabled | -- | Auth secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
@@ -109,6 +111,11 @@ gobfdctl session add \
 `AddSession` returns `InvalidArgument` for malformed protobuf TX/RX durations
 and client intervals rejected by core validation. Omitted intervals default to
 `1s`; an explicit required RX interval of zero remains valid.
+
+`session show` displays `Padded PDU Target` in bytes. JSON/YAML session output,
+including monitor rows, exposes integer `padded_pdu_size` as the configured
+target; an authenticated PDU may be larger. CLI/API `0` disables padding,
+whereas YAML session `0` inherits `bfd.default_padded_pdu_size`.
 
 #### Delete a session
 

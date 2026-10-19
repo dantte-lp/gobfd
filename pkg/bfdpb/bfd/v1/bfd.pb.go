@@ -667,8 +667,11 @@ type BfdSession struct {
 	LocalControlPlaneIndependent  bool             `protobuf:"varint,23,opt,name=local_control_plane_independent,json=localControlPlaneIndependent,proto3" json:"local_control_plane_independent,omitempty"`
 	RemoteControlPlaneIndependent bool             `protobuf:"varint,24,opt,name=remote_control_plane_independent,json=remoteControlPlaneIndependent,proto3" json:"remote_control_plane_independent,omitempty"`
 	Cause                         ObservationCause `protobuf:"varint,25,opt,name=cause,proto3,enum=bfd.v1.ObservationCause" json:"cause,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	// Configured target PDU size in bytes; 0 disables padding. Bounds match
+	// AddSessionRequest.padded_pdu_size; authenticated PDUs may exceed the target.
+	PaddedPduSize uint32 `protobuf:"varint,26,opt,name=padded_pdu_size,json=paddedPduSize,proto3" json:"padded_pdu_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BfdSession) Reset() {
@@ -876,6 +879,13 @@ func (x *BfdSession) GetCause() ObservationCause {
 	return ObservationCause_OBSERVATION_CAUSE_UNSPECIFIED
 }
 
+func (x *BfdSession) GetPaddedPduSize() uint32 {
+	if x != nil {
+		return x.PaddedPduSize
+	}
+	return 0
+}
+
 // SessionCounters contains packet and state transition counters for a session.
 type SessionCounters struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -966,8 +976,12 @@ type AddSessionRequest struct {
 	AuthType              AuthenticationType     `protobuf:"varint,8,opt,name=auth_type,json=authType,proto3,enum=bfd.v1.AuthenticationType" json:"auth_type,omitempty"`
 	AuthKeyId             uint32                 `protobuf:"varint,9,opt,name=auth_key_id,json=authKeyId,proto3" json:"auth_key_id,omitempty"`
 	AuthSecret            []byte                 `protobuf:"bytes,10,opt,name=auth_secret,json=authSecret,proto3" json:"auth_secret,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Target PDU size in bytes; 0 disables padding. Valid nonzero targets are
+	// 24-9000 without authentication or 26-9000 with authentication.
+	// Authentication may make the actual PDU larger than this target.
+	PaddedPduSize uint32 `protobuf:"varint,11,opt,name=padded_pdu_size,json=paddedPduSize,proto3" json:"padded_pdu_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AddSessionRequest) Reset() {
@@ -1068,6 +1082,13 @@ func (x *AddSessionRequest) GetAuthSecret() []byte {
 		return x.AuthSecret
 	}
 	return nil
+}
+
+func (x *AddSessionRequest) GetPaddedPduSize() uint32 {
+	if x != nil {
+		return x.PaddedPduSize
+	}
+	return 0
 }
 
 // AddSessionResponse returns the newly created session.
@@ -2504,7 +2525,7 @@ var File_bfd_v1_bfd_proto protoreflect.FileDescriptor
 
 const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\n" +
-	"\x10bfd/v1/bfd.proto\x12\x06bfd.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe9\v\n" +
+	"\x10bfd/v1/bfd.proto\x12\x06bfd.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x91\f\n" +
 	"\n" +
 	"BfdSession\x12*\n" +
 	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
@@ -2533,13 +2554,14 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x11remote_diagnostic\x18\x16 \x01(\x0e2\x16.bfd.v1.DiagnosticCodeR\x10remoteDiagnostic\x12E\n" +
 	"\x1flocal_control_plane_independent\x18\x17 \x01(\bR\x1clocalControlPlaneIndependent\x12G\n" +
 	" remote_control_plane_independent\x18\x18 \x01(\bR\x1dremoteControlPlaneIndependent\x12.\n" +
-	"\x05cause\x18\x19 \x01(\x0e2\x18.bfd.v1.ObservationCauseR\x05cause\"\xda\x01\n" +
+	"\x05cause\x18\x19 \x01(\x0e2\x18.bfd.v1.ObservationCauseR\x05cause\x12&\n" +
+	"\x0fpadded_pdu_size\x18\x1a \x01(\rR\rpaddedPduSize\"\xda\x01\n" +
 	"\x0fSessionCounters\x12!\n" +
 	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12)\n" +
 	"\x10packets_received\x18\x02 \x01(\x04R\x0fpacketsReceived\x12'\n" +
 	"\x0fpackets_dropped\x18\x03 \x01(\x04R\x0epacketsDropped\x12+\n" +
 	"\x11state_transitions\x18\x04 \x01(\x04R\x10stateTransitions\x12#\n" +
-	"\rauth_failures\x18\x05 \x01(\x04R\fauthFailures\"\x9d\x04\n" +
+	"\rauth_failures\x18\x05 \x01(\x04R\fauthFailures\"\xc5\x04\n" +
 	"\x11AddSessionRequest\x12*\n" +
 	"\fpeer_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02p\x01R\vpeerAddress\x12,\n" +
 	"\rlocal_address\x18\x02 \x01(\tB\a\xbaH\x04r\x02p\x01R\flocalAddress\x12%\n" +
@@ -2552,7 +2574,8 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\vauth_key_id\x18\t \x01(\rB\b\xbaH\x05*\x03\x18\xff\x01R\tauthKeyId\x12\x1f\n" +
 	"\vauth_secret\x18\n" +
 	" \x01(\fR\n" +
-	"authSecret\"B\n" +
+	"authSecret\x12&\n" +
+	"\x0fpadded_pdu_size\x18\v \x01(\rR\rpaddedPduSize\"B\n" +
 	"\x12AddSessionResponse\x12,\n" +
 	"\asession\x18\x01 \x01(\v2\x12.bfd.v1.BfdSessionR\asession\"G\n" +
 	"\x14DeleteSessionRequest\x12/\n" +

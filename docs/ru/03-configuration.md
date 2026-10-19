@@ -598,6 +598,12 @@ cross-adapter rollback не входят в эту гарантию.
 | `auth.key_id` | uint32 | Если auth включён | Auth Key ID, допустимый диапазон 0-255 |
 | `auth.secret` | string | Если auth включён | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
 
+Public API `AddSessionRequest.padded_pdu_size` и CLI `--padded-pdu-size`
+передают target в байтах как `uint32`. Пропуск или `0` отключает padding без
+наследования `bfd.default_padded_pdu_size`; `0` в YAML-сессии наследует этот
+global default. Оба пути используют общие границы target и сохраняют более
+длинные authenticated PDU.
+
 Для базовых single-hop и multihop сессий пропущенный или null `required_min_rx`
 наследует `bfd.default_required_min_rx`; явное `"0s"` просит пира прекратить
 периодические Control packets (RFC 5880 sections 4.1 и 6.8.18). Ноль сохраняется

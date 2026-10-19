@@ -21,6 +21,7 @@ type echoLeaseTestSenderFactory struct {
 func (f *echoLeaseTestSenderFactory) CreateSender(
 	_ netip.Addr,
 	_ bool,
+	_ bool,
 	_ *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
 	f.opens++

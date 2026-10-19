@@ -27,9 +27,14 @@ func newUDPSenderFactory(writeBufferSize int) *udpSenderFactory {
 func (f *udpSenderFactory) CreateSender(
 	localAddr netip.Addr,
 	multiHop bool,
+	doNotFragment bool,
 	logger *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
-	return f.createSenderForSession(localAddr, multiHop, logger)
+	var opts []netio.SenderOption
+	if doNotFragment {
+		opts = append(opts, netio.WithDFBit())
+	}
+	return f.createSenderForSession(localAddr, multiHop, logger, opts...)
 }
 
 func (f *udpSenderFactory) CloseSender(srcPort uint16) error {
