@@ -15,6 +15,6 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}" \
     -o /bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
 
-FROM ghcr.io/exa-networks/exabgp:5.0.13@sha256:80f64719841fe6192f5b5a3b46edc27270215521438fae8a704f28d221a4680b AS production
+FROM ghcr.io/exa-networks/exabgp:5.0.15@sha256:0b15f2422da6a4345580e905ebd64691bad18a6effab13f4d3aa76ebbb6bc28a AS production
 
 COPY --from=builder /bin/gobfd-exabgp-bridge /usr/local/bin/gobfd-exabgp-bridge
