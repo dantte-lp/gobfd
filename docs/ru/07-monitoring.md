@@ -54,8 +54,13 @@ join всех producers и Manager workers. Kernel `SO_RXQ_OVFL` остаётс�
 lifecycle реализован отдельно в `gobfd-qj0.8.2.1.3.10`: frozen rows измеряют
 фактические Echo counters/timestamps без увеличения observation version только
 из-за счётчиков. Drop/auth fields, которыми Echo не владеет, равны нулю и не
-заменяют delivery ledger или доказательство отсутствия потерь. Raw notification
-loss resynchronization остаётся в `gobfd-qj0.8.2.1.3.11`.
+заменяют delivery ledger или доказательство отсутствия потерь. Public
+Control/Echo raw `queue_full` инвалидирует live revisioned subscribers через
+coalesced GAP и authoritative resnapshot. Recovery markers не добавляют
+outcomes `notification_dispatch`, `watch_recipient` или `legacy_notification`;
+каждый исходный queued raw event сохраняет один accepted/stale/abandoned result.
+Private unsolicited failures остаются cleanup-only. Legacy delivery сохраняет
+best effort; отмена dispatch не обещает restart/progress.
 
 | Метрика | Тип | Метки | Описание |
 |---|---|---|---|

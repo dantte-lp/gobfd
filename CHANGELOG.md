@@ -23,8 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Watch queued/gapped originals and legacy delivery. Private unsolicited cleanup
   survives raw queue overflow using a coalesced failure hint and one lazy parked
   worker/reused timer per retained physical entry. Existing attempt, AdminDown,
-  shared-claim and identity fences remain. Raw-loss Watch convergence, kernel
-  overflow and RFC/stable qualification remain separate work.
+  shared-claim and identity fences remain. Kernel overflow and RFC/stable
+  qualification remain separate work.
+
+- Public Control/Echo raw notification loss invalidates live revisioned
+  subscribers through a bounded coalesced GAP and authoritative resnapshot,
+  without another owner edge or reconnect. Older queued status cannot replace
+  the resnapshot in shared Watch clients or GoBGP. Recovery markers do not add
+  original-delivery counters or synthetic Micro actions. Private unsolicited
+  cleanup and legacy best-effort delivery retain their existing boundaries;
+  full RFC, stable and soak qualification remain separate work.
 
 - Control-session Watch publishes registration before the owner starts,
   including passive sessions that stay Down, and freezes full API status for
@@ -37,8 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Echo share an observation clock and opaque owner identities; mixed
   snapshots use one registry/revision boundary. Typed Echo RPCs and Control
   List/Get/GoBGP snapshots keep their existing scope. Same-peer mixed sessions
-  require explicit companion selectors. Raw queue loss recovery remains
-  `gobfd-qj0.8.2.1.3.11`; RFC 9747 remains preview.
+  require explicit companion selectors. RFC 9747 remains preview.
 
 - RFC 9468 owner-local transmission stop after natural failure or an independent
   setup budget, with learned discriminator/authentication lifetimes preserved.

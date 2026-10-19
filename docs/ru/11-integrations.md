@@ -172,7 +172,9 @@ HAProxy на другом хосте нужен явный достижимый 
 Агент переподключает Watch после ошибки или EOF с прерываемой задержкой
 1–30 секунд. Обрыв и `GAP` сразу сбрасывают health; снимок применяется только
 после `SYNC_COMPLETE`. Неизвестная, удалённая и неоднозначная сессия дают
-`down`. Backend может добавить к обязательному `peer` поля `local`,
+`down`. Потеря public Control/Echo raw notification также вызывает GAP/resnapshot
+без reconnect. Общий Watch client отклоняет старую queued observation после
+authoritative snapshot. Backend может добавить к обязательному `peer` поля `local`,
 `interface`, `type` (`single_hop`, `multi_hop`, `micro_bfd`, `vxlan`, `geneve`).
 Конфигурация только с peer работает при единственном совпадении. При нескольких
 сессиях одного peer добавьте selectors; если публичный API не различает их
@@ -316,6 +318,10 @@ graph LR
 маршрут. Applied-state сохраняется между Watch streams; EOF также вызывает
 reconnect. Ошибка или неполная запись stdout завершает bridge без подтверждения
 изменения маршрута.
+
+Потеря public Control/Echo raw notification инвалидирует тот же live stream и
+создаёт resnapshot без следующего BFD edge. Observation floor общего Watch client
+не позволяет старому queued Up восстановить отозванный маршрут.
 
 Echo rows участвуют в той же проверке неоднозначности. Задайте
 `GOBFD_SESSION_TYPE=single_hop` или `multi_hop`, если Control и Echo используют

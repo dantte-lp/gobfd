@@ -53,7 +53,12 @@ qualify Echo transport/security. Echo Watch lifecycle is implemented separately
 by `gobfd-qj0.8.2.1.3.10`: frozen rows sample actual Echo counters and timestamps
 without counter-only observation-version churn. Its unowned drop/auth fields
 are zero and do not replace the delivery ledger or prove absence of loss.
-Raw notification loss resynchronization remains `gobfd-qj0.8.2.1.3.11`.
+Public Control/Echo raw `queue_full` invalidates live revisioned subscribers
+through a coalesced GAP and authoritative resnapshot. Recovery markers add no
+`notification_dispatch`, `watch_recipient` or `legacy_notification` outcomes;
+each originally queued raw event still has one accepted/stale/abandoned result.
+Private unsolicited failures remain cleanup-only. Legacy delivery stays best
+effort, and canceled dispatch has no restart/progress guarantee.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|

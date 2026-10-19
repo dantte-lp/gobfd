@@ -380,10 +380,19 @@ cleanup. Retained physical entry лениво получает не более �
 продлевает retention, новая failure заменяет pending work. Retirement сохраняет
 identity, current-attempt, AdminDown и shared-claim fences. Отмена dispatch не
 обещает restart/progress; Manager.Close ожидает workers и освобождает ресурсы.
-Worker bound определяется retained physical entries, а не MaxSessions. Raw
-notification QueueFull пока не запускает Watch resynchronization; recovery
-остаётся в `gobfd-qj0.8.2.1.3.11`. Subscriber GAP и reconnect получают актуальный
-authoritative snapshot. Kernel
+Worker bound определяется retained physical entries, а не MaxSessions.
+
+Public Control/Echo raw QueueFull передаёт отдельный capacity-one loss hint
+после owner commit и до внешних delivery callbacks. Dispatch потребляет hint
+до постановки нового revisioned GAP каждому subscriber, включая уже
+прочитавшего предыдущий GAP. Полный subscriber уже содержит непрочитанный GAP;
+его последующий snapshot покрывает committed loss. Recovery markers не
+учитываются как исходные dispatch, recipient или legacy deliveries и не
+вызывают Micro actuators. Watch получает снимок обоих реестров; GoBGP сохраняет
+Control-only snapshot. Observation-version floors отклоняют старые raw events,
+доставленные после снимка. При работающем dispatch следующий owner edge или
+reconnect не требуется. Private failure hints сохраняют cleanup-only область;
+legacy `StateChanges()` остаётся best effort без resynchronization. Kernel
 `SO_RXQ_OVFL` остаётся отдельной задачей; unsolicited/Echo сохраняют текущие
 границы preview qualification.
 

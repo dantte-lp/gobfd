@@ -24,9 +24,16 @@
   dispatch, queued/gapped originals каждого Watch recipient и legacy delivery.
   Private unsolicited cleanup переживает raw overflow через coalesced failure
   hint и один lazy parked worker с переиспользуемым timer на retained physical
-  entry. Сохранены attempt, AdminDown, shared-claim и identity fences. Raw-loss
-  Watch convergence, kernel overflow и RFC/stable qualification остаются
-  отдельными задачами.
+  entry. Сохранены attempt, AdminDown, shared-claim и identity fences. Kernel
+  overflow и RFC/stable qualification остаются отдельными задачами.
+
+- Потеря public Control/Echo raw notification инвалидирует live revisioned
+  subscribers через bounded coalesced GAP и authoritative resnapshot без
+  следующего owner edge или reconnect. Старый queued status не заменяет
+  resnapshot в общем Watch client и GoBGP. Recovery markers не добавляют
+  original-delivery counters или synthetic Micro actions. Private unsolicited
+  cleanup и legacy best-effort delivery сохраняют прежние границы; full RFC,
+  stable и soak qualification остаются отдельными задачами.
 
 - Control-session Watch публикует регистрацию до запуска владельца, включая
   пассивные сессии, остающиеся Down, и сохраняет полный API-статус по значению
@@ -39,8 +46,7 @@
   Control и Echo используют общий observation clock и opaque owner identities;
   mixed snapshot имеет одну границу реестров/revision. Typed Echo RPC и
   Control List/Get/GoBGP snapshots сохраняют прежнюю область. Для mixed-сессий
-  одного peer нужны явные companion selectors. Raw queue loss recovery остаётся
-  в `gobfd-qj0.8.2.1.3.11`; RFC 9747 сохраняет preview.
+  одного peer нужны явные companion selectors. RFC 9747 сохраняет preview.
 
 - Остановка передачи RFC 9468 в owner loop после natural failure или истечения
   независимого окна установления с сохранением сроков discriminator/auth.

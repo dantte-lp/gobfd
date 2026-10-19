@@ -237,7 +237,12 @@ snapshots include both registries at one revision boundary. Echo rows map
 their locally provisioned TX interval, detection settings, counters and
 timestamps; unowned remote/negotiated/drop/auth fields are zero, not loss
 evidence. Control List/Get and typed Echo commands retain their existing scope.
-Raw queue loss resynchronization remains `gobfd-qj0.8.2.1.3.11`.
+Public Control/Echo raw notification loss also produces `Gap` and a fresh
+snapshot while dispatch runs, even if this monitor's own queue has room.
+No next owner edge or reconnect is needed. Shared Watch clients reject older
+queued observations after a newer snapshot; the CLI prints the revisioned
+event stream. Private cleanup and legacy subscribers retain their separate
+delivery boundaries.
 
 Press `Ctrl+C` to stop monitoring.
 

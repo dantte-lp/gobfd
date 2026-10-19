@@ -322,8 +322,9 @@ type Manager struct {
 	// rawNotifyCh receives state changes from all sessions.
 	// The Manager's dispatch goroutine reads from this channel,
 	// handles micro-BFD group updates, and forwards to publicNotifyCh.
-	rawNotifyCh chan StateChange
-	cleanupWake chan struct{}
+	rawNotifyCh    chan StateChange
+	cleanupWake    chan struct{}
+	publicLossWake chan struct{}
 
 	// publicNotifyCh is the legacy single-consumer channel exposed via
 	// StateChanges(). New consumers should use SubscribeStateChanges.
@@ -505,6 +506,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		metrics:        noopMetrics{},
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
 		cleanupWake:    make(chan struct{}, 1),
+		publicLossWake: make(chan struct{}, 1),
 		publicNotifyCh: make(chan StateChange, notifyChSize),
 		timerUpdateCh:  make(chan struct{}, 1),
 		subscribers:    make(map[chan StateChange]*subscriber),
@@ -554,6 +556,11 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 
 	for {
 		select {
+		case <-m.publicLossWake:
+			m.invalidateStateChanges()
+		default:
+		}
+		select {
 		case <-m.cleanupWake:
 			m.scanUnsolicitedCleanup(ctx)
 		default:
@@ -563,6 +570,8 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			return
 		case <-m.shutdownCh:
 			return
+		case <-m.publicLossWake:
+			m.invalidateStateChanges()
 		case <-m.cleanupWake:
 			m.scanUnsolicitedCleanup(ctx)
 		case sc := <-m.rawNotifyCh:
@@ -624,6 +633,21 @@ type subscriber struct {
 	// overflowed is set once a gap marker is queued and cleared when
 	// delivery resumes.
 	overflowed bool
+}
+
+// invalidateStateChanges consumes no originals: subscribers resnapshot committed owners.
+func (m *Manager) invalidateStateChanges() {
+	m.subMu.Lock()
+	defer m.subMu.Unlock()
+	gap := StateChange{Gap: true, Revision: m.revision.Add(1), Timestamp: time.Now()}
+	for ch, sub := range m.subscribers {
+		if ch == nil || len(ch) == cap(ch) {
+			// A full channel already has an unread GAP; its later snapshot covers this loss.
+			continue
+		}
+		ch <- gap
+		sub.overflowed = true
+	}
 }
 
 // broadcastStateChange numbers sc and delivers it to every subscriber. The

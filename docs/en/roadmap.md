@@ -8,8 +8,12 @@ raw/dispatch/recipient/legacy notification outcomes and preserves private
 cleanup after raw loss with one parked worker per retained physical entry.
 The parent `gobfd-qj0.8.2.1.3.1` is closed for bounded delivery accounting and
 private cleanup at `2220cc0865752f2df31859a636d376fdc7fdddec`.
-Echo Watch lifecycle is implemented by `gobfd-qj0.8.2.1.3.10`;
-raw-loss Watch recovery remains `gobfd-qj0.8.2.1.3.11`. Kernel
+Echo Watch lifecycle is implemented by `gobfd-qj0.8.2.1.3.10`.
+The `gobfd-qj0.8.2.1.3.11` implementation adds coalesced public Control/Echo
+raw-loss invalidation for live revisioned Watch/GoBGP consumers and authoritative
+resnapshots without another owner edge or reconnect. Private cleanup and legacy
+best-effort delivery keep their existing boundaries. Local acceptance evidence
+is tracked in Beads; this does not claim full RFC, stable or soak qualification. Kernel
 `SO_RXQ_OVFL` remains `gobfd-qj0.8.2.1.6`. These development slices do not qualify
 stable delivery.
 

@@ -108,16 +108,17 @@ type EchoSession struct {
 	detectMult uint8
 
 	// --- Runtime ---
-	sender       PacketSender
-	metrics      MetricsReporter
-	delivery     DeliveryReporter
-	logger       *slog.Logger
-	recvCh       chan struct{}
-	notifyCh     chan<- StateChange
-	cachedPacket []byte
-	admissionMu  sync.Mutex
-	started      bool
-	closed       bool
+	sender         PacketSender
+	metrics        MetricsReporter
+	delivery       DeliveryReporter
+	publicLossWake chan<- struct{}
+	logger         *slog.Logger
+	recvCh         chan struct{}
+	notifyCh       chan<- StateChange
+	cachedPacket   []byte
+	admissionMu    sync.Mutex
+	started        bool
+	closed         bool
 
 	// --- Counters ---
 	echosSent        atomic.Uint64
@@ -524,6 +525,7 @@ func (es *EchoSession) emitNotification(oldState State, status SessionSnapshot) 
 	case es.notifyCh <- sc:
 		es.recordDelivery(DeliveryEchoNotification, DeliveryQueued)
 	default:
+		signalPublicNotificationLoss(es.publicLossWake)
 		es.recordDelivery(DeliveryEchoNotification, DeliveryQueueFull)
 		es.logger.Warn("notification channel full, dropping echo state change")
 	}

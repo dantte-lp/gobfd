@@ -366,9 +366,19 @@ Duplicates do not extend retention; a newer failure replaces pending work.
 Retirement still fences identity, current attempt, AdminDown and shared claims.
 Dispatch cancellation has no restart/progress promise; Manager.Close joins and
 releases remaining resources. The worker bound follows retained physical
-entries, not MaxSessions. Raw notification QueueFull does not yet trigger
-Watch resynchronization; recovery remains `gobfd-qj0.8.2.1.3.11`. A subscriber
-GAP or reconnect does obtain the latest authoritative snapshot. Kernel
+entries, not MaxSessions.
+
+Public Control/Echo raw QueueFull sends a separate capacity-one loss hint after
+the owner commits and before external delivery callbacks. Dispatch consumes the
+hint before queuing a fresh revisioned GAP for every subscriber, including a
+subscriber whose earlier GAP was already consumed. A full subscriber already
+contains an unread GAP; its later snapshot covers the committed loss. Recovery
+markers do not count as original dispatch, recipient or legacy deliveries and
+do not invoke Micro actuators. Watch resnapshots both registries; GoBGP retains
+its Control-only snapshot. Their observation-version floors reject older raw
+events dispatched after the snapshot. Recovery needs no next owner edge or
+reconnect while dispatch runs. Private failure hints remain cleanup-only, and
+legacy `StateChanges()` remains best effort without resynchronization. Kernel
 `SO_RXQ_OVFL` remains separate work, and
 unsolicited/Echo modes retain their existing preview qualification boundaries.
 

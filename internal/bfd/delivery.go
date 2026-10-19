@@ -216,11 +216,22 @@ func withManagerDelivery(m *Manager) SessionOption {
 	return func(s *Session) {
 		s.delivery = m
 		s.cleanupWake = m.cleanupWake
+		s.publicLossWake = m.publicLossWake
 	}
 }
 
-func withEchoDelivery(reporter DeliveryReporter) EchoSessionOption {
-	return func(es *EchoSession) { es.delivery = reporter }
+func withEchoDelivery(m *Manager) EchoSessionOption {
+	return func(es *EchoSession) {
+		es.delivery = m
+		es.publicLossWake = m.publicLossWake
+	}
+}
+
+func signalPublicNotificationLoss(wake chan<- struct{}) {
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
 }
 
 func (es *EchoSession) recordDelivery(source DeliverySource, outcome DeliveryOutcome) {

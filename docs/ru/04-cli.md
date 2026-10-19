@@ -228,8 +228,12 @@ snapshots включают оба реестра на одной revision bounda
 локальные TX interval, detection settings, counters и timestamps; remote,
 negotiated, drop/auth fields, которыми Echo не владеет, равны нулю и не
 доказывают отсутствие потерь. Control List/Get и typed Echo commands сохраняют
-прежнюю область. Raw queue loss resynchronization остаётся в
-`gobfd-qj0.8.2.1.3.11`.
+прежнюю область. Потеря public Control/Echo raw notification также создаёт
+`Gap` и свежий snapshot при работающем dispatch, даже если очередь самого
+монитора свободна. Следующий owner edge или reconnect не требуется. Общий Watch
+client отклоняет старые queued observations после нового снимка; CLI печатает
+revisioned event stream. Private cleanup и legacy subscribers сохраняют
+отдельные delivery boundaries.
 
 Нажмите `Ctrl+C` для остановки.
 

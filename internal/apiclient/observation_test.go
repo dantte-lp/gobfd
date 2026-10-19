@@ -46,3 +46,39 @@ func TestCausalSessionViewVersionFloor(t *testing.T) {
 		}
 	}
 }
+
+func TestRawLossResnapshotRejectsQueuedOldUp(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []bfdv1.SessionType{
+		bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, bfdv1.SessionType_SESSION_TYPE_ECHO,
+	} {
+		t.Run(kind.String(), func(t *testing.T) {
+			t.Parallel()
+			up := &bfdv1.BfdSession{
+				LocalDiscriminator: 42, Type: kind, ObservationVersion: 10,
+				LocalState: bfdv1.SessionState_SESSION_STATE_UP,
+			}
+			down := &bfdv1.BfdSession{
+				LocalDiscriminator: 42, Type: kind, ObservationVersion: 11,
+				LocalState: bfdv1.SessionState_SESSION_STATE_DOWN,
+			}
+			view := sessionView{sessions: map[uint32]*bfdv1.BfdSession{42: up}, covered: 1}
+			for _, event := range []*bfdv1.WatchSessionEventsResponse{
+				{Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP, Revision: 2},
+				{Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED, Revision: 2, Session: down},
+				{Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE, Revision: 2},
+			} {
+				if _, err := view.apply(event); err != nil {
+					t.Fatal(err)
+				}
+			}
+			changed, err := view.apply(&bfdv1.WatchSessionEventsResponse{
+				Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE, Revision: 3, Session: up,
+			})
+			if err != nil || changed || view.syncing || view.sessions[42] != down || view.covered != 3 {
+				t.Fatalf("old queued Up rolled back the authoritative loss snapshot: changed=%t view=%+v err=%v",
+					changed, view, err)
+			}
+		})
+	}
+}

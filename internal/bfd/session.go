@@ -452,17 +452,18 @@ type Session struct {
 
 	// --- Runtime ---
 
-	sender      PacketSender
-	metrics     MetricsReporter
-	delivery    DeliveryReporter
-	cleanupWake chan<- struct{}
-	logger      *slog.Logger
-	recvCh      chan recvItem
-	ctrlCh      chan sessionControl
-	ctrlSpace   chan struct{}
-	ownerDone   chan struct{}
-	notifyCh    chan<- StateChange
-	running     atomic.Bool
+	sender         PacketSender
+	metrics        MetricsReporter
+	delivery       DeliveryReporter
+	cleanupWake    chan<- struct{}
+	publicLossWake chan<- struct{}
+	logger         *slog.Logger
+	recvCh         chan recvItem
+	ctrlCh         chan sessionControl
+	ctrlSpace      chan struct{}
+	ownerDone      chan struct{}
+	notifyCh       chan<- StateChange
+	running        atomic.Bool
 }
 
 // recvItem carries a received BFD Control packet along with the raw

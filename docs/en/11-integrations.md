@@ -172,7 +172,9 @@ configuration sets `listen_addr: "0.0.0.0"`.
 The agent reconnects Watch after errors and EOF with a cancellable 1–30 second
 backoff. Disconnects and `GAP` invalidate health immediately; a new snapshot
 becomes usable only after `SYNC_COMPLETE`. Unknown, deleted and ambiguous
-sessions return `down`. Each backend can add `local`, `interface` and `type`
+sessions return `down`. Public Control/Echo raw notification loss also forces
+GAP/resnapshot without reconnect. The shared Watch client rejects an older
+queued observation after the authoritative snapshot. Each backend can add `local`, `interface` and `type`
 (`single_hop`, `multi_hop`, `micro_bfd`, `vxlan`, `geneve`) to its required
 `peer`. Peer-only configurations continue to work when exactly one session
 matches; add these selectors when multiple sessions share a peer. Even an
@@ -314,6 +316,9 @@ withdrawal to reconcile a previous process's route. Only a completed snapshot
 or live event proving one selected session Up permits an announcement. Every
 other state, deletion, disconnect, `GAP` or ambiguous match withdraws it.
 Applied announcement state survives Watch reconnects; EOF also reconnects.
+Public Control/Echo raw notification loss invalidates the same live stream and
+resnapshots without another BFD edge. The shared Watch client's observation
+floor prevents an older queued Up from restoring the withdrawn route.
 Failed and short stdout writes terminate the bridge without confirming the
 route change.
 

@@ -265,6 +265,7 @@ func (s *Session) emitNotification(result FSMResult, observation Observation) {
 	case s.notifyCh <- sc:
 		s.recordDelivery(DeliveryControlNotification, DeliveryQueued)
 	default:
+		signalPublicNotificationLoss(s.publicLossWake)
 		s.recordDelivery(DeliveryControlNotification, DeliveryQueueFull)
 		s.logger.Warn("notification channel full, dropping state change")
 	}
