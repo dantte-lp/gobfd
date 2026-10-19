@@ -179,6 +179,10 @@ matches; add these selectors when multiple sessions share a peer. Even an
 explicit tuple fails closed if the public API cannot distinguish its transport
 scope. Agent ports must be distinct and within 1–65535.
 
+Watch includes Echo sessions. A Control and Echo session to the same peer make
+a peer-only selector ambiguous, even when local address and interface match.
+Use an explicit Control `type: single_hop` or `type: multi_hop` for that backend.
+
 ### Quick Start
 
 ```bash
@@ -312,6 +316,9 @@ other state, deletion, disconnect, `GAP` or ambiguous match withdraws it.
 Applied announcement state survives Watch reconnects; EOF also reconnects.
 Failed and short stdout writes terminate the bridge without confirming the
 route change.
+
+Echo rows participate in the same ambiguity check. Set `GOBFD_SESSION_TYPE` to
+`single_hop` or `multi_hop` when selecting Control alongside Echo for one peer.
 
 ### Quick Start
 

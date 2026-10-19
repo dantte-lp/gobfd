@@ -88,6 +88,76 @@ func TestSessionViewGapSnapshotAndDeletion(t *testing.T) {
 	}
 }
 
+func TestEchoWatchMixedReuseRejectsStaleStateAndDeletion(t *testing.T) {
+	t.Parallel()
+	for _, kinds := range [][2]bfdv1.SessionType{
+		{bfdv1.SessionType_SESSION_TYPE_ECHO, bfdv1.SessionType_SESSION_TYPE_ECHO},
+		{bfdv1.SessionType_SESSION_TYPE_ECHO, bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP},
+		{bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, bfdv1.SessionType_SESSION_TYPE_ECHO},
+	} {
+		t.Run(kinds[0].String()+"-to-"+kinds[1].String(), func(t *testing.T) {
+			t.Parallel()
+			old := &bfdv1.BfdSession{LocalDiscriminator: 42, Type: kinds[0], ObservationVersion: 10}
+			deleted := &bfdv1.BfdSession{LocalDiscriminator: 42, Type: kinds[0], ObservationVersion: 11}
+			current := &bfdv1.BfdSession{
+				LocalDiscriminator: 42, Type: kinds[1], ObservationVersion: 12,
+				LocalState: bfdv1.SessionState_SESSION_STATE_DOWN,
+			}
+			v := sessionView{sessions: make(map[uint32]*bfdv1.BfdSession)}
+			for i, event := range []struct {
+				kind bfdv1.WatchSessionEventsResponse_EventType
+				row  *bfdv1.BfdSession
+			}{
+				{bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED, old},
+				{bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED, deleted},
+				{bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED, current},
+				{bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE, old},
+				{bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED, deleted},
+			} {
+				changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+					Type: event.kind, Session: event.row, Revision: uint64(i + 1),
+				})
+				if err != nil || changed != (i < 3) || i >= 2 && v.sessions[42] != current {
+					t.Fatalf("mixed reuse step %d: changed=%t row=%v err=%v", i, changed, v.sessions[42], err)
+				}
+			}
+			companionType := bfdv1.SessionType_SESSION_TYPE_ECHO
+			if current.GetType() == companionType {
+				companionType = bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP
+			}
+			companion := &bfdv1.BfdSession{LocalDiscriminator: 43, Type: companionType, ObservationVersion: 13}
+			for _, revision := range []uint64{6, 1} {
+				if revision == 6 {
+					if changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+						Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_GAP, Revision: revision,
+					}); err != nil || !changed || !v.syncing || len(v.sessions) != 0 {
+						t.Fatalf("mixed GAP retained a usable view: changed=%t err=%v", changed, err)
+					}
+				} else {
+					v = sessionView{sessions: make(map[uint32]*bfdv1.BfdSession), syncing: true}
+				}
+				for _, row := range []*bfdv1.BfdSession{current, companion} {
+					if changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+						Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED, Revision: revision, Session: row,
+					}); err != nil || changed || !v.syncing {
+						t.Fatalf("mixed snapshot became usable before sync: changed=%t err=%v", changed, err)
+					}
+				}
+				if changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+					Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SYNC_COMPLETE, Revision: revision,
+				}); err != nil || !changed || v.syncing || len(v.sessions) != 2 || v.sessions[42] != current {
+					t.Fatalf("mixed GAP/reconnect snapshot did not commit: changed=%t err=%v", changed, err)
+				}
+				if changed, err := v.apply(&bfdv1.WatchSessionEventsResponse{
+					Type: bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED, Revision: revision + 1, Session: deleted,
+				}); err != nil || changed || v.sessions[42] != current {
+					t.Fatalf("stale deletion erased mixed resnapshot: changed=%t err=%v", changed, err)
+				}
+			}
+		})
+	}
+}
+
 type unavailableWatch struct {
 	bfdv1connect.BfdServiceClient
 

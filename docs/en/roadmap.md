@@ -3,11 +3,13 @@
 Control delivery slice `gobfd-qj0.8.2.1.3.1.1` adds typed queue outcomes,
 owner terminal reasons, stop abandonment and a bounded process-lifetime
 ListSessions/Prometheus ledger. Get/List/Control Watch share session drop/auth
-projections. Candidate `gobfd-qj0.8.2.1.3.1.2` extends the ledger to Echo and all
+projections. `gobfd-qj0.8.2.1.3.1.2` extends the ledger to Echo and all
 raw/dispatch/recipient/legacy notification outcomes and preserves private
 cleanup after raw loss with one parked worker per retained physical entry.
-The parent `gobfd-qj0.8.2.1.3.1` remains open until acceptance and inventory
-closeout. Echo full Watch lifecycle remains `gobfd-qj0.8.2.1.3.10`; kernel
+The parent `gobfd-qj0.8.2.1.3.1` is closed for bounded delivery accounting and
+private cleanup at `2220cc0865752f2df31859a636d376fdc7fdddec`.
+Echo Watch lifecycle is implemented by `gobfd-qj0.8.2.1.3.10`;
+raw-loss Watch recovery remains `gobfd-qj0.8.2.1.3.11`. Kernel
 `SO_RXQ_OVFL` remains `gobfd-qj0.8.2.1.6`. These development slices do not qualify
 stable delivery.
 
@@ -15,7 +17,8 @@ The development causal-observation slice (`gobfd-qj0.8.2.1.2.1` and
 `gobfd-qj0.8.2.4.8`) covers coherent scalar facts, per-row versions and
 cause-aware GoBGP policy. It does not qualify a stable release or full C-bit
 graceful restart. Control Watch registration/status is implemented by
-`gobfd-qj0.8.2.1.3.8`; Echo lifecycle remains in `gobfd-qj0.8.2.1.3.10`.
+`gobfd-qj0.8.2.1.3.8`; `gobfd-qj0.8.2.1.3.10` adds Echo frozen lifecycle and
+mixed snapshots without changing typed Echo RPCs or Control List/Get/GoBGP scope.
 See the [sampling contract](01-architecture.md#goroutine-model).
 The RFC core parent `gobfd-qj0.8.2.1.2` and its four
 children were accepted locally through
@@ -32,8 +35,8 @@ The last-claim development slice (`gobfd-qj0.8.2.1.3.9`) reuses that drain for
 final Control-session claims before sender release, with one bounded parallel
 budget for reconciliation and explicit incomplete outcomes. Non-final claims
 preserve wire state. RFC 9468 Section 2 failure cleanup stops unsolicited Down
-sessions without administrative drain. This does not close full Watch registration/status or
-qualify stable delivery.
+sessions without administrative drain. These slices do not qualify stable
+delivery; raw-loss convergence and RFC 9747 preview blockers remain separately owned.
 
 ![Current Release](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Next Release](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)

@@ -329,7 +329,7 @@ state/diagnostic, remote-known/state/diagnostic, оба C-bit, cause и
 очередь событий владельца. Версии сравниваются для каждой строки до замены
 или удаления. Внутренний `SessionRef` различает повторное использование
 дискриминатора; clock не является общей snapshot watermark.
-Control-session Watch передаёт полную API-строку статуса по значению.
+Control и Echo Watch передают полную API-строку статуса по значению.
 Причинный кортеж берётся из явного commit владельца; конфигурация, таймеры,
 счётчики и timestamps измеряются на границе публикации или List отдельно от
 кортежа. Публикация владельца следует за обновлением счётчиков/`LastStateChange`
@@ -356,9 +356,15 @@ Session drop/auth являются проекцией terminal reasons, auth в�
 проекции не прибавляются повторно в глобальный ledger. Echo admission и один
 winning owner используют общий terminal barrier: pre-Run admission разрешён,
 full/closed возвращают типизированные отказы, stop один раз учитывает pending
-RX как abandoned. Private owner pointer в raw Echo notification отклоняет stale
-dispatch после удаления или discriminator reuse; публичные Echo Watch identity,
-полный status и lifecycle остаются отдельной задачей.
+RX как abandoned. Raw Echo notifications используют общий с Control
+сравнимый `SessionRef` с одним private owner pointer. Managed Echo registration,
+state commits и removal используют общий Manager observation clock. Coherent
+Echo tuple содержит local state, diagnostic, cause и version; initial и
+returned-Echo имеют CauseUnknown, detection expiry — CauseDetectionTimeout.
+Watch проецирует фактические Echo TX interval, detection parameters,
+sent/received counts, transitions и timestamps в существующий status.
+Remote, negotiated, RX, authentication и drop fields, которыми Echo не владеет,
+равны нулю; нулевые Echo drop/auth fields не доказывают отсутствие потерь.
 
 Raw Control/private/Echo notifications, dispatch, каждый Watch recipient и
 legacy delivery имеют отдельные ограниченные стадии ledger. GAP marker
@@ -374,18 +380,26 @@ cleanup. Retained physical entry лениво получает не более �
 продлевает retention, новая failure заменяет pending work. Retirement сохраняет
 identity, current-attempt, AdminDown и shared-claim fences. Отмена dispatch не
 обещает restart/progress; Manager.Close ожидает workers и освобождает ресурсы.
-Worker bound определяется retained physical entries, а не MaxSessions. Kernel
+Worker bound определяется retained physical entries, а не MaxSessions. Raw
+notification QueueFull пока не запускает Watch resynchronization; recovery
+остаётся в `gobfd-qj0.8.2.1.3.11`. Subscriber GAP и reconnect получают актуальный
+authoritative snapshot. Kernel
 `SO_RXQ_OVFL` остаётся отдельной задачей; unsolicited/Echo сохраняют текущие
 границы preview qualification.
 
 Регистрация публикует `SESSION_ADDED` после добавления в реестры
 и до запуска владельца, включая пассивную сессию, остающуюся Down.
-Контракт охватывает Control-реестр: base, Micro-BFD, VXLAN/Geneve и unsolicited
-сессии. Регистрация доставляется revisioned-подписчикам без Micro-актуатора
+Контракт охватывает Control-реестр (base, Micro-BFD, VXLAN/Geneve и unsolicited)
+и отдельный Echo-реестр. Регистрация доставляется revisioned-подписчикам без Micro-актуатора
 и unsolicited cleanup; legacy `StateChanges()` сохраняет FSM/removal events.
-Control updates и tombstones заменяют строку клиента целиком, включая zero,
-false, NONE и отсутствующие timestamps. Echo сохраняет частичные state events;
-его registration/status lifecycle остаётся в `gobfd-qj0.8.2.1.3.10`.
+Control и Echo updates/tombstones заменяют строку клиента целиком, включая zero,
+false, NONE и отсутствующие timestamps. Echo removal сохраняет final tuple с
+новой global version до cancellation/join и освобождения lease. API delete,
+declarative removal и rollback используют общий detach. Только Watch снимает
+оба реестра под одним Manager read lock, читая dispatch revision до чтения
+обоих реестров. Control List/Get, GoBGP snapshots и typed Echo RPC сохраняют прежнюю
+область. Manager.Close закрывает streams для reconnect без гарантии terminal
+tombstone для каждой сессии.
 
 GoBGP сохраняет известный remote AdminDown при последующем timeout и
 подавляет административные Down. Явный локальный PathDown действует и из
@@ -526,7 +540,7 @@ Background; более ранняя отмена caller возвращает `Dr
 Failure cleanup unsolicited Down-сессии выполняет cancel без AdminDown drain:
 RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны.
 Standalone Echo и удаление только Micro-BFD group не имеют Control-session
-AdminDown exchange. Регистрация/статус Echo Watch остаются отдельной задачей.
+AdminDown exchange. Echo removal публикует Watch tombstone без изменения protocol state.
 
 ### Структура проекта
 

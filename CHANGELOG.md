@@ -23,15 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Watch queued/gapped originals and legacy delivery. Private unsolicited cleanup
   survives raw queue overflow using a coalesced failure hint and one lazy parked
   worker/reused timer per retained physical entry. Existing attempt, AdminDown,
-  shared-claim and identity fences remain. Echo full Watch lifecycle, kernel
+  shared-claim and identity fences remain. Raw-loss Watch convergence, kernel
   overflow and RFC/stable qualification remain separate work.
 
 - Control-session Watch publishes registration before the owner starts,
   including passive sessions that stay Down, and freezes full API status for
   additions, observations and removals. Configuration, timers and counters are
   sampled at publication; `observation_version` still covers the causal tuple.
-  Zero/false values and absent timestamps replace prior client status. Echo
-  keeps legacy partial events; its lifecycle remains `gobfd-qj0.8.2.1.3.10`.
+  Zero/false values and absent timestamps replace prior client status.
+
+- Echo Watch adds initial and post-sync Down rows, frozen owner status and
+  synchronous versioned deletion for API/config removal and rollback. Control
+  and Echo share an observation clock and opaque owner identities; mixed
+  snapshots use one registry/revision boundary. Typed Echo RPCs and Control
+  List/Get/GoBGP snapshots keep their existing scope. Same-peer mixed sessions
+  require explicit companion selectors. Raw queue loss recovery remains
+  `gobfd-qj0.8.2.1.3.11`; RFC 9747 remains preview.
 
 - RFC 9468 owner-local transmission stop after natural failure or an independent
   setup budget, with learned discriminator/authentication lifetimes preserved.
@@ -70,8 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retains the `hard-fail` policy; it does not implement graceful restart.
   GoBGP preserves local/remote administrative intent across retries and
   gap resync, and checks current session identity and policy before disable.
-  Control Watch rows carry full sampled status (`gobfd-qj0.8.2.1.3.8`);
-  Echo retains partial state events.
+  Control and Echo Watch rows carry full sampled status
+  (`gobfd-qj0.8.2.1.3.8`, `gobfd-qj0.8.2.1.3.10`).
 
 - GoBGP per-configured-peer metrics for effective decayed flap penalty,
   recovery suppression and its maximum bound, and pending desired Up/Down

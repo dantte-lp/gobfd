@@ -219,13 +219,17 @@ gobfdctl monitor --current
 не содержат удалённую сессию. Удаление отменяет её ожидающие действия
 GoBGP Down и Up; ранее отключённый GoBFD пир не включается автоматически.
 
-Новая Control-сессия создаёт `SessionAdded`, даже оставаясь Down. Control
-additions, changes и removals передают полный API-статус на границе публикации;
+Новая Control- или Echo-сессия создаёт `SessionAdded`, даже оставаясь Down.
+Additions, changes и removals передают полный API-статус на границе публикации;
 List измеряет телеметрию отдельно. `ObservationVersion` покрывает причинный
 кортеж, а не каждый пакет или изменение счётчика. Клиент заменяет строку
-целиком, включая zero/false и отсутствующие timestamps. Echo сохраняет
-частичные state events; полный registration/status lifecycle остаётся в
-`gobfd-qj0.8.2.1.3.10`.
+целиком, включая zero/false и отсутствующие timestamps. Initial, GAP и reconnect
+snapshots включают оба реестра на одной revision boundary. Echo rows передают
+локальные TX interval, detection settings, counters и timestamps; remote,
+negotiated, drop/auth fields, которыми Echo не владеет, равны нулю и не
+доказывают отсутствие потерь. Control List/Get и typed Echo commands сохраняют
+прежнюю область. Raw queue loss resynchronization остаётся в
+`gobfd-qj0.8.2.1.3.11`.
 
 Нажмите `Ctrl+C` для остановки.
 

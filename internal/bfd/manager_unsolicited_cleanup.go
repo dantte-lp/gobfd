@@ -45,7 +45,7 @@ func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange
 	}
 	m.mu.Lock()
 	entry, ok := m.sessions[sc.LocalDiscr]
-	eligible := ok && entry.session == sc.Ref.session && entry.unsolicited
+	eligible := ok && entry.session.Ref() == sc.Ref && entry.unsolicited
 	if eligible {
 		entry.session.mu.RLock()
 		eligible = entry.session.unsolicitedCleanupAllowedLocked(sc.unsolicitedAttempt)

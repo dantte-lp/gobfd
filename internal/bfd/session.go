@@ -145,13 +145,10 @@ type SessionConfig struct {
 
 // StateChange reports a session observation, registration or removal.
 type StateChange struct {
-	// echoSource fences only raw dispatch; the public Echo lifecycle remains separate.
-	echoSource *EchoSession
 	// Private owner notifications never reach subscribers or actuators.
 	unsolicitedFailure bool
 	unsolicitedAttempt uint64
-	// Status freezes Control-session status at publication. Echo retains its
-	// legacy partial fields until its separate lifecycle contract is implemented.
+	// Status freezes session status at publication.
 	Status SessionSnapshot
 
 	// Added marks registration, without an FSM transition or actuator action.
@@ -203,7 +200,7 @@ type StateChange struct {
 	Deleted bool
 
 	// Gap marks a subscriber-only marker: events before Revision were lost
-	// and the subscriber must resync from Manager.SessionsWithRevision.
+	// and the subscriber must resync from its authoritative registry snapshot.
 	// Other fields except Timestamp are zero.
 	Gap bool
 }

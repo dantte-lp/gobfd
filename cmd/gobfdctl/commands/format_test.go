@@ -29,6 +29,36 @@ func TestCausalSessionFormats(t *testing.T) {
 	}
 }
 
+func TestEchoWatchFormatsFrozenLifecycleRows(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []bfdv1.WatchSessionEventsResponse_EventType{
+		bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED,
+		bfdv1.WatchSessionEventsResponse_EVENT_TYPE_STATE_CHANGE,
+		bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_DELETED,
+	} {
+		row := &bfdv1.BfdSession{
+			PeerAddress: "192.0.2.61", LocalDiscriminator: 42,
+			Type: bfdv1.SessionType_SESSION_TYPE_ECHO, LocalState: bfdv1.SessionState_SESSION_STATE_DOWN,
+			ObservationVersion: 17, Counters: &bfdv1.SessionCounters{PacketsReceived: 3},
+		}
+		event := &bfdv1.WatchSessionEventsResponse{Type: kind, Session: row, Revision: 19}
+		for _, format := range []string{formatJSON, formatYAML, formatTable} {
+			out, err := formatEvent(event, format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"192.0.2.61", "42", "19", "Down"} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("Echo lifecycle %s lacks %q: %s", format, want, out)
+				}
+			}
+			if format != formatTable && (!strings.Contains(out, "echo") || !strings.Contains(out, "17")) {
+				t.Fatalf("Echo structured row lost type/version: %s", out)
+			}
+		}
+	}
+}
+
 func TestMarshalJSONReplacesInvalidUTF8(t *testing.T) {
 	t.Parallel()
 

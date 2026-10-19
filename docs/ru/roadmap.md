@@ -3,11 +3,13 @@
 Control slice `gobfd-qj0.8.2.1.3.1.1` добавляет типизированные queue outcomes,
 owner terminal reasons, stop abandonment и ограниченный process-lifetime
 ledger ListSessions/Prometheus. Get/List/Control Watch используют общие session
-drop/auth projections. Candidate `gobfd-qj0.8.2.1.3.1.2` расширяет ledger на Echo,
+drop/auth projections. `gobfd-qj0.8.2.1.3.1.2` расширяет ledger на Echo,
 raw/dispatch/recipient/legacy notification outcomes и сохраняет private cleanup
 после raw loss через один parked worker на retained physical entry. Parent
-`gobfd-qj0.8.2.1.3.1` остаётся открытым до acceptance и завершения inventory.
-Полный Echo Watch lifecycle остаётся в `gobfd-qj0.8.2.1.3.10`, kernel
+`gobfd-qj0.8.2.1.3.1` закрыт в границах delivery accounting и private cleanup
+на `2220cc0865752f2df31859a636d376fdc7fdddec`.
+Echo Watch lifecycle реализован в `gobfd-qj0.8.2.1.3.10`; raw-loss Watch recovery
+остаётся в `gobfd-qj0.8.2.1.3.11`. Kernel
 `SO_RXQ_OVFL` — в `gobfd-qj0.8.2.1.6`. Development slices не квалифицируют stable
 delivery.
 
@@ -15,7 +17,8 @@ Development-срез причинных наблюдений (`gobfd-qj0.8.2.1.2
 `gobfd-qj0.8.2.4.8`) охватывает согласованные scalar facts, версии строк и
 причинную policy GoBGP. Он не квалифицирует stable release или C-bit graceful
 restart. Control Watch registration/status реализован в `gobfd-qj0.8.2.1.3.8`;
-Echo lifecycle остаётся в `gobfd-qj0.8.2.1.3.10`.
+`gobfd-qj0.8.2.1.3.10` добавляет Echo frozen lifecycle и mixed snapshots без
+изменения typed Echo RPC или области Control List/Get/GoBGP.
 См. [контракт измерения статуса](01-architecture.md).
 H-12 (`gobfd-qj0.8.2.1.3.3`) принят в локальном `dev`: подтверждение успешной
 записи, negotiated notification window и отмена owning UDP writes. Локальный
@@ -28,8 +31,8 @@ Development-срез последнего claim (`gobfd-qj0.8.2.1.3.9`) испо
 ограниченным параллельным бюджетом reconciliation и явным incomplete outcome.
 Нефинальный claim сохраняет wire state. Failure cleanup unsolicited Down-сессии
 останавливает передачу без административного drain по RFC 9468 Section 2.
-Это не закрывает полноту регистрации и статуса Watch и не квалифицирует stable
-delivery.
+Эти срезы не квалифицируют stable delivery; raw-loss convergence и RFC 9747
+preview blockers остаются отдельными задачами.
 
 ![Текущий релиз](https://img.shields.io/badge/Current-v0.6.4-1a73e8?style=for-the-badge)
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)

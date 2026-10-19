@@ -66,3 +66,32 @@ func TestSessionSelectorValidatesConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestEchoWatchSelectorRequiresExplicitControlTypeForMixedPeer(t *testing.T) {
+	t.Parallel()
+	control := &bfdv1.BfdSession{
+		PeerAddress: "192.0.2.1", LocalAddress: "192.0.2.2", InterfaceName: "eth0",
+		Type: bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP, LocalDiscriminator: 1,
+		LocalState: bfdv1.SessionState_SESSION_STATE_UP,
+	}
+	echo := &bfdv1.BfdSession{
+		PeerAddress: control.GetPeerAddress(), LocalAddress: control.GetLocalAddress(),
+		InterfaceName: control.GetInterfaceName(),
+		Type:          bfdv1.SessionType_SESSION_TYPE_ECHO, LocalDiscriminator: 2,
+		LocalState: bfdv1.SessionState_SESSION_STATE_DOWN,
+	}
+	for _, kind := range []string{"", "single_hop"} {
+		selector, err := apiclient.ParseSessionSelector("192.0.2.1", "192.0.2.2", "eth0", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, selectErr := selector.Select([]*bfdv1.BfdSession{control, echo})
+		if kind == "" {
+			if got != nil || !errors.Is(selectErr, apiclient.ErrAmbiguousSession) {
+				t.Fatalf("mixed peer did not fail closed: row=%v err=%v", got, selectErr)
+			}
+		} else if selectErr != nil || got != control {
+			t.Fatalf("explicit Control selector = %v, %v", got, selectErr)
+		}
+	}
+}

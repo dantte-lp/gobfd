@@ -72,8 +72,8 @@ func TestEchoOwnerDelivery(t *testing.T) {
 				up, down, committed := step()
 				if up.OldState != StateDown || up.NewState != StateUp ||
 					down.OldState != StateUp || down.NewState != StateDown || down.Diag != DiagEchoFailed ||
-					up.echoSource == nil || up.echoSource != down.echoSource || committed != uint64(i+1) ||
-					up.echoSource.EchosReceived() != uint64(i+1) || up.echoSource.StateTransitions() != uint64(2*(i+1)) {
+					up.Ref == (SessionRef{}) || up.Ref != down.Ref || committed != uint64(i+1) ||
+					up.Status.Counters.PacketsReceived != uint64(i+1) || down.Status.Counters.StateTransitions != uint64(2*(i+1)) {
 					t.Fatalf("Echo owner/publication = %+v, %+v, committed=%d", up, down, committed)
 				}
 			}

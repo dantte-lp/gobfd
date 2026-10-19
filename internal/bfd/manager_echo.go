@@ -82,25 +82,7 @@ func (m *Manager) createEchoSession(
 		m.discriminators.Release(discr)
 		return 0, lease, fmt.Errorf("%s: %w", createEchoSessionErrPrefix, err)
 	}
-
-	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	lease.bindInterrupt(sessCtx)
-	entry := &echoSessionEntry{
-		session:     es,
-		cancel:      cancel,
-		senderLease: lease,
-		key:         canonicalEchoSessionKey(cfg),
-		source:      source,
-		done:        make(chan struct{}),
-	}
-	m.mu.Lock()
-	m.echoSessions[discr] = entry
-	m.mu.Unlock()
-	m.workers.Go(func() {
-		defer close(entry.done)
-		defer lease.stopInterrupt()
-		es.Run(sessCtx)
-	})
+	m.registerEchoAndStart(ctx, es, lease, canonicalEchoSessionKey(cfg), source)
 
 	m.logger.Info("echo session created",
 		slog.String("peer", cfg.PeerAddr.String()),
@@ -111,6 +93,44 @@ func (m *Manager) createEchoSession(
 		slog.Uint64("detect_mult", uint64(cfg.DetectMultiplier)),
 	)
 	return discr, nil, nil
+}
+
+// registerEchoAndStart publishes registration before starting the owner.
+// The caller holds ownershipMu; Manager.mu orders insertion, version and fanout.
+func (m *Manager) registerEchoAndStart(
+	ctx context.Context,
+	es *EchoSession,
+	lease *SenderLease,
+	key string,
+	source echoSessionSource,
+) {
+	sessCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	lease.bindInterrupt(sessCtx)
+	entry := &echoSessionEntry{
+		session:     es,
+		cancel:      cancel,
+		senderLease: lease,
+		key:         key,
+		source:      source,
+		done:        make(chan struct{}),
+	}
+	m.mu.Lock()
+	es.observationMu.Lock()
+	es.observationClock = &m.observationClock
+	es.observation.ObservationVersion = es.nextObservationVersionLocked()
+	es.observationMu.Unlock()
+	m.echoSessions[es.localDiscr] = entry
+	status := es.watchSnapshot()
+	added := stateChangeOf(status, status.State)
+	added.Added = true
+	counts := m.broadcastStateChange(added)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
+	m.workers.Go(func() {
+		defer close(entry.done)
+		defer lease.stopInterrupt()
+		es.Run(sessCtx)
+	})
 }
 
 // DestroyEchoSession stops and removes the echo session identified by discr.
@@ -142,7 +162,17 @@ func (m *Manager) detachEchoSession(discr uint32) (*retiredEchoSession, error) {
 		)
 	}
 	delete(m.echoSessions, discr)
+	es := entry.session
+	es.observationMu.Lock()
+	observation := es.observation
+	observation.ObservationVersion = es.nextObservationVersionLocked()
+	status := es.watchStatusForObservation(observation)
+	es.observationMu.Unlock()
+	deleted := stateChangeOf(status, observation.State)
+	deleted.Deleted = true
+	counts := m.broadcastStateChange(deleted)
 	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 	return &retiredEchoSession{localDiscr: discr, entry: entry}, nil
 }
 

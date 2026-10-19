@@ -166,19 +166,26 @@ func TestFullWatchControlUsesFrozenZeroStatus(t *testing.T) {
 	}
 }
 
-func TestFullWatchEchoKeepsLegacyStatus(t *testing.T) {
+func TestFullWatchEchoUsesFrozenStatus(t *testing.T) {
 	t.Parallel()
 	sc := bfd.StateChange{
 		Type: bfd.SessionTypeEcho, LocalDiscr: 42, PeerAddr: netip.MustParseAddr("192.0.2.1"),
 		LocalAddr: netip.MustParseAddr("192.0.2.2"), Interface: "eth0", OldState: bfd.StateUp,
 		NewState: bfd.StateDown, Diag: bfd.DiagEchoFailed, Timestamp: time.Now(),
+		Status: bfd.SessionSnapshot{
+			Type: bfd.SessionTypeEcho, LocalDiscr: 42, PeerAddr: netip.MustParseAddr("192.0.2.1"),
+			LocalAddr: netip.MustParseAddr("192.0.2.2"), Interface: "eth0", State: bfd.StateDown,
+			LocalDiag: bfd.DiagEchoFailed, ObservationVersion: 7, DesiredMinTx: time.Second,
+			Counters: bfd.SessionCounters{PacketsReceived: 3},
+		},
 	}
 	status := stateChangeToProto(sc).GetSession()
 	if status.GetType() != bfdv1.SessionType_SESSION_TYPE_ECHO || status.GetLocalDiscriminator() != 42 ||
 		status.GetPeerAddress() != "192.0.2.1" || status.GetLocalAddress() != "192.0.2.2" ||
 		status.GetInterfaceName() != "eth0" || status.GetLocalState() != bfdv1.SessionState_SESSION_STATE_DOWN ||
 		status.GetLocalDiagnostic() != bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_ECHO_FAILED ||
-		status.GetObservationVersion() != 0 || status.GetCounters() != nil || status.GetDesiredMinTxInterval() != nil {
-		t.Fatalf("Echo legacy status changed: %v", status)
+		status.GetObservationVersion() != 7 || status.GetCounters().GetPacketsReceived() != 3 ||
+		status.GetDesiredMinTxInterval().AsDuration() != time.Second {
+		t.Fatalf("Echo frozen status changed: %v", status)
 	}
 }

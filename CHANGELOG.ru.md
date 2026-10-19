@@ -24,8 +24,8 @@
   dispatch, queued/gapped originals каждого Watch recipient и legacy delivery.
   Private unsolicited cleanup переживает raw overflow через coalesced failure
   hint и один lazy parked worker с переиспользуемым timer на retained physical
-  entry. Сохранены attempt, AdminDown, shared-claim и identity fences. Полный
-  Echo Watch lifecycle, kernel overflow и RFC/stable qualification остаются
+  entry. Сохранены attempt, AdminDown, shared-claim и identity fences. Raw-loss
+  Watch convergence, kernel overflow и RFC/stable qualification остаются
   отдельными задачами.
 
 - Control-session Watch публикует регистрацию до запуска владельца, включая
@@ -33,8 +33,14 @@
   для additions, observations и removals. Конфигурация, таймеры и счётчики
   измеряются на границе публикации; `observation_version` покрывает причинный
   кортеж. Zero/false и отсутствующие timestamps заменяют прежний статус клиента.
-  Echo сохраняет частичные events; его lifecycle остаётся в
-  `gobfd-qj0.8.2.1.3.10`.
+
+- Echo Watch передаёт initial и post-sync Down rows, frozen owner status и
+  синхронное версионированное удаление для API/config removal и rollback.
+  Control и Echo используют общий observation clock и opaque owner identities;
+  mixed snapshot имеет одну границу реестров/revision. Typed Echo RPC и
+  Control List/Get/GoBGP snapshots сохраняют прежнюю область. Для mixed-сессий
+  одного peer нужны явные companion selectors. Raw queue loss recovery остаётся
+  в `gobfd-qj0.8.2.1.3.11`; RFC 9747 сохраняет preview.
 
 - Остановка передачи RFC 9468 в owner loop после natural failure или истечения
   независимого окна установления с сохранением сроков discriminator/auth.
@@ -73,7 +79,8 @@
   политика `hard-fail`; graceful restart не реализован. GoBGP сохраняет
   локальную/удалённую административную причину при retry и gap resync,
   проверяет текущие identity и policy перед disable. Control Watch передаёт
-  полный измеренный статус (`gobfd-qj0.8.2.1.3.8`); Echo сохраняет частичные events.
+  полный измеренный статус; Echo использует тот же frozen contract
+  (`gobfd-qj0.8.2.1.3.8`, `gobfd-qj0.8.2.1.3.10`).
 
 - Per-configured-peer метрики GoBGP: flap penalty с decay на момент scrape,
   recovery suppression и его максимальная граница, ожидающие желаемые Up/Down

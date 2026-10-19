@@ -179,6 +179,10 @@ HAProxy на другом хосте нужен явный достижимый 
 transport scope, даже явный tuple даёт отказ. Agent ports должны различаться
 и находиться в диапазоне 1–65535.
 
+Watch включает Echo-сессии. Control и Echo одного peer делают peer-only selector
+неоднозначным даже при совпадении local address и interface. Укажите явный
+Control `type: single_hop` или `type: multi_hop` для этого backend.
+
 ### Быстрый старт
 
 ```bash
@@ -312,6 +316,10 @@ graph LR
 маршрут. Applied-state сохраняется между Watch streams; EOF также вызывает
 reconnect. Ошибка или неполная запись stdout завершает bridge без подтверждения
 изменения маршрута.
+
+Echo rows участвуют в той же проверке неоднозначности. Задайте
+`GOBFD_SESSION_TYPE=single_hop` или `multi_hop`, если Control и Echo используют
+один peer.
 
 ### Быстрый старт
 

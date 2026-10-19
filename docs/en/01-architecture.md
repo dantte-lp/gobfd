@@ -316,7 +316,7 @@ versions. `Revision` orders dispatch separately; snapshots may contain an owner
 observation ahead of dispatch. Consumers compare versions per row, including
 before deletion. Internal `SessionRef` prevents discriminator reuse from
 retargeting pending actions. The clock is not a global snapshot watermark.
-Control-session Watch events carry a value copy of the full API status.
+Control and Echo Watch events carry a value copy of the full API status.
 The causal tuple comes from the explicit owner commit; configuration, timers,
 counters and timestamps are sampled at publication or List boundaries, outside
 that tuple. Owner publication follows counter/`LastStateChange` updates and
@@ -341,9 +341,15 @@ drop/auth counters are projections of terminal reasons, with auth a subset of
 drops; they are not added back into the global ledger. Echo admission and its
 single winning owner share a terminal barrier: pre-Run admission is allowed,
 full/closed queues return typed refusals, and stop abandons pending RX once.
-Echo raw notifications carry a private owner pointer solely to reject stale
-dispatch after deletion or discriminator reuse. Public Echo Watch identity,
-full status and lifecycle remain separately owned.
+Echo raw notifications use the same comparable `SessionRef` identity fence as
+Control, with exactly one private owner pointer. Managed Echo registration,
+state commits and removal share the Manager observation clock. A coherent
+Echo tuple contains local state, diagnostic, cause and version; initial and
+returned-Echo causes are Unknown, and detection expiry is DetectionTimeout.
+Watch maps actual Echo TX interval, detection parameters, sent/received counts,
+transitions and timestamps into the existing status shape. Unowned remote,
+negotiated, RX, authentication and drop fields are zero; zero Echo drop/auth
+fields do not prove absence of loss.
 
 Raw Control/private/Echo notifications, dispatch, each Watch recipient and
 legacy delivery have separate bounded ledger stages. GAP markers report lost
@@ -360,17 +366,25 @@ Duplicates do not extend retention; a newer failure replaces pending work.
 Retirement still fences identity, current attempt, AdminDown and shared claims.
 Dispatch cancellation has no restart/progress promise; Manager.Close joins and
 releases remaining resources. The worker bound follows retained physical
-entries, not MaxSessions. Kernel `SO_RXQ_OVFL` remains separate work, and
+entries, not MaxSessions. Raw notification QueueFull does not yet trigger
+Watch resynchronization; recovery remains `gobfd-qj0.8.2.1.3.11`. A subscriber
+GAP or reconnect does obtain the latest authoritative snapshot. Kernel
+`SO_RXQ_OVFL` remains separate work, and
 unsolicited/Echo modes retain their existing preview qualification boundaries.
 
 Registration publishes `SESSION_ADDED` after registry insertion and before the
 owner starts, including a passive session that stays Down. This lifecycle
-covers the Control registry: base, Micro-BFD, VXLAN/Geneve and unsolicited
-sessions. It reaches revisioned subscribers without invoking Micro actuators
+covers the Control registry (base, Micro-BFD, VXLAN/Geneve and unsolicited)
+and the separate Echo registry. It reaches revisioned subscribers without invoking Micro actuators
 or unsolicited cleanup; legacy `StateChanges()` retains FSM/removal events.
-Control updates and tombstones replace the whole client row, including zero,
-false, NONE and absent timestamps. Echo retains its partial state events;
-its registration/status lifecycle remains in `gobfd-qj0.8.2.1.3.10`.
+Control and Echo updates and tombstones replace the whole client row, including
+zero, false, NONE and absent timestamps. Echo removal freezes its final tuple
+with a fresh global version before cancellation/join and lease release. API
+deletion, declarative removal and rollback use that shared detach path.
+Watch alone snapshots both registries under one Manager read lock, reading
+the dispatch revision before either registry. Control List/Get and GoBGP
+snapshots and typed Echo RPC shapes retain their existing scope. Manager.Close
+closes streams for reconnect; it does not guarantee per-session tombstones.
 
 GoBGP suppresses local/known remote AdminDown and retains that remote fact
 through later timeout diagnostics. Explicit local PathDown remains actionable
@@ -506,7 +520,7 @@ joins and releases; daemon shutdown already drains its captured sessions.
 RFC 9468 Section 2 failure cleanup cancels unsolicited Down sessions without
 AdminDown drain: the passive side must stop Control transmission. Standalone
 Echo and Micro-BFD group-only removal have no Control-session AdminDown
-exchange. Echo Watch registration/status remains open separately.
+exchange. Echo removal publishes its Watch tombstone without changing protocol state.
 
 ### Project Structure
 

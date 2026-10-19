@@ -33,7 +33,7 @@ func TestNotificationWritersAccountEachAttempt(t *testing.T) {
 			func(ch chan StateChange) { s.notifyCh = ch },
 		},
 		{
-			DeliveryEchoNotification, func() { es.emitNotification(StateDown, StateUp, DiagNone) },
+			DeliveryEchoNotification, func() { es.emitNotification(StateDown, es.watchSnapshot()) },
 			func(ch chan StateChange) { es.notifyCh = ch },
 		},
 	} {
@@ -173,10 +173,13 @@ func TestEchoDelayedNotificationRejectsReusedDiscriminator(t *testing.T) {
 		mgr.mu.RLock()
 		original := mgr.echoSessions[discr].session
 		mgr.mu.RUnlock()
-		original.emitNotification(StateDown, StateUp, DiagNone)
+		original.emitNotification(StateDown, original.watchSnapshot())
 		delayed := <-mgr.rawNotifyCh
 		if closeErr := mgr.DestroyEchoSession(discr); closeErr != nil {
 			t.Fatal(closeErr)
+		}
+		if deleted := <-mgr.publicNotifyCh; !deleted.Deleted || deleted.Ref != original.Ref() {
+			t.Fatalf("Echo removal = %+v, want original owner's tombstone", deleted)
 		}
 		replacement, err := NewEchoSession(cfg, discr, echoLeaseSender{}, mgr.rawNotifyCh, mgr.logger, withEchoDelivery(mgr))
 		if err != nil {

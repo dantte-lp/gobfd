@@ -16,7 +16,11 @@ const (
 )
 
 // SessionRef distinguishes discriminator reuse without exposing a wire epoch.
-type SessionRef struct{ session *Session }
+// Constructors set exactly one private owner pointer.
+type SessionRef struct {
+	session *Session
+	echo    *EchoSession
+}
 
 // Ref returns this session's comparable identity.
 func (s *Session) Ref() SessionRef { return SessionRef{session: s} }

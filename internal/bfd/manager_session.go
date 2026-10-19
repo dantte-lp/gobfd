@@ -719,6 +719,19 @@ func (m *Manager) SessionsWithRevision() ([]SessionSnapshot, uint64) {
 	return m.sessionsLocked(), rev
 }
 
+// WatchSessionsWithRevision snapshots both registries at one dispatch boundary.
+// Control-only List/Get and GoBGP consumers retain SessionsWithRevision.
+func (m *Manager) WatchSessionsWithRevision() ([]SessionSnapshot, uint64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rev := m.revision.Load()
+	snapshots := m.sessionsLocked()
+	for _, entry := range m.echoSessions {
+		snapshots = append(snapshots, entry.session.watchSnapshot())
+	}
+	return snapshots, rev
+}
+
 // Revision returns the revision of the last dispatched state change.
 func (m *Manager) Revision() uint64 { return m.revision.Load() }
 
@@ -795,9 +808,9 @@ func (m *Manager) StateChanges() <-chan StateChange {
 // manager state change until ctx is cancelled or Manager.Close begins. Each
 // change carries a dispatch revision. A slow subscriber drops its own events
 // without affecting other subscribers or session goroutines, and receives a
-// StateChange with Gap set in their place: it must resync from
-// SessionsWithRevision. Calls made after shutdown begins fail without registering
-// a subscriber.
+// StateChange with Gap set in their place: Watch resyncs from
+// WatchSessionsWithRevision; Control-only consumers use SessionsWithRevision.
+// Calls made after shutdown begins fail without registering a subscriber.
 func (m *Manager) SubscribeStateChanges(ctx context.Context) (<-chan StateChange, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("subscribe state changes with canceled context: %w", err)

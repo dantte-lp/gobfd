@@ -466,6 +466,71 @@ func TestHandlerIgnoresNonBaseSessionTypes(t *testing.T) {
 	}
 }
 
+type echoWatchActuator struct{ calls atomic.Int32 }
+
+func (a *echoWatchActuator) HandleMicroBFDMemberEvent(context.Context, bfd.MicroBFDMemberEvent) error {
+	a.calls.Add(1)
+	return nil
+}
+
+func TestEchoWatchLifecycleDoesNotActuateGoBGPOrMicro(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mock := newMockClient()
+		events := runHandler(t, newTestHandler(t, mock, gobgp.DampeningConfig{}))
+		actuator := &echoWatchActuator{}
+		mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithMicroBFDActuator(actuator))
+		defer mgr.Close()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		sub, err := mgr.SubscribeStateChanges(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		go mgr.RunDispatch(ctx)
+		cfg := bfd.EchoSessionConfig{
+			PeerAddr: netip.MustParseAddr("10.0.0.1"), LocalAddr: netip.MustParseAddr("10.0.0.2"),
+			Interface: "eth0", TxInterval: time.Second, DetectMultiplier: 3,
+		}
+		discr, err := mgr.CreateEchoSession(ctx, cfg, echoWatchSender{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		forward := func() {
+			t.Helper()
+			synctest.Wait()
+			if len(sub) != 1 {
+				t.Fatalf("Echo lifecycle events=%d, want one", len(sub))
+			}
+			event := <-sub
+			if event.Type != bfd.SessionTypeEcho || event.ObservationVersion == 0 || event.Status.Type != bfd.SessionTypeEcho {
+				t.Fatalf("actual Echo lifecycle event = %+v", event)
+			}
+			events <- event
+			synctest.Wait()
+		}
+		forward()
+		if _, recvErr := mgr.DemuxEcho(discr); recvErr != nil {
+			t.Fatal(recvErr)
+		}
+		forward()
+		synctest.Sleep(3 * time.Second)
+		forward()
+		if destroyErr := mgr.DestroyEchoSession(discr); destroyErr != nil {
+			t.Fatal(destroyErr)
+		}
+		forward()
+		snapshots, _ := mgr.SessionsWithRevision()
+		if len(snapshots) != 0 || actuator.calls.Load() != 0 {
+			t.Fatalf("Echo entered Control snapshot or Micro actuator: snapshots=%+v calls=%d", snapshots, actuator.calls.Load())
+		}
+		assertMethods(t, mock)
+	})
+}
+
+type echoWatchSender struct{}
+
+func (echoWatchSender) SendPacket(context.Context, []byte, netip.Addr) error { return nil }
+
 // H-31: the daemon decides whether a session is the canonical BFD session
 // for its BGP neighbor; the handler acts only on events it accepts.
 func TestHandlerActsOnlyOnAcceptedSessions(t *testing.T) {

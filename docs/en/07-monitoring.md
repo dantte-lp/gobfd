@@ -49,7 +49,11 @@ skipped Added events, closed channels and nil sinks are not attempts.
 Notification loss never increments Control packet-drop counters. Raw shutdown
 abandonment is counted after all producers and Manager workers join.
 Kernel `SO_RXQ_OVFL` remains owned by `gobfd-qj0.8.2.1.6`; this ledger does not
-qualify Echo transport/security or full Echo Watch lifecycle.
+qualify Echo transport/security. Echo Watch lifecycle is implemented separately
+by `gobfd-qj0.8.2.1.3.10`: frozen rows sample actual Echo counters and timestamps
+without counter-only observation-version churn. Its unowned drop/auth fields
+are zero and do not replace the delivery ledger or prove absence of loss.
+Raw notification loss resynchronization remains `gobfd-qj0.8.2.1.3.11`.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|

@@ -228,13 +228,16 @@ releasing a shared claim emits no deletion. Later snapshots omit the removed
 session. Removal cancels its pending GoBGP Down and Up actions; it does not
 enable a peer GoBFD previously disabled.
 
-New Control sessions emit `SessionAdded` even if they remain Down. Control
-additions, changes and removals carry full API status sampled at publication;
+New Control and Echo sessions emit `SessionAdded` even if they remain Down.
+Additions, changes and removals carry full API status sampled at publication;
 List samples telemetry independently. `ObservationVersion` covers the causal
 tuple, not each packet or counter change. Clients replace the entire row,
-including zero/false values and absent timestamps. Echo retains partial state
-events and has no complete registration/status lifecycle
-(`gobfd-qj0.8.2.1.3.10`).
+including zero/false values and absent timestamps. Initial, GAP and reconnect
+snapshots include both registries at one revision boundary. Echo rows map
+their locally provisioned TX interval, detection settings, counters and
+timestamps; unowned remote/negotiated/drop/auth fields are zero, not loss
+evidence. Control List/Get and typed Echo commands retain their existing scope.
+Raw queue loss resynchronization remains `gobfd-qj0.8.2.1.3.11`.
 
 Press `Ctrl+C` to stop monitoring.
 

@@ -125,7 +125,7 @@ func TestSessionsWithRevisionCoversDispatchedEvents(t *testing.T) {
 // A snapshot waiting for the registry must cover a deletion that replaces
 // the session while that lock is held, or its queued tombstone erases the replacement.
 func TestSnapshotRevisionCoversReplacementWhileWaitingForRegistry(t *testing.T) {
-	for _, method := range []string{"SessionsWithRevision", "SessionWithRevision"} {
+	for _, method := range []string{"SessionsWithRevision", "SessionWithRevision", "WatchSessionsWithRevision"} {
 		t.Run(method, func(t *testing.T) {
 			mgr := NewManager(slog.New(slog.DiscardHandler))
 			defer mgr.Close()
@@ -146,10 +146,14 @@ func TestSnapshotRevisionCoversReplacementWhileWaitingForRegistry(t *testing.T) 
 				mgr.mu.Lock()
 				defer mgr.mu.Unlock()
 				go func() {
-					if method == "SessionsWithRevision" {
+					switch method {
+					case "WatchSessionsWithRevision":
+						snapshots, revision := mgr.WatchSessionsWithRevision()
+						done <- result{snapshots, revision}
+					case "SessionsWithRevision":
 						snapshots, revision := mgr.SessionsWithRevision()
 						done <- result{snapshots, revision}
-					} else {
+					default:
 						snapshot, revision, _ := mgr.SessionWithRevision(discr)
 						done <- result{[]SessionSnapshot{snapshot}, revision}
 					}

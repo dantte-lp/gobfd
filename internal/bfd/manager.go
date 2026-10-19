@@ -576,10 +576,10 @@ func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
 	var valid bool
 	if sc.Type == SessionTypeEcho {
 		entry, ok := m.echoSessions[sc.LocalDiscr]
-		valid = ok && entry.session == sc.echoSource
+		valid = ok && entry.session.Ref() == sc.Ref
 	} else {
 		entry, ok := m.sessions[sc.LocalDiscr]
-		valid = ok && entry.session == sc.Ref.session
+		valid = ok && entry.session.Ref() == sc.Ref
 		if valid && sc.unsolicitedFailure {
 			entry.session.mu.RLock()
 			valid = entry.unsolicited && entry.session.unsolicitedAttempt == sc.unsolicitedAttempt

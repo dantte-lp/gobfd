@@ -50,8 +50,12 @@ Marker не считается успешно доставленным исхо�
 закрытый channel и nil sink не являются попытками. Потеря notification не
 увеличивает Control packet-drop counters. Raw abandonment учитывается после
 join всех producers и Manager workers. Kernel `SO_RXQ_OVFL` остаётся задачей
-`gobfd-qj0.8.2.1.6`; ledger не квалифицирует Echo transport/security или полный
-Echo Watch lifecycle.
+`gobfd-qj0.8.2.1.6`; ledger не квалифицирует Echo transport/security. Echo Watch
+lifecycle реализован отдельно в `gobfd-qj0.8.2.1.3.10`: frozen rows измеряют
+фактические Echo counters/timestamps без увеличения observation version только
+из-за счётчиков. Drop/auth fields, которыми Echo не владеет, равны нулю и не
+заменяют delivery ledger или доказательство отсутствия потерь. Raw notification
+loss resynchronization остаётся в `gobfd-qj0.8.2.1.3.11`.
 
 | Метрика | Тип | Метки | Описание |
 |---|---|---|---|

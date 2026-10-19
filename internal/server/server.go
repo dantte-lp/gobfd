@@ -338,7 +338,7 @@ func (s *BFDServer) forwardStateChange(
 // sendSnapshot sends every session as SESSION_ADDED and closes the
 // snapshot with SYNC_COMPLETE. It returns the revision the snapshot covers.
 func (s *BFDServer) sendSnapshot(send func(*bfdv1.WatchSessionEventsResponse) error) (uint64, error) {
-	snapshots, rev := s.manager.SessionsWithRevision()
+	snapshots, rev := s.manager.WatchSessionsWithRevision()
 	now := timestamppb.Now()
 	for _, snap := range snapshots {
 		if err := send(&bfdv1.WatchSessionEventsResponse{
@@ -624,30 +624,9 @@ func stateChangeToProto(sc bfd.StateChange) *bfdv1.WatchSessionEventsResponse {
 	} else if sc.Added {
 		eventType = bfdv1.WatchSessionEventsResponse_EVENT_TYPE_SESSION_ADDED
 	}
-	var status *bfdv1.BfdSession
-	if sc.Type == bfd.SessionTypeEcho {
-		status = &bfdv1.BfdSession{
-			PeerAddress:                   sc.PeerAddr.String(),
-			LocalAddress:                  addrString(sc.LocalAddr),
-			InterfaceName:                 sc.Interface,
-			Type:                          sessionTypeToProto(sc.Type),
-			LocalDiscriminator:            sc.LocalDiscr,
-			LocalState:                    stateToProto(sc.NewState),
-			LocalDiagnostic:               diagToProto(sc.Diag),
-			RemoteKnown:                   sc.RemoteKnown,
-			RemoteState:                   observedRemoteState(sc.RemoteKnown, sc.RemoteState),
-			RemoteDiagnostic:              observedRemoteDiag(sc.RemoteKnown, sc.RemoteDiag),
-			LocalControlPlaneIndependent:  sc.LocalC,
-			RemoteControlPlaneIndependent: sc.RemoteC,
-			Cause:                         causeToProto(sc.Cause),
-			ObservationVersion:            sc.ObservationVersion,
-		}
-	} else {
-		status = snapshotToProto(sc.Status)
-	}
 	return &bfdv1.WatchSessionEventsResponse{
 		Type:          eventType,
-		Session:       status,
+		Session:       snapshotToProto(sc.Status),
 		PreviousState: stateToProto(sc.OldState),
 		Timestamp:     timestamppb.New(sc.Timestamp),
 		Revision:      sc.Revision,

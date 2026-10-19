@@ -93,8 +93,9 @@ const (
 //   - No Init state, no AdminDown (simpler than control FSM)
 type EchoSession struct {
 	// --- State ---
-	state     atomic.Uint32
-	localDiag atomic.Uint32
+	observationMu    sync.RWMutex
+	observation      Observation
+	observationClock *atomic.Uint64
 
 	// --- Identity ---
 	localDiscr uint32
@@ -180,8 +181,7 @@ func NewEchoSession(
 	}
 
 	// RFC 9747 Section 3.3: echo session starts in Down state.
-	es.state.Store(uint32(StateDown))
-	es.localDiag.Store(uint32(DiagNone))
+	es.observation = Observation{State: StateDown, LocalDiag: DiagNone, ObservationVersion: 1}
 	es.rebuildCachedPacket()
 
 	return es, nil
@@ -213,20 +213,20 @@ func validateEchoConfig(cfg EchoSessionConfig, localDiscr uint32) error {
 }
 
 // -------------------------------------------------------------------------
-// Public Accessors — Thread-safe via atomic
+// Public Accessors — Thread-safe
 // -------------------------------------------------------------------------
 
 // LocalDiscriminator returns the echo session's local discriminator.
 func (es *EchoSession) LocalDiscriminator() uint32 { return es.localDiscr }
 
-// State returns the current echo session state (atomic read).
+// State returns the current echo session state.
 func (es *EchoSession) State() State {
-	return State(es.state.Load()) // #nosec G115 -- echo transitions store only valid State values 0-3.
+	return es.observationSnapshot().State
 }
 
-// LocalDiag returns the current local diagnostic code (atomic read).
+// LocalDiag returns the current local diagnostic code.
 func (es *EchoSession) LocalDiag() Diag {
-	return Diag(es.localDiag.Load()) // #nosec G115 -- echo transitions store only valid Diag values 0-8.
+	return es.observationSnapshot().LocalDiag
 }
 
 // PeerAddr returns the remote system's IP address (echo target).
@@ -430,15 +430,23 @@ func (es *EchoSession) handleDetectTimeout(ctx context.Context, detectTimer *tim
 
 // transitionTo performs an echo session state transition.
 func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Diag) {
-	oldState := es.State()
+	es.observationMu.Lock()
+	oldState := es.observation.State
 	if oldState == newState {
+		es.observationMu.Unlock()
 		return
 	}
 
-	es.state.Store(uint32(newState))
-	es.localDiag.Store(uint32(diag))
+	es.observation.State, es.observation.LocalDiag = newState, diag
+	es.observation.Cause = CauseUnknown
+	if diag == DiagEchoFailed {
+		es.observation.Cause = CauseDetectionTimeout
+	}
+	es.observation.ObservationVersion = es.nextObservationVersionLocked()
 	es.stateTransitions.Add(1)
 	es.lastStateChange.Store(time.Now().UnixNano())
+	status := es.watchStatusForObservation(es.observation)
+	es.observationMu.Unlock()
 	es.metrics.RecordStateTransition(
 		es.peerAddr, es.localAddr,
 		oldState.String(), newState.String(),
@@ -450,7 +458,7 @@ func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Di
 		slog.String("diag", diag.String()),
 	)
 
-	es.emitNotification(oldState, newState, diag)
+	es.emitNotification(oldState, status)
 }
 
 // -------------------------------------------------------------------------
@@ -477,15 +485,16 @@ func (es *EchoSession) sendEcho(ctx context.Context) {
 // RFC 9747: uses standard BFD Control packet format.
 // MyDiscriminator is set for demux on return. YourDiscriminator is zero.
 func (es *EchoSession) rebuildCachedPacket() {
+	observation := es.observationSnapshot()
 	yourDiscr := uint32(0)
-	if es.State() == StateUp {
+	if observation.State == StateUp {
 		yourDiscr = es.localDiscr
 	}
 
 	pkt := ControlPacket{
 		Version:                   Version,
-		Diag:                      es.LocalDiag(),
-		State:                     es.State(),
+		Diag:                      observation.LocalDiag,
+		State:                     observation.State,
 		DetectMult:                es.detectMult,
 		MyDiscriminator:           es.localDiscr,
 		YourDiscriminator:         yourDiscr,
@@ -506,21 +515,11 @@ func (es *EchoSession) rebuildCachedPacket() {
 // -------------------------------------------------------------------------
 
 // emitNotification sends a StateChange to the notification channel.
-func (es *EchoSession) emitNotification(oldState, newState State, diag Diag) {
+func (es *EchoSession) emitNotification(oldState State, status SessionSnapshot) {
 	if es.notifyCh == nil {
 		return
 	}
-	sc := StateChange{
-		echoSource: es,
-		LocalDiscr: es.localDiscr,
-		PeerAddr:   es.peerAddr,
-		LocalAddr:  es.localAddr,
-		OldState:   oldState,
-		NewState:   newState,
-		Diag:       diag,
-		Timestamp:  time.Now(),
-		Type:       SessionTypeEcho,
-	}
+	sc := stateChangeOf(status, oldState)
 	select {
 	case es.notifyCh <- sc:
 		es.recordDelivery(DeliveryEchoNotification, DeliveryQueued)
@@ -581,13 +580,14 @@ type EchoSessionSnapshot struct {
 
 // Snapshot returns a read-only view of the echo session's current state.
 func (es *EchoSession) Snapshot() EchoSessionSnapshot {
+	observation := es.observationSnapshot()
 	return EchoSessionSnapshot{
 		LocalDiscr:       es.localDiscr,
 		PeerAddr:         es.peerAddr,
 		LocalAddr:        es.localAddr,
 		Interface:        es.ifName,
-		State:            es.State(),
-		LocalDiag:        es.LocalDiag(),
+		State:            observation.State,
+		LocalDiag:        observation.LocalDiag,
 		TxInterval:       es.txInterval,
 		DetectMultiplier: es.detectMult,
 		DetectionTime:    es.DetectionTime(),
