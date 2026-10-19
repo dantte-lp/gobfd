@@ -32,6 +32,8 @@ func TestAPIParameterGenericIntervals(t *testing.T) {
 		{name: "RX seconds outside range", rx: &durationpb.Duration{Seconds: 315_576_000_001}},
 		{name: "negative TX", tx: durationpb.New(-time.Microsecond), wantLeases: 1},
 		{name: "negative RX", rx: durationpb.New(-time.Microsecond), wantLeases: 1},
+		{name: "TX 1ns truncates to wire zero", tx: durationpb.New(time.Nanosecond), wantLeases: 1},
+		{name: "RX 999ns truncates to wire zero", rx: durationpb.New(999 * time.Nanosecond), wantLeases: 1},
 		{name: "TX exceeds wire range", tx: durationpb.New(bfd.MaxWireInterval + time.Microsecond), wantLeases: 1},
 		{name: "RX exceeds wire range", rx: durationpb.New(bfd.MaxWireInterval + time.Microsecond), wantLeases: 1},
 	} {

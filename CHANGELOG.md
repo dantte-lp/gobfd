@@ -355,6 +355,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Internal Manager errors retain their classification; well-formed Micro-BFD
   member timer validation and application remain under `gobfd-qj0.8.2.2.1` (M09).
 
+- Reject positive configured Control TX/RX intervals below one microsecond with
+  `ErrInvalidWireInterval` before session creation or reconciliation
+  (`gobfd-qj0.8.2.1.1.3`). Explicit RX zero and fractional microseconds above
+  the minimum retain their existing semantics.
+
 - Preserve the learned peer discriminator across valid Down/AdminDown and local
   PathDown transitions (`gobfd-qj0.8.2.1.2.4`). Poll replies and failed-send Final
   retries retain the correct `YourDiscriminator`, including in the passive role;

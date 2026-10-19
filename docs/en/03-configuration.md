@@ -613,6 +613,12 @@ Preview Micro-BFD/VXLAN/Geneve per-peer zero-as-inherit rules are unchanged.
 The `sessions` value must be a YAML sequence of mappings. Receive intervals
 reject booleans and fractional numeric values; use duration strings such as `"100ms"`.
 
+Control-session admission requires TX from `1us` to `4294967295us` and RX either
+zero or within the same range. Positive intervals below `1us` are rejected with
+`ErrInvalidWireInterval`: truncating them to wire zero would emit reserved TX zero
+or request no periodic RX. Durations of at least `1us` retain fractional microseconds locally;
+wire fields truncate to whole microseconds.
+
 Authentication can be configured through declarative YAML sessions or through
 gRPC `AddSession` fields: `auth_type`, `auth_key_id`, and `auth_secret`.
 `auth_key_id` must fit the RFC 5880 one-octet key ID range. `auth_secret` must

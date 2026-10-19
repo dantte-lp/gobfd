@@ -579,6 +579,14 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if cfg.RequiredMinRxInterval < 0 {
 		return fmt.Errorf("required min RX interval %v: %w", cfg.RequiredMinRxInterval, ErrInvalidRxInterval)
 	}
+	if cfg.DesiredMinTxInterval < time.Microsecond {
+		return fmt.Errorf("desired min TX interval %v is below one wire microsecond: %w",
+			cfg.DesiredMinTxInterval, ErrInvalidWireInterval)
+	}
+	if cfg.RequiredMinRxInterval > 0 && cfg.RequiredMinRxInterval < time.Microsecond {
+		return fmt.Errorf("required min RX interval %v is below one wire microsecond: %w",
+			cfg.RequiredMinRxInterval, ErrInvalidWireInterval)
+	}
 	if cfg.DesiredMinTxInterval > MaxWireInterval {
 		return fmt.Errorf(
 			"desired min TX interval %v exceeds max wire interval %v: %w",
