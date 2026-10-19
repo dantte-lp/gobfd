@@ -5,10 +5,10 @@ import (
 	"sync/atomic"
 )
 
-// DeliverySource identifies one Control processing stage, each with its own denominator.
+// DeliverySource identifies one processing stage, each with its own denominator.
 type DeliverySource uint8
 
-// Control delivery stages have independent denominators.
+// Delivery stages have independent denominators.
 const (
 	DeliverySourceUnspecified DeliverySource = iota
 	DeliveryWireParse
@@ -21,13 +21,25 @@ const (
 	DeliveryPathDownAdmission
 	DeliveryAdminDownAdmission
 	DeliveryControlOwner
+	DeliveryEchoRead
+	DeliveryEchoParse
+	DeliveryEchoTTL
+	DeliveryEchoDemux
+	DeliveryEchoAdmission
+	DeliveryEchoOwner
+	DeliveryControlNotification
+	DeliveryUnsolicitedNotification
+	DeliveryEchoNotification
+	DeliveryNotificationDispatch
+	DeliveryWatchRecipient
+	DeliveryLegacyNotification
 	deliverySourceCount
 )
 
 // DeliveryOutcome distinguishes queue admission from owner processing.
 type DeliveryOutcome uint8
 
-// Control delivery outcomes retain distinct admission and owner results.
+// Delivery outcomes retain distinct admission and owner results.
 const (
 	DeliveryOutcomeUnspecified DeliveryOutcome = iota
 	DeliveryAccepted
@@ -54,6 +66,8 @@ const (
 	DeliveryCanceled
 	DeliveryDeadline
 	DeliveryIgnored
+	DeliveryStale
+	DeliveryGapped
 	deliveryOutcomeCount
 )
 
@@ -120,6 +134,32 @@ var deliveryPairs = [...]DeliveryCounter{
 	{Source: DeliveryControlOwner, Outcome: DeliveryCommitted},
 	{Source: DeliveryControlOwner, Outcome: DeliveryIgnored},
 	{Source: DeliveryControlOwner, Outcome: DeliveryAbandoned},
+	{Source: DeliveryEchoRead, Outcome: DeliveryAccepted},
+	{Source: DeliveryEchoRead, Outcome: DeliveryReadError},
+	{Source: DeliveryEchoParse, Outcome: DeliveryAccepted},
+	{Source: DeliveryEchoParse, Outcome: DeliveryParserRejected},
+	{Source: DeliveryEchoTTL, Outcome: DeliveryAccepted},
+	{Source: DeliveryEchoTTL, Outcome: DeliveryTTLRejected},
+	{Source: DeliveryEchoDemux, Outcome: DeliveryFound},
+	{Source: DeliveryEchoDemux, Outcome: DeliveryUnknownSession},
+	{Source: DeliveryEchoAdmission, Outcome: DeliveryQueued},
+	{Source: DeliveryEchoAdmission, Outcome: DeliveryQueueFull},
+	{Source: DeliveryEchoAdmission, Outcome: DeliveryClosed},
+	{Source: DeliveryEchoOwner, Outcome: DeliveryCommitted},
+	{Source: DeliveryEchoOwner, Outcome: DeliveryAbandoned},
+	{Source: DeliveryControlNotification, Outcome: DeliveryQueued},
+	{Source: DeliveryControlNotification, Outcome: DeliveryQueueFull},
+	{Source: DeliveryUnsolicitedNotification, Outcome: DeliveryQueued},
+	{Source: DeliveryUnsolicitedNotification, Outcome: DeliveryQueueFull},
+	{Source: DeliveryEchoNotification, Outcome: DeliveryQueued},
+	{Source: DeliveryEchoNotification, Outcome: DeliveryQueueFull},
+	{Source: DeliveryNotificationDispatch, Outcome: DeliveryAccepted},
+	{Source: DeliveryNotificationDispatch, Outcome: DeliveryStale},
+	{Source: DeliveryNotificationDispatch, Outcome: DeliveryAbandoned},
+	{Source: DeliveryWatchRecipient, Outcome: DeliveryQueued},
+	{Source: DeliveryWatchRecipient, Outcome: DeliveryGapped},
+	{Source: DeliveryLegacyNotification, Outcome: DeliveryQueued},
+	{Source: DeliveryLegacyNotification, Outcome: DeliveryQueueFull},
 }
 
 //nolint:gochecknoglobals // Immutable masks keep hot-path validation constant-time without per-session maps.
@@ -144,6 +184,9 @@ func (source DeliverySource) String() string {
 	names := [...]string{
 		"unspecified", "wire_parse", "base_ttl", "overlay_decap", "demux", "unsolicited_admission",
 		"packet_admission", "packet_owner", "path_down_admission", "admin_down_admission", "control_owner",
+		"echo_read", "echo_parse", "echo_ttl", "echo_demux", "echo_admission", "echo_owner",
+		"control_notification", "unsolicited_notification", "echo_notification", "notification_dispatch",
+		"watch_recipient", "legacy_notification",
 	}
 	index := int(source)
 	if index >= len(names) {
@@ -158,6 +201,7 @@ func (outcome DeliveryOutcome) String() string {
 		"unknown_session", "scope_mismatch", "queued", "queue_full", "closed", "capacity_rejected", "rate_rejected",
 		"auth_unexpected", "auth_missing", "auth_failed", "sender_unavailable", "create_failed", "committed", "zero_tx",
 		"abandoned", "canceled", "deadline", "ignored",
+		"stale", "gapped",
 	}
 	index := int(outcome)
 	if index >= len(names) {
@@ -167,6 +211,25 @@ func (outcome DeliveryOutcome) String() string {
 }
 
 type deliveryLedger [deliverySourceCount][deliveryOutcomeCount]atomic.Uint64
+
+func withManagerDelivery(m *Manager) SessionOption {
+	return func(s *Session) {
+		s.delivery = m
+		s.cleanupWake = m.cleanupWake
+	}
+}
+
+func withEchoDelivery(reporter DeliveryReporter) EchoSessionOption {
+	return func(es *EchoSession) { es.delivery = reporter }
+}
+
+func (es *EchoSession) recordDelivery(source DeliverySource, outcome DeliveryOutcome) {
+	if es.delivery != nil {
+		es.delivery.RecordDelivery(source, outcome)
+	} else {
+		es.metrics.RecordDelivery(source, outcome)
+	}
+}
 
 // RecordDelivery records a stage decision once; session projections never feed it back.
 func (m *Manager) RecordDelivery(source DeliverySource, outcome DeliveryOutcome) {

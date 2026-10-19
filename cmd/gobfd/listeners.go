@@ -85,7 +85,7 @@ func createListeners(cfg *config.Config, logger *slog.Logger, delivery bfd.Deliv
 
 	// Create echo listeners (port 3785) if echo is enabled with peers.
 	if cfg.Echo.Enabled && len(cfg.Echo.Peers) > 0 {
-		echoListeners, err := createEchoListeners(cfg, logger)
+		echoListeners, err := createEchoListeners(cfg, logger, delivery)
 		if err != nil {
 			closeListeners(result.control, logger)
 			return listenersResult{}, fmt.Errorf("create echo listeners: %w", err)
@@ -191,7 +191,9 @@ func controlListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
 
 // createEchoListeners creates listeners on port 3785 for echo packet
 // reception. One listener per unique local address.
-func createEchoListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.Listener, error) {
+func createEchoListeners(
+	cfg *config.Config, logger *slog.Logger, delivery bfd.DeliveryReporter,
+) ([]*netio.Listener, error) {
 	type echoKey struct {
 		addr netip.Addr
 	}
@@ -218,6 +220,7 @@ func createEchoListeners(cfg *config.Config, logger *slog.Logger) ([]*netio.List
 			Port:           netio.PortEcho,
 			MultiHop:       false,
 			ExpectedTTL:    netio.TTLEchoLoopback,
+			Delivery:       delivery,
 		}
 
 		ln, err := netio.NewListener(lnCfg)

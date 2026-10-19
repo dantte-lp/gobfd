@@ -140,7 +140,7 @@ message DeleteSessionResponse {}
 // ListSessionsRequest retrieves all active BFD sessions.
 message ListSessionsRequest {}
 
-// DeliverySource identifies a Control pipeline stage with its own denominator.
+// DeliverySource identifies a processing stage with its own denominator.
 enum DeliverySource {
   DELIVERY_SOURCE_UNSPECIFIED = 0;
   DELIVERY_SOURCE_WIRE_PARSE = 1;
@@ -153,6 +153,18 @@ enum DeliverySource {
   DELIVERY_SOURCE_PATH_DOWN_ADMISSION = 8;
   DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION = 9;
   DELIVERY_SOURCE_CONTROL_OWNER = 10;
+  DELIVERY_SOURCE_ECHO_READ = 11;
+  DELIVERY_SOURCE_ECHO_PARSE = 12;
+  DELIVERY_SOURCE_ECHO_TTL = 13;
+  DELIVERY_SOURCE_ECHO_DEMUX = 14;
+  DELIVERY_SOURCE_ECHO_ADMISSION = 15;
+  DELIVERY_SOURCE_ECHO_OWNER = 16;
+  DELIVERY_SOURCE_CONTROL_NOTIFICATION = 17;
+  DELIVERY_SOURCE_UNSOLICITED_NOTIFICATION = 18;
+  DELIVERY_SOURCE_ECHO_NOTIFICATION = 19;
+  DELIVERY_SOURCE_NOTIFICATION_DISPATCH = 20;
+  DELIVERY_SOURCE_WATCH_RECIPIENT = 21;
+  DELIVERY_SOURCE_LEGACY_NOTIFICATION = 22;
 }
 
 // DeliveryOutcome distinguishes admission, owner commit and terminal refusals.
@@ -182,6 +194,8 @@ enum DeliveryOutcome {
   DELIVERY_OUTCOME_CANCELED = 22;
   DELIVERY_OUTCOME_DEADLINE = 23;
   DELIVERY_OUTCOME_IGNORED = 24;
+  DELIVERY_OUTCOME_STALE = 25;
+  DELIVERY_OUTCOME_GAPPED = 26;
 }
 
 // DeliveryCounter samples one fixed process-lifetime bucket. Supported pairs
@@ -192,7 +206,7 @@ message DeliveryCounter {
   uint64 count = 3;
 }
 
-// ListSessionsResponse contains active sessions and sampled Control delivery telemetry.
+// ListSessionsResponse contains active sessions and sampled delivery telemetry.
 message ListSessionsResponse {
   repeated BfdSession sessions = 1;
   // Revision is the daemon state-change revision the snapshot covers.

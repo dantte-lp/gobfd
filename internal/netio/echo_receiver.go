@@ -2,8 +2,10 @@ package netio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -22,7 +24,8 @@ type EchoDemuxer interface {
 	// DemuxEcho routes a returned echo packet by MyDiscriminator.
 	// RFC 9747: echo packets are self-originated, so MyDiscriminator
 	// in the returned packet identifies the local echo session.
-	DemuxEcho(myDiscr uint32) error
+	DemuxEcho(myDiscr uint32) (bfd.DeliveryOutcome, error)
+	bfd.DeliveryReporter
 }
 
 // -------------------------------------------------------------------------
@@ -89,7 +92,7 @@ func (r *EchoReceiver) recvLoop(ctx context.Context, ln *Listener) {
 		}
 
 		if err := r.recvOne(ctx, ln); err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, ErrSocketClosed) || errors.Is(err, net.ErrClosed) {
 				return
 			}
 			r.logger.Warn("echo recv error", slog.String("error", err.Error()))
@@ -109,20 +112,18 @@ func (r *EchoReceiver) recvOne(ctx context.Context, ln *Listener) error {
 	// RFC 9747: echo packets use standard BFD Control format.
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(received.Data, &pkt); err != nil {
+		r.demuxer.RecordDelivery(bfd.DeliveryEchoParse, bfd.DeliveryParserRejected)
 		r.logger.Debug("invalid echo packet",
 			slog.String("error", err.Error()),
 		)
 		return nil // Drop invalid packets silently.
 	}
 
-	// RFC 9747: MyDiscriminator identifies the originating echo session.
-	if pkt.MyDiscriminator == 0 {
-		r.logger.Debug("echo packet with zero MyDiscriminator, dropping")
-		return nil
-	}
+	r.demuxer.RecordDelivery(bfd.DeliveryEchoParse, bfd.DeliveryAccepted)
 
-	if err := r.demuxer.DemuxEcho(pkt.MyDiscriminator); err != nil {
+	if outcome, err := r.demuxer.DemuxEcho(pkt.MyDiscriminator); err != nil {
 		r.logger.Debug("echo demux failed",
+			slog.String("outcome", outcome.String()),
 			slog.Uint64("my_discr", uint64(pkt.MyDiscriminator)),
 			slog.String("error", err.Error()),
 		)

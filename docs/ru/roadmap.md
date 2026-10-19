@@ -3,9 +3,13 @@
 Control slice `gobfd-qj0.8.2.1.3.1.1` добавляет типизированные queue outcomes,
 owner terminal reasons, stop abandonment и ограниченный process-lifetime
 ledger ListSessions/Prometheus. Get/List/Control Watch используют общие session
-drop/auth projections. Parent `gobfd-qj0.8.2.1.3.1` остаётся открытым для Echo и
-всех notification queues в `gobfd-qj0.8.2.1.3.1.2`; kernel `SO_RXQ_OVFL` остаётся
-в `gobfd-qj0.8.2.1.6`. Development slice не квалифицирует stable delivery.
+drop/auth projections. Candidate `gobfd-qj0.8.2.1.3.1.2` расширяет ledger на Echo,
+raw/dispatch/recipient/legacy notification outcomes и сохраняет private cleanup
+после raw loss через один parked worker на retained physical entry. Parent
+`gobfd-qj0.8.2.1.3.1` остаётся открытым до acceptance и завершения inventory.
+Полный Echo Watch lifecycle остаётся в `gobfd-qj0.8.2.1.3.10`, kernel
+`SO_RXQ_OVFL` — в `gobfd-qj0.8.2.1.6`. Development slices не квалифицируют stable
+delivery.
 
 Development-срез причинных наблюдений (`gobfd-qj0.8.2.1.2.1` и
 `gobfd-qj0.8.2.4.8`) охватывает согласованные scalar facts, версии строк и

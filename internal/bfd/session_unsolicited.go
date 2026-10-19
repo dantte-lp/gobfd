@@ -81,10 +81,23 @@ func (s *Session) notifyUnsolicitedFailure() {
 		unsolicitedFailure: true, unsolicitedAttempt: s.unsolicitedAttempt,
 	}
 	s.mu.RUnlock()
+	s.signalUnsolicitedCleanup()
+	if s.notifyCh == nil {
+		return
+	}
 	select {
 	case s.notifyCh <- sc:
+		s.recordDelivery(DeliveryUnsolicitedNotification, DeliveryQueued)
 	default:
+		s.recordDelivery(DeliveryUnsolicitedNotification, DeliveryQueueFull)
 		s.logger.Warn("notification channel full, dropping unsolicited failure")
+	}
+}
+
+func (s *Session) signalUnsolicitedCleanup() {
+	select {
+	case s.cleanupWake <- struct{}{}:
+	default:
 	}
 }
 

@@ -299,7 +299,9 @@ same sampled session counters as Get/List and Control Watch. Auth failures are
 a subset of drops; admitted packets can still fail owner validation or be
 abandoned on stop. Process-lifetime stage totals, including unknown peers and
 deleted sessions, are available through API `ListSessions.delivery_counters`
-and `gobfd_bfd_delivery_outcomes_total`, not the session table. See
+and `gobfd_bfd_delivery_outcomes_total`, not the session table. The fixed rows
+also distinguish Echo RX and raw/dispatch/recipient notification outcomes;
+notification loss is not a Control packet drop. See
 [monitoring](07-monitoring.md) for denominators and remaining queue boundaries.
 
 ```bash

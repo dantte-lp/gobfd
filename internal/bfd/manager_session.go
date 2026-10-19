@@ -181,12 +181,12 @@ func (m *Manager) allocateAndBuild(
 
 	sess, err := NewSession(cfg, discr, sender, m.rawNotifyCh, m.logger,
 		WithMetrics(m.metrics),
+		withManagerDelivery(m),
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
 		return 0, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
-	sess.delivery = m
 
 	return discr, sess, nil
 }
@@ -250,9 +250,10 @@ func (m *Manager) registerAndStart(
 	status := snapshotOf(sess)
 	added := stateChangeOf(status, status.State)
 	added.Added = true
-	m.broadcastStateChange(added)
+	counts := m.broadcastStateChange(added)
 	m.startSession(sessCtx, entry, sess)
 	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
 	return sess, true, nil
 }
@@ -365,8 +366,9 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	session.mu.Unlock()
 	deleted := stateChangeOf(snapshotForObservation(session, observation), observation.State)
 	deleted.Deleted = true
-	m.broadcastStateChange(deleted)
+	counts := m.broadcastStateChange(deleted)
 	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
 	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
 }

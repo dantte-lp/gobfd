@@ -23,6 +23,9 @@ func TestControlDeliveryUntrustedPeersKeepFixedMetricSeries(t *testing.T) {
 		if outcome, err := mgr.Demux(pkt, meta); outcome != bfd.DeliveryUnknownSession || err == nil {
 			t.Fatalf("unknown peer outcome=%s err=%v", outcome, err)
 		}
+		if outcome, err := mgr.DemuxEcho(uint32(i + 1)); outcome != bfd.DeliveryUnknownSession || err == nil {
+			t.Fatalf("unknown Echo discriminator outcome=%s err=%v", outcome, err)
+		}
 	}
 	collector.RecordDelivery(bfd.DeliverySource(255), bfd.DeliveryOutcome(255))
 	collector.RecordDelivery(bfd.DeliveryWireParse, bfd.DeliveryAbandoned)
@@ -63,7 +66,8 @@ func TestControlDeliveryUntrustedPeersKeepFixedMetricSeries(t *testing.T) {
 			}
 		}
 	}
-	if !found || want[[2]string{"demux", "unknown_session"}] != 1000 {
+	if !found || want[[2]string{"demux", "unknown_session"}] != 1000 ||
+		want[[2]string{"echo_demux", "unknown_session"}] != 1000 {
 		t.Fatalf("missing process ledger: %+v", want)
 	}
 }

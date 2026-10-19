@@ -33,8 +33,23 @@ not be summed as packet totals. `read_error` does not prove packet loss.
 ListSessions exposes the same fixed rows as sampled `delivery_counters`,
 including after the last session is deleted; its revision does not cover
 atomic counter sampling. Zero counts may be omitted by protobuf JSON encoding.
-Echo/notification queue accounting (`gobfd-qj0.8.2.1.3.1.2`) and kernel
-`SO_RXQ_OVFL` (`gobfd-qj0.8.2.1.6`) remain outside this Control slice.
+Echo has separate `echo_read`, `echo_parse`, `echo_ttl`, `echo_demux`,
+`echo_admission` and `echo_owner` sources. Zero discriminators are parser
+refusals, not demux attempts; ordinary closed/canceled reads are not read
+errors. Echo queue refusals and owner abandonment also project to the existing
+packet-drop metric for the admitted identity.
+
+`control_notification`, `unsolicited_notification` and `echo_notification`
+count each actual raw enqueue attempt. `notification_dispatch` distinguishes
+accepted, stale and shutdown-abandoned raw events. `watch_recipient` counts
+each recipient's original event as `queued` or `gapped`, including repeated
+overflow while its single GAP marker remains queued. The GAP marker is not an
+original successful event. `legacy_notification` counts queued/full attempts;
+skipped Added events, closed channels and nil sinks are not attempts.
+Notification loss never increments Control packet-drop counters. Raw shutdown
+abandonment is counted after all producers and Manager workers join.
+Kernel `SO_RXQ_OVFL` remains owned by `gobfd-qj0.8.2.1.6`; this ledger does not
+qualify Echo transport/security or full Echo Watch lifecycle.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
@@ -44,7 +59,7 @@ Echo/notification queue accounting (`gobfd-qj0.8.2.1.3.1.2`) and kernel
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Packets dropped (validation/buffer) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | FSM state transitions |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
-| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control stage decisions, retained after session deletion |
+| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control, Echo and notification stage decisions, retained after session deletion |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
 | `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Effective decayed flap penalty at scrape time |

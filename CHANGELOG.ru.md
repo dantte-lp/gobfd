@@ -15,8 +15,18 @@
   подтверждения abandoned AdminDown. Фиксированный process-lifetime ledger
   доступен в ListSessions и `gobfd_bfd_delivery_outcomes_total`; session
   drop/auth counters передаются в Get/List/Control Watch и Prometheus.
-  Echo/notification queues и kernel receive overflow остаются отдельными
-  задачами; изменения относятся к development scope.
+  Kernel receive overflow остаётся отдельной задачей; изменения относятся к
+  development scope.
+
+- Echo RX возвращает типизированные full/closed outcomes и учитывает owner
+  commit/stop abandonment. Отдельные фиксированные строки ledger охватывают
+  Echo read/parser/TTL, все raw notification writers, stale/accepted/abandoned
+  dispatch, queued/gapped originals каждого Watch recipient и legacy delivery.
+  Private unsolicited cleanup переживает raw overflow через coalesced failure
+  hint и один lazy parked worker с переиспользуемым timer на retained physical
+  entry. Сохранены attempt, AdminDown, shared-claim и identity fences. Полный
+  Echo Watch lifecycle, kernel overflow и RFC/stable qualification остаются
+  отдельными задачами.
 
 - Control-session Watch публикует регистрацию до запуска владельца, включая
   пассивные сессии, остающиеся Down, и сохраняет полный API-статус по значению

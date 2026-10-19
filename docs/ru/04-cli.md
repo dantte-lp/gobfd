@@ -288,7 +288,9 @@ sampled session counters, что Get/List и Control Watch. Auth failures вхо
 drops; принятый в очередь пакет может быть отклонён владельцем или abandoned
 при остановке. Process-lifetime итоги стадий, включая unknown peers и удалённые
 сессии, доступны через API `ListSessions.delivery_counters` и
-`gobfd_bfd_delivery_outcomes_total`. Session table их не отображает. Знаменатели
+`gobfd_bfd_delivery_outcomes_total`. Фиксированные строки также различают Echo
+RX и raw/dispatch/recipient notification outcomes; notification loss не является
+Control packet drop. Session table их не отображает. Знаменатели
 и оставшиеся очереди описаны в [мониторинге](07-monitoring.md).
 
 ```bash

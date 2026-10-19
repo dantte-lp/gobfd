@@ -338,8 +338,30 @@ denominator; summing the ledger does not yield a packet total. Each bucket is
 sampled once in stable pair order, including zero rows; neither lifecycle
 revision nor observation version provides an atomic counter snapshot. Session
 drop/auth counters are projections of terminal reasons, with auth a subset of
-drops; they are not added back into the global ledger. Echo, notification queues
-and kernel `SO_RXQ_OVFL` accounting remain separate work.
+drops; they are not added back into the global ledger. Echo admission and its
+single winning owner share a terminal barrier: pre-Run admission is allowed,
+full/closed queues return typed refusals, and stop abandons pending RX once.
+Echo raw notifications carry a private owner pointer solely to reject stale
+dispatch after deletion or discriminator reuse. Public Echo Watch identity,
+full status and lifecycle remain separately owned.
+
+Raw Control/private/Echo notifications, dispatch, each Watch recipient and
+legacy delivery have separate bounded ledger stages. GAP markers report lost
+original events and do not count as successful originals. Raw shutdown drain
+follows active-operation and worker joins.
+
+Private unsolicited failures commit before a coalesced capacity-one cleanup
+hint is sent, independently of best-effort raw notification admission. Dispatch
+scans failures only at startup or a coalesced hint. An initial attempt zero
+with no failure cause is preserved; a committed Down DetectionTimeout/PathDown
+at attempt zero is eligible. Each retained physical entry lazily owns at most
+one parked cleanup worker, one reused timer and one pending attempt/deadline.
+Duplicates do not extend retention; a newer failure replaces pending work.
+Retirement still fences identity, current attempt, AdminDown and shared claims.
+Dispatch cancellation has no restart/progress promise; Manager.Close joins and
+releases remaining resources. The worker bound follows retained physical
+entries, not MaxSessions. Kernel `SO_RXQ_OVFL` remains separate work, and
+unsolicited/Echo modes retain their existing preview qualification boundaries.
 
 Registration publishes `SESSION_ADDED` after registry insertion and before the
 owner starts, including a passive session that stays Down. This lifecycle

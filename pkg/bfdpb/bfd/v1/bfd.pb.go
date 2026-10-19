@@ -343,21 +343,33 @@ func (ObservationCause) EnumDescriptor() ([]byte, []int) {
 	return file_bfd_v1_bfd_proto_rawDescGZIP(), []int{4}
 }
 
-// DeliverySource identifies a Control pipeline stage with its own denominator.
+// DeliverySource identifies a processing stage with its own denominator.
 type DeliverySource int32
 
 const (
-	DeliverySource_DELIVERY_SOURCE_UNSPECIFIED           DeliverySource = 0
-	DeliverySource_DELIVERY_SOURCE_WIRE_PARSE            DeliverySource = 1
-	DeliverySource_DELIVERY_SOURCE_BASE_TTL              DeliverySource = 2
-	DeliverySource_DELIVERY_SOURCE_OVERLAY_DECAP         DeliverySource = 3
-	DeliverySource_DELIVERY_SOURCE_DEMUX                 DeliverySource = 4
-	DeliverySource_DELIVERY_SOURCE_UNSOLICITED_ADMISSION DeliverySource = 5
-	DeliverySource_DELIVERY_SOURCE_PACKET_ADMISSION      DeliverySource = 6
-	DeliverySource_DELIVERY_SOURCE_PACKET_OWNER          DeliverySource = 7
-	DeliverySource_DELIVERY_SOURCE_PATH_DOWN_ADMISSION   DeliverySource = 8
-	DeliverySource_DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION  DeliverySource = 9
-	DeliverySource_DELIVERY_SOURCE_CONTROL_OWNER         DeliverySource = 10
+	DeliverySource_DELIVERY_SOURCE_UNSPECIFIED              DeliverySource = 0
+	DeliverySource_DELIVERY_SOURCE_WIRE_PARSE               DeliverySource = 1
+	DeliverySource_DELIVERY_SOURCE_BASE_TTL                 DeliverySource = 2
+	DeliverySource_DELIVERY_SOURCE_OVERLAY_DECAP            DeliverySource = 3
+	DeliverySource_DELIVERY_SOURCE_DEMUX                    DeliverySource = 4
+	DeliverySource_DELIVERY_SOURCE_UNSOLICITED_ADMISSION    DeliverySource = 5
+	DeliverySource_DELIVERY_SOURCE_PACKET_ADMISSION         DeliverySource = 6
+	DeliverySource_DELIVERY_SOURCE_PACKET_OWNER             DeliverySource = 7
+	DeliverySource_DELIVERY_SOURCE_PATH_DOWN_ADMISSION      DeliverySource = 8
+	DeliverySource_DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION     DeliverySource = 9
+	DeliverySource_DELIVERY_SOURCE_CONTROL_OWNER            DeliverySource = 10
+	DeliverySource_DELIVERY_SOURCE_ECHO_READ                DeliverySource = 11
+	DeliverySource_DELIVERY_SOURCE_ECHO_PARSE               DeliverySource = 12
+	DeliverySource_DELIVERY_SOURCE_ECHO_TTL                 DeliverySource = 13
+	DeliverySource_DELIVERY_SOURCE_ECHO_DEMUX               DeliverySource = 14
+	DeliverySource_DELIVERY_SOURCE_ECHO_ADMISSION           DeliverySource = 15
+	DeliverySource_DELIVERY_SOURCE_ECHO_OWNER               DeliverySource = 16
+	DeliverySource_DELIVERY_SOURCE_CONTROL_NOTIFICATION     DeliverySource = 17
+	DeliverySource_DELIVERY_SOURCE_UNSOLICITED_NOTIFICATION DeliverySource = 18
+	DeliverySource_DELIVERY_SOURCE_ECHO_NOTIFICATION        DeliverySource = 19
+	DeliverySource_DELIVERY_SOURCE_NOTIFICATION_DISPATCH    DeliverySource = 20
+	DeliverySource_DELIVERY_SOURCE_WATCH_RECIPIENT          DeliverySource = 21
+	DeliverySource_DELIVERY_SOURCE_LEGACY_NOTIFICATION      DeliverySource = 22
 )
 
 // Enum value maps for DeliverySource.
@@ -374,19 +386,43 @@ var (
 		8:  "DELIVERY_SOURCE_PATH_DOWN_ADMISSION",
 		9:  "DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION",
 		10: "DELIVERY_SOURCE_CONTROL_OWNER",
+		11: "DELIVERY_SOURCE_ECHO_READ",
+		12: "DELIVERY_SOURCE_ECHO_PARSE",
+		13: "DELIVERY_SOURCE_ECHO_TTL",
+		14: "DELIVERY_SOURCE_ECHO_DEMUX",
+		15: "DELIVERY_SOURCE_ECHO_ADMISSION",
+		16: "DELIVERY_SOURCE_ECHO_OWNER",
+		17: "DELIVERY_SOURCE_CONTROL_NOTIFICATION",
+		18: "DELIVERY_SOURCE_UNSOLICITED_NOTIFICATION",
+		19: "DELIVERY_SOURCE_ECHO_NOTIFICATION",
+		20: "DELIVERY_SOURCE_NOTIFICATION_DISPATCH",
+		21: "DELIVERY_SOURCE_WATCH_RECIPIENT",
+		22: "DELIVERY_SOURCE_LEGACY_NOTIFICATION",
 	}
 	DeliverySource_value = map[string]int32{
-		"DELIVERY_SOURCE_UNSPECIFIED":           0,
-		"DELIVERY_SOURCE_WIRE_PARSE":            1,
-		"DELIVERY_SOURCE_BASE_TTL":              2,
-		"DELIVERY_SOURCE_OVERLAY_DECAP":         3,
-		"DELIVERY_SOURCE_DEMUX":                 4,
-		"DELIVERY_SOURCE_UNSOLICITED_ADMISSION": 5,
-		"DELIVERY_SOURCE_PACKET_ADMISSION":      6,
-		"DELIVERY_SOURCE_PACKET_OWNER":          7,
-		"DELIVERY_SOURCE_PATH_DOWN_ADMISSION":   8,
-		"DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION":  9,
-		"DELIVERY_SOURCE_CONTROL_OWNER":         10,
+		"DELIVERY_SOURCE_UNSPECIFIED":              0,
+		"DELIVERY_SOURCE_WIRE_PARSE":               1,
+		"DELIVERY_SOURCE_BASE_TTL":                 2,
+		"DELIVERY_SOURCE_OVERLAY_DECAP":            3,
+		"DELIVERY_SOURCE_DEMUX":                    4,
+		"DELIVERY_SOURCE_UNSOLICITED_ADMISSION":    5,
+		"DELIVERY_SOURCE_PACKET_ADMISSION":         6,
+		"DELIVERY_SOURCE_PACKET_OWNER":             7,
+		"DELIVERY_SOURCE_PATH_DOWN_ADMISSION":      8,
+		"DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION":     9,
+		"DELIVERY_SOURCE_CONTROL_OWNER":            10,
+		"DELIVERY_SOURCE_ECHO_READ":                11,
+		"DELIVERY_SOURCE_ECHO_PARSE":               12,
+		"DELIVERY_SOURCE_ECHO_TTL":                 13,
+		"DELIVERY_SOURCE_ECHO_DEMUX":               14,
+		"DELIVERY_SOURCE_ECHO_ADMISSION":           15,
+		"DELIVERY_SOURCE_ECHO_OWNER":               16,
+		"DELIVERY_SOURCE_CONTROL_NOTIFICATION":     17,
+		"DELIVERY_SOURCE_UNSOLICITED_NOTIFICATION": 18,
+		"DELIVERY_SOURCE_ECHO_NOTIFICATION":        19,
+		"DELIVERY_SOURCE_NOTIFICATION_DISPATCH":    20,
+		"DELIVERY_SOURCE_WATCH_RECIPIENT":          21,
+		"DELIVERY_SOURCE_LEGACY_NOTIFICATION":      22,
 	}
 )
 
@@ -446,6 +482,8 @@ const (
 	DeliveryOutcome_DELIVERY_OUTCOME_CANCELED           DeliveryOutcome = 22
 	DeliveryOutcome_DELIVERY_OUTCOME_DEADLINE           DeliveryOutcome = 23
 	DeliveryOutcome_DELIVERY_OUTCOME_IGNORED            DeliveryOutcome = 24
+	DeliveryOutcome_DELIVERY_OUTCOME_STALE              DeliveryOutcome = 25
+	DeliveryOutcome_DELIVERY_OUTCOME_GAPPED             DeliveryOutcome = 26
 )
 
 // Enum value maps for DeliveryOutcome.
@@ -476,6 +514,8 @@ var (
 		22: "DELIVERY_OUTCOME_CANCELED",
 		23: "DELIVERY_OUTCOME_DEADLINE",
 		24: "DELIVERY_OUTCOME_IGNORED",
+		25: "DELIVERY_OUTCOME_STALE",
+		26: "DELIVERY_OUTCOME_GAPPED",
 	}
 	DeliveryOutcome_value = map[string]int32{
 		"DELIVERY_OUTCOME_UNSPECIFIED":        0,
@@ -503,6 +543,8 @@ var (
 		"DELIVERY_OUTCOME_CANCELED":           22,
 		"DELIVERY_OUTCOME_DEADLINE":           23,
 		"DELIVERY_OUTCOME_IGNORED":            24,
+		"DELIVERY_OUTCOME_STALE":              25,
+		"DELIVERY_OUTCOME_GAPPED":             26,
 	}
 )
 
@@ -1254,7 +1296,7 @@ func (x *DeliveryCounter) GetCount() uint64 {
 	return 0
 }
 
-// ListSessionsResponse contains active sessions and sampled Control delivery telemetry.
+// ListSessionsResponse contains active sessions and sampled delivery telemetry.
 type ListSessionsResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Sessions []*BfdSession          `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
@@ -2651,7 +2693,7 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"#OBSERVATION_CAUSE_DETECTION_TIMEOUT\x10\x03\x12!\n" +
 	"\x1dOBSERVATION_CAUSE_LOCAL_ADMIN\x10\x04\x12\x1f\n" +
 	"\x1bOBSERVATION_CAUSE_PATH_DOWN\x10\x05\x12#\n" +
-	"\x1fOBSERVATION_CAUSE_CONFIGURATION\x10\x06*\x96\x03\n" +
+	"\x1fOBSERVATION_CAUSE_CONFIGURATION\x10\x06*\xcf\x06\n" +
 	"\x0eDeliverySource\x12\x1f\n" +
 	"\x1bDELIVERY_SOURCE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aDELIVERY_SOURCE_WIRE_PARSE\x10\x01\x12\x1c\n" +
@@ -2664,7 +2706,19 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"#DELIVERY_SOURCE_PATH_DOWN_ADMISSION\x10\b\x12(\n" +
 	"$DELIVERY_SOURCE_ADMIN_DOWN_ADMISSION\x10\t\x12!\n" +
 	"\x1dDELIVERY_SOURCE_CONTROL_OWNER\x10\n" +
-	"*\xe2\x06\n" +
+	"\x12\x1d\n" +
+	"\x19DELIVERY_SOURCE_ECHO_READ\x10\v\x12\x1e\n" +
+	"\x1aDELIVERY_SOURCE_ECHO_PARSE\x10\f\x12\x1c\n" +
+	"\x18DELIVERY_SOURCE_ECHO_TTL\x10\r\x12\x1e\n" +
+	"\x1aDELIVERY_SOURCE_ECHO_DEMUX\x10\x0e\x12\"\n" +
+	"\x1eDELIVERY_SOURCE_ECHO_ADMISSION\x10\x0f\x12\x1e\n" +
+	"\x1aDELIVERY_SOURCE_ECHO_OWNER\x10\x10\x12(\n" +
+	"$DELIVERY_SOURCE_CONTROL_NOTIFICATION\x10\x11\x12,\n" +
+	"(DELIVERY_SOURCE_UNSOLICITED_NOTIFICATION\x10\x12\x12%\n" +
+	"!DELIVERY_SOURCE_ECHO_NOTIFICATION\x10\x13\x12)\n" +
+	"%DELIVERY_SOURCE_NOTIFICATION_DISPATCH\x10\x14\x12#\n" +
+	"\x1fDELIVERY_SOURCE_WATCH_RECIPIENT\x10\x15\x12'\n" +
+	"#DELIVERY_SOURCE_LEGACY_NOTIFICATION\x10\x16*\x9b\a\n" +
 	"\x0fDeliveryOutcome\x12 \n" +
 	"\x1cDELIVERY_OUTCOME_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19DELIVERY_OUTCOME_ACCEPTED\x10\x01\x12$\n" +
@@ -2691,7 +2745,9 @@ const file_bfd_v1_bfd_proto_rawDesc = "" +
 	"\x1aDELIVERY_OUTCOME_ABANDONED\x10\x15\x12\x1d\n" +
 	"\x19DELIVERY_OUTCOME_CANCELED\x10\x16\x12\x1d\n" +
 	"\x19DELIVERY_OUTCOME_DEADLINE\x10\x17\x12\x1c\n" +
-	"\x18DELIVERY_OUTCOME_IGNORED\x10\x182\x8e\x03\n" +
+	"\x18DELIVERY_OUTCOME_IGNORED\x10\x18\x12\x1a\n" +
+	"\x16DELIVERY_OUTCOME_STALE\x10\x19\x12\x1b\n" +
+	"\x17DELIVERY_OUTCOME_GAPPED\x10\x1a2\x8e\x03\n" +
 	"\n" +
 	"BfdService\x12C\n" +
 	"\n" +

@@ -2,7 +2,9 @@ package netio
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -46,7 +48,7 @@ type ListenerConfig struct {
 	// packets, which MUST be received with TTL/Hop Limit 254.
 	ExpectedTTL uint8
 
-	// Delivery records Control TTL decisions. Echo owns separate accounting.
+	// Delivery records fixed receive stages; PortEcho selects separate Echo rows.
 	Delivery bfd.DeliveryReporter
 }
 
@@ -62,6 +64,7 @@ type Listener struct {
 	multiHop    bool
 	expectedTTL uint8
 	delivery    bfd.DeliveryReporter
+	echo        bool
 }
 
 // ReceivedPacket owns one buffer borrowed from bfd.PacketPool.
@@ -101,11 +104,19 @@ func NewListenerFromConn(conn PacketConn, multiHop bool, delivery ...bfd.Deliver
 // NewListenerFromConnWithExpectedTTL creates a Listener with an exact TTL
 // override. This is primarily used by tests for RFC 9747 echo loopback
 // behavior.
-func NewListenerFromConnWithExpectedTTL(conn PacketConn, multiHop bool, expectedTTL uint8) *Listener {
+func NewListenerFromConnWithExpectedTTL(
+	conn PacketConn, multiHop bool, expectedTTL uint8, delivery ...bfd.DeliveryReporter,
+) *Listener {
+	var reporter bfd.DeliveryReporter
+	if len(delivery) != 0 {
+		reporter = delivery[0]
+	}
 	return &Listener{
 		conn:        conn,
 		multiHop:    multiHop,
 		expectedTTL: expectedTTL,
+		delivery:    reporter,
+		echo:        true,
 	}
 }
 
@@ -137,7 +148,7 @@ func (l *Listener) RecvPacket(ctx context.Context) (*ReceivedPacket, error) {
 			return nil, fmt.Errorf("listener recv: %w", err)
 		}
 
-		pkt, err := l.recvOne()
+		pkt, err := l.recvOne(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -157,8 +168,27 @@ func (l *Listener) RecvPacket(ctx context.Context) (*ReceivedPacket, error) {
 
 func (l *Listener) recordTTL(outcome bfd.DeliveryOutcome) {
 	if l.delivery != nil {
-		l.delivery.RecordDelivery(bfd.DeliveryBaseTTL, outcome)
+		source := bfd.DeliveryBaseTTL
+		if l.echo {
+			source = bfd.DeliveryEchoTTL
+		}
+		l.delivery.RecordDelivery(source, outcome)
 	}
+}
+
+func (l *Listener) recordRead(ctx context.Context, err error) {
+	if !l.echo || l.delivery == nil {
+		return
+	}
+	outcome := bfd.DeliveryAccepted
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, ErrSocketClosed) || errors.Is(err, net.ErrClosed) ||
+			errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		outcome = bfd.DeliveryReadError
+	}
+	l.delivery.RecordDelivery(bfd.DeliveryEchoRead, outcome)
 }
 
 func (l *Listener) validateTTL(meta PacketMeta) error {
@@ -170,7 +200,7 @@ func (l *Listener) validateTTL(meta PacketMeta) error {
 
 // recvOne performs a single read from the underlying connection using
 // a pooled buffer. Returns the buffer slice, metadata, and any error.
-func (l *Listener) recvOne() (*ReceivedPacket, error) {
+func (l *Listener) recvOne(ctx context.Context) (*ReceivedPacket, error) {
 	bufp, ok := bfd.PacketPool.Get().(*[]byte)
 	if !ok {
 		return nil, fmt.Errorf("listener recv: %w", ErrPoolType)
@@ -179,14 +209,17 @@ func (l *Listener) recvOne() (*ReceivedPacket, error) {
 	n, meta, err := l.conn.ReadPacket(*bufp)
 	if err != nil {
 		bfd.PacketPool.Put(bufp)
+		l.recordRead(ctx, err)
 		return nil, fmt.Errorf("listener read: %w", err)
 	}
 
 	bufferSize := len(*bufp)
 	if n < 0 || n > bufferSize {
 		bfd.PacketPool.Put(bufp)
+		l.recordRead(ctx, ErrInvalidReadSize)
 		return nil, fmt.Errorf("listener read size %d outside buffer %d: %w", n, bufferSize, ErrInvalidReadSize)
 	}
+	l.recordRead(ctx, nil)
 
 	return &ReceivedPacket{
 		Data: (*bufp)[:n],

@@ -76,6 +76,7 @@ func (m *Manager) createEchoSession(
 	}
 	es, err := NewEchoSession(cfg, discr, lease.Sender(), m.rawNotifyCh, m.logger,
 		WithEchoMetrics(m.metrics),
+		withEchoDelivery(m),
 	)
 	if err != nil {
 		m.discriminators.Release(discr)
@@ -173,18 +174,27 @@ func (m *Manager) finishEchoSessionDestroyError(discr uint32, entry *echoSession
 }
 
 // DemuxEcho routes a returned echo packet to the matching echo session.
-func (m *Manager) DemuxEcho(myDiscr uint32) error {
+func (m *Manager) DemuxEcho(myDiscr uint32) (DeliveryOutcome, error) {
 	m.mu.RLock()
 	entry, ok := m.echoSessions[myDiscr]
 	m.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf(
+		m.RecordDelivery(DeliveryEchoDemux, DeliveryUnknownSession)
+		return DeliveryUnknownSession, fmt.Errorf(
 			"echo demux: discriminator %d not found: %w",
 			myDiscr, ErrEchoDemuxNoMatch,
 		)
 	}
-	entry.session.RecvEcho()
-	return nil
+	m.RecordDelivery(DeliveryEchoDemux, DeliveryFound)
+	outcome := entry.session.RecvEcho()
+	switch outcome {
+	case DeliveryQueueFull:
+		return outcome, fmt.Errorf("echo demux: discriminator %d: %w", myDiscr, ErrDeliveryQueueFull)
+	case DeliveryClosed:
+		return outcome, fmt.Errorf("echo demux: discriminator %d: %w", myDiscr, ErrDeliveryClosed)
+	default:
+		return outcome, nil
+	}
 }
 
 // EchoSessions returns a snapshot of all active echo sessions.

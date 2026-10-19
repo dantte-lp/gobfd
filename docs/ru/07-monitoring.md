@@ -32,9 +32,26 @@ refusals до создания сессии входят только в process
 количеством пакетов. `read_error` не доказывает потерю пакета. ListSessions
 возвращает те же фиксированные строки `delivery_counters`, включая состояние
 после удаления последней сессии; revision не покрывает atomic counter sampling.
-Protobuf JSON может опускать нулевое значение count. Учёт Echo/notification
-queues (`gobfd-qj0.8.2.1.3.1.2`) и kernel `SO_RXQ_OVFL`
-(`gobfd-qj0.8.2.1.6`) остаётся за границей этого Control slice.
+Protobuf JSON может опускать нулевое значение count.
+
+Echo использует отдельные sources `echo_read`, `echo_parse`, `echo_ttl`,
+`echo_demux`, `echo_admission` и `echo_owner`. Нулевой discriminator учитывается
+один раз как parser refusal без demux attempt; обычные closed/canceled reads
+не являются read errors. Echo queue refusals и owner abandonment также входят
+в существующую packet-drop metric принятой идентичности.
+
+`control_notification`, `unsolicited_notification` и `echo_notification`
+учитывают каждую фактическую попытку raw enqueue. `notification_dispatch`
+различает accepted, stale и shutdown-abandoned raw events. `watch_recipient`
+учитывает исходное событие для каждого получателя как `queued` или `gapped`,
+включая повторный overflow при уже поставленном единственном GAP marker.
+Marker не считается успешно доставленным исходным событием.
+`legacy_notification` учитывает queued/full attempts; пропущенный Added,
+закрытый channel и nil sink не являются попытками. Потеря notification не
+увеличивает Control packet-drop counters. Raw abandonment учитывается после
+join всех producers и Manager workers. Kernel `SO_RXQ_OVFL` остаётся задачей
+`gobfd-qj0.8.2.1.6`; ledger не квалифицирует Echo transport/security или полный
+Echo Watch lifecycle.
 
 | Метрика | Тип | Метки | Описание |
 |---|---|---|---|
@@ -44,7 +61,7 @@ queues (`gobfd-qj0.8.2.1.3.1.2`) и kernel `SO_RXQ_OVFL`
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Отброшенные пакеты (ошибки валидации/буфера) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | Переходы состояний FSM |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |
-| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Фиксированные решения стадий Control, сохраняемые после удаления сессии |
+| `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Фиксированные решения стадий Control, Echo и notifications после удаления сессии |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
 | `gobfd_gobgp_dampening_penalty` | Gauge | `peer_addr` | Эффективный flap penalty с decay на момент scrape |

@@ -95,7 +95,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { closeListeners(control, logger) })
-			echo, err := createEchoListeners(cfg, logger)
+			echo, err := createEchoListeners(cfg, logger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

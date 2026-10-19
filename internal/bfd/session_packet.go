@@ -247,14 +247,25 @@ func (s *Session) executeAction(
 
 // emitNotification sends a StateChange to the notification channel if set.
 func (s *Session) emitNotification(result FSMResult, observation Observation) {
+	s.mu.RLock()
+	attempt := s.unsolicitedAttempt
+	failed := s.unsolicitedClaimWanted && s.unsolicitedCleanupAllowedLocked(attempt) &&
+		(attempt != 0 || (observation.State == StateDown &&
+			(observation.Cause == CauseDetectionTimeout || observation.Cause == CausePathDown)))
+	s.mu.RUnlock()
+	if failed {
+		s.signalUnsolicitedCleanup()
+	}
 	if s.notifyCh == nil {
 		return
 	}
 	sc := stateChangeOf(snapshotForObservation(s, observation), result.OldState)
-	sc.unsolicitedAttempt = s.unsolicitedAttempt
+	sc.unsolicitedAttempt = attempt
 	select {
 	case s.notifyCh <- sc:
+		s.recordDelivery(DeliveryControlNotification, DeliveryQueued)
 	default:
+		s.recordDelivery(DeliveryControlNotification, DeliveryQueueFull)
 		s.logger.Warn("notification channel full, dropping state change")
 	}
 }

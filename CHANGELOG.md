@@ -14,8 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and counts abandoned RX/control work once without acknowledging abandoned
   AdminDown. A fixed process-lifetime ledger appears in ListSessions and
   `gobfd_bfd_delivery_outcomes_total`; existing session drop/auth counters reach
-  Get/List/Control Watch and Prometheus. Echo/notification queues and kernel
-  receive overflow remain separately tracked; this is development scope.
+  Get/List/Control Watch and Prometheus. Kernel receive overflow remains
+  separately tracked; this is development scope.
+
+- Echo RX returns typed full/closed admission outcomes and accounts owner
+  commit/stop abandonment. Separate fixed ledger rows cover Echo read/parser/TTL,
+  all raw notification writers, stale/accepted/abandoned dispatch, per-recipient
+  Watch queued/gapped originals and legacy delivery. Private unsolicited cleanup
+  survives raw queue overflow using a coalesced failure hint and one lazy parked
+  worker/reused timer per retained physical entry. Existing attempt, AdminDown,
+  shared-claim and identity fences remain. Echo full Watch lifecycle, kernel
+  overflow and RFC/stable qualification remain separate work.
 
 - Control-session Watch publishes registration before the owner starts,
   including passive sessions that stay Down, and freezes full API status for

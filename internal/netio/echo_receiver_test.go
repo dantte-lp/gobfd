@@ -25,11 +25,13 @@ type mockEchoDemuxer struct {
 	err       error // injectable error
 }
 
-func (m *mockEchoDemuxer) DemuxEcho(myDiscr uint32) error {
+func (m *mockEchoDemuxer) DemuxEcho(myDiscr uint32) (bfd.DeliveryOutcome, error) {
 	m.calls.Add(1)
 	m.lastDiscr.Store(myDiscr)
-	return m.err
+	return bfd.DeliveryQueued, m.err
 }
+
+func (*mockEchoDemuxer) RecordDelivery(bfd.DeliverySource, bfd.DeliveryOutcome) {}
 
 // -------------------------------------------------------------------------
 // Test Helpers

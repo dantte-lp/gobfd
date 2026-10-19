@@ -1359,7 +1359,7 @@ func TestManagerDemuxEcho(t *testing.T) {
 		}
 
 		// DemuxEcho with the echo session's discriminator should succeed.
-		if err := mgr.DemuxEcho(discr); err != nil {
+		if _, err := mgr.DemuxEcho(discr); err != nil {
 			t.Fatalf("DemuxEcho: %v", err)
 		}
 
@@ -1388,7 +1388,7 @@ func TestManagerDemuxEchoNoMatch(t *testing.T) {
 	mgr := newTestManager(t)
 	defer mgr.Close()
 
-	err := mgr.DemuxEcho(99999)
+	_, err := mgr.DemuxEcho(99999)
 	if err == nil {
 		t.Fatal("expected ErrEchoDemuxNoMatch, got nil")
 	}

@@ -171,7 +171,7 @@ func newMetrics() *Collector {
 func newDeliveryMetrics() (*prometheus.CounterVec, map[[2]uint8]prometheus.Counter) {
 	vector := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: subsystem, Name: "delivery_outcomes_total",
-		Help: "Control pipeline decisions by stage and outcome; stages have distinct denominators.",
+		Help: "Pipeline decisions by stage and outcome; stages have distinct denominators.",
 	}, []string{"source", "outcome"})
 	counters := make(map[[2]uint8]prometheus.Counter)
 	for _, pair := range bfd.DeliveryCounterPairs() {

@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -108,10 +109,14 @@ type EchoSession struct {
 	// --- Runtime ---
 	sender       PacketSender
 	metrics      MetricsReporter
+	delivery     DeliveryReporter
 	logger       *slog.Logger
 	recvCh       chan struct{}
 	notifyCh     chan<- StateChange
 	cachedPacket []byte
+	admissionMu  sync.Mutex
+	started      bool
+	closed       bool
 
 	// --- Counters ---
 	echosSent        atomic.Uint64
@@ -279,12 +284,37 @@ func (es *EchoSession) LastEchoReceived() time.Time {
 // RecvEcho signals that an echo packet was received back (matched by
 // discriminator). The echo listener should call this when a returned
 // echo packet's MyDiscriminator matches this session. If the receive
-// channel is full, the signal is dropped (logged at debug level).
-func (es *EchoSession) RecvEcho() {
-	select {
-	case es.recvCh <- struct{}{}:
-	default:
-		es.logger.Debug("echo recv channel full, dropping signal")
+// channel is full or its owner has stopped, admission is refused.
+func (es *EchoSession) RecvEcho() DeliveryOutcome {
+	es.admissionMu.Lock()
+	outcome := DeliveryClosed
+	if !es.closed {
+		select {
+		case es.recvCh <- struct{}{}:
+			outcome = DeliveryQueued
+		default:
+			outcome = DeliveryQueueFull
+		}
+	}
+	es.admissionMu.Unlock()
+	es.recordDelivery(DeliveryEchoAdmission, outcome)
+	if outcome != DeliveryQueued {
+		es.metrics.IncPacketsDropped(es.peerAddr, es.localAddr)
+	}
+	return outcome
+}
+
+func (es *EchoSession) closeAdmission() {
+	es.admissionMu.Lock()
+	es.closed = true
+	abandoned := len(es.recvCh)
+	for range abandoned {
+		<-es.recvCh
+	}
+	es.admissionMu.Unlock()
+	for range abandoned {
+		es.recordDelivery(DeliveryEchoOwner, DeliveryAbandoned)
+		es.metrics.IncPacketsDropped(es.peerAddr, es.localAddr)
 	}
 }
 
@@ -302,6 +332,17 @@ func (es *EchoSession) RecvEcho() {
 //  3. Detection timer expires (path down)
 //  4. Context cancellation (shutdown)
 func (es *EchoSession) Run(ctx context.Context) {
+	es.admissionMu.Lock()
+	if es.started || es.closed {
+		es.admissionMu.Unlock()
+		return
+	}
+	es.started = true
+	es.admissionMu.Unlock()
+	defer es.closeAdmission()
+	if ctx.Err() != nil {
+		return
+	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -333,14 +374,14 @@ func (es *EchoSession) echoRunLoop(
 			return
 
 		case <-es.recvCh:
-			es.handleEchoRecv(detectTimer)
+			es.handleEchoRecv(ctx, detectTimer)
 
 		case <-txTimer.C:
 			es.sendEcho(ctx)
 			txTimer.Reset(ApplyJitter(es.txInterval, es.detectMult))
 
 		case <-detectTimer.C:
-			es.handleDetectTimeout(detectTimer)
+			es.handleDetectTimeout(ctx, detectTimer)
 		}
 	}
 }
@@ -351,7 +392,8 @@ func (es *EchoSession) echoRunLoop(
 
 // handleEchoRecv processes a returned echo packet.
 // Resets the detection timer and transitions Down → Up if needed.
-func (es *EchoSession) handleEchoRecv(detectTimer *time.Timer) {
+func (es *EchoSession) handleEchoRecv(ctx context.Context, detectTimer *time.Timer) {
+	defer es.recordDelivery(DeliveryEchoOwner, DeliveryCommitted)
 	es.echosReceived.Add(1)
 	es.lastEchoRecv.Store(time.Now().UnixNano())
 	es.metrics.IncPacketsReceived(es.peerAddr, es.localAddr)
@@ -364,7 +406,7 @@ func (es *EchoSession) handleEchoRecv(detectTimer *time.Timer) {
 
 	// RFC 9747 Section 3.3: Down → Up when echo is received.
 	if es.State() == StateDown {
-		es.transitionTo(StateUp, DiagNone)
+		es.transitionTo(ctx, StateUp, DiagNone)
 	}
 }
 
@@ -374,9 +416,9 @@ func (es *EchoSession) handleEchoRecv(detectTimer *time.Timer) {
 
 // handleDetectTimeout fires when no echo returns within detection time.
 // RFC 9747 Section 3.3: transition to Down with DiagEchoFailed.
-func (es *EchoSession) handleDetectTimeout(detectTimer *time.Timer) {
+func (es *EchoSession) handleDetectTimeout(ctx context.Context, detectTimer *time.Timer) {
 	if es.State() == StateUp {
-		es.transitionTo(StateDown, DiagEchoFailed)
+		es.transitionTo(ctx, StateDown, DiagEchoFailed)
 	}
 	// Restart detection timer regardless of state.
 	detectTimer.Reset(es.DetectionTime())
@@ -387,7 +429,7 @@ func (es *EchoSession) handleDetectTimeout(detectTimer *time.Timer) {
 // -------------------------------------------------------------------------
 
 // transitionTo performs an echo session state transition.
-func (es *EchoSession) transitionTo(newState State, diag Diag) {
+func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Diag) {
 	oldState := es.State()
 	if oldState == newState {
 		return
@@ -402,7 +444,7 @@ func (es *EchoSession) transitionTo(newState State, diag Diag) {
 		oldState.String(), newState.String(),
 	)
 
-	es.logger.Info("echo session state changed",
+	es.logger.LogAttrs(ctx, slog.LevelInfo, "echo session state changed",
 		slog.String("old_state", oldState.String()),
 		slog.String("new_state", newState.String()),
 		slog.String("diag", diag.String()),
@@ -469,6 +511,7 @@ func (es *EchoSession) emitNotification(oldState, newState State, diag Diag) {
 		return
 	}
 	sc := StateChange{
+		echoSource: es,
 		LocalDiscr: es.localDiscr,
 		PeerAddr:   es.peerAddr,
 		LocalAddr:  es.localAddr,
@@ -480,7 +523,9 @@ func (es *EchoSession) emitNotification(oldState, newState State, diag Diag) {
 	}
 	select {
 	case es.notifyCh <- sc:
+		es.recordDelivery(DeliveryEchoNotification, DeliveryQueued)
 	default:
+		es.recordDelivery(DeliveryEchoNotification, DeliveryQueueFull)
 		es.logger.Warn("notification channel full, dropping echo state change")
 	}
 }

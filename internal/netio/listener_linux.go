@@ -36,6 +36,7 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 		multiHop:    cfg.MultiHop,
 		expectedTTL: cfg.ExpectedTTL,
 		delivery:    cfg.Delivery,
+		echo:        cfg.Port == PortEcho,
 	}, nil
 }
 

@@ -353,8 +353,30 @@ commit. Полная очередь AdminDown сохраняет ожидани�
 измеряется один раз в фиксированном порядке, включая нулевые строки; lifecycle
 revision и observation version не обеспечивают atomic snapshot счётчиков.
 Session drop/auth являются проекцией terminal reasons, auth входит в drops;
-проекции не прибавляются повторно в глобальный ledger. Echo, очереди уведомлений
-и kernel `SO_RXQ_OVFL` остаются отдельными задачами.
+проекции не прибавляются повторно в глобальный ledger. Echo admission и один
+winning owner используют общий terminal barrier: pre-Run admission разрешён,
+full/closed возвращают типизированные отказы, stop один раз учитывает pending
+RX как abandoned. Private owner pointer в raw Echo notification отклоняет stale
+dispatch после удаления или discriminator reuse; публичные Echo Watch identity,
+полный status и lifecycle остаются отдельной задачей.
+
+Raw Control/private/Echo notifications, dispatch, каждый Watch recipient и
+legacy delivery имеют отдельные ограниченные стадии ledger. GAP marker
+сообщает потерю исходных событий и не считается успешно доставленным original.
+Raw shutdown drain выполняется после join active operations и workers.
+
+Private unsolicited failure коммитится до coalesced capacity-one cleanup hint,
+независимого от best-effort raw admission. Dispatch сканирует failures только
+при старте и по coalesced hints. Initial attempt zero без failure cause
+сохраняется; committed Down DetectionTimeout/PathDown при attempt zero допускает
+cleanup. Retained physical entry лениво получает не более одного parked worker,
+одного переиспользуемого timer и одного pending attempt/deadline. Дубликат не
+продлевает retention, новая failure заменяет pending work. Retirement сохраняет
+identity, current-attempt, AdminDown и shared-claim fences. Отмена dispatch не
+обещает restart/progress; Manager.Close ожидает workers и освобождает ресурсы.
+Worker bound определяется retained physical entries, а не MaxSessions. Kernel
+`SO_RXQ_OVFL` остаётся отдельной задачей; unsolicited/Echo сохраняют текущие
+границы preview qualification.
 
 Регистрация публикует `SESSION_ADDED` после добавления в реестры
 и до запуска владельца, включая пассивную сессию, остающуюся Down.

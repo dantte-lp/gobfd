@@ -145,6 +145,8 @@ type SessionConfig struct {
 
 // StateChange reports a session observation, registration or removal.
 type StateChange struct {
+	// echoSource fences only raw dispatch; the public Echo lifecycle remains separate.
+	echoSource *EchoSession
 	// Private owner notifications never reach subscribers or actuators.
 	unsolicitedFailure bool
 	unsolicitedAttempt uint64
@@ -453,16 +455,17 @@ type Session struct {
 
 	// --- Runtime ---
 
-	sender    PacketSender
-	metrics   MetricsReporter
-	delivery  DeliveryReporter
-	logger    *slog.Logger
-	recvCh    chan recvItem
-	ctrlCh    chan sessionControl
-	ctrlSpace chan struct{}
-	ownerDone chan struct{}
-	notifyCh  chan<- StateChange
-	running   atomic.Bool
+	sender      PacketSender
+	metrics     MetricsReporter
+	delivery    DeliveryReporter
+	cleanupWake chan<- struct{}
+	logger      *slog.Logger
+	recvCh      chan recvItem
+	ctrlCh      chan sessionControl
+	ctrlSpace   chan struct{}
+	ownerDone   chan struct{}
+	notifyCh    chan<- StateChange
+	running     atomic.Bool
 }
 
 // recvItem carries a received BFD Control packet along with the raw

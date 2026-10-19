@@ -323,6 +323,7 @@ type Manager struct {
 	// The Manager's dispatch goroutine reads from this channel,
 	// handles micro-BFD group updates, and forwards to publicNotifyCh.
 	rawNotifyCh chan StateChange
+	cleanupWake chan struct{}
 
 	// publicNotifyCh is the legacy single-consumer channel exposed via
 	// StateChanges(). New consumers should use SubscribeStateChanges.
@@ -358,15 +359,17 @@ type Manager struct {
 // sessionEntry holds a session and its cancellation function.
 // The cancel function is used by DestroySession to stop the session goroutine.
 type sessionEntry struct {
-	session     *Session
-	cancel      context.CancelFunc
-	senderLease *SenderLease
-	key         SessionKey
-	demuxKey    packetDemuxKey
-	effective   effectiveSessionConfig
-	owners      map[SessionOwner]struct{}
-	unsolicited bool
-	done        chan struct{}
+	session        *Session
+	cancel         context.CancelFunc
+	senderLease    *SenderLease
+	key            SessionKey
+	demuxKey       packetDemuxKey
+	effective      effectiveSessionConfig
+	owners         map[SessionOwner]struct{}
+	unsolicited    bool
+	done           chan struct{}
+	cleanupWake    chan struct{}
+	cleanupPending unsolicitedCleanupPending
 }
 
 type echoSessionSource uint8
@@ -501,6 +504,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		discriminators: NewDiscriminatorAllocator(),
 		metrics:        noopMetrics{},
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
+		cleanupWake:    make(chan struct{}, 1),
 		publicNotifyCh: make(chan StateChange, notifyChSize),
 		timerUpdateCh:  make(chan struct{}, 1),
 		subscribers:    make(map[chan StateChange]*subscriber),
@@ -543,13 +547,24 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 		m.closeLegacyStateChanges()
 		m.workers.Done()
 	}()
+	if ctx.Err() != nil {
+		return
+	}
+	m.scanUnsolicitedCleanup(ctx)
 
 	for {
+		select {
+		case <-m.cleanupWake:
+			m.scanUnsolicitedCleanup(ctx)
+		default:
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-m.shutdownCh:
 			return
+		case <-m.cleanupWake:
+			m.scanUnsolicitedCleanup(ctx)
 		case sc := <-m.rawNotifyCh:
 			m.dispatchStateChange(ctx, sc)
 		}
@@ -557,23 +572,38 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 }
 
 func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
-	if sc.unsolicitedFailure {
-		m.scheduleUnsolicitedCleanup(ctx, sc)
+	m.mu.RLock()
+	var valid bool
+	if sc.Type == SessionTypeEcho {
+		entry, ok := m.echoSessions[sc.LocalDiscr]
+		valid = ok && entry.session == sc.echoSource
+	} else {
+		entry, ok := m.sessions[sc.LocalDiscr]
+		valid = ok && entry.session == sc.Ref.session
+		if valid && sc.unsolicitedFailure {
+			entry.session.mu.RLock()
+			valid = entry.unsolicited && entry.session.unsolicitedAttempt == sc.unsolicitedAttempt
+			entry.session.mu.RUnlock()
+		}
+	}
+	if !valid {
+		m.mu.RUnlock()
+		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryStale)
 		return
 	}
-	m.mu.RLock()
-	if sc.Type != SessionTypeEcho {
-		entry, ok := m.sessions[sc.LocalDiscr]
-		if !ok || entry.session != sc.Ref.session {
-			m.mu.RUnlock()
-			return
-		}
+	if sc.unsolicitedFailure {
+		m.mu.RUnlock()
+		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAccepted)
+		m.scheduleUnsolicitedCleanup(ctx, sc)
+		return
 	}
 	if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
 		m.dispatchMicroBFD(ctx, sc)
 	}
-	m.broadcastStateChange(sc)
+	counts := m.broadcastStateChange(sc)
 	m.mu.RUnlock()
+	m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAccepted)
+	m.reportFanoutDelivery(counts)
 	if sc.NewState == StateDown {
 		m.scheduleUnsolicitedCleanup(ctx, sc)
 	}
@@ -600,19 +630,25 @@ type subscriber struct {
 // last buffer slot of a subscriber is reserved for a gap marker, so a slow
 // subscriber learns about lost events even when no further event follows.
 // subMu serializes dispatch and synchronous registration/removal.
-func (m *Manager) broadcastStateChange(sc StateChange) {
+func (m *Manager) broadcastStateChange(sc StateChange) fanoutDelivery {
 	m.subMu.Lock()
 	defer m.subMu.Unlock()
 
 	// Assigned under subMu: a subscriber registered before a revision is
 	// read receives every later revision.
 	sc.Revision = m.revision.Add(1)
+	var counts fanoutDelivery
 	for ch, sub := range m.subscribers {
+		if ch == nil {
+			continue
+		}
 		if len(ch) < cap(ch)-1 {
 			sub.overflowed = false
 			ch <- sc
+			counts.queued++
 			continue
 		}
+		counts.gapped++
 		if !sub.overflowed {
 			sub.overflowed = true
 			ch <- StateChange{Gap: true, Revision: sc.Revision, Timestamp: sc.Timestamp}
@@ -621,52 +657,36 @@ func (m *Manager) broadcastStateChange(sc StateChange) {
 			)
 		}
 	}
-	if !sc.Added && !m.legacyClosed {
+	if !sc.Added && !m.legacyClosed && m.publicNotifyCh != nil {
 		select {
 		case m.publicNotifyCh <- sc:
+			counts.legacy = DeliveryQueued
 		default:
+			counts.legacy = DeliveryQueueFull
 			m.logger.Warn("public notification channel full, dropping state change",
 				slog.Uint64("local_discr", uint64(sc.LocalDiscr)),
 				slog.String("new_state", sc.NewState.String()),
 			)
 		}
 	}
+	return counts
 }
 
-func (m *Manager) scheduleUnsolicitedCleanup(ctx context.Context, sc StateChange) {
-	if m.unsolicited == nil {
-		return
-	}
+type fanoutDelivery struct {
+	queued uint64
+	gapped uint64
+	legacy DeliveryOutcome
+}
 
-	m.mu.RLock()
-	entry, ok := m.sessions[sc.LocalDiscr]
-	isUnsolicited := ok && entry.session == sc.Ref.session && entry.unsolicited
-	if isUnsolicited {
-		entry.session.mu.RLock()
-		isUnsolicited = entry.session.unsolicitedCleanupAllowedLocked(sc.unsolicitedAttempt)
-		entry.session.mu.RUnlock()
+func (m *Manager) reportFanoutDelivery(counts fanoutDelivery) {
+	for range counts.queued {
+		m.RecordDelivery(DeliveryWatchRecipient, DeliveryQueued)
 	}
-	m.mu.RUnlock()
-	if !isUnsolicited {
-		return
+	for range counts.gapped {
+		m.RecordDelivery(DeliveryWatchRecipient, DeliveryGapped)
 	}
-
-	timeout := m.unsolicited.policy.CleanupTimeout
-	if !m.startWorker(func() {
-		if timeout > 0 {
-			timer := time.NewTimer(timeout)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-				return
-			case <-m.shutdownCh:
-				return
-			case <-timer.C:
-			}
-		}
-		m.cleanupUnsolicitedAttempt(sc.Ref.session, sc.unsolicitedAttempt)
-	}) {
-		return
+	if counts.legacy != DeliveryOutcomeUnspecified {
+		m.RecordDelivery(DeliveryLegacyNotification, counts.legacy)
 	}
 }
 
@@ -868,6 +888,10 @@ func (m *Manager) stopAndWait(retired []retiredSession, retiredEcho []retiredEch
 
 	m.activeOps.Wait()
 	m.workers.Wait()
+	for len(m.rawNotifyCh) > 0 {
+		<-m.rawNotifyCh
+		m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAbandoned)
+	}
 	m.closeLegacyStateChanges()
 }
 
