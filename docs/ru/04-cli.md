@@ -88,7 +88,8 @@ gobfdctl session add \
   --local 10.0.0.2 \
   --auth-type keyed-sha1 \
   --auth-key-id 7 \
-  --auth-secret api-auth-secret
+  --auth-secret api-auth-secret \
+  --padded-pdu-size 128
 ```
 
 | Флаг | Обязательный | По умолчанию | Описание |
@@ -100,9 +101,15 @@ gobfdctl session add \
 | `--tx-interval` | Нет | `1s` | Desired Min TX Interval |
 | `--rx-interval` | Нет | `1s` | Required Min RX Interval |
 | `--detect-mult` | Нет | `3` | Множитель обнаружения |
+| `--padded-pdu-size` | Нет | `0` | Target PDU в байтах: 0 отключает padding; 24-9000 без auth, 26-9000 с auth |
 | `--auth-type` | Нет | `none` | Тип auth: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
 | `--auth-key-id` | Если auth включён | `0` | Auth Key ID RFC 5880, диапазон 0-255 |
 | `--auth-secret` | Если auth включён | -- | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
+
+`session show` отображает `Padded PDU Target` в байтах. JSON/YAML вывод сессий,
+включая строки monitor, передаёт настроенный target целым `padded_pdu_size`;
+authenticated PDU может быть длиннее. CLI/API `0` отключает padding, а `0`
+в YAML-сессии наследует `bfd.default_padded_pdu_size`.
 
 #### Удалить сессию
 

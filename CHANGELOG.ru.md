@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Целевой размер PDU RFC 9764 в public API, статусе сессий и
+  `gobfdctl session add --padded-pdu-size`. Ноль в API/CLI отключает padding; ноль в
+  YAML-сессии наследует global default. Общие границы проверяются до сужения
+  API-значения; padded API senders включают IPv4 DF. RFC 9764 остаётся частичным;
+  path MTU и peer-originated padding сохраняют отдельную область квалификации.
+
 - Control delivery outcomes разделяют demux, admission, owner commit и
   terminal loss. Повторное использование заголовка не меняет queued packet;
   stop закрывает admission и один раз учитывает abandoned RX/control без

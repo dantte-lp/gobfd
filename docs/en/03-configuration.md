@@ -595,6 +595,12 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
+Public API `AddSessionRequest.padded_pdu_size` and CLI `--padded-pdu-size`
+carry a `uint32` target in bytes. Omission or `0` disables padding without
+inheriting `bfd.default_padded_pdu_size`; a YAML session's `0` inherits that
+global default. Both paths use the same target bounds and retain larger
+authenticated PDUs.
+
 For base single-hop and multihop sessions, omitted or null `required_min_rx`
 inherits `bfd.default_required_min_rx`; explicit `"0s"` requests that the peer
 stop periodic Control packets (RFC 5880 sections 4.1 and 6.8.18). Zero remains

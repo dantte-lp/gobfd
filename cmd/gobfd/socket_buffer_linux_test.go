@@ -6,22 +6,26 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"slices"
 	"strconv"
 	"testing"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"golang.org/x/sys/unix"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	bfdv1connect "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
 
 // Observe the actual sockets without adding production accessors for their FDs.
 // Each test owns a distinct loopback address and holds its sockets open.
-func socketBufferAt(t *testing.T, local netip.Addr, port uint16, option int) int {
+func socketOptionAt(t *testing.T, local netip.Addr, port uint16, level, option int) int {
 	t.Helper()
 	entries, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
@@ -40,7 +44,7 @@ func socketBufferAt(t *testing.T, local netip.Addr, port uint16, option int) int
 		if !ok || ipv4.Port != int(port) || netip.AddrFrom4(ipv4.Addr) != local {
 			continue
 		}
-		value, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, option)
+		value, err := unix.GetsockoptInt(fd, level, option)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,7 +75,62 @@ func referenceSocketBuffers(t *testing.T, size int) (int, int) {
 	}
 	port := conn.LocalAddr().(*net.UDPAddr).AddrPort().Port()
 	local := netip.MustParseAddr("127.0.27.250")
-	return socketBufferAt(t, local, port, unix.SO_RCVBUF), socketBufferAt(t, local, port, unix.SO_SNDBUF)
+	return socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_RCVBUF),
+		socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF)
+}
+
+func TestAPIPaddedPDURequiresDF(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	referenceLocal := netip.MustParseAddr("127.0.28.250")
+	reference, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(referenceLocal, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := reference.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	referencePort := reference.LocalAddr().(*net.UDPAddr).AddrPort().Port()
+	ordinary := socketOptionAt(t, referenceLocal, referencePort, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER)
+	for index, target := range []uint32{0, 128} {
+		t.Run(strconv.FormatUint(uint64(target), 10), func(t *testing.T) {
+			local := netip.MustParseAddr(fmt.Sprintf("127.0.28.%d", index+1))
+			sf := newUDPSenderFactory(0)
+			t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
+			mgr := bfd.NewManager(logger)
+			t.Cleanup(mgr.Close)
+			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true},
+				mgr, sf, newDaemonHealthChecker(), nil, logger)
+			ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			serveOn(t, srv, ln)
+			client := bfdv1connect.NewBfdServiceClient(connect.NewClient(
+				connecthttp.NewTransport(http.DefaultClient, "http://"+ln.Addr().String())))
+			req := addSessionRequest("127.0.28.254")
+			req.LocalAddress = local.String()
+			req.PaddedPduSize = target
+			if _, err := client.AddSession(t.Context(), req); err != nil {
+				t.Fatal(err)
+			}
+			sf.mu.Lock()
+			defer sf.mu.Unlock()
+			if len(sf.senders) != 1 {
+				t.Fatalf("API sender count = %d, want 1", len(sf.senders))
+			}
+			want := ordinary
+			if target != 0 {
+				want = unix.IP_PMTUDISC_DO
+			}
+			for port := range sf.senders {
+				if got := socketOptionAt(t, local, port, unix.IPPROTO_IP, unix.IP_MTU_DISCOVER); got != want {
+					t.Errorf("API target %d IP_MTU_DISCOVER = %d, want %d", target, got, want)
+				}
+			}
+		})
+	}
 }
 
 func TestDaemonSocketBufferPolicy(t *testing.T) {
@@ -106,7 +165,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			}
 			t.Cleanup(func() { closeListeners(micro, logger) })
 			for _, port := range []uint16{netio.PortSingleHop, netio.PortMultiHop, netio.PortEcho, netio.PortMicroBFD} {
-				if got := socketBufferAt(t, local, port, unix.SO_RCVBUF); got != wantRead {
+				if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_RCVBUF); got != wantRead {
 					t.Errorf("listener %d SO_RCVBUF=%d, want %d", port, got, wantRead)
 				}
 			}
@@ -116,7 +175,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 					var err error
 					switch kind {
 					case "api":
-						_, _, err = sf.CreateSender(local, false, logger)
+						_, _, err = sf.CreateSender(local, false, false, logger)
 					case "echo":
 						_, _, err = sf.createSenderForSession(local, false, logger, netio.WithDstPort(netio.PortEcho))
 					case "micro":
@@ -141,7 +200,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 						t.Fatalf("senders = %d, want 1", len(sf.senders))
 					}
 					for port := range sf.senders {
-						if got := socketBufferAt(t, local, port, unix.SO_SNDBUF); got != wantWrite {
+						if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_SNDBUF); got != wantWrite {
 							t.Errorf("sender SO_SNDBUF=%d, want %d", got, wantWrite)
 						}
 					}
@@ -184,7 +243,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 			}
 			for _, port := range []uint16{netio.VXLANPort, netio.GenevePort} {
 				for _, option := range []struct{ key, want int }{{unix.SO_RCVBUF, wantRead}, {unix.SO_SNDBUF, wantWrite}} {
-					if got := socketBufferAt(t, local, port, option.key); got != option.want {
+					if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, option.key); got != option.want {
 						t.Errorf("overlay %d option %d = %d, want %d", port, option.key, got, option.want)
 					}
 				}

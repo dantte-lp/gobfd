@@ -173,6 +173,7 @@ func bindSessionAddFlags(cmd *cobra.Command, opts *addSessionOptions) {
 	flags.DurationVar(&opts.txInterval, "tx-interval", opts.txInterval, "desired minimum TX interval")
 	flags.DurationVar(&opts.rxInterval, "rx-interval", opts.rxInterval, "required minimum RX interval")
 	flags.Uint32Var(&opts.detectMult, "detect-mult", opts.detectMult, "detection multiplier (RFC 5880 Section 6.1)")
+	flags.Uint32Var(&opts.paddedSize, "padded-pdu-size", 0, "target PDU size in bytes (0 disables padding)")
 	flags.StringVar(&opts.authType, "auth-type", opts.authType,
 		"authentication type: none, simple-password, keyed-md5, meticulous-keyed-md5, keyed-sha1, meticulous-keyed-sha1")
 	flags.Uint32Var(&opts.authKeyID, "auth-key-id", opts.authKeyID, "authentication key ID (0-255)")
@@ -187,6 +188,7 @@ type addSessionOptions struct {
 	txInterval time.Duration
 	rxInterval time.Duration
 	detectMult uint32
+	paddedSize uint32
 	authType   string
 	authKeyID  uint32
 	authSecret string
@@ -222,6 +224,7 @@ func buildAddSessionRequest(opts addSessionOptions) (*bfdv1.AddSessionRequest, e
 		DesiredMinTxInterval:  durationpb.New(opts.txInterval),
 		RequiredMinRxInterval: durationpb.New(opts.rxInterval),
 		DetectMultiplier:      opts.detectMult,
+		PaddedPduSize:         opts.paddedSize,
 		AuthType:              authType,
 		AuthKeyId:             opts.authKeyID,
 		AuthSecret:            []byte(opts.authSecret),

@@ -577,9 +577,10 @@ RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementati
 | Requirement | Implementation |
 |---|---|
 | Pad BFD packet to configured size | `SessionConfig.PaddedPduSize`, zero-padding in TX path |
-| Set DF bit (IP_PMTUDISC_DO) | `WithDFBit()` functional option on `UDPSender` |
+| Set IPv4 DF bit (IP_PMTUDISC_DO) | `WithDFBit()` on `UDPSender` for nonzero YAML/API targets |
 | Zero-fill padding | `cachedPacket` extended with zero bytes after BFD payload |
-| Per-session configuration | `padded_pdu_size` in session YAML config |
+| Per-session configuration | YAML `padded_pdu_size`, API `AddSessionRequest.padded_pdu_size`, CLI `--padded-pdu-size` |
+| Public session status | `BfdSession.padded_pdu_size` carries the configured target in bytes; an authenticated PDU may be larger |
 | Global default | `bfd.default_padded_pdu_size` in YAML config |
 | Configured target range | 0 disables padding; 24-9000 bytes without authentication, 26-9000 with authentication (v1 policy) |
 
@@ -617,8 +618,8 @@ Local hash-boundary and configuration coverage is tracked by
 128-byte GoBFD Control payloads toward FRR Simple Password and BIRD Keyed SHA1,
 including unchanged BFD Length, zero padding and IPv4 DF. Both peers transmit
 ordinary authenticated PDUs back to GoBFD; padded peer-originated traffic is
-covered by local vectors, not this interop run. Public API padding and path
-MTU qualification remain separate; stable RFC 9764 compliance remains partial.
+covered by local vectors, not this interop run. Path MTU qualification remains
+separate; stable RFC 9764 compliance remains partial.
 
 ### RFC 7880/7881 (Planned)
 

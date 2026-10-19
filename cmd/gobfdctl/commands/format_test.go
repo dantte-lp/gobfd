@@ -11,6 +11,7 @@ import (
 func TestCausalSessionFormats(t *testing.T) {
 	t.Parallel()
 	s := &bfdv1.BfdSession{
+		PaddedPduSize:      128,
 		ObservationVersion: 500, RemoteKnown: true,
 		RemoteState:                   bfdv1.SessionState_SESSION_STATE_ADMIN_DOWN,
 		RemoteDiagnostic:              bfdv1.DiagnosticCode_DIAGNOSTIC_CODE_ADMIN_DOWN,
@@ -21,7 +22,7 @@ func TestCausalSessionFormats(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{"500", "true", "AdminDown", "REMOTE_ADMIN_DOWN"} {
+		for _, want := range []string{"500", "true", "AdminDown", "REMOTE_ADMIN_DOWN", "128"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("%s lacks %q: %s", format, want, out)
 			}

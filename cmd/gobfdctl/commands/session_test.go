@@ -5,8 +5,54 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
 )
+
+func TestSessionAddPaddedPDUFlag(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name    string
+		value   string
+		want    uint32
+		invalid bool
+	}{
+		{name: "omitted"},
+		{name: "target", value: "128", want: 128},
+		{name: "uint16 wrap preserved", value: "65664", want: 65664},
+		{name: "negative", value: "-1", invalid: true},
+		{name: "uint32 overflow", value: "4294967296", invalid: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			opts := addSessionOptions{sessType: sessionTypeSingleHop}
+			cmd := &cobra.Command{}
+			bindSessionAddFlags(cmd, &opts)
+			args := []string{"--peer", "192.0.2.1"}
+			if tt.value != "" {
+				args = append(args, "--padded-pdu-size", tt.value)
+			}
+			err := cmd.Flags().Parse(args)
+			if tt.invalid {
+				if err == nil {
+					t.Fatal("invalid uint32 padded PDU flag accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := buildAddSessionRequest(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := req.GetPaddedPduSize(); got != tt.want {
+				t.Errorf("padded PDU request target = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestBuildAddSessionRequestWithAuth(t *testing.T) {
 	req, err := buildAddSessionRequest(addSessionOptions{

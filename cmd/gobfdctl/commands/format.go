@@ -105,6 +105,7 @@ func formatSessionDetail(s *bfdv1.BfdSession) (string, error) {
 	fmt.Fprintf(w, "Local Discriminator:\t%d\n", s.GetLocalDiscriminator())
 	fmt.Fprintf(w, "Remote Discriminator:\t%d\n", s.GetRemoteDiscriminator())
 	fmt.Fprintf(w, "Detect Multiplier:\t%d\n", s.GetDetectMultiplier())
+	fmt.Fprintf(w, "Padded PDU Target:\t%d bytes\n", s.GetPaddedPduSize())
 
 	if d := s.GetDesiredMinTxInterval(); d != nil {
 		fmt.Fprintf(w, "Desired Min TX:\t%s\n", d.AsDuration())
@@ -214,6 +215,7 @@ type sessionView struct {
 	LocalDiscriminator  uint32 `json:"local_discriminator"                yaml:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"               yaml:"remote_discriminator"`
 	DetectMultiplier    uint32 `json:"detect_multiplier"                  yaml:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"                    yaml:"padded_pdu_size"`
 	DesiredMinTx        string `json:"desired_min_tx_interval,omitempty"  yaml:"desired_min_tx_interval,omitempty"`
 	RequiredMinRx       string `json:"required_min_rx_interval,omitempty" yaml:"required_min_rx_interval,omitempty"`
 	RemoteMinRx         string `json:"remote_min_rx_interval,omitempty"   yaml:"remote_min_rx_interval,omitempty"`
@@ -250,6 +252,7 @@ func sessionToView(s *bfdv1.BfdSession) *sessionView {
 		LocalDiscriminator:  s.GetLocalDiscriminator(),
 		RemoteDiscriminator: s.GetRemoteDiscriminator(),
 		DetectMultiplier:    s.GetDetectMultiplier(),
+		PaddedPduSize:       s.GetPaddedPduSize(),
 		AuthType:            shortAuthType(s.GetAuthType()),
 	}
 

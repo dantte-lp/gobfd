@@ -216,6 +216,7 @@ func TestSnapshotToProto(t *testing.T) {
 		RemoteKnown:          true,
 		LocalDiag:            bfd.DiagPathDown,
 		AuthType:             bfd.AuthTypeKeyedSHA1,
+		PaddedPduSize:        26,
 		DesiredMinTx:         100 * time.Millisecond,
 		RequiredMinRx:        200 * time.Millisecond,
 		DetectMultiplier:     5,
@@ -255,6 +256,9 @@ func TestSnapshotToProto(t *testing.T) {
 	}
 	if pb.GetDetectMultiplier() != 5 {
 		t.Errorf("DetectMultiplier = %d, want 5", pb.GetDetectMultiplier())
+	}
+	if got := pb.GetPaddedPduSize(); got != 26 {
+		t.Errorf("PaddedPduSize = %d, want 26", got)
 	}
 	if pb.GetLastStateChange() == nil {
 		t.Error("LastStateChange should not be nil")
@@ -302,6 +306,7 @@ func TestMapManagerError(t *testing.T) {
 		{"InvalidTxInterval", bfd.ErrInvalidTxInterval, connect.CodeInvalidArgument},
 		{"InvalidSessionType", bfd.ErrInvalidSessionType, connect.CodeInvalidArgument},
 		{"InvalidSessionRole", bfd.ErrInvalidSessionRole, connect.CodeInvalidArgument},
+		{"InvalidPaddedPduSize", bfd.ErrInvalidPaddedPduSize, connect.CodeInvalidArgument},
 		{"DrainDeadline", &bfd.DrainIncompleteError{Err: context.DeadlineExceeded}, connect.CodeDeadlineExceeded},
 		{"DrainCanceled", &bfd.DrainIncompleteError{Err: context.Canceled}, connect.CodeCanceled},
 		{"Unknown", errors.New("unknown error"), connect.CodeInternal},

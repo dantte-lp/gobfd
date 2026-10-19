@@ -28,6 +28,7 @@ type countingSenderFactory struct {
 func (f *countingSenderFactory) CreateSender(
 	netip.Addr,
 	bool,
+	bool,
 	*slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
 	f.opens++

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- RFC 9764 padded PDU targets in the public API, session status and
+  `gobfdctl session add --padded-pdu-size`. API/CLI zero disables padding;
+  YAML session zero inherits the global default. Shared bounds apply before
+  narrowing the API value, and padded API senders enable IPv4 DF. RFC 9764 remains partial;
+  path MTU and peer-originated padding qualification retain separate scope.
+
 - Control delivery outcomes distinguish demux, admission, owner commit and
   terminal loss. Header reuse cannot alter queued packets; stop closes admission
   and counts abandoned RX/control work once without acknowledging abandoned
