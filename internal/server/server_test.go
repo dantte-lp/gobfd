@@ -103,7 +103,7 @@ func TestAddSessionRequiredMinRx(t *testing.T) {
 	}{
 		{name: "omitted", want: time.Second},
 		{name: "explicit zero", rx: durationpb.New(0)},
-		{name: "negative", rx: durationpb.New(-time.Microsecond), wantErr: connect.CodeInternal},
+		{name: "negative", rx: durationpb.New(-time.Microsecond), wantErr: connect.CodeInvalidArgument},
 		{
 			name: "invalid normalized zero", rx: &durationpb.Duration{Seconds: 1, Nanos: -1_000_000_000},
 			wantErr: connect.CodeInvalidArgument,

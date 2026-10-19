@@ -174,13 +174,22 @@ func microBFDConfigFromProto(req *bfdv1.AddMicroBFDGroupRequest) (bfd.MicroBFDCo
 			minActive, len(req.GetMemberLinks()), ErrMicroMinActiveRange)
 	}
 
+	desiredMinTx, err := durationFromProto(req.GetDesiredMinTxInterval())
+	if err != nil {
+		return bfd.MicroBFDConfig{}, fmt.Errorf("invalid desired min TX interval: %w", err)
+	}
+	requiredMinRx, err := durationFromProto(req.GetRequiredMinRxInterval())
+	if err != nil {
+		return bfd.MicroBFDConfig{}, fmt.Errorf("invalid required min RX interval: %w", err)
+	}
+
 	return bfd.MicroBFDConfig{
 		LAGInterface:          req.GetLagInterface(),
 		MemberLinks:           req.GetMemberLinks(),
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
-		DesiredMinTxInterval:  durationFromProto(req.GetDesiredMinTxInterval()),
-		RequiredMinRxInterval: durationFromProto(req.GetRequiredMinRxInterval()),
+		DesiredMinTxInterval:  desiredMinTx,
+		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(mult),
 		MinActiveLinks:        minActive,
 	}, nil

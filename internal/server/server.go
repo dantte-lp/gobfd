@@ -441,13 +441,14 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		return bfd.SessionConfig{}, err
 	}
 
-	desiredMinTx := durationFromProto(req.GetDesiredMinTxInterval())
-	if rx := req.GetRequiredMinRxInterval(); rx != nil {
-		if err := rx.CheckValid(); err != nil {
-			return bfd.SessionConfig{}, fmt.Errorf("invalid required min RX interval: %w", err)
-		}
+	desiredMinTx, err := durationFromProto(req.GetDesiredMinTxInterval())
+	if err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("invalid desired min TX interval: %w", err)
 	}
-	requiredMinRx := durationFromProto(req.GetRequiredMinRxInterval())
+	requiredMinRx, err := durationFromProto(req.GetRequiredMinRxInterval())
+	if err != nil {
+		return bfd.SessionConfig{}, fmt.Errorf("invalid required min RX interval: %w", err)
+	}
 
 	detectMult := req.GetDetectMultiplier()
 	if detectMult == 0 {
@@ -555,13 +556,16 @@ func isGenericAddSessionType(st bfd.SessionType) bool {
 	return st == bfd.SessionTypeSingleHop || st == bfd.SessionTypeMultiHop
 }
 
-// durationFromProto converts a protobuf Duration to time.Duration.
+// durationFromProto validates and converts a protobuf Duration to time.Duration.
 // Returns 1 second as default if the proto duration is nil (RFC 5880 Section 6.8.1).
-func durationFromProto(d *durationpb.Duration) time.Duration {
+func durationFromProto(d *durationpb.Duration) (time.Duration, error) {
 	if d == nil {
-		return time.Second
+		return time.Second, nil
 	}
-	return d.AsDuration()
+	if err := d.CheckValid(); err != nil {
+		return 0, fmt.Errorf("check protobuf duration: %w", err)
+	}
+	return d.AsDuration(), nil
 }
 
 // snapshotToProto converts an internal SessionSnapshot to a proto BfdSession message.
@@ -771,6 +775,9 @@ func mapManagerError(err error, operation string) *connect.Error {
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
 		errors.Is(err, bfd.ErrInvalidTxInterval),
+		errors.Is(err, bfd.ErrInvalidRxInterval),
+		errors.Is(err, bfd.ErrInvalidWireInterval),
+		errors.Is(err, bfd.ErrMicroBFDDuplicateMember),
 		errors.Is(err, bfd.ErrInvalidSessionType),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
 		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err).Error())

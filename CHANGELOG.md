@@ -342,6 +342,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Return `InvalidArgument` for malformed protobuf durations in generic, Echo
+  and Micro-BFD requests, core-rejected client intervals and duplicate Micro-BFD
+  members (`gobfd-qj0.8.2.1.3.5`). Omitted generic/Micro intervals keep `1s`,
+  explicit generic RX zero remains valid, and Echo requires a positive interval.
+  Internal Manager errors retain their classification; well-formed Micro-BFD
+  member timer validation and application remain under `gobfd-qj0.8.2.2.1` (M09).
+
 - Preserve the learned peer discriminator across valid Down/AdminDown and local
   PathDown transitions (`gobfd-qj0.8.2.1.2.4`). Poll replies and failed-send Final
   retries retain the correct `YourDiscriminator`, including in the passive role;

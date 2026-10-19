@@ -347,6 +347,14 @@
 
 ### Исправлено
 
+- Некорректные protobuf durations в generic, Echo и Micro-BFD запросах,
+  клиентские интервалы, отклонённые ядром, и повторяющиеся Micro-BFD members
+  возвращают `InvalidArgument` (`gobfd-qj0.8.2.1.3.5`). Пропущенные generic/Micro
+  интервалы сохраняют `1s`, явный generic RX zero допустим, Echo требует
+  положительный интервал. Классификация внутренних ошибок Manager сохранена;
+  проверка и применение структурно корректных таймеров Micro-BFD members
+  остаются в `gobfd-qj0.8.2.2.1` (M09).
+
 - Изученный peer discriminator сохраняется при корректных Down/AdminDown и
   локальном PathDown (`gobfd-qj0.8.2.1.2.4`). Ответы Final на Poll и повторы после
   ошибки отправки сохраняют корректный `YourDiscriminator`, включая passive role;

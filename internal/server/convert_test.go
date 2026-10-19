@@ -159,7 +159,10 @@ func TestDurationFromProto(t *testing.T) {
 	t.Parallel()
 
 	// nil returns 1 second default (RFC 5880 Section 6.8.1).
-	got := server.DurationFromPB(nil)
+	got, err := server.DurationFromPB(nil)
+	if err != nil {
+		t.Fatalf("DurationFromPB(nil): %v", err)
+	}
 	if got != time.Second {
 		t.Errorf("DurationFromPB(nil) = %v, want 1s", got)
 	}

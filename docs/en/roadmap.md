@@ -789,9 +789,14 @@ the shared core, ordinary base-session YAML and generic API. Omitted values
 keep their defaults; preview per-peer override contracts are unchanged.
 The historical 69-ID matrix above remains a snapshot at its named SHA.
 H-08 has a bounded implementation slice, not full Poll/Demand qualification.
-The existing API error-classification defect is tracked separately as P2
-`gobfd-qj0.8.2.1.3.5`: invalid receive intervals are rejected but can return
-`Internal` instead of `InvalidArgument`.
+The `gobfd-qj0.8.2.1.3.5` implementation rejects malformed protobuf durations
+in generic, Echo and Micro-BFD requests with `InvalidArgument` and applies the
+same code to core-rejected client intervals and duplicate Micro-BFD members.
+Omitted generic/Micro intervals retain `1s`, generic RX zero remains valid,
+and Echo still requires an explicit positive interval. Internal Manager errors
+retain their classification. Acceptance remains tracked in Beads;
+well-formed Micro-BFD member timer validation and application remain owned by
+`gobfd-qj0.8.2.2.1` (M09).
 
 Task `gobfd-qj0.8.2.1.3.3` implements the H-09 prerequisite: owner-only
 AdminDown/7 commit receipts, context-bounded queue admission and wait, one-shot

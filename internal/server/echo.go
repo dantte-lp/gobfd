@@ -168,7 +168,10 @@ func echoSessionConfigFromProto(req *bfdv1.AddEchoSessionRequest) (bfd.EchoSessi
 	if req.GetTxInterval() == nil {
 		return bfd.EchoSessionConfig{}, ErrEchoTxIntervalRequired
 	}
-	tx := req.GetTxInterval().AsDuration()
+	tx, err := durationFromProto(req.GetTxInterval())
+	if err != nil {
+		return bfd.EchoSessionConfig{}, fmt.Errorf("invalid echo TX interval: %w", err)
+	}
 	if tx <= 0 {
 		return bfd.EchoSessionConfig{}, ErrEchoTxIntervalRequired
 	}

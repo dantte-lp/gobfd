@@ -795,9 +795,14 @@ procedures, оставшийся объём H-08 и FRR/BIRD interop.
 сохраняют defaults; контракты per-peer overrides preview не изменены.
 Историческая матрица 69 ID выше остаётся снимком указанного SHA.
 H-08 имеет ограниченную реализацию, не полную квалификацию Poll/Demand.
-Прежняя ошибка классификации API вынесена в P2 `gobfd-qj0.8.2.1.3.5`:
-недопустимые receive intervals отклоняются, но могут возвращать `Internal`
-вместо `InvalidArgument`.
+Реализация `gobfd-qj0.8.2.1.3.5` отклоняет структурно некорректные protobuf
+durations в generic, Echo и Micro-BFD запросах с `InvalidArgument`; тот же код
+возвращается для клиентских интервалов, отклонённых ядром, и повторяющихся
+Micro-BFD members. Пропущенные generic/Micro интервалы сохраняют `1s`, generic
+RX zero остаётся допустимым, Echo требует явный положительный интервал.
+Классификация внутренних ошибок Manager сохранена. Приёмка отслеживается
+в Beads; проверка и применение структурно корректных таймеров Micro-BFD members
+остаются в `gobfd-qj0.8.2.2.1` (M09).
 
 Задача `gobfd-qj0.8.2.1.3.3` реализует prerequisite H-09: owner-only commit
 receipts AdminDown/7, ограниченные контекстом admission в очередь и ожидание,

@@ -106,6 +106,10 @@ gobfdctl session add \
 | `--auth-key-id` | If auth enabled | `0` | RFC 5880 Auth Key ID, range 0-255 |
 | `--auth-secret` | If auth enabled | -- | Auth secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
+`AddSession` returns `InvalidArgument` for malformed protobuf TX/RX durations
+and client intervals rejected by core validation. Omitted intervals default to
+`1s`; an explicit required RX interval of zero remains valid.
+
 #### Delete a session
 
 ```bash
@@ -143,6 +147,10 @@ gobfdctl echo add \
 | `--tx-interval` | No | `1s` | Echo transmit interval (RFC 9747 Section 3.3) |
 | `--detect-mult` | No | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
 
+`AddEchoSession` requires a structurally valid, positive `tx_interval` within
+the BFD wire interval bound; violations return `InvalidArgument`. The CLI
+supplies its `1s` default, but direct API requests must include the field.
+
 #### Delete an echo session
 
 ```bash
@@ -151,9 +159,8 @@ gobfdctl echo delete 42
 
 ### Micro-BFD Commands
 
-RFC 7130 micro-BFD groups bind one BFD session per LAG member link.
-The CLI manages the group resource; per-member sessions are created
-in the daemon when the group is added.
+RFC 7130 micro-BFD uses one BFD session per LAG member link. The CLI manages
+the group resource; member-session creation is a separate operation.
 
 #### List micro-BFD groups
 
@@ -188,6 +195,11 @@ gobfdctl micro add \
 
 The CLI rejects `--min-active` outside `[1, len(--members)]` before
 contacting the daemon.
+
+`AddMicroBFDGroup` returns `InvalidArgument` for malformed protobuf TX/RX
+durations and duplicate member names. Omitted intervals default to `1s`.
+Validation and application of well-formed member timer values remain separate
+work under `gobfd-qj0.8.2.2.1` (M09).
 
 #### Delete a micro-BFD group
 

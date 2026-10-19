@@ -104,6 +104,11 @@ gobfdctl session add \
 | `--auth-key-id` | Если auth включён | `0` | Auth Key ID RFC 5880, диапазон 0-255 |
 | `--auth-secret` | Если auth включён | -- | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
 
+`AddSession` возвращает `InvalidArgument` при некорректной структуре protobuf
+TX/RX durations и при отклонении клиентских интервалов проверками ядра.
+Пропущенные интервалы получают `1s`; явный required RX interval, равный нулю,
+остаётся допустимым.
+
 #### Удалить сессию
 
 ```bash
@@ -140,6 +145,10 @@ gobfdctl echo add \
 | `--tx-interval` | Нет | `1s` | Интервал отправки echo (RFC 9747 Section 3.3) |
 | `--detect-mult` | Нет | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
 
+`AddEchoSession` требует структурно корректный положительный `tx_interval`
+в границах BFD wire interval; нарушения возвращают `InvalidArgument`. CLI
+передаёт свой default `1s`, а прямой API-запрос должен содержать это поле.
+
 #### Удалить echo-сессию
 
 ```bash
@@ -148,9 +157,8 @@ gobfdctl echo delete 42
 
 ### Команды micro-BFD
 
-Группы RFC 7130 micro-BFD создают по одной BFD-сессии на каждый
-member-линк LAG. CLI управляет ресурсом группы; per-member сессии
-создаются демоном при добавлении группы.
+RFC 7130 micro-BFD использует одну BFD-сессию на каждый member-линк LAG.
+CLI управляет ресурсом группы; создание member-сессий — отдельная операция.
 
 #### Список micro-BFD групп
 
@@ -185,6 +193,11 @@ gobfdctl micro add \
 
 CLI отклоняет `--min-active` вне диапазона `[1, len(--members)]` до
 обращения к демону.
+
+`AddMicroBFDGroup` возвращает `InvalidArgument` при некорректной структуре
+protobuf TX/RX durations и повторяющихся именах members. Пропущенные интервалы
+получают `1s`. Проверка и применение структурно корректных значений таймеров
+members остаются в `gobfd-qj0.8.2.2.1` (M09).
 
 #### Удалить micro-BFD группу
 
