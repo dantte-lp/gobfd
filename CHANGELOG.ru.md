@@ -347,6 +347,11 @@
 
 ### Исправлено
 
+- Положительные настроенные Control TX/RX интервалы меньше микросекунды
+  отклоняются с `ErrInvalidWireInterval` до создания сессии или reconciliation
+  (`gobfd-qj0.8.2.1.1.3`). Явный RX zero и дробные микросекунды выше минимума
+  сохраняют прежнюю семантику.
+
 - Изученный peer discriminator сохраняется при корректных Down/AdminDown и
   локальном PathDown (`gobfd-qj0.8.2.1.2.4`). Ответы Final на Poll и повторы после
   ошибки отправки сохраняют корректный `YourDiscriminator`, включая passive role;
