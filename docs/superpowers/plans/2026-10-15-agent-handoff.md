@@ -10,15 +10,16 @@ The original handoff and its dated measurements remain in local Git:
 
 ## Source and acceptance boundaries
 
-- Accepted local `dev`: `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+- Accepted implementation baseline on local `dev`:
+  `4e582b75dd5e6f0b8d994a66e8c9f3585bee82fa`.
 - GitHub `dev`: `e6baa6fa416877a3caefb3e68421309578e749b0`;
   default `master`: `5680385679d8e03d74226b5fcde269210d63bde8`.
-  The 57 local accepted commits have not reached remote `dev` (53 before the
-  four API/core commits).
-- Accepted API/core source `task/api-validation-padding` at this `dev` SHA covers
+  This implementation baseline is 59 commits ahead of remote `dev`.
+- Accepted API/core source `task/api-validation-padding` at
+  `20e951ac14e0515eda6698df7c70e7bf9ee77a32` covers
   `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` and
   `gobfd-qj0.8.2.1.1.3`; all three are closed in Beads. The local acceptance
-  record is `.worktrees/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`.
+  record is `reports/worktree-archive-20261020/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`.
   Final `canonical-2560m02` completed at 2026-10-20 06:06 UTC: 25 expected
   top-level critical tests, 142 PASS rows across four race-tested packages,
   zero FAIL/SKIP/DATA RACE; all 18 canonical profiles/92 linters, command,
@@ -42,6 +43,19 @@ The original handoff and its dated measurements remain in local Git:
   adds no test run.
 - GitHub release `v0.6.4` is the published stable baseline. Development does
   not create release branches, tags, drafts or release artifacts.
+- Actions leaf `gobfd-qj0.8.6.4.2` is closed at the implementation baseline:
+  eight files, +20/-12 lines, four Actions/ten uses plus fixture, changelogs and
+  generated inventory; actual 33 critical race tests and 18 profiles/92 linters
+  passed. Source08/730-file readbacks and exact own cleanup passed. Receipt:
+  `reports/space-merge-20261020/actions-acceptance.md`;
+  detailed gates: `reports/worktree-archive-20261020/actions-currency-20261020/reports/actions-currency-20261020/`.
+- Cleanup removed 33 clean working copies and three exact old images; branches
+  and 2557 files in 18 report archives are retained and hash-verified. Historical
+  absolute paths in the original receipts are unchanged. Timer/Echo drafts,
+  two nonancestor variants and two container-bound trees remain. Neither draft
+  is compiled or executed. Cleanup does not close broader hygiene owners.
+- The broad development goal remains paused. This retrospective updates Beads
+  and documentation; it does not resume implementation or authorize publication.
 
 ## Resume
 
@@ -49,13 +63,17 @@ The original handoff and its dated measurements remain in local Git:
    run `bd prime`, `bd ready` and inspect actual worktree state.
 2. Inspect any live gate handle before starting another job. A timeout in an
    observer is not proof that the job stopped. Never overlap heavy Go jobs.
-3. Finish eligible P0 stack updates as separate reviewed slices. CodeQL P0
+3. Continue with tools `gobfd-qj0.8.6.3.3`, then patched BIRD `.8.6.6.2`;
+   Actions `.8.6.4.2` is already accepted. BIRD's recorded fix-age threshold
+   2026-10-20T15:01:43Z and godbus `.8.6.2.1` threshold 16:01:38Z have elapsed;
+   source/advisory and actual qualification gates still apply. CodeQL P0
    `gobfd-qj0.8.6.4.1` is deferred until 2026-10-22T10:57:05Z; after the hold,
    recheck source/advisories, update all six uses atomically and obtain authorized
-   hosted init/autobuild/analyze/SARIF smoke. That smoke has not run. The four
-   eligible Actions belong to `gobfd-qj0.8.6.4.2`; parent `.8.6.4` retains
-   hosted execution and nested OCI provenance qualification.
-4. Execute `gobfd-qj0.8.2.1.1.1.4.3` against one accepted FRR/BIRD baseline.
+   hosted init/autobuild/analyze/SARIF smoke. That smoke has not run. Parent
+   `.8.6.4` retains hosted execution and nested OCI provenance qualification.
+4. Qualify timer draft `.1.1.1.4.3.1` against the accepted patched peer baseline;
+   retain parent `.1.1.1.4.3` gaps. Independently execute the real wrong-port
+   RED for API Echo `.1.17` before changing production senders.
 5. Keep changes in `.worktrees/<task>`; integrate locally only after the
    relevant checks. Append Beads notes with `bd update --append-notes` and
    synchronize via `bd dolt push`. Publication follows `CONTRIBUTING.md` and
@@ -68,7 +86,7 @@ image from the repository contract. Do not use host Go, a compiler container
 with the Podman socket, a cached keeper PID, or another project's cache.
 
 The accepted API/core source's ignored receipt directory is
-`.worktrees/api-validation-padding/reports/api-validation-padding-20261020/canonical-2560m02/`.
+`reports/worktree-archive-20261020/api-validation-padding/reports/api-validation-padding-20261020/canonical-2560m02/`.
 Its checked-in-source snapshot and ignored `cold-gate-host.sh`,
 `cold-gate-container.sh`, `quality-commands.sh` and `harness.sha256` are
 reviewed together. Inspect the Beads memory

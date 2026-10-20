@@ -6,14 +6,16 @@ Beads owns task status and dependencies. This snapshot supersedes the active
 queue and host instructions recorded on 2026-10-15; dated receipts below remain
 evidence only for their named revision.
 
-- Accepted local `dev`: `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+- Accepted implementation baseline on local `dev`:
+  `4e582b75dd5e6f0b8d994a66e8c9f3585bee82fa`.
   GitHub `dev` remains `e6baa6fa416877a3caefb3e68421309578e749b0`;
-  local `dev` is 57 commits ahead. Local acceptance is not remote integration
+  this baseline is 59 commits ahead. Local acceptance is not remote integration
   or stable delivery.
 - API/core tasks `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` and
   `gobfd-qj0.8.2.1.1.3` are closed after the final combined gate on branch
-  `task/api-validation-padding`, integrated at the accepted local `dev` SHA.
-  Local receipt: `.worktrees/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`;
+  `task/api-validation-padding`, integrated at
+  `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+  Local receipt: `reports/worktree-archive-20261020/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`;
   `canonical-2560m02` records 25 expected top-level tests, 142 PASS rows across
   four race-tested packages, all 18 lint profiles/92 linters and command,
   container and host exit 0. Native/pinned formatter diffs are empty; vet and
@@ -32,13 +34,32 @@ evidence only for their named revision.
   legacy events remain best effort and telemetry outside the coherent causal
   tuple is sampled. Separate interface, Micro-BFD, transport, performance,
   combined-consumer, RFC and stable owners remain open.
+- Actions leaf `gobfd-qj0.8.6.4.2` is accepted at the implementation baseline:
+  four Actions, ten uses, the existing fixture, both changelogs and the
+  Go-generated dependency inventory; eight files, +20/-12 lines. Its actual
+  cold gate passed 33 critical top-level race tests, all 18 lint profiles/92
+  linters and source/cleanup readbacks. Parent `.8.6.4` retains hosted
+  execution and nested OCI qualification.
+- Cleanup leaf `gobfd-qj0.8.2.8.5.3.4` is closed: 33 clean working copies and
+  three exact old images removed, branches retained, 18 report archives/2557
+  files hash-verified. Receipts now live under `reports/worktree-archive-20261020/`;
+  absolute paths inside the original receipts remain historical. Two dirty
+  drafts, two nonancestor variants and two container-bound trees remain.
+  Details: `reports/space-merge-20261020/final-receipt.md`.
 
 | Order | Owner | Required result |
 |---|---|---|
-| 1 | `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.6` | Adopt eligible P0 stack updates in reviewed slices; read every release note in each installed-to-target range |
-| 2 | `.1.1.1.4.3` | Qualify FRR/BIRD timer reloads `300→100 ms`, `100→500 ms` and RX0 with packet-correlated pending/applied receipts and stable session identity |
-| 3 | `.1.1`, `.1.4`, `.1.6`, `.2`, `.3` | Finish their remaining protocol, transport, measurement, ownership and management acceptance gates |
-| 4 | `.8.4`, `.8.2.6`, `.8.2.7`, `.8.2.8` | Close stable advisory, independent review, quality, packaging and scale qualification before release preparation |
+| 1 | `.8.6.3.3` | Qualify eligible scanner/release CLI/benchstat updates after the accepted Actions slice; include the generated dependency inventory |
+| 2 | `.8.6.6.2`, `.8.6.2.1` | Qualify the security-patched BIRD baseline; godbus is independently age-eligible since 2026-10-20 16:01:38 UTC, with fresh source/advisory checks still required |
+| 3 | `.1.1.1.4.3.1`, `.1.17` | Compile and qualify the timer draft against the accepted patched peer; separately run the actual API Echo wrong-port RED before a production fix |
+| 4 | `.1.1`, `.1.4`, `.1.6`, `.2`, `.3` | Finish protocol, transport, measurement, ownership, readiness and systemd acceptance; preserve preview boundaries |
+| 5 | `.8.4`, `.8.2.6`, `.8.2.7`, `.8.2.8` | Close stable advisory, combined consumers, independent review, quality, packaging and scale qualification before release preparation |
+
+The timer draft is source-reviewed, uncompiled and unexecuted. The Echo draft
+contains only the prospective regression test; its expected RED has not run.
+These are pending implementations, not completed features. The broad development
+goal remains paused; this retrospective updates its plan without resuming runtime
+implementation. Numeric priorities and existing blocking edges remain unchanged.
 
 Numeric priorities remain deliberate: stack currency is P0, ordinary RFC work
 P1, API classification `.1.3.5` P2 and stable advisory disposition `.8.4` P1.
@@ -57,11 +78,11 @@ a GoBFD mirror or pipeline acceptance source. No remote write is implied.
 These are planning targets, not adopted pins or compatibility results. UTC
 thresholds are the source timestamp plus seven full days. Read all notes
 between the installed pin and the target, including intermediate releases.
-The source audit at the accepted SHA covers 67 uses from 17 Action repositories:
-four eligible updates, CodeQL on hold and twelve already current. P0
-`gobfd-qj0.8.6.4.2` owns the four eligible updates: ten uses, one existing
-workflow fixture and both changelogs, with local contracts. Parent `.8.6.4`
-retains hosted smoke and nested OCI provenance; this is not adoption evidence.
+The earlier audit covered 67 uses from 17 Action repositories. The four
+eligible Action updates are now accepted locally under P0
+`gobfd-qj0.8.6.4.2`; the rows below retain their installed-to-target history.
+Parent `.8.6.4` retains hosted smoke and nested OCI provenance. CodeQL remains
+on hold; this retrospective does not refresh every upstream version channel.
 
 | Component | Installed → target | Earliest adoption UTC | Evidence and next check |
 |---|---|---|---|
@@ -96,6 +117,13 @@ BIRD 3.4.0 has no GitHub Release `publishedAt`. Its official
 the inherited 2.20.0 section, then qualify authenticated BFD, timers, BGP and
 CLI parsing under `gobfd-qj0.8.6.6`. The 3.3.2 and 3.4.0 histories diverge:
 commit-range repetitions do not prove a newly exposed vulnerability.
+
+The subsequent source/security audit requires the patched basis owned by
+`gobfd-qj0.8.6.6.2`: target commit above plus upstream fix
+`7cf75587b6f38b87849fe192bf5dfd124b7702bc`, not unpatched 3.4.0. The recorded
+fix age threshold, 2026-10-20 15:01:43 UTC, has elapsed. Actual patched-image
+build, fix provenance/security regression, SBOM and BASE/BGP qualification
+remain unexecuted. Static patch application is not image acceptance.
 
 govulncheck 1.9.0 is identified by the
 [Go module metadata](https://proxy.golang.org/golang.org/x/vuln/@v/v1.9.0.info),
@@ -484,6 +512,37 @@ Architecture notes for `gobfd-5w0`:
 are recorded with the 2026-10-15 retrospective above.
 
 ## Remaining work before v1.0.0
+
+Retrospective snapshot at 2026-10-20 16:10 UTC: 353 closed issues out of
+513 repository issues; 49 closed since 2026-10-15. These are tracker counts,
+including parent closures, not a completion percentage or fresh runtime proof.
+The bounded retrospective leaf itself is excluded from this snapshot.
+There are 154 unfinished v1-scope issues, including epics and milestones:
+119 open, 26 in progress, four blocked and five deferred. Scope includes
+the v0.6 maintenance prerequisite, stack, quality and configuration owners;
+it excludes the root, `.8.5` and the four post-v1 tasks listed below.
+
+| Workstream | Unfinished |
+|---|---:|
+| Stack currency | 18 |
+| RFC core and performance | 18 |
+| Ownership and configuration, including `gobfd-8f3` | 10 |
+| Secure management | 3 |
+| GoBGP and companions | 2 |
+| Quality sprints | 90 |
+| Release qualification and independent review | 4 |
+| Stable maintenance and advisory disposition | 6 |
+| Standalone CI/attribution and v1 milestone | 3 |
+
+The implemented companion children and delivery/accounting children are closed;
+combined-consumer acceptance `.8.2.6.2` and their parent gates remain open.
+Readiness, systemd, transactional replace/Micro-BFD, transport/latency, preview
+boundaries, final interop/security, SBOM/provenance, upgrade/rollback and the
+1,000-session 24-hour/5,000-session gates remain unqualified.
+Local evidence indexes: `reports/retro-20261020/completed-all.tsv`,
+`completed-since-20261015.tsv` and `remaining-all.tsv` in the same directory.
+
+### Historical snapshot — 2026-10-15
 
 Beads on 2026-10-15 18:10 UTC: 171 open or in-progress beads in the v1
 scope, epics and the `.8.2` milestone included. This is the historical

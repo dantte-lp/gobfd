@@ -6,14 +6,16 @@
 и инструкции окружения от 2026-10-15; датированные протоколы ниже подтверждают
 только указанные в них ревизии.
 
-- Принятый локальный `dev`: `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+- Принятый implementation baseline локального `dev`:
+  `4e582b75dd5e6f0b8d994a66e8c9f3585bee82fa`.
   GitHub `dev` остаётся на `e6baa6fa416877a3caefb3e68421309578e749b0`;
-  локальный `dev` опережает его на 57 commit. Локальная приёмка не подтверждает
+  этот baseline опережает его на 59 commit. Локальная приёмка не подтверждает
   remote integration или stable delivery.
 - API/core-задачи `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` и
   `gobfd-qj0.8.2.1.1.3` закрыты после итогового общего gate ветки
-  `task/api-validation-padding`, принятой в локальный `dev` на указанном SHA.
-  Локальный receipt: `.worktrees/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`;
+  `task/api-validation-padding`, принятой в локальный `dev` на
+  `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+  Локальный receipt: `reports/worktree-archive-20261020/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`;
   `canonical-2560m02` содержит 25 ожидаемых top-level тестов, 142 PASS rows в
   четырёх пакетах с race detector, все 18 lint profiles/92 linters и command,
   container, host exit 0. Native/pinned formatter diffs пусты; vet и оба module
@@ -32,13 +34,32 @@
   legacy events остаются best effort, telemetry вне согласованного causal
   tuple — sampled. Отдельные владельцы interface, Micro-BFD, transport,
   performance, combined consumers, RFC и stable остаются открытыми.
+- Actions-задача `gobfd-qj0.8.6.4.2` принята на implementation baseline:
+  четыре Actions, десять uses, существующая fixture, оба changelog и
+  Go-generated dependency inventory; восемь файлов, +20/-12 строк. Actual cold
+  gate: 33 critical top-level race tests, все 18 lint profiles/92 linters,
+  source/cleanup readbacks прошли. Parent `.8.6.4` сохраняет hosted execution
+  и nested OCI qualification.
+- Cleanup-задача `gobfd-qj0.8.2.8.5.3.4` закрыта: удалены 33 clean working
+  copies и три точных старых образа, ветки сохранены, 18 архивов/2557 файлов
+  проверены по hash. Receipts перенесены в `reports/worktree-archive-20261020/`;
+  абсолютные пути внутри исходных receipts остаются историческими. Сохранены
+  два dirty drafts, два nonancestor-варианта и два дерева с container binds.
+  Подробности: `reports/space-merge-20261020/final-receipt.md`.
 
 | Порядок | Владелец | Требуемый результат |
 |---|---|---|
-| 1 | `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.6` | Принять допустимые по возрасту P0-обновления стека отдельными проверяемыми изменениями; прочитать весь диапазон release notes |
-| 2 | `.1.1.1.4.3` | Квалифицировать FRR/BIRD reload `300→100 ms`, `100→500 ms` и RX0 по пакетам, pending/applied receipts и сохранению session identity |
-| 3 | `.1.1`, `.1.4`, `.1.6`, `.2`, `.3` | Закрыть оставшиеся protocol, transport, measurement, ownership и management acceptance gates |
-| 4 | `.8.4`, `.8.2.6`, `.8.2.7`, `.8.2.8` | Закрыть stable advisory, независимое ревью, quality, packaging и нагрузочную квалификацию до подготовки релиза |
+| 1 | `.8.6.3.3` | Квалифицировать допустимые scanner/release CLI/benchstat updates после принятых Actions; включить generated dependency inventory |
+| 2 | `.8.6.6.2`, `.8.6.2.1` | Квалифицировать исправленный BIRD baseline; godbus отдельно допустим по возрасту с 2026-10-20 16:01:38 UTC, свежая проверка source/advisories ещё требуется |
+| 3 | `.1.1.1.4.3.1`, `.1.17` | Скомпилировать и квалифицировать timer draft на принятом исправленном пире; отдельно выполнить actual API Echo wrong-port RED до production fix |
+| 4 | `.1.1`, `.1.4`, `.1.6`, `.2`, `.3` | Закрыть protocol, transport, measurement, ownership, readiness и systemd acceptance; сохранить preview boundaries |
+| 5 | `.8.4`, `.8.2.6`, `.8.2.7`, `.8.2.8` | Закрыть stable advisory, combined consumers, независимое ревью, quality, packaging и scale qualification до подготовки релиза |
+
+Timer draft прошёл source review, но не скомпилирован и не выполнен. Echo draft
+содержит только будущий regression test; ожидаемый RED не запускался. Это
+незавершённая реализация. Большая задача разработки остаётся приостановленной;
+ретро обновляет её план без возобновления runtime implementation. Числовые
+приоритеты и существующие blocking edges сохранены.
 
 Числовые приоритеты сохраняются: актуальность стека — P0, обычные RFC-задачи —
 P1, классификация API `.1.3.5` — P2, stable advisory disposition `.8.4` — P1.
@@ -58,11 +79,11 @@ pipeline. Эта сверка не разрешает remote writes.
 Это цели планирования, а не принятые pins или результаты совместимости.
 Порог UTC равен времени источника плюс семь полных суток. Проверяется весь
 диапазон от установленной версии до целевой, включая промежуточные релизы.
-Аудит исходников на принятом SHA охватывает 67 uses из 17 Action repositories:
-четыре eligible updates, CodeQL на hold, двенадцать уже актуальны. P0
-`gobfd-qj0.8.6.4.2` владеет четырьмя допустимыми обновлениями: десять uses,
-одна существующая workflow fixture, оба changelog и local contracts. Parent
-`.8.6.4` сохраняет hosted smoke и nested OCI provenance; adoption не подтверждён.
+Предыдущий аудит охватывал 67 uses из 17 Action repositories. Четыре допустимых
+обновления Actions уже приняты локально в P0 `gobfd-qj0.8.6.4.2`; строки ниже
+сохраняют историю installed-to-target. Parent `.8.6.4` сохраняет hosted smoke
+и nested OCI provenance. CodeQL остаётся на hold; ретро не перепроверяет все
+upstream version channels.
 
 | Компонент | Установлен → цель | Самое раннее принятие UTC | Источник и следующая проверка |
 |---|---|---|---|
@@ -97,6 +118,13 @@ digest/provenance и hosted results требуют отдельной квали
 2.20.0, затем authenticated BFD, timers, BGP и CLI parsing в
 `gobfd-qj0.8.6.6`. Истории 3.3.2 и 3.4.0 расходятся: повторение исправления
 в commit range не доказывает новую уязвимость установленного дерева.
+
+Последующий source/security audit требует исправленный basis из
+`gobfd-qj0.8.6.6.2`: указанный target commit вместе с upstream fix
+`7cf75587b6f38b87849fe192bf5dfd124b7702bc`, а не unpatched 3.4.0. Записанный
+порог возраста fix, 2026-10-20 15:01:43 UTC, прошёл. Actual patched-image build,
+fix provenance/security regression, SBOM и BASE/BGP qualification ещё не
+выполнены. Статическое применение patch не подтверждает приёмку образа.
 
 govulncheck 1.9.0 подтверждён
 [метаданными Go module](https://proxy.golang.org/golang.org/x/vuln/@v/v1.9.0.info),
@@ -484,6 +512,36 @@ vendor-образов).
 в ретроспективе 2026-10-15 выше.
 
 ## Оставшиеся работы до v1.0.0
+
+Снимок ретро на 2026-10-20 16:10 UTC: закрыты 353 из 513 repository issues,
+49 закрыты с 2026-10-15. Это число записей tracker, включая parent closures,
+а не процент готовности или свежая runtime-проверка. Сама ограниченная задача
+ретро в снимок не включена. В v1 scope остаются 154 незавершённые записи,
+включая epics и milestones: 119 open, 26 in progress, четыре blocked и пять
+deferred. Scope включает prerequisite сопровождения v0.6, stack, quality и
+configuration owners; исключает root, `.8.5` и четыре post-v1-задачи ниже.
+
+| Направление | Незавершено |
+|---|---:|
+| Актуальность стека | 18 |
+| Ядро RFC и performance | 18 |
+| Ownership и configuration, включая `gobfd-8f3` | 10 |
+| Secure management | 3 |
+| GoBGP и companions | 2 |
+| Спринты качества | 90 |
+| Release qualification и независимое ревью | 4 |
+| Stable maintenance и advisory disposition | 6 |
+| Отдельные CI/attribution-задачи и v1 milestone | 3 |
+
+Реализованные companion children и delivery/accounting children закрыты;
+combined-consumer acceptance `.8.2.6.2` и родительские проверки открыты.
+Не квалифицированы readiness, systemd, transactional replace/Micro-BFD,
+transport/latency, preview boundaries, final interop/security, SBOM/provenance,
+upgrade/rollback и gates 1 000 сессий за 24 часа/5 000 сессий.
+Локальные индексы evidence: `reports/retro-20261020/completed-all.tsv`,
+`completed-since-20261015.tsv` и `remaining-all.tsv` в том же каталоге.
+
+### Исторический снимок — 2026-10-15
 
 Beads на 2026-10-15 18:10 UTC: 171 открытый или выполняемых beads в объёме
 v1, включая эпики и веху `.8.2`. Это исторический снимок 18:10; изменения
