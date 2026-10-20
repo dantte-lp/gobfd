@@ -508,7 +508,7 @@ vendor-образов).
 | Prometheus | GitHub release | v3.15.0 | v3.15.0 | актуально | выполнено |
 | Grafana | GitHub release | 13.2.4 | 13.2.4 | актуально (исключение по безопасности) | выполнено |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | актуально | выполнено |
-| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | current | done (`.8.6.6.2`) |
+| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | актуально | выполнено (`.8.6.6.2`) |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
 | Holo | GHCR bundle | v0.9.0 | v0.9.0 | актуально | выполнено |
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (коммитов нет с 2021-05-15) | решение | `.8.6.6` |
