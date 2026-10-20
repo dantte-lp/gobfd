@@ -554,6 +554,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		"export INTEROP_PROJECT_NAME",
 		"INTEROP_CTL := go run ./test/cmd/interopctl",
 		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
+		"-run '^(TestFourPeerTopologyTestcontainers|TestBIRDFlowSpecValidation)$$' ./test/interop/",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,

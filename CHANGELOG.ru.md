@@ -174,8 +174,7 @@
   исправлением upstream `7cf75587` для CVE-2026-112112 (`gobfd-qj0.8.6.6.2`).
   Рецепт записывает хеши исходников и исправления и OCI labels; регрессионный
   тест FlowSpec проверяет, что BIRD помечает ненулевой IPv6 destination offset
-  как invalid. Топологии BASE и
-  BGP+BFD используют тот же рецепт.
+  как invalid. Топологии BASE и BGP+BFD используют тот же рецепт.
 - Обновлены pins Actions upload/download-artifact до v7.0.2/v8.0.2 для повторных
   попыток при HTTP 429 с `Retry-After`, GoReleaser Action до v7.3.0 для
   переиспользования runner tool cache и Scorecard Action до v2.5.0 для обновления

@@ -156,8 +156,9 @@ and applies the checksum-pinned upstream fix
 for CVE-2026-112112. The image records both hashes in
 `/usr/share/doc/bird/gobfd-source.txt`. `TestBIRDFlowSpecValidation`
 (`interop_testcontainers` tag) checks that BIRD marks an IPv6 FlowSpec
-destination with a nonzero offset invalid; `make interop-testcontainers` runs it. BIRD is built from source, so image SBOMs and
-package scanners do not list it.
+destination with a nonzero offset invalid; `make interop-testcontainers` runs
+it. BIRD is built from source, so image SBOMs and package scanners do not list
+it.
 
 Holo uses the immutable official image digest recorded in `compose.yml`. The
 daemon starts with `holo/holod.toml`; a healthy-gated, one-shot `holo-config`

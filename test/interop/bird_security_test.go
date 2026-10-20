@@ -59,6 +59,20 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 		if err != nil || code != 0 {
 			t.Fatalf("start FlowSpec originator: exit=%d error=%v\n%s", code, err, output)
 		}
+		t.Cleanup(func() {
+			if !t.Failed() {
+				return
+			}
+			for _, command := range [][]string{
+				{"cat", "/tmp/originator.log"},
+				{"birdc", "-s", "/run/bird/originator.ctl", "show", "protocols", "all"},
+			} {
+				diagnosticCtx, diagnosticCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				_, diagnostic, execErr := containertest.Exec(diagnosticCtx, peer, command)
+				diagnosticCancel()
+				t.Logf("%v (error=%v):\n%s", command, execErr, diagnostic)
+			}
+		})
 		pollCtx, pollCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer pollCancel()
 		output, err = pollUntil(pollCtx, 100*time.Millisecond, func(ctx context.Context) (string, bool, error) {
@@ -70,6 +84,12 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 		t.Logf("validator routes:\n%s", output)
 		if err != nil {
 			t.Fatalf("receive all three iBGP FlowSpec vectors: %v", err)
+		}
+		// The vulnerable path needs the iBGP empty AS_PATH shortcut.
+		for line := range strings.Lines(output) {
+			if path, ok := strings.CutPrefix(line, "\tbgp_path:"); ok && strings.TrimSpace(path) != "" {
+				t.Fatalf("FlowSpec route has nonempty AS_PATH %q", path)
+			}
 		}
 		// RFC 8956 section 5 requires a destination prefix with offset zero.
 		// BIRD prints the offset prefix without its first offset bits.
