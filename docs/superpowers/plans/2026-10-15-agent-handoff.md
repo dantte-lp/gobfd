@@ -1,6 +1,6 @@
 # GoBFD continuation handoff
 
-Current execution state: 2026-10-20. Beads owns tasks, dependencies and release
+Current execution state: 2026-10-20 18:55 UTC. Beads owns tasks, dependencies and release
 age gates. The [EN roadmap](../../en/roadmap.md) and
 [RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
 sources. Earlier 2026-10-15 receipts remain historical evidence at their named
@@ -16,10 +16,10 @@ The original handoff and its dated measurements remain in local Git:
 ## Source and acceptance boundaries
 
 - Accepted implementation baseline on local `dev`:
-  `4e582b75dd5e6f0b8d994a66e8c9f3585bee82fa`.
+  `f913050cfbd863f86ab0937972e2ec16d7e44ecf`.
 - GitHub `dev`: `e6baa6fa416877a3caefb3e68421309578e749b0`;
   default `master`: `5680385679d8e03d74226b5fcde269210d63bde8`.
-  This implementation baseline is 59 commits ahead of remote `dev`.
+  This implementation baseline is 62 commits ahead of remote `dev`.
 - Accepted API/core source `task/api-validation-padding` at
   `20e951ac14e0515eda6698df7c70e7bf9ee77a32` covers
   `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` and
@@ -59,9 +59,51 @@ The original handoff and its dated measurements remain in local Git:
   absolute paths in the original receipts are unchanged. Timer/Echo drafts,
   two nonancestor variants and two container-bound trees remain. Neither draft
   is compiled or executed. Cleanup does not close broader hygiene owners.
-- The maintainer resumed development on 2026-10-20. The active P0 implementation
-  is bounded interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`). Beads records
-  its verification and acceptance; this does not authorize release publication.
+- Interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`) and its parent
+  `gobfd-qj0.8.2.2.6.3` are accepted locally at the implementation baseline.
+  The active P0 task is security-patched BIRD (`gobfd-qj0.8.6.6.2`).
+
+## Active BIRD handoff — 2026-10-20
+
+- Source branch/worktree: `task/bird-security-20261020` at
+  `.worktrees/bird-security-20261020`, local draft commit
+  `d2798c333e8cd3fffa13523428eab0cd4d48b251`, forked from accepted `dev` commit
+  `f913050cfbd863f86ab0937972e2ec16d7e44ecf`. It is a draft; do not
+  merge into `dev` or mark the Bead complete on source pins alone.
+- Source archive `c3669497e3949b942d86d07e343092cc439b4659` and
+  vendor fix `7cf75587b6f38b87849fe192bf5dfd124b7702bc` have matching
+  local SHA-256 receipts in ignored `reports/bird-security-20261020/`.
+  The 2026-10-20 17:59:33 UTC age receipt confirms both seven-day holds.
+  Primary sources are linked in the Bead and
+  `reports/peers-currency-20261020/security-disposition.md`.
+- Draft changes: pinned build source and fix, OCI provenance labels, bounded
+  FlowSpec validation fixture, BASE/BGP testcontainer build metadata, BGP
+  version assertion and four-peer recipe contract. Pinned-image `gofmt` and
+  `git diff --check` exited 0. The image has not been built; no runtime,
+  security, interop, SBOM, inventory-generator, race, vet, tidy or canonical
+  lint result exists for these source bytes.
+- Resume `gobfd-qj0.8.6.6.2`: inspect and correct the draft fixture against
+  actual BIRD CLI/config behavior, demonstrate the regression on the original
+  and patched executable, then perform the exact image provenance/SBOM and
+  BASE+BGP consumer checks in its acceptance criteria. Regenerate dependency
+  inventory with the existing Go generator and test it. Run the required
+  critical and canonical gates with a fresh resource admission check. Request
+  SPEC then QUALITY review on final bytes; integrate locally only after pass.
+- Next dependent owner: `gobfd-qj0.8.2.1.1.1.4.3.1` live timer qualification,
+  using the accepted patched peer. `gobfd-qj0.8.4.1` remains a separate P0
+  stable-v1 security gate. The final release owner remains open.
+- The displayed message `This content can’t be shown` is a client rendering
+  restriction, not a measured shell or Go result. The last shell exit 1 was
+  from an optional `rg` query with no matches after successful read-only
+  commands; no build/test was running. Keep future diagnostic output bounded
+  and preserve full receipts locally.
+- Cleanup receipt `reports/bird-security-20261020/cleanup-*`: one stopped
+  project-owned Grafana container and its exact image ancestry were removed;
+  `df` increased from 12,374,597,632 to 13,752,012,800 available bytes at
+  that observation. Later free space fell below the 12 GiB compiler admission
+  threshold as other activity continued. Five other dangling images were
+  referenced by containers or Buildah and retained. No foreign container,
+  volume, source tree or branch was deleted.
 
 ## Resume
 

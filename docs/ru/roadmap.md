@@ -33,9 +33,9 @@ release-age hold делает upgrade допустимым, но не следу
 только указанные в них ревизии.
 
 - Принятый implementation baseline локального `dev`:
-  `4e582b75dd5e6f0b8d994a66e8c9f3585bee82fa`.
+  `f913050cfbd863f86ab0937972e2ec16d7e44ecf`.
   GitHub `dev` остаётся на `e6baa6fa416877a3caefb3e68421309578e749b0`;
-  этот baseline опережает его на 59 commit. Локальная приёмка не подтверждает
+  этот baseline опережает его на 62 commit. Локальная приёмка не подтверждает
   remote integration или stable delivery.
 - API/core-задачи `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` и
   `gobfd-qj0.8.2.1.1.3` закрыты после итогового общего gate ветки
@@ -81,16 +81,19 @@ release-age hold делает upgrade допустимым, но не следу
 | 4 | `.8.2.7`, `.8.2.8.7`, `.8.2.6` | Завершить независимое ревью, обязательные quality/security/interop/scale, packaging/provenance и upgrade/rollback evidence до подготовки релиза |
 | 5 | Issues с label `after-v1` | После v1 продолжить общую актуализацию, косметическую очистку и независимое сопровождение v0.6; сохранить open states и release-age holds |
 
-Timer draft прошёл source review, но не скомпилирован и не выполнен. Echo draft
-содержит только будущий regression test; ожидаемый RED не запускался. Это
-незавершённая реализация. По поручению maintainer разработка возобновлена
-2026-10-20. Активная реализация P0 — bounded interface-event coalescing
-(`gobfd-qj0.8.2.2.6.3.3`); проверки и acceptance ведутся в Beads. Candidate переводит
-недоступные interface claims в pending и автоматически повторяет затронутые
-sources в сохранённом generation на Linux. Non-Linux stub не восстанавливает их
-автоматически. Отсутствие startup listener binding или overlay backend может
-помешать активации; lifecycle capabilities остаётся границей `.6.4`. Явный release-first
-приоритет заменяет прежний порядок выполнения.
+Interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`) принят локально на
+`f913050cfbd863f86ab0937972e2ec16d7e44ecf`. Linux повторяет затронутые
+pending sources в сохранённом generation; non-Linux stub этого не делает.
+Lifecycle startup listener и overlay capabilities остаётся открытым в `.6.4`.
+Активная P0-задача по peer `gobfd-qj0.8.6.6.2` имеет изолированный,
+неквалифицированный черновик BIRD recipe и validation в ветке
+`task/bird-security-20261020` на `d2798c333e8cd3fffa13523428eab0cd4d48b251`.
+Хеши source/fix и семидневная выдержка
+проверены; build образа, runtime regression, BASE/BGP interop и canonical
+quality gate для черновика не проходили. Timer draft прошёл source review, но
+не скомпилирован и не выполнен. Echo draft содержит только будущий regression
+test. Точный порядок возобновления — в [handoff](../superpowers/plans/2026-10-15-agent-handoff.md)
+и Beads. Эти черновики не подтверждают готовность релиза.
 
 Прямые release correctness/management blockers и final release owner `.8.2.6`
 имеют P0, обязательные задачи квалификации — P1. Общая актуальность стека и
