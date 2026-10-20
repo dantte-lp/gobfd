@@ -119,6 +119,9 @@ services:
     build:
       context: ../interop/bird3
       dockerfile: Containerfile
+      args:
+        VCS_REF: ${VCS_REF:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     container_name: bird3-bgp-interop
     cap_add:
       - NET_RAW

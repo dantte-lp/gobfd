@@ -61,18 +61,22 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 			code, routes, execErr := containertest.Exec(ctx, peer, []string{
 				"birdc", "-s", "/run/bird/validator.ctl", "show", "route", "table", "flows", "all",
 			})
-			return routes, code == 0 && strings.Count(routes, "BGP.as_path:") == 3, execErr
+			return routes, code == 0 && strings.Count(routes, "\tbgp_path:") == 3, execErr
 		})
 		t.Logf("validator routes:\n%s", output)
 		if err != nil {
 			t.Fatalf("receive all three iBGP FlowSpec vectors: %v", err)
 		}
 		// RFC 8956 section 5 requires a destination prefix with offset zero.
-		if got := strings.Count(output, " invalid [originator "); got != 2 {
-			t.Fatalf("invalid FlowSpec routes = %d, want 2 (nonzero offset and missing destination)", got)
-		}
-		if strings.Contains(output, " unknown [originator ") {
-			t.Fatal("FlowSpec validation remained unknown")
+		// BIRD prints the offset prefix without its first offset bits.
+		for network, want := range map[string]string{
+			"flow6 { dst 2001:db8:1::/64; }":       "",
+			"flow6 { dst 1:db8:2::/64 offset 8; }": "invalid",
+			"flow6 { src 2001:db8:3::/64; }":       "invalid",
+		} {
+			if got := flowSpecValidity(t, output, network); got != want {
+				t.Errorf("%s validity = %q, want %q", network, got, want)
+			}
 		}
 	})
 	for _, id := range resources.containerIDs {
@@ -81,4 +85,26 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 	for _, image := range resources.imageNames {
 		containertest.AssertImageRemoved(t, endpoint, image)
 	}
+}
+
+// flowSpecValidity returns the BIRD validity column of the one route for network.
+func flowSpecValidity(t *testing.T, routes, network string) string {
+	t.Helper()
+
+	var found []string
+	for line := range strings.Lines(routes) {
+		rest, ok := strings.CutPrefix(line, network+" ")
+		if !ok {
+			continue
+		}
+		validity, _, ok := strings.Cut(rest, " [originator ")
+		if !ok {
+			t.Fatalf("route line lacks originator: %q", line)
+		}
+		found = append(found, strings.TrimSpace(validity))
+	}
+	if len(found) != 1 {
+		t.Fatalf("%s routes = %d, want 1", network, len(found))
+	}
+	return found[0]
 }
