@@ -1,5 +1,114 @@
 # Дорожная карта GoBFD
 
+## Текущая очередь — 2026-10-20
+
+Статусы и зависимости находятся в Beads. Этот снимок заменяет активную очередь
+и инструкции окружения от 2026-10-15; датированные протоколы ниже подтверждают
+только указанные в них ревизии.
+
+- Принятый локальный `dev`: `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+  GitHub `dev` остаётся на `e6baa6fa416877a3caefb3e68421309578e749b0`;
+  локальный `dev` опережает его на 57 commit. Локальная приёмка не подтверждает
+  remote integration или stable delivery.
+- API/core-задачи `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` и
+  `gobfd-qj0.8.2.1.1.3` закрыты после итогового общего gate ветки
+  `task/api-validation-padding`, принятой в локальный `dev` на указанном SHA.
+  Локальный receipt: `.worktrees/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`;
+  `canonical-2560m02` содержит 25 ожидаемых top-level тестов, 142 PASS rows в
+  четырёх пакетах с race detector, все 18 lint profiles/92 linters и command,
+  container, host exit 0. Native/pinned formatter diffs пусты; vet и оба module
+  tidy checks завершились с 0, Markdown охватил 83 файла, spelling — пять
+  изменённых English inputs. Там сохранены readbacks 730 исходных файлов и
+  harness, точный cleanup. Full suite, новые peer/path-MTU, performance, soak
+  и stable qualification остаются отдельными проверками.
+- Остановка unsolicited TX `gobfd-qj0.8.2.1.10.6`, родитель `.1.10`,
+  диагностика/аутентификация `.1.2`, AdminDown drain `.1.3.3`, учёт доставки
+  `.1.3.1`, Echo Watch `.1.3.10` и восстановление после raw loss `.1.3.11`
+  приняты локально. Полная RFC-квалификация, выпуск preview как stable и
+  релизные проверки остаются отдельными задачами.
+- Delivery parent `gobfd-qj0.8.2.1.3` закрыт в границах локального контракта
+  `dev` admission/commit/drain/status после аудита приёмки одиннадцати закрытых
+  children. Typed queue admission не означает синхронный receive commit;
+  legacy events остаются best effort, telemetry вне согласованного causal
+  tuple — sampled. Отдельные владельцы interface, Micro-BFD, transport,
+  performance, combined consumers, RFC и stable остаются открытыми.
+
+| Порядок | Владелец | Требуемый результат |
+|---|---|---|
+| 1 | `.8.6.2`, `.8.6.3`, `.8.6.4`, `.8.6.6` | Принять допустимые по возрасту P0-обновления стека отдельными проверяемыми изменениями; прочитать весь диапазон release notes |
+| 2 | `.1.1.1.4.3` | Квалифицировать FRR/BIRD reload `300→100 ms`, `100→500 ms` и RX0 по пакетам, pending/applied receipts и сохранению session identity |
+| 3 | `.1.1`, `.1.4`, `.1.6`, `.2`, `.3` | Закрыть оставшиеся protocol, transport, measurement, ownership и management acceptance gates |
+| 4 | `.8.4`, `.8.2.6`, `.8.2.7`, `.8.2.8` | Закрыть stable advisory, независимое ревью, quality, packaging и нагрузочную квалификацию до подготовки релиза |
+
+Числовые приоритеты сохраняются: актуальность стека — P0, обычные RFC-задачи —
+P1, классификация API `.1.3.5` — P2, stable advisory disposition `.8.4` — P1.
+Сохраняется намеренная зависимость итоговой приёмки security `.8.2.3` P0 от
+ownership `.8.2.2` P1. Порядок выполнения не создаёт доказательства reachable
+security finding и не отменяет релизную проверку. Закрытая core-задача `.1.1.3`
+использует принятый API mapping из `.1.3.5`; padding имеет отдельные границы.
+
+GitHub API на 2026-10-20 показывает одну открытую issue
+[#88](https://github.com/dantte-lp/gobfd/issues/88) и десять открытых PR;
+их disposition отделён от локальной реализации. GitLab API подтверждает
+метаданные upstream-тега BIRD; это не источник приёмки GoBFD mirror или
+pipeline. Эта сверка не разрешает remote writes.
+
+### Очередь release notes — проверено 2026-10-20
+
+Это цели планирования, а не принятые pins или результаты совместимости.
+Порог UTC равен времени источника плюс семь полных суток. Проверяется весь
+диапазон от установленной версии до целевой, включая промежуточные релизы.
+Аудит исходников на принятом SHA охватывает 67 uses из 17 Action repositories:
+четыре eligible updates, CodeQL на hold, двенадцать уже актуальны. P0
+`gobfd-qj0.8.6.4.2` владеет четырьмя допустимыми обновлениями: десять uses,
+одна существующая workflow fixture, оба changelog и local contracts. Parent
+`.8.6.4` сохраняет hosted smoke и nested OCI provenance; adoption не подтверждён.
+
+| Компонент | Установлен → цель | Самое раннее принятие UTC | Источник и следующая проверка |
+|---|---|---|---|
+| godbus | 5.2.2 → 5.2.4 | 2026-10-20 16:01:38 | [5.2.3](https://github.com/godbus/dbus/releases/tag/v5.2.3): allocation/error hardening; [5.2.4](https://github.com/godbus/dbus/releases/tag/v5.2.4): system-bus lookup errors; NetworkManager missing-bus/cancellation tests; `gobfd-qj0.8.6.2.1` |
+| ConnectRPC | 2.0.0 → 2.0.1 | 2026-10-21 13:57:00 | [Notes](https://github.com/connectrpc/connect-go/releases/tag/v2.0.1): draining отклонённых сообщений, early responses, truncated/error envelopes; RPC/Watch/generator parity; `gobfd-qj0.8.6.10` |
+| ExaBGP | 5.0.13 → 5.0.15 | 2026-10-24 06:08:19 | [5.0.14](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.14): UPDATE/withdraw/helper; [5.0.15](https://github.com/Exa-Networks/exabgp/releases/tag/5.0.15): только CI/tests; BGP/helper regression gates; `gobfd-qj0.8.6.6.1` |
+| OSV Scanner | 2.6.0 → 2.7.0 | 2026-10-19 01:32:07 | [Notes](https://github.com/google/osv-scanner/releases/tag/v2.7.0): parser/offline/call-analysis и SBOM; число входов scan и совместимость JSON/SBOM; `gobfd-qj0.8.6.3` |
+| GoReleaser | 2.18.2 → 2.18.3 | 2026-10-16 03:27:35 | [Notes](https://github.com/goreleaser/goreleaser/releases/tag/v2.18.3): upload redirects, webhook headers, image metadata; config validation без подготовки релиза; `gobfd-qj0.8.6.3` |
+| Buf | 1.73.0 → 1.74.0 | 2026-10-21 17:36:02 | [Notes](https://github.com/bufbuild/buf/releases/tag/v1.74.0): generation/import strategy и YAML validation; generation drift, lint, breaking checks; `gobfd-qj0.8.6.3` |
+| Trivy | 0.75.0 → 0.76.0 | 2026-10-21 11:45:44 | [Notes](https://github.com/aquasecurity/trivy/releases/tag/v0.76.0): parser/CSAF и crypto classification; scan inputs и совместимость SARIF/result; `gobfd-qj0.8.6.3` |
+| goreleaser-action | 7.2.3 → 7.3.0 | 2026-10-19 17:33:04 | [Notes](https://github.com/goreleaser/goreleaser-action/releases/tag/v7.3.0), публикация 2026-10-12 17:33:04 UTC; peeled `a4f02ab5355a589de60d917a659ce617ed19b3de`: runner cache разделён по distribution и уровню checksum/cosign; Node 24 не меняется. Версии Action и GoReleaser CLI независимы; cache/verification smoke без публикации; `gobfd-qj0.8.6.4.2` |
+| download-artifact | 8.0.1 → 8.0.2 | 2026-10-14 10:09:51 | [Notes](https://github.com/actions/download-artifact/releases/tag/v8.0.2), публикация 2026-10-07 10:09:51 UTC; peeled `9000827ccba6bdab643e8b6fd33ac0654aef8333`: повторы HTTP 429 учитывают допустимый `Retry-After`; сохранить `digest-mismatch: error`, квалифицировать artifact round-trip; `gobfd-qj0.8.6.4.2` |
+| upload-artifact | 7.0.1 → 7.0.2 | 2026-10-14 10:08:14 | [Notes](https://github.com/actions/upload-artifact/releases/tag/v7.0.2), публикация 2026-10-07 10:08:14 UTC; peeled `cf430e030ddbb5b0abf93d22962f4752f3646cd9`: artifact dependency и повторы HTTP 429; обновить все семь uses и workflow fixture, квалифицировать artifact round-trip; `gobfd-qj0.8.6.4.2` |
+| scorecard-action | 2.4.4 → 2.5.0 | 2026-10-19 02:54:09 | [Notes](https://github.com/ossf/scorecard-action/releases/tag/v2.5.0), публикация 2026-10-12 02:54:09 UTC; peeled `fa7117db83c52d787ae5a89f350999701505d78e`: Scorecard 5.6.0, удаление вывода token variable и изменения results; отдельно квалифицировать SARIF/results и вложенный OCI image; `gobfd-qj0.8.6.4.2` |
+| CodeQL Action | 4.38.2 → 4.39.0 | 2026-10-22 10:57:05 | [4.38.3](https://github.com/github/codeql-action/releases/tag/v4.38.3) и [4.39.0](https://github.com/github/codeql-action/releases/tag/v4.39.0), публикация target 2026-10-15 10:57:05 UTC; peeled `6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee`: bundle selection/minimum и проверка `checkout_path`; P0 `gobfd-qj0.8.6.4.1` deferred до этого точного порога |
+
+Все шесть uses CodeQL меняются атомарно после hold и свежей проверки
+source/advisories. Требуется отдельно разрешённый disposable hosted Go
+init/autobuild/analyze и SARIF smoke; он **не выполнен**. Локальные workflow
+checks не квалифицируют hosted execution. [Buildx Action 4.4.1](https://github.com/docker/setup-buildx-action/releases/tag/v4.4.1) с
+`f87e5991a6d7451dcb8d9637bfbc97413f497069` уже установлен в локальном `dev`;
+PR [#97](https://github.com/dantte-lp/gobfd/pull/97) направлен в `master` и
+не является development gap.
+SHA Scorecard Action сохраняет ссылку на mutable nested OCI tag; registry
+digest/provenance и hosted results требуют отдельной квалификации.
+
+Для BIRD 3.4.0 нет GitHub Release `publishedAt`. Официальный
+[GitLab tag](https://gitlab.nic.cz/labs/bird/-/tags/v3.4.0) содержит
+`created_at=2026-10-12T19:10:15.000Z`, peeled commit
+`c3669497e3949b942d86d07e343092cc439b4659`; порог возраста tag channel —
+2026-10-19 19:10:15 UTC. Требуются `NEWS` 3.3.3 и 3.4.0, включая раздел
+2.20.0, затем authenticated BFD, timers, BGP и CLI parsing в
+`gobfd-qj0.8.6.6`. Истории 3.3.2 и 3.4.0 расходятся: повторение исправления
+в commit range не доказывает новую уязвимость установленного дерева.
+
+govulncheck 1.9.0 подтверждён
+[метаданными Go module](https://proxy.golang.org/golang.org/x/vuln/@v/v1.9.0.info),
+`Time=2026-10-11T03:39:53Z`; порог module channel — 2026-10-18 03:39:53 UTC.
+Старый GitHub `latestRelease` не задаёт актуальную версию этого канала.
+[Диапазон 1.8.0→1.9.0](https://github.com/golang/vuln/compare/v1.8.0...v1.9.0)
+обновляет зависимости; требуются оба tool pin sites и проверка diagnostics в
+`gobfd-qj0.8.6.3`. Tag/module timestamps отделены от Release `publishedAt`.
+Остальные OCI и vendor channels этой таблицей не перепроверены; их владельцы
+и исторические наблюдения сохранены ниже. Проверка исходников Actions не
+подтверждает adoption или hosted compatibility.
+
 Control slice `gobfd-qj0.8.2.1.3.1.1` добавляет типизированные queue outcomes,
 owner terminal reasons, stop abandonment и ограниченный process-lifetime
 ledger ListSessions/Prometheus. Get/List/Control Watch используют общие session
@@ -42,7 +151,7 @@ preview blockers остаются отдельными задачами.
 ![Следующий релиз](https://img.shields.io/badge/Next-TBD-34a853?style=for-the-badge)
 ![Цель](https://img.shields.io/badge/Target-v1.0.0-ea4335?style=for-the-badge)
 
-> Проекция состояния Beads, сверенная 2026-10-15 18:10 UTC. Реестр задач находится в
+> Историческая проекция Beads от 2026-10-15 18:10 UTC; текущий снимок выше заменяет её состояние выполнения. Реестр задач находится в
 > Beads; этот документ объясняет публичную последовательность релизов и не
 > является независимым checklist.
 
@@ -287,64 +396,9 @@ preview blockers остаются отдельными задачами.
   всё ещё не указывает исправленный диапазон GoBGP v4. Исключение для
   разработки не снимает это условие stable. 24-часовой прогон не выполнялся.
 
-Порядок очереди с 2026-10-15 с отметками принятых изменений продолжения.
-Перед обновлением читаются release notes
-всего диапазона:
-
-1. Вторые проходы по датам допуска (UTC):
-   - 2026-10-15, проход 2b: pins обновлены до
-     [client_golang v1.25.0](https://github.com/prometheus/client_golang/releases/tag/v1.25.0)
-     (13:02; минимум Go 1.26; ломающие изменения `api/prometheus/v1` не используются)
-     и [moby client v0.6.2](https://github.com/moby/moby/releases/tag/client/v0.6.2)
-     (20:07; отмена и deadline во время HTTP upgrade). Изменены восемь
-     выбранных версий модулей; размеры runtime/tools графов остаются 200/455.
-     Inventory использует явный dev observation epoch и решения deferred
-     (`.8.2.8.7.6`); старые внешние evidence не переносятся. Генерация получает
-     license responses точных версий без заявления новой проверки upstream
-     или безопасности. `.8.6.2` остаётся
-     открытой для dbus; live-квалификация Moby/Podman в этот проход не входит;
-   - 2026-10-16: GoReleaser v2.18.3 (03:28);
-   - 2026-10-18: govulncheck v1.9.0, containerlab v0.81.0 (v0.81.1 с
-     2026-10-22);
-   - 2026-10-19: osv-scanner v2.7.0, Actions, `oraclelinux:10-slim`, BIRD
-     v3.4.0, ExaBGP 5.0.14;
-   - 2026-10-20: dbus v5.2.4 (включает усиление выделения памяти из v5.2.3);
-   - 2026-10-21: connect-go v2.0.1 (`.8.6.10`), buf v1.74.0, trivy v0.76.0
-     (исправлений безопасности не указано).
-2. Выполнено 2026-10-15: P0 `.8.2.1.3.2` версионированные snapshot,
-   однозначный Get и Watch с сигналом разрыва (`9385346`, `36fbf75`, `5cd96b6`, `e85a867`, `d42553e`); `.8.2.4.1`
-   восстановление GoBGP после разрыва потока (`5cd96b6`) и демпфирование
-   только восстановления (`9fdd2c9`, `d65b994`, `35155e3`); `.8.2.4.2`
-   закрыт. События удаления `.8.2.1.3.6` и наблюдаемость демпфирования
-   `.8.2.4.7` теперь закрыты. Эпик `.8.2.4` сохраняет зависимость от `.8.2.3`.
-3. Development qualification 2026-10-16: `.8.2.1.10.5` listeners с bind к
-   интерфейсу и `.8.2.1.10.1` dual-stack capture прошли на
-   `task/unsolicited-listeners`, base `f907e8b6ef5c247d4cc9a4a175f87ca8a3e26981`,
-   source patch `6f2f3c4587ba00bee32b599acbe886fa0f014774289b7887fb7232edbba0f786`.
-   Evidence: `reports/unsolicited-listeners-wire-20261016/receipt.md`;
-   четыре Up/Up сессии без настроенных passive sessions, две IPv4 и две IPv6.
-   Stable delivery остаётся неквалифицированной. Остановка TX при natural Down
-   и failed setup `.8.2.1.10.6` использует независимое owner window,
-   сохранённое состояние RFC 5880, учёт ownership и cleanup по локальной попытке;
-   acceptance остаётся pending до закрытия родителя `.8.2.1.10`.
-   `.8.2.1.8` выполняется после решений шага 9.
-4. Выполнено: `gobfd-6de`, метрики production Compose с проверкой API
-   targets Prometheus, описанной выше.
-5. Выполнено: `.8.2.5.1`–`.8.2.5.3`, переподключение ExaBGP и HAProxy,
-   восстановление snapshot и однозначная идентичность. Родитель `.8.2.5`
-   сохраняет зависимость от `.8.2.3`.
-6. P1 `.8.2.3.3` контракт systemd по syscall, семействам адресов и FD;
-   `.8.2.3.1` готовность по компонентам.
-7. `.8.5.2.7` FRR в Containerlab с 2026-10-18; `.8.6.1` ручной Compose на
-   GoBGP v4 после `.8.6.9`.
-8. Выполнено: `gobfd-4j4`, проверки диапазона, формы списков и aliases
-   регистра для `detect_mult` до weak decoding.
-9. Решения maintainer: Oracle Linux `.8.2.8.5.2.8`; закрытие PR `#62`;
-   отправка исправления vulndb GO-2026-4736; DNS хоста `.8.6.9`; дизайн
-   listener `.8.2.1.10.5`; для `.8.2.1.8`: отклонять `AddEchoSession` без
-   запущенного Echo-приёмника или запускать приёмник для API-сессий, ключ
-   `micro_bfd.enabled`, статус возможностей в API или метриках; запуск CI на
-   push в `dev` (`gobfd-20z`).
+Текущий порядок выполнения и точные UTC-пороги указаны в датированном
+снимке в начале документа. Старые протоколы относятся только к своим
+ревизиям; текущий реестр задач находится в Beads.
 
 Выполнено до 2026-10-14 и оставлено для справки: заявление о
 поддерживаемых версиях GoBGP `gobfd-0dc` (`1381879`), наблюдаемость на
@@ -800,21 +854,26 @@ durations в generic, Echo и Micro-BFD запросах с `InvalidArgument`; �
 возвращается для клиентских интервалов, отклонённых ядром, и повторяющихся
 Micro-BFD members. Пропущенные generic/Micro интервалы сохраняют `1s`, generic
 RX zero остаётся допустимым, Echo требует явный положительный интервал.
-Классификация внутренних ошибок Manager сохранена. Приёмка отслеживается
-в Beads; проверка и применение структурно корректных таймеров Micro-BFD members
+Классификация внутренних ошибок Manager сохранена. Локальная приёмка на
+`20e951ac14e0515eda6698df7c70e7bf9ee77a32` закрывает эту ограниченную задачу;
+проверка и применение структурно корректных таймеров Micro-BFD members
 остаются в `gobfd-qj0.8.2.2.1` (M09).
 
 Задача `gobfd-qj0.8.2.1.3.3` реализует prerequisite H-09: owner-only commit
 receipts AdminDown/7, ограниченные контекстом admission в очередь и ожидание,
 one-shot `Run` и Manager fanout вне registry, ownership и lifecycle locks.
-Shutdown сохраняет commit errors и фиксированное двухсекундное окно уведомления.
-Задача остаётся открытой для H-12: повторов до успешной передачи, negotiated
-Detection Time drain и bounded I/O. Commit receipt не квалифицирует доставку.
+Принятое продолжение H-12 добавляет повторы до успешной записи, negotiated
+Detection Time notification window и bounded I/O. Фиксированное двухсекундное
+окно — историческое поведение. Один commit receipt не квалифицирует доставку.
 
-RFC core продолжается с отслеживаемых пробелов Poll/Final и Demand procedures,
-диагностик и сброса аутентификации, атомарной доставки BFD/AdminDown,
-transport demultiplexing RFC 5881/5883, authenticated padding RFC 9764 и
-fail-closed границ preview-возможностей.
+RFC core продолжается с Poll/Final, обработки remote Demand, оставшейся приёмки
+доставки, transport demultiplexing RFC 5881/5883 и fail-closed границ preview.
+Публичный padding API/CLI принят локально; core RFC/path-MTU qualification
+остаётся отдельной. Принятые core-срезы диагностики, аутентификации и padded PDU
+этой очередью не переоткрываются.
+
+Родитель `gobfd-qj0.8.2.1.2` принят локально через
+`e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; полная релизная квалификация отдельна.
 
 ### Последовательность P1
 

@@ -1,201 +1,121 @@
-# GoBFD agent handoff 2026-10-15
+# GoBFD continuation handoff
 
-Original snapshot: 2026-10-15 18:10 UTC; the continuation below supersedes
-its delivery states. Beads is the task ledger; this note tells the
-next agent where the work stands and how to run the gates on this host. The
-ordered queue and the v1.0.0 remainder live in the [roadmap](../../en/roadmap.md).
+Current execution state: 2026-10-20. Beads owns tasks, dependencies and release
+age gates. The [EN roadmap](../../en/roadmap.md) and
+[RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
+sources. Earlier 2026-10-15 receipts remain historical evidence at their named
+commits; they are not the current host runbook.
+The original handoff and its dated measurements remain in local Git:
+`git show 20e951ac14e0515eda6698df7c70e7bf9ee77a32:docs/superpowers/plans/2026-10-15-agent-handoff.md`.
 
-## Continuation after 18:10 UTC
+## Source and acceptance boundaries
 
-- Accepted code reaches local `dev@9eaa4707877505a2439039957e606fd4fdfd3a82`.
-  Twelve beads are closed: Compose metrics `gobfd-6de`; AddSession snapshot
-  `gobfd-qj0.8.2.1.3.7`; duplicate auth key ID `gobfd-qj0.8.2.1.14`;
-  revisioned deletion `gobfd-qj0.8.2.1.3.6`; companion recovery
-  `gobfd-qj0.8.2.5.1` through `gobfd-qj0.8.2.5.3`; dampening telemetry
-  `gobfd-qj0.8.2.4.7`; raw multiplier validation `gobfd-4j4`; ambiguous
-  listener binding `gobfd-8f3.8`; UDP buffer policy `gobfd-8f3.7`; logging
-  vocabulary `gobfd-8f3.9`. Parent security dependencies stay open.
-- Task worktrees and branches remain under `.worktrees/`; do not delete
-  them without approval. Current continuation evidence is under
-  `reports/session-20261015-continuation/`, ignored by Git.
-- Combined critical race/shuffle checks pass on all ten changed packages
-  at `32c75ded16ec0cc94f696ed826ea41333e09c94a`, whose source tree is identical
-  to `9eaa4707877505a2439039957e606fd4fdfd3a82`. On that accepted commit,
-  canonical lint passes all 18 profiles, all four binaries build with
-  `CGO_ENABLED=0` and `-trimpath`, and `go vet ./...`, `go mod tidy -diff`
-  and `go mod verify` pass.
-- Strict `govulncheck` at
-  `9eaa4707877505a2439039957e606fd4fdfd3a82` reports zero reachable findings,
-  zero vulnerable imported packages and two module-only findings.
-- Companion live gates qualify
-  `55e3f94ee2af82bd6cb9377de1708b9e77834341`: HAProxy 97.29 s PASS;
-  ExaBGP announce/withdraw/restore PASS. Compose metrics were qualified in
-  an isolated shared network namespace, not on the host network.
-- The unsolicited listener and preview decisions remain pending. Stable
-  v1 also retains the explicit GO-2026-4736 condition and the unrun
-  24-hour qualification; development exceptions do not lift either gate.
-- Publication target: `task/v1-runtime-recovery-20261015`. Remote `dev`
-  remains at `e6baa6fa416877a3caefb3e68421309578e749b0` as re-fetched after
-  integration. `CONTRIBUTING.md` requires a reviewed PR into `dev`; no
-  explicit waiver was found for the former handoff's direct-push recipe.
-  Even a draft PR starts the complete `go test ./... -race` in
-  `.github/workflows/build.yml`; opening it remains pending under the
-  current critical-tests-only instruction. Do not add skip markers or
-  change workflows to bypass that contract.
+- Accepted local `dev`: `20e951ac14e0515eda6698df7c70e7bf9ee77a32`.
+- GitHub `dev`: `e6baa6fa416877a3caefb3e68421309578e749b0`;
+  default `master`: `5680385679d8e03d74226b5fcde269210d63bde8`.
+  The 57 local accepted commits have not reached remote `dev` (53 before the
+  four API/core commits).
+- Accepted API/core source `task/api-validation-padding` at this `dev` SHA covers
+  `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` and
+  `gobfd-qj0.8.2.1.1.3`; all three are closed in Beads. The local acceptance
+  record is `.worktrees/api-validation-padding/reports/api-validation-padding-20261020/acceptance.md`.
+  Final `canonical-2560m02` completed at 2026-10-20 06:06 UTC: 25 expected
+  top-level critical tests, 142 PASS rows across four race-tested packages,
+  zero FAIL/SKIP/DATA RACE; all 18 canonical profiles/92 linters, command,
+  container and host exit 0. Native/pinned formatter diffs are empty; vet and
+  both module tidy checks exit 0; Markdown covers 83 files and spelling five
+  changed English inputs. The 730-file source manifest and harness were read
+  back, and exact own cleanup was verified. Attempt 01's original lint failure
+  remains preserved. This does not qualify the full suite, new peer/path-MTU,
+  benchmarks, security scans, scale/soak or stable delivery.
+- Local acceptance already covers unsolicited interface listeners and TX stop,
+  owner-acknowledged AdminDown and final-claim drain, diagnostic/authentication
+  expiry, delivery accounting, Control/Echo Watch and raw-loss convergence.
+  Preview graduation, full RFC compliance and stable delivery remain separate.
+- Delivery parent `gobfd-qj0.8.2.1.3` is closed after the source/receipt audit
+  of all eleven closed children at the accepted SHA. Its bounded contract covers
+  typed admission, owner commit/drain and causal status. Queue admission does
+  not promise synchronous RX commit; legacy events remain best effort, other
+  telemetry is sampled and arbitrary external callbacks have no universal
+  deadline. Interface, Micro-BFD, transport, performance, combined-consumer,
+  RFC and stable acceptance remain with their separate owners. This audit
+  adds no test run.
+- GitHub release `v0.6.4` is the published stable baseline. Development does
+  not create release branches, tags, drafts or release artifacts.
 
-## Original repository state (18:10 UTC)
+## Resume
 
-- Branch `dev` is the integration branch; `origin/dev` holds every commit
-  of this session. `master` and `release/v0.6` were not touched.
-- No task worktrees remain under `.worktrees/`; gate reports of this session
-  are kept locally under `reports/session-20261015/` (ignored by Git).
-- GitHub issues: #86 and #87 closed; #88 open, owned by `gobfd-5w0`.
-- GitHub CI does not run on pushes to `dev` (`gobfd-20z`); local gates are
-  the only evidence for `dev`.
+1. Read applicable `AGENTS.md`, default-branch README and current roadmap;
+   run `bd prime`, `bd ready` and inspect actual worktree state.
+2. Inspect any live gate handle before starting another job. A timeout in an
+   observer is not proof that the job stopped. Never overlap heavy Go jobs.
+3. Finish eligible P0 stack updates as separate reviewed slices. CodeQL P0
+   `gobfd-qj0.8.6.4.1` is deferred until 2026-10-22T10:57:05Z; after the hold,
+   recheck source/advisories, update all six uses atomically and obtain authorized
+   hosted init/autobuild/analyze/SARIF smoke. That smoke has not run. The four
+   eligible Actions belong to `gobfd-qj0.8.6.4.2`; parent `.8.6.4` retains
+   hosted execution and nested OCI provenance qualification.
+4. Execute `gobfd-qj0.8.2.1.1.1.4.3` against one accepted FRR/BIRD baseline.
+5. Keep changes in `.worktrees/<task>`; integrate locally only after the
+   relevant checks. Append Beads notes with `bd update --append-notes` and
+   synchronize via `bd dolt push`. Publication follows `CONTRIBUTING.md` and
+   existing authority; no new source-push authorization is implied.
 
-## Start
+## Qualified gate profile
 
-1. Read `AGENTS.md` and `README.md`, then run `bd prime` and `bd ready`.
-2. Read the roadmap sections "Ordered queue from 2026-10-15" and
-   "Remaining work before v1.0.0".
-3. Work in a worktree under `.worktrees/<task>` on a `task/<name>` branch
-   from `dev`; integrate reviewed changes locally after their bounded gates.
-   Publish a feature branch and follow `CONTRIBUTING.md` for the PR into
-   remote `dev`. Sync beads with `bd dolt pull` before and `bd dolt push`
-   after the session.
+Go and Go-owned tools run only in the exact pinned Go 1.27.2 Debian trixie
+image from the repository contract. Do not use host Go, a compiler container
+with the Podman socket, a cached keeper PID, or another project's cache.
 
-`bd ready` sorts by priority, not by the queue below. Beads that wait for a
-maintainer decision have status `blocked` (`bd list --status blocked`);
-beads that wait for a release-age date are deferred and return to
-`bd ready` on that date (`.8.2.8.5.2.7` 2026-10-18, `.8.6.6` 2026-10-19,
-`.8.6.10` 2026-10-21). The dated module and tool updates belong to the
-in-progress beads `.8.6.2` (runtime modules), `.8.6.3` (tools), `.8.6.4`
-(Actions) and `.8.6.5` (images); claim them with `bd update <id> --claim`.
+The accepted API/core source's ignored receipt directory is
+`.worktrees/api-validation-padding/reports/api-validation-padding-20261020/canonical-2560m02/`.
+Its checked-in-source snapshot and ignored `cold-gate-host.sh`,
+`cold-gate-container.sh`, `quality-commands.sh` and `harness.sha256` are
+reviewed together. Inspect the Beads memory
+`gate-ephemeral-canonical-2560m-profile-host` before adapting the profile.
+The script is not a portable bypass for another machine's resource guards.
 
-Working rules used in this program, beyond `AGENTS.md`:
+- Full profile: own hard limit 2560 MiB, high 2048 MiB, swap zero; preserve
+  parent admission, control/reserve budgets and at least 12 GiB disk admission.
+- Canonical lint remains `go run ./test/cmd/cictl lint`: all 18 profiles and
+  92 linters. Its existing child environment uses `GOMEMLIMIT=1500MiB` and
+  `GOMAXPROCS=2`; the other commands use their declared bounded environment.
+- Run only the task's critical race tests, then its required formatter, vet,
+  tidy and documentation checks. Do not substitute a partial lint invocation.
+- Inspect errors, resource-stop, timeout, OOM, missing expected test names and
+  nonempty formatter diffs prevent acceptance. Preserve every original status.
+- Cleanup only newly created exact container IDs, snapshots and runtime state.
+  Probe absence independently; engine error or timeout is not absence.
+  Preserve source, refs, reports, shared images and foreign resources.
 
-- No AI attribution in commits, pull requests, issues or files; check
-  outgoing text with the attribution grep from the global agent rules
-  (co-author trailers and "generated ... with" phrases); tool phrases such
-  as "regenerated by buf" are worded to avoid false matches.
-- Reports to the maintainer are in technical Russian with the sections
-  "Сделано / Успешно / Неуспешно / Ошибки и предупреждения".
-- A new upstream release is adopted no earlier than seven days after
-  publication; read the release notes across the whole range first.
-- Deleting branches, worktrees, images or data needs maintainer approval.
-- Add dated bead notes with `bd update --append-notes`; `--notes` replaces
-  the existing notes.
-- One test per RFC MUST of the section being changed; test every path that
-  removes a target (AdminDown, deletion) when adding delayed actions; kill
-  each new guard with a mutation before merging.
+Host memory admission failed before runtime creation during earlier attempts.
+A fresh precheck passed on 2026-10-20 after shared load dropped. Historical
+resource readings do not admit the next run. Do not restart shared services,
+change parent limits or stop foreign processes to make a guard pass.
 
-## Gate runbook on this host
+## Next protocol qualification
 
-The host resolver is split DNS, so Podman builds need a DNS override
-(`gobfd-qj0.8.6.9`), and the Compose provider is bootstrapped locally:
+`gobfd-qj0.8.2.1.1.1.4.3` owns live timer reloads: `300→100 ms`,
+`100→500 ms`, RX0, generation-qualified pending/applied receipts and unchanged
+session identity for successful ordinary changes. Lower the peer RX floor
+within the scenario so it does not mask the 100 ms transmit change; restore
+its baseline afterward. Use existing Go-owned topology, copy/reload, packet
+capture and exact-ID cleanup helpers. Run before destructive shutdown cases.
 
-Compile and run Go tools in the pinned Go container. For a Go controller
-that owns Podman through the host socket, compile the controller or test
-binary in that container first, then execute the binary on the host. The
-commands below describe the Go entrypoints; they are not permission to
-use the host Go toolchain. Worktree mounts require
-`--security-opt label=disable`; archive snapshots use `:Z` as below.
+No authenticated selective-Final-drop controller, deterministic crossed-Poll
+scheduler or remote-Demand transmitter is qualified by the existing fixtures.
+Do not replace packet evidence with counters or synthetic state. New peer
+versions require fresh command/parser/authentication qualification.
 
-```bash
-G=$HOME/.cache/gobfd-gates
-mkdir -p "$G"
-printf '[containers]\ndns_servers = ["10.196.0.39"]\n' > "$G/containers-override.conf"
-go run ./test/cmd/toolbootstrap compose --install-dir "$G" --version 5.6.0
-export GOTOOLCHAIN=go1.27.2 DOCKER_HOST=unix:///run/podman/podman.sock \
-  GOBFD_BUILD_REVISION=$(git rev-parse HEAD) \
-  CONTAINERS_CONF_OVERRIDE="$G/containers-override.conf" \
-  PODMAN_COMPOSE_PROVIDER="$G/docker-compose" PODMAN_COMPOSE_WARNING_LOGS=false \
-  DOCKER_BUILDKIT=0
-```
+## Remaining final gates
 
-Export `GOBFD_BUILD_REVISION` again after every commit: the e2e builds tag
-images with it.
-
-| Gate | Command | Last result (SHA, duration) |
-|---|---|---|
-| Unit and race | `go test -race -shuffle=on -count=1 ./...` | `d65b994`: 38 packages |
-| Lint (container only) | see below | `35155e3`: 18 profiles, 0 issues |
-| Core e2e | `go run ./test/cmd/e2ectl core` | `d42553e`: 69 s |
-| HAProxy health | `go run ./test/cmd/e2ectl haproxy-health` | `d42553e`: 81 s |
-| BGP fast failover | `go run ./test/cmd/e2ectl bgp-fast-failover` | `d65b994`: 110 s |
-| ExaBGP anycast | `go run ./test/cmd/integrationctl exabgp-anycast` | `d42553e`: 110 s |
-| BGP interop | `GOBFD_REQUIRE_PODMAN=1 TESTCONTAINERS_RYUK_DISABLED=true go test -tags interop_bgp_testcontainers -count=1 -timeout 25m -run '^TestBGPBFDTopologyTestcontainers$' ./test/interop-bgp/` | `d65b994`: 175 s |
-| RFC interop | same environment, `-tags interop_rfc_testcontainers -run '^TestRFCInteropTopologyTestcontainers$' ./test/interop-rfc/` (`e2ectl rfc` needs the dev container) | `f75c31c`: 159 s |
-| Markdown | `go run ./test/cmd/repoquality markdown --root .` (check the exit code) | `044d776`: 0 |
-
-Lint runs only in the pinned container on a `git archive` snapshot:
-
-```bash
-L=$(mktemp -d); git archive HEAD | tar -x -C "$L"
-podman run --rm --network=host -v "$L":/src:Z -w /src \
-  -v gobfd-gomod:/go/pkg/mod -v gobfd-gocache:/root/.cache \
-  golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e \
-  go run ./test/cmd/cictl lint   # expect "0 issues" 18 times
-```
-
-Protobuf code is produced by buf v1.73.0 (`Containerfile.dev`) and the
-plugins pinned in `tools/go.mod`, in the same container:
-`go build -modfile=tools/go.mod -o /tmp/bin/ google.golang.org/protobuf/cmd/protoc-gen-go connectrpc.com/connect/v2/cmd/protoc-gen-connect-go`,
-`GOBIN=/tmp/bin go install github.com/bufbuild/buf/cmd/buf@v1.73.0`, then
-`buf generate`. For `buf breaking --against '<repo>/.git#branch=dev'` from a
-worktree, mount the repository at its absolute path: the worktree `.git`
-file points there.
-
-Host notes:
-
-- The host is shared with other projects. Run gates one at a time; parallel
-  heavy work skews BFD timers in the e2e gates.
-- Keep `TESTCONTAINERS_RYUK_DISABLED=true` runs to completion: an
-  interrupted run leaves containers behind.
-- Image builds leave untagged intermediate images; remove only images whose
-  `podman history` references GoBFD, never other projects' images or
-  volumes. Keep the `gobfd-gomod` and `gobfd-gocache` volumes.
-- `cp` is aliased to `cp -i`; scripts use `command cp -f`. Do not `cd` in a
-  compound command that also edits files: edits once landed in the main
-  checkout instead of the worktree.
-
-## Next work
-
-Ordered queue (details and owners in the roadmap):
-
-1. Dated updates (UTC): client_golang v1.25.0 is eligible now; moby client
-   v0.6.2 from 2026-10-15 20:07; GoReleaser v2.18.3 from 2026-10-16;
-   govulncheck v1.9.0 and containerlab v0.81.0 from 2026-10-18 (v0.81.1 from
-   2026-10-22, Docker management-subnet fix only); osv-scanner v2.7.0,
-   Actions, `oraclelinux:10-slim`, BIRD v3.4.0, ExaBGP 5.0.14 from
-   2026-10-19; dbus v5.2.4 from 2026-10-20; connect-go v2.0.1, buf v1.74.0,
-   trivy v0.76.0 from 2026-10-21.
-2. Done: `gobfd-6de`, production Compose metrics; exact scope above.
-3. Done: `.8.2.5.1` to `.8.2.5.3`, companion recovery and identity;
-   `.8.2.1.3.6`, revisioned session deletion.
-4. Done: `.8.2.4.7`, dampening observability. Next: P1 `.8.2.3.3`
-   systemd syscall, address-family and FD contract; P1
-   `.8.2.3.1` component readiness.
-5. Security P0 `.8.2.1.10.5` and `.8.2.1.8`: blocked on the maintainer
-   decisions below.
-
-Maintainer decisions pending:
-
-- `.8.2.1.10.5`: unsolicited listener design (per-family bind with
-  `SO_BINDTODEVICE` next to the per-address listeners).
-- `.8.2.1.8`: reject `AddEchoSession` without a running Echo receiver or
-  start one for API sessions; a `micro_bfd.enabled` key; capability status
-  in the API or metrics.
-- Oracle Linux product `.8.2.8.5.2.8`; closing PR `#62`; filing the
-  GO-2026-4736 vulndb correction; host DNS `.8.6.9`; CI on pushes to `dev`
-  (`gobfd-20z`).
-
-Known open threads from this session:
-
-- `.8.2.1.3.7` is closed: Add, Get and List use the Manager snapshot and
-  report the same RFC initial receive interval.
-- H-29 stays partial until `.8.2.1.3.1` wires dropped and authentication
-  counters; C-06 stays open for drops between a session and the Manager
-  dispatcher (`.8.2.1.3.1`).
-- Epic `.8.2.3` (P0) depends on epic `.8.2.2` (P1, 13 open beads), the one
-  remaining priority inversion; it is kept on purpose.
+- Stable `GO-2026-4736` disposition under `gobfd-qj0.8.4`; the development
+  exception does not qualify stable. The Go database still lists no fixed v4
+  range in the 2026-10-20 read.
+- Ownership/reload, transport, readiness, systemd, preview boundaries and
+  committed-latency/allocation evidence remain under their Beads owners.
+- The 1,000-session 24-hour qualification, 5,000-session engineering gate,
+  final interop/security, packaging, SBOM, provenance and upgrade/rollback
+  evidence remain unqualified.
+- Local Demand initiation, affiliated Echo, S-BFD, MPLS/PW and the other
+  explicit design deferrals do not become v1 requirements through this note.

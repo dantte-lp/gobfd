@@ -1,15 +1,18 @@
 # GoBFD v1.0 Production Contract Design
 
-**Status:** Reconciled on 2026-08-27 after the v0.6.2 maintenance baseline;
-implementation not started
+**Status:** Implementation in progress; execution state reconciled on
+2026-10-20 in Beads and the [roadmap](../../en/roadmap.md). Local development
+acceptance does not establish stable release qualification.
 
 **Compatibility decision:** preserve `bfd.v1` and the current YAML schema;
 evolve them additively
 
-**GoBGP target:** prereleases develop against v4.8.0; as revalidated through
-the GitHub API and Go vulnerability database on 2026-08-27, it remains the
-latest release and is affected by `GO-2026-4736`. Stable v1 uses the first
-compatible fixed v4 release.
+**GoBGP target:** development uses the selected v4 pin in `go.mod`, currently
+v4.10.0 under the 2026-10-13 maintainer decision. The original v4.8.0 target
+is historical. Stable v1 still requires a compatible fixed v4 release and
+the explicit `GO-2026-4736` gate; the development exception is not a stable
+waiver. The Go vulnerability database still lists no fixed v4 range on
+2026-10-20: [advisory](https://vuln.go.dev/ID/GO-2026-4736).
 
 **2026-10-13 amendment (GoBGP target):** the maintainer selected GoBGP
 v4.10.0, the latest release (published 2026-10-04), in place of v4.8.0
@@ -52,7 +55,7 @@ default-off even if their API messages already exist.
   Get, List, and Watch.
 - `withdraw-routes` remains recognized for migration diagnostics but is
   rejected as unsupported. It does not become part of the v1 contract.
-- GoBGP integration moves to the v4 API. Prereleases use v4.8.0; stable v1 uses
+- GoBGP integration moves to the selected v4 API pin; stable v1 uses
   the selected fixed compatible v4. Users requiring GoBGP v3.37.0 remain on
   the maintained v0.6.x line; the v1 binary does not carry two generated
   GoBGP APIs.
@@ -285,7 +288,7 @@ the default `hard-fail` capability.
 
 ## GoBGP v4 actuator
 
-The GoBGP client initially builds against v4.8.0. Because the public API does
+The GoBGP client builds against the selected v4 pin in `go.mod`. Because the public API does
 not expose a reliable semantic version and the server does not enable gRPC
 reflection, startup performs side-effect-free calls to every required v4 RPC
 and rejects `Unimplemented` or incompatible responses. Configuration carries
@@ -414,7 +417,8 @@ socket pools, `SO_REUSEPORT`, `recvmmsg`, or a timing wheel require a measured
 post-core ADR that preserves discriminator and source-port affinity.
 
 The supported v1 envelope is qualified on a reference runner with 8 vCPU,
-8 GiB RAM, `GOMAXPROCS=8`, and Go 1.27.0. It runs 1,000 mixed IPv4/IPv6 Up
+8 GiB RAM, `GOMAXPROCS=8`, and the exact Go 1.27.2 toolchain required by
+`AGENTS.md`. It runs 1,000 mixed IPv4/IPv6 Up
 sessions for 24 hours at 100 ms TX/RX and multiplier 3, with background CPU
 load held at 80%, deterministic 0.1% random packet loss, and one intentional
 one-second blackhole every 30 minutes. Only intentional blackholes may cause a
@@ -474,7 +478,7 @@ not substituted for the qualification thresholds above.
 
 - Add owner-scoped reconciliation, profiles, pending resources, and apply
   receipts.
-- Migrate to the GoBGP v4 API, initially v4.8.0, with mTLS, retries, ownership
+- Migrate to the selected GoBGP v4 API with mTLS, retries, ownership
   receipts, and native BFD conflict checks.
 - Secure management defaults and secret-file inputs.
 - Fix ExaBGP desired/applied state across reconnect, HAProxy Watch reconnect and
@@ -483,8 +487,11 @@ not substituted for the qualification thresholds above.
 ### v1.0.0-rc.1 — evidence and packaging
 
 - Complete status, metrics, health, shutdown, and Kubernetes packaging.
-- Run the pinned FRR 10.7.0, BIRD 3.3.2, selected fixed GoBGP v4, and v4.8.0
-  regression matrices.
+- Run the reviewed, immutable FRR/BIRD peer recipes, selected fixed GoBGP v4
+  matrix and the retained FRR 10.2.5/GoBGP v4.8.0 regression lanes from the
+  acceptance contract. Regression lanes do not expand the supported product
+  baseline. A peer or dependency update requires fresh evidence; historical
+  version-specific receipts do not qualify the new baseline.
 - Complete the 24-hour scale qualification, failure drills, upgrade/rollback
   documentation, signed artifacts, provenance, and SBOM.
 
@@ -493,7 +500,7 @@ actuation defect from these gates and uses a compatible GoBGP v4 release that
 does not report `GO-2026-4736`.
 
 The release inventory is rerun after the final v0.6.2 baseline is accepted.
-Runtime and tool modules, Python lock entries, OCI images, GitHub Actions,
+Runtime and tool modules, Go-owned tools, OCI images, GitHub Actions,
 generators, interop peers, and repository-owned toolchains each require a
 channel-backed current-compatible target or an explicit reviewed exception.
 No unresolved inventory item or known release-blocking RFC compliance gap is
