@@ -1,5 +1,24 @@
 # Interoperability Testing
 
+The testcontainers BASE harness includes a source candidate `TestTimerReload`
+between the RFC baseline analysis and destructive lifecycle tests, in three
+ordered subprocess batches. It changes only test-owned FRR/BIRD configurations:
+peer RX floor 100 ms, local `300→100→500→300 ms`, then separate explicit RX0
+phases with baseline restoration. Generation-qualified JSON receipts, closed
+packet windows, session identity and text CLI counters are required evidence.
+Applied receipt publication time must follow its completing Final. Exact
+JSON/PCAP timestamps assume the testcontainers daemon and capture share one host
+realtime clock; no rounding or clock-skew allowance is applied.
+Timing requires at least 12 consecutive post-Final/convergence periodic
+intervals: each 60–125% of negotiated TX, median 75–110%. This is a scheduler
+and capture envelope, not strict RFC jitter qualification. Logs, configurations,
+frame summaries, subprocess statuses, checksums and a readback-validated PCAP
+are retained in `INTEROP_TESTCONTAINERS_ARTIFACT_DIR` before owned cleanup on
+success and failure; without an explicit directory the harness prints a retained
+temporary path. This candidate has no live acceptance receipt. Authenticated
+selective-Final loss, deterministic crossed Poll and remote Demand remain open
+under `gobfd-qj0.8.2.1.1.1.4.3`; H-05 remains partial.
+
 ![FRR BASE](https://img.shields.io/badge/FRR_BASE-10.7.1-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-3.4.0-28a745?style=for-the-badge)
 ![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)

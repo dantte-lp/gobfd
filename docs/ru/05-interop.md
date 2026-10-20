@@ -1,5 +1,24 @@
 # Тестирование совместимости
 
+В BASE testcontainers добавлен исходниковый кандидат `TestTimerReload` между
+анализом RFC baseline и разрушающими lifecycle tests: три последовательных
+subprocess batches. Меняются только тестовые копии конфигураций FRR/BIRD:
+peer RX floor 100 ms, локальные `300→100→500→300 ms`, затем отдельные фазы
+явного RX0 с восстановлением baseline. Обязательны JSON receipts точного
+поколения, замкнутые окна пакетов, неизменная идентичность сессии и счётчики
+текстового CLI. Timing требует минимум 12 последовательных periodic intervals
+после Final/convergence: каждый 60–125% negotiated TX, медиана 75–110%.
+Время публикации applied receipt должно следовать за завершающим Final.
+Точные JSON/PCAP timestamps предполагают общий realtime clock хоста для
+testcontainers-демона и захвата; округление и допуск clock skew не применяются.
+Это допуск планировщика и захвата, не строгая квалификация RFC jitter.
+Логи, конфигурации, frame summaries, статусы subprocess, checksums и PCAP с
+проверкой чтения сохраняются в `INTEROP_TESTCONTAINERS_ARTIFACT_DIR` до удаления
+своих ресурсов при успехе и ошибке; без явного каталога выводится сохраняемый
+временный путь. Live acceptance receipt отсутствует. Authenticated selective-Final
+loss, deterministic crossed Poll и remote Demand остаются открытыми в
+`gobfd-qj0.8.2.1.1.1.4.3`; H-05 остаётся partial.
+
 ![FRR BASE](https://img.shields.io/badge/FRR_BASE-10.7.1-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-3.4.0-28a745?style=for-the-badge)
 ![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)

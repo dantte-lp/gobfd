@@ -15,6 +15,10 @@
   Non-Linux stub не обеспечивает автоматическое восстановление; отсутствие startup
   listener/overlay capabilities остаётся ограничением.
 
+- Исходниковый кандидат ограниченного testcontainers-сценария timer reload
+  FRR/BIRD: generation receipts, фазовые packet timings и восстановление baseline.
+  Live acceptance, selective-Final loss, crossed Poll и remote Demand открыты.
+
 - Целевой размер PDU RFC 9764 в public API, статусе сессий и
   `gobfdctl session add --padded-pdu-size`. Ноль в API/CLI отключает padding; ноль в
   YAML-сессии наследует global default. Общие границы проверяются до сужения

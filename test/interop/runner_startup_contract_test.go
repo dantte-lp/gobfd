@@ -672,6 +672,36 @@ func installFakeCommand(t *testing.T, directory, name, mode string) string {
 func runInteropFakeCommand(mode, command string, args []string) int {
 	joined := strings.Join(args, " ")
 	switch mode {
+	case "timer-artifact-cleanup":
+		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", command+" ", joined); code != 0 { return code }
+		if command == "assertions" {
+			if strings.Contains(joined, "-test.run=^(TestTimerReload)$") { return 17 }
+			return 0
+		}
+		if command != "podman" { return 125 }
+		if fakeLabelInspect(args, joined) {
+			fmt.Fprintln(os.Stdout, "immutable-owned-id|gobfd-interop")
+			return 0
+		}
+		if joined == "logs immutable-owned-id" {
+			if os.Getenv("INTEROP_FAKE_EVIDENCE_READ_FAIL") == "true" {
+				fmt.Fprintln(os.Stderr, "secondary evidence read marker")
+				return 23
+			}
+			fmt.Fprintln(os.Stdout, `{"msg":"daemon artifact input"}`)
+			return 0
+		}
+		if joined == "exec immutable-tshark-id retain-pcap" || joined == "rm --force immutable-owned-id" { return 0 }
+		return 125
+	case "timer-batches":
+		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", joined); code != 0 {
+			return code
+		}
+		if strings.Contains(joined, "-test.run=^(TestTimerReload)$") && os.Getenv("INTEROP_FAKE_TIMER_FAIL") == "true" {
+			fmt.Fprintln(os.Stderr, "timer phase failed")
+			return 17
+		}
+		return 0
 	case "bgp-build":
 		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "podman ", joined); code != 0 {
 			return code

@@ -4,6 +4,7 @@ package interop_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,8 +56,27 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
 		registerFourPeerImageCleanup(ctx, t, endpoint, bfdFuzzImage, resources)
 		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
+		t.Setenv("INTEROP_PROJECT_NAME", projectName)
+		if strings.TrimSpace(os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR")) == "" {
+			artifactDirectory, err := os.MkdirTemp("", "gobfd-interop-artifacts-")
+			if err != nil {
+				t.Fatalf("create retained four-peer artifact directory: %v", err)
+			}
+			t.Setenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR", artifactDirectory)
+		}
+		t.Logf("retained four-peer artifacts: %s", os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR"))
+		// Register after all containers: artifacts survive assertion failures and precede exact-ID cleanup.
+		registerFourPeerArtifactCleanup(ctx, t, func(artifactCtx context.Context) {
+			logs, err := projectContainerLogs(artifactCtx, "gobfd-interop")
+			if err != nil {
+				t.Errorf("retain four-peer daemon logs: %v", err)
+			} else {
+				writeTimerArtifact(t, "daemon", "jsonl", []byte(logs))
+			}
+		}, func(artifactCtx context.Context) {
+			captureFourPeerPCAP(artifactCtx, t, resources.tshark)
+		})
 		runFourPeerAssertions(ctx, t, projectName)
-		captureFourPeerPCAP(ctx, t, resources.tshark)
 	}) {
 		t.Error("four-peer testcontainers topology failed")
 	}
@@ -69,6 +89,18 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 	}
 	for _, imageName := range resources.imageNames {
 		containertest.AssertImageRemoved(t, endpoint, imageName)
+	}
+}
+
+func registerFourPeerArtifactCleanup(ctx context.Context, t *testing.T, daemon, pcap func(context.Context)) {
+	t.Helper()
+	// Independent callbacks keep a fatal JSON write from skipping the PCAP attempt.
+	for _, collect := range []func(context.Context){pcap, daemon} {
+		t.Cleanup(func() {
+			artifactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			collect(artifactCtx)
+		})
 	}
 }
 
@@ -221,6 +253,7 @@ func startFourPeerTopology(
 			networkName: {"gobfd"},
 		},
 		Cmd: []string{"-config", "/etc/gobfd/gobfd.yml"},
+		Env: map[string]string{"GOBFD_LOG_FORMAT": "json"},
 		Files: []testcontainers.ContainerFile{{
 			HostFilePath:      filepath.Join(root, "test/interop/gobfd/gobfd.yml"),
 			ContainerFilePath: "/etc/gobfd/gobfd.yml",
@@ -497,29 +530,42 @@ func nestedObjects(root map[string]any, path ...string) []map[string]any {
 func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string) {
 	t.Helper()
 
-	functionalTests := []string{
-		"TestFRRHandshake",
-		"TestBIRD3Handshake",
-		"TestHoloHandshake",
-		"TestThoroHandshake",
-		"TestRFCCompliance",
-		"TestHoloFailureRecoveryLifecycle",
-		"TestFRRDetectionTimeout",
-		"TestBFDInvalidVectors",
-		"TestGracefulShutdown",
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatalf("resolve current interop test binary: %v", err)
 	}
-	filter := "^(" + strings.Join(functionalTests, "|") + ")$"
-	cmd := exec.CommandContext(ctx, executable, "-test.v", "-test.count=1", "-test.run="+filter)
-	cmd.Env = append(os.Environ(), "INTEROP_PROJECT_NAME="+projectName)
-	output, err := cmd.CombinedOutput()
-	t.Logf("four-peer assertion subprocess:\n%s", output)
+	err = runFourPeerAssertionBatches(ctx, executable, projectName, func(index int, output []byte, exitCode int, runErr error) {
+		writeTimerArtifact(t, fmt.Sprintf("assertions-%d", index+1), "txt",
+			fmt.Appendf(output, "\nexit_code=%d error=%v\n", exitCode, runErr))
+		t.Logf("four-peer assertion subprocess %d:\n%s", index+1, output)
+	})
 	if err != nil {
 		t.Fatalf("run four-peer Go assertions: %v", err)
 	}
+}
+
+func runFourPeerAssertionBatches(ctx context.Context, executable, projectName string, record func(int, []byte, int, error)) error {
+	// Separate processes order RFC baseline analysis before timer mutation and destructive tests.
+	batches := [][]string{
+		{"TestFRRHandshake", "TestBIRD3Handshake", "TestHoloHandshake", "TestThoroHandshake", "TestRFCCompliance"},
+		{"TestTimerReload"},
+		{"TestHoloFailureRecoveryLifecycle", "TestFRRDetectionTimeout", "TestBFDInvalidVectors", "TestGracefulShutdown"},
+	}
+	for index, names := range batches {
+		filter := "^(" + strings.Join(names, "|") + ")$"
+		cmd := exec.CommandContext(ctx, executable, "-test.v", "-test.count=1", "-test.run="+filter)
+		cmd.Env = append(os.Environ(), "INTEROP_PROJECT_NAME="+projectName)
+		output, runErr := cmd.CombinedOutput()
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		record(index, output, exitCode, runErr)
+		if runErr != nil {
+			return fmt.Errorf("assertion batch %d: %w", index+1, runErr)
+		}
+	}
+	return nil
 }
 
 func captureFourPeerPCAP(ctx context.Context, t *testing.T, tshark testcontainers.Container) {
@@ -549,7 +595,8 @@ func captureFourPeerPCAP(ctx context.Context, t *testing.T, tshark testcontainer
 	if err != nil {
 		t.Fatalf("create four-peer packet capture artifact: %v", err)
 	}
-	_, copyErr := io.Copy(output, input)
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(output, hash), input)
 	closeErr := output.Close()
 	if joinedErr := errors.Join(copyErr, closeErr); joinedErr != nil {
 		t.Fatalf("persist four-peer packet capture artifact: %v", joinedErr)
@@ -562,6 +609,16 @@ func captureFourPeerPCAP(ctx context.Context, t *testing.T, tshark testcontainer
 		t.Fatal("four-peer packet capture artifact is empty")
 	}
 	t.Logf("four-peer packet capture: %s (%d bytes)", outputPath, info.Size())
+	writeTimerArtifact(t, "pcap-checksum", "txt", []byte(fmt.Sprintf("%x  %s\n", hash.Sum(nil), filepath.Base(outputPath))))
+	if err := copyTimerConfig(ctx, "tshark-interop", outputPath, "/captures/retained.pcapng"); err != nil {
+		t.Errorf("copy saved capture for readability validation: %v", err)
+		return
+	}
+	validation, err := tsharkQueryFile(ctx, "/captures/retained.pcapng", "-Y", "bfd", "-T", "fields", "-e", "frame.number")
+	writeTimerArtifact(t, "pcap-readback", "txt", []byte(validation))
+	if err != nil || strings.TrimSpace(validation) == "" {
+		t.Errorf("saved capture readability: error=%v output=%q", err, validation)
+	}
 }
 
 func captureFourPeerLogsOnFailure(

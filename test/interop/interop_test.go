@@ -85,6 +85,13 @@ type sessionState struct {
 	LocalState      string `json:"local_state"`
 	RemoteState     string `json:"remote_state"`
 	LocalDiagnostic string `json:"local_diagnostic"`
+	LocalDiscriminator uint32 `json:"local_discriminator"`
+	RemoteDiscriminator uint32 `json:"remote_discriminator"`
+	DesiredMinTx string `json:"desired_min_tx_interval"`
+	RequiredMinRx string `json:"required_min_rx_interval"`
+	RemoteMinRx string `json:"remote_min_rx_interval"`
+	NegotiatedTx string `json:"negotiated_tx_interval"`
+	DetectionTime string `json:"detection_time"`
 }
 
 type holoLifecycleSchedule struct {
@@ -782,11 +789,15 @@ func waitThoroUp(ctx context.Context, t *testing.T, timeout time.Duration) {
 
 // tsharkQuery runs tshark on the captured pcapng file and returns stdout.
 func tsharkQuery(ctx context.Context, args ...string) (string, error) {
+	return tsharkQueryFile(ctx, "/captures/bfd.pcapng", args...)
+}
+
+func tsharkQueryFile(ctx context.Context, capturePath string, args ...string) (string, error) {
 	containerID, err := resolveProjectContainerID(ctx, "tshark-interop")
 	if err != nil {
 		return "", fmt.Errorf("tshark: resolve capture container: %w", err)
 	}
-	commandArgs := append([]string{"tshark", "-r", "/captures/bfd.pcapng"}, args...)
+	commandArgs := append([]string{"tshark", "-r", capturePath}, args...)
 	commandArgs = append([]string{"exec", containerID}, commandArgs...)
 	cmd := exec.CommandContext(ctx, "podman", commandArgs...)
 	var stdout bytes.Buffer
@@ -1105,6 +1116,8 @@ func TestParseSessionState(t *testing.T) {
 				LocalState:      "Up",
 				RemoteState:     "Up",
 				LocalDiagnostic: "None",
+				LocalDiscriminator: 101,
+				RemoteDiscriminator: 202,
 			},
 		},
 		{
