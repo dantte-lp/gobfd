@@ -17,9 +17,9 @@ The original handoff and its dated measurements remain in local Git:
 
 - Accepted implementation baseline on local `dev`:
   `1484581eb57d0bf210a4072ecb108a066ec26ad2`.
-- GitHub `dev`: `e6baa6fa416877a3caefb3e68421309578e749b0`;
-  default `master`: `5680385679d8e03d74226b5fcde269210d63bde8`.
-  This implementation baseline is 69 commits ahead of remote `dev`.
+- GitHub `dev` received the local `dev` history up to
+  `ea9d9ad0e89bc90b23424b53efbf823c2a8a3e93` on 2026-10-20; default `master`:
+  `5680385679d8e03d74226b5fcde269210d63bde8`.
 - Accepted API/core source `task/api-validation-padding` at
   `20e951ac14e0515eda6698df7c70e7bf9ee77a32` covers
   `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` and
