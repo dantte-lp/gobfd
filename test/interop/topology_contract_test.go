@@ -322,7 +322,8 @@ func TestBGPTopologyContract(t *testing.T) {
 			} `yaml:"build"`
 		}
 		var peerTopology composeRaw
-		if err := yaml.Unmarshal([]byte(readContractFile(t, peer.file, filepath.Join(root, peer.file))), &peerTopology); err != nil {
+		peerCompose := readContractFile(t, peer.file, filepath.Join(root, peer.file))
+		if err := yaml.Unmarshal([]byte(peerCompose), &peerTopology); err != nil {
 			t.Fatalf("decode %s: %v", peer.file, err)
 		}
 		node := peerTopology.Services[peer.service]

@@ -39,10 +39,14 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 			Entrypoint: []string{"bird"},
 			Cmd:        []string{"-f", "-c", "/etc/bird/validator.conf", "-s", "/run/bird/validator.ctl"},
 			Files: []testcontainers.ContainerFile{
-				{HostFilePath: filepath.Join(root, "test/interop/bird3/security/validator.conf"),
-					ContainerFilePath: "/etc/bird/validator.conf", FileMode: 0o644},
-				{HostFilePath: filepath.Join(root, "test/interop/bird3/security/originator.conf"),
-					ContainerFilePath: "/etc/bird/originator.conf", FileMode: 0o644},
+				{
+					HostFilePath:      filepath.Join(root, "test/interop/bird3/security/validator.conf"),
+					ContainerFilePath: "/etc/bird/validator.conf", FileMode: 0o644,
+				},
+				{
+					HostFilePath:      filepath.Join(root, "test/interop/bird3/security/originator.conf"),
+					ContainerFilePath: "/etc/bird/originator.conf", FileMode: 0o644,
+				},
 			},
 			HostConfigModifier: func(config *container.HostConfig) { config.NetworkMode = "none" },
 			WaitingFor: wait.ForExec([]string{"birdc", "-s", "/run/bird/validator.ctl", "show", "status"}).
