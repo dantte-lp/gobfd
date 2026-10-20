@@ -22,11 +22,24 @@ daemon; `release/v0.6` keeps GoBGP v3.37.0. The `GO-2026-4736` allowlist
 entry on `dev` is `ModuleOnly` for `github.com/osrg/gobgp/v4` and expires on
 2026-12-31; see the GoBGP v4 actuator section.
 
-**Delivery priority:** v1 follows the accepted v0.6.2 maintenance baseline and
-closes the documented RFC compliance and production-quality gaps. Every
-component is revalidated against its delivery channel at the v1 release cut;
-each component must be current-compatible or carry an explicit reviewed
-exception.
+**Delivery priority — 2026-10-20 maintainer amendment:** release v1.0.0 first;
+general dependency freshness, cosmetic refactoring and independent v0.6 follow-ups
+run afterward. Existing stable release evidence is retained; later maintenance
+backlog is not a prerequisite for v1 qualification. P0 tracks direct v1
+correctness/security/ownership blockers and final release owner
+`gobfd-qj0.8.2.6`; P1 retains mandatory qualification tasks.
+No normative, security, performance/scale, OCI or required quality gate is waived.
+Every component is revalidated against its delivery channel on the final reviewed
+v1 candidate: current-compatible target or an explicit reviewed exception with
+owner and date. A deferred upgrade is not an automatic exception.
+
+Stable-v1 security is owned by `gobfd-qj0.8.4.1`, independently of the cross-line
+advisory umbrella and v0.6 maintenance. `gobfd-qj0.8.6.11` owns the final candidate
+dependency compatibility/inventory gate. The stable GoBGP/advisory condition below
+remains unchanged. Broad Q5 inventories/wrapper cleanup may remain open after v1;
+required Sonar/security truth, performance evidence, zero-shell/Python and OCI
+policy remain in their release gates. Preview graduation is outside stable v1;
+default-off/fail-closed preview boundaries remain required before release.
 
 **2026-08-27 measurement boundary:** v0.6.2 renamed the enqueue-only receive
 benchmark to `BenchmarkRecvDecodeLookupEnqueue` and removed end-to-end packet
@@ -499,7 +512,7 @@ not substituted for the qualification thresholds above.
 actuation defect from these gates and uses a compatible GoBGP v4 release that
 does not report `GO-2026-4736`.
 
-The release inventory is rerun after the final v0.6.2 baseline is accepted.
+The release inventory is rerun against the final reviewed v1 candidate.
 Runtime and tool modules, Go-owned tools, OCI images, GitHub Actions,
 generators, interop peers, and repository-owned toolchains each require a
 channel-backed current-compatible target or an explicit reviewed exception.

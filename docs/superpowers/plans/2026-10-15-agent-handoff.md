@@ -5,6 +5,11 @@ age gates. The [EN roadmap](../../en/roadmap.md) and
 [RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
 sources. Earlier 2026-10-15 receipts remain historical evidence at their named
 commits; they are not the current host runbook.
+The maintainer's 2026-10-20 release-first direction supersedes earlier stack-first
+ordering: P0 direct v1 blockers and the final release gate, P1 qualification tasks,
+P2+ unrelated currency,
+cosmetic cleanup and separate v0.6 maintenance after v1. Required compatibility,
+security, RFC, OCI, zero-shell/Python, performance/scale and review gates remain.
 The original handoff and its dated measurements remain in local Git:
 `git show 20e951ac14e0515eda6698df7c70e7bf9ee77a32:docs/superpowers/plans/2026-10-15-agent-handoff.md`.
 
@@ -63,17 +68,17 @@ The original handoff and its dated measurements remain in local Git:
    run `bd prime`, `bd ready` and inspect actual worktree state.
 2. Inspect any live gate handle before starting another job. A timeout in an
    observer is not proof that the job stopped. Never overlap heavy Go jobs.
-3. Continue with tools `gobfd-qj0.8.6.3.3`, then patched BIRD `.8.6.6.2`;
-   Actions `.8.6.4.2` is already accepted. BIRD's recorded fix-age threshold
-   2026-10-20T15:01:43Z and godbus `.8.6.2.1` threshold 16:01:38Z have elapsed;
-   source/advisory and actual qualification gates still apply. CodeQL P0
-   `gobfd-qj0.8.6.4.1` is deferred until 2026-10-22T10:57:05Z; after the hold,
-   recheck source/advisories, update all six uses atomically and obtain authorized
-   hosted init/autobuild/analyze/SARIF smoke. That smoke has not run. Parent
-   `.8.6.4` retains hosted execution and nested OCI provenance qualification.
-4. Qualify timer draft `.1.1.1.4.3.1` against the accepted patched peer baseline;
-   retain parent `.1.1.1.4.3` gaps. Independently execute the real wrong-port
-   RED for API Echo `.1.17` before changing production senders.
+3. Select `bd ready --priority 0`, then `bd ready --priority 1`. Finish claimed
+   stable RFC/timer, transport, ownership/reload and management blockers;
+   `gobfd-qj0.8.4.1` retains the stable-v1 advisory gate. Qualify security-patched
+   BIRD `.8.6.6.2` before its dependent timer draft; broad tools `.8.6.3.3` no
+   longer blocks that peer. Serialize overlapping source/inventory edits.
+4. Qualify timer draft `.1.1.1.4.3.1` and its parent gaps against the accepted
+   patched peer. Keep previews default-off/fail-closed before v1; graduation is
+   separate. Execute an actual wrong-port RED before any API Echo `.1.17` fix.
+   General godbus/Buf/Trivy/ConnectRPC/CodeQL/ExaBGP upgrades are P2 after-v1 work
+   unless final compatibility/security audit `.8.6.11` identifies a concrete
+   release blocker. Preserve their exact age holds and adoption checks.
 5. Keep changes in `.worktrees/<task>`; integrate locally only after the
    relevant checks. Append Beads notes with `bd update --append-notes` and
    synchronize via `bd dolt push`. Publication follows `CONTRIBUTING.md` and
@@ -127,9 +132,15 @@ versions require fresh command/parser/authentication qualification.
 
 ## Remaining final gates
 
-- Stable `GO-2026-4736` disposition under `gobfd-qj0.8.4`; the development
+- Stable `GO-2026-4736` disposition under `gobfd-qj0.8.4.1`; the development
   exception does not qualify stable. The Go database still lists no fixed v4
   range in the 2026-10-20 read.
+- Final reviewed-v1-candidate inventory `.8.6.11` covers runtime/tools, OCI,
+  Actions/nested identities, generators, peers and toolchains: current-compatible
+  target or explicit reviewed owner/date exception. Scheduling changes grant no
+  waiver. Separate v0.6 maintenance and broad Q5 wrapper inventories no longer
+  block v1 qualification; their issues remain open. Q6 waits for canonical
+  implementation/review, OCI, zero-shell/Python and Sonar owners instead of Q5.
 - Ownership/reload, transport, readiness, systemd, preview boundaries and
   committed-latency/allocation evidence remain under their Beads owners.
 - The 1,000-session 24-hour qualification, 5,000-session engineering gate,

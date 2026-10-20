@@ -1,5 +1,31 @@
 # Дорожная карта GoBFD
 
+## Приоритет выпуска 1.0.0 — 2026-10-20
+
+Выпуск v1.0.0 имеет приоритет перед остальными работами. Это заменяет
+stack-first порядок от 2026-10-13 и предыдущую очередь ретро ниже.
+
+| Приоритет | Выполнить до v1 | После v1 |
+|---|---|---|
+| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, исправленный security peer, stable-v1 advisory disposition и final release gate | Общее обновление всех компонентов не является prerequisite |
+| P1 | Обязательные задачи квалификации: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, независимое ревью и release evidence | Общая очистка wrappers/assets не является prerequisite |
+| P2+ | Повысить только при отдельно доказанном release blocker | Общие runtime/tool/Action upgrades, freshness automation, semantic/wrapper inventories, assets/local-residue cleanup и независимое сопровождение v0.6 |
+
+Финальная квалификация сохраняет source-backed current-compatible dependencies
+или explicit reviewed exceptions с владельцем и датой. Смена приоритета не
+разрешает exception и не ослабляет security, RFC, performance, OCI или quality
+gates. `gobfd-qj0.8.4.1` владеет stable-v1 security отдельно от сопровождения
+v0.6; `gobfd-qj0.8.6.11` — compatibility/inventory audit финального reviewed
+candidate. Они заменяют административные v0.6/cross-line prerequisites у
+`gobfd-qj0.8.2.6`. Неуспешные обязательные gates блокируют v1; общие program
+epics с явно after-v1 children остаются открытыми и не подтверждают приёмку.
+
+Проверять `bd ready --priority 0`, затем `bd ready --priority 1`; продолжать
+claimed P0 implementation при выполненных фактических prerequisites. Не брать
+P2 freshness/cleanup при наличии исполнимой релизной работы. Истечение
+release-age hold делает upgrade допустимым, но не следующим. Очистка своих
+временных ресурсов после каждого запуска остаётся обязательной.
+
 ## Текущая очередь — 2026-10-20
 
 Статусы и зависимости находятся в Beads. Этот снимок заменяет активную очередь
@@ -49,23 +75,24 @@
 
 | Порядок | Владелец | Требуемый результат |
 |---|---|---|
-| 1 | `.8.6.3.3` | Квалифицировать допустимые scanner/release CLI/benchstat updates после принятых Actions; включить generated dependency inventory |
-| 2 | `.8.6.6.2`, `.8.6.2.1` | Квалифицировать исправленный BIRD baseline; godbus отдельно допустим по возрасту с 2026-10-20 16:01:38 UTC, свежая проверка source/advisories ещё требуется |
-| 3 | `.1.1.1.4.3.1`, `.1.17` | Скомпилировать и квалифицировать timer draft на принятом исправленном пире; отдельно выполнить actual API Echo wrong-port RED до production fix |
-| 4 | `.1.1`, `.1.4`, `.1.6`, `.2`, `.3` | Закрыть protocol, transport, measurement, ownership, readiness и systemd acceptance; сохранить preview boundaries |
-| 5 | `.8.4`, `.8.2.6`, `.8.2.7`, `.8.2.8` | Закрыть stable advisory, combined consumers, независимое ревью, quality, packaging и scale qualification до подготовки релиза |
+| 1 | `.8.4.1`, `.1.1`, `.1.4`, `.2`, `.3`, `.1.8` | Закрыть stable-v1 security, stable RFC/timer/transport и ownership/management blockers; обеспечить default-off/fail-closed preview boundaries |
+| 2 | `.8.6.6.2`, `.1.1.1.4.3.1` | Квалифицировать исправленный BIRD baseline и зависимую live timer evidence; общее обновление инструментов больше не блокирует этот peer slice |
+| 3 | `.1.6`, `.1.7`, `.8.2.6.2`, `.8.6.11` | Измерить обязательные performance/thread behavior и combined-consumer convergence; проверить compatibility и dependency inventory финального candidate |
+| 4 | `.8.2.7`, `.8.2.8.7`, `.8.2.6` | Завершить независимое ревью, обязательные quality/security/interop/scale, packaging/provenance и upgrade/rollback evidence до подготовки релиза |
+| 5 | Issues с label `after-v1` | После v1 продолжить общую актуализацию, косметическую очистку и независимое сопровождение v0.6; сохранить open states и release-age holds |
 
 Timer draft прошёл source review, но не скомпилирован и не выполнен. Echo draft
 содержит только будущий regression test; ожидаемый RED не запускался. Это
 незавершённая реализация. Большая задача разработки остаётся приостановленной;
-ретро обновляет её план без возобновления runtime implementation. Числовые
-приоритеты и существующие blocking edges сохранены.
+смена приоритетов не возобновляет runtime implementation. Явный release-first
+приоритет заменяет прежний порядок выполнения.
 
-Числовые приоритеты сохраняются: актуальность стека — P0, обычные RFC-задачи —
-P1, классификация API `.1.3.5` — P2, stable advisory disposition `.8.4` — P1.
-Сохраняется намеренная зависимость итоговой приёмки security `.8.2.3` P0 от
-ownership `.8.2.2` P1. Порядок выполнения не создаёт доказательства reachable
-security finding и не отменяет релизную проверку. Закрытая core-задача `.1.1.3`
+Прямые release correctness/management blockers и final release owner `.8.2.6`
+имеют P0, обязательные задачи квалификации — P1. Общая актуальность стека и
+cross-line advisory umbrella
+`.8.4` имеют P2, stable-v1 security `.8.4.1` — P0. Зависимость security от
+ownership сохраняется; оба release owners имеют P0. Порядок выполнения не
+создаёт reachable security finding и не отменяет релизную проверку. Закрытая `.1.1.3`
 использует принятый API mapping из `.1.3.5`; padding имеет отдельные границы.
 
 GitHub API на 2026-10-20 показывает одну открытую issue
@@ -74,11 +101,13 @@ GitHub API на 2026-10-20 показывает одну открытую issue
 метаданные upstream-тега BIRD; это не источник приёмки GoBFD mirror или
 pipeline. Эта сверка не разрешает remote writes.
 
-### Очередь release notes — проверено 2026-10-20
+### Отложенные цели актуализации — проверено 2026-10-20
 
 Это цели планирования, а не принятые pins или результаты совместимости.
 Порог UTC равен времени источника плюс семь полных суток. Проверяется весь
 диапазон от установленной версии до целевой, включая промежуточные релизы.
+Общие upgrades имеют P2 после v1, пока final compatibility/security audit не
+установит конкретный release blocker. Исправленный security BIRD остаётся P0.
 Предыдущий аудит охватывал 67 uses из 17 Action repositories. Четыре допустимых
 обновления Actions уже приняты локально в P0 `gobfd-qj0.8.6.4.2`; строки ниже
 сохраняют историю installed-to-target. Parent `.8.6.4` сохраняет hosted smoke
@@ -98,7 +127,7 @@ upstream version channels.
 | download-artifact | 8.0.1 → 8.0.2 | 2026-10-14 10:09:51 | [Notes](https://github.com/actions/download-artifact/releases/tag/v8.0.2), публикация 2026-10-07 10:09:51 UTC; peeled `9000827ccba6bdab643e8b6fd33ac0654aef8333`: повторы HTTP 429 учитывают допустимый `Retry-After`; сохранить `digest-mismatch: error`, квалифицировать artifact round-trip; `gobfd-qj0.8.6.4.2` |
 | upload-artifact | 7.0.1 → 7.0.2 | 2026-10-14 10:08:14 | [Notes](https://github.com/actions/upload-artifact/releases/tag/v7.0.2), публикация 2026-10-07 10:08:14 UTC; peeled `cf430e030ddbb5b0abf93d22962f4752f3646cd9`: artifact dependency и повторы HTTP 429; обновить все семь uses и workflow fixture, квалифицировать artifact round-trip; `gobfd-qj0.8.6.4.2` |
 | scorecard-action | 2.4.4 → 2.5.0 | 2026-10-19 02:54:09 | [Notes](https://github.com/ossf/scorecard-action/releases/tag/v2.5.0), публикация 2026-10-12 02:54:09 UTC; peeled `fa7117db83c52d787ae5a89f350999701505d78e`: Scorecard 5.6.0, удаление вывода token variable и изменения results; отдельно квалифицировать SARIF/results и вложенный OCI image; `gobfd-qj0.8.6.4.2` |
-| CodeQL Action | 4.38.2 → 4.39.0 | 2026-10-22 10:57:05 | [4.38.3](https://github.com/github/codeql-action/releases/tag/v4.38.3) и [4.39.0](https://github.com/github/codeql-action/releases/tag/v4.39.0), публикация target 2026-10-15 10:57:05 UTC; peeled `6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee`: bundle selection/minimum и проверка `checkout_path`; P0 `gobfd-qj0.8.6.4.1` deferred до этого точного порога |
+| CodeQL Action | 4.38.2 → 4.39.0 | 2026-10-22 10:57:05 | [4.38.3](https://github.com/github/codeql-action/releases/tag/v4.38.3) и [4.39.0](https://github.com/github/codeql-action/releases/tag/v4.39.0), публикация target 2026-10-15 10:57:05 UTC; peeled `6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee`: bundle selection/minimum и проверка `checkout_path`; P2 `gobfd-qj0.8.6.4.1` deferred до этого точного порога |
 
 Все шесть uses CodeQL меняются атомарно после hold и свежей проверки
 source/advisories. Требуется отдельно разрешённый disposable hosted Go
@@ -206,6 +235,9 @@ preview blockers остаются отдельными задачами.
 | Открыто | Запланировано в Beads, но ещё не принято |
 
 ## Актуальность стека и совместимость с GoBGP
+
+Следующие stack-first приоритеты от 2026-10-13 являются историческими;
+release-first policy выше заменяет их порядок выполнения и числовые приоритеты.
 
 Направление maintainer (2026-10-13): основная задача — перевести весь стек
 `dev` на последние версии компонентов и обеспечить совместимость с GoBGP.
@@ -513,6 +545,10 @@ vendor-образов).
 
 ## Оставшиеся работы до v1.0.0
 
+Числа ниже — снимки ретро до release-first смены приоритетов; они включают
+работы, теперь отмеченные `after-v1`. Использовать текущие приоритеты Beads
+и очередь выше; 154 не является числом текущих release blockers.
+
 Снимок ретро на 2026-10-20 16:10 UTC: закрыты 353 из 513 repository issues,
 49 закрыты с 2026-10-15. Это число записей tracker, включая parent closures,
 а не процент готовности или свежая runtime-проверка. Сама ограниченная задача
@@ -738,9 +774,10 @@ Milestone Beads: `gobfd-qj0.8.2` — **Открыто; baseline `dev` приня
 
 Разработка продуктовой линии v1, включая переход на GoBGP v4, ведётся в `dev`
 и не меняет границу GoBGP v3.37.0 ветки `release/v0.6`.
-Финальная квалификация `gobfd-qj0.8.2.6` зависит от `gobfd-qj0.8.1` для
-решения maintenance-задач. Это не блокирует очередь разработки v1;
-исторический publication prerequisite `gobfd-qj0.8.1.15` остаётся принятым.
+Финальная квалификация `gobfd-qj0.8.2.6` требует stable-v1 security
+`gobfd-qj0.8.4.1` и final-candidate compatibility/inventory
+`gobfd-qj0.8.6.11`; независимое сопровождение v0.6 следует после v1.
+Исторический publication prerequisite `gobfd-qj0.8.1.15` остаётся принятым.
 
 ### Сверка внешнего аудита
 
@@ -754,16 +791,15 @@ Milestone Beads: `gobfd-qj0.8.2` — **Открыто; baseline `dev` приня
 Сквозная приёмка `gobfd-qj0.8.2.6.2` объединяет семь существующих владельцев
 реализации C-06/H-31 без дублирования работы. Micro-BFD ownership
 `gobfd-qj0.8.2.2.1` явно включает общую валидацию и callbacks вне locks Manager
-(M-09/M-10). Сверка gist не изменила последовательность P0; её заменяет
-порядок 2026-10-13 выше. Приоритет companion
-recovery ниже исправлен на уже действующий P0 из Beads.
+(M-09/M-10). Release-first очередь выше заменяет прежние gist и stack-first
+порядки выполнения; таблица ниже сохраняет датированный контекст.
 
-### Последовательность P0
+### Исторический снимок поставки — 2026-10-13
 
-С 2026-10-13 эти части имеют приоритет P1 в Beads, кроме работ по
+На 2026-10-13 эти части имели приоритет P1 в Beads, кроме работ по
 безопасности (безопасные management defaults, исходящая аутентификация,
-допуск unsolicited-сессий и границы preview); впереди эпик актуальности
-стека `gobfd-qj0.8.6`.
+допуск unsolicited-сессий и границы preview); впереди была актуальность стека.
+Это не текущая карта приоритетов.
 
 | Часть поставки | Статус |
 |---|---|
