@@ -1,12 +1,12 @@
 # Interoperability Testing
 
 ![FRR BASE](https://img.shields.io/badge/FRR_BASE-10.7.1-dc3545?style=for-the-badge)
-![BIRD3](https://img.shields.io/badge/BIRD3-3.3.2-28a745?style=for-the-badge)
+![BIRD3](https://img.shields.io/badge/BIRD3-3.4.0-28a745?style=for-the-badge)
 ![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
 ![Thoro](https://img.shields.io/badge/Thoro%2Fbfd-Go-6f42c1?style=for-the-badge)
 ![tshark](https://img.shields.io/badge/tshark-Capture-1a73e8?style=for-the-badge)
 
-> Mandatory four-peer interoperability testing with Debian FRR 10.7.1, BIRD 3.3.2,
+> Mandatory four-peer interoperability testing with Debian FRR 10.7.1, BIRD 3.4.0,
 > Holo 0.9.0, and Thoro/bfd in a Podman topology with packet capture.
 >
 > **Remaining live-run blocker (2026-09-08):** the old pinned FRR `10.7.0`
@@ -119,7 +119,7 @@ graph LR
     subgraph "172.20.0.0/24 (Podman network)"
         GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
         FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
-        BIRD["BIRD 3.3.2<br/>172.20.0.30<br/>BFD protocol"]
+        BIRD["BIRD 3.4.0<br/>172.20.0.30<br/>BFD protocol"]
         HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
         LOADER["holo-config<br/>one-shot YANG loader"]
         THORO["Thoro/bfd<br/>172.20.0.60<br/>Go"]
@@ -146,9 +146,18 @@ graph LR
 | Peer | Version | Implementation | Language | Documented RFC coverage |
 |---|---:|---|---|---|
 | [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
-| [BIRD3](https://bird.network.cz/) | 3.3.2 | BFD protocol | C | 5880, 5881, 5882, 5883 |
+| [BIRD3](https://bird.network.cz/) | 3.4.0 + fix | BFD protocol | C | 5880, 5881, 5882, 5883 |
 | [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
 | [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
+
+The BIRD recipe builds tag commit `c3669497e3949b942d86d07e343092cc439b4659`
+and applies the checksum-pinned upstream fix
+[`7cf75587`](https://gitlab.nic.cz/labs/bird/-/commit/7cf75587b6f38b87849fe192bf5dfd124b7702bc)
+for CVE-2026-112112. The image records both hashes in
+`/usr/share/doc/bird/gobfd-source.txt`. `TestBIRDFlowSpecValidation`
+(`interop_testcontainers` tag) proves that an IPv6 FlowSpec destination with a
+nonzero offset is invalid. BIRD is built from source, so image SBOMs and
+package scanners do not list it.
 
 Holo uses the immutable official image digest recorded in `compose.yml`. The
 daemon starts with `holo/holod.toml`; a healthy-gated, one-shot `holo-config`
@@ -382,7 +391,7 @@ make interop-bgp
 ```
 
 The Go lifecycle creates the static network, both GoBFD instances, GoBGP
-v4.10.0, FRR 10.7.1, BIRD 3.3.2, ExaBGP 5.0.13, and tshark directly through
+v4.10.0, FRR 10.7.1, BIRD 3.4.0, ExaBGP 5.0.13, and tshark directly through
 the Podman provider. It runs the same establish, failure, route-withdrawal, and
 recovery assertions, saves a non-empty packet capture, and proves removal of
 all test-owned containers, network, and locally built images.

@@ -40,10 +40,10 @@ Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (
   recorder are available. The current control and metrics defaults are
   plaintext all-interface listeners; production deployments must isolate or
   override them and must not expose the debug endpoint publicly.
-- **Verified interop.** The base suite covers FRR 10.7.0, BIRD 3.3.2,
-  immutable Holo 0.9.0, and Thoro/bfd. Separate BGP+BFD coupling tests cover
-  GoBGP, FRR, BIRD3, and ExaBGP. Containerlab profiles cover Arista cEOS,
-  Nokia SR Linux, SONiC-VS, and VyOS.
+- **Verified interop.** The base suite covers FRR 10.7.0, BIRD 3.4.0 with
+  the CVE-2026-112112 fix, immutable Holo 0.9.0, and Thoro/bfd. Separate
+  BGP+BFD coupling tests cover GoBGP, FRR, BIRD3, and ExaBGP. Containerlab
+  profiles cover Arista cEOS, Nokia SR Linux, SONiC-VS, and VyOS.
 
 Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysis.md) and [Performance Analysis](docs/en/14-performance-analysis.md).
 
