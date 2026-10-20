@@ -1,27 +1,5 @@
 # Тестирование совместимости
 
-BASE testcontainers выполняет `TestTimerReload` между
-анализом RFC baseline и разрушающими lifecycle tests: три последовательных
-subprocess batches. Меняются только тестовые копии конфигураций FRR/BIRD:
-peer RX floor 100 ms, локальные `300→100→500→300 ms`, затем отдельные фазы
-явного RX0 с восстановлением baseline. Обязательны JSON receipts точного
-поколения, замкнутые окна пакетов, неизменная идентичность сессии и счётчики
-текстового CLI. Timing требует минимум 12 последовательных periodic intervals
-после Final/convergence: каждый 60–125% negotiated TX, медиана 75–110%.
-Время публикации applied receipt должно следовать за завершающим Final.
-Точные JSON/PCAP timestamps предполагают общий realtime clock хоста для
-testcontainers-демона и захвата; округление и допуск clock skew не применяются.
-Это допуск планировщика и захвата, не строгая квалификация RFC jitter.
-Логи, конфигурации, frame summaries, статусы subprocess, checksums и PCAP с
-проверкой чтения сохраняются в `INTEROP_TESTCONTAINERS_ARTIFACT_DIR` до удаления
-своих ресурсов при успехе и ошибке; без явного каталога выводится сохраняемый
-временный путь. Демон в testcontainers-топологии пишет логи в JSON; проверки
-логов принимают текстовую и JSON-форму. 2026-10-20 все восемь фаз пройдены с
-FRR 10.7.1 и BIRD 3.4.0 с исправлением `7cf75587`: медианы 84–91% negotiated TX
-для 100, 300 и 500 ms. Authenticated selective-Final
-loss, deterministic crossed Poll и remote Demand остаются открытыми в
-`gobfd-qj0.8.2.1.1.1.4.3`; H-05 остаётся partial.
-
 ![FRR BASE](https://img.shields.io/badge/FRR_BASE-10.7.1-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-3.4.0-28a745?style=for-the-badge)
 ![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
@@ -35,8 +13,7 @@ loss, deterministic crossed Poll и remote Demand остаются открыт�
 > `10.7.0` использует Alpine 3.22.5. BASE переведён на квалифицированный Debian
 > FRR `10.7.1`; E2E и Containerlab со старым образом нельзя запускать
 > до приёмки их миграции в Beads `gobfd-qj0.8.2.8.5.2.4`.
-> Имя vendor-образа не является исключением из запрета Alpine. Квалификация
-> обновления таймеров остаётся отдельной задачей и ещё не запускалась.
+> Имя vendor-образа не является исключением из запрета Alpine.
 
 Переключение базовых потребителей локально принято в Beads `.8.5.2.4.2.1`:
 `test/interop/compose.yml` и его testcontainers harness используют общий
@@ -272,6 +249,39 @@ sequenceDiagram
     G->>F: Control(State=AdminDown)
     Note over F: Up -> Down (Diag=NeighborDown)
 ```
+
+BASE testcontainers выполняет `TestTimerReload` между анализом RFC baseline и
+разрушающими lifecycle tests: три последовательных subprocess batches. Меняются
+только тестовые копии конфигураций FRR/BIRD: peer RX floor 100 ms, локальные
+`300→100→500→300 ms`, затем отдельные фазы явного RX0 с восстановлением baseline.
+Каждая фаза требует JSON receipts точного поколения, замкнутого окна пакетов с
+Poll и Final и публикации applied receipt после завершающего Final. Ненулевые
+фазы дополнительно требуют неизменных discriminators, состояния Up и счётчиков
+текстового CLI. Фазы RX0 требуют нулевого объявления, receipts и восстановления;
+Down после Final допускается, потому что пир может прекратить передачу: BIRD
+3.4.0 прекращает, FRR 10.7.1 продолжает. Точные JSON/PCAP timestamps
+предполагают общий realtime clock хоста для testcontainers-демона и захвата;
+округление и допуск clock skew не применяются.
+
+Timing требует минимум 12 последовательных periodic intervals GoBFD после Final.
+RFC 5880, раздел 6.8.7, ограничивает каждый интервал 75–100% negotiated TX.
+Проверка расширяет эти границы на max(2 ms, 2% TX) для задержки пробуждения
+таймера и захвата и требует, чтобы выборочное среднее лежало в пределах трёх
+стандартных ошибок от 87,5% — среднего равномерного уменьшения 0–25%, которое
+выбирает GoBFD. Логи, конфигурации, frame summaries, статусы subprocess,
+checksums и PCAP с проверкой чтения сохраняются в
+`INTEROP_TESTCONTAINERS_ARTIFACT_DIR` до удаления своих ресурсов при успехе и
+ошибке; без явного каталога выводится сохраняемый временный путь. Демон в
+testcontainers-топологии пишет логи в JSON; проверки логов принимают текстовую и
+JSON-форму.
+
+2026-10-20 все восемь фаз пройдены с FRR 10.7.1 и BIRD 3.4.0 с исправлением
+`7cf75587`. Объединённые интервалы GoBFD при 100, 300 и 500 ms (n = 35, 27, 24)
+имеют средние 89,6%, 87,4% и 86,0% negotiated TX. Критерии Колмогорова–Смирнова и
+χ² при α = 0,05 не отвергли равномерную модель 75–100%; наибольшее превышение
+100% составило 0,88 ms. Authenticated selective-Final loss, deterministic crossed
+Poll и remote Demand остаются открытыми в `gobfd-qj0.8.2.1.1.1.4.3`; H-05
+остаётся partial.
 
 ### Захват пакетов
 

@@ -1,27 +1,5 @@
 # Interoperability Testing
 
-The testcontainers BASE harness runs `TestTimerReload`
-between the RFC baseline analysis and destructive lifecycle tests, in three
-ordered subprocess batches. It changes only test-owned FRR/BIRD configurations:
-peer RX floor 100 ms, local `300→100→500→300 ms`, then separate explicit RX0
-phases with baseline restoration. Generation-qualified JSON receipts, closed
-packet windows, session identity and text CLI counters are required evidence.
-Applied receipt publication time must follow its completing Final. Exact
-JSON/PCAP timestamps assume the testcontainers daemon and capture share one host
-realtime clock; no rounding or clock-skew allowance is applied.
-Timing requires at least 12 consecutive post-Final/convergence periodic
-intervals: each 60–125% of negotiated TX, median 75–110%. This is a scheduler
-and capture envelope, not strict RFC jitter qualification. Logs, configurations,
-frame summaries, subprocess statuses, checksums and a readback-validated PCAP
-are retained in `INTEROP_TESTCONTAINERS_ARTIFACT_DIR` before owned cleanup on
-success and failure; without an explicit directory the harness prints a retained
-temporary path. The testcontainers topology runs the daemon with JSON logs;
-log assertions accept both the text and JSON forms. On 2026-10-20 all eight
-phases passed against FRR 10.7.1 and BIRD 3.4.0 with fix `7cf75587`: medians
-84–91% of the negotiated TX for 100, 300 and 500 ms. Authenticated
-selective-Final loss, deterministic crossed Poll and remote Demand remain open
-under `gobfd-qj0.8.2.1.1.1.4.3`; H-05 remains partial.
-
 ![FRR BASE](https://img.shields.io/badge/FRR_BASE-10.7.1-dc3545?style=for-the-badge)
 ![BIRD3](https://img.shields.io/badge/BIRD3-3.4.0-28a745?style=for-the-badge)
 ![Holo](https://img.shields.io/badge/Holo-0.9.0-fc8d62?style=for-the-badge)
@@ -35,8 +13,7 @@ under `gobfd-qj0.8.2.1.1.1.4.3`; H-05 remains partial.
 > image uses Alpine 3.22.5. BASE now uses qualified Debian FRR `10.7.1`;
 > E2E and Containerlab targets still using the old image must not run
 > until their migration in Beads `gobfd-qj0.8.2.8.5.2.4` is accepted.
-> A vendor image name is not an Alpine-policy exception. Timer reload
-> qualification remains separate and has not run.
+> A vendor image name is not an Alpine-policy exception.
 
 Base consumer migration is locally accepted in Beads `.8.5.2.4.2.1`:
 `test/interop/compose.yml` and its testcontainers harness use the shared
@@ -271,6 +248,38 @@ sequenceDiagram
     G->>F: Control(State=AdminDown)
     Note over F: Up -> Down (Diag=NeighborDown)
 ```
+
+The testcontainers BASE harness runs `TestTimerReload` between the RFC baseline
+analysis and destructive lifecycle tests, in three ordered subprocess batches. It
+changes only test-owned FRR/BIRD configurations: peer RX floor 100 ms, local
+`300→100→500→300 ms`, then separate explicit RX0 phases with baseline
+restoration. Every phase requires generation-qualified JSON receipts, a closed
+packet window with Poll and Final, and applied receipt publication after the
+completing Final. Nonzero phases also require unchanged discriminators, Up state
+and text CLI counters. RX0 phases require the zero advertisement, receipts and
+restoration; a Down after Final is permitted because the peer may stop
+transmitting: BIRD 3.4.0 does, FRR 10.7.1 continues. Exact JSON/PCAP timestamps
+assume the testcontainers daemon and capture share one host realtime clock; no
+rounding or clock-skew allowance is applied.
+
+Timing requires at least 12 consecutive post-Final periodic intervals sent by
+GoBFD. RFC 5880 section 6.8.7 bounds each interval to 75–100% of the negotiated
+TX. The check widens these bounds by max(2 ms, 2% of TX) for timer wakeup and
+capture latency, and requires the sample mean within three standard errors of
+87.5%, the mean of the uniform 0–25% reduction that GoBFD draws. Logs,
+configurations, frame summaries, subprocess statuses, checksums and a
+readback-validated PCAP are retained in `INTEROP_TESTCONTAINERS_ARTIFACT_DIR`
+before owned cleanup on success and failure; without an explicit directory the
+harness prints a retained temporary path. The testcontainers topology runs the
+daemon with JSON logs; log assertions accept both the text and JSON forms.
+
+On 2026-10-20 all eight phases passed against FRR 10.7.1 and BIRD 3.4.0 with fix
+`7cf75587`. Pooled GoBFD intervals at 100, 300 and 500 ms (n = 35, 27, 24) had
+means of 89.6%, 87.4% and 86.0% of the negotiated TX. Kolmogorov–Smirnov and χ²
+tests at α = 0.05 did not reject the uniform 75–100% model; the largest excess
+over 100% was 0.88 ms. Authenticated selective-Final loss, deterministic crossed
+Poll and remote Demand remain open under `gobfd-qj0.8.2.1.1.1.4.3`; H-05 remains
+partial.
 
 ### Packet Capture
 

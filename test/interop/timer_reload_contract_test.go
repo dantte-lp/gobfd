@@ -119,6 +119,16 @@ func timerContractFrames(tx uint64) ([]timerFrame, timerPhase) {
 	return frames, phase
 }
 
+// timerSpaced re-times the periodic frames with intervals cycling through percents of tx.
+func timerSpaced(frames []timerFrame, tx uint64, percents ...uint64) []timerFrame {
+	epoch := time.Unix(1, 20000000)
+	for index := 2; index < len(frames); index++ {
+		frames[index].Epoch = epoch
+		epoch = epoch.Add(time.Duration(tx*percents[(index-2)%len(percents)]/100) * time.Microsecond)
+	}
+	return frames
+}
+
 func TestTimerReloadWireEvidence(t *testing.T) {
 	t.Parallel()
 	for _, tx := range []uint64{100000, 500000} {
@@ -164,12 +174,18 @@ func TestTimerReloadWireEvidence(t *testing.T) {
 					frames[len(frames)-1].Epoch = frames[len(frames)-1].Epoch.Add(time.Duration(tx) * time.Microsecond)
 					return frames
 				}, true},
-				{"median", func(frames []timerFrame, _ *timerPhase) []timerFrame {
-					for index := 2; index < len(frames); index++ {
-						frames[index].Epoch = time.Unix(1, 20000000).Add(time.Duration(index-2) * time.Duration(tx) * time.Microsecond * 65 / 100)
-					}
-					return frames
+				{"below RFC jitter", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 65)
 				}, true},
+				{"above RFC jitter", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 103)
+				}, true},
+				{"biased mean", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 99)
+				}, true},
+				{"RFC jitter edges", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 76, 99)
+				}, false},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					t.Parallel()

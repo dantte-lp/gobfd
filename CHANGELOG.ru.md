@@ -17,8 +17,9 @@
 
 - Live-квалификация timer reload FRR/BIRD в testcontainers-топологии BASE:
   `300→100→500→300 ms` и RX0 с generation receipts, окнами пакетов Poll/Final,
-  неизменной идентичностью сессии и восстановлением baseline. Selective-Final
-  loss, crossed Poll и remote Demand остаются открытыми.
+  границами jitter RFC 5880, неизменной идентичностью сессии в ненулевых фазах
+  и восстановлением baseline. Selective-Final loss, crossed Poll и remote Demand
+  остаются открытыми.
 
 - Целевой размер PDU RFC 9764 в public API, статусе сессий и
   `gobfdctl session add --padded-pdu-size`. Ноль в API/CLI отключает padding; ноль в

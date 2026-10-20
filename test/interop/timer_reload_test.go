@@ -10,9 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -295,14 +295,14 @@ type timerPhase struct {
 type timerWireResult struct {
 	Poll, Final                     uint64
 	Intervals                       int
-	MedianMicroseconds              float64
+	MeanMicroseconds                float64
 	RemoteTX, DetectionMicroseconds uint64
 }
 
 func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult, error) {
 	var result timerWireResult
 	var previous timerFrame
-	var intervals []float64
+	var intervals []int64
 	if phase.Start >= phase.End || phase.Local == 0 || phase.Remote == 0 || len(frames) == 0 || phase.AppliedAt.IsZero() {
 		return result, fmt.Errorf("invalid/empty phase %+v: %w", phase, errTimerEvidence)
 	}
@@ -355,7 +355,7 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 			continue
 		}
 		if previous.Number != 0 {
-			intervals = append(intervals, float64(frame.Epoch.Sub(previous.Epoch))/float64(time.Microsecond))
+			intervals = append(intervals, frame.Epoch.Sub(previous.Epoch).Microseconds())
 		}
 		previous = frame
 	}
@@ -369,20 +369,27 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 	if len(intervals) < 12 {
 		return result, fmt.Errorf("stable intervals=%d, want at least 12: %w", len(intervals), errTimerEvidence)
 	}
-	expected := float64(max(phase.TX, phase.RemoteRX))
+	// RFC 5880 section 6.8.7 with DetectMult 3: each interval is the negotiated TX
+	// reduced by 0-25%. Slack covers timer wakeup and capture latency.
+	expected := int64(max(phase.TX, phase.RemoteRX))
+	low, high := expected*3/4-max(2000, expected/50), expected+max(2000, expected/50)
+	var sum int64
 	for _, interval := range intervals {
-		// Scheduler/capture envelope; this does not qualify strict RFC jitter conformance.
-		if interval < expected*0.60 || interval > expected*1.25 {
-			return result, fmt.Errorf("interval %.3f outside [%.3f,%.3f] us: %w", interval, expected*0.60, expected*1.25, errTimerEvidence)
+		if interval < low || interval > high {
+			return result, fmt.Errorf("interval %d outside [%d,%d] us: %w", interval, low, high, errTimerEvidence)
 		}
+		sum += interval
 	}
-	slices.Sort(intervals)
-	median := (intervals[(len(intervals)-1)/2] + intervals[len(intervals)/2]) / 2
-	if median < expected*0.75 || median > expected*1.10 {
-		return result, fmt.Errorf("median %.3f outside [%.3f,%.3f] us: %w", median, expected*0.75, expected*1.10, errTimerEvidence)
+	// applyJitterWithRand draws the reduction uniformly from 0..25%: mean 0.875T,
+	// standard deviation 0.075T. Reject a sample mean beyond three standard errors:
+	// |8*sum - 7*n*T| <= 3 * 8 * 0.075T * sqrt(n). Integer terms stay far below 2^53.
+	n := int64(len(intervals))
+	if deviation := 8*sum - 7*n*expected; math.Abs(float64(deviation)) > 1.8*float64(expected)*math.Sqrt(float64(n)) {
+		return result, fmt.Errorf("mean interval %d us deviates from 0.875*%d us beyond 3 standard errors (n=%d): %w",
+			sum/n, expected, n, errTimerEvidence)
 	}
 	result.Intervals = len(intervals)
-	result.MedianMicroseconds = median
+	result.MeanMicroseconds = float64(sum) / float64(n)
 	return result, nil
 }
 
