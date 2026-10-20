@@ -43,8 +43,8 @@ func TestPaddedPDULegacyBinaryCompatibility(t *testing.T) {
 				t.Fatal(err)
 			}
 			legacy := dynamicpb.NewMessage(legacyDescriptor)
-			if err := proto.Unmarshal(wire, legacy); err != nil {
-				t.Fatal(err)
+			if unmarshalErr := proto.Unmarshal(wire, legacy); unmarshalErr != nil {
+				t.Fatal(unmarshalErr)
 			}
 			if got := legacy.Get(legacyDescriptor.Fields().ByName("peer_address")).String(); got != "192.0.2.1" {
 				t.Fatalf("legacy peer = %q, want 192.0.2.1", got)
@@ -57,8 +57,8 @@ func TestPaddedPDULegacyBinaryCompatibility(t *testing.T) {
 				t.Fatal(err)
 			}
 			roundTrip := message.ProtoReflect().Type().New().Interface()
-			if err := proto.Unmarshal(wire, roundTrip); err != nil {
-				t.Fatal(err)
+			if unmarshalErr := proto.Unmarshal(wire, roundTrip); unmarshalErr != nil {
+				t.Fatal(unmarshalErr)
 			}
 			if !proto.Equal(roundTrip, message) {
 				t.Fatalf("legacy binary round trip = %v, want %v", roundTrip, message)

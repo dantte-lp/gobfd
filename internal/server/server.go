@@ -443,12 +443,9 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		return bfd.SessionConfig{}, err
 	}
 
-	paddedPduSize := req.GetPaddedPduSize()
-	if paddedPduSize > bfd.MaxPaddedPduSize {
-		return bfd.SessionConfig{}, fmt.Errorf("padded_pdu_size %d: %w", paddedPduSize, bfd.ErrInvalidPaddedPduSize)
-	}
-	if err := bfd.ValidatePaddedPduSize(uint16(paddedPduSize), auth != nil); err != nil {
-		return bfd.SessionConfig{}, fmt.Errorf("padded_pdu_size %d: %w", paddedPduSize, err)
+	paddedPduSize, err := paddedPDUSizeFromProto(req.GetPaddedPduSize(), auth != nil)
+	if err != nil {
+		return bfd.SessionConfig{}, err
 	}
 
 	desiredMinTx, err := durationFromProto(req.GetDesiredMinTxInterval())
@@ -477,10 +474,20 @@ func sessionConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.SessionConfig, er
 		DesiredMinTxInterval:  desiredMinTx,
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
-		PaddedPduSize:         uint16(paddedPduSize),
+		PaddedPduSize:         paddedPduSize,
 		Auth:                  auth,
 		AuthKeys:              authKeys,
 	}, nil
+}
+
+func paddedPDUSizeFromProto(size uint32, authenticated bool) (uint16, error) {
+	if size > bfd.MaxPaddedPduSize {
+		return 0, fmt.Errorf("padded_pdu_size %d: %w", size, bfd.ErrInvalidPaddedPduSize)
+	}
+	if err := bfd.ValidatePaddedPduSize(uint16(size), authenticated); err != nil {
+		return 0, fmt.Errorf("padded_pdu_size %d: %w", size, err)
+	}
+	return uint16(size), nil
 }
 
 func authConfigFromProto(req *bfdv1.AddSessionRequest) (bfd.Authenticator, bfd.AuthKeyStore, error) {

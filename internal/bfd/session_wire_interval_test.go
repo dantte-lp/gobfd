@@ -16,9 +16,15 @@ func TestSessionConfiguredWireIntervals(t *testing.T) {
 		wireTX, wireRX uint32
 	}{
 		{name: "TX 1ns", tx: time.Nanosecond, rx: time.Second, wantErr: ErrInvalidWireInterval, wireRX: 1_000_000},
-		{name: "TX 999ns", tx: time.Microsecond - time.Nanosecond, rx: time.Second, wantErr: ErrInvalidWireInterval, wireRX: 1_000_000},
+		{
+			name: "TX 999ns", tx: time.Microsecond - time.Nanosecond, rx: time.Second,
+			wantErr: ErrInvalidWireInterval, wireRX: 1_000_000,
+		},
 		{name: "RX 1ns", tx: time.Second, rx: time.Nanosecond, wantErr: ErrInvalidWireInterval, wireTX: 1_000_000},
-		{name: "RX 999ns", tx: time.Second, rx: time.Microsecond - time.Nanosecond, wantErr: ErrInvalidWireInterval, wireTX: 1_000_000},
+		{
+			name: "RX 999ns", tx: time.Second, rx: time.Microsecond - time.Nanosecond,
+			wantErr: ErrInvalidWireInterval, wireTX: 1_000_000,
+		},
 		{name: "zero TX", rx: time.Second, wantErr: ErrInvalidTxInterval},
 		{name: "negative TX", tx: -time.Nanosecond, rx: time.Second, wantErr: ErrInvalidTxInterval},
 		{name: "negative RX", tx: time.Second, rx: -time.Nanosecond, wantErr: ErrInvalidRxInterval},
@@ -64,14 +70,16 @@ func TestSessionConfiguredWireIntervals(t *testing.T) {
 			peer.State, peer.YourDiscriminator, peer.Poll = StateInit, 42, true
 			sess.handleRecvPacket(t.Context(), recvItem{pkt: *peer}, tx, detect)
 			if sess.State() != StateUp || len(sender.packets) == 0 {
-				t.Fatalf("Init/Poll did not produce an Up advertisement: state = %s, packets = %d", sess.State(), len(sender.packets))
+				t.Fatalf("Init/Poll did not produce an Up advertisement: state = %s, packets = %d",
+					sess.State(), len(sender.packets))
 			}
 			var wire ControlPacket
 			if err := UnmarshalControlPacket(sender.packets[len(sender.packets)-1], &wire); err != nil {
 				t.Fatal(err)
 			}
 			if wire.State != StateUp || wire.DesiredMinTxInterval != tt.wireTX || wire.RequiredMinRxInterval != tt.wireRX {
-				t.Fatalf("Up wire state/TX/RX = %s/%d/%d, want Up/%d/%d", wire.State, wire.DesiredMinTxInterval, wire.RequiredMinRxInterval, tt.wireTX, tt.wireRX)
+				t.Fatalf("Up wire state/TX/RX = %s/%d/%d, want Up/%d/%d",
+					wire.State, wire.DesiredMinTxInterval, wire.RequiredMinRxInterval, tt.wireTX, tt.wireRX)
 			}
 			if tt.wantErr != nil {
 				t.Errorf("accepted configured TX/RX = %s/%s emitted Up wire TX/RX = %d/%d; want rejection with %v",
