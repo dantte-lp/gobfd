@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bounded Linux interface-event reconciliation: affected sources become pending
+  without releasing old claims and retry automatically in the retained generation.
+  Notification loss requests an inventory resync. The non-Linux stub provides no
+  automatic recovery; absent startup listener/overlay capabilities remain a limit.
+
 - RFC 9764 padded PDU targets in the public API, session status and
   `gobfdctl session add --padded-pdu-size`. API/CLI zero disables padding;
   YAML session zero inherits the global default. Shared bounds apply before

@@ -300,6 +300,8 @@ func startInterfaceMonitor(
 	ctx context.Context,
 	g *errgroup.Group,
 	mgr *bfd.Manager,
+	sf declarativeSenderFactory,
+	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
 	mon, err := netio.NewInterfaceMonitor(logger)
@@ -321,24 +323,17 @@ func startInterfaceMonitor(
 		return mon.Run(ctx)
 	})
 
+	queue := newInterfaceEventCoalescer()
 	g.Go(func() error {
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case ev, ok := <-mon.Events():
-				if !ok {
-					return nil
-				}
-				affected := mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
-				logger.Debug("interface event processed",
-					slog.String("interface", ev.IfName),
-					slog.Int("ifindex", ev.IfIndex),
-					slog.Bool("up", ev.Up),
-					slog.Int("affected_sessions", affected),
-				)
-			}
-		}
+		consumeInterfaceEvents(ctx, mon.Events(), mgr, coordinator, queue, logger)
+		return nil
+	})
+	g.Go(func() error {
+		coordinator.runInterfaceReconciliation(ctx, queue, netio.CheckInterfacesAvailable,
+			func(ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate) sourceApplyResult {
+				return applyCompiledSource(ctx, source, candidate, mgr, sf, logger)
+			})
+		return nil
 	})
 }
 

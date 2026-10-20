@@ -261,6 +261,14 @@ aggregate `pending`/`failed`, and per-source `created`, `released`, `pending`,
 `failed`, and bounded error-code counts. Raw error text may appear only in that
 immediate event; it is not retained in the runtime snapshot or used as a label.
 
+Linux interface events update these same receipts without advancing the desired
+generation. Unavailable dependencies make readiness stale and sources pending;
+successful automatic retry can restore convergence. Duplicate receipts do not
+emit another event. Netlink receive overflow logs a resync request; a full event
+channel retains that request until it can be delivered. Queue size is fixed,
+independent of event volume. This does not prove that an absent startup listener
+or overlay backend can be activated. Non-Linux stubs do not auto-retry.
+
 ### Flight Recorder
 
 `runtime/trace.FlightRecorder` captures a rolling window of execution traces for post-mortem debugging:

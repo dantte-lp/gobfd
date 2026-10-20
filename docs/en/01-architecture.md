@@ -201,10 +201,17 @@ six sources: base, Echo, Micro-BFD group, Micro-BFD member, VXLAN, and Geneve.
 The applied generation advances only when every source converges. A partial
 pass preserves the last applied generation, marks the snapshot stale, and does
 not roll back changes already accepted by another source. A later SIGHUP is an
-explicit new generation and can converge the runtime. Pending remains zero
-until a future owner provides typed retryable errors and automatic retry; the
-current runtime failures, including a missing non-empty overlay backend, are
-reported as failed without string or errno classification.
+explicit new generation and can converge the runtime. Unavailable interface
+claims become `pending` after whole-source preflight without releasing old
+claims. Linux link up/down/delete events trigger generation-scoped preflight
+and retry of affected pending sources. A fixed source mask and capacity-one
+wake-up coalesce events; stale generations and converged-source retries are
+discarded. Netlink or channel overflow requests a complete inventory resync.
+The monitor owns channel closure; cancellation stops the consumer and worker.
+The non-Linux stub emits no events and provides no automatic recovery.
+Missing startup listener bindings or overlay backends can still prevent
+activation; this does not dynamically create those capabilities. Other runtime
+failures remain `failed`, without string or errno classification.
 
 The empty-service gRPC health check is `NOT_SERVING` before the first converged
 generation and while desired differs from applied; it returns `SERVING` after

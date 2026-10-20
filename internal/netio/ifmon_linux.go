@@ -28,10 +28,11 @@ var (
 
 // LinuxInterfaceMonitor watches Linux rtnetlink link notifications.
 type LinuxInterfaceMonitor struct {
-	fd        int
-	events    chan InterfaceEvent
-	logger    *slog.Logger
-	closeOnce sync.Once
+	fd            int
+	events        chan InterfaceEvent
+	logger        *slog.Logger
+	closeOnce     sync.Once
+	resyncPending bool
 }
 
 // NewInterfaceMonitor creates the platform default interface monitor.
@@ -81,18 +82,25 @@ func (m *LinuxInterfaceMonitor) Run(ctx context.Context) error {
 	m.logger.Info("linux netlink interface monitor started")
 	defer close(m.events)
 
+	runCtx, cancel := context.WithCancel(ctx)
+	closed := make(chan struct{})
 	go func() {
-		<-ctx.Done()
+		defer close(closed)
+		<-runCtx.Done()
 		if err := m.Close(); err != nil {
 			m.logger.Warn("failed to close netlink socket on context cancellation",
 				slog.String("error", err.Error()),
 			)
 		}
 	}()
+	defer func() {
+		cancel()
+		<-closed
+	}()
 
 	buf := make([]byte, netlinkReadBufferSize)
 	for {
-		n, _, err := unix.Recvfrom(m.fd, buf, 0)
+		n, _, flags, _, err := unix.Recvmsg(m.fd, buf, nil, 0)
 		if err != nil {
 			continueReading, recvErr := m.handleReceiveError(ctx, err)
 			if recvErr != nil {
@@ -105,7 +113,12 @@ func (m *LinuxInterfaceMonitor) Run(ctx context.Context) error {
 			continue
 		}
 
+		if flags&unix.MSG_TRUNC != 0 {
+			m.requestResync()
+			continue
+		}
 		if err := m.handleNetlinkBuffer(buf[:n]); err != nil {
+			m.requestResync()
 			m.logger.Warn("failed to parse netlink link event",
 				slog.String("error", err.Error()),
 			)
@@ -120,9 +133,11 @@ func (m *LinuxInterfaceMonitor) handleReceiveError(ctx context.Context, err erro
 
 		return false, nil //nolint:nilerr // Cancellation and EBADF are normal monitor shutdown signals.
 	case errors.Is(err, unix.EINTR), errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EWOULDBLOCK):
+		m.flushResync()
 		return true, nil
 	case errors.Is(err, unix.ENOBUFS):
-		m.logger.Warn("netlink receive buffer overflow; interface state may need resync")
+		m.logger.Warn("netlink receive buffer overflow; requesting interface resync")
+		m.requestResync()
 
 		return true, nil
 	default:
@@ -154,6 +169,14 @@ func (m *LinuxInterfaceMonitor) handleNetlinkBuffer(buf []byte) error {
 		return fmt.Errorf("parse netlink messages: %w", err)
 	}
 	for _, msg := range msgs {
+		if m.resyncPending {
+			m.flushResync()
+			continue
+		}
+		if msg.Header.Type == syscall.NLMSG_OVERRUN {
+			m.requestResync()
+			continue
+		}
 		ev, ok, err := linkEventFromNetlinkMessage(msg)
 		if err != nil {
 			return err
@@ -164,13 +187,27 @@ func (m *LinuxInterfaceMonitor) handleNetlinkBuffer(buf []byte) error {
 		select {
 		case m.events <- ev:
 		default:
-			m.logger.Warn("interface event channel full, dropping event",
-				slog.String("interface", ev.IfName),
-				slog.Bool("up", ev.Up),
-			)
+			m.resyncPending = true
 		}
 	}
+	m.flushResync()
 	return nil
+}
+
+func (m *LinuxInterfaceMonitor) requestResync() {
+	m.resyncPending = true
+	m.flushResync()
+}
+
+func (m *LinuxInterfaceMonitor) flushResync() {
+	if !m.resyncPending {
+		return
+	}
+	select {
+	case m.events <- InterfaceEvent{Resync: true}:
+		m.resyncPending = false
+	default:
+	}
 }
 
 func linkEventFromNetlinkMessage(msg syscall.NetlinkMessage) (InterfaceEvent, bool, error) {

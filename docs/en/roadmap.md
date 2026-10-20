@@ -83,8 +83,13 @@ evidence only for their named revision.
 
 The timer draft is source-reviewed, uncompiled and unexecuted. The Echo draft
 contains only the prospective regression test; its expected RED has not run.
-These are pending implementations, not completed features. The broad development
-goal remains paused; the priority update does not resume runtime implementation.
+These are pending implementations, not completed features. The maintainer resumed
+development on 2026-10-20. The active P0 implementation is bounded interface-event
+coalescing (`gobfd-qj0.8.2.2.6.3.3`); its gates and acceptance remain in Beads.
+The candidate makes unavailable interface claims pending and retries affected
+sources automatically in the retained generation on Linux. The non-Linux stub
+has no automatic recovery. An absent startup listener binding or overlay backend
+can still prevent activation; capability lifecycle remains the `.6.4` boundary.
 The explicit release-first priority replaces the previous execution order.
 
 Direct release correctness/management blockers and final release owner `.8.2.6`

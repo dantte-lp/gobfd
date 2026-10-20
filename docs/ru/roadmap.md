@@ -83,8 +83,13 @@ release-age hold делает upgrade допустимым, но не следу
 
 Timer draft прошёл source review, но не скомпилирован и не выполнен. Echo draft
 содержит только будущий regression test; ожидаемый RED не запускался. Это
-незавершённая реализация. Большая задача разработки остаётся приостановленной;
-смена приоритетов не возобновляет runtime implementation. Явный release-first
+незавершённая реализация. По поручению maintainer разработка возобновлена
+2026-10-20. Активная реализация P0 — bounded interface-event coalescing
+(`gobfd-qj0.8.2.2.6.3.3`); проверки и acceptance ведутся в Beads. Candidate переводит
+недоступные interface claims в pending и автоматически повторяет затронутые
+sources в сохранённом generation на Linux. Non-Linux stub не восстанавливает их
+автоматически. Отсутствие startup listener binding или overlay backend может
+помешать активации; lifecycle capabilities остаётся границей `.6.4`. Явный release-first
 приоритет заменяет прежний порядок выполнения.
 
 Прямые release correctness/management blockers и final release owner `.8.2.6`

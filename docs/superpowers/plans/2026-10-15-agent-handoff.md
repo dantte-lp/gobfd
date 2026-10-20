@@ -59,8 +59,9 @@ The original handoff and its dated measurements remain in local Git:
   absolute paths in the original receipts are unchanged. Timer/Echo drafts,
   two nonancestor variants and two container-bound trees remain. Neither draft
   is compiled or executed. Cleanup does not close broader hygiene owners.
-- The broad development goal remains paused. This retrospective updates Beads
-  and documentation; it does not resume implementation or authorize publication.
+- The maintainer resumed development on 2026-10-20. The active P0 implementation
+  is bounded interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`). Beads records
+  its verification and acceptance; this does not authorize release publication.
 
 ## Resume
 

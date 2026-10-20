@@ -146,8 +146,7 @@ func runServers(
 	// from the internal rawNotifyCh to the public StateChanges channel.
 	// Also handles micro-BFD aggregate state dispatch (RFC 7130).
 	startManagerDispatch(gCtx, g, mgr)
-
-	startInterfaceMonitor(gCtx, g, mgr, logger)
+	startInterfaceMonitor(gCtx, g, mgr, sf, coordinator, logger)
 
 	// Start BFD packet listeners and receivers for incoming packets.
 	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, logger)

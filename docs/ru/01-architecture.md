@@ -228,10 +228,17 @@ member, VXLAN и Geneve. Applied generation продвигается тольк�
 всех sources. Частичный проход сохраняет последнее applied generation,
 помечает snapshot как stale и не откатывает изменения, уже принятые другим
 source. Следующий SIGHUP создаёт явное новое generation и может привести runtime
-к convergence. Pending остаётся нулём, пока будущий owner не предоставит
-типизированные retryable errors и автоматический retry; текущие runtime failures,
-включая отсутствие backend для непустого overlay, учитываются как failed без
-классификации по строкам или errno.
+к convergence. Недоступные interface claims переходят в `pending` после
+preflight всего source без освобождения старых claims. Linux link up/down/delete
+events запускают проверку и retry затронутых pending sources в том же generation.
+Фиксированная маска sources и wake-up channel ёмкостью один объединяют события;
+устаревшие generations и retry converged sources отбрасываются. Переполнение
+netlink или канала запрашивает полную сверку интерфейсов. Monitor закрывает
+канал; отмена контекста завершает consumer и worker. Non-Linux stub не выдаёт
+событий и не обеспечивает автоматическое восстановление. Отсутствие startup
+listener binding или overlay backend по-прежнему может помешать активации;
+динамического создания этих capabilities нет. Остальные runtime failures
+учитываются как `failed` без классификации по строкам или errno.
 
 Проверка gRPC health с пустым service возвращает `NOT_SERVING` до первого
 converged generation и пока desired отличается от applied; после convergence

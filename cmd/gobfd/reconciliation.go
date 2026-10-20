@@ -161,10 +161,11 @@ type reconciliationCoordinator struct {
 	hasRetainedCandidate bool
 	timerUpdates         []bfd.TimerUpdateRef
 
-	statusMu          sync.RWMutex
-	snapshot          reconciliationSnapshot
-	startup           startupRuntimeContract
-	onConfiguredPeers func([]netip.Addr)
+	statusMu              sync.RWMutex
+	snapshot              reconciliationSnapshot
+	startup               startupRuntimeContract
+	onConfiguredPeers     func([]netip.Addr)
+	interfaceDependencies [sourceCount][]string
 
 	logger  *slog.Logger
 	checker *grpchealth.StaticChecker
@@ -252,6 +253,9 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	generation := c.snapshot.DesiredGeneration + 1
 	c.snapshot.DesiredGeneration = generation
 	c.snapshot.Stale = true
+	for i, source := range reconciliationSources() {
+		c.interfaceDependencies[i] = compiledSourceInterfaceDependencies(source, retainedCandidate)
+	}
 	c.statusMu.Unlock()
 	c.setReady(false)
 

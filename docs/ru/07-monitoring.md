@@ -252,6 +252,14 @@ threshold продолжает действовать, поэтому INFO event
 Raw error text может появиться только в этом непосредственном event; он не
 сохраняется в runtime snapshot и не используется как label.
 
+Linux interface events обновляют эти же receipts без смены desired generation.
+Недоступные зависимости делают readiness stale и sources pending; успешный
+автоматический retry восстанавливает convergence. Одинаковые receipts не
+создают повторных events. Переполнение netlink записывает запрос resync в журнал;
+заполненный канал сохраняет запрос до доставки. Размер очереди фиксирован и не
+зависит от количества событий. Это не доказывает активацию отсутствующего startup
+listener или overlay backend. Non-Linux stub не выполняет автоматический retry.
+
 ### Flight Recorder
 
 `runtime/trace.FlightRecorder` захватывает скользящее окно трассировок выполнения для post-mortem отладки:

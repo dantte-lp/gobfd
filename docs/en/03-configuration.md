@@ -772,6 +772,14 @@ On reload:
    `SERVING`, only if all six converge
 
 `log.level` applies immediately after the complete candidate passes validation.
+On Linux, an existing but down configured interface produces `pending` after
+whole-source availability preflight. Link events retry affected pending sources
+against the retained generation automatically; another SIGHUP is not required.
+Repeated events coalesce and do not replay converged sources. Netlink loss
+requests a full interface resync. The non-Linux stub provides no automatic
+retry. A completely absent startup listener binding or overlay backend can
+still prevent activation; interface retry does not open new runtime bindings.
+
 The six desired sets reconcile session/group membership. Control, Echo, and
 Micro-BFD entries may be added, removed, or re-keyed when they reuse a transport
 binding opened at startup. VXLAN and Geneve entries may be removed, but adding

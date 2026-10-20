@@ -775,6 +775,15 @@ kill -HUP $(pidof gobfd)
    sources. Applied продвигается до desired, а health пустого service становится
    `SERVING`, только если все шесть sources converged
 
+На Linux существующий, но выключенный настроенный интерфейс приводит к `pending`
+после preflight всего source. Link events автоматически повторяют применение
+затронутых pending sources в сохранённом generation без второго SIGHUP.
+Повторные события объединяются и не применяют converged sources повторно.
+Потеря netlink events запрашивает полную сверку интерфейсов. Non-Linux stub
+не обеспечивает автоматический retry. Полностью отсутствующий startup listener
+binding или overlay backend по-прежнему может помешать активации; interface
+retry не открывает новые runtime bindings.
+
 `log.level` применяется сразу после полной валидации candidate. Шесть desired
 sets реконсилируют membership sessions/groups. Записи control, Echo и Micro-BFD
 можно добавлять, удалять или re-key при повторном использовании transport binding,

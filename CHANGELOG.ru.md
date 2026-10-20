@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Ограниченная обработка Linux interface events: затронутые sources становятся
+  pending без освобождения старых claims и автоматически повторяют применение
+  в сохранённом generation. Потеря событий запрашивает полную сверку интерфейсов.
+  Non-Linux stub не обеспечивает автоматическое восстановление; отсутствие startup
+  listener/overlay capabilities остаётся ограничением.
+
 - Целевой размер PDU RFC 9764 в public API, статусе сессий и
   `gobfdctl session add --padded-pdu-size`. Ноль в API/CLI отключает padding; ноль в
   YAML-сессии наследует global default. Общие границы проверяются до сужения

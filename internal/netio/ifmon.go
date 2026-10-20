@@ -13,6 +13,9 @@ import (
 // These events are used by the BFD session manager to detect link failures
 // and trigger immediate session teardown (faster than detection timer expiry).
 type InterfaceEvent struct {
+	// Resync requests a complete interface inventory after notification loss.
+	Resync bool
+
 	// IfName is the network interface name (e.g., "eth0", "bond0").
 	IfName string
 
