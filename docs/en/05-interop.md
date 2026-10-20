@@ -1,6 +1,6 @@
 # Interoperability Testing
 
-The testcontainers BASE harness includes a source candidate `TestTimerReload`
+The testcontainers BASE harness runs `TestTimerReload`
 between the RFC baseline analysis and destructive lifecycle tests, in three
 ordered subprocess batches. It changes only test-owned FRR/BIRD configurations:
 peer RX floor 100 ms, local `300→100→500→300 ms`, then separate explicit RX0
@@ -15,7 +15,10 @@ and capture envelope, not strict RFC jitter qualification. Logs, configurations,
 frame summaries, subprocess statuses, checksums and a readback-validated PCAP
 are retained in `INTEROP_TESTCONTAINERS_ARTIFACT_DIR` before owned cleanup on
 success and failure; without an explicit directory the harness prints a retained
-temporary path. This candidate has no live acceptance receipt. Authenticated
+temporary path. The testcontainers topology runs the daemon with JSON logs;
+log assertions accept both the text and JSON forms. On 2026-10-20 all eight
+phases passed against FRR 10.7.1 and BIRD 3.4.0 with fix `7cf75587`: medians
+84–91% of the negotiated TX for 100, 300 and 500 ms. Authenticated
 selective-Final loss, deterministic crossed Poll and remote Demand remain open
 under `gobfd-qj0.8.2.1.1.1.4.3`; H-05 remains partial.
 

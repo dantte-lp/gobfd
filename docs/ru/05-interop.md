@@ -1,6 +1,6 @@
 # Тестирование совместимости
 
-В BASE testcontainers добавлен исходниковый кандидат `TestTimerReload` между
+BASE testcontainers выполняет `TestTimerReload` между
 анализом RFC baseline и разрушающими lifecycle tests: три последовательных
 subprocess batches. Меняются только тестовые копии конфигураций FRR/BIRD:
 peer RX floor 100 ms, локальные `300→100→500→300 ms`, затем отдельные фазы
@@ -15,7 +15,10 @@ testcontainers-демона и захвата; округление и допу�
 Логи, конфигурации, frame summaries, статусы subprocess, checksums и PCAP с
 проверкой чтения сохраняются в `INTEROP_TESTCONTAINERS_ARTIFACT_DIR` до удаления
 своих ресурсов при успехе и ошибке; без явного каталога выводится сохраняемый
-временный путь. Live acceptance receipt отсутствует. Authenticated selective-Final
+временный путь. Демон в testcontainers-топологии пишет логи в JSON; проверки
+логов принимают текстовую и JSON-форму. 2026-10-20 все восемь фаз пройдены с
+FRR 10.7.1 и BIRD 3.4.0 с исправлением `7cf75587`: медианы 84–91% negotiated TX
+для 100, 300 и 500 ms. Authenticated selective-Final
 loss, deterministic crossed Poll и remote Demand остаются открытыми в
 `gobfd-qj0.8.2.1.1.1.4.3`; H-05 остаётся partial.
 

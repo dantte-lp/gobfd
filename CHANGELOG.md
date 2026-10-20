@@ -14,9 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Notification loss requests an inventory resync. The non-Linux stub provides no
   automatic recovery; absent startup listener/overlay capabilities remain a limit.
 
-- Source candidate for bounded testcontainers FRR/BIRD timer reloads,
-  generation receipts, phase packet timing and baseline restoration. Live
-  acceptance, selective-Final loss, crossed Poll and remote Demand remain open.
+- Live FRR/BIRD timer reload qualification in the testcontainers BASE topology:
+  `300→100→500→300 ms` and RX0 with generation receipts, Poll/Final packet
+  windows, unchanged session identity and baseline restoration. Selective-Final
+  loss, crossed Poll and remote Demand remain open.
 
 - RFC 9764 padded PDU targets in the public API, session status and
   `gobfdctl session add --padded-pdu-size`. API/CLI zero disables padding;
