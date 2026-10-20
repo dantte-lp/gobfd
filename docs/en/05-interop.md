@@ -264,9 +264,11 @@ rounding or clock-skew allowance is applied.
 
 Timing requires at least 12 consecutive post-Final periodic intervals sent by
 GoBFD. RFC 5880 section 6.8.7 bounds each interval to 75–100% of the negotiated
-TX. The check widens these bounds by max(2 ms, 2% of TX) for timer wakeup and
-capture latency, and requires the sample mean within three standard errors of
-87.5%, the mean of the uniform 0–25% reduction that GoBFD draws. Logs,
+TX when DetectMult exceeds 1. The check widens these bounds by max(2 ms, 2% of
+TX) for timer wakeup and capture latency. It requires the sample mean within
+three standard errors of 87.5%, the mean of the uniform 0–25% reduction that
+GoBFD draws; the upper side adds the same latency allowance because the timer
+rearms after each send. Logs,
 configurations, frame summaries, subprocess statuses, checksums and a
 readback-validated PCAP are retained in `INTEROP_TESTCONTAINERS_ARTIFACT_DIR`
 before owned cleanup on success and failure; without an explicit directory the

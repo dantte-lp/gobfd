@@ -104,10 +104,12 @@ func parseTimerReceipts(input string) ([]timerReceipt, error) {
 		if message != "configuration reconciliation incomplete" && message != "configuration reconciliation converged" {
 			continue
 		}
-		if _, err := timerJSONObject([]byte(line), "time", "desired_generation", "applied_generation", "stale", "pending", "failed", "base"); err != nil {
+		if _, err := timerJSONObject([]byte(line),
+			"time", "desired_generation", "applied_generation", "stale", "pending", "failed", "base"); err != nil {
 			return nil, err
 		}
-		if _, err := timerJSONObject(fields["base"], "created", "updated", "released", "pending", "timer_pending", "failed"); err != nil {
+		if _, err := timerJSONObject(fields["base"],
+			"created", "updated", "released", "pending", "timer_pending", "failed"); err != nil {
 			return nil, err
 		}
 		var timestamp string
@@ -151,7 +153,8 @@ func timerGenerationApplied(receipts []timerReceipt, previous uint64) (time.Time
 		}
 		if receipt.Stale {
 			if receipt.Message != "configuration reconciliation incomplete" || receipt.Applied != previous ||
-				receipt.Pending != 1 || receipt.Base.Pending != 1 || receipt.Base.TimerPending != 1 || receipt.Base.Updated != 0 || !applied.IsZero() {
+				receipt.Pending != 1 || receipt.Base.Pending != 1 || receipt.Base.TimerPending != 1 ||
+				receipt.Base.Updated != 0 || !applied.IsZero() {
 				return time.Time{}, fmt.Errorf("unexpected pending receipt %+v: %w", receipt, errTimerEvidence)
 			}
 			pending = true
@@ -218,14 +221,18 @@ type timerFrame struct {
 	State, Poll, Final, Mine, Yours, TX, RX, Multiplier uint64
 }
 
-var timerFrameFields = []string{
-	"frame.number", "frame.time_epoch", "ip.src", "ip.dst", "bfd.sta", "bfd.flags.p", "bfd.flags.f",
-	"bfd.my_discriminator", "bfd.your_discriminator", "bfd.desired_min_tx_interval", "bfd.required_min_rx_interval", "bfd.detect_time_multiplier",
+func timerFrameFields() []string {
+	return []string{
+		"frame.number", "frame.time_epoch", "ip.src", "ip.dst", "bfd.sta", "bfd.flags.p", "bfd.flags.f",
+		"bfd.my_discriminator", "bfd.your_discriminator", "bfd.desired_min_tx_interval",
+		"bfd.required_min_rx_interval", "bfd.detect_time_multiplier",
+	}
 }
 
 func parseTimerEpoch(raw string) (time.Time, error) {
 	seconds, fraction, fractional := strings.Cut(raw, ".")
-	if seconds == "" || (fractional && fraction == "") || len(fraction) > 9 || strings.Trim(seconds+fraction, "0123456789") != "" {
+	if seconds == "" || (fractional && fraction == "") || len(fraction) > 9 ||
+		strings.Trim(seconds+fraction, "0123456789") != "" {
 		return time.Time{}, fmt.Errorf("frame epoch %q: %w", raw, errTimerEvidence)
 	}
 	whole, err := strconv.ParseInt(seconds, 10, 64)
@@ -243,10 +250,11 @@ func parseTimerFrames(rows [][]string) ([]timerFrame, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("empty phase capture: %w", errTimerEvidence)
 	}
+	fieldNames := timerFrameFields()
 	frames := make([]timerFrame, 0, len(rows))
 	for _, row := range rows {
-		if len(row) != len(timerFrameFields) {
-			return nil, fmt.Errorf("frame columns=%d, want %d: %w", len(row), len(timerFrameFields), errTimerEvidence)
+		if len(row) != len(fieldNames) {
+			return nil, fmt.Errorf("frame columns=%d, want %d: %w", len(row), len(fieldNames), errTimerEvidence)
 		}
 		frame := timerFrame{Source: row[2], Destination: row[3]}
 		var err error
@@ -254,7 +262,10 @@ func parseTimerFrames(rows [][]string) ([]timerFrame, error) {
 		if err != nil {
 			return nil, err
 		}
-		values := []*uint64{&frame.Number, &frame.State, &frame.Poll, &frame.Final, &frame.Mine, &frame.Yours, &frame.TX, &frame.RX, &frame.Multiplier}
+		values := []*uint64{
+			&frame.Number, &frame.State, &frame.Poll, &frame.Final, &frame.Mine, &frame.Yours,
+			&frame.TX, &frame.RX, &frame.Multiplier,
+		}
 		columns := []int{0, 4, 5, 6, 7, 8, 9, 10, 11}
 		for index, column := range columns {
 			field := row[column]
@@ -271,11 +282,12 @@ func parseTimerFrames(rows [][]string) ([]timerFrame, error) {
 			}
 			*values[index], err = strconv.ParseUint(field, base, 64)
 			if err != nil {
-				return nil, fmt.Errorf("frame field %s=%q: %w", timerFrameFields[column], row[column], err)
+				return nil, fmt.Errorf("frame field %s=%q: %w", fieldNames[column], row[column], err)
 			}
 		}
 		if frame.Number == 0 || frame.Poll > 1 || frame.Final > 1 || frame.Poll+frame.Final > 1 ||
-			(len(frames) != 0 && (frame.Number <= frames[len(frames)-1].Number || frame.Epoch.Before(frames[len(frames)-1].Epoch))) {
+			(len(frames) != 0 && (frame.Number <= frames[len(frames)-1].Number ||
+				frame.Epoch.Before(frames[len(frames)-1].Epoch))) {
 			return nil, fmt.Errorf("invalid frame order/flags %+v: %w", frame, errTimerEvidence)
 		}
 		frames = append(frames, frame)
@@ -284,19 +296,26 @@ func parseTimerFrames(rows [][]string) ([]timerFrame, error) {
 }
 
 type timerPhase struct {
-	Peer                  string
-	Start, End, Converged uint64
-	Local, Remote         uint32
-	TX, RX, RemoteRX      uint64
-	RXZero                bool
-	AppliedAt             time.Time
+	Peer      string    `json:"peer"`
+	Start     uint64    `json:"start"`
+	End       uint64    `json:"end"`
+	Converged uint64    `json:"converged"`
+	Local     uint32    `json:"local"`
+	Remote    uint32    `json:"remote"`
+	TX        uint64    `json:"tx"`
+	RX        uint64    `json:"rx"`
+	RemoteRX  uint64    `json:"remote_rx"`
+	RXZero    bool      `json:"rx_zero"`
+	AppliedAt time.Time `json:"applied_at"`
 }
 
 type timerWireResult struct {
-	Poll, Final                     uint64
-	Intervals                       int
-	MeanMicroseconds                float64
-	RemoteTX, DetectionMicroseconds uint64
+	Poll                  uint64  `json:"poll"`
+	Final                 uint64  `json:"final"`
+	Intervals             int     `json:"intervals"`
+	MeanMicroseconds      float64 `json:"mean_microseconds"`
+	RemoteTX              uint64  `json:"remote_tx"`
+	DetectionMicroseconds uint64  `json:"detection_microseconds"`
 }
 
 func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult, error) {
@@ -337,7 +356,9 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 		if remote && frame.Final == 1 && frame.Poll == 0 && result.Poll != 0 && result.Final == 0 {
 			// TC daemon JSON and namespace capture share the same host realtime clock.
 			if frame.Epoch.IsZero() || !phase.AppliedAt.After(frame.Epoch) {
-				return result, fmt.Errorf("applied=%s Final=%s: %w: %w", phase.AppliedAt.Format(time.RFC3339Nano), frame.Epoch.Format(time.RFC3339Nano), errTimerReceiptBeforeFinal, errTimerEvidence)
+				return result, fmt.Errorf("applied=%s Final=%s: %w: %w",
+					phase.AppliedAt.Format(time.RFC3339Nano), frame.Epoch.Format(time.RFC3339Nano),
+					errTimerReceiptBeforeFinal, errTimerEvidence)
 			}
 			result.Final = frame.Number
 		}
@@ -346,7 +367,8 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 			return result, fmt.Errorf("local timer tuple %+v: %w", frame, errTimerEvidence)
 		}
 		// The observed capture watermark only excludes samples; actual publication time establishes convergence.
-		if phase.RXZero || !local || frame.Number <= max(result.Final, phase.Converged) || result.Final == 0 || !frame.Epoch.After(phase.AppliedAt) {
+		if phase.RXZero || !local || frame.Number <= max(result.Final, phase.Converged) || result.Final == 0 ||
+			!frame.Epoch.After(phase.AppliedAt) {
 			continue
 		}
 		if frame.Poll != 0 || frame.Final != 0 {
@@ -372,7 +394,8 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 	// RFC 5880 section 6.8.7 with DetectMult 3: each interval is the negotiated TX
 	// reduced by 0-25%. Slack covers timer wakeup and capture latency.
 	expected := int64(max(phase.TX, phase.RemoteRX))
-	low, high := expected*3/4-max(2000, expected/50), expected+max(2000, expected/50)
+	slack := max(2000, expected/50)
+	low, high := expected*3/4-slack, expected+slack
 	var sum int64
 	for _, interval := range intervals {
 		if interval < low || interval > high {
@@ -381,10 +404,14 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 		sum += interval
 	}
 	// applyJitterWithRand draws the reduction uniformly from 0..25%: mean 0.875T,
-	// standard deviation 0.075T. Reject a sample mean beyond three standard errors:
-	// |8*sum - 7*n*T| <= 3 * 8 * 0.075T * sqrt(n). Integer terms stay far below 2^53.
+	// standard deviation 0.075T. Reject a sample mean beyond three standard errors,
+	// -1.8*T*sqrt(n) <= 8*sum - 7*n*T <= 1.8*T*sqrt(n) + 8*n*slack. Timer rearm after
+	// each send adds wakeup latency to every interval, so only the upper side carries
+	// slack. Integer terms stay far below 2^53.
 	n := int64(len(intervals))
-	if deviation := 8*sum - 7*n*expected; math.Abs(float64(deviation)) > 1.8*float64(expected)*math.Sqrt(float64(n)) {
+	deviation := float64(8*sum - 7*n*expected)
+	bound := 1.8 * float64(expected) * math.Sqrt(float64(n))
+	if deviation < -bound || deviation > bound+float64(8*n*slack) {
 		return result, fmt.Errorf("mean interval %d us deviates from 0.875*%d us beyond 3 standard errors (n=%d): %w",
 			sum/n, expected, n, errTimerEvidence)
 	}
@@ -405,7 +432,8 @@ func writeTimerArtifact(t *testing.T, name, extension string, data []byte) strin
 func persistTimerArtifact(name, extension string, data []byte) (string, error) {
 	directory := strings.TrimSpace(os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR"))
 	if !filepath.IsAbs(directory) {
-		return "", fmt.Errorf("absolute INTEROP_TESTCONTAINERS_ARTIFACT_DIR required, got %q: %w", directory, errTimerEvidence)
+		return "", fmt.Errorf("absolute INTEROP_TESTCONTAINERS_ARTIFACT_DIR required, got %q: %w",
+			directory, errTimerEvidence)
 	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", fmt.Errorf("create timer artifact directory: %w", err)
@@ -450,12 +478,14 @@ func signalTimerReload(ctx context.Context) (string, error) {
 }
 
 func timerTraffic(peer string) string {
-	return "bfd && ((ip.src == " + gobfdIP + " && ip.dst == " + peer + ") || (ip.src == " + peer + " && ip.dst == " + gobfdIP + "))"
+	return "bfd && ((ip.src == " + gobfdIP + " && ip.dst == " + peer + ") || " +
+		"(ip.src == " + peer + " && ip.dst == " + gobfdIP + "))"
 }
 
 func timerSnapshot(ctx context.Context, t *testing.T, peer, name string) (sessionState, [2]uint64) {
 	t.Helper()
-	output, err := projectContainerCommand(ctx, "gobfd-interop", "exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer, "--format", "json")
+	output, err := projectContainerCommand(ctx, "gobfd-interop",
+		"exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer, "--format", "json")
 	writeTimerArtifact(t, name+"-status", "json", []byte(output))
 	if err != nil {
 		t.Fatalf("timer snapshot: %v", err)
@@ -464,7 +494,8 @@ func timerSnapshot(ctx context.Context, t *testing.T, peer, name string) (sessio
 	if err != nil {
 		t.Fatalf("parse timer snapshot: %v", err)
 	}
-	text, err := projectContainerCommand(ctx, "gobfd-interop", "exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer)
+	text, err := projectContainerCommand(ctx, "gobfd-interop",
+		"exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer)
 	writeTimerArtifact(t, name+"-status", "txt", []byte(text))
 	if err != nil {
 		t.Fatalf("timer text counters: %v", err)
@@ -506,8 +537,10 @@ func retainTimerPollEvidence(ctx context.Context, name string, generation uint64
 	}
 	result := errors.Join(pollErr, lastWriteErr, readErr, writeErr, parseErr)
 	summary, marshalErr := json.Marshal(struct {
-		Generation                  uint64
-		PollError, ReadError, Error string
+		Generation uint64 `json:"generation"`
+		PollError  string `json:"poll_error"`
+		ReadError  string `json:"read_error"`
+		Error      string `json:"error"`
 	}{
 		generation, fmt.Sprint(pollErr), fmt.Sprint(readErr), fmt.Sprint(result),
 	})
@@ -526,13 +559,13 @@ func waitTimerQuiet(ctx context.Context, peer string, remoteRX uint64) error {
 	waitCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	_, err = pollUntil(waitCtx, 200*time.Millisecond, func(pollCtx context.Context) (int, bool, error) {
-		rows, err := tsharkFields(pollCtx, frameBoundary(timerTraffic(peer), boundary), timerFrameFields, 0)
-		if err != nil || len(rows) == 0 {
-			return 0, false, err
+		rows, queryErr := tsharkFields(pollCtx, frameBoundary(timerTraffic(peer), boundary), timerFrameFields(), 0)
+		if queryErr != nil || len(rows) == 0 {
+			return 0, false, queryErr
 		}
-		frames, err := parseTimerFrames(rows)
-		if err != nil {
-			return 0, false, err
+		frames, parseErr := parseTimerFrames(rows)
+		if parseErr != nil {
+			return 0, false, parseErr
 		}
 		local, remote := 0, 0
 		for _, frame := range frames {
@@ -559,12 +592,15 @@ func waitTimerQuiet(ctx context.Context, peer string, remoteRX uint64) error {
 	return err
 }
 
-func runTimerGeneration(ctx context.Context, t *testing.T, baseline, peer, name, tx, rx string, remoteRX uint64, rxZero bool) {
+func runTimerGeneration(
+	ctx context.Context, t *testing.T, baseline, peer, name, tx, rx string, remoteRX uint64, rxZero bool,
+) {
 	t.Helper()
 	phaseCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	before, counters := timerSnapshot(phaseCtx, t, peer, name+"-before")
-	if before.LocalState != "Up" || before.RemoteState != "Up" || before.LocalDiscriminator == 0 || before.RemoteDiscriminator == 0 {
+	if before.LocalState != "Up" || before.RemoteState != "Up" ||
+		before.LocalDiscriminator == 0 || before.RemoteDiscriminator == 0 {
 		t.Fatalf("timer phase requires established Up identity: %+v", before)
 	}
 	receipts := readTimerReceipts(phaseCtx, t, name+"-before")
@@ -581,8 +617,8 @@ func runTimerGeneration(ctx context.Context, t *testing.T, baseline, peer, name,
 		t.Fatalf("timer config: %v", err)
 	}
 	path := writeTimerArtifact(t, name+"-config", "yml", []byte(config))
-	if err := copyTimerConfig(phaseCtx, "gobfd-interop", path, "/etc/gobfd/gobfd.yml"); err != nil {
-		t.Fatalf("timer config copy: %v", err)
+	if copyErr := copyTimerConfig(phaseCtx, "gobfd-interop", path, "/etc/gobfd/gobfd.yml"); copyErr != nil {
+		t.Fatalf("timer config copy: %v", copyErr)
 	}
 	output, err := signalTimerReload(phaseCtx)
 	writeTimerArtifact(t, name+"-hup", "txt", []byte(fmt.Sprintf("output=%s\nerror=%v\n", output, err)))
@@ -624,8 +660,10 @@ func runTimerGeneration(ctx context.Context, t *testing.T, baseline, peer, name,
 	}
 	phase := timerPhase{
 		Peer: peer, Start: start, Converged: converged, AppliedAt: appliedAt, Local: before.LocalDiscriminator,
-		Remote: before.RemoteDiscriminator, TX: uint64(txDuration / time.Microsecond), RX: uint64(rxDuration / time.Microsecond), RemoteRX: remoteRX, RXZero: rxZero,
+		Remote: before.RemoteDiscriminator, TX: uint64(txDuration / time.Microsecond),
+		RX: uint64(rxDuration / time.Microsecond), RemoteRX: remoteRX, RXZero: rxZero,
 	}
+	fieldNames := timerFrameFields()
 	var rows [][]string
 	var result timerWireResult
 	var wireErr error
@@ -635,7 +673,8 @@ func runTimerGeneration(ctx context.Context, t *testing.T, baseline, peer, name,
 			return false, false, readErr
 		}
 		phase.End = end
-		rows, readErr = tsharkFields(pollCtx, fmt.Sprintf("%s && frame.number <= %d", frameBoundary(timerTraffic(peer), start), end), timerFrameFields, 0)
+		filter := fmt.Sprintf("%s && frame.number <= %d", frameBoundary(timerTraffic(peer), start), end)
+		rows, readErr = tsharkFields(pollCtx, filter, fieldNames, 0)
 		if readErr != nil {
 			return false, false, readErr
 		}
@@ -650,16 +689,16 @@ func runTimerGeneration(ctx context.Context, t *testing.T, baseline, peer, name,
 		err = errors.Join(err, wireErr)
 	}
 	var raw strings.Builder
-	raw.WriteString(strings.Join(timerFrameFields, "\t") + "\n")
+	raw.WriteString(strings.Join(fieldNames, "\t") + "\n")
 	for _, row := range rows {
 		raw.WriteString(strings.Join(row, "\t") + "\n")
 	}
 	writeTimerArtifact(t, name+"-frames", "tsv", []byte(raw.String()))
 	summary, marshalErr := json.Marshal(struct {
-		Generation uint64
-		Phase      timerPhase
-		Wire       timerWireResult
-		Error      string
+		Generation uint64          `json:"generation"`
+		Phase      timerPhase      `json:"phase"`
+		Wire       timerWireResult `json:"wire"`
+		Error      string          `json:"error"`
 	}{last.Applied + 1, phase, result, fmt.Sprint(err)})
 	if marshalErr != nil {
 		t.Fatalf("timer phase summary: %v", marshalErr)
@@ -697,28 +736,35 @@ func setTimerPeerRX(ctx context.Context, t *testing.T, peer, birdBaseline string
 	var output string
 	var err error
 	if peer == frrIP {
-		output, err = frrVtyshConfig(ctx, "configure terminal", "bfd", "peer "+gobfdIP, "receive-interval "+strconv.Itoa(milliseconds))
+		output, err = frrVtyshConfig(ctx,
+			"configure terminal", "bfd", "peer "+gobfdIP, "receive-interval "+strconv.Itoa(milliseconds))
 	} else {
 		if strings.Count(birdBaseline, "min rx interval 300 ms;") != 1 {
 			t.Fatal("BIRD baseline requires exactly one RX floor")
 		}
-		config := strings.Replace(birdBaseline, "min rx interval 300 ms;", fmt.Sprintf("min rx interval %d ms;", milliseconds), 1)
+		floor := fmt.Sprintf("min rx interval %d ms;", milliseconds)
+		config := strings.Replace(birdBaseline, "min rx interval 300 ms;", floor, 1)
 		path := writeTimerArtifact(t, fmt.Sprintf("bird-rx-%d", milliseconds), "conf", []byte(config))
-		if err := copyTimerConfig(ctx, "bird3-interop", path, "/etc/bird/timer-reload.conf"); err != nil {
-			t.Fatalf("copy BIRD timer config: %v", err)
+		if copyErr := copyTimerConfig(ctx, "bird3-interop", path, "/etc/bird/timer-reload.conf"); copyErr != nil {
+			t.Fatalf("copy BIRD timer config: %v", copyErr)
 		}
-		output, err = projectContainerCommand(ctx, "bird3-interop", "exec", "birdc", "configure", "check", `"/etc/bird/timer-reload.conf"`)
-		writeTimerArtifact(t, "bird-config-check", "txt", []byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
+		output, err = projectContainerCommand(ctx, "bird3-interop",
+			"exec", "birdc", "configure", "check", `"/etc/bird/timer-reload.conf"`)
+		writeTimerArtifact(t, "bird-config-check", "txt",
+			[]byte(fmt.Sprintf("%s\nerror=%v\n", output, err)))
 		if err != nil || !strings.Contains(output, "Configuration OK") {
 			t.Fatalf("BIRD config check: error=%v output=%s", err, output)
 		}
-		output, err = projectContainerCommand(ctx, "bird3-interop", "exec", "birdc", "configure", `"/etc/bird/timer-reload.conf"`)
+		output, err = projectContainerCommand(ctx, "bird3-interop",
+			"exec", "birdc", "configure", `"/etc/bird/timer-reload.conf"`)
 		// BIRD CLI file names are quoted strings; CONF_DONE and CONF_PROGRESS both accept the file.
-		if err == nil && !strings.Contains(output, "Reconfigured") && !strings.Contains(output, "Reconfiguration in progress") {
+		if err == nil && !strings.Contains(output, "Reconfigured") &&
+			!strings.Contains(output, "Reconfiguration in progress") {
 			err = fmt.Errorf("BIRD configure acknowledgement: %w", errTimerEvidence)
 		}
 	}
-	writeTimerArtifact(t, "peer-rx-command", "txt", []byte(fmt.Sprintf("peer=%s rx_ms=%d\n%s\nerror=%v\n", peer, milliseconds, output, err)))
+	writeTimerArtifact(t, "peer-rx-command", "txt",
+		[]byte(fmt.Sprintf("peer=%s rx_ms=%d\n%s\nerror=%v\n", peer, milliseconds, output, err)))
 	if err != nil || strings.Contains(output, "%") {
 		t.Fatalf("peer RX floor: error=%v output=%s", err, output)
 	}
@@ -736,7 +782,8 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 		t.Fatalf("restore daemon baseline: %v", err)
 	}
 	output, err := signalTimerReload(ctx)
-	writeTimerArtifact(t, name+"-hup", "txt", []byte(fmt.Sprintf("generation=%d\noutput=%s\nerror=%v\n", generation, output, err)))
+	writeTimerArtifact(t, name+"-hup", "txt",
+		[]byte(fmt.Sprintf("generation=%d\noutput=%s\nerror=%v\n", generation, output, err)))
 	if err != nil {
 		t.Fatalf("restore daemon HUP: %v", err)
 	}
@@ -757,10 +804,12 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 			if receipt.Desired < generation {
 				continue
 			}
-			if receipt.Desired != generation || receipt.Failed != 0 || receipt.Base.Failed != 0 || receipt.Base.Created != 0 || receipt.Base.Released != 0 {
+			if receipt.Desired != generation || receipt.Failed != 0 || receipt.Base.Failed != 0 ||
+				receipt.Base.Created != 0 || receipt.Base.Released != 0 {
 				return false, false, fmt.Errorf("restore generation receipt %+v: %w", receipt, errTimerEvidence)
 			}
-			if !receipt.Stale && receipt.Desired == receipt.Applied && receipt.Pending == 0 && receipt.Base.Pending == 0 && receipt.Base.TimerPending == 0 {
+			if !receipt.Stale && receipt.Desired == receipt.Applied && receipt.Pending == 0 &&
+				receipt.Base.Pending == 0 && receipt.Base.TimerPending == 0 {
 				return true, true, nil
 			}
 		}
@@ -796,21 +845,27 @@ func TestTimerReload(t *testing.T) {
 			before, counters := timerSnapshot(ctx, t, peer.address, peer.name+"-floor-before")
 			setTimerPeerRX(ctx, t, peer.address, string(bird), 100)
 			after, afterCounters := timerSnapshot(ctx, t, peer.address, peer.name+"-floor-after")
-			if after.LocalState != "Up" || after.RemoteState != "Up" || before.LocalDiscriminator == 0 || before.RemoteDiscriminator == 0 ||
-				before.LocalDiscriminator != after.LocalDiscriminator || before.RemoteDiscriminator != after.RemoteDiscriminator || counters != afterCounters {
-				t.Fatalf("peer RX floor changed identity/counters: before=%+v/%v after=%+v/%v", before, counters, after, afterCounters)
+			if after.LocalState != "Up" || after.RemoteState != "Up" ||
+				before.LocalDiscriminator == 0 || before.RemoteDiscriminator == 0 ||
+				before.LocalDiscriminator != after.LocalDiscriminator ||
+				before.RemoteDiscriminator != after.RemoteDiscriminator || counters != afterCounters {
+				t.Fatalf("peer RX floor changed identity/counters: before=%+v/%v after=%+v/%v",
+					before, counters, after, afterCounters)
 			}
 			for _, interval := range []string{"100ms", "500ms", "300ms"} {
 				if !t.Run(interval, func(t *testing.T) {
-					runTimerGeneration(ctx, t, string(baseline), peer.address, peer.name+"-"+interval, interval, interval, 100000, false)
+					runTimerGeneration(ctx, t, string(baseline), peer.address, peer.name+"-"+interval,
+						interval, interval, 100000, false)
 				}) {
 					return
 				}
 			}
 			setTimerPeerRX(ctx, t, peer.address, string(bird), 300)
 			restored, restoredCounters := timerSnapshot(ctx, t, peer.address, peer.name+"-floor-restored")
-			if restored.LocalDiscriminator != before.LocalDiscriminator || restored.RemoteDiscriminator != before.RemoteDiscriminator || restoredCounters != counters {
-				t.Fatalf("peer RX restoration changed identity/counters: before=%+v/%v after=%+v/%v", before, counters, restored, restoredCounters)
+			if restored.LocalDiscriminator != before.LocalDiscriminator ||
+				restored.RemoteDiscriminator != before.RemoteDiscriminator || restoredCounters != counters {
+				t.Fatalf("peer RX restoration changed identity/counters: before=%+v/%v after=%+v/%v",
+					before, counters, restored, restoredCounters)
 			}
 		}) {
 			return

@@ -58,6 +58,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
 		t.Setenv("INTEROP_PROJECT_NAME", projectName)
 		if strings.TrimSpace(os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR")) == "" {
+			//nolint:usetesting // Retained artifacts must outlive t.TempDir cleanup for post-run inspection.
 			artifactDirectory, err := os.MkdirTemp("", "gobfd-interop-artifacts-")
 			if err != nil {
 				t.Fatalf("create retained four-peer artifact directory: %v", err)
@@ -534,17 +535,20 @@ func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string
 	if err != nil {
 		t.Fatalf("resolve current interop test binary: %v", err)
 	}
-	err = runFourPeerAssertionBatches(ctx, executable, projectName, func(index int, output []byte, exitCode int, runErr error) {
-		writeTimerArtifact(t, fmt.Sprintf("assertions-%d", index+1), "txt",
-			fmt.Appendf(output, "\nexit_code=%d error=%v\n", exitCode, runErr))
-		t.Logf("four-peer assertion subprocess %d:\n%s", index+1, output)
-	})
+	err = runFourPeerAssertionBatches(ctx, executable, projectName,
+		func(index int, output []byte, exitCode int, runErr error) {
+			writeTimerArtifact(t, fmt.Sprintf("assertions-%d", index+1), "txt",
+				fmt.Appendf(output, "\nexit_code=%d error=%v\n", exitCode, runErr))
+			t.Logf("four-peer assertion subprocess %d:\n%s", index+1, output)
+		})
 	if err != nil {
 		t.Fatalf("run four-peer Go assertions: %v", err)
 	}
 }
 
-func runFourPeerAssertionBatches(ctx context.Context, executable, projectName string, record func(int, []byte, int, error)) error {
+func runFourPeerAssertionBatches(
+	ctx context.Context, executable, projectName string, record func(int, []byte, int, error),
+) error {
 	// Separate processes order RFC baseline analysis before timer mutation and destructive tests.
 	batches := [][]string{
 		{"TestFRRHandshake", "TestBIRD3Handshake", "TestHoloHandshake", "TestThoroHandshake", "TestRFCCompliance"},
@@ -609,9 +613,10 @@ func captureFourPeerPCAP(ctx context.Context, t *testing.T, tshark testcontainer
 		t.Fatal("four-peer packet capture artifact is empty")
 	}
 	t.Logf("four-peer packet capture: %s (%d bytes)", outputPath, info.Size())
-	writeTimerArtifact(t, "pcap-checksum", "txt", []byte(fmt.Sprintf("%x  %s\n", hash.Sum(nil), filepath.Base(outputPath))))
-	if err := copyTimerConfig(ctx, "tshark-interop", outputPath, "/captures/retained.pcapng"); err != nil {
-		t.Errorf("copy saved capture for readability validation: %v", err)
+	checksum := fmt.Sprintf("%x  %s\n", hash.Sum(nil), filepath.Base(outputPath))
+	writeTimerArtifact(t, "pcap-checksum", "txt", []byte(checksum))
+	if retainErr := copyTimerConfig(ctx, "tshark-interop", outputPath, "/captures/retained.pcapng"); retainErr != nil {
+		t.Errorf("copy saved capture for readability validation: %v", retainErr)
 		return
 	}
 	validation, err := tsharkQueryFile(ctx, "/captures/retained.pcapng", "-Y", "bfd", "-T", "fields", "-e", "frame.number")

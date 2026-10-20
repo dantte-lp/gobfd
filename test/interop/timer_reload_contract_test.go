@@ -18,8 +18,14 @@ import (
 )
 
 const (
-	timerPendingJSON = `{"time":"2026-10-20T12:00:00.000000001Z","level":"ERROR","msg":"configuration reconciliation incomplete","desired_generation":2,"applied_generation":1,"stale":true,"pending":1,"failed":0,"base":{"created":0,"updated":0,"released":0,"pending":1,"timer_pending":1,"failed":0}}`
-	timerAppliedJSON = `{"time":"2026-10-20T12:00:00.000000003Z","level":"INFO","msg":"configuration reconciliation converged","desired_generation":2,"applied_generation":2,"stale":false,"pending":0,"failed":0,"base":{"created":0,"updated":1,"released":0,"pending":0,"timer_pending":0,"failed":0}}`
+	timerPendingJSON = `{"time":"2026-10-20T12:00:00.000000001Z","level":"ERROR",` +
+		`"msg":"configuration reconciliation incomplete","desired_generation":2,"applied_generation":1,` +
+		`"stale":true,"pending":1,"failed":0,` +
+		`"base":{"created":0,"updated":0,"released":0,"pending":1,"timer_pending":1,"failed":0}}`
+	timerAppliedJSON = `{"time":"2026-10-20T12:00:00.000000003Z","level":"INFO",` +
+		`"msg":"configuration reconciliation converged","desired_generation":2,"applied_generation":2,` +
+		`"stale":false,"pending":0,"failed":0,` +
+		`"base":{"created":0,"updated":1,"released":0,"pending":0,"timer_pending":0,"failed":0}}`
 )
 
 func TestTimerReloadReceipts(t *testing.T) {
@@ -32,19 +38,43 @@ func TestTimerReloadReceipts(t *testing.T) {
 		{"pending then applied", timerPendingJSON + "\n" + timerAppliedJSON, true, false},
 		{"missing pending", timerAppliedJSON, false, true},
 		{"failed", strings.Replace(timerPendingJSON, `"failed":0`, `"failed":1`, 1), false, true},
-		{"wrong generation", strings.ReplaceAll(timerPendingJSON+"\n"+timerAppliedJSON, `generation":2`, `generation":3`), false, true},
+		{
+			"wrong generation",
+			strings.ReplaceAll(timerPendingJSON+"\n"+timerAppliedJSON, `generation":2`, `generation":3`),
+			false, true,
+		},
 		{"stale receipt cannot apply", strings.ReplaceAll(timerPendingJSON, `generation":2`, `generation":1`), false, false},
 		{"false successful pending", strings.Replace(timerPendingJSON, `"stale":true`, `"stale":false`, 1), false, true},
 		{"empty", "", false, true},
 		{"malformed", "{", false, true},
 		{"no receipts", `{"msg":"startup"}`, false, true},
 		{"missing field", strings.Replace(timerPendingJSON, `"pending":1,`, "", 1), false, true},
-		{"missing publication time", timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `"time":"2026-10-20T12:00:00.000000003Z",`, "", 1), false, true},
-		{"malformed publication time", timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `2026-10-20T12:00:00.000000003Z`, `invalid`, 1), false, true},
-		{"null publication time", timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `"2026-10-20T12:00:00.000000003Z"`, `null`, 1), false, true},
-		{"excess publication precision", timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `.000000003Z`, `.0000000039Z`, 1), false, true},
+		{
+			"missing publication time",
+			timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `"time":"2026-10-20T12:00:00.000000003Z",`, "", 1),
+			false, true,
+		},
+		{
+			"malformed publication time",
+			timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `2026-10-20T12:00:00.000000003Z`, `invalid`, 1),
+			false, true,
+		},
+		{
+			"null publication time",
+			timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `"2026-10-20T12:00:00.000000003Z"`, `null`, 1),
+			false, true,
+		},
+		{
+			"excess publication precision",
+			timerPendingJSON + "\n" + strings.Replace(timerAppliedJSON, `.000000003Z`, `.0000000039Z`, 1),
+			false, true,
+		},
 		{"duplicate member", strings.Replace(timerPendingJSON, `"failed":0`, `"failed":0,"failed":0`, 1), false, true},
-		{"duplicate nested member", strings.Replace(timerPendingJSON, `"updated":0`, `"updated":0,"updated":0`, 1), false, true},
+		{
+			"duplicate nested member",
+			strings.Replace(timerPendingJSON, `"updated":0`, `"updated":0,"updated":0`, 1),
+			false, true,
+		},
 		{"invalid UTF8", timerPendingJSON + string([]byte{0xff}), false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -99,16 +129,27 @@ func TestTimerReloadConfigKeepsOtherPeersAndExplicitZero(t *testing.T) {
 	if got != want {
 		t.Fatal("RX0 changed another field or omitted explicit zero")
 	}
-	if _, err := timerConfig(strings.ReplaceAll(string(baseline), `    required_min_rx: "300ms"`, ""), frrIP, "300ms", "0s"); err == nil {
+	missingRX := strings.ReplaceAll(string(baseline), `    required_min_rx: "300ms"`, "")
+	if _, err := timerConfig(missingRX, frrIP, "300ms", "0s"); err == nil {
 		t.Fatal("missing baseline RX accepted")
 	}
 }
 
 func timerContractFrames(tx uint64) ([]timerFrame, timerPhase) {
-	phase := timerPhase{Peer: frrIP, Start: 10, End: 25, Converged: 12, AppliedAt: time.Unix(1, 11000000), Local: 7, Remote: 8, TX: tx, RX: tx, RemoteRX: 100000}
-	local := timerFrame{Number: 11, Epoch: time.Unix(1, 0), Source: gobfdIP, Destination: frrIP, State: 3, Poll: 1, Mine: 7, Yours: 8, TX: tx, RX: tx, Multiplier: 3}
-	remote := timerFrame{Number: 12, Epoch: time.Unix(1, 10000000), Source: frrIP, Destination: gobfdIP, State: 3, Final: 1, Mine: 8, Yours: 7, TX: 300000, RX: 100000, Multiplier: 3}
-	frames := []timerFrame{local, remote}
+	phase := timerPhase{
+		Peer: frrIP, Start: 10, End: 25, Converged: 12, AppliedAt: time.Unix(1, 11000000),
+		Local: 7, Remote: 8, TX: tx, RX: tx, RemoteRX: 100000,
+	}
+	local := timerFrame{
+		Number: 11, Epoch: time.Unix(1, 0), Source: gobfdIP, Destination: frrIP,
+		State: 3, Poll: 1, Mine: 7, Yours: 8, TX: tx, RX: tx, Multiplier: 3,
+	}
+	remote := timerFrame{
+		Number: 12, Epoch: time.Unix(1, 10000000), Source: frrIP, Destination: gobfdIP,
+		State: 3, Final: 1, Mine: 8, Yours: 7, TX: 300000, RX: 100000, Multiplier: 3,
+	}
+	frames := make([]timerFrame, 0, 15)
+	frames = append(frames, local, remote)
 	for index := range 13 {
 		frame := local
 		frame.Number = uint64(index + 13)
@@ -132,7 +173,7 @@ func timerSpaced(frames []timerFrame, tx uint64, percents ...uint64) []timerFram
 func TestTimerReloadWireEvidence(t *testing.T) {
 	t.Parallel()
 	for _, tx := range []uint64{100000, 500000} {
-		t.Run(fmt.Sprint(tx), func(t *testing.T) {
+		t.Run(strconv.FormatUint(tx, 10), func(t *testing.T) {
 			t.Parallel()
 			for _, test := range []struct {
 				name    string
@@ -147,11 +188,17 @@ func TestTimerReloadWireEvidence(t *testing.T) {
 					return frames
 				}, true},
 				{"local identity", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[0].Mine++; return frames }, true},
-				{"remote identity", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[1].Yours++; return frames }, true},
+				{"remote identity", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					frames[1].Yours++
+					return frames
+				}, true},
 				{"local tuple", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[4].RX++; return frames }, true},
 				{"remote tuple", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[1].RX++; return frames }, true},
 				{"flap", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[4].State = 1; return frames }, true},
-				{"direction", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[1].Destination = bird3IP; return frames }, true},
+				{"direction", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					frames[1].Destination = bird3IP
+					return frames
+				}, true},
 				{"no Poll", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[0].Poll = 0; return frames }, true},
 				{"no Final", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[1].Final = 0; return frames }, true},
 				{"reversed Final", func(frames []timerFrame, _ *timerPhase) []timerFrame {
@@ -160,12 +207,18 @@ func TestTimerReloadWireEvidence(t *testing.T) {
 				}, true},
 				{"P and F", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[0].Final = 1; return frames }, true},
 				{"insufficient", func(frames []timerFrame, _ *timerPhase) []timerFrame { return frames[:len(frames)-1] }, true},
-				{"late convergence", func(frames []timerFrame, phase *timerPhase) []timerFrame { phase.Converged = 14; return frames }, true},
+				{"late convergence", func(frames []timerFrame, phase *timerPhase) []timerFrame {
+					phase.Converged = 14
+					return frames
+				}, true},
 				{"missing applied timestamp", func(frames []timerFrame, phase *timerPhase) []timerFrame {
 					phase.AppliedAt = time.Time{}
 					return frames
 				}, true},
-				{"Final-only excluded", func(frames []timerFrame, _ *timerPhase) []timerFrame { frames[3].Final = 1; return frames }, true},
+				{"Final-only excluded", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					frames[3].Final = 1
+					return frames
+				}, true},
 				{"too fast", func(frames []timerFrame, _ *timerPhase) []timerFrame {
 					frames[4].Epoch = frames[3].Epoch.Add(time.Duration(tx) * time.Microsecond / 2)
 					return frames
@@ -183,8 +236,14 @@ func TestTimerReloadWireEvidence(t *testing.T) {
 				{"biased mean", func(frames []timerFrame, _ *timerPhase) []timerFrame {
 					return timerSpaced(frames, tx, 99)
 				}, true},
-				{"RFC jitter edges", func(frames []timerFrame, _ *timerPhase) []timerFrame {
-					return timerSpaced(frames, tx, 76, 99)
+				{"RFC jitter within slack", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 74, 101)
+				}, false},
+				{"below RFC slack", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 72, 103)
+				}, true},
+				{"latency-biased mean", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 95)
 				}, false},
 			} {
 				t.Run(test.name, func(t *testing.T) {
@@ -402,11 +461,12 @@ func TestTimerReloadArtifactCleanup(t *testing.T) {
 				t.Errorf("fake PCAP attempt: %v", err)
 			}
 		})
-		err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop", func(_ int, _ []byte, exitCode int, _ error) {
-			if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", fmt.Sprintf("batch-exit=%d", exitCode)); code != 0 {
-				t.Errorf("record batch exit: %d", code)
-			}
-		})
+		err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop",
+			func(_ int, _ []byte, exitCode int, _ error) {
+				if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", fmt.Sprintf("batch-exit=%d", exitCode)); code != 0 {
+					t.Errorf("record batch exit: %d", code)
+				}
+			})
 		cancel()
 		if err == nil {
 			t.Fatal("fake failing batch succeeded")
@@ -422,7 +482,8 @@ func TestTimerReloadArtifactCleanup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestTimerReloadArtifactCleanup$", "-test.count=1")
-	cmd.Env = append(os.Environ(), "INTEROP_FAKE_ARTIFACT_CHILD=true", "INTEROP_FAKE_COMMAND_LOG="+logPath, "GORACE=atexit_sleep_ms=0")
+	cmd.Env = append(os.Environ(),
+		"INTEROP_FAKE_ARTIFACT_CHILD=true", "INTEROP_FAKE_COMMAND_LOG="+logPath, "GORACE=atexit_sleep_ms=0")
 	output, err := cmd.CombinedOutput()
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
@@ -432,7 +493,12 @@ func TestTimerReloadArtifactCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCommandSubsequence(t, string(commands), []string{"batch-exit=17", "podman logs immutable-owned-id", "podman exec immutable-tshark-id retain-pcap", "podman rm --force immutable-owned-id"})
+	assertCommandSubsequence(t, string(commands), []string{
+		"batch-exit=17",
+		"podman logs immutable-owned-id",
+		"podman exec immutable-tshark-id retain-pcap",
+		"podman rm --force immutable-owned-id",
+	})
 }
 
 func TestTimerReloadPollFailureEvidence(t *testing.T) {
@@ -454,7 +520,8 @@ func TestTimerReloadPollFailureEvidence(t *testing.T) {
 		t.Cleanup(func() { cleaned = true })
 		err := retainTimerPollEvidence(ctx, "expired", 2, timerPendingJSON, errors.Join(ctx.Err(), original))
 		var readErr *exec.ExitError
-		if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, original) || !errors.As(err, &readErr) || readErr.ExitCode() != 23 {
+		if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, original) ||
+			!errors.As(err, &readErr) || readErr.ExitCode() != 23 {
 			t.Errorf("poll/read causes lost: %v", err)
 		}
 	})
@@ -478,13 +545,16 @@ func TestTimerReloadPollFailureEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var summary struct {
-		Generation                  uint64
-		PollError, ReadError, Error string
+		Generation uint64 `json:"generation"`
+		PollError  string `json:"poll_error"`
+		ReadError  string `json:"read_error"`
+		Error      string `json:"error"`
 	}
 	if err := json.Unmarshal(data, &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary.Generation != 2 || summary.PollError != errors.Join(ctx.Err(), original).Error() || summary.ReadError == "" || summary.Error == "" {
+	if summary.Generation != 2 || summary.PollError != errors.Join(ctx.Err(), original).Error() ||
+		summary.ReadError == "" || summary.Error == "" {
 		t.Fatalf("missing error summary: %+v", summary)
 	}
 }
@@ -507,14 +577,18 @@ func TestTimerReloadOwnedMutation(t *testing.T) {
 	if _, err := signalTimerReload(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := copyTimerConfig(ctx, "foreign-interop", "/owned.yml", "/etc/gobfd/gobfd.yml"); !errors.Is(err, errForeignProjectContainer) {
+	err := copyTimerConfig(ctx, "foreign-interop", "/owned.yml", "/etc/gobfd/gobfd.yml")
+	if !errors.Is(err, errForeignProjectContainer) {
 		t.Fatalf("foreign mutation error=%v", err)
 	}
 	log, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCommandSubsequence(t, string(log), []string{"cp /owned.yml immutable-owned-id:/etc/gobfd/gobfd.yml", "kill --signal HUP immutable-owned-id"})
+	assertCommandSubsequence(t, string(log), []string{
+		"cp /owned.yml immutable-owned-id:/etc/gobfd/gobfd.yml",
+		"kill --signal HUP immutable-owned-id",
+	})
 	if strings.Contains(string(log), "foreign-id:") || strings.Contains(string(log), "cp /owned.yml gobfd-interop:") {
 		t.Fatalf("unsafe command: %s", log)
 	}
@@ -522,7 +596,7 @@ func TestTimerReloadOwnedMutation(t *testing.T) {
 
 func TestTimerReloadAssertionBatches(t *testing.T) {
 	for _, fail := range []bool{false, true} {
-		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
 			directory := t.TempDir()
 			assignment := installFakeCommand(t, directory, "assertions", "timer-batches")
 			key, value, _ := strings.Cut(assignment, "=")
@@ -533,12 +607,14 @@ func TestTimerReloadAssertionBatches(t *testing.T) {
 			var events []string
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop", func(index int, output []byte, exitCode int, runErr error) {
-				events = append(events, fmt.Sprintf("artifact-%d", index))
-				if index == 1 && fail && (exitCode != 17 || runErr == nil || !strings.Contains(string(output), "timer phase failed")) {
-					t.Errorf("lost original subprocess failure: %d/%v/%s", exitCode, runErr, output)
-				}
-			})
+			err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop",
+				func(index int, output []byte, exitCode int, runErr error) {
+					events = append(events, fmt.Sprintf("artifact-%d", index))
+					if index == 1 && fail &&
+						(exitCode != 17 || runErr == nil || !strings.Contains(string(output), "timer phase failed")) {
+						t.Errorf("lost original subprocess failure: %d/%v/%s", exitCode, runErr, output)
+					}
+				})
 			if (err != nil) != fail {
 				t.Fatalf("batch error=%v", err)
 			}
@@ -551,7 +627,8 @@ func TestTimerReloadAssertionBatches(t *testing.T) {
 			if fail {
 				want = 2
 			}
-			if len(lines) != want || len(events) != want || !strings.Contains(lines[0], "TestRFCCompliance") || !strings.Contains(lines[1], "-test.run=^(TestTimerReload)$") {
+			if len(lines) != want || len(events) != want || !strings.Contains(lines[0], "TestRFCCompliance") ||
+				!strings.Contains(lines[1], "-test.run=^(TestTimerReload)$") {
 				t.Fatalf("batch commands=%s events=%v", log, events)
 			}
 		})
