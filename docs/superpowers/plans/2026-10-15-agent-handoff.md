@@ -1,6 +1,6 @@
 # GoBFD continuation handoff
 
-Current execution state: 2026-10-20 18:55 UTC. Beads owns tasks, dependencies and release
+Current execution state: 2026-10-20 21:10 UTC. Beads owns tasks, dependencies and release
 age gates. The [EN roadmap](../../en/roadmap.md) and
 [RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
 sources. Earlier 2026-10-15 receipts remain historical evidence at their named
@@ -16,7 +16,7 @@ The original handoff and its dated measurements remain in local Git:
 ## Source and acceptance boundaries
 
 - Accepted implementation baseline on local `dev`:
-  `f913050cfbd863f86ab0937972e2ec16d7e44ecf`.
+  `1484581eb57d0bf210a4072ecb108a066ec26ad2`.
 - GitHub `dev`: `e6baa6fa416877a3caefb3e68421309578e749b0`;
   default `master`: `5680385679d8e03d74226b5fcde269210d63bde8`.
   This implementation baseline is 62 commits ahead of remote `dev`.
@@ -61,49 +61,36 @@ The original handoff and its dated measurements remain in local Git:
   is compiled or executed. Cleanup does not close broader hygiene owners.
 - Interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`) and its parent
   `gobfd-qj0.8.2.2.6.3` are accepted locally at the implementation baseline.
-  The active P0 task is security-patched BIRD (`gobfd-qj0.8.6.6.2`).
+  Security-patched BIRD (`gobfd-qj0.8.6.6.2`) is accepted; see below.
 
-## Active BIRD handoff — 2026-10-20
+## BIRD acceptance — 2026-10-20
 
-- Source branch/worktree: `task/bird-security-20261020` at
-  `.worktrees/bird-security-20261020`, local draft commit
-  `d2798c333e8cd3fffa13523428eab0cd4d48b251`, forked from accepted `dev` commit
-  `f913050cfbd863f86ab0937972e2ec16d7e44ecf`. It is a draft; do not
-  merge into `dev` or mark the Bead complete on source pins alone.
-- Source archive `c3669497e3949b942d86d07e343092cc439b4659` and
-  vendor fix `7cf75587b6f38b87849fe192bf5dfd124b7702bc` have matching
-  local SHA-256 receipts in ignored `reports/bird-security-20261020/`.
-  The 2026-10-20 17:59:33 UTC age receipt confirms both seven-day holds.
-  Primary sources are linked in the Bead and
-  `reports/peers-currency-20261020/security-disposition.md`.
-- Draft changes: pinned build source and fix, OCI provenance labels, bounded
-  FlowSpec validation fixture, BASE/BGP testcontainer build metadata, BGP
-  version assertion and four-peer recipe contract. Pinned-image `gofmt` and
-  `git diff --check` exited 0. The image has not been built; no runtime,
-  security, interop, SBOM, inventory-generator, race, vet, tidy or canonical
-  lint result exists for these source bytes.
-- Resume `gobfd-qj0.8.6.6.2`: inspect and correct the draft fixture against
-  actual BIRD CLI/config behavior, demonstrate the regression on the original
-  and patched executable, then perform the exact image provenance/SBOM and
-  BASE+BGP consumer checks in its acceptance criteria. Regenerate dependency
-  inventory with the existing Go generator and test it. Run the required
-  critical and canonical gates with a fresh resource admission check. Request
-  SPEC then QUALITY review on final bytes; integrate locally only after pass.
-- Next dependent owner: `gobfd-qj0.8.2.1.1.1.4.3.1` live timer qualification,
-  using the accepted patched peer. `gobfd-qj0.8.4.1` remains a separate P0
-  stable-v1 security gate. The final release owner remains open.
-- The displayed message `This content can’t be shown` is a client rendering
-  restriction, not a measured shell or Go result. The last shell exit 1 was
-  from an optional `rg` query with no matches after successful read-only
-  commands; no build/test was running. Keep future diagnostic output bounded
-  and preserve full receipts locally.
-- Cleanup receipt `reports/bird-security-20261020/cleanup-*`: one stopped
-  project-owned Grafana container and its exact image ancestry were removed;
-  `df` increased from 12,374,597,632 to 13,752,012,800 available bytes at
-  that observation. Later free space fell below the 12 GiB compiler admission
-  threshold as other activity continued. Five other dangling images were
-  referenced by containers or Buildah and retained. No foreign container,
-  volume, source tree or branch was deleted.
+- `gobfd-qj0.8.6.6.2` is accepted locally: `dev` fast-forwarded to
+  `1484581eb57d0bf210a4072ecb108a066ec26ad2` (backup
+  `backup/dev-before-bird-security-20261021`). The recipe builds BIRD 3.4.0
+  commit `c3669497e3949b942d86d07e343092cc439b4659` with the checksum-pinned
+  upstream fix `7cf75587b6f38b87849fe192bf5dfd124b7702bc`.
+- Manual image evidence in ignored `reports/bird-security-20261020/`: patch
+  applies with zero fuzz, patched `nest/rt-table.c` digest
+  `0fdd10a135787dd14226cadfaee542d2a4e13444a32444782ed5deb26907c5e5`; the
+  nonzero-offset IPv6 FlowSpec destination is valid on unpatched 3.4.0 and
+  invalid on the patched image. Syft 1.54.1 emitted CycloneDX and SPDX; BIRD
+  is absent from both because it is built from source. Trivy 0.75.0 reported
+  zero CRITICAL; the two fixable `liblzma5` findings belong to `gobfd-cs8`.
+- Gate `gate04` under the worktree report directory: 6 critical race tests,
+  18 canonical profiles with zero issues, formatter, vet, both tidies and
+  docs exit 0; regenerated inventory is byte-identical. Peak memory
+  2,148,237,312 bytes, no max/OOM event. Host runs of the gate-compiled
+  binaries passed `TestBIRDFlowSpecValidation`,
+  `TestFourPeerTopologyTestcontainers` and
+  `TestBGPBFDTopologyTestcontainers`. SPEC and QUALITY reviews approved.
+- Fixed-name residue from 2026-10-15/16 runs (14 containers, two networks) was
+  removed with maintainer approval. Builder-stage images left by
+  testcontainers builds are tracked in `gobfd-aob`.
+- Next owner: `gobfd-qj0.8.2.1.1.1.4.3.1` live timer qualification against
+  this patched peer. `gobfd-qj0.8.4.1` remains a separate P0 stable-v1
+  security gate. Upstream Go `go1.27.3` is newer than the `go1.27.2` pin;
+  no Bead tracks it yet.
 
 ## Resume
 
@@ -113,9 +100,8 @@ The original handoff and its dated measurements remain in local Git:
    observer is not proof that the job stopped. Never overlap heavy Go jobs.
 3. Select `bd ready --priority 0`, then `bd ready --priority 1`. Finish claimed
    stable RFC/timer, transport, ownership/reload and management blockers;
-   `gobfd-qj0.8.4.1` retains the stable-v1 advisory gate. Qualify security-patched
-   BIRD `.8.6.6.2` before its dependent timer draft; broad tools `.8.6.3.3` no
-   longer blocks that peer. Serialize overlapping source/inventory edits.
+   `gobfd-qj0.8.4.1` retains the stable-v1 advisory gate. Patched BIRD
+   `.8.6.6.2` is accepted; serialize overlapping source/inventory edits.
 4. Qualify timer draft `.1.1.1.4.3.1` and its parent gaps against the accepted
    patched peer. Keep previews default-off/fail-closed before v1; graduation is
    separate. Execute an actual wrong-port RED before any API Echo `.1.17` fix.
