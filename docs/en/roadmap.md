@@ -157,9 +157,12 @@ commit-range repetitions do not prove a newly exposed vulnerability.
 The subsequent source/security audit requires the patched basis owned by
 `gobfd-qj0.8.6.6.2`: target commit above plus upstream fix
 `7cf75587b6f38b87849fe192bf5dfd124b7702bc`, not unpatched 3.4.0. The recorded
-fix age threshold, 2026-10-20 15:01:43 UTC, has elapsed. Actual patched-image
-build, fix provenance/security regression, SBOM and BASE/BGP qualification
-remain unexecuted. Static patch application is not image acceptance.
+fix age threshold, 2026-10-20 15:01:43 UTC, has elapsed. The recipe applies
+this fix with zero fuzz and verifies the patched `nest/rt-table.c` digest. A
+manual 2026-10-20 run marked the nonzero-offset IPv6 destination valid on
+unpatched 3.4.0 and invalid on the patched image. BIRD is built from source,
+so image SBOMs and package scanners do not list it; `gobfd-source.txt` records
+its provenance. BASE/BGP acceptance evidence stays with the Bead.
 
 govulncheck 1.9.0 is identified by the
 [Go module metadata](https://proxy.golang.org/golang.org/x/vuln/@v/v1.9.0.info),
@@ -505,7 +508,7 @@ Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev re
 | Prometheus | GitHub release | v3.15.0 | v3.15.0 | current | done |
 | Grafana | GitHub release | 13.2.4 | 13.2.4 | current (security exception) | done |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | current | done |
-| BIRD | GitHub tag | v3.3.2 | v3.4.0 | 2026-10-19 | `.8.6.6` |
+| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | 2026-10-19 | `.8.6.6` |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
 | Holo | GHCR bundle | v0.9.0 | v0.9.0 | current | done |
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (no commit since 2021-05-15) | decision | `.8.6.6` |

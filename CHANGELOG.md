@@ -170,7 +170,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The BIRD interoperability peer moved from 3.3.2 to 3.4.0 with the
   checksum-pinned upstream fix `7cf75587` for CVE-2026-112112
   (`gobfd-qj0.8.6.6.2`). The recipe records source and fix hashes and OCI
-  labels; a FlowSpec regression test rejects a nonzero IPv6 destination offset.
+  labels; a FlowSpec regression test checks that BIRD marks a nonzero IPv6
+  destination offset invalid.
   BASE and BGP+BFD topologies use the same recipe.
 - Updated pinned upload/download-artifact Actions to v7.0.2/v8.0.2 for HTTP 429
   retries with `Retry-After`, GoReleaser Action to v7.3.0 for runner tool cache

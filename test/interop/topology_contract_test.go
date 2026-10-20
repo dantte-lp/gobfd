@@ -311,6 +311,29 @@ func TestBGPTopologyContract(t *testing.T) {
 			}
 		}
 	}
+	for _, peer := range []struct{ file, service, context string }{
+		{"test/interop/compose.yml", "bird3", "./bird3"},
+		{"test/interop-bgp/compose.yml", "bird3-bgp", "../interop/bird3"},
+	} {
+		var service struct {
+			Build struct {
+				Context string            `yaml:"context"`
+				Args    map[string]string `yaml:"args"`
+			} `yaml:"build"`
+		}
+		var peerTopology composeRaw
+		if err := yaml.Unmarshal([]byte(readContractFile(t, peer.file, filepath.Join(root, peer.file))), &peerTopology); err != nil {
+			t.Fatalf("decode %s: %v", peer.file, err)
+		}
+		node := peerTopology.Services[peer.service]
+		if err := node.Decode(&service); err != nil {
+			t.Fatalf("decode %s: %v", peer.service, err)
+		}
+		assertEqual(t, peer.service+" shared context", service.Build.Context, peer.context)
+		assertEqual(t, peer.service+" provenance", service.Build.Args, map[string]string{
+			"VCS_REF": "${VCS_REF:-}", "BUILD_DATE": "${BUILD_DATE:-}",
+		})
+	}
 	for name, node := range topology.Services {
 		var limits composeResourceLimits
 		if err := node.Decode(&limits); err != nil {
@@ -617,6 +640,9 @@ func TestInteropOperationalContract(t *testing.T) {
 		"BIRD_SOURCE_SHA256=9d19e6ac4f812423721a27bda5df6fc14cceb24af57609f6287c259b3b38893a",
 		"BIRD_FIX_COMMIT=7cf75587b6f38b87849fe192bf5dfd124b7702bc",
 		"BIRD_FIX_SHA256=1655d26ae3d3acd66d3ff87b4aff2b36b61c362885b64d1cc39e976faffac13e",
+		"ADD --checksum=sha256:${BIRD_FIX_SHA256}",
+		"patch --batch --fuzz=0 -p1 < /tmp/flowspec-fix.patch",
+		"0fdd10a135787dd14226cadfaee542d2a4e13444a32444782ed5deb26907c5e5  nest/rt-table.c' | sha256sum -c -",
 	})
 	for _, forbidden := range []string{
 		"-p $(INTEROP_PROJECT_NAME)",

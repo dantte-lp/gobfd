@@ -159,9 +159,13 @@ digest/provenance и hosted results требуют отдельной квали
 Последующий source/security audit требует исправленный basis из
 `gobfd-qj0.8.6.6.2`: указанный target commit вместе с upstream fix
 `7cf75587b6f38b87849fe192bf5dfd124b7702bc`, а не unpatched 3.4.0. Записанный
-порог возраста fix, 2026-10-20 15:01:43 UTC, прошёл. Actual patched-image build,
-fix provenance/security regression, SBOM и BASE/BGP qualification ещё не
-выполнены. Статическое применение patch не подтверждает приёмку образа.
+порог возраста fix, 2026-10-20 15:01:43 UTC, прошёл. Рецепт применяет это
+исправление без fuzz и проверяет digest исправленного `nest/rt-table.c`.
+Ручной прогон 2026-10-20 пометил IPv6 destination с ненулевым offset как valid
+на unpatched 3.4.0 и как invalid на исправленном образе. BIRD собирается из
+исходников, поэтому SBOM образа и пакетные сканеры его не показывают;
+provenance записан в `gobfd-source.txt`. Evidence приёмки BASE/BGP хранится в
+Bead.
 
 govulncheck 1.9.0 подтверждён
 [метаданными Go module](https://proxy.golang.org/golang.org/x/vuln/@v/v1.9.0.info),
@@ -507,7 +511,7 @@ vendor-образов).
 | Prometheus | GitHub release | v3.15.0 | v3.15.0 | актуально | выполнено |
 | Grafana | GitHub release | 13.2.4 | 13.2.4 | актуально (исключение по безопасности) | выполнено |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | актуально | выполнено |
-| BIRD | GitHub tag | v3.3.2 | v3.4.0 | 2026-10-19 | `.8.6.6` |
+| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | 2026-10-19 | `.8.6.6` |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
 | Holo | GHCR bundle | v0.9.0 | v0.9.0 | актуально | выполнено |
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (коммитов нет с 2021-05-15) | решение | `.8.6.6` |

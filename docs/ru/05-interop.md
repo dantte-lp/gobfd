@@ -156,8 +156,9 @@ graph LR
 [`7cf75587`](https://gitlab.nic.cz/labs/bird/-/commit/7cf75587b6f38b87849fe192bf5dfd124b7702bc)
 для CVE-2026-112112. Образ хранит оба хеша в
 `/usr/share/doc/bird/gobfd-source.txt`. `TestBIRDFlowSpecValidation`
-(тег `interop_testcontainers`) подтверждает, что IPv6 FlowSpec destination с
-ненулевым offset признаётся invalid. BIRD собирается из исходников, поэтому
+(тег `interop_testcontainers`) проверяет, что BIRD помечает IPv6 FlowSpec
+destination с ненулевым offset как invalid; его запускает
+`make interop-testcontainers`. BIRD собирается из исходников, поэтому
 SBOM образа и пакетные сканеры его не показывают.
 
 Holo использует immutable digest официального образа из `compose.yml`. Демон
