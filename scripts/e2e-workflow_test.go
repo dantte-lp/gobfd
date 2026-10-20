@@ -44,7 +44,7 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 		"make e2e-linux",
 		"make e2e-vendor",
 		"make down",
-		"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+		"actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
 		"retention-days: 30",
 		"if-no-files-found: warn",
 	}

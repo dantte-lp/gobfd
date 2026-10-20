@@ -162,6 +162,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated pinned upload/download-artifact Actions to v7.0.2/v8.0.2 for HTTP 429
+  retries with `Retry-After`, GoReleaser Action to v7.3.0 for runner tool cache
+  reuse, and Scorecard Action to v2.5.0 for the Scorecard v5.6.0 engine refresh
+  (`gobfd-qj0.8.6.4.2`).
 - Dependency inventory generation now uses an explicit `dev` observation epoch
   and deferred release-line decisions (`gobfd-qj0.8.2.8.7.6`). It records actual
   exact-version license responses, rejects legacy observation reuse, and leaves

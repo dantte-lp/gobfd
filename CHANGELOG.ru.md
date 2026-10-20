@@ -164,6 +164,10 @@
 
 ### Изменено
 
+- Обновлены pins Actions upload/download-artifact до v7.0.2/v8.0.2 для повторных
+  попыток при HTTP 429 с `Retry-After`, GoReleaser Action до v7.3.0 для
+  переиспользования runner tool cache и Scorecard Action до v2.5.0 для обновления
+  движка Scorecard до v5.6.0 (`gobfd-qj0.8.6.4.2`).
 - Генерация dependency inventory использует явный observation epoch `dev` и
   решения deferred для release line (`gobfd-qj0.8.2.8.7.6`). Записываются
   фактические license responses точных версий; старые observations не
