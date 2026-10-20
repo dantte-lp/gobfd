@@ -534,7 +534,7 @@ func TestInteropOperationalContract(t *testing.T) {
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
 		`env "INTEROP_PROJECT_NAME=$${bgp_project}"`,
-		"FRR 10.7.1 + BIRD 3.3.2 + Holo 0.9.0 + Thoro/bfd",
+		"FRR 10.7.1 + BIRD 3.4.0+fix + Holo 0.9.0 + Thoro/bfd",
 		"gopls-check: dev-ensure",
 		"go run ./test/cmd/repoquality gopls --root .",
 		"lint-md: dev-ensure",
@@ -612,9 +612,11 @@ func TestInteropOperationalContract(t *testing.T) {
 		"frr version 10.7.1",
 	})
 	assertContainsAll(t, "BIRD image", contents["BIRD image"], []string{
-		"BIRD 3.3.2",
-		"BIRD_COMMIT=e66773c42f115d80aaaef3b7246953b276a88065",
-		"BIRD_SOURCE_SHA256=ad74ac8bc970f97a137f5df4e0c96777dfc7137b9773b1f95badec3d93e18754",
+		"BIRD 3.4.0",
+		"BIRD_COMMIT=c3669497e3949b942d86d07e343092cc439b4659",
+		"BIRD_SOURCE_SHA256=9d19e6ac4f812423721a27bda5df6fc14cceb24af57609f6287c259b3b38893a",
+		"BIRD_FIX_COMMIT=7cf75587b6f38b87849fe192bf5dfd124b7702bc",
+		"BIRD_FIX_SHA256=1655d26ae3d3acd66d3ff87b4aff2b36b61c362885b64d1cc39e976faffac13e",
 	})
 	for _, forbidden := range []string{
 		"-p $(INTEROP_PROJECT_NAME)",

@@ -132,7 +132,8 @@ func startFourPeerTopology(
 	)
 	birdImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-		fmt.Sprintf("localhost/bird3-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/bird3-interop-test:%d", buildID), resources,
+		map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 	)
 	thoroImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/thoro"),

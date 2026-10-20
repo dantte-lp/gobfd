@@ -1,6 +1,6 @@
 # BIRD3 container for BFD interoperability testing with GoBFD.
 #
-# Build the current stable BIRD 3.3.2 source at its immutable tag commit.
+# BIRD 3.4.0 with the upstream CVE-2026-112112 fix backported.
 
 FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS builder
 
@@ -12,10 +12,13 @@ RUN apt-get update \
        flex \
        libncurses-dev \
        libreadline-dev \
+       patch \
     && rm -rf /var/lib/apt/lists/*
 
-ARG BIRD_COMMIT=e66773c42f115d80aaaef3b7246953b276a88065
-ARG BIRD_SOURCE_SHA256=ad74ac8bc970f97a137f5df4e0c96777dfc7137b9773b1f95badec3d93e18754
+ARG BIRD_COMMIT=c3669497e3949b942d86d07e343092cc439b4659
+ARG BIRD_SOURCE_SHA256=9d19e6ac4f812423721a27bda5df6fc14cceb24af57609f6287c259b3b38893a
+ARG BIRD_FIX_COMMIT=7cf75587b6f38b87849fe192bf5dfd124b7702bc
+ARG BIRD_FIX_SHA256=1655d26ae3d3acd66d3ff87b4aff2b36b61c362885b64d1cc39e976faffac13e
 
 WORKDIR /src
 
@@ -23,13 +26,37 @@ ADD --checksum=sha256:${BIRD_SOURCE_SHA256} \
     https://codeload.github.com/CZ-NIC/bird/tar.gz/${BIRD_COMMIT} \
     /tmp/bird.tar.gz
 
+ADD --checksum=sha256:${BIRD_FIX_SHA256} \
+    https://gitlab.nic.cz/labs/bird/-/commit/${BIRD_FIX_COMMIT}.patch \
+    /tmp/flowspec-fix.patch
+
 RUN tar -xzf /tmp/bird.tar.gz --strip-components=1 \
+    && patch --batch --fuzz=0 -p1 < /tmp/flowspec-fix.patch \
+    && echo '0fdd10a135787dd14226cadfaee542d2a4e13444a32444782ed5deb26907c5e5  nest/rt-table.c' | sha256sum -c - \
     && autoreconf \
     && ./configure --prefix=/usr --sysconfdir=/etc/bird --runstatedir=/run/bird \
     && make -j"$(nproc)" \
-    && make DESTDIR=/out install
+    && make DESTDIR=/out install \
+    && install -d /out/usr/share/doc/bird \
+    && install -m 0644 distro/pkg/deb/copyright /tmp/flowspec-fix.patch /out/usr/share/doc/bird/ \
+    && printf 'commit=%s\narchive_sha256=%s\nfix_commit=%s\nfix_sha256=%s\n' \
+       "$BIRD_COMMIT" "$BIRD_SOURCE_SHA256" "$BIRD_FIX_COMMIT" "$BIRD_FIX_SHA256" \
+       > /out/usr/share/doc/bird/gobfd-source.txt \
+    && sha256sum nest/rt-table.c >> /out/usr/share/doc/bird/gobfd-source.txt
 
 FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="3.4.0+7cf75587b6f3" \
+      org.opencontainers.image.licenses="GPL-2.0-only" \
+      org.opencontainers.image.title="GoBFD BIRD interoperability peer" \
+      org.opencontainers.image.description="BIRD 3.4.0 with upstream IPv6 FlowSpec validation fix" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

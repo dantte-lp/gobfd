@@ -143,7 +143,7 @@ func startBGPTestTopology(
 	)
 	birdImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-		fmt.Sprintf("localhost/bird3-bgp-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/bird3-bgp-interop-test:%d", buildID), resources, buildArgs,
 	)
 	tsharkImage := buildBGPTestImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
@@ -387,7 +387,7 @@ func verifyBGPTestVersions(ctx context.Context, t *testing.T, resources *bgpTest
 		},
 		{
 			name: "BIRD", container: findBGPTestContainer(ctx, t, resources, bird3Container),
-			command: []string{"birdc", "show", "status"}, version: "3.3.2",
+			command: []string{"birdc", "show", "status"}, version: "3.4.0",
 		},
 		{
 			name: "ExaBGP", container: findBGPTestContainer(ctx, t, resources, "exabgp-interop"),
