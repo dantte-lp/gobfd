@@ -19,7 +19,7 @@ The original handoff and its dated measurements remain in local Git:
   `1484581eb57d0bf210a4072ecb108a066ec26ad2`.
 - GitHub `dev`: `e6baa6fa416877a3caefb3e68421309578e749b0`;
   default `master`: `5680385679d8e03d74226b5fcde269210d63bde8`.
-  This implementation baseline is 62 commits ahead of remote `dev`.
+  This implementation baseline is 69 commits ahead of remote `dev`.
 - Accepted API/core source `task/api-validation-padding` at
   `20e951ac14e0515eda6698df7c70e7bf9ee77a32` covers
   `gobfd-qj0.8.2.1.3.4`, `gobfd-qj0.8.2.1.3.5` and
@@ -83,14 +83,15 @@ The original handoff and its dated measurements remain in local Git:
   2,148,237,312 bytes, no max/OOM event. Host runs of the gate-compiled
   binaries passed `TestBIRDFlowSpecValidation`,
   `TestFourPeerTopologyTestcontainers` and
-  `TestBGPBFDTopologyTestcontainers`. SPEC and QUALITY reviews approved.
+  `TestBGPBFDTopologyTestcontainers`. QUALITY approved; SPEC requested a
+  roadmap-only correction, applied in the follow-up docs commit.
 - Fixed-name residue from 2026-10-15/16 runs (14 containers, two networks) was
   removed with maintainer approval. Builder-stage images left by
   testcontainers builds are tracked in `gobfd-aob`.
 - Next owner: `gobfd-qj0.8.2.1.1.1.4.3.1` live timer qualification against
   this patched peer. `gobfd-qj0.8.4.1` remains a separate P0 stable-v1
   security gate. Upstream Go `go1.27.3` is newer than the `go1.27.2` pin;
-  no Bead tracks it yet.
+  `gobfd-bjr` owns that evaluation.
 
 ## Resume
 

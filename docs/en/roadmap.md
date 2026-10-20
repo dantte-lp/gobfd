@@ -76,7 +76,7 @@ evidence only for their named revision.
 | Order | Owner | Required result |
 |---|---|---|
 | 1 | `.8.4.1`, `.1.1`, `.1.4`, `.2`, `.3`, `.1.8` | Resolve stable-v1 security, stable RFC/timer/transport and ownership/management blockers; enforce default-off/fail-closed preview boundaries |
-| 2 | `.8.6.6.2`, `.1.1.1.4.3.1` | Qualify the patched BIRD baseline and dependent live timer evidence; general tool upgrades no longer block this peer slice |
+| 2 | `.1.1.1.4.3.1` | Qualify live timer evidence against the patched BIRD baseline accepted under `.8.6.6.2` |
 | 3 | `.1.6`, `.1.7`, `.8.2.6.2`, `.8.6.11` | Measure required performance/thread behavior and combined-consumer convergence; audit the final candidate's compatibility and dependency inventory |
 | 4 | `.8.2.7`, `.8.2.8.7`, `.8.2.6` | Complete independent review, mandatory quality/security/interop/scale, packaging/provenance and upgrade/rollback evidence before release preparation |
 | 5 | Issues labelled `after-v1` | Resume general currency, cosmetic cleanup and independent v0.6 maintenance after v1; retain their open states and release-age holds |
@@ -85,13 +85,10 @@ Interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`) is accepted locally at
 `f913050cfbd863f86ab0937972e2ec16d7e44ecf`. Linux retries affected
 pending sources in the retained generation; the non-Linux stub does not.
 Startup listener and overlay capability lifecycle remains open under `.6.4`.
-The active P0 peer task `gobfd-qj0.8.6.6.2` has an isolated, unqualified
-BIRD recipe and validation draft on `task/bird-security-20261020` at
-`d2798c333e8cd3fffa13523428eab0cd4d48b251`. Its
-source/fix hashes and seven-day eligibility were checked, but no image build,
-runtime regression, BASE/BGP interop or canonical quality gate has passed for
-that draft. The dependent timer draft is source-reviewed but uncompiled and
-unexecuted. The Echo draft contains only a prospective regression test.
+The patched BIRD peer under `gobfd-qj0.8.6.6.2` is accepted locally at
+`1484581eb57d0bf210a4072ecb108a066ec26ad2`: image readback, FlowSpec RED/GREEN,
+BASE and BGP+BFD testcontainers and the canonical gate passed. The dependent
+timer draft is source-reviewed but uncompiled and unexecuted. The Echo draft contains only a prospective regression test.
 See [handoff](../superpowers/plans/2026-10-15-agent-handoff.md) and Beads for
 the exact resume order. None of these drafts is release acceptance.
 
@@ -508,7 +505,7 @@ Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev re
 | Prometheus | GitHub release | v3.15.0 | v3.15.0 | current | done |
 | Grafana | GitHub release | 13.2.4 | 13.2.4 | current (security exception) | done |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | current | done |
-| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | 2026-10-19 | `.8.6.6` |
+| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | current | done (`.8.6.6.2`) |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
 | Holo | GHCR bundle | v0.9.0 | v0.9.0 | current | done |
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (no commit since 2021-05-15) | decision | `.8.6.6` |

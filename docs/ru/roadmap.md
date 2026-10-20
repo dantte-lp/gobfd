@@ -76,7 +76,7 @@ release-age hold делает upgrade допустимым, но не следу
 | Порядок | Владелец | Требуемый результат |
 |---|---|---|
 | 1 | `.8.4.1`, `.1.1`, `.1.4`, `.2`, `.3`, `.1.8` | Закрыть stable-v1 security, stable RFC/timer/transport и ownership/management blockers; обеспечить default-off/fail-closed preview boundaries |
-| 2 | `.8.6.6.2`, `.1.1.1.4.3.1` | Квалифицировать исправленный BIRD baseline и зависимую live timer evidence; общее обновление инструментов больше не блокирует этот peer slice |
+| 2 | `.1.1.1.4.3.1` | Квалифицировать live timer evidence на исправленном BIRD baseline, принятом в `.8.6.6.2` |
 | 3 | `.1.6`, `.1.7`, `.8.2.6.2`, `.8.6.11` | Измерить обязательные performance/thread behavior и combined-consumer convergence; проверить compatibility и dependency inventory финального candidate |
 | 4 | `.8.2.7`, `.8.2.8.7`, `.8.2.6` | Завершить независимое ревью, обязательные quality/security/interop/scale, packaging/provenance и upgrade/rollback evidence до подготовки релиза |
 | 5 | Issues с label `after-v1` | После v1 продолжить общую актуализацию, косметическую очистку и независимое сопровождение v0.6; сохранить open states и release-age holds |
@@ -85,13 +85,10 @@ Interface-event coalescing (`gobfd-qj0.8.2.2.6.3.3`) принят локальн
 `f913050cfbd863f86ab0937972e2ec16d7e44ecf`. Linux повторяет затронутые
 pending sources в сохранённом generation; non-Linux stub этого не делает.
 Lifecycle startup listener и overlay capabilities остаётся открытым в `.6.4`.
-Активная P0-задача по peer `gobfd-qj0.8.6.6.2` имеет изолированный,
-неквалифицированный черновик BIRD recipe и validation в ветке
-`task/bird-security-20261020` на `d2798c333e8cd3fffa13523428eab0cd4d48b251`.
-Хеши source/fix и семидневная выдержка
-проверены; build образа, runtime regression, BASE/BGP interop и canonical
-quality gate для черновика не проходили. Timer draft прошёл source review, но
-не скомпилирован и не выполнен. Echo draft содержит только будущий regression
+Исправленный peer BIRD по `gobfd-qj0.8.6.6.2` принят локально на
+`1484581eb57d0bf210a4072ecb108a066ec26ad2`: readback образа, FlowSpec RED/GREEN,
+testcontainers BASE и BGP+BFD и canonical gate пройдены. Timer draft прошёл
+source review, но не скомпилирован и не выполнен. Echo draft содержит только будущий regression
 test. Точный порядок возобновления — в [handoff](../superpowers/plans/2026-10-15-agent-handoff.md)
 и Beads. Эти черновики не подтверждают готовность релиза.
 
@@ -511,7 +508,7 @@ vendor-образов).
 | Prometheus | GitHub release | v3.15.0 | v3.15.0 | актуально | выполнено |
 | Grafana | GitHub release | 13.2.4 | 13.2.4 | актуально (исключение по безопасности) | выполнено |
 | FRR | deb.frrouting.org frr-10.7 | 10.7.1 | 10.7.1 | актуально | выполнено |
-| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | 2026-10-19 | `.8.6.6` |
+| BIRD | GitHub tag | v3.4.0 + `7cf75587` | v3.4.0 | current | done (`.8.6.6.2`) |
 | ExaBGP | GitHub release | 5.0.13 | 5.0.14 | 2026-10-19 | `.8.6.6` |
 | Holo | GHCR bundle | v0.9.0 | v0.9.0 | актуально | выполнено |
 | Thoro/bfd | Git commit | `5d09e29` | `5d09e29` (коммитов нет с 2021-05-15) | решение | `.8.6.6` |
