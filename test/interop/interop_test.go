@@ -81,17 +81,17 @@ var (
 var interopProjectNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type sessionState struct {
-	PeerAddress     string `json:"peer_address"`
-	LocalState      string `json:"local_state"`
-	RemoteState     string `json:"remote_state"`
-	LocalDiagnostic string `json:"local_diagnostic"`
-	LocalDiscriminator uint32 `json:"local_discriminator"`
+	PeerAddress         string `json:"peer_address"`
+	LocalState          string `json:"local_state"`
+	RemoteState         string `json:"remote_state"`
+	LocalDiagnostic     string `json:"local_diagnostic"`
+	LocalDiscriminator  uint32 `json:"local_discriminator"`
 	RemoteDiscriminator uint32 `json:"remote_discriminator"`
-	DesiredMinTx string `json:"desired_min_tx_interval"`
-	RequiredMinRx string `json:"required_min_rx_interval"`
-	RemoteMinRx string `json:"remote_min_rx_interval"`
-	NegotiatedTx string `json:"negotiated_tx_interval"`
-	DetectionTime string `json:"detection_time"`
+	DesiredMinTx        string `json:"desired_min_tx_interval"`
+	RequiredMinRx       string `json:"required_min_rx_interval"`
+	RemoteMinRx         string `json:"remote_min_rx_interval"`
+	NegotiatedTx        string `json:"negotiated_tx_interval"`
+	DetectionTime       string `json:"detection_time"`
 }
 
 type holoLifecycleSchedule struct {
@@ -1112,11 +1112,11 @@ func TestParseSessionState(t *testing.T) {
 			}`),
 			peer: "172.20.0.50",
 			want: sessionState{
-				PeerAddress:     "172.20.0.50",
-				LocalState:      "Up",
-				RemoteState:     "Up",
-				LocalDiagnostic: "None",
-				LocalDiscriminator: 101,
+				PeerAddress:         "172.20.0.50",
+				LocalState:          "Up",
+				RemoteState:         "Up",
+				LocalDiagnostic:     "None",
+				LocalDiscriminator:  101,
 				RemoteDiscriminator: 202,
 			},
 		},
@@ -2423,7 +2423,9 @@ func TestFRRDetectionTimeout(t *testing.T) {
 		t.Fatalf("get gobfd logs: %v", err)
 	}
 
-	if !strings.Contains(logs, "session state changed") || !strings.Contains(logs, "new_state=Down") {
+	// Compose runs log text; the testcontainers topology logs JSON for timer receipts.
+	if !strings.Contains(logs, "session state changed") ||
+		(!strings.Contains(logs, "new_state=Down") && !strings.Contains(logs, `"new_state":"Down"`)) {
 		t.Error("GoBFD did not log session Down transition after FRR stop")
 		t.Logf("gobfd logs (tail):\n%s", lastNLines(logs, 30))
 	}

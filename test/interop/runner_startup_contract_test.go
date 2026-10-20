@@ -673,12 +673,18 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 	joined := strings.Join(args, " ")
 	switch mode {
 	case "timer-artifact-cleanup":
-		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", command+" ", joined); code != 0 { return code }
+		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", command+" ", joined); code != 0 {
+			return code
+		}
 		if command == "assertions" {
-			if strings.Contains(joined, "-test.run=^(TestTimerReload)$") { return 17 }
+			if strings.Contains(joined, "-test.run=^(TestTimerReload)$") {
+				return 17
+			}
 			return 0
 		}
-		if command != "podman" { return 125 }
+		if command != "podman" {
+			return 125
+		}
 		if fakeLabelInspect(args, joined) {
 			fmt.Fprintln(os.Stdout, "immutable-owned-id|gobfd-interop")
 			return 0
@@ -691,7 +697,9 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 			fmt.Fprintln(os.Stdout, `{"msg":"daemon artifact input"}`)
 			return 0
 		}
-		if joined == "exec immutable-tshark-id retain-pcap" || joined == "rm --force immutable-owned-id" { return 0 }
+		if joined == "exec immutable-tshark-id retain-pcap" || joined == "rm --force immutable-owned-id" {
+			return 0
+		}
 		return 125
 	case "timer-batches":
 		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", joined); code != 0 {
