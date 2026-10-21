@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -226,84 +227,84 @@ func TestReconcileOwnershipOperationIsAtomicWithConcurrentCreate(t *testing.T) {
 }
 
 func TestUnsolicitedClaimCleanupPreservesMatchingConfigAndReleasesQuota(t *testing.T) {
-	policy := &UnsolicitedPolicy{
-		Enabled:     true,
-		MaxSessions: 1,
-		Interfaces: map[string]UnsolicitedInterfaceConfig{
-			"eth0": {
-				Enabled: true,
-				AllowedPrefixes: []netip.Prefix{
-					netip.MustParsePrefix("192.0.2.0/24"),
+	synctest.Test(t, func(t *testing.T) {
+		policy := &UnsolicitedPolicy{
+			Enabled:     true,
+			MaxSessions: 1,
+			Interfaces: map[string]UnsolicitedInterfaceConfig{
+				"eth0": {
+					Enabled: true,
+					AllowedPrefixes: []netip.Prefix{
+						netip.MustParsePrefix("192.0.2.0/24"),
+					},
 				},
 			},
-		},
-		SessionDefaults: UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	mgr := NewManager(
-		slog.New(slog.DiscardHandler),
-		WithUnsolicitedPolicy(policy),
-		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		WithUnsolicitedSessionSender(nonOwningSessionSender(ownershipNoopSender{})),
-	)
-	defer mgr.Close()
+			SessionDefaults: UnsolicitedSessionDefaults{
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		}
+		mgr := NewManager(
+			slog.New(slog.DiscardHandler),
+			WithUnsolicitedPolicy(policy),
+			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
+			WithUnsolicitedSessionSender(nonOwningSessionSender(ownershipNoopSender{})),
+		)
+		defer mgr.Close()
 
-	firstMeta := PacketMeta{
-		SrcAddr: netip.MustParseAddr("192.0.2.1"),
-		DstAddr: netip.MustParseAddr("192.0.2.254"),
-		IfName:  "eth0",
-		TTL:     255,
-	}
-	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(101), firstMeta, nil); err != nil {
-		t.Fatalf("tryCreateUnsolicited(first): %v", err)
-	}
-	snapshots := mgr.Sessions()
-	if len(snapshots) != 1 {
-		t.Fatalf("wire sessions after unsolicited create = %d, want 1", len(snapshots))
-	}
-	discr := snapshots[0].LocalDiscr
+		firstMeta := PacketMeta{
+			SrcAddr: netip.MustParseAddr("192.0.2.1"),
+			DstAddr: netip.MustParseAddr("192.0.2.254"),
+			IfName:  "eth0",
+			TTL:     255,
+		}
+		if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(101), firstMeta, nil); err != nil {
+			t.Fatalf("tryCreateUnsolicited(first): %v", err)
+		}
+		// The owner applies the admitted packet asynchronously.
+		synctest.Wait()
+		snapshots := mgr.Sessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("wire sessions after unsolicited create = %d, want 1", len(snapshots))
+		}
+		discr := snapshots[0].LocalDiscr
 
-	config := ownershipTestConfig(firstMeta.SrcAddr.String())
-	config.LocalAddr = firstMeta.DstAddr
-	config.Role = RolePassive
-	if _, _, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{
-		{Key: "matching-config", SessionConfig: config, SenderLeaseFactory: ownershipSenderLeaseFactory()},
-	}); err != nil {
-		t.Fatalf("ReconcileSessions matching config: %v", err)
-	}
-	// Satisfy cleanup's Down-state precondition without a wall-clock wait; the
-	// state field is atomic and the ownership behavior is the subject here.
-	mgr.mu.RLock()
-	mgr.sessions[discr].session.mu.Lock()
-	mgr.sessions[discr].session.localPair.Store(packStateDiag(StateDown, DiagNone))
-	mgr.sessions[discr].session.observation.State = StateDown
-	mgr.sessions[discr].session.mu.Unlock()
-	mgr.mu.RUnlock()
+		config := ownershipTestConfig(firstMeta.SrcAddr.String())
+		config.LocalAddr = firstMeta.DstAddr
+		config.Role = RolePassive
+		if _, _, err := mgr.ReconcileSessions(context.Background(), []ReconcileConfig{
+			{Key: "matching-config", SessionConfig: config, SenderLeaseFactory: ownershipSenderLeaseFactory()},
+		}); err != nil {
+			t.Fatalf("ReconcileSessions matching config: %v", err)
+		}
+		// The owner consumes the shared-ownership intent asynchronously.
+		synctest.Wait()
 
-	session, _ := mgr.LookupByDiscriminator(discr)
-	mgr.cleanupUnsolicitedSession(context.Background(), session)
-	if _, ok := mgr.LookupByDiscriminator(discr); !ok {
-		t.Fatal("unsolicited cleanup removed config-owned wire session")
-	}
-	if got := mgr.unsolicited.sessionCount.Load(); got != 0 {
-		t.Errorf("unsolicited quota after claim cleanup = %d, want 0", got)
-	}
-	mgr.mu.RLock()
-	entry := mgr.sessions[discr]
-	markedUnsolicited := entry != nil && entry.unsolicited
-	mgr.mu.RUnlock()
-	if markedUnsolicited {
-		t.Error("wire session remains marked unsolicited after unsolicited claim cleanup")
-	}
+		session, _ := mgr.LookupByDiscriminator(discr)
+		// Commit a real failed attempt; cleanup accepts only a failed attempt.
+		unsolicitedPathFailure(t, mgr, session)
+		mgr.cleanupUnsolicitedSession(context.Background(), session)
+		if _, ok := mgr.LookupByDiscriminator(discr); !ok {
+			t.Fatal("unsolicited cleanup removed config-owned wire session")
+		}
+		if got := mgr.unsolicited.sessionCount.Load(); got != 0 {
+			t.Errorf("unsolicited quota after claim cleanup = %d, want 0", got)
+		}
+		mgr.mu.RLock()
+		entry := mgr.sessions[discr]
+		markedUnsolicited := entry != nil && entry.unsolicited
+		mgr.mu.RUnlock()
+		if markedUnsolicited {
+			t.Error("wire session remains marked unsolicited after unsolicited claim cleanup")
+		}
 
-	secondMeta := firstMeta
-	secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.2")
-	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(102), secondMeta, nil); err != nil {
-		t.Fatalf("tryCreateUnsolicited(second) after quota release: %v", err)
-	}
+		secondMeta := firstMeta
+		secondMeta.SrcAddr = netip.MustParseAddr("192.0.2.2")
+		if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(102), secondMeta, nil); err != nil {
+			t.Fatalf("tryCreateUnsolicited(second) after quota release: %v", err)
+		}
+	})
 }
 
 type rotatingAuthKeyStore struct {
