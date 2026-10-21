@@ -501,9 +501,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Without `-p`, Compose named the project after the `interop-rfc` directory,
   and the test helper rejected every container (`gobfd-dah`).
 
-- `make e2e-linux` runs the test binary in `localhost/<project>-dev:latest`,
-  the name Compose v2 and later give the dev service image. The former
-  `<project>_dev` name made Podman pull from a registry (`gobfd-dah`).
+- `make e2e-linux` runs the test binary in the immutable image ID of the
+  running dev service container. The former `localhost/<project>_dev` name
+  matched neither the Compose v2 image name nor the `docker.io/library` prefix
+  that the Docker API gives it, so Podman tried to pull from a registry
+  (`gobfd-dah`).
 
 - Apply a config timer update immediately outside Up, including AdminDown,
   with its Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore

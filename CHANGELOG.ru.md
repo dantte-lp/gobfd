@@ -511,9 +511,10 @@
   Compose называл project по каталогу `interop-rfc`, и тестовый helper
   отклонял каждый контейнер (`gobfd-dah`).
 
-- `make e2e-linux` запускает тестовый бинарник в `localhost/<project>-dev:latest`
-  — под этим именем Compose v2 и новее собирает образ dev service. Прежнее имя
-  `<project>_dev` приводило к попытке Podman скачать образ из registry
+- `make e2e-linux` запускает тестовый бинарник в образе работающего контейнера
+  dev service по его неизменяемому ID. Прежнее имя `localhost/<project>_dev` не
+  совпадало ни с именем образа Compose v2, ни с префиксом `docker.io/library`,
+  который даёт Docker API, поэтому Podman пытался скачать образ из registry
   (`gobfd-dah`).
 
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу

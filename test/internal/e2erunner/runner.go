@@ -165,18 +165,29 @@ func normalizeProject(name string) string {
 	return strings.Trim(result.String(), "-")
 }
 
-// devServiceImage names the image Compose builds for the dev service.
-// Compose v2 and later join project and service with "-", not "_".
-func devServiceImage(project string) string {
-	return "localhost/" + project + "-dev:latest"
+// devImageID returns the immutable image ID of the running dev service
+// container; Compose names and registry prefixes differ between providers.
+func (r *runner) devImageID(ctx context.Context) (string, error) {
+	containerID, err := r.commandText(ctx, r.composeDev("ps", "-q", "dev")...)
+	if err != nil {
+		return "", fmt.Errorf("resolve dev service container: %w", err)
+	}
+	containerID, _, _ = strings.Cut(strings.TrimSpace(containerID), "\n")
+	imageID, err := r.commandText(ctx, podmanCommand, "inspect", "--type", "container",
+		"--format", "{{.Image}}", containerID)
+	if err != nil {
+		return "", fmt.Errorf("resolve dev service image: %w", err)
+	}
+	imageID = strings.TrimSpace(imageID)
+	if !imageIDPattern.MatchString(imageID) {
+		return "", fmt.Errorf("%w %q", errInvalidImageID, imageID)
+	}
+	return imageID, nil
 }
 
 func (r *runner) runLinux(ctx context.Context) (runErr error) {
 	containerName := "e2e-linux-" + r.runID
 	testImage := os.Getenv("E2E_LINUX_IMAGE")
-	if testImage == "" {
-		testImage = devServiceImage(r.devProject)
-	}
 	defer func() {
 		r.bestEffortFile(
 			ctx, containersJSONName, "containers.err", podmanCommand,
@@ -205,6 +216,12 @@ func (r *runner) runLinux(ctx context.Context) (runErr error) {
 		}))
 	}()
 
+	if testImage == "" {
+		var err error
+		if testImage, err = r.devImageID(ctx); err != nil {
+			return err
+		}
+	}
 	if err := r.command(ctx, testTimeout, r.stdout, r.stderr, r.composeDev(
 		"exec", "-T", "dev", "env", "CGO_ENABLED=0", "go", "test", "-tags", "e2e_linux", "-c",
 		"-o", "/app/"+r.reportRel+"/e2e-linux.test", "./test/e2e/linux/",

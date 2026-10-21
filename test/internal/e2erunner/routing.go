@@ -28,7 +28,7 @@ const (
 var (
 	imageIDPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	errNoPassedTests  = errors.New("go test JSON contains no passed tests")
-	errInvalidImageID = errors.New("invalid immutable tshark image ID")
+	errInvalidImageID = errors.New("invalid immutable image ID")
 	errNoPacketRows   = errors.New("suite packet CSV has no packet rows")
 	errMergeCollision = errors.New("merge ownership label collision")
 	errMergeCleanup   = errors.New("merge-owned containers remain")
