@@ -971,9 +971,19 @@ The accepted H-12 continuation adds successful-write retries, a negotiated
 Detection Time notification window and bounded I/O. The fixed two-second
 window is historical. A commit receipt alone does not qualify packet delivery.
 
+Integration branch `task/integration-batch3-20261021` carries the RFC 5880
+section 6.8.3 timer rules outside Up (`gobfd-qj0.8.2.1.1.2`): configured timer
+changes take effect immediately in Down, Init and AdminDown, a receipt reports
+Applied only when the effective tuple equals the confirmed one, and entry to
+Up keeps the 1 s transmit floor until the Up Poll completes. It also carries
+RFC 5881/5883 transport demultiplexing (`gobfd-qj0.8.2.1.4`): per-session
+transport class, `multihop_max_hops` hop policy, single-hop receive-interface
+checks and sender device binding, link-local zones and pending unresolved
+interfaces; and the Go 1.27.3 toolchain (`gobfd-bjr`). Remote zero RX and
+remote Demand still need the crafted Go peer `gobfd-qj0.8.2.1.1.2.3`.
+
 RFC core work continues with Poll/Final, remote Demand handling, remaining
-delivery acceptance, RFC 5881/5883 transport demultiplexing and fail-closed
-preview boundaries. The public padding API/CLI slice is accepted locally;
+delivery acceptance and fail-closed preview boundaries. The public padding API/CLI slice is accepted locally;
 core RFC/path-MTU qualification remains separate. Accepted diagnostic,
 authentication and padded-PDU core slices are not reopened by this queue.
 

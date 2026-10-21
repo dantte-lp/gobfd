@@ -124,6 +124,24 @@ The original handoff and its dated measurements remain in local Git:
   timers `.8.2.1.1.2` (pinned peers inapplicable for remote RX0 and Demand;
   crafted Go peer `gobfd-qj0.8.2.1.1.2.3`). Flaky test: `gobfd-0ac`.
 
+## Integration batch 3 — 2026-10-21
+
+- Branch `task/integration-batch3-20261021` stacks on batch 2 (`7a78f51`): the
+  review round for timer updates outside Up (`2d92dac`, `0099ead`), the Go
+  1.27.3 toolchain with regenerated dependency inventory (`2ac9a38`,
+  `5af4067`) and RFC 5881/5883 transport demultiplexing (`2d78a8f` through
+  `1614a7c`, cherry-picked). Its gate runs the full untagged race suite in the
+  Go 1.27.3 image; `TestBenchmarkResultMountContract` and
+  `TestInteropCaptureStorageContract` render Compose through Podman and run
+  from a gate-compiled binary on the host. Receipts:
+  `reports/batch3-20261021/gate01/` in that worktree.
+- Known limits: admission of a new generation exactly at the active deadline,
+  before the session loop expires it, still returns a terminal Failed (one loop
+  pass); a sender on a link-local address already inherits the zone device from
+  `bind()`; a parallel test package binding `[::1]:3784/4784` can steal the
+  netio transport test datagrams. Flaky `TestManagerOwnedInterruptErrorPreserved`
+  is `gobfd-bka`.
+
 ## Resume
 
 1. Read applicable `AGENTS.md`, default-branch README and current roadmap;
@@ -164,8 +182,9 @@ The script is not a portable bypass for another machine's resource guards.
 - Canonical lint remains `go run ./test/cmd/cictl lint`: all 18 profiles and
   92 linters. Its existing child environment uses `GOMEMLIMIT=1500MiB` and
   `GOMAXPROCS=2`; the other commands use their declared bounded environment.
-- Run only the task's critical race tests, then its required formatter, vet,
-  tidy and documentation checks. Do not substitute a partial lint invocation.
+- Run the task's critical race tests, or the full untagged race suite for a
+  wide integration batch, then its required formatter, vet, tidy and
+  documentation checks. Do not substitute a partial lint invocation.
 - Inspect errors, resource-stop, timeout, OOM, missing expected test names and
   nonempty formatter diffs prevent acceptance. Preserve every original status.
 - Cleanup only newly created exact container IDs, snapshots and runtime state.

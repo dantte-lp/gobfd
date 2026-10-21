@@ -978,8 +978,20 @@ one-shot `Run` и Manager fanout вне registry, ownership и lifecycle locks.
 Detection Time notification window и bounded I/O. Фиксированное двухсекундное
 окно — историческое поведение. Один commit receipt не квалифицирует доставку.
 
+Интеграционная ветка `task/integration-batch3-20261021` содержит правила
+таймеров RFC 5880 section 6.8.3 вне Up (`gobfd-qj0.8.2.1.1.2`): изменения
+таймеров из конфигурации применяются сразу в Down, Init и AdminDown, receipt
+сообщает Applied только при совпадении действующего кортежа с подтверждённым,
+а вход в Up сохраняет порог передачи 1 s до завершения Poll в Up. Она также
+содержит transport demultiplexing RFC 5881/5883 (`gobfd-qj0.8.2.1.4`):
+транспортный класс сессии, политику хопов `multihop_max_hops`, проверку
+интерфейса приёма single-hop и привязку устройства отправителя, link-local zone
+и ожидание неразрешённых интерфейсов; и toolchain Go 1.27.3 (`gobfd-bjr`).
+Remote zero RX и remote Demand по-прежнему требуют crafted Go peer
+`gobfd-qj0.8.2.1.1.2.3`.
+
 RFC core продолжается с Poll/Final, обработки remote Demand, оставшейся приёмки
-доставки, transport demultiplexing RFC 5881/5883 и fail-closed границ preview.
+доставки и fail-closed границ preview.
 Публичный padding API/CLI принят локально; core RFC/path-MTU qualification
 остаётся отдельной. Принятые core-срезы диагностики, аутентификации и padded PDU
 этой очередью не переоткрываются.
