@@ -16,6 +16,8 @@ type ownedBlockingSender struct {
 	interruptEntered chan struct{}
 	interruptReturn  chan struct{}
 	interruptOnce    sync.Once
+	interruptErr     error
+	interruptCalls   int
 }
 
 func newOwnedBlockingSender() *ownedBlockingSender {
@@ -35,9 +37,10 @@ func (s *ownedBlockingSender) SendPacket(context.Context, []byte, netip.Addr) er
 }
 
 func (s *ownedBlockingSender) InterruptWrite() error {
+	s.interruptCalls++
 	s.interruptOnce.Do(func() { close(s.unblock); close(s.interruptEntered) })
 	<-s.interruptReturn
-	return nil
+	return s.interruptErr
 }
 
 func TestManagerOwnedWriteInterruptJoinsBeforeOwnerDone(t *testing.T) {
@@ -138,7 +141,12 @@ func (s *errorInterruptSender) InterruptWrite() error {
 
 func TestManagerOwnedInterruptErrorPreserved(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		sender := &errorInterruptSender{}
+		// context.CancelFunc closes Done before it starts AfterFunc callbacks,
+		// so an idle owner can stop the interrupt before it runs. Hold the
+		// owner in a blocked write; only the interrupt can release it.
+		sender := newOwnedBlockingSender()
+		sender.interruptErr = errInterruptTest
+		close(sender.interruptReturn)
 		releaseErr := errors.New("release failure")
 		mgr := newEchoLeaseManager()
 		var lease *SenderLease
@@ -149,7 +157,11 @@ func TestManagerOwnedInterruptErrorPreserved(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = mgr.DestroySession(t.Context(), s.LocalDiscriminator())
+		<-sender.entered
+		// The blocked owner cannot commit the AdminDown drain; bound it.
+		budget, stop := context.WithTimeout(t.Context(), time.Second)
+		defer stop()
+		err = mgr.DestroySession(budget, s.LocalDiscriminator())
 		if !errors.Is(err, errInterruptTest) || !errors.Is(err, releaseErr) {
 			t.Errorf("destroy lost owned release errors=%v", err)
 		}
@@ -157,8 +169,8 @@ func TestManagerOwnedInterruptErrorPreserved(t *testing.T) {
 		if !errors.Is(err, errInterruptTest) || !errors.Is(err, releaseErr) {
 			t.Errorf("joined owned release errors=%v", err)
 		}
-		if sender.calls != 1 {
-			t.Errorf("interrupt calls=%d, want 1", sender.calls)
+		if sender.interruptCalls != 1 {
+			t.Errorf("interrupt calls=%d, want 1", sender.interruptCalls)
 		}
 		mgr.Close()
 	})
