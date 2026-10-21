@@ -906,6 +906,27 @@ func TestInteropOwnedInlinePythonPortContract(t *testing.T) {
 	}
 }
 
+// The RFC test helper accepts only containers of its Compose project. Without
+// -p, Compose names the project after the compose file directory (interop-rfc).
+func TestRFCRunnerUsesHelperComposeProject(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	runner := readContractFile(t, "E2E runner", filepath.Join(root, "test", "internal", "e2erunner", "runner.go"))
+	helper := readContractFile(t, "RFC Podman helper", filepath.Join(root, "test", "interop-rfc", "podman_api_test.go"))
+	if !strings.Contains(helper, `defaultInteropRFCProjectName = "gobfd-interop-rfc"`) {
+		t.Fatal("RFC helper default project changed; update the E2E runner project with it")
+	}
+	assertContainsAll(t, "E2E runner RFC suite", runner, []string{
+		`const interopRFCProject = "gobfd-interop-rfc"`,
+		`podmanCommand, "compose", "-p", interopRFCProject, "-f", composeFile`,
+		`"INTEROP_PROJECT_NAME="+interopRFCProject`,
+	})
+}
+
 // Ubuntu 26.04 AppArmor attaches its tshark profile to /usr/bin/tshark, and
 // rootless Podman runs containers without a profile, so the host profile
 // confines the image binary: it denies /captures reads and container stops.

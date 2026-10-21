@@ -506,6 +506,11 @@
   или deadline пишет `micro-BFD actuator failed` с `deadline_exceeded`.
   Backend, игнорирующий context, по-прежнему задерживает следующие уведомления.
 
+- `make e2e-rfc` запускает RFC-топологию как Compose project
+  `gobfd-interop-rfc` и передаёт его тестам в `INTEROP_PROJECT_NAME`. Без `-p`
+  Compose называл project по каталогу `interop-rfc`, и тестовый helper
+  отклонял каждый контейнер (`gobfd-dah`).
+
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
   Восстановление, принятое после того, как локальный нулевой Required Min RX

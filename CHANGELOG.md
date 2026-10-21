@@ -496,6 +496,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `micro-BFD actuator failed` with `deadline_exceeded`. A backend that ignores
   its context still delays later notifications.
 
+- `make e2e-rfc` starts the RFC topology as Compose project
+  `gobfd-interop-rfc` and passes it to the tests as `INTEROP_PROJECT_NAME`.
+  Without `-p`, Compose named the project after the `interop-rfc` directory,
+  and the test helper rejected every container (`gobfd-dah`).
+
 - Apply a config timer update immediately outside Up, including AdminDown,
   with its Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore
   admitted after a local zero Required Min RX drove the session Down previously
