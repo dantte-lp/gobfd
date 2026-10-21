@@ -263,3 +263,71 @@ func TestManagerDestroyMicroBFDGroupAsRequiresOwnClaim(t *testing.T) {
 		t.Fatalf("own DestroyMicroBFDGroupAs: %v", err)
 	}
 }
+
+// A failed member claim publishes neither the new group nor a member resync,
+// so the actuator never reports the rolled-back LAG.
+func TestManagerReconcileMicroBFDFailedPassReportsNoActuatorEvent(t *testing.T) {
+	actuator := &recordingMicroBFDActuator{events: make(chan bfd.MicroBFDMemberEvent, 16)}
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithMicroBFDActuator(actuator))
+	defer mgr.Close()
+	go mgr.RunDispatch(t.Context())
+
+	cfg := slowMicroBFDConfig("bond0", "eth0", "eth1")
+	// A 1 s TX keeps the shared session free of an unresolved Up-entry Poll.
+	cfg.DesiredMinTxInterval = time.Second
+	sessCfg := defaultManagerConfig()
+	sessCfg.PeerAddr, sessCfg.LocalAddr = cfg.PeerAddr, cfg.LocalAddr
+	sessCfg.Type, sessCfg.Interface = bfd.SessionTypeMicroBFD, "eth0"
+	sessCfg.DesiredMinTxInterval, sessCfg.RequiredMinRxInterval = cfg.DesiredMinTxInterval, cfg.RequiredMinRxInterval
+	sess, err := mgr.CreateSession(t.Context(), sessCfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	driveSessionUp(t, sess)
+
+	var seen []bfd.MicroBFDMemberEvent
+	factory := func(member string) bfd.SenderLeaseFactory {
+		if member != "eth1" {
+			return bfd.NonOwningSenderLeaseFactory(noopSender{})
+		}
+		// Fail eth1 after giving dispatch time to report a seeded eth0.
+		return func() (*bfd.SenderLease, error) {
+			select {
+			case ev := <-actuator.events:
+				seen = append(seen, ev)
+			case <-time.After(500 * time.Millisecond):
+			}
+			return nil, errMicroTestLease
+		}
+	}
+	result := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), microDesired(factory, cfg))
+	if !errors.Is(result.Err(), errMicroTestLease) {
+		t.Fatalf("reconcile err = %v, want lease failure", result.Err())
+	}
+	if len(seen) != 0 {
+		t.Fatalf("actuator events during the failed pass = %+v, want none", seen)
+	}
+	if _, ok := mgr.LookupMicroBFDGroup("bond0"); ok {
+		t.Fatal("rolled-back group bond0 is registered")
+	}
+	select {
+	case ev := <-actuator.events:
+		t.Fatalf("actuator event after rollback = %+v, want none", ev)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// A physical member link belongs to one LAG in either address family.
+func TestManagerCreateMicroBFDGroupRejectsMemberOfOtherLAGInOtherFamily(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+	if _, err := mgr.CreateMicroBFDGroup(defaultMicroBFDConfig()); err != nil {
+		t.Fatalf("CreateMicroBFDGroup bond0: %v", err)
+	}
+	v6 := defaultMicroBFDConfig()
+	v6.LAGInterface = "bond1"
+	v6.PeerAddr, v6.LocalAddr = netip.MustParseAddr("2001:db8::1"), netip.MustParseAddr("2001:db8::2")
+	if _, err := mgr.CreateMicroBFDGroup(v6); !errors.Is(err, bfd.ErrMicroBFDMemberOwned) {
+		t.Fatalf("IPv6 group on bond0 members err = %v, want ErrMicroBFDMemberOwned", err)
+	}
+}

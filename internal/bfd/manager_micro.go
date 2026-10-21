@@ -382,11 +382,11 @@ func (m *Manager) ReconcileMicroBFDGroups(
 // Micro-BFD set. Each group commits together with its member sessions,
 // claimed by MicroBFDReconciliationOwner. An invalid, ambiguous or
 // conflicting candidate changes nothing. A failed member claim rolls back the
-// groups and claims of this pass before any committed group or session is
-// released. Reload claims a group like a session: it shares an identical
-// API group, releases only its own claim and removes a group with its last
-// claim. Created and Released count group claims; the legacy tuple counts
-// registered and removed groups.
+// session claims of this pass before any group of the pass is published and
+// before any committed group or session is released. Reload claims a group
+// like a session: it shares an identical API group, releases only its own
+// claim and removes a group with its last claim. Created and Released count
+// group claims; the legacy tuple counts registered and removed groups.
 func (m *Manager) ReconcileMicroBFDGroupsDetailed(
 	ctx context.Context,
 	desired []MicroBFDReconcileConfig,
@@ -435,17 +435,18 @@ func (m *Manager) reconcileMicroBFDGroups(
 		return failedReconcileResult(ReconcileErrorInvalid, err), nil, nil
 	}
 
-	// Groups precede their member sessions, so the first member transition
-	// finds its aggregate. Claims precede releases, so a failed claim leaves
-	// every committed group, group claim and session in place.
-	claimed := m.commitMicroBFDGroups(compiled.groups, currentGroups, newGroups, owner)
+	// Member claims precede every group change: a failed claim rolls back only
+	// its own session claims, and no dispatch or actuator event ever sees a
+	// group of the failed pass. Publishing a group seeds its members from the
+	// sessions, which covers transitions made before publication. Claims
+	// precede releases, so a failed claim leaves committed state in place.
 	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
 		ctx, owner, compiled.members, compiled.memberOrder, currentClaims,
 	)
 	if result.Failed > 0 {
-		m.rollbackMicroBFDGroups(newGroups, claimed, owner)
 		return microBFDGroupResult(result, microBFDGroupCounts{}), retired, unusedLeases
 	}
+	claimed := m.commitMicroBFDGroups(compiled.groups, currentGroups, newGroups, owner)
 
 	released, staleRetired := m.releaseStaleOwnerClaims(owner, compiled.members, currentClaims)
 	result.Errors = append(result.Errors, released.Errors...)
@@ -551,25 +552,6 @@ func (m *Manager) commitMicroBFDGroups(
 		}
 	}
 	return claimed
-}
-
-// rollbackMicroBFDGroups removes groups and claims of a failed pass and
-// restores member entries that the removed groups replaced.
-func (m *Manager) rollbackMicroBFDGroups(groups, claimed []*MicroBFDGroup, owner SessionOwner) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, group := range groups {
-		m.logger.Info("reconcile: rolling back micro-BFD group",
-			slog.String("lag", group.LAGInterface()),
-		)
-		m.unregisterMicroBFDGroupLocked(group)
-	}
-	for _, group := range claimed {
-		delete(group.owners, owner)
-	}
-	for _, group := range m.microGroups {
-		m.indexMicroBFDGroupLocked(group, false)
-	}
 }
 
 // releaseRemovedMicroBFDGroups releases the reload claim of groups absent
