@@ -135,8 +135,9 @@ Outside AdminDown, one Detection Time without valid packets restores
 `bfd.RemoteMinRxInterval` to 1 microsecond and `bfd.RemoteDemandMode` to 0
 (Sections 6.8.1 and 6.8.18), so a silent peer's zero receive interval no longer
 stops periodic TX. In AdminDown GoBFD does not apply this Section 6.8.18
-SHOULD: the graceful drain keeps zero receive-interval suppression, pending a
-maintainer decision. Remote Desired Min TX and Detect Mult changes update the
+SHOULD: the graceful drain keeps zero receive-interval suppression because the
+drain releases the session after a silent Detection Time, and a reset would only
+send AdminDown packets to a peer that asked for none (Section 6.8.16). Remote Desired Min TX and Detect Mult changes update the
 Detection Time on the packet that carries them (Sections 6.8.3 and 6.8.4).
 Virtual-time tests also cover a timer Poll under remote Demand, Poll expiry
 under zero remote RX and the Final reply to a remote RX increase. Pinned
