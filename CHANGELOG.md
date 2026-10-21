@@ -458,6 +458,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration validation with bounded field errors. Startup buffer policy
   also covers later-created senders and remains immutable across SIGHUP.
 
+- Correct the socket buffer reference (`gobfd-8f3`): `read_buffer_size` also
+  applies to the interface-bound IPv4 and IPv6 wildcard single-hop listeners
+  opened for each enabled unsolicited interface. The reference previously said
+  unsolicited reception reused the existing control listeners.
+
 - Configuration rejects conflicting interfaces for one control listener
   (parsed local address and single-hop/multi-hop type), or one enabled Echo
   listener (parsed local address), regardless of declaration order

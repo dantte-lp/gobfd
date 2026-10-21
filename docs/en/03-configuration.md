@@ -495,11 +495,11 @@ geneve:
 | `socket.write_buffer_size` | int | `4194304` (4 MiB) | `SO_SNDBUF` size in bytes for sender sockets. Larger buffers reduce `sendto` failures under burst conditions. Set to `0` to use the OS default. |
 
 Both values must be nonnegative integers representable as `int`. `read_buffer_size` applies to the shared
-single-hop and multihop control listeners, Echo listeners, and Micro-BFD
-member listeners. `write_buffer_size` applies to API and declarative control,
-Echo, Micro-BFD, and dynamically admitted unsolicited session senders. The
-unsolicited receive path shares the existing control listeners; this setting
-does not provision additional listeners. Userspace VXLAN and Geneve sockets
+single-hop and multihop control listeners, the interface-bound IPv4 and IPv6
+wildcard single-hop listeners opened for each enabled unsolicited interface,
+Echo listeners, and Micro-BFD member listeners. `write_buffer_size` applies to
+API and declarative control, Echo, Micro-BFD, and dynamically admitted
+unsolicited session senders. Userspace VXLAN and Geneve sockets
 are duplex and receive both settings. Management HTTP/Unix sockets and
 non-UDP dataplane backends are outside this policy.
 
