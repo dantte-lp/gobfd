@@ -190,10 +190,11 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 }
 
 func (s *Session) promoteTimerUpdateLocked() {
-	if s.pollActive || !s.separateUntil.IsZero() || s.cachedState != StateUp {
+	if s.pollActive || !s.separateUntil.IsZero() || s.cachedState == StateAdminDown {
 		return
 	}
-	if s.floorHeld || s.recoverOnUp {
+	up := s.cachedState == StateUp
+	if up && (s.floorHeld || s.recoverOnUp) {
 		s.floorHeld, s.recoverOnUp = false, false
 		s.startPollLocked()
 		return
@@ -209,8 +210,15 @@ func (s *Session) promoteTimerUpdateLocked() {
 	}
 	s.activeUpdate, s.waitingUpdate = s.waitingUpdate, timerProposal{}
 	s.timerUpdate.Changed = s.activeUpdate.Tuple != s.timerUpdate.Confirmed
-	s.desiredMinTxInterval = min(s.desiredMinTxInterval, s.activeUpdate.Tuple.TX)
-	s.requiredMinRxInterval = max(s.requiredMinRxInterval, s.activeUpdate.Tuple.RX)
+	if up {
+		s.desiredMinTxInterval = min(s.desiredMinTxInterval, s.activeUpdate.Tuple.TX)
+		s.requiredMinRxInterval = max(s.requiredMinRxInterval, s.activeUpdate.Tuple.RX)
+	} else {
+		// RFC 5880 Section 6.8.3 defers TX increases and RX decreases only
+		// "when bfd.SessionState is Up"; otherwise "timing parameter changes
+		// MUST be effected immediately". The Poll still confirms the receipt.
+		s.desiredMinTxInterval, s.requiredMinRxInterval = s.activeUpdate.Tuple.TX, s.activeUpdate.Tuple.RX
+	}
 	s.startPollLocked()
 }
 
