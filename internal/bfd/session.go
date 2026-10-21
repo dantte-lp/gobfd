@@ -282,6 +282,10 @@ var (
 	// ErrInvalidMultiHopMaxHops rejects a hop policy outside 1-254 or on a
 	// session that is not multihop.
 	ErrInvalidMultiHopMaxHops = errors.New("multihop max hops must be 1-254 on a multihop session")
+
+	// ErrInvalidSessionZone rejects a link-local zone that differs from the
+	// session interface or from the zone of the other address.
+	ErrInvalidSessionZone = errors.New("session address zone must match the session interface")
 )
 
 // -------------------------------------------------------------------------
@@ -658,6 +662,21 @@ func validateSessionTransport(cfg SessionConfig) error {
 	if cfg.MultiHopMaxHops != 0 && (cfg.Type != SessionTypeMultiHop || cfg.MultiHopMaxHops > maxMultiHopHops) {
 		return fmt.Errorf("multihop max hops %d: %w", cfg.MultiHopMaxHops, ErrInvalidMultiHopMaxHops)
 	}
+	return validateSessionZones(cfg)
+}
+
+// validateSessionZones requires the link-local zones of a single-hop session
+// to name its interface, so a zone never contradicts the RX and TX binding.
+func validateSessionZones(cfg SessionConfig) error {
+	if cfg.Type != SessionTypeSingleHop {
+		return nil
+	}
+	ifName := SingleHopInterface(cfg.Interface, cfg.LocalAddr, cfg.PeerAddr)
+	for _, addr := range [...]netip.Addr{cfg.LocalAddr, cfg.PeerAddr} {
+		if zone := addr.Zone(); zone != "" && zone != ifName {
+			return fmt.Errorf("address %s on interface %q: %w", addr, ifName, ErrInvalidSessionZone)
+		}
+	}
 	return nil
 }
 
@@ -809,6 +828,10 @@ func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 	}
 	switch s.sessionType {
 	case SessionTypeSingleHop:
+		// RFC 5881 Section 5; the 3784 listener pre-filters the same rule.
+		if meta.TTL != singleHopTTL {
+			return DeliveryTTLRejected
+		}
 		// meta.IfName is the listener device binding, empty when unbound.
 		if s.ifName != "" && meta.IfName != "" && meta.IfName != s.ifName {
 			return DeliveryScopeMismatch

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,41 +20,53 @@ import (
 // path being protected, so a configured single-hop interface binds TX too.
 // An IPv6 link-local sender address is scoped to that interface, as on the
 // RFC 9468 unsolicited path; the session identity keeps the configured address.
+// Without interface, a link-local zone selects the session interface and the
+// listener device.
 func TestCompileBaseSessionCandidatesBindsSingleHopInterface(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name, local, ifName, sessType string
-		wantLocal, wantDevice         string
+		name, peer, local, ifName, sessType string
+		wantLocal, wantInterface            string
 	}{
-		{name: "ipv4 interface", local: "192.0.2.1", ifName: "eth0", wantLocal: "192.0.2.1", wantDevice: "eth0"},
-		{name: "ipv6 interface", local: "2001:db8::1", ifName: "eth0", wantLocal: "2001:db8::1", wantDevice: "eth0"},
-		{name: "ipv6 link-local", local: "fe80::1", ifName: "eth0", wantLocal: "fe80::1%eth0", wantDevice: "eth0"},
-		{name: "no interface", local: "192.0.2.1", wantLocal: "192.0.2.1"},
-		{name: "multihop", local: "2001:db8::1", sessType: "multi_hop", wantLocal: "2001:db8::1"},
+		{
+			name: "ipv4 interface", peer: "192.0.2.2", local: "192.0.2.1", ifName: "eth0",
+			wantLocal: "192.0.2.1", wantInterface: "eth0",
+		},
+		{
+			name: "ipv6 interface", peer: "2001:db8::2", local: "2001:db8::1", ifName: "eth0",
+			wantLocal: "2001:db8::1", wantInterface: "eth0",
+		},
+		{
+			name: "ipv6 link-local", peer: "fe80::2", local: "fe80::1", ifName: "eth0",
+			wantLocal: "fe80::1%eth0", wantInterface: "eth0",
+		},
+		{
+			name: "ipv6 zoned link-local", peer: "fe80::2%eth1", local: "fe80::1%eth1",
+			wantLocal: "fe80::1%eth1", wantInterface: "eth1",
+		},
+		{name: "no interface", peer: "192.0.2.2", local: "192.0.2.1", wantLocal: "192.0.2.1"},
+		{name: "multihop", peer: "2001:db8::2", local: "2001:db8::1", sessType: "multi_hop", wantLocal: "2001:db8::1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := config.DefaultConfig()
 			cfg.Sessions = []config.SessionConfig{{
-				Peer: "192.0.2.2", Local: tc.local, Interface: tc.ifName, Type: tc.sessType,
+				Peer: tc.peer, Local: tc.local, Interface: tc.ifName, Type: tc.sessType,
 			}}
-			if netip.MustParseAddr(tc.local).Is6() {
-				cfg.Sessions[0].Peer = "2001:db8::2"
-				if tc.name == "ipv6 link-local" {
-					cfg.Sessions[0].Peer = "fe80::2"
-				}
-			}
 			candidates, err := compileBaseSessionCandidates(cfg)
 			if err != nil {
 				t.Fatalf("compileBaseSessionCandidates: %v", err)
 			}
 			got := candidates[0]
-			if got.bindDevice != tc.wantDevice || got.senderLocal != netip.MustParseAddr(tc.wantLocal) {
-				t.Fatalf("sender binding = %s on %q, want %s on %q",
-					got.senderLocal, got.bindDevice, tc.wantLocal, tc.wantDevice)
+			if got.senderLocal != netip.MustParseAddr(tc.wantLocal) || got.config.Interface != tc.wantInterface {
+				t.Fatalf("sender local %s, session interface %q; want %s, %q",
+					got.senderLocal, got.config.Interface, tc.wantLocal, tc.wantInterface)
 			}
 			if got.config.LocalAddr != netip.MustParseAddr(tc.local) {
 				t.Fatalf("session local = %s, want configured %s", got.config.LocalAddr, tc.local)
+			}
+			if listeners := controlListenerConfigs(cfg); len(listeners) != 1 || listeners[0].IfName != tc.wantInterface {
+				t.Fatalf("listener configs = %+v, want device %q", listeners, tc.wantInterface)
 			}
 
 			sf := &tupleRecordingSenderFactory{nthFailureDeclarativeSenderFactory: newNthFailureDeclarativeSenderFactory(0)}
@@ -146,5 +159,62 @@ func TestDaemonReconcileResolvesSingleHopInterface(t *testing.T) {
 				t.Fatalf("senders %v, sessions %d; want none", sf.localAddrs, len(mgr.Sessions()))
 			}
 		})
+	}
+}
+
+// An unresolvable receive interface is a pending source dependency: the
+// neighbouring session is created, the base source stays pending without a
+// failure, and an interface event retries and converges it.
+func TestReconcileUnresolvedInterfaceIsPendingDependency(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.DiscardHandler)
+	unresolved := netip.MustParseAddr("192.0.2.250")
+	var ready atomic.Bool
+	mgr := bfd.NewManager(logger, bfd.WithSessionInterfaceResolver(func(local netip.Addr, _ string) (int, error) {
+		if local == unresolved && !ready.Load() {
+			return 0, netio.ErrLocalAddrNotOwned
+		}
+		return 1, nil
+	}))
+	t.Cleanup(mgr.Close)
+	cfg := config.DefaultConfig()
+	cfg.Sessions = []config.SessionConfig{
+		{Peer: "192.0.2.1", Local: "192.0.2.2"},
+		{Peer: "192.0.2.3", Local: unresolved.String()},
+	}
+	base, err := compileBaseSessionCandidates(cfg)
+	if err != nil {
+		t.Fatalf("compileBaseSessionCandidates: %v", err)
+	}
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	available := func([]string) (int, error) { return 0, nil }
+	apply := func(
+		ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
+	) sourceApplyResult {
+		if source != sourceBase {
+			return sourceApplyResult{} // Only the base source is under test.
+		}
+		return applyCompiledSourceWithInterfaceChecker(ctx, source, candidate, mgr, sf, logger, available)
+	}
+	coordinator := newReconciliationCoordinator(config.DefaultConfig(), logger, nil)
+	first := coordinator.applyCandidate(context.Background(), compiledControlSessionCandidate{base: base}, apply)
+	receipt := first.LastReceipt.Sources[sourceBase]
+	if receipt.Created != 1 || receipt.Pending != 1 || receipt.Failed != 0 || !first.Stale || len(mgr.Sessions()) != 1 {
+		t.Fatalf("first apply receipt = %+v, stale %t, sessions %d; want 1 created, 1 pending",
+			receipt, first.Stale, len(mgr.Sessions()))
+	}
+
+	ready.Store(true)
+	for _, ev := range []netio.InterfaceEvent{{IfName: "dummy0", Up: true}, {Resync: true}} {
+		if _, selected := coordinator.interfaceEventSelection(ev); !selected.contains(sourceBase) {
+			t.Fatalf("event %+v did not select the base source", ev)
+		}
+	}
+	generation, selected := coordinator.interfaceEventSelection(netio.InterfaceEvent{IfName: "dummy0", Up: true})
+	coordinator.reconcileInterfaceSources(context.Background(), generation, selected, available, apply)
+	converged := coordinator.Snapshot()
+	if converged.Stale || converged.Pending != 0 || converged.Failed != 0 || len(mgr.Sessions()) != 2 {
+		t.Fatalf("after interface event = %+v, sessions %d; want converged with 2 sessions",
+			converged, len(mgr.Sessions()))
 	}
 }

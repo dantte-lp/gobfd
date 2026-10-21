@@ -172,14 +172,18 @@ type ReconcileError struct {
 // Pending counts admitted timer transactions; it is not inferred from error
 // text. TimerUpdates qualifies those transactions for read-only observation.
 type ReconcileResult struct {
-	Created      int
-	Updated      int
-	Released     int
-	Pending      int
-	Failed       int
-	Errors       []ReconcileError
-	TimerUpdates []TimerUpdateRef
+	Created  int
+	Updated  int
+	Released int
+	Pending  int
+	// ResourcePending counts desired sessions whose single-hop receive
+	// interface is not resolvable yet; they are retried, not failed.
+	ResourcePending int
+	Failed          int
+	Errors          []ReconcileError
+	TimerUpdates    []TimerUpdateRef
 
+	resourceErrs  []error
 	wireCreated   int
 	wireDestroyed int
 }
@@ -187,20 +191,16 @@ type ReconcileResult struct {
 // Err joins the transient causes for compatibility callers and immediate
 // diagnostics. It returns nil when every operation converged.
 func (r ReconcileResult) Err() error {
+	errs := make([]error, 0, 1+len(r.resourceErrs)+len(r.Errors))
 	if r.Pending > 0 {
-		errs := make([]error, 0, 1+len(r.Errors))
 		errs = append(errs, ErrTimerUpdatePending)
-		for _, reconcileErr := range r.Errors {
-			errs = append(errs, reconcileErr.Err)
-		}
-		return errors.Join(errs...)
 	}
-	if len(r.Errors) == 1 {
-		return r.Errors[0].Err
-	}
-	errs := make([]error, 0, len(r.Errors))
+	errs = append(errs, r.resourceErrs...)
 	for _, reconcileErr := range r.Errors {
 		errs = append(errs, reconcileErr.Err)
+	}
+	if len(errs) == 1 && r.Pending == 0 {
+		return errs[0]
 	}
 	return errors.Join(errs...)
 }

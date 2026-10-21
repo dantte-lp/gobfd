@@ -166,6 +166,9 @@ type reconciliationCoordinator struct {
 	startup               startupRuntimeContract
 	onConfiguredPeers     func([]netip.Addr)
 	interfaceDependencies [sourceCount][]string
+	// unboundSources resolve receive interfaces from local addresses, so any
+	// interface event or resync may resolve their pending sessions.
+	unboundSources reconciliationSourceMask
 
 	logger  *slog.Logger
 	checker *grpchealth.StaticChecker
@@ -256,9 +259,9 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	for i, source := range reconciliationSources() {
 		c.interfaceDependencies[i] = compiledSourceInterfaceDependencies(source, retainedCandidate)
 	}
+	c.unboundSources = unboundInterfaceSources(retainedCandidate)
 	c.statusMu.Unlock()
 	c.setReady(false)
-
 	for i := range retainedCandidate.base {
 		retainedCandidate.base[i].reconcile.DesiredGeneration = generation
 		workingCandidate.base[i].reconcile.DesiredGeneration = generation
@@ -771,13 +774,25 @@ func compiledCandidateInterfaceSourceMask(
 	if ifName == "" {
 		return 0
 	}
-	var selected reconciliationSourceMask
+	selected := unboundInterfaceSources(candidate)
 	for _, source := range reconciliationSources() {
 		if slices.Contains(compiledSourceInterfaceDependencies(source, candidate), ifName) {
 			selected |= sourceMask(source)
 		}
 	}
 	return selected
+}
+
+// unboundInterfaceSources selects the base source when a single-hop session
+// has no interface: its receive interface is the owner of its local address,
+// which no named dependency describes (RFC 5881 Section 3).
+func unboundInterfaceSources(candidate compiledControlSessionCandidate) reconciliationSourceMask {
+	for _, base := range candidate.base {
+		if !base.multiHop && base.config.Interface == "" {
+			return sourceMask(sourceBase)
+		}
+	}
+	return 0
 }
 
 func collectInterfaceDependencies(count int, interfaceAt func(int) string) []string {
@@ -827,7 +842,7 @@ func sourceResultFromBFD(result bfd.ReconcileResult) sourceApplyResult {
 		Created: result.Created, Released: result.Released,
 		Updated:      result.Updated,
 		TimerPending: result.Pending, TimerUpdates: result.TimerUpdates,
-		Pending: result.Pending, Failed: result.Failed, Err: result.Err(),
+		Pending: result.Pending + result.ResourcePending, Failed: result.Failed, Err: result.Err(),
 	}
 	for _, reconcileErr := range result.Errors {
 		if int(reconcileErr.Code) < len(converted.Errors) {

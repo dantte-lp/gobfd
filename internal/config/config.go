@@ -19,6 +19,7 @@ import (
 	"github.com/knadh/koanf/providers/rawbytes"
 	"github.com/knadh/koanf/v2"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	gobgpstrategy "github.com/dantte-lp/gobfd/internal/gobgp/strategy"
 	"github.com/dantte-lp/gobfd/internal/overlay"
 )
@@ -1311,6 +1312,10 @@ var (
 	// or set on a session that is not multi_hop.
 	ErrInvalidSessionMultihopMaxHops = errors.New("session multihop_max_hops must be 1-254 on multi_hop")
 
+	// ErrInvalidSessionZone indicates a link-local zone that differs from the
+	// session interface or from the zone of the other address.
+	ErrInvalidSessionZone = errors.New("session address zone must match interface")
+
 	// ErrInvalidSessionAuthType indicates a session has an unrecognized auth type.
 	ErrInvalidSessionAuthType = errors.New("session auth.type is invalid")
 
@@ -1688,6 +1693,27 @@ func validateSessionTransport(sc SessionConfig) error {
 	if (sc.MultihopMaxHopsSet || sc.MultihopMaxHops != 0) &&
 		(sc.Type != "multi_hop" || sc.MultihopMaxHops < 1 || sc.MultihopMaxHops > maxMultihopMaxHops) {
 		return fmt.Errorf("multihop_max_hops %d: %w", sc.MultihopMaxHops, ErrInvalidSessionMultihopMaxHops)
+	}
+	if sc.Type == "multi_hop" {
+		return nil
+	}
+	// A link-local zone selects the single-hop interface when interface is
+	// empty; a zone naming another interface contradicts the binding.
+	// Address parse errors are reported by their own validation.
+	peer, peerErr := sc.PeerAddr()
+	local, localErr := sc.LocalAddr()
+	if peerErr == nil && localErr == nil {
+		return validateSessionZones(sc.Interface, local, peer)
+	}
+	return nil
+}
+
+func validateSessionZones(ifName string, local, peer netip.Addr) error {
+	ifName = bfd.SingleHopInterface(ifName, local, peer)
+	for _, addr := range [...]netip.Addr{local, peer} {
+		if zone := addr.Zone(); zone != "" && zone != ifName {
+			return fmt.Errorf("address %s on interface %q: %w", addr, ifName, ErrInvalidSessionZone)
+		}
 	}
 	return nil
 }

@@ -57,6 +57,9 @@ func (c *reconciliationCoordinator) interfaceEventSelection(
 	c.statusMu.RLock()
 	defer c.statusMu.RUnlock()
 	var selected reconciliationSourceMask
+	if ev.Resync || ev.IfName != "" {
+		selected = c.unboundSources
+	}
 	for i, dependencies := range c.interfaceDependencies {
 		if (ev.Resync && len(dependencies) != 0) || (ev.IfName != "" && slices.Contains(dependencies, ev.IfName)) {
 			selected |= sourceMask(reconciliationSource(i))

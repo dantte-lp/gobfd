@@ -160,6 +160,9 @@ func canonicalSessionConfig(cfg SessionConfig) SessionConfig {
 		cfg.LocalAddr = cfg.LocalAddr.Unmap()
 	}
 	cfg.TransportScope = canonicalTransportScope(cfg.TransportScope)
+	if cfg.Type == SessionTypeSingleHop {
+		cfg.Interface = SingleHopInterface(cfg.Interface, cfg.LocalAddr, cfg.PeerAddr)
+	}
 	return cfg
 }
 
@@ -256,4 +259,17 @@ func normalizeEffectiveSessionConfig(cfg SessionConfig) (effectiveSessionConfig,
 	effective.AuthType = authType
 	effective.AuthKeys = store.effectiveAuthKeyStoreFingerprint()
 	return effective, nil
+}
+
+// SingleHopInterface returns the interface a single-hop session is bound to:
+// the configured interface, else the zone of its link-local local or peer
+// address (RFC 5881 Section 3). validateSessionConfig rejects zones that differ.
+func SingleHopInterface(ifName string, local, peer netip.Addr) string {
+	if ifName != "" {
+		return ifName
+	}
+	if zone := local.Zone(); zone != "" {
+		return zone
+	}
+	return peer.Zone()
 }

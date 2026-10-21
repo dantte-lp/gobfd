@@ -144,7 +144,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 	return bfd.SessionConfig{
 		PeerAddr:              peerAddr,
 		LocalAddr:             localAddr,
-		Interface:             sc.Interface,
+		Interface:             sessionInterface(sc.Interface, sessType, localAddr, peerAddr),
 		Type:                  sessType,
 		Role:                  bfd.RoleActive,
 		DesiredMinTxInterval:  desiredMinTx,
@@ -342,6 +342,15 @@ func unsolicitedSessionSender(
 		local, opts := singleHopSenderBinding(meta.DstAddr.Unmap(), meta.IfName, nil)
 		return declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)()
 	}
+}
+
+// sessionInterface returns the single-hop interface, which a link-local zone
+// selects when interface is empty; multihop sessions are never device-bound.
+func sessionInterface(ifName string, sessType bfd.SessionType, local, peer netip.Addr) string {
+	if sessType != bfd.SessionTypeSingleHop {
+		return ifName
+	}
+	return bfd.SingleHopInterface(ifName, local, peer)
 }
 
 // singleHopSenderBinding binds a single-hop sender to ifName so control
