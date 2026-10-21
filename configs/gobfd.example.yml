@@ -228,6 +228,10 @@ bfd:
 #   - peer: "10.0.1.1"
 #     local: "10.0.1.2"
 #     type: multi_hop
+#     # Multihop hop policy (multi_hop only, 1-254, default 1): received
+#     # TTL/Hop Limit must be >= 255 - multihop_max_hops. RFC 5883 has no
+#     # receive TTL rule; use authentication on multihop paths (RFC 5883 Section 6).
+#     multihop_max_hops: 2
 #     desired_min_tx: "300ms"
 #     required_min_rx: "300ms"
 #     detect_mult: 5

@@ -135,7 +135,7 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 | RFC 5880 | BFD Base Protocol | Asynchronous core; partial |
 | RFC 5881 | BFD for IPv4/IPv6 Single-Hop | Partial; numbered-multiaccess profile |
 | RFC 5882 | Generic Application of BFD | Application integration partial |
-| RFC 5883 | BFD for Multihop Paths | Constrained GTSM profile; arbitrary-hop qualification pending |
+| RFC 5883 | BFD for Multihop Paths | Constrained profile; per-session `multihop_max_hops` policy (default TTL>=254); real multi-hop path qualification pending |
 | RFC 7419 | Common Interval Support | Implemented |
 | RFC 9384 | BGP Cease NOTIFICATION for BFD | Not implemented; GoBGP v4 emits Cease/2 |
 | RFC 9468 | Unsolicited BFD | Unsafe preview; bounded admission, optional SHA1 authentication |

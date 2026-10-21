@@ -45,9 +45,9 @@
 | RFC | Название | Статус | Примечания |
 |---|---|---|---|
 | [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Ответ Final на входящий Poll есть; локальный/crossed Poll и Demand procedures не завершены |
-| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Частично; numbered-multiaccess profile** | UDP 3784, TTL=255 и явная привязка к интерфейсу реализованы; initial demux покрыт не полностью |
+| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Частично; numbered-multiaccess profile** | UDP 3784, TTL=255, проверки транспортного класса и интерфейса приёма в каждой сессии, привязка TX single-hop к интерфейсу; point-to-point initial demux отложен |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Application integration частичная** | State delivery и actuator convergence не завершены; penalty dampening является implementation policy |
-| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784 с TTL>=254 допускает не более одного промежуточного router; arbitrary-hop qualification не завершена |
+| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784; политика hops `multihop_max_hops` в каждой сессии (по умолчанию 1: TTL>=254) -- политика GoBFD, а не правило RFC 5883; квалификация на реальных путях из 2/5 hops не выполнена |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Реализован** | 6 общих интервалов, опциональное выравнивание |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION для BFD | **Не реализован** | GoBGP v4, как и v3, отправляет Cease/2; Cease/10 присутствует только в операторском тексте |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Небезопасный preview** | Проверки connected subnet, лимита сессий и скорости приёма действуют; ответы с полученного локального кортежа; опциональный допуск по Meticulous Keyed SHA1 |
@@ -266,14 +266,20 @@ Daemon завершился с code 0; все пять контейнеров о
 |---|---|
 | Порт назначения 3784 | `netio.PortSingleHop = 3784` |
 | Порт источника 49152-65535 | `SourcePortAllocator` |
-| TTL=255 исходящий | `ipv4.SetTTL(255)` через `x/net/ipv4` |
-| Проверка TTL=255 входящий | `IP_RECVTTL` + проверка в слушателе |
-| `SO_BINDTODEVICE` | Применяется при указании интерфейса |
-| Раздельные IPv4/IPv6 слушатели | Раздельные `ipv4.PacketConn` / `ipv6.PacketConn` |
+| TTL=255 исходящий | `IP_TTL` / `IPV6_UNICAST_HOPS` через `unix.SetsockoptInt` |
+| Проверка TTL=255 входящий | `IP_RECVTTL` / `IPV6_RECVHOPLIMIT` + предварительный фильтр listener; демультиплексированная сессия дополнительно требует транспортный класс single-hop (раздел 5) |
+| Транспортный класс | Пакет multihop listener 4784 не попадает в single-hop сессию ни по Your Discriminator, ни по ключу пира (`scope_mismatch`) |
+| Привязка RX к интерфейсу (раздел 3) | При заданном `interface` пакеты с другого устройства listener отклоняются. Каждая single-hop сессия сравнивает индекс интерфейса из PKTINFO с индексом, определённым при создании по `interface` или по интерфейсу, владеющему `local` |
+| Привязка TX к интерфейсу (раздел 6) | `SO_BINDTODEVICE` на отправителе сессии при заданном `interface` (YAML и API); IPv6 link-local адрес отправителя получает zone этого интерфейса |
+| Demux IPv6 link-local | Zone не входит в ключ demux; интерфейс входит в ключ |
+| Раздельные IPv4/IPv6 слушатели | Раздельные сокеты `udp4` / `udp6` |
 
-Реализованная граница — numbered-multiaccess single-hop profile с явным
-интерфейсом. Initial demultiplexing для полного объёма RFC 5881, включая
-point-to-point behavior, остаётся открытым и не прошёл production qualification.
+Реализованная граница — numbered-multiaccess single-hop profile: каждая сессия
+привязана к одному интерфейсу приёма, явному или определённому по локальному
+адресу при создании. Локальный адрес, не назначенный ни одному или назначенный
+нескольким интерфейсам, отклоняет создание сессии. Point-to-point initial
+demultiplexing (раздел 6: первый пакет принимается с любого адреса источника)
+отложен и не прошёл production qualification.
 
 ### Заметки по RFC 5882
 
@@ -305,8 +311,20 @@ RFC 5880 Section 6.8.16 допускает AdminDown с PathDown, поэтому
 |---|---|
 | Порт назначения 4784 | `netio.PortMultiHop = 4784` |
 | TTL=255 исходящий | Аналогично single-hop |
-| Проверка TTL>=254 входящий | Отдельная валидация TTL для multihop |
-| Демультиплексирование по (MyDiscr, SrcIP, DstIP) | `Manager.DemuxWithWire` составной ключ |
+| Политика входящего TTL | В RFC 5883 отсутствует. GoBFD применяет `multihop_max_hops` N в каждой демультиплексированной сессии: принимается TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250, по умолчанию 1), чтение A ненормативного RFC 5082 Appendix A, как `minimum-ttl` во FRR. Отказы учитываются как `demux`/`ttl_rejected` |
+| Транспортный класс | Пакет listener 3784 не попадает в multihop сессию (`scope_mismatch`) |
+| Интерфейс | `multi_hop` с `interface` отклоняется валидацией YAML и API (раздел 4.1 демультиплексирует по паре адресов) |
+| Echo (раздел 3: MUST NOT be used over multiple hops) | Multihop Control пакеты передают Required Min Echo RX Interval 0; у RFC 9747 Echo нет multihop типа |
+| Demux (раздел 4.1) | Your Discriminator, при нуле -- пара (источник, назначение); `Manager.DemuxWithWire` |
+
+**Рекомендации по аутентификации (разделы 3 и 6).** TTL/Hop Limit 255 на приёме
+не защищает multihop путь; RFC 5883 Section 3 возлагает защиту от спуфинга на
+аутентификацию BFD, Section 6 указывает, что реализациям SHOULD использовать
+криптографическую аутентификацию на multihop путях. Нижняя граница политики hops
+-- только дополнительный уровень защиты. Задавайте `auth` в каждой `multi_hop`
+сессии, предпочтительно `meticulous_keyed_sha1`; неаутентифицированная multihop
+сессия с `multihop_max_hops` больше 1 принимает любой подделанный пакет с
+достаточным TTL и совпадающими дискриминаторами.
 
 ### Заметки по RFC 7419
 
@@ -385,7 +403,7 @@ RFC 9747 определяет unaffiliated BFD echo для обнаружени�
 | DetectionTime = DetectMult * TxInterval | `EchoSession.DetectionTime()` |
 | Демультиплексирование по MyDiscriminator | `EchoReceiver` сопоставляет возвращённые пакеты |
 | Тип сессии | Константа `SessionTypeEcho` |
-| TTL 255 отправка, TTL >= 254 приём | Валидация GTSM через `netio.ValidateTTL` |
+| TTL 255 отправка, приём строго с TTL 254 | `netio.ValidateExpectedTTL` на Echo listener |
 | Декларативные echo-пиры | `echo.peers[]` в конфиге, реконсиляция при SIGHUP |
 | Отправитель с портом назначения 3785 | Функциональная опция `WithDstPort(PortEcho)` |
 

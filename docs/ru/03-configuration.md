@@ -116,6 +116,7 @@ sessions:
   - peer: "10.0.1.1"
     local: "10.0.1.2"
     type: multi_hop
+    multihop_max_hops: 2             # минимальный принимаемый TTL 253 (255 - 2)
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
     detect_mult: 5
@@ -588,12 +589,13 @@ cross-adapter rollback не входят в эту гарантию.
 |---|---|---|---|
 | `peer` | string | Да | IP-адрес удалённой системы |
 | `local` | string | Да | IP-адрес локальной системы |
-| `interface` | string | Нет | Сетевой интерфейс для `SO_BINDTODEVICE` |
+| `interface` | string | Нет | Сетевой интерфейс для `SO_BINDTODEVICE` RX и TX single-hop сессии; для `multi_hop` запрещён (`ErrInvalidSessionMultiHopInterface`) |
 | `type` | string | Нет | `single_hop` (по умолчанию) или `multi_hop` |
 | `desired_min_tx` | duration | Нет | Переопределение TX-интервала |
 | `required_min_rx` | duration | Нет | Переопределение RX-интервала; явное `"0s"` сохраняется |
 | `detect_mult` | uint32 | Нет | Переопределение множителя обнаружения |
 | `padded_pdu_size` | uint16 | Нет | RFC 9764: дополнение BFD-пакетов до этого размера; ненулевое значение переопределяет `bfd.default_padded_pdu_size`; v1 отклоняет authenticated targets 24/25 и сохраняет более длинный actual PDU |
+| `multihop_max_hops` | uint32 | Нет | Только `multi_hop`: политика hops 1-254, по умолчанию 1; принимается TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250). Явный `0` и поле на `single_hop` отклоняются (`ErrInvalidSessionMultihopMaxHops`). Только YAML: API-сессии используют значение по умолчанию |
 | `auth.type` | string | Нет | Тип аутентификации RFC 5880: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | uint32 | Если auth включён | Auth Key ID, допустимый диапазон 0-255 |
 | `auth.secret` | string | Если auth включён | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
@@ -634,11 +636,23 @@ gRPC `AddSession`: `auth_type`, `auth_key_id` и `auth_secret`. `auth_key_id`
 | Тип | Порт | Исходящий TTL | Проверка входящего TTL |
 |---|---|---|---|
 | `single_hop` | 3784 | 255 (GTSM) | ОБЯЗАН быть 255 (RFC 5881) |
-| `multi_hop` | 4784 | 255 | GoBFD сейчас требует >= 254 |
+| `multi_hop` | 4784 | 255 | >= 255 - `multihop_max_hops` (по умолчанию >= 254), проверка в демультиплексированной сессии |
 
-Проверка multi-hop -- это текущая ограниченная GTSM policy GoBFD, а не
-требование RFC 5883. Работа с произвольным числом hops и настраиваемая GTSM
-policy отложены.
+RFC 5883 не задаёт правила для входящего TTL. Проверка multi-hop -- политика
+GoBFD по ненормативному RFC 5082 Appendix A (чтение A: N -- число промежуточных
+маршрутизаторов, как `minimum-ttl` во FRR). Listener 4784 передаёт все пакеты
+сессии; пакет multi-hop никогда не попадает в single-hop сессию и наоборот
+(RFC 5881 Section 5). При `multihop_max_hops` больше 1 спуфинг ограничивает
+только аутентификация: RFC 5883 Section 6 рекомендует (SHOULD) криптографическую
+аутентификацию, предпочтительно `meticulous_keyed_sha1`. Квалификация на реальных
+путях из 2 и 5 hops не выполнялась.
+
+Single-hop сессия принимает пакеты только своего интерфейса (RFC 5881 Section 3):
+заданного `interface`, а без него -- интерфейса, владеющего `local`, который
+определяется один раз при создании сессии по IfIndex из PKTINFO. Адрес `local`,
+не назначенный ни одному или назначенный нескольким интерфейсам, отклоняется при
+создании сессии. Пересозданный интерфейс получает новый индекс и требует
+пересоздания сессии.
 
 ### Интеграция с GoBGP
 
@@ -852,6 +866,8 @@ source VXLAN или Geneve без работающего backend считает�
 | `type` сессии должен быть `single_hop` или `multi_hop` | `ErrInvalidSessionType` |
 | `detect_mult` сессии должен быть >= 1 | `ErrInvalidSessionDetectMult` |
 | Нет дублирующих ключей сессий (peer, local, interface) | `ErrDuplicateSessionKey` |
+| `interface` недопустим для `multi_hop` | `ErrInvalidSessionMultiHopInterface` |
+| `multihop_max_hops` только для `multi_hop`, диапазон 1-254 | `ErrInvalidSessionMultihopMaxHops` |
 | Control sessions с одинаковыми parsed local address и типом listener должны использовать один interface | `ErrAmbiguousListenerInterface` |
 | Echo `peer` должен быть валидным IP-адресом | `ErrInvalidEchoPeer` |
 | Echo `detect_mult` должен быть >= 1 | `ErrInvalidEchoDetectMult` |

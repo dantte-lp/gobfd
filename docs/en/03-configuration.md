@@ -114,6 +114,7 @@ sessions:
   - peer: "10.0.1.1"
     local: "10.0.1.2"
     type: multi_hop
+    multihop_max_hops: 2             # minimum received TTL 253 (255 - 2)
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
     detect_mult: 5
@@ -585,12 +586,13 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 |---|---|---|---|
 | `peer` | string | Yes | Remote system's IP address |
 | `local` | string | Yes | Local system's IP address |
-| `interface` | string | No | Network interface for `SO_BINDTODEVICE` |
+| `interface` | string | No | Network interface for `SO_BINDTODEVICE` on single-hop RX and TX; rejected on `multi_hop` (`ErrInvalidSessionMultiHopInterface`) |
 | `type` | string | No | `single_hop` (default) or `multi_hop` |
 | `desired_min_tx` | duration | No | Override default TX interval |
 | `required_min_rx` | duration | No | Override default RX interval; explicit `"0s"` is preserved |
 | `detect_mult` | uint32 | No | Override default detect multiplier |
 | `padded_pdu_size` | uint16 | No | RFC 9764: pad BFD packets to this size; nonzero overrides `bfd.default_padded_pdu_size`; v1 rejects authenticated targets 24/25 and retains larger actual PDUs |
+| `multihop_max_hops` | uint32 | No | `multi_hop` only: hop policy 1-254, default 1; accepts received TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250). Explicit `0` and the key on `single_hop` are rejected (`ErrInvalidSessionMultihopMaxHops`). YAML only: API sessions use the default |
 | `auth.type` | string | No | RFC 5880 auth type: `simple_password`, `keyed_md5`, `meticulous_keyed_md5`, `keyed_sha1`, `meticulous_keyed_sha1` |
 | `auth.key_id` | uint32 | If auth enabled | Auth Key ID, valid range 0-255 |
 | `auth.secret` | string | If auth enabled | Secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
@@ -631,11 +633,23 @@ Session types determine the UDP port and TTL handling:
 | Type | Port | Outgoing TTL | Incoming TTL Check |
 |---|---|---|---|
 | `single_hop` | 3784 | 255 (GTSM) | MUST be 255 (RFC 5881) |
-| `multi_hop` | 4784 | 255 | GoBFD currently requires >= 254 |
+| `multi_hop` | 4784 | 255 | >= 255 - `multihop_max_hops` (default >= 254), checked in the demultiplexed session |
 
-The multi-hop check is GoBFD's current constrained GTSM policy, not an RFC 5883
-requirement. Arbitrary-hop operation and a configurable GTSM policy remain
-deferred.
+RFC 5883 defines no receive TTL rule. The multi-hop check is GoBFD policy based
+on the non-normative RFC 5082 Appendix A (reading A: N counts intermediate
+routers, as FRR `minimum-ttl` does). The 4784 listener passes every packet to
+the session; a multi-hop packet never reaches a single-hop session and vice
+versa (RFC 5881 Section 5). With `multihop_max_hops` above 1, only
+authentication limits spoofing: RFC 5883 Section 6 says implementations SHOULD
+use cryptographic authentication over multihop paths; prefer
+`meticulous_keyed_sha1`. Real 2- and 5-hop paths are not qualified.
+
+A single-hop session accepts packets only from its interface (RFC 5881
+Section 3): the configured `interface`, or else the interface that owns
+`local`, resolved once at session creation and compared with the PKTINFO
+interface index. A `local` address that no interface or several interfaces own
+is rejected at session creation. A recreated interface gets a new index and
+needs the session recreated.
 
 ### GoBGP Integration
 
@@ -849,6 +863,8 @@ skipped. Already accepted source changes are not rolled back.
 | Session `type` must be `single_hop` or `multi_hop` | `ErrInvalidSessionType` |
 | Session `detect_mult` must be >= 1 | `ErrInvalidSessionDetectMult` |
 | No duplicate session keys (peer, local, interface) | `ErrDuplicateSessionKey` |
+| `interface` is not allowed on `multi_hop` | `ErrInvalidSessionMultiHopInterface` |
+| `multihop_max_hops` only on `multi_hop`, range 1-254 | `ErrInvalidSessionMultihopMaxHops` |
 | Control sessions sharing a parsed local address and listener type must use the same interface | `ErrAmbiguousListenerInterface` |
 | Echo `peer` must be a valid IP address | `ErrInvalidEchoPeer` |
 | Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |

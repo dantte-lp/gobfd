@@ -33,6 +33,11 @@ not be summed as packet totals. `read_error` does not prove packet loss.
 ListSessions exposes the same fixed rows as sampled `delivery_counters`,
 including after the last session is deleted; its revision does not cover
 atomic counter sampling. Zero counts may be omitted by protobuf JSON encoding.
+The `demux` source counts refusals after session selection: `scope_mismatch`
+for a packet of the other transport class (multihop listener 4784 against a
+single-hop session, or the reverse) or from another receive interface of a
+single-hop session; `ttl_rejected` for a multihop packet with TTL below
+`255 - multihop_max_hops`.
 Echo has separate `echo_read`, `echo_parse`, `echo_ttl`, `echo_demux`,
 `echo_admission` and `echo_owner` sources. Zero discriminators are parser
 refusals, not demux attempts; ordinary closed/canceled reads are not read
