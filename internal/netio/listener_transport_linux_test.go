@@ -146,7 +146,7 @@ func TestSingleHopListenerPort3784DeliversToSession(t *testing.T) {
 			}
 			mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithSessionInterfaceResolver(ResolveSessionIfIndex))
 			t.Cleanup(mgr.Close)
-			_, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
+			sess, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
 				PeerAddr: family.addr, LocalAddr: family.addr, Interface: ifName, Type: bfd.SessionTypeSingleHop,
 				Role: bfd.RolePassive, DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second,
 				DetectMultiplier: 3,
@@ -155,11 +155,17 @@ func TestSingleHopListenerPort3784DeliversToSession(t *testing.T) {
 				t.Fatalf("CreateSession: %v", err)
 			}
 
-			wire := make([]byte, bfd.HeaderSize)
-			if _, err := bfd.MarshalControlPacket(&bfd.ControlPacket{
+			ctl := bfd.ControlPacket{
 				Version: bfd.Version, State: bfd.StateDown, DetectMult: 3, MyDiscriminator: 77,
 				DesiredMinTxInterval: 1_000_000, RequiredMinRxInterval: 1_000_000,
-			}, wire); err != nil {
+			}
+			// The unbound listener reports no device, so a session naming lo is
+			// reached by Your Discriminator; ::1 exercises the peer-key path.
+			if ifName != "" {
+				ctl.YourDiscriminator = sess.LocalDiscriminator()
+			}
+			wire := make([]byte, bfd.HeaderSize)
+			if _, err := bfd.MarshalControlPacket(&ctl, wire); err != nil {
 				t.Fatal(err)
 			}
 			sendLoopback(t, family, PortSingleHop, 255, wire)
