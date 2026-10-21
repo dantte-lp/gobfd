@@ -131,6 +131,21 @@ YAML and generic `AddSession`, preserving omitted-field defaults. Preview
 per-peer override rules are unchanged. Timer reloads use the same explicit-zero
 semantics; FRR/BIRD qualification of these procedures remains open.
 
+Outside AdminDown, one Detection Time without valid packets restores
+`bfd.RemoteMinRxInterval` to 1 microsecond and `bfd.RemoteDemandMode` to 0
+(Sections 6.8.1 and 6.8.18), so a silent peer's zero receive interval no longer
+stops periodic TX. AdminDown keeps the zero receive-interval drain suppression
+of Section 6.8.16. Remote Desired Min TX and Detect Mult changes update the
+Detection Time on the packet that carries them (Sections 6.8.3 and 6.8.4).
+Virtual-time tests also cover a timer Poll under remote Demand, Poll expiry
+under zero remote RX and the Final reply to a remote RX increase. Pinned
+FRR 10.7.1 (`receive-interval` minimum 10, no `demand-mode`) and BIRD 3.4.0
+(no Demand) cannot advertise zero RX or Demand: for these peers the remote
+zero-RX and remote Demand procedures are source-supported inapplicable
+(maintainer decision 2026-10-21, `gobfd-qj0.8.2.1.1.2`), and wire evidence
+awaits a crafted Go peer. Interop for nonzero remote TX/RX changes remains
+open.
+
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.
 This prevents a zero detection-timer loop when the local receive interval is zero.

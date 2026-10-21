@@ -115,6 +115,21 @@ receive interval пира останавливает периодический 
 не изменены. Reload таймеров сохраняет ту же семантику явного нуля;
 FRR/BIRD-квалификация этих процедур остаётся открытой.
 
+Вне AdminDown один Detection Time без корректных пакетов возвращает
+`bfd.RemoteMinRxInterval` к 1 микросекунде и `bfd.RemoteDemandMode` к 0
+(Sections 6.8.1 и 6.8.18): нулевой receive interval замолчавшего пира больше
+не останавливает периодический TX. AdminDown сохраняет подавление drain при
+нулевом remote receive interval по Section 6.8.16. Изменения remote Desired
+Min TX и Detect Mult обновляют Detection Time на пакете, который их несёт
+(Sections 6.8.3 и 6.8.4). Тесты виртуального времени покрывают также timer
+Poll при remote Demand, истечение Poll при нулевом remote RX и ответ Final на
+увеличение remote RX. Закреплённые FRR 10.7.1 (`receive-interval` не меньше 10,
+без `demand-mode`) и BIRD 3.4.0 (без Demand) не могут объявить нулевой RX или
+Demand: для этих пиров процедуры remote zero-RX и remote Demand неприменимы по
+исходному коду (решение мейнтейнера 2026-10-21, `gobfd-qj0.8.2.1.1.2`),
+wire evidence ожидает crafted Go peer. Interop для ненулевых изменений remote
+TX/RX остаётся открытым.
+
 Session receive path отклоняет зарезервированный нулевой Desired Min TX до
 обновления состояния пира и таймеров, включая пакеты через `RecvPacket`.
 Это предотвращает цикл нулевого detection timer при нулевом локальном RX-интервале.
