@@ -40,8 +40,17 @@ func socketOptionAt(t *testing.T, local netip.Addr, port uint16, level, option i
 		if err != nil {
 			continue
 		}
-		ipv4, ok := addr.(*unix.SockaddrInet4)
-		if !ok || ipv4.Port != int(port) || netip.AddrFrom4(ipv4.Addr) != local {
+		var boundAddr netip.Addr
+		var boundPort int
+		switch sa := addr.(type) {
+		case *unix.SockaddrInet4:
+			boundAddr, boundPort = netip.AddrFrom4(sa.Addr), sa.Port
+		case *unix.SockaddrInet6:
+			boundAddr, boundPort = netip.AddrFrom16(sa.Addr), sa.Port
+		default:
+			continue
+		}
+		if boundPort != int(port) || boundAddr != local {
 			continue
 		}
 		value, err := unix.GetsockoptInt(fd, level, option)
@@ -205,6 +214,34 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 						}
 					}
 				})
+			}
+		})
+	}
+}
+
+// Run serially: the unsolicited listeners own the wildcard single-hop port.
+func TestDaemonSocketBufferPolicyUnsolicitedListeners(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	for _, size := range []int{0, 8192} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			wantRead, _ := referenceSocketBuffers(t, size)
+			cfg := config.DefaultConfig()
+			cfg.Socket = config.SocketConfig{ReadBufferSize: size, WriteBufferSize: size}
+			cfg.Sessions = nil
+			cfg.Unsolicited.Enabled = true
+			cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"lo": {Enabled: true}}
+			control, err := createControlListeners(cfg, logger, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { closeListeners(control, logger) })
+			if len(control) != 2 {
+				t.Fatalf("unsolicited listeners = %d, want 2", len(control))
+			}
+			for _, wildcard := range []netip.Addr{netip.IPv4Unspecified(), netip.IPv6Unspecified()} {
+				if got := socketOptionAt(t, wildcard, netio.PortSingleHop, unix.SOL_SOCKET, unix.SO_RCVBUF); got != wantRead {
+					t.Errorf("unsolicited listener %s SO_RCVBUF=%d, want %d", wildcard, got, wantRead)
+				}
 			}
 		})
 	}
