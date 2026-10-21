@@ -128,6 +128,39 @@ func TestClassifyFindingsRejectsReachableModuleOnlyAdvisory(t *testing.T) {
 	}
 }
 
+func TestClassifyFindingsRejectsStaleAllowlistEntry(t *testing.T) {
+	t.Parallel()
+
+	entry := allowEntry{
+		Package:    "example.com/module",
+		Owner:      "netops",
+		Expires:    "2026-12-31",
+		Reason:     "affected package is outside the build graph",
+		Mitigation: "reject affected package imports",
+		ModuleOnly: true,
+	}
+	entries := map[string]allowEntry{"GO-2099-0001": entry, "GO-2099-0002": entry}
+	findings := []finding{{
+		Scanner:   govulncheckName,
+		ID:        "GO-2099-0002",
+		Package:   "example.com/module/affected",
+		Source:    "Vulnerable",
+		Reachable: true,
+	}}
+
+	allowed, unallowed, failures := classifyFindings(findings, entries, time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
+	if len(allowed) != 0 {
+		t.Fatalf("allowed = %v, want none", allowed)
+	}
+	if len(failures) != 1 || !strings.Contains(failures[0], "GO-2099-0001") ||
+		!strings.Contains(failures[0], "remove the stale entry") {
+		t.Fatalf("failures = %v, want one stale-entry failure for GO-2099-0001", failures)
+	}
+	if got := len(unallowed["GO-2099-0002"]); got != 1 {
+		t.Fatalf("unallowed GO-2099-0002 count = %d, want the reachable finding, not a stale entry", got)
+	}
+}
+
 func TestParseOSVScannerPreservesEncodingJSONV1Compatibility(t *testing.T) {
 	t.Parallel()
 

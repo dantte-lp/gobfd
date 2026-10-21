@@ -8,9 +8,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec" //nolint:depguard // Audit runner invokes pinned scanners with explicit argument vectors.
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +29,7 @@ const (
 var (
 	errAllowEntryIncomplete = errors.New("allowlist entry missing package, owner, reason, or mitigation")
 	errAllowEntryExpired    = errors.New("allowlist entry expired")
+	errAllowEntryStale      = errors.New("matches no scanner finding; remove the stale entry from scripts/vuln-audit.go")
 	errScannerReportEmpty   = errors.New("scanner returned an empty report")
 )
 
@@ -42,7 +45,7 @@ type allowEntry struct {
 var allowlist = map[string]allowEntry{
 	"GO-2026-4736": {
 		Package: "github.com/osrg/gobgp/v4",
-		Owner:   "Pavel Lavrukhin",
+		Owner:   "@dantte-lp",
 		Expires: "2026-12-31",
 		Reason: "Maintainer decisions 2026-10-13 (gobfd-qj0.8.4) and 2026-10-21 (gobfd-qj0.8.4.1, stable v1): " +
 			"GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched and upstream fix 583080a7 is in v4.10.0, " +
@@ -409,8 +412,10 @@ func classifyFindings(
 	allowed := map[string][]finding{}
 	unallowed := map[string][]finding{}
 	var failures []string
+	reported := map[string]bool{}
 
 	for _, item := range findings {
+		reported[item.ID] = true
 		entry, ok := entries[item.ID]
 		if !ok {
 			unallowed[item.ID] = append(unallowed[item.ID], item)
@@ -425,6 +430,14 @@ func classifyFindings(
 			continue
 		}
 		allowed[item.ID] = append(allowed[item.ID], item)
+	}
+
+	// An ID that no scanner reports is stale; an ID reported only as a
+	// non-matching finding stays in unallowed and is not hidden here.
+	for _, id := range slices.Sorted(maps.Keys(entries)) {
+		if !reported[id] {
+			failures = append(failures, fmt.Errorf("allowlist entry %s: %w", id, errAllowEntryStale).Error())
+		}
 	}
 
 	return allowed, unallowed, failures
