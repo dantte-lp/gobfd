@@ -232,6 +232,22 @@ func (l *Listener) recvOne(ctx context.Context) (*ReceivedPacket, error) {
 	}, nil
 }
 
+// ErrRebindUnsupported reports a listener without a kernel device binding.
+var ErrRebindUnsupported = errors.New("listener has no device binding to rebind")
+
+// RebindDevice re-applies SO_BINDTODEVICE by interface name on the same
+// socket. The kernel resolves the name again, so a listener follows an
+// interface deleted and recreated under that name with a new ifindex. The
+// socket, its port binding and its receive loop stay in place. Linux requires
+// CAP_NET_RAW to change an existing device binding.
+func (l *Listener) RebindDevice() error {
+	conn, ok := l.conn.(interface{ rebindDevice() error })
+	if !ok {
+		return ErrRebindUnsupported
+	}
+	return conn.rebindDevice()
+}
+
 // Close closes the underlying PacketConn.
 func (l *Listener) Close() error {
 	if err := l.conn.Close(); err != nil {
