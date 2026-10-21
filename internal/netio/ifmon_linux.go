@@ -24,9 +24,10 @@ const (
 var (
 	errShortIfInfoMsg  = errors.New("short ifinfomsg")
 	errIfIndexOverflow = errors.New("ifinfomsg index exceeds int32")
+	errShortIfAddrMsg  = errors.New("short ifaddrmsg")
 )
 
-// LinuxInterfaceMonitor watches Linux rtnetlink link notifications.
+// LinuxInterfaceMonitor watches Linux rtnetlink link and address notifications.
 type LinuxInterfaceMonitor struct {
 	fd            int
 	events        chan InterfaceEvent
@@ -40,7 +41,9 @@ func NewInterfaceMonitor(logger *slog.Logger) (InterfaceMonitor, error) {
 	return NewLinuxInterfaceMonitor(logger)
 }
 
-// NewLinuxInterfaceMonitor subscribes to NETLINK_ROUTE link notifications.
+// NewLinuxInterfaceMonitor subscribes to NETLINK_ROUTE link and IPv4/IPv6
+// address notifications. Receiving these groups needs no capability: the
+// kernel creates NETLINK_ROUTE with NL_CFG_F_NONROOT_RECV.
 func NewLinuxInterfaceMonitor(logger *slog.Logger) (*LinuxInterfaceMonitor, error) {
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC, unix.NETLINK_ROUTE)
 	if err != nil {
@@ -59,7 +62,7 @@ func NewLinuxInterfaceMonitor(logger *slog.Logger) (*LinuxInterfaceMonitor, erro
 
 	addr := &unix.SockaddrNetlink{
 		Family: unix.AF_NETLINK,
-		Groups: unix.RTMGRP_LINK,
+		Groups: unix.RTMGRP_LINK | unix.RTMGRP_IPV4_IFADDR | unix.RTMGRP_IPV6_IFADDR,
 	}
 	if err := unix.Bind(fd, addr); err != nil {
 		if closeErr := unix.Close(fd); closeErr != nil {
@@ -77,7 +80,7 @@ func NewLinuxInterfaceMonitor(logger *slog.Logger) (*LinuxInterfaceMonitor, erro
 	}, nil
 }
 
-// Run reads RTM_NEWLINK / RTM_DELLINK notifications until ctx is cancelled.
+// Run reads link and address notifications until ctx is cancelled.
 func (m *LinuxInterfaceMonitor) Run(ctx context.Context) error {
 	m.logger.Info("linux netlink interface monitor started")
 	defer close(m.events)
@@ -213,6 +216,8 @@ func (m *LinuxInterfaceMonitor) flushResync() {
 func linkEventFromNetlinkMessage(msg syscall.NetlinkMessage) (InterfaceEvent, bool, error) {
 	switch msg.Header.Type {
 	case syscall.RTM_NEWLINK, syscall.RTM_DELLINK:
+	case syscall.RTM_NEWADDR, syscall.RTM_DELADDR:
+		return addressEventFromNetlinkMessage(msg)
 	default:
 		return InterfaceEvent{}, false, nil
 	}
@@ -270,4 +275,17 @@ func linkNameFromAttrs(msg syscall.NetlinkMessage) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// addressEventFromNetlinkMessage reports the interface index of an
+// RTM_NEWADDR or RTM_DELADDR notification (struct ifaddrmsg).
+func addressEventFromNetlinkMessage(msg syscall.NetlinkMessage) (InterfaceEvent, bool, error) {
+	if len(msg.Data) < syscall.SizeofIfAddrmsg {
+		return InterfaceEvent{}, false, fmt.Errorf("%w: %d", errShortIfAddrMsg, len(msg.Data))
+	}
+	index := binary.NativeEndian.Uint32(msg.Data[4:8])
+	if index > math.MaxInt32 {
+		return InterfaceEvent{}, false, fmt.Errorf("%w: %d", errIfIndexOverflow, index)
+	}
+	return InterfaceEvent{IfIndex: int(index), Address: true}, true, nil
 }

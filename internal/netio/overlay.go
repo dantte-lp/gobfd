@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -179,7 +180,7 @@ func openScopedOverlayUDP(
 	kind bfd.TransportScopeKind,
 	scopes []bfd.TransportScope,
 	readBufferSize, writeBufferSize int,
-) (*net.UDPConn, map[overlayReceiveKey]bfd.TransportScope, error) {
+) (*net.UDPConn, *overlayScopeSet, error) {
 	if len(scopes) > 0 {
 		if err := validateOverlayScopes(kind, localAddr, scopes); err != nil {
 			return nil, nil, err
@@ -199,11 +200,45 @@ func openScopedOverlayUDP(
 	if len(scopes) == 0 {
 		return conn, nil, nil
 	}
+	set := &overlayScopeSet{kind: kind, local: localAddr}
+	set.store(scopes)
+	return conn, set, nil
+}
+
+// overlayScopeSet is the copy-on-write identity set of one scoped overlay
+// socket. Send and receive paths read it with one atomic load; SetScopes
+// replaces it while the socket keeps running. A nil set selects the legacy
+// unscoped management-VNI mode, and a scoped set never becomes empty.
+type overlayScopeSet struct {
+	kind  bfd.TransportScopeKind
+	local netip.Addr
+	set   atomic.Pointer[map[overlayReceiveKey]bfd.TransportScope]
+}
+
+func (s *overlayScopeSet) store(scopes []bfd.TransportScope) {
 	scopeMap := make(map[overlayReceiveKey]bfd.TransportScope, len(scopes))
 	for _, scope := range scopes {
 		scopeMap[receiveKeyForScope(scope)] = scope
 	}
-	return conn, scopeMap, nil
+	s.set.Store(&scopeMap)
+}
+
+func (s *overlayScopeSet) lookup(key overlayReceiveKey) (bfd.TransportScope, bool) {
+	scope, ok := (*s.set.Load())[key]
+	return scope, ok
+}
+
+// replace validates a complete non-empty identity set for the same kind and
+// local endpoint, then swaps it in.
+func (s *overlayScopeSet) replace(scopes []bfd.TransportScope) error {
+	if s == nil || len(scopes) == 0 {
+		return fmt.Errorf("replace overlay scopes: %w", ErrOverlayIdentityMismatch)
+	}
+	if err := validateOverlayScopes(s.kind, s.local, scopes); err != nil {
+		return err
+	}
+	s.store(scopes)
+	return nil
 }
 
 // -------------------------------------------------------------------------

@@ -54,7 +54,7 @@ type VXLANConn struct {
 	logger        *slog.Logger
 	mu            sync.Mutex
 	closed        bool
-	scopes        map[overlayReceiveKey]bfd.TransportScope
+	scopes        *overlayScopeSet
 }
 
 // NewVXLANConn creates a VXLAN tunnel connection for BFD.
@@ -154,7 +154,7 @@ func (c *VXLANConn) SendEncapsulatedFor(
 	if c.scopes == nil {
 		return fmt.Errorf("vxlan send: %w", ErrOverlayIdentityMismatch)
 	}
-	configured, ok := c.scopes[receiveKeyForScope(scope)]
+	configured, ok := c.scopes.lookup(receiveKeyForScope(scope))
 	if !ok || configured != scope {
 		return fmt.Errorf("vxlan send: %w", ErrOverlayIdentityMismatch)
 	}
@@ -296,7 +296,7 @@ func (c *VXLANConn) decapVXLANDatagram(data []byte, remoteAddr *net.UDPAddr) ([]
 	key := receiveKeyForPacket(
 		bfd.TransportScopeVXLAN, srcAddr, c.localAddr, vxlanHdr.VNI, packet,
 	)
-	scope, ok := c.scopes[key]
+	scope, ok := c.scopes.lookup(key)
 	if !ok {
 		return nil, OverlayMeta{}, fmt.Errorf("vxlan recv: %w", ErrOverlayIdentityMismatch)
 	}
@@ -374,4 +374,14 @@ func ParseVXLANPacket(buf []byte) ([]byte, uint32, netip.Addr, netip.Addr, error
 	}
 
 	return bfdPayload, hdr.VNI, srcIP, dstIP, nil
+}
+
+// SetScopes replaces the exact tunnel identities of a scoped VXLAN socket
+// without reopening it. The set must be non-empty and belong to this local
+// VTEP; an unscoped management-VNI socket cannot become scoped.
+func (c *VXLANConn) SetScopes(scopes []bfd.TransportScope) error {
+	if err := c.scopes.replace(scopes); err != nil {
+		return fmt.Errorf("vxlan set scopes: %w", err)
+	}
+	return nil
 }
