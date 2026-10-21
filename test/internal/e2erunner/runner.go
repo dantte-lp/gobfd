@@ -296,10 +296,14 @@ func (r *runner) overlayContainerArgs(containerName, testImage string) []string 
 	}
 }
 
+// interopRFCProject matches the RFC test helper default; without -p Compose
+// would name the project after the compose file directory.
+const interopRFCProject = "gobfd-interop-rfc"
+
 func (r *runner) runRFC(ctx context.Context) (runErr error) {
 	composeFile := filepath.Join(r.root, "test", "interop-rfc", "compose.yml")
 	compose := func(args ...string) []string {
-		return append([]string{podmanCommand, "compose", "-f", composeFile}, args...)
+		return append([]string{podmanCommand, "compose", "-p", interopRFCProject, "-f", composeFile}, args...)
 	}
 	defer func() {
 		r.bestEffortFile(ctx, containersLogName, "containers-log.err", compose("logs")...)
@@ -319,7 +323,7 @@ func (r *runner) runRFC(ctx context.Context) (runErr error) {
 		r.bestEffortCommand(ctx, compose("down", "--volumes", "--remove-orphans")...)
 		runErr = errors.Join(runErr, r.writeJSON("environment.json", map[string]any{
 			environmentTarget: "e2e-rfc", environmentRunID: r.runID, environmentDevProject: r.devProject,
-			"compose_file": composeFile, environmentRuntime: podmanCommand,
+			"compose_file": composeFile, "compose_project": interopRFCProject, environmentRuntime: podmanCommand,
 			"rfc_scenarios": []string{"RFC 7419", "RFC 9384", "RFC 9468", "RFC 9747"},
 		}), r.writeSummary([]summaryRow{
 			{summaryTarget, "`make e2e-rfc`"},
@@ -346,6 +350,7 @@ func (r *runner) runRFC(ctx context.Context) (runErr error) {
 	}
 	if err := r.loggedCommand(ctx, r.composeDev(
 		"exec", "-T", "dev", "env", "INTEROP_RFC_COMPOSE_FILE=/app/test/interop-rfc/compose.yml",
+		"INTEROP_PROJECT_NAME="+interopRFCProject,
 		"go", "test", "-tags", "interop_rfc", "-json", "-v", "-count=1", "-timeout", "300s", "./test/interop-rfc/",
 	)...); err != nil {
 		return err

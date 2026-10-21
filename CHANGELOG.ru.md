@@ -432,6 +432,11 @@
   Podman, без которых не завершается rootless network teardown
   (LP: #2154379), и выводят отказы AppArmor после прогона (`gobfd-dah`).
 
+- `make e2e-rfc` запускает RFC-топологию как Compose project
+  `gobfd-interop-rfc` и передаёт его тестам в `INTEROP_PROJECT_NAME`. Без `-p`
+  Compose называл project по каталогу `interop-rfc`, и тестовый helper
+  отклонял каждый контейнер (`gobfd-dah`).
+
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
   Восстановление, принятое после того, как локальный нулевой Required Min RX
