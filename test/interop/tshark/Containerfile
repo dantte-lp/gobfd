@@ -12,7 +12,14 @@ FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
        tshark \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mv /usr/bin/tshark /usr/bin/dumpcap /usr/local/bin/
+
+# Ubuntu 26.04 AppArmor attaches its tshark profile to /usr/bin/tshark, and
+# rootless Podman runs containers without a profile. Confined there, tshark
+# cannot read /captures or receive container stop signals. tshark starts
+# dumpcap from its own directory, so both binaries leave /usr/bin; PATH
+# resolves tshark to /usr/local/bin.
 
 RUN mkdir -p /captures
 

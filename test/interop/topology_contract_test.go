@@ -906,6 +906,23 @@ func TestInteropOwnedInlinePythonPortContract(t *testing.T) {
 	}
 }
 
+// Ubuntu 26.04 AppArmor attaches its tshark profile to /usr/bin/tshark, and
+// rootless Podman runs containers without a profile, so the host profile
+// confines the image binary: it denies /captures reads and container stops.
+func TestTsharkImageAvoidsHostProfileAttachPath(t *testing.T) {
+	t.Parallel()
+
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	image := readContractFile(t, "tshark image", filepath.Join(root, "test", "interop", "tshark", "Containerfile"))
+	// tshark starts dumpcap from its own directory, so both binaries move.
+	if !strings.Contains(image, "mv /usr/bin/tshark /usr/bin/dumpcap /usr/local/bin/") {
+		t.Error("tshark image leaves tshark or dumpcap at the host AppArmor attach path /usr/bin")
+	}
+}
+
 func TestInteropCaptureStorageContract(t *testing.T) {
 	t.Parallel()
 
