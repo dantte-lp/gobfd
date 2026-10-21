@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -85,4 +87,64 @@ func shutdownSessionConfig() bfd.SessionConfig {
 		RequiredMinRxInterval: time.Second,
 		DetectMultiplier:      3,
 	}
+}
+
+// A passive session whose peer never supplied a discriminator cannot send
+// AdminDown (RFC 5880 Section 6.8.7); an orderly stop warns and succeeds.
+func TestGracefulShutdownUnknownPeerDrainWarns(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		mgr := bfd.NewManager(logger)
+		ctx, cancel := context.WithCancel(t.Context())
+		cfg := shutdownSessionConfig()
+		cfg.Role = bfd.RolePassive
+		if _, err := mgr.CreateSession(ctx, cfg, candidateTestSenderLeaseFactory()); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		if err := gracefulShutdown(ctx, mgr, logger, nil); err != nil {
+			t.Fatalf("unknown peer drain error = %v, want warning only", err)
+		}
+		if !strings.Contains(logs.String(), "level=WARN") ||
+			!strings.Contains(logs.String(), "passive peer discriminator unknown") {
+			t.Errorf("logs lack the unknown-peer drain warning:\n%s", logs.String())
+		}
+	})
+}
+
+// A local send failure stays an error even when another drain only lacks a peer.
+func TestGracefulShutdownKeepsLocalDrainErrorBesidePeerWarning(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		mgr := bfd.NewManager(logger)
+		sender := shutdownBlockingSender{entered: make(chan struct{}, 1), release: make(chan struct{})}
+		ctx, cancel := context.WithCancel(t.Context())
+		if _, err := mgr.CreateSession(ctx, shutdownSessionConfig(), bfd.NonOwningSenderLeaseFactory(sender)); err != nil {
+			t.Fatal(err)
+		}
+		passive := shutdownSessionConfig()
+		passive.Role = bfd.RolePassive
+		passive.PeerAddr = netip.MustParseAddr("192.0.2.182")
+		if _, err := mgr.CreateSession(ctx, passive, candidateTestSenderLeaseFactory()); err != nil {
+			t.Fatal(err)
+		}
+		<-sender.entered
+		cancel()
+		result := make(chan error, 1)
+		go func() { result <- gracefulShutdown(ctx, mgr, logger, nil) }()
+		synctest.Sleep(shutdownTimeout + time.Second)
+		close(sender.release)
+		err := <-result
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("local drain error = %v, want deadline", err)
+		}
+		if strings.Contains(err.Error(), "passive peer discriminator unknown") {
+			t.Errorf("peer-attributed drain stayed in the error: %v", err)
+		}
+		if !strings.Contains(logs.String(), "level=WARN") {
+			t.Errorf("logs lack the unknown-peer drain warning:\n%s", logs.String())
+		}
+	})
 }

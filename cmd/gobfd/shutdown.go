@@ -44,7 +44,7 @@ func gracefulShutdown(
 	// The drain deadline is independent of the cancelled signal context.
 	drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	var shutdownErr error
-	if err := mgr.DrainAllSessions(drainCtx); err != nil {
+	if err := localDrainErrors(logger, mgr.DrainAllSessions(drainCtx)); err != nil {
 		shutdownErr = fmt.Errorf("drain BFD sessions: %w", err)
 	}
 	cancelDrain()
@@ -72,6 +72,25 @@ func gracefulShutdown(
 		}
 	}
 	return shutdownErr
+}
+
+// localDrainErrors logs drains that only lack a reachable or known peer as
+// warnings, so an orderly stop exits 0, and returns every other drain failure.
+func localDrainErrors(logger *slog.Logger, err error) error {
+	errs := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = joined.Unwrap()
+	}
+	local := make([]error, 0, len(errs))
+	for _, drainErr := range errs {
+		if incomplete, ok := errors.AsType[*bfd.DrainIncompleteError](drainErr); ok && incomplete.PeerAttributed() {
+			logger.Warn("AdminDown drain incomplete for an unreachable or unknown peer",
+				slog.String("error", drainErr.Error()))
+			continue
+		}
+		local = append(local, drainErr)
+	}
+	return errors.Join(local...)
 }
 
 // -------------------------------------------------------------------------
