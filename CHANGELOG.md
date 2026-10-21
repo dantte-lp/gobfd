@@ -363,13 +363,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Reset `bfd.RemoteMinRxInterval` to 1 microsecond and `bfd.RemoteDemandMode`
-  to 0 after one Detection Time without packets outside AdminDown (RFC 5880
-  Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). A peer that advertised zero Required
-  Min RX and went silent no longer stops periodic TX indefinitely. AdminDown
-  does not apply this SHOULD and keeps drain suppression: the drain releases a
-  silent session, so a reset would only send unrequested AdminDown packets.
-  Remote zero RX and remote Demand are not configurable on pinned FRR 10.7.1 and
-  BIRD 3.4.0; wire evidence awaits a crafted Go peer.
+  to 0, their RFC 5880 Section 6.8.1 initial values, after one Detection Time
+  without packets in every state (Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). When
+  the reset changes the TX interval or permission, the next packet is scheduled
+  from the previous successful send. A peer that advertised zero or a large
+  Required Min RX and went silent no longer holds periodic TX; an Active
+  AdminDown drain now sends its Section 6.8.16 notification after one silent
+  Detection Time and completes, while a Passive session stays silent. FRR
+  10.7.1 cannot advertise zero RX and has no Demand; BIRD 3.4.0 has no Demand
+  and its zero RX support is unverified. Wire evidence is tracked in
+  `gobfd-qj0.8.2.1.1.2.3`.
 
 - Return `InvalidArgument` for malformed protobuf durations in generic, Echo
   and Micro-BFD requests, core-rejected client intervals and duplicate Micro-BFD

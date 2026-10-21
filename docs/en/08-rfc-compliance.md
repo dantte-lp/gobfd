@@ -129,24 +129,29 @@ local Poll is active. Immediate Final replies and bounded retries bypass
 these limits. Initial base sessions accept a local zero receive interval through
 YAML and generic `AddSession`, preserving omitted-field defaults. Preview
 per-peer override rules are unchanged. Timer reloads use the same explicit-zero
-semantics; FRR/BIRD qualification of these procedures remains open.
+semantics; interop scope for these procedures is stated below.
 
-Outside AdminDown, one Detection Time without valid packets restores
-`bfd.RemoteMinRxInterval` to 1 microsecond and `bfd.RemoteDemandMode` to 0
-(Sections 6.8.1 and 6.8.18), so a silent peer's zero receive interval no longer
-stops periodic TX. In AdminDown GoBFD does not apply this Section 6.8.18
-SHOULD: the graceful drain keeps zero receive-interval suppression because the
-drain releases the session after a silent Detection Time, and a reset would only
-send AdminDown packets to a peer that asked for none (Section 6.8.16). Remote Desired Min TX and Detect Mult changes update the
-Detection Time on the packet that carries them (Sections 6.8.3 and 6.8.4).
-Virtual-time tests also cover a timer Poll under remote Demand, Poll expiry
-under zero remote RX and the Final reply to a remote RX increase. Pinned
-FRR 10.7.1 (`receive-interval` minimum 10, no `demand-mode`) and BIRD 3.4.0
-(no Demand) cannot advertise zero RX or Demand: for these peers the remote
-zero-RX and remote Demand procedures are source-supported inapplicable
-(maintainer decision 2026-10-21, `gobfd-qj0.8.2.1.1.2`), and wire evidence
-awaits a crafted Go peer. Interop for nonzero remote TX/RX changes remains
-open.
+One Detection Time without valid packets restores `bfd.RemoteMinRxInterval`
+to 1 microsecond and `bfd.RemoteDemandMode` to 0 in every state (Sections
+6.8.1 and 6.8.18): a peer's Required Min RX binds only while the peer keeps
+transmitting. When the reset changes the TX interval or periodic permission,
+the next packet is scheduled from the previous successful send, which also
+releases a large nonzero hold-down value. In AdminDown an Active session then
+sends the Section 6.8.16 notification and the drain completes; a Passive
+session stays silent because `bfd.RemoteDiscr` is zero (Section 6.8.7). Remote
+Desired Min TX and Detect Mult changes update the Detection Time on the packet
+that carries them (Sections 6.8.3 and 6.8.4). Virtual-time tests also cover a
+timer Poll under remote Demand, Poll expiry under zero remote RX, the Final
+reply to a remote RX increase and the Demand-clear resume from the previous
+send.
+
+FRR 10.7.1 cannot advertise zero RX (`receive-interval` minimum 10) and has no
+`demand-mode`. BIRD 3.4.0 has no Demand option; its zero RX support is
+unverified. Remote Demand interop with both pinned peers and remote zero-RX
+interop with FRR are source-supported inapplicable (maintainer decision
+2026-10-21, `gobfd-qj0.8.2.1.1.2`). Wire evidence for remote zero RX and remote
+Demand is tracked in `gobfd-qj0.8.2.1.1.2.3` with a crafted Go peer. FRR/BIRD
+interop for nonzero remote TX/RX changes remains open.
 
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.
@@ -226,7 +231,8 @@ window starts at the first successful write and covers both local receive DT
 and `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`; only larger
 negotiations extend it. A shorter deadline returns typed `DrainIncompleteError`.
 Passive unknown-peer and zero remote receive-interval suppression remain
-mandatory; a permitted Final reply can provide the first successful write.
+mandatory; zero remote RX binds until the Section 6.8.18 reset after one silent
+Detection Time. A permitted Final reply can provide the first successful write.
 Owning UDP leases interrupt pending writes and join callbacks before releasing
 resources. Success confirms local writes and time, not peer receipt.
 
@@ -260,7 +266,7 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo is provided instead, as a preview |
 | 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry and P/F exclusion exist; live reload/RTT qualification remains pending |
-| 6.6 | Full Demand Mode | Remote periodic-TX suppression exists; local Demand, complete Poll procedures, and interop qualification remain open |
+| 6.6 | Full Demand Mode | Remote periodic-TX suppression and the Section 6.8.18 reset exist; local Demand and complete Poll procedures remain open. Pinned FRR/BIRD cannot send Demand; wire evidence is tracked in `gobfd-qj0.8.2.1.1.2.3` |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
 ### RFC 5881 Implementation Notes
