@@ -723,3 +723,70 @@ type discardSender struct{}
 func (*discardSender) SendPacket(_ context.Context, _ []byte, _ netip.Addr) error {
 	return nil
 }
+
+// -------------------------------------------------------------------------
+// BenchmarkManagerDemuxTransportClass — per-session transport checks
+// -------------------------------------------------------------------------
+
+// BenchmarkManagerDemuxTransportClass measures DemuxWithWire for accepted
+// single-hop (RFC 5881) and multihop (RFC 5883) packets on both demux tiers:
+// Your Discriminator lookup and the zero-discriminator peer-key lookup.
+//
+// Target: zero allocations per accepted packet.
+func BenchmarkManagerDemuxTransportClass(b *testing.B) {
+	cases := []struct {
+		name     string
+		sessType bfd.SessionType
+		multiHop bool
+		ttl      uint8
+		byDiscr  bool
+	}{
+		{name: "single_hop_discr", sessType: bfd.SessionTypeSingleHop, ttl: 255, byDiscr: true},
+		{name: "single_hop_peer", sessType: bfd.SessionTypeSingleHop, ttl: 255},
+		{name: "multi_hop_discr", sessType: bfd.SessionTypeMultiHop, multiHop: true, ttl: 254, byDiscr: true},
+		{name: "multi_hop_peer", sessType: bfd.SessionTypeMultiHop, multiHop: true, ttl: 254},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+			defer mgr.Close()
+
+			cfg := bfd.SessionConfig{
+				PeerAddr:              netip.MustParseAddr("192.0.2.1"),
+				LocalAddr:             netip.MustParseAddr("192.0.2.2"),
+				Type:                  tc.sessType,
+				Role:                  bfd.RoleActive,
+				DesiredMinTxInterval:  1 * time.Second,
+				RequiredMinRxInterval: 1 * time.Second,
+				DetectMultiplier:      3,
+			}
+			sess, err := mgr.CreateSession(b.Context(), cfg, bfd.NonOwningSenderLeaseFactory(&discardSender{}))
+			if err != nil {
+				b.Fatalf("CreateSession: %v", err)
+			}
+
+			pkt := bfd.ControlPacket{
+				Version:               bfd.Version,
+				State:                 bfd.StateDown,
+				DetectMult:            3,
+				MyDiscriminator:       0xABCD1234,
+				DesiredMinTxInterval:  1000000,
+				RequiredMinRxInterval: 1000000,
+			}
+			if tc.byDiscr {
+				pkt.YourDiscriminator = sess.LocalDiscriminator()
+			}
+			meta := bfd.PacketMeta{
+				SrcAddr:  cfg.PeerAddr,
+				DstAddr:  cfg.LocalAddr,
+				TTL:      tc.ttl,
+				MultiHop: tc.multiHop,
+			}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _ = mgr.DemuxWithWire(&pkt, meta, nil)
+			}
+		})
+	}
+}
