@@ -26,12 +26,20 @@ type loopbackFamily struct {
 
 func loopbackFamilies() []loopbackFamily {
 	return []loopbackFamily{
-		{"IPv4", netip.MustParseAddr("127.0.0.1"), unix.IPPROTO_IP, unix.IP_TTL},
+		// 127.0.53.1 is routed to lo but used by no other test package, so
+		// parallel packages binding 127.0.0.1:3784 with SO_REUSEADDR cannot
+		// take its datagrams.
+		{"IPv4", netip.MustParseAddr("127.0.53.1"), unix.IPPROTO_IP, unix.IP_TTL},
 		{"IPv6", netip.IPv6Loopback(), unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS},
 	}
 }
 
 func loopbackIndex(t *testing.T) int {
+	t.Helper()
+	return loopbackInterface(t).Index
+}
+
+func loopbackInterface(t *testing.T) net.Interface {
 	t.Helper()
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -39,15 +47,19 @@ func loopbackIndex(t *testing.T) int {
 	}
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagLoopback != 0 {
-			return iface.Index
+			return iface
 		}
 	}
 	t.Skip("no loopback interface in this network namespace")
-	return 0
+	return net.Interface{}
 }
 
-// newLoopbackListener opens a real listener on the fixed BFD port. The test
-// network namespace has no other BFD socket, so the fixed port cannot collide.
+// newLoopbackListener opens a real listener on the fixed BFD port. go test
+// runs packages in parallel in one network namespace, and other packages bind
+// 127.0.0.1:3784 with SO_REUSEADDR, so IPv4 uses the otherwise unused
+// 127.0.53.1. ::1 has no unused alternative: a parallel package binding
+// [::1]:3784 or [::1]:4784 could take the datagram and fail this test with a
+// receive timeout. No package binds those today.
 func newLoopbackListener(t *testing.T, family loopbackFamily, port uint16, multiHop bool) *Listener {
 	t.Helper()
 	ln, err := NewListener(ListenerConfig{Addr: family.addr, Port: port, MultiHop: multiHop})
@@ -67,7 +79,9 @@ func newLoopbackListener(t *testing.T, family loopbackFamily, port uint16, multi
 
 func sendLoopback(t *testing.T, family loopbackFamily, port uint16, ttl int, payload []byte) {
 	t.Helper()
-	client, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(netip.AddrPortFrom(family.addr, port)))
+	// Bind the source too: the kernel would pick 127.0.0.1 for 127.0.53.1.
+	client, err := net.DialUDP("udp", net.UDPAddrFromAddrPort(netip.AddrPortFrom(family.addr, 0)),
+		net.UDPAddrFromAddrPort(netip.AddrPortFrom(family.addr, port)))
 	if err != nil {
 		t.Fatalf("DialUDP: %v", err)
 	}
@@ -117,17 +131,23 @@ func TestMultiHopListenerPort4784Families(t *testing.T) {
 }
 
 // A real RFC 5881 Section 4 listener on UDP 3784 without a device binding
-// reports the loopback PKTINFO interface, and the daemon resolver binds an
-// interface-less session on 127.0.0.1 / ::1 to it, so the packet is queued.
+// reports the loopback PKTINFO interface, and the daemon resolver binds the
+// session to it, so the packet is queued. ::1 is owned by lo, so its session
+// has no interface; 127.0.53.1 is routed to lo but not assigned, so its
+// session names lo explicitly.
 func TestSingleHopListenerPort3784DeliversToSession(t *testing.T) {
-	lo := loopbackIndex(t)
+	lo := loopbackInterface(t)
 	for _, family := range loopbackFamilies() {
 		t.Run(family.name, func(t *testing.T) {
 			ln := newLoopbackListener(t, family, PortSingleHop, false)
+			var ifName string
+			if family.addr.Is4() {
+				ifName = lo.Name
+			}
 			mgr := bfd.NewManager(slog.New(slog.DiscardHandler), bfd.WithSessionInterfaceResolver(ResolveSessionIfIndex))
 			t.Cleanup(mgr.Close)
 			_, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
-				PeerAddr: family.addr, LocalAddr: family.addr, Type: bfd.SessionTypeSingleHop,
+				PeerAddr: family.addr, LocalAddr: family.addr, Interface: ifName, Type: bfd.SessionTypeSingleHop,
 				Role: bfd.RolePassive, DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second,
 				DetectMultiplier: 3,
 			}, bfd.NonOwningSenderLeaseFactory(discardTestSender{}))
@@ -144,8 +164,8 @@ func TestSingleHopListenerPort3784DeliversToSession(t *testing.T) {
 			}
 			sendLoopback(t, family, PortSingleHop, 255, wire)
 			received := recvLoopback(t, ln)
-			if received.Meta.TTL != 255 || received.Meta.MultiHop || received.Meta.IfIndex != lo {
-				t.Fatalf("meta = %+v, want TTL 255, single-hop, IfIndex %d", received.Meta, lo)
+			if received.Meta.TTL != 255 || received.Meta.MultiHop || received.Meta.IfIndex != lo.Index {
+				t.Fatalf("meta = %+v, want TTL 255, single-hop, IfIndex %d", received.Meta, lo.Index)
 			}
 			var pkt bfd.ControlPacket
 			if err := bfd.UnmarshalControlPacket(received.Data, &pkt); err != nil {

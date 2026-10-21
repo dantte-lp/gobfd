@@ -6,13 +6,22 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"golang.org/x/sys/unix"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
+	"github.com/dantte-lp/gobfd/internal/server"
+	bfdv1 "github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1"
+	"github.com/dantte-lp/gobfd/pkg/bfdpb/bfd/v1/bfdv1connect"
 )
 
 func loopbackName(t *testing.T) string {
@@ -101,5 +110,67 @@ func TestReconcileBindsSingleHopSenderDevice(t *testing.T) {
 	f.mu.Unlock()
 	if got := senderBoundDevice(t, f, srcPort); got != lo {
 		t.Fatalf("session sender SO_BINDTODEVICE = %q, want %q", got, lo)
+	}
+}
+
+// linkLocalAddress returns an IPv6 link-local address zoned to its interface.
+func linkLocalAddress(t *testing.T) netip.Addr {
+	t.Helper()
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok {
+				if ip, ok := netip.AddrFromSlice(ipNet.IP); ok && ip.Is6() && ip.IsLinkLocalUnicast() {
+					return ip.WithZone(iface.Name)
+				}
+			}
+		}
+	}
+	t.Skip("no up interface with an IPv6 link-local address in this network namespace")
+	return netip.Addr{}
+}
+
+// An API single-hop session with a zoned link-local local address and no
+// interface_name binds its real sender to the zone interface (RFC 5881 Section 6).
+func TestAPIZoneOnlySessionBindsSenderDevice(t *testing.T) {
+	t.Parallel()
+	local := linkLocalAddress(t)
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+	f := newUDPSenderFactory(0)
+	rpc := connect.NewServer()
+	server.Register(rpc, mgr, f, logger)
+	mux := http.NewServeMux()
+	connecthttp.Mount(mux, rpc)
+	srv := httptest.NewTestServer(t, mux)
+	client := bfdv1connect.NewBfdServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
+	if _, err := client.AddSession(t.Context(), &bfdv1.AddSessionRequest{
+		PeerAddress: "fe80::1", LocalAddress: local.String(),
+		Type:                  bfdv1.SessionType_SESSION_TYPE_SINGLE_HOP,
+		DesiredMinTxInterval:  durationpb.New(time.Second),
+		RequiredMinRxInterval: durationpb.New(time.Second),
+		DetectMultiplier:      3,
+	}); err != nil {
+		t.Fatalf("AddSession(%s): %v", local, err)
+	}
+	f.mu.Lock()
+	var srcPort uint16
+	for port := range f.senders {
+		srcPort = port
+	}
+	f.mu.Unlock()
+	if got := senderBoundDevice(t, f, srcPort); got != local.Zone() {
+		t.Fatalf("API sender SO_BINDTODEVICE = %q, want %q", got, local.Zone())
 	}
 }
