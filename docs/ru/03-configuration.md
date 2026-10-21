@@ -327,9 +327,9 @@ echo:
 | `micro_bfd.groups[].member_links` | []string | -- | Имена физических member-линков |
 | `micro_bfd.groups[].peer_addr` | string | -- | IP удалённой системы для всех member-сессий |
 | `micro_bfd.groups[].local_addr` | string | -- | IP локальной системы |
-| `micro_bfd.groups[].desired_min_tx` | duration | -- | Интервал BFD-таймера для member-сессий |
-| `micro_bfd.groups[].required_min_rx` | duration | -- | Минимальный допустимый RX-интервал |
-| `micro_bfd.groups[].detect_mult` | uint32 | -- | Множитель времени обнаружения |
+| `micro_bfd.groups[].desired_min_tx` | duration | `bfd.default_desired_min_tx` | Интервал BFD-таймера для member-сессий |
+| `micro_bfd.groups[].required_min_rx` | duration | `bfd.default_required_min_rx` | Минимальный допустимый RX-интервал |
+| `micro_bfd.groups[].detect_mult` | uint32 | `bfd.default_detect_multiplier` | Множитель времени обнаружения |
 | `micro_bfd.groups[].min_active_links` | int | -- | Минимум Up member-ов для LAG Up (>= 1) |
 | `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run` или `enforce` |
 | `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs` или `networkmanager` |
@@ -356,6 +356,23 @@ networkmanager-dbus`. Он деактивирует активный bond port p
 внешнем владельце для disabled и dry-run режимов.
 
 Группы реконсилируются при SIGHUP. Ключ группы: `lag_interface`.
+
+Группа и её member-сессии применяются как одно целое. Ошибка создания
+member-сессии откатывает группы и member-сессии, созданные этим reload;
+зафиксированные группы и сессии остаются на месте. Member link принадлежит
+одной группе: кандидат, в котором один member link указан в двух группах,
+отклоняется целиком; RFC 7130 Section 2 запускает micro-BFD-сессии на каждом
+member link LAG. Незаданные `desired_min_tx`, `required_min_rx` и `detect_mult`
+наследуют `bfd.default_*`. Группа и все её
+member-сессии используют эти значения; к ним применяется проверка RFC 5880:
+адреса, wire-границы интервалов и detect multiplier (RFC 7130 Section 2.2).
+Изменение списка member, адресов, таймеров или `min_active_links` работающей
+группы — конфликт конфигурации, группа остаётся без изменений: удалите группу
+в одном reload и добавьте в следующем.
+
+`AddMicroBFDGroup` применяет ту же проверку, отклоняет member link другой
+группы с `FAILED_PRECONDITION` и создаёт только агрегатную группу;
+`ListMicroBFDGroups` возвращает сохранённые таймеры member-сессий.
 
 Пример:
 ```yaml

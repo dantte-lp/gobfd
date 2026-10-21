@@ -408,6 +408,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Commit each Micro-BFD group together with its member sessions (RFC 7130
+  Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload applies one Micro-BFD source:
+  a failed member session rolls back the new groups and sessions of the pass
+  before any committed group or session is released. A member link listed in
+  two LAG groups rejects the whole candidate, and `AddMicroBFDGroup` returns
+  `FailedPrecondition` for a member link of another group. Dispatch resolves
+  the single owner through a `{member link, address family}` index.
+
+- Validate the RFC 5880 contract of every Micro-BFD member session on the
+  daemon candidate and the direct Manager/API path: peer address, interval
+  wire bounds, detect multiplier and non-empty LAG and member names (RFC 7130
+  Section 2.2, M-09). Unset group timers inherit `bfd.default_*`. Groups store
+  the timers, `ListMicroBFDGroups` returns them, and a changed timer on a
+  running group is a configuration conflict. `AddMicroBFDGroup` returns
+  `InvalidArgument` for an explicit zero interval or an empty member name.
+
+- Run the Micro-BFD actuator after Manager locks are released, in dispatch
+  order, with a 5-second context deadline per call (RFC 7130 Section 5, M-10).
+  A blocked LAG backend no longer stalls group CRUD; a failure or deadline logs
+  `micro-BFD actuator failed` with `deadline_exceeded`. A backend that ignores
+  its context still delays later notifications.
+
 - Apply a config timer update immediately outside Up, including AdminDown,
   with its Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore
   admitted after a local zero Required Min RX drove the session Down previously
