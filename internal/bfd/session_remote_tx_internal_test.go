@@ -410,7 +410,7 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 // RFC 5880 Section 6.8.18: "If the remote system does not receive any BFD
 // Control packets for a Detection Time, it SHOULD reset
 // bfd.RemoteMinRxInterval to its initial value of 1 ... and then can transmit
-// at its own rate."
+// at its own rate.".
 func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
@@ -420,13 +420,19 @@ func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 		wantDiag       Diag
 		keepSuppressed bool
 	}{
-		{name: "Up expires to Down", local: StateUp, remote: StateUp, wantState: StateDown,
-			wantDiag: DiagControlTimeExpired},
-		{name: "Down held down by peer", local: StateDown, remote: StateAdminDown, wantState: StateDown,
-			wantDiag: DiagControlTimeExpired},
+		{
+			name: "Up expires to Down", local: StateUp, remote: StateUp, wantState: StateDown,
+			wantDiag: DiagControlTimeExpired,
+		},
+		{
+			name: "Down held down by peer", local: StateDown, remote: StateAdminDown, wantState: StateDown,
+			wantDiag: DiagControlTimeExpired,
+		},
 		// The Section 6.8.16 drain keeps honoring a silent peer's zero RX.
-		{name: "AdminDown drain keeps suppression", local: StateAdminDown, remote: StateUp, wantState: StateAdminDown,
-			wantDiag: DiagAdminDown, keepSuppressed: true},
+		{
+			name: "AdminDown drain keeps suppression", local: StateAdminDown, remote: StateUp, wantState: StateAdminDown,
+			wantDiag: DiagAdminDown, keepSuppressed: true,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -491,7 +497,7 @@ func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 }
 
 // RFC 5880 Section 6.8.3: "timing parameter changes MUST be effected
-// immediately (changing the transmission rate and/or the Detection Time)."
+// immediately (changing the transmission rate and/or the Detection Time).".
 func TestRemoteTimerChangeUpdatesDetectionImmediately(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
@@ -500,14 +506,22 @@ func TestRemoteTimerChangeUpdatesDetectionImmediately(t *testing.T) {
 		oldMult, newMult   uint8
 		wantOld, wantNewDT time.Duration
 	}{
-		{name: "remote TX increase", oldTX: 100 * time.Millisecond, newTX: time.Second,
-			oldMult: 3, newMult: 3, wantOld: 300 * time.Millisecond, wantNewDT: 3 * time.Second},
-		{name: "remote TX decrease", oldTX: time.Second, newTX: 100 * time.Millisecond,
-			oldMult: 3, newMult: 3, wantOld: 3 * time.Second, wantNewDT: 300 * time.Millisecond},
-		{name: "remote Detect Mult increase", oldTX: 100 * time.Millisecond, newTX: 100 * time.Millisecond,
-			oldMult: 3, newMult: 5, wantOld: 300 * time.Millisecond, wantNewDT: 500 * time.Millisecond},
-		{name: "local RX dominates remote TX", oldTX: 100 * time.Millisecond, newTX: 10 * time.Millisecond,
-			oldMult: 3, newMult: 3, wantOld: 300 * time.Millisecond, wantNewDT: 150 * time.Millisecond},
+		{
+			name: "remote TX increase", oldTX: 100 * time.Millisecond, newTX: time.Second,
+			oldMult: 3, newMult: 3, wantOld: 300 * time.Millisecond, wantNewDT: 3 * time.Second,
+		},
+		{
+			name: "remote TX decrease", oldTX: time.Second, newTX: 100 * time.Millisecond,
+			oldMult: 3, newMult: 3, wantOld: 3 * time.Second, wantNewDT: 300 * time.Millisecond,
+		},
+		{
+			name: "remote Detect Mult increase", oldTX: 100 * time.Millisecond, newTX: 100 * time.Millisecond,
+			oldMult: 3, newMult: 5, wantOld: 300 * time.Millisecond, wantNewDT: 500 * time.Millisecond,
+		},
+		{
+			name: "local RX dominates remote TX", oldTX: 100 * time.Millisecond, newTX: 10 * time.Millisecond,
+			oldMult: 3, newMult: 3, wantOld: 300 * time.Millisecond, wantNewDT: 150 * time.Millisecond,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -554,7 +568,8 @@ func TestTimerPollUnderRemoteDemand(t *testing.T) {
 		if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
 			t.Fatal("periodic transmission continued under remote Demand")
 		}
-		if _, err := sess.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond}, 1); err != nil {
+		tuple := timerTuple{200 * time.Millisecond, 200 * time.Millisecond}
+		if _, err := sess.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 			t.Fatal(err)
 		}
 		sess.processTimerUpdates(tx, detect)
