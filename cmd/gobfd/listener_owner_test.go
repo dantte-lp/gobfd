@@ -83,7 +83,7 @@ func newTestListenerOwner(
 	t.Helper()
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	owner := newListenerOwner(mgr, readiness, slog.New(slog.DiscardHandler))
+	owner := newListenerOwner(mgr, readiness, 0, slog.New(slog.DiscardHandler))
 	owner.open = opener.open
 	owner.interfaces = inventory.list
 	t.Cleanup(owner.close)
@@ -124,7 +124,7 @@ func TestListenerOwnerReleaseClosesOnlyUnclaimedListeners(t *testing.T) {
 		{sourceClaim(sourceBase), []netio.ListenerConfig{baseA, baseB, baseA}},
 		{sourceClaim(sourceEcho), []netio.ListenerConfig{echo}},
 	} {
-		if err := owner.acquire(ctx, step.claims, step.configs); err != nil {
+		if err := owner.acquire(step.claims, step.configs); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestListenerOwnerReceiverLossFailStops(t *testing.T) {
 			inventory := &fakeInterfaceInventory{}
 			inventory.set(nil, upInterface("eth1", 1))
 			owner, _ := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
-			if err := owner.acquire(t.Context(), sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
+			if err := owner.acquire(sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
 				t.Fatal(err)
 			}
 			if err := opener.conn(t, listenerKeyOf(cfg)).Close(); err != nil {
@@ -201,71 +201,6 @@ func TestListenerOwnerReceiverLossFailStops(t *testing.T) {
 			}
 			notServing := grpchealth.StatusNotServing
 			assertReadiness(t, checker, readinessWant{notServing, notServing, notServing, notServing})
-		})
-	}
-}
-
-func TestListenerOwnerKeepsListenerOfLiveSession(t *testing.T) {
-	t.Parallel()
-
-	local := netip.MustParseAddr("192.0.2.1")
-	for _, tc := range []struct {
-		name   string
-		source reconciliationSource
-		cfg    netio.ListenerConfig
-		create func(*testing.T, *bfd.Manager)
-	}{
-		{"control", sourceBase, singleHopListener("192.0.2.1", "eth1"), func(t *testing.T, mgr *bfd.Manager) {
-			t.Helper()
-			if _, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
-				PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: local, Interface: "eth1",
-				Type: bfd.SessionTypeSingleHop, Role: bfd.RolePassive,
-				DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
-			}, candidateTestSenderLeaseFactory()); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{"echo", sourceEcho, echoListener("192.0.2.1", "eth1"), func(t *testing.T, mgr *bfd.Manager) {
-			t.Helper()
-			if _, err := mgr.CreateEchoSession(t.Context(), bfd.EchoSessionConfig{
-				PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: local, Interface: "eth1",
-				TxInterval: time.Hour, DetectMultiplier: 3,
-			}, candidateTestSender{}); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{
-			"micro", sourceMicro,
-			netio.ListenerConfig{Addr: local, IfName: "eth1", Port: netio.PortMicroBFD},
-			func(t *testing.T, mgr *bfd.Manager) {
-				t.Helper()
-				if _, err := mgr.CreateMicroBFDGroup(bfd.MicroBFDConfig{
-					LAGInterface: "bond9", MemberLinks: []string{"eth1"},
-					PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: local,
-					DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second,
-					DetectMultiplier: 3, MinActiveLinks: 1,
-				}); err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			coordinator, _ := newConvergedReadinessCoordinator(t)
-			opener := newFakeListenerOpener()
-			inventory := &fakeInterfaceInventory{}
-			inventory.set(nil, upInterface("eth1", 1))
-			owner, mgr := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
-			if err := owner.acquire(t.Context(), sourceClaim(tc.source), []netio.ListenerConfig{tc.cfg}); err != nil {
-				t.Fatal(err)
-			}
-			// An API-created user still receives on the listener the config opened.
-			tc.create(t, mgr)
-			owner.release(sourceClaim(tc.source), nil)
-			if fakeConnClosed(opener.conn(t, listenerKeyOf(tc.cfg))) {
-				t.Fatal("release closed the listener of a live API user")
-			}
 		})
 	}
 }
@@ -333,7 +268,7 @@ func TestListenerOwnerStartupFailsOnAbsentInterface(t *testing.T) {
 	inventory.set(nil, upInterface("eth6", 6))
 	owner, _ := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
 
-	if err := owner.openStartup(t.Context(), cfg); !errors.Is(err, bfd.ErrResourceUnavailable) {
+	if err := owner.openStartup(cfg); !errors.Is(err, bfd.ErrResourceUnavailable) {
 		t.Fatalf("startup error = %v, want typed unavailable interface", err)
 	}
 	opened := opener.openedKeys()
@@ -381,7 +316,7 @@ func TestListenerOwnerStartupRecordsBindTimeIndexes(t *testing.T) {
 		upInterface("eth6", 6), upInterface("eth4", 4))
 	owner, _ := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
 
-	if err := owner.openStartup(t.Context(), cfg); err != nil {
+	if err := owner.openStartup(cfg); err != nil {
 		t.Fatal(err)
 	}
 	got := readinessBindings(coordinator.readiness)
@@ -407,7 +342,7 @@ func TestListenerOwnerStartupInventoryFailure(t *testing.T) {
 	bound.Sessions = []config.SessionConfig{{Peer: "192.0.2.2", Local: "192.0.2.1", Interface: "eth9", Type: "single_hop"}}
 	opener := newFakeListenerOpener()
 	owner, _ := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
-	if err := owner.openStartup(t.Context(), bound); !errors.Is(err, errInventoryUnavailable) {
+	if err := owner.openStartup(bound); !errors.Is(err, errInventoryUnavailable) {
 		t.Fatalf("bound listener inventory error = %v, want %v", err, errInventoryUnavailable)
 	}
 	if opened := opener.openedKeys(); len(opened) != 0 {
@@ -417,7 +352,7 @@ func TestListenerOwnerStartupInventoryFailure(t *testing.T) {
 	unbound := config.DefaultConfig()
 	unbound.Sessions = []config.SessionConfig{{Peer: "198.51.100.2", Local: "198.51.100.1", Type: "multi_hop"}}
 	owner, _ = newTestListenerOwner(t, coordinator.readiness, newFakeListenerOpener(), inventory)
-	if err := owner.openStartup(t.Context(), unbound); err != nil {
+	if err := owner.openStartup(unbound); err != nil {
 		t.Fatalf("unbound listener startup = %v, want no inventory read", err)
 	}
 }
@@ -437,7 +372,7 @@ func TestListenerOwnerRebindsRecreatedInterface(t *testing.T) {
 		return rebindErr
 	}
 	cfg := singleHopListener("192.0.2.1", "eth9")
-	if err := owner.acquire(t.Context(), sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
+	if err := owner.acquire(sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
 		t.Fatal(err)
 	}
 	assertReadiness(t, checker, readinessAllServing())
@@ -506,7 +441,7 @@ func TestReloadOpensNewListenerBeforeSessionAndClosesRemovedOne(t *testing.T) {
 	sessionsAtOpen := make(map[listenerKey]int)
 	opener.onOpen = func(cfg netio.ListenerConfig) { sessionsAtOpen[listenerKeyOf(cfg)] = len(mgr.Sessions()) }
 	sf := newNthFailureDeclarativeSenderFactory(0)
-	if err := owner.openStartup(t.Context(), startup); err != nil {
+	if err := owner.openStartup(startup); err != nil {
 		t.Fatal(err)
 	}
 	reconcile := func(cfg *config.Config) {
@@ -555,11 +490,11 @@ func BenchmarkListenerOwnerCheckBindings(b *testing.B) {
 	}
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	b.Cleanup(mgr.Close)
-	owner := newListenerOwner(mgr, newDaemonReadiness(newDaemonHealthChecker()), slog.New(slog.DiscardHandler))
+	owner := newListenerOwner(mgr, newDaemonReadiness(newDaemonHealthChecker()), 0, slog.New(slog.DiscardHandler))
 	owner.open = newFakeListenerOpener().open
 	b.Cleanup(owner.close)
 	cfg := singleHopListener("127.0.0.1", loopback.Name)
-	if err := owner.acquire(b.Context(), sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
+	if err := owner.acquire(sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()

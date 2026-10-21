@@ -16,6 +16,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	"github.com/dantte-lp/gobfd/internal/server"
 )
 
 // -------------------------------------------------------------------------
@@ -24,7 +25,8 @@ import (
 
 var errListenerOwnerClosed = errors.New("listener owner is closed")
 
-// listenerKey identifies one receive socket.
+// listenerKey identifies one receive socket. The address is unmapped, so an
+// IPv4-mapped spelling and its IPv4 form name the same socket.
 type listenerKey struct {
 	addr     netip.Addr
 	ifName   string
@@ -33,7 +35,7 @@ type listenerKey struct {
 }
 
 func listenerKeyOf(cfg netio.ListenerConfig) listenerKey {
-	return listenerKey{addr: cfg.Addr, ifName: cfg.IfName, port: cfg.Port, multiHop: cfg.MultiHop}
+	return listenerKey{addr: cfg.Addr.Unmap(), ifName: cfg.IfName, port: cfg.Port, multiHop: cfg.MultiHop}
 }
 
 func (k listenerKey) String() string {
@@ -56,8 +58,9 @@ func (k listenerKey) component() readinessComponent {
 	}
 }
 
-// listenerClaims records who needs a listener: the startup-owned unsolicited
-// interfaces and the reconciliation sources, one bit per source.
+// listenerClaims records which configuration owners need a listener: the
+// startup-owned unsolicited interfaces and the reconciliation sources, one
+// bit per source.
 type listenerClaims uint8
 
 const claimUnsolicited listenerClaims = 1 << 7
@@ -70,27 +73,36 @@ type ownedListener struct {
 	ln *netio.Listener
 	// ifIndex is resolved before the latest bind: an interface recreated in
 	// between reads as a stale binding, never as a false ready one.
-	ifIndex      int
-	claims       listenerClaims
+	ifIndex int
+	claims  listenerClaims
+	// apiClaims counts the API-created senders receiving on this listener.
+	apiClaims    int
 	stop         context.CancelFunc
 	rebindFailed bool
+}
+
+func (l *ownedListener) unclaimed() bool {
+	return l.claims == 0 && l.apiClaims == 0
 }
 
 // listenerOwner is the single lifecycle owner of the BFD receive sockets.
 // Startup opens the configured set; each reconciliation source then claims
 // the listeners of its desired set before the Manager apply and releases the
-// unclaimed ones after a converged apply. A device-bound listener follows an
-// interface recreated with a new ifindex by rebinding the same socket.
+// unclaimed ones after a converged apply. An API-created session or Echo
+// session claims its listener with its sender and releases it when Manager
+// closes that sender. A listener closes when its last claim goes. A
+// device-bound listener follows an interface recreated with a new ifindex by
+// rebinding the same socket. All claims and socket changes run under mu.
 type listenerOwner struct {
 	mu        sync.Mutex
 	listeners map[listenerKey]*ownedListener
 	order     []listenerKey // bind order; readiness lists bindings in it
 	closed    bool
 
-	open       func(netio.ListenerConfig) (*netio.Listener, error)
-	rebind     func(*netio.Listener) error
-	interfaces interfaceInventory
-	users      *bfd.Manager // API-created sessions keep their listeners
+	open           func(netio.ListenerConfig) (*netio.Listener, error)
+	rebind         func(*netio.Listener) error
+	interfaces     interfaceInventory
+	readBufferSize int // startup-owned socket.read_buffer_size for API listeners
 
 	delivery  bfd.DeliveryReporter
 	control   *netio.Receiver
@@ -102,19 +114,21 @@ type listenerOwner struct {
 	lost    chan error
 }
 
-func newListenerOwner(mgr *bfd.Manager, readiness *daemonReadiness, logger *slog.Logger) *listenerOwner {
+func newListenerOwner(
+	mgr *bfd.Manager, readiness *daemonReadiness, readBufferSize int, logger *slog.Logger,
+) *listenerOwner {
 	return &listenerOwner{
-		listeners:  make(map[listenerKey]*ownedListener),
-		open:       netio.NewListener,
-		rebind:     (*netio.Listener).RebindDevice,
-		interfaces: net.Interfaces,
-		users:      mgr,
-		delivery:   mgr,
-		control:    netio.NewReceiver(mgr, logger),
-		echo:       netio.NewEchoReceiver(mgr, logger),
-		readiness:  readiness,
-		logger:     logger,
-		lost:       make(chan error, 1),
+		listeners:      make(map[listenerKey]*ownedListener),
+		open:           netio.NewListener,
+		rebind:         (*netio.Listener).RebindDevice,
+		interfaces:     net.Interfaces,
+		readBufferSize: readBufferSize,
+		delivery:       mgr,
+		control:        netio.NewReceiver(mgr, logger),
+		echo:           netio.NewEchoReceiver(mgr, logger),
+		readiness:      readiness,
+		logger:         logger,
+		lost:           make(chan error, 1),
 	}
 }
 
@@ -124,7 +138,8 @@ func newListenerOwner(mgr *bfd.Manager, readiness *daemonReadiness, logger *slog
 func startListenerOwner(
 	ctx context.Context, g *errgroup.Group, cfg *config.Config, owner *listenerOwner, logger *slog.Logger,
 ) error {
-	if err := owner.openStartup(ctx, cfg); err != nil {
+	//nolint:contextcheck // Receivers are owner-scoped: close() cancels each one before its socket closes.
+	if err := owner.openStartup(cfg); err != nil {
 		return err
 	}
 	g.Go(func() error { return owner.run(ctx) })
@@ -141,7 +156,7 @@ func startListenerOwner(
 
 // openStartup opens every configured listener. Wildcard unsolicited listeners
 // bind first so sessions with an empty interface keep their receive path.
-func (o *listenerOwner) openStartup(ctx context.Context, cfg *config.Config) error {
+func (o *listenerOwner) openStartup(cfg *config.Config) error {
 	for _, step := range []struct {
 		claims  listenerClaims
 		configs []netio.ListenerConfig
@@ -151,7 +166,7 @@ func (o *listenerOwner) openStartup(ctx context.Context, cfg *config.Config) err
 		{sourceClaim(sourceEcho), echoListenerConfigs(cfg)},
 		{sourceClaim(sourceMicro), microListenerConfigs(cfg)},
 	} {
-		if err := o.acquire(ctx, step.claims, step.configs); err != nil {
+		if err := o.acquire(step.claims, step.configs); err != nil {
 			o.close()
 			return err
 		}
@@ -160,9 +175,9 @@ func (o *listenerOwner) openStartup(ctx context.Context, cfg *config.Config) err
 }
 
 // acquire adds claims to the listeners of configs and opens the missing
-// ones. A failure closes the listeners this call opened. ctx bounds the
-// receivers it starts. An absent interface is a typed unavailable resource.
-func (o *listenerOwner) acquire(ctx context.Context, claims listenerClaims, configs []netio.ListenerConfig) error {
+// ones. A failure closes the listeners this call opened. An absent
+// interface is a typed unavailable resource.
+func (o *listenerOwner) acquire(claims listenerClaims, configs []netio.ListenerConfig) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.closed {
@@ -176,29 +191,87 @@ func (o *listenerOwner) acquire(ctx context.Context, claims listenerClaims, conf
 			owned.claims |= claims
 			continue
 		}
-		var index int
-		if key.deviceBound() {
-			if indexes == nil {
-				var err error
-				if indexes, err = o.interfaceIndexes(); err != nil {
-					o.stopLocked(opened)
-					return err
-				}
-			}
-			index = indexes[key.ifName]
-		}
-		cfg.Delivery = o.delivery
-		ln, err := o.open(cfg)
-		if err != nil {
+		if err := o.openLocked(cfg, key, &indexes); err != nil {
 			o.stopLocked(opened)
-			return listenerOpenError(key, err)
+			return err
 		}
-		o.startLocked(ctx, key, ln, index, claims)
+		o.listeners[key].claims = claims
 		opened = append(opened, key)
 	}
 	if len(opened) != 0 {
 		o.publishLocked()
 	}
+	return nil
+}
+
+// claimAPI takes one API claim on the listener of cfg, opening it when
+// absent. An API Echo session shares the per-address Echo listener, as
+// configured Echo peers do.
+func (o *listenerOwner) claimAPI(cfg netio.ListenerConfig) (listenerKey, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed {
+		return listenerKey{}, errListenerOwnerClosed
+	}
+	key := listenerKeyOf(cfg)
+	if key.port == netio.PortEcho {
+		if index := slices.IndexFunc(o.order, func(k listenerKey) bool {
+			return k.port == netio.PortEcho && k.addr == key.addr
+		}); index >= 0 {
+			key = o.order[index]
+		}
+	}
+	if owned, ok := o.listeners[key]; ok {
+		owned.apiClaims++
+		return key, nil
+	}
+	var indexes map[string]int
+	cfg.ReadBufferSize = o.readBufferSize
+	if err := o.openLocked(cfg, key, &indexes); err != nil {
+		return listenerKey{}, err
+	}
+	o.listeners[key].apiClaims = 1
+	o.publishLocked()
+	return key, nil
+}
+
+// releaseAPI drops one API claim and closes the listener when it was the
+// last claim.
+func (o *listenerOwner) releaseAPI(key listenerKey) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	owned, ok := o.listeners[key]
+	if !ok || owned.apiClaims == 0 {
+		return
+	}
+	owned.apiClaims--
+	if owned.unclaimed() {
+		o.stopLocked([]listenerKey{key})
+		o.publishLocked()
+	}
+}
+
+// openLocked opens and starts the listener of cfg under key without claims.
+// The interface index is resolved once per call chain, before the bind.
+func (o *listenerOwner) openLocked(cfg netio.ListenerConfig, key listenerKey, indexes *map[string]int) error {
+	var index int
+	if key.deviceBound() {
+		if *indexes == nil {
+			resolved, err := o.interfaceIndexes()
+			if err != nil {
+				return err
+			}
+			*indexes = resolved
+		}
+		index = (*indexes)[key.ifName]
+	}
+	cfg.Addr = key.addr
+	cfg.Delivery = o.delivery
+	ln, err := o.open(cfg)
+	if err != nil {
+		return listenerOpenError(key, err)
+	}
+	o.startLocked(key, ln, index)
 	return nil
 }
 
@@ -223,14 +296,13 @@ func (o *listenerOwner) interfaceIndexes() (map[string]int, error) {
 	return indexes, nil
 }
 
-// startLocked runs one required receiver per listener. A deliberate stop
-// cancels the receiver context before closing the socket, so only a socket
-// lost while its receiver context is live fails the daemon.
-func (o *listenerOwner) startLocked(
-	ctx context.Context, key listenerKey, ln *netio.Listener, index int, claims listenerClaims,
-) {
-	receiverCtx, stop := context.WithCancel(ctx)
-	o.listeners[key] = &ownedListener{ln: ln, ifIndex: index, claims: claims, stop: stop}
+// startLocked runs one required receiver per listener. Receivers live until
+// the owner stops them, independently of the request that opened them. A
+// deliberate stop cancels the receiver context before closing the socket,
+// so only a socket lost while its receiver context is live fails the daemon.
+func (o *listenerOwner) startLocked(key listenerKey, ln *netio.Listener, index int) {
+	receiverCtx, stop := context.WithCancel(context.Background())
+	o.listeners[key] = &ownedListener{ln: ln, ifIndex: index, stop: stop}
 	o.order = append(o.order, key)
 	name, run := "control receiver", o.control.Run
 	if component := key.component(); component == componentEchoBindings {
@@ -267,7 +339,7 @@ func (o *listenerOwner) stopLocked(keys []listenerKey) {
 }
 
 // release drops claims outside the desired configs and closes each listener
-// left without a claim, unless a live session still receives on it.
+// left without a configuration or API claim.
 func (o *listenerOwner) release(claims listenerClaims, configs []netio.ListenerConfig) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -281,7 +353,7 @@ func (o *listenerOwner) release(claims listenerClaims, configs []netio.ListenerC
 		if _, keep := desired[key]; !keep {
 			owned.claims &^= claims
 		}
-		if owned.claims == 0 && !o.inUseLocked(key) {
+		if owned.unclaimed() {
 			unclaimed = append(unclaimed, key)
 		}
 	}
@@ -289,32 +361,6 @@ func (o *listenerOwner) release(claims listenerClaims, configs []netio.ListenerC
 		o.stopLocked(unclaimed)
 		o.publishLocked()
 	}
-}
-
-// inUseLocked keeps a listener that a live session or Micro-BFD group still
-// receives on; after the source apply only API-created ones remain.
-func (o *listenerOwner) inUseLocked(key listenerKey) bool {
-	switch key.port {
-	case netio.PortEcho:
-		return slices.ContainsFunc(o.users.EchoSessions(), func(session bfd.EchoSessionSnapshot) bool {
-			return session.LocalAddr == key.addr
-		})
-	case netio.PortMicroBFD:
-		return slices.ContainsFunc(o.users.MicroBFDGroups(), func(group bfd.MicroBFDGroupSnapshot) bool {
-			return group.LocalAddr == key.addr && slices.ContainsFunc(group.Members,
-				func(member bfd.MemberLinkState) bool { return member.Interface == key.ifName })
-		})
-	}
-	for _, session := range o.users.Sessions() {
-		if session.Type != bfd.SessionTypeSingleHop && session.Type != bfd.SessionTypeMultiHop {
-			continue
-		}
-		if session.LocalAddr == key.addr && (session.Type == bfd.SessionTypeMultiHop) == key.multiHop &&
-			sessionInterface(session.Interface, session.Type, session.LocalAddr, session.PeerAddr) == key.ifName {
-			return true
-		}
-	}
-	return false
 }
 
 // checkBindings rebinds every device-bound listener whose interface now
@@ -499,4 +545,70 @@ func compileListenerConfigs(cfg *config.Config) [sourceCount][]netio.ListenerCon
 	configs[sourceEcho] = echoListenerConfigs(cfg)
 	configs[sourceMicro] = microListenerConfigs(cfg)
 	return configs
+}
+
+// apiListenerSenderFactory makes an API-created session claim its receive
+// listener together with its sender: the claim opens a missing listener and
+// Manager drops it when it closes the sender at session destroy. A listener
+// that cannot open fails the request, so no API session runs without RX.
+type apiListenerSenderFactory struct {
+	server.SenderFactory
+
+	owner  *listenerOwner
+	echo   bool
+	mu     sync.Mutex
+	claims map[uint16]listenerKey
+}
+
+func newAPIListenerSenderFactory(
+	senders server.SenderFactory, owner *listenerOwner, echo bool,
+) *apiListenerSenderFactory {
+	return &apiListenerSenderFactory{
+		SenderFactory: senders, owner: owner, echo: echo, claims: make(map[uint16]listenerKey),
+	}
+}
+
+// CreateSender claims the listener before it creates the sender.
+func (f *apiListenerSenderFactory) CreateSender(
+	localAddr netip.Addr, ifName string, multiHop, doNotFragment bool, logger *slog.Logger,
+) (bfd.PacketSender, uint16, error) {
+	lnCfg := netio.ListenerConfig{Addr: localAddr, IfName: ifName, Port: netio.PortSingleHop, MultiHop: multiHop}
+	switch {
+	case f.echo:
+		lnCfg = netio.ListenerConfig{Addr: localAddr, Port: netio.PortEcho, ExpectedTTL: netio.TTLEchoLoopback}
+	case multiHop:
+		lnCfg.Port = netio.PortMultiHop
+	}
+	key, err := f.owner.claimAPI(lnCfg)
+	if err != nil {
+		if !errors.Is(err, bfd.ErrResourceUnavailable) {
+			err = fmt.Errorf("%w: %w", server.ErrReceiveListenerUnavailable, err)
+		}
+		return nil, 0, err
+	}
+	sender, port, err := f.SenderFactory.CreateSender(localAddr, ifName, multiHop, doNotFragment, logger)
+	if err != nil {
+		f.owner.releaseAPI(key)
+		return nil, 0, fmt.Errorf("create API sender: %w", err)
+	}
+	f.mu.Lock()
+	f.claims[port] = key
+	f.mu.Unlock()
+	return sender, port, nil
+}
+
+// CloseSender closes the sender, then drops its listener claim.
+func (f *apiListenerSenderFactory) CloseSender(srcPort uint16) error {
+	err := f.SenderFactory.CloseSender(srcPort)
+	f.mu.Lock()
+	key, ok := f.claims[srcPort]
+	delete(f.claims, srcPort)
+	f.mu.Unlock()
+	if ok {
+		f.owner.releaseAPI(key)
+	}
+	if err != nil {
+		return fmt.Errorf("close API sender: %w", err)
+	}
+	return nil
 }

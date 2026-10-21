@@ -174,6 +174,10 @@ func TestAPIParameterManagerErrorCodes(t *testing.T) {
 		{name: "missing session", err: bfd.ErrSessionNotFound, want: connect.CodeNotFound},
 		{name: "missing owner claim", err: bfd.ErrSessionOwnerClaimNotFound, want: connect.CodePermissionDenied},
 		{name: "existing TX validation", err: bfd.ErrInvalidTxInterval, want: connect.CodeInvalidArgument},
+		{name: "unavailable interface", err: bfd.NewResourceUnavailableError(bfd.ResourceRef{
+			Kind: bfd.ResourceKindInterface, ID: "eth3",
+		}), want: connect.CodeUnavailable},
+		{name: "receive listener", err: ErrReceiveListenerUnavailable, want: connect.CodeFailedPrecondition},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

@@ -312,7 +312,7 @@ func TestShutdownClosesIdleReceiversAfterDrain(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	g, gCtx := errgroup.WithContext(ctx)
 	logger := slog.New(slog.DiscardHandler)
-	if err := owner.acquire(gCtx, sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
+	if err := owner.acquire(sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
 		t.Fatal(err)
 	}
 	idle := opener.conn(t, listenerKeyOf(cfg))

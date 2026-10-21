@@ -160,6 +160,7 @@ func newGRPCServer(
 	cfg config.GRPCConfig,
 	mgr *bfd.Manager,
 	sf server.SenderFactory,
+	echoSF server.SenderFactory,
 	checker *grpchealth.StaticChecker,
 	fr *trace.FlightRecorder,
 	logger *slog.Logger,
@@ -181,7 +182,7 @@ func newGRPCServer(
 		mux.Handle("/debug/flightrecorder", server.RequirePrincipal(policy, flightRecorderHandler(fr)))
 	}
 	server.Register(rpc, mgr, sf, logger)
-	server.RegisterEcho(rpc, mgr, sf, logger)
+	server.RegisterEcho(rpc, mgr, echoSF, logger)
 	server.RegisterMicroBFD(rpc, mgr, logger)
 	connecthttp.Mount(mux, rpc)
 

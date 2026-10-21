@@ -126,8 +126,14 @@ func runServers(
 ) error {
 	metricsSrv := newMetricsServer(cfg.Metrics, reg)
 	healthChecker := newDaemonHealthChecker()
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, sf, healthChecker, fr, logger)
 	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
+	// The listener owner exists before API requests and interface events
+	// can reach it; API sessions claim their listeners through it.
+	listeners := newListenerOwner(mgr, coordinator.readiness, cfg.Socket.ReadBufferSize, logger)
+	coordinator.listeners = listeners
+	defer listeners.close()
+	grpcSrv := newGRPCServer(cfg.GRPC, mgr, newAPIListenerSenderFactory(sf, listeners, false),
+		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger)
 	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
 	bgpStatus.configuredPeers(goBGPManagedPeers(cfg.Sessions))
 	coordinator.onConfiguredPeers = bgpStatus.configuredPeers
@@ -146,10 +152,6 @@ func runServers(
 	// from the internal rawNotifyCh to the public StateChanges channel.
 	// Also handles micro-BFD aggregate state dispatch (RFC 7130).
 	startManagerDispatch(gCtx, g, mgr, coordinator.readiness)
-	// The listener owner exists before interface events can reach it.
-	listeners := newListenerOwner(mgr, coordinator.readiness, logger)
-	coordinator.listeners = listeners
-	defer listeners.close()
 	startInterfaceMonitor(gCtx, g, mgr, sf, coordinator, logger)
 
 	// Start BFD packet listeners and receivers for incoming packets.
