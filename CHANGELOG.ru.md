@@ -20,8 +20,8 @@
 - Ограниченная обработка Linux interface events: затронутые sources становятся
   pending без освобождения старых claims и автоматически повторяют применение
   в сохранённом generation. Потеря событий запрашивает полную сверку интерфейсов.
-  Non-Linux stub не обеспечивает автоматическое восстановление; отсутствие startup
-  listener/overlay capabilities остаётся ограничением.
+  Non-Linux stub не обеспечивает автоматическое восстановление; отсутствующий
+  overlay backend остаётся ограничением, снимаемым только перезапуском.
 
 - Live-квалификация timer reload FRR/BIRD в testcontainers-топологии BASE:
   `300→100→500→300 ms` и RX0 с generation receipts, окнами пакетов Poll/Final,
@@ -196,11 +196,24 @@
   и `gobfd.management` не входят в пустой service.
 - Listener с привязкой к устройству, интерфейс которого отсутствует, выключен
   или пересоздан с другим ifindex, переводит свои services в `NOT_SERVING`.
-  Пересозданный интерфейс оставляет `NOT_SERVING` до перезапуска, так как сокет
-  сохраняет ifindex момента bind; перепривязка внутри процесса отслеживается в
-  `gobfd-qj0.8.2.2.6.4`. Привязки проверяются по interface events и
-  периодически раз в 2 с; ошибка inventory интерфейсов прерывает запуск, а во
-  время работы сохраняет прежнее состояние.
+  Привязки проверяются по interface events и периодически раз в 2 с; ошибка
+  inventory интерфейсов прерывает запуск, а во время работы сохраняет прежнее
+  состояние.
+- Приёмные listeners принадлежат reconciliation generation (H-23,
+  `gobfd-qj0.8.2.2.6.4`). SIGHUP может добавлять или re-key записи control, Echo
+  и Micro-BFD, которым нужен новый local address, interface или session type:
+  source открывает недостающие listeners до apply в Manager и не может сойтись
+  только на senders. Отсутствующий интерфейс оставляет source в `pending`, пока
+  interface retry не откроет listener; другая ошибка открытия оставляет его в
+  `failed`. После применения source без failed и resource-pending записей
+  закрываются listeners, которые не захвачены ни одним source и не используются
+  API-сессией; остальные listeners не переоткрываются. Listener с привязкой к
+  устройству, интерфейс которого пересоздан с новым ifindex, перепривязывается
+  на месте при следующей проверке, для чего нужен `CAP_NET_RAW`; неудачная
+  перепривязка остаётся в `NOT_SERVING` и повторяется. Намеренно закрытый
+  listener не считается потерей receiver. Startup по-прежнему прерывается при
+  любой ошибке listener, новые overlay identities по-прежнему требуют
+  перезапуска.
 - Потеря receive path или dispatch приводит к fail-stop. Если сокет control,
   Echo, Micro-BFD или overlay receiver закрывается либо dispatch loop
   завершается во время работы daemon, health переходит в `NOT_SERVING`, sessions

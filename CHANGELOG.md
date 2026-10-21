@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bounded Linux interface-event reconciliation: affected sources become pending
   without releasing old claims and retry automatically in the retained generation.
   Notification loss requests an inventory resync. The non-Linux stub provides no
-  automatic recovery; absent startup listener/overlay capabilities remain a limit.
+  automatic recovery; an absent overlay backend remains a restart-only limit.
 
 - Live FRR/BIRD timer reload qualification in the testcontainers BASE topology:
   `300→100→500→300 ms` and RX0 with generation receipts, Poll/Final packet
@@ -192,11 +192,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `grpc.health.v1.Health` stays `SERVING` as the liveness signal. `gobfd.gobgp`
   and `gobfd.management` stay outside the empty service.
 - A device-bound listener whose interface is missing, down, or recreated with
-  another ifindex makes its services `NOT_SERVING`. A recreated interface stays
-  `NOT_SERVING` until restart, because the socket keeps the bind-time ifindex;
-  in-process rebinding is tracked by `gobfd-qj0.8.2.2.6.4`. Interface events and
-  a 2 s periodic check re-evaluate the bindings; an interface inventory failure
-  fails startup and leaves the previous state at runtime.
+  another ifindex makes its services `NOT_SERVING`. Interface events and a 2 s
+  periodic check re-evaluate the bindings; an interface inventory failure fails
+  startup and leaves the previous state at runtime.
+- Receive listeners are owned per reconciliation generation (H-23,
+  `gobfd-qj0.8.2.2.6.4`). SIGHUP may add or re-key control, Echo and Micro-BFD
+  entries that need a new local address, interface or session type: the source
+  opens its missing listeners before the Manager apply, so it cannot converge
+  on senders alone. An absent interface leaves the source `pending` until the
+  interface retry opens the listener; another open error leaves it `failed`.
+  After a source applies without failed or resource-pending entries, listeners
+  that no source claims and no API session uses close; other listeners are not
+  reopened. A device-bound listener whose interface is recreated with a new
+  ifindex is rebound in place on the next check, which needs `CAP_NET_RAW`; a
+  failed rebind stays `NOT_SERVING` and is retried. A deliberately closed
+  listener is not receiver loss. Startup still fails on any listener error, and
+  new overlay identities remain restart-only.
 - Receive-path or dispatch loss is fail-stop. A control, Echo, Micro-BFD or
   overlay receiver whose socket closes, or a dispatch loop that returns, while
   the daemon runs sets health `NOT_SERVING`, drains sessions and exits with an

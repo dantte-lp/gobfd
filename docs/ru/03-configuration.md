@@ -845,14 +845,37 @@ kill -HUP $(pidof gobfd)
 затронутых pending sources в сохранённом generation без второго SIGHUP.
 Повторные события объединяются и не применяют converged sources повторно.
 Потеря netlink events запрашивает полную сверку интерфейсов. Non-Linux stub
-не обеспечивает автоматический retry. Полностью отсутствующий startup listener
-binding или overlay backend по-прежнему может помешать активации; interface
-retry не открывает новые runtime bindings.
+не обеспечивает автоматический retry.
+
+Приёмные listeners входят в generation. Перед применением source base, Echo
+или Micro-BFD захватывает UDP listeners, нужные его desired set (3784/4784,
+3785, 6784), и открывает недостающие. Apply в Manager выполняется только после
+открытия всех захваченных listeners, поэтому ни один source не сходится только
+на senders. Listener, интерфейс которого отсутствует, оставляет source в
+`pending`, а автоматический interface retry открывает его; любая другая ошибка
+открытия оставляет source в `failed`. После применения source без failed и
+resource-pending записей закрываются listeners, которые не захвачены ни одним
+source и не используются сессией, созданной через API. Неизменённые listeners,
+включая startup-owned wildcard listeners unsolicited, не переоткрываются и не
+заменяются. Listener с привязкой к устройству, интерфейс которого удалён и
+создан заново с тем же именем, перепривязывается на месте при следующем
+interface event или проверке раз в 2 с: daemon повторно применяет
+`SO_BINDTODEVICE` к тому же сокету. Linux требует `CAP_NET_RAW` для изменения
+существующей привязки к устройству; поставляемые systemd unit, Compose-файлы и
+Kubernetes manifest выдают его на всё время жизни процесса. Неудачная
+перепривязка оставляет binding в `NOT_SERVING` и повторяется. При startup любая
+ошибка listener, включая отсутствующий интерфейс, по-прежнему останавливает
+запуск. Non-Linux сборки не создают listeners, поэтому такой source `failed`.
+
+Overlay backends получают tunnel scopes при создании. Добавление overlay
+identity заменило бы работающий backend, общий для других identities, поэтому
+новая или re-keyed identity VXLAN или Geneve по-прежнему требует перезапуска и
+отклоняется до мутации.
 
 `log.level` применяется сразу после полной валидации candidate. Пять desired
 sets реконсилируют membership sessions/groups. Записи control, Echo и Micro-BFD
-можно добавлять, удалять или re-key при повторном использовании transport binding,
-открытого при startup. Записи VXLAN и Geneve можно удалять, но новая или re-keyed
+можно добавлять, удалять или re-key, включая записи, которым нужен новый local
+address, interface или session type. Записи VXLAN и Geneve можно удалять, но новая или re-keyed
 overlay identity требует перезапуска процесса. BFD defaults и per-entry timers,
 padding, authentication, peer и threshold values применяются при создании новой
 identity. Базовые сессии, принадлежащие только config, также принимают in-place
@@ -876,9 +899,9 @@ identity отдельными reload либо перезапустить про�
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
 `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,
-`vxlan.management_vni`, `geneve.backend`, `geneve.default_vni`, каждая новая
-или re-keyed overlay identity, а также любая другая новая identity, которой нужен
-новый local address, interface, session type или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
+`vxlan.management_vni`, `geneve.backend`, `geneve.default_vni` и каждая новая
+или re-keyed overlay identity, включая identity, которой нужен новый local
+address или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
 пути полей, но не значения конфигурации или authentication secrets. Размеры
 буферов входят в startup-only границу и применяются к поддерживаемым
 UDP-сокетам, описанным в разделе настройки буферов.

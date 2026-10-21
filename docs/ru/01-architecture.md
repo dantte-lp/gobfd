@@ -214,12 +214,12 @@ ownership.
 Daemon-level coordinator сериализует компиляцию и применение startup и SIGHUP.
 Он хранит deep-copied контракт startup-runtime. Каждый SIGHUP candidate
 сверяется с этим контрактом до компиляции candidate и до изменения generation,
-health, log level, sessions или ресурсов. Startup-owned поля servers, listeners,
+health, log level, sessions или ресурсов. Startup-owned поля servers, unsolicited listeners,
 sockets, policy, actuator, GoBGP и overlays отклоняются с ограниченными
 идентификаторами полей; значения конфигурации и secrets в ошибке не сохраняются.
-Изменения desired-set membership могут повторно использовать открытые при
-startup listener/overlay capabilities, но не могут потребовать новый binding;
-изменения effective parameters same-key identity остаются reconciliation
+Изменения desired-set membership могут потребовать новые listeners control,
+Echo или Micro-BFD, которые владелец listeners открывает в составе generation,
+но не могут потребовать новый overlay binding; изменения effective parameters same-key identity остаются reconciliation
 conflicts, а не in-place updates. Coordinator публикует монотонное desired generation только после этой проверки
 и компиляции полного неизменяемого session candidate. Один receipt затем хранит claim-level счётчики
 `created`, `released`, `pending` и `failed`, а также ограниченную гистограмму
@@ -235,16 +235,27 @@ events запускают проверку и retry затронутых pending
 устаревшие generations и retry converged sources отбрасываются. Переполнение
 netlink или канала запрашивает полную сверку интерфейсов. Monitor закрывает
 канал; отмена контекста завершает consumer и worker. Non-Linux stub не выдаёт
-событий и не обеспечивает автоматическое восстановление. Отсутствие startup
-listener binding или overlay backend по-прежнему может помешать активации;
-динамического создания этих capabilities нет. Остальные runtime failures
-учитываются как `failed` без классификации по строкам или errno.
+событий и не обеспечивает автоматическое восстановление. Владелец listeners
+(`cmd/gobfd/listeners.go`) делает приёмные сокеты частью применения каждого
+source: sources base, Echo и Micro-BFD захватывают свои listeners и открывают
+недостающие до apply в Manager, поэтому source не может сойтись только на
+senders. Отсутствующий интерфейс listener оставляет source в `pending` для
+interface retry. После применения source без failed и resource-pending записей
+незахваченные listeners закрываются, если их не использует сессия, созданная
+через API. Каждый listener выполняет собственный обязательный receiver;
+намеренное закрытие сначала отменяет этот receiver, поэтому fail-stop вызывает
+только неожиданная потеря сокета. Listener с привязкой к устройству для
+пересозданного интерфейса перепривязывается на месте через `SO_BINDTODEVICE`.
+Overlay backends остаются startup-owned: отсутствующий backend оставляет свой
+source в `failed` до перезапуска. Только `ENODEV` от привязки listener к
+устройству классифицируется как недоступный интерфейс; остальные runtime
+failures учитываются как `failed` без классификации по строкам или errno.
 
 Проверка gRPC health с пустым service возвращает `NOT_SERVING` до первого
 converged generation и пока desired отличается от applied; после convergence
 она возвращает `SERVING`, если ни один runtime worker не потерян и каждый
-интерфейс listener с привязкой к устройству включён и сохраняет ifindex момента
-bind. Один агрегатор (`cmd/gobfd/readiness.go`) выводит named services BFD, Echo
+интерфейс listener с привязкой к устройству включён и сохраняет ifindex
+последнего bind. Один агрегатор (`cmd/gobfd/readiness.go`) выводит named services BFD, Echo
 и Micro-BFD из их sources, listeners и runtime workers; service
 `grpc.health.v1.Health` остаётся `SERVING`. Потеря receiver или dispatch loop
 приводит к fail-stop: health переходит в `NOT_SERVING`, daemon завершается с
@@ -288,7 +299,7 @@ sources, slice C01.3a для sender lease принятой control session, slic
 slice C01.4b для coordinator generations/receipts, а
 не полный контракт v1 reconciliation или RFC. Отложены следующие границы:
 
-- ownership listeners и замены backends;
+- ownership замены overlay backends;
 - стабильные owner identifiers для отдельных groups и tunnels;
 - согласование параметров Poll/Final;
 - transport-aware packet demultiplexing; и

@@ -188,10 +188,11 @@ A daemon-level coordinator serializes startup and SIGHUP compilation and apply.
 It retains a deep-copied startup-runtime contract. Every SIGHUP candidate is
 checked against that contract before candidate compilation or any generation,
 health, log-level, session, or resource mutation. Startup-owned server,
-listener, socket, policy, actuator, GoBGP, and overlay fields are rejected with
+unsolicited listener, socket, policy, actuator, GoBGP, and overlay fields are rejected with
 bounded field identifiers; configuration values and secrets are not retained in
-the error. Desired-set membership changes may reuse startup-open listener and
-overlay capabilities, but cannot require a new binding; same-key effective
+the error. Desired-set membership changes may need new control, Echo, or Micro-BFD
+listeners, which the listener owner opens as part of the generation, but
+cannot require a new overlay binding; same-key effective
 parameter changes remain reconciliation conflicts rather than in-place updates.
 The coordinator publishes a
 monotonic desired generation only after that check and the complete immutable
@@ -209,14 +210,24 @@ wake-up coalesce events; stale generations and converged-source retries are
 discarded. Netlink or channel overflow requests a complete inventory resync.
 The monitor owns channel closure; cancellation stops the consumer and worker.
 The non-Linux stub emits no events and provides no automatic recovery.
-Missing startup listener bindings or overlay backends can still prevent
-activation; this does not dynamically create those capabilities. Other runtime
-failures remain `failed`, without string or errno classification.
+A listener owner (`cmd/gobfd/listeners.go`) makes receive sockets part of each
+source apply: the base, Echo, and Micro-BFD sources claim their listeners and
+open missing ones before the Manager apply, so a source cannot converge on
+senders alone. An absent listener interface leaves the source `pending` for the
+interface retry. After a source applies without failed or resource-pending
+entries, unclaimed listeners close unless an API-created session uses them.
+Each listener runs its own required receiver; a deliberate close cancels that
+receiver first, so only an unexpected socket loss is fail-stop. A device-bound
+listener of a recreated interface is rebound in place with `SO_BINDTODEVICE`.
+Overlay backends stay startup-owned: a missing backend leaves its source
+`failed` until restart. Only `ENODEV` from a listener device binding is
+classified as an unavailable interface; other runtime failures remain `failed`,
+without string or errno classification.
 
 The empty-service gRPC health check is `NOT_SERVING` before the first converged
 generation and while desired differs from applied; it returns `SERVING` after
 convergence while no runtime worker is lost and every device-bound listener
-interface is up with its bind-time ifindex. One aggregator
+interface is up with the ifindex of its latest bind. One aggregator
 (`cmd/gobfd/readiness.go`) also derives the BFD, Echo, and Micro-BFD named
 services from their own sources, listeners and the runtime workers; the
 `grpc.health.v1.Health` service stays `SERVING`. Loss of a receiver or the
@@ -274,7 +285,7 @@ isolation slice, and the C01.4b generation/receipt coordinator slice. It is not
 the complete v1 reconciliation or RFC contract. The
 following boundaries remain deferred:
 
-- listener and backend replacement ownership;
+- overlay backend replacement ownership;
 - stable per-group and per-tunnel owner identifiers;
 - Poll/Final parameter negotiation;
 - transport-aware packet demultiplexing; and
