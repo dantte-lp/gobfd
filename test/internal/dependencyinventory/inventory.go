@@ -957,7 +957,18 @@ func assessmentTemplate(name string) Assessment {
 	default:
 		panic("unknown assessment template: " + name)
 	}
-	if name != "removed-direct-require" {
+	switch name {
+	case "removed-direct-require":
+	case "gobgp-v4-risk":
+		// Same owner and expiry (review) date as the GO-2026-4736 entry in scripts/vuln-audit.go.
+		assessment.Decision = Decision{
+			Status: DecisionDeferred,
+			Reason: "stable v1 maintainer decision 2026-10-21 permits the module-only GO-2026-4736 exception " +
+				"while GHSA/OSV record a fixed version at or below the pin and the final candidate's govulncheck " +
+				"reports it only at module level; remove it once the Go vulnerability database records a fixed v4 version",
+			Owner: "@dantte-lp", Tracking: "gobfd-qj0.8.4.1", ReviewBy: "2026-12-31",
+		}
+	default:
 		assessment.Decision = devDecision()
 	}
 	return assessment
