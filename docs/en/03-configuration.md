@@ -376,6 +376,17 @@ reload and add it in the next.
 another group with `FAILED_PRECONDITION`, and creates the aggregate group only;
 `ListMicroBFDGroups` returns the stored member timers.
 
+Groups follow the session ownership model. Reload owns the groups it creates
+and removes only those; an API group survives reload. An identical group from
+the API and from reload is shared, and each source releases only its own
+claim; a divergent group with the same `lag_interface` is a conflict, and a
+reload group cannot take a member link of a surviving API group.
+`DeleteMicroBFDGroup` releases only the caller's claim and returns
+`FAILED_PRECONDITION` for a group that the caller does not own, such as a group
+owned by reload. A new group starts each member from the state of its existing
+member session: a member whose session is Up counts as Up and is reported to
+the actuator in dispatch order.
+
 Example:
 ```yaml
 micro_bfd:

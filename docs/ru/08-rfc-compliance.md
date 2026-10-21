@@ -442,6 +442,8 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | Тип сессии | Константа `SessionTypeMicroBFD` |
 | Конфигурация per-group | `MicroBFDGroupConfig` с LAG-интерфейсом + member-линки |
 | Реконсиляция групп | `Manager.ReconcileMicroBFDGroupsDetailed()` фиксирует каждую группу вместе с её member-сессиями при SIGHUP reload; ошибка claim member-сессии откатывает новые группы и сессии этого прохода |
+| Владение группами | Группы несут типизированные claim владельцев, как сессии: reload удаляет только свои группы, одинаковые группы API и reload разделяются, `DeleteMicroBFDGroup` для группы, которой вызывающий не владеет, возвращает `ErrMicroBFDGroupOwnerClaimNotFound` |
+| Начальное состояние member (Section 3) | Новая группа берёт состояние каждого member из существующей member-сессии; member в Up учитывается в `MinActiveLinks` и сообщается actuator в порядке dispatch |
 | Диспетчер состояний | `RunDispatch` направляет изменение состояния member через индекс `{member link, address family}` в единственную группу-владельца |
 | Actuator hook (Section 5) | `MicroBFDActuator` получает события member state после обновления группы, вне блокировок Manager, в порядке dispatch, с context deadline 5 s на вызов |
 | Policy gate | `netio.LAGActuator` поддерживает режимы `disabled`, `dry-run` и `enforce` |
