@@ -405,6 +405,10 @@ Stdout, stderr и ошибки дочернего процесса остают�
 `toolbootstrap podman-runtime` также проверяет `jq --version` через фиксированный
 allowlist команд, поэтому шаг установки тестовых инструментов остаётся одной
 Go-командой и завершается ошибкой, если требуемый JSON-инструмент недоступен.
+Её строка лога фиксирует образ hosted runner (`ImageOS`, `ImageVersion`) и
+`podman --version`. Jobs E2E Evidence выполняются на `ubuntu-26.04`: Podman
+4.9.3 в Ubuntu 24.04 `ubuntu-latest` собран с Debian imagebuilder 1.2.5,
+который отклоняет `ADD --checksum` в interop Containerfile.
 Vulnerability audit сам создаёт каталог отчётов; workflow вызывает его
 напрямую, без отдельной команды создания каталога.
 

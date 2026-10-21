@@ -417,6 +417,12 @@
 
 ### Исправлено
 
+- Hosted jobs E2E Evidence выполняются на `ubuntu-26.04` (Podman 5.7.0). На
+  `ubuntu-latest` (Ubuntu 24.04) Podman 4.9.3 собран с Debian imagebuilder
+  1.2.5, который отклоняет `ADD --checksum` в interop Containerfile; рецепты с
+  закреплёнными checksum не изменены. `toolbootstrap podman-runtime` пишет в
+  лог образ runner и версию Podman (`gobfd-22v`).
+
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
   Восстановление, принятое после того, как локальный нулевой Required Min RX

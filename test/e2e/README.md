@@ -142,6 +142,7 @@ Future S10 report generation must add:
 | Property | Requirement |
 |---|---|
 | Workflow | `.github/workflows/e2e.yml`. |
+| Hosted runner | `ubuntu-26.04`; Ubuntu 24.04 Podman 4.9.3 rejects `ADD --checksum`. |
 | Runtime | Podman through testcontainers-go for `e2e-core`; Podman and `podman compose` for retained targets. |
 | Report root | `reports/e2e/**`. |
 | Upload condition | `if: always()`. |

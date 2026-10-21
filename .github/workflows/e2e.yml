@@ -27,7 +27,7 @@ concurrency:
 jobs:
   pr-safe:
     name: PR-safe E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     if: >-
       ${{
@@ -100,7 +100,7 @@ jobs:
 
   nightly:
     name: Nightly E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 75
     if: >-
       ${{
@@ -167,7 +167,7 @@ jobs:
 
   vendor:
     name: Manual vendor E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.profile == 'vendor' }}
     steps:

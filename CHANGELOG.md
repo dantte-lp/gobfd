@@ -408,6 +408,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hosted E2E Evidence jobs run on `ubuntu-26.04` (Podman 5.7.0). On
+  `ubuntu-latest` (Ubuntu 24.04), Podman 4.9.3 links Debian imagebuilder 1.2.5,
+  which rejects `ADD --checksum` in the interop Containerfiles; the
+  checksum-pinned recipes stay unchanged. `toolbootstrap podman-runtime` logs
+  the runner image and Podman version (`gobfd-22v`).
+
 - Apply a config timer update immediately outside Up, including AdminDown,
   with its Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore
   admitted after a local zero Required Min RX drove the session Down previously

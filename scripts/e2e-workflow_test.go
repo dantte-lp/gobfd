@@ -55,6 +55,15 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 		}
 	}
 
+	// Ubuntu 24.04 Podman 4.9.3 links Debian imagebuilder 1.2.5, which rejects
+	// ADD --checksum in the interop Containerfiles; ubuntu-latest still maps to it.
+	if got := strings.Count(content, "runs-on: ubuntu-26.04\n"); got != 3 {
+		t.Fatalf("E2E workflow pins ubuntu-26.04 on %d jobs, want all 3", got)
+	}
+	if strings.Contains(content, "ubuntu-latest") {
+		t.Fatal("E2E workflow uses ubuntu-latest, whose Podman rejects ADD --checksum")
+	}
+
 	if got := strings.Count(content, "run: make e2e-core\n"); got != 1 {
 		t.Fatalf("E2E workflow invokes make e2e-core %d times, want exactly once", got)
 	}

@@ -80,7 +80,10 @@ func runPodmanRuntime(ctx context.Context, arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("set up Podman runtime: %w", err)
 	}
+	// Hosted runner images export ImageOS and ImageVersion; empty elsewhere.
 	slog.Info("verified Podman runtime",
+		"runner_image_os", os.Getenv("ImageOS"),
+		"runner_image_version", os.Getenv("ImageVersion"),
 		"podman", report.Podman,
 		"compose_version", report.Compose.Version,
 		"compose_path", report.Compose.Path,

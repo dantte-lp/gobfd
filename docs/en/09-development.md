@@ -397,7 +397,11 @@ without shell expansion.
 
 `toolbootstrap podman-runtime` also verifies `jq --version` through its fixed
 command allowlist, so the test-tools step remains one Go command and fails if
-the required JSON tool is unavailable. The vulnerability audit creates its own
+the required JSON tool is unavailable. Its log line records the hosted runner
+image (`ImageOS`, `ImageVersion`) and `podman --version`. The E2E Evidence jobs
+run on `ubuntu-26.04` because the Ubuntu 24.04 `ubuntu-latest` Podman 4.9.3
+builds with Debian imagebuilder 1.2.5, which rejects the interop
+Containerfiles' `ADD --checksum`. The vulnerability audit creates its own
 report directory; the workflow delegates to it directly without a separate
 directory command.
 
