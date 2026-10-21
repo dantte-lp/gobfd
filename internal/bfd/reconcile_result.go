@@ -3,6 +3,7 @@ package bfd
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 )
 
@@ -30,6 +31,9 @@ type ResourceKind uint8
 const (
 	// ResourceKindInterface identifies one validated network interface name.
 	ResourceKindInterface ResourceKind = iota + 1
+	// ResourceKindAddress identifies one local IP address that is not yet
+	// assigned, so a socket cannot bind it (EADDRNOTAVAIL).
+	ResourceKindAddress
 )
 
 // String returns the stable bounded name of a resource kind.
@@ -37,6 +41,8 @@ func (k ResourceKind) String() string {
 	switch k {
 	case ResourceKindInterface:
 		return "interface"
+	case ResourceKindAddress:
+		return "address"
 	default:
 		return "unknown"
 	}
@@ -104,8 +110,14 @@ func UnavailableResource(err error) (ResourceRef, bool) {
 }
 
 func validResourceRef(resource ResourceRef) bool {
-	return resource.Kind == ResourceKindInterface &&
-		resource.ID != "" &&
+	if resource.Kind == ResourceKindAddress {
+		if addr, err := netip.ParseAddr(resource.ID); err != nil || addr.String() != resource.ID {
+			return false
+		}
+	} else if resource.Kind != ResourceKindInterface {
+		return false
+	}
+	return resource.ID != "" &&
 		len(resource.ID) <= MaxResourceIDLen &&
 		!strings.ContainsRune(resource.ID, 0)
 }
@@ -177,7 +189,9 @@ type ReconcileResult struct {
 	Released int
 	Pending  int
 	// ResourcePending counts desired sessions whose single-hop receive
-	// interface is not resolvable yet; they are retried, not failed.
+	// interface is not resolvable yet or whose sender waits for a typed
+	// unavailable resource such as an unassigned local address; they are
+	// retried, not failed.
 	ResourcePending int
 	Failed          int
 	Errors          []ReconcileError
