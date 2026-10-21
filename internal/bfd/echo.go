@@ -11,7 +11,7 @@
 //   - No timer negotiation (locally provisioned)
 //   - DiagEchoFailed (2) on timeout instead of DiagControlTimeExpired (1)
 //   - UDP port 3785 (RFC 5881 Section 4)
-//   - TTL 255 send, TTL >= 254 receive (GTSM)
+//   - TTL 255 send, exact TTL 254 receive after one-hop loopback (RFC 9747)
 //   - Demux on return by MyDiscriminator (self-originated packet)
 
 package bfd

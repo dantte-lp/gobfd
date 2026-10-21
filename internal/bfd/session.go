@@ -141,6 +141,17 @@ type SessionConfig struct {
 	// Valid range: 24-9000 without auth, 26-9000 with auth (v1 policy).
 	// Zero means no padding (default behavior).
 	PaddedPduSize uint16
+
+	// MultiHopMaxHops is the multihop hop policy: a received TTL or Hop Limit
+	// below 255 - MultiHopMaxHops is discarded. Zero selects one hop (254).
+	// RFC 5883 defines no receive TTL rule; the policy follows the
+	// non-normative RFC 5082 Appendix A. Valid only for multihop sessions.
+	MultiHopMaxHops uint8
+
+	// IfIndex is the receive interface index a single-hop session requires
+	// (RFC 5881 Section 3). Zero lets Manager resolve it at creation; with
+	// no resolver no index check applies.
+	IfIndex int
 }
 
 // StateChange reports a session observation, registration or removal.
@@ -263,6 +274,14 @@ var (
 
 	// ErrMissingAuthKeyStore indicates authentication was configured without keys.
 	ErrMissingAuthKeyStore = errors.New("auth key store is required when auth is configured")
+
+	// ErrInvalidMultiHopInterface rejects an interface binding on a multihop
+	// session; RFC 5883 multihop paths are not bound to one interface.
+	ErrInvalidMultiHopInterface = errors.New("multihop session cannot set an interface")
+
+	// ErrInvalidMultiHopMaxHops rejects a hop policy outside 1-254 or on a
+	// session that is not multihop.
+	ErrInvalidMultiHopMaxHops = errors.New("multihop max hops must be 1-254 on a multihop session")
 )
 
 // -------------------------------------------------------------------------
@@ -402,6 +421,12 @@ type Session struct {
 	localAddr   netip.Addr
 	ifName      string
 
+	// ifIndex is the required receive interface index of a single-hop
+	// session; zero disables the check (RFC 5881 Section 3).
+	ifIndex int
+	// minTTL is the multihop hop-policy floor, 255 - MultiHopMaxHops.
+	minTTL uint8
+
 	// --- Cached packet (FRR bfdd pattern) ---
 	cachedPacket []byte
 
@@ -512,10 +537,7 @@ func NewSession(
 	}
 
 	// RFC 9764: allocate a buffer large enough for padded packets.
-	pktBufSize := MaxPacketSize
-	if cfg.PaddedPduSize > uint16(pktBufSize) {
-		pktBufSize = int(cfg.PaddedPduSize)
-	}
+	pktBufSize := max(MaxPacketSize, int(cfg.PaddedPduSize))
 
 	s := &Session{
 		localDiscr:            localDiscr,
@@ -528,6 +550,8 @@ func NewSession(
 		peerAddr:              cfg.PeerAddr,
 		localAddr:             cfg.LocalAddr,
 		ifName:                cfg.Interface,
+		ifIndex:               cfg.IfIndex,
+		minTTL:                multiHopMinTTL(cfg),
 		auth:                  cfg.Auth,
 		authKeys:              cfg.AuthKeys,
 		paddedPduSize:         cfg.PaddedPduSize,
@@ -615,10 +639,42 @@ func validateSessionConfig(cfg SessionConfig, localDiscr uint32) error {
 	if err := ValidatePaddedPduSize(cfg.PaddedPduSize, cfg.Auth != nil); err != nil {
 		return err
 	}
-	if err := validateSessionAuthConfig(cfg); err != nil {
+	if err := validateSessionTransport(cfg); err != nil {
 		return err
 	}
+	return validateSessionAuthConfig(cfg)
+}
+
+// maxMultiHopHops keeps the hop-policy floor 255 - N at TTL 1 or above.
+const maxMultiHopHops = singleHopTTL - 1
+
+// validateSessionTransport rejects an interface binding on multihop sessions
+// (RFC 5883 Section 4.1 demultiplexes by address pair) and a hop policy
+// outside 1-254 or on a session that is not multihop.
+func validateSessionTransport(cfg SessionConfig) error {
+	if cfg.Type == SessionTypeMultiHop && cfg.Interface != "" {
+		return fmt.Errorf("interface %q: %w", cfg.Interface, ErrInvalidMultiHopInterface)
+	}
+	if cfg.MultiHopMaxHops != 0 && (cfg.Type != SessionTypeMultiHop || cfg.MultiHopMaxHops > maxMultiHopHops) {
+		return fmt.Errorf("multihop max hops %d: %w", cfg.MultiHopMaxHops, ErrInvalidMultiHopMaxHops)
+	}
 	return nil
+}
+
+// multiHopMinTTL returns the receive TTL floor of a multihop session with
+// reading A of the hop policy, 255 - N (1/2/5 hops: 254/253/250; zero means
+// one hop). It is not an RFC 5883 rule: RFC 5883 Section 3 defers spoofing
+// protection to authentication, and RFC 5082 Appendix A is non-normative.
+// Other session types return zero.
+func multiHopMinTTL(cfg SessionConfig) uint8 {
+	if cfg.Type != SessionTypeMultiHop {
+		return 0
+	}
+	hops := cfg.MultiHopMaxHops
+	if hops == 0 {
+		hops = 1
+	}
+	return singleHopTTL - hops
 }
 
 // ValidatePaddedPduSize applies the v1 configured-target policy. RFC 9764 also
@@ -741,6 +797,33 @@ func (s *Session) Interface() string { return s.ifName }
 
 // Type returns the session type (single-hop or multi-hop).
 func (s *Session) Type() SessionType { return s.sessionType }
+
+// transportOutcome checks a demultiplexed packet against the session transport:
+// the transport class for every session type, the bound interface for
+// single-hop and the hop policy for multihop. It returns DeliveryFound,
+// DeliveryScopeMismatch or DeliveryTTLRejected; the fields it reads are
+// immutable after construction.
+func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
+	if (s.sessionType == SessionTypeMultiHop) != meta.MultiHop {
+		return DeliveryScopeMismatch
+	}
+	switch s.sessionType {
+	case SessionTypeSingleHop:
+		// meta.IfName is the listener device binding, empty when unbound.
+		if s.ifName != "" && meta.IfName != "" && meta.IfName != s.ifName {
+			return DeliveryScopeMismatch
+		}
+		if s.ifIndex != 0 && meta.IfIndex != s.ifIndex {
+			return DeliveryScopeMismatch
+		}
+	case SessionTypeMultiHop:
+		if meta.TTL < s.minTTL {
+			return DeliveryTTLRejected
+		}
+	default:
+	}
+	return DeliveryFound
+}
 
 // PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
 func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }

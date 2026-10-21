@@ -7,7 +7,7 @@ import (
 )
 
 // -------------------------------------------------------------------------
-// BFD Port Constants — RFC 5881 Section 4, RFC 5883 Section 2
+// BFD Port Constants — RFC 5881 Section 4, RFC 5883 Section 5
 // -------------------------------------------------------------------------
 
 const (
@@ -17,7 +17,8 @@ const (
 	PortSingleHop uint16 = 3784
 
 	// PortMultiHop is the destination UDP port for multi-hop BFD sessions
-	// (RFC 5883 Section 2: "The destination UDP port MUST be set to 4784").
+	// (RFC 5883 Section 5: "the UDP destination port MUST have a value of
+	// 4784").
 	PortMultiHop uint16 = 4784
 
 	// PortEcho is the destination UDP port for BFD echo packets
@@ -41,11 +42,6 @@ const (
 	// ttlRequired is the mandatory TTL/Hop Limit for BFD packets
 	// (RFC 5881 Section 5 / RFC 5082: GTSM requires TTL=255).
 	ttlRequired uint8 = 255
-
-	// ttlMultiHopMin is the minimum acceptable TTL for multi-hop BFD
-	// (RFC 5883 Section 2: "the received TTL MUST be checked to be 254
-	// at a minimum").
-	ttlMultiHopMin uint8 = 254
 
 	// TTLEchoLoopback is the required TTL/Hop Limit for received RFC 9747
 	// Unaffiliated BFD Echo packets after one-hop loopback forwarding.
@@ -75,7 +71,8 @@ type PacketMeta struct {
 	// received IP header. Both are semantically equivalent for GTSM
 	// (RFC 5082):
 	//   - Single-hop (RFC 5881 Section 5): MUST be 255
-	//   - Multi-hop (RFC 5883 Section 2): MUST be >= 254
+	//   - Multi-hop: RFC 5883 has no receive TTL rule; the demultiplexed
+	//     session applies its configured hop policy.
 	TTL uint8
 
 	// MultiHop is true when the packet arrived on a multi-hop (RFC 5883)
@@ -125,7 +122,6 @@ type PacketConn interface {
 var (
 	// ErrTTLInvalid indicates the received TTL does not meet GTSM requirements.
 	// RFC 5881 Section 5 (single-hop: TTL must be 255).
-	// RFC 5883 Section 2 (multi-hop: TTL must be >= 254).
 	ErrTTLInvalid = errors.New("TTL validation failed")
 
 	// ErrPortExhausted indicates no source ports are available in the
@@ -150,29 +146,17 @@ var (
 )
 
 // -------------------------------------------------------------------------
-// GTSM Validation — RFC 5881 Section 5, RFC 5883 Section 2
+// GTSM Validation — RFC 5881 Section 5
 // -------------------------------------------------------------------------
 
-// ValidateTTL checks the received TTL (IPv4) or Hop Limit (IPv6) against
-// GTSM requirements. The validation rules are identical for both address
-// families per RFC 5082.
+// ValidateTTL checks the received single-hop TTL (IPv4) or Hop Limit (IPv6)
+// against RFC 5881 Section 5: received packets "MUST be discarded if the
+// received TTL or Hop Limit is not equal to 255" (GTSM, RFC 5082). The rule
+// is identical for both address families.
 //
-// For single-hop (RFC 5881 Section 5): "the received TTL MUST be checked
-// to be 255." This is the Generalized TTL Security Mechanism (RFC 5082).
-//
-// For multi-hop (RFC 5883 Section 2): "the received TTL MUST be checked
-// to be 254 at a minimum." This allows exactly one intermediate hop.
-func ValidateTTL(meta PacketMeta, multiHop bool) error {
-	if multiHop {
-		if meta.TTL < ttlMultiHopMin {
-			return fmt.Errorf(
-				"multi-hop TTL %d, minimum %d (RFC 5883 Section 2): %w",
-				meta.TTL, ttlMultiHopMin, ErrTTLInvalid,
-			)
-		}
-		return nil
-	}
-
+// RFC 5883 defines no receive TTL rule for multihop; that hop policy is
+// applied per demultiplexed session (bfd.SessionConfig.MultiHopMaxHops).
+func ValidateTTL(meta PacketMeta) error {
 	if meta.TTL != ttlRequired {
 		return fmt.Errorf(
 			"single-hop TTL %d, required %d (RFC 5881 Section 5): %w",

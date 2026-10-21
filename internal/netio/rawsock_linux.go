@@ -157,7 +157,7 @@ func NewSingleHopListener(
 // NewMultiHopListener creates a PacketConn for multi-hop BFD (RFC 5883).
 // Supports both IPv4 and IPv6 addresses; the address family is auto-detected.
 //
-// Socket configuration per RFC 5883 Section 2:
+// Socket configuration per RFC 5883 Section 5:
 //   - Binds to UDP port 4784 on the specified address
 //   - IPv4: IP_TTL = 255, IP_RECVTTL, IP_PKTINFO
 //   - IPv6: IPV6_UNICAST_HOPS = 255, IPV6_RECVHOPLIMIT, IPV6_RECVPKTINFO

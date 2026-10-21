@@ -61,9 +61,11 @@ var (
 // new physical session. Manager then owns the matching CloseSender call.
 type SenderFactory interface {
 	// CreateSender allocates a source port and creates a PacketSender
-	// bound to localAddr. Returns the sender and allocated port.
+	// bound to localAddr and, when ifName is not empty, to that single-hop
+	// interface (RFC 5881 Section 6). Returns the sender and allocated port.
 	CreateSender(
 		localAddr netip.Addr,
+		ifName string,
 		multiHop bool,
 		doNotFragment bool,
 		logger *slog.Logger,
@@ -87,6 +89,7 @@ type noopSenderFactory struct{}
 
 func (noopSenderFactory) CreateSender(
 	_ netip.Addr,
+	_ string,
 	_ bool,
 	_ bool,
 	_ *slog.Logger,
@@ -165,9 +168,13 @@ func (s *BFDServer) createSessionWithSenderLease(
 	cfg bfd.SessionConfig,
 ) (*bfd.Session, error) {
 	multiHop := cfg.Type == bfd.SessionTypeMultiHop
+	ifName := cfg.Interface
+	if cfg.Type != bfd.SessionTypeSingleHop {
+		ifName = ""
+	}
 	factory := func() (*bfd.SenderLease, error) {
 		sender, srcPort, err := s.senderFactory.CreateSender(
-			cfg.LocalAddr, multiHop, cfg.PaddedPduSize != 0, s.logger,
+			cfg.LocalAddr, ifName, multiHop, cfg.PaddedPduSize != 0, s.logger,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create API session sender: %w", err)
@@ -791,6 +798,8 @@ func mapManagerError(err error, operation string) *connect.Error {
 		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
 		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
+	case errors.Is(err, bfd.ErrInterfaceUnresolved):
+		return connect.NewError(connect.CodeFailedPrecondition, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
 		errors.Is(err, bfd.ErrInvalidTxInterval),
@@ -799,6 +808,8 @@ func mapManagerError(err error, operation string) *connect.Error {
 		errors.Is(err, bfd.ErrMicroBFDDuplicateMember),
 		errors.Is(err, bfd.ErrInvalidSessionType),
 		errors.Is(err, bfd.ErrInvalidPaddedPduSize),
+		errors.Is(err, bfd.ErrInvalidMultiHopInterface),
+		errors.Is(err, bfd.ErrInvalidMultiHopMaxHops),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
 		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err).Error())
 	default:

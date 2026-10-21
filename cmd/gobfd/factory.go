@@ -26,6 +26,7 @@ func newUDPSenderFactory(writeBufferSize int) *udpSenderFactory {
 
 func (f *udpSenderFactory) CreateSender(
 	localAddr netip.Addr,
+	ifName string,
 	multiHop bool,
 	doNotFragment bool,
 	logger *slog.Logger,
@@ -34,6 +35,7 @@ func (f *udpSenderFactory) CreateSender(
 	if doNotFragment {
 		opts = append(opts, netio.WithDFBit())
 	}
+	localAddr, opts = singleHopSenderBinding(localAddr, ifName, opts)
 	return f.createSenderForSession(localAddr, multiHop, logger, opts...)
 }
 
@@ -149,6 +151,7 @@ func configSessionToBFD(sc config.SessionConfig, defaults config.BFDConfig) (bfd
 		RequiredMinRxInterval: requiredMinRx,
 		DetectMultiplier:      uint8(detectMult),
 		PaddedPduSize:         paddedPduSize,
+		MultiHopMaxHops:       uint8(min(sc.MultihopMaxHops, maxBFDWireUint8)), // 255 fails bfd validation.
 		Auth:                  auth,
 		AuthKeys:              authKeys,
 	}, nil
@@ -217,7 +220,10 @@ func newManager(
 	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) (*bfd.Manager, error) {
-	opts := []bfd.ManagerOption{bfd.WithManagerMetrics(collector)}
+	opts := []bfd.ManagerOption{
+		bfd.WithManagerMetrics(collector),
+		bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex),
+	}
 	actuator, actuatorEnabled, err := buildMicroBFDActuator(cfg.MicroBFD.Actuator, logger)
 	if err != nil {
 		return nil, fmt.Errorf("invalid micro-BFD actuator config: %w", err)
@@ -333,14 +339,24 @@ func unsolicitedSessionSender(
 	logger *slog.Logger,
 ) func(bfd.PacketMeta) (*bfd.SenderLease, error) {
 	return func(meta bfd.PacketMeta) (*bfd.SenderLease, error) {
-		local := meta.DstAddr.Unmap()
-		var opts []netio.SenderOption
-		if meta.IfName != "" {
-			opts = append(opts, netio.WithBindDevice(meta.IfName))
-			if local.Is6() && local.IsLinkLocalUnicast() {
-				local = local.WithZone(meta.IfName)
-			}
-		}
+		local, opts := singleHopSenderBinding(meta.DstAddr.Unmap(), meta.IfName, nil)
 		return declarativeSenderLeaseFactoryFor(sf, local, false, logger, opts...)()
 	}
+}
+
+// singleHopSenderBinding binds a single-hop sender to ifName so control
+// packets leave over the protected one-hop path (RFC 5881 Section 6). An
+// unzoned IPv6 link-local local address is scoped to that interface. An
+// empty ifName leaves the route lookup to the kernel.
+func singleHopSenderBinding(
+	local netip.Addr, ifName string, opts []netio.SenderOption,
+) (netip.Addr, []netio.SenderOption) {
+	if ifName == "" {
+		return local, opts
+	}
+	opts = append(opts, netio.WithBindDevice(ifName))
+	if local.Is6() && local.IsLinkLocalUnicast() && local.Zone() == "" {
+		local = local.WithZone(ifName)
+	}
+	return local, opts
 }

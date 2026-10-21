@@ -105,6 +105,7 @@ var deliveryPairs = [...]DeliveryCounter{
 	{Source: DeliveryDemux, Outcome: DeliveryFound},
 	{Source: DeliveryDemux, Outcome: DeliveryUnknownSession},
 	{Source: DeliveryDemux, Outcome: DeliveryScopeMismatch},
+	{Source: DeliveryDemux, Outcome: DeliveryTTLRejected},
 	{Source: DeliveryUnsolicitedAdmission, Outcome: DeliveryAccepted},
 	{Source: DeliveryUnsolicitedAdmission, Outcome: DeliveryClosed},
 	{Source: DeliveryUnsolicitedAdmission, Outcome: DeliveryPolicyRejected},

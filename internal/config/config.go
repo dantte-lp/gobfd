@@ -756,6 +756,14 @@ type SessionConfig struct {
 	// Valid range: 24-9000. Zero means use the global default.
 	PaddedPduSize uint16 `koanf:"padded_pdu_size"`
 
+	// MultihopMaxHops is the multihop hop policy (multi_hop only, 1-254).
+	// Received TTL or Hop Limit must be >= 255 - MultihopMaxHops; absent means 1.
+	MultihopMaxHops uint32 `koanf:"multihop_max_hops"`
+
+	// MultihopMaxHopsSet records YAML presence of multihop_max_hops.
+	// Load derives it; it is not a configuration key.
+	MultihopMaxHopsSet bool `koanf:"-"`
+
 	// Auth configures RFC 5880 Section 6.7 authentication for this session.
 	// Empty Type means authentication is disabled.
 	Auth AuthConfig `koanf:"auth"`
@@ -959,12 +967,19 @@ func loadOpenedConfig(path string, file io.Reader) (*Config, error) {
 	if err := validatePaddingInput(k); err != nil {
 		return nil, fmt.Errorf("validate padding input from %s: %w", path, err)
 	}
+	if err := validateMultihopMaxHopsInput(k); err != nil {
+		return nil, fmt.Errorf("validate multihop_max_hops input from %s: %w", path, err)
+	}
 
 	cfg := &Config{}
 	if err := k.Unmarshal("", cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	// Validate needs presence: an explicit multihop_max_hops of 0 is invalid.
+	for i, session := range k.Slices("sessions") {
+		cfg.Sessions[i].MultihopMaxHopsSet = session.Get("multihop_max_hops") != nil
+	}
 	if err := Validate(cfg); err != nil {
 		return nil, fmt.Errorf("validate config from %s: %w", path, err)
 	}
@@ -1039,6 +1054,33 @@ func validUint8Scalar(value any) bool {
 	default:
 		return false
 	}
+}
+
+// validateMultihopMaxHopsInput rejects negative, fractional, boolean and
+// wrapping values before weak uint32 decoding; validateSessions applies 1-254.
+func validateMultihopMaxHopsInput(k *koanf.Koanf) error {
+	value, found, err := rawCaseFoldedValue(k.Raw(), "sessions")
+	if err != nil || !found || value == nil {
+		return err
+	}
+	entries, ok := value.([]any)
+	if !ok {
+		return ErrInvalidSessionShape
+	}
+	for i, value := range entries {
+		entry, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("sessions[%d]: %w", i, ErrInvalidSessionShape)
+		}
+		hops, found, err := rawCaseFoldedValue(entry, "multihop_max_hops")
+		if err != nil {
+			return fmt.Errorf("sessions[%d]: %w", i, err)
+		}
+		if found && !validUint8Scalar(hops) {
+			return fmt.Errorf("sessions[%d].multihop_max_hops: %w", i, ErrInvalidSessionMultihopMaxHops)
+		}
+	}
+	return nil
 }
 
 func validateDetectMultiplierInput(k *koanf.Koanf) error {
@@ -1261,6 +1303,13 @@ var (
 
 	// ErrDuplicateSessionKey indicates two sessions share the same (peer, local, interface) key.
 	ErrDuplicateSessionKey = errors.New("duplicate session key")
+
+	// ErrInvalidSessionMultiHopInterface indicates a multi_hop session sets interface.
+	ErrInvalidSessionMultiHopInterface = errors.New("session interface is not allowed on multi_hop")
+
+	// ErrInvalidSessionMultihopMaxHops indicates multihop_max_hops is outside 1-254
+	// or set on a session that is not multi_hop.
+	ErrInvalidSessionMultihopMaxHops = errors.New("session multihop_max_hops must be 1-254 on multi_hop")
 
 	// ErrInvalidSessionAuthType indicates a session has an unrecognized auth type.
 	ErrInvalidSessionAuthType = errors.New("session auth.type is invalid")
@@ -1612,6 +1661,10 @@ func validateSessions(sessions []SessionConfig) error {
 			return fmt.Errorf("sessions[%d]: %w", i, err)
 		}
 
+		if err := validateSessionTransport(sc); err != nil {
+			return fmt.Errorf("sessions[%d]: %w", i, err)
+		}
+
 		key := sc.SessionKey()
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("sessions[%d] key %q: %w", i, key, ErrDuplicateSessionKey)
@@ -1620,6 +1673,23 @@ func validateSessions(sessions []SessionConfig) error {
 	}
 
 	return validateControlListenerBindings(sessions)
+}
+
+// maxMultihopMaxHops keeps the minimum TTL 255 - multihop_max_hops at 1 or above.
+const maxMultihopMaxHops = 254
+
+// validateSessionTransport rejects interface on multi_hop: RFC 5883 Section 4.1
+// demultiplexes multihop sessions by address pair, and the multihop listener
+// is never device-bound. multihop_max_hops is accepted only on multi_hop.
+func validateSessionTransport(sc SessionConfig) error {
+	if sc.Type == "multi_hop" && sc.Interface != "" {
+		return fmt.Errorf("interface %q: %w", sc.Interface, ErrInvalidSessionMultiHopInterface)
+	}
+	if (sc.MultihopMaxHopsSet || sc.MultihopMaxHops != 0) &&
+		(sc.Type != "multi_hop" || sc.MultihopMaxHops < 1 || sc.MultihopMaxHops > maxMultihopMaxHops) {
+		return fmt.Errorf("multihop_max_hops %d: %w", sc.MultihopMaxHops, ErrInvalidSessionMultihopMaxHops)
+	}
+	return nil
 }
 
 // validateGoBGPPeers rejects two sessions to one peer address when GoBGP is
