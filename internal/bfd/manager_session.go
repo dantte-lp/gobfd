@@ -1230,12 +1230,14 @@ func (m *Manager) claimDesiredOwnerSessions(
 	return result, retired, unusedLeases
 }
 
-// recordClaimError records an unresolvable single-hop receive interface as a
-// pending source dependency: retried on interface events, and neither a
-// failure nor a reason to roll back neighbouring claims. Other errors fail.
+// recordClaimError records an unresolvable single-hop receive interface or a
+// typed unavailable resource, such as a sender whose local address is not
+// yet assigned, as a pending source dependency: retried on interface and
+// address events, and neither a failure nor a reason to roll back
+// neighbouring claims. Other errors fail.
 func recordClaimError(result *ReconcileResult, key SessionKey, err error) {
 	err = fmt.Errorf("reconcile claim %+v: %w", key, err)
-	if errors.Is(err, ErrInterfaceUnresolved) {
+	if _, unavailable := UnavailableResource(err); unavailable || errors.Is(err, ErrInterfaceUnresolved) {
 		result.ResourcePending++
 		result.resourceErrs = append(result.resourceErrs, err)
 		return

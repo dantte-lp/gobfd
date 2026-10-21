@@ -288,6 +288,8 @@ func (m *Manager) ReconcileEchoSessionsDetailed(
 	)
 	result.Created = createResult.Created
 	result.wireCreated = createResult.wireCreated
+	result.ResourcePending = createResult.ResourcePending
+	result.resourceErrs = createResult.resourceErrs
 	result.Errors = append(result.Errors, createResult.Errors...)
 	result.Failed = len(result.Errors)
 	retired = append(retired, rollbackRetired...)
@@ -442,8 +444,15 @@ func (m *Manager) createDesiredDeclarativeEchoSessions(
 			ctx, candidate.config, candidate.factory, echoSessionSourceDeclarative,
 		)
 		if err != nil {
-			addReconcileError(&result, ReconcileErrorCreate,
-				fmt.Errorf("reconcile create echo %s: %w", key, err))
+			err = fmt.Errorf("reconcile create echo %s: %w", key, err)
+			if _, unavailable := UnavailableResource(err); unavailable {
+				// The pass rolls back as one unit, so every rolled-back session
+				// waits for the resource with the failing one.
+				result.ResourcePending += 1 + len(createdDiscriminators)
+				result.resourceErrs = append(result.resourceErrs, err)
+			} else {
+				addReconcileError(&result, ReconcileErrorCreate, err)
+			}
 			retired := make([]retiredEchoSession, 0, len(createdDiscriminators))
 			for _, createdDiscr := range createdDiscriminators {
 				entry, rollbackErr := m.detachEchoSession(createdDiscr)
