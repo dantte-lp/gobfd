@@ -36,7 +36,8 @@ Protobuf JSON может опускать нулевое значение count.
 Source `demux` учитывает отказы после выбора сессии: `scope_mismatch` для пакета
 другого транспортного класса (multihop listener 4784 против single-hop сессии и
 наоборот) или другого интерфейса приёма single-hop сессии; `ttl_rejected` для
-multihop пакета с TTL ниже `255 - multihop_max_hops`.
+multihop пакета с TTL ниже `255 - multihop_max_hops` или single-hop пакета с TTL,
+отличным от 255.
 
 Echo использует отдельные sources `echo_read`, `echo_parse`, `echo_ttl`,
 `echo_demux`, `echo_admission` и `echo_owner`. Нулевой discriminator учитывается
