@@ -19,64 +19,33 @@ var errDuplicateMicroBFDGroupKey = errors.New("duplicate Micro-BFD LAG interface
 // Micro-BFD — RFC 7130 LAG member link sessions
 // -------------------------------------------------------------------------
 
-// createMicroBFDListeners creates listeners on port 6784 for each unique
-// (localAddr, memberLink) pair across all micro-BFD groups.
-// RFC 7130 Section 2.1: each member link has its own BFD session on port 6784.
-func createMicroBFDListeners(
-	cfg *config.Config, logger *slog.Logger, delivery bfd.DeliveryReporter,
-) ([]*netio.Listener, error) {
-	type microKey struct {
-		addr   netip.Addr
-		ifName string
-	}
-
-	seen := make(map[microKey]struct{})
-	var listeners []*netio.Listener
-
+// microListenerConfigs returns one port 6784 listener per unique (local
+// address, member link) pair across all Micro-BFD groups. RFC 7130 Section
+// 2.1: each member link has its own BFD session on port 6784.
+func microListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
+	seen := make(map[listenerKey]struct{})
+	var configs []netio.ListenerConfig
 	for _, group := range cfg.MicroBFD.Groups {
 		localAddr, err := netip.ParseAddr(group.LocalAddr)
 		if err != nil || !localAddr.IsValid() {
-			logger.Warn("skipping micro-BFD group with invalid local address",
-				slog.String("lag", group.LAGInterface),
-				slog.String("local_addr", group.LocalAddr),
-			)
-			continue
+			continue // Candidate compilation rejects an invalid local address.
 		}
-
 		for _, member := range group.MemberLinks {
-			key := microKey{addr: localAddr, ifName: member}
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			seen[key] = struct{}{}
-
 			lnCfg := netio.ListenerConfig{
-				Delivery:       delivery,
 				ReadBufferSize: cfg.Socket.ReadBufferSize,
 				Addr:           localAddr,
 				IfName:         member,
 				Port:           netio.PortMicroBFD,
 				MultiHop:       false, // Micro-BFD uses single-hop TTL=255 (RFC 7130 Section 2).
 			}
-
-			ln, err := netio.NewListener(lnCfg)
-			if err != nil {
-				closeListeners(listeners, logger)
-				return nil, fmt.Errorf("create micro-BFD listener on %s%%%s: %w",
-					localAddr, member, err)
+			if _, exists := seen[listenerKeyOf(lnCfg)]; exists {
+				continue
 			}
-
-			logger.Info("micro-BFD listener started",
-				slog.String("addr", localAddr.String()),
-				slog.String("member", member),
-				slog.Uint64("port", uint64(netio.PortMicroBFD)),
-			)
-
-			listeners = append(listeners, ln)
+			seen[listenerKeyOf(lnCfg)] = struct{}{}
+			configs = append(configs, lnCfg)
 		}
 	}
-
-	return listeners, nil
+	return configs
 }
 
 // reconcileMicroBFDGroups reconciles micro-BFD groups and their per-member

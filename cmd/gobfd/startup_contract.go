@@ -47,9 +47,6 @@ const (
 	startupFieldGeneveBackend
 	startupFieldGeneveDefaultVNI
 	startupFieldGenevePeerVNI
-	startupFieldControlListenerBindings
-	startupFieldEchoListenerBindings
-	startupFieldMicroListenerBindings
 	startupFieldVXLANListenerBinding
 	startupFieldGeneveListenerBinding
 	startupFieldGRPCSocket
@@ -91,9 +88,6 @@ func (f startupFieldID) String() string {
 		"geneve.backend",
 		"geneve.default_vni",
 		"geneve.peers[].vni",
-		"sessions[].listener_binding",
-		"echo.peers[].listener_binding",
-		"micro_bfd.groups[].listener_binding",
 		"vxlan.listener_binding",
 		"geneve.listener_binding",
 		"grpc.socket",
@@ -125,16 +119,6 @@ func (e *startupConfigChangeError) FieldIDs() []startupFieldID {
 	return slices.Clone(e.fields)
 }
 
-type controlListenerCapability struct {
-	addr     netip.Addr
-	multiHop bool
-}
-
-type microListenerCapability struct {
-	addr          netip.Addr
-	interfaceName string
-}
-
 type overlayCapability struct {
 	configured bool
 	local      netip.Addr
@@ -154,9 +138,6 @@ type startupRuntimeContract struct {
 	geneveBackend      string
 	geneveDefaultVNI   uint32
 
-	controlListeners map[controlListenerCapability]string
-	echoListeners    map[netip.Addr]string
-	microListeners   map[microListenerCapability]struct{}
 	vxlan            overlayCapability
 	geneve           overlayCapability
 	vxlanPeerLocals  map[string]netip.Addr
@@ -177,9 +158,6 @@ func newStartupRuntimeContract(cfg *config.Config) startupRuntimeContract {
 		vxlanManagementVNI: cfg.VXLAN.ManagementVNI,
 		geneveBackend:      cfg.Geneve.Backend,
 		geneveDefaultVNI:   cfg.Geneve.DefaultVNI,
-		controlListeners:   controlListenerCapabilities(cfg),
-		echoListeners:      echoListenerCapabilities(cfg),
-		microListeners:     microListenerCapabilities(cfg),
 		vxlan:              vxlanCapability(cfg),
 		geneve:             geneveCapability(cfg),
 		vxlanPeerLocals:    vxlanPeerLocalCapabilities(cfg),
@@ -255,12 +233,6 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldGeneveBackend, c.geneveBackend != cfg.Geneve.Backend)
 	appendChanged(startupFieldGeneveDefaultVNI, c.geneveDefaultVNI != cfg.Geneve.DefaultVNI)
 	appendChanged(startupFieldGenevePeerVNI, !c.supportsGenevePeerVNIs(cfg))
-	appendChanged(startupFieldControlListenerBindings,
-		!supportsMapCapabilities(c.controlListeners, controlListenerCapabilities(cfg)))
-	appendChanged(startupFieldEchoListenerBindings,
-		!supportsMapCapabilities(c.echoListeners, echoListenerCapabilities(cfg)))
-	appendChanged(startupFieldMicroListenerBindings,
-		!supportsSetCapabilities(c.microListeners, microListenerCapabilities(cfg)))
 	appendChanged(startupFieldVXLANListenerBinding,
 		!supportsOverlayPeerLocals(c.vxlan, c.vxlanPeerLocals, vxlanPeerLocalCapabilities(cfg)))
 	appendChanged(startupFieldGeneveListenerBinding,
@@ -276,24 +248,6 @@ func equalUnsolicitedInterfaces(
 		slices.Sort(prefixes)
 		return want.Enabled == got.Enabled && slices.Equal(want.AllowedPrefixes, prefixes)
 	})
-}
-
-func supportsMapCapabilities[K comparable, V comparable](available, required map[K]V) bool {
-	for key, value := range required {
-		if availableValue, ok := available[key]; !ok || availableValue != value {
-			return false
-		}
-	}
-	return true
-}
-
-func supportsSetCapabilities[K comparable](available, required map[K]struct{}) bool {
-	for key := range required {
-		if _, ok := available[key]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func supportsOverlayPeerLocals(
@@ -312,52 +266,6 @@ func supportsOverlayPeerLocals(
 		}
 	}
 	return true
-}
-
-func controlListenerCapabilities(cfg *config.Config) map[controlListenerCapability]string {
-	result := make(map[controlListenerCapability]string)
-	for _, session := range cfg.Sessions {
-		addr, err := session.LocalAddr()
-		if err != nil || !addr.IsValid() {
-			continue
-		}
-		key := controlListenerCapability{addr: addr, multiHop: session.Type == "multi_hop"}
-		if _, exists := result[key]; !exists {
-			result[key] = session.Interface
-		}
-	}
-	return result
-}
-
-func echoListenerCapabilities(cfg *config.Config) map[netip.Addr]string {
-	result := make(map[netip.Addr]string)
-	if !cfg.Echo.Enabled {
-		return result
-	}
-	for _, peer := range cfg.Echo.Peers {
-		addr, err := peer.LocalAddr()
-		if err != nil || !addr.IsValid() {
-			continue
-		}
-		if _, exists := result[addr]; !exists {
-			result[addr] = peer.Interface
-		}
-	}
-	return result
-}
-
-func microListenerCapabilities(cfg *config.Config) map[microListenerCapability]struct{} {
-	result := make(map[microListenerCapability]struct{})
-	for _, group := range cfg.MicroBFD.Groups {
-		addr, err := netip.ParseAddr(group.LocalAddr)
-		if err != nil || !addr.IsValid() {
-			continue
-		}
-		for _, member := range group.MemberLinks {
-			result[microListenerCapability{addr: addr, interfaceName: member}] = struct{}{}
-		}
-	}
-	return result
 }
 
 func vxlanCapability(_ *config.Config) overlayCapability {

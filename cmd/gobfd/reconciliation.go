@@ -168,6 +168,8 @@ type reconciliationCoordinator struct {
 	logger *slog.Logger
 	// readiness is the single writer of aggregate and bfd.v1 named health.
 	readiness *daemonReadiness
+	// listeners owns the receive sockets; nil when no daemon runtime exists.
+	listeners *listenerOwner
 }
 
 func newReconciliationCoordinator(
@@ -211,14 +213,47 @@ func (c *reconciliationCoordinator) reconcile(
 	if c.onConfiguredPeers != nil {
 		c.onConfiguredPeers(goBGPManagedPeers(cfg.Sessions))
 	}
-	c.applyCandidateLocked(ctx, candidate, logLevel, func(
+	c.applyCandidateLocked(ctx, candidate, logLevel, c.withListeners(func(
 		ctx context.Context,
 		source reconciliationSource,
 		candidate compiledControlSessionCandidate,
 	) sourceApplyResult {
 		return applyCompiledSource(ctx, source, candidate, mgr, sf, c.logger)
-	})
+	}))
 	return nil
+}
+
+// withListeners makes the receive listeners part of each source apply: the
+// source claims its listeners before the Manager apply, so no generation
+// converges on senders alone, and releases the ones it no longer needs after
+// an apply without failed or resource-pending entries. A listener that cannot
+// open leaves the source pending (absent interface) or failed, unapplied.
+func (c *reconciliationCoordinator) withListeners(apply sourceApplyFunc) sourceApplyFunc {
+	return func(
+		ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
+	) sourceApplyResult {
+		if c.listeners == nil {
+			return apply(ctx, source, candidate)
+		}
+		configs := candidate.listeners[source]
+		if err := c.listeners.acquire(ctx, sourceClaim(source), configs); err != nil {
+			return resourceErrorSourceResult(1, fmt.Errorf("claim %s listeners: %w", source, err))
+		}
+		result := apply(ctx, source, candidate)
+		if result.Failed == 0 && result.Pending == result.TimerPending {
+			c.listeners.release(sourceClaim(source), configs)
+		}
+		return result
+	}
+}
+
+// checkListenerBindings rebinds listeners of recreated interfaces and
+// re-evaluates the binding readiness.
+func (c *reconciliationCoordinator) checkListenerBindings(interfaces interfaceInventory) error {
+	if c.listeners == nil {
+		return c.readiness.checkBindings(interfaces)
+	}
+	return c.listeners.checkBindings(interfaces)
 }
 
 func (c *reconciliationCoordinator) apply(
@@ -445,6 +480,9 @@ func cloneCompiledControlSessionCandidate(
 		cloned.base[i].senderOpts = slices.Clone(candidate.base[i].senderOpts)
 	}
 	cloned.echo = slices.Clone(candidate.echo)
+	for i := range cloned.listeners {
+		cloned.listeners[i] = slices.Clone(candidate.listeners[i])
+	}
 	cloned.microGroups = slices.Clone(candidate.microGroups)
 	for i := range cloned.microGroups {
 		cloned.microGroups[i].Config.MemberLinks = slices.Clone(
@@ -520,6 +558,8 @@ type compiledControlSessionCandidate struct {
 	microGroups []bfd.MicroBFDReconcileConfig
 	overlays    [2]compiledOverlayCandidate
 	logLevel    slog.Level
+	// listeners are the receive sockets each source needs.
+	listeners [sourceCount][]netio.ListenerConfig
 }
 
 type compiledOverlayCandidate struct {
@@ -564,6 +604,7 @@ func compileControlSessionCandidate(
 	return compiledControlSessionCandidate{
 		base: base, echo: echo, microGroups: microGroups,
 		overlays: overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
+		listeners: compileListenerConfigs(cfg),
 	}, nil
 }
 

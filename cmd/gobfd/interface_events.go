@@ -131,9 +131,9 @@ func consumeInterfaceEvents(
 			} else {
 				mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
 			}
-			// Bound listener interfaces are re-checked against the current
+			// Bound listener interfaces are rebound and re-checked against the current
 			// inventory; a coalesced or lost event cannot leave a false SERVING.
-			if err := coordinator.readiness.checkBindings(net.Interfaces); err != nil {
+			if err := coordinator.checkListenerBindings(net.Interfaces); err != nil {
 				logger.Warn("listener interface check failed; readiness unchanged",
 					slog.String("error", err.Error()))
 			}

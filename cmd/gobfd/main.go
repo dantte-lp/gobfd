@@ -146,14 +146,16 @@ func runServers(
 	// from the internal rawNotifyCh to the public StateChanges channel.
 	// Also handles micro-BFD aggregate state dispatch (RFC 7130).
 	startManagerDispatch(gCtx, g, mgr, coordinator.readiness)
+	// The listener owner exists before interface events can reach it.
+	listeners := newListenerOwner(mgr, coordinator.readiness, logger)
+	coordinator.listeners = listeners
+	defer listeners.close()
 	startInterfaceMonitor(gCtx, g, mgr, sf, coordinator, logger)
 
 	// Start BFD packet listeners and receivers for incoming packets.
-	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, coordinator.readiness, logger)
-	if err != nil {
+	if err := startListenerOwner(gCtx, g, cfg, listeners, logger); err != nil {
 		return fmt.Errorf("create BFD listeners: %w", err)
 	}
-	defer lnCleanup()
 
 	startHTTPServers(gCtx, g, cfg, grpcSrv, metricsSrv, logger)
 	// GoBGP integration goroutine (RFC 5882 Section 10.2).
@@ -175,7 +177,7 @@ func runServers(
 	notifyReady(logger)
 
 	// Shutdown goroutine: waits for context cancellation.
-	startShutdown(gCtx, g, mgr, logger, fr, coordinator.readiness, lnCleanup, grpcSrv, metricsSrv)
+	startShutdown(gCtx, g, mgr, logger, fr, coordinator.readiness, listeners.close, grpcSrv, metricsSrv)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("run servers: %w", err)
