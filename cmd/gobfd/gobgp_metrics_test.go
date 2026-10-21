@@ -50,19 +50,19 @@ func TestGoBGPPeerMetricsFollowValidatedConfiguration(t *testing.T) {
 	}
 	assertPeers(0)
 	if err := coordinator.reconcile(t.Context(), cfg, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, nil); err != nil {
+		newNthFailureDeclarativeSenderFactory(0), nil); err != nil {
 		t.Fatalf("reconcile configured peer: %v", err)
 	}
 	assertPeers(1)
 	cfg.Sessions = []config.SessionConfig{{Peer: "not-an-address"}}
 	if err := coordinator.reconcile(t.Context(), cfg, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, nil); err == nil {
+		newNthFailureDeclarativeSenderFactory(0), nil); err == nil {
 		t.Fatal("invalid candidate accepted")
 	}
 	assertPeers(1)
 	cfg.Sessions = nil
 	if err := coordinator.reconcile(t.Context(), cfg, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, nil); err != nil {
+		newNthFailureDeclarativeSenderFactory(0), nil); err != nil {
 		t.Fatalf("reconcile removed peer: %v", err)
 	}
 	assertPeers(0)

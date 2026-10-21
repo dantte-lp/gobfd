@@ -110,8 +110,7 @@ type listenerOwner struct {
 	readiness *daemonReadiness
 	logger    *slog.Logger
 
-	workers sync.WaitGroup
-	lost    chan error
+	receivers *receiverGroup
 }
 
 func newListenerOwner(
@@ -128,7 +127,7 @@ func newListenerOwner(
 		echo:           netio.NewEchoReceiver(mgr, logger),
 		readiness:      readiness,
 		logger:         logger,
-		lost:           make(chan error, 1),
+		receivers:      newReceiverGroup(readiness),
 	}
 }
 
@@ -281,7 +280,19 @@ func listenerOpenError(key listenerKey, err error) error {
 			Kind: bfd.ResourceKindInterface, ID: key.ifName,
 		}))
 	}
-	return fmt.Errorf("open listener %s: %w", key, err)
+	return fmt.Errorf("open listener %s: %w", key, addressUnavailableError(key.addr, err))
+}
+
+// addressUnavailableError types EADDRNOTAVAIL, a local address that is not
+// assigned yet (or still IPv6-tentative), as a retryable unavailable address;
+// an address event retries it. Other errors are returned unchanged.
+func addressUnavailableError(addr netip.Addr, err error) error {
+	if !errors.Is(err, syscall.EADDRNOTAVAIL) {
+		return err
+	}
+	return fmt.Errorf("%s: %w", err.Error(), bfd.NewResourceUnavailableError(bfd.ResourceRef{
+		Kind: bfd.ResourceKindAddress, ID: addr.WithZone("").Unmap().String(),
+	}))
 }
 
 func (o *listenerOwner) interfaceIndexes() (map[string]int, error) {
@@ -301,24 +312,15 @@ func (o *listenerOwner) interfaceIndexes() (map[string]int, error) {
 // deliberate stop cancels the receiver context before closing the socket,
 // so only a socket lost while its receiver context is live fails the daemon.
 func (o *listenerOwner) startLocked(key listenerKey, ln *netio.Listener, index int) {
-	receiverCtx, stop := context.WithCancel(context.Background())
-	o.listeners[key] = &ownedListener{ln: ln, ifIndex: index, stop: stop}
-	o.order = append(o.order, key)
 	name, run := "control receiver", o.control.Run
 	if component := key.component(); component == componentEchoBindings {
 		name, run = "echo receiver", o.echo.Run
 	} else if component == componentMicroBindings {
 		name = "micro-BFD receiver"
 	}
-	o.workers.Go(func() {
-		err := o.readiness.runRequired(receiverCtx, name, func() error { return run(receiverCtx, ln) })
-		if errors.Is(err, errRequiredWorkerStopped) {
-			select {
-			case o.lost <- err:
-			default:
-			}
-		}
-	})
+	stop := o.receivers.start(name, func(ctx context.Context) error { return run(ctx, ln) })
+	o.listeners[key] = &ownedListener{ln: ln, ifIndex: index, stop: stop}
+	o.order = append(o.order, key)
 	o.logger.Info("BFD listener started", slog.String("addr", key.addr.String()),
 		slog.Uint64("port", uint64(key.port)), slog.Bool("multi_hop", key.multiHop),
 		slog.String("interface", key.ifName))
@@ -426,12 +428,7 @@ func (o *listenerOwner) publishLocked() {
 
 // run returns the first receiver loss; the errgroup then stops the daemon.
 func (o *listenerOwner) run(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return nil
-	case err := <-o.lost:
-		return err
-	}
+	return o.receivers.run(ctx)
 }
 
 // close stops every listener and waits for its receiver. It is idempotent.
@@ -442,7 +439,7 @@ func (o *listenerOwner) close() {
 		o.stopLocked(slices.Clone(o.order))
 	}
 	o.mu.Unlock()
-	o.workers.Wait()
+	o.receivers.wait()
 }
 
 // unsolicitedListenerConfigs returns the IPv4 and IPv6 wildcard listeners of
@@ -589,7 +586,7 @@ func (f *apiListenerSenderFactory) CreateSender(
 	sender, port, err := f.SenderFactory.CreateSender(localAddr, ifName, multiHop, doNotFragment, logger)
 	if err != nil {
 		f.owner.releaseAPI(key)
-		return nil, 0, fmt.Errorf("create API sender: %w", err)
+		return nil, 0, fmt.Errorf("create API sender: %w", addressUnavailableError(localAddr, err))
 	}
 	f.mu.Lock()
 	f.claims[port] = key

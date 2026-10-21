@@ -214,7 +214,8 @@ func TestListenerOwnerClaimFailureSkipsApplyAndRollsBack(t *testing.T) {
 		wantPending, wantFailed int
 	}{
 		{"absent interface is pending", fmt.Errorf("set SO_BINDTODEVICE(eth3): %w", syscall.ENODEV), 1, 0},
-		{"other bind error is failed", fmt.Errorf("listen UDP: %w", syscall.EADDRNOTAVAIL), 0, 1},
+		{"unassigned address is pending", fmt.Errorf("listen UDP: %w", syscall.EADDRNOTAVAIL), 1, 0},
+		{"other bind error is failed", fmt.Errorf("listen UDP: %w", syscall.EADDRINUSE), 0, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -446,7 +447,7 @@ func TestReloadOpensNewListenerBeforeSessionAndClosesRemovedOne(t *testing.T) {
 	}
 	reconcile := func(cfg *config.Config) {
 		t.Helper()
-		if err := coordinator.reconcile(t.Context(), cfg, mgr, sf, &overlayRuntime{}, nil); err != nil {
+		if err := coordinator.reconcile(t.Context(), cfg, mgr, sf, nil); err != nil {
 			t.Fatal(err)
 		}
 		if snapshot := coordinator.Snapshot(); snapshot.Stale {

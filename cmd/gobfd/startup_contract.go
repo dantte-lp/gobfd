@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/netip"
 	"slices"
 	"strings"
 
@@ -46,9 +45,6 @@ const (
 	startupFieldVXLANManagementVNI
 	startupFieldGeneveBackend
 	startupFieldGeneveDefaultVNI
-	startupFieldGenevePeerVNI
-	startupFieldVXLANListenerBinding
-	startupFieldGeneveListenerBinding
 	startupFieldGRPCSocket
 	startupFieldGRPCTLS
 	startupFieldGRPCMutatingIdentities
@@ -87,9 +83,6 @@ func (f startupFieldID) String() string {
 		"vxlan.management_vni",
 		"geneve.backend",
 		"geneve.default_vni",
-		"geneve.peers[].vni",
-		"vxlan.listener_binding",
-		"geneve.listener_binding",
 		"grpc.socket",
 		"grpc.tls",
 		"grpc.mutating_identities",
@@ -119,12 +112,6 @@ func (e *startupConfigChangeError) FieldIDs() []startupFieldID {
 	return slices.Clone(e.fields)
 }
 
-type overlayCapability struct {
-	configured bool
-	local      netip.Addr
-	vni        uint32
-}
-
 type startupRuntimeContract struct {
 	grpc               config.GRPCConfig
 	metrics            config.MetricsConfig
@@ -137,12 +124,6 @@ type startupRuntimeContract struct {
 	vxlanManagementVNI uint32
 	geneveBackend      string
 	geneveDefaultVNI   uint32
-
-	vxlan            overlayCapability
-	geneve           overlayCapability
-	vxlanPeerLocals  map[string]netip.Addr
-	genevePeerLocals map[string]netip.Addr
-	genevePeerVNIs   map[string]uint32
 }
 
 func newStartupRuntimeContract(cfg *config.Config) startupRuntimeContract {
@@ -158,11 +139,6 @@ func newStartupRuntimeContract(cfg *config.Config) startupRuntimeContract {
 		vxlanManagementVNI: cfg.VXLAN.ManagementVNI,
 		geneveBackend:      cfg.Geneve.Backend,
 		geneveDefaultVNI:   cfg.Geneve.DefaultVNI,
-		vxlan:              vxlanCapability(cfg),
-		geneve:             geneveCapability(cfg),
-		vxlanPeerLocals:    vxlanPeerLocalCapabilities(cfg),
-		genevePeerLocals:   genevePeerLocalCapabilities(cfg),
-		genevePeerVNIs:     genevePeerVNICapabilities(cfg),
 	}
 }
 
@@ -232,11 +208,6 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldVXLANManagementVNI, c.vxlanManagementVNI != cfg.VXLAN.ManagementVNI)
 	appendChanged(startupFieldGeneveBackend, c.geneveBackend != cfg.Geneve.Backend)
 	appendChanged(startupFieldGeneveDefaultVNI, c.geneveDefaultVNI != cfg.Geneve.DefaultVNI)
-	appendChanged(startupFieldGenevePeerVNI, !c.supportsGenevePeerVNIs(cfg))
-	appendChanged(startupFieldVXLANListenerBinding,
-		!supportsOverlayPeerLocals(c.vxlan, c.vxlanPeerLocals, vxlanPeerLocalCapabilities(cfg)))
-	appendChanged(startupFieldGeneveListenerBinding,
-		!supportsOverlayPeerLocals(c.geneve, c.genevePeerLocals, genevePeerLocalCapabilities(cfg)))
 	return changed
 }
 
@@ -248,91 +219,6 @@ func equalUnsolicitedInterfaces(
 		slices.Sort(prefixes)
 		return want.Enabled == got.Enabled && slices.Equal(want.AllowedPrefixes, prefixes)
 	})
-}
-
-func supportsOverlayPeerLocals(
-	available overlayCapability,
-	existing, required map[string]netip.Addr,
-) bool {
-	for key, local := range required {
-		if startupLocal, ok := existing[key]; ok {
-			if startupLocal != local {
-				return false
-			}
-			continue
-		}
-		if !available.configured || local != available.local {
-			return false
-		}
-	}
-	return true
-}
-
-func vxlanCapability(_ *config.Config) overlayCapability {
-	return overlayCapability{}
-}
-
-func geneveCapability(_ *config.Config) overlayCapability {
-	return overlayCapability{}
-}
-
-func vxlanPeerLocalCapabilities(cfg *config.Config) map[string]netip.Addr {
-	result := make(map[string]netip.Addr, len(cfg.VXLAN.Peers))
-	if !cfg.VXLAN.Enabled {
-		return result
-	}
-	for _, peer := range cfg.VXLAN.Peers {
-		addr, err := peer.LocalAddr()
-		if err == nil && addr.IsValid() {
-			result[peer.VXLANSessionKey()] = addr
-		}
-	}
-	return result
-}
-
-func genevePeerLocalCapabilities(cfg *config.Config) map[string]netip.Addr {
-	result := make(map[string]netip.Addr, len(cfg.Geneve.Peers))
-	if !cfg.Geneve.Enabled {
-		return result
-	}
-	for _, peer := range cfg.Geneve.Peers {
-		addr, err := peer.LocalAddr()
-		if err == nil && addr.IsValid() {
-			result[peer.GeneveSessionKey(cfg.Geneve.DefaultVNI)] = addr
-		}
-	}
-	return result
-}
-
-func genevePeerVNICapabilities(cfg *config.Config) map[string]uint32 {
-	result := make(map[string]uint32, len(cfg.Geneve.Peers))
-	if !cfg.Geneve.Enabled {
-		return result
-	}
-	for _, peer := range cfg.Geneve.Peers {
-		result[peer.GeneveSessionKey(cfg.Geneve.DefaultVNI)] = effectiveGeneveVNI(peer, cfg.Geneve.DefaultVNI)
-	}
-	return result
-}
-
-func (c startupRuntimeContract) supportsGenevePeerVNIs(cfg *config.Config) bool {
-	if !cfg.Geneve.Enabled {
-		return true
-	}
-	for _, peer := range cfg.Geneve.Peers {
-		key := peer.GeneveSessionKey(cfg.Geneve.DefaultVNI)
-		effectiveVNI := effectiveGeneveVNI(peer, cfg.Geneve.DefaultVNI)
-		if startupVNI, exists := c.genevePeerVNIs[key]; exists {
-			if startupVNI != effectiveVNI {
-				return false
-			}
-			continue
-		}
-		if !c.geneve.configured || effectiveVNI != c.geneve.vni {
-			return false
-		}
-	}
-	return true
 }
 
 func effectiveGeneveVNI(peer config.GenevePeerConfig, defaultVNI uint32) uint32 {

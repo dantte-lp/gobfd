@@ -27,7 +27,7 @@ func TestInvalidLogYAMLReloadPreservesRuntime(t *testing.T) {
 	sf := newUDPSenderFactory(startup.Socket.WriteBufferSize)
 	t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 	level := new(slog.LevelVar)
-	if err := coordinator.reconcile(context.Background(), startup, mgr, sf, &overlayRuntime{}, level); err != nil {
+	if err := coordinator.reconcile(context.Background(), startup, mgr, sf, level); err != nil {
 		t.Fatalf("initial reconcile: %v", err)
 	}
 	before := coordinator.Snapshot()
@@ -43,7 +43,7 @@ func TestInvalidLogYAMLReloadPreservesRuntime(t *testing.T) {
 	if err := os.WriteFile(path, []byte("log:\n  level: verbose\nsessions: []\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reloadConfig(context.Background(), path, level, mgr, sf, &overlayRuntime{}, coordinator, logger)
+	reloadConfig(context.Background(), path, level, mgr, sf, coordinator, logger)
 	if got := coordinator.Snapshot(); got != before {
 		t.Errorf("generation/status changed: got%+v want%+v", got, before)
 	}

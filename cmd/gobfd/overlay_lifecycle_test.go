@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/netip"
 	"runtime"
 	"sync"
@@ -53,30 +52,29 @@ func TestOverlayBackendOwnsExactPortLease(t *testing.T) {
 				Kind: bfd.TransportScopeGeneve, VNI: 100,
 				OuterLocalAddr: netip.MustParseAddr("127.0.0.92"),
 			}
-			bySession, conns := createOverlayConnGroups(
-				map[netip.Addr][]bfd.TransportScope{scope.OuterLocalAddr: {scope}},
-				&udpSenderFactory{portAlloc: alloc}, slog.New(slog.DiscardHandler),
-				func(_ netip.Addr, port uint16, _ []bfd.TransportScope) (netio.OverlayConn, error) {
-					if port != available {
-						t.Fatalf("lease port = %d, want %d", port, available)
-					}
-					if scenario == "construction failure" {
-						return nil, errors.New("injected construction failure")
-					}
-					return backend, nil
-				})
+			leased, err := leaseOverlayBackend(alloc, func(port uint16) (netio.OverlayConn, error) {
+				if port != available {
+					t.Fatalf("lease port = %d, want %d", port, available)
+				}
+				if scenario == "construction failure" {
+					return nil, errors.New("injected construction failure")
+				}
+				return backend, nil
+			})
+			var conns []netio.OverlayConn
 			if scenario == "construction failure" {
-				if len(conns) != 0 || len(bySession) != 0 {
+				if err == nil || leased != nil {
 					t.Fatal("failed constructor published a connection")
 				}
 			} else {
+				conns = append(conns, leased)
 				assertOverlayPortExhausted(t, alloc)
-				assertOverlayLeaseDispatch(t, bySession[scope], scope, backend)
+				assertOverlayLeaseDispatch(t, leased, scope, backend)
 				var group sync.WaitGroup
 				for range 4 {
 					group.Go(func() {
-						if err := conns[0].Close(); !errors.Is(err, backend.closeErr) {
-							t.Errorf("Close = %v, want %v", err, backend.closeErr)
+						if closeErr := conns[0].Close(); !errors.Is(closeErr, backend.closeErr) {
+							t.Errorf("Close = %v, want %v", closeErr, backend.closeErr)
 						}
 					})
 				}

@@ -16,7 +16,7 @@ func microTransactionTestCandidate(t *testing.T) compiledControlSessionCandidate
 		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
 		PeerAddr: "192.0.2.244", LocalAddr: "127.0.0.1", MinActiveLinks: 1,
 	}}
-	candidate, err := compileControlSessionCandidate(cfg, &overlayRuntime{})
+	candidate, err := compileControlSessionCandidate(cfg)
 	if err != nil {
 		t.Fatalf("compileControlSessionCandidate: %v", err)
 	}

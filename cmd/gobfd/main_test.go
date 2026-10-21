@@ -97,20 +97,6 @@ func assertNthFailureSenderBatchClosed(t *testing.T, sf *nthFailureDeclarativeSe
 	}
 }
 
-type candidateTestOverlayConn struct{}
-
-func (candidateTestOverlayConn) SendEncapsulated(context.Context, []byte, netip.Addr) error {
-	return nil
-}
-
-func (candidateTestOverlayConn) RecvDecapsulated(context.Context) ([]byte, netio.OverlayMeta, error) {
-	return nil, netio.OverlayMeta{}, netio.ErrOverlayRecvClosed
-}
-
-func (candidateTestOverlayConn) Close() error {
-	return nil
-}
-
 type nonOwningLeaseTestOverlayConn struct {
 	closes int
 }
@@ -261,7 +247,6 @@ func TestReconcileAllSessionsDuplicateMicroBFDKeyPreservesState(t *testing.T) {
 		cfg,
 		mgr,
 		sf,
-		&overlayRuntime{},
 		newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
@@ -303,7 +288,7 @@ micro_bfd:
 
 	startup := duplicateMicroBFDConfig()
 	reloadConfig(
-		context.Background(), path, level, mgr, sf, &overlayRuntime{},
+		context.Background(), path, level, mgr, sf,
 		newReconciliationCoordinator(startup, slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
@@ -463,19 +448,6 @@ func TestReconcileAdaptersDoNotLogCompletionAfterDetailedFailure(t *testing.T) {
 				reconcileMicroBFDGroups(
 					context.Background(), cfg, mgr,
 					newNthFailureDeclarativeSenderFactory(1), logger,
-				)
-			},
-		},
-		{
-			name:           "overlay",
-			failureText:    "overlay session reconciliation had errors",
-			completionText: "overlay session reconciliation complete",
-			reconcile: func(logger *slog.Logger) {
-				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
-				mgr.Close()
-				reconcileOverlaySessions(
-					context.Background(), mgr, bfd.VXLANReconciliationOwner(), nil,
-					"RFC 8971", logger,
 				)
 			},
 		},
@@ -788,13 +760,16 @@ func TestReconcileOverlayTunnelsForwardsEmptyDesiredSets(t *testing.T) {
 		}
 	}
 
-	reconcileOverlayTunnels(
-		context.Background(),
-		config.DefaultConfig(),
-		mgr,
-		&overlayRuntime{},
-		slog.New(slog.DiscardHandler),
-	)
+	candidate, err := compileControlSessionCandidate(config.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []reconciliationSource{sourceVXLAN, sourceGeneve} {
+		if result := applyCompiledSource(context.Background(), source, candidate, mgr,
+			newNthFailureDeclarativeSenderFactory(0), slog.New(slog.DiscardHandler)); result.Err != nil {
+			t.Fatal(result.Err)
+		}
+	}
 	if got := len(mgr.Sessions()); got != 0 {
 		t.Fatalf("wire sessions after empty overlay reconciliation = %d, want 0", got)
 	}
@@ -867,13 +842,9 @@ func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
 		},
 		{Peer: "not-an-address", Local: "192.0.2.91"},
 	}
-	reconcileOverlayTunnels(
-		context.Background(),
-		cfg,
-		mgr,
-		&overlayRuntime{vxlan: candidateTestOverlayConn{}},
-		slog.New(slog.DiscardHandler),
-	)
+	if _, err := compileControlSessionCandidate(cfg); err == nil {
+		t.Fatal("invalid VXLAN candidate compiled")
+	}
 
 	after := mgr.Sessions()
 	if len(after) != len(before) || after[0].LocalDiscr != before[0].LocalDiscr {
@@ -884,7 +855,6 @@ func TestReconcileOverlayCandidateIsAtomic(t *testing.T) {
 func TestOverlaySessionLeaseDoesNotCloseSharedBackend(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	conn := &nonOwningLeaseTestOverlayConn{}
-	logger := slog.New(slog.DiscardHandler)
 	params := overlayTunnelParams{
 		rfc:      "RFC 8971",
 		sessType: bfd.SessionTypeVXLAN,
@@ -894,16 +864,22 @@ func TestOverlaySessionLeaseDoesNotCloseSharedBackend(t *testing.T) {
 			requiredMinRx: time.Second,
 			detectMult:    3,
 		},
-		conn: conn,
 		entries: []overlayPeerEntry{{
 			key: "vxlan-test", peerName: "vxlan-test",
 			peerStr: "192.0.2.92", localStr: "192.0.2.93",
 		}},
 	}
-
-	reconcileOverlayTunnel(context.Background(), mgr, logger, params)
-	params.entries = nil
-	reconcileOverlayTunnel(context.Background(), mgr, logger, params)
+	desired, err := compileOverlaySessionCandidates(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the backend close count matters; the stub cannot complete a drain.
+	for _, candidate := range []compiledOverlayCandidate{
+		{owner: params.owner, conns: []netio.OverlayConn{conn}, desired: desired},
+		{owner: params.owner},
+	} {
+		applyCompiledOverlay(context.Background(), mgr, sourceVXLAN, candidate)
+	}
 	mgr.Close()
 
 	if conn.closes != 0 {
@@ -943,7 +919,7 @@ func TestReconcileAllSessionsValidatesLaterSourceBeforeAnyApply(t *testing.T) {
 	}}
 
 	reconcileAllSessions(
-		context.Background(), cfg, mgr, sf, &overlayRuntime{},
+		context.Background(), cfg, mgr, sf,
 		newReconciliationCoordinator(cfg, slog.New(slog.DiscardHandler), nil),
 		slog.New(slog.DiscardHandler),
 	)
@@ -1778,42 +1754,9 @@ func (stubOverlayConn) Close() error {
 	return nil
 }
 
-func TestBuildOverlayTunnelParamsUsesRuntimeConnections(t *testing.T) {
-	t.Parallel()
-
-	vxlanConn := stubOverlayConn{}
-	geneveConn := stubOverlayConn{}
-	cfg := config.DefaultConfig()
-	cfg.VXLAN.Enabled = true
-	cfg.VXLAN.ManagementVNI = 100
-	cfg.VXLAN.Peers = []config.VXLANPeerConfig{{
-		Peer: "10.0.0.1", Local: "10.0.0.2",
-		PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
-	}}
-	cfg.Geneve.Enabled = true
-	cfg.Geneve.DefaultVNI = 200
-	cfg.Geneve.Peers = []config.GenevePeerConfig{{Peer: "10.0.0.3", Local: "10.0.0.4"}}
-
-	params := buildOverlayTunnelParams(cfg, &overlayRuntime{
-		vxlan:  vxlanConn,
-		geneve: geneveConn,
-	})
-
-	if len(params) != 2 {
-		t.Fatalf("params len = %d, want 2", len(params))
-	}
-	if params[0].conn != vxlanConn {
-		t.Fatalf("VXLAN param conn = %T, want runtime VXLAN conn", params[0].conn)
-	}
-	if params[1].conn != geneveConn {
-		t.Fatalf("Geneve param conn = %T, want runtime Geneve conn", params[1].conn)
-	}
-}
-
 func TestGeneveOverlayCandidatesKeepExactVAPIdentity(t *testing.T) {
 	t.Parallel()
 
-	conn := stubOverlayConn{}
 	cfg := config.DefaultConfig()
 	cfg.Geneve.Enabled = true
 	cfg.Geneve.DefaultVNI = 100
@@ -1840,16 +1783,13 @@ func TestGeneveOverlayCandidatesKeepExactVAPIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("geneveTransportScope(second): %v", err)
 	}
-	runtime := &overlayRuntime{geneveSessions: map[bfd.TransportScope]netio.OverlayConn{
-		firstScope: conn, secondScope: conn,
-	}}
-	params := buildOverlayTunnelParams(cfg, runtime)[1]
-	desired, conns, err := compileOverlaySessionCandidates(params)
+	params := buildOverlayTunnelParams(cfg)[1]
+	desired, err := compileOverlaySessionCandidates(params)
 	if err != nil {
 		t.Fatalf("compileOverlaySessionCandidates: %v", err)
 	}
-	if len(desired) != 2 || len(conns) != 2 {
-		t.Fatalf("compiled candidates = %d/%d, want 2/2", len(desired), len(conns))
+	if len(desired) != 2 {
+		t.Fatalf("compiled candidates = %d, want 2", len(desired))
 	}
 	if desired[0].SessionConfig.TransportScope == desired[1].SessionConfig.TransportScope {
 		t.Fatal("distinct Geneve VNI/VAP tuples collapsed to one transport scope")
@@ -1859,33 +1799,6 @@ func TestGeneveOverlayCandidatesKeepExactVAPIdentity(t *testing.T) {
 		t.Fatalf("inner peers = %s/%s, want %s/%s",
 			desired[0].SessionConfig.PeerAddr, desired[1].SessionConfig.PeerAddr,
 			firstScope.InnerPeerAddr, secondScope.InnerPeerAddr)
-	}
-}
-
-func TestCreateOverlayConnGroupsUsesEveryLocalEndpoint(t *testing.T) {
-	t.Parallel()
-
-	first := bfd.TransportScope{
-		Kind:           bfd.TransportScopeVXLAN,
-		OuterLocalAddr: netip.MustParseAddr("192.0.2.1"),
-	}
-	second := first
-	second.OuterLocalAddr = netip.MustParseAddr("192.0.2.2")
-	groups := map[netip.Addr][]bfd.TransportScope{
-		first.OuterLocalAddr:  {first},
-		second.OuterLocalAddr: {second},
-	}
-	var built []netip.Addr
-	sf := &udpSenderFactory{portAlloc: netio.NewSourcePortAllocator()}
-	bySession, conns := createOverlayConnGroups(
-		groups, sf, slog.New(slog.DiscardHandler),
-		func(local netip.Addr, _ uint16, _ []bfd.TransportScope) (netio.OverlayConn, error) {
-			built = append(built, local)
-			return stubOverlayConn{}, nil
-		},
-	)
-	if len(built) != 2 || len(conns) != 2 || len(bySession) != 2 {
-		t.Fatalf("listeners/sessions = %d/%d/%d, want 2/2/2", len(built), len(conns), len(bySession))
 	}
 }
 

@@ -3,12 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/netip"
 	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -18,134 +15,6 @@ import (
 // -------------------------------------------------------------------------
 // Overlay Tunnel Wiring — VXLAN (RFC 8971) + Geneve (RFC 9521)
 // -------------------------------------------------------------------------
-
-type overlayRuntime struct {
-	vxlan          netio.OverlayConn
-	geneve         netio.OverlayConn
-	vxlanSessions  map[bfd.TransportScope]netio.OverlayConn
-	geneveSessions map[bfd.TransportScope]netio.OverlayConn
-}
-
-// startOverlayReceivers creates overlay tunnel connections and starts
-// OverlayReceiver goroutines in the errgroup. Returns a cleanup function
-// that closes all overlay connections when called.
-//
-// For each enabled tunnel type (VXLAN/Geneve), one UDP socket is bound
-// (port 4789 / 6081) and a dedicated receiver goroutine reads packets,
-// strips encapsulation, and delivers inner BFD payloads to the Manager.
-func startOverlayReceivers(
-	ctx context.Context,
-	g *errgroup.Group,
-	cfg *config.Config,
-	mgr *bfd.Manager,
-	sf *udpSenderFactory,
-	readiness *daemonReadiness,
-	logger *slog.Logger,
-) (*overlayRuntime, func()) {
-	runtime := &overlayRuntime{}
-	var conns []netio.OverlayConn
-
-	// VXLAN overlay receiver (RFC 8971, port 4789).
-	if cfg.VXLAN.Enabled && len(cfg.VXLAN.Peers) > 0 {
-		sessions, vxlanConns := createVXLANConns(cfg, sf, logger)
-		runtime.vxlanSessions = sessions
-		for _, vxlanConn := range vxlanConns {
-			conns = append(conns, vxlanConn)
-			recv := netio.NewOverlayReceiver(vxlanConn, mgr, logger)
-			g.Go(func() error {
-				return readiness.runRequired(ctx, "VXLAN receiver", func() error { return recv.Run(ctx) })
-			})
-		}
-		logger.Info("VXLAN overlay receivers started (RFC 8971)",
-			slog.Int("listeners", len(vxlanConns)),
-			slog.Uint64("management_vni", uint64(cfg.VXLAN.ManagementVNI)),
-			slog.String("backend", cfg.VXLAN.Backend))
-	}
-
-	// Geneve overlay receiver (RFC 9521, port 6081).
-	if cfg.Geneve.Enabled && len(cfg.Geneve.Peers) > 0 {
-		sessions, geneveConns := createGeneveConns(cfg, sf, logger)
-		runtime.geneveSessions = sessions
-		for _, geneveConn := range geneveConns {
-			conns = append(conns, geneveConn)
-			recv := netio.NewOverlayReceiver(geneveConn, mgr, logger)
-			g.Go(func() error {
-				return readiness.runRequired(ctx, "Geneve receiver", func() error { return recv.Run(ctx) })
-			})
-		}
-		logger.Info("Geneve overlay receivers started (RFC 9521)",
-			slog.Int("listeners", len(geneveConns)),
-			slog.Uint64("default_vni", uint64(cfg.Geneve.DefaultVNI)),
-			slog.String("backend", cfg.Geneve.Backend))
-	}
-
-	return runtime, func() {
-		for _, c := range conns {
-			if err := c.Close(); err != nil {
-				logger.Warn("failed to close overlay connection",
-					slog.String("error", err.Error()),
-				)
-			}
-		}
-	}
-}
-
-func createVXLANConns(
-	cfg *config.Config,
-	sf *udpSenderFactory,
-	logger *slog.Logger,
-) (map[bfd.TransportScope]netio.OverlayConn, []netio.OverlayConn) {
-	return createConfiguredOverlayConns(len(cfg.VXLAN.Peers), func(index int) (bfd.TransportScope, error) {
-		return vxlanTransportScope(cfg, cfg.VXLAN.Peers[index])
-	}, sf, logger, func(
-		localAddr netip.Addr, srcPort uint16, scopes []bfd.TransportScope,
-	) (netio.OverlayConn, error) {
-		return netio.NewVXLANOverlayBackend(netio.VXLANOverlayBackendConfig{
-			Backend: netio.OverlayBackendType(cfg.VXLAN.Backend), LocalAddr: localAddr,
-			SourcePort: srcPort, Logger: logger, Scopes: scopes,
-			ReadBufferSize: cfg.Socket.ReadBufferSize, WriteBufferSize: cfg.Socket.WriteBufferSize,
-		})
-	})
-}
-
-func createGeneveConns(
-	cfg *config.Config,
-	sf *udpSenderFactory,
-	logger *slog.Logger,
-) (map[bfd.TransportScope]netio.OverlayConn, []netio.OverlayConn) {
-	return createConfiguredOverlayConns(len(cfg.Geneve.Peers), func(index int) (bfd.TransportScope, error) {
-		return geneveTransportScope(cfg, cfg.Geneve.Peers[index])
-	}, sf, logger, func(
-		localAddr netip.Addr, srcPort uint16, scopes []bfd.TransportScope,
-	) (netio.OverlayConn, error) {
-		return netio.NewGeneveOverlayBackend(netio.GeneveOverlayBackendConfig{
-			Backend: netio.OverlayBackendType(cfg.Geneve.Backend), LocalAddr: localAddr,
-			SourcePort: srcPort, Logger: logger, Scopes: scopes,
-			ReadBufferSize: cfg.Socket.ReadBufferSize, WriteBufferSize: cfg.Socket.WriteBufferSize,
-		})
-	})
-}
-
-func createConfiguredOverlayConns(
-	peerCount int,
-	scopeAt func(int) (bfd.TransportScope, error),
-	sf *udpSenderFactory,
-	logger *slog.Logger,
-	build overlayConnBuilder,
-) (map[bfd.TransportScope]netio.OverlayConn, []netio.OverlayConn) {
-	groups := make(map[netip.Addr][]bfd.TransportScope)
-	for index := range peerCount {
-		scope, err := scopeAt(index)
-		if err != nil {
-			logger.Error("invalid overlay identity", slog.Int("peer_index", index), slog.String("error", err.Error()))
-			continue
-		}
-		groups[scope.OuterLocalAddr] = append(groups[scope.OuterLocalAddr], scope)
-	}
-	return createOverlayConnGroups(groups, sf, logger, build)
-}
-
-type overlayConnBuilder func(netip.Addr, uint16, []bfd.TransportScope) (netio.OverlayConn, error)
 
 // leasedOverlayConn owns the listener's inner source port. Session senders
 // borrow this connection and never release its lease.
@@ -181,33 +50,18 @@ func (c *leasedOverlayConn) SendEncapsulatedFor(
 	return nil
 }
 
-func createOverlayConnGroups(
-	groups map[netip.Addr][]bfd.TransportScope,
-	sf *udpSenderFactory,
-	logger *slog.Logger,
-	build overlayConnBuilder,
-) (map[bfd.TransportScope]netio.OverlayConn, []netio.OverlayConn) {
-	bySession := make(map[bfd.TransportScope]netio.OverlayConn)
-	conns := make([]netio.OverlayConn, 0, len(groups))
-	for localAddr, scopes := range groups {
-		srcPort, err := sf.portAlloc.Allocate()
-		if err != nil {
-			logger.Error("allocate overlay inner source port", slog.String("error", err.Error()))
-			continue
-		}
-		conn, err := build(localAddr, srcPort, scopes)
-		if err != nil {
-			sf.portAlloc.Release(srcPort)
-			logger.Error("create overlay listener", slog.String("local", localAddr.String()), slog.String("error", err.Error()))
-			continue
-		}
-		conn = &leasedOverlayConn{OverlayConn: conn, portAlloc: sf.portAlloc, port: srcPort}
-		conns = append(conns, conn)
-		for _, scope := range scopes {
-			bySession[scope] = conn
-		}
+// SetScopes replaces the identities of the leased scoped backend in place.
+func (c *leasedOverlayConn) SetScopes(scopes []bfd.TransportScope) error {
+	conn, ok := c.OverlayConn.(interface {
+		SetScopes(scopes []bfd.TransportScope) error
+	})
+	if !ok {
+		return fmt.Errorf("overlay set scopes: %w", netio.ErrOverlayIdentityMismatch)
 	}
-	return bySession, conns
+	if err := conn.SetScopes(scopes); err != nil {
+		return fmt.Errorf("overlay set scopes: %w", err)
+	}
+	return nil
 }
 
 func vxlanTransportScope(
@@ -286,7 +140,7 @@ func geneveTransportScope(
 }
 
 // overlayPeerEntry holds the raw per-peer data before conversion to
-// bfd.SessionConfig. Used by the common reconcileOverlayTunnel helper.
+// bfd.SessionConfig.
 type overlayPeerEntry struct {
 	key        string
 	peerName   string
@@ -296,7 +150,6 @@ type overlayPeerEntry struct {
 	peerRx     time.Duration
 	peerDetect uint32
 	scope      bfd.TransportScope
-	conn       netio.OverlayConn
 	scopeErr   error
 }
 
@@ -308,34 +161,9 @@ type overlayTimerDefaults struct {
 	detectMult    uint32
 }
 
-// reconcileOverlayTunnels reconciles both VXLAN (RFC 8971) and Geneve (RFC 9521)
-// BFD sessions from the configuration. Each enabled tunnel type is processed
-// through the shared reconcileOverlayTunnel path.
-func reconcileOverlayTunnels(
-	ctx context.Context,
-	cfg *config.Config,
-	mgr *bfd.Manager,
-	overlayRuntime *overlayRuntime,
-	logger *slog.Logger,
-) {
-	for _, tp := range buildOverlayTunnelParams(cfg, overlayRuntime) {
-		reconcileOverlayTunnel(ctx, mgr, logger, tp)
-	}
-}
-
 // buildOverlayTunnelParams builds one source-scoped candidate for each overlay
 // type, including an empty candidate when that source is disabled.
-func buildOverlayTunnelParams(
-	cfg *config.Config,
-	rt *overlayRuntime,
-) []overlayTunnelParams {
-	if rt == nil {
-		rt = &overlayRuntime{}
-	}
-
-	vxlanEntries := buildVXLANPeerEntries(cfg, rt)
-	geneveEntries := buildGenevePeerEntries(cfg, rt)
-
+func buildOverlayTunnelParams(cfg *config.Config) []overlayTunnelParams {
 	return []overlayTunnelParams{
 		{
 			rfc: "RFC 8971", sessType: bfd.SessionTypeVXLAN,
@@ -345,7 +173,7 @@ func buildOverlayTunnelParams(
 				requiredMinRx: cfg.VXLAN.DefaultRequiredMinRx,
 				detectMult:    cfg.VXLAN.DefaultDetectMultiplier,
 			},
-			conn: rt.vxlan, entries: vxlanEntries,
+			entries: buildVXLANPeerEntries(cfg),
 		},
 		{
 			rfc: "RFC 9521", sessType: bfd.SessionTypeGeneve,
@@ -355,147 +183,75 @@ func buildOverlayTunnelParams(
 				requiredMinRx: cfg.Geneve.DefaultRequiredMinRx,
 				detectMult:    cfg.Geneve.DefaultDetectMultiplier,
 			},
-			conn: rt.geneve, entries: geneveEntries,
+			entries: buildGenevePeerEntries(cfg),
 		},
 	}
 }
 
-func buildVXLANPeerEntries(cfg *config.Config, rt *overlayRuntime) []overlayPeerEntry {
+func buildVXLANPeerEntries(cfg *config.Config) []overlayPeerEntry {
 	if !cfg.VXLAN.Enabled {
 		return nil
 	}
 	entries := make([]overlayPeerEntry, 0, len(cfg.VXLAN.Peers))
 	for _, peer := range cfg.VXLAN.Peers {
 		scope, err := vxlanTransportScope(cfg, peer)
-		conn := rt.vxlanSessions[scope]
-		if conn == nil {
-			conn = rt.vxlan
-		}
 		entries = append(entries, overlayPeerEntry{
 			key: peer.VXLANSessionKey(), peerName: peer.Peer,
 			peerStr: scope.InnerPeerAddr.String(), localStr: scope.InnerLocalAddr.String(),
 			peerTx: peer.DesiredMinTx, peerRx: peer.RequiredMinRx,
-			peerDetect: peer.DetectMult, scope: scope, conn: conn, scopeErr: err,
+			peerDetect: peer.DetectMult, scope: scope, scopeErr: err,
 		})
 	}
 	return entries
 }
 
-func buildGenevePeerEntries(cfg *config.Config, rt *overlayRuntime) []overlayPeerEntry {
+func buildGenevePeerEntries(cfg *config.Config) []overlayPeerEntry {
 	if !cfg.Geneve.Enabled {
 		return nil
 	}
 	entries := make([]overlayPeerEntry, 0, len(cfg.Geneve.Peers))
 	for _, peer := range cfg.Geneve.Peers {
 		scope, err := geneveTransportScope(cfg, peer)
-		conn := rt.geneveSessions[scope]
-		if conn == nil {
-			conn = rt.geneve
-		}
 		entries = append(entries, overlayPeerEntry{
 			key: peer.GeneveSessionKey(cfg.Geneve.DefaultVNI), peerName: peer.Peer,
 			peerStr: scope.InnerPeerAddr.String(), localStr: scope.InnerLocalAddr.String(),
 			peerTx: peer.DesiredMinTx, peerRx: peer.RequiredMinRx,
-			peerDetect: peer.DetectMult, scope: scope, conn: conn, scopeErr: err,
+			peerDetect: peer.DetectMult, scope: scope, scopeErr: err,
 		})
 	}
 	return entries
 }
 
-// overlayTunnelParams holds the parameters for reconcileOverlayTunnel,
-// capturing the differences between VXLAN and Geneve reconciliation.
+// overlayTunnelParams captures the differences between VXLAN and Geneve
+// candidate compilation.
 type overlayTunnelParams struct {
 	rfc      string
 	sessType bfd.SessionType
 	owner    bfd.SessionOwner
 	defaults overlayTimerDefaults
-	conn     netio.OverlayConn
 	entries  []overlayPeerEntry
 }
 
-// reconcileOverlayTunnel is the shared implementation for overlay BFD session
-// reconciliation. It reuses the running tunnel backend, converts peer entries
-// to session configs, and calls mgr.ReconcileSessions.
-func reconcileOverlayTunnel(
-	ctx context.Context,
-	mgr *bfd.Manager,
-	logger *slog.Logger,
-	params overlayTunnelParams,
-) {
-	desired, conns, err := compileOverlaySessionCandidates(params)
-	if err != nil {
-		logger.Error("invalid overlay candidate, keeping current sessions",
-			slog.String("rfc", params.rfc), slog.String("error", err.Error()))
-		return
-	}
-	source := sourceVXLAN
-	if params.sessType == bfd.SessionTypeGeneve {
-		source = sourceGeneve
-	}
-	result := applyCompiledOverlay(ctx, mgr, source, compiledOverlayCandidate{
-		owner: params.owner, conns: conns, desired: desired,
-	})
-	logOverlaySourceApplyResult(logger, params.rfc, result)
-}
-
-func compileOverlaySessionCandidates(
-	params overlayTunnelParams,
-) ([]bfd.ReconcileConfig, []netio.OverlayConn, error) {
+// compileOverlaySessionCandidates validates the complete desired overlay set.
+// Backends are claimed at apply time by the overlay owner.
+func compileOverlaySessionCandidates(params overlayTunnelParams) ([]bfd.ReconcileConfig, error) {
 	desired := make([]bfd.ReconcileConfig, 0, len(params.entries))
-	conns := make([]netio.OverlayConn, 0, len(params.entries))
 	for _, e := range params.entries {
 		if e.scopeErr != nil {
-			return nil, nil, fmt.Errorf("%s peer %q identity: %w", params.rfc, e.peerName, e.scopeErr)
+			return nil, fmt.Errorf("%s peer %q identity: %w", params.rfc, e.peerName, e.scopeErr)
 		}
 		sessCfg, cfgErr := buildOverlaySessionConfig(
 			e.peerStr, e.localStr, e.peerTx, e.peerRx, e.peerDetect,
 			params.defaults, params.sessType, e.scope)
 		if cfgErr != nil {
-			return nil, nil, fmt.Errorf("%s peer %q: %w", params.rfc, e.peerName, cfgErr)
+			return nil, fmt.Errorf("%s peer %q: %w", params.rfc, e.peerName, cfgErr)
 		}
-		desired = append(desired, bfd.ReconcileConfig{
-			Key: e.key, SessionConfig: sessCfg,
-		})
-		conn := e.conn
-		if conn == nil {
-			conn = params.conn
-		}
-		conns = append(conns, conn)
+		desired = append(desired, bfd.ReconcileConfig{Key: e.key, SessionConfig: sessCfg})
 	}
 	if err := bfd.ValidateReconcileConfigs(desired); err != nil {
-		return nil, nil, fmt.Errorf("validate complete %s session set: %w", params.rfc, err)
+		return nil, fmt.Errorf("validate complete %s session set: %w", params.rfc, err)
 	}
-	return desired, conns, nil
-}
-
-// reconcileOverlaySessions performs the common reconciliation loop for overlay
-// BFD sessions (VXLAN or Geneve), calling mgr.ReconcileSessions with the
-// pre-built desired set.
-func reconcileOverlaySessions(
-	ctx context.Context,
-	mgr *bfd.Manager,
-	owner bfd.SessionOwner,
-	desired []bfd.ReconcileConfig,
-	rfc string,
-	logger *slog.Logger,
-) {
-	result := applyOverlayDesiredSessions(ctx, mgr, owner, desired)
-	if err := result.Err(); err != nil {
-		logger.Error("overlay session reconciliation had errors",
-			slog.String("rfc", rfc),
-			slog.String("error", err.Error()),
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-			slog.Int("pending", result.Pending),
-			slog.Int("failed", result.Failed),
-			slog.Any("error_codes", reconcileErrorCodes(result)),
-		)
-		return
-	}
-
-	logger.Info("overlay session reconciliation complete",
-		slog.String("rfc", rfc),
-		slog.Int("created", result.Created), slog.Int("released", result.Released))
+	return desired, nil
 }
 
 func applyOverlayDesiredSessions(
@@ -505,40 +261,6 @@ func applyOverlayDesiredSessions(
 	desired []bfd.ReconcileConfig,
 ) bfd.ReconcileResult {
 	return mgr.ReconcileSessionsForOwnerDetailed(ctx, owner, desired)
-}
-
-func logOverlaySourceApplyResult(
-	logger *slog.Logger,
-	rfc string,
-	result sourceApplyResult,
-) {
-	if result.Err != nil {
-		logger.Error("overlay session reconciliation had errors",
-			slog.String("rfc", rfc),
-			slog.String("error", result.Err.Error()),
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-			slog.Int("pending", result.Pending),
-			slog.Int("failed", result.Failed),
-			slog.Any("error_codes", sourceApplyErrorCodes(result)),
-		)
-		return
-	}
-	logger.Info("overlay session reconciliation complete",
-		slog.String("rfc", rfc),
-		slog.Int("created", result.Created),
-		slog.Int("released", result.Released),
-	)
-}
-
-func sourceApplyErrorCodes(result sourceApplyResult) []string {
-	codes := make([]string, 0, result.Failed)
-	for code := bfd.ReconcileErrorLifecycle; code <= bfd.ReconcileErrorCleanup; code++ {
-		for range result.Errors.Count(code) {
-			codes = append(codes, code.String())
-		}
-	}
-	return codes
 }
 
 // buildOverlaySessionConfig converts per-peer overlay fields (address strings,

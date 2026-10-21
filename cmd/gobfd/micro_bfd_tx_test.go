@@ -23,7 +23,7 @@ func TestCompileControlSessionCandidateRejectsMicroMemberReusedAcrossLAGs(t *tes
 			PeerAddr: "192.0.2.5", LocalAddr: "192.0.2.6", MinActiveLinks: 1,
 		},
 	}
-	if _, err := compileControlSessionCandidate(cfg, &overlayRuntime{}); err == nil {
+	if _, err := compileControlSessionCandidate(cfg); err == nil {
 		t.Fatal("candidate with eth1 in bond0 and bond1 compiled")
 	}
 }
@@ -36,7 +36,7 @@ func TestCompileControlSessionCandidateAppliesMicroTimerDefaults(t *testing.T) {
 		LAGInterface: "bond0", MemberLinks: []string{"eth0"},
 		PeerAddr: "192.0.2.1", LocalAddr: "192.0.2.2", MinActiveLinks: 1,
 	}}
-	candidate, err := compileControlSessionCandidate(cfg, &overlayRuntime{})
+	candidate, err := compileControlSessionCandidate(cfg)
 	if err != nil {
 		t.Fatalf("compileControlSessionCandidate: %v", err)
 	}

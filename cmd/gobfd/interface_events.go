@@ -56,12 +56,17 @@ func (c *reconciliationCoordinator) interfaceEventSelection(
 ) (uint64, reconciliationSourceMask) {
 	c.statusMu.RLock()
 	defer c.statusMu.RUnlock()
+	if ev.Resync || ev.Address {
+		// Any source may wait for an address, and a resync may follow a lost
+		// address event; retries skip sources that are not pending.
+		return c.snapshot.DesiredGeneration, allReconciliationSources
+	}
 	var selected reconciliationSourceMask
-	if ev.Resync || ev.IfName != "" {
+	if ev.IfName != "" {
 		selected = c.unboundSources
 	}
 	for i, dependencies := range c.interfaceDependencies {
-		if (ev.Resync && len(dependencies) != 0) || (ev.IfName != "" && slices.Contains(dependencies, ev.IfName)) {
+		if ev.IfName != "" && slices.Contains(dependencies, ev.IfName) {
 			selected |= sourceMask(reconciliationSource(i))
 		}
 	}
@@ -126,9 +131,13 @@ func consumeInterfaceEvents(
 			if !ok {
 				return
 			}
-			if ev.Resync {
+			switch {
+			case ev.Resync:
 				resyncInterfacePaths(ctx, mgr, logger)
-			} else {
+			case ev.Address:
+				// An address change carries no link state; it only retries
+				// sources waiting for an address.
+			default:
 				mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
 			}
 			// Bound listener interfaces are rebound and re-checked against the current

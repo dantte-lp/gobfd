@@ -29,7 +29,6 @@ func handleSIGHUP(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
@@ -39,7 +38,7 @@ func handleSIGHUP(
 			return
 		case <-sigHUP:
 			logger.Info("received SIGHUP, reloading configuration")
-			reloadConfig(ctx, configPath, logLevel, mgr, sf, overlayRuntime, coordinator, logger)
+			reloadConfig(ctx, configPath, logLevel, mgr, sf, coordinator, logger)
 		}
 	}
 }
@@ -54,7 +53,6 @@ func reloadConfig(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
@@ -65,7 +63,7 @@ func reloadConfig(
 		)
 		return
 	}
-	if err := coordinator.reconcile(ctx, newCfg, mgr, sf, overlayRuntime, logLevel); err != nil {
+	if err := coordinator.reconcile(ctx, newCfg, mgr, sf, logLevel); err != nil {
 		logger.Error("invalid control-session candidate, keeping current settings",
 			slog.String("error", err.Error()))
 		return
@@ -78,18 +76,17 @@ func reconcileAllSessions(
 	cfg *config.Config,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
-	if err := coordinator.reconcile(ctx, cfg, mgr, sf, overlayRuntime, nil); err != nil {
+	if err := coordinator.reconcile(ctx, cfg, mgr, sf, nil); err != nil {
 		logger.Error("invalid startup control-session candidate, skipping reconciliation",
 			slog.String("error", err.Error()))
 	}
 }
 
 func validateCompleteControlSessionCandidate(cfg *config.Config) error {
-	_, err := compileControlSessionCandidate(cfg, nil)
+	_, err := compileControlSessionCandidate(cfg)
 	return err
 }
 
@@ -188,7 +185,7 @@ func declarativeSenderLeaseFactoryFor(
 			localAddr, multiHop, logger, senderOpts...,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("create session sender: %w", err)
+			return nil, fmt.Errorf("create session sender: %w", addressUnavailableError(localAddr, err))
 		}
 		return bfd.NewSenderLease(sender, func() error {
 			if err := sf.CloseSender(srcPort); err != nil {

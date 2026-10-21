@@ -51,16 +51,6 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 		{"unsolicited auth", func(cfg *config.Config) {
 			cfg.Unsolicited.Auth = config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "s"}
 		}, startupFieldUnsolicitedAuth},
-		{"new VXLAN local binding", func(cfg *config.Config) {
-			cfg.VXLAN.Peers = append(cfg.VXLAN.Peers, config.VXLANPeerConfig{
-				Peer: "192.0.2.22", Local: "127.0.0.3",
-			})
-		}, startupFieldVXLANListenerBinding},
-		{"new Geneve local binding", func(cfg *config.Config) {
-			cfg.Geneve.Peers = append(cfg.Geneve.Peers, config.GenevePeerConfig{
-				Peer: "192.0.2.32", Local: "127.0.0.3", VNI: 100,
-			})
-		}, startupFieldGeneveListenerBinding},
 	}
 
 	for _, tc := range tests {
@@ -81,6 +71,12 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 	dynamic.Sessions[0].Peer = "192.0.2.9"
 	dynamic.Sessions[0].DesiredMinTx *= 2
 	dynamic.Geneve.Peers[0].VNI = startup.Geneve.DefaultVNI
+	// The overlay owner opens, widens and narrows backends per generation.
+	dynamic.VXLAN.Peers = append(dynamic.VXLAN.Peers, config.VXLANPeerConfig{Peer: "192.0.2.22", Local: "127.0.0.3"})
+	dynamic.Geneve.Peers = append(dynamic.Geneve.Peers, config.GenevePeerConfig{
+		Peer: "192.0.2.32", Local: "127.0.0.3", VNI: 300,
+	})
+	dynamic.Geneve.Peers[1].VNI = 400
 	if changed := contract.changedFields(dynamic); len(changed) != 0 {
 		t.Fatalf("dynamic-only changed fields = %v, want none", changed)
 	}
@@ -134,7 +130,7 @@ func TestReconciliationCoordinatorRejectsStartupChangeBeforeMutation(t *testing.
 	}}
 	err := coordinator.reconcile(
 		context.Background(), candidate, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, level,
+		newNthFailureDeclarativeSenderFactory(0), level,
 	)
 	if !errors.Is(err, errStartupConfigChanged) {
 		t.Fatalf("reconcile error = %v, want errStartupConfigChanged", err)
