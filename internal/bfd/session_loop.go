@@ -284,8 +284,9 @@ func (s *Session) handleDetectTimer(
 
 	// Use cachedState (goroutine-confined) to avoid atomic load.
 	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert
-	// and skips the Section 6.8.18 reset below, keeping zero remote RX drain
-	// suppression pending a maintainer decision.
+	// and skips the Section 6.8.18 SHOULD reset below: the drain releases the
+	// session after a silent Detection Time, so resetting would only add
+	// AdminDown packets to a peer that asked for none (Section 6.8.16).
 	if s.cachedState == StateAdminDown {
 		// Restart detect timer even in Down state to handle re-negotiation.
 		detectTimer.Reset(s.calcDetectionTimeHot())
