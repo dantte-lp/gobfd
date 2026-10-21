@@ -511,6 +511,11 @@
   Compose называл project по каталогу `interop-rfc`, и тестовый helper
   отклонял каждый контейнер (`gobfd-dah`).
 
+- `make e2e-linux` запускает тестовый бинарник в `localhost/<project>-dev:latest`
+  — под этим именем Compose v2 и новее собирает образ dev service. Прежнее имя
+  `<project>_dev` приводило к попытке Podman скачать образ из registry
+  (`gobfd-dah`).
+
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
   Восстановление, принятое после того, как локальный нулевой Required Min RX

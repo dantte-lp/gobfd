@@ -165,11 +165,17 @@ func normalizeProject(name string) string {
 	return strings.Trim(result.String(), "-")
 }
 
+// devServiceImage names the image Compose builds for the dev service.
+// Compose v2 and later join project and service with "-", not "_".
+func devServiceImage(project string) string {
+	return "localhost/" + project + "-dev:latest"
+}
+
 func (r *runner) runLinux(ctx context.Context) (runErr error) {
 	containerName := "e2e-linux-" + r.runID
 	testImage := os.Getenv("E2E_LINUX_IMAGE")
 	if testImage == "" {
-		testImage = "localhost/" + r.devProject + "_dev:latest"
+		testImage = devServiceImage(r.devProject)
 	}
 	defer func() {
 		r.bestEffortFile(
