@@ -188,11 +188,12 @@ A daemon-level coordinator serializes startup and SIGHUP compilation and apply.
 It retains a deep-copied startup-runtime contract. Every SIGHUP candidate is
 checked against that contract before candidate compilation or any generation,
 health, log-level, session, or resource mutation. Startup-owned server,
-unsolicited listener, socket, policy, actuator, GoBGP, and overlay fields are rejected with
+unsolicited listener, socket, policy, actuator, GoBGP, and global overlay
+backend/VNI fields are rejected with
 bounded field identifiers; configuration values and secrets are not retained in
 the error. Desired-set membership changes may need new control, Echo, or Micro-BFD
-listeners, which the listener owner opens as part of the generation, but
-cannot require a new overlay binding; same-key effective
+listeners or overlay backends, which their owners open as part of the
+generation; same-key effective
 parameter changes remain reconciliation conflicts rather than in-place updates.
 The coordinator publishes a
 monotonic desired generation only after that check and the complete immutable
@@ -222,11 +223,16 @@ listener closes when its last claim goes.
 Each listener runs its own required receiver; a deliberate close cancels that
 receiver first, so only an unexpected socket loss is fail-stop. A device-bound
 listener of a recreated interface is rebound in place with `SO_BINDTODEVICE`.
-Overlay backends stay startup-owned: a missing backend leaves its source
-`failed` until restart, and runtime backend creation or replacement is not
-implemented yet. Only `ENODEV` from a listener device binding is
-classified as an unavailable interface; other runtime failures remain `failed`,
-without string or errno classification.
+An overlay owner (`cmd/gobfd/overlay_owner.go`) does the same for the VXLAN and
+Geneve sources: one backend per tunnel kind and outer local address, opened on
+the first claim, widened in place (`SetScopes` swaps a copy-on-write identity
+set read with one atomic load per packet) when an identity is added, narrowed
+after a clean apply, and closed when empty; live sessions never change socket.
+Only `ENODEV` from a listener device binding (unavailable interface) and
+`EADDRNOTAVAIL` from a listener, sender, or overlay bind (unavailable address)
+are classified; both leave the source `pending`. Address events and resyncs
+retry every pending source without link side effects. Other runtime failures
+remain `failed`, without string classification.
 
 The empty-service gRPC health check is `NOT_SERVING` before the first converged
 generation and while desired differs from applied; it returns `SERVING` after
@@ -289,7 +295,7 @@ isolation slice, and the C01.4b generation/receipt coordinator slice. It is not
 the complete v1 reconciliation or RFC contract. The
 following boundaries remain deferred:
 
-- overlay backend replacement ownership;
+- runtime changes of the global overlay backend and default VNI fields;
 - stable per-group and per-tunnel owner identifiers;
 - Poll/Final parameter negotiation;
 - transport-aware packet demultiplexing; and

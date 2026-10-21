@@ -28,8 +28,8 @@
 - Ограниченная обработка Linux interface events: затронутые sources становятся
   pending без освобождения старых claims и автоматически повторяют применение
   в сохранённом generation. Потеря событий запрашивает полную сверку интерфейсов.
-  Non-Linux stub не обеспечивает автоматическое восстановление; отсутствующий
-  overlay backend остаётся ограничением, снимаемым только перезапуском.
+  Non-Linux stub не обеспечивает автоматическое восстановление; address events и
+  сверка повторяют применение всех pending sources.
 
 - Live-квалификация timer reload FRR/BIRD в testcontainers-топологии BASE:
   `300→100→500→300 ms` и RX0 с generation receipts, окнами пакетов Poll/Final,
@@ -222,8 +222,22 @@
   на месте при следующей проверке, для чего нужен `CAP_NET_RAW`; неудачная
   перепривязка остаётся в `NOT_SERVING` и повторяется. Намеренно закрытый
   listener не считается потерей receiver. Startup по-прежнему прерывается при
-  любой ошибке listener, новые overlay identities по-прежнему требуют
-  перезапуска.
+  любой ошибке listener.
+- Backends VXLAN и Geneve принадлежат reconciliation generation (H-23,
+  `gobfd-qj0.8.2.2.6.4`). SIGHUP может добавлять, удалять или re-key overlay
+  identities, включая новый local endpoint или per-peer VNI Geneve: новый
+  endpoint открывает backend, identity на открытом endpoint расширяет набор
+  identities сокета на месте (`SetScopes`, одна атомарная загрузка на пакет), а
+  чистое применение сужает его и закрывает пустые backends вместе с inner source
+  port. Startup захватывает backends так же, поэтому ошибка backend больше не
+  требует перезапуска. `vxlan.backend`, `vxlan.management_vni`, `geneve.backend`
+  и `geneve.default_vni` по-прежнему требуют перезапуска.
+- Ещё не назначенный или IPv6-tentative local address (`EADDRNOTAVAIL`) при
+  bind listener, sender или overlay считается типизированным недоступным
+  адресом: source остаётся в `pending`, а interface monitor, теперь подписанный
+  и на непривилегированные address-группы rtnetlink, повторяет применение по
+  `RTM_NEWADDR`. Address events не несут состояния link и не переводят сессии в
+  Down. API сообщает о такой сессии `Unavailable` вместо `FailedPrecondition`.
 - Потеря receive path или dispatch приводит к fail-stop. Если сокет control,
   Echo, Micro-BFD или overlay receiver закрывается либо dispatch loop
   завершается во время работы daemon, health переходит в `NOT_SERVING`, sessions

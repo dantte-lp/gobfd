@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bounded Linux interface-event reconciliation: affected sources become pending
   without releasing old claims and retry automatically in the retained generation.
   Notification loss requests an inventory resync. The non-Linux stub provides no
-  automatic recovery; an absent overlay backend remains a restart-only limit.
+  automatic recovery; address events and resyncs retry every pending source.
 
 - Live FRR/BIRD timer reload qualification in the testcontainers BASE topology:
   `300→100→500→300 ms` and RX0 with generation receipts, Poll/Final packet
@@ -215,8 +215,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source, unsolicited or API claim goes; other listeners are not reopened. A device-bound listener whose interface is recreated with a new
   ifindex is rebound in place on the next check, which needs `CAP_NET_RAW`; a
   failed rebind stays `NOT_SERVING` and is retried. A deliberately closed
-  listener is not receiver loss. Startup still fails on any listener error, and
-  new overlay identities remain restart-only.
+  listener is not receiver loss. Startup still fails on any listener error.
+- VXLAN and Geneve backends are owned per reconciliation generation (H-23,
+  `gobfd-qj0.8.2.2.6.4`). SIGHUP may add, remove or re-key overlay identities,
+  including a new local endpoint or per-peer Geneve VNI: a new endpoint opens a
+  backend, an identity added on an open endpoint widens that socket's identity
+  set in place (`SetScopes`, one atomic load per packet), and a clean apply
+  narrows it and closes empty backends with their inner source port. Startup
+  claims backends the same way, so a backend failure no longer needs a restart.
+  `vxlan.backend`, `vxlan.management_vni`, `geneve.backend` and
+  `geneve.default_vni` stay restart-only.
+- A local address that is not assigned yet or is IPv6-tentative
+  (`EADDRNOTAVAIL`) on a listener, sender or overlay bind is a typed unavailable
+  address: the source stays `pending`, and the interface monitor, now also
+  subscribed to unprivileged rtnetlink address groups, retries it on
+  `RTM_NEWADDR`. Address events carry no link state and do not take sessions
+  down. The API reports such a session as `Unavailable` instead of
+  `FailedPrecondition`.
 - Receive-path or dispatch loss is fail-stop. A control, Echo, Micro-BFD or
   overlay receiver whose socket closes, or a dispatch loop that returns, while
   the daemon runs sets health `NOT_SERVING`, drains sessions and exits with an

@@ -841,8 +841,11 @@ On Linux, an existing but down configured interface produces `pending` after
 whole-source availability preflight. Link events retry affected pending sources
 against the retained generation automatically; another SIGHUP is not required.
 Repeated events coalesce and do not replay converged sources. Netlink loss
-requests a full interface resync. The non-Linux stub provides no automatic
-retry.
+requests a full interface resync. Address events (`RTM_NEWADDR`/`RTM_DELADDR`,
+including IPv6 DAD completion) and resyncs retry every pending source; they
+carry no link state and never take sessions down. Receiving these rtnetlink
+groups needs no capability. The non-Linux stub provides no automatic retry, so
+there a later SIGHUP retries pending sources.
 
 Receive listeners are part of the generation. Before the base, Echo, or
 Micro-BFD source applies, it claims the UDP listeners its desired set needs
@@ -850,12 +853,15 @@ Micro-BFD source applies, it claims the UDP listeners its desired set needs
 after every claimed listener is open, so no source converges on senders alone.
 A listener whose interface does not exist leaves the source `pending`, and the
 automatic interface retry opens it; any other open error leaves the source
-`failed`. A local address that is not assigned yet (`EADDRNOTAVAIL`) fails the
-source, as it fails a sender bind; a later SIGHUP retries it. An API-created control or Echo session
-claims its listener with its sender and opens it when absent; an Echo session
-shares the per-address Echo listener. An absent interface fails `AddSession` or
-`AddEchoSession` with `Unavailable`, another open error with
-`FailedPrecondition`, and no session is created. Destroying the session drops
+`failed`. A local address that is not assigned yet or still IPv6-tentative
+(`EADDRNOTAVAIL`) on a listener, sender, or overlay backend bind is a typed
+unavailable address: the source stays `pending` without releasing old claims,
+and the address event that assigns it retries the source. An API-created
+control or Echo session claims its listener with its sender and opens it when
+absent; an Echo session shares the per-address Echo listener. An absent
+interface or unassigned address fails `AddSession` or `AddEchoSession` with
+`Unavailable`, another open error with `FailedPrecondition`, and no session is
+created. Destroying the session drops
 its claim. After a source applies without failed or resource-pending entries,
 it drops its claims outside the desired set; a listener closes when its last
 source, unsolicited, or API claim goes.
@@ -870,16 +876,23 @@ the binding `NOT_SERVING` and is retried. At startup any listener failure,
 including an absent interface, still fails the start. Non-Linux builds cannot
 create listeners, so such a source is `failed`.
 
-Overlay backends receive their tunnel scopes when they are created, and no
-runtime owner creates or replaces them yet. A new identity on an existing local
-endpoint would need a running shared backend replaced; one on a new endpoint
-would need a new backend. Both remain restart-only and are rejected before
-mutation; this is unimplemented scope, not a kernel or privilege limit.
+Overlay backends are part of the generation as well. One userspace-udp socket
+serves each tunnel kind and outer local address (VXLAN UDP 4789, Geneve UDP
+6081). Before the VXLAN or Geneve source applies, it claims the identities of
+its desired set: a new local endpoint opens a backend, and an identity added
+on an open endpoint widens that socket's identity set in place, so live
+sessions keep their socket. After an apply without failed or resource-pending
+entries, every backend narrows to the desired identities and a backend left
+without one closes and returns its inner source port. A failed apply keeps the
+wider set. Startup claims backends the same way, so a backend that cannot open
+fails or pends its source instead of stopping the daemon. The ports are
+unprivileged and the sockets are not device-bound, so no capability is needed.
 
 The five desired sets reconcile session/group membership. Control, Echo, and
 Micro-BFD entries may be added, removed, or re-keyed, including entries that
-need a new local address, interface, or session type. VXLAN and Geneve entries may be removed, but adding
-or re-keying an overlay identity requires a process restart. BFD defaults and per-entry timers,
+need a new local address, interface, or session type. VXLAN and Geneve entries
+may be added, removed, or re-keyed, including a new local endpoint or a new
+per-peer Geneve VNI. BFD defaults and per-entry timers,
 padding, authentication, peer, and threshold values apply when a new identity
 is created. Solely config-owned base sessions also accept in-place changes to
 `desired_min_tx` and `required_min_rx`. One active Poll transaction keeps its
@@ -903,9 +916,10 @@ disabling a source is supported.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
 `log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`,
-`vxlan.backend`, `vxlan.management_vni`, `geneve.backend`,
-`geneve.default_vni`, and every new or re-keyed overlay identity, including one
-that needs a new local address or effective Geneve VNI. A rejected reload logs only
+`vxlan.backend`, `vxlan.management_vni`, `geneve.backend`, and
+`geneve.default_vni`. The two VNI defaults re-key every identity of their
+source at once; runtime support for that is not implemented, which is a scope
+limit rather than a kernel or privilege boundary. A rejected reload logs only
 these bounded field paths, never configuration values or authentication
 secrets. Socket buffer values are included in this startup-only boundary
 and apply to every supported UDP socket described in the socket tuning section.
@@ -918,8 +932,9 @@ non-transactional across sources and for other runtime apply failures.
 Automatic completion covers admitted base timer transactions, not arbitrary
 failed source operations. Other partial applies still require a later explicit
 SIGHUP to compile and publish another desired generation. A configured
-non-empty VXLAN or Geneve source without its running backend is failed, not
-skipped. Already accepted source changes are not rolled back.
+non-empty VXLAN or Geneve source whose backend cannot open is failed, or
+pending for an unassigned local address, not skipped. Already accepted source
+changes are not rolled back.
 
 ### Validation Rules
 

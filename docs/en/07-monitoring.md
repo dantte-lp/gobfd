@@ -272,8 +272,9 @@ successful automatic retry can restore convergence. Duplicate receipts do not
 emit another event. Netlink receive overflow logs a resync request; a full event
 channel retains that request until it can be delivered. Queue size is fixed,
 independent of event volume. The same retry opens a listener whose interface
-appears; an absent overlay backend stays restart-only. Non-Linux stubs do not
-auto-retry.
+appears. Address events and resyncs also retry sources pending on an
+unassigned local address, including overlay backends, without changing session
+state. Non-Linux stubs do not auto-retry.
 
 ### Flight Recorder
 
