@@ -213,9 +213,16 @@ sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service
 sudo systemctl daemon-reload && sudo systemctl restart gobfd
 ```
 
-Bond должен существовать к моменту запуска gobfd. `systemd-analyze verify`
-принимает drop-in в Debian 13 и Oracle Linux 10; квалификация записи на хосте
-с модулем bonding не выполнена (`gobfd-qj0.8.2.3.3.1`).
+Bond должен существовать к моменту запуска gobfd. Атрибуты сетевых устройств
+в sysfs имеют режим `0644 root:root`, поэтому drop-in также выдаёт
+`CAP_DAC_OVERRIDE`: непривилегированный UID только с `CAP_NET_ADMIN` получил
+`EACCES` при записи сетевого атрибута sysfs, а с `CAP_NET_ADMIN` и
+`CAP_DAC_OVERRIDE` запись прошла. Эта capability обходит проверки прав файлов
+на всех путях, видимых сервису, включая чтение файлов только для root, например
+`/etc/shadow`; запись по-прежнему ограничена read-only mount namespace.
+Включайте drop-in только там, где этот компромисс принят. `systemd-analyze
+verify` принимает его в Debian 13 и Oracle Linux 10; квалификация записи на
+хосте с модулем bonding не выполнена (`gobfd-qj0.8.2.3.3.1`).
 
 Для крупных deployment лимит дескрипторов повышается drop-in-файлом, а не
 правкой юнита из пакета:

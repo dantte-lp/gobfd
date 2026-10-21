@@ -471,9 +471,9 @@
 
 - Штатная остановка завершается с кодом 0, если AdminDown drain не может
   завершиться из-за недоступного пира или пира без discriminator; drain
-  записывается как предупреждение. Ошибки admission, commit, owner и другие
-  локальные ошибки drain по-прежнему завершают процесс с ошибкой, fail-stop
-  при потере receive path не изменён.
+  записывается как предупреждение. Ошибки admission, commit, owner, неудачная
+  запись AdminDown и другие локальные ошибки drain по-прежнему завершают процесс
+  с ошибкой, fail-stop при потере receive path не изменён.
 
 - Debian-пакет зависит от `procps`, который предоставляет `/bin/kill` для
   `ExecReload=`; на минимальной Debian 13 только с `systemd` команда
@@ -765,8 +765,9 @@
   `ProtectKernelTunables=` оставляет `/sys` только для чтения, поэтому actuator
   `kernel-bond` в режиме `enforce` не может писать в bonding sysfs под этим
   юнитом; opt-in drop-in `deployments/systemd/gobfd-kernel-bond.conf` открывает
-  на запись только `bonding/slaves`, квалификация записи остаётся открытой
-  (`gobfd-qj0.8.2.3.3.1`).
+  на запись только `bonding/slaves` и выдаёт `CAP_DAC_OVERRIDE`, которая нужна
+  для файла sysfs `0644 root:root` и снимает для сервиса проверки чтения файлов;
+  квалификация записи остаётся открытой (`gobfd-qj0.8.2.3.3.1`).
 
 - First-party Go toolchain обновлён с `go1.27.2` до `go1.27.3` в `go.mod`,
   `tools/go.mod`, CI- и release-workflow, Containerfile и тестовых harness.

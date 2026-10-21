@@ -214,9 +214,16 @@ sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service
 sudo systemctl daemon-reload && sudo systemctl restart gobfd
 ```
 
-The bond must exist when gobfd starts. `systemd-analyze verify` accepts the
-drop-in on Debian 13 and Oracle Linux 10; write qualification on a host with
-the bonding module is pending (`gobfd-qj0.8.2.3.3.1`).
+The bond must exist when gobfd starts. Sysfs network attributes are
+`0644 root:root`, so the drop-in also grants `CAP_DAC_OVERRIDE`: an
+unprivileged UID with only `CAP_NET_ADMIN` got `EACCES` writing a sysfs
+network attribute and succeeded with `CAP_NET_ADMIN` plus `CAP_DAC_OVERRIDE`.
+That capability bypasses file permission checks on every path the service can
+see, including reads of root-only files such as `/etc/shadow`; writes stay
+limited by the read-only mount namespace. Enable the drop-in only where that
+trade-off is accepted. `systemd-analyze verify` accepts it on Debian 13 and
+Oracle Linux 10; write qualification on a host with the bonding module is
+pending (`gobfd-qj0.8.2.3.3.1`).
 
 Larger deployments raise the descriptor limit with a drop-in instead of editing
 the packaged unit:
