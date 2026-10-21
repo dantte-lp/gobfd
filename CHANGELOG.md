@@ -201,9 +201,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   opens its missing listeners before the Manager apply, so it cannot converge
   on senders alone. An absent interface leaves the source `pending` until the
   interface retry opens the listener; another open error leaves it `failed`.
-  After a source applies without failed or resource-pending entries, listeners
-  that no source claims and no API session uses close; other listeners are not
-  reopened. A device-bound listener whose interface is recreated with a new
+  API-created control and Echo sessions claim their listener with their sender
+  (absent interface: `Unavailable`; other open error: `FailedPrecondition`; no
+  session is created) and drop it on destroy. A listener closes when its last
+  source, unsolicited or API claim goes; other listeners are not reopened. A device-bound listener whose interface is recreated with a new
   ifindex is rebound in place on the next check, which needs `CAP_NET_RAW`; a
   failed rebind stays `NOT_SERVING` and is retried. A deliberately closed
   listener is not receiver loss. Startup still fails on any listener error, and

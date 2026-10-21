@@ -855,9 +855,14 @@ kill -HUP $(pidof gobfd)
 `pending`, а автоматический interface retry открывает его; любая другая ошибка
 открытия оставляет source в `failed`. Ещё не назначенный local address
 (`EADDRNOTAVAIL`) переводит source в `failed`, как и при bind sender; повторяет
-попытку следующий SIGHUP. После применения source без failed и
-resource-pending записей закрываются listeners, которые не захвачены ни одним
-source и не используются сессией, созданной через API. Неизменённые listeners,
+попытку следующий SIGHUP. Control- или Echo-сессия, созданная через API,
+захватывает свой listener вместе с sender и открывает его при отсутствии;
+Echo-сессия использует общий Echo listener своего адреса. Отсутствующий
+интерфейс завершает `AddSession` или `AddEchoSession` ошибкой `Unavailable`,
+другая ошибка открытия — `FailedPrecondition`, и сессия не создаётся. Удаление
+сессии снимает её claim. После применения source без failed и resource-pending
+записей source снимает claims вне desired set; listener закрывается, когда
+снимается его последний claim source, unsolicited или API. Неизменённые listeners,
 включая startup-owned wildcard listeners unsolicited, не переоткрываются и не
 заменяются. Listener с привязкой к устройству, интерфейс которого удалён и
 создан заново с тем же именем, перепривязывается на месте при следующем
@@ -970,6 +975,14 @@ IPv4-mapped адреса сохраняют mapped identity. Все записи
 должны задавать одинаковый `interface`, включая пустое значение. Конфликт
 отклоняется независимо от порядка конфигурации до открытия listeners.
 Выключенная конфигурация Echo не создаёт конфликт listener.
+
+Это идентификаторы валидации. Во время работы владелец listeners определяет
+сокет ключом `(local address с развёрнутой IPv4-mapped формой, interface, port,
+multi-hop flag)`, где port — 3784, 4784, 3785 или 6784. Записи, идентификаторы
+валидации которых отличаются только IPv4-mapped написанием и которые задают
+одинаковый `interface`, используют один сокет. Echo-сессия, созданная через API,
+использует Echo listener своего local address независимо от interface, как и
+настроенные Echo peers.
 
 `ListenerBindingConflictError` оборачивает `ErrAmbiguousListenerInterface`.
 Метод `FieldID()` указывает `sessions[].interface` или `echo.peers[].interface`;

@@ -851,8 +851,14 @@ after every claimed listener is open, so no source converges on senders alone.
 A listener whose interface does not exist leaves the source `pending`, and the
 automatic interface retry opens it; any other open error leaves the source
 `failed`. A local address that is not assigned yet (`EADDRNOTAVAIL`) fails the
-source, as it fails a sender bind; a later SIGHUP retries it. After a source applies without failed or resource-pending entries,
-listeners that no source claims and no API-created session uses are closed.
+source, as it fails a sender bind; a later SIGHUP retries it. An API-created control or Echo session
+claims its listener with its sender and opens it when absent; an Echo session
+shares the per-address Echo listener. An absent interface fails `AddSession` or
+`AddEchoSession` with `Unavailable`, another open error with
+`FailedPrecondition`, and no session is created. Destroying the session drops
+its claim. After a source applies without failed or resource-pending entries,
+it drops its claims outside the desired set; a listener closes when its last
+source, unsolicited, or API claim goes.
 Unchanged listeners, including the startup-owned unsolicited wildcard
 listeners, are neither reopened nor replaced. A device-bound listener whose
 interface is deleted and recreated under the same name is rebound in place on
@@ -964,6 +970,13 @@ IPv4-mapped addresses retain their mapped identity. Every entry sharing a
 listener must declare the same `interface`, including an empty value.
 Conflicts are rejected regardless of configuration order, before opening
 listeners. Disabled Echo configuration does not create listener conflicts.
+
+These are validation identities. At runtime the listener owner keys a socket by
+`(local address with an IPv4-mapped form unmapped, interface, port, multi-hop
+flag)`, where the port is 3784, 4784, 3785, or 6784. Entries whose validation
+identities differ only by an IPv4-mapped spelling and declare the same
+interface share one socket. An API Echo session uses the Echo listener of its
+local address whatever its interface, as configured Echo peers do.
 
 `ListenerBindingConflictError` wraps `ErrAmbiguousListenerInterface`.
 Its `FieldID()` identifies `sessions[].interface` or `echo.peers[].interface`;

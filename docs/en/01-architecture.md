@@ -215,7 +215,10 @@ source apply: the base, Echo, and Micro-BFD sources claim their listeners and
 open missing ones before the Manager apply, so a source cannot converge on
 senders alone. An absent listener interface leaves the source `pending` for the
 interface retry. After a source applies without failed or resource-pending
-entries, unclaimed listeners close unless an API-created session uses them.
+entries, the source drops claims outside its desired set. API-created control
+and Echo sessions claim their listeners with their senders through the same
+owner, under one mutex, and fail the request when the listener cannot open; a
+listener closes when its last claim goes.
 Each listener runs its own required receiver; a deliberate close cancels that
 receiver first, so only an unexpected socket loss is fail-stop. A device-bound
 listener of a recreated interface is rebound in place with `SO_BINDTODEVICE`.
