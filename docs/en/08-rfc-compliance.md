@@ -137,7 +137,8 @@ to 1 microsecond and `bfd.RemoteDemandMode` to 0 in every state (Sections
 transmitting. When the reset changes the TX interval or periodic permission,
 the next packet is scheduled from the previous successful send, which also
 releases a large nonzero hold-down value. In AdminDown an Active session then
-sends the Section 6.8.16 notification and the drain completes; a Passive
+sends the Section 6.8.16 notification and the drain can complete within its
+budget (10 s for a final-claim drain, otherwise the caller's context); a Passive
 session stays silent because `bfd.RemoteDiscr` is zero (Section 6.8.7). Remote
 Desired Min TX and Detect Mult changes update the Detection Time on the packet
 that carries them (Sections 6.8.3 and 6.8.4). Virtual-time tests also cover a

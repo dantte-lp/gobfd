@@ -369,7 +369,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the previous successful send. A peer that advertised zero or a large
   Required Min RX and went silent no longer holds periodic TX; an Active
   AdminDown drain now sends its Section 6.8.16 notification after one silent
-  Detection Time and completes, while a Passive session stays silent. FRR
+  Detection Time and can complete within the drain budget, while a Passive
+  session stays silent. FRR
   10.7.1 cannot advertise zero RX and has no Demand; BIRD 3.4.0 has no Demand
   and its zero RX support is unverified. Wire evidence is tracked in
   `gobfd-qj0.8.2.1.1.2.3`.
