@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reload, restart after `SIGKILL`, a stop with a dead peer, zero sandbox
   denials and package removal.
 
+- `TestCraftedPeerTestcontainers` proves remote zero Required Min RX, remote
+  silence and remote Demand on the wire with a crafted Go peer, which pinned
+  FRR/BIRD cannot exercise. The `test/interop/scapy` tool gains a `peer` mode
+  on the in-repository codec. The capture shows Final-only replies under RX0;
+  Down one Detection Time after silence with transmission at the next
+  slow-rate interval (RFC 5880 Sections 6.8.4 and 6.8.18); and Poll/Final-only
+  traffic plus a timer Poll Sequence under Demand (Section 6.6).
+  `make interop-testcontainers` runs it with retained PCAP and SHA-256
+  artifacts. Local Demand remains open.
+
 - YAML `multihop_max_hops` (`multi_hop` only, 1-254, default 1) sets a
   per-session receive TTL/Hop Limit floor of 255 - N (1/2/5 hops: 254/253/250),
   checked after demultiplexing. This is GoBFD policy after the non-normative
