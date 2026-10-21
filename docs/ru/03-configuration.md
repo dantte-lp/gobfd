@@ -791,8 +791,8 @@ kill -HUP $(pidof gobfd)
 3. Полный candidate sessions base, Echo, Micro-BFD
    groups и members, VXLAN и Geneve компилируется и валидируется до создания
    sender или мутации Manager
-4. Публикуется новое desired generation, а gRPC health для пустого service
-   становится `NOT_SERVING`; невалидный candidate не меняет generations, health
+4. Публикуется новое desired generation, а gRPC health для пустого service и
+   named services `bfd.v1` становится `NOT_SERVING`; невалидный candidate не меняет generations, health
    и log level
 5. После валидации уровень лога обновляется динамически; при последующей ошибке
    source эта настройка не откатывается
@@ -805,8 +805,10 @@ kill -HUP $(pidof gobfd)
 9. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
    desired sets
 10. Один aggregate receipt хранит ограниченные счётчики и коды ошибок всех шести
-   sources. Applied продвигается до desired, а health пустого service становится
-   `SERVING`, только если все шесть sources converged
+   sources. Applied продвигается до desired, только если все шесть sources
+   converged. Named service возвращается в `SERVING`, когда converged его
+   sources, пустой service — когда converged все шесть; учитываются также
+   runtime и listener компоненты (`07-monitoring.md`)
 
 На Linux существующий, но выключенный настроенный интерфейс приводит к `pending`
 после preflight всего source. Link events автоматически повторяют применение

@@ -294,20 +294,47 @@ go tool trace trace.out
 |---|---|---|---|
 | Метрики Prometheus | `127.0.0.1:9100` | `/metrics` | Цель скрапинга Prometheus |
 | gRPC API | `unix:///run/gobfd/gobfd.sock` | -- | ConnectRPC/gRPC API; необязательный TCP через `grpc.addr` |
-| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Пустой service означает reconciliation readiness; named services означают health процесса/service |
+| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Пустой service означает общую готовность dataplane; named services `bfd.v1` выводятся из компонентов |
 
-Проверка с пустым service возвращает `NOT_SERVING` до первого converged
-generation и пока последний desired generation остаётся stale, затем `SERVING`
-после полного convergence. Named checks `grpc.health.v1.Health`,
-`bfd.v1.BfdService`, `bfd.v1.EchoService` и `bfd.v1.MicroBFDService` остаются
-`SERVING`. `gobfd.management` находится в `NOT_SERVING`, пока
+Пустой service и named services `bfd.v1` записывает один агрегатор. Каждый
+статус есть AND компонентов, нужных service:
+
+| Service | Компоненты |
+|---|---|
+| пустой service | все компоненты ниже |
+| `bfd.v1.BfdService` | sources reconciliation base, VXLAN и Geneve; runtime workers; интерфейсы control listeners, включая unsolicited |
+| `bfd.v1.EchoService` | source reconciliation Echo; runtime workers; интерфейсы Echo listeners |
+| `bfd.v1.MicroBFDService` | sources groups и members Micro-BFD; runtime workers; интерфейсы listeners member links |
+| `grpc.health.v1.Health` | нет; всегда `SERVING` как сигнал liveness |
+
+- Source reconciliation готов, если в последнем desired generation у него нет
+  pending или failed записей. Все services находятся в `NOT_SERVING` до первого
+  converged generation и во время apply. Health sender есть результат создания
+  sender, записанный в receipt source.
+- Интерфейс listener с привязкой к устройству готов, пока он существует,
+  включён и running и сохраняет ifindex, определённый до bind. Link events и
+  сверка inventory проверяют его заново. Link down/up восстанавливается;
+  интерфейс, удалённый и созданный заново с тем же именем, оставляет
+  `NOT_SERVING` до перезапуска daemon, так как сокет остаётся привязан к старому
+  ifindex.
+- Runtime workers — dispatch loop BFD и receivers control, Echo, Micro-BFD и
+  overlay. Worker, завершившийся во время работы daemon, например receiver с
+  закрытым сокетом, переводит все services в `NOT_SERVING`; daemon дренирует
+  sessions и завершается с ошибкой (fail-stop) для systemd
+  `Restart=on-failure`. Shutdown также переводит все services в `NOT_SERVING`.
+- Без Linux interface monitor интерфейсы listeners проверяются только при
+  запуске.
+
+`gobfd.management` находится в `NOT_SERVING`, пока
 `grpc.unsafe_loopback_mutations` разрешает анонимным клиентам на loopback
 изменять состояние, иначе `SERVING`. При `gobgp.enabled` named check
 `gobfd.gobgp` находится в
 `NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
 preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха,
 а также после BFD Down для соседа с несколькими базовыми сессиями
-(`03-configuration.md`, «Идентичность сессии»).
+(`03-configuration.md`, «Идентичность сессии»). `gobfd.gobgp` и
+`gobfd.management` не входят в пустой service, а health LAG actuator не входит в
+`bfd.v1.MicroBFDService`.
 systemd `READY=1` продолжает описывать запуск процесса/listeners, а не
 convergence конфигурации.
 

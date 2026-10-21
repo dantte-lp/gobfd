@@ -163,7 +163,7 @@ WantedBy=multi-user.target
 | `Type=notify` | Использует `sd_notify(READY)` для точного отчёта о готовности |
 | `WatchdogSec=30s` | Watchdog systemd -- демон отправляет keepalive каждые 15 секунд |
 | `ExecReload` | SIGHUP перезагружает уровень лога и реконсилирует membership sessions в пределах открытых при startup transport bindings; startup-owned изменения отклоняются и требуют restart |
-| `Restart=on-failure` | Авто-перезапуск при сбое с задержкой 5 секунд |
+| `Restart=on-failure` | Авто-перезапуск с задержкой 5 секунд после сбоя или выхода fail-stop при потере receive path или dispatch |
 | Директивы безопасности | Минимальные привилегии с `CAP_NET_RAW` и `CAP_NET_ADMIN` |
 
 #### Управление сервисом

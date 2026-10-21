@@ -180,6 +180,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
+  The empty service is the AND of the six reconciliation sources, the runtime
+  workers and the device-bound listener interfaces. `bfd.v1.BfdService`
+  follows base, VXLAN and Geneve sessions and the control listeners, including
+  unsolicited ones; `bfd.v1.EchoService` follows Echo; and
+  `bfd.v1.MicroBFDService` follows Micro-BFD groups, members and member
+  listeners. Named services are `NOT_SERVING` before the first converged
+  generation and while their sources are pending or failed, for example after a
+  sender creation failure or a missing overlay backend.
+  `grpc.health.v1.Health` stays `SERVING` as the liveness signal. `gobfd.gobgp`
+  and `gobfd.management` stay outside the empty service.
+- A device-bound listener whose interface is missing, down, or recreated with
+  another ifindex makes its services `NOT_SERVING`. A recreated interface stays
+  `NOT_SERVING` until restart, because the socket keeps the bind-time ifindex;
+  in-process rebinding is tracked by `gobfd-qj0.8.2.2.6.4`.
+- Receive-path or dispatch loss is fail-stop. A control, Echo, Micro-BFD or
+  overlay receiver whose socket closes, or a dispatch loop that returns, while
+  the daemon runs sets health `NOT_SERVING`, drains sessions and exits with an
+  error for systemd `Restart=on-failure`. The control receiver no longer spins
+  on a closed socket. Shutdown sets health `NOT_SERVING` and closes the receive
+  listeners after the AdminDown drain, so an idle listener no longer blocks the
+  exit.
+
 - Stable v1 permits the module-only `GO-2026-4736` exception for GoBGP v4.10.0
   by maintainer decision of 2026-10-21 (`gobfd-qj0.8.4.1`) while GHSA/OSV list
   a fixed version at or below the pin and the final candidate's govulncheck
