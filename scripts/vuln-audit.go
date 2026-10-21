@@ -42,13 +42,15 @@ type allowEntry struct {
 var allowlist = map[string]allowEntry{
 	"GO-2026-4736": {
 		Package: "github.com/osrg/gobgp/v4",
-		Owner:   "maintainers",
+		Owner:   "Pavel Lavrukhin",
 		Expires: "2026-12-31",
-		Reason: "Maintainer decision 2026-10-13 (gobfd-qj0.8.4): GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched, " +
-			"but the Go vulnerability database lists no fixed v4 version and limits the advisory to " +
-			"github.com/osrg/gobgp/v4/pkg/server, which GoBFD does not import.",
+		Reason: "Maintainer decisions 2026-10-13 (gobfd-qj0.8.4) and 2026-10-21 (gobfd-qj0.8.4.1, stable v1): " +
+			"GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched and upstream fix 583080a7 is in v4.10.0, " +
+			"but the Go vulnerability database lists no fixed v4 version (golang/vulndb#5035, #6562) and " +
+			"limits the advisory to github.com/osrg/gobgp/v4/pkg/server, which GoBFD does not import.",
 		Mitigation: "Import only the GoBGP v4 api package, keep the reachable govulncheck gate enabled, " +
-			"and keep GoBGP integration on localhost or a trusted management network.",
+			"keep GoBGP integration on localhost or a trusted management network, " +
+			"and remove this entry once the Go vulnerability database records a fixed v4 version.",
 		ModuleOnly: true,
 	},
 	"GO-2026-5932": {
