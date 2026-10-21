@@ -173,6 +173,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Stable v1 permits the module-only `GO-2026-4736` exception for GoBGP v4.10.0
+  by maintainer decision (`gobfd-qj0.8.4.1`): the upstream fix is in the pinned
+  release, GoBFD does not import the affected `pkg/server` package, and the entry
+  now names its owner and is removed once the Go vulnerability database records a
+  fixed version.
 - The BIRD interoperability peer moved from 3.3.2 to 3.4.0 with the
   checksum-pinned upstream fix `7cf75587` for CVE-2026-112112
   (`gobfd-qj0.8.6.6.2`). The recipe records source and fix hashes and OCI

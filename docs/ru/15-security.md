@@ -89,10 +89,16 @@ GoBFD подключается к GoBGP через `gobgp.addr`. Plaintext до�
 loopback или доверенной management-сети. Для удалённых или non-loopback
 endpoints включайте `gobgp.tls.enabled`.
 
-Текущий модуль GoBGP имеет allowlisted advisory `GO-2026-4736`. Митигация:
-держать GoBGP API на localhost или в доверенной management-сети, пока upstream
-не выпустит исправленную версию. Запись allowlist в `scripts/vuln-audit.go`
-содержит owner, expiry, reason и mitigation; после expiry vulnerability gate
+Текущий модуль GoBGP имеет allowlisted advisory `GO-2026-4736`. Upstream
+исправил его в v4.4.0 (GHSA-4p9m-8gc4-rw2h), и закреплённая v4.10.0 содержит
+исправление, но база уязвимостей Go не указывает исправленную версию v4.
+Advisory относится к `github.com/osrg/gobgp/v4/pkg/server`; GoBFD импортирует
+только пакет `api`, поэтому govulncheck сообщает находку на уровне модуля.
+Решение мейнтейнера для stable v1 допускает эту module-only запись, пока
+сканирование на уровне символов чистое; запись удаляется, когда база укажет
+исправленную версию. Держите GoBGP API на localhost или в доверенной
+management-сети. Запись allowlist в `scripts/vuln-audit.go` содержит
+названного owner, expiry, reason и mitigation; после expiry vulnerability gate
 падает.
 
 CI проверяет runtime manifest и manifest изолированного tool-модуля раздельно.
