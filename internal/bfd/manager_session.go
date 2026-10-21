@@ -73,6 +73,9 @@ func (m *Manager) claimSession(
 	if sess, found, claimErr := m.claimExisting(key, effective, owner, idempotent); found {
 		return sess, false, nil, claimErr
 	}
+	if cfg, err = m.resolveSessionIfIndex(cfg); err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
 
 	lease, err := acquireSenderLease(senderFactory)
 	if err != nil {
@@ -99,6 +102,23 @@ func (m *Manager) claimSession(
 	}
 
 	return registered, false, lease, nil
+}
+
+// resolveSessionIfIndex binds a new single-hop session to its receive
+// interface once, at creation (RFC 5881 Section 3).
+// ponytail: resolved once; a recreated interface gets a new index and needs
+// the session recreated. Track interface events if that becomes common.
+func (m *Manager) resolveSessionIfIndex(cfg SessionConfig) (SessionConfig, error) {
+	if cfg.Type != SessionTypeSingleHop || cfg.IfIndex != 0 || m.resolveIfIndex == nil {
+		return cfg, nil
+	}
+	ifIndex, err := m.resolveIfIndex(cfg.LocalAddr, cfg.Interface)
+	if err != nil {
+		return cfg, fmt.Errorf("resolve receive interface of %s (iface=%q): %w: %w",
+			cfg.LocalAddr, cfg.Interface, ErrInterfaceUnresolved, err)
+	}
+	cfg.IfIndex = ifIndex
+	return cfg, nil
 }
 
 func acquireSenderLease(factory SenderLeaseFactory) (*SenderLease, error) {
@@ -265,11 +285,21 @@ func (m *Manager) startSession(ctx context.Context, entry *sessionEntry, sess *S
 	})
 }
 
+// packetDemuxKeyFromMeta builds the initial demux key of a received packet.
+// Zones are dropped on both sides: ifName already identifies the link, and
+// IPV6_PKTINFO reports an unzoned destination.
+func packetDemuxKeyFromMeta(meta PacketMeta) packetDemuxKey {
+	return packetDemuxKey{
+		peerAddr: meta.SrcAddr.Unmap().WithZone(""), localAddr: meta.DstAddr.Unmap().WithZone(""),
+		ifName: meta.IfName, transportScope: packetTransportScope(meta.TransportScope),
+	}
+}
+
 func demuxKeyFromSessionConfig(cfg SessionConfig) packetDemuxKey {
 	cfg = canonicalSessionConfig(cfg)
 	return packetDemuxKey{
-		peerAddr:       cfg.PeerAddr,
-		localAddr:      cfg.LocalAddr,
+		peerAddr:       cfg.PeerAddr.WithZone(""),
+		localAddr:      cfg.LocalAddr.WithZone(""),
 		ifName:         cfg.Interface,
 		transportScope: packetTransportScope(cfg.TransportScope),
 	}
@@ -495,17 +525,16 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, e
 	if pkt.YourDiscriminator != 0 {
 		return m.demuxByDiscr(pkt, meta, nil)
 	}
-	key := packetDemuxKey{
-		peerAddr: meta.SrcAddr.Unmap(), localAddr: meta.DstAddr.Unmap(),
-		ifName: meta.IfName, transportScope: packetTransportScope(meta.TransportScope),
-	}
+	key := packetDemuxKeyFromMeta(meta)
 	sess, ok := m.LookupByPeer(key)
 	if !ok {
 		m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
 		return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
 			meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
 	}
-	m.RecordDelivery(DeliveryDemux, DeliveryFound)
+	if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
+		return outcome, err
+	}
 	return admitControlPacket(sess, pkt, nil)
 }
 
@@ -532,15 +561,14 @@ func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte)
 		return DeliveryScopeMismatch, fmt.Errorf("demux: discriminator %d transport scope mismatch: %w",
 			pkt.YourDiscriminator, ErrDemuxNoMatch)
 	}
-	m.RecordDelivery(DeliveryDemux, DeliveryFound)
+	if outcome, err := m.checkSessionTransport(entry.session, meta); err != nil {
+		return outcome, err
+	}
 	return admitControlPacket(entry.session, pkt, wire)
 }
 
 func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
-	key := packetDemuxKey{
-		peerAddr: meta.SrcAddr.Unmap(), localAddr: meta.DstAddr.Unmap(),
-		ifName: meta.IfName, transportScope: packetTransportScope(meta.TransportScope),
-	}
+	key := packetDemuxKeyFromMeta(meta)
 	sess, ok := m.LookupByPeer(key)
 	// A configured address listener can have no interface binding.
 	if !ok && m.unsolicited != nil && meta.IfName == "" && !meta.MultiHop {
@@ -551,7 +579,9 @@ func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) 
 		}
 	}
 	if ok {
-		m.RecordDelivery(DeliveryDemux, DeliveryFound)
+		if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
+			return outcome, err
+		}
 		return admitControlPacket(sess, pkt, wire)
 	}
 	m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
@@ -560,6 +590,26 @@ func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) 
 	}
 	return DeliveryUnknownSession, fmt.Errorf("demux: peer %s -> %s (iface=%s): %w",
 		meta.SrcAddr, meta.DstAddr, meta.IfName, ErrDemuxNoMatch)
+}
+
+// checkSessionTransport applies the per-session transport contract after demux
+// and records the demux outcome. A multihop (RFC 5883) packet never reaches
+// a single-hop session and vice versa (RFC 5881 Section 5); a single-hop
+// session accepts only its bound interface (RFC 5881 Section 3); a multihop
+// session applies its hop policy per session (RFC 5082 Section 3).
+func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (DeliveryOutcome, error) {
+	outcome := sess.transportOutcome(meta)
+	m.RecordDelivery(DeliveryDemux, outcome)
+	if outcome == DeliveryScopeMismatch {
+		return outcome, fmt.Errorf("demux: session %d transport class or interface mismatch "+
+			"(multihop=%t iface=%s ifindex=%d): %w",
+			sess.LocalDiscriminator(), meta.MultiHop, meta.IfName, meta.IfIndex, ErrDemuxNoMatch)
+	}
+	if outcome == DeliveryTTLRejected {
+		return outcome, fmt.Errorf("demux: session %d TTL %d below %d: %w",
+			sess.LocalDiscriminator(), meta.TTL, sess.minTTL, ErrDemuxTTLRejected)
+	}
+	return outcome, nil
 }
 
 func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte) (DeliveryOutcome, error) {
@@ -647,6 +697,7 @@ func unsolicitedSessionConfig(meta PacketMeta, policy *UnsolicitedPolicy) Sessio
 		PeerAddr:              meta.SrcAddr,
 		LocalAddr:             meta.DstAddr,
 		Interface:             meta.IfName,
+		IfIndex:               meta.IfIndex,
 		Type:                  SessionTypeSingleHop,
 		Role:                  RolePassive,
 		DesiredMinTxInterval:  defaults.DesiredMinTxInterval,

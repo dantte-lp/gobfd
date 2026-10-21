@@ -220,6 +220,7 @@ type effectiveSessionConfig struct {
 	DesiredMinTxInterval  time.Duration
 	RequiredMinRxInterval time.Duration
 	DetectMultiplier      uint8
+	MultiHopMinTTL        uint8
 	PaddedPduSize         uint16
 	AuthType              AuthType
 	AuthKeys              authKeyStoreFingerprint
@@ -232,6 +233,7 @@ func normalizeEffectiveSessionConfig(cfg SessionConfig) (effectiveSessionConfig,
 		RequiredMinRxInterval: cfg.RequiredMinRxInterval,
 		DetectMultiplier:      cfg.DetectMultiplier,
 		PaddedPduSize:         cfg.PaddedPduSize,
+		MultiHopMinTTL:        multiHopMinTTL(cfg),
 	}
 	if cfg.Auth == nil {
 		return effective, nil

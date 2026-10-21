@@ -153,7 +153,7 @@ func applyBaseSessionCandidates(
 		rc := candidate.reconcile
 		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
 			sf,
-			candidate.config.LocalAddr,
+			candidate.senderLocal,
 			candidate.multiHop,
 			logger,
 			candidate.senderOpts...,
@@ -200,11 +200,13 @@ func declarativeSenderLeaseFactoryFor(
 }
 
 type baseSessionCandidate struct {
-	peer       string
-	config     bfd.SessionConfig
-	reconcile  bfd.ReconcileConfig
-	multiHop   bool
-	senderOpts []netio.SenderOption
+	peer        string
+	config      bfd.SessionConfig
+	reconcile   bfd.ReconcileConfig
+	multiHop    bool
+	senderOpts  []netio.SenderOption
+	senderLocal netip.Addr
+	bindDevice  string
 }
 
 func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, error) {
@@ -220,13 +222,20 @@ func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, e
 		if sessCfg.PaddedPduSize > 0 {
 			senderOpts = append(senderOpts, netio.WithDFBit())
 		}
+		var bindDevice string
+		if sessCfg.Type == bfd.SessionTypeSingleHop {
+			bindDevice = sessCfg.Interface
+		}
+		senderLocal, senderOpts := singleHopSenderBinding(sessCfg.LocalAddr, bindDevice, senderOpts)
 		rc := bfd.ReconcileConfig{Key: sc.SessionKey(), SessionConfig: sessCfg}
 		candidates = append(candidates, baseSessionCandidate{
-			peer:       sc.Peer,
-			config:     sessCfg,
-			reconcile:  rc,
-			multiHop:   sessCfg.Type == bfd.SessionTypeMultiHop,
-			senderOpts: senderOpts,
+			peer:        sc.Peer,
+			config:      sessCfg,
+			reconcile:   rc,
+			multiHop:    sessCfg.Type == bfd.SessionTypeMultiHop,
+			senderOpts:  senderOpts,
+			senderLocal: senderLocal,
+			bindDevice:  bindDevice,
 		})
 		desired = append(desired, rc)
 	}

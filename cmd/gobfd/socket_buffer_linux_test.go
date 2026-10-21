@@ -184,7 +184,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 					var err error
 					switch kind {
 					case "api":
-						_, _, err = sf.CreateSender(local, false, false, logger)
+						_, _, err = sf.CreateSender(local, "", false, false, logger)
 					case "echo":
 						_, _, err = sf.createSenderForSession(local, false, logger, netio.WithDstPort(netio.PortEcho))
 					case "micro":

@@ -21,17 +21,20 @@ import (
 )
 
 type countingSenderFactory struct {
-	opens  int
-	closes int
+	opens   int
+	closes  int
+	ifNames []string
 }
 
 func (f *countingSenderFactory) CreateSender(
-	netip.Addr,
-	bool,
-	bool,
-	*slog.Logger,
+	_ netip.Addr,
+	ifName string,
+	_ bool,
+	_ bool,
+	_ *slog.Logger,
 ) (bfd.PacketSender, uint16, error) {
 	f.opens++
+	f.ifNames = append(f.ifNames, ifName)
 	return countingPacketSender{}, uint16(50000 + f.opens), nil
 }
 

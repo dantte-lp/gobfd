@@ -86,7 +86,7 @@ func WithWriteBuffer(bytes int) SenderOption {
 //
 // Destination port is determined by multiHop:
 //   - false: port 3784 (RFC 5881 Section 4, single-hop)
-//   - true: port 4784 (RFC 5883 Section 2, multi-hop)
+//   - true: port 4784 (RFC 5883 Section 5, multi-hop)
 func NewUDPSender(
 	localAddr netip.Addr,
 	srcPort uint16,
@@ -263,7 +263,7 @@ func setSenderOptsIPv6(fd int, dfBit bool) error {
 
 // SendPacket sends buf to the given peer address on the standard BFD
 // destination port. For single-hop: port 3784 (RFC 5881 Section 4).
-// For multi-hop: port 4784 (RFC 5883 Section 2).
+// For multi-hop: port 4784 (RFC 5883 Section 5).
 //
 // This method satisfies the bfd.PacketSender interface.
 func (s *UDPSender) SendPacket(

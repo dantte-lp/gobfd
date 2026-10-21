@@ -58,6 +58,14 @@ var (
 	// demultiplexing (RFC 5880 Section 6.8.6).
 	ErrDemuxNoMatch = errors.New("no matching session for incoming packet")
 
+	// ErrDemuxTTLRejected indicates the demultiplexed session discarded the
+	// packet because its TTL or Hop Limit is below the session hop policy.
+	ErrDemuxTTLRejected = errors.New("received TTL below session hop policy")
+
+	// ErrInterfaceUnresolved indicates that the receive interface of a new
+	// single-hop session could not be resolved (RFC 5881 Section 3).
+	ErrInterfaceUnresolved = errors.New("single-hop session receive interface is unresolved")
+
 	// ErrInvalidPeerAddr indicates the peer address is not valid.
 	ErrInvalidPeerAddr = errors.New("peer address must be valid")
 
@@ -315,6 +323,10 @@ type Manager struct {
 	// from the received packet's local address and interface.
 	unsolicitedSessionSender func(PacketMeta) (*SenderLease, error)
 
+	// resolveIfIndex returns the receive interface index of a new single-hop
+	// session from its local address or interface name. Nil disables it.
+	resolveIfIndex func(local netip.Addr, ifName string) (int, error)
+
 	// microActuator receives RFC 7130 member state transitions after the
 	// Manager updates its MicroBFDGroup aggregate state.
 	microActuator MicroBFDActuator
@@ -449,6 +461,15 @@ type ManagerOption func(*Manager)
 // the actuator synchronously to preserve ordering between member transitions.
 type MicroBFDActuator interface {
 	HandleMicroBFDMemberEvent(ctx context.Context, event MicroBFDMemberEvent) error
+}
+
+// WithSessionInterfaceResolver sets the resolver that binds each new
+// single-hop session to the interface owning its local address, or to its
+// configured interface (RFC 5881 Section 3).
+func WithSessionInterfaceResolver(resolve func(local netip.Addr, ifName string) (int, error)) ManagerOption {
+	return func(m *Manager) {
+		m.resolveIfIndex = resolve
+	}
 }
 
 // WithManagerMetrics sets the MetricsReporter for the manager and all

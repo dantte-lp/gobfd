@@ -285,7 +285,6 @@ func ipv6PacketMeta(hopLimit uint8) netio.PacketMeta {
 func testValidateTTL(
 	t *testing.T,
 	valueName string,
-	multiHop bool,
 	metaForValue packetMetaForTTL,
 	tests []ttlValidationCase,
 ) {
@@ -296,7 +295,7 @@ func testValidateTTL(
 			t.Parallel()
 
 			meta := metaForValue(tt.value)
-			err := netio.ValidateTTL(meta, multiHop)
+			err := netio.ValidateTTL(meta)
 
 			if tt.wantErr && err == nil {
 				t.Errorf("%s %d: expected error, got nil", valueName, tt.value)
@@ -316,26 +315,12 @@ func testValidateTTL(
 func TestValidateTTLSingleHop(t *testing.T) {
 	t.Parallel()
 
-	testValidateTTL(t, "TTL", false, ipv4PacketMeta, []ttlValidationCase{
+	testValidateTTL(t, "TTL", ipv4PacketMeta, []ttlValidationCase{
 		{name: "TTL 255 valid", value: 255, wantErr: false},
 		{name: "TTL 254 invalid", value: 254, wantErr: true},
 		{name: "TTL 0 invalid", value: 0, wantErr: true},
 		{name: "TTL 128 invalid", value: 128, wantErr: true},
 		{name: "TTL 1 invalid", value: 1, wantErr: true},
-	})
-}
-
-// TestValidateTTLMultiHop verifies that multi-hop sessions require
-// TTL >= 254 (RFC 5883 Section 2).
-func TestValidateTTLMultiHop(t *testing.T) {
-	t.Parallel()
-
-	testValidateTTL(t, "TTL", true, ipv4PacketMeta, []ttlValidationCase{
-		{name: "TTL 255 valid", value: 255, wantErr: false},
-		{name: "TTL 254 valid", value: 254, wantErr: false},
-		{name: "TTL 253 invalid", value: 253, wantErr: true},
-		{name: "TTL 0 invalid", value: 0, wantErr: true},
-		{name: "TTL 128 invalid", value: 128, wantErr: true},
 	})
 }
 
@@ -349,26 +334,12 @@ func TestValidateTTLMultiHop(t *testing.T) {
 func TestValidateHopLimitSingleHopIPv6(t *testing.T) {
 	t.Parallel()
 
-	testValidateTTL(t, "HopLimit", false, ipv6PacketMeta, []ttlValidationCase{
+	testValidateTTL(t, "HopLimit", ipv6PacketMeta, []ttlValidationCase{
 		{name: "HopLimit 255 valid", value: 255, wantErr: false},
 		{name: "HopLimit 254 invalid", value: 254, wantErr: true},
 		{name: "HopLimit 0 invalid", value: 0, wantErr: true},
 		{name: "HopLimit 128 invalid", value: 128, wantErr: true},
 		{name: "HopLimit 64 invalid", value: 64, wantErr: true},
-	})
-}
-
-// TestValidateHopLimitMultiHopIPv6 verifies that multi-hop IPv6 sessions
-// require HopLimit >= 254 (RFC 5883 Section 2). Same rules as IPv4.
-func TestValidateHopLimitMultiHopIPv6(t *testing.T) {
-	t.Parallel()
-
-	testValidateTTL(t, "HopLimit", true, ipv6PacketMeta, []ttlValidationCase{
-		{name: "HopLimit 255 valid", value: 255, wantErr: false},
-		{name: "HopLimit 254 valid", value: 254, wantErr: false},
-		{name: "HopLimit 253 invalid", value: 253, wantErr: true},
-		{name: "HopLimit 0 invalid", value: 0, wantErr: true},
-		{name: "HopLimit 128 invalid", value: 128, wantErr: true},
 	})
 }
 
@@ -742,7 +713,8 @@ func testListenerRecvRejectsBadTTL(
 }
 
 // TestListenerRecvAcceptsEchoLoopbackTTL verifies that RFC 9747 echo listeners
-// accept looped-back packets with TTL=254 and reject ordinary single-hop TTL=255.
+// accept looped-back packets with TTL=254 and reject ordinary single-hop TTL=255
+// and a TTL=253 packet that crossed more than one hop (RFC 5883 Section 3).)
 func TestListenerRecvAcceptsEchoLoopbackTTL(t *testing.T) {
 	t.Parallel()
 
@@ -759,6 +731,12 @@ func TestListenerRecvAcceptsEchoLoopbackTTL(t *testing.T) {
 			return n, netio.PacketMeta{
 				SrcAddr: netip.MustParseAddr("10.0.0.2"),
 				TTL:     255,
+			}, nil
+		}
+		if callCount == 2 {
+			return n, netio.PacketMeta{
+				SrcAddr: netip.MustParseAddr("10.0.0.2"),
+				TTL:     253,
 			}, nil
 		}
 
@@ -783,8 +761,8 @@ func TestListenerRecvAcceptsEchoLoopbackTTL(t *testing.T) {
 	if meta.TTL != netio.TTLEchoLoopback {
 		t.Errorf("received packet with TTL %d, expected %d", meta.TTL, netio.TTLEchoLoopback)
 	}
-	if callCount != 2 {
-		t.Errorf("read count = %d, expected 2 (1 dropped + 1 valid)", callCount)
+	if callCount != 3 {
+		t.Errorf("read count = %d, expected 3 (2 dropped + 1 valid)", callCount)
 	}
 }
 
@@ -913,6 +891,6 @@ func TestBFDPortConstants(t *testing.T) {
 		t.Errorf("PortSingleHop = %d, want 3784 (RFC 5881 Section 4)", netio.PortSingleHop)
 	}
 	if netio.PortMultiHop != 4784 {
-		t.Errorf("PortMultiHop = %d, want 4784 (RFC 5883 Section 2)", netio.PortMultiHop)
+		t.Errorf("PortMultiHop = %d, want 4784 (RFC 5883 Section 5)", netio.PortMultiHop)
 	}
 }

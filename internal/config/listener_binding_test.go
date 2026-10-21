@@ -41,7 +41,7 @@ func TestValidateListenerInterfaceBindings(t *testing.T) {
 		},
 		{
 			name: "control distinct types", locals: [2]string{"192.0.2.1", "192.0.2.1"},
-			types: [2]string{"single_hop", "multi_hop"}, interfaces: [2]string{"eth0", "eth1"},
+			types: [2]string{"single_hop", "multi_hop"}, interfaces: [2]string{"eth0", ""},
 		},
 		{
 			name: "control distinct locals", locals: [2]string{"192.0.2.1", "192.0.2.2"},

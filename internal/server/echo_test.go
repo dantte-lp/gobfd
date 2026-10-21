@@ -20,6 +20,7 @@ type echoLeaseTestSenderFactory struct {
 
 func (f *echoLeaseTestSenderFactory) CreateSender(
 	_ netip.Addr,
+	_ string,
 	_ bool,
 	_ bool,
 	_ *slog.Logger,

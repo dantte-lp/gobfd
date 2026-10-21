@@ -141,7 +141,8 @@ func (l *Listener) Recv(ctx context.Context) ([]byte, PacketMeta, error) {
 //
 // RecvPacket validates the received TTL (IPv4) or Hop Limit (IPv6) per GTSM:
 //   - Single-hop (RFC 5881 Section 5): TTL/HopLimit must be 255
-//   - Multi-hop (RFC 5883 Section 2): TTL/HopLimit must be >= 254
+//   - Multi-hop: no listener check; RFC 5883 has no receive TTL rule, so
+//     the demultiplexed session applies its hop policy (RFC 5082 Section 3)
 func (l *Listener) RecvPacket(ctx context.Context) (*ReceivedPacket, error) {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -195,7 +196,10 @@ func (l *Listener) validateTTL(meta PacketMeta) error {
 	if l.expectedTTL != 0 {
 		return ValidateExpectedTTL(meta, l.expectedTTL, "listener")
 	}
-	return ValidateTTL(meta, l.multiHop)
+	if l.multiHop {
+		return nil
+	}
+	return ValidateTTL(meta)
 }
 
 // recvOne performs a single read from the underlying connection using
