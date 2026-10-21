@@ -22,7 +22,8 @@ const (
 	rebindPrefixLen = 30
 )
 
-var rebindLocal = netip.MustParseAddr("10.250.0.1")
+// rebindLocal is the listener address on the recreated veth.
+func rebindLocal() netip.Addr { return netip.AddrFrom4([4]byte{10, 250, 0, 1}) }
 
 type rebindObservation struct {
 	Phase    string `json:"phase"`
@@ -43,7 +44,7 @@ func TestListenerRebindFollowsRecreatedVeth(t *testing.T) {
 
 	firstIndex := createAddressedVeth(t, nl)
 	ln, err := netio.NewListener(netio.ListenerConfig{
-		Addr: rebindLocal, IfName: rebindLinkA, Port: netio.PortSingleHop,
+		Addr: rebindLocal(), IfName: rebindLinkA, Port: netio.PortSingleHop,
 	})
 	if err != nil {
 		t.Fatalf("NewListener: %v", err)
@@ -68,7 +69,7 @@ func TestListenerRebindFollowsRecreatedVeth(t *testing.T) {
 	var observed []rebindObservation
 	expect := func(phase string, ifIndex int, want bool) {
 		t.Helper()
-		sendSingleHopDatagram(t, netip.AddrPortFrom(rebindLocal, netio.PortSingleHop))
+		sendSingleHopDatagram(t, netip.AddrPortFrom(rebindLocal(), netio.PortSingleHop))
 		wait := 500 * time.Millisecond
 		if want {
 			wait = 3 * time.Second
@@ -115,8 +116,8 @@ func createAddressedVeth(t *testing.T, nl *routeSocket) int {
 	if err != nil {
 		t.Fatalf("resolve %s: %v", rebindLinkA, err)
 	}
-	if err := nl.addIPv4Address(iface.Index, rebindLocal, rebindPrefixLen); err != nil {
-		t.Fatalf("add %s to %s: %v", rebindLocal, rebindLinkA, err)
+	if err := nl.addIPv4Address(iface.Index, rebindLocal(), rebindPrefixLen); err != nil {
+		t.Fatalf("add %s to %s: %v", rebindLocal(), rebindLinkA, err)
 	}
 	return iface.Index
 }
