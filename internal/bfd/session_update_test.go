@@ -239,6 +239,9 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 		s.observation.State = StateDown
 		s.mu.Unlock()
 		s.cachedState = StateDown
+		// A non-Up floor Poll is in progress; Section 6.8.3 changes outside Up
+		// take effect immediately only once that Poll and its separation end.
+		s.pollActive = true
 		ctx, cancel = context.WithCancel(t.Context())
 		first, err := s.admitTimerUpdate(ctx, tuple, 1)
 		if err != nil {
@@ -248,7 +251,7 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 		s.processTimerUpdates(tx, detect)
 		if !s.waitingUpdate.Present || s.activeUpdate.Present ||
 			s.buildControlPacket().RequiredMinRxInterval != 100_000 || first.State != timerUpdatePending {
-			t.Fatal("non-Up admission changed wire values")
+			t.Fatal("admission during a non-Up Poll changed wire values")
 		}
 		pkt := s.buildControlPacket()
 		pkt.State, pkt.Poll = StateInit, false
@@ -493,6 +496,66 @@ func BenchmarkSessionTimerUpdate(b *testing.B) {
 		b.ResetTimer()
 		for b.Loop() {
 			_ = s.timerUpdateSnapshot()
+		}
+	})
+}
+
+// RFC 5880 Section 6.8.3: the deferrals for TX increases and RX decreases
+// apply only "when bfd.SessionState is Up"; "In any case other than those
+// explicitly called out above, timing parameter changes MUST be effected
+// immediately". A restore admitted after a local Required Min RX zero
+// hold-down drove the session Down must reach the wire before Up, otherwise a
+// peer obeying the zero stays silent and the session never recovers.
+func TestTimerUpdateAppliesWhileNotUp(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s, sender, tx, detect := newRemoteTxTestSession(t)
+		s.requiredMinRxInterval = 0
+		pkt := s.buildControlPacket()
+		pkt.RequiredMinRxInterval = 100_000
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		synctest.Sleep(s.calcDetectionTimeHot())
+		<-detect.C
+		s.handleDetectTimer(t.Context(), tx, detect)
+		if s.State() != StateDown {
+			t.Fatalf("state after silent peer = %s, want Down", s.State())
+		}
+		restore := timerTuple{300 * time.Millisecond, 300 * time.Millisecond}
+		if _, err := s.admitTimerUpdate(t.Context(), restore, 1); err != nil {
+			t.Fatal(err)
+		}
+		s.processTimerUpdates(tx, detect)
+		synctest.Sleep(slowTxInterval)
+		if !fireRemoteTxTimer(s, tx) {
+			t.Fatal("floor Poll was not transmitted in Down")
+		}
+		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], true, false)
+		// The peer leaves Up on our Down and answers the floor Poll.
+		pkt.State, pkt.Final = StateDown, true
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		if s.State() != StateInit {
+			t.Fatalf("state after peer Down Final = %s, want Init", s.State())
+		}
+		synctest.Sleep(time.Until(s.separateUntil))
+		s.processTimerUpdates(tx, detect)
+		synctest.Sleep(slowTxInterval)
+		if !fireRemoteTxTimer(s, tx) {
+			t.Fatal("periodic transmission stopped in Init")
+		}
+		last := sender.packets[len(sender.packets)-1]
+		assertCachedPacketFlags(t, last, true, false)
+		var sent ControlPacket
+		if err := UnmarshalControlPacket(last, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if sent.RequiredMinRxInterval != microsecondsFromDuration(restore.RX) {
+			t.Fatalf("Init packet Required Min RX = %d, want restored %s", sent.RequiredMinRxInterval, restore.RX)
+		}
+		pkt.State = StateUp
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		if status := s.timerUpdateSnapshot(); s.State() != StateUp || status.State != timerUpdateApplied ||
+			status.Confirmed != restore {
+			t.Fatalf("after peer Up Final: state=%s receipt=%+v", s.State(), status)
 		}
 	})
 }
