@@ -407,6 +407,234 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 	}
 }
 
+// RFC 5880 Section 6.8.18: "If the remote system does not receive any BFD
+// Control packets for a Detection Time, it SHOULD reset
+// bfd.RemoteMinRxInterval to its initial value of 1 ... and then can transmit
+// at its own rate."
+func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name           string
+		local, remote  State
+		wantState      State
+		wantDiag       Diag
+		keepSuppressed bool
+	}{
+		{name: "Up expires to Down", local: StateUp, remote: StateUp, wantState: StateDown,
+			wantDiag: DiagControlTimeExpired},
+		{name: "Down held down by peer", local: StateDown, remote: StateAdminDown, wantState: StateDown,
+			wantDiag: DiagControlTimeExpired},
+		// The Section 6.8.16 drain keeps honoring a silent peer's zero RX.
+		{name: "AdminDown drain keeps suppression", local: StateAdminDown, remote: StateUp, wantState: StateAdminDown,
+			wantDiag: DiagAdminDown, keepSuppressed: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				sess, sender, tx, detect := newRemoteTxTestSession(t)
+				if tt.local != StateUp {
+					diag := DiagNone
+					if tt.local == StateAdminDown {
+						diag = DiagAdminDown
+					}
+					sess.cachedState = tt.local
+					sess.mu.Lock()
+					sess.localPair.Store(packStateDiag(tt.local, diag))
+					sess.observation.State = tt.local
+					sess.mu.Unlock()
+				}
+				pkt := sess.buildControlPacket()
+				pkt.State, pkt.Demand, pkt.RequiredMinRxInterval = tt.remote, true, 0
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+				detection := sess.calcDetectionTimeHot()
+				synctest.Sleep(detection - time.Nanosecond)
+				if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
+					t.Fatal("periodic transmission ignored remote Required Min RX zero")
+				}
+				synctest.Sleep(time.Nanosecond)
+				select {
+				case <-detect.C:
+					sess.handleDetectTimer(t.Context(), tx, detect)
+				default:
+					t.Fatal("detection timer did not expire after one Detection Time")
+				}
+				if sess.State() != tt.wantState || sess.LocalDiag() != tt.wantDiag {
+					t.Fatalf("after expiry state=%s diag=%s, want %s/%s",
+						sess.State(), sess.LocalDiag(), tt.wantState, tt.wantDiag)
+				}
+				// The non-Up slow floor bounds the interval; jitter only shortens it.
+				if tt.keepSuppressed {
+					synctest.Sleep(slowTxInterval)
+					if sess.RemoteMinRxInterval() != 0 || fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
+						t.Fatal("AdminDown drain bypassed remote Required Min RX zero")
+					}
+					return
+				}
+				if got := sess.RemoteMinRxInterval(); got != initialRemoteMinRx || sess.remoteDemandMode {
+					t.Fatalf("after expiry RemoteMinRx=%s RemoteDemand=%t, want %s/false",
+						got, sess.remoteDemandMode, initialRemoteMinRx)
+				}
+				synctest.Sleep(slowTxInterval)
+				if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != 1 {
+					t.Fatal("periodic transmission did not resume after Detection Time")
+				}
+				var sent ControlPacket
+				if err := UnmarshalControlPacket(sender.packets[len(sender.packets)-1], &sent); err != nil {
+					t.Fatal(err)
+				}
+				if sent.State != tt.wantState {
+					t.Fatalf("resumed packet state=%s, want %s", sent.State, tt.wantState)
+				}
+			})
+		})
+	}
+}
+
+// RFC 5880 Section 6.8.3: "timing parameter changes MUST be effected
+// immediately (changing the transmission rate and/or the Detection Time)."
+func TestRemoteTimerChangeUpdatesDetectionImmediately(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name               string
+		oldTX, newTX       time.Duration
+		oldMult, newMult   uint8
+		wantOld, wantNewDT time.Duration
+	}{
+		{name: "remote TX increase", oldTX: 100 * time.Millisecond, newTX: time.Second,
+			oldMult: 3, newMult: 3, wantOld: 300 * time.Millisecond, wantNewDT: 3 * time.Second},
+		{name: "remote TX decrease", oldTX: time.Second, newTX: 100 * time.Millisecond,
+			oldMult: 3, newMult: 3, wantOld: 3 * time.Second, wantNewDT: 300 * time.Millisecond},
+		{name: "remote Detect Mult increase", oldTX: 100 * time.Millisecond, newTX: 100 * time.Millisecond,
+			oldMult: 3, newMult: 5, wantOld: 300 * time.Millisecond, wantNewDT: 500 * time.Millisecond},
+		{name: "local RX dominates remote TX", oldTX: 100 * time.Millisecond, newTX: 10 * time.Millisecond,
+			oldMult: 3, newMult: 3, wantOld: 300 * time.Millisecond, wantNewDT: 150 * time.Millisecond},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				sess, _, tx, detect := newRemoteTxTestSession(t)
+				sess.requiredMinRxInterval = 50 * time.Millisecond
+				pkt := sess.buildControlPacket()
+				pkt.DesiredMinTxInterval, pkt.DetectMult = microsecondsFromDuration(tt.oldTX), tt.oldMult
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+				if got := sess.calcDetectionTimeHot(); got != tt.wantOld {
+					t.Fatalf("initial Detection Time = %s, want %s", got, tt.wantOld)
+				}
+				synctest.Sleep(10 * time.Millisecond)
+				pkt.DesiredMinTxInterval, pkt.DetectMult = microsecondsFromDuration(tt.newTX), tt.newMult
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+				synctest.Sleep(tt.wantNewDT - time.Nanosecond)
+				select {
+				case <-detect.C:
+					t.Fatal("detection fired before the new Detection Time")
+				default:
+				}
+				synctest.Sleep(time.Nanosecond)
+				select {
+				case <-detect.C:
+				default:
+					t.Fatal("detection did not fire at the new Detection Time")
+				}
+			})
+		})
+	}
+}
+
+// RFC 5880 Section 6.6: "If Demand mode is active on either or both systems,
+// a Poll Sequence MUST be initiated whenever the contents of the next BFD
+// Control packet to be sent would be different".
+func TestTimerPollUnderRemoteDemand(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		sess, sender, tx, detect := newRemoteTxTestSession(t)
+		pkt := sess.buildControlPacket()
+		pkt.State, pkt.Demand = StateUp, true
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		synctest.Sleep(time.Second)
+		if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
+			t.Fatal("periodic transmission continued under remote Demand")
+		}
+		if _, err := sess.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond}, 1); err != nil {
+			t.Fatal(err)
+		}
+		sess.processTimerUpdates(tx, detect)
+		if !sess.pollActive {
+			t.Fatal("timer update did not start a Poll Sequence")
+		}
+		synctest.Sleep(100 * time.Millisecond)
+		if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != 1 {
+			t.Fatal("Poll was not transmitted while remote Demand stopped periodic TX")
+		}
+		assertCachedPacketFlags(t, sender.packets[0], true, false)
+		pkt.Final = true
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		if status := sess.timerUpdateSnapshot(); status.State != timerUpdateApplied || !status.Changed {
+			t.Fatalf("timer update receipt after Final: %+v", status)
+		}
+		synctest.Sleep(time.Second)
+		if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 1 {
+			t.Fatal("periodic transmission continued under remote Demand after Final")
+		}
+	})
+}
+
+// RFC 5880 Section 6.8.7: "A system MUST NOT periodically transmit BFD
+// Control packets if bfd.RemoteMinRxInterval is zero." A Poll that cannot be
+// sent fails at its deadline instead of looping.
+func TestTimerPollUnderRemoteZeroRxExpires(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		sess, sender, tx, detect := newRemoteTxTestSession(t)
+		pkt := sess.buildControlPacket()
+		pkt.RequiredMinRxInterval = 0
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		status, err := sess.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond}, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess.processTimerUpdates(tx, detect)
+		// Keep the session alive with unchanged remote packets until the deadline.
+		for time.Until(status.Requested.Deadline) > 0 {
+			synctest.Sleep(min(100*time.Millisecond, time.Until(status.Requested.Deadline)))
+			if fireRemoteTxTimer(sess, tx) {
+				t.Fatal("Poll was transmitted under remote Required Min RX zero")
+			}
+			sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		}
+		sess.processTimerUpdates(tx, detect)
+		if got := sess.timerUpdateSnapshot().State; got != timerUpdateFailed {
+			t.Fatalf("timer update state at deadline = %v, want failed", got)
+		}
+		if sender.attempts != 0 {
+			t.Fatalf("send attempts = %d, want 0", sender.attempts)
+		}
+	})
+}
+
+// RFC 5880 Section 6.8.7: the Final reply is sent "as soon as practicable";
+// the larger remote Required Min RX then governs the next periodic packet.
+func TestRemoteRxIncreaseWhileFinalPending(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		sess, sender, tx, detect := newRemoteTxTestSession(t)
+		pkt := sess.buildControlPacket()
+		pkt.Poll, pkt.RequiredMinRxInterval = true, 1_000_000
+		sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		if len(sender.packets) != 1 {
+			t.Fatal("Final was not sent immediately")
+		}
+		assertCachedPacketFlags(t, sender.packets[0], false, true)
+		synctest.Sleep(750*time.Millisecond - time.Nanosecond)
+		if fireRemoteTxTimer(sess, tx) {
+			t.Fatal("periodic packet preceded the new jitter window")
+		}
+		synctest.Sleep(250*time.Millisecond + time.Nanosecond)
+		if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != 2 {
+			t.Fatal("periodic packet missed the new interval")
+		}
+	})
+}
+
 func newRemoteTxTestSession(t *testing.T) (*Session, *retryCachedPacketSender, *time.Timer, *time.Timer) {
 	t.Helper()
 	sess := newCachedPacketTestSession(MaxPacketSize)

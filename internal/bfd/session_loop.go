@@ -283,15 +283,27 @@ func (s *Session) handleDetectTimer(
 	s.mu.Unlock()
 
 	// Use cachedState (goroutine-confined) to avoid atomic load.
-	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert.
+	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert
+	// and its Section 6.8.16 drain keeps honoring zero remote RX.
 	if s.cachedState == StateAdminDown {
 		// Restart detect timer even in Down state to handle re-negotiation.
 		detectTimer.Reset(s.calcDetectionTimeHot())
 		return
 	}
+	// RFC 5880 Section 6.8.18: after a Detection Time without packets the
+	// system "SHOULD reset bfd.RemoteMinRxInterval to its initial value of 1"
+	// and "then can transmit at its own rate". Demand returns to its initial
+	// value of zero (Section 6.8.1).
+	s.mu.Lock()
+	wasZero := s.remoteMinRxInterval == 0
+	s.remoteMinRxInterval, s.remoteDemandMode = initialRemoteMinRx, false
+	s.mu.Unlock()
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
 	if s.cachedState == StateDown {
 		s.resetDetectTimer(detectTimer)
+	}
+	if wasZero {
+		s.resetTxTimer(txTimer)
 	}
 }
 
