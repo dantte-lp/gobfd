@@ -368,6 +368,14 @@
 
 ### Исправлено
 
+- После одного Detection Time без пакетов вне AdminDown `bfd.RemoteMinRxInterval`
+  возвращается к 1 микросекунде, `bfd.RemoteDemandMode` — к 0 (RFC 5880
+  Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). Пир, объявивший нулевой Required Min
+  RX и замолчавший, больше не останавливает периодический TX бессрочно;
+  подавление drain в AdminDown не изменено. Нулевой remote RX и remote Demand
+  не настраиваются на закреплённых FRR 10.7.1 и BIRD 3.4.0; wire evidence
+  ожидает crafted Go peer.
+
 - Некорректные protobuf durations в generic, Echo и Micro-BFD запросах,
   клиентские интервалы, отклонённые ядром, и повторяющиеся Micro-BFD members
   возвращают `InvalidArgument` (`gobfd-qj0.8.2.1.3.5`). Пропущенные generic/Micro
