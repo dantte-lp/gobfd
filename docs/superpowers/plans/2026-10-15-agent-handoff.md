@@ -88,10 +88,35 @@ The original handoff and its dated measurements remain in local Git:
 - Fixed-name residue from 2026-10-15/16 runs (14 containers, two networks) was
   removed with maintainer approval. Builder-stage images left by
   testcontainers builds are tracked in `gobfd-aob`.
-- Next owner: `gobfd-qj0.8.2.1.1.1.4.3.1` live timer qualification against
-  this patched peer. `gobfd-qj0.8.4.1` remains a separate P0 stable-v1
+- The live timer qualification `gobfd-qj0.8.2.1.1.1.4.3.1` that used this peer
+  is recorded below. `gobfd-qj0.8.4.1` remains a separate P0 stable-v1
   security gate. Upstream Go `go1.27.3` is newer than the `go1.27.2` pin;
   `gobfd-bjr` owns that evaluation.
+
+## Timer reload and GoBGP advisory — 2026-10-21
+
+- `gobfd-qj0.8.2.1.1.1.4.3.1`: the testcontainers BASE topology runs
+  `TestTimerReload` against FRR 10.7.1 and BIRD 3.4.0 with fix `7cf75587`
+  (`300→100→500→300 ms` and RX0 per peer). Each GoBFD periodic interval must lie
+  in the RFC 5880 section 6.8.7 range widened by max(2 ms, 2% of TX), and the
+  sample mean within three standard errors of 87.5%; the upper side carries the
+  same latency allowance. Gate and live evidence:
+  `.worktrees/timer-reload-20261020/reports/timer-reload-20261021/gate03/` and
+  the batch gate of the integration branch. Follow-ups:
+  `gobfd-qj0.8.2.1.1.1.4.3.2`, CI coverage of the contract tests in `ci.yml`.
+- `gobfd-qj0.8.4.1`: maintainer decision (option C). Stable v1 may ship GoBGP
+  v4.10.0 with the module-only `GO-2026-4736` entry while GHSA/OSV record the fix
+  at or below the pin, the symbol-level govulncheck of the final candidate is
+  clean and the entry names owner and review date; remove the entry once the Go
+  vulnerability database records a fixed v4 version (golang/vulndb#5035, #6562).
+  The fresh 2026-10-21 scan reported the advisory at module level only.
+- Recorded decisions for the next slices: readiness `.8.2.3.1` (fail-stop on
+  receiver loss; GoBGP outside `""`; sender health from creation outcome;
+  unsolicited loss affects `""` and `BfdService`; LAG actuator health in
+  `gobfd-68x`), transport demux `.8.2.1.4` (`minTTL = 255 − N`, YAML
+  `multihop_max_hops`, IfIndex check for single-hop without interface), remote
+  timers `.8.2.1.1.2` (pinned peers inapplicable for remote RX0 and Demand;
+  crafted Go peer `gobfd-qj0.8.2.1.1.2.3`). Flaky test: `gobfd-0ac`.
 
 ## Resume
 
@@ -162,9 +187,9 @@ versions require fresh command/parser/authentication qualification.
 
 ## Remaining final gates
 
-- Stable `GO-2026-4736` disposition under `gobfd-qj0.8.4.1`; the development
-  exception does not qualify stable. The Go database still lists no fixed v4
-  range in the 2026-10-20 read.
+- Stable `GO-2026-4736`: maintainer decision of 2026-10-21 under
+  `gobfd-qj0.8.4.1`; the final candidate needs a fresh symbol-level scan with the
+  advisory at module level only.
 - Final reviewed-v1-candidate inventory `.8.6.11` covers runtime/tools, OCI,
   Actions/nested identities, generators, peers and toolchains: current-compatible
   target or explicit reviewed owner/date exception. Scheduling changes grant no

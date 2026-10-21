@@ -76,7 +76,7 @@ release-age hold делает upgrade допустимым, но не следу
 | Порядок | Владелец | Требуемый результат |
 |---|---|---|
 | 1 | `.8.4.1`, `.1.1`, `.1.4`, `.2`, `.3`, `.1.8` | Закрыть stable-v1 security, stable RFC/timer/transport и ownership/management blockers; обеспечить default-off/fail-closed preview boundaries |
-| 2 | `.1.1.1.4.3.1` | Квалифицировать live timer evidence на исправленном BIRD baseline, принятом в `.8.6.6.2` |
+| 2 | `.1.1.2.3`, `.1.1.1.4.3.2` | Доказать remote zero RX и remote Demand через crafted Go peer; укрепить helpers принятой live timer evidence |
 | 3 | `.1.6`, `.1.7`, `.8.2.6.2`, `.8.6.11` | Измерить обязательные performance/thread behavior и combined-consumer convergence; проверить compatibility и dependency inventory финального candidate |
 | 4 | `.8.2.7`, `.8.2.8.7`, `.8.2.6` | Завершить независимое ревью, обязательные quality/security/interop/scale, packaging/provenance и upgrade/rollback evidence до подготовки релиза |
 | 5 | Issues с label `after-v1` | После v1 продолжить общую актуализацию, косметическую очистку и независимое сопровождение v0.6; сохранить open states и release-age holds |
@@ -462,8 +462,11 @@ release-first policy выше заменяет их порядок выполн�
 - Stable v1 блокируют утверждённые
   [условие по advisory GoBGP и контракт 24-часовой квалификации](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md).
   На 2026-10-15 [Go vulnerability database](https://vuln.go.dev/ID/GO-2026-4736)
-  всё ещё не указывает исправленный диапазон GoBGP v4. Исключение для
-  разработки не снимает это условие stable. 24-часовой прогон не выполнялся.
+  всё ещё не указывает исправленный диапазон GoBGP v4. Решение мейнтейнера
+  2026-10-21 (`.8.4.1`) допускает stable v1 с module-only записью, пока GHSA/OSV
+  указывают исправление не выше закреплённой v4.10.0, сканирование финального
+  candidate на уровне символов чистое, а запись называет владельца и дату
+  пересмотра. 24-часовой прогон не выполнялся.
 
 Текущий порядок выполнения и точные UTC-пороги указаны в датированном
 снимке в начале документа. Старые протоколы относятся только к своим

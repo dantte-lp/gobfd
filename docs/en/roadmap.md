@@ -76,7 +76,7 @@ evidence only for their named revision.
 | Order | Owner | Required result |
 |---|---|---|
 | 1 | `.8.4.1`, `.1.1`, `.1.4`, `.2`, `.3`, `.1.8` | Resolve stable-v1 security, stable RFC/timer/transport and ownership/management blockers; enforce default-off/fail-closed preview boundaries |
-| 2 | `.1.1.1.4.3.1` | Qualify live timer evidence against the patched BIRD baseline accepted under `.8.6.6.2` |
+| 2 | `.1.1.2.3`, `.1.1.1.4.3.2` | Prove remote zero RX and remote Demand with a crafted Go peer; harden the accepted live timer evidence helpers |
 | 3 | `.1.6`, `.1.7`, `.8.2.6.2`, `.8.6.11` | Measure required performance/thread behavior and combined-consumer convergence; audit the final candidate's compatibility and dependency inventory |
 | 4 | `.8.2.7`, `.8.2.8.7`, `.8.2.6` | Complete independent review, mandatory quality/security/interop/scale, packaging/provenance and upgrade/rollback evidence before release preparation |
 | 5 | Issues labelled `after-v1` | Resume general currency, cosmetic cleanup and independent v0.6 maintenance after v1; retain their open states and release-age holds |
@@ -460,8 +460,11 @@ Continuation on 2026-10-15 after the 18:10 UTC snapshot:
 - Stable v1 remains blocked by the approved
   [GoBGP advisory gate and 24-hour qualification contract](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md).
   On 2026-10-15 the [Go vulnerability database](https://vuln.go.dev/ID/GO-2026-4736)
-  still lists no fixed GoBGP v4 range. The development-only exception does
-  not lift that stable gate. The 24-hour qualification has not run.
+  still lists no fixed GoBGP v4 range. The maintainer decision of 2026-10-21
+  (`.8.4.1`) permits stable v1 with the module-only entry while GHSA/OSV record
+  the fix at or below the pinned v4.10.0, the symbol-level scan of the final
+  candidate stays clean and the entry names its owner and review date. The
+  24-hour qualification has not run.
 
 The current execution order and exact release-age thresholds are in the
 dated snapshot at the top. Earlier receipts remain revision-scoped; Beads
