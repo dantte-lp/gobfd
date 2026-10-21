@@ -314,6 +314,10 @@ with a dead peer that ends with `Result=success`, zero sandbox denials in the
 journal, `systemd-analyze verify` with the kernel-bond drop-in, and package
 removal. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
 `label=disable` so that systemd can build the unit namespaces.
+The base images stay digest-pinned, but the test installs `systemd`,
+`iproute2`/`iproute` and `procps` from the distribution mirrors without
+version pins. The nightly E2E job runs both commands and uploads
+`reports/e2e/package-lifecycle/`.
 
 #### Interoperability Tests
 

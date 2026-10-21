@@ -57,7 +57,10 @@ func TestPackageLifecycleRunsTaggedTest(t *testing.T) {
 		spec.args[len(spec.args)-1] != packageLifecyclePackage {
 		t.Errorf("lifecycle command = %s %v", spec.name, spec.args)
 	}
-	for _, want := range []string{"GOBFD_PACKAGE_DIST=/repo/dist", "GOBFD_REQUIRE_PODMAN=1"} {
+	for _, want := range []string{
+		"GOBFD_PACKAGE_DIST=/repo/dist", "GOBFD_REQUIRE_PODMAN=1",
+		"GOBFD_PACKAGE_ARTIFACT_DIR=/repo/reports/e2e/package-lifecycle",
+	} {
 		if !slices.Contains(spec.env, want) {
 			t.Errorf("lifecycle environment lacks %q: %v", want, spec.env)
 		}

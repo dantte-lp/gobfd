@@ -116,7 +116,7 @@ jobs:
   nightly:
     name: Nightly E2E
     runs-on: ubuntu-26.04
-    timeout-minutes: 75
+    timeout-minutes: 90
     if: >-
       ${{
         github.event_name == 'schedule' ||
@@ -177,6 +177,14 @@ jobs:
 
       - name: Run Linux dataplane E2E
         run: make e2e-linux
+
+      # GoReleaser DEB and finalized RPM under systemd 257 on Debian 13 and
+      # Oracle Linux 10; evidence lands in reports/e2e/package-lifecycle.
+      - name: Build DEB and RPM packages
+        run: go run ./test/cmd/cictl package-build
+
+      - name: Run DEB and RPM systemd lifecycle test
+        run: go run ./test/cmd/cictl package-lifecycle
 
       - name: Stop dev stack
         if: always()
