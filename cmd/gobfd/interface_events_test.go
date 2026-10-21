@@ -127,8 +127,9 @@ func TestInterfaceEventBatchRejectsStaleGeneration(t *testing.T) {
 		t.Fatal("stale event changed current receipt")
 	}
 	generation, selected := coordinator.interfaceEventSelection(netio.InterfaceEvent{Resync: true})
-	if generation != after.DesiredGeneration || selected != sourceMask(sourceBase) {
-		t.Fatalf("resync selection = %d/%b, want current generation/base", generation, selected)
+	// A resync may follow a lost address event, so it selects every source.
+	if generation != after.DesiredGeneration || selected != allReconciliationSources {
+		t.Fatalf("resync selection = %d/%b, want current generation/all sources", generation, selected)
 	}
 	_, selected = coordinator.interfaceEventSelection(netio.InterfaceEvent{IfName: "other0"})
 	if selected != 0 {

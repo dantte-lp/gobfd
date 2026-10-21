@@ -33,7 +33,7 @@ func TestTimerUpdateCompletionWithoutReload(t *testing.T) {
 				checker := newDaemonHealthChecker()
 				c := newReconciliationCoordinator(cfg, logger, checker)
 				sf := newNthFailureDeclarativeSenderFactory(0)
-				if err := c.reconcile(t.Context(), cfg, mgr, sf, nil, nil); err != nil {
+				if err := c.reconcile(t.Context(), cfg, mgr, sf, nil); err != nil {
 					t.Fatal(err)
 				}
 				snapshots := mgr.Sessions()
@@ -61,7 +61,7 @@ func TestTimerUpdateCompletionWithoutReload(t *testing.T) {
 					sf.failAt = 2
 					cfg.Sessions = append(cfg.Sessions, config.SessionConfig{Peer: "192.0.2.91", Local: "127.0.0.1", Interface: "lo"})
 				}
-				if err := c.reconcile(t.Context(), cfg, mgr, sf, nil, nil); err != nil {
+				if err := c.reconcile(t.Context(), cfg, mgr, sf, nil); err != nil {
 					t.Fatal(err)
 				}
 				synctest.Wait()

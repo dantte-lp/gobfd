@@ -149,7 +149,8 @@ func TestAPISessionListenerFailureIsTypedAndCreatesNoSession(t *testing.T) {
 		want connect.Code
 	}{
 		{"absent interface", fmt.Errorf("set SO_BINDTODEVICE(eth3): %w", syscall.ENODEV), connect.CodeUnavailable},
-		{"unassigned address", fmt.Errorf("listen UDP: %w", syscall.EADDRNOTAVAIL), connect.CodeFailedPrecondition},
+		{"unassigned address", fmt.Errorf("listen UDP: %w", syscall.EADDRNOTAVAIL), connect.CodeUnavailable},
+		{"address in use", fmt.Errorf("listen UDP: %w", syscall.EADDRINUSE), connect.CodeFailedPrecondition},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

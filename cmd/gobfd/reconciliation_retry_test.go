@@ -87,7 +87,7 @@ func TestReconciliationCoordinatorRetryRetainsCandidateAndMergesReceipt(t *testi
 	invalid.Sessions[0].Peer = "not-an-address"
 	if err := coordinator.reconcile(
 		context.Background(), invalid, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, new(slog.LevelVar),
+		newNthFailureDeclarativeSenderFactory(0), new(slog.LevelVar),
 	); err == nil {
 		t.Fatal("invalid candidate unexpectedly replaced retained candidate")
 	}

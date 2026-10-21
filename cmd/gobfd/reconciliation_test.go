@@ -38,7 +38,7 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 
 	if err := coordinator.reconcile(
 		context.Background(), config.DefaultConfig(), mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, level,
+		newNthFailureDeclarativeSenderFactory(0), level,
 	); err != nil {
 		t.Fatalf("reconcile valid no-op candidate: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 	invalid.Sessions = []config.SessionConfig{{Peer: "not-an-address"}}
 	if err := coordinator.reconcile(
 		context.Background(), invalid, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, level,
+		newNthFailureDeclarativeSenderFactory(0), level,
 	); err == nil {
 		t.Fatal("invalid complete candidate succeeded")
 	}
@@ -107,7 +107,7 @@ func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
 	)
 
 	if err := coordinator.reconcile(
-		context.Background(), cfg, mgr, factory, &overlayRuntime{}, level,
+		context.Background(), cfg, mgr, factory, level,
 	); err != nil {
 		t.Fatalf("reconcile valid partial candidate: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
 	}
 
 	if err := coordinator.reconcile(
-		context.Background(), cfg, mgr, factory, &overlayRuntime{}, level,
+		context.Background(), cfg, mgr, factory, level,
 	); err != nil {
 		t.Fatalf("explicit retry: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestCompiledCandidateClonesMicroBFDMemberLinks(t *testing.T) {
 		LocalAddr:      "192.0.2.231",
 		MinActiveLinks: 1,
 	}}
-	candidate, err := compileControlSessionCandidate(cfg, &overlayRuntime{})
+	candidate, err := compileControlSessionCandidate(cfg)
 	if err != nil {
 		t.Fatalf("compile candidate: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestReconciliationCoordinatorMissingOverlayBackendIsFailed(t *testing.T) {
 
 	if err := coordinator.reconcile(
 		context.Background(), cfg, mgr,
-		newNthFailureDeclarativeSenderFactory(0), &overlayRuntime{}, level,
+		newNthFailureDeclarativeSenderFactory(0), level,
 	); err != nil {
 		t.Fatalf("reconcile valid VXLAN candidate: %v", err)
 	}

@@ -43,6 +43,9 @@ const sourceCount = int(sourceGeneve) + 1
 
 type reconciliationSourceMask uint8
 
+// allReconciliationSources selects every reconciliation source.
+const allReconciliationSources reconciliationSourceMask = 1<<sourceCount - 1
+
 type interfaceEventAvailability uint8
 
 const (
@@ -170,6 +173,9 @@ type reconciliationCoordinator struct {
 	readiness *daemonReadiness
 	// listeners owns the receive sockets; nil when no daemon runtime exists.
 	listeners *listenerOwner
+	// overlays owns the VXLAN and Geneve backends; nil when no daemon runtime
+	// exists, so a non-empty overlay source fails as backend-unavailable.
+	overlays *overlayOwner
 }
 
 func newReconciliationCoordinator(
@@ -197,7 +203,6 @@ func (c *reconciliationCoordinator) reconcile(
 	cfg *config.Config,
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
-	overlayRuntime *overlayRuntime,
 	logLevel *slog.LevelVar,
 ) error {
 	c.applyMu.Lock()
@@ -206,7 +211,7 @@ func (c *reconciliationCoordinator) reconcile(
 	if fields := c.startup.changedFields(cfg); len(fields) != 0 {
 		return &startupConfigChangeError{fields: fields}
 	}
-	candidate, err := compileControlSessionCandidate(cfg, overlayRuntime)
+	candidate, err := compileControlSessionCandidate(cfg)
 	if err != nil {
 		return err
 	}
@@ -232,6 +237,12 @@ func (c *reconciliationCoordinator) withListeners(apply sourceApplyFunc) sourceA
 	return func(
 		ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
 	) sourceApplyResult {
+		if source == sourceVXLAN || source == sourceGeneve {
+			if c.overlays == nil {
+				return apply(ctx, source, candidate)
+			}
+			return c.claimOverlaySource(ctx, source, candidate, apply)
+		}
 		if c.listeners == nil {
 			return apply(ctx, source, candidate)
 		}
@@ -563,17 +574,15 @@ type compiledControlSessionCandidate struct {
 	listeners [sourceCount][]netio.ListenerConfig
 }
 
+// compiledOverlayCandidate holds a validated overlay desired set. conns is
+// filled per apply by the overlay owner, one backend per desired entry.
 type compiledOverlayCandidate struct {
 	owner   bfd.SessionOwner
-	conn    netio.OverlayConn
 	conns   []netio.OverlayConn
 	desired []bfd.ReconcileConfig
 }
 
-func compileControlSessionCandidate(
-	cfg *config.Config,
-	runtime *overlayRuntime,
-) (compiledControlSessionCandidate, error) {
+func compileControlSessionCandidate(cfg *config.Config) (compiledControlSessionCandidate, error) {
 	if cfg == nil {
 		return compiledControlSessionCandidate{}, errNilControlSessionCandidate
 	}
@@ -590,16 +599,13 @@ func compileControlSessionCandidate(
 		return compiledControlSessionCandidate{}, err
 	}
 
-	params := buildOverlayTunnelParams(cfg, runtime)
 	var overlays [2]compiledOverlayCandidate
-	for i, overlay := range params {
-		desired, conns, compileErr := compileOverlaySessionCandidates(overlay)
+	for i, overlay := range buildOverlayTunnelParams(cfg) {
+		desired, compileErr := compileOverlaySessionCandidates(overlay)
 		if compileErr != nil {
 			return compiledControlSessionCandidate{}, compileErr
 		}
-		overlays[i] = compiledOverlayCandidate{
-			owner: overlay.owner, conns: conns, desired: desired,
-		}
+		overlays[i] = compiledOverlayCandidate{owner: overlay.owner, desired: desired}
 	}
 
 	return compiledControlSessionCandidate{
@@ -768,12 +774,6 @@ func applyCompiledOverlay(
 	source reconciliationSource,
 	candidate compiledOverlayCandidate,
 ) sourceApplyResult {
-	if len(candidate.conns) == 0 && candidate.conn != nil {
-		candidate.conns = make([]netio.OverlayConn, len(candidate.desired))
-		for i := range candidate.conns {
-			candidate.conns[i] = candidate.conn
-		}
-	}
 	if len(candidate.desired) != len(candidate.conns) {
 		return failedSourceResult(bfd.ReconcileErrorCreate, overlayBackendUnavailableError(source))
 	}

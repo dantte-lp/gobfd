@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"slices"
 	"strconv"
 	"testing"
 
@@ -248,19 +247,24 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 				InnerPeer: "192.0.2.1", InnerLocal: "192.0.2.2",
 				PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:02",
 			}}
+			cfg.VXLAN.Enabled, cfg.Geneve.Enabled = true, true
 			sf := newUDPSenderFactory(cfg.Socket.WriteBufferSize)
-			_, vxlan := createVXLANConns(cfg, sf, logger)
-			_, geneve := createGeneveConns(cfg, sf, logger)
-			conns := slices.Concat(vxlan, geneve)
-			t.Cleanup(func() {
-				for _, conn := range conns {
-					if err := conn.Close(); err != nil {
-						t.Error(err)
-					}
+			mgr := bfd.NewManager(logger)
+			t.Cleanup(mgr.Close)
+			owner := newOverlayOwner(cfg, sf, mgr, newDaemonReadiness(newDaemonHealthChecker()), logger)
+			t.Cleanup(owner.close)
+			vxlanScope, err := vxlanTransportScope(cfg, cfg.VXLAN.Peers[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			geneveScope, err := geneveTransportScope(cfg, cfg.Geneve.Peers[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, scope := range []bfd.TransportScope{vxlanScope, geneveScope} {
+				if _, err := owner.acquire(scope.Kind, []bfd.TransportScope{scope}); err != nil {
+					t.Fatal(err)
 				}
-			})
-			if len(vxlan) != 1 || len(geneve) != 1 {
-				t.Fatalf("overlay sockets = %d/%d, want 1/1", len(vxlan), len(geneve))
 			}
 			for _, port := range []uint16{netio.VXLANPort, netio.GenevePort} {
 				for _, option := range []struct{ key, want int }{{unix.SO_RCVBUF, wantRead}, {unix.SO_SNDBUF, wantWrite}} {

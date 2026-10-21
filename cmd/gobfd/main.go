@@ -127,11 +127,8 @@ func runServers(
 	metricsSrv := newMetricsServer(cfg.Metrics, reg)
 	healthChecker := newDaemonHealthChecker()
 	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
-	// The listener owner exists before API requests and interface events
-	// can reach it; API sessions claim their listeners through it.
-	listeners := newListenerOwner(mgr, coordinator.readiness, cfg.Socket.ReadBufferSize, logger)
-	coordinator.listeners = listeners
-	defer listeners.close()
+	listeners, overlays := attachReceiveOwners(cfg, mgr, sf, coordinator, logger)
+	defer coordinator.closeReceivePaths()
 	grpcSrv := newGRPCServer(cfg.GRPC, mgr, newAPIListenerSenderFactory(sf, listeners, false),
 		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger)
 	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
@@ -155,6 +152,7 @@ func runServers(
 	startInterfaceMonitor(gCtx, g, mgr, sf, coordinator, logger)
 
 	// Start BFD packet listeners and receivers for incoming packets.
+	g.Go(func() error { return overlays.run(gCtx) })
 	if err := startListenerOwner(gCtx, g, cfg, listeners, logger); err != nil {
 		return fmt.Errorf("create BFD listeners: %w", err)
 	}
@@ -168,23 +166,40 @@ func runServers(
 	}
 	defer closeGoBGPClient(bgpCloser, logger)
 
-	// Start overlay tunnel receivers (VXLAN on port 4789, Geneve on port 6081).
-	overlayRuntime, overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, coordinator.readiness, logger)
-	defer overlayCleanup()
-
 	startReconciliationRuntime(
-		gCtx, g, sigHUP, configPath, logLevel, cfg, mgr, sf, overlayRuntime, coordinator, logger,
+		gCtx, g, sigHUP, configPath, logLevel, cfg, mgr, sf, coordinator, logger,
 	)
 
 	notifyReady(logger)
 
 	// Shutdown goroutine: waits for context cancellation.
-	startShutdown(gCtx, g, mgr, logger, fr, coordinator.readiness, listeners.close, grpcSrv, metricsSrv)
+	startShutdown(gCtx, g, mgr, logger, fr, coordinator.readiness, coordinator.closeReceivePaths,
+		grpcSrv, metricsSrv)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("run servers: %w", err)
 	}
 	return nil
+}
+
+// attachReceiveOwners creates the listener and overlay owners before API
+// requests and interface events can reach them: API sessions claim their
+// listeners through one, and every generation claims its listeners and
+// backends through both. A backend failure fails its source only.
+func attachReceiveOwners(
+	cfg *config.Config, mgr *bfd.Manager, sf *udpSenderFactory, coordinator *reconciliationCoordinator,
+	logger *slog.Logger,
+) (*listenerOwner, *overlayOwner) {
+	coordinator.listeners = newListenerOwner(mgr, coordinator.readiness, cfg.Socket.ReadBufferSize, logger)
+	coordinator.overlays = newOverlayOwner(cfg, sf, mgr, coordinator.readiness, logger)
+	return coordinator.listeners, coordinator.overlays
+}
+
+// closeReceivePaths stops every listener and overlay backend after the
+// shutdown drain; both owners close idempotently.
+func (c *reconciliationCoordinator) closeReceivePaths() {
+	c.listeners.close()
+	c.overlays.close()
 }
 
 func startManagerDispatch(ctx context.Context, g *errgroup.Group, mgr *bfd.Manager, readiness *daemonReadiness) {
@@ -226,17 +241,16 @@ func startReconciliationRuntime(
 	cfg *config.Config,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
 	startReloadAfterStartup(
 		func() {
-			reconcileAllSessions(ctx, cfg, mgr, sf, overlayRuntime, coordinator, logger)
+			reconcileAllSessions(ctx, cfg, mgr, sf, coordinator, logger)
 		},
 		func() {
 			startDaemonGoroutines(
-				ctx, g, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, coordinator, logger,
+				ctx, g, sigHUP, configPath, logLevel, mgr, sf, coordinator, logger,
 			)
 		},
 	)
@@ -282,7 +296,6 @@ func startDaemonGoroutines(
 	logLevel *slog.LevelVar,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
-	overlayRuntime *overlayRuntime,
 	coordinator *reconciliationCoordinator,
 	logger *slog.Logger,
 ) {
@@ -296,7 +309,7 @@ func startDaemonGoroutines(
 
 	g.Go(func() error {
 		handleSIGHUP(
-			ctx, sigHUP, configPath, logLevel, mgr, sf, overlayRuntime, coordinator, logger,
+			ctx, sigHUP, configPath, logLevel, mgr, sf, coordinator, logger,
 		)
 		return nil
 	})
