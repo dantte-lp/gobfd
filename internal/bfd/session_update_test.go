@@ -234,14 +234,7 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 		if _, err := s.admitTimerUpdate(ctx, tuple, 1); !errors.Is(err, context.Canceled) || s.waitingUpdate.Present {
 			t.Fatal("cancellation before admission retained intent")
 		}
-		s.mu.Lock()
-		s.localPair.Store(packStateDiag(StateDown, DiagNone))
-		s.observation.State = StateDown
-		s.mu.Unlock()
-		s.cachedState = StateDown
-		// A non-Up floor Poll is in progress; Section 6.8.3 changes outside Up
-		// take effect immediately only once that Poll and its separation end.
-		s.pollActive = true
+		setTimerTestState(s, StateDown, DiagNone)
 		ctx, cancel = context.WithCancel(t.Context())
 		first, err := s.admitTimerUpdate(ctx, tuple, 1)
 		if err != nil {
@@ -249,23 +242,12 @@ func TestSessionTimerUpdateCancellationAndNonUp(t *testing.T) {
 		}
 		cancel()
 		s.processTimerUpdates(tx, detect)
-		if !s.waitingUpdate.Present || s.activeUpdate.Present ||
-			s.buildControlPacket().RequiredMinRxInterval != 100_000 || first.State != timerUpdatePending {
-			t.Fatal("admission during a non-Up Poll changed wire values")
-		}
-		pkt := s.buildControlPacket()
-		pkt.State, pkt.Poll = StateInit, false
-		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
-		s.processTimerUpdates(tx, detect)
-		if s.activeUpdate.Present || !s.pollActive {
-			t.Fatal("queued update overrode startup Poll")
-		}
-		pkt.State, pkt.Final = StateUp, true
-		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
-		synctest.Sleep(time.Microsecond)
-		s.processTimerUpdates(tx, detect)
-		if !s.activeUpdate.Present || s.activeUpdate.Deadline != first.Requested.Deadline {
-			t.Fatal("post-cancellation durable proposal did not promote with original deadline")
+		// RFC 5880 Section 6.8.3: outside Up the change is effected immediately
+		// and the admitted proposal survives the caller's cancellation.
+		if !s.activeUpdate.Present || s.waitingUpdate.Present || !s.pollActive ||
+			s.buildControlPacket().RequiredMinRxInterval != 0 || first.State != timerUpdatePending ||
+			s.activeUpdate.Deadline != first.Requested.Deadline {
+			t.Fatal("outside-Up admission was not effected immediately with its original deadline")
 		}
 		s.closeTimerUpdates()
 		if s.timerUpdateSnapshot().State != timerUpdateFailed || s.activeUpdate.Present || s.waitingUpdate.Present {
@@ -558,4 +540,199 @@ func TestTimerUpdateAppliesWhileNotUp(t *testing.T) {
 			t.Fatalf("after peer Up Final: state=%s receipt=%+v", s.State(), status)
 		}
 	})
+}
+
+func setTimerTestState(s *Session, state State, diag Diag) {
+	s.mu.Lock()
+	s.localPair.Store(packStateDiag(state, diag))
+	s.observation.State = state
+	s.mu.Unlock()
+	s.cachedState = state
+}
+
+// An Up RX decrease Poll interrupted by loss of Up leaves the unconfirmed tuple
+// effective. A restore equal to the confirmed tuple must reach the wire with a
+// Poll; it is not Applied while the wire still carries the interrupted value.
+func TestTimerRestoreAfterInterruptedPollIsNotFalselyApplied(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s, sender, tx, detect := newRemoteTxTestSession(t)
+		if _, err := s.admitTimerUpdate(t.Context(), timerTuple{100 * time.Millisecond, 0}, 1); err != nil {
+			t.Fatal(err)
+		}
+		s.processTimerUpdates(tx, detect)
+		s.sendControl(t.Context()) // The Poll is sent; its Final is lost.
+		s.handleDetectTimer(t.Context(), tx, detect)
+		if s.State() != StateDown || s.requiredMinRxInterval != 0 {
+			t.Fatalf("interrupted Poll: state=%s effective RX=%s", s.State(), s.requiredMinRxInterval)
+		}
+		restore := timerTuple{100 * time.Millisecond, 100 * time.Millisecond}
+		if _, err := s.admitTimerUpdate(t.Context(), restore, 2); err != nil {
+			t.Fatal(err)
+		}
+		s.processTimerUpdates(tx, detect)
+		synctest.Sleep(slowTxInterval)
+		if !fireRemoteTxTimer(s, tx) {
+			t.Fatal("floor Poll was not transmitted")
+		}
+		pkt := s.buildControlPacket()
+		pkt.MyDiscriminator, pkt.State, pkt.Final = 7, StateDown, true
+		pkt.RequiredMinRxInterval = 100_000 // The peer itself does not suppress our TX.
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		synctest.Sleep(time.Until(s.separateUntil))
+		s.processTimerUpdates(tx, detect)
+		if status := s.timerUpdateSnapshot(); status.State != timerUpdatePending || !s.activeUpdate.Present || !s.pollActive {
+			t.Fatalf("restore receipt before its Poll Final: %+v", status)
+		}
+		synctest.Sleep(slowTxInterval)
+		if !fireRemoteTxTimer(s, tx) {
+			t.Fatal("restore Poll was not transmitted")
+		}
+		last := sender.packets[len(sender.packets)-1]
+		assertCachedPacketFlags(t, last, true, false)
+		var sent ControlPacket
+		if err := UnmarshalControlPacket(last, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if sent.RequiredMinRxInterval != 100_000 {
+			t.Fatalf("restore Poll Required Min RX = %d, want 100000", sent.RequiredMinRxInterval)
+		}
+	})
+}
+
+// RFC 5880 Section 6.8.3: "If either bfd.DesiredMinTxInterval is changed or
+// bfd.RequiredMinRxInterval is changed, a Poll Sequence MUST be initiated".
+// Entering Up from an update applied outside Up keeps the one-second floor
+// until a Poll carries the faster Desired Min TX.
+func TestTimerUpdateOutsideUpKeepsFloorUntilUpPoll(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s, sender, tx, detect := newRemoteTxTestSession(t)
+		setTimerTestState(s, StateDown, DiagNone)
+		fast := timerTuple{50 * time.Millisecond, 50 * time.Millisecond}
+		if _, err := s.admitTimerUpdate(t.Context(), fast, 1); err != nil {
+			t.Fatal(err)
+		}
+		s.processTimerUpdates(tx, detect)
+		s.sendControl(t.Context())
+		pkt := s.buildControlPacket()
+		pkt.MyDiscriminator, pkt.State, pkt.Final = 7, StateInit, true
+		s.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+		if s.State() != StateUp {
+			t.Fatalf("state = %s, want Up", s.State())
+		}
+		var sent ControlPacket
+		if err := UnmarshalControlPacket(sender.packets[len(sender.packets)-1], &sent); err != nil {
+			t.Fatal(err)
+		}
+		if sent.DesiredMinTxInterval != 1_000_000 || s.advertisedTimers().TX != slowTxInterval {
+			t.Fatalf("Up entry advertised TX %d without a Poll", sent.DesiredMinTxInterval)
+		}
+		synctest.Sleep(time.Until(s.separateUntil))
+		s.processTimerUpdates(tx, detect)
+		if !s.pollActive {
+			t.Fatal("slow-to-fast Poll was not started after Up entry")
+		}
+		s.sendControl(t.Context())
+		last := sender.packets[len(sender.packets)-1]
+		assertCachedPacketFlags(t, last, true, false)
+		if err := UnmarshalControlPacket(last, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if sent.DesiredMinTxInterval != 50_000 {
+			t.Fatalf("slow-to-fast Poll Desired Min TX = %d, want 50000", sent.DesiredMinTxInterval)
+		}
+	})
+}
+
+// An update applied outside Up whose Poll never receives a Final fails at its
+// deadline without blocking later generations.
+func TestTimerUpdateOutsideUpExpiresWithoutFinal(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s, sender, tx, detect := newRemoteTxTestSession(t)
+		setTimerTestState(s, StateDown, DiagNone)
+		s.role, s.remoteDiscr = RolePassive, 0
+		first, err := s.admitTimerUpdate(t.Context(), timerTuple{200 * time.Millisecond, 200 * time.Millisecond}, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.processTimerUpdates(tx, detect)
+		synctest.Sleep(time.Until(first.Requested.Deadline))
+		s.processTimerUpdates(tx, detect)
+		if s.timerUpdateSnapshot().State != timerUpdateFailed || sender.attempts != 0 {
+			t.Fatal("unsendable outside-Up Poll did not fail at its deadline")
+		}
+		status, err := s.admitTimerUpdate(t.Context(), timerTuple{300 * time.Millisecond, 300 * time.Millisecond}, 2)
+		if err != nil || status.State != timerUpdatePending {
+			t.Fatalf("later generation after outside-Up expiry: %+v %v", status, err)
+		}
+	})
+}
+
+// RFC 5880 Section 6.8.3: an RX decrease outside Up changes the Detection Time
+// immediately, while its Poll is still active.
+func TestTimerUpdateOutsideUpRXDecreaseIsImmediate(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		s, _, tx, detect := newRemoteTxTestSession(t)
+		setTimerTestState(s, StateDown, DiagNone)
+		s.remoteDesiredMinTxInterval, s.remoteDetectMult = 10*time.Millisecond, 3
+		decrease := timerTuple{100 * time.Millisecond, 50 * time.Millisecond}
+		if _, err := s.admitTimerUpdate(t.Context(), decrease, 1); err != nil {
+			t.Fatal(err)
+		}
+		s.processTimerUpdates(tx, detect)
+		if !s.pollActive || s.requiredMinRxInterval != 50*time.Millisecond ||
+			s.calcDetectionTimeHot() != 150*time.Millisecond {
+			t.Fatalf("outside-Up RX decrease: Poll=%t RX=%s DT=%s",
+				s.pollActive, s.requiredMinRxInterval, s.calcDetectionTimeHot())
+		}
+	})
+}
+
+// Outside Up, a promotion waits only for an active Poll or its separation;
+// AdminDown follows the same Section 6.8.3 rule.
+func TestTimerUpdateOutsideUpWaitsForPollAndSeparation(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name           string
+		state          State
+		diag           Diag
+		poll, separate bool
+	}{
+		{name: "Down with floor Poll", state: StateDown, poll: true},
+		{name: "Down with separation only", state: StateDown, separate: true},
+		{name: "AdminDown", state: StateAdminDown, diag: DiagAdminDown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				s, _, tx, detect := newRemoteTxTestSession(t)
+				setTimerTestState(s, tc.state, tc.diag)
+				s.pollActive = tc.poll
+				if tc.separate {
+					s.separateUntil = time.Now().Add(10 * time.Millisecond)
+				}
+				tuple := timerTuple{200 * time.Millisecond, 300 * time.Millisecond}
+				if _, err := s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
+					t.Fatal(err)
+				}
+				s.processTimerUpdates(tx, detect)
+				if tc.poll || tc.separate {
+					if s.activeUpdate.Present || s.requiredMinRxInterval != 100*time.Millisecond {
+						t.Fatal("promotion bypassed an active Poll or separation")
+					}
+					if tc.poll {
+						return
+					}
+					synctest.Sleep(10 * time.Millisecond)
+					s.processTimerUpdates(tx, detect)
+				}
+				if !s.activeUpdate.Present || !s.pollActive || s.requiredMinRxInterval != tuple.RX {
+					t.Fatalf("%s: update was not effected immediately", tc.name)
+				}
+			})
+		})
+	}
 }
