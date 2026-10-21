@@ -686,8 +686,14 @@ func TestRemoteDemandClearResumesFromPreviousSend(t *testing.T) {
 		name                      string
 		elapsed, earliest, latest time.Duration
 	}{
-		{name: "within interval", elapsed: 50 * time.Millisecond, earliest: 75 * time.Millisecond, latest: 100 * time.Millisecond},
-		{name: "interval already elapsed", elapsed: 500 * time.Millisecond, earliest: 500 * time.Millisecond, latest: 500 * time.Millisecond},
+		{
+			name: "within interval", elapsed: 50 * time.Millisecond,
+			earliest: 75 * time.Millisecond, latest: 100 * time.Millisecond,
+		},
+		{
+			name: "interval already elapsed", elapsed: 500 * time.Millisecond,
+			earliest: 500 * time.Millisecond, latest: 500 * time.Millisecond,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
