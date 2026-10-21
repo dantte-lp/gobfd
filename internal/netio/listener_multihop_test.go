@@ -1,8 +1,10 @@
 package netio_test
 
 import (
+	"context"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
@@ -50,7 +52,10 @@ func TestMultiHopListenerDefersTTLToSession(t *testing.T) {
 			mock.ReadFunc = func([]byte) (int, netio.PacketMeta, error) {
 				return 24, netio.PacketMeta{SrcAddr: tc.src, TTL: ttl}, nil
 			}
-			pkt, err := netio.NewListenerFromConn(mock, true).RecvPacket(t.Context())
+			// A dropped packet would loop forever on the mock; bound the wait.
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			pkt, err := netio.NewListenerFromConn(mock, true).RecvPacket(ctx)
+			cancel()
 			if err != nil {
 				t.Fatalf("%s TTL %d: RecvPacket: %v", tc.name, ttl, err)
 			}

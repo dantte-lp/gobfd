@@ -714,7 +714,8 @@ func testListenerRecvRejectsBadTTL(
 
 // TestListenerRecvAcceptsEchoLoopbackTTL verifies that RFC 9747 echo listeners
 // accept looped-back packets with TTL=254 and reject ordinary single-hop TTL=255
-// and a TTL=253 packet that crossed more than one hop (RFC 5883 Section 3).)
+// and a TTL=253 packet that crossed more than one hop; RFC 9747 requires
+// exactly TTL/Hop Limit 254 after one-hop loopback.
 func TestListenerRecvAcceptsEchoLoopbackTTL(t *testing.T) {
 	t.Parallel()
 
