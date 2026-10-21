@@ -502,11 +502,11 @@ geneve:
 | `socket.write_buffer_size` | int | `4194304` (4 МиБ) | Размер `SO_SNDBUF` в байтах для сокетов отправителей. Увеличенные буферы снижают ошибки `sendto` при всплесках нагрузки. `0` = значение ОС по умолчанию. |
 
 Оба значения должны быть неотрицательными целыми числами, представимыми как `int`. `read_buffer_size` применяется к
-общим single-hop и multihop control listeners, Echo listeners и Micro-BFD
-member listeners. `write_buffer_size` применяется к отправителям API и
-декларативных control-сессий, Echo, Micro-BFD и динамически принятых
-unsolicited-сессий. Приём unsolicited BFD использует существующие control
-listeners; настройка не создаёт дополнительные listeners. Двунаправленные
+общим single-hop и multihop control listeners, к привязанным к интерфейсу
+wildcard single-hop listeners IPv4 и IPv6 для каждого enabled unsolicited
+interface, к Echo listeners и Micro-BFD member listeners. `write_buffer_size`
+применяется к отправителям API и декларативных control-сессий, Echo,
+Micro-BFD и динамически принятых unsolicited-сессий. Двунаправленные
 userspace VXLAN/Geneve-сокеты получают обе настройки. Сокеты управления
 HTTP/Unix и dataplane backends без UDP не входят в эту политику.
 
