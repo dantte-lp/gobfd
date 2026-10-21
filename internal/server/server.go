@@ -801,7 +801,8 @@ func mapManagerError(err error, operation string) *connect.Error {
 	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
 		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInterfaceUnresolved),
-		errors.Is(err, bfd.ErrMicroBFDMemberOwned):
+		errors.Is(err, bfd.ErrMicroBFDMemberOwned),
+		errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound):
 		return connect.NewError(connect.CodeFailedPrecondition, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),

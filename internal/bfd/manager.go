@@ -305,6 +305,11 @@ type Manager struct {
 	// group, so dispatch has one deterministic owner (RFC 7130 Section 2).
 	microMembers map[microMemberKey]*MicroBFDGroup
 
+	// microResync queues actuator resyncs of members seeded Up from existing
+	// sessions; RunDispatch drains it after microResyncWake. Guarded by mu.
+	microResync     []microResync
+	microResyncWake chan struct{}
+
 	// ownershipMu serializes complete source-ownership operations. Public
 	// ownership mutations acquire it before mu so multi-step reconciliation
 	// cannot interleave with another claim or release.
@@ -524,23 +529,24 @@ func WithMicroBFDActuator(actuator MicroBFDActuator) ManagerOption {
 // BFD Control packets.
 func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		sessions:       make(map[uint32]*sessionEntry),
-		sessionsByPeer: make(map[packetDemuxKey]*sessionEntry),
-		sessionsByKey:  make(map[SessionKey]*sessionEntry),
-		echoSessions:   make(map[uint32]*echoSessionEntry),
-		microGroups:    make(map[string]*MicroBFDGroup),
-		microMembers:   make(map[microMemberKey]*MicroBFDGroup),
-		discriminators: NewDiscriminatorAllocator(),
-		metrics:        noopMetrics{},
-		rawNotifyCh:    make(chan StateChange, notifyChSize),
-		cleanupWake:    make(chan struct{}, 1),
-		publicLossWake: make(chan struct{}, 1),
-		publicNotifyCh: make(chan StateChange, notifyChSize),
-		timerUpdateCh:  make(chan struct{}, 1),
-		subscribers:    make(map[chan StateChange]*subscriber),
-		closeDone:      make(chan struct{}),
-		shutdownCh:     make(chan struct{}),
-		logger:         logger.With(slog.String("component", "bfd.manager")),
+		sessions:        make(map[uint32]*sessionEntry),
+		sessionsByPeer:  make(map[packetDemuxKey]*sessionEntry),
+		sessionsByKey:   make(map[SessionKey]*sessionEntry),
+		echoSessions:    make(map[uint32]*echoSessionEntry),
+		microGroups:     make(map[string]*MicroBFDGroup),
+		microMembers:    make(map[microMemberKey]*MicroBFDGroup),
+		microResyncWake: make(chan struct{}, 1),
+		discriminators:  NewDiscriminatorAllocator(),
+		metrics:         noopMetrics{},
+		rawNotifyCh:     make(chan StateChange, notifyChSize),
+		cleanupWake:     make(chan struct{}, 1),
+		publicLossWake:  make(chan struct{}, 1),
+		publicNotifyCh:  make(chan StateChange, notifyChSize),
+		timerUpdateCh:   make(chan struct{}, 1),
+		subscribers:     make(map[chan StateChange]*subscriber),
+		closeDone:       make(chan struct{}),
+		shutdownCh:      make(chan struct{}),
+		logger:          logger.With(slog.String("component", "bfd.manager")),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -594,6 +600,11 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 		default:
 		}
 		select {
+		case <-m.microResyncWake:
+			m.dispatchMicroResync(ctx)
+		default:
+		}
+		select {
 		case <-ctx.Done():
 			return
 		case <-m.shutdownCh:
@@ -602,6 +613,8 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 			m.invalidateStateChanges()
 		case <-m.cleanupWake:
 			m.scanUnsolicitedCleanup(ctx)
+		case <-m.microResyncWake:
+			m.dispatchMicroResync(ctx)
 		case sc := <-m.rawNotifyCh:
 			m.dispatchStateChange(ctx, sc)
 		}
@@ -930,6 +943,7 @@ func (m *Manager) detachCloseResources() (
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
 	m.microMembers = make(map[microMemberKey]*MicroBFDGroup)
+	m.microResync = nil
 	m.mu.Unlock()
 	m.ownershipMu.Unlock()
 	return retired, retiredEcho

@@ -33,18 +33,24 @@ func microMemberKeyOf(ifName string, peer netip.Addr) microMemberKey {
 // Micro-BFD Group CRUD — RFC 7130
 // -------------------------------------------------------------------------
 
-// CreateMicroBFDGroup creates a new micro-BFD group for the given configuration.
-// The group is registered in the microGroups map keyed by LAG interface name.
-//
-// RFC 7130 Section 2: one micro-BFD session per member link. The caller
-// (daemon wiring) is responsible for creating per-member BFD sessions
-// with SessionTypeMicroBFD and appropriate SO_BINDTODEVICE binding.
-//
-// The configuration must satisfy ValidateMicroBFDConfig, including the
-// RFC 5880 session contract of its member sessions. Returns
-// ErrMicroBFDGroupExists if a group already exists for the LAG and
-// ErrMicroBFDMemberOwned if another group owns one of its member links.
+// CreateMicroBFDGroup claims a micro-BFD group for the compatibility API
+// owner; see CreateMicroBFDGroupAs.
 func (m *Manager) CreateMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error) {
+	return m.CreateMicroBFDGroupAs(cfg, compatibilityAPISessionOwner())
+}
+
+// CreateMicroBFDGroupAs claims a micro-BFD group for owner, keyed by LAG
+// interface name. Claims follow the session ownership model: an identical
+// group of another owner is shared, a divergent one is a
+// MicroBFDConfigConflictError, and a second claim by the same owner returns
+// ErrMicroBFDGroupExists. A new group starts each member from its existing
+// member session and returns ErrMicroBFDMemberOwned if another group owns
+// one of its member links.
+//
+// RFC 7130 Section 2: one micro-BFD session per member link. The API caller
+// creates per-member sessions of SessionTypeMicroBFD separately. The
+// configuration must satisfy ValidateMicroBFDConfig.
+func (m *Manager) CreateMicroBFDGroupAs(cfg MicroBFDConfig, owner SessionOwner) (*MicroBFDGroup, error) {
 	if err := ValidateMicroBFDConfig(cfg); err != nil {
 		return nil, fmt.Errorf("create micro-BFD group for %q: %w", cfg.LAGInterface, err)
 	}
@@ -55,12 +61,12 @@ func (m *Manager) CreateMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error
 	defer op.finish()
 
 	m.ownershipMu.Lock()
-	group, err := m.createMicroBFDGroup(cfg)
+	group, err := m.createMicroBFDGroup(cfg, owner)
 	m.ownershipMu.Unlock()
 	return group, err
 }
 
-func (m *Manager) createMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error) {
+func (m *Manager) createMicroBFDGroup(cfg MicroBFDConfig, owner SessionOwner) (*MicroBFDGroup, error) {
 	group, err := NewMicroBFDGroup(cfg, m.logger)
 	if err != nil {
 		return nil, fmt.Errorf("create micro-BFD group for %q: %w",
@@ -70,22 +76,36 @@ func (m *Manager) createMicroBFDGroup(cfg MicroBFDConfig) (*MicroBFDGroup, error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.microGroups[cfg.LAGInterface]; exists {
-		return nil, fmt.Errorf(
-			"create micro-BFD group for %q: %w",
-			cfg.LAGInterface, ErrMicroBFDGroupExists,
-		)
+	if existing, exists := m.microGroups[cfg.LAGInterface]; exists {
+		if err := existing.claim(cfg, owner); err != nil {
+			return nil, err
+		}
+		return existing, nil
 	}
 	for _, member := range cfg.MemberLinks {
-		if owner, owned := m.microMemberOwnerLocked(member); owned {
+		if other, owned := m.microMemberOwnerLocked(member); owned {
 			return nil, fmt.Errorf("create micro-BFD group for %q: member %q of %q: %w",
-				cfg.LAGInterface, member, owner.LAGInterface(), ErrMicroBFDMemberOwned)
+				cfg.LAGInterface, member, other.LAGInterface(), ErrMicroBFDMemberOwned)
 		}
 	}
 
+	group.owners[owner] = struct{}{}
 	m.registerMicroBFDGroupLocked(group)
 	m.logMicroBFDGroupCreated(cfg)
 	return group, nil
+}
+
+// claim adds owner to an existing group with the same effective
+// configuration. The caller holds Manager.ownershipMu.
+func (g *MicroBFDGroup) claim(cfg MicroBFDConfig, owner SessionOwner) error {
+	if !g.matchesReconcileConfig(cfg) {
+		return &MicroBFDConfigConflictError{LAGInterface: cfg.LAGInterface}
+	}
+	if _, owned := g.owners[owner]; owned {
+		return fmt.Errorf("create micro-BFD group for %q: %w", cfg.LAGInterface, ErrMicroBFDGroupExists)
+	}
+	g.owners[owner] = struct{}{}
+	return nil
 }
 
 func (m *Manager) logMicroBFDGroupCreated(cfg MicroBFDConfig) {
@@ -96,12 +116,20 @@ func (m *Manager) logMicroBFDGroupCreated(cfg MicroBFDConfig) {
 	)
 }
 
-// DestroyMicroBFDGroup removes the micro-BFD group for the given LAG interface.
-// The caller is responsible for destroying the per-member BFD sessions
-// associated with the group beforehand.
-//
-// Returns ErrMicroBFDGroupNotFound if no group exists for the LAG.
+// DestroyMicroBFDGroup releases the compatibility API claim on a group; see
+// DestroyMicroBFDGroupAs.
 func (m *Manager) DestroyMicroBFDGroup(lagInterface string) error {
+	return m.DestroyMicroBFDGroupAs(lagInterface, compatibilityAPISessionOwner())
+}
+
+// DestroyMicroBFDGroupAs releases the claim of owner on the group of the LAG
+// interface. The group is removed with its last claim. The API caller
+// destroys its own per-member sessions.
+//
+// Returns ErrMicroBFDGroupNotFound if no group exists for the LAG and
+// ErrMicroBFDGroupOwnerClaimNotFound if owner holds no claim on it, so the
+// API cannot remove a group owned by configuration reload.
+func (m *Manager) DestroyMicroBFDGroupAs(lagInterface string, owner SessionOwner) error {
 	op, err := m.beginOperation()
 	if err != nil {
 		return err
@@ -109,12 +137,12 @@ func (m *Manager) DestroyMicroBFDGroup(lagInterface string) error {
 	defer op.finish()
 
 	m.ownershipMu.Lock()
-	err = m.destroyMicroBFDGroup(lagInterface)
+	err = m.destroyMicroBFDGroup(lagInterface, owner)
 	m.ownershipMu.Unlock()
 	return err
 }
 
-func (m *Manager) destroyMicroBFDGroup(lagInterface string) error {
+func (m *Manager) destroyMicroBFDGroup(lagInterface string, owner SessionOwner) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -124,6 +152,14 @@ func (m *Manager) destroyMicroBFDGroup(lagInterface string) error {
 			"destroy micro-BFD group %q: %w",
 			lagInterface, ErrMicroBFDGroupNotFound,
 		)
+	}
+	if _, owned := group.owners[owner]; !owned {
+		return fmt.Errorf("destroy micro-BFD group %q for owner %+v: %w",
+			lagInterface, owner, ErrMicroBFDGroupOwnerClaimNotFound)
+	}
+	delete(group.owners, owner)
+	if len(group.owners) > 0 {
+		return nil
 	}
 
 	m.unregisterMicroBFDGroupLocked(group)
@@ -135,12 +171,75 @@ func (m *Manager) destroyMicroBFDGroup(lagInterface string) error {
 	return nil
 }
 
-// registerMicroBFDGroupLocked adds group and makes it the owner of its
-// member links. A transaction that moves a member link replaces the entry of
-// the group it removes later. The caller holds Manager.mu for writing.
+// registerMicroBFDGroupLocked adds group, makes it the owner of its member
+// links and seeds each member from its existing session. A transaction that
+// moves a member link replaces the entry of the group it removes later. The
+// caller holds Manager.mu for writing.
 func (m *Manager) registerMicroBFDGroupLocked(group *MicroBFDGroup) {
 	m.microGroups[group.LAGInterface()] = group
 	m.indexMicroBFDGroupLocked(group, true)
+	m.seedMicroBFDGroupLocked(group)
+}
+
+// seedMicroBFDGroupLocked starts each member from the state of its existing
+// member session and queues an actuator resync for Up members, so a member
+// whose session stays Up enters the LAG (RFC 7130 Section 3). The caller
+// holds Manager.mu for writing.
+func (m *Manager) seedMicroBFDGroupLocked(group *MicroBFDGroup) {
+	for _, member := range group.MemberNames() {
+		key, err := sessionKeyFromConfig(SessionConfig{
+			PeerAddr: group.PeerAddr(), LocalAddr: group.LocalAddr(),
+			Interface: member, Type: SessionTypeMicroBFD,
+		})
+		if err != nil {
+			continue
+		}
+		entry, exists := m.sessionsByKey[key]
+		if !exists {
+			continue
+		}
+		state := entry.session.State()
+		if _, err := group.UpdateMemberState(member, state, entry.session.LocalDiscriminator()); err != nil ||
+			state != StateUp || m.microActuator == nil {
+			continue
+		}
+		m.microResync = append(m.microResync, microResync{group: group, member: member})
+		select {
+		case m.microResyncWake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// microResync asks RunDispatch to report a member seeded Up to the actuator.
+type microResync struct {
+	group  *MicroBFDGroup
+	member string
+}
+
+// dispatchMicroResync reports seeded members that are still registered and
+// Up. It runs in the dispatch goroutine, so it keeps the actuator order of
+// member transitions; a later transition reports the newer state.
+func (m *Manager) dispatchMicroResync(ctx context.Context) {
+	m.mu.Lock()
+	pending := m.microResync
+	m.microResync = nil
+	events := make([]MicroBFDMemberEvent, 0, len(pending))
+	for _, p := range pending {
+		state, discr, ok := p.group.memberState(p.member)
+		if !ok || state != StateUp || m.microGroups[p.group.LAGInterface()] != p.group {
+			continue
+		}
+		events = append(events, MicroBFDMemberEvent{
+			LAGInterface: p.group.LAGInterface(), MemberInterface: p.member,
+			OldState: StateDown, NewState: StateUp, LocalDiscr: discr,
+			AggregateUp: p.group.IsUp(),
+		})
+	}
+	m.mu.Unlock()
+	for _, ev := range events {
+		m.handleMicroBFDActuator(ctx, ev)
+	}
 }
 
 func (m *Manager) indexMicroBFDGroupLocked(group *MicroBFDGroup, replace bool) {
@@ -284,7 +383,10 @@ func (m *Manager) ReconcileMicroBFDGroups(
 // claimed by MicroBFDReconciliationOwner. An invalid, ambiguous or
 // conflicting candidate changes nothing. A failed member claim rolls back the
 // groups and claims of this pass before any committed group or session is
-// released. Created and Released count groups.
+// released. Reload claims a group like a session: it shares an identical
+// API group, releases only its own claim and removes a group with its last
+// claim. Created and Released count group claims; the legacy tuple counts
+// registered and removed groups.
 func (m *Manager) ReconcileMicroBFDGroupsDetailed(
 	ctx context.Context,
 	desired []MicroBFDReconcileConfig,
@@ -316,11 +418,14 @@ func (m *Manager) reconcileMicroBFDGroups(
 	if err != nil {
 		return failedReconcileResult(ReconcileErrorInvalid, err), nil, nil
 	}
+	owner := MicroBFDReconciliationOwner()
 	currentGroups := m.microBFDGroupsByKey()
 	if conflict := m.microBFDReconcileConflict(compiled.groups, currentGroups); conflict != nil {
 		return failedReconcileResult(ReconcileErrorConflict, conflict), nil, nil
 	}
-	owner := MicroBFDReconciliationOwner()
+	if conflict := m.microBFDSurvivorConflict(compiled, currentGroups, owner); conflict != nil {
+		return failedReconcileResult(ReconcileErrorConflict, conflict), nil, nil
+	}
 	currentClaims, err := m.ownerClaimSnapshot(owner, compiled.members, compiled.memberOrder)
 	if err != nil {
 		return failedReconcileResult(ReconcileErrorConflict, err), nil, nil
@@ -332,29 +437,71 @@ func (m *Manager) reconcileMicroBFDGroups(
 
 	// Groups precede their member sessions, so the first member transition
 	// finds its aggregate. Claims precede releases, so a failed claim leaves
-	// every committed group and session in place.
-	m.commitMicroBFDGroups(newGroups)
+	// every committed group, group claim and session in place.
+	claimed := m.commitMicroBFDGroups(compiled.groups, currentGroups, newGroups, owner)
 	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
 		ctx, owner, compiled.members, compiled.memberOrder, currentClaims,
 	)
 	if result.Failed > 0 {
-		m.rollbackMicroBFDGroups(newGroups)
-		return microBFDGroupResult(result, 0, 0), retired, unusedLeases
+		m.rollbackMicroBFDGroups(newGroups, claimed, owner)
+		return microBFDGroupResult(result, microBFDGroupCounts{}), retired, unusedLeases
 	}
 
 	released, staleRetired := m.releaseStaleOwnerClaims(owner, compiled.members, currentClaims)
 	result.Errors = append(result.Errors, released.Errors...)
 	retired = append(retired, staleRetired...)
-	destroyed := m.destroyRemovedMicroBFDGroups(compiled.groups, currentGroups)
-	return microBFDGroupResult(result, len(newGroups), destroyed), retired, unusedLeases
+	counts := m.releaseRemovedMicroBFDGroups(compiled.groups, currentGroups, owner)
+	counts.claimed = len(newGroups) + len(claimed)
+	counts.created = len(newGroups)
+	return microBFDGroupResult(result, counts), retired, unusedLeases
 }
 
-// microBFDGroupResult reports group-level changes with the member errors.
-func microBFDGroupResult(result ReconcileResult, created, destroyed int) ReconcileResult {
-	result.Created, result.Released, result.Updated = created, destroyed, 0
-	result.wireCreated, result.wireDestroyed = created, destroyed
+// microBFDGroupCounts are group claim and registry changes of one pass.
+type microBFDGroupCounts struct {
+	claimed, released, created, destroyed int
+}
+
+// microBFDGroupResult reports group claims and group registry changes with
+// the member errors, as session results report claims and wire sessions.
+func microBFDGroupResult(result ReconcileResult, counts microBFDGroupCounts) ReconcileResult {
+	result.Created, result.Released, result.Updated = counts.claimed, counts.released, 0
+	result.wireCreated, result.wireDestroyed = counts.created, counts.destroyed
 	result.Failed = len(result.Errors)
 	return result
+}
+
+// microBFDReleasable reports whether this pass removes group: reload
+// owns it alone and no longer desires it. The caller holds ownershipMu.
+func microBFDReleasable(
+	key string, group *MicroBFDGroup, desired map[string]MicroBFDReconcileConfig, owner SessionOwner,
+) bool {
+	_, want := desired[key]
+	_, owned := group.owners[owner]
+	return owned && !want && len(group.owners) == 1
+}
+
+// microBFDSurvivorConflict rejects a new group whose member link belongs to
+// a group that survives this pass, such as an API-owned group.
+func (m *Manager) microBFDSurvivorConflict(
+	compiled compiledMicroBFD,
+	current map[string]*MicroBFDGroup,
+	owner SessionOwner,
+) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for key, rc := range compiled.groups {
+		if _, exists := current[key]; exists {
+			continue
+		}
+		for _, member := range rc.Config.MemberLinks {
+			other, owned := m.microMemberOwnerLocked(member)
+			if owned && !microBFDReleasable(other.LAGInterface(), other, compiled.groups, owner) {
+				return fmt.Errorf("micro-BFD group %q member %q of %q: %w",
+					key, member, other.LAGInterface(), ErrMicroBFDMemberOwned)
+			}
+		}
+	}
+	return nil
 }
 
 func (m *Manager) newMicroBFDGroups(
@@ -375,20 +522,40 @@ func (m *Manager) newMicroBFDGroups(
 	return groups, nil
 }
 
-func (m *Manager) commitMicroBFDGroups(groups []*MicroBFDGroup) {
+// commitMicroBFDGroups registers the new groups and adds the reload claim to
+// desired groups that another owner created. It returns the claimed groups.
+func (m *Manager) commitMicroBFDGroups(
+	desired map[string]MicroBFDReconcileConfig,
+	current map[string]*MicroBFDGroup,
+	groups []*MicroBFDGroup,
+	owner SessionOwner,
+) []*MicroBFDGroup {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, group := range groups {
 		m.logger.Info("reconcile: creating new micro-BFD group",
 			slog.String("lag", group.LAGInterface()),
 		)
+		group.owners[owner] = struct{}{}
 		m.registerMicroBFDGroupLocked(group)
 	}
+	var claimed []*MicroBFDGroup
+	for key := range desired {
+		group, exists := current[key]
+		if !exists {
+			continue
+		}
+		if _, owned := group.owners[owner]; !owned {
+			group.owners[owner] = struct{}{}
+			claimed = append(claimed, group)
+		}
+	}
+	return claimed
 }
 
-// rollbackMicroBFDGroups removes groups of a failed pass and restores member
-// entries that they replaced.
-func (m *Manager) rollbackMicroBFDGroups(groups []*MicroBFDGroup) {
+// rollbackMicroBFDGroups removes groups and claims of a failed pass and
+// restores member entries that the removed groups replaced.
+func (m *Manager) rollbackMicroBFDGroups(groups, claimed []*MicroBFDGroup, owner SessionOwner) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, group := range groups {
@@ -397,29 +564,42 @@ func (m *Manager) rollbackMicroBFDGroups(groups []*MicroBFDGroup) {
 		)
 		m.unregisterMicroBFDGroupLocked(group)
 	}
+	for _, group := range claimed {
+		delete(group.owners, owner)
+	}
 	for _, group := range m.microGroups {
 		m.indexMicroBFDGroupLocked(group, false)
 	}
 }
 
-func (m *Manager) destroyRemovedMicroBFDGroups(
+// releaseRemovedMicroBFDGroups releases the reload claim of groups absent
+// from desired and removes each group with its last claim.
+func (m *Manager) releaseRemovedMicroBFDGroups(
 	desired map[string]MicroBFDReconcileConfig,
 	current map[string]*MicroBFDGroup,
-) int {
+	owner SessionOwner,
+) microBFDGroupCounts {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var destroyed int
+	var counts microBFDGroupCounts
 	for key, group := range current {
-		if _, want := desired[key]; want || m.microGroups[key] != group {
+		_, want := desired[key]
+		_, owned := group.owners[owner]
+		if want || !owned || m.microGroups[key] != group {
+			continue
+		}
+		delete(group.owners, owner)
+		counts.released++
+		if len(group.owners) > 0 {
 			continue
 		}
 		m.logger.Info("reconcile: destroying removed micro-BFD group",
 			slog.String("lag", key),
 		)
 		m.unregisterMicroBFDGroupLocked(group)
-		destroyed++
+		counts.destroyed++
 	}
-	return destroyed
+	return counts
 }
 
 func (m *Manager) logMicroBFDReconcileResult(result ReconcileResult) {

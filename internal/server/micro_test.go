@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"net/netip"
 	"strconv"
 	"testing"
 	"time"
@@ -219,5 +220,34 @@ func TestMicroServer_AddMicroBFDGroup_RejectsZeroDesiredMinTx(t *testing.T) {
 	_, err := s.AddMicroBFDGroup(context.Background(), req)
 	if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
 		t.Fatalf("code = %v (err %v), want %v", got, err, connect.CodeInvalidArgument)
+	}
+}
+
+type microTestSender struct{}
+
+func (microTestSender) SendPacket(context.Context, []byte, netip.Addr) error { return nil }
+
+func TestMicroServer_DeleteMicroBFDGroup_RejectsReloadOwnedGroup(t *testing.T) {
+	t.Parallel()
+
+	s := newTestMicroServer(t)
+	t.Cleanup(s.manager.Close)
+	cfg := bfd.MicroBFDConfig{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0"},
+		PeerAddr: netip.MustParseAddr("192.0.2.10"), LocalAddr: netip.MustParseAddr("192.0.2.1"),
+		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second,
+		DetectMultiplier: 3, MinActiveLinks: 1,
+	}
+	if err := s.manager.ReconcileMicroBFDGroupsDetailed(t.Context(), []bfd.MicroBFDReconcileConfig{{
+		Key: cfg.LAGInterface, Config: cfg,
+		SenderLeaseFactory: func(string) bfd.SenderLeaseFactory {
+			return bfd.NonOwningSenderLeaseFactory(microTestSender{})
+		},
+	}}).Err(); err != nil {
+		t.Fatalf("reload group: %v", err)
+	}
+	_, err := s.DeleteMicroBFDGroup(context.Background(), &bfdv1.DeleteMicroBFDGroupRequest{LagInterface: "bond0"})
+	if got := connect.CodeOf(err); got != connect.CodeFailedPrecondition {
+		t.Fatalf("code = %v (err %v), want %v", got, err, connect.CodeFailedPrecondition)
 	}
 }
