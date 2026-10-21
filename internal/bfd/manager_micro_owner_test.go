@@ -225,7 +225,8 @@ func TestManagerMicroBFDGroupSharedByAPIAndReload(t *testing.T) {
 		t.Fatal("group remains after its last claim")
 	}
 
-	if err := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), microDesired(microLeaseFactories(), cfg)).Err(); err != nil {
+	desired := microDesired(microLeaseFactories(), cfg)
+	if err := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), desired).Err(); err != nil {
 		t.Fatalf("reload group: %v", err)
 	}
 	if _, err := mgr.CreateMicroBFDGroup(cfg); err != nil {

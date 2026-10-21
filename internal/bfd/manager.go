@@ -600,11 +600,6 @@ func (m *Manager) RunDispatch(ctx context.Context) {
 		default:
 		}
 		select {
-		case <-m.microResyncWake:
-			m.dispatchMicroResync(ctx)
-		default:
-		}
-		select {
 		case <-ctx.Done():
 			return
 		case <-m.shutdownCh:
