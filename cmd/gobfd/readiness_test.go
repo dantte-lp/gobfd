@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"connectrpc.com/grpchealth/v2"
@@ -123,11 +124,13 @@ func TestDaemonReadinessListenerBindingsFollowInterfaceInventory(t *testing.T) {
 	inventory := &fakeInterfaceInventory{}
 	control, echo, micro := upInterface("eth9", 7), upInterface("eth8", 5), upInterface("eth7", 3)
 	inventory.set(nil, control, echo, micro)
-	coordinator.readiness.watchBindings([]listenerBinding{
+	if err := coordinator.readiness.watchBindings([]listenerBinding{
 		{ifName: "eth9", ifIndex: 7, component: componentControlBindings},
 		{ifName: "eth8", ifIndex: 5, component: componentEchoBindings},
 		{ifName: "eth7", ifIndex: 3, component: componentMicroBindings},
-	}, inventory.list)
+	}, inventory.list); err != nil {
+		t.Fatal(err)
+	}
 	assertReadiness(t, checker, readinessAllServing())
 
 	notServing, serving := grpchealth.StatusNotServing, grpchealth.StatusServing
@@ -166,8 +169,9 @@ func TestDaemonReadinessListenerBindingsFollowInterfaceInventory(t *testing.T) {
 			want: readinessWant{notServing, serving, serving, notServing},
 		},
 		{
-			name: "inventory failure", err: errInventoryUnavailable,
-			want: readinessWant{notServing, notServing, notServing, notServing},
+			// A failed inventory read keeps the previous state for the next recheck.
+			name: "inventory failure keeps previous state", err: errInventoryUnavailable,
+			want: readinessWant{notServing, serving, serving, notServing},
 		},
 		{
 			name: "inventory restored", interfaces: []net.Interface{control, echo, micro},
@@ -176,8 +180,11 @@ func TestDaemonReadinessListenerBindingsFollowInterfaceInventory(t *testing.T) {
 	} {
 		// Steps share one aggregator and run in order.
 		inventory.set(step.err, step.interfaces...)
-		coordinator.readiness.checkBindings(inventory.list)
+		err := coordinator.readiness.checkBindings(inventory.list)
 		t.Logf("step %q", step.name)
+		if !errors.Is(err, step.err) {
+			t.Errorf("checkBindings error = %v, want %v", err, step.err)
+		}
 		assertReadiness(t, checker, step.want)
 	}
 }
@@ -195,15 +202,22 @@ func TestResolveListenerBindingsRecordsBindTimeIndexes(t *testing.T) {
 		"eth6": {Enabled: true}, "eth5": {Enabled: false},
 	}
 	cfg.Echo.Enabled = true
-	cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: "192.0.2.6", Local: "192.0.2.5", Interface: "eth8"}}
+	// Echo binds one listener per local address with the first peer's interface.
+	cfg.Echo.Peers = []config.EchoPeerConfig{
+		{Peer: "192.0.2.6", Local: "192.0.2.5", Interface: "eth8"},
+		{Peer: "192.0.2.9", Local: "192.0.2.5", Interface: "eth4"},
+	}
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth7"}, PeerAddr: "192.0.2.8", LocalAddr: "192.0.2.7",
 	}}
 	inventory := &fakeInterfaceInventory{}
 	inventory.set(nil, upInterface("eth9", 9), upInterface("eth8", 8), upInterface("eth7", 7),
-		upInterface("eth6", 6))
+		upInterface("eth6", 6), upInterface("eth4", 4))
 
-	got := resolveListenerBindings(cfg, inventory.list)
+	got, err := resolveListenerBindings(cfg, inventory.list)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []listenerBinding{
 		{ifName: "eth6", ifIndex: 6, component: componentControlBindings},
 		{ifName: "eth9", ifIndex: 9, component: componentControlBindings},
@@ -213,6 +227,61 @@ func TestResolveListenerBindingsRecordsBindTimeIndexes(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("listener bindings = %+v, want %+v", got, want)
 	}
+}
+
+func TestResolveListenerBindingsFailsClosedOnInventoryError(t *testing.T) {
+	t.Parallel()
+
+	inventory := &fakeInterfaceInventory{}
+	inventory.set(errInventoryUnavailable)
+	bound := config.DefaultConfig()
+	bound.Sessions = []config.SessionConfig{
+		{Peer: "192.0.2.2", Local: "192.0.2.1", Interface: "eth9", Type: "single_hop"},
+	}
+	if _, err := resolveListenerBindings(bound, inventory.list); !errors.Is(err, errInventoryUnavailable) {
+		t.Fatalf("bound listener inventory error = %v, want %v", err, errInventoryUnavailable)
+	}
+
+	unbound := config.DefaultConfig()
+	unbound.Sessions = []config.SessionConfig{{Peer: "198.51.100.2", Local: "198.51.100.1", Type: "multi_hop"}}
+	if bindings, err := resolveListenerBindings(unbound, inventory.list); err != nil || len(bindings) != 0 {
+		t.Fatalf("unbound listeners = %+v, %v; want no bindings and no inventory read", bindings, err)
+	}
+}
+
+// The periodic recheck covers a disabled or stopped interface monitor.
+func TestBindingRecheckDetectsInterfaceLossWithoutEvents(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		coordinator, checker := newConvergedReadinessCoordinator(t)
+		inventory := &fakeInterfaceInventory{}
+		inventory.set(nil, upInterface("eth9", 7))
+		if err := coordinator.readiness.watchBindings([]listenerBinding{
+			{ifName: "eth9", ifIndex: 7, component: componentControlBindings},
+		}, inventory.list); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			coordinator.readiness.recheckBindings(ctx, bindingRecheckInterval, inventory.list,
+				slog.New(slog.DiscardHandler))
+		}()
+
+		notServing, serving := grpchealth.StatusNotServing, grpchealth.StatusServing
+		inventory.set(nil, upInterface("eth9", 11))
+		synctest.Sleep(bindingRecheckInterval + time.Millisecond)
+		assertReadiness(t, checker, readinessWant{notServing, notServing, serving, serving})
+
+		inventory.set(nil, upInterface("eth9", 7))
+		synctest.Sleep(bindingRecheckInterval)
+		assertReadiness(t, checker, readinessAllServing())
+
+		cancel()
+		<-done
+	})
 }
 
 func TestInterfaceEventsRecheckListenerBindings(t *testing.T) {
@@ -226,9 +295,11 @@ func TestInterfaceEventsRecheckListenerBindings(t *testing.T) {
 	staleIndex := loopback.Index + 1000
 	inventory := &fakeInterfaceInventory{}
 	inventory.set(nil, upInterface("lo", staleIndex))
-	coordinator.readiness.watchBindings([]listenerBinding{
+	if err := coordinator.readiness.watchBindings([]listenerBinding{
 		{ifName: "lo", ifIndex: staleIndex, component: componentControlBindings},
-	}, inventory.list)
+	}, inventory.list); err != nil {
+		t.Fatal(err)
+	}
 	assertReadiness(t, checker, readinessAllServing())
 
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
@@ -371,5 +442,26 @@ func waitGroupBounded(t *testing.T, g *errgroup.Group) error {
 	case <-time.After(readinessTestWait):
 		t.Fatalf("errgroup did not stop within %s", readinessTestWait)
 		return nil
+	}
+}
+
+// BenchmarkCheckBindingsInventory measures one periodic recheck against the
+// real interface inventory.
+func BenchmarkCheckBindingsInventory(b *testing.B) {
+	loopback, err := net.InterfaceByName("lo")
+	if err != nil {
+		b.Skipf("loopback interface required: %v", err)
+	}
+	readiness := newDaemonReadiness(newDaemonHealthChecker())
+	if err := readiness.watchBindings([]listenerBinding{
+		{ifName: "lo", ifIndex: loopback.Index, component: componentControlBindings},
+	}, net.Interfaces); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := readiness.checkBindings(net.Interfaces); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"slices"
 	"sync"
+	"time"
 
 	"connectrpc.com/grpchealth/v2"
 
@@ -132,24 +134,52 @@ func (r *daemonReadiness) publishLocked() {
 // watchBindings registers the device-bound listener interfaces and checks
 // them against the current inventory, which also covers an interface event
 // lost between the bind and the registration.
-func (r *daemonReadiness) watchBindings(bindings []listenerBinding, interfaces interfaceInventory) {
+func (r *daemonReadiness) watchBindings(bindings []listenerBinding, interfaces interfaceInventory) error {
 	r.mu.Lock()
 	r.bindings = bindings
 	r.mu.Unlock()
-	r.checkBindings(interfaces)
+	return r.checkBindings(interfaces)
+}
+
+// bindingRecheckInterval bounds how long a listener interface change can go
+// unnoticed when the interface monitor is disabled, stopped, or loses events.
+const bindingRecheckInterval = 2 * time.Second
+
+// recheckBindings re-checks the bound listener interfaces on every tick until
+// ctx is cancelled. A failed inventory read keeps the previous state.
+func (r *daemonReadiness) recheckBindings(
+	ctx context.Context, interval time.Duration, interfaces interfaceInventory, logger *slog.Logger,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.checkBindings(interfaces); err != nil {
+				logger.Warn("listener interface recheck failed; readiness unchanged",
+					slog.String("error", err.Error()))
+			}
+		}
+	}
 }
 
 // checkBindings re-evaluates every device-bound listener interface. A
 // SO_BINDTODEVICE socket stays bound to the bind-time ifindex, so an interface
 // recreated under the same name keeps the listener deaf; it stays NOT_SERVING
-// until the daemon restarts.
-func (r *daemonReadiness) checkBindings(interfaces interfaceInventory) {
+// until the daemon restarts. An inventory error leaves the state unchanged
+// for the next check.
+func (r *daemonReadiness) checkBindings(interfaces interfaceInventory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.bindings) == 0 {
-		return
+		return nil
 	}
 	current, err := interfaces()
+	if err != nil {
+		return fmt.Errorf("list interfaces for listener bindings: %w", err)
+	}
 	byName := make(map[string]net.Interface, len(current))
 	for _, iface := range current {
 		byName[iface.Name] = iface
@@ -157,7 +187,7 @@ func (r *daemonReadiness) checkBindings(interfaces interfaceInventory) {
 	ready := bindingComponents
 	for _, binding := range r.bindings {
 		iface, ok := byName[binding.ifName]
-		if err != nil || !ok || iface.Index != binding.ifIndex ||
+		if !ok || iface.Index != binding.ifIndex ||
 			iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagRunning == 0 {
 			ready &^= 1 << binding.component
 		}
@@ -165,6 +195,7 @@ func (r *daemonReadiness) checkBindings(interfaces interfaceInventory) {
 	r.setLocked(bindingComponents, false)
 	r.setLocked(ready, true)
 	r.publishLocked()
+	return nil
 }
 
 // runRequired runs a worker the dataplane cannot lose. A return while ctx is
@@ -180,26 +211,21 @@ func (r *daemonReadiness) runRequired(ctx context.Context, name string, run func
 
 // resolveListenerBindings records the ifindex of every interface a listener
 // binds to. It runs before the listeners bind: an interface recreated in
-// between then reads as a stale binding, never as a false ready one.
-func resolveListenerBindings(cfg *config.Config, interfaces interfaceInventory) []listenerBinding {
-	index := make(map[string]int)
-	if current, err := interfaces(); err == nil {
-		for _, iface := range current {
-			index[iface.Name] = iface.Index
-		}
-	}
+// between then reads as a stale binding, never as a false ready one. An
+// inventory error fails startup rather than recording an unknown index.
+func resolveListenerBindings(cfg *config.Config, interfaces interfaceInventory) ([]listenerBinding, error) {
 	var bindings []listenerBinding
 	add := func(ifName string, component readinessComponent) {
 		if ifName != "" {
-			bindings = append(bindings, listenerBinding{ifName: ifName, ifIndex: index[ifName], component: component})
+			bindings = append(bindings, listenerBinding{ifName: ifName, component: component})
 		}
 	}
 	for _, lnCfg := range controlListenerConfigs(cfg) {
 		add(lnCfg.IfName, componentControlBindings)
 	}
-	if cfg.Echo.Enabled && len(cfg.Echo.Peers) > 0 {
-		for _, peer := range cfg.Echo.Peers {
-			add(peer.Interface, componentEchoBindings)
+	if cfg.Echo.Enabled { // createListeners opens Echo listeners only when enabled.
+		for _, lnCfg := range echoListenerConfigs(cfg) {
+			add(lnCfg.IfName, componentEchoBindings)
 		}
 	}
 	for _, group := range cfg.MicroBFD.Groups {
@@ -207,5 +233,19 @@ func resolveListenerBindings(cfg *config.Config, interfaces interfaceInventory) 
 			add(member, componentMicroBindings)
 		}
 	}
-	return slices.Compact(bindings)
+	if len(bindings) == 0 {
+		return nil, nil
+	}
+	current, err := interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("resolve listener interface indexes: %w", err)
+	}
+	index := make(map[string]int, len(current))
+	for _, iface := range current {
+		index[iface.Name] = iface.Index
+	}
+	for i := range bindings {
+		bindings[i].ifIndex = index[bindings[i].ifName]
+	}
+	return slices.Compact(bindings), nil
 }

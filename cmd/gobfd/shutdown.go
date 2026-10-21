@@ -186,9 +186,9 @@ func newGRPCServer(
 	connecthttp.Mount(mux, rpc)
 
 	// gRPC health check (grpc.health.v1) on its own server without the RPC
-	// interceptors, as in v1. The empty service is dynamic reconciliation
-	// readiness. Named health and BFD services remain SERVING while the
-	// process serves requests.
+	// interceptors, as in v1. daemonReadiness writes the empty service and
+	// the bfd.v1 services as the AND of their reconciliation, runtime and
+	// listener components; grpc.health.v1.Health stays SERVING as liveness.
 	health := connect.NewServer()
 	reportManagementSafety(checker, cfg)
 	if cfg.UnsafeLoopbackMutations {
