@@ -267,7 +267,9 @@ The implemented boundary is the numbered-multiaccess single-hop profile: each
 session is bound to one receive interface, explicit or derived from its local
 address at creation. A YAML session whose local address is on no interface or
 on several interfaces stays pending and is retried on interface events, resync
-or SIGHUP; the API returns `FailedPrecondition`. A local address on `lo` or a
+or SIGHUP, with readiness `NOT_SERVING` while pending; an address owned by
+several interfaces stays pending until `interface` is configured and applied
+with SIGHUP. The API returns `FailedPrecondition`. A local address on `lo` or a
 dummy interface binds the session to that interface, so packets arriving on a
 physical interface are refused as `scope_mismatch`; such deployments must set
 `interface`. Point-to-point initial demultiplexing (Section 6: accept
