@@ -56,6 +56,11 @@ var (
 
 	// ErrMicroBFDInterfaceRequired indicates an empty LAG or member link name.
 	ErrMicroBFDInterfaceRequired = errors.New("micro-BFD LAG and member link names must not be empty")
+
+	// ErrMicroBFDGroupOwnerClaimNotFound indicates that a source tried to
+	// release a group it does not own, such as an API delete of a group owned
+	// by configuration reload.
+	ErrMicroBFDGroupOwnerClaimNotFound = errors.New("micro-BFD group owner claim not found")
 )
 
 // MicroBFDConfigConflictError identifies the LAG whose effective group
@@ -207,6 +212,10 @@ type MicroBFDGroup struct {
 	requiredMinRx time.Duration
 	detectMult    uint8
 
+	// owners holds the source claims on the group, as sessionEntry.owners does
+	// for sessions. Guarded by Manager.ownershipMu.
+	owners map[SessionOwner]struct{}
+
 	logger *slog.Logger
 }
 
@@ -243,6 +252,7 @@ func NewMicroBFDGroup(cfg MicroBFDConfig, logger *slog.Logger) (*MicroBFDGroup, 
 		desiredMinTx:  cfg.DesiredMinTxInterval,
 		requiredMinRx: cfg.RequiredMinRxInterval,
 		detectMult:    cfg.DetectMultiplier,
+		owners:        make(map[SessionOwner]struct{}),
 		logger: logger.With(
 			slog.String("component", "micro-bfd"),
 			slog.String("lag", cfg.LAGInterface),
@@ -545,6 +555,17 @@ func (g *MicroBFDGroup) matchesReconcileConfig(cfg MicroBFDConfig) bool {
 		}
 	}
 	return true
+}
+
+// memberState returns the recorded state of one member link.
+func (g *MicroBFDGroup) memberState(ifName string) (State, uint32, bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	entry, ok := g.members[ifName]
+	if !ok {
+		return StateDown, 0, false
+	}
+	return entry.state, entry.localDiscr, true
 }
 
 // MemberStates returns a snapshot of all member link states.

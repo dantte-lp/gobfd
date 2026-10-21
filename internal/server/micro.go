@@ -76,7 +76,7 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 		slog.Int("min_active", cfg.MinActiveLinks),
 	)
 
-	created, err := s.manager.CreateMicroBFDGroup(cfg)
+	created, err := s.manager.CreateMicroBFDGroupAs(cfg, apiOwnerFromContext(ctx))
 	if err != nil {
 		return nil, mapManagerError(err, "add micro-bfd group")
 	}
@@ -102,7 +102,14 @@ func (s *MicroBFDServer) DeleteMicroBFDGroup(
 		slog.String("lag", lag),
 	)
 
-	if err := s.manager.DestroyMicroBFDGroup(lag); err != nil {
+	owner := apiOwnerFromContext(ctx)
+	if err := s.manager.DestroyMicroBFDGroupAs(lag, owner); err != nil {
+		if errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound) {
+			s.logger.WarnContext(ctx, "DeleteMicroBFDGroup refused: the caller holds no claim on the group",
+				slog.String("lag", lag),
+				slog.String("owner", owner.ID),
+			)
+		}
 		return nil, mapManagerError(err, "delete micro-bfd group")
 	}
 

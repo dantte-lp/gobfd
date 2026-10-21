@@ -1708,10 +1708,12 @@ func TestManagerReconcileMicroBFDGroups(t *testing.T) {
 	mgr := newTestManager(t)
 	defer mgr.Close()
 
-	// Create an initial group.
+	// Create an initial reload-owned group.
 	cfg1 := defaultMicroBFDConfig()
-	if _, err := mgr.CreateMicroBFDGroup(cfg1); err != nil {
-		t.Fatalf("CreateMicroBFDGroup: %v", err)
+	if err := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), []bfd.MicroBFDReconcileConfig{
+		{Key: cfg1.LAGInterface, Config: cfg1, SenderLeaseFactory: microLeaseFactories()},
+	}).Err(); err != nil {
+		t.Fatalf("seed reconcile: %v", err)
 	}
 
 	// Reconcile: remove bond0, add bond1.
