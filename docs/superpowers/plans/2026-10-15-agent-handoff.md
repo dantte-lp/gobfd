@@ -140,7 +140,9 @@ The original handoff and its dated measurements remain in local Git:
   pass); a sender on a link-local address already inherits the zone device from
   `bind()`; a parallel test package binding `[::1]:3784/4784` can steal the
   netio transport test datagrams. Flaky `TestManagerOwnedInterruptErrorPreserved`
-  is `gobfd-bka`.
+  (`gobfd-bka`) lost the interrupt when the owner reached `stopInterrupt`
+  before the cancelling goroutine; the test now holds the owner in a blocked
+  write before destroy.
 
 ## Resume
 
