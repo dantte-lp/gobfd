@@ -241,8 +241,10 @@ source: sources base, Echo и Micro-BFD захватывают свои listener
 недостающие до apply в Manager, поэтому source не может сойтись только на
 senders. Отсутствующий интерфейс listener оставляет source в `pending` для
 interface retry. После применения source без failed и resource-pending записей
-незахваченные listeners закрываются, если их не использует сессия, созданная
-через API. Каждый listener выполняет собственный обязательный receiver;
+source снимает claims вне своего desired set. Control- и Echo-сессии,
+созданные через API, захватывают listeners вместе с senders через того же
+владельца под одним mutex и завершают запрос ошибкой, если listener не
+открывается; listener закрывается при снятии последнего claim. Каждый listener выполняет собственный обязательный receiver;
 намеренное закрытие сначала отменяет этот receiver, поэтому fail-stop вызывает
 только неожиданная потеря сокета. Listener с привязкой к устройству для
 пересозданного интерфейса перепривязывается на месте через `SO_BINDTODEVICE`.
