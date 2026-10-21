@@ -198,7 +198,9 @@
   или пересоздан с другим ifindex, переводит свои services в `NOT_SERVING`.
   Пересозданный интерфейс оставляет `NOT_SERVING` до перезапуска, так как сокет
   сохраняет ifindex момента bind; перепривязка внутри процесса отслеживается в
-  `gobfd-qj0.8.2.2.6.4`.
+  `gobfd-qj0.8.2.2.6.4`. Привязки проверяются по interface events и
+  периодически раз в 2 с; ошибка inventory интерфейсов прерывает запуск, а во
+  время работы сохраняет прежнее состояние.
 - Потеря receive path или dispatch приводит к fail-stop. Если сокет control,
   Echo, Micro-BFD или overlay receiver закрывается либо dispatch loop
   завершается во время работы daemon, health переходит в `NOT_SERVING`, sessions
