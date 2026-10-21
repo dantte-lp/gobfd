@@ -439,6 +439,11 @@
   Политика запуска действует и для создаваемых позже отправителей и остаётся
   неизменяемой при SIGHUP.
 
+- Исправлено описание буферов сокетов (`gobfd-8f3`): `read_buffer_size`
+  применяется и к привязанным к интерфейсу wildcard single-hop listeners IPv4
+  и IPv6 для каждого enabled unsolicited interface. Прежнее описание указывало,
+  что приём unsolicited BFD использует существующие control listeners.
+
 - Конфигурация отклоняет разные interface для одного control listener
   (parsed local address и single-hop/multi-hop type) или enabled Echo
   listener (parsed local address) независимо от порядка записей
