@@ -543,3 +543,25 @@ func (a *SourcePortAllocator) Release(port uint16) {
 
 	delete(a.inUse, port)
 }
+
+// rebindDevice re-applies SO_BINDTODEVICE to a device-bound single-hop
+// socket; see Listener.RebindDevice.
+func (c *LinuxPacketConn) rebindDevice() error {
+	if c.multiHop || c.ifName == "" {
+		return fmt.Errorf("rebind %s: %w", c.localAddr, ErrRebindUnsupported)
+	}
+	raw, err := c.conn.SyscallConn()
+	if err != nil {
+		return fmt.Errorf("rebind %s%%%s: %w", c.localAddr, c.ifName, err)
+	}
+	var sockErr error
+	if err := raw.Control(func(fd uintptr) {
+		sockErr = unix.SetsockoptString(int(fd), unix.SOL_SOCKET, unix.SO_BINDTODEVICE, c.ifName)
+	}); err != nil {
+		return fmt.Errorf("rebind %s%%%s: raw conn control: %w", c.localAddr, c.ifName, err)
+	}
+	if sockErr != nil {
+		return fmt.Errorf("rebind %s: set SO_BINDTODEVICE(%s): %w", c.localAddr, c.ifName, sockErr)
+	}
+	return nil
+}
