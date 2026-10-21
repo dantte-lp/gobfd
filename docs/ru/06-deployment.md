@@ -56,7 +56,7 @@ GoBFD не публикует и не поддерживает dataplane runtime
 
 ```bash
 # Установка .deb-пакета
-sudo dpkg -i gobfd_*.deb
+sudo apt install ./gobfd_*.deb   # устанавливает зависимости systemd и procps
 
 # Установка .rpm-пакета
 sudo rpm -i gobfd_*.rpm
@@ -86,9 +86,9 @@ gobfdctl session list
 `deployments/systemd/gobfd.tmpfiles` создают системную non-login identity
 `gobfd` и ownership `/etc/gobfd`, не меняя контракт четырёх публичных binaries.
 
-Подключение к генератору пакетов и проверка нативных DEB/RPM artifacts остаются
-отдельными этапами. Существующие nFPM hooks сохраняются, пока package artifacts
-не подтвердят shellless lifecycle path end to end.
+`go run ./test/cmd/cictl package-lifecycle` устанавливает DEB и RPM релиза в
+контейнеры с systemd и выполняет их фазы установки и окончательного удаления;
+см. [Тесты жизненного цикла пакетов](./09-development.md#тесты-жизненного-цикла-пакетов).
 
 #### Из исходников
 
@@ -182,6 +182,7 @@ WantedBy=multi-user.target
 | `WatchdogSec=30s` | Watchdog systemd -- демон отправляет keepalive каждые 15 секунд |
 | `ExecReload` | SIGHUP перезагружает уровень лога и реконсилирует membership sessions в пределах открытых при startup transport bindings; startup-owned изменения отклоняются и требуют restart |
 | `Restart=on-failure` | Авто-перезапуск с задержкой 5 секунд после сбоя или выхода fail-stop при потере receive path или dispatch |
+| Штатная остановка | Выход с кодом 0 после AdminDown drain. Drain, который не может завершиться из-за недоступного пира или пира без discriminator, записывается как предупреждение; локальные ошибки drain по-прежнему завершают процесс с ошибкой |
 | Директивы безопасности | Минимальные привилегии с `CAP_NET_RAW` и `CAP_NET_ADMIN` |
 
 #### Контракт песочницы
@@ -202,7 +203,19 @@ WantedBy=multi-user.target
 приватным `/tmp`. `ProtectKernelTunables=true` оставляет `/sys` только для
 чтения, поэтому actuator Micro-BFD `kernel-bond` в режиме `enforce` не может
 записать `/sys/class/net/<bond>/bonding/slaves` под этим юнитом; `dry-run`,
-`ovs` и `networkmanager` не затронуты.
+`ovs` и `networkmanager` не затронуты. Opt-in drop-in
+[`deployments/systemd/gobfd-kernel-bond.conf`](../../deployments/systemd/gobfd-kernel-bond.conf)
+открывает на запись только `/sys/devices/virtual/net/<bond>/bonding/slaves`,
+файл, который пишет backend, для каждого управляемого bond:
+
+```bash
+sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+sudo systemctl daemon-reload && sudo systemctl restart gobfd
+```
+
+Bond должен существовать к моменту запуска gobfd. `systemd-analyze verify`
+принимает drop-in в Debian 13 и Oracle Linux 10; квалификация записи на хосте
+с модулем bonding не выполнена (`gobfd-qj0.8.2.3.3.1`).
 
 Для крупных deployment лимит дескрипторов повышается drop-in-файлом, а не
 правкой юнита из пакета:
@@ -211,14 +224,14 @@ WantedBy=multi-user.target
 sudo systemctl edit gobfd   # [Service] LimitNOFILE=<2*sessions+256 или больше>
 ```
 
-2026-10-21 юнит выполнен под systemd 257 в контейнерах Debian 13 и Oracle
-Linux 10 с файлами по путям пакета; тесты нативных DEB/RPM-артефактов остаются
-отдельным этапом поставки. Демон запустился с `Seccomp: 2`, `NoNewPrivs: 1`,
-`hidepid=invisible,subset=pid` и лимитом 16384 дескрипторов, удерживал сессии
-Up дольше `WatchdogSec=` без перезапуска, выполнил reload без смены PID,
-перезапустился после `SIGKILL` и остановился с `Result=success`.
-`systemd-analyze security` показал exposure 5.2 для прежнего юнита и 3.3 для
-текущего.
+[Тест жизненного цикла пакетов](./09-development.md#тесты-жизненного-цикла-пакетов)
+устанавливает DEB и RPM релиза под systemd 257 в Debian 13 и Oracle Linux 10.
+Демон запускается с `Seccomp: 2`, `NoNewPrivs: 1`, `Umask: 0077`,
+`hidepid=invisible,subset=pid` и лимитом 16384 дескрипторов, удерживает сессии
+Up дольше `WatchdogSec=` без перезапуска, выполняет reload без смены PID,
+перезапускается после `SIGKILL` и останавливается с `Result=success` после
+уничтожения пира. В journal нет отказов песочницы. `systemd-analyze security`
+показывает exposure 5.2 для прежнего юнита и 3.3 для текущего.
 
 #### Управление сервисом
 

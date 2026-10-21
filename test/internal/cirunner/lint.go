@@ -15,6 +15,7 @@ import (
 const (
 	lintEnabledCount            = 92
 	containertestPackagePattern = "./test/internal/containertest/..."
+	podmanAPIPackagePattern     = "./test/internal/podmanapi/..."
 	prebuiltLintPath            = "/go/bin/golangci-lint"
 	goToolSubcommand            = "tool"
 	toolsModuleFlag             = "-modfile=tools/go.mod"
@@ -30,16 +31,19 @@ func defaultLintProfiles() []lintProfile {
 		{tag: "integration", packages: []string{"./test/integration/..."}},
 		{tag: "testcontainers", packages: []string{containertestPackagePattern}},
 		{tag: "e2e_core_testcontainers", packages: []string{
-			"./test/internal/podmanapi/...", containertestPackagePattern, "./test/e2e/core/...",
+			podmanAPIPackagePattern, containertestPackagePattern, "./test/e2e/core/...",
 		}},
 		{tag: "e2e_bgp_failover_testcontainers", packages: []string{
-			"./test/internal/podmanapi/...", containertestPackagePattern, "./test/e2e/bgp-failover/...",
+			podmanAPIPackagePattern, containertestPackagePattern, "./test/e2e/bgp-failover/...",
 		}},
 		{tag: "e2e_haproxy_testcontainers", packages: []string{
-			"./test/internal/podmanapi/...", containertestPackagePattern, "./test/e2e/haproxy-health/...",
+			podmanAPIPackagePattern, containertestPackagePattern, "./test/e2e/haproxy-health/...",
 		}},
 		{tag: "e2e_observability_testcontainers", packages: []string{
-			"./test/internal/podmanapi/...", containertestPackagePattern, "./test/e2e/observability/...",
+			podmanAPIPackagePattern, containertestPackagePattern, "./test/e2e/observability/...",
+		}},
+		{tag: "package_lifecycle_testcontainers", packages: []string{
+			podmanAPIPackagePattern, containertestPackagePattern, "./test/package-lifecycle/...",
 		}},
 		{tag: "e2e_linux", packages: []string{"./test/e2e/linux/..."}},
 		{tag: "e2e_overlay", packages: []string{"./test/e2e/overlay/..."}},

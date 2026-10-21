@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -425,6 +426,32 @@ type commandRecorder struct {
 func (r *commandRecorder) Run(_ context.Context, name string, _ ...string) error {
 	r.names = append(r.names, name)
 	return nil
+}
+
+func TestRunPackageCommandsUseRepositoryRoot(t *testing.T) {
+	t.Parallel()
+
+	for command, want := range map[string]int{"package-build": 2, "package-lifecycle": 1} {
+		runner := &specCommandRecorder{}
+		if err := run(context.Background(), []string{command}, dependencies{
+			getwd:      func() (string, error) { return "/repo", nil },
+			environ:    func() []string { return []string{"PATH=/usr/bin"} },
+			specRunner: runner,
+		}); err != nil {
+			t.Fatalf("run(%s) error = %v", command, err)
+		}
+		if len(runner.specs) != want {
+			t.Fatalf("%s ran %d commands, want %d", command, len(runner.specs), want)
+		}
+		for _, spec := range runner.specs {
+			if spec.Dir != "/repo" || !slices.Contains(spec.Env, "PATH=/usr/bin") {
+				t.Errorf("%s spec dir %q env %v", command, spec.Dir, spec.Env)
+			}
+		}
+		if err := run(context.Background(), []string{command, "extra"}, dependencies{specRunner: runner}); err == nil {
+			t.Errorf("%s accepted an extra argument", command)
+		}
+	}
 }
 
 type specCommandRecorder struct {
