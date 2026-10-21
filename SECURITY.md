@@ -75,11 +75,17 @@ On `dev`, GoBFD uses `github.com/osrg/gobgp/v4 v4.10.0` and imports only
 (upstream commit `583080a`). The Go vulnerability database lists no fixed
 GoBGP v4 version but limits the advisory to the symbol
 `fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`, which
-GoBFD does not import. Strict `govulncheck` reports no reachable finding;
-module-level `osv-scanner` still reports the advisory. By maintainer decision
-of 2026-10-13, `scripts/vuln-audit.go` accepts only that module-level finding
-for the exact `github.com/osrg/gobgp/v4` module (`ModuleOnly`); a reachable
-symbol fails the audit. The entry expires on 2026-12-31.
+GoBFD does not import. Strict `govulncheck` reports the advisory only at
+module level; module-level `osv-scanner` also reports it. By maintainer
+decisions of 2026-10-13 (`dev`) and 2026-10-21 (stable v1, `gobfd-qj0.8.4.1`),
+`scripts/vuln-audit.go` accepts only that module-level finding for the exact
+`github.com/osrg/gobgp/v4` module (`ModuleOnly`); an imported affected package
+or a reachable symbol fails the audit. Stable v1 additionally requires
+GHSA/OSV to list a fixed version at or below the pin and a final-candidate
+govulncheck run with the advisory at module level only. Owner: `@dantte-lp`;
+expiry (review) date: 2026-12-31. Remove the entry once the Go vulnerability
+database records a fixed GoBGP v4 version; the audit fails on an entry that
+matches no scanner finding.
 
 `release/v0.6` keeps `github.com/osrg/gobgp/v3 v3.37.0`, which has no fixed
 GoBGP v3 version. By maintainer decision of 2026-10-13, the v0.6 line accepts
@@ -109,8 +115,9 @@ exception when the module no longer produces the inventory finding.
 
 CI allowlists only the module-only `GO-2026-4736` and `GO-2026-5932`
 exceptions in `scripts/vuln-audit.go`. Any other advisory, expired entry,
-package mismatch, unknown scanner, or disallowed reachability reported by the
-scanners fails the vulnerability audit.
+stale entry without a matching finding, package mismatch, unknown scanner, or
+disallowed reachability reported by the scanners fails the vulnerability
+audit.
 
 CI scans `go.mod` and the isolated `tools/go.mod` as separate OSV inputs. It
 retains raw runtime/tools vulnerability JSON and separate CycloneDX SBOMs in

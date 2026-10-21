@@ -105,11 +105,17 @@ The original handoff and its dated measurements remain in local Git:
   the batch gate of the integration branch. Follow-ups:
   `gobfd-qj0.8.2.1.1.1.4.3.2`, CI coverage of the contract tests in `ci.yml`.
 - `gobfd-qj0.8.4.1`: maintainer decision (option C). Stable v1 may ship GoBGP
-  v4.10.0 with the module-only `GO-2026-4736` entry while GHSA/OSV record the fix
-  at or below the pin, the symbol-level govulncheck of the final candidate is
-  clean and the entry names owner and review date; remove the entry once the Go
-  vulnerability database records a fixed v4 version (golang/vulndb#5035, #6562).
-  The fresh 2026-10-21 scan reported the advisory at module level only.
+  v4.10.0 with the module-only `GO-2026-4736` entry while (1) GHSA/OSV record
+  the fix at or below the pin, (2) the final candidate's govulncheck reports
+  `GO-2026-4736` only at module level (no imported package or reachable symbol)
+  and (3) the allowlist entry and the inventory decision name owner `@dantte-lp`
+  and the expiry (review) date 2026-12-31; (4) remove the entry once the Go
+  vulnerability database records a fixed v4 version (golang/vulndb#5035,
+  #6562). The audit fails on an entry that matches no scanner finding. The
+  2026-10-21 scan of revision `c5b414d`
+  (`.worktrees/gobgp-advisory-20261021/reports/gobgp-advisory-20261021/scan-20261021/`,
+  govulncheck v1.8.0, `db_last_modified` 2026-10-20T00:20:56Z) reported the
+  advisory at module level only; it is not the final candidate.
 - Recorded decisions for the next slices: readiness `.8.2.3.1` (fail-stop on
   receiver loss; GoBGP outside `""`; sender health from creation outcome;
   unsolicited loss affects `""` and `BfdService`; LAG actuator health in
@@ -188,8 +194,9 @@ versions require fresh command/parser/authentication qualification.
 ## Remaining final gates
 
 - Stable `GO-2026-4736`: maintainer decision of 2026-10-21 under
-  `gobfd-qj0.8.4.1`; the final candidate needs a fresh symbol-level scan with the
-  advisory at module level only.
+  `gobfd-qj0.8.4.1`; the final candidate's govulncheck must report
+  `GO-2026-4736` only at module level (no imported package or reachable
+  symbol), and GHSA/OSV must still list a fixed version at or below the pin.
 - Final reviewed-v1-candidate inventory `.8.6.11` covers runtime/tools, OCI,
   Actions/nested identities, generators, peers and toolchains: current-compatible
   target or explicit reviewed owner/date exception. Scheduling changes grant no

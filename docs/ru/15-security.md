@@ -94,12 +94,15 @@ endpoints включайте `gobgp.tls.enabled`.
 исправление, но база уязвимостей Go не указывает исправленную версию v4.
 Advisory относится к `github.com/osrg/gobgp/v4/pkg/server`; GoBFD импортирует
 только пакет `api`, поэтому govulncheck сообщает находку на уровне модуля.
-Решение мейнтейнера для stable v1 допускает эту module-only запись, пока
-сканирование на уровне символов чистое; запись удаляется, когда база укажет
-исправленную версию. Держите GoBGP API на localhost или в доверенной
-management-сети. Запись allowlist в `scripts/vuln-audit.go` содержит
-названного owner, expiry, reason и mitigation; после expiry vulnerability gate
-падает.
+Решение мейнтейнера от 2026-10-21 для stable v1 (`gobfd-qj0.8.4.1`) допускает
+эту module-only запись, пока GHSA/OSV указывают исправленную версию не выше
+закреплённой, а govulncheck финального candidate сообщает `GO-2026-4736`
+только на уровне модуля (без импортированного пакета и достижимого символа).
+Запись удаляется, когда база укажет исправленную версию v4; audit падает на
+записи, которая не соответствует ни одному finding сканеров. Держите GoBGP API
+на localhost или в доверенной management-сети. Запись allowlist в
+`scripts/vuln-audit.go` называет owner `@dantte-lp`, дату expiry (пересмотра)
+2026-12-31, reason и mitigation; после expiry vulnerability gate падает.
 
 CI проверяет runtime manifest и manifest изолированного tool-модуля раздельно.
 Raw runtime/tools vulnerability reports и их раздельные CycloneDX SBOM

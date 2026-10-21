@@ -9,10 +9,11 @@ evolve them additively
 
 **GoBGP target:** development uses the selected v4 pin in `go.mod`, currently
 v4.10.0 under the 2026-10-13 maintainer decision. The original v4.8.0 target
-is historical. Stable v1 still requires a compatible fixed v4 release and
-the explicit `GO-2026-4736` gate; the development exception is not a stable
-waiver. The Go vulnerability database still lists no fixed v4 range on
-2026-10-20: [advisory](https://vuln.go.dev/ID/GO-2026-4736).
+is historical. Stable v1 requires the four `GO-2026-4736` conditions of the
+2026-10-21 amendment in the GoBGP v4 actuator section; the development
+exception alone is not a stable waiver. The Go vulnerability database still
+lists no fixed v4 range on 2026-10-20:
+[advisory](https://vuln.go.dev/ID/GO-2026-4736).
 
 **2026-10-13 amendment (GoBGP target):** the maintainer selected GoBGP
 v4.10.0, the latest release (published 2026-10-04), in place of v4.8.0
@@ -21,6 +22,12 @@ v4.10.0, the latest release (published 2026-10-04), in place of v4.8.0
 daemon; `release/v0.6` keeps GoBGP v3.37.0. The `GO-2026-4736` allowlist
 entry on `dev` is `ModuleOnly` for `github.com/osrg/gobgp/v4` and expires on
 2026-12-31; see the GoBGP v4 actuator section.
+
+**2026-10-21 amendment (stable GoBGP advisory gate):** by maintainer decision
+(Beads `gobfd-qj0.8.4.1`, option C), stable v1.0.0 may ship GoBGP v4.10.0 with
+the module-only `GO-2026-4736` entry. This replaces the original "does not
+report `GO-2026-4736`" stable condition; the four conditions are in the GoBGP
+v4 actuator section.
 
 **Delivery priority — 2026-10-20 maintainer amendment:** release v1.0.0 first;
 general dependency freshness, cosmetic refactoring and independent v0.6 follow-ups
@@ -327,8 +334,9 @@ error.
 
 GoBGP v4.8.0 is affected by `GO-2026-4736` and upstream publishes no fixed
 release at the design date. Alpha, beta, and RC validation may carry the same
-exact time-bounded exception as v0.6.2. Stable v1.0.0 is blocked until a
-compatible GoBGP v4 release no longer reports the advisory. Renewing or
+exact time-bounded exception as v0.6.2. At the design date, stable v1.0.0 was
+blocked until a compatible GoBGP v4 release no longer reported the advisory;
+the 2026-10-21 amendment below replaces that condition. Renewing or
 broadening the exception requires a separate explicit maintainer decision.
 
 **2026-10-13 amendment:** the maintainer selected GoBGP v4.10.0 (Beads
@@ -345,6 +353,26 @@ explicit maintainer decision required above, `scripts/vuln-audit.go` carries a
 `ModuleOnly` entry for the exact `github.com/osrg/gobgp/v4` module that
 expires on 2026-12-31. This amendment does not lift the stable v1.0.0
 condition above.
+
+**2026-10-21 amendment (stable GoBGP advisory gate):** by maintainer decision
+(Beads `gobfd-qj0.8.4.1`, option C), stable v1.0.0 may ship GoBGP v4.10.0 with
+the `ModuleOnly` `GO-2026-4736` entry while all four conditions hold:
+
+1. GHSA-4p9m-8gc4-rw2h and its OSV record list a fixed version (4.4.0) at or
+   below the pinned GoBGP v4 release, and upstream fix `583080a7` is an
+   ancestor of the pinned tag.
+2. The govulncheck run on the final reviewed v1 candidate reports
+   `GO-2026-4736` only at module level, with no imported package or reachable
+   symbol. GoBFD imports only `github.com/osrg/gobgp/v4/api`.
+3. The allowlist entry in `scripts/vuln-audit.go` and the release inventory
+   decision name the owner `@dantte-lp` and the expiry (review) date
+   2026-12-31. The expiry is not extended without a new maintainer decision.
+4. The entry is removed once the Go vulnerability database records a fixed v4
+   version (golang/vulndb#5035, #6562). The audit fails on an allowlist entry
+   that matches no scanner finding.
+
+This amendment replaces the stable v1.0.0 condition of the design date. It
+does not change the `release/v0.6` GoBGP v3.37.0 decision.
 
 ## Companion binaries
 
@@ -510,7 +538,8 @@ not substituted for the qualification thresholds above.
 
 `v1.0.0` contains no known release-blocking RFC, ownership, security, or
 actuation defect from these gates and uses a compatible GoBGP v4 release that
-does not report `GO-2026-4736`.
+meets the four `GO-2026-4736` conditions of the 2026-10-21 amendment in the
+GoBGP v4 actuator section.
 
 The release inventory is rerun against the final reviewed v1 candidate.
 Runtime and tool modules, Go-owned tools, OCI images, GitHub Actions,
