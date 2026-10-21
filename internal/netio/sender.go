@@ -320,6 +320,15 @@ func (s *UDPSender) Close() error {
 	return nil
 }
 
+// SyscallConn exposes the sender socket for read-only option inspection.
+func (s *UDPSender) SyscallConn() (syscall.RawConn, error) {
+	raw, err := s.conn.SyscallConn()
+	if err != nil {
+		return nil, fmt.Errorf("sender syscall conn: %w", err)
+	}
+	return raw, nil
+}
+
 // SrcPort returns the allocated source port for this sender.
 func (s *UDPSender) SrcPort() uint16 {
 	return s.srcPort
