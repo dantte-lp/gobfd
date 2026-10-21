@@ -855,8 +855,11 @@ A listener whose interface does not exist leaves the source `pending`, and the
 automatic interface retry opens it; any other open error leaves the source
 `failed`. A local address that is not assigned yet or still IPv6-tentative
 (`EADDRNOTAVAIL`) on a listener, sender, or overlay backend bind is a typed
-unavailable address: the source stays `pending` without releasing old claims,
-and the address event that assigns it retries the source. An API-created
+unavailable address that leaves the source `pending`. A listener or overlay
+backend that cannot bind stops the source before the Manager apply, so old
+claims stay; a sender that cannot bind leaves only its own claim pending, and
+the pass still releases entries removed from the desired set. The address
+event that assigns the address retries the source. An API-created
 control or Echo session claims its listener with its sender and opens it when
 absent; an Echo session shares the per-address Echo listener. An absent
 interface or unassigned address fails `AddSession` or `AddEchoSession` with

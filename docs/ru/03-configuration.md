@@ -859,9 +859,12 @@ kill -HUP $(pidof gobfd)
 `pending`, а автоматический interface retry открывает его; любая другая ошибка
 открытия оставляет source в `failed`. Ещё не назначенный или IPv6-tentative
 local address (`EADDRNOTAVAIL`) при bind listener, sender или overlay backend
-считается типизированным недоступным адресом: source остаётся в `pending` без
-освобождения старых claims, а address event, назначающий адрес, повторяет
-применение source. Control- или Echo-сессия, созданная через API, захватывает
+считается типизированным недоступным адресом и оставляет source в `pending`.
+Listener или overlay backend, который не может выполнить bind, останавливает
+source до apply в Manager, поэтому старые claims сохраняются; sender, который не
+может выполнить bind, оставляет в `pending` только свой claim, а проход всё равно
+освобождает записи, удалённые из desired set. Address event, назначающий адрес,
+повторяет применение source. Control- или Echo-сессия, созданная через API, захватывает
 свой listener вместе с sender и открывает его при отсутствии; Echo-сессия
 использует общий Echo listener своего адреса. Отсутствующий интерфейс или
 неназначенный адрес завершает `AddSession` или `AddEchoSession` ошибкой
