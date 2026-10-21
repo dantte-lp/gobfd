@@ -119,12 +119,17 @@ config-owned timer updates serialize one active and one latest waiting proposal.
 Final confirms only a successfully transmitted Poll; protected TX increases and
 RX decreases take effect on confirmation. Consecutive transactions use measured
 exchange-time separation. Leaving Up fails update receipts and serializes the
-mandatory slow-floor Poll with recovery. Outside Up and AdminDown, a
-promoted update takes effect immediately and its Poll confirms the receipt
-(Section 6.8.3 defers changes only "when bfd.SessionState is Up"). This
-releases a local zero Required Min RX hold-down while a compliant peer stays
-silent. Full Section 6.5 qualification remains
-pending, including live FRR/BIRD reload evidence and the deployed RTT envelope.
+mandatory slow-floor Poll with recovery. Outside Up, including AdminDown, a
+promoted update takes effect immediately once no Poll or separation is pending,
+and its Poll confirms the receipt (Section 6.8.3 defers changes only "when
+bfd.SessionState is Up"). This releases a local zero Required Min RX hold-down
+while a compliant peer stays silent. A receipt is Applied only when the
+effective tuple equals the confirmed one. If that Poll gets no Final before the
+deadline, the receipt fails, the tuple stays effective and later generations
+queue behind the Poll. Entering Up through a Final keeps the one-second TX
+floor until a recovery Poll carries a faster Desired Min TX. Full Section 6.5
+qualification remains pending, including live FRR/BIRD reload evidence and the
+deployed RTT envelope.
 
 Peer receive-interval changes reschedule TX from the last successful send;
 unchanged incoming packets do not postpone it. A zero peer receive interval
