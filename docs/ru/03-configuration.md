@@ -853,7 +853,9 @@ kill -HUP $(pidof gobfd)
 открытия всех захваченных listeners, поэтому ни один source не сходится только
 на senders. Listener, интерфейс которого отсутствует, оставляет source в
 `pending`, а автоматический interface retry открывает его; любая другая ошибка
-открытия оставляет source в `failed`. После применения source без failed и
+открытия оставляет source в `failed`. Ещё не назначенный local address
+(`EADDRNOTAVAIL`) переводит source в `failed`, как и при bind sender; повторяет
+попытку следующий SIGHUP. После применения source без failed и
 resource-pending записей закрываются listeners, которые не захвачены ни одним
 source и не используются сессией, созданной через API. Неизменённые listeners,
 включая startup-owned wildcard listeners unsolicited, не переоткрываются и не
@@ -867,10 +869,12 @@ Kubernetes manifest выдают его на всё время жизни про
 ошибка listener, включая отсутствующий интерфейс, по-прежнему останавливает
 запуск. Non-Linux сборки не создают listeners, поэтому такой source `failed`.
 
-Overlay backends получают tunnel scopes при создании. Добавление overlay
-identity заменило бы работающий backend, общий для других identities, поэтому
-новая или re-keyed identity VXLAN или Geneve по-прежнему требует перезапуска и
-отклоняется до мутации.
+Overlay backends получают tunnel scopes при создании, и runtime-владельца,
+который создаёт или заменяет их, пока нет. Новой identity на существующем local
+endpoint потребовалась бы замена работающего общего backend, а identity на новом
+endpoint — новый backend. Оба случая по-прежнему требуют перезапуска и
+отклоняются до мутации; это нереализованный объём работ, а не ограничение ядра
+или привилегий.
 
 `log.level` применяется сразу после полной валидации candidate. Пять desired
 sets реконсилируют membership sessions/groups. Записи control, Echo и Micro-BFD

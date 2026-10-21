@@ -220,7 +220,8 @@ Each listener runs its own required receiver; a deliberate close cancels that
 receiver first, so only an unexpected socket loss is fail-stop. A device-bound
 listener of a recreated interface is rebound in place with `SO_BINDTODEVICE`.
 Overlay backends stay startup-owned: a missing backend leaves its source
-`failed` until restart. Only `ENODEV` from a listener device binding is
+`failed` until restart, and runtime backend creation or replacement is not
+implemented yet. Only `ENODEV` from a listener device binding is
 classified as an unavailable interface; other runtime failures remain `failed`,
 without string or errno classification.
 

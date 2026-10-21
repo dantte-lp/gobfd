@@ -850,7 +850,8 @@ Micro-BFD source applies, it claims the UDP listeners its desired set needs
 after every claimed listener is open, so no source converges on senders alone.
 A listener whose interface does not exist leaves the source `pending`, and the
 automatic interface retry opens it; any other open error leaves the source
-`failed`. After a source applies without failed or resource-pending entries,
+`failed`. A local address that is not assigned yet (`EADDRNOTAVAIL`) fails the
+source, as it fails a sender bind; a later SIGHUP retries it. After a source applies without failed or resource-pending entries,
 listeners that no source claims and no API-created session uses are closed.
 Unchanged listeners, including the startup-owned unsolicited wildcard
 listeners, are neither reopened nor replaced. A device-bound listener whose
@@ -863,10 +864,11 @@ the binding `NOT_SERVING` and is retried. At startup any listener failure,
 including an absent interface, still fails the start. Non-Linux builds cannot
 create listeners, so such a source is `failed`.
 
-Overlay backends receive their tunnel scopes when they are created. Adding an
-overlay identity would replace a running backend shared by other identities,
-so a new or re-keyed VXLAN or Geneve identity remains restart-only and is
-rejected before mutation.
+Overlay backends receive their tunnel scopes when they are created, and no
+runtime owner creates or replaces them yet. A new identity on an existing local
+endpoint would need a running shared backend replaced; one on a new endpoint
+would need a new backend. Both remain restart-only and are rejected before
+mutation; this is unimplemented scope, not a kernel or privilege limit.
 
 The five desired sets reconcile session/group membership. Control, Echo, and
 Micro-BFD entries may be added, removed, or re-keyed, including entries that
