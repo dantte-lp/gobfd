@@ -215,8 +215,13 @@ failures remain `failed`, without string or errno classification.
 
 The empty-service gRPC health check is `NOT_SERVING` before the first converged
 generation and while desired differs from applied; it returns `SERVING` after
-convergence. Named health for the health, BFD, Echo, and Micro-BFD services
-remains `SERVING`. SIGHUP is registered into a bounded channel before startup
+convergence while no runtime worker is lost and every device-bound listener
+interface is up with its bind-time ifindex. One aggregator
+(`cmd/gobfd/readiness.go`) also derives the BFD, Echo, and Micro-BFD named
+services from their own sources, listeners and the runtime workers; the
+`grpc.health.v1.Health` service stays `SERVING`. Loss of a receiver or the
+dispatch loop is fail-stop: health becomes `NOT_SERVING` and the daemon exits
+with an error (see `07-monitoring.md`). SIGHUP is registered into a bounded channel before startup
 apply, but its handler starts only after startup reconciliation, so an early
 reload cannot apply ahead of the startup candidate. systemd `READY=1` remains a
 process/listener readiness signal and is sent even when configuration health is

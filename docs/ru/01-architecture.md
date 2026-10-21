@@ -242,8 +242,13 @@ listener binding или overlay backend по-прежнему может пом�
 
 Проверка gRPC health с пустым service возвращает `NOT_SERVING` до первого
 converged generation и пока desired отличается от applied; после convergence
-она возвращает `SERVING`. Named health для health, BFD, Echo и Micro-BFD services
-остаётся `SERVING`. SIGHUP регистрируется в bounded channel до startup apply, но
+она возвращает `SERVING`, если ни один runtime worker не потерян и каждый
+интерфейс listener с привязкой к устройству включён и сохраняет ifindex момента
+bind. Один агрегатор (`cmd/gobfd/readiness.go`) выводит named services BFD, Echo
+и Micro-BFD из их sources, listeners и runtime workers; service
+`grpc.health.v1.Health` остаётся `SERVING`. Потеря receiver или dispatch loop
+приводит к fail-stop: health переходит в `NOT_SERVING`, daemon завершается с
+ошибкой (см. `07-monitoring.md`). SIGHUP регистрируется в bounded channel до startup apply, но
 handler запускается только после startup reconciliation, поэтому ранний reload
 не может примениться раньше startup candidate. systemd `READY=1` остаётся
 сигналом готовности процесса/listeners и отправляется даже при stale

@@ -184,6 +184,29 @@
 
 ### Изменено
 
+- Готовность gRPC health выводится из компонентов (H-30, `gobfd-qj0.8.2.3.1`).
+  Пустой service есть AND шести sources reconciliation, runtime workers и
+  интерфейсов listeners с привязкой к устройству. `bfd.v1.BfdService` следует за
+  base, VXLAN и Geneve sessions и control listeners, включая unsolicited;
+  `bfd.v1.EchoService` — за Echo; `bfd.v1.MicroBFDService` — за groups, members
+  и listeners member links Micro-BFD. Named services находятся в `NOT_SERVING`
+  до первого converged generation и пока их sources pending или failed,
+  например после ошибки создания sender или при отсутствии overlay backend.
+  `grpc.health.v1.Health` остаётся `SERVING` как сигнал liveness. `gobfd.gobgp`
+  и `gobfd.management` не входят в пустой service.
+- Listener с привязкой к устройству, интерфейс которого отсутствует, выключен
+  или пересоздан с другим ifindex, переводит свои services в `NOT_SERVING`.
+  Пересозданный интерфейс оставляет `NOT_SERVING` до перезапуска, так как сокет
+  сохраняет ifindex момента bind; перепривязка внутри процесса отслеживается в
+  `gobfd-qj0.8.2.2.6.4`.
+- Потеря receive path или dispatch приводит к fail-stop. Если сокет control,
+  Echo, Micro-BFD или overlay receiver закрывается либо dispatch loop
+  завершается во время работы daemon, health переходит в `NOT_SERVING`, sessions
+  дренируются, процесс завершается с ошибкой для systemd `Restart=on-failure`.
+  Control receiver больше не зацикливается на закрытом сокете. Shutdown
+  переводит health в `NOT_SERVING` и закрывает receive listeners после AdminDown
+  drain, поэтому простаивающий listener больше не блокирует выход.
+
 - Stable v1 допускает module-only исключение `GO-2026-4736` для GoBGP v4.10.0 по
   решению мейнтейнера от 2026-10-21 (`gobfd-qj0.8.4.1`), пока GHSA/OSV указывают
   исправленную версию не выше закреплённой, а govulncheck финального candidate

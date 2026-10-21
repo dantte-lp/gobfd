@@ -302,12 +302,36 @@ go tool trace trace.out
 |---|---|---|---|
 | Prometheus metrics | `127.0.0.1:9100` | `/metrics` | Prometheus scrape target |
 | gRPC API | `unix:///run/gobfd/gobfd.sock` | -- | ConnectRPC/gRPC API; optional TCP via `grpc.addr` |
-| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Empty service is reconciliation readiness; named services are process/service health |
+| gRPC Health | `unix:///run/gobfd/gobfd.sock` | `/grpc.health.v1.Health/Check` | Empty service is aggregate dataplane readiness; `bfd.v1` named services are component-derived |
 
-The empty-service check is `NOT_SERVING` before the first converged generation
-and while the latest desired generation is stale, then `SERVING` after full
-convergence. Named checks for `grpc.health.v1.Health`, `bfd.v1.BfdService`,
-`bfd.v1.EchoService`, and `bfd.v1.MicroBFDService` remain `SERVING`.
+One aggregator writes the empty service and the `bfd.v1` named services. Each
+status is the AND of the components the service needs:
+
+| Service | Components |
+|---|---|
+| empty service | all components below |
+| `bfd.v1.BfdService` | base, VXLAN and Geneve reconciliation sources; runtime workers; control listener interfaces, including unsolicited ones |
+| `bfd.v1.EchoService` | Echo reconciliation source; runtime workers; Echo listener interfaces |
+| `bfd.v1.MicroBFDService` | Micro-BFD group and member sources; runtime workers; member listener interfaces |
+| `grpc.health.v1.Health` | none; always `SERVING` as the liveness signal |
+
+- A reconciliation source is ready when the latest desired generation has no
+  pending or failed entry in it. Every service is `NOT_SERVING` before the
+  first converged generation and while an apply runs. Sender health is the
+  sender creation outcome recorded in the source receipt.
+- A device-bound listener interface is ready while it exists, is up and
+  running, and keeps the ifindex resolved before bind. Link events and
+  inventory resyncs re-check it. A link down/up recovers; an interface deleted
+  and recreated under the same name stays `NOT_SERVING` until the daemon
+  restarts, because the socket stays bound to the old ifindex.
+- Runtime workers are the BFD dispatch loop and the control, Echo, Micro-BFD and
+  overlay receivers. A worker that returns while the daemon runs, for example a
+  receiver whose socket closed, sets every service `NOT_SERVING`, and the daemon
+  drains sessions and exits with an error (fail-stop) for systemd
+  `Restart=on-failure`. Shutdown also sets every service `NOT_SERVING`.
+- Without a Linux interface monitor, listener interfaces are checked only at
+  startup.
+
 `gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
 lets anonymous loopback clients mutate, `SERVING` otherwise. With
 `gobgp.enabled`, the named check `gobfd.gobgp` is `NOT_SERVING` until the
@@ -315,9 +339,10 @@ GoBGP v4 preflight passes, and after a failed preflight or a failed
 `DisablePeer`/`EnablePeer` until the next success; a BFD Down for a
 neighbor with more than one base session also sets it `NOT_SERVING` until
 the next success
-(`03-configuration.md`, Session Identity). systemd
-`READY=1` continues to describe process/listener startup rather than
-configuration convergence.
+(`03-configuration.md`, Session Identity). `gobfd.gobgp` and
+`gobfd.management` stay outside the empty service, and LAG actuator health is
+not part of `bfd.v1.MicroBFDService`. systemd `READY=1` continues to describe
+process/listener startup rather than configuration convergence.
 
 ### Related Documents
 

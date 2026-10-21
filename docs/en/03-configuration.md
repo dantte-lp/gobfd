@@ -785,8 +785,8 @@ On reload:
 3. The complete base, Echo, Micro-BFD group and
    member, VXLAN, and Geneve session candidate is compiled and validated before
    sender creation or Manager mutation
-4. A new desired generation is published and gRPC empty-service health becomes
-   `NOT_SERVING`; an invalid candidate leaves generations, health, and log level
+4. A new desired generation is published and gRPC empty-service and `bfd.v1`
+   named health become `NOT_SERVING`; an invalid candidate leaves generations, health, and log level
    unchanged
 5. Log level is updated dynamically after validation (no restart needed); this
    setting is not rolled back if a later source fails
@@ -799,8 +799,10 @@ On reload:
 9. VXLAN and Geneve are reconciled as distinct sources, including empty
    desired sets
 10. One aggregate receipt records bounded counts and error codes for all six
-   sources. Applied advances to desired, and empty-service health becomes
-   `SERVING`, only if all six converge
+   sources. Applied advances to desired only if all six converge. Each named
+   service returns to `SERVING` when its own sources converge, and the empty
+   service when all six do; runtime and listener components also apply
+   (`07-monitoring.md`)
 
 `log.level` applies immediately after the complete candidate passes validation.
 On Linux, an existing but down configured interface produces `pending` after
