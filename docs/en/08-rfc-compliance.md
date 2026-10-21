@@ -45,9 +45,9 @@
 | RFC | Title | Status | Notes |
 |---|---|---|---|
 | [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Incoming Poll reply exists; local/crossed Poll and Demand procedures are incomplete |
-| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Partial; numbered-multiaccess profile** | UDP 3784, TTL=255, and explicit interface binding exist; initial-demux coverage remains incomplete |
+| [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Partial; numbered-multiaccess profile** | UDP 3784, TTL=255, per-session transport-class and receive-interface checks, single-hop TX device binding; point-to-point initial demux remains deferred |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Application integration partial** | State delivery and actuator convergence remain incomplete; penalty dampening is implementation policy |
-| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784 with TTL>=254 permits at most one intermediate router; arbitrary-hop qualification is pending |
+| [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784; per-session hop policy `multihop_max_hops` (default 1: TTL>=254) is GoBFD policy, not an RFC 5883 rule; real 2/5-hop path qualification is pending |
 | [RFC 7419](https://datatracker.ietf.org/doc/html/rfc7419) | Common Interval Support | **Implemented** | 6 common intervals, optional alignment |
 | [RFC 9384](https://datatracker.ietf.org/doc/html/rfc9384) | BGP Cease NOTIFICATION for BFD | **Not implemented** | GoBGP v4 (like v3) emits Cease/2; the Cease/10 text is only an operator annotation |
 | [RFC 9468](https://datatracker.ietf.org/doc/html/rfc9468) | Unsolicited BFD | **Unsafe preview** | Connected-subnet, session-limit and rate admission enforced; replies from the receiving local tuple; optional Meticulous Keyed SHA1 admission |
@@ -254,14 +254,20 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 |---|---|
 | Destination port 3784 | `netio.PortSingleHop = 3784` |
 | Source port 49152-65535 | `SourcePortAllocator` |
-| TTL=255 outgoing | `ipv4.SetTTL(255)` via `x/net/ipv4` |
-| TTL=255 incoming check | `IP_RECVTTL` + check in listener |
-| `SO_BINDTODEVICE` | Applied when interface is specified |
-| Separate IPv4/IPv6 listeners | Separate `ipv4.PacketConn` / `ipv6.PacketConn` |
+| TTL=255 outgoing | `IP_TTL` / `IPV6_UNICAST_HOPS` set with `unix.SetsockoptInt` |
+| TTL=255 incoming check | `IP_RECVTTL` / `IPV6_RECVHOPLIMIT` + listener pre-filter; the demultiplexed session also requires a single-hop transport class (Section 5) |
+| Transport class | A packet from the 4784 multihop listener never reaches a single-hop session, by Your Discriminator or by peer key (`scope_mismatch`) |
+| Interface binding RX (Section 3) | Configured `interface`: packets from another listener device are rejected. Every single-hop session also compares the PKTINFO interface index with the index resolved at creation from `interface` or from the interface that owns `local` |
+| Interface binding TX (Section 6) | `SO_BINDTODEVICE` on the session sender when `interface` is set (YAML and API); IPv6 link-local sender addresses are zoned to it |
+| IPv6 link-local demux | Zones are ignored in the demux key; the interface is part of the key |
+| Separate IPv4/IPv6 listeners | Separate `udp4` / `udp6` sockets |
 
-The implemented boundary is the numbered-multiaccess single-hop profile with
-an explicit interface. Initial demultiplexing for the complete RFC 5881 scope,
-including point-to-point behavior, remains open and is not production-qualified.
+The implemented boundary is the numbered-multiaccess single-hop profile: each
+session is bound to one receive interface, explicit or derived from its local
+address at creation. A local address on no interface or on several interfaces
+fails session creation. Point-to-point initial demultiplexing (Section 6: accept
+the initial packet from any source address) remains deferred and is not
+production-qualified.
 
 ### RFC 5882 Implementation Notes
 
@@ -284,8 +290,20 @@ including point-to-point behavior, remains open and is not production-qualified.
 |---|---|
 | Destination port 4784 | `netio.PortMultiHop = 4784` |
 | TTL=255 outgoing | Same as single-hop |
-| TTL>=254 incoming check | Separate TTL validation for multihop |
-| Demux by (MyDiscr, SrcIP, DstIP) | Manager.DemuxWithWire composite key |
+| Receive TTL policy | RFC 5883 has none. GoBFD applies `multihop_max_hops` N per demultiplexed session: accept TTL/Hop Limit >= 255 - N (1/2/5 -> 254/253/250, default 1), reading A of the non-normative RFC 5082 Appendix A, matching FRR `minimum-ttl`. Refusals count as `demux`/`ttl_rejected` |
+| Transport class | A packet from the 3784 listener never reaches a multihop session (`scope_mismatch`) |
+| Interface | `multi_hop` with `interface` is rejected in YAML and API validation (Section 4.1 demultiplexes by address pair) |
+| Echo (Section 3: MUST NOT be used over multiple hops) | Multihop Control packets advertise Required Min Echo RX Interval 0; RFC 9747 Echo has no multihop type |
+| Demux (Section 4.1) | Your Discriminator, or (source, destination) when it is zero; `Manager.DemuxWithWire` |
+
+**Authentication guidance (Sections 3 and 6).** TTL/Hop Limit 255 on receive
+cannot protect a multihop path; RFC 5883 Section 3 assigns spoofing protection
+to BFD authentication, and Section 6 says implementations SHOULD use
+cryptographic authentication over multihop paths. The hop-policy floor is
+defence in depth only. Configure `auth` on every `multi_hop` session, preferably
+`meticulous_keyed_sha1`; an unauthenticated multihop session with
+`multihop_max_hops` above 1 accepts any spoofed packet that reaches it with a
+sufficient TTL and matching discriminators.
 
 ### RFC 7419 Implementation Notes
 
@@ -400,7 +418,7 @@ RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness
 | DetectionTime = DetectMult * TxInterval | `EchoSession.DetectionTime()` |
 | Demux by MyDiscriminator on return | `EchoReceiver` matches returned packets |
 | Session type | `SessionTypeEcho` constant |
-| TTL 255 send, TTL >= 254 receive | GTSM validation via `netio.ValidateTTL` |
+| TTL 255 send, exact TTL 254 receive | `netio.ValidateExpectedTTL` on the Echo listener |
 | Declarative echo peers | `echo.peers[]` in config, reconciled on SIGHUP |
 | Sender with port 3785 destination | `WithDstPort(PortEcho)` functional option |
 

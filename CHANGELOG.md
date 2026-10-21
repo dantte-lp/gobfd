@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- YAML `multihop_max_hops` (`multi_hop` only, 1-254, default 1) sets a
+  per-session receive TTL/Hop Limit floor of 255 - N (1/2/5 hops: 254/253/250),
+  checked after demultiplexing. This is GoBFD policy after the non-normative
+  RFC 5082 Appendix A; RFC 5883 has no receive TTL rule. The API proto is
+  unchanged and API sessions use the default. Refusals count as
+  `demux`/`ttl_rejected`. Real 2- and 5-hop path qualification remains open.
+
 - Bounded Linux interface-event reconciliation: affected sources become pending
   without releasing old claims and retry automatically in the retained generation.
   Notification loss requests an inventory resync. The non-Linux stub provides no
@@ -166,6 +173,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changing the four public binaries.
 
 ### Changed
+
+- RFC 5881/5883 demultiplexing rejects a transport-class mismatch on both demux
+  tiers: a 4784 multihop packet never reaches a single-hop session and a 3784
+  packet never reaches a multihop session (`demux`/`scope_mismatch`). The 4784
+  listener no longer applies a fixed TTL>=254 floor. Single-hop sessions accept
+  only their receive interface: a configured `interface` rejects other listener
+  devices, and every single-hop session compares the PKTINFO interface index with
+  the index resolved at creation from `interface` or from the interface owning
+  `local`. A `local` address on no interface or on several interfaces now fails
+  session creation (API: `FailedPrecondition`). IPv6 link-local zones no longer
+  break initial demux. Single-hop senders bind `SO_BINDTODEVICE` to a configured
+  YAML or API `interface`. `multi_hop` with `interface` is rejected in YAML and
+  API validation; such sessions previously loaded but never matched demux.
+  Multihop authentication guidance follows RFC 5883 Sections 3 and 6. Point-to-point
+  initial demux stays deferred.
 
 - The BIRD interoperability peer moved from 3.3.2 to 3.4.0 with the
   checksum-pinned upstream fix `7cf75587` for CVE-2026-112112
