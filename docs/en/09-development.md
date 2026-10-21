@@ -294,6 +294,27 @@ make test-integration
 
 Uses `testcontainers-go` with Podman backend for testing the full daemon lifecycle.
 
+#### Package Lifecycle Tests
+
+```bash
+go run ./test/cmd/cictl package-build      # dist/gobfd_0.0.0_linux_<arch>.{deb,rpm}
+go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
+```
+
+`package-build` follows the release path: the GoReleaser version pinned in
+`release.yml` (`go run github.com/goreleaser/goreleaser/v2@v2.18.2`) without
+publish, announce, validate, sign, SBOM and image stages, then
+`tools/cmd/packagefinalize` for the native RPM lifecycle programs. It sets the
+test version `v0.0.0` and needs a Git checkout. `package-lifecycle` runs the
+`package_lifecycle_testcontainers` test, which installs the DEB and RPM into
+systemd-enabled containers built from the digest-pinned Debian 13 and Oracle
+Linux 10 release bases. It proves start, sandbox state, a hold past
+`WatchdogSec=`, reload without a PID change, restart after `SIGKILL`, a stop
+with a dead peer that ends with `Result=success`, zero sandbox denials in the
+journal, `systemd-analyze verify` with the kernel-bond drop-in, and package
+removal. The containers receive `SYS_ADMIN`, `SYS_PTRACE`, `unmask=ALL` and
+`label=disable` so that systemd can build the unit namespaces.
+
 #### Interoperability Tests
 
 See [05-interop.md](./05-interop.md) for the 4-peer interop testing framework.

@@ -66,7 +66,7 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 				"release-build|release-test-report|release-benchmarks|release-benchmark-metadata|"+
 				"release-benchmark-comparison|release-reports-archive|release-preflight|release-notes|"+
 				"release-upx|release-artifacts|release-assets-upload|release-oci-evidence|release-evidence|release-verify|"+
-				"release-promote|release-publish}: %w",
+				"release-promote|release-publish|package-build|package-lifecycle}: %w",
 			flag.ErrHelp,
 		)
 	}
@@ -79,6 +79,9 @@ func run(ctx context.Context, arguments []string, deps dependencies) error {
 		return err
 	}
 	if handled, err := runReleaseCommand(ctx, command, commandArguments, deps); handled {
+		return err
+	}
+	if handled, err := runPackageCommand(ctx, command, commandArguments, deps); handled {
 		return err
 	}
 	return fmt.Errorf("unknown CI command %q: %w", command, flag.ErrHelp)
@@ -704,4 +707,31 @@ func runBuild(ctx context.Context, arguments []string, deps dependencies) error 
 		return fmt.Errorf("build CI binaries: %w", err)
 	}
 	return nil
+}
+
+func runPackageCommand(
+	ctx context.Context, command string, arguments []string, deps dependencies,
+) (bool, error) {
+	var execute func(context.Context, cirunner.PackageOptions) error
+	switch command {
+	case "package-build":
+		execute = cirunner.PackageBuild
+	case "package-lifecycle":
+		execute = cirunner.PackageLifecycle
+	default:
+		return false, nil
+	}
+	if err := rejectArguments(command, arguments); err != nil {
+		return true, err
+	}
+	root, err := deps.getwd()
+	if err != nil {
+		return true, fmt.Errorf("resolve %s repository root: %w", command, err)
+	}
+	if err := execute(ctx, cirunner.PackageOptions{
+		Root: root, Environment: deps.environ(), Runner: deps.specRunner,
+	}); err != nil {
+		return true, fmt.Errorf("run %s: %w", command, err)
+	}
+	return true, nil
 }

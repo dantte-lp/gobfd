@@ -51,6 +51,7 @@ func DefaultGoplsProfiles() []string {
 		"e2e_bgp_failover_testcontainers",
 		"e2e_haproxy_testcontainers",
 		"e2e_observability_testcontainers",
+		"package_lifecycle_testcontainers",
 		"interop_testcontainers",
 		"interop_bgp_testcontainers",
 		"interop_rfc_testcontainers",

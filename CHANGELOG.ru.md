@@ -9,6 +9,14 @@
 
 ### Добавлено
 
+- `cictl package-build` собирает DEB и RPM по пути релиза (GoReleaser
+  v2.18.2, затем финализация жизненного цикла RPM) с версией 0.0.0, а
+  `cictl package-lifecycle` устанавливает их в контейнеры с systemd, собранные
+  из закреплённых базовых образов релиза Debian 13 и Oracle Linux 10. Тест
+  проверяет усиленный юнит: запуск, состояние песочницы, удержание дольше
+  `WatchdogSec=`, reload, перезапуск после `SIGKILL`, остановку при мёртвом
+  пире, отсутствие отказов песочницы и удаление пакета.
+
 - YAML `multihop_max_hops` (только `multi_hop`, 1-254, по умолчанию 1) задаёт
   нижнюю границу принимаемого TTL/Hop Limit 255 - N (1/2/5 hops: 254/253/250)
   в каждой сессии после демультиплексирования. Это политика GoBFD по
@@ -446,6 +454,16 @@
 
 ### Исправлено
 
+- Штатная остановка завершается с кодом 0, если AdminDown drain не может
+  завершиться из-за недоступного пира или пира без discriminator; drain
+  записывается как предупреждение. Ошибки admission, commit, owner и другие
+  локальные ошибки drain по-прежнему завершают процесс с ошибкой, fail-stop
+  при потере receive path не изменён.
+
+- Debian-пакет зависит от `procps`, который предоставляет `/bin/kill` для
+  `ExecReload=`; на минимальной Debian 13 только с `systemd` команда
+  `systemctl reload gobfd` завершалась с `status=203/EXEC`.
+
 - Hosted jobs E2E Evidence выполняются на `ubuntu-26.04` (Podman 5.7.0). На
   `ubuntu-latest` (Ubuntu 24.04) Podman 4.9.3 собран с Debian imagebuilder
   1.2.5, который отклоняет `ADD --checksum` в interop Containerfile; рецепты с
@@ -720,7 +738,9 @@
   3.3. `ProcSubset=pid` снижает backlog listener Go до 128. Существующий
   `ProtectKernelTunables=` оставляет `/sys` только для чтения, поэтому actuator
   `kernel-bond` в режиме `enforce` не может писать в bonding sysfs под этим
-  юнитом. Тесты нативных DEB/RPM-артефактов остаются открытыми.
+  юнитом; opt-in drop-in `deployments/systemd/gobfd-kernel-bond.conf` открывает
+  на запись только `bonding/slaves`, квалификация записи остаётся открытой
+  (`gobfd-qj0.8.2.3.3.1`).
 
 - First-party Go toolchain обновлён с `go1.27.2` до `go1.27.3` в `go.mod`,
   `tools/go.mod`, CI- и release-workflow, Containerfile и тестовых harness.

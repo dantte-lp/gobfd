@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cictl package-build` builds the DEB and RPM through the release path
+  (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
+  `cictl package-lifecycle` installs them into systemd containers built from
+  the pinned Debian 13 and Oracle Linux 10 release bases. The test proves the
+  hardened unit through start, sandbox state, a hold past `WatchdogSec=`,
+  reload, restart after `SIGKILL`, a stop with a dead peer, zero sandbox
+  denials and package removal.
+
 - YAML `multihop_max_hops` (`multi_hop` only, 1-254, default 1) sets a
   per-session receive TTL/Hop Limit floor of 255 - N (1/2/5 hops: 254/253/250),
   checked after demultiplexing. This is GoBFD policy after the non-normative
@@ -437,6 +445,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An orderly stop exits 0 when an AdminDown drain cannot finish because a
+  peer is unreachable or never supplied a discriminator; the drain is logged as
+  a warning. Admission, commit, owner and other local drain failures still
+  exit with an error, and receive-path fail-stop is unchanged.
+
+- The Debian package depends on `procps`, which provides the `/bin/kill` that
+  `ExecReload=` runs; a minimal Debian 13 system with only `systemd` failed
+  `systemctl reload gobfd` with `status=203/EXEC`.
+
 - Hosted E2E Evidence jobs run on `ubuntu-26.04` (Podman 5.7.0). On
   `ubuntu-latest` (Ubuntu 24.04), Podman 4.9.3 links Debian imagebuilder 1.2.5,
   which rejects `ADD --checksum` in the interop Containerfiles; the
@@ -703,8 +720,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `systemd-analyze security` exposure falls from 5.2 to 3.3. `ProcSubset=pid`
   lowers the Go listener backlog to 128. The existing `ProtectKernelTunables=`
   keeps `/sys` read-only, so the `kernel-bond` actuator in `enforce` mode
-  cannot write bonding sysfs under this unit. Native DEB/RPM artifact tests
-  remain open.
+  cannot write bonding sysfs under this unit; the opt-in drop-in
+  `deployments/systemd/gobfd-kernel-bond.conf` reopens only
+  `bonding/slaves`, and its write qualification remains open
+  (`gobfd-qj0.8.2.3.3.1`).
 
 - Updated the first-party Go toolchain from `go1.27.2` to `go1.27.3` in
   `go.mod`, `tools/go.mod`, CI and release workflows, Containerfiles and test

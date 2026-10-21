@@ -298,6 +298,27 @@ make test-integration
 
 Используют `testcontainers-go` с бэкендом Podman для тестирования полного жизненного цикла демона.
 
+#### Тесты жизненного цикла пакетов
+
+```bash
+go run ./test/cmd/cictl package-build      # dist/gobfd_0.0.0_linux_<arch>.{deb,rpm}
+go run ./test/cmd/cictl package-lifecycle  # нужен сокет Podman API
+```
+
+`package-build` повторяет путь релиза: версия GoReleaser, закреплённая в
+`release.yml` (`go run github.com/goreleaser/goreleaser/v2@v2.18.2`), без
+этапов publish, announce, validate, sign, SBOM и образов, затем
+`tools/cmd/packagefinalize` для нативных программ жизненного цикла RPM. Команда
+задаёт тестовую версию `v0.0.0` и требует Git checkout. `package-lifecycle`
+запускает тест `package_lifecycle_testcontainers`: он устанавливает DEB и RPM в
+контейнеры с systemd, собранные из закреплённых по digest базовых образов
+релиза Debian 13 и Oracle Linux 10. Тест доказывает запуск, состояние
+песочницы, удержание дольше `WatchdogSec=`, reload без смены PID, перезапуск
+после `SIGKILL`, остановку при мёртвом пире с `Result=success`, отсутствие
+отказов песочницы в journal, `systemd-analyze verify` с drop-in для
+kernel-bond и удаление пакета. Контейнеры получают `SYS_ADMIN`, `SYS_PTRACE`,
+`unmask=ALL` и `label=disable`, чтобы systemd мог построить namespace юнита.
+
 #### Тесты совместимости
 
 См. [05-interop.md](./05-interop.md) для фреймворка 4-пирового interop-тестирования.
