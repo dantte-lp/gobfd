@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -257,61 +258,60 @@ func TestManagerCloseReleasesEveryAcceptedSenderLeaseOnce(t *testing.T) {
 // An unsolicited session owns its sender lease: cleanup closes it once and
 // Manager.Close does not close it again.
 func TestUnsolicitedCleanupClosesSessionLeaseOnce(t *testing.T) {
-	policy := &UnsolicitedPolicy{
-		Enabled:     true,
-		MaxSessions: 1,
-		Interfaces: map[string]UnsolicitedInterfaceConfig{
-			"eth0": {Enabled: true},
-		},
-		SessionDefaults: UnsolicitedSessionDefaults{
-			DesiredMinTxInterval:  time.Second,
-			RequiredMinRxInterval: time.Second,
-			DetectMultiplier:      3,
-		},
-	}
-	var closes int
-	mgr := NewManager(
-		slog.New(slog.DiscardHandler),
-		WithUnsolicitedPolicy(policy),
-		WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
-		WithUnsolicitedSessionSender(func(PacketMeta) (*SenderLease, error) {
-			return NewSenderLease(senderLeaseTestSender{}, func() error {
-				closes++
-				return nil
-			}), nil
-		}),
-	)
+	synctest.Test(t, func(t *testing.T) {
+		policy := &UnsolicitedPolicy{
+			Enabled:     true,
+			MaxSessions: 1,
+			Interfaces: map[string]UnsolicitedInterfaceConfig{
+				"eth0": {Enabled: true},
+			},
+			SessionDefaults: UnsolicitedSessionDefaults{
+				DesiredMinTxInterval:  time.Second,
+				RequiredMinRxInterval: time.Second,
+				DetectMultiplier:      3,
+			},
+		}
+		var closes int
+		mgr := NewManager(
+			slog.New(slog.DiscardHandler),
+			WithUnsolicitedPolicy(policy),
+			WithUnsolicitedConnectedPrefix(netip.MustParsePrefix("192.0.2.0/24")),
+			WithUnsolicitedSessionSender(func(PacketMeta) (*SenderLease, error) {
+				return NewSenderLease(senderLeaseTestSender{}, func() error {
+					closes++
+					return nil
+				}), nil
+			}),
+		)
+		defer mgr.Close()
 
-	meta := PacketMeta{
-		SrcAddr: netip.MustParseAddr("192.0.2.30"),
-		DstAddr: netip.MustParseAddr("192.0.2.254"),
-		IfName:  "eth0",
-		TTL:     255,
-	}
-	if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(301), meta, nil); err != nil {
-		t.Fatalf("tryCreateUnsolicited: %v", err)
-	}
-	snapshots := mgr.Sessions()
-	if len(snapshots) != 1 {
-		t.Fatalf("unsolicited sessions = %d, want 1", len(snapshots))
-	}
-	discr := snapshots[0].LocalDiscr
-	mgr.mu.RLock()
-	mgr.sessions[discr].session.mu.Lock()
-	mgr.sessions[discr].session.localPair.Store(packStateDiag(StateDown, DiagNone))
-	mgr.sessions[discr].session.observation.State = StateDown
-	mgr.sessions[discr].session.mu.Unlock()
-	mgr.mu.RUnlock()
-
-	session, _ := mgr.LookupByDiscriminator(discr)
-	mgr.cleanupUnsolicitedSession(context.Background(), session)
-	if closes != 1 {
-		t.Fatalf("session sender closes after cleanup = %d, want 1", closes)
-	}
-	mgr.Close()
-	if closes != 1 {
-		t.Fatalf("session sender closes after Manager.Close = %d, want 1", closes)
-	}
+		meta := PacketMeta{
+			SrcAddr: netip.MustParseAddr("192.0.2.30"),
+			DstAddr: netip.MustParseAddr("192.0.2.254"),
+			IfName:  "eth0",
+			TTL:     255,
+		}
+		if _, err := mgr.tryCreateUnsolicited(ownershipDownPacket(301), meta, nil); err != nil {
+			t.Fatalf("tryCreateUnsolicited: %v", err)
+		}
+		// The owner applies the admitted packet asynchronously.
+		synctest.Wait()
+		snapshots := mgr.Sessions()
+		if len(snapshots) != 1 {
+			t.Fatalf("unsolicited sessions = %d, want 1", len(snapshots))
+		}
+		session, _ := mgr.LookupByDiscriminator(snapshots[0].LocalDiscr)
+		// Commit a real failed attempt; cleanup accepts only a failed attempt.
+		unsolicitedPathFailure(t, mgr, session)
+		mgr.cleanupUnsolicitedSession(context.Background(), session)
+		if closes != 1 {
+			t.Fatalf("session sender closes after cleanup = %d, want 1", closes)
+		}
+		mgr.Close()
+		if closes != 1 {
+			t.Fatalf("session sender closes after Manager.Close = %d, want 1", closes)
+		}
+	})
 }
 
 // nonOwningSessionSender hands every unsolicited session a non-owning lease
