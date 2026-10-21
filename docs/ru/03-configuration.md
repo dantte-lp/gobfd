@@ -647,12 +647,26 @@ GoBFD по ненормативному RFC 5082 Appendix A (чтение A: N -
 аутентификацию, предпочтительно `meticulous_keyed_sha1`. Квалификация на реальных
 путях из 2 и 5 hops не выполнялась.
 
-Single-hop сессия принимает пакеты только своего интерфейса (RFC 5881 Section 3):
-заданного `interface`, а без него -- интерфейса, владеющего `local`, который
-определяется один раз при создании сессии по IfIndex из PKTINFO. Адрес `local`,
-не назначенный ни одному или назначенный нескольким интерфейсам, отклоняется при
-создании сессии. Пересозданный интерфейс получает новый индекс и требует
-пересоздания сессии.
+Single-hop сессия принимает пакеты только своего интерфейса (RFC 5881 Section 3).
+Интерфейс -- это заданный `interface`; без него -- zone link-local адреса `local`
+или `peer` (`fe80::2%eth0`); без того и другого -- интерфейс, владеющий `local`.
+GoBFD определяет индекс этого интерфейса один раз при создании сессии и затем
+сравнивает его с индексом интерфейса из PKTINFO каждого пакета. Zone также
+выбирает устройство listener и `SO_BINDTODEVICE` отправителя, поэтому одна пара
+link-local адресов на двух линках образует две сессии. Zone, указывающая другой
+интерфейс, чем `interface`, или различающаяся у `peer` и `local`, отклоняется
+(`ErrInvalidSessionZone`; API `InvalidArgument`). Пересозданный интерфейс
+получает новый индекс и требует пересоздания сессии.
+
+YAML-сессия, адрес `local` которой не назначен ни одному или назначен нескольким
+интерфейсам, переходит в состояние pending, а не failed: соседние сессии
+создаются, receipt реконсиляции учитывает её как pending, повтор выполняется при
+следующем событии link интерфейса, resync перечня интерфейсов или SIGHUP. Адрес,
+добавленный без события link, учитывается только при этих событиях. API для
+того же случая возвращает `FailedPrecondition`. Адрес `local` на `lo` или dummy
+интерфейсе определяется как этот интерфейс; пакеты, пришедшие на физический
+интерфейс, отклоняются как `demux`/`scope_mismatch`. Для такой схемы задавайте
+`interface`.
 
 ### Интеграция с GoBGP
 
@@ -868,6 +882,7 @@ source VXLAN или Geneve без работающего backend считает�
 | Нет дублирующих ключей сессий (peer, local, interface) | `ErrDuplicateSessionKey` |
 | `interface` недопустим для `multi_hop` | `ErrInvalidSessionMultiHopInterface` |
 | `multihop_max_hops` только для `multi_hop`, диапазон 1-254 | `ErrInvalidSessionMultihopMaxHops` |
+| Zone link-local адреса должна совпадать с `interface` и с zone другого адреса | `ErrInvalidSessionZone` |
 | Control sessions с одинаковыми parsed local address и типом listener должны использовать один interface | `ErrAmbiguousListenerInterface` |
 | Echo `peer` должен быть валидным IP-адресом | `ErrInvalidEchoPeer` |
 | Echo `detect_mult` должен быть >= 1 | `ErrInvalidEchoDetectMult` |

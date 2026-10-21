@@ -181,9 +181,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only their receive interface: a configured `interface` rejects other listener
   devices, and every single-hop session compares the PKTINFO interface index with
   the index resolved at creation from `interface` or from the interface owning
-  `local`. A `local` address on no interface or on several interfaces now fails
-  session creation (API: `FailedPrecondition`). IPv6 link-local zones no longer
-  break initial demux. Single-hop senders bind `SO_BINDTODEVICE` to a configured
+  `local`; the demultiplexed single-hop session also requires TTL 255. A YAML
+  session whose `local` address is on no interface or on several interfaces is
+  pending and retried on interface events, resync or SIGHUP while neighbouring
+  sessions are created; the API returns `FailedPrecondition`. A `local` address
+  on `lo` or a dummy interface binds the session to that interface; set
+  `interface` when packets arrive on a physical interface. Without `interface`,
+  a link-local zone selects the session interface, listener device and sender
+  device, so one link-local pair on two links forms two sessions; a zone that
+  contradicts `interface` is rejected (API: `InvalidArgument`). Single-hop senders bind `SO_BINDTODEVICE` to a configured
   YAML or API `interface`. `multi_hop` with `interface` is rejected in YAML and
   API validation; such sessions previously loaded but never matched demux.
   Multihop authentication guidance follows RFC 5883 Sections 3 and 6. Point-to-point

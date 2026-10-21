@@ -645,11 +645,24 @@ use cryptographic authentication over multihop paths; prefer
 `meticulous_keyed_sha1`. Real 2- and 5-hop paths are not qualified.
 
 A single-hop session accepts packets only from its interface (RFC 5881
-Section 3): the configured `interface`, or else the interface that owns
-`local`, resolved once at session creation and compared with the PKTINFO
-interface index. A `local` address that no interface or several interfaces own
-is rejected at session creation. A recreated interface gets a new index and
-needs the session recreated.
+Section 3). The interface is the configured `interface`; without it, the zone of
+a link-local `local` or `peer` address (`fe80::2%eth0`); without either, the
+interface that owns `local`. GoBFD resolves the interface index once at session
+creation and compares it with the PKTINFO interface index of every packet. The
+zone also selects the listener device and the sender `SO_BINDTODEVICE`, so one
+link-local pair on two links forms two sessions. A zone that names another
+interface than `interface`, or differs between `peer` and `local`, is rejected
+(`ErrInvalidSessionZone`; API `InvalidArgument`). A recreated interface gets a
+new index and needs the session recreated.
+
+A YAML session whose `local` address no interface or several interfaces own is
+pending, not failed: neighbouring sessions are created, the reconciliation
+receipt counts it as pending, and the next interface link event, interface
+inventory resync or SIGHUP retries it. An address added without a link event is
+picked up only on those triggers. The API returns `FailedPrecondition` for the
+same case. A `local` address assigned to `lo` or a dummy interface resolves to
+that interface; packets that arrive on a physical interface are then refused as
+`demux`/`scope_mismatch`. Set `interface` for such deployments.
 
 ### GoBGP Integration
 
@@ -865,6 +878,7 @@ skipped. Already accepted source changes are not rolled back.
 | No duplicate session keys (peer, local, interface) | `ErrDuplicateSessionKey` |
 | `interface` is not allowed on `multi_hop` | `ErrInvalidSessionMultiHopInterface` |
 | `multihop_max_hops` only on `multi_hop`, range 1-254 | `ErrInvalidSessionMultihopMaxHops` |
+| A link-local zone must match `interface` and the zone of the other address | `ErrInvalidSessionZone` |
 | Control sessions sharing a parsed local address and listener type must use the same interface | `ErrAmbiguousListenerInterface` |
 | Echo `peer` must be a valid IP address | `ErrInvalidEchoPeer` |
 | Echo `detect_mult` must be >= 1 | `ErrInvalidEchoDetectMult` |

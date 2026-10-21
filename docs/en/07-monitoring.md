@@ -37,7 +37,7 @@ The `demux` source counts refusals after session selection: `scope_mismatch`
 for a packet of the other transport class (multihop listener 4784 against a
 single-hop session, or the reverse) or from another receive interface of a
 single-hop session; `ttl_rejected` for a multihop packet with TTL below
-`255 - multihop_max_hops`.
+`255 - multihop_max_hops` or a single-hop packet with TTL other than 255.
 Echo has separate `echo_read`, `echo_parse`, `echo_ttl`, `echo_demux`,
 `echo_admission` and `echo_owner` sources. Zero discriminators are parser
 refusals, not demux attempts; ordinary closed/canceled reads are not read

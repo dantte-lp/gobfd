@@ -259,13 +259,18 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | Transport class | A packet from the 4784 multihop listener never reaches a single-hop session, by Your Discriminator or by peer key (`scope_mismatch`) |
 | Interface binding RX (Section 3) | Configured `interface`: packets from another listener device are rejected. Every single-hop session also compares the PKTINFO interface index with the index resolved at creation from `interface` or from the interface that owns `local` |
 | Interface binding TX (Section 6) | `SO_BINDTODEVICE` on the session sender when `interface` is set (YAML and API); IPv6 link-local sender addresses are zoned to it |
-| IPv6 link-local demux | Zones are ignored in the demux key; the interface is part of the key |
+| IPv6 link-local demux | Zones are not part of the demux key; without `interface`, the link-local zone selects the session interface, listener device and sender device; a zone that contradicts `interface` is rejected (`ErrInvalidSessionZone`) |
+| TTL in the session (Section 5) | The demultiplexed single-hop session also requires TTL/Hop Limit 255 (`demux`/`ttl_rejected`) |
 | Separate IPv4/IPv6 listeners | Separate `udp4` / `udp6` sockets |
 
 The implemented boundary is the numbered-multiaccess single-hop profile: each
 session is bound to one receive interface, explicit or derived from its local
-address at creation. A local address on no interface or on several interfaces
-fails session creation. Point-to-point initial demultiplexing (Section 6: accept
+address at creation. A YAML session whose local address is on no interface or
+on several interfaces stays pending and is retried on interface events, resync
+or SIGHUP; the API returns `FailedPrecondition`. A local address on `lo` or a
+dummy interface binds the session to that interface, so packets arriving on a
+physical interface are refused as `scope_mismatch`; such deployments must set
+`interface`. Point-to-point initial demultiplexing (Section 6: accept
 the initial packet from any source address) remains deferred and is not
 production-qualified.
 
