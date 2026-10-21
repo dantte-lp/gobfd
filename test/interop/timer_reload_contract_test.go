@@ -227,6 +227,16 @@ func TestTimerReloadWireEvidence(t *testing.T) {
 					frames[len(frames)-1].Epoch = frames[len(frames)-1].Epoch.Add(time.Duration(tx) * time.Microsecond)
 					return frames
 				}, true},
+				// Each case below violates exactly one bound; the other checks pass.
+				{"only interval low bound", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 70)
+				}, true},
+				{"only interval high bound", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 103)
+				}, true},
+				{"only mean low bound", func(frames []timerFrame, _ *timerPhase) []timerFrame {
+					return timerSpaced(frames, tx, 77)
+				}, true},
 				{"below RFC jitter", func(frames []timerFrame, _ *timerPhase) []timerFrame {
 					return timerSpaced(frames, tx, 65)
 				}, true},
@@ -630,6 +640,34 @@ func TestTimerReloadAssertionBatches(t *testing.T) {
 			if len(lines) != want || len(events) != want || !strings.Contains(lines[0], "TestRFCCompliance") ||
 				!strings.Contains(lines[1], "-test.run=^(TestTimerReload)$") {
 				t.Fatalf("batch commands=%s events=%v", log, events)
+			}
+		})
+	}
+}
+
+// The timer slice switches the testcontainers daemon to JSON logs; the FRR
+// detection check must count only FRR Down transitions in either format.
+func TestTimerReloadFRRDownLogFormats(t *testing.T) {
+	t.Parallel()
+	text := `level=INFO msg="session state changed" peer=` + frrIP + ` local_discr=7 old_state=Up new_state=Down` + "\n"
+	structured := `{"msg":"session state changed","peer":"` + frrIP + `","old_state":"Up","new_state":"Down"}` + "\n"
+	otherPeer := `{"msg":"session state changed","peer":"` + bird3IP + `","old_state":"Up","new_state":"Down"}` + "\n"
+	up := `{"msg":"session state changed","peer":"` + frrIP + `","old_state":"Down","new_state":"Up"}` + "\n"
+	for _, test := range []struct {
+		name string
+		logs string
+		want int
+	}{
+		{"text", text, 1},
+		{"json", structured, 1},
+		{"other peer", otherPeer, 0},
+		{"up transition", up, 0},
+		{"mixed", text + otherPeer + structured + up, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := frrDownTransitions(test.logs); got != test.want {
+				t.Fatalf("frrDownTransitions() = %d, want %d", got, test.want)
 			}
 		})
 	}

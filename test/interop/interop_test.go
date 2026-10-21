@@ -2399,6 +2399,23 @@ func TestHoloFailureRecoveryLifecycle(t *testing.T) {
 // Test 4: Detection timeout (existing, enhanced)
 // =========================================================================
 
+// frrDownTransitions counts FRR session Down transitions in GoBFD logs.
+// Compose runs log text; the testcontainers topology logs JSON for timer receipts.
+func frrDownTransitions(logs string) int {
+	count := 0
+	for line := range strings.Lines(logs) {
+		if !strings.Contains(line, "session state changed") {
+			continue
+		}
+		text := strings.Contains(line, "peer="+frrIP+" ") && strings.Contains(line, "new_state=Down")
+		structured := strings.Contains(line, `"peer":"`+frrIP+`"`) && strings.Contains(line, `"new_state":"Down"`)
+		if text || structured {
+			count++
+		}
+	}
+	return count
+}
+
 // TestFRRDetectionTimeout verifies that GoBFD detects FRR peer failure
 // when FRR is stopped.
 func TestFRRDetectionTimeout(t *testing.T) {
@@ -2410,6 +2427,11 @@ func TestFRRDetectionTimeout(t *testing.T) {
 	ctx := t.Context()
 
 	waitFRRUp(ctx, t, 60*time.Second)
+
+	before, err := projectContainerLogs(ctx, "gobfd-interop")
+	if err != nil {
+		t.Fatalf("get gobfd logs before FRR stop: %v", err)
+	}
 
 	output, err := projectContainerCommand(ctx, "frr-interop", "stop")
 	if err != nil {
@@ -2423,10 +2445,8 @@ func TestFRRDetectionTimeout(t *testing.T) {
 		t.Fatalf("get gobfd logs: %v", err)
 	}
 
-	// Compose runs log text; the testcontainers topology logs JSON for timer receipts.
-	if !strings.Contains(logs, "session state changed") ||
-		(!strings.Contains(logs, "new_state=Down") && !strings.Contains(logs, `"new_state":"Down"`)) {
-		t.Error("GoBFD did not log session Down transition after FRR stop")
+	if frrDownTransitions(logs) <= frrDownTransitions(before) {
+		t.Error("GoBFD did not log an FRR session Down transition after FRR stop")
 		t.Logf("gobfd logs (tail):\n%s", lastNLines(logs, 30))
 	}
 

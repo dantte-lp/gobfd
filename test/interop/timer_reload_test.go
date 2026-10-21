@@ -474,7 +474,11 @@ func signalTimerReload(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return podmanCommand(ctx, "kill", "--signal", "HUP", id)
+	output, err := podmanCommand(ctx, "kill", "--signal", "HUP", id)
+	if err != nil {
+		return output, fmt.Errorf("signal HUP to %s: %w", id, err)
+	}
+	return output, nil
 }
 
 func timerTraffic(peer string) string {
@@ -674,10 +678,12 @@ func runTimerGeneration(
 		}
 		phase.End = end
 		filter := fmt.Sprintf("%s && frame.number <= %d", frameBoundary(timerTraffic(peer), start), end)
-		rows, readErr = tsharkFields(pollCtx, filter, fieldNames, 0)
+		// Keep the last successful window for the frames artifact when a read fails.
+		windowRows, readErr := tsharkFields(pollCtx, filter, fieldNames, 0)
 		if readErr != nil {
 			return false, false, readErr
 		}
+		rows = windowRows
 		frames, parseErr := parseTimerFrames(rows)
 		if parseErr != nil {
 			return false, false, parseErr

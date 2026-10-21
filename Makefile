@@ -251,6 +251,7 @@ interop-test: interop-project-validate
 interop-testcontainers: dev-ensure
 	$(EXEC) /go/bin/golangci-lint run \
 		--build-tags interop_testcontainers ./test/interop/...
+	$(EXEC) go test -tags interop_testcontainers -race -count=1 -run '^TestTimerReload.+$$' ./test/interop/
 	$(EXEC) env DOCKER_HOST=unix:///run/podman/podman.sock \
 		GOBFD_REQUIRE_PODMAN=1 \
 		INTEROP_TESTCONTAINERS_ARTIFACT_DIR=/app/reports/e2e/interop-testcontainers \
