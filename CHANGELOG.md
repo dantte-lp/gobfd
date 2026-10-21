@@ -381,10 +381,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to 0 after one Detection Time without packets outside AdminDown (RFC 5880
   Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). A peer that advertised zero Required
   Min RX and went silent no longer stops periodic TX indefinitely. AdminDown
-  does not apply this SHOULD and keeps drain suppression, pending a maintainer
-  decision. Remote zero RX and remote Demand are not
-  configurable on pinned FRR 10.7.1 and BIRD 3.4.0; wire evidence awaits a
-  crafted Go peer.
+  does not apply this SHOULD and keeps drain suppression: the drain releases a
+  silent session, so a reset would only send unrequested AdminDown packets.
+  Remote zero RX and remote Demand are not configurable on pinned FRR 10.7.1 and
+  BIRD 3.4.0; wire evidence awaits a crafted Go peer.
 
 - Return `InvalidArgument` for malformed protobuf durations in generic, Echo
   and Micro-BFD requests, core-rejected client intervals and duplicate Micro-BFD
