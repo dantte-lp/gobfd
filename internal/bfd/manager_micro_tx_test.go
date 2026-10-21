@@ -361,3 +361,33 @@ func TestManagerReconcileMicroBFDRejectsMemberReusedAcrossLAGs(t *testing.T) {
 		t.Fatalf("CreateMicroBFDGroup bond1 err = %v, want ErrMicroBFDMemberOwned", err)
 	}
 }
+
+// H-24: a removal whose sender close fails still detaches the group and its
+// member sessions together and reports the failure as cleanup.
+func TestManagerReconcileMicroBFDRemovalCleanupFailureDetachesGroup(t *testing.T) {
+	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
+	defer mgr.Close()
+	closeErr := errors.New("micro test sender close failure")
+	failingClose := func(string) bfd.SenderLeaseFactory {
+		return func() (*bfd.SenderLease, error) {
+			return bfd.NewSenderLease(noopSender{}, func() error { return closeErr }), nil
+		}
+	}
+	if err := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(),
+		microDesired(failingClose, defaultMicroBFDConfig())).Err(); err != nil {
+		t.Fatalf("seed reconcile: %v", err)
+	}
+
+	result := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), nil)
+	if !errors.Is(result.Err(), closeErr) || result.Released != 1 {
+		t.Fatalf("removal = released %d err %v, want 1 group and close failure", result.Released, result.Err())
+	}
+	if !slices.ContainsFunc(result.Errors, func(e bfd.ReconcileError) bool {
+		return e.Code == bfd.ReconcileErrorCleanup
+	}) {
+		t.Fatalf("removal errors = %+v, want cleanup code", result.Errors)
+	}
+	if got := len(mgr.MicroBFDGroups()) + len(mgr.Sessions()); got != 0 {
+		t.Fatalf("groups plus sessions after removal = %d, want 0", got)
+	}
+}
