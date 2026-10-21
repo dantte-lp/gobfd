@@ -800,7 +800,8 @@ func mapManagerError(err error, operation string) *connect.Error {
 		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
 		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
-	case errors.Is(err, bfd.ErrInterfaceUnresolved):
+	case errors.Is(err, bfd.ErrInterfaceUnresolved),
+		errors.Is(err, bfd.ErrMicroBFDMemberOwned):
 		return connect.NewError(connect.CodeFailedPrecondition, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),
@@ -808,6 +809,7 @@ func mapManagerError(err error, operation string) *connect.Error {
 		errors.Is(err, bfd.ErrInvalidRxInterval),
 		errors.Is(err, bfd.ErrInvalidWireInterval),
 		errors.Is(err, bfd.ErrMicroBFDDuplicateMember),
+		errors.Is(err, bfd.ErrMicroBFDInterfaceRequired),
 		errors.Is(err, bfd.ErrInvalidSessionType),
 		errors.Is(err, bfd.ErrInvalidPaddedPduSize),
 		errors.Is(err, bfd.ErrInvalidMultiHopInterface),

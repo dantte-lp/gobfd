@@ -25,10 +25,10 @@ func TestInterfaceEventCoalescerBoundsAndGeneration(t *testing.T) {
 	if generation != 3 || selected != sourceMask(sourceBase)|sourceMask(sourceEcho) {
 		t.Fatalf("coalesced batch = %d/%b, want 3/base+echo", generation, selected)
 	}
-	queue.add(4, sourceMask(sourceMicroGroup))
+	queue.add(4, sourceMask(sourceMicro))
 	queue.add(3, sourceMask(sourceBase))
 	generation, selected = queue.take()
-	if generation != 4 || selected != sourceMask(sourceMicroGroup) {
+	if generation != 4 || selected != sourceMask(sourceMicro) {
 		t.Fatalf("stale event replaced current batch: %d/%b", generation, selected)
 	}
 	_, selected = queue.take()

@@ -37,7 +37,6 @@ func TestReconciliationCoordinatorRetryRetainsCandidateAndMergesReceipt(t *testi
 				LAGInterface: "bond-original", MemberLinks: []string{"eth-original"},
 			},
 		}},
-		microMembers: []microBFDMemberCandidate{{member: "member-original"}},
 		overlays: [2]compiledOverlayCandidate{
 			{desired: []bfd.ReconcileConfig{{Key: "vxlan-original"}}},
 			{desired: []bfd.ReconcileConfig{{Key: "geneve-original"}}},
@@ -53,7 +52,6 @@ func TestReconciliationCoordinatorRetryRetainsCandidateAndMergesReceipt(t *testi
 				got.echo[0].key = "echo-mutated-by-apply"
 				got.microGroups[0].Key = "group-mutated-by-apply"
 				got.microGroups[0].Config.MemberLinks[0] = "micro-mutated-by-apply"
-				got.microMembers[0].member = "member-mutated-by-apply"
 				got.overlays[0].desired[0].Key = "vxlan-mutated-by-apply"
 				got.overlays[1].desired[0].Key = "geneve-mutated-by-apply"
 				result := resourceErrorSourceResult(2, testUnavailableResourceError(t, "eth-retry"))
@@ -80,7 +78,6 @@ func TestReconciliationCoordinatorRetryRetainsCandidateAndMergesReceipt(t *testi
 	candidate.echo[0].key = "echo-mutated"
 	candidate.microGroups[0].Key = "group-mutated"
 	candidate.microGroups[0].Config.MemberLinks[0] = "micro-mutated"
-	candidate.microMembers[0].member = "member-mutated"
 	candidate.overlays[0].desired[0].Key = "vxlan-mutated"
 	candidate.overlays[1].desired[0].Key = "geneve-mutated"
 
@@ -110,7 +107,6 @@ func TestReconciliationCoordinatorRetryRetainsCandidateAndMergesReceipt(t *testi
 				len(got.echo) != 1 || got.echo[0].key != "echo-original" ||
 				len(got.microGroups) != 1 || got.microGroups[0].Key != "bond-original" ||
 				got.microGroups[0].Config.MemberLinks[0] != "eth-original" ||
-				len(got.microMembers) != 1 || got.microMembers[0].member != "member-original" ||
 				len(got.overlays[0].desired) != 1 || got.overlays[0].desired[0].Key != "vxlan-original" ||
 				len(got.overlays[1].desired) != 1 || got.overlays[1].desired[0].Key != "geneve-original" {
 				t.Fatalf("retained retry candidate was zero or mutated: %+v", got)
@@ -170,7 +166,7 @@ func TestReconciliationCoordinatorRetrySkipsPermanentFailedSources(t *testing.T)
 				return resourceErrorSourceResult(1, testUnavailableResourceError(t, "eth-pending"))
 			case sourceEcho:
 				return resourceErrorSourceResult(1, errors.New("permanent source failure"))
-			case sourceMicroMember:
+			case sourceMicro:
 				result := resourceErrorSourceResult(1, testUnavailableResourceError(t, "eth-mixed"))
 				result.Failed = 1
 				result.Errors[bfd.ReconcileErrorConflict] = 1
@@ -184,14 +180,14 @@ func TestReconciliationCoordinatorRetrySkipsPermanentFailedSources(t *testing.T)
 	calls := make(map[reconciliationSource]int)
 	snapshot := coordinator.retryPendingSources(
 		context.Background(), 1,
-		sourceMask(sourceBase)|sourceMask(sourceEcho)|sourceMask(sourceMicroMember),
+		sourceMask(sourceBase)|sourceMask(sourceEcho)|sourceMask(sourceMicro),
 		func(_ context.Context, source reconciliationSource, _ compiledControlSessionCandidate) sourceApplyResult {
 			calls[source]++
 			return resourceErrorSourceResult(1, testUnavailableResourceError(t, "eth-pending"))
 		},
 	)
-	if calls[sourceBase] != 1 || calls[sourceEcho] != 0 || calls[sourceMicroMember] != 0 {
-		t.Fatalf("retry calls = %v, want base=1 echo=0 micro_member=0", calls)
+	if calls[sourceBase] != 1 || calls[sourceEcho] != 0 || calls[sourceMicro] != 0 {
+		t.Fatalf("retry calls = %v, want base=1 echo=0 micro=0", calls)
 	}
 	if snapshot.DesiredGeneration != 1 || snapshot.AppliedGeneration != 0 ||
 		!snapshot.Stale || snapshot.Pending != 2 || snapshot.Failed != 2 {
@@ -199,7 +195,7 @@ func TestReconciliationCoordinatorRetrySkipsPermanentFailedSources(t *testing.T)
 	}
 
 	unchanged := coordinator.retryPendingSources(
-		context.Background(), 1, sourceMask(sourceEcho)|sourceMask(sourceMicroMember),
+		context.Background(), 1, sourceMask(sourceEcho)|sourceMask(sourceMicro),
 		func(context.Context, reconciliationSource, compiledControlSessionCandidate) sourceApplyResult {
 			t.Fatal("failed-only source was retried")
 			return sourceApplyResult{}

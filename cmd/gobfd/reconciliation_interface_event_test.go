@@ -26,11 +26,7 @@ func TestCompiledCandidateInterfaceSourceMask(t *testing.T) {
 		},
 		microGroups: []bfd.MicroBFDReconcileConfig{
 			{Config: bfd.MicroBFDConfig{LAGInterface: "shared0"}},
-			{Config: bfd.MicroBFDConfig{LAGInterface: "bond0"}},
-		},
-		microMembers: []microBFDMemberCandidate{
-			{member: "shared0"},
-			{member: "member0"},
+			{Config: bfd.MicroBFDConfig{LAGInterface: "bond0", MemberLinks: []string{"member0"}}},
 		},
 		overlays: [2]compiledOverlayCandidate{
 			{desired: []bfd.ReconcileConfig{{Key: "shared0"}}},
@@ -38,7 +34,7 @@ func TestCompiledCandidateInterfaceSourceMask(t *testing.T) {
 		},
 	}
 	allInterfaceSources := sourceMask(sourceBase) | sourceMask(sourceEcho) |
-		sourceMask(sourceMicroGroup) | sourceMask(sourceMicroMember)
+		sourceMask(sourceMicro)
 	tests := []struct {
 		name   string
 		ifName string
@@ -49,8 +45,8 @@ func TestCompiledCandidateInterfaceSourceMask(t *testing.T) {
 		{name: "same name across sources", ifName: "shared0", want: allInterfaceSources},
 		{name: "base exact", ifName: "base0", want: sourceMask(sourceBase)},
 		{name: "echo exact", ifName: "echo0", want: sourceMask(sourceEcho)},
-		{name: "group exact", ifName: "bond0", want: sourceMask(sourceMicroGroup)},
-		{name: "member exact", ifName: "member0", want: sourceMask(sourceMicroMember)},
+		{name: "group exact", ifName: "bond0", want: sourceMask(sourceMicro)},
+		{name: "member exact", ifName: "member0", want: sourceMask(sourceMicro)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -194,10 +190,9 @@ func TestReconciliationCoordinatorAvailableInterfaceRetriesExactPendingSources(t
 		config.DefaultConfig(), slog.New(slog.NewTextHandler(logs, nil)), newDaemonHealthChecker(),
 	)
 	candidate := compiledControlSessionCandidate{
-		base:         []baseSessionCandidate{{config: bfd.SessionConfig{Interface: "shared0"}}},
-		echo:         []echoSessionCandidate{{config: bfd.EchoSessionConfig{Interface: "shared0"}}},
-		microGroups:  []bfd.MicroBFDReconcileConfig{{Config: bfd.MicroBFDConfig{LAGInterface: "shared0"}}},
-		microMembers: []microBFDMemberCandidate{{member: "shared0"}},
+		base:        []baseSessionCandidate{{config: bfd.SessionConfig{Interface: "shared0"}}},
+		echo:        []echoSessionCandidate{{config: bfd.EchoSessionConfig{Interface: "shared0"}}},
+		microGroups: []bfd.MicroBFDReconcileConfig{{Config: bfd.MicroBFDConfig{LAGInterface: "shared0"}}},
 		overlays: [2]compiledOverlayCandidate{
 			{desired: []bfd.ReconcileConfig{{Key: "shared0"}}},
 			{desired: []bfd.ReconcileConfig{{Key: "shared0"}}},
@@ -207,7 +202,7 @@ func TestReconciliationCoordinatorAvailableInterfaceRetriesExactPendingSources(t
 		context.Background(), candidate,
 		func(_ context.Context, source reconciliationSource, _ compiledControlSessionCandidate) sourceApplyResult {
 			switch source {
-			case sourceBase, sourceEcho, sourceMicroGroup:
+			case sourceBase, sourceEcho, sourceMicro:
 				return resourceErrorSourceResult(1, testUnavailableResourceError(t, source.String()))
 			default:
 				return sourceApplyResult{}
@@ -230,7 +225,7 @@ func TestReconciliationCoordinatorAvailableInterfaceRetriesExactPendingSources(t
 			return sourceApplyResult{Created: 1}
 		},
 	)
-	wantOrder := []reconciliationSource{sourceBase, sourceEcho, sourceMicroGroup, sourceMicroMember}
+	wantOrder := []reconciliationSource{sourceBase, sourceEcho, sourceMicro}
 	if !slices.Equal(order, wantOrder) {
 		t.Fatalf("available event order = %v, want %v", order, wantOrder)
 	}
@@ -320,13 +315,14 @@ func TestReconciliationCoordinatorInterfaceEventReusesMicroDependencyClosure(t *
 		config.DefaultConfig(), slog.New(slog.DiscardHandler), nil,
 	)
 	candidate := compiledControlSessionCandidate{
-		microGroups:  []bfd.MicroBFDReconcileConfig{{Config: bfd.MicroBFDConfig{LAGInterface: "bond0"}}},
-		microMembers: []microBFDMemberCandidate{{member: "member0"}},
+		microGroups: []bfd.MicroBFDReconcileConfig{{Config: bfd.MicroBFDConfig{
+			LAGInterface: "bond0", MemberLinks: []string{"member0"},
+		}}},
 	}
 	initial := coordinator.applyCandidate(
 		context.Background(), candidate,
 		func(_ context.Context, source reconciliationSource, _ compiledControlSessionCandidate) sourceApplyResult {
-			if source == sourceMicroGroup {
+			if source == sourceMicro {
 				return resourceErrorSourceResult(1, testUnavailableResourceError(t, "bond0"))
 			}
 			return sourceApplyResult{}
@@ -341,8 +337,8 @@ func TestReconciliationCoordinatorInterfaceEventReusesMicroDependencyClosure(t *
 			return sourceApplyResult{}
 		},
 	)
-	if !slices.Equal(order, []reconciliationSource{sourceMicroGroup, sourceMicroMember}) {
-		t.Fatalf("Micro-BFD dependency event order = %v, want group then member", order)
+	if !slices.Equal(order, []reconciliationSource{sourceMicro}) {
+		t.Fatalf("Micro-BFD dependency event order = %v, want one Micro-BFD source", order)
 	}
 	if got.Stale || got.AppliedGeneration != initial.DesiredGeneration {
 		t.Fatalf("Micro-BFD dependency event snapshot = %+v, want converged", got)
