@@ -461,6 +461,21 @@
   Podman, без которых не завершается rootless network teardown
   (LP: #2154379), и выводят отказы AppArmor после прогона (`gobfd-dah`).
 
+- Группы Micro-BFD получают типизированные claim владельцев, как сессии
+  (`gobfd-qj0.8.2.2.1`). Reload удаляет только свои группы и не может забрать
+  member link сохраняющейся группы API; одинаковая группа API и reload
+  разделяется, каждый источник освобождает только свой claim.
+  `DeleteMicroBFDGroup` для группы, которой вызывающий не владеет, например
+  группы reload, возвращает `FailedPrecondition`
+  (`ErrMicroBFDGroupOwnerClaimNotFound`). Группы API используют principal
+  вызывающего.
+
+- Каждый member новой группы Micro-BFD начинает с состояния своей существующей
+  member-сессии (RFC 7130 Section 3). Member, перенесённый между LAG за один
+  reload, или сессия, созданная через API до группы, раньше оставались Down в
+  новой группе при сессии в Up; теперь такой member считается Up и actuator
+  получает его в порядке dispatch.
+
 - Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130
   Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload применяет один источник
   Micro-BFD: ошибка member-сессии откатывает новые группы и сессии прохода до

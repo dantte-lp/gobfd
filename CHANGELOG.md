@@ -452,6 +452,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Podman signals, which rootless network teardown requires (LP: #2154379), and
   print AppArmor denials after the run (`gobfd-dah`).
 
+- Give Micro-BFD groups typed owner claims like sessions (`gobfd-qj0.8.2.2.1`).
+  Reload removes only the groups it owns and cannot take a member link of a
+  surviving API group; an identical API and reload group is shared, and each
+  source releases only its own claim. `DeleteMicroBFDGroup` of a group the
+  caller does not own, such as a reload group, returns `FailedPrecondition`
+  (`ErrMicroBFDGroupOwnerClaimNotFound`). API groups use the caller principal.
+
+- Start each member of a new Micro-BFD group from its existing member session
+  (RFC 7130 Section 3). A member moved between LAGs in one reload, or a session
+  created through the API before its group, previously stayed Down in the new
+  group while its session stayed Up; it now counts as Up and the actuator
+  receives it in dispatch order.
+
 - Commit each Micro-BFD group together with its member sessions (RFC 7130
   Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload applies one Micro-BFD source:
   a failed member session rolls back the new groups and sessions of the pass
