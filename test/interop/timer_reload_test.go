@@ -246,6 +246,25 @@ func parseTimerEpoch(raw string) (time.Time, error) {
 	return time.Unix(whole, nanoseconds), nil
 }
 
+// parseTimerField parses a decimal, hexadecimal or tshark boolean field.
+func parseTimerField(field string) (uint64, error) {
+	switch field {
+	case "True":
+		field = "1"
+	case "False":
+		field = "0"
+	}
+	base := 10
+	if strings.HasPrefix(field, "0x") {
+		base = 0
+	}
+	value, err := strconv.ParseUint(field, base, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse capture field %q: %w", field, err)
+	}
+	return value, nil
+}
+
 func parseTimerFrames(rows [][]string) ([]timerFrame, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("empty phase capture: %w", errTimerEvidence)
@@ -268,19 +287,7 @@ func parseTimerFrames(rows [][]string) ([]timerFrame, error) {
 		}
 		columns := []int{0, 4, 5, 6, 7, 8, 9, 10, 11}
 		for index, column := range columns {
-			field := row[column]
-			// tshark prints boolean flag fields as True/False.
-			switch field {
-			case "True":
-				field = "1"
-			case "False":
-				field = "0"
-			}
-			base := 10
-			if strings.HasPrefix(field, "0x") {
-				base = 0
-			}
-			*values[index], err = strconv.ParseUint(field, base, 64)
+			*values[index], err = parseTimerField(row[column])
 			if err != nil {
 				return nil, fmt.Errorf("frame field %s=%q: %w", fieldNames[column], row[column], err)
 			}
@@ -388,19 +395,43 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 	if phase.RXZero {
 		return result, nil
 	}
-	if len(intervals) < 12 {
-		return result, fmt.Errorf("stable intervals=%d, want at least 12: %w", len(intervals), errTimerEvidence)
+	mean, err := checkJitteredIntervals(intervals, int64(max(phase.TX, phase.RemoteRX)))
+	if err != nil {
+		return result, err
 	}
-	// RFC 5880 section 6.8.7 with DetectMult 3: each interval is the negotiated TX
-	// reduced by 0-25%. Slack covers timer wakeup and capture latency.
-	expected := int64(max(phase.TX, phase.RemoteRX))
-	slack := max(2000, expected/50)
+	result.Intervals = len(intervals)
+	result.MeanMicroseconds = mean
+	return result, nil
+}
+
+// timerSlack covers timer wakeup and capture latency for an interval in microseconds.
+func timerSlack(expected int64) int64 {
+	return max(2000, expected/50)
+}
+
+// checkIntervalBounds applies RFC 5880 section 6.8.7 with DetectMult above 1:
+// each interval is the negotiated TX reduced by 0-25%, plus wakeup slack.
+func checkIntervalBounds(intervals []int64, expected int64) error {
+	slack := timerSlack(expected)
 	low, high := expected*3/4-slack, expected+slack
-	var sum int64
 	for _, interval := range intervals {
 		if interval < low || interval > high {
-			return result, fmt.Errorf("interval %d outside [%d,%d] us: %w", interval, low, high, errTimerEvidence)
+			return fmt.Errorf("interval %d outside [%d,%d] us: %w", interval, low, high, errTimerEvidence)
 		}
+	}
+	return nil
+}
+
+// checkJitteredIntervals requires at least 12 bounded intervals and returns their mean.
+func checkJitteredIntervals(intervals []int64, expected int64) (float64, error) {
+	if len(intervals) < 12 {
+		return 0, fmt.Errorf("stable intervals=%d, want at least 12: %w", len(intervals), errTimerEvidence)
+	}
+	if err := checkIntervalBounds(intervals, expected); err != nil {
+		return 0, err
+	}
+	var sum int64
+	for _, interval := range intervals {
 		sum += interval
 	}
 	// applyJitterWithRand draws the reduction uniformly from 0..25%: mean 0.875T,
@@ -411,13 +442,11 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 	n := int64(len(intervals))
 	deviation := float64(8*sum - 7*n*expected)
 	bound := 1.8 * float64(expected) * math.Sqrt(float64(n))
-	if deviation < -bound || deviation > bound+float64(8*n*slack) {
-		return result, fmt.Errorf("mean interval %d us deviates from 0.875*%d us beyond 3 standard errors (n=%d): %w",
+	if deviation < -bound || deviation > bound+float64(8*n*timerSlack(expected)) {
+		return 0, fmt.Errorf("mean interval %d us deviates from 0.875*%d us beyond 3 standard errors (n=%d): %w",
 			sum/n, expected, n, errTimerEvidence)
 	}
-	result.Intervals = len(intervals)
-	result.MeanMicroseconds = float64(sum) / float64(n)
-	return result, nil
+	return float64(sum) / float64(n), nil
 }
 
 func writeTimerArtifact(t *testing.T, name, extension string, data []byte) string {
