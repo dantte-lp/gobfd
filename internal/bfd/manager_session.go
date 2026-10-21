@@ -696,8 +696,8 @@ func unsolicitedRejection(policy *UnsolicitedPolicy, pkt *ControlPacket, err err
 func unsolicitedSessionConfig(meta PacketMeta, policy *UnsolicitedPolicy) SessionConfig {
 	defaults := policy.SessionDefaults
 	return SessionConfig{
-		Auth:                  policy.Auth,
-		AuthKeys:              policy.AuthKeys,
+		Auth:     policy.Auth,
+		AuthKeys: policy.AuthKeys,
 		// Invariant: Interface names the receive link, so the peer zone is
 		// redundant; Go may render it numerically, which would contradict
 		// Interface in validateSessionZones.
