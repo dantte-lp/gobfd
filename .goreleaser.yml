@@ -145,6 +145,8 @@ nfpms:
       deb:
         dependencies:
           - systemd
+          # ExecReload= runs /bin/kill, which procps provides on Debian.
+          - procps
         scripts:
           postinstall: dist/gobfd-package-lifecycle_linux_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/gobfd-package-lifecycle
           preremove: dist/gobfd-package-lifecycle_linux_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}{{ with .Arm64 }}_{{ . }}{{ end }}/gobfd-package-lifecycle
