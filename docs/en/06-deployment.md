@@ -123,7 +123,7 @@ The systemd unit file at `deployments/systemd/gobfd.service`:
 
 ```ini
 [Unit]
-Description=GoBFD -- BFD Protocol Daemon
+Description=GoBFD — BFD Protocol Daemon
 Documentation=https://github.com/dantte-lp/gobfd
 After=network-online.target
 Wants=network-online.target
@@ -139,19 +139,37 @@ WatchdogSec=30s
 # Security hardening
 User=gobfd
 Group=gobfd
+# The management socket /run/gobfd/gobfd.sock is 0660 with group gobfd-admin;
+# operators join gobfd-admin, not gobfd, which can read /etc/gobfd.
+SupplementaryGroups=gobfd-admin
+RuntimeDirectory=gobfd
+RuntimeDirectoryMode=0755
+UMask=0077
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
+# The only writable state is RuntimeDirectory= and the private /tmp.
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/etc/gobfd
 PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
+LockPersonality=true
+# UDP and TCP (BFD, gRPC, metrics, GoBGP), Unix (management socket, sd_notify,
+# NetworkManager D-Bus, OVSDB) and rtnetlink (interface inventory and monitor).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# The v1 bound is 2*sessions+256 descriptors; 16384 covers the 5,000-session
+# engineering gate.
+LimitNOFILE=16384
 
 [Install]
 WantedBy=multi-user.target
@@ -166,6 +184,42 @@ Key features:
 | `ExecReload` | SIGHUP reloads log level and reconciles session membership within startup-open transport bindings; startup-owned changes are rejected and require restart |
 | `Restart=on-failure` | Auto-restart with 5s delay after a crash or a fail-stop exit on receive-path or dispatch loss |
 | Security directives | Least-privilege with only `CAP_NET_RAW` and `CAP_NET_ADMIN` |
+
+#### Sandbox Contract
+
+The address-family, system-call, `/proc`, umask and file-descriptor directives
+come from a measured inventory of the daemon, not from a generic template:
+
+| Directive | Basis |
+|---|---|
+| `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK` | `strace` of a daemon running single-hop IPv4/IPv6, multihop, unsolicited, Echo, Micro-BFD with `SO_BINDTODEVICE`, VXLAN, Geneve, GoBGP, metrics, the management socket, reload and shutdown created only these families. `AF_UNIX` also serves `sd_notify` and the NetworkManager D-Bus and OVSDB LAG backends; `AF_NETLINK` serves the interface inventory and monitor. No `AF_PACKET` socket is used. |
+| `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | All 50 system calls observed in that run belong to `@system-service` as expanded by `systemd-analyze syscall-filter` on Debian 13 and Oracle Linux 10 (systemd 257). `@privileged` is not denied: the management socket group change uses `fchownat`. |
+| `LockPersonality=true` | The daemon never calls `personality(2)`. |
+| `ProtectProc=invisible`, `ProcSubset=pid` | The daemon reads only `/proc/self/cgroup` and `/proc/self/mountinfo` (Go runtime). The Go listener backlog read of `/proc/sys/net/core/somaxconn` is hidden, so management, gRPC and metrics listeners use the Go fallback backlog of 128. |
+| `UMask=0077` | The only file the daemon creates is the management socket, which is then set to the configured mode and group (`0660 gobfd:gobfd-admin`). |
+| `LimitNOFILE=16384` | The v1 resource bound is `2*sessions+256` descriptors; 16384 covers the 5,000-session engineering gate (10,256). Go keeps the soft limit equal to this hard limit. |
+
+The only writable state is `RuntimeDirectory=` (`/run/gobfd`) and the private
+`/tmp`. `ProtectKernelTunables=true` keeps `/sys` read-only, so the
+`kernel-bond` Micro-BFD actuator in `enforce` mode cannot write
+`/sys/class/net/<bond>/bonding/slaves` under this unit; `dry-run`, `ovs` and
+`networkmanager` are unaffected.
+
+Larger deployments raise the descriptor limit with a drop-in instead of editing
+the packaged unit:
+
+```bash
+sudo systemctl edit gobfd   # [Service] LimitNOFILE=<2*sessions+256 or more>
+```
+
+On 2026-10-21 the unit ran under systemd 257 in Debian 13 and Oracle Linux 10
+containers with the files at their package paths; native DEB/RPM artifact
+tests remain a separate delivery step. The daemon started with `Seccomp: 2`,
+`NoNewPrivs: 1`, `hidepid=invisible,subset=pid` and a 16384 descriptor limit,
+held its sessions Up for longer than `WatchdogSec=` without a restart, reloaded
+without a PID change, restarted after `SIGKILL` and stopped with
+`Result=success`. `systemd-analyze security` reported exposure 5.2 for the
+previous unit and 3.3 for this one.
 
 #### Managing the Service
 
@@ -305,7 +359,7 @@ GoBFD follows the principle of least privilege:
 | Layer | Mechanism |
 |---|---|
 | **Capabilities** | Only `CAP_NET_RAW` + `CAP_NET_ADMIN` (no root) |
-| **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
+| **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, address-family and system-call filters, `ProcSubset=pid`; see [Sandbox Contract](#sandbox-contract) |
 | **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
 | **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |

@@ -692,6 +692,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The packaged `gobfd.service` adds a measured sandbox contract:
+  `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,
+  `SystemCallFilter=@system-service` with `SystemCallErrorNumber=EPERM`,
+  `LockPersonality=true`, `ProtectProc=invisible`, `ProcSubset=pid`,
+  `UMask=0077` and `LimitNOFILE=16384`. A `strace` inventory of all transport
+  modes, GoBGP, reload and shutdown used only these families and 50 system
+  calls inside `@system-service`. Under systemd 257 on Debian 13 and Oracle
+  Linux 10 the unit starts, reloads, restarts after a crash and stops cleanly;
+  `systemd-analyze security` exposure falls from 5.2 to 3.3. `ProcSubset=pid`
+  lowers the Go listener backlog to 128. The existing `ProtectKernelTunables=`
+  keeps `/sys` read-only, so the `kernel-bond` actuator in `enforce` mode
+  cannot write bonding sysfs under this unit. Native DEB/RPM artifact tests
+  remain open.
+
 - Updated the first-party Go toolchain from `go1.27.2` to `go1.27.3` in
   `go.mod`, `tools/go.mod`, CI and release workflows, Containerfiles and test
   harnesses. Every `golang:1.27.3-trixie` consumer uses one index digest.

@@ -708,6 +708,20 @@
 
 ### Безопасность
 
+- Пакетный `gobfd.service` получил измеренный контракт песочницы:
+  `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,
+  `SystemCallFilter=@system-service` с `SystemCallErrorNumber=EPERM`,
+  `LockPersonality=true`, `ProtectProc=invisible`, `ProcSubset=pid`,
+  `UMask=0077` и `LimitNOFILE=16384`. Инвентарь `strace` всех транспортных
+  режимов, GoBGP, reload и shutdown показал только эти семейства и 50
+  системных вызовов из `@system-service`. Под systemd 257 в Debian 13 и Oracle
+  Linux 10 юнит запускается, выполняет reload, перезапускается после сбоя и
+  штатно останавливается; exposure `systemd-analyze security` снижен с 5.2 до
+  3.3. `ProcSubset=pid` снижает backlog listener Go до 128. Существующий
+  `ProtectKernelTunables=` оставляет `/sys` только для чтения, поэтому actuator
+  `kernel-bond` в режиме `enforce` не может писать в bonding sysfs под этим
+  юнитом. Тесты нативных DEB/RPM-артефактов остаются открытыми.
+
 - First-party Go toolchain обновлён с `go1.27.2` до `go1.27.3` в `go.mod`,
   `tools/go.mod`, CI- и release-workflow, Containerfile и тестовых harness.
   Все потребители `golang:1.27.3-trixie` используют один index digest.
