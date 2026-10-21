@@ -20,19 +20,32 @@ Group=gobfd
 SupplementaryGroups=gobfd-admin
 RuntimeDirectory=gobfd
 RuntimeDirectoryMode=0755
+UMask=0077
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
+# The only writable state is RuntimeDirectory= and the private /tmp.
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/etc/gobfd
 PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
+LockPersonality=true
+# UDP and TCP (BFD, gRPC, metrics, GoBGP), Unix (management socket, sd_notify,
+# NetworkManager D-Bus, OVSDB) and rtnetlink (interface inventory and monitor).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# The v1 bound is 2*sessions+256 descriptors; 16384 covers the 5,000-session
+# engineering gate.
+LimitNOFILE=16384
 
 [Install]
 WantedBy=multi-user.target

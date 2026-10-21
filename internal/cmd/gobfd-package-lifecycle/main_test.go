@@ -159,6 +159,54 @@ func TestSystemdDeclarativeInputs(t *testing.T) {
 	}
 }
 
+// TestSystemdServiceHardening pins the measured M-19 sandbox contract
+// (gobfd-qj0.8.2.3.3) and keeps the documented unit identical to the file.
+func TestSystemdServiceHardening(t *testing.T) {
+	t.Parallel()
+
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../.."))
+	data, err := os.ReadFile(filepath.Join(repositoryRoot, "deployments/systemd/gobfd.service"))
+	if err != nil {
+		t.Fatalf("read unit: %v", err)
+	}
+	unit := string(data)
+
+	lines := make(map[string]bool)
+	for line := range strings.Lines(unit) {
+		lines[strings.TrimSpace(line)] = true
+	}
+	for _, want := range []string{
+		"Restart=on-failure",
+		"RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+		"SystemCallArchitectures=native",
+		"SystemCallFilter=@system-service",
+		"SystemCallErrorNumber=EPERM",
+		"LockPersonality=true",
+		"ProtectProc=invisible",
+		"ProcSubset=pid",
+		"UMask=0077",
+		"LimitNOFILE=16384",
+	} {
+		if !lines[want] {
+			t.Errorf("gobfd.service lacks %q", want)
+		}
+	}
+
+	for _, doc := range []string{"docs/en/06-deployment.md", "docs/ru/06-deployment.md"} {
+		text, err := os.ReadFile(filepath.Join(repositoryRoot, doc))
+		if err != nil {
+			t.Fatalf("read %s: %v", doc, err)
+		}
+		if !strings.Contains(string(text), "```ini\n"+unit+"```\n") {
+			t.Errorf("%s does not contain deployments/systemd/gobfd.service verbatim", doc)
+		}
+	}
+}
+
 func TestExecuteInstallCommands(t *testing.T) {
 	binDir, logPath := installHelperCommands(t, "systemd-sysusers", "systemd-tmpfiles", "systemctl")
 	t.Setenv("PATH", binDir)

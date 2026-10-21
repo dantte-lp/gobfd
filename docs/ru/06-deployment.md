@@ -122,7 +122,7 @@ sudo install -m 755 bin/gobfd bin/gobfdctl bin/gobfd-haproxy-agent bin/gobfd-exa
 
 ```ini
 [Unit]
-Description=GoBFD -- BFD Protocol Daemon
+Description=GoBFD — BFD Protocol Daemon
 Documentation=https://github.com/dantte-lp/gobfd
 After=network-online.target
 Wants=network-online.target
@@ -135,22 +135,40 @@ Restart=on-failure
 RestartSec=5s
 WatchdogSec=30s
 
-# Укрепление безопасности
+# Security hardening
 User=gobfd
 Group=gobfd
+# The management socket /run/gobfd/gobfd.sock is 0660 with group gobfd-admin;
+# operators join gobfd-admin, not gobfd, which can read /etc/gobfd.
+SupplementaryGroups=gobfd-admin
+RuntimeDirectory=gobfd
+RuntimeDirectoryMode=0755
+UMask=0077
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
+# The only writable state is RuntimeDirectory= and the private /tmp.
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/etc/gobfd
 PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
+LockPersonality=true
+# UDP and TCP (BFD, gRPC, metrics, GoBGP), Unix (management socket, sd_notify,
+# NetworkManager D-Bus, OVSDB) and rtnetlink (interface inventory and monitor).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# The v1 bound is 2*sessions+256 descriptors; 16384 covers the 5,000-session
+# engineering gate.
+LimitNOFILE=16384
 
 [Install]
 WantedBy=multi-user.target
@@ -165,6 +183,42 @@ WantedBy=multi-user.target
 | `ExecReload` | SIGHUP перезагружает уровень лога и реконсилирует membership sessions в пределах открытых при startup transport bindings; startup-owned изменения отклоняются и требуют restart |
 | `Restart=on-failure` | Авто-перезапуск с задержкой 5 секунд после сбоя или выхода fail-stop при потере receive path или dispatch |
 | Директивы безопасности | Минимальные привилегии с `CAP_NET_RAW` и `CAP_NET_ADMIN` |
+
+#### Контракт песочницы
+
+Директивы для address family, системных вызовов, `/proc`, umask и файловых
+дескрипторов выведены из измеренного инвентаря демона, а не из общего шаблона:
+
+| Директива | Основание |
+|---|---|
+| `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK` | `strace` демона с single-hop IPv4/IPv6, multihop, unsolicited, Echo, Micro-BFD с `SO_BINDTODEVICE`, VXLAN, Geneve, GoBGP, metrics, management socket, reload и shutdown зафиксировал только эти семейства. `AF_UNIX` также нужен для `sd_notify` и LAG-backend NetworkManager D-Bus и OVSDB; `AF_NETLINK` нужен для инвентаря и монитора интерфейсов. Сокеты `AF_PACKET` не используются. |
+| `SystemCallFilter=@system-service`, `SystemCallErrorNumber=EPERM` | Все 50 системных вызовов этого прогона входят в `@system-service`, раскрытый `systemd-analyze syscall-filter` в Debian 13 и Oracle Linux 10 (systemd 257). `@privileged` не запрещён: смена группы management socket использует `fchownat`. |
+| `LockPersonality=true` | Демон не вызывает `personality(2)`. |
+| `ProtectProc=invisible`, `ProcSubset=pid` | Демон читает только `/proc/self/cgroup` и `/proc/self/mountinfo` (runtime Go). Чтение `/proc/sys/net/core/somaxconn` для backlog скрыто, поэтому management-, gRPC- и metrics-listener используют fallback backlog Go, равный 128. |
+| `UMask=0077` | Единственный создаваемый демоном файл — management socket; затем ему назначаются настроенные режим и группа (`0660 gobfd:gobfd-admin`). |
+| `LimitNOFILE=16384` | Ресурсная граница v1 — `2*sessions+256` дескрипторов; 16384 покрывает engineering gate на 5000 сессий (10256). Go держит soft limit равным этому hard limit. |
+
+Записываемое состояние ограничено `RuntimeDirectory=` (`/run/gobfd`) и
+приватным `/tmp`. `ProtectKernelTunables=true` оставляет `/sys` только для
+чтения, поэтому actuator Micro-BFD `kernel-bond` в режиме `enforce` не может
+записать `/sys/class/net/<bond>/bonding/slaves` под этим юнитом; `dry-run`,
+`ovs` и `networkmanager` не затронуты.
+
+Для крупных deployment лимит дескрипторов повышается drop-in-файлом, а не
+правкой юнита из пакета:
+
+```bash
+sudo systemctl edit gobfd   # [Service] LimitNOFILE=<2*sessions+256 или больше>
+```
+
+2026-10-21 юнит выполнен под systemd 257 в контейнерах Debian 13 и Oracle
+Linux 10 с файлами по путям пакета; тесты нативных DEB/RPM-артефактов остаются
+отдельным этапом поставки. Демон запустился с `Seccomp: 2`, `NoNewPrivs: 1`,
+`hidepid=invisible,subset=pid` и лимитом 16384 дескрипторов, удерживал сессии
+Up дольше `WatchdogSec=` без перезапуска, выполнил reload без смены PID,
+перезапустился после `SIGKILL` и остановился с `Result=success`.
+`systemd-analyze security` показал exposure 5.2 для прежнего юнита и 3.3 для
+текущего.
 
 #### Управление сервисом
 
@@ -287,7 +341,7 @@ Release-образы содержат четыре бинарных файла G
 | Уровень | Механизм |
 |---|---|
 | **Capabilities** | Только `CAP_NET_RAW` + `CAP_NET_ADMIN` (без root) |
-| **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
+| **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, фильтры address family и системных вызовов, `ProcSubset=pid`; см. [Контракт песочницы](#контракт-песочницы) |
 | **Код** | Нет пакета `unsafe`, все ошибки сокетов обрабатываются |
 | **TTL** | GTSM (RFC 5082): TTL=255 на передачу, проверка TTL=255 на приём |
 | **Аутентификация** | Опциональная BFD-аутентификация (5 типов по RFC 5880 Section 6.7) |
