@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/netio"
@@ -264,5 +265,43 @@ func TestReceiver_RunMultipleListeners(t *testing.T) {
 	// At least one listener should have delivered a packet.
 	if len(dmux.calls) == 0 {
 		t.Error("expected at least one demux call from multiple listeners")
+	}
+}
+
+// A listener closed while the receiver context is live is a lost receive
+// path. Run reports it without waiting for the remaining blocked listeners.
+func TestReceiverRunReturnsWhenListenerClosedBeforeCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	closed := NewMockPacketConn(netip.MustParseAddrPort("0.0.0.0:3784"))
+	closed.ReadFunc = func([]byte) (int, netio.PacketMeta, error) {
+		return 0, netio.PacketMeta{}, netio.ErrSocketClosed
+	}
+	release := make(chan struct{})
+	blocked := NewMockPacketConn(netip.MustParseAddrPort("0.0.0.0:4784"))
+	blocked.ReadFunc = func([]byte) (int, netio.PacketMeta, error) {
+		<-release
+		return 0, netio.PacketMeta{}, netio.ErrSocketClosed
+	}
+
+	r := netio.NewReceiver(&mockDemuxer{}, slog.New(slog.DiscardHandler))
+	result := make(chan error, 1)
+	go func() {
+		result <- r.Run(ctx, netio.NewListenerFromConn(closed, false), netio.NewListenerFromConn(blocked, true))
+	}()
+
+	select {
+	case err := <-result:
+		close(release)
+		if !errors.Is(err, netio.ErrListenerClosed) {
+			t.Fatalf("Run error = %v, want %v", err, netio.ErrListenerClosed)
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		close(release)
+		<-result
+		t.Fatal("Run kept serving a closed listener while its context was live")
 	}
 }

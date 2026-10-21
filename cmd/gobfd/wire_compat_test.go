@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/grpchealth/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -123,13 +124,20 @@ func TestGRPCServerWireCompatibility(t *testing.T) {
 	t.Run("grpc.health.v1", func(t *testing.T) {
 		t.Parallel()
 
-		resp, err := grpc_health_v1.NewHealthClient(conn).Check(t.Context(),
-			&grpc_health_v1.HealthCheckRequest{Service: bfdServiceName})
-		if err != nil {
-			t.Fatalf("health check: %v", err)
-		}
-		if resp.GetStatus() != grpc_health_v1.HealthCheckResponse_SERVING {
-			t.Fatalf("health status = %v, want SERVING", resp.GetStatus())
+		// The liveness service is SERVING; bfd.v1 services stay NOT_SERVING
+		// until component-derived readiness publishes a converged state.
+		for service, want := range map[string]grpc_health_v1.HealthCheckResponse_ServingStatus{
+			grpchealth.HealthV1ServiceName: grpc_health_v1.HealthCheckResponse_SERVING,
+			bfdServiceName:                 grpc_health_v1.HealthCheckResponse_NOT_SERVING,
+		} {
+			resp, err := grpc_health_v1.NewHealthClient(conn).Check(t.Context(),
+				&grpc_health_v1.HealthCheckRequest{Service: service})
+			if err != nil {
+				t.Fatalf("health check %q: %v", service, err)
+			}
+			if resp.GetStatus() != want {
+				t.Fatalf("health status %q = %v, want %v", service, resp.GetStatus(), want)
+			}
 		}
 	})
 

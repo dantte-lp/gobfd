@@ -170,8 +170,9 @@ type reconciliationCoordinator struct {
 	// interface event or resync may resolve their pending sessions.
 	unboundSources reconciliationSourceMask
 
-	logger  *slog.Logger
-	checker *grpchealth.StaticChecker
+	logger *slog.Logger
+	// readiness is the single writer of aggregate and bfd.v1 named health.
+	readiness *daemonReadiness
 }
 
 func newReconciliationCoordinator(
@@ -180,12 +181,11 @@ func newReconciliationCoordinator(
 	checker *grpchealth.StaticChecker,
 ) *reconciliationCoordinator {
 	coordinator := &reconciliationCoordinator{
-		snapshot: reconciliationSnapshot{Stale: true},
-		startup:  newStartupRuntimeContract(cfg),
-		logger:   logger,
-		checker:  checker,
+		snapshot:  reconciliationSnapshot{Stale: true},
+		startup:   newStartupRuntimeContract(cfg),
+		logger:    logger,
+		readiness: newDaemonReadiness(checker),
 	}
-	coordinator.setReady(false)
 	return coordinator
 }
 
@@ -261,7 +261,7 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	}
 	c.unboundSources = unboundInterfaceSources(retainedCandidate)
 	c.statusMu.Unlock()
-	c.setReady(false)
+	c.readiness.setSources(0)
 	for i := range retainedCandidate.base {
 		retainedCandidate.base[i].reconcile.DesiredGeneration = generation
 		workingCandidate.base[i].reconcile.DesiredGeneration = generation
@@ -522,7 +522,7 @@ func (c *reconciliationCoordinator) publishReceipt(
 	snapshot := c.snapshot
 	c.statusMu.Unlock()
 
-	c.setReady(!snapshot.Stale)
+	c.readiness.setSources(readySources(receipt))
 	c.logResult(snapshot, transientErr)
 	return snapshot
 }
@@ -549,15 +549,16 @@ func cloneCompiledControlSessionCandidate(
 	return cloned
 }
 
-func (c *reconciliationCoordinator) setReady(ready bool) {
-	if c.checker == nil {
-		return
+// readySources selects the sources without pending or failed entries; all
+// six are ready exactly when the snapshot is not stale.
+func readySources(receipt generationReceipt) reconciliationSourceMask {
+	var ready reconciliationSourceMask
+	for i, source := range receipt.Sources {
+		if source.Pending == 0 && source.Failed == 0 {
+			ready |= sourceMask(reconciliationSource(i))
+		}
 	}
-	status := grpchealth.StatusNotServing
-	if ready {
-		status = grpchealth.StatusServing
-	}
-	c.checker.SetStatus("", status)
+	return ready
 }
 
 func (c *reconciliationCoordinator) logResult(snapshot reconciliationSnapshot, transientErr error) {
@@ -955,7 +956,10 @@ func newDaemonHealthChecker() *grpchealth.StaticChecker {
 		echoServiceName,
 		microBFDServiceName,
 	)
-	checker.SetStatus("", grpchealth.StatusNotServing)
+	// Fail closed until daemonReadiness publishes component-derived status.
+	for _, service := range []string{"", bfdServiceName, echoServiceName, microBFDServiceName} {
+		checker.SetStatus(service, grpchealth.StatusNotServing)
+	}
 	return checker
 }
 

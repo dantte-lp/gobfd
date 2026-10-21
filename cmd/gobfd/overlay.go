@@ -39,6 +39,7 @@ func startOverlayReceivers(
 	cfg *config.Config,
 	mgr *bfd.Manager,
 	sf *udpSenderFactory,
+	readiness *daemonReadiness,
 	logger *slog.Logger,
 ) (*overlayRuntime, func()) {
 	runtime := &overlayRuntime{}
@@ -51,7 +52,9 @@ func startOverlayReceivers(
 		for _, vxlanConn := range vxlanConns {
 			conns = append(conns, vxlanConn)
 			recv := netio.NewOverlayReceiver(vxlanConn, mgr, logger)
-			g.Go(func() error { return recv.Run(ctx) })
+			g.Go(func() error {
+				return readiness.runRequired(ctx, "VXLAN receiver", func() error { return recv.Run(ctx) })
+			})
 		}
 		logger.Info("VXLAN overlay receivers started (RFC 8971)",
 			slog.Int("listeners", len(vxlanConns)),
@@ -66,7 +69,9 @@ func startOverlayReceivers(
 		for _, geneveConn := range geneveConns {
 			conns = append(conns, geneveConn)
 			recv := netio.NewOverlayReceiver(geneveConn, mgr, logger)
-			g.Go(func() error { return recv.Run(ctx) })
+			g.Go(func() error {
+				return readiness.runRequired(ctx, "Geneve receiver", func() error { return recv.Run(ctx) })
+			})
 		}
 		logger.Info("Geneve overlay receivers started (RFC 9521)",
 			slog.Int("listeners", len(geneveConns)),
