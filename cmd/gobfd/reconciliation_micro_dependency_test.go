@@ -35,7 +35,9 @@ func TestReconciliationCoordinatorMicroSourceIsOneTransaction(t *testing.T) {
 	sf := newNthFailureDeclarativeSenderFactory(0)
 	var checked []string
 	applyWith := func(available bool) sourceApplyFunc {
-		return func(ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate) sourceApplyResult {
+		return func(
+			ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
+		) sourceApplyResult {
 			if source != sourceMicro {
 				return sourceApplyResult{}
 			}

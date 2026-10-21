@@ -43,8 +43,12 @@ func TestManagerCreateMicroBFDGroupValidatesMemberSessionContract(t *testing.T) 
 		mutate func(*bfd.MicroBFDConfig)
 	}{
 		{"zero desired min tx", func(c *bfd.MicroBFDConfig) { c.DesiredMinTxInterval = 0 }},
-		{"desired min tx above wire", func(c *bfd.MicroBFDConfig) { c.DesiredMinTxInterval = bfd.MaxWireInterval + time.Microsecond }},
-		{"required min rx above wire", func(c *bfd.MicroBFDConfig) { c.RequiredMinRxInterval = bfd.MaxWireInterval + time.Microsecond }},
+		{"desired min tx above wire", func(c *bfd.MicroBFDConfig) {
+			c.DesiredMinTxInterval = bfd.MaxWireInterval + time.Microsecond
+		}},
+		{"required min rx above wire", func(c *bfd.MicroBFDConfig) {
+			c.RequiredMinRxInterval = bfd.MaxWireInterval + time.Microsecond
+		}},
 		{"zero detect multiplier", func(c *bfd.MicroBFDConfig) { c.DetectMultiplier = 0 }},
 		{"invalid peer address", func(c *bfd.MicroBFDConfig) { c.PeerAddr = netip.Addr{} }},
 		{"empty member name", func(c *bfd.MicroBFDConfig) { c.MemberLinks = []string{"eth0", ""} }},
@@ -78,8 +82,8 @@ func TestManagerDispatchMicroBFDIgnoresOtherAddressFamily(t *testing.T) {
 	if _, err := mgr.CreateMicroBFDGroup(defaultMicroBFDConfig()); err != nil {
 		t.Fatalf("CreateMicroBFDGroup: %v", err)
 	}
-	v6 := microMemberSession(t, mgr, "2001:db8::1", "2001:db8::2", "eth0")
-	v4 := microMemberSession(t, mgr, "10.0.0.1", "10.0.0.2", "eth0")
+	v6 := microMemberSession(t, mgr, "2001:db8::1", "2001:db8::2")
+	v4 := microMemberSession(t, mgr, "10.0.0.1", "10.0.0.2")
 	go mgr.RunDispatch(t.Context())
 
 	sendControlState(t, v6, bfd.StateDown, 41)
@@ -122,7 +126,7 @@ func TestManagerMicroBFDActuatorRunsOutsideManagerLock(t *testing.T) {
 	if _, err := mgr.CreateMicroBFDGroup(defaultMicroBFDConfig()); err != nil {
 		t.Fatalf("CreateMicroBFDGroup: %v", err)
 	}
-	sess := microMemberSession(t, mgr, "10.0.0.1", "10.0.0.2", "eth0")
+	sess := microMemberSession(t, mgr, "10.0.0.1", "10.0.0.2")
 	go mgr.RunDispatch(t.Context())
 
 	sendControlState(t, sess, bfd.StateDown, 42)
@@ -174,7 +178,7 @@ func TestManagerMicroBFDActuatorDeadlineBoundsDispatch(t *testing.T) {
 		if _, err := mgr.CreateMicroBFDGroup(defaultMicroBFDConfig()); err != nil {
 			t.Fatalf("CreateMicroBFDGroup: %v", err)
 		}
-		sess := microMemberSession(t, mgr, "10.0.0.1", "10.0.0.2", "eth0")
+		sess := microMemberSession(t, mgr, "10.0.0.1", "10.0.0.2")
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go mgr.RunDispatch(ctx)
@@ -203,17 +207,18 @@ func TestManagerMicroBFDActuatorDeadlineBoundsDispatch(t *testing.T) {
 	})
 }
 
-func microMemberSession(t *testing.T, mgr *bfd.Manager, peer, local, member string) *bfd.Session {
+// microMemberSession creates a Micro-BFD session on member link eth0.
+func microMemberSession(t *testing.T, mgr *bfd.Manager, peer, local string) *bfd.Session {
 	t.Helper()
 	cfg := defaultManagerConfig()
 	cfg.PeerAddr = netip.MustParseAddr(peer)
 	cfg.LocalAddr = netip.MustParseAddr(local)
-	cfg.Type, cfg.Interface, cfg.Role = bfd.SessionTypeMicroBFD, member, bfd.RolePassive
+	cfg.Type, cfg.Interface, cfg.Role = bfd.SessionTypeMicroBFD, "eth0", bfd.RolePassive
 	// A 90 s detection time keeps member state stable across actuator deadlines.
 	cfg.RequiredMinRxInterval = 30 * time.Second
 	sess, err := mgr.CreateSession(t.Context(), cfg, bfd.NonOwningSenderLeaseFactory(noopSender{}))
 	if err != nil {
-		t.Fatalf("CreateSession %s%%%s: %v", peer, member, err)
+		t.Fatalf("CreateSession %s%%eth0: %v", peer, err)
 	}
 	return sess
 }
@@ -230,7 +235,9 @@ func microLeaseFactories(failing ...string) func(string) bfd.SenderLeaseFactory 
 	}
 }
 
-func microDesired(factory func(string) bfd.SenderLeaseFactory, cfgs ...bfd.MicroBFDConfig) []bfd.MicroBFDReconcileConfig {
+func microDesired(
+	factory func(string) bfd.SenderLeaseFactory, cfgs ...bfd.MicroBFDConfig,
+) []bfd.MicroBFDReconcileConfig {
 	desired := make([]bfd.MicroBFDReconcileConfig, 0, len(cfgs))
 	for _, cfg := range cfgs {
 		desired = append(desired, bfd.MicroBFDReconcileConfig{
@@ -241,8 +248,9 @@ func microDesired(factory func(string) bfd.SenderLeaseFactory, cfgs ...bfd.Micro
 }
 
 func sessionDiscriminators(mgr *bfd.Manager) []uint32 {
-	var discrs []uint32
-	for _, snap := range mgr.Sessions() {
+	snaps := mgr.Sessions()
+	discrs := make([]uint32, 0, len(snaps))
+	for _, snap := range snaps {
 		discrs = append(discrs, snap.LocalDiscr)
 	}
 	slices.Sort(discrs)
