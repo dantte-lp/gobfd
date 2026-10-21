@@ -71,7 +71,7 @@ func TestManagerLastClaimDrainWaitsForRetryAndWindow(t *testing.T) {
 }
 
 func TestManagerLastClaimDrainIncompleteReleasesResources(t *testing.T) {
-	for _, kind := range []string{"deadline", "cancel", "passive", "zero-rx"} {
+	for _, kind := range []string{"deadline", "cancel", "passive"} {
 		t.Run(kind, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				mgr := NewManager(slog.New(slog.DiscardHandler))
@@ -90,11 +90,6 @@ func TestManagerLastClaimDrainIncompleteReleasesResources(t *testing.T) {
 					t.Fatal(err)
 				}
 				synctest.Wait()
-				if kind == "zero-rx" {
-					s.mu.Lock()
-					s.remoteMinRxInterval = 0
-					s.mu.Unlock()
-				}
 				ctx := context.Background()
 				var cancel context.CancelFunc
 				wantErr, wantDuration := context.DeadlineExceeded, 10*time.Second
@@ -121,7 +116,7 @@ func TestManagerLastClaimDrainIncompleteReleasesResources(t *testing.T) {
 				if elapsed := time.Since(start); elapsed != wantDuration {
 					t.Errorf("destroy elapsed=%v, want %v", elapsed, wantDuration)
 				}
-				if (kind == "passive" || kind == "zero-rx") && len(sender.attempts) != 0 {
+				if kind == "passive" && len(sender.attempts) != 0 {
 					t.Error("drain bypassed transmission suppression")
 				}
 				if releases != 1 || len(mgr.Sessions()) != 0 {
@@ -137,6 +132,53 @@ func TestManagerLastClaimDrainIncompleteReleasesResources(t *testing.T) {
 			})
 		})
 	}
+}
+
+// RFC 5880 Section 6.8.18: the remote system "is obligated to obey the value
+// carried in Required Min RX Interval" only "so long as the local system
+// continues to transmit"; after a Detection Time without packets it "SHOULD
+// reset bfd.RemoteMinRxInterval to its initial value of 1". The Section
+// 6.8.16 AdminDown notification then proceeds and the drain completes.
+func TestManagerLastClaimDrainCompletesAfterSilentZeroRx(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		mgr := NewManager(slog.New(slog.DiscardHandler))
+		defer mgr.Close()
+		sender := &adminDrainSender{attempts: make(chan time.Time, 64), successful: make(chan time.Time, 64)}
+		releases := 0
+		releaseErr := errors.New("injected lease release failure")
+		s, err := mgr.CreateSession(t.Context(), ownershipTestConfig("192.0.2.202"), func() (*SenderLease, error) {
+			return NewSenderLease(sender, func() error { releases++; return releaseErr }), nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		s.mu.Lock()
+		s.remoteMinRxInterval = 0
+		s.mu.Unlock()
+		detection := s.DetectionTime()
+		start := time.Now()
+		err = mgr.DestroySession(t.Context(), s.LocalDiscriminator())
+		if !errors.Is(err, releaseErr) {
+			t.Errorf("destroy=%v, want release error", err)
+		}
+		if _, ok := errors.AsType[*DrainIncompleteError](err); ok {
+			t.Errorf("drain stayed incomplete after a silent Detection Time: %v", err)
+		}
+		if len(sender.successful) == 0 {
+			t.Fatal("drain completed without an AdminDown write")
+		}
+		first := <-sender.successful
+		if sent := first.Sub(start); sent < detection || sent > detection+slowTxInterval {
+			t.Errorf("first AdminDown write after %v, want within [%v, %v]", sent, detection, detection+slowTxInterval)
+		}
+		if elapsed := time.Since(start); elapsed != first.Sub(start)+3*time.Second {
+			t.Errorf("destroy elapsed=%v, want first write + 3s window", elapsed)
+		}
+		if releases != 1 || len(mgr.Sessions()) != 0 {
+			t.Errorf("cleanup releases=%d sessions=%d", releases, len(mgr.Sessions()))
+		}
+	})
 }
 
 func TestManagerLastClaimDrainCapturesIdentityWithoutLocks(t *testing.T) {

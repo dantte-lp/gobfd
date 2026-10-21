@@ -181,6 +181,9 @@ func TestManagerDrainIncompleteStages(t *testing.T) {
 				case "passive":
 					s.role = RolePassive
 				case "remote-zero":
+					// RFC 5880 Section 6.8.7: "A system MUST NOT periodically transmit BFD
+					// Control packets if bfd.RemoteMinRxInterval is zero." The 1s budget
+					// ends before the Section 6.8.18 reset after one Detection Time.
 					s.remoteMinRxInterval = 0
 				case "stopped":
 					cancel()
