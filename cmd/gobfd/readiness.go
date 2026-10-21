@@ -57,8 +57,7 @@ func readinessServices() [4]readinessService {
 		{bfdServiceName, 1<<sourceBase | 1<<sourceVXLAN | 1<<sourceGeneve |
 			1<<componentRuntime | 1<<componentControlBindings},
 		{echoServiceName, 1<<sourceEcho | 1<<componentRuntime | 1<<componentEchoBindings},
-		{microBFDServiceName, 1<<sourceMicroGroup | 1<<sourceMicroMember |
-			1<<componentRuntime | 1<<componentMicroBindings},
+		{microBFDServiceName, 1<<sourceMicro | 1<<componentRuntime | 1<<componentMicroBindings},
 	}
 }
 

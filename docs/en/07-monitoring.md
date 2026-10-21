@@ -258,7 +258,7 @@ sudo systemctl reload gobfd
 
 For each valid startup or SIGHUP candidate, the coordinator emits one aggregate
 structured event: the INFO event `configuration reconciliation converged` only
-after all six sources converge, or the ERROR event `configuration
+after all five sources converge, or the ERROR event `configuration
 reconciliation incomplete` for a stale generation. The configured logging
 threshold applies normally, so INFO convergence events are filtered at WARN or
 ERROR. Fields include `desired_generation`, `applied_generation`, `stale`,
@@ -312,7 +312,7 @@ status is the AND of the components the service needs:
 | empty service | all components below |
 | `bfd.v1.BfdService` | base, VXLAN and Geneve reconciliation sources; runtime workers; control listener interfaces, including unsolicited ones |
 | `bfd.v1.EchoService` | Echo reconciliation source; runtime workers; Echo listener interfaces |
-| `bfd.v1.MicroBFDService` | Micro-BFD group and member sources; runtime workers; member listener interfaces |
+| `bfd.v1.MicroBFDService` | Micro-BFD source (groups with their member sessions); runtime workers; member listener interfaces |
 | `grpc.health.v1.Health` | none; always `SERVING` as the liveness signal |
 
 - A reconciliation source is ready when the latest desired generation has no

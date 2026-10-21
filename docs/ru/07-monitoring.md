@@ -248,7 +248,7 @@ sudo systemctl reload gobfd
 
 Для каждого валидного startup или SIGHUP candidate coordinator формирует одно
 aggregate structured event: INFO event `configuration reconciliation converged`
-только после convergence всех шести sources или ERROR event `configuration
+только после convergence всех пяти sources или ERROR event `configuration
 reconciliation incomplete` для stale generation. Обычный настроенный logging
 threshold продолжает действовать, поэтому INFO event convergence фильтруется
 при уровнях WARN и ERROR. Поля включают `desired_generation`,
@@ -304,7 +304,7 @@ go tool trace trace.out
 | пустой service | все компоненты ниже |
 | `bfd.v1.BfdService` | sources reconciliation base, VXLAN и Geneve; runtime workers; интерфейсы control listeners, включая unsolicited |
 | `bfd.v1.EchoService` | source reconciliation Echo; runtime workers; интерфейсы Echo listeners |
-| `bfd.v1.MicroBFDService` | sources groups и members Micro-BFD; runtime workers; интерфейсы listeners member links |
+| `bfd.v1.MicroBFDService` | source Micro-BFD (группы вместе с member-сессиями); runtime workers; интерфейсы listeners member links |
 | `grpc.health.v1.Health` | нет; всегда `SERVING` как сигнал liveness |
 
 - Source reconciliation готов, если в последнем desired generation у него нет

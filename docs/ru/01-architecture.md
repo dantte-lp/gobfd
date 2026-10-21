@@ -223,8 +223,8 @@ startup listener/overlay capabilities, но не могут потребоват
 conflicts, а не in-place updates. Coordinator публикует монотонное desired generation только после этой проверки
 и компиляции полного неизменяемого session candidate. Один receipt затем хранит claim-level счётчики
 `created`, `released`, `pending` и `failed`, а также ограниченную гистограмму
-кодов ошибок ровно для шести sources: base, Echo, Micro-BFD group, Micro-BFD
-member, VXLAN и Geneve. Applied generation продвигается только при convergence
+кодов ошибок ровно для пяти sources: base, Echo, Micro-BFD (группы вместе с
+member-сессиями), VXLAN и Geneve. Applied generation продвигается только при convergence
 всех sources. Частичный проход сохраняет последнее applied generation,
 помечает snapshot как stale и не откатывает изменения, уже принятые другим
 source. Следующий SIGHUP создаёт явное новое generation и может привести runtime

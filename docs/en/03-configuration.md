@@ -826,10 +826,10 @@ On reload:
    empty desired sets
 9. VXLAN and Geneve are reconciled as distinct sources, including empty
    desired sets
-10. One aggregate receipt records bounded counts and error codes for all six
-   sources. Applied advances to desired only if all six converge. Each named
+10. One aggregate receipt records bounded counts and error codes for all five
+   sources. Applied advances to desired only if all five converge. Each named
    service returns to `SERVING` when its own sources converge, and the empty
-   service when all six do; runtime and listener components also apply
+   service when all five do; runtime and listener components also apply
    (`07-monitoring.md`)
 
 `log.level` applies immediately after the complete candidate passes validation.
@@ -841,7 +841,7 @@ requests a full interface resync. The non-Linux stub provides no automatic
 retry. A completely absent startup listener binding or overlay backend can
 still prevent activation; interface retry does not open new runtime bindings.
 
-The six desired sets reconcile session/group membership. Control, Echo, and
+The five desired sets reconcile session/group membership. Control, Echo, and
 Micro-BFD entries may be added, removed, or re-keyed when they reuse a transport
 binding opened at startup. VXLAN and Geneve entries may be removed, but adding
 or re-keying an overlay identity requires a process restart. BFD defaults and per-entry timers,

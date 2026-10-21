@@ -185,7 +185,7 @@
 ### Изменено
 
 - Готовность gRPC health выводится из компонентов (H-30, `gobfd-qj0.8.2.3.1`).
-  Пустой service есть AND шести sources reconciliation, runtime workers и
+  Пустой service есть AND пяти sources reconciliation, runtime workers и
   интерфейсов listeners с привязкой к устройству. `bfd.v1.BfdService` следует за
   base, VXLAN и Geneve sessions и control listeners, включая unsolicited;
   `bfd.v1.EchoService` — за Echo; `bfd.v1.MicroBFDService` — за groups, members

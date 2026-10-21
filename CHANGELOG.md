@@ -181,7 +181,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - gRPC health readiness derives from components (H-30, `gobfd-qj0.8.2.3.1`).
-  The empty service is the AND of the six reconciliation sources, the runtime
+  The empty service is the AND of the five reconciliation sources, the runtime
   workers and the device-bound listener interfaces. `bfd.v1.BfdService`
   follows base, VXLAN and Geneve sessions and the control listeners, including
   unsolicited ones; `bfd.v1.EchoService` follows Echo; and

@@ -831,10 +831,10 @@ kill -HUP $(pidof gobfd)
    desired sets
 9. VXLAN и Geneve реконсилируются как отдельные sources, включая пустые
    desired sets
-10. Один aggregate receipt хранит ограниченные счётчики и коды ошибок всех шести
-   sources. Applied продвигается до desired, только если все шесть sources
+10. Один aggregate receipt хранит ограниченные счётчики и коды ошибок всех пяти
+   sources. Applied продвигается до desired, только если все пять sources
    converged. Named service возвращается в `SERVING`, когда converged его
-   sources, пустой service — когда converged все шесть; учитываются также
+   sources, пустой service — когда converged все пять; учитываются также
    runtime и listener компоненты (`07-monitoring.md`)
 
 На Linux существующий, но выключенный настроенный интерфейс приводит к `pending`
@@ -846,7 +846,7 @@ kill -HUP $(pidof gobfd)
 binding или overlay backend по-прежнему может помешать активации; interface
 retry не открывает новые runtime bindings.
 
-`log.level` применяется сразу после полной валидации candidate. Шесть desired
+`log.level` применяется сразу после полной валидации candidate. Пять desired
 sets реконсилируют membership sessions/groups. Записи control, Echo и Micro-BFD
 можно добавлять, удалять или re-key при повторном использовании transport binding,
 открытого при startup. Записи VXLAN и Geneve можно удалять, но новая или re-keyed

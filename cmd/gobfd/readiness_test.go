@@ -58,8 +58,7 @@ func TestDaemonReadinessNamedServicesFollowTheirSources(t *testing.T) {
 	}{
 		{sourceBase, readinessWant{notServing, notServing, serving, serving}},
 		{sourceEcho, readinessWant{notServing, serving, notServing, serving}},
-		{sourceMicroGroup, readinessWant{notServing, serving, serving, notServing}},
-		{sourceMicroMember, readinessWant{notServing, serving, serving, notServing}},
+		{sourceMicro, readinessWant{notServing, serving, serving, notServing}},
 		{sourceVXLAN, readinessWant{notServing, notServing, serving, serving}},
 		{sourceGeneve, readinessWant{notServing, notServing, serving, serving}},
 	} {

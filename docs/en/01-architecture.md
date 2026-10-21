@@ -197,7 +197,7 @@ The coordinator publishes a
 monotonic desired generation only after that check and the complete immutable
 session candidate compiles. One receipt then records claim-level `created`, `released`,
 `pending`, and `failed` counts plus a bounded error-code histogram for exactly
-six sources: base, Echo, Micro-BFD group, Micro-BFD member, VXLAN, and Geneve.
+five sources: base, Echo, Micro-BFD (groups with their member sessions), VXLAN, and Geneve.
 The applied generation advances only when every source converges. A partial
 pass preserves the last applied generation, marks the snapshot stale, and does
 not roll back changes already accepted by another source. A later SIGHUP is an

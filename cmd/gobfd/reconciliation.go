@@ -145,7 +145,7 @@ type sourceApplyFunc func(
 
 type interfaceAvailabilityChecker func([]string) (int, error)
 
-// reconciliationCoordinator serializes complete six-source applies,
+// reconciliationCoordinator serializes complete five-source applies,
 // generation-scoped pending-source retries, and interface availability events
 // while publishing status through a separately readable immutable snapshot.
 type reconciliationCoordinator struct {
@@ -458,7 +458,7 @@ func cloneCompiledControlSessionCandidate(
 }
 
 // readySources selects the sources without pending or failed entries; all
-// six are ready exactly when the snapshot is not stale.
+// five are ready exactly when the snapshot is not stale.
 func readySources(receipt generationReceipt) reconciliationSourceMask {
 	var ready reconciliationSourceMask
 	for i, source := range receipt.Sources {
