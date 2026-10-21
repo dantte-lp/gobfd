@@ -988,7 +988,11 @@ Detection Time notification window и bounded I/O. Фиксированное д
 интерфейса приёма single-hop и привязку устройства отправителя, link-local zone
 и ожидание неразрешённых интерфейсов; и toolchain Go 1.27.3 (`gobfd-bjr`).
 Remote zero RX и remote Demand по-прежнему требуют crafted Go peer
-`gobfd-qj0.8.2.1.1.2.3`.
+`gobfd-qj0.8.2.1.1.2.3`. Эта ветка влита в `dev` (`68b497f`). `dev` `963ed28`
+добавляет готовность gRPC, выводимую из компонентов, с fail-stop при потере
+receiver (`gobfd-qj0.8.2.3.1`, закрыта), и транзакционную reconciliation групп
+Micro-BFD с одним LAG на member link (`gobfd-qj0.8.2.2.1`; интеграционный gate
+RFC 7130 остаётся открытым). Hosted E2E выполняется на `ubuntu-26.04`.
 
 RFC core продолжается с Poll/Final, обработки remote Demand, оставшейся приёмки
 доставки и fail-closed границ preview.

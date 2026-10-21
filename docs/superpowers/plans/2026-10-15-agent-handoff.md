@@ -144,6 +144,25 @@ The original handoff and its dated measurements remain in local Git:
   before the cancelling goroutine; the test now holds the owner in a blocked
   write before destroy.
 
+## Integration batch 4 and hosted E2E — 2026-10-21
+
+- `dev` `963ed28` carries component-derived readiness
+  (`gobfd-qj0.8.2.3.1`, closed): the empty gRPC health service and
+  `bfd.v1.*` are the AND of reconciliation sources, runtime workers and
+  device-bound listener interfaces; receiver or dispatch loss is fail-stop.
+  It also carries transactional Micro-BFD reconciliation
+  (`gobfd-qj0.8.2.2.1`, open): groups publish only after member claims
+  succeed, a member link belongs to one LAG, owner claims split API and reload
+  groups, and the actuator runs outside Manager locks. Micro-BFD still lacks an
+  RFC 7130 integration gate; dual-stack groups per LAG are `gobfd-9sr`.
+- Gate and live evidence: `reports/batch4-20261021/gate01/` in that worktree
+  (full untagged race, BASE, BGP and RFC testcontainers suites).
+- Hosted E2E runs on `ubuntu-26.04` (`gobfd-22v`, closed). The tshark image
+  keeps its binaries outside `/usr/bin` to avoid the host AppArmor profile, and
+  the jobs let pasta receive Podman signals (Ubuntu LP #2154379). PR-safe run
+  39633642656 passed; the nightly interop-rfc compose project label mismatch is
+  open under `gobfd-dah`.
+
 ## Resume
 
 1. Read applicable `AGENTS.md`, default-branch README and current roadmap;
