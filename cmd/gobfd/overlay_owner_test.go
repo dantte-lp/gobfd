@@ -305,3 +305,56 @@ func TestReloadOverlayIdentitiesConvergeWithoutRestart(t *testing.T) {
 		}
 	}
 }
+
+// The production backend chain widens and narrows a real socket in place:
+// openOverlayBackend, the leased conn and the netio SetScopes.
+func TestOverlayOwnerRealBackendsWidenInPlace(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+	coordinator, _ := newConvergedReadinessCoordinator(t)
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, coordinator.readiness, logger)
+	t.Cleanup(owner.close)
+	for index, kind := range []bfd.TransportScopeKind{bfd.TransportScopeVXLAN, bfd.TransportScopeGeneve} {
+		local := netip.AddrFrom4([4]byte{127, 0, 57, byte(index + 1)})
+		first := bfd.TransportScope{
+			Kind: kind, Owner: "overlay-test", Backend: "userspace-udp", VNI: 100,
+			OuterPeerAddr: netip.AddrFrom4([4]byte{127, 0, 57, 100}), OuterLocalAddr: local,
+			InnerPeerAddr: netip.MustParseAddr("192.0.2.1"), InnerLocalAddr: netip.MustParseAddr("192.0.2.2"),
+			AddressFamily: bfd.AddressFamilyIPv4,
+			PeerMAC:       [6]byte{0x02, 0, 0, 0, 0, 1}, LocalMAC: [6]byte{0x02, 0, 0, 0, 0, 2},
+		}
+		second := first
+		second.OuterPeerAddr = netip.AddrFrom4([4]byte{127, 0, 57, 101})
+		second.PeerMAC[5] = 3
+		opened, err := owner.acquire(kind, []bfd.TransportScope{first})
+		if err != nil {
+			t.Fatalf("kind %d: open real backend: %v", kind, err)
+		}
+		widened, err := owner.acquire(kind, []bfd.TransportScope{first, second})
+		if err != nil {
+			t.Fatalf("kind %d: widen real backend: %v", kind, err)
+		}
+		if widened[first] != opened[first] || widened[second] != opened[first] {
+			t.Fatalf("kind %d: widening replaced the socket", kind)
+		}
+		if err := sendOverlayFor(t, widened[second], second); err != nil {
+			t.Fatalf("kind %d: send for widened identity: %v", kind, err)
+		}
+		owner.release(kind, []bfd.TransportScope{second})
+		if err := sendOverlayFor(t, widened[first], first); err == nil {
+			t.Fatalf("kind %d: narrowed socket still sends for the removed identity", kind)
+		}
+		owner.release(kind, nil)
+		if err := sendOverlayFor(t, widened[second], second); err == nil {
+			t.Fatalf("kind %d: closed backend still sends", kind)
+		}
+	}
+}
+
+func sendOverlayFor(t *testing.T, conn netio.OverlayConn, scope bfd.TransportScope) error {
+	t.Helper()
+	return netio.NewOverlaySender(conn, scope).SendPacket(t.Context(), make([]byte, 24), scope.InnerPeerAddr)
+}
