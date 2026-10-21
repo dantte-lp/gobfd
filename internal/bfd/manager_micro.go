@@ -312,16 +312,16 @@ func (m *Manager) reconcileMicroBFDGroups(
 	ctx context.Context,
 	desired []MicroBFDReconcileConfig,
 ) (ReconcileResult, []retiredSession, []*SenderLease) {
-	desiredGroups, members, memberOrder, err := compileMicroBFDReconcileConfigs(desired)
+	compiled, err := compileMicroBFDReconcileConfigs(desired)
 	if err != nil {
 		return failedReconcileResult(ReconcileErrorInvalid, err), nil, nil
 	}
 	currentGroups := m.microBFDGroupsByKey()
-	if conflict := m.microBFDReconcileConflict(desiredGroups, currentGroups); conflict != nil {
+	if conflict := m.microBFDReconcileConflict(compiled.groups, currentGroups); conflict != nil {
 		return failedReconcileResult(ReconcileErrorConflict, conflict), nil, nil
 	}
 	owner := MicroBFDReconciliationOwner()
-	currentClaims, err := m.ownerClaimSnapshot(owner, members, memberOrder)
+	currentClaims, err := m.ownerClaimSnapshot(owner, compiled.members, compiled.memberOrder)
 	if err != nil {
 		return failedReconcileResult(ReconcileErrorConflict, err), nil, nil
 	}
@@ -335,17 +335,17 @@ func (m *Manager) reconcileMicroBFDGroups(
 	// every committed group and session in place.
 	m.commitMicroBFDGroups(newGroups)
 	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
-		ctx, owner, members, memberOrder, currentClaims,
+		ctx, owner, compiled.members, compiled.memberOrder, currentClaims,
 	)
 	if result.Failed > 0 {
 		m.rollbackMicroBFDGroups(newGroups)
 		return microBFDGroupResult(result, 0, 0), retired, unusedLeases
 	}
 
-	released, staleRetired := m.releaseStaleOwnerClaims(owner, members, currentClaims)
+	released, staleRetired := m.releaseStaleOwnerClaims(owner, compiled.members, currentClaims)
 	result.Errors = append(result.Errors, released.Errors...)
 	retired = append(retired, staleRetired...)
-	destroyed := m.destroyRemovedMicroBFDGroups(desiredGroups, currentGroups)
+	destroyed := m.destroyRemovedMicroBFDGroups(compiled.groups, currentGroups)
 	return microBFDGroupResult(result, len(newGroups), destroyed), retired, unusedLeases
 }
 
@@ -435,35 +435,41 @@ func (m *Manager) logMicroBFDReconcileResult(result ReconcileResult) {
 // set without opening senders or mutating state: group shape, one owning
 // LAG per member link and the session contract of every member session.
 func ValidateMicroBFDReconcileConfigs(desired []MicroBFDReconcileConfig) error {
-	_, _, _, err := compileMicroBFDReconcileConfigs(desired)
+	_, err := compileMicroBFDReconcileConfigs(desired)
 	return err
 }
 
-func compileMicroBFDReconcileConfigs(
-	desired []MicroBFDReconcileConfig,
-) (map[string]MicroBFDReconcileConfig, map[SessionKey]reconcileCandidate, []SessionKey, error) {
+// compiledMicroBFD is a validated desired set: groups by LAG and their member
+// sessions in member order.
+type compiledMicroBFD struct {
+	groups      map[string]MicroBFDReconcileConfig
+	members     map[SessionKey]reconcileCandidate
+	memberOrder []SessionKey
+}
+
+func compileMicroBFDReconcileConfigs(desired []MicroBFDReconcileConfig) (compiledMicroBFD, error) {
 	desiredByKey := make(map[string]MicroBFDReconcileConfig, len(desired))
 	memberOwners := make(map[string]string)
 	var members []ReconcileConfig
 	for _, rc := range desired {
 		if rc.Key != rc.Config.LAGInterface {
-			return nil, nil, nil, fmt.Errorf(
+			return compiledMicroBFD{}, fmt.Errorf(
 				"micro-BFD reconcile key %q does not match config LAG %q: %w",
 				rc.Key, rc.Config.LAGInterface, ErrMicroBFDConfigConflict,
 			)
 		}
 		if err := validateMicroBFDConfig(rc.Config); err != nil {
-			return nil, nil, nil, fmt.Errorf("validate micro-BFD group %q: %w", rc.Key, err)
+			return compiledMicroBFD{}, fmt.Errorf("validate micro-BFD group %q: %w", rc.Key, err)
 		}
 		if _, exists := desiredByKey[rc.Key]; exists {
-			return nil, nil, nil, fmt.Errorf(
+			return compiledMicroBFD{}, fmt.Errorf(
 				"duplicate desired micro-BFD group %q: %w",
 				rc.Key, ErrMicroBFDGroupExists,
 			)
 		}
 		for _, member := range rc.Config.MemberLinks {
 			if lag, owned := memberOwners[member]; owned {
-				return nil, nil, nil, fmt.Errorf("micro-BFD member %q in groups %q and %q: %w",
+				return compiledMicroBFD{}, fmt.Errorf("micro-BFD member %q in groups %q and %q: %w",
 					member, lag, rc.Key, ErrMicroBFDMemberOwned)
 			}
 			memberOwners[member] = rc.Key
@@ -473,9 +479,9 @@ func compileMicroBFDReconcileConfigs(
 	}
 	sessions, order, err := compileReconcileConfigs(members)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("validate micro-BFD member sessions: %w", err)
+		return compiledMicroBFD{}, fmt.Errorf("validate micro-BFD member sessions: %w", err)
 	}
-	return desiredByKey, sessions, order, nil
+	return compiledMicroBFD{groups: desiredByKey, members: sessions, memberOrder: order}, nil
 }
 
 // microBFDReconcileConflict rejects all same-key configuration conflicts
