@@ -61,8 +61,10 @@ func PackageLifecycle(ctx context.Context, options PackageOptions) error {
 		return fmt.Errorf("package lifecycle command runner is required: %w", errInvalidConfig)
 	}
 	environment := append(
-		withoutEnvironmentKeys(options.Environment, "GOBFD_PACKAGE_DIST", "GOBFD_REQUIRE_PODMAN"),
+		withoutEnvironmentKeys(options.Environment,
+			"GOBFD_PACKAGE_DIST", "GOBFD_REQUIRE_PODMAN", "GOBFD_PACKAGE_ARTIFACT_DIR"),
 		"GOBFD_PACKAGE_DIST="+filepath.Join(options.Root, "dist"), "GOBFD_REQUIRE_PODMAN=1",
+		"GOBFD_PACKAGE_ARTIFACT_DIR="+filepath.Join(options.Root, "reports", "e2e", "package-lifecycle"),
 	)
 	if err := options.Runner.RunCommand(ctx, CommandSpec{
 		Name: "go",

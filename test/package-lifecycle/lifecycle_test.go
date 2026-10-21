@@ -30,6 +30,9 @@ import (
 // distEnv names the directory holding the gobfd_<version>_linux_<arch> packages.
 const distEnv = "GOBFD_PACKAGE_DIST"
 
+// artifactEnv optionally names reports/e2e/package-lifecycle for the command log.
+const artifactEnv = "GOBFD_PACKAGE_ARTIFACT_DIR"
+
 const (
 	containerMemory = 1 << 30
 	containerPIDs   = 1024
@@ -79,6 +82,7 @@ func TestPackageLifecycle(t *testing.T) {
 		t.Fatalf("%s must name the directory with the built DEB and RPM", distEnv)
 	}
 	root := repositoryRoot(t)
+	runID := time.Now().UTC().Format("20060102T150405Z")
 
 	for _, d := range distros() {
 		var image, containerID string
@@ -90,7 +94,8 @@ func TestPackageLifecycle(t *testing.T) {
 			image = buildSystemdImage(ctx, t, endpoint, root, d)
 			ctr := startSystemd(ctx, t, image, filepath.Dir(pkg))
 			containerID = ctr.GetContainerID()
-			h := &host{t: t, ctx: ctx, ctr: ctr}
+			h := &host{t: t, ctx: ctx, ctr: ctr, evidence: &strings.Builder{}}
+			t.Cleanup(func() { h.writeEvidence(runID, d.name) })
 			t.Cleanup(h.dumpOnFailure)
 
 			h.mustRun(d.install("/packages/" + filepath.Base(pkg))...)
@@ -178,6 +183,8 @@ type host struct {
 	t   *testing.T
 	ctx context.Context
 	ctr testcontainers.Container
+	// evidence records every command and its output for the E2E artifact.
+	evidence *strings.Builder
 }
 
 // dumpOnFailure records the unit state before the container is removed.
@@ -191,6 +198,7 @@ func (h *host) dumpOnFailure() {
 	} {
 		if _, out, err := containertest.Exec(context.WithoutCancel(h.ctx), h.ctr, argv); err == nil {
 			h.t.Logf("%v:\n%s", argv, out)
+			fmt.Fprintf(h.evidence, "$ %s\n%s\n", strings.Join(argv, " "), out)
 		}
 	}
 }
@@ -201,7 +209,26 @@ func (h *host) run(argv ...string) (int, string) {
 	if err != nil {
 		h.t.Fatalf("exec %v: %v", argv, err)
 	}
+	if h.evidence != nil {
+		fmt.Fprintf(h.evidence, "$ %s (exit %d)\n%s\n", strings.Join(argv, " "), code, out)
+	}
 	return code, out
+}
+
+// writeEvidence stores the command log under the artifact directory, if any.
+func (h *host) writeEvidence(runID, name string) {
+	dir := os.Getenv(artifactEnv)
+	if dir == "" {
+		return
+	}
+	dir = filepath.Join(dir, runID)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		h.t.Errorf("create evidence directory: %v", err)
+		return
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".log"), []byte(h.evidence.String()), 0o600); err != nil {
+		h.t.Errorf("write %s evidence: %v", name, err)
+	}
 }
 
 func (h *host) mustRun(argv ...string) string {

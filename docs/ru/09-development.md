@@ -318,6 +318,10 @@ go run ./test/cmd/cictl package-lifecycle  # нужен сокет Podman API
 отказов песочницы в journal, `systemd-analyze verify` с drop-in для
 kernel-bond и удаление пакета. Контейнеры получают `SYS_ADMIN`, `SYS_PTRACE`,
 `unmask=ALL` и `label=disable`, чтобы systemd мог построить namespace юнита.
+Базовые образы закреплены по digest, но тест устанавливает `systemd`,
+`iproute2`/`iproute` и `procps` из зеркал дистрибутивов без закрепления версий.
+Nightly-job E2E выполняет обе команды и выгружает
+`reports/e2e/package-lifecycle/`.
 
 #### Тесты совместимости
 

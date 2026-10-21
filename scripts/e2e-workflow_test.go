@@ -43,6 +43,8 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 		"make e2e-rfc",
 		"make e2e-linux",
 		"make e2e-vendor",
+		"run: go run ./test/cmd/cictl package-build\n",
+		"run: go run ./test/cmd/cictl package-lifecycle\n",
 		"make down",
 		"actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
 		"retention-days: 30",
@@ -79,6 +81,15 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 	if strings.Index(content, "Allow pasta to receive Podman signals") >
 		strings.Index(content, "Start Podman API socket") {
 		t.Fatal("E2E workflow relaxes the pasta profile after Podman starts")
+	}
+
+	// The package lifecycle runs only in the nightly job, after the routing
+	// gates and before the shared evidence upload.
+	nightly := content[strings.Index(content, "\n  nightly:"):strings.Index(content, "\n  vendor:")]
+	if strings.Count(content, "cictl package-lifecycle") != 1 ||
+		!strings.Contains(nightly, "cictl package-build") || !strings.Contains(nightly, "cictl package-lifecycle") ||
+		strings.Index(nightly, "cictl package-lifecycle") > strings.Index(nightly, "Upload nightly E2E artifacts") {
+		t.Fatal("E2E workflow does not run the package lifecycle once in the nightly job before its upload")
 	}
 
 	if got := strings.Count(content, "run: make e2e-core\n"); got != 1 {
