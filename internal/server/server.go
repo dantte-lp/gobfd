@@ -810,6 +810,7 @@ func mapManagerError(err error, operation string) *connect.Error {
 		errors.Is(err, bfd.ErrInvalidPaddedPduSize),
 		errors.Is(err, bfd.ErrInvalidMultiHopInterface),
 		errors.Is(err, bfd.ErrInvalidMultiHopMaxHops),
+		errors.Is(err, bfd.ErrInvalidSessionZone),
 		errors.Is(err, bfd.ErrInvalidSessionRole):
 		return connect.NewError(connect.CodeInvalidArgument, wrapError(operation, err).Error())
 	default:

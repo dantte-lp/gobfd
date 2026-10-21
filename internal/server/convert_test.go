@@ -313,6 +313,7 @@ func TestMapManagerError(t *testing.T) {
 		{"InvalidMultiHopInterface", bfd.ErrInvalidMultiHopInterface, connect.CodeInvalidArgument},
 		{"InvalidMultiHopMaxHops", bfd.ErrInvalidMultiHopMaxHops, connect.CodeInvalidArgument},
 		{"InterfaceUnresolved", bfd.ErrInterfaceUnresolved, connect.CodeFailedPrecondition},
+		{"InvalidSessionZone", bfd.ErrInvalidSessionZone, connect.CodeInvalidArgument},
 		{"DrainDeadline", &bfd.DrainIncompleteError{Err: context.DeadlineExceeded}, connect.CodeDeadlineExceeded},
 		{"DrainCanceled", &bfd.DrainIncompleteError{Err: context.Canceled}, connect.CodeCanceled},
 		{"Unknown", errors.New("unknown error"), connect.CodeInternal},

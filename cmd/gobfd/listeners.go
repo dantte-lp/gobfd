@@ -172,10 +172,14 @@ func controlListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
 		}
 
 		multiHop := sc.Type == "multi_hop"
+		peerAddr, err := sc.PeerAddr()
+		if err != nil {
+			continue // validateSessions rejects an invalid peer.
+		}
 		lnCfg := netio.ListenerConfig{
 			ReadBufferSize: cfg.Socket.ReadBufferSize,
 			Addr:           localAddr,
-			IfName:         sc.Interface,
+			IfName:         sessionInterface(sc.Interface, configSessionTypeToBFD(sc.Type), localAddr, peerAddr),
 			MultiHop:       multiHop,
 		}
 		if multiHop {

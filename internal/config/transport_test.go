@@ -67,3 +67,23 @@ func TestValidateSessionsHopPolicy(t *testing.T) {
 		}
 	}
 }
+
+// A link-local zone selects the session interface when interface is empty;
+// a zone that differs from interface or from the other address is rejected.
+func TestValidateSessionsLinkLocalZone(t *testing.T) {
+	t.Parallel()
+	coexist := "sessions:\n" +
+		"  - peer: \"fe80::1%eth0\"\n    local: \"fe80::2%eth0\"\n" +
+		"  - peer: \"fe80::1%eth1\"\n    local: \"fe80::2%eth1\"\n"
+	if _, err := config.Load(writeTemp(t, coexist)); err != nil {
+		t.Fatalf("Load(two zoned sessions): %v", err)
+	}
+	for _, session := range []string{
+		"  - peer: \"fe80::1\"\n    local: \"fe80::2%eth1\"\n    interface: eth0\n",
+		"  - peer: \"fe80::1%eth1\"\n    local: \"fe80::2%eth0\"\n",
+	} {
+		if _, err := config.Load(writeTemp(t, "sessions:\n"+session)); !errors.Is(err, config.ErrInvalidSessionZone) {
+			t.Fatalf("Load(%q) error = %v, want ErrInvalidSessionZone", session, err)
+		}
+	}
+}

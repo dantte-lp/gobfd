@@ -206,7 +206,6 @@ type baseSessionCandidate struct {
 	multiHop    bool
 	senderOpts  []netio.SenderOption
 	senderLocal netip.Addr
-	bindDevice  string
 }
 
 func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, error) {
@@ -235,7 +234,6 @@ func compileBaseSessionCandidates(cfg *config.Config) ([]baseSessionCandidate, e
 			multiHop:    sessCfg.Type == bfd.SessionTypeMultiHop,
 			senderOpts:  senderOpts,
 			senderLocal: senderLocal,
-			bindDevice:  bindDevice,
 		})
 		desired = append(desired, rc)
 	}

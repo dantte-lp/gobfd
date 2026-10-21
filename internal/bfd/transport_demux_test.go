@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -372,5 +373,123 @@ func TestMultiHopMaxHopsIsEffectiveParameter(t *testing.T) {
 	_, err := mgr.CreateSessionAs(context.Background(), cfg, factory, configOwner("c"))
 	if !errors.Is(err, ErrSessionParameterConflict) {
 		t.Fatalf("CreateSessionAs(hops=2) error = %v, want ErrSessionParameterConflict", err)
+	}
+}
+
+// Without an explicit interface, the zone of a link-local address selects the
+// session interface (RFC 5881 Section 3), so one link-local pair on two links
+// forms two sessions that demultiplex by receive interface.
+func TestLinkLocalZoneSelectsSessionInterface(t *testing.T) {
+	t.Parallel()
+	mgr := newTransportManager(t)
+	sessions := make(map[string]*Session)
+	for _, ifName := range []string{"eth0", "eth1"} {
+		peer, local := netip.MustParseAddr("fe80::1%"+ifName), netip.MustParseAddr("fe80::2%"+ifName)
+		sess := createTransportSession(t, mgr, transportSessionConfig(peer, local, SessionTypeSingleHop))
+		if sess.Interface() != ifName {
+			t.Fatalf("session interface = %q, want zone %q", sess.Interface(), ifName)
+		}
+		sessions[ifName] = sess
+	}
+	for ifName, sess := range sessions {
+		meta := PacketMeta{
+			SrcAddr: netip.MustParseAddr("fe80::1"), DstAddr: netip.MustParseAddr("fe80::2"),
+			TTL: 255, IfName: ifName,
+		}
+		if got, ok := mgr.LookupByPeer(packetDemuxKeyFromMeta(meta)); !ok || got != sess {
+			t.Fatalf("peer lookup on %s found %v, want session %d", ifName, got, sess.LocalDiscriminator())
+		}
+		if outcome, err := demuxTransport(mgr, sess, demuxPathPeer, meta); outcome != DeliveryQueued {
+			t.Fatalf("demux on %s = %s, %v; want Queued", ifName, outcome, err)
+		}
+	}
+}
+
+func TestValidateSessionConfigZoneInterface(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, ifName, peer, local string
+		want                      error
+	}{
+		{
+			name: "interface differs from local zone", ifName: "eth0", peer: "fe80::1", local: "fe80::2%eth1",
+			want: ErrInvalidSessionZone,
+		},
+		{
+			name: "interface differs from peer zone", ifName: "eth0", peer: "fe80::1%eth1", local: "fe80::2",
+			want: ErrInvalidSessionZone,
+		},
+		{
+			name: "peer zone differs from local zone", peer: "fe80::1%eth1", local: "fe80::2%eth0",
+			want: ErrInvalidSessionZone,
+		},
+		{name: "matching zones", ifName: "eth0", peer: "fe80::1%eth0", local: "fe80::2%eth0"},
+		{name: "zone only", peer: "fe80::1", local: "fe80::2%eth0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := transportSessionConfig(netip.MustParseAddr(tc.peer), netip.MustParseAddr(tc.local), SessionTypeSingleHop)
+			cfg.Interface = tc.ifName
+			if err := ValidateSessionConfig(cfg); !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
+				t.Fatalf("ValidateSessionConfig = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// RFC 5881 Section 5: single-hop packets demultiplexed to the session are
+// discarded unless the received TTL or Hop Limit is 255.
+func TestDemuxRejectsSingleHopTTLBelow255(t *testing.T) {
+	t.Parallel()
+	for _, family := range transportFamilies() {
+		for _, path := range demuxPaths() {
+			t.Run(family.name+"/"+path.String(), func(t *testing.T) {
+				t.Parallel()
+				mgr := newTransportManager(t)
+				sess := createTransportSession(t, mgr, transportSessionConfig(family.peer, family.local, SessionTypeSingleHop))
+				meta := PacketMeta{SrcAddr: family.peer, DstAddr: family.local, TTL: 254}
+				outcome, err := demuxTransport(mgr, sess, path, meta)
+				if outcome != DeliveryTTLRejected || !errors.Is(err, ErrDemuxTTLRejected) {
+					t.Fatalf("demux = %s, %v; want TTLRejected, ErrDemuxTTLRejected", outcome, err)
+				}
+			})
+		}
+	}
+}
+
+// An unresolvable receive interface makes one desired session pending without
+// failing or rolling back its neighbours; a later pass creates it.
+func TestReconcileTreatsUnresolvedInterfaceAsPending(t *testing.T) {
+	t.Parallel()
+	unresolved := netip.MustParseAddr("192.0.2.250")
+	var ready atomic.Bool
+	mgr := newTransportManager(t, WithSessionInterfaceResolver(func(local netip.Addr, _ string) (int, error) {
+		if local == unresolved && !ready.Load() {
+			return 0, errFakeResolve
+		}
+		return 7, nil
+	}))
+	desired := []ReconcileConfig{
+		{
+			Key: "good", SessionConfig: transportSessionConfig(
+				netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("192.0.2.2"), SessionTypeSingleHop),
+			SenderLeaseFactory: NonOwningSenderLeaseFactory(overlayIdentityNoopSender{}),
+		},
+		{
+			Key: "pending", SessionConfig: transportSessionConfig(
+				netip.MustParseAddr("192.0.2.3"), unresolved, SessionTypeSingleHop),
+			SenderLeaseFactory: NonOwningSenderLeaseFactory(overlayIdentityNoopSender{}),
+		},
+	}
+	result := mgr.ReconcileSessionsForOwnerDetailed(context.Background(), ConfigReconciliationOwner(), desired)
+	if result.Created != 1 || result.ResourcePending != 1 || result.Failed != 0 ||
+		!errors.Is(result.Err(), ErrInterfaceUnresolved) || len(mgr.Sessions()) != 1 {
+		t.Fatalf("first pass = %+v, err %v, sessions %d; want 1 created, 1 pending",
+			result, result.Err(), len(mgr.Sessions()))
+	}
+	ready.Store(true)
+	result = mgr.ReconcileSessionsForOwnerDetailed(context.Background(), ConfigReconciliationOwner(), desired)
+	if result.Created != 1 || result.ResourcePending != 0 || result.Err() != nil || len(mgr.Sessions()) != 2 {
+		t.Fatalf("retry = %+v, err %v, sessions %d; want 1 created, none pending", result, result.Err(), len(mgr.Sessions()))
 	}
 }

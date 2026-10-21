@@ -106,8 +106,12 @@ func (m *Manager) claimSession(
 
 // resolveSessionIfIndex binds a new single-hop session to its receive
 // interface once, at creation (RFC 5881 Section 3).
-// ponytail: resolved once; a recreated interface gets a new index and needs
-// the session recreated. Track interface events if that becomes common.
+//
+// Known limitations: a recreated interface gets a new index and needs the
+// session recreated. The resolver runs under ownershipMu, so one interface
+// inventory read (net.Interfaces plus per-interface addresses) serializes
+// with other ownership changes; this bounds creation throughput, not packet
+// delivery, and a cached inventory is the upgrade if creation bursts matter.
 func (m *Manager) resolveSessionIfIndex(cfg SessionConfig) (SessionConfig, error) {
 	if cfg.Type != SessionTypeSingleHop || cfg.IfIndex != 0 || m.resolveIfIndex == nil {
 		return cfg, nil
@@ -606,8 +610,8 @@ func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (Deliver
 			sess.LocalDiscriminator(), meta.MultiHop, meta.IfName, meta.IfIndex, ErrDemuxNoMatch)
 	}
 	if outcome == DeliveryTTLRejected {
-		return outcome, fmt.Errorf("demux: session %d TTL %d below %d: %w",
-			sess.LocalDiscriminator(), meta.TTL, sess.minTTL, ErrDemuxTTLRejected)
+		return outcome, fmt.Errorf("demux: session %d TTL %d outside its hop policy: %w",
+			sess.LocalDiscriminator(), meta.TTL, ErrDemuxTTLRejected)
 	}
 	return outcome, nil
 }
@@ -1008,6 +1012,8 @@ func (m *Manager) reconcileSessionsForOwner(
 	result.Created = claimResult.Created
 	result.Updated = claimResult.Updated
 	result.Pending = claimResult.Pending
+	result.ResourcePending = claimResult.ResourcePending
+	result.resourceErrs = claimResult.resourceErrs
 	result.TimerUpdates = claimResult.TimerUpdates
 	result.wireCreated = claimResult.wireCreated
 	result.Errors = append(result.Errors, claimResult.Errors...)
@@ -1187,8 +1193,7 @@ func (m *Manager) claimDesiredOwnerSessions(
 			unusedLeases = append(unusedLeases, unusedLease)
 		}
 		if claimErr != nil {
-			addReconcileError(&result, ReconcileErrorCreate,
-				fmt.Errorf("reconcile claim %+v: %w", key, claimErr))
+			recordClaimError(&result, key, claimErr)
 			continue
 		}
 		if wireCreated {
@@ -1220,6 +1225,19 @@ func (m *Manager) claimDesiredOwnerSessions(
 		}
 	}
 	return result, retired, unusedLeases
+}
+
+// recordClaimError records an unresolvable single-hop receive interface as a
+// pending source dependency: retried on interface events, and neither a
+// failure nor a reason to roll back neighbouring claims. Other errors fail.
+func recordClaimError(result *ReconcileResult, key SessionKey, err error) {
+	err = fmt.Errorf("reconcile claim %+v: %w", key, err)
+	if errors.Is(err, ErrInterfaceUnresolved) {
+		result.ResourcePending++
+		result.resourceErrs = append(result.resourceErrs, err)
+		return
+	}
+	addReconcileError(result, ReconcileErrorCreate, err)
 }
 
 func (m *Manager) reconcileExistingTimers(
