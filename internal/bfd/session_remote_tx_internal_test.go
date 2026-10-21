@@ -411,14 +411,14 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 // Control packets for a Detection Time, it SHOULD reset
 // bfd.RemoteMinRxInterval to its initial value of 1 ... and then can transmit
 // at its own rate.".
-func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
+func TestRemoteMinRxResetsAfterDetectionTime(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
-		name           string
-		local, remote  State
-		wantState      State
-		wantDiag       Diag
-		keepSuppressed bool
+		name          string
+		local, remote State
+		wantState     State
+		wantDiag      Diag
+		remoteRX      time.Duration
 	}{
 		{
 			name: "Up expires to Down", local: StateUp, remote: StateUp, wantState: StateDown,
@@ -428,10 +428,15 @@ func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 			name: "Down held down by peer", local: StateDown, remote: StateAdminDown, wantState: StateDown,
 			wantDiag: DiagControlTimeExpired,
 		},
-		// Policy pending maintainer decision: AdminDown drain skips the Section 6.8.18 reset.
+		// Section 6.8.18 also names "an arbitrarily large value" as a hold-down.
 		{
-			name: "AdminDown drain keeps suppression", local: StateAdminDown, remote: StateUp, wantState: StateAdminDown,
-			wantDiag: DiagAdminDown, keepSuppressed: true,
+			name: "Down held down by large RX", local: StateDown, remote: StateAdminDown, wantState: StateDown,
+			wantDiag: DiagControlTimeExpired, remoteRX: 10 * time.Second,
+		},
+		// Section 6.8.16 AdminDown notification resumes once the obligation ends.
+		{
+			name: "AdminDown notification resumes", local: StateAdminDown, remote: StateUp, wantState: StateAdminDown,
+			wantDiag: DiagAdminDown,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -450,12 +455,13 @@ func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 					sess.mu.Unlock()
 				}
 				pkt := sess.buildControlPacket()
-				pkt.State, pkt.Demand, pkt.RequiredMinRxInterval = tt.remote, true, 0
+				pkt.State, pkt.Demand = tt.remote, true
+				pkt.RequiredMinRxInterval = microsecondsFromDuration(tt.remoteRX)
 				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
 				detection := sess.calcDetectionTimeHot()
 				synctest.Sleep(detection - time.Nanosecond)
 				if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
-					t.Fatal("periodic transmission ignored remote Required Min RX zero")
+					t.Fatal("periodic transmission ignored remote Required Min RX")
 				}
 				synctest.Sleep(time.Nanosecond)
 				select {
@@ -469,13 +475,6 @@ func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 						sess.State(), sess.LocalDiag(), tt.wantState, tt.wantDiag)
 				}
 				// The non-Up slow floor bounds the interval; jitter only shortens it.
-				if tt.keepSuppressed {
-					synctest.Sleep(slowTxInterval)
-					if sess.RemoteMinRxInterval() != 0 || fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
-						t.Fatal("AdminDown drain bypassed remote Required Min RX zero")
-					}
-					return
-				}
 				if got := sess.RemoteMinRxInterval(); got != initialRemoteMinRx || sess.remoteDemandMode {
 					t.Fatalf("after expiry RemoteMinRx=%s RemoteDemand=%t, want %s/false",
 						got, sess.remoteDemandMode, initialRemoteMinRx)
@@ -675,5 +674,46 @@ func fireRemoteTxTimer(sess *Session, tx *time.Timer) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// RFC 5880 Section 6.8.3: the local system "cannot wait longer than the new
+// interval between the previous packet transmission and the next one". A
+// remote Demand clear resumes periodic TX from the previous successful send.
+func TestRemoteDemandClearResumesFromPreviousSend(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name                      string
+		elapsed, earliest, latest time.Duration
+	}{
+		{name: "within interval", elapsed: 50 * time.Millisecond, earliest: 75 * time.Millisecond, latest: 100 * time.Millisecond},
+		{name: "interval already elapsed", elapsed: 500 * time.Millisecond, earliest: 500 * time.Millisecond, latest: 500 * time.Millisecond},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				sess, sender, tx, detect := newRemoteTxTestSession(t)
+				sess.sendControl(t.Context())
+				pkt := sess.buildControlPacket()
+				pkt.Demand = true
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+				synctest.Sleep(tt.elapsed)
+				if fireRemoteTxTimer(sess, tx) {
+					t.Fatal("periodic transmission continued under remote Demand")
+				}
+				pkt.Demand = false
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+				if tt.earliest > tt.elapsed {
+					synctest.Sleep(tt.earliest - tt.elapsed - time.Nanosecond)
+					if fireRemoteTxTimer(sess, tx) {
+						t.Fatal("transmitted before the jitter window from the previous send")
+					}
+					synctest.Sleep(tt.latest - tt.earliest + time.Nanosecond)
+				}
+				if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != 2 {
+					t.Fatal("Demand clear did not resume TX from the previous send")
+				}
+			})
+		})
 	}
 }

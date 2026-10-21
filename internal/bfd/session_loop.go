@@ -277,35 +277,36 @@ func (s *Session) handleDetectTimer(
 	detectTimer *time.Timer,
 ) {
 	s.maybeResetAuthSeqKnown()
+	oldTxInterval, oldTxAllowed := s.calcTxIntervalHot(), s.periodicTxAllowed()
 	// RFC 5880 Section 6.8.1 expires the wire discriminator in every state.
+	// Section 6.8.18: the peer's Required Min RX binds only while the peer
+	// keeps transmitting; after a Detection Time without packets the system
+	// "SHOULD reset bfd.RemoteMinRxInterval to its initial value of 1" and
+	// "then can transmit at its own rate". Demand returns to its initial value
+	// of zero (Section 6.8.1). AdminDown resumes its Section 6.8.16
+	// notification; a Passive session stays silent because bfd.RemoteDiscr is
+	// now zero (Section 6.8.7).
 	s.mu.Lock()
 	s.remoteDiscr = 0
+	s.remoteMinRxInterval, s.remoteDemandMode = initialRemoteMinRx, false
 	s.mu.Unlock()
+	// Section 6.8.3: measure a changed interval from the previous send, as the
+	// receive path does. FSM actions below may re-arm the timer again; a
+	// pending Final retry keeps its armed deadline.
+	if !s.pendingFinal && (oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed()) {
+		s.scheduleTxTimer(txTimer, s.lastPacketSent)
+	}
 
 	// Use cachedState (goroutine-confined) to avoid atomic load.
-	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert
-	// and skips the Section 6.8.18 SHOULD reset below: the drain releases the
-	// session after a silent Detection Time, so resetting would only add
-	// AdminDown packets to a peer that asked for none (Section 6.8.16).
+	// Held erratum 5205 also refreshes Down diagnostics; AdminDown stays inert.
 	if s.cachedState == StateAdminDown {
 		// Restart detect timer even in Down state to handle re-negotiation.
 		detectTimer.Reset(s.calcDetectionTimeHot())
 		return
 	}
-	// RFC 5880 Section 6.8.18: after a Detection Time without packets the
-	// system "SHOULD reset bfd.RemoteMinRxInterval to its initial value of 1"
-	// and "then can transmit at its own rate". Demand returns to its initial
-	// value of zero (Section 6.8.1).
-	s.mu.Lock()
-	wasZero := s.remoteMinRxInterval == 0
-	s.remoteMinRxInterval, s.remoteDemandMode = initialRemoteMinRx, false
-	s.mu.Unlock()
 	s.applyFSMEvent(ctx, EventTimerExpired, txTimer, detectTimer)
 	if s.cachedState == StateDown {
 		s.resetDetectTimer(detectTimer)
-	}
-	if wasZero {
-		s.resetTxTimer(txTimer)
 	}
 }
 
