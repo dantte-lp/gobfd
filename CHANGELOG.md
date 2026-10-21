@@ -194,7 +194,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A device-bound listener whose interface is missing, down, or recreated with
   another ifindex makes its services `NOT_SERVING`. A recreated interface stays
   `NOT_SERVING` until restart, because the socket keeps the bind-time ifindex;
-  in-process rebinding is tracked by `gobfd-qj0.8.2.2.6.4`.
+  in-process rebinding is tracked by `gobfd-qj0.8.2.2.6.4`. Interface events and
+  a 2 s periodic check re-evaluate the bindings; an interface inventory failure
+  fails startup and leaves the previous state at runtime.
 - Receive-path or dispatch loss is fail-stop. A control, Echo, Micro-BFD or
   overlay receiver whose socket closes, or a dispatch loop that returns, while
   the daemon runs sets health `NOT_SERVING`, drains sessions and exits with an

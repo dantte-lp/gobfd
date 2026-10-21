@@ -329,8 +329,10 @@ status is the AND of the components the service needs:
   receiver whose socket closed, sets every service `NOT_SERVING`, and the daemon
   drains sessions and exits with an error (fail-stop) for systemd
   `Restart=on-failure`. Shutdown also sets every service `NOT_SERVING`.
-- Without a Linux interface monitor, listener interfaces are checked only at
-  startup.
+- Interface events re-check listener interfaces at once, and a 2 s periodic
+  check covers a disabled or stopped interface monitor. A failed interface
+  inventory read keeps the previous state until the next check; at startup it
+  fails the start.
 
 `gobfd.management` is `NOT_SERVING` while `grpc.unsafe_loopback_mutations`
 lets anonymous loopback clients mutate, `SERVING` otherwise. With

@@ -322,8 +322,10 @@ go tool trace trace.out
   закрытым сокетом, переводит все services в `NOT_SERVING`; daemon дренирует
   sessions и завершается с ошибкой (fail-stop) для systemd
   `Restart=on-failure`. Shutdown также переводит все services в `NOT_SERVING`.
-- Без Linux interface monitor интерфейсы listeners проверяются только при
-  запуске.
+- Interface events сразу проверяют интерфейсы listeners заново, а
+  периодическая проверка раз в 2 с покрывает отключённый или остановленный
+  interface monitor. Ошибка чтения inventory интерфейсов сохраняет прежнее
+  состояние до следующей проверки; при запуске она прерывает старт.
 
 `gobfd.management` находится в `NOT_SERVING`, пока
 `grpc.unsafe_loopback_mutations` разрешает анонимным клиентам на loopback
