@@ -15,10 +15,12 @@
 package bfd
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 )
@@ -46,6 +48,14 @@ var (
 	// ErrMicroBFDConfigConflict indicates that reconciliation requested a
 	// different effective group configuration for an existing LAG key.
 	ErrMicroBFDConfigConflict = errors.New("micro-BFD group configuration conflicts with existing group")
+
+	// ErrMicroBFDMemberOwned indicates that a member link already belongs to
+	// another LAG group. RFC 7130 Section 2 runs sessions per LAG member link;
+	// GoBFD gives each member link one owning group.
+	ErrMicroBFDMemberOwned = errors.New("member link belongs to another micro-BFD group")
+
+	// ErrMicroBFDInterfaceRequired indicates an empty LAG or member link name.
+	ErrMicroBFDInterfaceRequired = errors.New("micro-BFD LAG and member link names must not be empty")
 )
 
 // MicroBFDConfigConflictError identifies the LAG whose effective group
@@ -191,6 +201,12 @@ type MicroBFDGroup struct {
 	// localAddr is the local system's address (for notifications).
 	localAddr netip.Addr
 
+	// desiredMinTx, requiredMinRx and detectMult are the RFC 5880 session
+	// contract shared by the member sessions (RFC 7130 Section 2.2).
+	desiredMinTx  time.Duration
+	requiredMinRx time.Duration
+	detectMult    uint8
+
 	logger *slog.Logger
 }
 
@@ -217,13 +233,16 @@ func NewMicroBFDGroup(cfg MicroBFDConfig, logger *slog.Logger) (*MicroBFDGroup, 
 	}
 
 	return &MicroBFDGroup{
-		lagInterface: cfg.LAGInterface,
-		members:      members,
-		minActive:    cfg.MinActiveLinks,
-		aggregateUp:  false,
-		upCount:      0,
-		peerAddr:     cfg.PeerAddr,
-		localAddr:    cfg.LocalAddr,
+		lagInterface:  cfg.LAGInterface,
+		members:       members,
+		minActive:     cfg.MinActiveLinks,
+		aggregateUp:   false,
+		upCount:       0,
+		peerAddr:      cfg.PeerAddr,
+		localAddr:     cfg.LocalAddr,
+		desiredMinTx:  cfg.DesiredMinTxInterval,
+		requiredMinRx: cfg.RequiredMinRxInterval,
+		detectMult:    cfg.DetectMultiplier,
 		logger: logger.With(
 			slog.String("component", "micro-bfd"),
 			slog.String("lag", cfg.LAGInterface),
@@ -231,14 +250,20 @@ func NewMicroBFDGroup(cfg MicroBFDConfig, logger *slog.Logger) (*MicroBFDGroup, 
 	}, nil
 }
 
-// validateMicroBFDConfig checks the Micro-BFD configuration.
+// validateMicroBFDConfig checks the group shape: names, members and threshold.
 func validateMicroBFDConfig(cfg MicroBFDConfig) error {
 	if len(cfg.MemberLinks) == 0 {
 		return ErrMicroBFDNoMembers
 	}
+	if cfg.LAGInterface == "" {
+		return ErrMicroBFDInterfaceRequired
+	}
 
 	seen := make(map[string]struct{}, len(cfg.MemberLinks))
 	for _, link := range cfg.MemberLinks {
+		if link == "" {
+			return fmt.Errorf("member link: %w", ErrMicroBFDInterfaceRequired)
+		}
 		if _, dup := seen[link]; dup {
 			return fmt.Errorf("member link %q: %w", link, ErrMicroBFDDuplicateMember)
 		}
@@ -255,10 +280,50 @@ func validateMicroBFDConfig(cfg MicroBFDConfig) error {
 	return nil
 }
 
-// ValidateMicroBFDConfig validates a Micro-BFD group candidate without
-// creating its runtime aggregate state.
+// ValidateMicroBFDConfig validates a Micro-BFD group candidate and the
+// RFC 5880 session contract of every member session without creating
+// runtime state. RFC 7130 Section 2.2: member sessions follow RFC 5880/5881.
 func ValidateMicroBFDConfig(cfg MicroBFDConfig) error {
-	return validateMicroBFDConfig(cfg)
+	if err := validateMicroBFDConfig(cfg); err != nil {
+		return err
+	}
+	_, _, err := compileReconcileConfigs(microBFDMemberReconcileConfigs(cfg, nil))
+	return err
+}
+
+// microBFDMemberSessionConfig derives the session of one member link: an
+// Asynchronous mode session bound to the member (RFC 7130 Sections 2, 2.2).
+func microBFDMemberSessionConfig(cfg MicroBFDConfig, member string) SessionConfig {
+	return SessionConfig{
+		PeerAddr:              cfg.PeerAddr,
+		LocalAddr:             cfg.LocalAddr,
+		Interface:             member,
+		Type:                  SessionTypeMicroBFD,
+		Role:                  RoleActive,
+		DesiredMinTxInterval:  cfg.DesiredMinTxInterval,
+		RequiredMinRxInterval: cfg.RequiredMinRxInterval,
+		DetectMultiplier:      cfg.DetectMultiplier,
+	}
+}
+
+// microBFDMemberReconcileConfigs returns the member sessions of cfg in member
+// order. senderFor supplies each member's sender; nil leaves it unset.
+func microBFDMemberReconcileConfigs(
+	cfg MicroBFDConfig,
+	senderFor func(member string) SenderLeaseFactory,
+) []ReconcileConfig {
+	desired := make([]ReconcileConfig, 0, len(cfg.MemberLinks))
+	for _, member := range cfg.MemberLinks {
+		rc := ReconcileConfig{
+			Key:           cfg.LAGInterface + "/" + member,
+			SessionConfig: microBFDMemberSessionConfig(cfg, member),
+		}
+		if senderFor != nil {
+			rc.SenderLeaseFactory = senderFor(member)
+		}
+		desired = append(desired, rc)
+	}
+	return desired
 }
 
 // -------------------------------------------------------------------------
@@ -459,8 +524,7 @@ func (g *MicroBFDGroup) MemberNames() []string {
 }
 
 // matchesReconcileConfig reports whether cfg describes the effective group
-// state owned by MicroBFDGroup. Timer and detection fields belong to the
-// separately reconciled per-member sessions.
+// state, including the session contract shared by its member sessions.
 func (g *MicroBFDGroup) matchesReconcileConfig(cfg MicroBFDConfig) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -468,6 +532,9 @@ func (g *MicroBFDGroup) matchesReconcileConfig(cfg MicroBFDConfig) bool {
 	if g.lagInterface != cfg.LAGInterface ||
 		g.peerAddr != cfg.PeerAddr ||
 		g.localAddr != cfg.LocalAddr ||
+		g.desiredMinTx != cfg.DesiredMinTxInterval ||
+		g.requiredMinRx != cfg.RequiredMinRxInterval ||
+		g.detectMult != cfg.DetectMultiplier ||
 		g.minActive != cfg.MinActiveLinks ||
 		len(g.members) != len(cfg.MemberLinks) {
 		return false
@@ -511,6 +578,12 @@ type MicroBFDGroupSnapshot struct {
 	// LocalAddr is the local system's IP address.
 	LocalAddr netip.Addr
 
+	// DesiredMinTxInterval, RequiredMinRxInterval and DetectMultiplier are
+	// the session contract shared by the member sessions.
+	DesiredMinTxInterval  time.Duration
+	RequiredMinRxInterval time.Duration
+	DetectMultiplier      uint8
+
 	// AggregateUp indicates the LAG aggregate state.
 	AggregateUp bool
 
@@ -523,7 +596,7 @@ type MicroBFDGroupSnapshot struct {
 	// MinActiveLinks is the threshold for aggregate Up.
 	MinActiveLinks int
 
-	// Members holds per-member link state snapshots.
+	// Members holds per-member link state snapshots ordered by interface name.
 	Members []MemberLinkState
 }
 
@@ -540,15 +613,21 @@ func (g *MicroBFDGroup) Snapshot() MicroBFDGroupSnapshot {
 			LocalDiscr: entry.localDiscr,
 		})
 	}
+	slices.SortFunc(members, func(a, b MemberLinkState) int {
+		return cmp.Compare(a.Interface, b.Interface)
+	})
 
 	return MicroBFDGroupSnapshot{
-		LAGInterface:   g.lagInterface,
-		PeerAddr:       g.peerAddr,
-		LocalAddr:      g.localAddr,
-		AggregateUp:    g.aggregateUp,
-		UpCount:        g.upCount,
-		MemberCount:    len(g.members),
-		MinActiveLinks: g.minActive,
-		Members:        members,
+		LAGInterface:          g.lagInterface,
+		PeerAddr:              g.peerAddr,
+		LocalAddr:             g.localAddr,
+		DesiredMinTxInterval:  g.desiredMinTx,
+		RequiredMinRxInterval: g.requiredMinRx,
+		DetectMultiplier:      g.detectMult,
+		AggregateUp:           g.aggregateUp,
+		UpCount:               g.upCount,
+		MemberCount:           len(g.members),
+		MinActiveLinks:        g.minActive,
+		Members:               members,
 	}
 }

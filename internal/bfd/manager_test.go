@@ -1727,10 +1727,10 @@ func TestManagerReconcileMicroBFDGroups(t *testing.T) {
 	}
 
 	desired := []bfd.MicroBFDReconcileConfig{
-		{Key: "bond1", Config: cfg2},
+		{Key: "bond1", Config: cfg2, SenderLeaseFactory: microLeaseFactories()},
 	}
 
-	created, destroyed, err := mgr.ReconcileMicroBFDGroups(desired)
+	created, destroyed, err := mgr.ReconcileMicroBFDGroups(t.Context(), desired)
 	if err != nil {
 		t.Fatalf("ReconcileMicroBFDGroups: %v", err)
 	}

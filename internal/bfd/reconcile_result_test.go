@@ -276,14 +276,14 @@ func TestManagerDetailedMicroBFDReconcileReportsTypedOutcomesAndLegacyTuple(t *t
 	defer mgr.Close()
 
 	cfg := detailedMicroBFDConfig()
-	created := mgr.ReconcileMicroBFDGroupsDetailed([]MicroBFDReconcileConfig{{
-		Key: cfg.LAGInterface, Config: cfg,
+	created := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), []MicroBFDReconcileConfig{{
+		Key: cfg.LAGInterface, Config: cfg, SenderLeaseFactory: internalMicroLeaseFactory,
 	}})
 	assertReconcileResult(t, created, 1, 0, 0, nil)
 
 	conflicting := cfg
 	conflicting.MinActiveLinks++
-	conflict := mgr.ReconcileMicroBFDGroupsDetailed([]MicroBFDReconcileConfig{{
+	conflict := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), []MicroBFDReconcileConfig{{
 		Key: conflicting.LAGInterface, Config: conflicting,
 	}})
 	assertReconcileResult(t, conflict, 0, 0, 1, []ReconcileErrorCode{ReconcileErrorConflict})
@@ -291,11 +291,11 @@ func TestManagerDetailedMicroBFDReconcileReportsTypedOutcomesAndLegacyTuple(t *t
 		t.Fatalf("detailed Micro-BFD error = %v, want ErrMicroBFDConfigConflict", conflict.Err())
 	}
 
-	released := mgr.ReconcileMicroBFDGroupsDetailed(nil)
+	released := mgr.ReconcileMicroBFDGroupsDetailed(t.Context(), nil)
 	assertReconcileResult(t, released, 0, 1, 0, nil)
 
-	legacyCreated, legacyDestroyed, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
-		Key: cfg.LAGInterface, Config: cfg,
+	legacyCreated, legacyDestroyed, err := mgr.ReconcileMicroBFDGroups(t.Context(), []MicroBFDReconcileConfig{{
+		Key: cfg.LAGInterface, Config: cfg, SenderLeaseFactory: internalMicroLeaseFactory,
 	}})
 	if err != nil {
 		t.Fatalf("legacy Micro-BFD reconciliation: %v", err)

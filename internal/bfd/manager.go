@@ -301,6 +301,10 @@ type Manager struct {
 	// Each group tracks the aggregate state of per-member-link BFD sessions.
 	microGroups map[string]*MicroBFDGroup
 
+	// microMembers maps each member link and address family to its owning
+	// group, so dispatch has one deterministic owner (RFC 7130 Section 2).
+	microMembers map[microMemberKey]*MicroBFDGroup
+
 	// ownershipMu serializes complete source-ownership operations. Public
 	// ownership mutations acquire it before mu so multi-step reconciliation
 	// cannot interleave with another claim or release.
@@ -457,8 +461,10 @@ type ManagerOption func(*Manager)
 
 // MicroBFDActuator reacts to RFC 7130 Micro-BFD member state transitions.
 //
-// Implementations must be quick or internally asynchronous. RunDispatch calls
-// the actuator synchronously to preserve ordering between member transitions.
+// RunDispatch calls the actuator after it releases Manager locks, in the
+// single dispatch goroutine, so member transitions keep their order. Each call
+// receives a context bounded by microBFDActuatorTimeout; implementations must
+// return when it is done. A slow call delays later notifications only.
 type MicroBFDActuator interface {
 	HandleMicroBFDMemberEvent(ctx context.Context, event MicroBFDMemberEvent) error
 }
@@ -523,6 +529,7 @@ func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 		sessionsByKey:  make(map[SessionKey]*sessionEntry),
 		echoSessions:   make(map[uint32]*echoSessionEntry),
 		microGroups:    make(map[string]*MicroBFDGroup),
+		microMembers:   make(map[microMemberKey]*MicroBFDGroup),
 		discriminators: NewDiscriminatorAllocator(),
 		metrics:        noopMetrics{},
 		rawNotifyCh:    make(chan StateChange, notifyChSize),
@@ -627,13 +634,18 @@ func (m *Manager) dispatchStateChange(ctx context.Context, sc StateChange) {
 		m.scheduleUnsolicitedCleanup(ctx, sc)
 		return
 	}
+	var memberEvent MicroBFDMemberEvent
+	var actuate bool
 	if sc.Type == SessionTypeMicroBFD && sc.Interface != "" {
-		m.dispatchMicroBFD(ctx, sc)
+		memberEvent, actuate = m.dispatchMicroBFD(sc)
 	}
 	counts := m.broadcastStateChange(sc)
 	m.mu.RUnlock()
 	m.RecordDelivery(DeliveryNotificationDispatch, DeliveryAccepted)
 	m.reportFanoutDelivery(counts)
+	if actuate {
+		m.handleMicroBFDActuator(ctx, memberEvent)
+	}
 	if sc.NewState == StateDown {
 		m.scheduleUnsolicitedCleanup(ctx, sc)
 	}
@@ -917,6 +929,7 @@ func (m *Manager) detachCloseResources() (
 	m.sessionsByKey = make(map[SessionKey]*sessionEntry)
 	m.echoSessions = make(map[uint32]*echoSessionEntry)
 	m.microGroups = make(map[string]*MicroBFDGroup)
+	m.microMembers = make(map[microMemberKey]*MicroBFDGroup)
 	m.mu.Unlock()
 	m.ownershipMu.Unlock()
 	return retired, retiredEcho

@@ -67,8 +67,8 @@ func TestManagerReconcileMicroBFDGroupsIdenticalSameKeyIsNoOp(t *testing.T) {
 
 	desired := cfg
 	desired.MemberLinks = []string{"eth1", "eth0"}
-	created, destroyed, err := mgr.ReconcileMicroBFDGroups([]bfd.MicroBFDReconcileConfig{{
-		Key: desired.LAGInterface, Config: desired,
+	created, destroyed, err := mgr.ReconcileMicroBFDGroups(t.Context(), []bfd.MicroBFDReconcileConfig{{
+		Key: desired.LAGInterface, Config: desired, SenderLeaseFactory: microLeaseFactories(),
 	}})
 	if err != nil {
 		t.Fatalf("ReconcileMicroBFDGroups: %v", err)
@@ -134,7 +134,7 @@ func TestManagerReconcileMicroBFDGroupsRejectsDivergentSameKey(t *testing.T) {
 			divergent := original
 			divergent.MemberLinks = slices.Clone(original.MemberLinks)
 			tt.mutate(&divergent)
-			created, destroyed, reconcileErr := mgr.ReconcileMicroBFDGroups(
+			created, destroyed, reconcileErr := mgr.ReconcileMicroBFDGroups(t.Context(),
 				[]bfd.MicroBFDReconcileConfig{{Key: divergent.LAGInterface, Config: divergent}},
 			)
 			if reconcileErr == nil {
@@ -220,7 +220,7 @@ func TestManagerReconcileMicroBFDGroupsRejectsInvalidDesiredSetBeforeMutation(t 
 			}
 			before := group.Snapshot()
 
-			created, destroyed, reconcileErr := mgr.ReconcileMicroBFDGroups(tt.desired(original))
+			created, destroyed, reconcileErr := mgr.ReconcileMicroBFDGroups(t.Context(), tt.desired(original))
 			if !errors.Is(reconcileErr, tt.wantErr) {
 				t.Fatalf("ReconcileMicroBFDGroups error = %v, want %v", reconcileErr, tt.wantErr)
 			}

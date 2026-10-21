@@ -169,6 +169,7 @@ func seedDuplicateMicroBFDTestState(
 	microGroup := bfd.MicroBFDConfig{
 		LAGInterface: "bond-old", MemberLinks: []string{"old-member"},
 		PeerAddr: netip.MustParseAddr("192.0.2.221"), LocalAddr: netip.MustParseAddr("127.0.0.1"),
+		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
 		MinActiveLinks: 1,
 	}
 	if _, err := mgr.CreateMicroBFDGroup(microGroup); err != nil {
@@ -238,7 +239,7 @@ func duplicateMicroBFDConfig() *config.Config {
 }
 
 func TestCompileMicroBFDCandidatesRejectsDuplicateLAGInterface(t *testing.T) {
-	_, _, err := compileMicroBFDCandidates(duplicateMicroBFDConfig())
+	_, err := compileMicroBFDCandidates(duplicateMicroBFDConfig())
 	if err == nil {
 		t.Fatal("compileMicroBFDCandidates duplicate LAG interface succeeded")
 	}
@@ -449,8 +450,8 @@ func TestReconcileAdaptersDoNotLogCompletionAfterDetailedFailure(t *testing.T) {
 		},
 		{
 			name:           "Micro-BFD member",
-			failureText:    "micro-BFD session reconciliation had errors",
-			completionText: "micro-BFD session reconciliation complete",
+			failureText:    "micro-BFD reconciliation had errors",
+			completionText: "micro-BFD reconciliation complete",
 			reconcile: func(logger *slog.Logger) {
 				mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 				t.Cleanup(mgr.Close)
@@ -593,26 +594,30 @@ func TestReconcileMicroBFDGroupConflictDoesNotLogCompletion(t *testing.T) {
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 
+	cfg := config.DefaultConfig()
 	original := bfd.MicroBFDConfig{
 		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
 		PeerAddr: netip.MustParseAddr("192.0.2.1"), LocalAddr: netip.MustParseAddr("192.0.2.2"),
-		MinActiveLinks: 1,
+		DesiredMinTxInterval:  cfg.BFD.DefaultDesiredMinTx,
+		RequiredMinRxInterval: cfg.BFD.DefaultRequiredMinRx,
+		DetectMultiplier:      uint8(cfg.BFD.DefaultDetectMultiplier),
+		MinActiveLinks:        1,
 	}
 	if _, err := mgr.CreateMicroBFDGroup(original); err != nil {
 		t.Fatalf("CreateMicroBFDGroup: %v", err)
 	}
-	divergent := original
-	divergent.PeerAddr = netip.MustParseAddr("192.0.2.9")
+	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
+		PeerAddr: "192.0.2.9", LocalAddr: "192.0.2.2", MinActiveLinks: 1,
+	}}
 
-	reconcileMicroBFDGroupState([]bfd.MicroBFDReconcileConfig{{
-		Key: divergent.LAGInterface, Config: divergent,
-	}}, mgr, logger)
+	reconcileMicroBFDGroups(context.Background(), cfg, mgr, newNthFailureDeclarativeSenderFactory(0), logger)
 
 	got := logs.String()
-	if !strings.Contains(got, "micro-BFD group reconciliation had errors") {
+	if !strings.Contains(got, "micro-BFD reconciliation had errors") {
 		t.Errorf("adapter log = %q, want reconciliation error", got)
 	}
-	if strings.Contains(got, "micro-BFD group reconciliation complete") {
+	if strings.Contains(got, "micro-BFD reconciliation complete") {
 		t.Errorf("adapter log = %q, must not claim completion after conflict", got)
 	}
 }

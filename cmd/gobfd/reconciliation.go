@@ -27,7 +27,6 @@ var (
 	errNilControlSessionCandidate      = errors.New("nil control-session candidate")
 	errUnknownReconciliationSource     = errors.New("unknown reconciliation source")
 	errInvalidInterfacePreflightResult = errors.New("invalid interface availability preflight result")
-	errMicroBFDMemberDependency        = errors.New("micro-BFD member source depends on incomplete group source")
 )
 
 type reconciliationSource uint8
@@ -35,8 +34,7 @@ type reconciliationSource uint8
 const (
 	sourceBase reconciliationSource = iota
 	sourceEcho
-	sourceMicroGroup
-	sourceMicroMember
+	sourceMicro
 	sourceVXLAN
 	sourceGeneve
 )
@@ -67,8 +65,7 @@ func reconciliationSources() [sourceCount]reconciliationSource {
 	return [sourceCount]reconciliationSource{
 		sourceBase,
 		sourceEcho,
-		sourceMicroGroup,
-		sourceMicroMember,
+		sourceMicro,
 		sourceVXLAN,
 		sourceGeneve,
 	}
@@ -80,10 +77,8 @@ func (s reconciliationSource) String() string {
 		return "base"
 	case sourceEcho:
 		return "echo"
-	case sourceMicroGroup:
-		return "micro_group"
-	case sourceMicroMember:
-		return "micro_member"
+	case sourceMicro:
+		return "micro"
 	case sourceVXLAN:
 		return "vxlan"
 	case sourceGeneve:
@@ -271,23 +266,10 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	}
 
 	receipt := generationReceipt{Generation: generation}
-	var sourceResults [sourceCount]sourceApplyResult
 	c.timerUpdates = nil
 	transientErrors := make([]error, 0, sourceCount)
 	for i, source := range reconciliationSources() {
-		var result sourceApplyResult
-		if source == sourceMicroMember {
-			var blocked bool
-			result, blocked = microMemberDependencyResult(
-				sourceResults[sourceMicroGroup], len(workingCandidate.microMembers),
-			)
-			if !blocked {
-				result = applySource(ctx, source, workingCandidate)
-			}
-		} else {
-			result = applySource(ctx, source, workingCandidate)
-		}
-		sourceResults[i] = result
+		result := applySource(ctx, source, workingCandidate)
 		if source == sourceBase {
 			c.timerUpdates = slices.Clone(result.TimerUpdates)
 		}
@@ -328,36 +310,18 @@ func (c *reconciliationCoordinator) retryPendingSourcesLocked(
 		snapshot.LastReceipt.Generation != expectedGeneration {
 		return snapshot
 	}
-	selected = withMicroMemberRetryDependency(selected, snapshot.LastReceipt)
-
 	receipt := snapshot.LastReceipt
 	workingCandidate := cloneCompiledControlSessionCandidate(c.retainedCandidate)
-	var retryResults [sourceCount]sourceApplyResult
-	var sourceRetried [sourceCount]bool
 	transientErrors := make([]error, 0, sourceCount)
 	for i, source := range reconciliationSources() {
 		prior := receipt.Sources[i]
 		if !selected.contains(source) || prior.Pending <= 0 || prior.Failed != 0 {
 			continue
 		}
-		var result sourceApplyResult
-		if source == sourceMicroMember {
-			var retry bool
-			result, retry = retryMicroMemberSource(
-				ctx, workingCandidate, receipt.Sources[sourceMicroGroup],
-				sourceRetried[sourceMicroGroup], retryResults[sourceMicroGroup], applySource,
-			)
-			if !retry {
-				continue
-			}
-		} else {
-			result = applySource(ctx, source, workingCandidate)
-		}
-		retryResults[i] = result
+		result := applySource(ctx, source, workingCandidate)
 		if source == sourceBase {
 			c.timerUpdates = slices.Clone(result.TimerUpdates)
 		}
-		sourceRetried[i] = true
 		receipt.Sources[i] = mergedSourceReceipt(source, prior, result)
 		if result.Err != nil {
 			transientErrors = append(transientErrors, result.Err)
@@ -428,40 +392,6 @@ func (c *reconciliationCoordinator) reconcileUnavailableInterfaceLocked(
 	return c.publishReceipt(receipt, errors.Join(transientErrors...))
 }
 
-func withMicroMemberRetryDependency(
-	selected reconciliationSourceMask,
-	receipt generationReceipt,
-) reconciliationSourceMask {
-	group := receipt.Sources[sourceMicroGroup]
-	member := receipt.Sources[sourceMicroMember]
-	if !selected.contains(sourceMicroGroup) || group.Pending <= 0 || group.Failed != 0 ||
-		member.Pending <= 0 || member.Failed != 0 {
-		return selected
-	}
-	return selected | sourceMask(sourceMicroMember)
-}
-
-func retryMicroMemberSource(
-	ctx context.Context,
-	candidate compiledControlSessionCandidate,
-	groupReceipt sourceReceipt,
-	groupRetried bool,
-	groupResult sourceApplyResult,
-	applySource sourceApplyFunc,
-) (sourceApplyResult, bool) {
-	if groupReceipt.Failed > 0 {
-		if !groupRetried {
-			return sourceApplyResult{}, false
-		}
-		result, _ := microMemberDependencyResult(groupResult, len(candidate.microMembers))
-		return result, true
-	}
-	if groupReceipt.Pending > 0 {
-		return sourceApplyResult{}, false
-	}
-	return applySource(ctx, sourceMicroMember, candidate), true
-}
-
 func mergedSourceReceipt(
 	source reconciliationSource,
 	prior sourceReceipt,
@@ -476,27 +406,6 @@ func mergedSourceReceipt(
 		Pending: result.Pending, Failed: result.Failed, Errors: result.Errors,
 		TimerPending: result.TimerPending,
 	}
-}
-
-func microMemberDependencyResult(
-	groupResult sourceApplyResult,
-	desiredMembers int,
-) (sourceApplyResult, bool) {
-	if groupResult.Failed > 0 {
-		cause := errors.Join(errMicroBFDMemberDependency, groupResult.Err)
-		return failedSourceResult(
-			bfd.ReconcileErrorLifecycle,
-			fmt.Errorf("gate Micro-BFD member reconciliation: %w", cause),
-		), true
-	}
-	if groupResult.Pending > 0 {
-		pendingMembers := max(1, desiredMembers)
-		return resourceErrorSourceResult(
-			pendingMembers,
-			fmt.Errorf("wait for Micro-BFD group reconciliation: %w", groupResult.Err),
-		), true
-	}
-	return sourceApplyResult{}, false
 }
 
 func (c *reconciliationCoordinator) publishReceipt(
@@ -542,7 +451,6 @@ func cloneCompiledControlSessionCandidate(
 			candidate.microGroups[i].Config.MemberLinks,
 		)
 	}
-	cloned.microMembers = slices.Clone(candidate.microMembers)
 	for i := range cloned.overlays {
 		cloned.overlays[i].desired = slices.Clone(candidate.overlays[i].desired)
 	}
@@ -607,12 +515,11 @@ func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 }
 
 type compiledControlSessionCandidate struct {
-	base         []baseSessionCandidate
-	echo         []echoSessionCandidate
-	microGroups  []bfd.MicroBFDReconcileConfig
-	microMembers []microBFDMemberCandidate
-	overlays     [2]compiledOverlayCandidate
-	logLevel     slog.Level
+	base        []baseSessionCandidate
+	echo        []echoSessionCandidate
+	microGroups []bfd.MicroBFDReconcileConfig
+	overlays    [2]compiledOverlayCandidate
+	logLevel    slog.Level
 }
 
 type compiledOverlayCandidate struct {
@@ -637,7 +544,7 @@ func compileControlSessionCandidate(
 	if err != nil {
 		return compiledControlSessionCandidate{}, err
 	}
-	microGroups, microMembers, err := compileMicroBFDCandidates(cfg)
+	microGroups, err := compileMicroBFDCandidates(cfg)
 	if err != nil {
 		return compiledControlSessionCandidate{}, err
 	}
@@ -655,7 +562,7 @@ func compileControlSessionCandidate(
 	}
 
 	return compiledControlSessionCandidate{
-		base: base, echo: echo, microGroups: microGroups, microMembers: microMembers,
+		base: base, echo: echo, microGroups: microGroups,
 		overlays: overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
 	}, nil
 }
@@ -695,11 +602,9 @@ func applyCompiledSourceWithInterfaceChecker(
 		return sourceResultFromBFD(applyEchoSessionCandidates(
 			ctx, candidate.echo, mgr, sf, logger,
 		))
-	case sourceMicroGroup:
-		return sourceResultFromBFD(applyMicroBFDGroupCandidates(candidate.microGroups, mgr))
-	case sourceMicroMember:
-		return sourceResultFromBFD(applyMicroBFDMemberCandidates(
-			ctx, candidate.microMembers, mgr, sf, logger,
+	case sourceMicro:
+		return sourceResultFromBFD(applyMicroBFDCandidates(
+			ctx, candidate.microGroups, mgr, sf, logger,
 		))
 	case sourceVXLAN:
 		return applyCompiledOverlay(ctx, mgr, source, candidate.overlays[0])
@@ -753,14 +658,8 @@ func compiledSourceInterfaceDependencies(
 		return collectInterfaceDependencies(len(candidate.echo), func(i int) string {
 			return candidate.echo[i].config.Interface
 		})
-	case sourceMicroGroup:
-		return collectInterfaceDependencies(len(candidate.microGroups), func(i int) string {
-			return candidate.microGroups[i].Config.LAGInterface
-		})
-	case sourceMicroMember:
-		return collectInterfaceDependencies(len(candidate.microMembers), func(i int) string {
-			return candidate.microMembers[i].member
-		})
+	case sourceMicro:
+		return microInterfaceDependencies(candidate.microGroups)
 	case sourceVXLAN, sourceGeneve:
 		return nil
 	default:
@@ -794,6 +693,20 @@ func unboundInterfaceSources(candidate compiledControlSessionCandidate) reconcil
 		}
 	}
 	return 0
+}
+
+// microInterfaceDependencies lists every LAG and member link of the groups:
+// a group and its member sessions apply as one unit.
+func microInterfaceDependencies(groups []bfd.MicroBFDReconcileConfig) []string {
+	var dependencies []string
+	for _, group := range groups {
+		for _, ifName := range append([]string{group.Config.LAGInterface}, group.Config.MemberLinks...) {
+			if ifName != "" {
+				dependencies = append(dependencies, ifName)
+			}
+		}
+	}
+	return dependencies
 }
 
 func collectInterfaceDependencies(count int, interfaceAt func(int) string) []string {

@@ -79,16 +79,13 @@ func createMicroBFDListeners(
 	return listeners, nil
 }
 
-// reconcileMicroBFDGroups creates and destroys micro-BFD groups and their
-// per-member BFD sessions based on the current configuration.
+// reconcileMicroBFDGroups reconciles micro-BFD groups and their per-member
+// BFD sessions with the current configuration as one Manager transaction.
 //
-// For each group in the config:
-//  1. Create the MicroBFDGroup in the Manager (aggregate state tracker)
-//  2. For each member link: create a BFD session with SessionTypeMicroBFD,
-//     bound to the member interface via SO_BINDTODEVICE, on port 6784
-//
-// On SIGHUP reload, groups not in the new config are destroyed along
-// with their member sessions.
+// Each group commits together with one SessionTypeMicroBFD session per
+// member link, bound to the member via SO_BINDTODEVICE on port 6784
+// (RFC 7130 Section 2.1). A failed member session rolls the pass back;
+// groups absent from the configuration are destroyed with their members.
 func reconcileMicroBFDGroups(
 	ctx context.Context,
 	cfg *config.Config,
@@ -96,26 +93,15 @@ func reconcileMicroBFDGroups(
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) {
-	groups, members, err := compileMicroBFDCandidates(cfg)
+	groups, err := compileMicroBFDCandidates(cfg)
 	if err != nil {
 		logger.Error("invalid Micro-BFD candidate, keeping current groups and sessions",
 			slog.String("error", err.Error()))
 		return
 	}
-	reconcileMicroBFDGroupState(groups, mgr, logger)
-	reconcileMicroBFDMemberSessions(ctx, mgr, sf, members, logger)
-}
-
-// reconcileMicroBFDGroupState performs Step 1 of micro-BFD reconciliation:
-// create/destroy MicroBFDGroup objects in the Manager based on config.
-func reconcileMicroBFDGroupState(
-	desired []bfd.MicroBFDReconcileConfig,
-	mgr *bfd.Manager,
-	logger *slog.Logger,
-) {
-	result := applyMicroBFDGroupCandidates(desired, mgr)
+	result := applyMicroBFDCandidates(ctx, groups, mgr, sf, logger)
 	if err := result.Err(); err != nil {
-		logger.Error("micro-BFD group reconciliation had errors",
+		logger.Error("micro-BFD reconciliation had errors",
 			slog.String("error", err.Error()),
 			slog.Int("created", result.Created),
 			slog.Int("released", result.Released),
@@ -125,89 +111,67 @@ func reconcileMicroBFDGroupState(
 		)
 		return
 	}
-
-	logger.Info("micro-BFD group reconciliation complete",
+	logger.Info("micro-BFD reconciliation complete",
 		slog.Int("groups_created", result.Created),
 		slog.Int("groups_released", result.Released),
 	)
 }
 
-func applyMicroBFDGroupCandidates(
-	desired []bfd.MicroBFDReconcileConfig,
-	mgr *bfd.Manager,
-) bfd.ReconcileResult {
-	return mgr.ReconcileMicroBFDGroupsDetailed(desired)
-}
-
-// reconcileMicroBFDMemberSessions performs Step 2 of micro-BFD reconciliation:
-// create/destroy per-member-link BFD sessions with SO_BINDTODEVICE on port 6784.
-func reconcileMicroBFDMemberSessions(
+// applyMicroBFDCandidates attaches member senders to the compiled groups and
+// applies them in one Manager transaction.
+func applyMicroBFDCandidates(
 	ctx context.Context,
-	mgr *bfd.Manager,
-	sf declarativeSenderFactory,
-	candidates []microBFDMemberCandidate,
-	logger *slog.Logger,
-) {
-	result := applyMicroBFDMemberCandidates(ctx, candidates, mgr, sf, logger)
-	if err := result.Err(); err != nil {
-		logger.Error("micro-BFD session reconciliation had errors",
-			slog.String("error", err.Error()),
-			slog.Int("created", result.Created),
-			slog.Int("released", result.Released),
-			slog.Int("pending", result.Pending),
-			slog.Int("failed", result.Failed),
-			slog.Any("error_codes", reconcileErrorCodes(result)),
-		)
-		return
-	}
-	logger.Info("micro-BFD session reconciliation complete",
-		slog.Int("sessions_created", result.Created),
-		slog.Int("sessions_released", result.Released),
-	)
-}
-
-func applyMicroBFDMemberCandidates(
-	ctx context.Context,
-	candidates []microBFDMemberCandidate,
+	groups []bfd.MicroBFDReconcileConfig,
 	mgr *bfd.Manager,
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) bfd.ReconcileResult {
-	desiredSessions := make([]bfd.ReconcileConfig, 0, len(candidates))
-	for _, candidate := range candidates {
-		rc := candidate.reconcile
-		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
-			sf,
-			candidate.config.LocalAddr,
-			false,
-			logger,
-			netio.WithDstPort(netio.PortMicroBFD),
-			netio.WithBindDevice(candidate.member),
-		)
-		desiredSessions = append(desiredSessions, rc)
+	desired := slices.Clone(groups)
+	for i := range desired {
+		localAddr := desired[i].Config.LocalAddr
+		desired[i].SenderLeaseFactory = func(member string) bfd.SenderLeaseFactory {
+			return declarativeSenderLeaseFactoryFor(
+				sf, localAddr, false, logger,
+				netio.WithDstPort(netio.PortMicroBFD),
+				netio.WithBindDevice(member),
+			)
+		}
 	}
-
-	return mgr.ReconcileSessionsForOwnerDetailed(
-		ctx,
-		bfd.MicroBFDReconciliationOwner(),
-		desiredSessions,
-	)
+	return mgr.ReconcileMicroBFDGroupsDetailed(ctx, desired)
 }
 
-type microBFDMemberCandidate struct {
-	lagInterface string
-	member       string
-	config       bfd.SessionConfig
-	reconcile    bfd.ReconcileConfig
-}
-
-func compileMicroBFDCandidates(
-	cfg *config.Config,
-) ([]bfd.MicroBFDReconcileConfig, []microBFDMemberCandidate, error) {
+// compileMicroBFDCandidates converts every configured group, applies the
+// bfd.default_* member timers and validates the complete desired set.
+func compileMicroBFDCandidates(cfg *config.Config) ([]bfd.MicroBFDReconcileConfig, error) {
 	if err := validateUniqueMicroBFDGroupKeys(cfg.MicroBFD.Groups); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return compileUniqueMicroBFDCandidates(cfg)
+	groups := make([]bfd.MicroBFDReconcileConfig, 0, len(cfg.MicroBFD.Groups))
+	for _, group := range cfg.MicroBFD.Groups {
+		microCfg, err := configMicroBFDToBFD(microBFDGroupWithDefaults(group, cfg.BFD))
+		if err != nil {
+			return nil, fmt.Errorf("Micro-BFD group %q: %w", group.LAGInterface, err)
+		}
+		groups = append(groups, bfd.MicroBFDReconcileConfig{Key: group.LAGInterface, Config: microCfg})
+	}
+	if err := bfd.ValidateMicroBFDReconcileConfigs(groups); err != nil {
+		return nil, fmt.Errorf("validate complete Micro-BFD candidate: %w", err)
+	}
+	return groups, nil
+}
+
+// microBFDGroupWithDefaults fills unset member session timers from bfd.default_*.
+func microBFDGroupWithDefaults(group config.MicroBFDGroupConfig, defaults config.BFDConfig) config.MicroBFDGroupConfig {
+	if group.DetectMult == 0 {
+		group.DetectMult = defaults.DefaultDetectMultiplier
+	}
+	if group.DesiredMinTx == 0 {
+		group.DesiredMinTx = defaults.DefaultDesiredMinTx
+	}
+	if group.RequiredMinRx == 0 {
+		group.RequiredMinRx = defaults.DefaultRequiredMinRx
+	}
+	return group
 }
 
 func validateUniqueMicroBFDGroupKeys(groups []config.MicroBFDGroupConfig) error {
@@ -220,68 +184,6 @@ func validateUniqueMicroBFDGroupKeys(groups []config.MicroBFDGroupConfig) error 
 		seen[group.LAGInterface] = struct{}{}
 	}
 	return nil
-}
-
-func compileUniqueMicroBFDCandidates(
-	cfg *config.Config,
-) ([]bfd.MicroBFDReconcileConfig, []microBFDMemberCandidate, error) {
-	groups := make([]bfd.MicroBFDReconcileConfig, 0, len(cfg.MicroBFD.Groups))
-	members := make([]microBFDMemberCandidate, 0, len(cfg.MicroBFD.Groups)*2)
-	desiredSessions := make([]bfd.ReconcileConfig, 0, len(cfg.MicroBFD.Groups)*2)
-	for _, group := range cfg.MicroBFD.Groups {
-		microCfg, err := configMicroBFDToBFD(group)
-		if err != nil {
-			return nil, nil, fmt.Errorf("Micro-BFD group %q: %w", group.LAGInterface, err)
-		}
-		if err := bfd.ValidateMicroBFDConfig(microCfg); err != nil {
-			return nil, nil, fmt.Errorf("validate Micro-BFD group %q: %w", group.LAGInterface, err)
-		}
-		groups = append(groups, bfd.MicroBFDReconcileConfig{Key: group.LAGInterface, Config: microCfg})
-
-		detectMult := group.DetectMult
-		if detectMult == 0 {
-			detectMult = cfg.BFD.DefaultDetectMultiplier
-		}
-		if detectMult > maxBFDWireUint8 {
-			return nil, nil, fmt.Errorf("Micro-BFD group %q detect_mult %d: %w",
-				group.LAGInterface, detectMult, errDetectMultOverflow)
-		}
-		desiredMinTx := group.DesiredMinTx
-		if desiredMinTx == 0 {
-			desiredMinTx = cfg.BFD.DefaultDesiredMinTx
-		}
-		requiredMinRx := group.RequiredMinRx
-		if requiredMinRx == 0 {
-			requiredMinRx = cfg.BFD.DefaultRequiredMinRx
-		}
-		for _, member := range group.MemberLinks {
-			sessCfg := bfd.SessionConfig{
-				PeerAddr:              microCfg.PeerAddr,
-				LocalAddr:             microCfg.LocalAddr,
-				Interface:             member,
-				Type:                  bfd.SessionTypeMicroBFD,
-				Role:                  bfd.RoleActive,
-				DesiredMinTxInterval:  desiredMinTx,
-				RequiredMinRxInterval: requiredMinRx,
-				DetectMultiplier:      uint8(detectMult),
-			}
-			rc := bfd.ReconcileConfig{
-				Key:           microCfg.PeerAddr.String() + "|" + microCfg.LocalAddr.String() + "|" + member,
-				SessionConfig: sessCfg,
-			}
-			members = append(members, microBFDMemberCandidate{
-				lagInterface: group.LAGInterface,
-				member:       member,
-				config:       sessCfg,
-				reconcile:    rc,
-			})
-			desiredSessions = append(desiredSessions, rc)
-		}
-	}
-	if err := bfd.ValidateReconcileConfigs(desiredSessions); err != nil {
-		return nil, nil, fmt.Errorf("validate complete Micro-BFD member set: %w", err)
-	}
-	return groups, members, nil
 }
 
 // configMicroBFDToBFD converts a config.MicroBFDGroupConfig to a bfd.MicroBFDConfig.

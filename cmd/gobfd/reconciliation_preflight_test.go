@@ -24,12 +24,8 @@ func TestCompiledSourceInterfaceDependencies(t *testing.T) {
 			{config: bfd.EchoSessionConfig{}},
 		},
 		microGroups: []bfd.MicroBFDReconcileConfig{
-			{Config: bfd.MicroBFDConfig{LAGInterface: "bond0"}},
+			{Config: bfd.MicroBFDConfig{LAGInterface: "bond0", MemberLinks: []string{"member0", ""}}},
 			{Config: bfd.MicroBFDConfig{}},
-		},
-		microMembers: []microBFDMemberCandidate{
-			{member: "member0"},
-			{},
 		},
 		overlays: [2]compiledOverlayCandidate{
 			{desired: []bfd.ReconcileConfig{{Key: "vxlan"}}},
@@ -43,8 +39,7 @@ func TestCompiledSourceInterfaceDependencies(t *testing.T) {
 	}{
 		{source: sourceBase, want: []string{"base0"}},
 		{source: sourceEcho, want: []string{"echo0"}},
-		{source: sourceMicroGroup, want: []string{"bond0"}},
-		{source: sourceMicroMember, want: []string{"member0"}},
+		{source: sourceMicro, want: []string{"bond0", "member0"}},
 		{source: sourceVXLAN},
 		{source: sourceGeneve},
 	}

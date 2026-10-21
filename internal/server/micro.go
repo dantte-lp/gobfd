@@ -76,26 +76,16 @@ func (s *MicroBFDServer) AddMicroBFDGroup(
 		slog.Int("min_active", cfg.MinActiveLinks),
 	)
 
-	if _, err := s.manager.CreateMicroBFDGroup(cfg); err != nil {
+	created, err := s.manager.CreateMicroBFDGroup(cfg)
+	if err != nil {
 		return nil, mapManagerError(err, "add micro-bfd group")
 	}
 
-	for _, snap := range s.manager.MicroBFDGroups() {
-		if snap.LAGInterface == cfg.LAGInterface {
-			group, err := microGroupSnapshotToProto(snap, cfg)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
-			}
-			return &bfdv1.AddMicroBFDGroupResponse{
-				Group: group,
-			}, nil
-		}
+	group, err := microGroupSnapshotToProto(created.Snapshot())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-
-	return nil, connect.NewError(connect.CodeInternal,
-		fmt.Errorf("micro-bfd group %q created but not visible: %w",
-			cfg.LAGInterface, bfd.ErrMicroBFDGroupNotFound).Error(),
-	)
+	return &bfdv1.AddMicroBFDGroupResponse{Group: group}, nil
 }
 
 // DeleteMicroBFDGroup removes a micro-BFD group by LAG interface name.
@@ -129,7 +119,7 @@ func (s *MicroBFDServer) ListMicroBFDGroups(
 		Groups: make([]*bfdv1.MicroBFDGroup, 0, len(snaps)),
 	}
 	for _, snap := range snaps {
-		group, err := microGroupSnapshotToProto(snap, bfd.MicroBFDConfig{})
+		group, err := microGroupSnapshotToProto(snap)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
@@ -195,15 +185,19 @@ func microBFDConfigFromProto(req *bfdv1.AddMicroBFDGroupRequest) (bfd.MicroBFDCo
 	}, nil
 }
 
-func microGroupSnapshotToProto(
-	snap bfd.MicroBFDGroupSnapshot,
-	cfg bfd.MicroBFDConfig,
-) (*bfdv1.MicroBFDGroup, error) {
+func microGroupSnapshotToProto(snap bfd.MicroBFDGroupSnapshot) (*bfdv1.MicroBFDGroup, error) {
 	out := &bfdv1.MicroBFDGroup{
-		LagInterface: snap.LAGInterface,
-		PeerAddress:  snap.PeerAddr.String(),
-		LocalAddress: snap.LocalAddr.String(),
-		AggregateUp:  snap.AggregateUp,
+		LagInterface:          snap.LAGInterface,
+		PeerAddress:           snap.PeerAddr.String(),
+		LocalAddress:          snap.LocalAddr.String(),
+		AggregateUp:           snap.AggregateUp,
+		DesiredMinTxInterval:  durationpb.New(snap.DesiredMinTxInterval),
+		RequiredMinRxInterval: durationpb.New(snap.RequiredMinRxInterval),
+		DetectMultiplier:      uint32(snap.DetectMultiplier),
+		MemberLinks:           make([]string, 0, len(snap.Members)),
+	}
+	for _, member := range snap.Members {
+		out.MemberLinks = append(out.MemberLinks, member.Interface)
 	}
 	if snap.UpCount >= 0 {
 		upCount, err := microSnapshotCountToUint32("up_member_count", snap.UpCount)
@@ -218,17 +212,6 @@ func microGroupSnapshotToProto(
 			return nil, err
 		}
 		out.MinActiveLinks = minActiveLinks
-	}
-	if cfg.LAGInterface != "" {
-		out.MemberLinks = cfg.MemberLinks
-		out.DesiredMinTxInterval = durationpb.New(cfg.DesiredMinTxInterval)
-		out.RequiredMinRxInterval = durationpb.New(cfg.RequiredMinRxInterval)
-		out.DetectMultiplier = uint32(cfg.DetectMultiplier)
-	} else {
-		out.MemberLinks = make([]string, 0, len(snap.Members))
-		for _, m := range snap.Members {
-			out.MemberLinks = append(out.MemberLinks, m.Interface)
-		}
 	}
 	return out, nil
 }

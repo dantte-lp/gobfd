@@ -94,8 +94,8 @@ func TestManagerClosingRejectsMicroBFDGroupMutations(t *testing.T) {
 	if err := mgr.DestroyMicroBFDGroup(cfg.LAGInterface); !errors.Is(err, ErrManagerClosing) {
 		t.Errorf("DestroyMicroBFDGroup error = %v, want ErrManagerClosing", err)
 	}
-	created, destroyed, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
-		Key: cfg.LAGInterface, Config: cfg,
+	created, destroyed, err := mgr.ReconcileMicroBFDGroups(t.Context(), []MicroBFDReconcileConfig{{
+		Key: cfg.LAGInterface, Config: cfg, SenderLeaseFactory: internalMicroLeaseFactory,
 	}})
 	if !errors.Is(err, ErrManagerClosing) || created != 0 || destroyed != 0 {
 		t.Errorf("ReconcileMicroBFDGroups = (%d, %d, %v), want (0, 0, ErrManagerClosing)",
@@ -117,8 +117,8 @@ func TestManagerReconcileMicroBFDGroupsIsOneLifecycleOperation(t *testing.T) {
 		cfg := lifecycleMicroConfig("bond-linearized")
 		reconcileDone := make(chan error, 1)
 		go func() {
-			_, _, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
-				Key: cfg.LAGInterface, Config: cfg,
+			_, _, err := mgr.ReconcileMicroBFDGroups(t.Context(), []MicroBFDReconcileConfig{{
+				Key: cfg.LAGInterface, Config: cfg, SenderLeaseFactory: internalMicroLeaseFactory,
 			}})
 			reconcileDone <- err
 		}()
@@ -180,8 +180,8 @@ func TestManagerMicroBFDGroupMutationsHoldOwnershipLock(t *testing.T) {
 
 		done := make(chan error, 1)
 		go func() {
-			_, _, err := mgr.ReconcileMicroBFDGroups([]MicroBFDReconcileConfig{{
-				Key: cfg.LAGInterface, Config: cfg,
+			_, _, err := mgr.ReconcileMicroBFDGroups(t.Context(), []MicroBFDReconcileConfig{{
+				Key: cfg.LAGInterface, Config: cfg, SenderLeaseFactory: internalMicroLeaseFactory,
 			}})
 			done <- err
 		}()
