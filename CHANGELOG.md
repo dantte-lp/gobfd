@@ -199,7 +199,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `local`; the demultiplexed single-hop session also requires TTL 255. A YAML
   session whose `local` address is on no interface or on several interfaces is
   pending and retried on interface events, resync or SIGHUP while neighbouring
-  sessions are created; the API returns `FailedPrecondition`. A `local` address
+  sessions are created; readiness stays `NOT_SERVING` while pending, and an
+  address on several interfaces stays pending until `interface` is configured
+  and applied with SIGHUP. The API returns `FailedPrecondition`; a zone-only
+  API session binds its sender to the zone interface. A `local` address
   on `lo` or a dummy interface binds the session to that interface; set
   `interface` when packets arrive on a physical interface. Without `interface`,
   a link-local zone selects the session interface, listener device and sender

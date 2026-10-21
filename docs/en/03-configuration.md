@@ -659,7 +659,11 @@ A YAML session whose `local` address no interface or several interfaces own is
 pending, not failed: neighbouring sessions are created, the reconciliation
 receipt counts it as pending, and the next interface link event, interface
 inventory resync or SIGHUP retries it. An address added without a link event is
-picked up only on those triggers. The API returns `FailedPrecondition` for the
+picked up only on those triggers. While a session is pending, the reconciliation
+is stale and gRPC health readiness stays `NOT_SERVING`. An address owned by
+several interfaces stays ambiguous on every retry, so the session stays pending
+and readiness stays `NOT_SERVING` until the configuration sets `interface` (or
+the duplicate address is removed) and is applied with SIGHUP. The API returns `FailedPrecondition` for the
 same case. A `local` address assigned to `lo` or a dummy interface resolves to
 that interface; packets that arrive on a physical interface are then refused as
 `demux`/`scope_mismatch`. Set `interface` for such deployments.
