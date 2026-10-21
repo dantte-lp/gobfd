@@ -104,3 +104,47 @@ func TestDaemonManagerResolvesSingleHopInterface(t *testing.T) {
 		t.Fatalf("CreateSession(unowned local) error = %v, want ErrLocalAddrNotOwned", err)
 	}
 }
+
+// Option (b) on the YAML path: config reconciliation reaches the daemon
+// resolver, so an interface-less single-hop session binds to the interface
+// owning its local address and an unowned local address fails creation.
+func TestDaemonReconcileResolvesSingleHopInterface(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, peer, local string
+		wantErr           bool
+	}{
+		{name: "owned ipv4", peer: "127.0.0.2", local: "127.0.0.1"},
+		{name: "unowned ipv4", peer: "192.0.2.2", local: "192.0.2.250", wantErr: true},
+		{name: "unowned ipv6", peer: "2001:db8::2", local: "2001:db8::250", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.DefaultConfig()
+			cfg.Sessions = []config.SessionConfig{{Peer: tc.peer, Local: tc.local}}
+			candidates, err := compileBaseSessionCandidates(cfg)
+			if err != nil {
+				t.Fatalf("compileBaseSessionCandidates: %v", err)
+			}
+			mgr, err := newManager(cfg, bfdmetrics.NewCollector(prometheus.NewRegistry()), nil, slog.New(slog.DiscardHandler))
+			if err != nil {
+				t.Fatalf("newManager: %v", err)
+			}
+			t.Cleanup(mgr.Close)
+			sf := &tupleRecordingSenderFactory{nthFailureDeclarativeSenderFactory: newNthFailureDeclarativeSenderFactory(0)}
+			err = applyBaseSessionCandidates(context.Background(), candidates, mgr, sf, slog.New(slog.DiscardHandler)).Err()
+			if !tc.wantErr {
+				if err != nil || len(mgr.Sessions()) != 1 {
+					t.Fatalf("reconcile = %v, sessions %d; want one session", err, len(mgr.Sessions()))
+				}
+				return
+			}
+			if !errors.Is(err, bfd.ErrInterfaceUnresolved) || !errors.Is(err, netio.ErrLocalAddrNotOwned) {
+				t.Fatalf("reconcile error = %v, want ErrInterfaceUnresolved and ErrLocalAddrNotOwned", err)
+			}
+			if len(sf.localAddrs) != 0 || len(mgr.Sessions()) != 0 {
+				t.Fatalf("senders %v, sessions %d; want none", sf.localAddrs, len(mgr.Sessions()))
+			}
+		})
+	}
+}
