@@ -423,6 +423,15 @@
   закреплёнными checksum не изменены. `toolbootstrap podman-runtime` пишет в
   лог образ runner и версию Podman (`gobfd-22v`).
 
+- Hosted E2E на `ubuntu-26.04` снова читает и останавливает захват пакетов.
+  AppArmor 5.0.2 в Ubuntu 26.04 привязывает профиль `tshark` к
+  `/usr/bin/tshark`, а rootless Podman запускает контейнеры без профиля.
+  Профиль запрещал `tshark -r /captures/bfd.pcapng` (exit status 3) и сигналы
+  остановки контейнера. Образ захвата запускает `tshark` и `dumpcap` из
+  `/usr/local/bin`. Jobs E2E также разрешают профилю `pasta` принимать сигналы
+  Podman, без которых не завершается rootless network teardown
+  (LP: #2154379), и выводят отказы AppArmor после прогона (`gobfd-dah`).
+
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
   Восстановление, принятое после того, как локальный нулевой Required Min RX

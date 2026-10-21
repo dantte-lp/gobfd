@@ -401,7 +401,12 @@ the required JSON tool is unavailable. Its log line records the hosted runner
 image (`ImageOS`, `ImageVersion`) and `podman --version`. The E2E Evidence jobs
 run on `ubuntu-26.04` because the Ubuntu 24.04 `ubuntu-latest` Podman 4.9.3
 builds with Debian imagebuilder 1.2.5, which rejects the interop
-Containerfiles' `ADD --checksum`. The vulnerability audit creates its own
+Containerfiles' `ADD --checksum`. Ubuntu 26.04 AppArmor attaches its `tshark`
+profile to `/usr/bin/tshark`, and rootless Podman runs containers without a
+profile, so the capture image runs `tshark` and `dumpcap` from
+`/usr/local/bin`. Each job allows the `pasta` profile to receive Podman
+signals before Podman starts (LP: #2154379) and prints AppArmor denials at the
+end. The vulnerability audit creates its own
 report directory; the workflow delegates to it directly without a separate
 directory command.
 

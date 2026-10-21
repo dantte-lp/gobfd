@@ -414,6 +414,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checksum-pinned recipes stay unchanged. `toolbootstrap podman-runtime` logs
   the runner image and Podman version (`gobfd-22v`).
 
+- Hosted E2E on `ubuntu-26.04` reads and stops packet captures again. Ubuntu
+  26.04 AppArmor 5.0.2 attaches its `tshark` profile to `/usr/bin/tshark`, and
+  rootless Podman runs containers without a profile. The profile denied
+  `tshark -r /captures/bfd.pcapng` (exit status 3) and the container stop
+  signals. The capture image now runs `tshark` and `dumpcap` from
+  `/usr/local/bin`. The E2E jobs also allow the `pasta` profile to receive
+  Podman signals, which rootless network teardown requires (LP: #2154379), and
+  print AppArmor denials after the run (`gobfd-dah`).
+
 - Apply a config timer update immediately outside Up, including AdminDown,
   with its Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore
   admitted after a local zero Required Min RX drove the session Down previously

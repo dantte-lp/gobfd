@@ -408,7 +408,12 @@ Go-командой и завершается ошибкой, если треб�
 Её строка лога фиксирует образ hosted runner (`ImageOS`, `ImageVersion`) и
 `podman --version`. Jobs E2E Evidence выполняются на `ubuntu-26.04`: Podman
 4.9.3 в Ubuntu 24.04 `ubuntu-latest` собран с Debian imagebuilder 1.2.5,
-который отклоняет `ADD --checksum` в interop Containerfile.
+который отклоняет `ADD --checksum` в interop Containerfile. AppArmor в Ubuntu
+26.04 привязывает профиль `tshark` к `/usr/bin/tshark`, а rootless Podman
+запускает контейнеры без профиля, поэтому образ захвата запускает `tshark` и
+`dumpcap` из `/usr/local/bin`. Каждый job до запуска Podman разрешает профилю
+`pasta` принимать сигналы Podman (LP: #2154379) и в конце выводит отказы
+AppArmor.
 Vulnerability audit сам создаёт каталог отчётов; workflow вызывает его
 напрямую, без отдельной команды создания каталога.
 
