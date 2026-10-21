@@ -381,6 +381,16 @@
   опубликованными неизменяемыми evidence v0.6.4 после исправления и приёмки
   всех трёх P1-находок maintenance-ревью в Beads.
 
+### Безопасность
+
+- First-party Go toolchain обновлён с `go1.27.2` до `go1.27.3` в `go.mod`,
+  `tools/go.mod`, CI- и release-workflow, Containerfile и тестовых harness.
+  Все потребители `golang:1.27.3-trixie` используют один index digest.
+  Устраняет достижимую
+  [GO-2026-6809 / CVE-2026-111943](https://pkg.go.dev/vuln/GO-2026-6809)
+  в `crypto/x509` `Certificate.Verify`. Мейнтейнер принял `go1.27.3`
+  2026-10-21 как security-исключение из правила возраста релиза семь дней.
+
 ### Исправлено
 
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу

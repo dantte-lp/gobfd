@@ -90,8 +90,8 @@ The original handoff and its dated measurements remain in local Git:
   testcontainers builds are tracked in `gobfd-aob`.
 - The live timer qualification `gobfd-qj0.8.2.1.1.1.4.3.1` that used this peer
   is recorded below. `gobfd-qj0.8.4.1` remains a separate P0 stable-v1
-  security gate. Upstream Go `go1.27.3` is newer than the `go1.27.2` pin;
-  `gobfd-bjr` owns that evaluation.
+  security gate. `gobfd-bjr` moves every first-party Go pin to `go1.27.3`
+  as a 2026-10-21 security exception to the age gate (GO-2026-6809).
 
 ## Timer reload and GoBGP advisory — 2026-10-21
 
@@ -147,7 +147,7 @@ The original handoff and its dated measurements remain in local Git:
 
 ## Qualified gate profile
 
-Go and Go-owned tools run only in the exact pinned Go 1.27.2 Debian trixie
+Go and Go-owned tools run only in the exact pinned Go 1.27.3 Debian trixie
 image from the repository contract. Do not use host Go, a compiler container
 with the Podman socket, a cached keeper PID, or another project's cache.
 

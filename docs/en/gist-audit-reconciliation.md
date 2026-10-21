@@ -204,7 +204,7 @@ drafts and artifacts wait until development and final qualification finish.
   the [Timer contract](https://pkg.go.dev/time#Timer.Stop),
   [Go select specification](https://go.dev/ref/spec#Select_statements) and
   [os.Root contract](https://pkg.go.dev/os#Root). The historical audit used
-  Go 1.27.0; the current repository contract requires exactly Go 1.27.2.
+  Go 1.27.0; the current repository contract requires exactly Go 1.27.3.
 
 Local primary texts: [RFC 5880](../rfc/rfc5880.txt),
 [RFC 5881](../rfc/rfc5881.txt), [RFC 5882](../rfc/rfc5882.txt),

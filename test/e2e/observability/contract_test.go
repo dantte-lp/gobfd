@@ -63,7 +63,7 @@ func TestObservabilityCompatibilityGateContract(t *testing.T) {
 	buildContext := prepareGoBFDBuildContext(t, root)
 	containerfile := readContractFile(t, filepath.Join(buildContext, "Containerfile"))
 	for _, required := range []string{
-		"docker.io/library/golang:1.27.2-trixie@sha256:",
+		"docker.io/library/golang:1.27.3-trixie@sha256:",
 		"./cmd/gobfd", "./cmd/gobfdctl", "go build -trimpath",
 	} {
 		if !strings.Contains(containerfile, required) {

@@ -105,7 +105,7 @@ func TestRepositoryInventoryMatchesDeclaredDependencies(t *testing.T) {
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "license", ReviewUnverified, "MIT")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "channel_current", ReviewUnverified, "immutable commit identity does not prove channel currency")
 	assertRepositoryReview(t, inv, "github-action:actions/checkout", "security", ReviewUnverified, "immutable pinning does not prove vulnerability status")
-	assertRepositoryComponent(t, inv, "oci-image:docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e", "1.27.2-trixie", "test/interop/thoro/Containerfile")
+	assertRepositoryComponent(t, inv, "oci-image:docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c", "1.27.3-trixie", "test/interop/thoro/Containerfile")
 	for _, component := range inv.Components {
 		if component.Kind == KindOCIImage && strings.Contains(strings.ToLower(component.Installed), "alpine") {
 			t.Fatalf("forbidden Alpine OCI image remains in inventory: %s", component.Installed)

@@ -60,7 +60,7 @@ make int-k8s                                       # integration: Kubernetes Dae
 - Go 1.27 best practices: use `testing/synctest` and `synctest.Sleep` for virtual-time timer tests, `runtime/trace.FlightRecorder` for debugging, `os.Root` for sandboxed I/O, a deployment-qualified `GOMEMLIMIT` with the default `GOGC` unless measurements justify an override, generic methods only when justified, range-over-func iterators, and `slices`/`maps`/`cmp` stdlib packages
 
 ## Go 1.27 project rules
-The baseline is `go 1.27` with `toolchain go1.27.2`. Keep every first-party
+The baseline is `go 1.27` with `toolchain go1.27.3`. Keep every first-party
 compiler pin in Containerfiles, CI, release workflows, and test harnesses on
 that exact toolchain. Use the official
 [Go 1.27 release notes](https://go.dev/doc/go1.27) as the source of truth.

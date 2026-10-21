@@ -557,8 +557,8 @@ func prepareRFCTestGoContext(t *testing.T, root string) string {
 			t.Fatalf("write %s into bounded RFC build context: %v", name, err)
 		}
 	}
-	const containerfile = "FROM docker.io/library/golang:1.27.2-trixie@sha256:" +
-		"47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS builder\n" +
+	const containerfile = "FROM docker.io/library/golang:1.27.3-trixie@sha256:" +
+		"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder\n" +
 		"WORKDIR /src\n" +
 		"COPY go.mod go.sum ./\n" +
 		"RUN go mod download && go mod verify\n" +
