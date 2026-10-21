@@ -992,7 +992,8 @@ Remote zero RX и remote Demand по-прежнему требуют crafted Go 
 добавляет готовность gRPC, выводимую из компонентов, с fail-stop при потере
 receiver (`gobfd-qj0.8.2.3.1`, закрыта), и транзакционную reconciliation групп
 Micro-BFD с одним LAG на member link (`gobfd-qj0.8.2.2.1`; интеграционный gate
-RFC 7130 остаётся открытым). Hosted E2E выполняется на `ubuntu-26.04`.
+RFC 7130 остаётся открытым). Hosted E2E выполняется на `ubuntu-26.04`; профили
+PR-safe и nightly прошли на `86700ba`.
 
 RFC core продолжается с Poll/Final, обработки remote Demand, оставшейся приёмки
 доставки и fail-closed границ preview.

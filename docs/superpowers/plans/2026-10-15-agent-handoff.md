@@ -159,9 +159,14 @@ The original handoff and its dated measurements remain in local Git:
   (full untagged race, BASE, BGP and RFC testcontainers suites).
 - Hosted E2E runs on `ubuntu-26.04` (`gobfd-22v`, closed). The tshark image
   keeps its binaries outside `/usr/bin` to avoid the host AppArmor profile, and
-  the jobs let pasta receive Podman signals (Ubuntu LP #2154379). PR-safe run
-  39633642656 passed; the nightly interop-rfc compose project label mismatch is
-  open under `gobfd-dah`.
+  the jobs let pasta receive Podman signals (Ubuntu LP #2154379). `make
+  e2e-rfc` runs under Compose project `gobfd-interop-rfc`, and `make e2e-linux`
+  runs in the image ID of the running dev container (`gobfd-dah`, closed).
+  PR-safe run 39633642656 and nightly run 39656156566 (`86700ba`) passed.
+- In progress on 2026-10-21: listener lifecycle ownership and in-place
+  `SO_BINDTODEVICE` rebind (`gobfd-qj0.8.2.2.6.4`), the systemd sandbox
+  contract with DEB/RPM lifecycle tests (`gobfd-qj0.8.2.3.3`, M-19) and a
+  crafted Go peer for remote RX0 and Demand (`gobfd-qj0.8.2.1.1.2.3`).
 
 ## Resume
 
