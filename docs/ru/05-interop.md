@@ -344,7 +344,9 @@ graph LR
 **BGP на trixie локально квалифицирован** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
 Согласованная замена использует общие рецепты FRR, GoBGP и ExaBGP в
 `test/interop/`. GoBGP v4.10.0 собирается из upstream commit
-`da824d99912e02124b53741245ee4186c381adcc` с Go 1.27.3 на trixie. GoBGP v3
+`da824d99912e02124b53741245ee4186c381adcc` на trixie; рецепт закрепляет Go 1.27.3,
+а записанная квалификация выполнена с builder Go 1.27.2 и повторяется в
+`gobfd-bjr`. GoBGP v3
 обслуживает `/apipb.GobgpApi`, v4 — `/api.GoBgpService`; они несовместимы по
 wire, поэтому GoBFD в `dev` требует демон GoBGP v4. Нативный BFD в GoBGP v4
 по умолчанию выключен, и ни одна конфигурация GoBGP в репозитории его не

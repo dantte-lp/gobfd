@@ -483,7 +483,7 @@ maintainer-approved security exception for GO-2026-6809 (`gobfd-bjr`).
 
 | Component | Channel | `dev` | Latest | Eligible | Owner |
 |---|---|---|---|---|---|
-| Go toolchain | go.dev | 1.27.3 | 1.27.3 | current | done |
+| Go toolchain | go.dev | 1.27.3 | 1.27.3 | current | `gobfd-bjr` |
 | GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
 | connect-go | Go module | v2.0.0 | v2.0.1 | 2026-10-21 | `.8.6.10` |
 | grpchealth | Go module | v2.0.0 | v2.0.0 | current | done |
