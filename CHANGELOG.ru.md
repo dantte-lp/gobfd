@@ -383,14 +383,17 @@
 
 ### Исправлено
 
-- После одного Detection Time без пакетов вне AdminDown `bfd.RemoteMinRxInterval`
-  возвращается к 1 микросекунде, `bfd.RemoteDemandMode` — к 0 (RFC 5880
-  Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). Пир, объявивший нулевой Required Min
-  RX и замолчавший, больше не останавливает периодический TX бессрочно.
-  AdminDown не применяет этот SHOULD и сохраняет подавление drain: drain
-  освобождает замолчавшую сессию, и сброс лишь отправил бы незапрошенные пакеты
-  AdminDown. Нулевой remote RX и remote Demand не настраиваются на закреплённых
-  FRR 10.7.1 и BIRD 3.4.0; wire evidence ожидает crafted Go peer.
+- После одного Detection Time без пакетов в любом состоянии
+  `bfd.RemoteMinRxInterval` возвращается к 1 микросекунде, `bfd.RemoteDemandMode`
+  — к 0, начальным значениям RFC 5880 Section 6.8.1 (Section 6.8.18,
+  `gobfd-qj0.8.2.1.1.2`). Если сброс меняет TX-интервал или разрешение
+  передачи, следующий пакет планируется от предыдущей успешной отправки. Пир,
+  объявивший нулевой или большой Required Min RX и замолчавший, больше не
+  удерживает периодический TX; Active-drain в AdminDown после одного Detection
+  Time без пакетов отправляет уведомление Section 6.8.16 и завершается,
+  Passive-сессия молчит. FRR 10.7.1 не может объявить нулевой RX и не имеет
+  Demand; BIRD 3.4.0 не имеет Demand, поддержка нулевого RX не проверена. Wire
+  evidence ведётся в `gobfd-qj0.8.2.1.1.2.3`.
 
 - Некорректные protobuf durations в generic, Echo и Micro-BFD запросах,
   клиентские интервалы, отклонённые ядром, и повторяющиеся Micro-BFD members
