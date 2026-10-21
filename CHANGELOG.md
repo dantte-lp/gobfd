@@ -452,6 +452,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Podman signals, which rootless network teardown requires (LP: #2154379), and
   print AppArmor denials after the run (`gobfd-dah`).
 
+- Map Micro-BFD group errors to client status codes (`gobfd-qj0.8.2.2.1`):
+  `ErrMicroBFDGroupExists` returns `AlreadyExists`, `ErrMicroBFDGroupNotFound`
+  returns `NotFound`, and a divergent group with the same LAG
+  (`MicroBFDConfigConflictError`) returns `FailedPrecondition` instead of
+  `Internal`.
+
 - Give Micro-BFD groups typed owner claims like sessions (`gobfd-qj0.8.2.2.1`).
   Reload removes only the groups it owns and cannot take a member link of a
   surviving API group; an identical API and reload group is shared, and each
@@ -468,9 +474,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commit each Micro-BFD group together with its member sessions (RFC 7130
   Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload applies one Micro-BFD source:
   a failed member session rolls back the new groups and sessions of the pass
-  before any committed group or session is released. A member link listed in
-  two LAG groups rejects the whole candidate, and `AddMicroBFDGroup` returns
-  `FailedPrecondition` for a member link of another group. Dispatch resolves
+  before any committed group or session is released; no group of a failed
+  pass reaches dispatch or the actuator. A member link listed in groups of two
+  LAG interfaces, in either address family, now rejects the whole candidate;
+  such a configuration previously loaded and routed member events to an
+  arbitrary group. `AddMicroBFDGroup` returns `FailedPrecondition` for a member
+  link of another LAG. Dispatch resolves
   the single owner through a `{member link, address family}` index.
 
 - Validate the RFC 5880 contract of every Micro-BFD member session on the

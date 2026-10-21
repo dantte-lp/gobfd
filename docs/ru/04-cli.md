@@ -202,9 +202,18 @@ CLI отклоняет `--min-active` вне диапазона `[1, len(--membe
 обращения к демону.
 
 `AddMicroBFDGroup` возвращает `InvalidArgument` при некорректной структуре
-protobuf TX/RX durations и повторяющихся именах members. Пропущенные интервалы
-получают `1s`. Проверка и применение структурно корректных значений таймеров
-members остаются в `gobfd-qj0.8.2.2.1` (M09).
+protobuf TX/RX durations, повторяющихся или пустых именах members и значениях
+member-сессии вне границ RFC 5880 (нулевые или выходящие за диапазон интервалы,
+нулевой detect multiplier). Пропущенные интервалы получают `1s`. RPC групп
+Micro-BFD возвращают:
+
+| Условие | Код |
+|---|---|
+| Вызывающий уже владеет claim на группу | `AlreadyExists` |
+| Существует группа с тем же `lag_interface` и другой конфигурацией | `FailedPrecondition` |
+| Member link принадлежит группе другого LAG | `FailedPrecondition` |
+| `DeleteMicroBFDGroup` для группы, которой вызывающий не владеет, например группы reload | `FailedPrecondition` |
+| `DeleteMicroBFDGroup` для неизвестного LAG | `NotFound` |
 
 #### Удалить micro-BFD группу
 

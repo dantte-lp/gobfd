@@ -361,9 +361,13 @@ Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
 
 Each group and its member sessions apply as one unit. A failed member session
 rolls back the groups and member sessions created by that reload; committed
-groups and sessions stay in place. A member link belongs to one group: a
-candidate that lists the same member link in two groups is rejected as a whole;
-RFC 7130 Section 2 runs micro-BFD sessions per LAG member link. Unset
+groups and sessions stay in place. A physical member link belongs to one LAG: a
+candidate that lists the same member link in groups of two LAG interfaces is
+rejected as a whole, in either address family; RFC 7130 Section 2 runs
+micro-BFD sessions per LAG member link. A group is keyed by `lag_interface` and
+holds one `peer_addr`, so one LAG carries one address family; the second
+micro-BFD session per member link that RFC 7130 Section 2.1 allows for the
+other address family is not supported. Unset
 `desired_min_tx`, `required_min_rx` and `detect_mult` inherit `bfd.default_*`.
 The group and every member session share these values, and the RFC 5880
 address, interval wire-bound and detect multiplier validation applies to them
