@@ -1,4 +1,5 @@
 // Command bfd-fuzz sends the repository's RFC invalid-vector corpus over UDP.
+// With the "peer" argument it instead runs the crafted RFC 5880 test peer.
 package main
 
 import (
@@ -30,6 +31,9 @@ var (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "peer" {
+		os.Exit(runPeerMain())
+	}
 	os.Exit(realMain())
 }
 
@@ -43,17 +47,25 @@ func realMain() int {
 	return 0
 }
 
-func run(ctx context.Context, getenv func(string) string, output io.Writer) (runErr error) {
+func parseTarget(getenv func(string) string) (netip.Addr, error) {
 	targetText := getenv("GOBFD_IP")
 	if targetText == "" {
 		targetText = defaultTarget
 	}
 	target, parseErr := netip.ParseAddr(targetText)
 	if parseErr != nil {
-		return fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, parseErr)
+		return netip.Addr{}, fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, parseErr)
 	}
 	if !target.Is4() {
-		return fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, errInvalidIPv4Target)
+		return netip.Addr{}, fmt.Errorf("parse IPv4 GOBFD_IP %q: %w", targetText, errInvalidIPv4Target)
+	}
+	return target, nil
+}
+
+func run(ctx context.Context, getenv func(string) string, output io.Writer) (runErr error) {
+	target, err := parseTarget(getenv)
+	if err != nil {
+		return err
 	}
 
 	sender, err := newUDPSender(target)
