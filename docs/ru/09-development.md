@@ -655,7 +655,10 @@ make dependency-inventory-check
 Текущий контекст `dev` явно задан в генераторе: observation epoch
 `2026-10-15T21:30:03Z`, дата пересмотра `2026-10-31`, tracking
 `gobfd-qj0.8.2.8.7`. Текущие решения deferred имеют владельца и дату
-пересмотра; принятие и исключения stable release не наследуются. Reuse разрешён
+пересмотра; принятие и исключения stable release не наследуются. Запись GoBGP v4
+имеет собственное решение stable v1: owner `@dantte-lp`, дата expiry
+(пересмотра) `2026-12-31` и tracking `gobfd-qj0.8.4.1`, как у записи
+`GO-2026-4736` в `scripts/vuln-audit.go`. Reuse разрешён
 только внутри того же observation epoch при точном совпадении installed identity
 и immutable pin. Исходные subject, review, source, query, result, hash и время
 observation сохраняются. Изменяемые repository observations становятся stale.

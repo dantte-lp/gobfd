@@ -92,11 +92,15 @@ fixed it in v4.4.0 (GHSA-4p9m-8gc4-rw2h) and the pinned v4.10.0 contains the
 fix, but the Go vulnerability database records no fixed v4 version. The
 advisory affects `github.com/osrg/gobgp/v4/pkg/server`; GoBFD imports only the
 `api` package, so govulncheck reports the finding at module level. The
-maintainer decision for stable v1 permits this module-only entry while the
-symbol-level scan stays clean; the entry is removed when the database records a
-fixed version. Keep the GoBGP API on localhost or a trusted management network.
-The allowlist entry in `scripts/vuln-audit.go` has a named owner, expiry,
-reason, and mitigation; expiry turns the vulnerability gate into a failure.
+maintainer decision of 2026-10-21 for stable v1 (`gobfd-qj0.8.4.1`) permits
+this module-only entry while GHSA/OSV list a fixed version at or below the pin
+and the final candidate's govulncheck reports `GO-2026-4736` only at module
+level (no imported package or reachable symbol). The entry is removed when the
+database records a fixed v4 version; the audit fails on an entry that matches
+no scanner finding. Keep the GoBGP API on localhost or a trusted management
+network. The allowlist entry in `scripts/vuln-audit.go` names owner
+`@dantte-lp`, the expiry (review) date 2026-12-31, reason, and mitigation;
+expiry turns the vulnerability gate into a failure.
 
 CI scans the runtime and isolated tool module manifests separately. Raw
 runtime and tools vulnerability reports and their separate CycloneDX SBOMs are

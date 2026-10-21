@@ -635,7 +635,10 @@ without an imported graph-bound scan receipt; generation does not import one.
 The current `dev` context is explicit in the generator: observation epoch
 `2026-10-15T21:30:03Z`, review date `2026-10-31`, and tracking
 `gobfd-qj0.8.2.8.7`. Current selections are deferred with an owner and review
-date; stable-release adoption and exceptions are not inherited. Reuse is limited
+date; stable-release adoption and exceptions are not inherited. The GoBGP v4
+record carries its own stable-v1 decision: owner `@dantte-lp`, expiry (review)
+date `2026-12-31` and tracking `gobfd-qj0.8.4.1`, matching the `GO-2026-4736`
+entry in `scripts/vuln-audit.go`. Reuse is limited
 to this same observation epoch and an exact installed identity and immutable pin,
 with the original subject, review, source, query, result, hash, and observation
 time preserved. Mutable repository observations become stale. Any other prior

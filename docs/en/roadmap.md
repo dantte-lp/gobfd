@@ -462,9 +462,12 @@ Continuation on 2026-10-15 after the 18:10 UTC snapshot:
   On 2026-10-15 the [Go vulnerability database](https://vuln.go.dev/ID/GO-2026-4736)
   still lists no fixed GoBGP v4 range. The maintainer decision of 2026-10-21
   (`.8.4.1`) permits stable v1 with the module-only entry while GHSA/OSV record
-  the fix at or below the pinned v4.10.0, the symbol-level scan of the final
-  candidate stays clean and the entry names its owner and review date. The
-  24-hour qualification has not run.
+  the fix at or below the pinned v4.10.0, the final candidate's govulncheck
+  reports `GO-2026-4736` only at module level (no imported package or reachable
+  symbol) and the entry names owner `@dantte-lp` and the expiry (review) date
+  2026-12-31. The entry is removed once the Go vulnerability database records a
+  fixed v4 version. The final-candidate scan and the 24-hour qualification have
+  not run.
 
 The current execution order and exact release-age thresholds are in the
 dated snapshot at the top. Earlier receipts remain revision-scoped; Beads
