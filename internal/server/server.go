@@ -35,6 +35,10 @@ var (
 	// session family that needs its own transport-specific configuration path.
 	ErrDedicatedTransportRequired = errors.New("session type requires dedicated transport configuration")
 
+	// ErrReceiveListenerUnavailable indicates that the daemon could not open
+	// the receive listener a new session needs; the session is not created.
+	ErrReceiveListenerUnavailable = errors.New("receive listener unavailable")
+
 	// ErrDetectMultZero indicates a zero detect multiplier in the request.
 	ErrDetectMultZero = errors.New("detect multiplier must be >= 1")
 
@@ -802,7 +806,10 @@ func mapManagerError(err error, operation string) *connect.Error {
 		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
 		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
-	case errors.Is(err, bfd.ErrInterfaceUnresolved),
+	case errors.Is(err, bfd.ErrResourceUnavailable):
+		return connect.NewError(connect.CodeUnavailable, wrapError(operation, err).Error())
+	case errors.Is(err, ErrReceiveListenerUnavailable),
+		errors.Is(err, bfd.ErrInterfaceUnresolved),
 		errors.Is(err, bfd.ErrMicroBFDMemberOwned),
 		errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound),
 		errors.Is(err, bfd.ErrMicroBFDConfigConflict):

@@ -120,7 +120,7 @@ func TestGRPCServerOverManagementSocket(t *testing.T) {
 	t.Cleanup(mgr.Close)
 
 	path := filepath.Join(t.TempDir(), "gobfd.sock")
-	srv := newGRPCServer(config.GRPCConfig{}, mgr, nil, newDaemonHealthChecker(), nil, logger)
+	srv := newGRPCServer(config.GRPCConfig{}, mgr, nil, nil, newDaemonHealthChecker(), nil, logger)
 	ln, err := listenManagementSocket(t.Context(), config.GRPCSocketConfig{Path: path, Mode: "0660"})
 	if err != nil {
 		t.Fatalf("listenManagementSocket: %v", err)

@@ -236,7 +236,8 @@ func (c *reconciliationCoordinator) withListeners(apply sourceApplyFunc) sourceA
 			return apply(ctx, source, candidate)
 		}
 		configs := candidate.listeners[source]
-		if err := c.listeners.acquire(ctx, sourceClaim(source), configs); err != nil {
+		//nolint:contextcheck // Receivers are owner-scoped, not bound to one reconciliation pass.
+		if err := c.listeners.acquire(sourceClaim(source), configs); err != nil {
 			return resourceErrorSourceResult(1, fmt.Errorf("claim %s listeners: %w", source, err))
 		}
 		result := apply(ctx, source, candidate)
