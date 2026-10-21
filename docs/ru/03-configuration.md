@@ -844,8 +844,12 @@ kill -HUP $(pidof gobfd)
 после preflight всего source. Link events автоматически повторяют применение
 затронутых pending sources в сохранённом generation без второго SIGHUP.
 Повторные события объединяются и не применяют converged sources повторно.
-Потеря netlink events запрашивает полную сверку интерфейсов. Non-Linux stub
-не обеспечивает автоматический retry.
+Потеря netlink events запрашивает полную сверку интерфейсов. Address events
+(`RTM_NEWADDR`/`RTM_DELADDR`, включая завершение IPv6 DAD) и сверка повторяют
+применение всех pending sources; они не несут состояния link и не переводят
+сессии в Down. Приём этих групп rtnetlink не требует capability. Non-Linux stub
+не обеспечивает автоматический retry, поэтому там pending sources повторяет
+следующий SIGHUP.
 
 Приёмные listeners входят в generation. Перед применением source base, Echo
 или Micro-BFD захватывает UDP listeners, нужные его desired set (3784/4784,
@@ -853,13 +857,16 @@ kill -HUP $(pidof gobfd)
 открытия всех захваченных listeners, поэтому ни один source не сходится только
 на senders. Listener, интерфейс которого отсутствует, оставляет source в
 `pending`, а автоматический interface retry открывает его; любая другая ошибка
-открытия оставляет source в `failed`. Ещё не назначенный local address
-(`EADDRNOTAVAIL`) переводит source в `failed`, как и при bind sender; повторяет
-попытку следующий SIGHUP. Control- или Echo-сессия, созданная через API,
-захватывает свой listener вместе с sender и открывает его при отсутствии;
-Echo-сессия использует общий Echo listener своего адреса. Отсутствующий
-интерфейс завершает `AddSession` или `AddEchoSession` ошибкой `Unavailable`,
-другая ошибка открытия — `FailedPrecondition`, и сессия не создаётся. Удаление
+открытия оставляет source в `failed`. Ещё не назначенный или IPv6-tentative
+local address (`EADDRNOTAVAIL`) при bind listener, sender или overlay backend
+считается типизированным недоступным адресом: source остаётся в `pending` без
+освобождения старых claims, а address event, назначающий адрес, повторяет
+применение source. Control- или Echo-сессия, созданная через API, захватывает
+свой listener вместе с sender и открывает его при отсутствии; Echo-сессия
+использует общий Echo listener своего адреса. Отсутствующий интерфейс или
+неназначенный адрес завершает `AddSession` или `AddEchoSession` ошибкой
+`Unavailable`, другая ошибка открытия — `FailedPrecondition`, и сессия не
+создаётся. Удаление
 сессии снимает её claim. После применения source без failed и resource-pending
 записей source снимает claims вне desired set; listener закрывается, когда
 снимается его последний claim source, unsolicited или API. Неизменённые listeners,
@@ -874,18 +881,25 @@ Kubernetes manifest выдают его на всё время жизни про
 ошибка listener, включая отсутствующий интерфейс, по-прежнему останавливает
 запуск. Non-Linux сборки не создают listeners, поэтому такой source `failed`.
 
-Overlay backends получают tunnel scopes при создании, и runtime-владельца,
-который создаёт или заменяет их, пока нет. Новой identity на существующем local
-endpoint потребовалась бы замена работающего общего backend, а identity на новом
-endpoint — новый backend. Оба случая по-прежнему требуют перезапуска и
-отклоняются до мутации; это нереализованный объём работ, а не ограничение ядра
-или привилегий.
+Overlay backends тоже входят в generation. Один userspace-udp сокет обслуживает
+каждый вид туннеля и outer local address (VXLAN UDP 4789, Geneve UDP 6081).
+Перед применением source VXLAN или Geneve захватывает identities своего desired
+set: новый local endpoint открывает backend, а identity, добавленная на открытый
+endpoint, расширяет набор identities этого сокета на месте, поэтому работающие
+сессии сохраняют свой сокет. После применения без failed и resource-pending
+записей каждый backend сужается до desired identities, а backend без identities
+закрывается и возвращает inner source port. Неудачное применение сохраняет
+расширенный набор. Startup захватывает backends так же, поэтому backend, который
+не открывается, переводит свой source в failed или pending, а не останавливает
+daemon. Порты непривилегированные, сокеты не привязаны к устройству, поэтому
+capability не требуется.
 
 `log.level` применяется сразу после полной валидации candidate. Пять desired
 sets реконсилируют membership sessions/groups. Записи control, Echo и Micro-BFD
 можно добавлять, удалять или re-key, включая записи, которым нужен новый local
-address, interface или session type. Записи VXLAN и Geneve можно удалять, но новая или re-keyed
-overlay identity требует перезапуска процесса. BFD defaults и per-entry timers,
+address, interface или session type. Записи VXLAN и Geneve можно добавлять,
+удалять или re-key, включая новый local endpoint или новый per-peer VNI Geneve.
+BFD defaults и per-entry timers,
 padding, authentication, peer и threshold values применяются при создании новой
 identity. Базовые сессии, принадлежащие только config, также принимают in-place
 изменения `desired_min_tx` и `required_min_rx`. Активная Poll-транзакция сохраняет
@@ -908,9 +922,10 @@ identity отдельными reload либо перезапустить про�
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
 `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,
-`vxlan.management_vni`, `geneve.backend`, `geneve.default_vni` и каждая новая
-или re-keyed overlay identity, включая identity, которой нужен новый local
-address или effective Geneve VNI. Отклонённый reload выводит только эти ограниченные
+`vxlan.management_vni`, `geneve.backend` и `geneve.default_vni`. Оба значения
+VNI по умолчанию сразу re-key все identities своего source; runtime-поддержка
+этого не реализована, и это ограничение объёма работ, а не граница ядра или
+привилегий. Отклонённый reload выводит только эти ограниченные
 пути полей, но не значения конфигурации или authentication secrets. Размеры
 буферов входят в startup-only границу и применяются к поддерживаемым
 UDP-сокетам, описанным в разделе настройки буферов.
@@ -923,7 +938,8 @@ Base configuration, Echo, Micro-BFD members, VXLAN и Geneve использую�
 Автоматическое завершение охватывает принятые транзакции базовых таймеров, не
 произвольные ошибки других source operations. Для остальных partial apply
 следующий явный SIGHUP компилирует и публикует новое desired generation. Настроенный непустой
-source VXLAN или Geneve без работающего backend считается failed, а не skipped.
+source VXLAN или Geneve, backend которого не открывается, считается failed или
+pending для неназначенного local address, а не skipped.
 Уже принятые изменения других sources не откатываются.
 
 ### Правила валидации

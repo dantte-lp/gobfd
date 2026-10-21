@@ -215,11 +215,12 @@ Daemon-level coordinator сериализует компиляцию и прим
 Он хранит deep-copied контракт startup-runtime. Каждый SIGHUP candidate
 сверяется с этим контрактом до компиляции candidate и до изменения generation,
 health, log level, sessions или ресурсов. Startup-owned поля servers, unsolicited listeners,
-sockets, policy, actuator, GoBGP и overlays отклоняются с ограниченными
+sockets, policy, actuator, GoBGP и глобальные поля overlay backend/VNI
+отклоняются с ограниченными
 идентификаторами полей; значения конфигурации и secrets в ошибке не сохраняются.
 Изменения desired-set membership могут потребовать новые listeners control,
-Echo или Micro-BFD, которые владелец listeners открывает в составе generation,
-но не могут потребовать новый overlay binding; изменения effective parameters same-key identity остаются reconciliation
+Echo или Micro-BFD либо overlay backends, которые их владельцы открывают в
+составе generation; изменения effective parameters same-key identity остаются reconciliation
 conflicts, а не in-place updates. Coordinator публикует монотонное desired generation только после этой проверки
 и компиляции полного неизменяемого session candidate. Один receipt затем хранит claim-level счётчики
 `created`, `released`, `pending` и `failed`, а также ограниченную гистограмму
@@ -248,11 +249,17 @@ source снимает claims вне своего desired set. Control- и Echo-�
 намеренное закрытие сначала отменяет этот receiver, поэтому fail-stop вызывает
 только неожиданная потеря сокета. Listener с привязкой к устройству для
 пересозданного интерфейса перепривязывается на месте через `SO_BINDTODEVICE`.
-Overlay backends остаются startup-owned: отсутствующий backend оставляет свой
-source в `failed` до перезапуска, а runtime-создание или замена backends пока
-не реализованы. Только `ENODEV` от привязки listener к
-устройству классифицируется как недоступный интерфейс; остальные runtime
-failures учитываются как `failed` без классификации по строкам или errno.
+Владелец overlay (`cmd/gobfd/overlay_owner.go`) делает то же для sources VXLAN и
+Geneve: один backend на вид туннеля и outer local address открывается при первом
+claim, расширяется на месте при добавлении identity (`SetScopes` подменяет
+copy-on-write набор identities, который читается одной атомарной загрузкой на
+пакет), сужается после чистого применения и закрывается, когда опустеет;
+работающие сессии не меняют сокет. Классифицируются только `ENODEV` от привязки
+listener к устройству (недоступный интерфейс) и `EADDRNOTAVAIL` от bind listener,
+sender или overlay (недоступный адрес); оба оставляют source в `pending`.
+Address events и сверка повторяют применение всех pending sources без влияния
+на link. Остальные runtime failures учитываются как `failed` без классификации
+по строкам.
 
 Проверка gRPC health с пустым service возвращает `NOT_SERVING` до первого
 converged generation и пока desired отличается от applied; после convergence
@@ -302,7 +309,7 @@ sources, slice C01.3a для sender lease принятой control session, slic
 slice C01.4b для coordinator generations/receipts, а
 не полный контракт v1 reconciliation или RFC. Отложены следующие границы:
 
-- ownership замены overlay backends;
+- runtime-изменение глобальных полей overlay backend и VNI по умолчанию;
 - стабильные owner identifiers для отдельных groups и tunnels;
 - согласование параметров Poll/Final;
 - transport-aware packet demultiplexing; и
