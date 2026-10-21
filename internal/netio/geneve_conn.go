@@ -74,7 +74,7 @@ type GeneveConn struct {
 	logger    *slog.Logger
 	mu        sync.Mutex
 	closed    bool
-	scopes    map[overlayReceiveKey]bfd.TransportScope
+	scopes    *overlayScopeSet
 }
 
 // NewGeneveConn creates a Geneve tunnel connection for BFD.
@@ -174,7 +174,7 @@ func (c *GeneveConn) SendEncapsulatedFor(
 	if c.scopes == nil {
 		return fmt.Errorf("geneve send: %w", ErrOverlayIdentityMismatch)
 	}
-	configured, ok := c.scopes[receiveKeyForScope(scope)]
+	configured, ok := c.scopes.lookup(receiveKeyForScope(scope))
 	if !ok || configured != scope {
 		return fmt.Errorf("geneve send: %w", ErrOverlayIdentityMismatch)
 	}
@@ -281,7 +281,7 @@ func (c *GeneveConn) RecvDecapsulated(ctx context.Context) ([]byte, OverlayMeta,
 	key := receiveKeyForPacket(
 		bfd.TransportScopeGeneve, srcAddr, c.localAddr, geneveHdr.VNI, packet,
 	)
-	scope, ok := c.scopes[key]
+	scope, ok := c.scopes.lookup(key)
 	if !ok {
 		return nil, OverlayMeta{}, fmt.Errorf("geneve recv: %w", ErrOverlayIdentityMismatch)
 	}
@@ -468,4 +468,14 @@ func ParseGenevePacket(buf []byte) ([]byte, GeneveHeader, netip.Addr, netip.Addr
 	}
 
 	return bfdPayload, hdr, srcIP, dstIP, nil
+}
+
+// SetScopes replaces the exact tunnel identities of a scoped Geneve socket
+// without reopening it. The set must be non-empty and belong to this local
+// NVE; an unscoped default-VNI socket cannot become scoped.
+func (c *GeneveConn) SetScopes(scopes []bfd.TransportScope) error {
+	if err := c.scopes.replace(scopes); err != nil {
+		return fmt.Errorf("geneve set scopes: %w", err)
+	}
+	return nil
 }

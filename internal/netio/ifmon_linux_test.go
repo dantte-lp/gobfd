@@ -193,3 +193,29 @@ func TestInterfaceMonitorRunJoinsCancellationWorker(t *testing.T) {
 		}
 	})
 }
+
+// An address added to or removed from an interface is a distinct event
+// kind: it carries no link state and must not flap sessions.
+func TestAddressEventFromNetlinkMessage(t *testing.T) {
+	t.Parallel()
+
+	for _, msgType := range []uint16{syscall.RTM_NEWADDR, syscall.RTM_DELADDR} {
+		data := make([]byte, syscall.SizeofIfAddrmsg)
+		data[0] = syscall.AF_INET
+		binary.NativeEndian.PutUint32(data[4:8], 9)
+		ev, ok, err := linkEventFromNetlinkMessage(syscall.NetlinkMessage{
+			Header: syscall.NlMsghdr{Type: msgType}, Data: data,
+		})
+		if err != nil || !ok {
+			t.Fatalf("type %d: ok=%v err=%v, want address event", msgType, ok, err)
+		}
+		if !ev.Address || ev.IfIndex != 9 || ev.Up || ev.Resync {
+			t.Fatalf("type %d: event = %+v, want address event for ifindex 9", msgType, ev)
+		}
+	}
+	if _, _, err := linkEventFromNetlinkMessage(syscall.NetlinkMessage{
+		Header: syscall.NlMsghdr{Type: syscall.RTM_NEWADDR}, Data: make([]byte, 3),
+	}); err == nil {
+		t.Fatal("short ifaddrmsg accepted")
+	}
+}

@@ -25,6 +25,11 @@ type InterfaceEvent struct {
 	// Up indicates whether the interface transitioned to Up (true) or
 	// Down (false). This maps to IFF_UP | IFF_RUNNING in the kernel.
 	Up bool
+
+	// Address reports that an address was added to or removed from IfIndex.
+	// It carries no link state: consumers retry resources waiting for an
+	// address and must not treat it as a link transition.
+	Address bool
 }
 
 // InterfaceMonitor watches for network interface state changes and emits
@@ -70,7 +75,7 @@ type InterfaceMonitor interface {
 // never emits events. It is used when no platform-specific monitor is
 // available or when interface monitoring is disabled.
 //
-// Linux builds use NETLINK_ROUTE to subscribe to RTM_NEWLINK / RTM_DELLINK
+// Linux builds use NETLINK_ROUTE to subscribe to link and address
 // messages for real-time interface state tracking. Other platforms use this
 // stub until a native monitor is added.
 type StubInterfaceMonitor struct {
