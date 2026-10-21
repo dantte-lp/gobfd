@@ -2,6 +2,7 @@ package bfd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -18,6 +19,21 @@ func (e *DrainIncompleteError) Error() string {
 	return fmt.Sprintf("AdminDown drain incomplete (%s, %s): %v", e.Stage, e.Reason, e.Err)
 }
 func (e *DrainIncompleteError) Unwrap() error { return e.Err }
+
+// Drain reasons that name the peer rather than a local failure.
+const (
+	drainReasonPassivePeerUnknown = "passive peer discriminator unknown"
+	drainReasonPeerSuppressesTX   = "peer suppresses periodic transmission"
+)
+
+// PeerAttributed reports whether the drain ran out of time only because the
+// peer never supplied a discriminator or suppresses periodic transmission
+// (RFC 5880 Section 6.8.7), with no local admission, commit or owner failure.
+func (e *DrainIncompleteError) PeerAttributed() bool {
+	waiting := e.Stage == "transmission" || e.Stage == "notification window"
+	peer := e.Reason == drainReasonPassivePeerUnknown || e.Reason == drainReasonPeerSuppressesTX
+	return waiting && peer && errors.Is(e.Err, context.DeadlineExceeded)
+}
 
 type adminDrainProgress struct {
 	firstSent   chan struct{}
@@ -104,9 +120,9 @@ func (s *Session) incompleteDrain(stage string, err error) error {
 	}
 	reason := "owner or caller stopped"
 	if s.role == RolePassive && s.remoteDiscr == 0 {
-		reason = "passive peer discriminator unknown"
+		reason = drainReasonPassivePeerUnknown
 	} else if s.remoteMinRxInterval == 0 {
-		reason = "peer suppresses periodic transmission"
+		reason = drainReasonPeerSuppressesTX
 	}
 	return &DrainIncompleteError{Stage: stage, Reason: reason, Err: err}
 }

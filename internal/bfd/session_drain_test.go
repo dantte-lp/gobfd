@@ -341,3 +341,29 @@ func TestManagerDrainSharedCompletionWinsQueuedRequestDeadline(t *testing.T) {
 		})
 	}
 }
+
+func TestDrainIncompletePeerAttributed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		stage string
+		cause string
+		err   error
+		want  bool
+	}{
+		{"unknown passive peer", "transmission", drainReasonPassivePeerUnknown, context.DeadlineExceeded, true},
+		{"suppressing peer", "notification window", drainReasonPeerSuppressesTX, context.DeadlineExceeded, true},
+		{"local owner", "transmission", "owner or caller stopped", context.DeadlineExceeded, false},
+		{"commit timeout", "commit", drainReasonPassivePeerUnknown, context.DeadlineExceeded, false},
+		{"admission", "admission", drainReasonPeerSuppressesTX, context.DeadlineExceeded, false},
+		{"stopped owner", "transmission", drainReasonPassivePeerUnknown, ErrSessionStopped, false},
+		{"canceled", "transmission", drainReasonPassivePeerUnknown, context.Canceled, false},
+	}
+	for _, tt := range tests {
+		err := &DrainIncompleteError{Stage: tt.stage, Reason: tt.cause, Err: tt.err}
+		if got := err.PeerAttributed(); got != tt.want {
+			t.Errorf("%s: PeerAttributed() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
