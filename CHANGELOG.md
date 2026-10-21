@@ -362,6 +362,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply a config timer update immediately outside Up and AdminDown, with its
+  Poll confirming the receipt (RFC 5880 Section 6.8.3). A restore admitted
+  after a local zero Required Min RX drove the session Down previously waited
+  for Up; a peer obeying the zero stayed silent, so the update failed and
+  reconciliation stayed incomplete (`gobfd-qj0.8.2.1.1.2`).
+
 - Reset `bfd.RemoteMinRxInterval` to 1 microsecond and `bfd.RemoteDemandMode`
   to 0, their RFC 5880 Section 6.8.1 initial values, after one Detection Time
   without packets in every state (Section 6.8.18, `gobfd-qj0.8.2.1.1.2`). When
