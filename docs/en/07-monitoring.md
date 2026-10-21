@@ -271,8 +271,9 @@ generation. Unavailable dependencies make readiness stale and sources pending;
 successful automatic retry can restore convergence. Duplicate receipts do not
 emit another event. Netlink receive overflow logs a resync request; a full event
 channel retains that request until it can be delivered. Queue size is fixed,
-independent of event volume. This does not prove that an absent startup listener
-or overlay backend can be activated. Non-Linux stubs do not auto-retry.
+independent of event volume. The same retry opens a listener whose interface
+appears; an absent overlay backend stays restart-only. Non-Linux stubs do not
+auto-retry.
 
 ### Flight Recorder
 
@@ -320,10 +321,13 @@ status is the AND of the components the service needs:
   first converged generation and while an apply runs. Sender health is the
   sender creation outcome recorded in the source receipt.
 - A device-bound listener interface is ready while it exists, is up and
-  running, and keeps the ifindex resolved before bind. Link events and
-  inventory resyncs re-check it. A link down/up recovers; an interface deleted
-  and recreated under the same name stays `NOT_SERVING` until the daemon
-  restarts, because the socket stays bound to the old ifindex.
+  running, and keeps the ifindex resolved before its latest bind. Link events
+  and inventory resyncs re-check it. A link down/up recovers. An interface
+  deleted and recreated under the same name is `NOT_SERVING` until the listener
+  owner rebinds the same socket to the new ifindex on that check; a failed
+  rebind, for example without `CAP_NET_RAW`, stays `NOT_SERVING` and is
+  retried (`03-configuration.md`, Hot Reload (SIGHUP)). Listeners closed by a
+  reload leave the binding set.
 - Runtime workers are the BFD dispatch loop and the control, Echo, Micro-BFD and
   overlay receivers. A worker that returns while the daemon runs, for example a
   receiver whose socket closed, sets every service `NOT_SERVING`, and the daemon

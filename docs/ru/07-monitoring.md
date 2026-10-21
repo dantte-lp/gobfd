@@ -262,8 +262,9 @@ Linux interface events обновляют эти же receipts без смены
 автоматический retry восстанавливает convergence. Одинаковые receipts не
 создают повторных events. Переполнение netlink записывает запрос resync в журнал;
 заполненный канал сохраняет запрос до доставки. Размер очереди фиксирован и не
-зависит от количества событий. Это не доказывает активацию отсутствующего startup
-listener или overlay backend. Non-Linux stub не выполняет автоматический retry.
+зависит от количества событий. Тот же retry открывает listener, интерфейс которого
+появился; отсутствующий overlay backend по-прежнему требует перезапуска.
+Non-Linux stub не выполняет автоматический retry.
 
 ### Flight Recorder
 
@@ -312,11 +313,14 @@ go tool trace trace.out
   converged generation и во время apply. Health sender есть результат создания
   sender, записанный в receipt source.
 - Интерфейс listener с привязкой к устройству готов, пока он существует,
-  включён и running и сохраняет ifindex, определённый до bind. Link events и
-  сверка inventory проверяют его заново. Link down/up восстанавливается;
-  интерфейс, удалённый и созданный заново с тем же именем, оставляет
-  `NOT_SERVING` до перезапуска daemon, так как сокет остаётся привязан к старому
-  ifindex.
+  включён и running и сохраняет ifindex, определённый до последнего bind. Link
+  events и сверка inventory проверяют его заново. Link down/up
+  восстанавливается. Интерфейс, удалённый и созданный заново с тем же именем,
+  находится в `NOT_SERVING`, пока владелец listeners при этой проверке не
+  перепривяжет тот же сокет к новому ifindex; неудачная перепривязка, например
+  без `CAP_NET_RAW`, остаётся в `NOT_SERVING` и повторяется
+  (`03-configuration.md`, Горячая перезагрузка (SIGHUP)). Listeners, закрытые
+  reload, выходят из набора bindings.
 - Runtime workers — dispatch loop BFD и receivers control, Echo, Micro-BFD и
   overlay. Worker, завершившийся во время работы daemon, например receiver с
   закрытым сокетом, переводит все services в `NOT_SERVING`; daemon дренирует
