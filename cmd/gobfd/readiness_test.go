@@ -188,66 +188,6 @@ func TestDaemonReadinessListenerBindingsFollowInterfaceInventory(t *testing.T) {
 	}
 }
 
-func TestResolveListenerBindingsRecordsBindTimeIndexes(t *testing.T) {
-	t.Parallel()
-
-	cfg := config.DefaultConfig()
-	cfg.Sessions = []config.SessionConfig{
-		{Peer: "192.0.2.2", Local: "192.0.2.1", Interface: "eth9", Type: "single_hop"},
-		{Peer: "198.51.100.2", Local: "198.51.100.1", Type: "multi_hop"},
-	}
-	cfg.Unsolicited.Enabled = true
-	cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{
-		"eth6": {Enabled: true}, "eth5": {Enabled: false},
-	}
-	cfg.Echo.Enabled = true
-	// Echo binds one listener per local address with the first peer's interface.
-	cfg.Echo.Peers = []config.EchoPeerConfig{
-		{Peer: "192.0.2.6", Local: "192.0.2.5", Interface: "eth8"},
-		{Peer: "192.0.2.9", Local: "192.0.2.5", Interface: "eth4"},
-	}
-	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
-		LAGInterface: "bond0", MemberLinks: []string{"eth7"}, PeerAddr: "192.0.2.8", LocalAddr: "192.0.2.7",
-	}}
-	inventory := &fakeInterfaceInventory{}
-	inventory.set(nil, upInterface("eth9", 9), upInterface("eth8", 8), upInterface("eth7", 7),
-		upInterface("eth6", 6), upInterface("eth4", 4))
-
-	got, err := resolveListenerBindings(cfg, inventory.list)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []listenerBinding{
-		{ifName: "eth6", ifIndex: 6, component: componentControlBindings},
-		{ifName: "eth9", ifIndex: 9, component: componentControlBindings},
-		{ifName: "eth8", ifIndex: 8, component: componentEchoBindings},
-		{ifName: "eth7", ifIndex: 7, component: componentMicroBindings},
-	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("listener bindings = %+v, want %+v", got, want)
-	}
-}
-
-func TestResolveListenerBindingsFailsClosedOnInventoryError(t *testing.T) {
-	t.Parallel()
-
-	inventory := &fakeInterfaceInventory{}
-	inventory.set(errInventoryUnavailable)
-	bound := config.DefaultConfig()
-	bound.Sessions = []config.SessionConfig{
-		{Peer: "192.0.2.2", Local: "192.0.2.1", Interface: "eth9", Type: "single_hop"},
-	}
-	if _, err := resolveListenerBindings(bound, inventory.list); !errors.Is(err, errInventoryUnavailable) {
-		t.Fatalf("bound listener inventory error = %v, want %v", err, errInventoryUnavailable)
-	}
-
-	unbound := config.DefaultConfig()
-	unbound.Sessions = []config.SessionConfig{{Peer: "198.51.100.2", Local: "198.51.100.1", Type: "multi_hop"}}
-	if bindings, err := resolveListenerBindings(unbound, inventory.list); err != nil || len(bindings) != 0 {
-		t.Fatalf("unbound listeners = %+v, %v; want no bindings and no inventory read", bindings, err)
-	}
-}
-
 // The periodic recheck covers a disabled or stopped interface monitor.
 func TestBindingRecheckDetectsInterfaceLossWithoutEvents(t *testing.T) {
 	t.Parallel()
@@ -265,8 +205,9 @@ func TestBindingRecheckDetectsInterfaceLossWithoutEvents(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			coordinator.readiness.recheckBindings(ctx, bindingRecheckInterval, inventory.list,
-				slog.New(slog.DiscardHandler))
+			recheckBindings(ctx, bindingRecheckInterval, func() error {
+				return coordinator.readiness.checkBindings(inventory.list)
+			}, slog.New(slog.DiscardHandler))
 		}()
 
 		notServing, serving := grpchealth.StatusNotServing, grpchealth.StatusServing
@@ -359,62 +300,24 @@ func (c *fakeListenerConn) Close() error {
 
 func (*fakeListenerConn) LocalAddr() netip.AddrPort { return netip.AddrPort{} }
 
-func TestReceiverLossFailStopsAndReportsNotServing(t *testing.T) {
-	t.Parallel()
-
-	for _, kind := range []string{"control", "echo", "micro"} {
-		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-			coordinator, checker := newConvergedReadinessCoordinator(t)
-			mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
-			t.Cleanup(mgr.Close)
-			lost := newFakeListenerConn()
-			if err := lost.Close(); err != nil {
-				t.Fatal(err)
-			}
-			listener := netio.NewListenerFromConn(lost, false)
-			var listeners listenersResult
-			switch kind {
-			case "control":
-				listeners.control = []*netio.Listener{listener}
-			case "echo":
-				listeners.echo = []*netio.Listener{listener}
-			default:
-				listeners.microBFD = []*netio.Listener{listener}
-			}
-
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			g, gCtx := errgroup.WithContext(ctx)
-			startReceivers(gCtx, g, coordinator.readiness, listeners, mgr, slog.New(slog.DiscardHandler))
-
-			err := waitGroupBounded(t, g)
-			if !errors.Is(err, errRequiredWorkerStopped) || !errors.Is(err, netio.ErrListenerClosed) {
-				t.Fatalf("receiver loss error = %v, want %v and %v",
-					err, errRequiredWorkerStopped, netio.ErrListenerClosed)
-			}
-			notServing := grpchealth.StatusNotServing
-			assertReadiness(t, checker, readinessWant{notServing, notServing, notServing, notServing})
-		})
-	}
-}
-
 func TestShutdownClosesIdleReceiversAfterDrain(t *testing.T) {
 	t.Parallel()
 
 	coordinator, checker := newConvergedReadinessCoordinator(t)
-	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
-	t.Cleanup(mgr.Close)
-	idle := newFakeListenerConn()
-	t.Cleanup(func() { _ = idle.Close() })
-	listeners := listenersResult{control: []*netio.Listener{netio.NewListenerFromConn(idle, false)}}
-	closeReceivers := sync.OnceFunc(func() { closeListeners(listeners.control, slog.New(slog.DiscardHandler)) })
+	opener := newFakeListenerOpener()
+	inventory := &fakeInterfaceInventory{}
+	owner, mgr := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
+	cfg := netio.ListenerConfig{Addr: netip.MustParseAddr("192.0.2.1"), Port: netio.PortMultiHop, MultiHop: true}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	g, gCtx := errgroup.WithContext(ctx)
 	logger := slog.New(slog.DiscardHandler)
-	startReceivers(gCtx, g, coordinator.readiness, listeners, mgr, logger)
-	startShutdown(gCtx, g, mgr, logger, nil, coordinator.readiness, closeReceivers)
+	if err := owner.acquire(gCtx, sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
+		t.Fatal(err)
+	}
+	idle := opener.conn(t, listenerKeyOf(cfg))
+	g.Go(func() error { return owner.run(gCtx) })
+	startShutdown(gCtx, g, mgr, logger, nil, coordinator.readiness, owner.close)
 	select {
 	case <-idle.reading:
 	case <-time.After(readinessTestWait):

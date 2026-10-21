@@ -154,25 +154,14 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 				{Peer: "192.0.2.1", Local: local.String()},
 				{Peer: "192.0.2.2", Local: local.String(), Type: "multi_hop"},
 			}
+			cfg.Echo.Enabled = true
 			cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: "192.0.2.3", Local: local.String()}}
 			cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 				LAGInterface: "test-bond", LocalAddr: local.String(), MemberLinks: []string{"lo"},
 			}}
-			control, err := createControlListeners(cfg, logger, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { closeListeners(control, logger) })
-			echo, err := createEchoListeners(cfg, logger, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { closeListeners(echo, logger) })
-			micro, err := createMicroBFDListeners(cfg, logger, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { closeListeners(micro, logger) })
+			openTestListeners(t, controlListenerConfigs(cfg))
+			openTestListeners(t, echoListenerConfigs(cfg))
+			openTestListeners(t, microListenerConfigs(cfg))
 			for _, port := range []uint16{netio.PortSingleHop, netio.PortMultiHop, netio.PortEcho, netio.PortMicroBFD} {
 				if got := socketOptionAt(t, local, port, unix.SOL_SOCKET, unix.SO_RCVBUF); got != wantRead {
 					t.Errorf("listener %d SO_RCVBUF=%d, want %d", port, got, wantRead)
@@ -221,7 +210,6 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 
 // Run serially: the unsolicited listeners own the wildcard single-hop port.
 func TestDaemonSocketBufferPolicyUnsolicitedListeners(t *testing.T) {
-	logger := slog.New(slog.DiscardHandler)
 	for _, size := range []int{0, 8192} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
 			wantRead, _ := referenceSocketBuffers(t, size)
@@ -230,11 +218,7 @@ func TestDaemonSocketBufferPolicyUnsolicitedListeners(t *testing.T) {
 			cfg.Sessions = nil
 			cfg.Unsolicited.Enabled = true
 			cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"lo": {Enabled: true}}
-			control, err := createControlListeners(cfg, logger, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { closeListeners(control, logger) })
+			control := openTestListeners(t, controlListenerConfigs(cfg))
 			if len(control) != 2 {
 				t.Fatalf("unsolicited listeners = %d, want 2", len(control))
 			}
@@ -303,4 +287,26 @@ func overlayTestLocalIPv4(t *testing.T) netip.Addr {
 	}
 	t.Skip("scoped VXLAN requires an assigned non-loopback IPv4 address")
 	return netip.Addr{}
+}
+
+// openTestListeners opens configs with the listener owner's constructor and
+// closes them at cleanup.
+func openTestListeners(t *testing.T, configs []netio.ListenerConfig) []*netio.Listener {
+	t.Helper()
+	listeners := make([]*netio.Listener, 0, len(configs))
+	t.Cleanup(func() {
+		for _, ln := range listeners {
+			if err := ln.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	for _, cfg := range configs {
+		ln, err := netio.NewListener(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		listeners = append(listeners, ln)
+	}
+	return listeners
 }

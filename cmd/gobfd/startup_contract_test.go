@@ -51,11 +51,6 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 		{"unsolicited auth", func(cfg *config.Config) {
 			cfg.Unsolicited.Auth = config.AuthConfig{Type: "meticulous_keyed_sha1", KeyID: 1, Secret: "s"}
 		}, startupFieldUnsolicitedAuth},
-		{"new control listener", func(cfg *config.Config) {
-			cfg.Sessions = append(cfg.Sessions, config.SessionConfig{
-				Peer: "192.0.2.2", Local: "127.0.0.2", Interface: "lo",
-			})
-		}, startupFieldControlListenerBindings},
 		{"new VXLAN local binding", func(cfg *config.Config) {
 			cfg.VXLAN.Peers = append(cfg.VXLAN.Peers, config.VXLANPeerConfig{
 				Peer: "192.0.2.22", Local: "127.0.0.3",
@@ -88,6 +83,23 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 	dynamic.Geneve.Peers[0].VNI = startup.Geneve.DefaultVNI
 	if changed := contract.changedFields(dynamic); len(changed) != 0 {
 		t.Fatalf("dynamic-only changed fields = %v, want none", changed)
+	}
+
+	// The listener owner opens control, Echo and Micro-BFD receive bindings
+	// as part of the generation; they are not startup-owned.
+	bindings := cloneStartupContractTestConfig(startup)
+	bindings.Sessions = append(bindings.Sessions,
+		config.SessionConfig{Peer: "192.0.2.2", Local: "127.0.0.2", Interface: "lo"},
+		config.SessionConfig{Peer: "192.0.2.3", Local: "127.0.0.1", Interface: "eth9"},
+		config.SessionConfig{Peer: "198.51.100.3", Local: "127.0.0.3", Type: "multi_hop"},
+	)
+	bindings.Echo.Enabled = true
+	bindings.Echo.Peers = []config.EchoPeerConfig{{Peer: "192.0.2.4", Local: "127.0.0.4", Interface: "lo"}}
+	bindings.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
+		LAGInterface: "bond0", MemberLinks: []string{"eth7"}, PeerAddr: "192.0.2.8", LocalAddr: "192.0.2.7",
+	}}
+	if changed := contract.changedFields(bindings); len(changed) != 0 {
+		t.Fatalf("new receive bindings changed fields = %v, want none", changed)
 	}
 
 	remaining := cloneStartupContractTestConfig(startup)

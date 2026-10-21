@@ -75,10 +75,7 @@ func checkUnsolicitedListenerAdmission(t *testing.T, cfg *config.Config, src, ds
 			t.Error(closeErr)
 		}
 	})
-	listeners, err := createControlListeners(cfg, logger, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	listeners := openTestListeners(t, controlListenerConfigs(cfg))
 	policy, err := buildUnsolicitedPolicy(cfg.Unsolicited)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +101,9 @@ func checkUnsolicitedListenerAdmission(t *testing.T, cfg *config.Config, src, ds
 	go func() { done <- netio.NewReceiver(recorder, logger).Run(ctx, listeners...) }()
 	t.Cleanup(func() {
 		cancel()
-		closeListeners(listeners, logger)
+		for _, ln := range listeners {
+			_ = ln.Close() // Unblocks the reads; the owning cleanup closes again idempotently.
+		}
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second):
@@ -186,13 +185,8 @@ func TestUnsolicitedListenersDisabled(t *testing.T) {
 		cfg.Sessions = nil
 		cfg.Unsolicited.Enabled = enabled
 		cfg.Unsolicited.Interfaces = map[string]config.UnsolicitedInterfaceConfig{"does-not-exist": {Enabled: !enabled}}
-		listeners, err := createControlListeners(cfg, slog.New(slog.DiscardHandler), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		closeListeners(listeners, slog.New(slog.DiscardHandler))
-		if len(listeners) != 0 {
-			t.Fatalf("global=%v: listeners=%d, want 0", enabled, len(listeners))
+		if listeners := controlListenerConfigs(cfg); len(listeners) != 0 {
+			t.Fatalf("global=%v: listeners=%+v, want none", enabled, listeners)
 		}
 	}
 }

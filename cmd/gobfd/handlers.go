@@ -330,9 +330,11 @@ func startInterfaceMonitor(
 	})
 	g.Go(func() error {
 		coordinator.runInterfaceReconciliation(ctx, queue, netio.CheckInterfacesAvailable,
-			func(ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate) sourceApplyResult {
+			coordinator.withListeners(func(
+				ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
+			) sourceApplyResult {
 				return applyCompiledSource(ctx, source, candidate, mgr, sf, logger)
-			})
+			}))
 		return nil
 	})
 }
