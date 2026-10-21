@@ -428,7 +428,7 @@ func TestRemoteZeroRxResetsAfterDetectionTime(t *testing.T) {
 			name: "Down held down by peer", local: StateDown, remote: StateAdminDown, wantState: StateDown,
 			wantDiag: DiagControlTimeExpired,
 		},
-		// The Section 6.8.16 drain keeps honoring a silent peer's zero RX.
+		// Policy pending maintainer decision: AdminDown drain skips the Section 6.8.18 reset.
 		{
 			name: "AdminDown drain keeps suppression", local: StateAdminDown, remote: StateUp, wantState: StateAdminDown,
 			wantDiag: DiagAdminDown, keepSuppressed: true,
