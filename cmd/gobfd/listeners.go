@@ -90,7 +90,7 @@ type listenerOwner struct {
 	open       func(netio.ListenerConfig) (*netio.Listener, error)
 	rebind     func(*netio.Listener) error
 	interfaces interfaceInventory
-	sessions   func() []bfd.SessionSnapshot
+	users      *bfd.Manager // API-created sessions keep their listeners
 
 	delivery  bfd.DeliveryReporter
 	control   *netio.Receiver
@@ -108,7 +108,7 @@ func newListenerOwner(mgr *bfd.Manager, readiness *daemonReadiness, logger *slog
 		open:       netio.NewListener,
 		rebind:     (*netio.Listener).RebindDevice,
 		interfaces: net.Interfaces,
-		sessions:   mgr.Sessions,
+		users:      mgr,
 		delivery:   mgr,
 		control:    netio.NewReceiver(mgr, logger),
 		echo:       netio.NewEchoReceiver(mgr, logger),
@@ -291,13 +291,21 @@ func (o *listenerOwner) release(claims listenerClaims, configs []netio.ListenerC
 	}
 }
 
-// inUseLocked keeps a control listener that an API-created session still
-// receives on.
+// inUseLocked keeps a listener that a live session or Micro-BFD group still
+// receives on; after the source apply only API-created ones remain.
 func (o *listenerOwner) inUseLocked(key listenerKey) bool {
-	if key.port != netio.PortSingleHop && key.port != netio.PortMultiHop {
-		return false
+	switch key.port {
+	case netio.PortEcho:
+		return slices.ContainsFunc(o.users.EchoSessions(), func(session bfd.EchoSessionSnapshot) bool {
+			return session.LocalAddr == key.addr
+		})
+	case netio.PortMicroBFD:
+		return slices.ContainsFunc(o.users.MicroBFDGroups(), func(group bfd.MicroBFDGroupSnapshot) bool {
+			return group.LocalAddr == key.addr && slices.ContainsFunc(group.Members,
+				func(member bfd.MemberLinkState) bool { return member.Interface == key.ifName })
+		})
 	}
-	for _, session := range o.sessions() {
+	for _, session := range o.users.Sessions() {
 		if session.Type != bfd.SessionTypeSingleHop && session.Type != bfd.SessionTypeMultiHop {
 			continue
 		}

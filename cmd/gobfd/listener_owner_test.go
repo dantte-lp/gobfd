@@ -208,26 +208,65 @@ func TestListenerOwnerReceiverLossFailStops(t *testing.T) {
 func TestListenerOwnerKeepsListenerOfLiveSession(t *testing.T) {
 	t.Parallel()
 
-	coordinator, _ := newConvergedReadinessCoordinator(t)
-	opener := newFakeListenerOpener()
-	inventory := &fakeInterfaceInventory{}
-	inventory.set(nil, upInterface("eth1", 1))
-	owner, mgr := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
-	cfg := singleHopListener("192.0.2.1", "eth1")
-	if err := owner.acquire(t.Context(), sourceClaim(sourceBase), []netio.ListenerConfig{cfg}); err != nil {
-		t.Fatal(err)
-	}
-	// An API session still receives on the listener the config opened.
-	if _, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
-		PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: cfg.Addr, Interface: "eth1",
-		Type: bfd.SessionTypeSingleHop, Role: bfd.RolePassive,
-		DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
-	}, candidateTestSenderLeaseFactory()); err != nil {
-		t.Fatal(err)
-	}
-	owner.release(sourceClaim(sourceBase), nil)
-	if fakeConnClosed(opener.conn(t, listenerKeyOf(cfg))) {
-		t.Fatal("release closed the listener of a live session")
+	local := netip.MustParseAddr("192.0.2.1")
+	for _, tc := range []struct {
+		name   string
+		source reconciliationSource
+		cfg    netio.ListenerConfig
+		create func(*testing.T, *bfd.Manager)
+	}{
+		{"control", sourceBase, singleHopListener("192.0.2.1", "eth1"), func(t *testing.T, mgr *bfd.Manager) {
+			t.Helper()
+			if _, err := mgr.CreateSession(t.Context(), bfd.SessionConfig{
+				PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: local, Interface: "eth1",
+				Type: bfd.SessionTypeSingleHop, Role: bfd.RolePassive,
+				DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second, DetectMultiplier: 3,
+			}, candidateTestSenderLeaseFactory()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"echo", sourceEcho, echoListener("192.0.2.1", "eth1"), func(t *testing.T, mgr *bfd.Manager) {
+			t.Helper()
+			if _, err := mgr.CreateEchoSession(t.Context(), bfd.EchoSessionConfig{
+				PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: local, Interface: "eth1",
+				TxInterval: time.Hour, DetectMultiplier: 3,
+			}, candidateTestSender{}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{
+			"micro", sourceMicro,
+			netio.ListenerConfig{Addr: local, IfName: "eth1", Port: netio.PortMicroBFD},
+			func(t *testing.T, mgr *bfd.Manager) {
+				t.Helper()
+				if _, err := mgr.CreateMicroBFDGroup(bfd.MicroBFDConfig{
+					LAGInterface: "bond9", MemberLinks: []string{"eth1"},
+					PeerAddr: netip.MustParseAddr("192.0.2.9"), LocalAddr: local,
+					DesiredMinTxInterval: time.Second, RequiredMinRxInterval: time.Second,
+					DetectMultiplier: 3, MinActiveLinks: 1,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			coordinator, _ := newConvergedReadinessCoordinator(t)
+			opener := newFakeListenerOpener()
+			inventory := &fakeInterfaceInventory{}
+			inventory.set(nil, upInterface("eth1", 1))
+			owner, mgr := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
+			if err := owner.acquire(t.Context(), sourceClaim(tc.source), []netio.ListenerConfig{tc.cfg}); err != nil {
+				t.Fatal(err)
+			}
+			// An API-created user still receives on the listener the config opened.
+			tc.create(t, mgr)
+			owner.release(sourceClaim(tc.source), nil)
+			if fakeConnClosed(opener.conn(t, listenerKeyOf(tc.cfg))) {
+				t.Fatal("release closed the listener of a live API user")
+			}
+		})
 	}
 }
 
