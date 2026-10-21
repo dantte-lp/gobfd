@@ -118,8 +118,9 @@ FRR/BIRD-квалификация этих процедур остаётся о�
 Вне AdminDown один Detection Time без корректных пакетов возвращает
 `bfd.RemoteMinRxInterval` к 1 микросекунде и `bfd.RemoteDemandMode` к 0
 (Sections 6.8.1 и 6.8.18): нулевой receive interval замолчавшего пира больше
-не останавливает периодический TX. AdminDown сохраняет подавление drain при
-нулевом remote receive interval по Section 6.8.16. Изменения remote Desired
+не останавливает периодический TX. В AdminDown GoBFD не применяет этот SHOULD
+Section 6.8.18: graceful drain сохраняет подавление при нулевом remote receive
+interval до решения мейнтейнера. Изменения remote Desired
 Min TX и Detect Mult обновляют Detection Time на пакете, который их несёт
 (Sections 6.8.3 и 6.8.4). Тесты виртуального времени покрывают также timer
 Poll при remote Demand, истечение Poll при нулевом remote RX и ответ Final на
