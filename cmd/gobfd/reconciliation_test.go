@@ -34,7 +34,7 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 		t.Fatalf("initial snapshot = %+v, want stale zero-generation status", initial)
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusNotServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusNotServing, grpchealth.StatusNotServing, grpchealth.StatusNotServing)
 
 	if err := coordinator.reconcile(
 		context.Background(), config.DefaultConfig(), mgr,
@@ -70,7 +70,7 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 		}
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusServing, grpchealth.StatusServing, grpchealth.StatusServing)
 
 	invalid := config.DefaultConfig()
 	invalid.Sessions = []config.SessionConfig{{Peer: "not-an-address"}}
@@ -85,7 +85,7 @@ func TestReconciliationCoordinatorValidNoopThenInvalidCandidate(t *testing.T) {
 		t.Errorf("snapshot changed after invalid candidate: got %+v want %+v", got, snapshot)
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusServing, grpchealth.StatusServing, grpchealth.StatusServing)
 }
 
 func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
@@ -155,7 +155,7 @@ func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
 		}
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusNotServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusNotServing, grpchealth.StatusServing, grpchealth.StatusServing)
 
 	// Snapshot values own fixed-size receipt and histogram arrays. Mutating a
 	// caller's copy must not mutate the coordinator's retained status.
@@ -187,7 +187,7 @@ func TestReconciliationCoordinatorPartialThenExplicitRetry(t *testing.T) {
 		t.Errorf("aggregate converged log count = %d, want 1; logs=%q", got, logs.String())
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusServing, grpchealth.StatusServing, grpchealth.StatusServing)
 }
 
 func TestReconciliationCoordinatorPreservesCompletedReceiptWhileNextApplyRuns(t *testing.T) {
@@ -240,7 +240,7 @@ func TestReconciliationCoordinatorPreservesCompletedReceiptWhileNextApplyRuns(t 
 			inFlight, first)
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusNotServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusNotServing, grpchealth.StatusNotServing, grpchealth.StatusNotServing)
 	close(releaseSecond)
 	<-secondDone
 }
@@ -329,7 +329,7 @@ func TestReconciliationCoordinatorSerializesStartupBeforeReloadWholeSixSourceApp
 			inFlight.DesiredGeneration, inFlight.AppliedGeneration, inFlight.Stale)
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusNotServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusNotServing, grpchealth.StatusNotServing, grpchealth.StatusNotServing)
 	close(releaseFirst)
 
 	first := <-firstDone
@@ -393,7 +393,7 @@ func TestReconciliationCoordinatorMissingOverlayBackendIsFailed(t *testing.T) {
 		t.Errorf("missing-backend create error count = %d, want 1", got)
 	}
 	assertHealthStatus(t, checker, "", grpchealth.StatusNotServing)
-	assertNamedHealthServing(t, checker)
+	assertNamedHealth(t, checker, grpchealth.StatusNotServing, grpchealth.StatusServing, grpchealth.StatusServing)
 }
 
 func TestBufferedReloadStartsOnlyAfterStartupReconciliation(t *testing.T) {
@@ -450,16 +450,14 @@ func assertHealthStatus(
 	}
 }
 
-func assertNamedHealthServing(t *testing.T, checker *grpchealth.StaticChecker) {
+// assertNamedHealth checks the component-derived named services; the
+// grpc.health.v1.Health liveness service always stays SERVING.
+func assertNamedHealth(t *testing.T, checker *grpchealth.StaticChecker, bfdService, echo, micro grpchealth.Status) {
 	t.Helper()
-	for _, service := range []string{
-		grpchealth.HealthV1ServiceName,
-		bfdServiceName,
-		echoServiceName,
-		microBFDServiceName,
-	} {
-		assertHealthStatus(t, checker, service, grpchealth.StatusServing)
-	}
+	assertHealthStatus(t, checker, grpchealth.HealthV1ServiceName, grpchealth.StatusServing)
+	assertHealthStatus(t, checker, bfdServiceName, bfdService)
+	assertHealthStatus(t, checker, echoServiceName, echo)
+	assertHealthStatus(t, checker, microBFDServiceName, micro)
 }
 
 type lockedBuffer struct {

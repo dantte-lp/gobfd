@@ -5,12 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 // ErrNoListeners indicates that Run was called without any listeners.
 var ErrNoListeners = errors.New("receiver run: no listeners provided")
+
+// ErrListenerClosed indicates that a listener closed while its receiver
+// context was still live.
+var ErrListenerClosed = errors.New("listener closed while receiver is running")
 
 // Demuxer routes parsed BFD Control packets to the appropriate session.
 // This interface decouples the receiver from the bfd.Manager to avoid
@@ -44,52 +49,61 @@ func NewReceiver(demuxer Demuxer, logger *slog.Logger) *Receiver {
 }
 
 // Run reads from all listeners concurrently until ctx is cancelled.
-// Each listener gets its own goroutine. Run blocks until all listener
-// goroutines complete (i.e., until ctx is cancelled and all reads
-// return).
+// Each listener gets its own goroutine. After cancellation Run returns nil
+// once every read returns; a blocked read returns when its listener closes.
 //
 // Errors from individual packet reads are logged but do not stop the
-// receiver. Only context cancellation terminates the loop.
+// receiver. A listener that closes while ctx is live is a lost receive
+// path: Run returns ErrListenerClosed at once, without waiting for the
+// remaining listeners, which stop on cancellation and close.
 func (r *Receiver) Run(ctx context.Context, listeners ...*Listener) error {
 	if len(listeners) == 0 {
 		return fmt.Errorf("receiver: %w", ErrNoListeners)
 	}
+	return runListenerLoops(ctx, listeners, r.recvLoop)
+}
 
-	done := make(chan struct{}, len(listeners))
-
+// runListenerLoops runs one loop per listener and returns the first loop
+// error, or nil after every loop stops on cancellation.
+func runListenerLoops(
+	ctx context.Context, listeners []*Listener, loop func(context.Context, *Listener) error,
+) error {
+	done := make(chan error, len(listeners))
 	for _, ln := range listeners {
-		go func(l *Listener) {
-			r.recvLoop(ctx, l)
-			done <- struct{}{}
-		}(ln)
+		go func(l *Listener) { done <- loop(ctx, l) }(ln)
 	}
-
-	// Wait for all goroutines to finish.
 	for range listeners {
-		<-done
+		if err := <-done; err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 
 // recvLoop reads packets from a single Listener in a loop until ctx
 // is cancelled. Each received packet is unmarshaled and routed to the
 // Demuxer. Errors from individual reads are logged but do not stop the
-// loop; only context cancellation terminates it.
-func (r *Receiver) recvLoop(ctx context.Context, ln *Listener) {
+// loop; a closed listener with a live ctx returns ErrListenerClosed.
+func (r *Receiver) recvLoop(ctx context.Context, ln *Listener) error {
 	for {
 		if ctx.Err() != nil {
-			return
+			return nil //nolint:nilerr // Context cancellation is expected; return nil to signal clean shutdown.
 		}
 
 		if err := r.recvOne(ctx, ln); err != nil {
-			// Context cancellation during read is expected at shutdown.
 			if ctx.Err() != nil {
-				return
+				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
+			}
+			if listenerClosed(err) {
+				return fmt.Errorf("%w: %w", ErrListenerClosed, err)
 			}
 			r.logger.Warn("recv error", slog.String("error", err.Error()))
 		}
 	}
+}
+
+func listenerClosed(err error) bool {
+	return errors.Is(err, ErrSocketClosed) || errors.Is(err, net.ErrClosed)
 }
 
 // recvOne performs a single receive-unmarshal-demux cycle. The buffer

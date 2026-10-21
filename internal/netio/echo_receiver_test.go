@@ -306,3 +306,18 @@ func TestEchoReceiverContextCancellation(t *testing.T) {
 		t.Fatal("echo receiver did not stop after context cancellation")
 	}
 }
+
+func TestEchoReceiverRunReturnsWhenListenerClosedBeforeCancel(t *testing.T) {
+	t.Parallel()
+
+	mock := NewMockPacketConn(netip.MustParseAddrPort("0.0.0.0:3785"))
+	mock.ReadFunc = func([]byte) (int, netio.PacketMeta, error) {
+		return 0, netio.PacketMeta{}, netio.ErrSocketClosed
+	}
+	recv := netio.NewEchoReceiver(&mockEchoDemuxer{}, slog.New(slog.DiscardHandler))
+
+	err := recv.Run(t.Context(), netio.NewListenerFromConn(mock, false))
+	if !errors.Is(err, netio.ErrListenerClosed) {
+		t.Fatalf("Run error = %v, want %v", err, netio.ErrListenerClosed)
+	}
+}

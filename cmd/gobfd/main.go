@@ -145,11 +145,11 @@ func runServers(
 	// sessions are created so that state change notifications are forwarded
 	// from the internal rawNotifyCh to the public StateChanges channel.
 	// Also handles micro-BFD aggregate state dispatch (RFC 7130).
-	startManagerDispatch(gCtx, g, mgr)
+	startManagerDispatch(gCtx, g, mgr, coordinator.readiness)
 	startInterfaceMonitor(gCtx, g, mgr, sf, coordinator, logger)
 
 	// Start BFD packet listeners and receivers for incoming packets.
-	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, logger)
+	lnCleanup, err := startListenersAndReceivers(gCtx, g, cfg, mgr, coordinator.readiness, logger)
 	if err != nil {
 		return fmt.Errorf("create BFD listeners: %w", err)
 	}
@@ -165,7 +165,7 @@ func runServers(
 	defer closeGoBGPClient(bgpCloser, logger)
 
 	// Start overlay tunnel receivers (VXLAN on port 4789, Geneve on port 6081).
-	overlayRuntime, overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, logger)
+	overlayRuntime, overlayCleanup := startOverlayReceivers(gCtx, g, cfg, mgr, sf, coordinator.readiness, logger)
 	defer overlayCleanup()
 
 	startReconciliationRuntime(
@@ -175,7 +175,7 @@ func runServers(
 	notifyReady(logger)
 
 	// Shutdown goroutine: waits for context cancellation.
-	startShutdown(gCtx, g, mgr, logger, fr, grpcSrv, metricsSrv)
+	startShutdown(gCtx, g, mgr, logger, fr, coordinator.readiness, lnCleanup, grpcSrv, metricsSrv)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("run servers: %w", err)
@@ -183,10 +183,12 @@ func runServers(
 	return nil
 }
 
-func startManagerDispatch(ctx context.Context, g *errgroup.Group, mgr *bfd.Manager) {
+func startManagerDispatch(ctx context.Context, g *errgroup.Group, mgr *bfd.Manager, readiness *daemonReadiness) {
 	g.Go(func() error {
-		mgr.RunDispatch(ctx)
-		return nil
+		return readiness.runRequired(ctx, "BFD dispatch", func() error {
+			mgr.RunDispatch(ctx)
+			return nil
+		})
 	})
 }
 
@@ -196,11 +198,18 @@ func startShutdown(
 	mgr *bfd.Manager,
 	logger *slog.Logger,
 	fr *trace.FlightRecorder,
-	grpcSrv, metricsSrv *http.Server,
+	readiness *daemonReadiness,
+	closeReceivers func(),
+	servers ...*http.Server,
 ) {
 	g.Go(func() error {
 		<-ctx.Done()
-		return gracefulShutdown(ctx, mgr, logger, fr, grpcSrv, metricsSrv)
+		readiness.set(componentRuntime, false)
+		err := gracefulShutdown(ctx, mgr, logger, fr, servers...)
+		// Receive reads take no context; closing after the AdminDown drain
+		// keeps the drain receiving and lets idle receivers return.
+		closeReceivers()
+		return err
 	})
 }
 

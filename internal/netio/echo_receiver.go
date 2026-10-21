@@ -2,10 +2,8 @@ package netio
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
@@ -62,38 +60,28 @@ func NewEchoReceiver(demuxer EchoDemuxer, logger *slog.Logger) *EchoReceiver {
 // goroutines complete.
 //
 // Errors from individual packet reads are logged but do not stop the
-// receiver. Only context cancellation terminates the loop.
+// receiver. A listener that closes while ctx is live returns
+// ErrListenerClosed, as in Receiver.Run.
 func (r *EchoReceiver) Run(ctx context.Context, listeners ...*Listener) error {
 	if len(listeners) == 0 {
 		return ErrNoEchoListeners
 	}
-
-	done := make(chan struct{}, len(listeners))
-
-	for _, ln := range listeners {
-		go func(l *Listener) {
-			r.recvLoop(ctx, l)
-			done <- struct{}{}
-		}(ln)
-	}
-
-	for range listeners {
-		<-done
-	}
-
-	return nil
+	return runListenerLoops(ctx, listeners, r.recvLoop)
 }
 
 // recvLoop reads echo packets from a single Listener until ctx is cancelled.
-func (r *EchoReceiver) recvLoop(ctx context.Context, ln *Listener) {
+func (r *EchoReceiver) recvLoop(ctx context.Context, ln *Listener) error {
 	for {
 		if ctx.Err() != nil {
-			return
+			return nil //nolint:nilerr // Context cancellation is expected; return nil to signal clean shutdown.
 		}
 
 		if err := r.recvOne(ctx, ln); err != nil {
-			if ctx.Err() != nil || errors.Is(err, ErrSocketClosed) || errors.Is(err, net.ErrClosed) {
-				return
+			if ctx.Err() != nil {
+				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
+			}
+			if listenerClosed(err) {
+				return fmt.Errorf("echo %w: %w", ErrListenerClosed, err)
 			}
 			r.logger.Warn("echo recv error", slog.String("error", err.Error()))
 		}

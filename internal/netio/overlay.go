@@ -352,7 +352,8 @@ func NewOverlayReceiver(
 // Run reads from the overlay connection in a loop until ctx is cancelled.
 // Each received packet is decapsulated, unmarshaled, and routed to the
 // manager. Errors from individual packets are logged but do not stop the
-// receiver. Only context cancellation terminates the loop.
+// receiver. Context cancellation returns nil; a connection closed while ctx
+// is live returns ErrOverlayRecvClosed.
 //
 // The receive flow for each packet:
 //  1. conn.RecvDecapsulated(ctx) -> raw BFD payload + OverlayMeta
@@ -374,8 +375,8 @@ func (r *OverlayReceiver) Run(ctx context.Context) error {
 				return nil //nolint:nilerr // Context cancellation during recv is expected at shutdown.
 			}
 			if errors.Is(err, ErrOverlayRecvClosed) {
-				r.logger.Info(overlayReceiverStoppedMsg)
-				return nil
+				// A connection closed while ctx is live is a lost receive path.
+				return fmt.Errorf("overlay receiver: %w", err)
 			}
 			if isExpectedOverlayDrop(err) {
 				r.logger.Debug("overlay packet dropped",

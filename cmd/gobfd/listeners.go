@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"slices"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
@@ -19,36 +21,61 @@ import (
 // -------------------------------------------------------------------------
 
 // startListenersAndReceivers creates all BFD listeners and starts receiver
-// goroutines in the errgroup. Returns a cleanup function that closes all
-// listeners when called.
+// goroutines in the errgroup. Returns an idempotent cleanup function that
+// closes all listeners. Device-bound listener interfaces feed readiness.
 func startListenersAndReceivers(
 	ctx context.Context,
 	g *errgroup.Group,
 	cfg *config.Config,
 	mgr *bfd.Manager,
+	readiness *daemonReadiness,
 	logger *slog.Logger,
 ) (func(), error) {
+	bindings := resolveListenerBindings(cfg, net.Interfaces)
 	//nolint:contextcheck // Listener socket creation uses context.Background() internally.
 	lnResult, err := createListeners(cfg, logger, mgr)
 	if err != nil {
 		return nil, err
 	}
 
-	cleanup := func() {
+	cleanup := sync.OnceFunc(func() {
 		closeListeners(lnResult.control, logger)
 		closeListeners(lnResult.echo, logger)
 		closeListeners(lnResult.microBFD, logger)
-	}
+	})
 
+	startReceivers(ctx, g, readiness, lnResult, mgr, logger)
+	readiness.watchBindings(bindings, net.Interfaces)
+	return cleanup, nil
+}
+
+// startReceivers runs the receivers as required workers: a receiver that
+// returns while ctx is live fails the daemon stop.
+func startReceivers(
+	ctx context.Context,
+	g *errgroup.Group,
+	readiness *daemonReadiness,
+	lnResult listenersResult,
+	mgr *bfd.Manager,
+	logger *slog.Logger,
+) {
 	if len(lnResult.control) > 0 {
 		recv := netio.NewReceiver(mgr, logger)
-		g.Go(func() error { return recv.Run(ctx, lnResult.control...) })
+		g.Go(func() error {
+			return readiness.runRequired(ctx, "control receiver", func() error {
+				return recv.Run(ctx, lnResult.control...)
+			})
+		})
 	}
 
 	// Start echo receiver for RFC 9747 echo packets (port 3785).
 	if len(lnResult.echo) > 0 {
 		echoRecv := netio.NewEchoReceiver(mgr, logger)
-		g.Go(func() error { return echoRecv.Run(ctx, lnResult.echo...) })
+		g.Go(func() error {
+			return readiness.runRequired(ctx, "echo receiver", func() error {
+				return echoRecv.Run(ctx, lnResult.echo...)
+			})
+		})
 	}
 
 	// Start micro-BFD receiver for RFC 7130 packets (port 6784).
@@ -56,10 +83,12 @@ func startListenersAndReceivers(
 	// so we reuse the standard Receiver with the micro-BFD listeners.
 	if len(lnResult.microBFD) > 0 {
 		microRecv := netio.NewReceiver(mgr, logger)
-		g.Go(func() error { return microRecv.Run(ctx, lnResult.microBFD...) })
+		g.Go(func() error {
+			return readiness.runRequired(ctx, "micro-BFD receiver", func() error {
+				return microRecv.Run(ctx, lnResult.microBFD...)
+			})
+		})
 	}
-
-	return cleanup, nil
 }
 
 // listenersResult holds the listeners created by createListeners, separated

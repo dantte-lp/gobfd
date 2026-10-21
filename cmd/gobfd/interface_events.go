@@ -131,6 +131,9 @@ func consumeInterfaceEvents(
 			} else {
 				mgr.HandleInterfaceEvent(ev.IfName, ev.Up)
 			}
+			// Bound listener interfaces are re-checked against the current
+			// inventory; a coalesced or lost event cannot leave a false SERVING.
+			coordinator.readiness.checkBindings(net.Interfaces)
 			generation, selected := coordinator.interfaceEventSelection(ev)
 			queue.add(generation, selected)
 		}

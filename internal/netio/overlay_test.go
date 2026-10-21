@@ -544,3 +544,18 @@ func TestOverlayErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestOverlayReceiverRunReportsUnexpectedClose(t *testing.T) {
+	t.Parallel()
+
+	conn := &testOverlayConn{
+		recvFunc: func(context.Context) ([]byte, netio.OverlayMeta, error) {
+			return nil, netio.OverlayMeta{}, netio.ErrOverlayRecvClosed
+		},
+	}
+	recv := netio.NewOverlayReceiver(conn, &mockDemuxer{}, slog.New(slog.DiscardHandler))
+
+	if err := recv.Run(t.Context()); !errors.Is(err, netio.ErrOverlayRecvClosed) {
+		t.Fatalf("Run error = %v, want %v", err, netio.ErrOverlayRecvClosed)
+	}
+}
