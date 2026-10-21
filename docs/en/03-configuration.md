@@ -329,9 +329,9 @@ echo:
 | `micro_bfd.groups[].member_links` | []string | -- | Physical member link names |
 | `micro_bfd.groups[].peer_addr` | string | -- | Remote system IP for all member sessions |
 | `micro_bfd.groups[].local_addr` | string | -- | Local system IP |
-| `micro_bfd.groups[].desired_min_tx` | duration | -- | BFD timer interval for member sessions |
-| `micro_bfd.groups[].required_min_rx` | duration | -- | Minimum acceptable RX interval |
-| `micro_bfd.groups[].detect_mult` | uint32 | -- | Detection time multiplier |
+| `micro_bfd.groups[].desired_min_tx` | duration | `bfd.default_desired_min_tx` | BFD timer interval for member sessions |
+| `micro_bfd.groups[].required_min_rx` | duration | `bfd.default_required_min_rx` | Minimum acceptable RX interval |
+| `micro_bfd.groups[].detect_mult` | uint32 | `bfd.default_detect_multiplier` | Detection time multiplier |
 | `micro_bfd.groups[].min_active_links` | int | -- | Minimum Up members for LAG Up (>= 1) |
 | `micro_bfd.actuator.mode` | string | `disabled` | `disabled`, `dry-run`, or `enforce` |
 | `micro_bfd.actuator.backend` | string | `auto` | `auto`, `kernel-bond`, `ovs`, or `networkmanager` |
@@ -358,6 +358,23 @@ member recovers. Otherwise keep the default owner refusal policy for disabled
 and dry-run modes.
 
 Groups are reconciled on SIGHUP reload. Group key: `lag_interface`.
+
+Each group and its member sessions apply as one unit. A failed member session
+rolls back the groups and member sessions created by that reload; committed
+groups and sessions stay in place. A member link belongs to one group: a
+candidate that lists the same member link in two groups is rejected as a whole;
+RFC 7130 Section 2 runs micro-BFD sessions per LAG member link. Unset
+`desired_min_tx`, `required_min_rx` and `detect_mult` inherit `bfd.default_*`.
+The group and every member session share these values, and the RFC 5880
+address, interval wire-bound and detect multiplier validation applies to them
+(RFC 7130 Section 2.2). A changed member
+list, address, timer or `min_active_links` of a running group is a
+configuration conflict that leaves the group unchanged: remove the group in one
+reload and add it in the next.
+
+`AddMicroBFDGroup` applies the same validation, rejects a member link owned by
+another group with `FAILED_PRECONDITION`, and creates the aggregate group only;
+`ListMicroBFDGroups` returns the stored member timers.
 
 Example:
 ```yaml

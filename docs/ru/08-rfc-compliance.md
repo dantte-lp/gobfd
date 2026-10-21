@@ -432,7 +432,8 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | Требование | Реализация |
 |---|---|
 | UDP порт 6784 | `netio.PortMicroBFD = 6784`, per-member слушатели в `createMicroBFDListeners()` |
-| Одна BFD-сессия на member link | `MicroBFDGroup.members` map, `AddMember()`/`RemoveMember()` |
+| Одна BFD-сессия на member link (Sections 2, 2.2) | `microBFDMemberSessionConfig()` выводит из группы одну сессию `SessionTypeMicroBFD` на member link; каждым member link владеет одна группа (`ErrMicroBFDMemberOwned`) |
+| Контракт member-сессии (Section 2.2) | `ValidateMicroBFDConfig()` применяет проверку сессии RFC 5880 (адрес пира, wire-границы интервалов, detect multiplier) к каждой member-сессии на пути daemon и прямом пути Manager/API; группы хранят и возвращают общие таймеры |
 | `SO_BINDTODEVICE` на каждый member | Функциональная опция `WithBindDevice()` на отправителе |
 | Отслеживание агрегатного состояния | Порог `upCount >= minActive` |
 | Обработка Member Down | `UpdateMemberState()` фиксирует состояние member и вызывает изменение агрегатного порога |
@@ -440,9 +441,9 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | Только асинхронный режим | Стандартные процедуры RFC 5880 для каждого member |
 | Тип сессии | Константа `SessionTypeMicroBFD` |
 | Конфигурация per-group | `MicroBFDGroupConfig` с LAG-интерфейсом + member-линки |
-| Реконсиляция групп | `reconcileMicroBFDGroups()` в `main.go`, SIGHUP reload |
-| Диспетчер состояний | `RunDispatch` fan-out горутина маршрутизирует изменения состояний в группы |
-| Actuator hook | `MicroBFDActuator` получает события member state после обновления состояния группы |
+| Реконсиляция групп | `Manager.ReconcileMicroBFDGroupsDetailed()` фиксирует каждую группу вместе с её member-сессиями при SIGHUP reload; ошибка claim member-сессии откатывает новые группы и сессии этого прохода |
+| Диспетчер состояний | `RunDispatch` направляет изменение состояния member через индекс `{member link, address family}` в единственную группу-владельца |
+| Actuator hook (Section 5) | `MicroBFDActuator` получает события member state после обновления группы, вне блокировок Manager, в порядке dispatch, с context deadline 5 s на вызов |
 | Policy gate | `netio.LAGActuator` поддерживает режимы `disabled`, `dry-run` и `enforce` |
 | Daemon wiring | `micro_bfd.actuator` задаёт mode, backend, OVSDB endpoint, owner policy и действия с member |
 | Kernel bond backend | `KernelBondLAGBackend` пишет `-member` / `+member` в Linux bonding sysfs |

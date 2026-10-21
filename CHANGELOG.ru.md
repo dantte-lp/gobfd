@@ -457,6 +457,28 @@
   Podman, без которых не завершается rootless network teardown
   (LP: #2154379), и выводят отказы AppArmor после прогона (`gobfd-dah`).
 
+- Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130
+  Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload применяет один источник
+  Micro-BFD: ошибка member-сессии откатывает новые группы и сессии прохода до
+  освобождения любой зафиксированной группы или сессии. Member link, указанный
+  в двух группах LAG, отклоняет весь кандидат; `AddMicroBFDGroup` возвращает
+  `FailedPrecondition` для member link другой группы. Dispatch находит
+  единственного владельца по индексу `{member link, address family}`.
+
+- Контракт RFC 5880 каждой member-сессии Micro-BFD проверяется на пути
+  кандидата daemon и прямом пути Manager/API: адрес пира, wire-границы
+  интервалов, detect multiplier и непустые имена LAG и member (RFC 7130
+  Section 2.2, M-09). Незаданные таймеры группы наследуют `bfd.default_*`.
+  Группы хранят таймеры, `ListMicroBFDGroups` возвращает их, изменение таймера
+  работающей группы — конфликт конфигурации. `AddMicroBFDGroup` возвращает
+  `InvalidArgument` для явного нулевого интервала или пустого имени member.
+
+- Actuator Micro-BFD вызывается после освобождения блокировок Manager, в
+  порядке dispatch, с context deadline 5 секунд на вызов (RFC 7130 Section 5,
+  M-10). Заблокированный backend LAG больше не останавливает CRUD групп; ошибка
+  или deadline пишет `micro-BFD actuator failed` с `deadline_exceeded`.
+  Backend, игнорирующий context, по-прежнему задерживает следующие уведомления.
+
 - Обновление таймеров из config вне Up, включая AdminDown, вступает в силу
   немедленно, receipt подтверждает его Poll (RFC 5880 Section 6.8.3).
   Восстановление, принятое после того, как локальный нулевой Required Min RX
