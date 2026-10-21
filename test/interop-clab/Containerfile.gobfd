@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS builder
+FROM docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
 
 # GoBGP v4.10.0 from the same immutable source pin as test/interop/gobgp;
 # the topology contract test keeps both pins identical.
-FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS gobgp
+FROM docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS gobgp
 ADD --checksum=sha256:755448f0881b66e4a3795b443dd53825431cda1866d8b38e941e474d51714151 \
     https://codeload.github.com/osrg/gobgp/tar.gz/da824d99912e02124b53741245ee4186c381adcc /tmp/gobgp.tar.gz
 WORKDIR /src

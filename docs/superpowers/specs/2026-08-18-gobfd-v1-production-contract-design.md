@@ -430,7 +430,7 @@ socket pools, `SO_REUSEPORT`, `recvmmsg`, or a timing wheel require a measured
 post-core ADR that preserves discriminator and source-port affinity.
 
 The supported v1 envelope is qualified on a reference runner with 8 vCPU,
-8 GiB RAM, `GOMAXPROCS=8`, and the exact Go 1.27.2 toolchain required by
+8 GiB RAM, `GOMAXPROCS=8`, and the exact Go 1.27.3 toolchain required by
 `AGENTS.md`. It runs 1,000 mixed IPv4/IPv6 Up
 sessions for 24 hours at 100 ms TX/RX and multiplier 3, with background CPU
 load held at 80%, deterministic 0.1% random packet loss, and one intentional

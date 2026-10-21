@@ -734,8 +734,8 @@ func exactOCILicense(reference string) (ociLicenseOverride, bool) {
 			SourceRepository: "debuerreotype/docker-debian-artifacts", SourceCommit: "7935fc7dd049cb343df42037c152f570069d274f",
 			LicenseFile: "LICENSE", SPDX: "Apache-2.0", LicenseHash: "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
 		},
-		"docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e": {
-			SourceRepository: "docker-library/golang", SourceCommit: "8380885ec449224702b989d8792d2e1470a46e89",
+		"docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c": {
+			SourceRepository: "docker-library/golang", SourceCommit: "41d9b4da70324ae7b6461ac2cc401b06719ff57d",
 			LicenseFile: "LICENSE", SPDX: "BSD-3-Clause", LicenseHash: "31668de690a9ecc50ba008a701b6bdb4d08ded13df7c319c49466b500eef6f69",
 		},
 		"docker.io/library/haproxy:3.4.6-trixie@sha256:e273915691a8eab3f105bf3e39fd4c29a4ecf334e33421903b5589d25e14db26": {

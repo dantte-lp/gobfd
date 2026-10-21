@@ -14,7 +14,7 @@ ADD --checksum=sha256:9517a0d21e2706b54521fbd720803698bba42859ca179e9905cc6b8fb0
 FROM archive-${TARGETARCH} AS archive
 
 # CA bundle from the pinned repository toolchain image, as in deployments/docker/Containerfile.
-FROM docker.io/library/golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS certificates
+FROM docker.io/library/golang:1.27.3-trixie@sha256:604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c AS certificates
 
 # Debian 13 (trixie-slim), shared repository runtime base.
 FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f

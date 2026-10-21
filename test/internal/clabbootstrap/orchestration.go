@@ -181,8 +181,8 @@ func publicImages(tags ImageTags, frrReference string) []imageReference {
 		{name: "frr", reference: frrReference},
 		{
 			name: "golang",
-			reference: "docker.io/library/golang:1.27.2-trixie@sha256:" +
-				"47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e",
+			reference: "docker.io/library/golang:1.27.3-trixie@sha256:" +
+				"604106102d33b1084e37ca08adf98ac0813624ae8595bd0d7f3965ecebded09c",
 		},
 		{
 			name: "debian",

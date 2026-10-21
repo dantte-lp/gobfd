@@ -84,7 +84,7 @@ func TestHAProxyHealthContract(t *testing.T) {
 		t.Fatalf("read bounded GoBFD Containerfile: %v", err)
 	}
 	for _, required := range [][]byte{
-		[]byte("docker.io/library/golang:1.27.2-trixie@sha256:"),
+		[]byte("docker.io/library/golang:1.27.3-trixie@sha256:"),
 		[]byte("./cmd/gobfd"), []byte("./cmd/gobfdctl"), []byte("./cmd/gobfd-haproxy-agent"),
 	} {
 		if !bytes.Contains(containerfile, required) {

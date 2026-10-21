@@ -2,7 +2,7 @@ module github.com/dantte-lp/gobfd/tools
 
 go 1.27
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require github.com/google/rpmpack v0.7.1
 

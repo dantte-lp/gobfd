@@ -19,7 +19,7 @@ session goes Down.
 
 FRR 10.7.1 and GoBGP v4.10.0 use the shared Debian trixie recipes in
 `test/interop/frr/` and `test/interop/gobgp/`. GoBGP v4.10.0 is built from
-upstream commit `da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.2.
+upstream commit `da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.3.
 GoBFD on `dev` requires a GoBGP v4 daemon; a GoBGP v3 daemon is
 wire-incompatible. GoBGP v4 native BFD is disabled by default and is not
 enabled in this example. Builds are limited to 2 CPUs and 2 GiB;

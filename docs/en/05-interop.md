@@ -347,7 +347,7 @@ Each scenario tests three phases:
 **BGP trixie qualification passed locally** (Beads `gobfd-qj0.8.2.8.5.2.4.2.2`).
 The approved replacement uses shared recipes under `test/interop/` for FRR,
 GoBGP and ExaBGP. GoBGP v4.10.0 is built from upstream commit
-`da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.2 on trixie. GoBGP v3
+`da824d99912e02124b53741245ee4186c381adcc` with Go 1.27.3 on trixie. GoBGP v3
 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two are
 wire-incompatible, so `dev` GoBFD requires a GoBGP v4 daemon. GoBGP v4 native
 BFD is disabled by default, and no repository GoBGP configuration enables it.

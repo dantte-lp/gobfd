@@ -360,6 +360,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the published immutable v0.6.4 evidence after resolving and accepting
   all three P1 maintenance-review findings in Beads.
 
+### Security
+
+- Updated the first-party Go toolchain from `go1.27.2` to `go1.27.3` in
+  `go.mod`, `tools/go.mod`, CI and release workflows, Containerfiles and test
+  harnesses. Every `golang:1.27.3-trixie` consumer uses one index digest.
+  Fixes reachable
+  [GO-2026-6809 / CVE-2026-111943](https://pkg.go.dev/vuln/GO-2026-6809)
+  in `crypto/x509` `Certificate.Verify`. The maintainer adopted `go1.27.3`
+  on 2026-10-21 as a security exception to the seven-day release-age rule.
+
 ### Fixed
 
 - Return `InvalidArgument` for malformed protobuf durations in generic, Echo

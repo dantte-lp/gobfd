@@ -477,10 +477,13 @@ Containerlab vendor runs (no containerlab binary or vendor images).
 Version matrix measured on 2026-10-14; GitHub releases, Go modules and go.dev rechecked on 2026-10-15 at 18:10 UTC, other channels not rechecked. Sources: `gh api graphql` releases,
 `proxy.golang.org`, `go list -m -u`, Docker Hub and GHCR registry APIs,
 `deb.frrouting.org` package index.
+The Go toolchain row was rechecked on 2026-10-21 against the go.dev download
+index. `go1.27.3` was adopted before the seven-day age gate as a
+maintainer-approved security exception for GO-2026-6809 (`gobfd-bjr`).
 
 | Component | Channel | `dev` | Latest | Eligible | Owner |
 |---|---|---|---|---|---|
-| Go toolchain | go.dev | 1.27.2 | 1.27.2 | current | done |
+| Go toolchain | go.dev | 1.27.3 | 1.27.3 | current | done |
 | GoBGP | GitHub release | v4.10.0 | v4.10.0 | current | done |
 | connect-go | Go module | v2.0.0 | v2.0.1 | 2026-10-21 | `.8.6.10` |
 | grpchealth | Go module | v2.0.0 | v2.0.0 | current | done |
