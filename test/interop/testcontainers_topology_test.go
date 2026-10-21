@@ -57,15 +57,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		registerFourPeerImageCleanup(ctx, t, endpoint, bfdFuzzImage, resources)
 		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
 		t.Setenv("INTEROP_PROJECT_NAME", projectName)
-		if strings.TrimSpace(os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR")) == "" {
-			//nolint:usetesting // Retained artifacts must outlive t.TempDir cleanup for post-run inspection.
-			artifactDirectory, err := os.MkdirTemp("", "gobfd-interop-artifacts-")
-			if err != nil {
-				t.Fatalf("create retained four-peer artifact directory: %v", err)
-			}
-			t.Setenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR", artifactDirectory)
-		}
-		t.Logf("retained four-peer artifacts: %s", os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR"))
+		ensureFourPeerArtifactDirectory(t)
 		// Register after all containers: artifacts survive assertion failures and precede exact-ID cleanup.
 		registerFourPeerArtifactCleanup(ctx, t, func(artifactCtx context.Context) {
 			logs, err := projectContainerLogs(artifactCtx, "gobfd-interop")
@@ -91,6 +83,19 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 	for _, imageName := range resources.imageNames {
 		containertest.AssertImageRemoved(t, endpoint, imageName)
 	}
+}
+
+func ensureFourPeerArtifactDirectory(t *testing.T) {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR")) == "" {
+		//nolint:usetesting // Retained artifacts must outlive t.TempDir cleanup for post-run inspection.
+		artifactDirectory, err := os.MkdirTemp("", "gobfd-interop-artifacts-")
+		if err != nil {
+			t.Fatalf("create retained four-peer artifact directory: %v", err)
+		}
+		t.Setenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR", artifactDirectory)
+	}
+	t.Logf("retained four-peer artifacts: %s", os.Getenv("INTEROP_TESTCONTAINERS_ARTIFACT_DIR"))
 }
 
 func registerFourPeerArtifactCleanup(ctx context.Context, t *testing.T, daemon, pcap func(context.Context)) {
@@ -177,26 +182,7 @@ func startFourPeerTopology(
 		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources, nil,
 	)
 
-	networkName := interopNetworkName(projectName)
-	resources.networkName = networkName
-	//nolint:staticcheck // ProviderPodman plus static IPAM requires this v0.44 API.
-	_, err = containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
-		Name:   networkName,
-		Driver: "bridge",
-		Labels: map[string]string{"io.gobfd.test": "four-peer-testcontainers"},
-		IPAM: &network.IPAM{Config: []network.IPAMConfig{{
-			Subnet:  netip.MustParsePrefix("172.20.0.0/24"),
-			Gateway: netip.MustParseAddr("172.20.0.1"),
-		}}},
-	})
-	if err != nil {
-		t.Fatalf("create four-peer Podman network: %v", err)
-	}
-
-	labels := map[string]string{
-		fourPeerProjectLabel: projectName,
-		"io.gobfd.test":      "four-peer-testcontainers",
-	}
+	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "four-peer-testcontainers", resources)
 	holo := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:    fourPeerHoloImage,
 		Name:     "holo-interop",
@@ -245,45 +231,9 @@ func startFourPeerTopology(
 	resources.containerIDs = append(resources.containerIDs, loader.GetContainerID())
 	verifyFourPeerHoloConfiguration(ctx, t, holo, loader)
 
-	gobfd := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:    gobfdImage,
-		Name:     "gobfd-interop",
-		Labels:   labels,
-		Networks: []string{networkName},
-		NetworkAliases: map[string][]string{
-			networkName: {"gobfd"},
-		},
-		Cmd: []string{"-config", "/etc/gobfd/gobfd.yml"},
-		Env: map[string]string{"GOBFD_LOG_FORMAT": "json"},
-		Files: []testcontainers.ContainerFile{{
-			HostFilePath:      filepath.Join(root, "test/interop/gobfd/gobfd.yml"),
-			ContainerFilePath: "/etc/gobfd/gobfd.yml",
-			FileMode:          0o644,
-		}},
-		WaitingFor: wait.ForExec([]string{
-			"/bin/gobfdctl", "--addr", "127.0.0.1:50051",
-			"session", "list", "--format", "json",
-		}).WithStartupTimeout(30 * time.Second),
-		ConfigModifier: func(config *container.Config) {
-			config.User = "0:0"
-		},
-		HostConfigModifier:       addFourPeerCapabilities,
-		EndpointSettingsModifier: staticFourPeerIP(networkName, gobfdIP),
-	})
-	resources.containerIDs = append(resources.containerIDs, gobfd.GetContainerID())
-
-	tshark := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
-		Image:      tsharkImage,
-		Name:       "tshark-interop",
-		Labels:     labels,
-		WaitingFor: wait.ForExec([]string{"test", "-f", "/captures/bfd.pcapng"}).WithStartupTimeout(20 * time.Second),
-		HostConfigModifier: func(hostConfig *container.HostConfig) {
-			addFourPeerCapabilities(hostConfig)
-			hostConfig.NetworkMode = container.NetworkMode("container:" + gobfd.GetContainerID())
-		},
-	})
-	resources.tshark = tshark
-	resources.containerIDs = append(resources.containerIDs, tshark.GetContainerID())
+	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, "test/interop/gobfd/gobfd.yml"),
+		networkName, labels, resources)
+	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 
 	frr := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:    frrImage,
@@ -341,6 +291,94 @@ func startFourPeerTopology(
 		EndpointSettingsModifier: staticFourPeerIP(networkName, thoroIP),
 	})
 	resources.containerIDs = append(resources.containerIDs, thoro.GetContainerID())
+}
+
+// startFourPeerNetwork creates the static 172.20.0.0/24 test network and
+// returns its name and the container ownership labels.
+func startFourPeerNetwork(
+	ctx context.Context, t *testing.T, projectName, purpose string, resources *fourPeerResources,
+) (string, map[string]string) {
+	t.Helper()
+
+	networkName := interopNetworkName(projectName)
+	resources.networkName = networkName
+	//nolint:staticcheck // ProviderPodman plus static IPAM requires this v0.44 API.
+	_, err := containertest.NewNetwork(ctx, t, testcontainers.NetworkRequest{
+		Name:   networkName,
+		Driver: "bridge",
+		Labels: map[string]string{"io.gobfd.test": purpose},
+		IPAM: &network.IPAM{Config: []network.IPAMConfig{{
+			Subnet:  netip.MustParsePrefix("172.20.0.0/24"),
+			Gateway: netip.MustParseAddr("172.20.0.1"),
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("create %s Podman network: %v", purpose, err)
+	}
+	return networkName, map[string]string{fourPeerProjectLabel: projectName, "io.gobfd.test": purpose}
+}
+
+func startFourPeerGoBFD(
+	ctx context.Context,
+	t *testing.T,
+	image, configPath, networkName string,
+	labels map[string]string,
+	resources *fourPeerResources,
+) testcontainers.Container {
+	t.Helper()
+
+	gobfd := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
+		Image:    image,
+		Name:     "gobfd-interop",
+		Labels:   labels,
+		Networks: []string{networkName},
+		NetworkAliases: map[string][]string{
+			networkName: {"gobfd"},
+		},
+		Cmd: []string{"-config", "/etc/gobfd/gobfd.yml"},
+		Env: map[string]string{"GOBFD_LOG_FORMAT": "json"},
+		Files: []testcontainers.ContainerFile{{
+			HostFilePath:      configPath,
+			ContainerFilePath: "/etc/gobfd/gobfd.yml",
+			FileMode:          0o644,
+		}},
+		WaitingFor: wait.ForExec([]string{
+			"/bin/gobfdctl", "--addr", "127.0.0.1:50051",
+			"session", "list", "--format", "json",
+		}).WithStartupTimeout(30 * time.Second),
+		ConfigModifier: func(config *container.Config) {
+			config.User = "0:0"
+		},
+		HostConfigModifier:       addFourPeerCapabilities,
+		EndpointSettingsModifier: staticFourPeerIP(networkName, gobfdIP),
+	})
+	resources.containerIDs = append(resources.containerIDs, gobfd.GetContainerID())
+	return gobfd
+}
+
+// startFourPeerTshark captures BFD traffic inside the GoBFD network namespace.
+func startFourPeerTshark(
+	ctx context.Context,
+	t *testing.T,
+	image string,
+	gobfd testcontainers.Container,
+	labels map[string]string,
+	resources *fourPeerResources,
+) testcontainers.Container {
+	t.Helper()
+
+	tshark := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
+		Image:      image,
+		Name:       "tshark-interop",
+		Labels:     labels,
+		WaitingFor: wait.ForExec([]string{"test", "-f", "/captures/bfd.pcapng"}).WithStartupTimeout(20 * time.Second),
+		HostConfigModifier: func(hostConfig *container.HostConfig) {
+			addFourPeerCapabilities(hostConfig)
+			hostConfig.NetworkMode = container.NetworkMode("container:" + gobfd.GetContainerID())
+		},
+	})
+	resources.containerIDs = append(resources.containerIDs, tshark.GetContainerID())
+	return tshark
 }
 
 func startFourPeerContainer(

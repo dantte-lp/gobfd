@@ -1,0 +1,32 @@
+# GoBFD configuration for the crafted Go peer topology (TestCraftedPeerTestcontainers).
+#
+# One Active single-hop session to the repository-owned crafted peer at
+# 172.20.0.40. The peer advertises Required Min RX 0, goes silent and sets the
+# Demand bit, which pinned FRR and BIRD cannot do (RFC 5880 Sections 6.6,
+# 6.8.7 and 6.8.18).
+#
+# Detection time = 3 * max(300ms, 300ms) = 900ms (RFC 5880 Section 6.8.4).
+
+grpc:
+  addr: "127.0.0.1:50051"
+
+metrics:
+  addr: ":9100"
+  path: "/metrics"
+
+log:
+  level: "debug"
+  format: "text"
+
+bfd:
+  default_desired_min_tx: "300ms"
+  default_required_min_rx: "300ms"
+  default_detect_multiplier: 3
+
+sessions:
+  - peer: "172.20.0.40"
+    local: "172.20.0.10"
+    type: single_hop
+    desired_min_tx: "300ms"
+    required_min_rx: "300ms"
+    detect_mult: 3
