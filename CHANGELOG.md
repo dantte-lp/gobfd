@@ -204,6 +204,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on a closed socket. Shutdown sets health `NOT_SERVING` and closes the receive
   listeners after the AdminDown drain, so an idle listener no longer blocks the
   exit.
+- Report Micro-BFD reconciliation as one `micro` source in generation receipt
+  logs instead of `micro_group` and `micro_member`. The daemon logs
+  `micro-BFD reconciliation had errors` or `micro-BFD reconciliation complete`
+  instead of the separate group and session messages (`gobfd-qj0.8.2.2.1`).
 
 - Stable v1 permits the module-only `GO-2026-4736` exception for GoBGP v4.10.0
   by maintainer decision of 2026-10-21 (`gobfd-qj0.8.4.1`) while GHSA/OSV list
