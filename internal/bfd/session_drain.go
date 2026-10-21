@@ -13,9 +13,16 @@ type DrainIncompleteError struct {
 	Stage  string
 	Reason string
 	Err    error
+	// SendErr is the last failed AdminDown write: a local failure that the
+	// peer did not cause.
+	SendErr error
 }
 
 func (e *DrainIncompleteError) Error() string {
+	if e.SendErr != nil {
+		return fmt.Sprintf("AdminDown drain incomplete (%s, %s): %v; last AdminDown write: %v",
+			e.Stage, e.Reason, e.Err, e.SendErr)
+	}
 	return fmt.Sprintf("AdminDown drain incomplete (%s, %s): %v", e.Stage, e.Reason, e.Err)
 }
 func (e *DrainIncompleteError) Unwrap() error { return e.Err }
@@ -28,8 +35,12 @@ const (
 
 // PeerAttributed reports whether the drain ran out of time only because the
 // peer never supplied a discriminator or suppresses periodic transmission
-// (RFC 5880 Section 6.8.7), with no local admission, commit or owner failure.
+// (RFC 5880 Section 6.8.7), with no local admission, commit, owner or write
+// failure.
 func (e *DrainIncompleteError) PeerAttributed() bool {
+	if e.SendErr != nil {
+		return false
+	}
 	waiting := e.Stage == "transmission" || e.Stage == "notification window"
 	peer := e.Reason == drainReasonPassivePeerUnknown || e.Reason == drainReasonPeerSuppressesTX
 	return waiting && peer && errors.Is(e.Err, context.DeadlineExceeded)
@@ -40,6 +51,7 @@ type adminDrainProgress struct {
 	firstSentAt time.Time
 	maxWindow   time.Duration
 	until       time.Time
+	sendErr     error
 }
 
 func (s *Session) drainAdminDown(ctx context.Context) error {
@@ -124,7 +136,11 @@ func (s *Session) incompleteDrain(stage string, err error) error {
 	} else if s.remoteMinRxInterval == 0 {
 		reason = drainReasonPeerSuppressesTX
 	}
-	return &DrainIncompleteError{Stage: stage, Reason: reason, Err: err}
+	var sendErr error
+	if s.adminDrain != nil {
+		sendErr = s.adminDrain.sendErr
+	}
+	return &DrainIncompleteError{Stage: stage, Reason: reason, Err: err, SendErr: sendErr}
 }
 
 // The negotiated tuple and its extended drain deadline share one lock.
@@ -148,6 +164,20 @@ func (s *Session) updateAdminDrainLocked(now time.Time) {
 		if until.After(progress.until) {
 			progress.until = until
 		}
+	}
+}
+
+// recordAdminDrainSendError keeps a failed AdminDown write so that an
+// incomplete drain is reported as local, not as the peer's. The owner
+// goroutine calls it after any failed control write.
+func (s *Session) recordAdminDrainSendError(err error) {
+	if s.cachedState != StateAdminDown || s.LocalDiag() != DiagAdminDown {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.adminDrain != nil {
+		s.adminDrain.sendErr = err
 	}
 }
 
