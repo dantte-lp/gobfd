@@ -184,6 +184,11 @@
 
 ### Изменено
 
+- Reconciliation Micro-BFD отражается в логах receipt поколения одним
+  источником `micro` вместо `micro_group` и `micro_member`. Daemon пишет
+  `micro-BFD reconciliation had errors` или `micro-BFD reconciliation complete`
+  вместо отдельных сообщений группы и сессий (`gobfd-qj0.8.2.2.1`).
+
 - Stable v1 допускает module-only исключение `GO-2026-4736` для GoBGP v4.10.0 по
   решению мейнтейнера от 2026-10-21 (`gobfd-qj0.8.4.1`), пока GHSA/OSV указывают
   исправленную версию не выше закреплённой, а govulncheck финального candidate
