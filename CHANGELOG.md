@@ -447,8 +447,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - An orderly stop exits 0 when an AdminDown drain cannot finish because a
   peer is unreachable or never supplied a discriminator; the drain is logged as
-  a warning. Admission, commit, owner and other local drain failures still
-  exit with an error, and receive-path fail-stop is unchanged.
+  a warning. Admission, commit, owner, failed AdminDown writes and other local
+  drain failures still exit with an error, and receive-path fail-stop is
+  unchanged.
 
 - The Debian package depends on `procps`, which provides the `/bin/kill` that
   `ExecReload=` runs; a minimal Debian 13 system with only `systemd` failed
@@ -722,8 +723,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps `/sys` read-only, so the `kernel-bond` actuator in `enforce` mode
   cannot write bonding sysfs under this unit; the opt-in drop-in
   `deployments/systemd/gobfd-kernel-bond.conf` reopens only
-  `bonding/slaves`, and its write qualification remains open
-  (`gobfd-qj0.8.2.3.3.1`).
+  `bonding/slaves` and grants `CAP_DAC_OVERRIDE`, which the root-owned 0644
+  sysfs file requires and which also lifts file read checks for the service;
+  its write qualification remains open (`gobfd-qj0.8.2.3.3.1`).
 
 - Updated the first-party Go toolchain from `go1.27.2` to `go1.27.3` in
   `go.mod`, `tools/go.mod`, CI and release workflows, Containerfiles and test
