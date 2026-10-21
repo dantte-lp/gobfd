@@ -794,15 +794,18 @@ func mapManagerError(err error, operation string) *connect.Error {
 		return connect.NewError(connect.CodeDeadlineExceeded, wrapError(operation, err).Error())
 	case errors.Is(err, context.Canceled):
 		return connect.NewError(connect.CodeCanceled, wrapError(operation, err).Error())
-	case errors.Is(err, bfd.ErrDuplicateSession):
+	case errors.Is(err, bfd.ErrDuplicateSession),
+		errors.Is(err, bfd.ErrMicroBFDGroupExists):
 		return connect.NewError(connect.CodeAlreadyExists, wrapError(operation, err).Error())
-	case errors.Is(err, bfd.ErrSessionNotFound):
+	case errors.Is(err, bfd.ErrSessionNotFound),
+		errors.Is(err, bfd.ErrMicroBFDGroupNotFound):
 		return connect.NewError(connect.CodeNotFound, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrSessionOwnerClaimNotFound):
 		return connect.NewError(connect.CodePermissionDenied, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInterfaceUnresolved),
 		errors.Is(err, bfd.ErrMicroBFDMemberOwned),
-		errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound):
+		errors.Is(err, bfd.ErrMicroBFDGroupOwnerClaimNotFound),
+		errors.Is(err, bfd.ErrMicroBFDConfigConflict):
 		return connect.NewError(connect.CodeFailedPrecondition, wrapError(operation, err).Error())
 	case errors.Is(err, bfd.ErrInvalidPeerAddr),
 		errors.Is(err, bfd.ErrInvalidDetectMult),

@@ -304,6 +304,11 @@ func TestMapManagerError(t *testing.T) {
 	}{
 		{"DuplicateSession", bfd.ErrDuplicateSession, connect.CodeAlreadyExists},
 		{"SessionNotFound", bfd.ErrSessionNotFound, connect.CodeNotFound},
+		{"MicroBFDGroupExists", bfd.ErrMicroBFDGroupExists, connect.CodeAlreadyExists},
+		{"MicroBFDGroupNotFound", bfd.ErrMicroBFDGroupNotFound, connect.CodeNotFound},
+		{"MicroBFDConfigConflict", &bfd.MicroBFDConfigConflictError{LAGInterface: "bond0"}, connect.CodeFailedPrecondition},
+		{"MicroBFDMemberOwned", bfd.ErrMicroBFDMemberOwned, connect.CodeFailedPrecondition},
+		{"MicroBFDGroupOwnerClaimNotFound", bfd.ErrMicroBFDGroupOwnerClaimNotFound, connect.CodeFailedPrecondition},
 		{"InvalidPeerAddr", bfd.ErrInvalidPeerAddr, connect.CodeInvalidArgument},
 		{"InvalidDetectMult", bfd.ErrInvalidDetectMult, connect.CodeInvalidArgument},
 		{"InvalidTxInterval", bfd.ErrInvalidTxInterval, connect.CodeInvalidArgument},
