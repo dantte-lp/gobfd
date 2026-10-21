@@ -143,9 +143,25 @@ FRR 10.7.1 не может объявить нулевой RX (`receive-interval
 имеет `demand-mode`. BIRD 3.4.0 не имеет опции Demand; поддержка нулевого RX не
 проверена. Interop remote Demand с обоими закреплёнными пирами и interop remote
 zero-RX с FRR неприменимы по исходному коду (решение мейнтейнера 2026-10-21,
-`gobfd-qj0.8.2.1.1.2`). Wire evidence для нулевого remote RX и remote Demand
-ведётся в `gobfd-qj0.8.2.1.1.2.3` с crafted Go peer. Interop FRR/BIRD для
-ненулевых изменений remote TX/RX остаётся открытым.
+`gobfd-qj0.8.2.1.1.2`). `TestCraftedPeerTestcontainers` подтверждает поведение
+на wire с репозиторным Go peer
+([Interop Testing](05-interop.md#crafted-go-peer), `gobfd-qj0.8.2.1.1.2.3`):
+при нулевом remote RX GoBFD передаёт только Final, по одному на Poll пира
+(Sections 6.5 и 6.8.7); после одного Detection Time без пакетов переходит в
+Down с diag 1, сбрасывает remote receive interval и передаёт Down с Your
+Discriminator 0 в следующем интервале медленного режима (Sections 6.8.4 и
+6.8.18); при remote Demand передаёт только кадры Poll или Final,
+переносит перезагруженный таймер в Poll Sequence, завершённой Final пира, и
+возобновляет periodic TX после снятия Demand (Sections 6.5 и 6.6). Прогон
+2026-10-21 на `c1525f1`: окно RX0 8.74 s с 2 Poll, на каждый пришёл Final не
+позднее 187 us; Down через 901.0 ms после последнего кадра пира (DT 900 ms),
+первый пакет через 1.862 s, далее 6 интервалов медленного режима; окно Demand
+7.42 s с одним Poll GoBFD на 500 ms; periodic TX через 420 ms после снятия
+Demand, 18 интервалов, среднее 430.4 ms. Первый пакет Down ждёт следующего
+интервала медленного режима; SHOULD из Section 6.8.7 об отправке изменённого
+содержимого между периодическими пакетами при истечении detection не
+выполняется. Interop FRR/BIRD для ненулевых изменений remote TX/RX остаётся
+открытым.
 
 Session receive path отклоняет зарезервированный нулевой Desired Min TX до
 обновления состояния пира и таймеров, включая пакеты через `RecvPacket`.
@@ -255,7 +271,7 @@ Daemon завершился с code 0; все пять контейнеров о
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Требует контрольной сессии; вместо него есть RFC 9747 unaffiliated echo в статусе preview |
 | 6.5 | Полные Poll Sequence procedures | Есть config-owned транзакции таймеров, подтверждённая отправка Poll, Final retry и исключение P/F; live reload/RTT qualification ещё впереди |
-| 6.6 | Полный Demand Mode | Подавление remote periodic TX и сброс Section 6.8.18 есть; local Demand и полные Poll procedures остаются открытыми. Закреплённые FRR/BIRD не отправляют Demand; wire evidence ведётся в `gobfd-qj0.8.2.1.1.2.3` |
+| 6.6 | Полный Demand Mode | Подавление remote periodic TX, Poll локального таймера при remote Demand и сброс Section 6.8.18 подтверждены на wire с crafted Go peer (`TestCraftedPeerTestcontainers`); закреплённые FRR/BIRD не отправляют Demand. Local Demand и полные Poll procedures остаются открытыми |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
 ### Заметки по RFC 5881

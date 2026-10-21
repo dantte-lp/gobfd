@@ -9,6 +9,16 @@
 
 ### Добавлено
 
+- `TestCraftedPeerTestcontainers` подтверждает на wire нулевой remote Required
+  Min RX, молчание пира и remote Demand с crafted Go peer; закреплённые
+  FRR/BIRD эти режимы не воспроизводят. Инструмент `test/interop/scapy`
+  получает режим `peer` на кодеке репозитория. Захват показывает только Final
+  при RX0; Down через один Detection Time после молчания и передачу в
+  следующем интервале медленного режима (RFC 5880 Sections 6.8.4 и 6.8.18);
+  только кадры Poll/Final плюс Poll Sequence таймера при Demand (Section 6.6).
+  `make interop-testcontainers` запускает тест с сохранением PCAP и
+  артефактов SHA-256. Local Demand остаётся открытым.
+
 - YAML `multihop_max_hops` (только `multi_hop`, 1-254, по умолчанию 1) задаёт
   нижнюю границу принимаемого TTL/Hop Limit 255 - N (1/2/5 hops: 254/253/250)
   в каждой сессии после демультиплексирования. Это политика GoBFD по

@@ -167,6 +167,31 @@ Holo использует immutable digest официального образа
 множителем `3`, что даёт согласованный интервал 300 мс и detection time 900 мс.
 У loader нет фиксированного адреса, и он не является пятым пиром.
 
+### Crafted Go peer
+
+Закреплённые FRR 10.7.1 и BIRD 3.4.0 не объявляют Required Min RX 0 и не
+устанавливают бит Demand. Поэтому `TestCraftedPeerTestcontainers` (тег
+`interop_testcontainers`) запускает отдельную топологию: GoBFD с одной сессией
+из `gobfd/crafted-peer.yml`, tshark в сетевом namespace GoBFD и
+репозиторный Go-инструмент из `scapy/Containerfile` с аргументом `peer` по
+адресу `172.20.0.40`. Без аргумента тот же бинарник по-прежнему отправляет
+корпус невалидных векторов. Peer использует кодек репозитория, TTL 255,
+source port 49152, Poll/Final, медленный интервал вне Up и работает без
+аутентификации. Каждый `SIGUSR1` из теста переводит его в следующую фазу:
+
+| Фаза | Действие peer | Проверка по захвату |
+|---|---|---|
+| `rx0`, `poll` | Required Min RX 0 с Poll, затем второй Poll | От GoBFD только Final, по одному на Poll, не менее 10 согласованных интервалов (RFC 5880 Section 6.8.7) |
+| `silent` | Передача прекращена | Демон фиксирует Down с diag 1 через один Detection Time (из `gobfdctl`, сверен с wire) после последнего кадра peer, в пределах `[DT-1 ms, DT+max(2 ms, DT/50)]`; первый кадр GoBFD (Down, diag 1, Your Discriminator 0) следует в пределах одного интервала медленного режима, далее не менее 3 интервалов медленного режима в границах jitter (Sections 6.8.4 и 6.8.18) |
+| `recover` | Новый three-way handshake | Up с таймерами 300 ms в обе стороны |
+| `demand` | D=1 с Poll | GoBFD отвечает Final и далее передаёт только кадры Poll или Final; SIGHUP на 500 ms даёт Poll GoBFD с новыми таймерами, Final от peer и converged receipt перезагрузки после этого Final (Sections 6.5 и 6.6) |
+| `demand-clear` | D=0 с Poll | GoBFD отвечает Final и возобновляет periodic TX в пределах `T+slack`; далее не менее 12 интервалов проходят границы jitter и проверку среднего в 3 стандартные ошибки для T=500 ms |
+
+`make interop-testcontainers` запускает чистые тесты оценщика
+(`TestCraftedPeerEvidence*`) и живую топологию. Тест сохраняет журналы демона и
+peer, TSV кадров, итоговый JSON и PCAP с файлами SHA-256 в
+`INTEROP_TESTCONTAINERS_ARTIFACT_DIR`.
+
 ### Запуск тестов совместимости
 
 #### Полный цикл (рекомендуется)

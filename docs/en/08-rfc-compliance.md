@@ -159,9 +159,24 @@ FRR 10.7.1 cannot advertise zero RX (`receive-interval` minimum 10) and has no
 `demand-mode`. BIRD 3.4.0 has no Demand option; its zero RX support is
 unverified. Remote Demand interop with both pinned peers and remote zero-RX
 interop with FRR are source-supported inapplicable (maintainer decision
-2026-10-21, `gobfd-qj0.8.2.1.1.2`). Wire evidence for remote zero RX and remote
-Demand is tracked in `gobfd-qj0.8.2.1.1.2.3` with a crafted Go peer. FRR/BIRD
-interop for nonzero remote TX/RX changes remains open.
+2026-10-21, `gobfd-qj0.8.2.1.1.2`). `TestCraftedPeerTestcontainers` proves the
+remote behaviour on the wire with a repository-owned Go peer
+([Interop Testing](05-interop.md#crafted-go-peer), `gobfd-qj0.8.2.1.1.2.3`):
+under remote zero RX GoBFD sends only Finals, one per peer Poll (Sections 6.5
+and 6.8.7); after one silent Detection Time it goes Down with diag 1, resets
+the remote receive interval and transmits Down with Your Discriminator 0 at
+the next slow-rate interval (Sections 6.8.4 and 6.8.18); under
+remote Demand it sends only Poll or Final frames, carries a reloaded timer in a
+Poll Sequence completed by the peer Final, and resumes periodic TX after the
+Demand clear (Sections 6.5 and 6.6). Measured run on 2026-10-21 at `c1525f1`:
+an 8.74 s RX0 window with 2 Polls, each answered by a Final within 187 us;
+Down 901.0 ms after the last peer frame (DT 900 ms) and the first packet after
+1.862 s, followed by 6 slow-rate intervals; a 7.42 s Demand window with one
+GoBFD Poll at 500 ms; periodic TX 420 ms after the Demand clear with 18
+intervals, mean 430.4 ms. The first Down packet waits for the next slow-rate
+interval; the Section 6.8.7 SHOULD to send changed contents between periodic
+packets is not met on detection expiry. FRR/BIRD interop for nonzero remote
+TX/RX changes remains open.
 
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.
@@ -276,7 +291,7 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo is provided instead, as a preview |
 | 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry and P/F exclusion exist; live reload/RTT qualification remains pending |
-| 6.6 | Full Demand Mode | Remote periodic-TX suppression and the Section 6.8.18 reset exist; local Demand and complete Poll procedures remain open. Pinned FRR/BIRD cannot send Demand; wire evidence is tracked in `gobfd-qj0.8.2.1.1.2.3` |
+| 6.6 | Full Demand Mode | Remote periodic-TX suppression, a local timer Poll under remote Demand and the Section 6.8.18 reset are proven on the wire with the crafted Go peer (`TestCraftedPeerTestcontainers`); pinned FRR/BIRD cannot send Demand. Local Demand and complete Poll procedures remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
 ### RFC 5881 Implementation Notes
