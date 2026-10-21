@@ -422,6 +422,11 @@
 
 ### Исправлено
 
+- Ошибки групп Micro-BFD отображаются в клиентские коды (`gobfd-qj0.8.2.2.1`):
+  `ErrMicroBFDGroupExists` возвращает `AlreadyExists`, `ErrMicroBFDGroupNotFound`
+  — `NotFound`, расходящаяся группа с тем же LAG
+  (`MicroBFDConfigConflictError`) — `FailedPrecondition` вместо `Internal`.
+
 - Группы Micro-BFD получают типизированные claim владельцев, как сессии
   (`gobfd-qj0.8.2.2.1`). Reload удаляет только свои группы и не может забрать
   member link сохраняющейся группы API; одинаковая группа API и reload
@@ -440,9 +445,12 @@
 - Группа Micro-BFD фиксируется вместе со своими member-сессиями (RFC 7130
   Section 2, `gobfd-qj0.8.2.2.1`, H-24). Reload применяет один источник
   Micro-BFD: ошибка member-сессии откатывает новые группы и сессии прохода до
-  освобождения любой зафиксированной группы или сессии. Member link, указанный
-  в двух группах LAG, отклоняет весь кандидат; `AddMicroBFDGroup` возвращает
-  `FailedPrecondition` для member link другой группы. Dispatch находит
+  освобождения любой зафиксированной группы или сессии; группа неудачного
+  прохода не попадает ни в dispatch, ни в actuator. Member link, указанный в
+  группах двух LAG-интерфейсов в любом address family, теперь отклоняет весь
+  кандидат; раньше такая конфигурация загружалась, а события member уходили в
+  произвольную группу. `AddMicroBFDGroup` возвращает `FailedPrecondition` для
+  member link другого LAG. Dispatch находит
   единственного владельца по индексу `{member link, address family}`.
 
 - Контракт RFC 5880 каждой member-сессии Micro-BFD проверяется на пути

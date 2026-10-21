@@ -359,10 +359,13 @@ networkmanager-dbus`. Он деактивирует активный bond port p
 
 Группа и её member-сессии применяются как одно целое. Ошибка создания
 member-сессии откатывает группы и member-сессии, созданные этим reload;
-зафиксированные группы и сессии остаются на месте. Member link принадлежит
-одной группе: кандидат, в котором один member link указан в двух группах,
-отклоняется целиком; RFC 7130 Section 2 запускает micro-BFD-сессии на каждом
-member link LAG. Незаданные `desired_min_tx`, `required_min_rx` и `detect_mult`
+зафиксированные группы и сессии остаются на месте. Физический member link
+принадлежит одному LAG: кандидат, в котором один member link указан в группах
+двух LAG-интерфейсов, отклоняется целиком в любом address family; RFC 7130
+Section 2 запускает micro-BFD-сессии на каждом member link LAG. Группа
+идентифицируется `lag_interface` и содержит один `peer_addr`, поэтому один LAG
+использует один address family; вторая micro-BFD-сессия на member link для
+другого address family, допустимая по RFC 7130 Section 2.1, не поддерживается. Незаданные `desired_min_tx`, `required_min_rx` и `detect_mult`
 наследуют `bfd.default_*`. Группа и все её
 member-сессии используют эти значения; к ним применяется проверка RFC 5880:
 адреса, wire-границы интервалов и detect multiplier (RFC 7130 Section 2.2).

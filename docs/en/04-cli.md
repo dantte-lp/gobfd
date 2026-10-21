@@ -204,9 +204,17 @@ The CLI rejects `--min-active` outside `[1, len(--members)]` before
 contacting the daemon.
 
 `AddMicroBFDGroup` returns `InvalidArgument` for malformed protobuf TX/RX
-durations and duplicate member names. Omitted intervals default to `1s`.
-Validation and application of well-formed member timer values remain separate
-work under `gobfd-qj0.8.2.2.1` (M09).
+durations, duplicate or empty member names, and member session values outside
+the RFC 5880 bounds (zero or out-of-range intervals, zero detect multiplier).
+Omitted intervals default to `1s`. Micro-BFD group RPCs return:
+
+| Condition | Code |
+|---|---|
+| The caller already holds a claim on the group | `AlreadyExists` |
+| A group with the same `lag_interface` and a different configuration exists | `FailedPrecondition` |
+| A member link belongs to a group of another LAG | `FailedPrecondition` |
+| `DeleteMicroBFDGroup` for a group the caller does not own, such as a reload group | `FailedPrecondition` |
+| `DeleteMicroBFDGroup` for an unknown LAG | `NotFound` |
 
 #### Delete a micro-BFD group
 
