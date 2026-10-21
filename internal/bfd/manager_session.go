@@ -698,7 +698,10 @@ func unsolicitedSessionConfig(meta PacketMeta, policy *UnsolicitedPolicy) Sessio
 	return SessionConfig{
 		Auth:                  policy.Auth,
 		AuthKeys:              policy.AuthKeys,
-		PeerAddr:              meta.SrcAddr,
+		// Invariant: Interface names the receive link, so the peer zone is
+		// redundant; Go may render it numerically, which would contradict
+		// Interface in validateSessionZones.
+		PeerAddr:              meta.SrcAddr.WithZone(""),
 		LocalAddr:             meta.DstAddr,
 		Interface:             meta.IfName,
 		IfIndex:               meta.IfIndex,

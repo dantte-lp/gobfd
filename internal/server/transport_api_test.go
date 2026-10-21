@@ -57,3 +57,20 @@ func TestAddSessionRejectsMultiHopInterface(t *testing.T) {
 		t.Fatalf("sender opens/closes = %d/%d, want equal", sf.opens, sf.closes)
 	}
 }
+
+// Without interface_name, the zone of a link-local address selects the
+// single-hop interface, so the API sender is bound to it (RFC 5881 Section 6).
+func TestAddSessionBindsLinkLocalZoneInterface(t *testing.T) {
+	t.Parallel()
+	sf := &countingSenderFactory{}
+	client := newTransportAPIClient(t, sf)
+	req := validAddRequest()
+	req.InterfaceName = ""
+	req.PeerAddress, req.LocalAddress = "fe80::1", "fe80::2%eth0"
+	if _, err := client.AddSession(t.Context(), req); err != nil {
+		t.Fatalf("AddSession: %v", err)
+	}
+	if !slices.Equal(sf.ifNames, []string{"eth0"}) {
+		t.Fatalf("sender interfaces = %q, want [eth0]", sf.ifNames)
+	}
+}

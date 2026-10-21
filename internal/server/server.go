@@ -168,7 +168,9 @@ func (s *BFDServer) createSessionWithSenderLease(
 	cfg bfd.SessionConfig,
 ) (*bfd.Session, error) {
 	multiHop := cfg.Type == bfd.SessionTypeMultiHop
-	ifName := cfg.Interface
+	// A link-local zone selects the interface when interface_name is empty,
+	// as Manager canonicalisation does for the session itself.
+	ifName := bfd.SingleHopInterface(cfg.Interface, cfg.LocalAddr, cfg.PeerAddr)
 	if cfg.Type != bfd.SessionTypeSingleHop {
 		ifName = ""
 	}
