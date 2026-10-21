@@ -417,3 +417,23 @@ func testUnavailableResourceError(t *testing.T, id string) error {
 	}
 	return err
 }
+
+// A source whose only pending entries are admitted Poll transactions waits
+// for no resource, so an address or interface event must not re-apply it.
+func TestRetrySkipsSourceWithOnlyTimerPending(t *testing.T) {
+	t.Parallel()
+
+	coordinator := newReconciliationCoordinator(config.DefaultConfig(), slog.New(slog.DiscardHandler), nil)
+	snapshot := coordinator.applyCandidate(t.Context(), compiledControlSessionCandidate{},
+		func(_ context.Context, source reconciliationSource, _ compiledControlSessionCandidate) sourceApplyResult {
+			if source == sourceBase {
+				return sourceApplyResult{Pending: 1, TimerPending: 1}
+			}
+			return sourceApplyResult{}
+		})
+	coordinator.retryPendingSources(t.Context(), snapshot.DesiredGeneration, allReconciliationSources,
+		func(context.Context, reconciliationSource, compiledControlSessionCandidate) sourceApplyResult {
+			t.Fatal("retry re-applied a source waiting only for a timer transaction")
+			return sourceApplyResult{}
+		})
+}

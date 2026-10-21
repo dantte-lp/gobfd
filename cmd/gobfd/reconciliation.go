@@ -362,7 +362,9 @@ func (c *reconciliationCoordinator) retryPendingSourcesLocked(
 	transientErrors := make([]error, 0, sourceCount)
 	for i, source := range reconciliationSources() {
 		prior := receipt.Sources[i]
-		if !selected.contains(source) || prior.Pending <= 0 || prior.Failed != 0 {
+		// A source pending only on admitted Poll transactions waits for no
+		// resource; its timer observer completes it.
+		if !selected.contains(source) || prior.Pending <= prior.TimerPending || prior.Failed != 0 {
 			continue
 		}
 		result := applySource(ctx, source, workingCandidate)
