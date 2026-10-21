@@ -149,7 +149,7 @@ func (s *Session) queueTimerProposalLocked(tuple timerTuple, generation uint64, 
 	s.timerUpdate.Changed = tuple != s.timerUpdate.Confirmed
 	s.waitingUpdate = proposal
 	if !s.activeUpdate.Present && !s.pollActive && s.separateUntil.IsZero() &&
-		!s.floorHeld && !s.recoverOnUp && tuple == s.timerUpdate.Confirmed {
+		!s.floorHeld && !s.recoverOnUp && tuple == s.timerUpdate.Confirmed && tuple == s.effectiveTimersLocked() {
 		s.waitingUpdate = timerProposal{}
 		s.timerUpdate.State = timerUpdateApplied
 		s.timerUpdate.Changed = false
@@ -190,7 +190,7 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 }
 
 func (s *Session) promoteTimerUpdateLocked() {
-	if s.pollActive || !s.separateUntil.IsZero() || s.cachedState == StateAdminDown {
+	if s.pollActive || !s.separateUntil.IsZero() {
 		return
 	}
 	up := s.cachedState == StateUp
@@ -202,7 +202,9 @@ func (s *Session) promoteTimerUpdateLocked() {
 	if !s.waitingUpdate.Present {
 		return
 	}
-	if s.waitingUpdate.Tuple == s.timerUpdate.Confirmed {
+	// Applied requires the wire to carry the confirmed tuple: an interrupted
+	// Poll can leave an unconfirmed tuple effective outside Up.
+	if s.waitingUpdate.Tuple == s.timerUpdate.Confirmed && s.waitingUpdate.Tuple == s.effectiveTimersLocked() {
 		s.waitingUpdate = timerProposal{}
 		s.timerUpdate.State, s.timerUpdate.Changed = timerUpdateApplied, false
 		s.notifyTimerUpdate()
@@ -227,6 +229,13 @@ func (s *Session) expireTimerUpdatesLocked(now time.Time) {
 		s.activeUpdate.Failed = true
 		if s.timerUpdate.Requested.Revision == s.activeUpdate.Revision {
 			s.failTimerUpdateLocked()
+		}
+		if s.cachedState != StateUp {
+			// Outside Up the tuple is already effective. Keep its Poll on the wire
+			// without the failed proposal so later generations queue behind it;
+			// recovery confirms the effective tuple once the session is Up.
+			s.activeUpdate = timerProposal{}
+			s.recoverOnUp = true
 		}
 	}
 	if s.waitingUpdate.Present && !now.Before(s.waitingUpdate.Deadline) {
@@ -314,13 +323,19 @@ func (s *Session) timerStateChange(oldState, newState State) {
 	case StateInit:
 		// Preserve the attempt budget while establishment is in progress.
 	}
-	if newState != StateUp && oldState == StateUp {
+	switch {
+	case newState != StateUp && oldState == StateUp:
 		s.interruptTimerUpdateLocked()
-	} else if newState == StateUp && !s.pollActive && s.separateUntil.IsZero() {
+	case newState == StateUp && !s.pollActive && s.separateUntil.IsZero():
 		if s.desiredMinTxInterval < slowTxInterval || s.recoverOnUp {
 			s.floorHeld, s.recoverOnUp = false, false
 			s.startPollLocked()
 		}
+	case newState == StateUp && s.desiredMinTxInterval < slowTxInterval:
+		// A Final in the packet that enters Up is handled before the FSM, so a
+		// Poll or its separation is still pending. Hold the one-second floor
+		// until promotion starts the slow-to-fast Poll (Section 6.8.3).
+		s.floorHeld, s.recoverOnUp = true, true
 	}
 }
 
@@ -382,4 +397,8 @@ func (s *Session) closeTimerUpdates() {
 		s.recordDelivery(DeliveryControlOwner, DeliveryAbandoned)
 	}
 	s.signalControlSpace()
+}
+
+func (s *Session) effectiveTimersLocked() timerTuple {
+	return timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
 }
