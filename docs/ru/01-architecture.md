@@ -247,7 +247,8 @@ interface retry. После применения source без failed и resourc
 только неожиданная потеря сокета. Listener с привязкой к устройству для
 пересозданного интерфейса перепривязывается на месте через `SO_BINDTODEVICE`.
 Overlay backends остаются startup-owned: отсутствующий backend оставляет свой
-source в `failed` до перезапуска. Только `ENODEV` от привязки listener к
+source в `failed` до перезапуска, а runtime-создание или замена backends пока
+не реализованы. Только `ENODEV` от привязки listener к
 устройству классифицируется как недоступный интерфейс; остальные runtime
 failures учитываются как `failed` без классификации по строкам или errno.
 
