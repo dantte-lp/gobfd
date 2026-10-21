@@ -275,11 +275,11 @@ before owned cleanup on success and failure; without an explicit directory the
 harness prints a retained temporary path. The testcontainers topology runs the
 daemon with JSON logs; log assertions accept both the text and JSON forms.
 
-On 2026-10-20 all eight phases passed against FRR 10.7.1 and BIRD 3.4.0 with fix
-`7cf75587`. Pooled GoBFD intervals at 100, 300 and 500 ms (n = 35, 27, 24) had
-means of 89.6%, 87.4% and 86.0% of the negotiated TX. Kolmogorov–Smirnov and χ²
-tests at α = 0.05 did not reject the uniform 75–100% model; the largest excess
-over 100% was 0.88 ms. Authenticated selective-Final loss, deterministic crossed
+On 2026-10-21 the gate-compiled binary of `af7c907` passed all eight phases
+against FRR 10.7.1 and BIRD 3.4.0 with fix `7cf75587`. Pooled GoBFD intervals at
+100, 300 and 500 ms (n = 37, 26, 25) had means of 88.3%, 89.1% and 86.2% of the
+negotiated TX. Kolmogorov–Smirnov and χ² tests at α = 0.05 did not reject the
+uniform 75–100% model; the largest excess over 100% was 0.97 ms. Authenticated selective-Final loss, deterministic crossed
 Poll and remote Demand remain open under `gobfd-qj0.8.2.1.1.1.4.3`; H-05 remains
 partial.
 
