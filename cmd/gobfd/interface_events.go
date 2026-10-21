@@ -133,7 +133,10 @@ func consumeInterfaceEvents(
 			}
 			// Bound listener interfaces are re-checked against the current
 			// inventory; a coalesced or lost event cannot leave a false SERVING.
-			coordinator.readiness.checkBindings(net.Interfaces)
+			if err := coordinator.readiness.checkBindings(net.Interfaces); err != nil {
+				logger.Warn("listener interface check failed; readiness unchanged",
+					slog.String("error", err.Error()))
+			}
 			generation, selected := coordinator.interfaceEventSelection(ev)
 			queue.add(generation, selected)
 		}

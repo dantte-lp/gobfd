@@ -31,7 +31,10 @@ func startListenersAndReceivers(
 	readiness *daemonReadiness,
 	logger *slog.Logger,
 ) (func(), error) {
-	bindings := resolveListenerBindings(cfg, net.Interfaces)
+	bindings, err := resolveListenerBindings(cfg, net.Interfaces)
+	if err != nil {
+		return nil, err
+	}
 	//nolint:contextcheck // Listener socket creation uses context.Background() internally.
 	lnResult, err := createListeners(cfg, logger, mgr)
 	if err != nil {
@@ -45,7 +48,17 @@ func startListenersAndReceivers(
 	})
 
 	startReceivers(ctx, g, readiness, lnResult, mgr, logger)
-	readiness.watchBindings(bindings, net.Interfaces)
+	if err := readiness.watchBindings(bindings, net.Interfaces); err != nil {
+		logger.Warn("listener interface check failed; readiness unchanged", slog.String("error", err.Error()))
+	}
+	if len(bindings) > 0 {
+		// Interface events re-check bindings promptly; the ticker covers a
+		// disabled or stopped interface monitor.
+		g.Go(func() error {
+			readiness.recheckBindings(ctx, bindingRecheckInterval, net.Interfaces, logger)
+			return nil
+		})
+	}
 	return cleanup, nil
 }
 
@@ -227,50 +240,50 @@ func controlListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
 func createEchoListeners(
 	cfg *config.Config, logger *slog.Logger, delivery bfd.DeliveryReporter,
 ) ([]*netio.Listener, error) {
-	type echoKey struct {
-		addr netip.Addr
-	}
-
-	seen := make(map[echoKey]struct{})
 	var listeners []*netio.Listener
-
-	for _, ep := range cfg.Echo.Peers {
-		localAddr, err := ep.LocalAddr()
-		if err != nil || !localAddr.IsValid() {
-			continue
-		}
-
-		key := echoKey{addr: localAddr}
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-
-		lnCfg := netio.ListenerConfig{
-			ReadBufferSize: cfg.Socket.ReadBufferSize,
-			Addr:           localAddr,
-			IfName:         ep.Interface,
-			Port:           netio.PortEcho,
-			MultiHop:       false,
-			ExpectedTTL:    netio.TTLEchoLoopback,
-			Delivery:       delivery,
-		}
-
+	for _, lnCfg := range echoListenerConfigs(cfg) {
+		lnCfg.Delivery = delivery
 		ln, err := netio.NewListener(lnCfg)
 		if err != nil {
 			closeListeners(listeners, logger)
-			return nil, fmt.Errorf("create echo listener on %s: %w", localAddr, err)
+			return nil, fmt.Errorf("create echo listener on %s: %w", lnCfg.Addr, err)
 		}
 
 		logger.Info("BFD echo listener started",
-			slog.String("addr", localAddr.String()),
-			slog.String("interface", ep.Interface),
+			slog.String("addr", lnCfg.Addr.String()),
+			slog.String("interface", lnCfg.IfName),
 		)
 
 		listeners = append(listeners, ln)
 	}
 
 	return listeners, nil
+}
+
+// echoListenerConfigs returns one echo listener per unique local address,
+// bound to the interface of the first peer with that address.
+func echoListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
+	seen := make(map[netip.Addr]struct{})
+	var configs []netio.ListenerConfig
+	for _, ep := range cfg.Echo.Peers {
+		localAddr, err := ep.LocalAddr()
+		if err != nil || !localAddr.IsValid() {
+			continue
+		}
+		if _, exists := seen[localAddr]; exists {
+			continue
+		}
+		seen[localAddr] = struct{}{}
+		configs = append(configs, netio.ListenerConfig{
+			ReadBufferSize: cfg.Socket.ReadBufferSize,
+			Addr:           localAddr,
+			IfName:         ep.Interface,
+			Port:           netio.PortEcho,
+			MultiHop:       false,
+			ExpectedTTL:    netio.TTLEchoLoopback,
+		})
+	}
+	return configs
 }
 
 // closeListeners closes all provided listeners, logging any errors.
