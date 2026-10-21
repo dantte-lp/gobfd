@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -366,4 +367,65 @@ func TestDrainIncompletePeerAttributed(t *testing.T) {
 			t.Errorf("%s: PeerAttributed() = %v, want %v", tt.name, got, tt.want)
 		}
 	}
+	writeFailed := &DrainIncompleteError{
+		Stage: "transmission", Reason: drainReasonPassivePeerUnknown,
+		Err: context.DeadlineExceeded, SendErr: errors.New("sendmsg: operation not permitted"),
+	}
+	if writeFailed.PeerAttributed() {
+		t.Error("a failed AdminDown write was attributed to the peer")
+	}
+}
+
+// failingDrainSender refuses every AdminDown write, like a sandbox EPERM or a
+// closed socket.
+type failingDrainSender struct{ attempts chan struct{} }
+
+func (s failingDrainSender) SendPacket(_ context.Context, buf []byte, _ netip.Addr) error {
+	if State(buf[1]>>6) != StateAdminDown {
+		return nil
+	}
+	select {
+	case s.attempts <- struct{}{}:
+	default:
+	}
+	return errors.New("injected local AdminDown write failure")
+}
+
+// A failed AdminDown write stays a local drain failure even when the peer
+// also suppresses periodic transmission (RFC 5880 Section 6.8.7).
+func TestManagerDrainSendFailureIsNotPeerAttributed(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sender := failingDrainSender{attempts: make(chan struct{}, 1)}
+		s := newAdminDownTestSession(t, sender, 68)
+		s.role = RolePassive
+		mgr := NewManager(s.logger)
+		mgr.sessions[68] = &sessionEntry{session: s}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan struct{})
+		go func() { s.Run(ctx); close(done) }()
+		budget, stop := context.WithTimeout(t.Context(), 5*time.Second)
+		defer stop()
+		result := make(chan error, 1)
+		go func() { result <- mgr.DrainAllSessions(budget) }()
+		synctest.Sleep(time.Second / 2)
+		s.recvCh <- recvItem{pkt: ControlPacket{
+			Version: 1, State: StateDown, Poll: true, DetectMult: 3,
+			MyDiscriminator: 7, DesiredMinTxInterval: 1000000,
+		}}
+		<-sender.attempts
+		err := <-result
+		incomplete, ok := errors.AsType[*DrainIncompleteError](err)
+		if !ok {
+			t.Fatalf("drain error = %v, want DrainIncompleteError", err)
+		}
+		if incomplete.PeerAttributed() {
+			t.Errorf("failed AdminDown write was attributed to the peer: %v", err)
+		}
+		if !strings.Contains(err.Error(), "injected local AdminDown write failure") {
+			t.Errorf("drain error hides the send failure: %v", err)
+		}
+		cancel()
+		<-done
+	})
 }

@@ -244,6 +244,7 @@ func (s *Session) sendControl(ctx context.Context) {
 		s.logger.Warn("failed to send control packet",
 			slog.String("error", err.Error()),
 		)
+		s.recordAdminDrainSendError(err)
 		return
 	}
 	if final {
