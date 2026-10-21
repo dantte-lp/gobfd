@@ -112,26 +112,30 @@ receive interval пира останавливает периодический 
 и ограниченные по частоте retries обходят эти запреты. Начальные базовые сессии
 принимают нулевой локальный receive interval через YAML и generic `AddSession`,
 сохраняя defaults для пропущенных полей. Правила per-peer overrides preview
-не изменены. Reload таймеров сохраняет ту же семантику явного нуля;
-FRR/BIRD-квалификация этих процедур остаётся открытой.
+не изменены. Reload таймеров сохраняет ту же семантику явного нуля; объём
+interop-квалификации этих процедур указан ниже.
 
-Вне AdminDown один Detection Time без корректных пакетов возвращает
-`bfd.RemoteMinRxInterval` к 1 микросекунде и `bfd.RemoteDemandMode` к 0
-(Sections 6.8.1 и 6.8.18): нулевой receive interval замолчавшего пира больше
-не останавливает периодический TX. В AdminDown GoBFD не применяет этот SHOULD
-Section 6.8.18: graceful drain сохраняет подавление при нулевом remote receive
-interval, потому что drain освобождает сессию после Detection Time без пакетов,
-а сброс лишь отправил бы AdminDown пиру, запросившему отсутствие пакетов
-(Section 6.8.16). Изменения remote Desired
-Min TX и Detect Mult обновляют Detection Time на пакете, который их несёт
-(Sections 6.8.3 и 6.8.4). Тесты виртуального времени покрывают также timer
-Poll при remote Demand, истечение Poll при нулевом remote RX и ответ Final на
-увеличение remote RX. Закреплённые FRR 10.7.1 (`receive-interval` не меньше 10,
-без `demand-mode`) и BIRD 3.4.0 (без Demand) не могут объявить нулевой RX или
-Demand: для этих пиров процедуры remote zero-RX и remote Demand неприменимы по
-исходному коду (решение мейнтейнера 2026-10-21, `gobfd-qj0.8.2.1.1.2`),
-wire evidence ожидает crafted Go peer. Interop для ненулевых изменений remote
-TX/RX остаётся открытым.
+Один Detection Time без корректных пакетов возвращает
+`bfd.RemoteMinRxInterval` к 1 микросекунде и `bfd.RemoteDemandMode` к 0 в
+любом состоянии (Sections 6.8.1 и 6.8.18): Required Min RX пира обязателен,
+только пока пир продолжает передачу. Если сброс меняет TX-интервал или
+разрешение периодической передачи, следующий пакет планируется от предыдущей
+успешной отправки; это снимает и большой ненулевой hold-down. В AdminDown
+Active-сессия затем отправляет уведомление Section 6.8.16, и drain
+завершается; Passive-сессия молчит, потому что `bfd.RemoteDiscr` равен нулю
+(Section 6.8.7). Изменения remote Desired Min TX и Detect Mult обновляют
+Detection Time на пакете, который их несёт (Sections 6.8.3 и 6.8.4). Тесты
+виртуального времени покрывают также timer Poll при remote Demand, истечение
+Poll при нулевом remote RX, ответ Final на увеличение remote RX и
+возобновление TX после снятия Demand от предыдущей отправки.
+
+FRR 10.7.1 не может объявить нулевой RX (`receive-interval` не меньше 10) и не
+имеет `demand-mode`. BIRD 3.4.0 не имеет опции Demand; поддержка нулевого RX не
+проверена. Interop remote Demand с обоими закреплёнными пирами и interop remote
+zero-RX с FRR неприменимы по исходному коду (решение мейнтейнера 2026-10-21,
+`gobfd-qj0.8.2.1.1.2`). Wire evidence для нулевого remote RX и remote Demand
+ведётся в `gobfd-qj0.8.2.1.1.2.3` с crafted Go peer. Interop FRR/BIRD для
+ненулевых изменений remote TX/RX остаётся открытым.
 
 Session receive path отклоняет зарезервированный нулевой Desired Min TX до
 обновления состояния пира и таймеров, включая пакеты через `RecvPacket`.
@@ -204,8 +208,9 @@ Graceful shutdown использует общий deadline десять секу
 начинается с первой успешной записи и покрывает local RX DT и
 `localDetectMult * max(advertisedAdminDownTX, remoteMinRX)`; только увеличение
 negotiation продлевает deadline. Короткий deadline возвращает `DrainIncompleteError`.
-Ограничения passive unknown peer и нулевого remote RX сохраняются; разрешённый
-Final может подтвердить первую успешную запись. Owning UDP lease прерывает
+Ограничения passive unknown peer и нулевого remote RX сохраняются; нулевой
+remote RX действует до сброса Section 6.8.18 после одного Detection Time без
+пакетов. Разрешённый Final может подтвердить первую успешную запись. Owning UDP lease прерывает
 pending write и ожидает callback до освобождения ресурсов. Успех подтверждает
 локальные записи и время, без подтверждения получения пиром.
 
@@ -239,7 +244,7 @@ Daemon завершился с code 0; все пять контейнеров о
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Требует контрольной сессии; вместо него есть RFC 9747 unaffiliated echo в статусе preview |
 | 6.5 | Полные Poll Sequence procedures | Есть config-owned транзакции таймеров, подтверждённая отправка Poll, Final retry и исключение P/F; live reload/RTT qualification ещё впереди |
-| 6.6 | Полный Demand Mode | Подавление remote periodic TX есть; local Demand, полные Poll procedures и interop qualification остаются открытыми |
+| 6.6 | Полный Demand Mode | Подавление remote periodic TX и сброс Section 6.8.18 есть; local Demand и полные Poll procedures остаются открытыми. Закреплённые FRR/BIRD не отправляют Demand; wire evidence ведётся в `gobfd-qj0.8.2.1.1.2.3` |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
 ### Заметки по RFC 5881
