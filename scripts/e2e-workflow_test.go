@@ -64,6 +64,23 @@ func TestE2EWorkflowPublishesEvidenceGates(t *testing.T) {
 		t.Fatal("E2E workflow uses ubuntu-latest, whose Podman rejects ADD --checksum")
 	}
 
+	// Ubuntu 26.04 pasta AppArmor profile rejects Podman signals during rootless
+	// network teardown (LP: #2154379); every job relaxes it before Podman starts.
+	for _, want := range []string{
+		"- name: Allow pasta to receive Podman signals\n",
+		"echo '  signal (receive) peer=podman,' | sudo tee -a \"${abstraction}\" >/dev/null\n",
+		"sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta\n",
+		"- name: Report AppArmor denials\n",
+	} {
+		if got := strings.Count(content, want); got != 3 {
+			t.Fatalf("E2E workflow contains %q in %d jobs, want all 3", want, got)
+		}
+	}
+	if strings.Index(content, "Allow pasta to receive Podman signals") >
+		strings.Index(content, "Start Podman API socket") {
+		t.Fatal("E2E workflow relaxes the pasta profile after Podman starts")
+	}
+
 	if got := strings.Count(content, "run: make e2e-core\n"); got != 1 {
 		t.Fatalf("E2E workflow invokes make e2e-core %d times, want exactly once", got)
 	}

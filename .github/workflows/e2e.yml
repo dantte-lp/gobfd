@@ -44,6 +44,17 @@ jobs:
       - name: Install Podman runtime
         run: go run ./test/cmd/toolbootstrap podman-runtime
 
+      # Ubuntu 26.04 labels Podman "podman", but the pasta AppArmor profile
+      # accepts signals only from unconfined peers, so rootless network
+      # teardown fails (LP: #2154379, Debian #1100135).
+      - name: Allow pasta to receive Podman signals
+        run: |
+          abstraction=/etc/apparmor.d/abstractions/pasta
+          if [ -f "${abstraction}" ] && ! grep -qF 'peer=podman' "${abstraction}"; then
+            echo '  signal (receive) peer=podman,' | sudo tee -a "${abstraction}" >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
+          fi
+
       - name: Start Podman API socket
         run: |
           export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -89,6 +100,10 @@ jobs:
         if: always()
         run: make down || true
 
+      - name: Report AppArmor denials
+        if: always()
+        run: sudo dmesg | grep 'apparmor="DENIED"' || true
+
       - name: Upload PR-safe E2E artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -116,6 +131,17 @@ jobs:
 
       - name: Install Podman runtime
         run: go run ./test/cmd/toolbootstrap podman-runtime
+
+      # Ubuntu 26.04 labels Podman "podman", but the pasta AppArmor profile
+      # accepts signals only from unconfined peers, so rootless network
+      # teardown fails (LP: #2154379, Debian #1100135).
+      - name: Allow pasta to receive Podman signals
+        run: |
+          abstraction=/etc/apparmor.d/abstractions/pasta
+          if [ -f "${abstraction}" ] && ! grep -qF 'peer=podman' "${abstraction}"; then
+            echo '  signal (receive) peer=podman,' | sudo tee -a "${abstraction}" >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
+          fi
 
       - name: Start Podman API socket
         run: |
@@ -156,6 +182,10 @@ jobs:
         if: always()
         run: make down || true
 
+      - name: Report AppArmor denials
+        if: always()
+        run: sudo dmesg | grep 'apparmor="DENIED"' || true
+
       - name: Upload nightly E2E artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -179,6 +209,17 @@ jobs:
 
       - name: Install Podman runtime
         run: go run ./test/cmd/toolbootstrap podman-runtime
+
+      # Ubuntu 26.04 labels Podman "podman", but the pasta AppArmor profile
+      # accepts signals only from unconfined peers, so rootless network
+      # teardown fails (LP: #2154379, Debian #1100135).
+      - name: Allow pasta to receive Podman signals
+        run: |
+          abstraction=/etc/apparmor.d/abstractions/pasta
+          if [ -f "${abstraction}" ] && ! grep -qF 'peer=podman' "${abstraction}"; then
+            echo '  signal (receive) peer=podman,' | sudo tee -a "${abstraction}" >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/usr.bin.pasta
+          fi
 
       - name: Start Podman API socket
         run: |
@@ -212,6 +253,10 @@ jobs:
       - name: Stop dev stack
         if: always()
         run: make down || true
+
+      - name: Report AppArmor denials
+        if: always()
+        run: sudo dmesg | grep 'apparmor="DENIED"' || true
 
       - name: Upload vendor E2E artifacts
         if: always()
