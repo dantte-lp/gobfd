@@ -188,8 +188,17 @@ Down 900.4 ms after the last peer frame (DT 900 ms) and the first Down packet
 after 900.5 ms, followed by 6 slow-rate intervals; a 7.24 s Demand window with
 one GoBFD Poll at 500 ms; periodic TX 425 ms after the Demand clear with 17
 intervals, mean 434.1 ms. Before `b72b3c7` the first Down packet waited for
-the next slow-rate interval (1.862 s after silence on 2026-10-21). FRR/BIRD
-interop for nonzero remote TX/RX changes remains open.
+the next slow-rate interval (1.862 s after silence on 2026-10-21).
+
+The same topology proves crossed and queued Poll sequences (Sections 6.5 and
+6.8.3): with the peer Final lost, GoBFD repeats P=1 with the active 400 ms tuple,
+answers the peer crossing Poll with a Final-only packet carrying that tuple,
+resumes its own Poll, and advertises a queued 800 ms tuple only in a separate
+Poll after the peer Final and at least the measured exchange time. No captured
+frame sets both P and F. Run on 2026-10-22 at `1e19026`: 8 Polls before the
+Final, 5 of them after the crossing Final, exchange 2.620 s, separation
+2.720 s, and the 800 ms receipt published after its own Final. FRR/BIRD interop
+for nonzero remote TX/RX changes remains open.
 
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.
@@ -303,7 +312,7 @@ retained without OOM. Evidence: `reports/h12-wire-20261016/`; PCAP SHA256
 | Section | Feature | Rationale |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Requires control session; RFC 9747 unaffiliated echo is provided instead, as a preview |
-| 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry and P/F exclusion exist; live reload/RTT qualification remains pending |
+| 6.5 | Complete Poll Sequence procedures | Config-owned timer transactions, confirmed Poll transmission, Final retry, P/F exclusion, crossed Poll and queued-tuple separation exist; live FRR/BIRD reload and crafted-peer crossed/queued Poll wire evidence pass. Qualification of the deployed RTT envelope remains pending |
 | 6.6 | Full Demand Mode | Remote periodic-TX suppression, a local timer Poll under remote Demand and the Section 6.8.18 reset are proven on the wire with the crafted Go peer (`TestCraftedPeerTestcontainers`); pinned FRR/BIRD cannot send Demand. Local Demand and complete Poll procedures remain open |
 | 4.1 | Multipoint bit | Reserved for future P2MP extensions |
 
