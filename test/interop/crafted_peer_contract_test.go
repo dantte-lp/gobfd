@@ -116,15 +116,23 @@ func craftedContractFrames() []craftedFrame {
 		at       int
 		mutate   func(*craftedFrame)
 	}{
-		{false, 27000, queued(400000, craftedPoll)}, {true, 27005, nil},
-		{false, 27350, queued(400000, craftedPoll)}, {true, 27400, craftedPoll},
+		{false, 27000, queued(400000, craftedPoll)},
+		{true, 27005, nil},
+		{false, 27350, queued(400000, craftedPoll)},
+		{true, 27400, craftedPoll},
 		{false, 27401, queued(400000, craftedFinal)},
-		{false, 27700, queued(400000, craftedPoll)}, {true, 27750, nil},
-		{false, 28050, queued(400000, craftedPoll)}, {true, 28100, nil},
-		{false, 28400, queued(400000, craftedPoll)}, {true, 28401, craftedFinal},
-		{false, 28750, queued(400000, nil)}, {true, 28760, nil},
-		{false, 29900, queued(800000, craftedPoll)}, {true, 29901, craftedFinal},
-		{false, 30600, queued(800000, nil)}, {true, 30610, nil},
+		{false, 27700, queued(400000, craftedPoll)},
+		{true, 27750, nil},
+		{false, 28050, queued(400000, craftedPoll)},
+		{true, 28100, nil},
+		{false, 28400, queued(400000, craftedPoll)},
+		{true, 28401, craftedFinal},
+		{false, 28750, queued(400000, nil)},
+		{true, 28760, nil},
+		{false, 29900, queued(800000, craftedPoll)},
+		{true, 29901, craftedFinal},
+		{false, 30600, queued(800000, nil)},
+		{true, 30610, nil},
 	} {
 		timeline.add(step.fromPeer, step.at, step.mutate)
 	}
@@ -183,7 +191,8 @@ func TestCraftedPeerEvidenceValid(t *testing.T) {
 	if evidence.RX0.Polls != 2 || evidence.RX0.QuietMicroseconds < 3000000 ||
 		evidence.Silence.ResumeMicroseconds != 905000 || evidence.Silence.DownIntervals != 4 ||
 		evidence.Demand.GoBFDPolls != 1 || evidence.Demand.Intervals != 13 || evidence.Demand.QuietMicroseconds < 3000000 ||
-		evidence.Queued.FirstPolls != 5 || evidence.Queued.ResumedPolls != 3 || evidence.Queued.SeparationMicroseconds != 1499000 {
+		evidence.Queued.FirstPolls != 5 || evidence.Queued.ResumedPolls != 3 ||
+		evidence.Queued.SeparationMicroseconds != 1499000 {
 		t.Fatalf("unexpected evidence %+v", evidence)
 	}
 }
