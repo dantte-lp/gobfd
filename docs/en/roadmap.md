@@ -45,7 +45,9 @@ reachable govulncheck findings are zero, with the two existing module-level
 records retained. All 19 current lint profiles report zero issues. This is
 local iteration evidence: the 2 GiB lint container reached its memory cap
 (last sampled `memory.events max=51`, no OOM); it does not qualify the final
-canonical resource/release gate. Local integration follows documentation checks.
+canonical resource/release gate. Local `dev` now includes implementation
+`08e4c9c249e8c51ace7be68f1276460a423053e7`; documentation checks passed before
+the fast-forward integration. No remote delivery occurred.
 The current linter contract
 contains the base profile plus 18 build-tag profiles, all with 92 linters;
 AGENTS.md and EN/RU development instructions now match the implementation.

@@ -1,6 +1,11 @@
 # GoBFD continuation handoff
 
-Current local audit state: 2026-10-22 18:35 UTC at
+Current local implementation acceptance: 2026-10-22 19:08 UTC. Local `dev`
+includes `08e4c9c249e8c51ace7be68f1276460a423053e7`; no remote upload occurred.
+Evidence is retained in the main worktree at `reports/micro-preview-20261022/`.
+The bounded canonical resource/release gate remains separate and open.
+
+Earlier local audit state: 2026-10-22 18:35 UTC at
 `dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Beads owns tasks,
 dependencies and release age gates. The [EN roadmap](../../en/roadmap.md) and
 [RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
@@ -29,9 +34,9 @@ The original handoff and its dated measurements remain in local Git:
   module-level records remain. All 19 lint profiles pass with zero issues.
   The 2 GiB iteration lint container reached its cap (last sampled max51,
   OOM0); this does not establish the canonical resource/release acceptance.
-  Documentation checks precede local integration. Evidence:
-  `reports/micro-preview-20261022/` in that worktree, retained in the main
-  worktree after integration. Parent
+  Documentation checks passed before fast-forward integration into local
+  `dev` at `08e4c9c249e8c51ace7be68f1276460a423053e7`. Evidence is retained
+  in the main worktree at `reports/micro-preview-20261022/`. Parent
   `.8.2.1.8` remains open for Echo admission and bounded capability status;
   this does not graduate RFC 7130. The current linter has 18 tagged profiles
   plus the base profile, with 92 linters. No GitHub or Dolt upload is authorized.

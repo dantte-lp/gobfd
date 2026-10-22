@@ -45,8 +45,10 @@ tidy-diff прошли; reachable govulncheck findings — ноль, две су
 уровня модулей сохранены. Все 19 текущих lint profiles дали ноль замечаний.
 Это локальная iteration evidence: lint-контейнер 2 GiB достиг memory cap
 (последняя выборка `memory.events max=51`, без OOM); финальный canonical
-resource/release gate этим не квалифицирован. Локальная интеграция следует
-после проверки документации. Текущий контракт linter
+resource/release gate этим не квалифицирован. Локальный `dev` включает
+implementation `08e4c9c249e8c51ace7be68f1276460a423053e7`; документация прошла
+проверку до fast-forward integration. Публикация не выполнялась.
+Текущий контракт linter
 содержит базовый профиль и 18 build-tag profiles с 92 линтерами;
 AGENTS.md и EN/RU инструкции разработки приведены к этому состоянию.
 
