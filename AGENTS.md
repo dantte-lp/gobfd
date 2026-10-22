@@ -140,6 +140,16 @@ an upstream image name alone is not an exception.
 - Run the provider version check and render every tracked Compose file before
   live topology validation.
 
+## Planning
+
+- Beads is the sole source of executable plans, priorities, dependencies,
+  acceptance criteria, blockers and handoff/resume steps.
+- Do not create or maintain Markdown task/checklist plans. Files under
+  `docs/superpowers/plans/` are Beads entrypoints only; roadmaps are dated
+  status projections, not task authority. Keep measured evidence separate.
+- Read and update the relevant Beads issue before implementation. A skill's
+  Markdown-plan workflow does not override this repository requirement.
+
 ## Release branches
 
 - New releases are prepared and published only after development and final

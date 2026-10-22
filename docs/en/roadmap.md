@@ -1,5 +1,9 @@
 # GoBFD Roadmap
 
+Executable plans, priorities, dependencies and acceptance criteria live
+exclusively in Beads. This page is a dated status projection and historical
+record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
+
 ## Release-first priority — 2026-10-20
 
 The maintainer prioritizes delivery of v1.0.0 over all other work. This replaces
