@@ -140,6 +140,13 @@ YAML and generic `AddSession`, preserving omitted-field defaults. Preview
 per-peer override rules are unchanged. Timer reloads use the same explicit-zero
 semantics; interop scope for these procedures is stated below.
 
+A transition to Down on Detection Time expiry or on a received Down or
+AdminDown sends the new state at once (Section 6.8.7: changed contents "SHOULD
+be transmitted during the interval between periodic Control packet
+transmissions"). The same zero remote RX, Passive unknown-peer and unsolicited
+limits apply, a pending Final carries the change instead, and the next
+periodic packet follows the Section 6.8.3 slow-rate floor.
+
 One Detection Time without valid packets restores `bfd.RemoteMinRxInterval`
 to 1 microsecond and `bfd.RemoteDemandMode` to 0 in every state (Sections
 6.8.1 and 6.8.18): a peer's Required Min RX binds only while the peer keeps
@@ -164,19 +171,18 @@ remote behaviour on the wire with a repository-owned Go peer
 ([Interop Testing](05-interop.md#crafted-go-peer), `gobfd-qj0.8.2.1.1.2.3`):
 under remote zero RX GoBFD sends only Finals, one per peer Poll (Sections 6.5
 and 6.8.7); after one silent Detection Time it goes Down with diag 1, resets
-the remote receive interval and transmits Down with Your Discriminator 0 at
-the next slow-rate interval (Sections 6.8.4 and 6.8.18); under
+the remote receive interval and sends Down with Your Discriminator 0 at once,
+then continues at the slow rate (Sections 6.8.4, 6.8.7 and 6.8.18); under
 remote Demand it sends only Poll or Final frames, carries a reloaded timer in a
 Poll Sequence completed by the peer Final, and resumes periodic TX after the
-Demand clear (Sections 6.5 and 6.6). Measured run on 2026-10-21 at `c1525f1`:
-an 8.74 s RX0 window with 2 Polls, each answered by a Final within 187 us;
-Down 901.0 ms after the last peer frame (DT 900 ms) and the first packet after
-1.862 s, followed by 6 slow-rate intervals; a 7.42 s Demand window with one
-GoBFD Poll at 500 ms; periodic TX 420 ms after the Demand clear with 18
-intervals, mean 430.4 ms. The first Down packet waits for the next slow-rate
-interval; the Section 6.8.7 SHOULD to send changed contents between periodic
-packets is not met on detection expiry. FRR/BIRD interop for nonzero remote
-TX/RX changes remains open.
+Demand clear (Sections 6.5 and 6.6). Measured run on 2026-10-22 at `c954ec1`:
+an 8.74 s RX0 window with 2 Polls, each answered by a Final within 201 us;
+Down 900.4 ms after the last peer frame (DT 900 ms) and the first Down packet
+after 900.5 ms, followed by 6 slow-rate intervals; a 7.24 s Demand window with
+one GoBFD Poll at 500 ms; periodic TX 425 ms after the Demand clear with 17
+intervals, mean 434.1 ms. Before `b72b3c7` the first Down packet waited for
+the next slow-rate interval (1.862 s after silence on 2026-10-21). FRR/BIRD
+interop for nonzero remote TX/RX changes remains open.
 
 The session receive path rejects the reserved zero Desired Min TX before
 updating peer state or timers, including packets supplied through `RecvPacket`.

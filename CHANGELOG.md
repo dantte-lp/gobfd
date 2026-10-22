@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   silence and remote Demand on the wire with a crafted Go peer, which pinned
   FRR/BIRD cannot exercise. The `test/interop/scapy` tool gains a `peer` mode
   on the in-repository codec. The capture shows Final-only replies under RX0;
-  Down one Detection Time after silence with transmission at the next
-  slow-rate interval (RFC 5880 Sections 6.8.4 and 6.8.18); and Poll/Final-only
+  Down one Detection Time after silence with an immediate Down packet
+  (RFC 5880 Sections 6.8.4, 6.8.7 and 6.8.18); and Poll/Final-only
   traffic plus a timer Poll Sequence under Demand (Section 6.6).
   `make interop-testcontainers` runs it with retained PCAP and SHA-256
   artifacts. Local Demand remains open.
@@ -494,6 +494,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Debian package depends on `procps`, which provides the `/bin/kill` that
   `ExecReload=` runs; a minimal Debian 13 system with only `systemd` failed
   `systemctl reload gobfd` with `status=203/EXEC`.
+
+- A transition to Down on Detection Time expiry or on a received Down or
+  AdminDown now sends the new state at once instead of at the next slow-rate
+  interval (RFC 5880 Section 6.8.7 SHOULD). Zero remote RX, Passive unknown-peer
+  and unsolicited limits still apply, a pending Final carries the change, and
+  periodic TX keeps the slow-rate floor.
 
 - Hosted E2E Evidence jobs run on `ubuntu-26.04` (Podman 5.7.0). On
   `ubuntu-latest` (Ubuntu 24.04), Podman 4.9.3 links Debian imagebuilder 1.2.5,

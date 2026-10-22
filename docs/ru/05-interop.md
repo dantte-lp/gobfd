@@ -182,7 +182,7 @@ source port 49152, Poll/Final, медленный интервал вне Up и 
 | Фаза | Действие peer | Проверка по захвату |
 |---|---|---|
 | `rx0`, `poll` | Required Min RX 0 с Poll, затем второй Poll | От GoBFD только Final, по одному на Poll, не менее 10 согласованных интервалов (RFC 5880 Section 6.8.7) |
-| `silent` | Передача прекращена | Демон фиксирует Down с diag 1 через один Detection Time (из `gobfdctl`, сверен с wire) после последнего кадра peer, в пределах `[DT-1 ms, DT+max(2 ms, DT/50)]`; первый кадр GoBFD (Down, diag 1, Your Discriminator 0) следует в пределах одного интервала медленного режима, далее не менее 3 интервалов медленного режима в границах jitter (Sections 6.8.4 и 6.8.18) |
+| `silent` | Передача прекращена | Демон фиксирует Down с diag 1 через один Detection Time (из `gobfdctl`, сверен с wire) после последнего кадра peer, в пределах `[DT-1 ms, DT+max(2 ms, DT/50)]`; первый кадр GoBFD (Down, diag 1, Your Discriminator 0) следует не позднее `DT+50 ms+max(2 ms, DT/50)` после последнего кадра peer, далее не менее 3 интервалов медленного режима в границах jitter (Sections 6.8.4, 6.8.7 и 6.8.18) |
 | `recover` | Новый three-way handshake | Up с таймерами 300 ms в обе стороны |
 | `demand` | D=1 с Poll | GoBFD отвечает Final и далее передаёт только кадры Poll или Final; SIGHUP на 500 ms даёт Poll GoBFD с новыми таймерами, Final от peer и converged receipt перезагрузки после этого Final (Sections 6.5 и 6.6) |
 | `demand-clear` | D=0 с Poll | GoBFD отвечает Final и возобновляет periodic TX в пределах `T+slack`; далее не менее 12 интервалов проходят границы jitter и проверку среднего в 3 стандартные ошибки для T=500 ms |

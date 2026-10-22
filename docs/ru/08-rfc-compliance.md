@@ -124,6 +124,14 @@ receive interval пира останавливает периодический 
 не изменены. Reload таймеров сохраняет ту же семантику явного нуля; объём
 interop-квалификации этих процедур указан ниже.
 
+Переход в Down по истечении Detection Time или по принятому Down либо
+AdminDown сразу отправляет новое состояние (Section 6.8.7: изменённое
+содержимое "SHOULD be transmitted during the interval between periodic Control
+packet transmissions"). Действуют те же запреты нулевого remote RX, Passive при
+неизвестном пире и unsolicited; ожидающий Final переносит изменение вместо
+отдельного пакета, а следующий периодический пакет соблюдает нижнюю границу
+медленного режима Section 6.8.3.
+
 Один Detection Time без корректных пакетов возвращает
 `bfd.RemoteMinRxInterval` к 1 микросекунде и `bfd.RemoteDemandMode` к 0 в
 любом состоянии (Sections 6.8.1 и 6.8.18): Required Min RX пира обязателен,
@@ -148,19 +156,18 @@ zero-RX с FRR неприменимы по исходному коду (реше
 ([Interop Testing](05-interop.md#crafted-go-peer), `gobfd-qj0.8.2.1.1.2.3`):
 при нулевом remote RX GoBFD передаёт только Final, по одному на Poll пира
 (Sections 6.5 и 6.8.7); после одного Detection Time без пакетов переходит в
-Down с diag 1, сбрасывает remote receive interval и передаёт Down с Your
-Discriminator 0 в следующем интервале медленного режима (Sections 6.8.4 и
+Down с diag 1, сбрасывает remote receive interval, сразу передаёт Down с Your
+Discriminator 0 и далее работает в медленном режиме (Sections 6.8.4, 6.8.7 и
 6.8.18); при remote Demand передаёт только кадры Poll или Final,
 переносит перезагруженный таймер в Poll Sequence, завершённой Final пира, и
 возобновляет periodic TX после снятия Demand (Sections 6.5 и 6.6). Прогон
-2026-10-21 на `c1525f1`: окно RX0 8.74 s с 2 Poll, на каждый пришёл Final не
-позднее 187 us; Down через 901.0 ms после последнего кадра пира (DT 900 ms),
-первый пакет через 1.862 s, далее 6 интервалов медленного режима; окно Demand
-7.42 s с одним Poll GoBFD на 500 ms; periodic TX через 420 ms после снятия
-Demand, 18 интервалов, среднее 430.4 ms. Первый пакет Down ждёт следующего
-интервала медленного режима; SHOULD из Section 6.8.7 об отправке изменённого
-содержимого между периодическими пакетами при истечении detection не
-выполняется. Interop FRR/BIRD для ненулевых изменений remote TX/RX остаётся
+2026-10-22 на `c954ec1`: окно RX0 8.74 s с 2 Poll, на каждый пришёл Final не
+позднее 201 us; Down через 900.4 ms после последнего кадра пира (DT 900 ms),
+первый пакет Down через 900.5 ms, далее 6 интервалов медленного режима; окно
+Demand 7.24 s с одним Poll GoBFD на 500 ms; periodic TX через 425 ms после
+снятия Demand, 17 интервалов, среднее 434.1 ms. До `b72b3c7` первый пакет Down
+ждал следующего интервала медленного режима (1.862 s после молчания в прогоне
+2026-10-21). Interop FRR/BIRD для ненулевых изменений remote TX/RX остаётся
 открытым.
 
 Session receive path отклоняет зарезервированный нулевой Desired Min TX до
