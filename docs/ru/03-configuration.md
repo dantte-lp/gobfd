@@ -860,8 +860,9 @@ kill -HUP $(pidof gobfd)
 открытия оставляет source в `failed`. Ещё не назначенный или IPv6-tentative
 local address (`EADDRNOTAVAIL`) при bind listener, sender или overlay backend
 считается типизированным недоступным адресом и оставляет source в `pending`.
-Listener или overlay backend, который не может выполнить bind, останавливает
-source до apply в Manager, поэтому старые claims сохраняются; sender, который не
+Listener, который не может выполнить bind, останавливает свой source до apply в
+Manager, поэтому старые claims сохраняются; overlay endpoint, который не может
+выполнить bind, исключает только свои identities; sender, который не
 может выполнить bind, оставляет в `pending` только свой claim, а проход всё равно
 освобождает записи, удалённые из desired set. Address event, назначающий адрес,
 повторяет применение source. Control- или Echo-сессия, созданная через API, захватывает
@@ -888,8 +889,12 @@ Overlay backends тоже входят в generation. Один userspace-udp с�
 каждый вид туннеля и outer local address (VXLAN UDP 4789, Geneve UDP 6081).
 Перед применением source VXLAN или Geneve захватывает identities своего desired
 set: новый local endpoint открывает backend, а identity, добавленная на открытый
-endpoint, расширяет набор identities этого сокета на месте, поэтому работающие
-сессии сохраняют свой сокет. После применения без failed и resource-pending
+endpoint, входит в набор identities этого сокета на месте, поэтому работающие
+сессии сохраняют свой сокет. Identity с тем же wire identity, что и захваченная,
+например VXLAN peer с изменённым `local_mac`, заменяет её. Каждый local endpoint
+захватывается независимо: identities endpoint, который не открывается,
+исключаются из применения (`pending` для неназначенного адреса, иначе `failed`),
+а остальные identities применяются, включая удаления. После применения без failed и resource-pending
 записей каждый backend сужается до desired identities, а backend без identities
 закрывается и возвращает inner source port. Неудачное применение сохраняет
 расширенный набор. Startup захватывает backends так же, поэтому backend, который
@@ -941,7 +946,7 @@ Base configuration, Echo, Micro-BFD members, VXLAN и Geneve использую�
 Автоматическое завершение охватывает принятые транзакции базовых таймеров, не
 произвольные ошибки других source operations. Для остальных partial apply
 следующий явный SIGHUP компилирует и публикует новое desired generation. Настроенный непустой
-source VXLAN или Geneve, backend которого не открывается, считается failed или
+identity VXLAN или Geneve, backend которой не открывается, считается failed или
 pending для неназначенного local address, а не skipped.
 Уже принятые изменения других sources не откатываются.
 

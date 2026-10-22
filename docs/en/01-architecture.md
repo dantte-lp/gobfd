@@ -228,6 +228,8 @@ Geneve sources: one backend per tunnel kind and outer local address, opened on
 the first claim, widened in place (`SetScopes` swaps a copy-on-write identity
 set read with one atomic load per packet) when an identity is added, narrowed
 after a clean apply, and closed when empty; live sessions never change socket.
+Each local endpoint claims independently, so an endpoint that cannot open pends
+or fails only its own identities.
 Only `ENODEV` from a listener device binding (unavailable interface) and
 `EADDRNOTAVAIL` from a listener, sender, or overlay bind (unavailable address)
 are classified; both leave the source `pending`. Address events and resyncs

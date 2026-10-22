@@ -229,7 +229,10 @@
   endpoint открывает backend, identity на открытом endpoint расширяет набор
   identities сокета на месте (`SetScopes`, одна атомарная загрузка на пакет), а
   чистое применение сужает его и закрывает пустые backends вместе с inner source
-  port. Startup захватывает backends так же, поэтому ошибка backend больше не
+  port. Каждый local endpoint захватывается независимо, поэтому один
+  неназначенный адрес оставляет в pending только свои identities, а identity с
+  тем же wire identity, например изменённый VXLAN `local_mac`, заменяет
+  захваченную. Startup захватывает backends так же, поэтому ошибка backend больше не
   требует перезапуска. `vxlan.backend`, `vxlan.management_vni`, `geneve.backend`
   и `geneve.default_vni` по-прежнему требуют перезапуска.
 - Ещё не назначенный или IPv6-tentative local address (`EADDRNOTAVAIL`) при
