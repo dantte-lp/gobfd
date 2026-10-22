@@ -110,6 +110,12 @@ The `e2e-linux` target also writes:
 ```text
 link-events.json
 lag-backends.json
+microbfd-wire-enslaved.json
+microbfd-wire-standalone.json
+microbfd-enslaved-gobfdm0a.pcap
+microbfd-enslaved-gobfdm1a.pcap
+microbfd-standalone-gobfdm0a.pcap
+microbfd-standalone-gobfdm1a.pcap
 ```
 
 The `e2e-vendor` target also writes:
