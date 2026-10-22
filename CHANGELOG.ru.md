@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Base UDP listeners учитывают валидность socket-drop samples и ограниченные
+  cumulative increments до отбрасывания пакета. Явно разделены lifetime listener,
+  baseline новых и existing сокетов, serial wrap ambiguity и post-load markers;
+  отсутствие telemetry не означает отсутствие потерь. Фиксированные Control/Echo
+  метрики не подтверждают полный wire loss и supported load.
+
 - Timer observations для Control и Echo разделяют scheduled firing, owner
   dispatch и успешную TX либо публикацию Down по timeout. Фиксированные global
   metrics учитывают no-effect/invalid outcomes без peer labels; неуспешные

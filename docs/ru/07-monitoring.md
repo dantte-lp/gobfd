@@ -79,6 +79,8 @@ best effort; отмена dispatch не обещает restart/progress.
 | `gobfd_bfd_control_rx_commit_seconds` | Histogram | нет | Software kernel RX до нормального owner completion, только valid samples |
 | `gobfd_bfd_timer_events_total` | Counter | `timer`, `event` | Фиксированные Control/Echo dispatch, effect, no-effect и invalid timing outcomes |
 | `gobfd_bfd_timer_delay_seconds` | Histogram | `timer`, `stage` | От запланированного timer firing до owner dispatch или полезного эффекта; только valid samples |
+| `gobfd_bfd_socket_drop_samples_total` | Counter | `kind`, `outcome` | Прочитанные датаграммы по фиксированным Control/Echo outcomes валидности socket-drop samples |
+| `gobfd_bfd_socket_drops_total` | Counter | `kind` | Наблюдаемые forward increments потерь сокета в одной эпохе счётчика |
 | `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Фиксированные решения стадий Control, Echo и notifications после удаления сессии |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
@@ -103,6 +105,15 @@ effect — публикация Down по timeout до logs, notifications и о
 дают `no_effect`; panic или незавершённый handler могут оставить dispatch
 без terminal event. Непосредственные действия вне timer event сюда не входят.
 См. [границу таймерных измерений](14-performance-analysis.md#граница-таймерных-измерений).
+
+Socket-drop kinds: `control` и `echo`; outcomes: `initial`, `sample`,
+`unavailable`, `invalid`, `ambiguous`. Новые сокеты daemon используют известный
+нулевой baseline создания. Existing/custom transports устанавливают baseline
+по первому известному sample; потери до него не вычисляются. Отклонённые
+датаграммы сохраняют telemetry, обычные I/O errors и timeouts не дают sample.
+Unavailable и invalid данные не доказывают отсутствие потерь. Ограничения
+wrap, reset, ordering и final markers описаны в
+[границе socket-drop observations](14-performance-analysis.md#граница-измерений-потерь-сокета).
 
 Регистрация публикует четыре нулевых packet/auth counters и сохраняет их handles
 для активных peer/local pairs. Общие регистрации удерживают handles до последнего

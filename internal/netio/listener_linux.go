@@ -41,6 +41,7 @@ func NewListener(cfg ListenerConfig) (*Listener, error) {
 		delivery:     cfg.Delivery,
 		echo:         cfg.Port == PortEcho,
 		receiveClock: clock,
+		socketDrops:  newSocketDropObserver(cfg.Delivery, true),
 	}, nil
 }
 

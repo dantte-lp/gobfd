@@ -8,7 +8,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
-func (c *Collector) initTimingMetrics() {
+func (c *Collector) initTelemetryMetrics() {
 	c.ReceiveTimingOutcomes = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace, Subsystem: subsystem, Name: "control_rx_timing_total",
 		Help: "Completed Control packets by fixed timing validity outcome; not queue admissions.",
@@ -22,6 +22,7 @@ func (c *Collector) initTimingMetrics() {
 		Buckets: []float64{0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5},
 	})
 	c.initTimerMetrics()
+	c.initSocketDropMetrics()
 }
 
 // ObserveReceiveTiming never creates a series from packet data or peer labels.

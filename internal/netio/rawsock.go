@@ -96,6 +96,8 @@ type PacketMeta struct {
 	// SocketDropsKnown distinguishes an absent cmsg from a reported zero.
 	SocketDrops      uint32
 	SocketDropsKnown bool
+	// SocketDropsInvalid excludes malformed or truncated ancillary data.
+	SocketDropsInvalid bool
 }
 
 // -------------------------------------------------------------------------

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Base UDP listeners report socket-drop sample validity and bounded cumulative
+  increments before packet rejection. Listener lifetime, fresh versus existing
+  socket baselines, serial wrap ambiguity and post-load markers remain explicit;
+  missing telemetry is not zero loss. Fixed Control/Echo metrics do not qualify
+  complete wire loss or supported load.
+
 - Control and Echo timer observations separate scheduled firing, owner dispatch
   and successful TX or timeout-caused Down publication. Fixed global metrics
   retain no-effect/invalid outcomes without peer labels; failed or suppressed

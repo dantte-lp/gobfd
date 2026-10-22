@@ -76,6 +76,12 @@ type Collector struct {
 	timerCounters   [bfd.TimerKindCount][bfd.TimerEventCount]prometheus.Counter
 	timerHistograms [bfd.TimerKindCount][2]prometheus.Observer
 
+	// Socket telemetry retains only fixed Control/Echo sample dimensions.
+	SocketDropSamples  *prometheus.CounterVec
+	SocketDrops        *prometheus.CounterVec
+	socketDropCounters [2][bfd.SocketDropOutcomeCount]prometheus.Counter
+	socketDropTotals   [2]prometheus.Counter
+
 	// GoBGPRPCErrors counts failed GoBGP API calls by RPC, including the
 	// startup and background compatibility preflight.
 	GoBGPRPCErrors *prometheus.CounterVec
@@ -115,6 +121,8 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.ReceiveCommitLatency,
 		c.TimerEvents,
 		c.TimerDelay,
+		c.SocketDropSamples,
+		c.SocketDrops,
 		c.GoBGPRPCErrors,
 		c.GoBGPEndpointCompatible,
 		c.goBGPPeers,
@@ -183,7 +191,7 @@ func newMetrics() *Collector {
 			Help:      "Total BFD authentication verification failures (RFC 5880 Section 6.7).",
 		}, peerLabels),
 	}
-	c.initTimingMetrics()
+	c.initTelemetryMetrics()
 	return c
 }
 

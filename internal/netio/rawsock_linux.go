@@ -57,15 +57,17 @@ func (c *LinuxPacketConn) ReadPacket(buf []byte) (int, PacketMeta, error) {
 		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", err)
 	}
 
+	meta := PacketMeta{SocketDropsInvalid: flags&unix.MSG_CTRUNC != 0}
+	if flags&unix.MSG_CTRUNC == 0 {
+		meta = parseMeta(src, oob[:oobn])
+		meta.IfName = c.ifName
+	}
 	if flags&unix.MSG_TRUNC != 0 {
-		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", ErrPacketTruncated)
+		return 0, meta, fmt.Errorf("read BFD packet: %w", ErrPacketTruncated)
 	}
 	if flags&unix.MSG_CTRUNC != 0 {
-		return 0, PacketMeta{}, fmt.Errorf("read BFD ancillary data: %w", ErrAncillaryTruncated)
+		return 0, meta, fmt.Errorf("read BFD ancillary data: %w", ErrAncillaryTruncated)
 	}
-
-	meta := parseMeta(src, oob[:oobn])
-	meta.IfName = c.ifName
 
 	return n, meta, nil
 }
@@ -396,6 +398,7 @@ func parseMeta(src *net.UDPAddr, oob []byte) PacketMeta {
 
 	msgs, err := unix.ParseSocketControlMessage(oob)
 	if err != nil {
+		meta.SocketDropsInvalid = true
 		return meta
 	}
 
@@ -426,12 +429,17 @@ func parseControlMessages(msgs []unix.SocketControlMessage, meta *PacketMeta) {
 		case msgs[i].Header.Level == unix.SOL_SOCKET && msgs[i].Header.Type == unix.SO_TIMESTAMPNS_NEW:
 			meta.KernelRXUnixNano = parseKernelRXTimestamp(msgs[i].Data)
 		case msgs[i].Header.Level == unix.SOL_SOCKET && msgs[i].Header.Type == unix.SO_RXQ_OVFL:
-			meta.SocketDrops, meta.SocketDropsKnown = 0, len(msgs[i].Data) == 4
-			if meta.SocketDropsKnown {
-				meta.SocketDrops = binary.NativeEndian.Uint32(msgs[i].Data)
-			}
+			parseSocketDropsMessage(msgs[i].Data, meta)
 		}
 	}
+}
+
+func parseSocketDropsMessage(data []byte, meta *PacketMeta) {
+	if meta.SocketDropsKnown || meta.SocketDropsInvalid || len(data) != 4 {
+		meta.SocketDrops, meta.SocketDropsKnown, meta.SocketDropsInvalid = 0, false, true
+		return
+	}
+	meta.SocketDrops, meta.SocketDropsKnown = binary.NativeEndian.Uint32(data), true
 }
 
 // SO_TIMESTAMPNS_NEW uses two signed native-endian 64-bit timespec fields.

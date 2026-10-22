@@ -102,11 +102,46 @@ Panic или незавершённый handler могут оставить disp
 и обязательные нагрузочные распределения требуют actual UDP workload
 и accounting из Beads; эти метрики сами по себе их не подтверждают.
 
+## Граница измерений потерь сокета
+
+Linux [socket cmsgs](https://github.com/torvalds/linux/blob/a1c2b1da93f5f612aa7a33190c4900c98e51f6da/net/socket.c)
+не передают нулевой dropcount; [UDP enqueue path](https://github.com/torvalds/linux/blob/a1c2b1da93f5f612aa7a33190c4900c98e51f6da/net/ipv4/udp.c)
+сохраняет cumulative snapshot в датаграмме. Старые пакеты очереди не показывают
+последующие потери. После опустошения очереди требуются свежие post-load markers
+и повторный marker, который не должен повторно прибавлять те же потери.
+Отсутствие cmsg также может означать неподдерживаемую telemetry и не доказывает
+отсутствие потерь.
+
+Каждый base UDP listener сохраняет синхронизированный scalar high-water между
+запусками receiver. Новые сокеты daemon начинают с нуля; existing/custom сокеты
+требуют первого известного baseline. Новый listener начинает новую эпоху
+наблюдений. Только forward modular distance меньше `2^31` обновляет mark и
+добавляет increment. Повторный известный sample даёт нулевой increment;
+устаревшие и half-range значения дают `ambiguous`, сохраняя прежний mark.
+Используется ограниченная [serial arithmetic](https://www.rfc-editor.org/rfc/rfc1982.html#section-3),
+численное уменьшение не считается безусловным доказательством wrap.
+
+Эпоха счётчика должна сохраняться, observation gap — оставаться меньше половины
+пространства `uint32`. Несколько ненаблюдаемых wraps и reset, имитирующий forward
+progress, не обнаруживаются. Initial sample existing transport, unavailable
+интервалы и invalid samples не доказывают полный учёт потерь. Два фиксированных
+kinds и пять outcomes дают десять sample counters и два increment counters без
+peer labels. Handles создаются один раз; Reset и удаление vector series не
+поддерживаются.
+
+Наблюдение предшествует отбрасыванию по read size, TTL и BFD parser. Payload
+truncation сохраняет независимо валидные полные ancillary metadata и typed
+read error; усечённые, повреждённые или дублированные drop cmsgs дают invalid.
+Обычные read errors, closure и timeouts не являются samples прочитанной
+датаграммы. Overlay paths этой границей listener не инструментированы.
+Wire loss, supported scale и финальная runtime qualification не подтверждаются.
+
 ## Содержание
 
 - [Краткие выводы](#краткие-выводы)
 - [Граница Linux Receive Telemetry](#граница-linux-receive-telemetry)
 - [Граница таймерных измерений](#граница-таймерных-измерений)
+- [Граница измерений потерь сокета](#граница-измерений-потерь-сокета)
 - [Методология тестирования](#методология-тестирования)
 - [Результаты бенчмарков](#результаты-бенчмарков)
   - [Кодек-операции](#31-кодек-операции)

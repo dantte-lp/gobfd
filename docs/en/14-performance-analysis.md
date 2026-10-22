@@ -101,11 +101,45 @@ Untimed actions do not enter timer observations. These measurements do not
 establish false-Down rate, supported scale or the required load distributions;
 those require the actual UDP workload and accounting in Beads.
 
+## Socket-drop observation boundary
+
+Linux [socket cmsgs](https://github.com/torvalds/linux/blob/a1c2b1da93f5f612aa7a33190c4900c98e51f6da/net/socket.c)
+omit a zero dropcount; the [UDP enqueue path](https://github.com/torvalds/linux/blob/a1c2b1da93f5f612aa7a33190c4900c98e51f6da/net/ipv4/udp.c)
+stores a cumulative snapshot on queued datagrams. Old queued packets therefore
+do not reveal later drops. Drain the old queue and retain fresh post-load
+markers, including a repeated marker that must not add the same losses twice.
+Absence can also mean unsupported telemetry, so it never proves loss-zero.
+
+Each base UDP listener owns a synchronized scalar high-water mark across
+receiver reruns. Fresh daemon sockets start at zero; existing/custom sockets
+need an initial known baseline. A new listener starts a new observation epoch.
+Only a forward modular distance below `2^31` advances the mark and contributes
+an increment. Equal known samples contribute zero; stale or half-range values
+are `ambiguous` and preserve the previous mark. This uses bounded
+[serial arithmetic](https://www.rfc-editor.org/rfc/rfc1982.html#section-3),
+not an assumption that every numeric decrease is a wrap.
+
+The counter epoch must stay unchanged and the observation gap must remain
+below half the `uint32` space. Multiple unobserved wraps and a reset that
+mimics forward progress cannot be detected. Initial samples on existing
+transports, unavailable intervals and invalid samples are not complete-loss
+evidence. The two fixed kinds and five outcomes produce ten sample counters
+and two increment counters without peer labels. Handles are created once;
+resetting or deleting their vector series is unsupported.
+
+Sampling precedes read-size, TTL and BFD parser rejection. Payload truncation
+keeps independently valid complete ancillary metadata while retaining its
+typed read error; truncated, malformed or duplicate drop cmsgs are invalid.
+Ordinary read errors, closure and timeouts are not consumed-datagram samples.
+Overlay paths are not instrumented by this listener boundary. These observations
+do not establish wire loss, supported scale or final runtime qualification.
+
 ## Table of Contents
 
 - [Executive Summary](#executive-summary)
 - [Linux Receive Telemetry Boundary](#linux-receive-telemetry-boundary)
 - [Timer Observation Boundary](#timer-observation-boundary)
+- [Socket-Drop Observation Boundary](#socket-drop-observation-boundary)
 - [Test Methodology](#test-methodology)
 - [Benchmark Results](#benchmark-results)
   - [Codec Operations](#31-codec-operations)

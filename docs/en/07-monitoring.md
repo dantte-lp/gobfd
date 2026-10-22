@@ -77,6 +77,8 @@ effort, and canceled dispatch has no restart/progress guarantee.
 | `gobfd_bfd_control_rx_commit_seconds` | Histogram | none | Software kernel RX to normal owner completion; valid samples only |
 | `gobfd_bfd_timer_events_total` | Counter | `timer`, `event` | Fixed Control/Echo dispatch, effect, no-effect and invalid timing outcomes |
 | `gobfd_bfd_timer_delay_seconds` | Histogram | `timer`, `stage` | Scheduled timer firing to owner dispatch or qualifying effect; valid samples only |
+| `gobfd_bfd_socket_drop_samples_total` | Counter | `kind`, `outcome` | Consumed datagrams by fixed Control/Echo socket-drop validity outcomes |
+| `gobfd_bfd_socket_drops_total` | Counter | `kind` | Observed forward socket-drop increments within one counter epoch |
 | `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control, Echo and notification stage decisions, retained after session deletion |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
@@ -102,6 +104,15 @@ sends and already-Down/AdminDown detection are `no_effect`; a panic or an
 in-flight handler may leave dispatch without a terminal event. Immediate
 non-timer actions do not enter these observations. See the
 [timer boundary](14-performance-analysis.md#timer-observation-boundary).
+
+Socket-drop kinds are `control` and `echo`; outcomes are `initial`, `sample`,
+`unavailable`, `invalid` and `ambiguous`. Fresh daemon sockets start at their
+known zero creation baseline. Existing/custom transports establish a baseline
+with their first known sample; that sample contributes no inferred loss.
+Rejected datagrams still supply telemetry, while ordinary I/O errors and
+timeouts supply no sample. Unavailable or invalid data never proves zero
+loss. See the [socket-drop boundary](14-performance-analysis.md#socket-drop-observation-boundary)
+for wrap, reset, ordering and final-marker limits.
 
 Registration initializes the four packet/auth counters at zero and caches their
 handles for active peer/local pairs. Shared registrations retain the handles

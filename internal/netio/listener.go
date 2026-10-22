@@ -66,6 +66,7 @@ type Listener struct {
 	delivery     bfd.DeliveryReporter
 	echo         bool
 	receiveClock *bfd.ReceiveClock
+	socketDrops  socketDropObserver
 }
 
 // ReceivedPacket owns one buffer borrowed from bfd.PacketPool.
@@ -100,6 +101,7 @@ func NewListenerFromConn(conn PacketConn, multiHop bool, delivery ...bfd.Deliver
 		multiHop:     multiHop,
 		delivery:     reporter,
 		receiveClock: bfd.NewReceiveClock(),
+		socketDrops:  newSocketDropObserver(reporter, false),
 	}
 }
 
@@ -120,6 +122,7 @@ func NewListenerFromConnWithExpectedTTL(
 		delivery:     reporter,
 		echo:         true,
 		receiveClock: bfd.NewReceiveClock(),
+		socketDrops:  newSocketDropObserver(reporter, false),
 	}
 }
 
@@ -214,6 +217,7 @@ func (l *Listener) recvOne(ctx context.Context) (*ReceivedPacket, error) {
 	}
 
 	n, meta, err := l.conn.ReadPacket(*bufp)
+	l.recordSocketDrops(meta, err)
 	if err != nil {
 		bfd.PacketPool.Put(bufp)
 		l.recordRead(ctx, err)

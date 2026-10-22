@@ -95,8 +95,12 @@ func TestRXTimestampRejectsTruncatedAncillary(t *testing.T) {
 	conn := timestampTestConn(t, family, true, unix.SO_TIMESTAMPNS_NEW)
 	sendLoopback(t, family, conn.LocalAddr().(*net.UDPAddr).AddrPort().Port(), 255, []byte{1})
 	var buf [64]byte
-	if _, _, err := (&LinuxPacketConn{conn: conn}).ReadPacket(buf[:]); !errors.Is(err, ErrAncillaryTruncated) {
+	_, meta, err := (&LinuxPacketConn{conn: conn}).ReadPacket(buf[:])
+	if !errors.Is(err, ErrAncillaryTruncated) {
 		t.Fatalf("truncated ancillary error = %v, want ErrAncillaryTruncated", err)
+	}
+	if !meta.SocketDropsInvalid || meta.SocketDropsKnown || meta.KernelRXUnixNano != 0 || meta.TTL != 0 {
+		t.Fatalf("untrusted truncated ancillary sample: %+v", meta)
 	}
 }
 
@@ -142,17 +146,18 @@ func TestRXTimestampSocketDropSamples(t *testing.T) {
 	nativeSample := make([]byte, 4)
 	binary.NativeEndian.PutUint32(nativeSample, 0x01020304)
 	for _, tc := range []struct {
-		name  string
-		data  []byte
-		count uint32
-		known bool
+		name    string
+		data    []byte
+		count   uint32
+		known   bool
+		invalid bool
 	}{
-		{"missing", nil, 0, false},
-		{"zero", []byte{0, 0, 0, 0}, 0, true},
-		{"maximum", []byte{255, 255, 255, 255}, math.MaxUint32, true},
-		{"nativeOrder", nativeSample, 0x01020304, true},
-		{"short", []byte{0, 0, 0}, 0, false},
-		{"long", []byte{0, 0, 0, 0, 0}, 0, false},
+		{"missing", nil, 0, false, false},
+		{"zero", []byte{0, 0, 0, 0}, 0, true, false},
+		{"maximum", []byte{255, 255, 255, 255}, math.MaxUint32, true, false},
+		{"nativeOrder", nativeSample, 0x01020304, true, false},
+		{"short", []byte{0, 0, 0}, 0, false, true},
+		{"long", []byte{0, 0, 0, 0, 0}, 0, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -162,10 +167,31 @@ func TestRXTimestampSocketDropSamples(t *testing.T) {
 					Header: unix.Cmsghdr{Level: unix.SOL_SOCKET, Type: unix.SO_RXQ_OVFL}, Data: tc.data,
 				}}, &meta)
 			}
-			if meta.SocketDropsKnown != tc.known || meta.SocketDrops != tc.count {
+			if meta.SocketDropsKnown != tc.known || meta.SocketDrops != tc.count || meta.SocketDropsInvalid != tc.invalid {
 				t.Fatalf("drop sample=(%d,%v), want (%d,%v)", meta.SocketDrops, meta.SocketDropsKnown, tc.count, tc.known)
 			}
 		})
+	}
+}
+
+func TestSocketDropDuplicateAncillary(t *testing.T) {
+	t.Parallel()
+	var meta PacketMeta
+	for range 2 {
+		parseControlMessages([]unix.SocketControlMessage{{
+			Header: unix.Cmsghdr{Level: unix.SOL_SOCKET, Type: unix.SO_RXQ_OVFL}, Data: []byte{1, 0, 0, 0},
+		}}, &meta)
+	}
+	if meta.SocketDropsKnown || !meta.SocketDropsInvalid || meta.SocketDrops != 0 {
+		t.Fatalf("duplicate drop samples trusted: %+v", meta)
+	}
+}
+
+func TestSocketDropMalformedAncillary(t *testing.T) {
+	t.Parallel()
+	meta := parseMeta(nil, make([]byte, unix.CmsgLen(0)))
+	if !meta.SocketDropsInvalid || meta.SocketDropsKnown {
+		t.Fatalf("malformed ancillary trusted: %+v", meta)
 	}
 }
 
@@ -223,6 +249,11 @@ func TestRXTimestampReportsCumulativeSocketDrops(t *testing.T) {
 		previous = meta.SocketDrops
 	}
 	t.Logf("kernel cumulative socket drops on both post-load markers: %d", previous)
+	sendLoopback(t, family, port, 255, make([]byte, 512))
+	_, meta, err := packetConn.ReadPacket(buf[:64])
+	if !errors.Is(err, ErrPacketTruncated) || !meta.SocketDropsKnown || meta.SocketDrops != previous || meta.TTL != 255 {
+		t.Fatalf("payload truncation lost valid ancillary sample: meta=%+v error=%v", meta, err)
+	}
 }
 
 func TestRXTimestampIgnoresOtherClockFormats(t *testing.T) {
