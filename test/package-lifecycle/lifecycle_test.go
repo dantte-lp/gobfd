@@ -67,7 +67,7 @@ func distros() []distro {
 		{
 			name:           "oraclelinux-10",
 			containerfile:  "deployments/docker/Containerfile.release.oraclelinux",
-			installSystemd: "microdnf -y install systemd iproute && microdnf clean all",
+			installSystemd: "microdnf -y install systemd iproute util-linux && microdnf clean all",
 			packageSuffix:  ".rpm",
 			install:        func(path string) []string { return []string{"rpm", "-i", path} },
 			remove:         []string{"rpm", "-e", "gobfd"},
@@ -110,7 +110,7 @@ func TestPackageLifecycle(t *testing.T) {
 			}
 			h.copy(configA(true), "/etc/gobfd/gobfd.yml")
 			h.copy(configB(), "/etc/gobfd-peer.yml")
-			h.mustRun("systemd-run", "--unit=gobfd-peer", "ip", "netns", "exec", "peer",
+			h.mustRun("systemd-run", "--unit=gobfd-peer", "nsenter", "--net="+peerNetns,
 				"/usr/local/bin/gobfd", "-config", "/etc/gobfd-peer.yml")
 
 			h.mustRun("systemctl", "start", "gobfd")
@@ -513,8 +513,15 @@ func startSystemd(ctx context.Context, t *testing.T, image, packages string) tes
 	}
 }
 
+// peerNetns is the peer daemon's network namespace. Its commands use nsenter:
+// ip -n and ip netns exec remount /sys in a new mount namespace, which
+// rootless Podman refuses ("mount of /sys failed: Operation not permitted").
+const peerNetns = "/run/netns/peer"
+
 func topology() [][]string {
-	in := func(args ...string) []string { return append([]string{"ip", "-n", "peer"}, args...) }
+	in := func(args ...string) []string {
+		return append([]string{"nsenter", "--net=" + peerNetns, "ip"}, args...)
+	}
 	steps := [][]string{
 		{"ip", "netns", "add", "peer"},
 		{"ip", "link", "add", "v0a", "type", "veth", "peer", "name", "v0b", "netns", "peer"},
