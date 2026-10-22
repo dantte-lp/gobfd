@@ -45,7 +45,9 @@ commit сообщил `gate_exit=0`, 39 full-race packages и 16 tagged passes.
 replace остаётся вне `dev`; политика same-key открыта в
 `gobfd-qj0.8.2.2.7`. Gate выделенного MAC/member по RFC 7130 остаётся
 красным на отдельной ветке Micro-BFD; в v1 функция preview и выключена по
-умолчанию.
+умолчанию. Остаточный RFC 7130 gate в `gobfd-qj0.8.2.2.1` имеет P2
+после v1; `gobfd-qj0.8.2.1.8` сохраняет P0 для fail-closed preview
+boundary выпуска v1.
 
 Контракт на 1 000 сессий допускает не более `2*GOMAXPROCS+32 = 48` OS
 threads при `GOMAXPROCS=8`. Control и Echo сессии всё ещё вызывают

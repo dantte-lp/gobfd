@@ -205,6 +205,8 @@ The original handoff and its dated measurements remain in local Git:
 - `task/typed-replace-20261022` remains outside `dev`, with same-key policy
   unresolved in `gobfd-qj0.8.2.2.7`. The RFC 7130 L2 gate is red on
   `task/microbfd-gate-20261022`; preview/default-off remains the v1 boundary.
+  The residual gate in `.8.2.2.1` is P2 after-v1, while P0 `.8.2.1.8` owns
+  fail-closed preview qualification for v1.
   The kernel-bond worktree contains uncommitted work and is not accepted.
 - `gobfd-qj0.8.2.1.7` is now P0: the current permanent Control/Echo
   `runtime.LockOSThread` calls contradict the approved 48-thread ceiling at

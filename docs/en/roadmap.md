@@ -44,6 +44,8 @@ This is not a live BASE/crafted-wire or hosted-release acceptance. The typed
 replace branch remains outside `dev`; its same-key policy is unresolved under
 `gobfd-qj0.8.2.2.7`. The RFC 7130 dedicated-MAC/member gate remains red on
 the separate Micro-BFD branch; Micro-BFD is preview and default-off for v1.
+The residual RFC 7130 gate in `gobfd-qj0.8.2.2.1` is P2 after-v1;
+`gobfd-qj0.8.2.1.8` remains P0 for the v1 fail-closed preview boundary.
 
 The 1,000-session contract requires at most `2*GOMAXPROCS+32 = 48` OS threads
 at `GOMAXPROCS=8`. Control and Echo sessions still call
