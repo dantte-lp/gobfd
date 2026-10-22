@@ -1,9 +1,31 @@
 # GoBFD continuation handoff
 
-Current local implementation acceptance: 2026-10-22 19:08 UTC. Local `dev`
-includes `08e4c9c249e8c51ace7be68f1276460a423053e7`; no remote upload occurred.
-Evidence is retained in the main worktree at `reports/micro-preview-20261022/`.
-The bounded canonical resource/release gate remains separate and open.
+Current local implementation acceptance: 2026-10-22 19:54 UTC at
+`217febe9bf26680478c7ed1dce4b8487644f0263`; no remote upload occurred.
+Raw Linux receive telemetry `.8.2.1.6.1` is closed: optional time64 timestamp
+and cumulative drop cmsgs, 128-byte ancillary budget and typed CTRUNC failure
+retain mandatory GTSM/PKTINFO. Only ENOPROTOOPT permits unavailable telemetry;
+unexpected socket errors remain fatal. Evidence: `reports/rx-timestamp-20261022/`.
+Local checks pass 215 named netio tests plus six fuzz roots, all eight new RX
+cases, 19 lint profiles/92 linters, vet/formatter/both tidy-diff and 84 Markdown
+inputs. One existing device capability test skips. Six decoder benchmarks
+have zero allocations; reachable govulncheck findings are zero, with the two
+existing module findings retained. Last sampled 2 GiB iteration lint max33,
+OOM0 does not qualify the canonical resource/release gate.
+
+Parent `.8.2.1.6` stays P0 in progress; claimed `.1.6.2` now owns explicit
+paired clock conversion and actual owner-commit observations. `convertMeta`
+still drops telemetry, `recvItem` has no timing, and four shared admission
+callers need propagation. Observe after the owner commit; `PacketsReceived`
+and enqueue-only benchmarks are insufficient. `.1.6.3` owns bounded load,
+timer/drop/environment evidence; `.1.6.4` owns calibrated benchmark failure
+policy. Do not weaken the approved 1000-session/GOMAXPROCS8 envelope or final
+24-hour qualification. `.1.7` thread-pin A/B remains P0 after baseline.
+Old-kernel and arm64 runtime acceptance remains unmeasured.
+
+The earlier accepted Micro-BFD opt-in is
+`08e4c9c249e8c51ace7be68f1276460a423053e7`; its evidence remains at
+`reports/micro-preview-20261022/`. The full preview and release gates stay open.
 
 Earlier local audit state: 2026-10-22 18:35 UTC at
 `dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Beads owns tasks,

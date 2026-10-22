@@ -26,6 +26,36 @@ P2 freshness/cleanup при наличии исполнимой релизной
 release-age hold делает upgrade допустимым, но не следующим. Очистка своих
 временных ресурсов после каждого запуска остаётся обязательной.
 
+## Локальный срез receive telemetry — 2026-10-22
+
+`gobfd-qj0.8.2.1.6.1` закрыта на локальной реализации
+`217febe9bf26680478c7ed1dce4b8487644f0263`. Linux listeners получают сырые
+time64 software receive timestamps и cumulative socket-drop messages.
+Увеличенный ancillary buffer сохраняет IPv4/IPv6 GTSM и packet-info;
+усечение отклоняется до demux. При `ENOPROTOOPT` telemetry недоступна,
+прочие socket errors прекращают запуск. Требования к host kernel сохраняются;
+отсутствующие измерения не считаются нулевой задержкой или отсутствием потерь.
+
+Локальная race-проверка дала 215 named netio tests и шесть fuzz roots PASS;
+один существующий device-rebind capability test пропущен. Все восемь новых
+RX cases прошли, включая реальные IPv4/IPv6 timestamps и cumulative 126 drops
+на обоих финальных markers. Все 19 lint profiles дали zero issues; vet,
+formatter, оба tidy-diff и 84 Markdown inputs прошли. Шесть decoder benchmarks
+дали zero allocations; reachable govulncheck findings отсутствуют, две
+существующие module records сохранены. Evidence: `reports/rx-timestamp-20261022/`.
+Контейнер iteration lint 2 GiB достигал cap (последняя выборка max33, OOM0);
+canonical resource и release qualification этим не подтверждены. Runtime на
+старом kernel и arm64 не измерен. GitHub и Dolt upload не выполнялись.
+
+Родитель `.8.2.1.6` остаётся P0 in progress. Следующая claimed задача `.1.6.2`
+включает paired clock conversion и наблюдение actual owner commit; затем
+`.1.6.3` получает workload/timer/drop/environment distributions, `.1.6.4` —
+калиброванную blocking benchmark policy. Protocol deadlines остаются
+монотонными. Admission и `PacketsReceived` не доказывают commit.
+Утверждённые 1000 сессий/GOMAXPROCS8 и финальный 24-часовой gate сохраняются;
+thread-pin A/B `.1.7` следует за baseline. Необязательные kernel-работы и
+общая актуальность компонентов остаются после v1.
+
 ## Локальная граница Micro-BFD preview — 2026-10-22
 
 `gobfd-qj0.8.2.1.8.1` реализует первый runtime-срез P0 preview boundary в

@@ -26,6 +26,36 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
+## Local receive telemetry stage — 2026-10-22
+
+`gobfd-qj0.8.2.1.6.1` is closed at local implementation
+`217febe9bf26680478c7ed1dce4b8487644f0263`. Linux listeners capture raw
+time64 software receive timestamps and cumulative socket-drop messages.
+The enlarged ancillary buffer retains IPv4/IPv6 GTSM and packet-info data;
+truncation fails before demux. Unsupported telemetry remains unavailable on
+`ENOPROTOOPT`; other socket errors stay fatal. This preserves the deployment
+kernel contract without accepting missing measurements as zero latency/loss.
+
+Local race validation passes 215 named netio tests and six fuzz roots; one
+existing device-rebind capability test skips. All eight new RX cases pass,
+including real IPv4/IPv6 timestamps and cumulative 126 drops on both final
+markers. All 19 lint profiles report zero issues; vet, formatter, both
+tidy-diff commands and 84 Markdown inputs pass. Six decoder benchmarks report
+zero allocations; reachable govulncheck findings are zero, with the two
+existing module records retained. Evidence: `reports/rx-timestamp-20261022/`.
+The 2 GiB iteration lint container reached its cap (last sampled max33, OOM0);
+this is not canonical resource or release qualification. Old-kernel and arm64
+runtime behavior have not been measured. No GitHub or Dolt upload occurred.
+
+Parent `.8.2.1.6` remains P0 in progress. Its next claimed child `.1.6.2`
+owns paired clock conversion and actual owner-commit observations, followed
+by `.1.6.3` workload/timer/drop/environment distributions and `.1.6.4`
+calibrated blocking benchmark policy. Existing protocol deadlines remain
+monotonic. Packet admission and `PacketsReceived` do not prove commit.
+The approved 1,000-session/GOMAXPROCS8 envelope and final 24-hour gate remain
+unchanged; thread-pin A/B `.1.7` follows the baseline. Optional kernel work
+and general component freshness remain after v1.
+
 ## Local Micro-BFD preview boundary — 2026-10-22
 
 `gobfd-qj0.8.2.1.8.1` implements the first runtime slice of the P0 preview
