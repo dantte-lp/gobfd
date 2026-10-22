@@ -26,7 +26,38 @@ P2 freshness/cleanup при наличии исполнимой релизной
 release-age hold делает upgrade допустимым, но не следующим. Очистка своих
 временных ресурсов после каждого запуска остаётся обязательной.
 
-## Локальное измерение receive-to-commit — 2026-10-22
+## Локальное устранение аллокаций packet counters — 2026-10-23
+
+`gobfd-qj0.8.2.1.6.5` реализована локально в
+`3106b405606851fc0009502ef4625ee0e8535c4a`. Зарегистрированные peer/local
+pairs хранят четыре packet/auth counter handles со счётчиком регистраций;
+последний unregister удаляет активную запись. Исторические CounterVec series
+и незарегистрированные updates сохраняют прежнее поведение. Reporter wrappers,
+ownership, wire contracts и protocol timers не изменены.
+
+Прежний actual-owner benchmark с реальным collector дал 0 B/op и 0 allocs/op
+в трёх запусках; baseline давал 16 B/op и 2 allocs/op. Synthetic timing
+исключает UDP, parsing и authentication. Критические race-проверки дали
+183 named tests PASS без пропусков: concurrent churn, общие регистрации,
+удаление завершённых cache entries и четыре реальных UDP routes.
+Все 19 lint profiles/92 linters, vet, formatter, оба tidy-diff и 84 Markdown
+inputs прошли; 520 source inputs совпадают. Whole-branch static review не
+выявил новых P0/P1. Govulncheck: ноль reachable findings, две прежние
+module-level records. Evidence: `reports/collector-owner-20261022/`.
+Iteration lint достиг 2 GiB; последняя выборка max19/OOM0 не подтверждает
+canonical resource acceptance. После auto-removal финальные counters недоступны.
+
+Следующая P0 `.1.6.3` измеряет actual UDP workload, неопределённость clock,
+timer/drop/environment distributions и retained-series при смене пиров.
+Затем `.1.6.4` задаёт калиброванную regression failure policy; `.1.7`
+выполняет thread-pin A/B после baseline. Текущий iteration runner
+2 CPU/2 GiB/GOMAXPROCS2/pids512 не квалифицирует утверждённые
+1000 сессий/GOMAXPROCS8. Требуется отдельно допущенный runner;
+reference envelope и финальный 24-часовой gate сохраняются. Родитель
+`.8.2.1.6` остаётся P0 in progress. Source/Dolt upload, Actions и подготовка
+релиза результатами локальных проверок не разрешены.
+
+## Предыдущее измерение receive-to-commit — 2026-10-22
 
 `gobfd-qj0.8.2.1.6.2` реализована локально в
 `abb9ea138d07a07c95308f4e90192f2703a1aea7`. Парная realtime/monotonic

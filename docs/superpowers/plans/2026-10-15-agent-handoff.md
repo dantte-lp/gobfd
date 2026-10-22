@@ -1,6 +1,33 @@
 # GoBFD continuation handoff
 
-Current local implementation evidence: 2026-10-22 20:42 UTC at
+Current local implementation evidence: 2026-10-22 21:06 UTC at
+`3106b405606851fc0009502ef4625ee0e8535c4a`; no remote upload occurred.
+Packet-counter child `.8.2.1.6.5` is implemented. Collector retains four
+packet/auth handles for active peer/local pairs, references shared registrations
+and removes the active entry on the last unregister. Historical vector series
+and unregistered calls keep their existing behavior. Reporter wrappers, session
+ownership and protocol deadlines are unchanged. Registration initializes zero
+packet/auth series; Reset/Delete of active vectors is unsupported.
+
+The unchanged actual-owner real-collector benchmark gives0B/0alloc in all3runs,
+versus baseline16B/2alloc; it excludes UDP/decode/auth and uses synthetic timing.
+Fresh critical race checks:183named PASS,0FAIL/0SKIP. Shared registration,
+concurrent churn,64retired pairs and4actualUDP routes pass. All19lint profiles/
+92linters, vet, formatter, both tidy-diff and84Markdown inputs pass;520source
+inputs match. Whole-branch static review has0newP0/P1. Govulncheck has0reachable
+and2existing module-level records. Evidence: `reports/collector-owner-20261022/`.
+Iteration lint reached2GiB; last sampled max19/OOM0 is not canonical resource
+acceptance. Terminal counters were unavailable after container auto-removal.
+
+Next P0 `.1.6.3`: actualUDP workload, clock uncertainty, timer/drop/environment
+distributions and retained-series churn accounting; then `.1.6.4` calibrated
+blocking regression policy and `.1.7` thread-pin A/B after the baseline.
+Current iteration2CPU/2GiB/GOMAXPROCS2/pids512 cannot qualify the approved
+1000mixed-session/GOMAXPROCS8 reference. Admit reference resources separately;
+do not shrink the envelope or final24h gate. Parent `.8.2.1.6` stays P0 in
+progress. No upload, Actions dispatch, stable delivery or supported-scale claim.
+
+Earlier clock/owner evidence: 2026-10-22 20:42 UTC at
 `abb9ea138d07a07c95308f4e90192f2703a1aea7`; no remote upload occurred.
 Clock/owner child `.8.2.1.6.2` is implemented: listener-lifetime calibration,
 four Control admission callers, shared atomic epoch revocation and one

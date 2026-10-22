@@ -26,7 +26,37 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
-## Local receive-to-commit stage — 2026-10-22
+## Local packet-counter allocation fix — 2026-10-23
+
+`gobfd-qj0.8.2.1.6.5` is implemented locally at
+`3106b405606851fc0009502ef4625ee0e8535c4a`. Registered peer/local pairs
+retain four packet/auth counter handles with registration references; the
+last unregister removes the active entry. Historical CounterVec series and
+unregistered updates retain their existing behavior. Reporter wrappers,
+session ownership, wire contracts and protocol timers are unchanged.
+
+The unchanged actual-owner real-collector benchmark reports 0 B/op and
+0 allocs/op in three runs, compared with the 16 B/op and 2 allocs/op baseline.
+Its synthetic timing excludes UDP, parsing and authentication. Local critical
+race checks pass 183 named tests without skips, including concurrent counter
+churn, shared registrations, bounded cache retirement and four real UDP routes.
+All 19 lint profiles/92 linters, vet, formatter, both tidy-diff checks and
+84 Markdown inputs pass; 520 source inputs match. Fresh whole-branch static
+review has no new P0/P1. Govulncheck has zero reachable findings and the two
+existing module-level records. Evidence: `reports/collector-owner-20261022/`.
+The iteration lint reached 2 GiB; last sampled max19/OOM0 is not canonical
+resource acceptance, and terminal counters were unavailable after auto-removal.
+
+P0 `.1.6.3` is next for actual UDP workload, clock uncertainty, timer/drop/
+environment distributions and retained-series churn accounting. Then `.1.6.4`
+defines calibrated regression failure policy; `.1.7` follows the baseline
+with thread-pin A/B. The current 2 CPU/2 GiB/GOMAXPROCS2/pids512 iteration
+runner cannot qualify the approved 1,000-session/GOMAXPROCS8 reference.
+Use separately admitted resources; preserve that envelope and final 24-hour
+gate. Parent `.8.2.1.6` remains P0 in progress. No source/Dolt upload, Actions
+dispatch or release preparation is accepted by these local results.
+
+## Earlier receive-to-commit stage — 2026-10-22
 
 `gobfd-qj0.8.2.1.6.2` is implemented locally at
 `abb9ea138d07a07c95308f4e90192f2703a1aea7`. Paired realtime/monotonic
