@@ -1,7 +1,8 @@
 # GoBFD continuation handoff
 
-Current execution state: 2026-10-20 21:10 UTC. Beads owns tasks, dependencies and release
-age gates. The [EN roadmap](../../en/roadmap.md) and
+Current audit state: 2026-10-22 18:09 UTC at
+`dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Beads owns tasks,
+dependencies and release age gates. The [EN roadmap](../../en/roadmap.md) and
 [RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
 sources. Earlier 2026-10-15 receipts remain historical evidence at their named
 commits; they are not the current host runbook.
@@ -15,7 +16,7 @@ The original handoff and its dated measurements remain in local Git:
 
 ## Source and acceptance boundaries
 
-- Accepted implementation baseline on local `dev`:
+- Historical 2026-10-20 accepted implementation baseline on local `dev`:
   `1484581eb57d0bf210a4072ecb108a066ec26ad2`.
 - GitHub `dev` received the local `dev` history up to
   `ea9d9ad0e89bc90b23424b53efbf823c2a8a3e93` on 2026-10-20; default `master`:
@@ -190,6 +191,26 @@ The original handoff and its dated measurements remain in local Git:
   (`gobfd-qj0.8.2.1.1`), typed session replace (`gobfd-qj0.8.2.2.7`) and the
   RFC 7130 integration gate (`gobfd-qj0.8.2.2.1`).
 
+## Retrospective readback — 2026-10-22 18:09 UTC
+
+- Local and GitHub `dev` match at `93304161d77bd1e97a8eb36ecfd1d4b321dd8082`.
+  The latest hosted nightly E2E success, run 39763006963, checked ancestor
+  `3a641a9585e058c1d628cc3231bdcaa5291f497b`; it is not a check of
+  the current head.
+- `task/integration-batch9-20261022` at
+  `dc5a92c163f9a5e9d302fc511759f93d5fd13b7a` has four commits beyond
+  `dev`. Read-only remote gate inspection on `oel-lab-gui` found `gate_exit=0`,
+  `full_race_exit=0`, 39 packages and 16 tagged passes for that exact source
+  commit. Live BASE/crafted-wire validation and integration are still open.
+- `task/typed-replace-20261022` remains outside `dev`, with same-key policy
+  unresolved in `gobfd-qj0.8.2.2.7`. The RFC 7130 L2 gate is red on
+  `task/microbfd-gate-20261022`; preview/default-off remains the v1 boundary.
+  The kernel-bond worktree contains uncommitted work and is not accepted.
+- `gobfd-qj0.8.2.1.7` is now P0: the current permanent Control/Echo
+  `runtime.LockOSThread` calls contradict the approved 48-thread ceiling at
+  1,000 sessions and `GOMAXPROCS=8`. The old bounded 505-thread failure is
+  historical; no fresh scale run was made during this readback.
+
 ## Resume
 
 1. Read applicable `AGENTS.md`, default-branch README and current roadmap;
@@ -200,9 +221,14 @@ The original handoff and its dated measurements remain in local Git:
    stable RFC/timer, transport, ownership/reload and management blockers;
    `gobfd-qj0.8.4.1` retains the stable-v1 advisory gate. Patched BIRD
    `.8.6.6.2` is accepted; serialize overlapping source/inventory edits.
-4. Qualify timer draft `.1.1.1.4.3.1` and its parent gaps against the accepted
-   patched peer. Keep previews default-off/fail-closed before v1; graduation is
-   separate. Execute an actual wrong-port RED before any API Echo `.1.17` fix.
+4. The timer draft `.1.1.1.4.3.1` is already qualified in the dated receipt
+   above. Complete batch 9 live BASE/crafted-wire checks at its exact commit
+   after its remote canonical gate, then review integration into `dev`.
+   Resolve typed replace `.8.2.2.7` separately. Keep Micro-BFD preview
+   default-off: its RFC 7130 L2 gate is red on the separate branch. Treat
+   permanent per-session OS-thread pinning `.8.2.1.7` as a P0 v1 scale
+   blocker; the A/B and 1,000-session gates remain unqualified. Execute an
+   actual wrong-port RED before any API Echo `.1.17` fix.
    General godbus/Buf/Trivy/ConnectRPC/CodeQL/ExaBGP upgrades are P2 after-v1 work
    unless final compatibility/security audit `.8.6.11` identifies a concrete
    release blocker. Preserve their exact age holds and adoption checks.
@@ -246,6 +272,8 @@ change parent limits or stop foreign processes to make a guard pass.
 
 ## Next protocol qualification
 
+The following timer contract was qualified at its dated commit; it is
+historical evidence, not the next runnable task.
 `gobfd-qj0.8.2.1.1.1.4.3` owns live timer reloads: `300→100 ms`,
 `100→500 ms`, RX0, generation-qualified pending/applied receipts and unchanged
 session identity for successful ordinary changes. Lower the peer RX floor

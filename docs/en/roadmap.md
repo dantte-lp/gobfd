@@ -7,8 +7,8 @@ the 2026-10-13 stack-first ordering and the earlier retrospective queue below.
 
 | Priority | Execute before v1 | After v1 |
 |---|---|---|
-| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, security-patched peer, stable-v1 advisory disposition and final release gate | No blanket component refresh prerequisite |
-| P1 | Required qualification tasks: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, independent review and release evidence | No general wrapper/asset cleanup prerequisite |
+| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, per-session OS-thread scale blocker, security-patched peer, stable-v1 advisory disposition and final release gate | No blanket component refresh prerequisite |
+| P1 | Other required qualification tasks: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, independent review and release evidence | No general wrapper/asset cleanup prerequisite |
 | P2+ | Only a separately demonstrated release blocker may be promoted | General runtime/tool/Action upgrades, freshness automation, semantic/wrapper inventories, asset/local-residue cleanup and independent v0.6 maintenance |
 
 Final qualification still requires source-backed current-compatible dependencies
@@ -26,7 +26,35 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
-## Current execution snapshot — 2026-10-20
+## Retrospective snapshot — 2026-10-22
+
+At `dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`, local and GitHub `dev`
+match. Beads reports 375 closed and 164 unfinished issues (141 open, 18 in
+progress, four blocked, one deferred); these counts include epics and post-v1
+work and are not a release-completion percentage. The latest hosted nightly
+E2E success, run [39763006963](https://github.com/dantte-lp/gobfd/actions/runs/39763006963),
+is at `3a641a9585e058c1d628cc3231bdcaa5291f497b`, an ancestor of the
+current `dev`; there is no hosted run for the exact head.
+
+The latest local integration candidate, `task/integration-batch9-20261022`
+at `dc5a92c163f9a5e9d302fc511759f93d5fd13b7a`, is four commits ahead
+of `dev`. Its remote Go 1.27.3 canonical gate on `oel-lab-gui` reports
+`gate_exit=0`, 39 full-race packages and 16 tagged passes at that exact commit.
+This is not a live BASE/crafted-wire or hosted-release acceptance. The typed
+replace branch remains outside `dev`; its same-key policy is unresolved under
+`gobfd-qj0.8.2.2.7`. The RFC 7130 dedicated-MAC/member gate remains red on
+the separate Micro-BFD branch; Micro-BFD is preview and default-off for v1.
+
+The 1,000-session contract requires at most `2*GOMAXPROCS+32 = 48` OS threads
+at `GOMAXPROCS=8`. Control and Echo sessions still call
+`runtime.LockOSThread` for their full lifetime, implying at least 1,000
+threads for 1,000 active control sessions. This is a direct scale blocker,
+so `gobfd-qj0.8.2.1.7` is P0. The existing bounded 505-thread `newosproc`
+failure is historical; run the specified A/B timer-tail and thread/RSS gate
+before changing the scheduler. [Go's runtime contract](https://pkg.go.dev/runtime#LockOSThread)
+guarantees thread affinity, not timer precision.
+
+## Historical execution snapshot — 2026-10-20
 
 Beads owns task status and dependencies. This snapshot supersedes the active
 queue and host instructions recorded on 2026-10-15; dated receipts below remain
@@ -1004,13 +1032,13 @@ remain intact; authentication sequence expiry remains independent at two
 Detection Times. Parent `gobfd-qj0.8.2.1.2` is accepted locally through
 `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; full release qualification is separate.
 
-### P1 sequence
+### Performance sequence
 
 | Delivery slice | Status |
 |---|---|
-| Configurable BFD QoS socket policy with packet evidence | Open |
-| Committed-latency measurement and corrected performance gates | Open |
-| Removal of permanent per-session OS-thread pinning with A/B evidence | Open |
+| Configurable BFD QoS socket policy with packet evidence | P1 open |
+| Committed-latency measurement and corrected performance gates | P1 open |
+| Removal of permanent per-session OS-thread pinning with A/B evidence | P0 open |
 
 Post-v1 scheduler, kernel, warm-restart, S-BFD, and authentication R&D remains
 outside this release contract and is tracked separately in Beads.
