@@ -116,6 +116,14 @@ func receiveKeyForScope(scope bfd.TransportScope) overlayReceiveKey {
 	}
 }
 
+// SameOverlayWireIdentity reports whether two scopes resolve to one receive
+// identity on the wire, so one socket can hold only one of them. VXLAN
+// identities that differ only in local MAC share it: the inner destination
+// MAC is fixed.
+func SameOverlayWireIdentity(a, b bfd.TransportScope) bool {
+	return receiveKeyForScope(a) == receiveKeyForScope(b)
+}
+
 func receiveKeyForPacket(
 	kind bfd.TransportScopeKind,
 	outerPeer, outerLocal netip.Addr,
