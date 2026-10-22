@@ -188,9 +188,13 @@ func TestCraftedPeerEvidenceRejectsRFCViolations(t *testing.T) {
 			frames[craftedFrameAt(frames, gobfdFrame, 7035)].Epoch = time.Unix(1_800_000_000, 0).Add(6930 * time.Millisecond)
 			return frames
 		}},
-		// RFC 5880 Section 6.8.18 lets GoBFD "transmit at its own rate" after the reset: one slow interval.
-		{"resume beyond one slow interval", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
-			return craftedWithout(frames, gobfdFrame, 7035, 7935)
+		// RFC 5880 Section 6.8.7: the state change is sent at once, not at the next slow-rate tick.
+		{"resume at the next slow tick", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			return craftedWithout(frames, gobfdFrame, 7035)
+		}},
+		{"resume after the state-change bound", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			frames[craftedFrameAt(frames, gobfdFrame, 7035)].Epoch = time.Unix(1_800_000_000, 0).Add(7100 * time.Millisecond)
+			return frames
 		}},
 		{"resume without Control Detection Time Expired", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
 			frames[craftedFrameAt(frames, gobfdFrame, 7035)].Diag = 0
@@ -260,18 +264,6 @@ func TestCraftedPeerEvidenceRejectsRFCViolations(t *testing.T) {
 				t.Fatalf("violation accepted: %+v", evidence)
 			}
 		})
-	}
-}
-
-func TestCraftedPeerEvidenceAllowsResumeAtNextSlowTick(t *testing.T) {
-	t.Parallel()
-	frames := craftedWithout(craftedContractFrames(), false, 7035)
-	evidence, err := evaluateCraftedPeerCapture(frames, craftedContractPlan())
-	if err != nil {
-		t.Fatalf("resumption at the next slow-rate tick rejected: %v", err)
-	}
-	if evidence.Silence.ResumeMicroseconds != 1805000 || evidence.Silence.DownIntervals != 3 {
-		t.Fatalf("unexpected silence evidence %+v", evidence.Silence)
 	}
 }
 
