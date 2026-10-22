@@ -213,7 +213,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including a new local endpoint or per-peer Geneve VNI: a new endpoint opens a
   backend, an identity added on an open endpoint widens that socket's identity
   set in place (`SetScopes`, one atomic load per packet), and a clean apply
-  narrows it and closes empty backends with their inner source port. Startup
+  narrows it and closes empty backends with their inner source port. Each local
+  endpoint claims independently, so one unassigned address pends only its own
+  identities, and an identity with the same wire identity, such as a changed
+  VXLAN `local_mac`, replaces the claimed one. Startup
   claims backends the same way, so a backend failure no longer needs a restart.
   `vxlan.backend`, `vxlan.management_vni`, `geneve.backend` and
   `geneve.default_vni` stay restart-only.

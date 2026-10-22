@@ -855,9 +855,9 @@ A listener whose interface does not exist leaves the source `pending`, and the
 automatic interface retry opens it; any other open error leaves the source
 `failed`. A local address that is not assigned yet or still IPv6-tentative
 (`EADDRNOTAVAIL`) on a listener, sender, or overlay backend bind is a typed
-unavailable address that leaves the source `pending`. A listener or overlay
-backend that cannot bind stops the source before the Manager apply, so old
-claims stay; a sender that cannot bind leaves only its own claim pending, and
+unavailable address that leaves the source `pending`. A listener that cannot
+bind stops its source before the Manager apply, so old claims stay; an overlay
+endpoint that cannot bind leaves out only its own identities; a sender that cannot bind leaves only its own claim pending, and
 the pass still releases entries removed from the desired set. The address
 event that assigns the address retries the source. An API-created
 control or Echo session claims its listener with its sender and opens it when
@@ -883,8 +883,12 @@ Overlay backends are part of the generation as well. One userspace-udp socket
 serves each tunnel kind and outer local address (VXLAN UDP 4789, Geneve UDP
 6081). Before the VXLAN or Geneve source applies, it claims the identities of
 its desired set: a new local endpoint opens a backend, and an identity added
-on an open endpoint widens that socket's identity set in place, so live
-sessions keep their socket. After an apply without failed or resource-pending
+on an open endpoint joins that socket's identity set in place, so live
+sessions keep their socket. An identity with the wire identity of a claimed
+one, such as a VXLAN peer whose `local_mac` changed, replaces it. Each local
+endpoint claims independently: identities of an endpoint that cannot open are
+left out of the apply, `pending` for an unassigned address and `failed`
+otherwise, while the other identities apply, including removals. After an apply without failed or resource-pending
 entries, every backend narrows to the desired identities and a backend left
 without one closes and returns its inner source port. A failed apply keeps the
 wider set. Startup claims backends the same way, so a backend that cannot open
@@ -935,7 +939,7 @@ non-transactional across sources and for other runtime apply failures.
 Automatic completion covers admitted base timer transactions, not arbitrary
 failed source operations. Other partial applies still require a later explicit
 SIGHUP to compile and publish another desired generation. A configured
-non-empty VXLAN or Geneve source whose backend cannot open is failed, or
+non-empty VXLAN or Geneve identity whose backend cannot open is failed, or
 pending for an unassigned local address, not skipped. Already accepted source
 changes are not rolled back.
 
