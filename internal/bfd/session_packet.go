@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"log/slog"
+	"slices"
 	"time"
 )
 
@@ -161,6 +162,23 @@ func (s *Session) applyFSMEvent(
 		cause = CauseUnknown
 	}
 	s.executeFSMActions(ctx, result, txTimer, detectTimer, cause)
+	s.announceDown(ctx, result, txTimer)
+}
+
+// announceDown transmits a state change to Down at once.
+func (s *Session) announceDown(ctx context.Context, result FSMResult, txTimer *time.Timer) {
+	// RFC 5880 Section 6.8.7: a packet whose contents differ "SHOULD be
+	// transmitted during the interval between periodic Control packet
+	// transmissions". Detection expiry and a received Down or AdminDown
+	// carry no send action, so announce the new state now. maybeSendControl
+	// keeps the remote zero RX, remote Demand, Passive unknown-peer and
+	// unsolicited limits; resetTxTimer keeps the Section 6.8.3 slow floor.
+	// A pending Final already carries the new state and keeps its own retry.
+	if result.Changed && result.NewState == StateDown && !s.pendingFinal &&
+		!slices.Contains(result.Actions, ActionSendControl) && ctx.Err() == nil {
+		s.maybeSendControl(ctx)
+		s.resetTxTimer(txTimer)
+	}
 }
 
 // executeFSMActions processes the FSMResult and performs side-effects.
