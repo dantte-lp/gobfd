@@ -539,7 +539,7 @@ func (m *Manager) Demux(pkt *ControlPacket, meta PacketMeta) (DeliveryOutcome, e
 	if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
 		return outcome, err
 	}
-	return admitControlPacket(sess, pkt, nil)
+	return admitControlPacket(sess, pkt, nil, meta.ReceiveTiming)
 }
 
 // DemuxWithWire returns Queued only for admission, never owner commit. A
@@ -568,7 +568,7 @@ func (m *Manager) demuxByDiscr(pkt *ControlPacket, meta PacketMeta, wire []byte)
 	if outcome, err := m.checkSessionTransport(entry.session, meta); err != nil {
 		return outcome, err
 	}
-	return admitControlPacket(entry.session, pkt, wire)
+	return admitControlPacket(entry.session, pkt, wire, meta.ReceiveTiming)
 }
 
 func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) (DeliveryOutcome, error) {
@@ -586,7 +586,7 @@ func (m *Manager) demuxByPeer(pkt *ControlPacket, meta PacketMeta, wire []byte) 
 		if outcome, err := m.checkSessionTransport(sess, meta); err != nil {
 			return outcome, err
 		}
-		return admitControlPacket(sess, pkt, wire)
+		return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming)
 	}
 	m.RecordDelivery(DeliveryDemux, DeliveryUnknownSession)
 	if m.unsolicited != nil {
@@ -616,8 +616,8 @@ func (m *Manager) checkSessionTransport(sess *Session, meta PacketMeta) (Deliver
 	return outcome, nil
 }
 
-func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte) (DeliveryOutcome, error) {
-	outcome := sess.RecvPacket(pkt, wire)
+func admitControlPacket(sess *Session, pkt *ControlPacket, wire []byte, timing ReceiveTiming) (DeliveryOutcome, error) {
+	outcome := sess.recvPacket(pkt, wire, timing)
 	switch outcome {
 	case DeliveryQueued:
 		return outcome, nil
@@ -725,7 +725,7 @@ func (m *Manager) activateUnsolicitedSession(
 		slog.String("interface", meta.IfName),
 		slog.Uint64("local_discr", uint64(sess.LocalDiscriminator())),
 	)
-	return admitControlPacket(sess, pkt, wire)
+	return admitControlPacket(sess, pkt, wire, meta.ReceiveTiming)
 }
 
 func (m *Manager) markSessionUnsolicited(localDiscr uint32) {

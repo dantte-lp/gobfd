@@ -119,6 +119,7 @@ func (r *Receiver) recvOne(ctx context.Context, ln *Listener) error {
 
 	// Convert netio.PacketMeta -> bfd.PacketMeta to avoid import cycles.
 	bfdMeta := convertMeta(received.Meta)
+	bfdMeta.ReceiveTiming = ln.receiveClock.Capture(received.Meta.KernelRXUnixNano)
 
 	var pkt bfd.ControlPacket
 	if err := bfd.UnmarshalControlPacket(raw, &pkt); err != nil {

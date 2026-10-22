@@ -498,8 +498,9 @@ type Session struct {
 // recvItem carries a received BFD Control packet along with the raw
 // wire bytes needed for authentication verification (RFC 5880 Section 6.7).
 type recvItem struct {
-	pkt  ControlPacket
-	wire []byte // raw wire bytes for auth digest verification
+	pkt    ControlPacket
+	wire   []byte // raw wire bytes for auth digest verification
+	timing ReceiveTiming
 }
 
 type sessionControlKind uint8
@@ -931,11 +932,15 @@ func (s *Session) RecvPacket(pkt *ControlPacket, wire ...[]byte) DeliveryOutcome
 	if len(wire) > 0 {
 		w = wire[0]
 	}
+	return s.recvPacket(pkt, w, ReceiveTiming{})
+}
+
+func (s *Session) recvPacket(pkt *ControlPacket, wire []byte, timing ReceiveTiming) DeliveryOutcome {
 	s.mu.Lock()
 	outcome := DeliveryClosed
 	if !s.updateClosed {
 		select {
-		case s.recvCh <- recvItem{pkt: *pkt, wire: w}:
+		case s.recvCh <- recvItem{pkt: *pkt, wire: wire, timing: timing}:
 			outcome = DeliveryQueued
 		default:
 			outcome = DeliveryQueueFull

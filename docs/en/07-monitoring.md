@@ -73,6 +73,8 @@ effort, and canceled dispatch has no restart/progress guarantee.
 | `gobfd_bfd_packets_dropped_total` | Counter | `peer_addr`, `local_addr` | Packets dropped (validation/buffer) |
 | `gobfd_bfd_state_transitions_total` | Counter | `peer_addr`, `local_addr`, `from_state`, `to_state` | FSM state transitions |
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
+| `gobfd_bfd_control_rx_timing_total` | Counter | `outcome` | Completed Control packets by six fixed clock-validity outcomes |
+| `gobfd_bfd_control_rx_commit_seconds` | Histogram | none | Software kernel RX to normal owner completion; valid samples only |
 | `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control, Echo and notification stage decisions, retained after session deletion |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
@@ -81,6 +83,12 @@ effort, and canceled dispatch has no restart/progress guarantee.
 | `gobfd_gobgp_dampening_suppression_deadline_seconds` | Gauge | `peer_addr` | Unix timestamp of the current maximum suppression bound; 0 when unsuppressed |
 | `gobfd_gobgp_pending_action` | Gauge | `peer_addr`, `action` | 1 for the unapplied desired action (`up` or `down`); 0 otherwise |
 | `gobfd_gobgp_pending_action_deadline_seconds` | Gauge | `peer_addr`, `action` | Unix timestamp of its next retry or suppression recheck; 0 when none |
+
+Timing outcomes cover `valid`, `unavailable`, `invalid`, `before_calibration`,
+`future` and `clock_step`. A missing sample is not zero latency. Rejected or
+queued packets are not owner commits. Overlay and legacy paths without kernel
+timing remain unavailable; clock revocation persists until listener recreation.
+See the [measurement boundary](14-performance-analysis.md#linux-receive-telemetry-boundary).
 
 GoBGP per-peer metrics exist only with the integration enabled, for peers in
 the latest validated `sessions` configuration. The allowlist changes on accepted

@@ -64,6 +64,11 @@ type Collector struct {
 	DeliveryOutcomes *prometheus.CounterVec
 	deliveryCounters map[[2]uint8]prometheus.Counter
 
+	// ReceiveTimingOutcomes counts every Control commit by measurement validity.
+	ReceiveTimingOutcomes *prometheus.CounterVec
+	ReceiveCommitLatency  prometheus.Histogram
+	receiveTimingCounters [bfd.ReceiveTimingOutcomeCount]prometheus.Counter
+
 	// GoBGPRPCErrors counts failed GoBGP API calls by RPC, including the
 	// startup and background compatibility preflight.
 	GoBGPRPCErrors *prometheus.CounterVec
@@ -96,6 +101,8 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.StateTransitions,
 		c.AuthFailures,
 		c.DeliveryOutcomes,
+		c.ReceiveTimingOutcomes,
+		c.ReceiveCommitLatency,
 		c.GoBGPRPCErrors,
 		c.GoBGPEndpointCompatible,
 		c.goBGPPeers,
@@ -107,10 +114,8 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 // newMetrics creates all Prometheus metric vectors without registering them.
 func newMetrics() *Collector {
 	deliveryOutcomes, deliveryCounters := newDeliveryMetrics()
-	sessionLabels := []string{labelPeerAddr, labelLocalAddr, labelSessionType}
 	peerLabels := []string{labelPeerAddr, labelLocalAddr}
-	transitionLabels := []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}
-	return &Collector{
+	c := &Collector{
 		goBGPPeers:       newGoBGPPeerCollector(),
 		DeliveryOutcomes: deliveryOutcomes,
 		deliveryCounters: deliveryCounters,
@@ -131,7 +136,7 @@ func newMetrics() *Collector {
 			Subsystem: subsystem,
 			Name:      "sessions",
 			Help:      "Number of currently active BFD sessions.",
-		}, sessionLabels),
+		}, []string{labelPeerAddr, labelLocalAddr, labelSessionType}),
 		PacketsSent: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
@@ -157,7 +162,7 @@ func newMetrics() *Collector {
 			Subsystem: subsystem,
 			Name:      "state_transitions_total",
 			Help:      "Total BFD session FSM state transitions.",
-		}, transitionLabels),
+		}, []string{labelPeerAddr, labelLocalAddr, labelFromState, labelToState}),
 
 		AuthFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
@@ -166,6 +171,8 @@ func newMetrics() *Collector {
 			Help:      "Total BFD authentication verification failures (RFC 5880 Section 6.7).",
 		}, peerLabels),
 	}
+	c.initReceiveTiming()
+	return c
 }
 
 func newDeliveryMetrics() (*prometheus.CounterVec, map[[2]uint8]prometheus.Counter) {

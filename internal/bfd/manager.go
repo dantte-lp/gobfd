@@ -123,6 +123,9 @@ type PacketMeta struct {
 	// TransportScope is the exact overlay identity extracted from the wire.
 	// It is empty for base and Micro-BFD transports.
 	TransportScope TransportScope
+
+	// ReceiveTiming is optional measurement metadata; it never controls admission.
+	ReceiveTiming ReceiveTiming
 }
 
 // -------------------------------------------------------------------------

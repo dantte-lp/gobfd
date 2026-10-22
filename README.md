@@ -151,7 +151,7 @@ Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
 ## Performance
 
-GoBFD maintains 34 micro-benchmarks for specific pipeline stages. In
+GoBFD maintains micro-benchmarks for specific pipeline stages. In
 particular, `RecvDecodeLookupEnqueue` measures wire decode, discriminator
 lookup, and attempted enqueue to the session's buffered channel. It does not
 measure UDP receive, session processing, FSM commit, timer reset, or state

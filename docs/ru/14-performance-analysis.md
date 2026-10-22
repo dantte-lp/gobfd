@@ -38,10 +38,39 @@ Kernel не передаёт нулевые drop messages. Sample описыва
 [socket(7)](https://man7.org/linux/man-pages/man7/socket.7.html),
 [`sock_recv_drops`](https://github.com/torvalds/linux/blob/master/net/socket.c).
 
-Clock conversion, передача до owner-commit boundary и bounded CPU/GC/loss
-workload остаются в родительской задаче. Detection deadlines сохраняют
-монотонное время принятого пакета. Сырые metadata не подтверждают сквозную
-задержку или supported scale.
+Каждый Control listener владеет paired realtime/monotonic calibration.
+Sample преобразуется в монотонное время через realtime offset от calibration;
+значения до calibration, из будущего, вне числового диапазона либо без
+monotonic reading исключаются. Наблюдаемая разность realtime и monotonic
+elapsed должна оставаться в пределах 1 мс при receive и commit. Больший
+наблюдаемый скачок отзывает calibration на весь срок жизни listener, включая
+уже queued samples через общий atomic-флаг. Пересоздание listener задаёт
+новую calibration; повторный запуск receiver с прежним listener отзыв не
+снимает. Это исключает угадывание эпохи queued timestamps после скачка назад.
+
+Граница определяет пригодность измерения, а не гарантирует точность меньше
+миллисекунды. Скачок с возвратом между observations таким способом не
+обнаруживается. Контракт Go: [monotonic clocks](https://pkg.go.dev/time#hdr-Monotonic_Clocks).
+Clock outcomes не меняют приём пакетов и detection deadlines: они сохраняют
+прежнее монотонное время принятого пакета.
+
+Timing передаётся по значению через discriminator, peer и unsolicited admission.
+`gobfd_bfd_control_rx_timing_total{outcome}` считает каждый нормально завершённый
+Control owner packet по шести фиксированным outcomes: `valid`, `unavailable`,
+`invalid`, `before_calibration`, `future`, `clock_step`. Только valid samples
+попадают в `gobfd_bfd_control_rx_commit_seconds`. Validation refusal, enqueue,
+queue refusal, abandonment и panic не являются completed samples; существующие
+delivery denominators остаются отдельными. Peer labels отсутствуют у обеих метрик.
+Overlay и legacy callers без kernel timing сообщают `unavailable`.
+
+Реальные IPv4/IPv6 UDP tests дают ненулевые committed samples для обоих demux
+paths. Real-collector owner benchmark ждёт каждый commit, но исключает UDP,
+wire parsing и authentication; synthetic clock input применяется только для
+измерения стоимости. Получены 16 B/op и 2 allocs/op от существующего peer-address
+formatting в metrics; новые fixed timing metrics отдельно дают zero allocations.
+Исправление имеет P0 `gobfd-qj0.8.2.1.6.5` перед workload qualification `.1.6.3`.
+Bounded CPU/GC/loss distributions, calibrated regression policy, supported scale
+и финальная квалификация остаются в родительской задаче.
 
 ## Содержание
 

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Control listeners carry calibrated software kernel receive timing through
+  admission to normal owner completion. Fixed global clock-validity counters
+  separate missing/invalid samples from latency; only valid samples enter the
+  histogram. Observed clock steps revoke the listener calibration without
+  changing packet acceptance or protocol deadlines. Real-collector benchmarks
+  retain the measured existing address-formatting allocation gap.
+
 - Linux listeners capture time64 software receive timestamps and cumulative
   socket-drop samples. Ancillary buffers retain IPv4/IPv6 TTL and packet-info
   messages; truncated ancillary data returns a typed error before demux.

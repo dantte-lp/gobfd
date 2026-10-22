@@ -60,11 +60,12 @@ type ListenerConfig struct {
 // receive loop for BFD Control packets. It handles buffer management
 // using bfd.PacketPool and returns validated packet metadata.
 type Listener struct {
-	conn        PacketConn
-	multiHop    bool
-	expectedTTL uint8
-	delivery    bfd.DeliveryReporter
-	echo        bool
+	conn         PacketConn
+	multiHop     bool
+	expectedTTL  uint8
+	delivery     bfd.DeliveryReporter
+	echo         bool
+	receiveClock *bfd.ReceiveClock
 }
 
 // ReceivedPacket owns one buffer borrowed from bfd.PacketPool.
@@ -95,9 +96,10 @@ func NewListenerFromConn(conn PacketConn, multiHop bool, delivery ...bfd.Deliver
 		reporter = delivery[0]
 	}
 	return &Listener{
-		conn:     conn,
-		multiHop: multiHop,
-		delivery: reporter,
+		conn:         conn,
+		multiHop:     multiHop,
+		delivery:     reporter,
+		receiveClock: bfd.NewReceiveClock(),
 	}
 }
 
@@ -112,11 +114,12 @@ func NewListenerFromConnWithExpectedTTL(
 		reporter = delivery[0]
 	}
 	return &Listener{
-		conn:        conn,
-		multiHop:    multiHop,
-		expectedTTL: expectedTTL,
-		delivery:    reporter,
-		echo:        true,
+		conn:         conn,
+		multiHop:     multiHop,
+		expectedTTL:  expectedTTL,
+		delivery:     reporter,
+		echo:         true,
+		receiveClock: bfd.NewReceiveClock(),
 	}
 }
 

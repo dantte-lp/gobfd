@@ -36,10 +36,40 @@ that datagram was queued; aggregation must handle wrap and a final accepted
 datagram after the load stops. See [socket(7)](https://man7.org/linux/man-pages/man7/socket.7.html)
 and [`sock_recv_drops`](https://github.com/torvalds/linux/blob/master/net/socket.c).
 
-Clock conversion, propagation to the owner-commit boundary and the bounded
-CPU/GC/loss workload remain open under the parent. Detection deadlines retain
-the existing monotonic accepted-packet time. These raw metadata fields do not
-establish an end-to-end latency or supported-scale result.
+Each Control listener now owns a paired realtime/monotonic calibration. A
+sample maps to the calibration's monotonic time by its realtime offset;
+samples before calibration, in the future, outside the numeric range or
+without a monotonic reading are excluded. The observed realtime-versus-
+monotonic elapsed difference must stay within 1 ms at receive and commit.
+An observed larger step revokes the calibration for that listener's lifetime,
+including already queued samples through shared atomic revocation. Recreating
+the listener establishes a new calibration; restarting the receiver on the
+same listener does not clear revocation. This avoids guessing the clock epoch
+of queued timestamps after a backward step.
+
+The bound is a measurement-validity policy, not a sub-millisecond accuracy
+guarantee. A step that returns between observations cannot be detected by
+these paired samples. See Go's [monotonic clock contract](https://pkg.go.dev/time#hdr-Monotonic_Clocks).
+Clock outcomes never alter packet acceptance or detection deadlines, which
+retain the existing monotonic accepted-packet time.
+
+Timing follows discriminator, peer and unsolicited admissions by value.
+`gobfd_bfd_control_rx_timing_total{outcome}` counts every normally completed
+Control owner packet using six fixed outcomes: `valid`, `unavailable`,
+`invalid`, `before_calibration`, `future` and `clock_step`. Only valid samples
+enter `gobfd_bfd_control_rx_commit_seconds`. Validation refusal, enqueue,
+queue refusal, abandonment and panic are not completed samples; their existing
+delivery denominators remain separate. Neither metric has peer labels.
+Overlay and direct legacy callers without kernel timing report `unavailable`.
+
+Real IPv4/IPv6 UDP tests supply nonzero committed samples for both demux paths.
+The real-collector owner benchmark waits for every commit, but excludes UDP,
+wire parsing and authentication and uses synthetic clock input for cost only.
+It measures 16 B/op and 2 allocs/op from existing peer-address metric formatting;
+the new fixed timing metrics alone measure zero allocations. The allocation
+fix is P0 `gobfd-qj0.8.2.1.6.5`, before workload qualification `.1.6.3`.
+Bounded CPU/GC/loss distributions, calibrated regression policy, supported
+scale and final qualification remain open under the parent.
 
 ## Table of Contents
 

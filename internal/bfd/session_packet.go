@@ -28,7 +28,6 @@ func (s *Session) handleRecvPacket(
 		s.recordDelivery(DeliveryPacketOwner, outcome)
 		return
 	}
-	defer s.recordDelivery(DeliveryPacketOwner, DeliveryCommitted)
 
 	s.recordValidReceivedPacket()
 	s.expireUnsolicitedSetup()
@@ -82,15 +81,12 @@ func (s *Session) handleRecvPacket(
 	if s.pendingFinal {
 		s.sendControl(ctx)
 		s.resetTxTimer(txTimer)
-		return
-	}
-
-	// RFC 5880 Sections 6.8.3 and 6.8.6: apply peer-driven changes
-	// immediately, measuring the new interval from the previous send.
-	// Unchanged receives must not postpone the outstanding TX deadline.
-	if oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed() {
+	} else if oldTxInterval != s.calcTxIntervalHot() || oldTxAllowed != s.periodicTxAllowed() {
+		// RFC 5880 Sections 6.8.3 and 6.8.6: unchanged receives must not
+		// postpone TX; peer-driven changes use the previous send as origin.
 		s.scheduleTxTimer(txTimer, s.lastPacketSent)
 	}
+	s.recordReceiveCommit(item.timing)
 }
 
 func (s *Session) checkReceivedPacket(item recvItem) DeliveryOutcome {

@@ -2,7 +2,7 @@
 
 ## Overview
 
-GoBFD maintains 34 micro-benchmarks covering individual BFD processing stages
+GoBFD maintains micro-benchmarks covering individual BFD processing stages
 and their observed allocation boundaries. A zero-allocation result applies
 only to the measured benchmark body; it does not establish end-to-end UDP
 latency, packet-loss behavior, GC immunity, or a supported session scale.
@@ -20,6 +20,18 @@ make profile            # Generate pprof CPU profile
 ```
 
 ## Results
+
+### Current committed-owner boundary
+
+Local Go 1.27.3 iteration evidence on 2026-10-22 uses 2 CPUs, GOMAXPROCS2 and
+2 GiB, separately from the historical results below. Three non-race runs of
+`ReceiveTimingMetrics` report 0 B/op and 0 allocs/op. `ReceiveOwnerCollector`
+waits for each actual owner commit with the real collector and reports 16 B/op
+and 2 allocs/op; existing per-packet address formatting is tracked as P0
+`gobfd-qj0.8.2.1.6.5`. It uses synthetic timing for cost measurement and
+excludes kernel UDP, wire decode and authentication. Real UDP tests qualify
+sample propagation separately; neither result proves supported scale or a
+latency distribution. Evidence: `reports/rx-commit-20261022/`.
 
 Historical baseline measured on Go 1.26 in an 8 vCPU Podman container. All
 results below are medians of 6 iterations and are not a current Go 1.27
@@ -145,7 +157,7 @@ supported; the Go 1.26 measurements above remain historical provenance.
 
 ## Обзор
 
-GoBFD содержит 34 микробенчмарка отдельных этапов обработки BFD и наблюдаемых
+GoBFD содержит микробенчмарки отдельных этапов обработки BFD и наблюдаемых
 границ аллокаций. Результат с нулём аллокаций относится только к телу
 конкретного бенчмарка и не доказывает сквозную задержку UDP, отсутствие потерь,
 невосприимчивость к GC или поддерживаемый масштаб сессий.
