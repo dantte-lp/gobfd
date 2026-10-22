@@ -30,6 +30,8 @@ const (
 	craftedQuietMultiple = 10
 	craftedResumeMinimum = 3
 	craftedClockSlack    = 1000
+	// craftedStateChangeBound bounds the immediate state-change send after the reset.
+	craftedStateChangeBound = 50000
 )
 
 var errCraftedEvidence = errors.New("invalid crafted peer evidence")
@@ -255,13 +257,13 @@ func evaluateCraftedSilence(frames []craftedFrame, last, resume int, evidence *c
 	}
 	detection := int64(evidence.RX0.DetectionTimeMicroseconds)
 	first := frames[resume]
-	// Section 6.8.18: reset after one Detection Time, "and then can transmit at
-	// its own rate": the first packet follows within one slow-rate interval.
-	elapsed, slow := craftedMicros(frames[last], first), int64(first.TX)
-	if elapsed < detection-craftedClockSlack || elapsed > detection+slow+timerSlack(slow) {
-		return 0, fmt.Errorf("GoBFD resumed %d us after silence, want Detection Time %d us "+
-			"plus at most %d us (RFC 5880 6.8.18): %w",
-			elapsed, detection, slow, errCraftedEvidence)
+	// Section 6.8.18 resets after one Detection Time; Section 6.8.7 sends the
+	// changed state at once instead of at the next slow-rate interval.
+	elapsed := craftedMicros(frames[last], first)
+	if elapsed < detection-craftedClockSlack || elapsed > detection+craftedStateChangeBound+timerSlack(detection) {
+		return 0, fmt.Errorf("GoBFD sent the state change %d us after silence, want Detection Time %d us "+
+			"plus at most %d us (RFC 5880 6.8.7, 6.8.18): %w",
+			elapsed, detection, craftedStateChangeBound, errCraftedEvidence)
 	}
 	if first.State != 1 || first.Diag != 1 || first.Yours != 0 || first.Final != 0 || first.TX < 1000000 {
 		return 0, fmt.Errorf("resumed frame %+v, want Down diag 1 Your 0 at the slow rate (RFC 5880 6.8.1, 6.8.3, 6.8.4): %w",
