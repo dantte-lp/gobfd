@@ -163,10 +163,32 @@ The original handoff and its dated measurements remain in local Git:
   e2e-rfc` runs under Compose project `gobfd-interop-rfc`, and `make e2e-linux`
   runs in the image ID of the running dev container (`gobfd-dah`, closed).
   PR-safe run 39633642656 and nightly run 39656156566 (`86700ba`) passed.
-- In progress on 2026-10-21: listener lifecycle ownership and in-place
-  `SO_BINDTODEVICE` rebind (`gobfd-qj0.8.2.2.6.4`), the systemd sandbox
-  contract with DEB/RPM lifecycle tests (`gobfd-qj0.8.2.3.3`, M-19) and a
-  crafted Go peer for remote RX0 and Demand (`gobfd-qj0.8.2.1.1.2.3`).
+
+## Integration batches 5–8 — 2026-10-22
+
+- `dev` `3a641a9` carries listener and overlay capability ownership
+  (`gobfd-qj0.8.2.2.6.4`, closed): listeners and VXLAN/Geneve backends are
+  claimed per generation, device-bound listeners rebind in place on interface
+  recreation, API sessions claim their listeners, and `EADDRNOTAVAIL` is a
+  typed pending source retried on address events. Backend kind and global VNI
+  changes stay restart-only (`gobfd-qj0.8.2.2.6.6`).
+- The systemd sandbox contract (`gobfd-qj0.8.2.3.3`, M-19, closed) is proven by
+  `cictl package-build` and `cictl package-lifecycle` on Debian 13 and Oracle
+  Linux 10; a peer-attributed AdminDown drain on stop exits 0, a local send
+  failure stays an error. The kernel-bond enforce drop-in is unqualified
+  (`gobfd-qj0.8.2.3.3.1`).
+- A crafted Go peer (`test/interop/scapy` `peer` mode) proves remote RX0,
+  the RFC 5880 section 6.8.18 reset and Demand on the wire
+  (`gobfd-qj0.8.2.1.1.2`, closed). A Down state change now transmits
+  immediately (section 6.8.7).
+- Each batch passed the full-race gate and live BASE/BGP/RFC (and crafted)
+  suites; reports live under `reports/batch{5,6,7,8}-*/gate01/` in the
+  integration worktrees. Hosted nightly 39763006963 on `3a641a9` passed
+  routing, RFC, Linux dataplane (listener rebind and address-event tests) and
+  the DEB/RPM lifecycle steps.
+- In progress on 2026-10-22: crossed Poll wire proof for the Poll/Final chain
+  (`gobfd-qj0.8.2.1.1`), typed session replace (`gobfd-qj0.8.2.2.7`) and the
+  RFC 7130 integration gate (`gobfd-qj0.8.2.2.1`).
 
 ## Resume
 

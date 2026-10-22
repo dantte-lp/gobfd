@@ -993,7 +993,12 @@ Remote zero RX и remote Demand по-прежнему требуют crafted Go 
 receiver (`gobfd-qj0.8.2.3.1`, закрыта), и транзакционную reconciliation групп
 Micro-BFD с одним LAG на member link (`gobfd-qj0.8.2.2.1`; интеграционный gate
 RFC 7130 остаётся открытым). Hosted E2E выполняется на `ubuntu-26.04`; профили
-PR-safe и nightly прошли на `86700ba`.
+PR-safe и nightly прошли на `86700ba`. `dev` `3a641a9` добавляет владение
+listener и overlay с перепривязкой на месте (`gobfd-qj0.8.2.2.6.4`), контракт
+песочницы systemd с тестами жизненного цикла DEB/RPM (`gobfd-qj0.8.2.3.3`) и
+доказательство на проводе от crafted peer для remote RX0, Demand и сброса по
+section 6.8.18 (`gobfd-qj0.8.2.1.1.2`); все три закрыты, hosted nightly на этой
+ревизии прошёл.
 
 RFC core продолжается с Poll/Final, обработки remote Demand, оставшейся приёмки
 доставки и fail-closed границ preview.

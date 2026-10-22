@@ -986,6 +986,11 @@ gRPC readiness with fail-stop on receiver loss (`gobfd-qj0.8.2.3.1`, closed)
 and transactional Micro-BFD group reconciliation with one LAG per member link
 (`gobfd-qj0.8.2.2.1`; the RFC 7130 integration gate remains open). Hosted E2E
 runs on `ubuntu-26.04`; the PR-safe and nightly profiles passed on `86700ba`.
+`dev` `3a641a9` adds listener and overlay capability ownership with in-place
+rebind (`gobfd-qj0.8.2.2.6.4`), the systemd sandbox contract with DEB/RPM
+lifecycle tests (`gobfd-qj0.8.2.3.3`) and crafted-peer wire proof for remote
+RX0, Demand and the section 6.8.18 reset (`gobfd-qj0.8.2.1.1.2`); all three
+are closed, and hosted nightly passed on that revision.
 
 RFC core work continues with Poll/Final, remote Demand handling, remaining
 delivery acceptance and fail-closed preview boundaries. The public padding API/CLI slice is accepted locally;
