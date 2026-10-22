@@ -24,18 +24,18 @@ import (
 // The crafted peer reuses the fuzzer address and fixed container name; the
 // fuzzer never runs in this topology.
 const (
-	craftedPeerConfig    = "test/interop/gobfd/crafted-peer.yml"
-	craftedBaseInterval  = 300000
-	craftedReloadTimer   = "500ms"
-	craftedReloadMicros  = 500000
+	craftedPeerConfig   = "test/interop/gobfd/crafted-peer.yml"
+	craftedBaseInterval = 300000
+	craftedReloadTimer  = "500ms"
+	craftedReloadMicros = 500000
 	// Queued tuples: the second waits behind the first under lost Finals.
 	craftedQueuedFirst        = "400ms"
 	craftedQueuedFirstMicros  = 400000
 	craftedQueuedSecond       = "800ms"
 	craftedQueuedSecondMicros = 800000
-	craftedQuietMultiple = 10
-	craftedResumeMinimum = 3
-	craftedClockSlack    = 1000
+	craftedQuietMultiple      = 10
+	craftedResumeMinimum      = 3
+	craftedClockSlack         = 1000
 	// craftedStateChangeBound bounds the immediate state-change send after the reset.
 	craftedStateChangeBound = 50000
 )
@@ -210,7 +210,9 @@ func evaluateCraftedPeerCapture(frames []craftedFrame, plan craftedPlan) (crafte
 	if err := evaluateCraftedDemand(frames, recovered, plan, &evidence); err != nil {
 		return evidence, err
 	}
-	clearFinal := craftedNext(frames, 0, func(frame craftedFrame) bool { return frame.Number == evidence.Demand.ClearFinal })
+	clearFinal := craftedNext(frames, 0, func(frame craftedFrame) bool {
+		return frame.Number == evidence.Demand.ClearFinal
+	})
 	return evidence, evaluateCraftedQueued(frames, clearFinal+1, plan, &evidence.Queued)
 }
 
@@ -455,6 +457,9 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 	return nil
 }
 
+// craftedPeerFinal matches a Final sent by the crafted peer.
+func craftedPeerFinal(frame craftedFrame) bool { return frame.fromPeer() && frame.Final == 1 }
+
 // evaluateCraftedQueued checks the lost-Final phase. GoBFD repeats its Poll
 // until the peer Final (RFC 5880 Section 6.5), answers the peer's crossing Poll
 // with Final only and the active tuple, then resumes its own Poll. A queued tuple
@@ -467,7 +472,7 @@ func evaluateCraftedQueued(frames []craftedFrame, from int, plan craftedPlan, ev
 	if first < 0 {
 		return fmt.Errorf("no GoBFD Poll for the first queued tuple: %w", errCraftedEvidence)
 	}
-	peerFinal := craftedNext(frames, first+1, func(frame craftedFrame) bool { return frame.fromPeer() && frame.Final == 1 })
+	peerFinal := craftedNext(frames, first+1, craftedPeerFinal)
 	crossPoll := craftedNext(frames, first+1, func(frame craftedFrame) bool { return frame.fromPeer() && frame.Poll == 1 })
 	if peerFinal < 0 || crossPoll < 0 || crossPoll > peerFinal {
 		return fmt.Errorf("no peer crossing Poll before the peer Final: %w", errCraftedEvidence)
@@ -497,7 +502,9 @@ func evaluateCraftedQueued(frames []craftedFrame, from int, plan craftedPlan, ev
 		return fmt.Errorf("Polls=%d resumed=%d, want a repeated Poll that resumes after the crossing Final: %w",
 			evidence.FirstPolls, evidence.ResumedPolls, errCraftedEvidence)
 	}
-	second := craftedNext(frames, peerFinal+1, func(frame craftedFrame) bool { return !frame.fromPeer() && frame.Poll == 1 })
+	second := craftedNext(frames, peerFinal+1, func(frame craftedFrame) bool {
+		return !frame.fromPeer() && frame.Poll == 1
+	})
 	if second < 0 || frames[second].TX != plan.QueuedSecond || frames[second].RX != plan.QueuedSecond {
 		return fmt.Errorf("no separate Poll for the queued tuple after the Final: %w", errCraftedEvidence)
 	}
@@ -506,12 +513,13 @@ func evaluateCraftedQueued(frames []craftedFrame, from int, plan craftedPlan, ev
 			return fmt.Errorf("queued tuple advertised without its own Poll: %+v: %w", frame, errCraftedEvidence)
 		}
 	}
-	exchange, separation := craftedMicros(frames[first], frames[peerFinal]), craftedMicros(frames[peerFinal], frames[second])
+	exchange := craftedMicros(frames[first], frames[peerFinal])
+	separation := craftedMicros(frames[peerFinal], frames[second])
 	if separation < exchange-timerSlack(0) {
 		return fmt.Errorf("queued Poll %d us after the Final, want at least the %d us exchange (RFC 5880 6.8.3): %w",
 			separation, exchange, errCraftedEvidence)
 	}
-	secondFinal := craftedNext(frames, second+1, func(frame craftedFrame) bool { return frame.fromPeer() && frame.Final == 1 })
+	secondFinal := craftedNext(frames, second+1, craftedPeerFinal)
 	if secondFinal < 0 {
 		return fmt.Errorf("no peer Final for the queued Poll: %w", errCraftedEvidence)
 	}
@@ -784,7 +792,8 @@ func waitCraftedFrame(ctx context.Context, t *testing.T, filter string, boundary
 	frameCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	frame, err := pollUntil(frameCtx, 100*time.Millisecond, func(pollCtx context.Context) (uint64, bool, error) {
-		rows, queryErr := tsharkFields(pollCtx, frameBoundary(filter, boundary), []string{"frame.number"}, 1)
+		// tshark -c limits frames read, not matches, so read the whole capture.
+		rows, queryErr := tsharkFields(pollCtx, frameBoundary(filter, boundary), []string{"frame.number"}, 0)
 		if queryErr != nil || len(rows) == 0 {
 			return 0, false, queryErr
 		}
