@@ -186,6 +186,7 @@ source port 49152, Poll/Final, медленный интервал вне Up и 
 | `recover` | Новый three-way handshake | Up с таймерами 300 ms в обе стороны |
 | `demand` | D=1 с Poll | GoBFD отвечает Final и далее передаёт только кадры Poll или Final; SIGHUP на 500 ms даёт Poll GoBFD с новыми таймерами, Final от peer и converged receipt перезагрузки после этого Final (Sections 6.5 и 6.6) |
 | `demand-clear` | D=0 с Poll | GoBFD отвечает Final и возобновляет periodic TX в пределах `T+slack`; далее не менее 12 интервалов проходят границы jitter и проверку среднего в 3 стандартные ошибки для T=500 ms |
+| `final-loss`, `poll`, `final-restore` | Отбрасывает свои ответы Final (имитация потерь), затем пересекает незавершённый Poll GoBFD своим Poll, затем снова отвечает | SIGHUP на 400 ms и, пока Final теряется, на 800 ms: GoBFD повторяет P=1 с активным кортежем 400 ms, отвечает на пересекающий Poll только F с тем же кортежем, возобновляет P=1 и отправляет Poll 800 ms только после Final пира и интервала не меньше измеренного обмена; этот Poll получает свой Final и receipt (Sections 6.5 и 6.8.3); ни один кадр захвата не содержит одновременно P и F |
 
 `make interop-testcontainers` запускает чистые тесты оценщика
 (`TestCraftedPeerEvidence*`) и живую топологию. Тест сохраняет журналы демона и

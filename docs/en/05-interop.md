@@ -185,6 +185,7 @@ port 49152, Poll/Final, the slow rate outside Up and no authentication. Each
 | `recover` | New three-way handshake | Up with 300 ms timers in both directions |
 | `demand` | D=1 with a Poll | GoBFD answers with Final and then sends only Poll or Final frames; a SIGHUP to 500 ms produces a GoBFD Poll with the new timers, a peer Final, and a converged reload receipt after that Final (Sections 6.5 and 6.6) |
 | `demand-clear` | D=0 with a Poll | GoBFD answers with Final and resumes periodic TX within `T+slack`, then at least 12 intervals pass the jitter bound and the 3-standard-error mean check for T=500 ms |
+| `final-loss`, `poll`, `final-restore` | Drops its Final replies (simulated loss), then crosses the outstanding GoBFD Poll with its own Poll, then answers again | SIGHUP to 400 ms and, while the Final is lost, to 800 ms: GoBFD repeats P=1 with the active 400 ms tuple, answers the crossing Poll with F only and the same tuple, resumes P=1, and sends the 800 ms Poll only after the peer Final plus at least the measured exchange time; that Poll gets its own Final and receipt (Sections 6.5 and 6.8.3); no captured frame sets both P and F |
 
 `make interop-testcontainers` runs the pure evaluator tests
 (`TestCraftedPeerEvidence*`) and the live topology. The test stores the daemon
