@@ -1,6 +1,6 @@
 # GoBFD continuation handoff
 
-Current audit state: 2026-10-22 18:09 UTC at
+Current local audit state: 2026-10-22 18:35 UTC at
 `dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Beads owns tasks,
 dependencies and release age gates. The [EN roadmap](../../en/roadmap.md) and
 [RU roadmap](../../ru/roadmap.md) contain the current queue and release-note
@@ -215,6 +215,10 @@ The original handoff and its dated measurements remain in local Git:
 
 ## Resume
 
+The maintainer's local-only delivery hold overrides earlier synchronization
+instructions: no GitHub source/Dolt push, PR mutation or workflow dispatch
+until it is lifted. Keep tests and new receipts local.
+
 1. Read applicable `AGENTS.md`, default-branch README and current roadmap;
    run `bd prime`, `bd ready` and inspect actual worktree state.
 2. Inspect any live gate handle before starting another job. A timeout in an
@@ -228,16 +232,33 @@ The original handoff and its dated measurements remain in local Git:
    after its remote canonical gate, then review integration into `dev`.
    Resolve typed replace `.8.2.2.7` separately. Keep Micro-BFD preview
    default-off: its RFC 7130 L2 gate is red on the separate branch. Treat
-   permanent per-session OS-thread pinning `.8.2.1.7` as a P0 v1 scale
-   blocker; the A/B and 1,000-session gates remain unqualified. Execute an
+   committed-latency baseline `.8.2.1.6` and then permanent per-session
+   OS-thread pinning `.8.2.1.7` as P0 v1 scale work. Preview owner `.8.2.1.8`
+   is open with no active blocking edge; the stale stored blocked status was
+   cleared. The A/B and 1,000-session gates remain unqualified. Execute an
    actual wrong-port RED before any API Echo `.1.17` fix.
    General godbus/Buf/Trivy/ConnectRPC/CodeQL/ExaBGP upgrades are P2 after-v1 work
    unless final compatibility/security audit `.8.6.11` identifies a concrete
    release blocker. Preserve their exact age holds and adoption checks.
 5. Keep changes in `.worktrees/<task>`; integrate locally only after the
-   relevant checks. Append Beads notes with `bd update --append-notes` and
-   synchronize via `bd dolt push`. Publication follows `CONTRIBUTING.md` and
-   existing authority; no new source-push authorization is implied.
+   relevant checks. Append local Beads notes with
+   `bd --sandbox update --append-notes`; do not synchronize remotely during
+   the delivery hold.
+
+Local review `gobfd-xy9` retained critical logs and the exact dirty-bond source
+manifest in `reports/review-20261022-local/`. Batch 9 selections passed in
+three packages, typed re-key passed nine top-level tests, and netio on the
+uncommitted bond draft passed fourteen. These are bounded iteration checks,
+not the full canonical gate. The bond draft fails its unrelated
+`TestDownTimeoutWithoutReceivedPacketStaysSilent`: it contradicts the approved
+Held Erratum 5205 policy; two existing policy tests pass. `gobfd-9ro` is closed
+through its documented-reading criterion, not by changing production.
+The draft also has two files reported by gofmt. Optional bond qualification
+`.8.2.3.3.1` is P2 after-v1; P0 preview boundary proof remains mandatory.
+`gobfd-sow` is P1: the copied-send-buffer auth test fix is outside `dev`, and
+the separate rare cleanup-observation failure remains unresolved. An isolated
+local dev auth test passed twenty runs; it did not reproduce or clear the
+historical whole-package race.
 
 ## Qualified gate profile
 

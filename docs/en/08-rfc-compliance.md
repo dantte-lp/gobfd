@@ -44,7 +44,7 @@
 
 | RFC | Title | Status | Notes |
 |---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Incoming Poll reply exists; local/crossed Poll and Demand procedures are incomplete |
+| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Local timer Poll/Final and remote Demand are implemented; crossed/queued wire evidence awaits branch integration; local Demand and affiliated Echo remain deferred |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Partial; numbered-multiaccess profile** | UDP 3784, TTL=255, per-session transport-class and receive-interface checks, single-hop TX device binding; point-to-point initial demux remains deferred |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Application integration partial** | State delivery and actuator convergence remain incomplete; penalty dampening is implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784; per-session hop policy `multihop_max_hops` (default 1: TTL>=254) is GoBFD policy, not an RFC 5883 rule; real 2/5-hop path qualification is pending |
@@ -76,6 +76,13 @@ observers run. The selected graceful administrative policy guards an existing
 AdminDown before local PathDown, preserving diagnostic 7. RFC 5880 Section
 6.8.16 also permits AdminDown with PathDown; diagnostic 7 is this daemon's
 policy, not a universal RFC requirement.
+
+Under the selected [Held Erratum 5205](https://www.rfc-editor.org/errata/rfc5880)
+policy, an initially Down session can publish diagnostic 1 after a silent
+Detection Time even if it never received a packet. This changes the causal
+diagnostic, not the state-transition count. The erratum remains Held for
+Document Update; adopting it is an explicit project choice, not a claim that
+the original RFC text requires this behavior. See `gobfd-9ro`.
 
 #### Section 4.1: BFD Control Packet Format
 

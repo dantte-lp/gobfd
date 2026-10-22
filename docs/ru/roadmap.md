@@ -26,7 +26,42 @@ P2 freshness/cleanup при наличии исполнимой релизной
 release-age hold делает upgrade допустимым, но не следующим. Очистка своих
 временных ресурсов после каждого запуска остаётся обязательной.
 
-## Снимок ретро — 2026-10-22
+## Локальная проверка и запрет публикации — 2026-10-22 18:35 UTC
+
+Публикация в GitHub временно приостановлена для экономии минут Actions.
+Commits, обновления Beads и проверки остаются локальными: source/Dolt push,
+изменения PR и workflow dispatch запрещены до отмены этого указания.
+Существующий удалённый PR и hosted-протоколы ниже — исторический контекст.
+
+После предыдущего ретро новых implementation commits и записей сессии не
+появилось. Проверка `gobfd-xy9` сопоставила оставшиеся ветки с
+`dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Критические локальные
+прогоны использовали закреплённый контейнер Go 1.27.3, два CPU, 2 GiB и race
+detector. Это проверки отдельных изменений, не полный canonical или release gate.
+
+| Исходники | Локальный результат | Оставшаяся приёмка |
+|---|---|---|
+| Batch 9 `dc5a92c` | Auth, crafted-evidence и Go-peer selections прошли в трёх пакетах | Проверить и интегрировать candidate; сохранить live-протоколы с привязкой к исходникам |
+| Typed re-key `46b8649` | Девять top-level reconciliation tests прошли | Реализована защита re-key при ошибке, а не same-key replace; `.8.2.2.7` остаётся P0 open |
+| Незакоммиченный kernel-bond draft на `9330416` | Четырнадцать netio tests и два действующих diagnostic-policy tests прошли | Один посторонний diagnostic test падает; два Go-файла требуют форматирования; приёмки на реальном bond и под packaged unit нет |
+
+Падающее утверждение draft требует diagnostic zero после молчания в Down.
+Утверждённый design явно выбирает Held Erratum 5205: FSM публикует diagnostic
+one без смены состояния. `gobfd-9ro` закрыт по предусмотренному критерию
+документированного прочтения RFC; оснований менять production нет.
+Отделить этот diagnostic experiment от опционального bond draft.
+Хеши исходников, незакоммиченный patch и логи сохранены локально в
+`reports/review-20261022-local/`.
+
+| Приоритет | Владелец в Beads | Следующий проверяемый результат |
+|---|---|---|
+| P0 | `.8.2.1.6`, затем `.8.2.1.7` | Получить committed-latency baseline, затем A/B удаления постоянного thread pinning с действующими scale limits |
+| P0 | `.8.2.1.8` | Подтвердить preview opt-in и fail-closed в API/config/status/docs; устаревший сохранённый blocked снят |
+| P0 | `.8.2.2.7`, `.8.4.1` | Завершить контракт изменения owned sessions и security disposition финального candidate |
+| P1 | `gobfd-sow` | Интегрировать исправление владения cached packet в тесте и устранить отдельный редкий cleanup-observation failure до финального race gate |
+| P2 после v1 | `.8.2.3.3.1`, `.8.2.2.1` | Квалифицировать опциональные kernel-bond и Micro-BFD L2 без блокировки default-off preview boundary выпуска v1 |
+
+## Предыдущий снимок ретро — 2026-10-22 18:09 UTC
 
 Локальный и GitHub `dev` совпадают на
 `93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Beads содержит 375
@@ -1047,7 +1082,7 @@ RFC core продолжается с Poll/Final, обработки remote Deman
 | Часть поставки | Статус |
 |---|---|
 | Настраиваемая BFD QoS socket policy с packet evidence | P1, открыто |
-| Измерение committed latency и корректные performance gates | P1, открыто |
+| Измерение committed latency и корректные performance gates | P0, открыто |
 | Удаление постоянного OS-thread pinning сессий с A/B evidence | P0, открыто |
 
 Post-v1 R&D по scheduler, kernel, warm restart, S-BFD и аутентификации находится

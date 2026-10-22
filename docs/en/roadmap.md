@@ -26,7 +26,42 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
-## Retrospective snapshot — 2026-10-22
+## Local verification and delivery hold — 2026-10-22 18:35 UTC
+
+The maintainer temporarily suspended GitHub delivery to save Actions minutes.
+Keep source commits, Beads updates and validation local: no source or Dolt
+push, PR mutation or workflow dispatch until this direction is lifted.
+The existing remote PR and hosted receipts below are historical context.
+
+No new implementation commit or session transcript appeared after the earlier
+retrospective. Review `gobfd-xy9` checked the pending branches against
+`dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Critical local runs used
+the pinned Go 1.27.3 container with two CPUs, 2 GiB and the race detector;
+they are iteration evidence, not the full canonical or release gate.
+
+| Source | Local result | Remaining acceptance |
+|---|---|---|
+| Batch 9 `dc5a92c` | Auth, crafted-evidence and Go-peer selections passed in three packages | Review and integrate the candidate; retain exact-source live evidence |
+| Typed re-key `46b8649` | Nine top-level reconciliation tests passed | This implements re-key failure protection, not same-key replace; `.8.2.2.7` stays P0 open |
+| Uncommitted kernel-bond draft on `9330416` | Fourteen netio tests passed; two existing diagnostic-policy tests passed | One unrelated diagnostic test fails; two Go files need formatting; real bond and packaged-unit acceptance remain absent |
+
+The failing draft assertion expects diagnostic zero after a silent Down
+timeout. The approved design explicitly adopts Held Erratum 5205 and the FSM
+publishes diagnostic one without a state edge. `gobfd-9ro` is closed through
+its documented-RFC-reading acceptance alternative; no production fix is
+justified. Separate that diagnostic experiment from the optional bond draft.
+Source hashes, the uncommitted patch and logs are retained locally under
+`reports/review-20261022-local/`.
+
+| Priority | Beads owner | Next verifiable result |
+|---|---|---|
+| P0 | `.8.2.1.6` then `.8.2.1.7` | Establish committed-latency baseline, then A/B removal of permanent thread pinning against the existing scale limits |
+| P0 | `.8.2.1.8` | Complete API/config/status/docs preview opt-in and fail-closed proof; stale stored blocked status was cleared |
+| P0 | `.8.2.2.7`, `.8.4.1` | Finish the owned-session mutation contract and final-candidate security disposition |
+| P1 | `gobfd-sow` | Integrate the cached-packet test ownership fix and resolve the independent rare cleanup-observation failure before final race qualification |
+| P2 after-v1 | `.8.2.3.3.1`, `.8.2.2.1` | Qualify optional kernel-bond and Micro-BFD L2 without blocking the default-off v1 preview boundary |
+
+## Earlier retrospective snapshot — 2026-10-22 18:09 UTC
 
 At `dev@93304161d77bd1e97a8eb36ecfd1d4b321dd8082`, local and GitHub `dev`
 match. Beads reports 375 closed and 164 unfinished issues (141 open, 18 in
@@ -1039,7 +1074,7 @@ Detection Times. Parent `gobfd-qj0.8.2.1.2` is accepted locally through
 | Delivery slice | Status |
 |---|---|
 | Configurable BFD QoS socket policy with packet evidence | P1 open |
-| Committed-latency measurement and corrected performance gates | P1 open |
+| Committed-latency measurement and corrected performance gates | P0 open |
 | Removal of permanent per-session OS-thread pinning with A/B evidence | P0 open |
 
 Post-v1 scheduler, kernel, warm-restart, S-BFD, and authentication R&D remains

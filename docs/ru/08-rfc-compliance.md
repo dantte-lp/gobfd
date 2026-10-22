@@ -44,7 +44,7 @@
 
 | RFC | Название | Статус | Примечания |
 |---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Ответ Final на входящий Poll есть; локальный/crossed Poll и Demand procedures не завершены |
+| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Локальный timer Poll/Final и remote Demand реализованы; crossed/queued wire evidence ожидает интеграции ветки; local Demand и affiliated Echo отложены |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Частично; numbered-multiaccess profile** | UDP 3784, TTL=255, проверки транспортного класса и интерфейса приёма в каждой сессии, привязка TX single-hop к интерфейсу; point-to-point initial demux отложен |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Application integration частичная** | State delivery и actuator convergence не завершены; penalty dampening является implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784; политика hops `multihop_max_hops` в каждой сессии (по умолчанию 1: TTL>=254) -- политика GoBFD, а не правило RFC 5883; квалификация на реальных путях из 2/5 hops не выполнена |
@@ -68,6 +68,20 @@
 > отдельной preview-реализацией.
 
 ### Заметки по RFC 5880
+
+Выбранная policy Held errata 5205/7240 фиксирует timeout в Down как
+`Down/ControlTimeExpired` без перехода и сохраняет диагностику при recovery
+в Up. Причинный кортеж публикуется владельцем после фиксации итоговых фактов.
+Для graceful AdminDown проверка предшествует PathDown и сохраняет Diag=7;
+RFC 5880 Section 6.8.16 допускает AdminDown с PathDown, поэтому Diag=7
+является выбранной policy, а не общим обязательным требованием RFC.
+
+При выбранной политике [Held Erratum 5205](https://www.rfc-editor.org/errata/rfc5880)
+сессия, изначально находящаяся в Down, может опубликовать diagnostic 1 после
+молчания длительностью Detection Time, даже если ещё не получала пакетов.
+Меняется причинная диагностика, а не счётчик переходов состояния. Статус
+erratum остаётся Held for Document Update; его применение — явный выбор
+проекта, а не утверждение о требовании исходного текста RFC. См. `gobfd-9ro`.
 
 #### Section 4.1: Формат пакета
 
@@ -313,13 +327,6 @@ demultiplexing (раздел 6: первый пакет принимается �
 отложен и не прошёл production qualification.
 
 ### Заметки по RFC 5882
-
-Выбранная policy Held errata 5205/7240 фиксирует timeout в Down как
-`Down/ControlTimeExpired` без перехода и сохраняет диагностику при recovery
-в Up. Причинный кортеж публикуется владельцем после фиксации итоговых фактов.
-Для graceful AdminDown проверка предшествует PathDown и сохраняет Diag=7;
-RFC 5880 Section 6.8.16 допускает AdminDown с PathDown, поэтому Diag=7
-является выбранной policy, а не общим обязательным требованием RFC.
 
 Реализация: [`internal/gobgp/`](../../internal/gobgp/)
 
