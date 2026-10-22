@@ -136,3 +136,30 @@ func TestOverlayConnSetScopesRacesSendAndDecap(t *testing.T) {
 	})
 	wg.Wait()
 }
+
+// VXLAN receive identity ignores the local MAC (the inner destination MAC is
+// fixed), so two scopes that differ only there share one wire identity.
+func TestSameOverlayWireIdentity(t *testing.T) {
+	t.Parallel()
+
+	local, peer := netip.MustParseAddr("198.51.100.1"), netip.MustParseAddr("198.51.100.2")
+	geneve, other := scopedTestGeneveScopes(local, peer)
+	vxlan := geneve
+	vxlan.Kind = bfd.TransportScopeVXLAN
+	vxlanMAC := vxlan
+	vxlanMAC.LocalMAC[5]++
+	geneveMAC := geneve
+	geneveMAC.LocalMAC[5]++
+	for _, tc := range []struct {
+		a, b bfd.TransportScope
+		want bool
+	}{
+		{vxlan, vxlanMAC, true},
+		{geneve, geneveMAC, false},
+		{geneve, other, false},
+	} {
+		if got := SameOverlayWireIdentity(tc.a, tc.b); got != tc.want {
+			t.Errorf("SameOverlayWireIdentity(%+v, %+v) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
