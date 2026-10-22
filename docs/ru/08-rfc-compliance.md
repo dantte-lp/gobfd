@@ -460,7 +460,7 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | `SO_BINDTODEVICE` на каждый member | Функциональная опция `WithBindDevice()` на отправителе |
 | Отслеживание агрегатного состояния | Порог `upCount >= minActive` |
 | Обработка Member Down | `UpdateMemberState()` фиксирует состояние member и вызывает изменение агрегатного порога |
-| Выделенный multicast MAC | `01-00-5E-90-00-01` для начальных пакетов |
+| Выделенный multicast MAC (§2.3) | `01-00-5E-90-00-01` не передаётся: UDP sender использует MAC пира. Отдельный wire gate красный; см. `gobfd-rle` и `gobfd-j8r`. |
 | Только асинхронный режим | Стандартные процедуры RFC 5880 для каждого member |
 | Тип сессии | Константа `SessionTypeMicroBFD` |
 | Конфигурация per-group | `MicroBFDGroupConfig` с LAG-интерфейсом + member-линки |

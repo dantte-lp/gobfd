@@ -7,8 +7,8 @@ stack-first порядок от 2026-10-13 и предыдущую очеред�
 
 | Приоритет | Выполнить до v1 | После v1 |
 |---|---|---|
-| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, исправленный security peer, stable-v1 advisory disposition и final release gate | Общее обновление всех компонентов не является prerequisite |
-| P1 | Обязательные задачи квалификации: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, независимое ревью и release evidence | Общая очистка wrappers/assets не является prerequisite |
+| P0 | Stable RFC correctness, ownership/reload, secure readiness/systemd, preview boundaries, scale blocker с OS-thread на каждую сессию, исправленный security peer, stable-v1 advisory disposition и final release gate | Общее обновление всех компонентов не является prerequisite |
+| P1 | Остальные обязательные задачи квалификации: compatibility, interop, latency/allocation/scale, packaging/OCI, zero-shell/Python, Sonar disposition, независимое ревью и release evidence | Общая очистка wrappers/assets не является prerequisite |
 | P2+ | Повысить только при отдельно доказанном release blocker | Общие runtime/tool/Action upgrades, freshness automation, semantic/wrapper inventories, assets/local-residue cleanup и независимое сопровождение v0.6 |
 
 Финальная квалификация сохраняет source-backed current-compatible dependencies
@@ -26,7 +26,40 @@ P2 freshness/cleanup при наличии исполнимой релизной
 release-age hold делает upgrade допустимым, но не следующим. Очистка своих
 временных ресурсов после каждого запуска остаётся обязательной.
 
-## Текущая очередь — 2026-10-20
+## Снимок ретро — 2026-10-22
+
+Локальный и GitHub `dev` совпадают на
+`93304161d77bd1e97a8eb36ecfd1d4b321dd8082`. Beads содержит 375
+закрытых и 164 незавершённых задачи: 141 open, 18 in progress, четыре blocked,
+одна deferred. Подсчёт включает эпики и задачи после v1; это не процент
+готовности релиза. Последний успешный hosted nightly E2E,
+[run 39763006963](https://github.com/dantte-lp/gobfd/actions/runs/39763006963),
+проверил `3a641a9585e058c1d628cc3231bdcaa5291f497b`, предка текущего
+`dev`. Для точного HEAD hosted run отсутствует.
+
+Последний локальный integration candidate `task/integration-batch9-20261022`
+на `dc5a92c163f9a5e9d302fc511759f93d5fd13b7a` опережает `dev` на
+четыре commit. Удалённый canonical gate Go 1.27.3 на `oel-lab-gui` для этого
+commit сообщил `gate_exit=0`, 39 full-race packages и 16 tagged passes.
+Это не подтверждает live BASE/crafted-wire или hosted release. Ветка typed
+replace остаётся вне `dev`; политика same-key открыта в
+`gobfd-qj0.8.2.2.7`. Gate выделенного MAC/member по RFC 7130 остаётся
+красным на отдельной ветке Micro-BFD; в v1 функция preview и выключена по
+умолчанию. Остаточный RFC 7130 gate в `gobfd-qj0.8.2.2.1` имеет P2
+после v1; `gobfd-qj0.8.2.1.8` сохраняет P0 для fail-closed preview
+boundary выпуска v1.
+
+Контракт на 1 000 сессий допускает не более `2*GOMAXPROCS+32 = 48` OS
+threads при `GOMAXPROCS=8`. Control и Echo сессии всё ещё вызывают
+`runtime.LockOSThread` на всё время работы: 1 000 активных control сессий
+требуют минимум 1 000 threads. Это прямой scale blocker, поэтому
+`gobfd-qj0.8.2.1.7` имеет P0. Прежний ограниченный отказ `newosproc` на
+505 threads — историческое доказательство; перед изменением планировщика
+нужны заданные A/B проверки timer-tail, threads и RSS.
+[Контракт Go runtime](https://pkg.go.dev/runtime#LockOSThread) гарантирует
+привязку к thread, а не точность таймера.
+
+## Историческая очередь — 2026-10-20
 
 Статусы и зависимости находятся в Beads. Этот снимок заменяет активную очередь
 и инструкции окружения от 2026-10-15; датированные протоколы ниже подтверждают
@@ -1009,13 +1042,13 @@ RFC core продолжается с Poll/Final, обработки remote Deman
 Родитель `gobfd-qj0.8.2.1.2` принят локально через
 `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; полная релизная квалификация отдельна.
 
-### Последовательность P1
+### Последовательность performance
 
 | Часть поставки | Статус |
 |---|---|
-| Настраиваемая BFD QoS socket policy с packet evidence | Открыто |
-| Измерение committed latency и корректные performance gates | Открыто |
-| Удаление постоянного OS-thread pinning сессий с A/B evidence | Открыто |
+| Настраиваемая BFD QoS socket policy с packet evidence | P1, открыто |
+| Измерение committed latency и корректные performance gates | P1, открыто |
+| Удаление постоянного OS-thread pinning сессий с A/B evidence | P0, открыто |
 
 Post-v1 R&D по scheduler, kernel, warm restart, S-BFD и аутентификации находится
 вне этого релизного контракта и отслеживается отдельно в Beads.

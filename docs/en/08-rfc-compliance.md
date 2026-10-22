@@ -505,7 +505,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | `SO_BINDTODEVICE` per member | `WithBindDevice()` functional option on sender |
 | Aggregate state tracking | `upCount >= minActive` threshold |
 | Member Down handling | `UpdateMemberState()` records member state and triggers aggregate threshold changes |
-| Dedicated multicast MAC | `01-00-5E-90-00-01` for initial packets |
+| Dedicated multicast MAC (Section 2.3) | `01-00-5E-90-00-01` is not sent: the UDP sender resolves the peer MAC. The separate wire gate is red; see `gobfd-rle` and `gobfd-j8r`. |
 | Asynchronous mode only | Standard RFC 5880 procedures per member |
 | Session type | `SessionTypeMicroBFD` constant |
 | Per-group configuration | `MicroBFDGroupConfig` with LAG interface + member links |
