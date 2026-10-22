@@ -460,7 +460,7 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | `SO_BINDTODEVICE` на каждый member | Функциональная опция `WithBindDevice()` на отправителе |
 | Отслеживание агрегатного состояния | Порог `upCount >= minActive` |
 | Обработка Member Down | `UpdateMemberState()` фиксирует состояние member и вызывает изменение агрегатного порога |
-| Выделенный multicast MAC | `01-00-5E-90-00-01` для начальных пакетов |
+| Выделенный multicast MAC (Section 2.3) | **Не реализован.** Отправители member-сессий — UDP-сокеты, следующий хоп ядро разрешает через ARP. Гейт `e2e-linux` `TestMicroBFDLAGMemberWire` падает: member-линки в kernel bond не отправляют ни одного кадра на порт 6784, а member-линки вне bond отправляют пакеты Down на unicast MAC из ARP вместо `01-00-5E-90-00-01` |
 | Только асинхронный режим | Стандартные процедуры RFC 5880 для каждого member |
 | Тип сессии | Константа `SessionTypeMicroBFD` |
 | Конфигурация per-group | `MicroBFDGroupConfig` с LAG-интерфейсом + member-линки |
@@ -496,6 +496,24 @@ member на существующем OVS bonded port через native OVSDB tra
 `backend: networkmanager` может выполнять remove/add member через deactivation
 активного NetworkManager bond port profile и activation remembered или
 available bond port profile при явном `owner_policy: networkmanager-dbus`.
+
+**Путь member-линка в kernel bond (измерено)**: гейт `e2e-linux`
+`TestMicroBFDLAGMemberWire` строит kernel bond в режиме balance-rr с двумя
+veth member-линками и AF_PACKET-пиром, который отвечает на ARP. Когда оба
+member-линка входят в bond, на каждом member-линке за 4 с видны только
+повторные ARP-запросы адреса пира и ни одного кадра на порт 6784, хотя пир
+отвечает на каждый запрос. Вероятная причина, ещё не изолированная, —
+обработчик приёма bonding: он доставляет кадры, пришедшие на member-линк,
+устройству bond, поэтому neighbour-запись member-линка остаётся неразрешённой,
+а сокет, привязанный к member-линку через `SO_BINDTODEVICE`, не получил бы
+пакеты пира. В фазе standalone, с
+member-линками вне bond, пакеты Down приходят на UDP
+порт 6784 с TTL 255, но их MAC назначения — MAC пира из ARP. RFC 7130
+Section 2.3 требует `01-00-5E-90-00-01` в состояниях Down, AdminDown и Init и
+для первых `bfd.DetectMult` пакетов Up. Фазы гейта Up/Down member-линков,
+воздействия kernel-bond и reload ждут устранения этих дефектов; контейнер
+гейта монтирует `/sys` только для чтения, поэтому sysfs-бэкенд kernel-bond не
+может записать там `bonding/slaves`.
 
 ### Заметки по RFC 8971
 

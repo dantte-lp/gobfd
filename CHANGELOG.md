@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TestMicroBFDLAGMemberWire` in `make e2e-linux` is the RFC 7130
+  integration gate: a kernel bond with two veth member links, the daemon's
+  Micro-BFD member senders and listeners, and an AF_PACKET peer that answers
+  ARP and writes a wire JSON and one pcap per member and phase. The gate fails
+  at its first phase: enslaved members send no port 6784 frame, and
+  standalone members, the state after actuator removal, send Down packets to
+  the ARP-resolved peer MAC
+  instead of the RFC 7130 Section 2.3 dedicated MAC `01-00-5E-90-00-01`. The
+  RFC 7130 compliance row that claimed the dedicated MAC is corrected.
+
 - `cictl package-build` builds the DEB and RPM through the release path
   (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
   `cictl package-lifecycle` installs them into systemd containers built from

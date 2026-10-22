@@ -505,7 +505,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | `SO_BINDTODEVICE` per member | `WithBindDevice()` functional option on sender |
 | Aggregate state tracking | `upCount >= minActive` threshold |
 | Member Down handling | `UpdateMemberState()` records member state and triggers aggregate threshold changes |
-| Dedicated multicast MAC | `01-00-5E-90-00-01` for initial packets |
+| Dedicated multicast MAC (Section 2.3) | **Not implemented.** Member senders are UDP sockets and the kernel resolves the next hop by ARP. The `e2e-linux` gate `TestMicroBFDLAGMemberWire` fails: members enslaved to a kernel bond send no port 6784 frame, and standalone members send Down packets to the ARP-resolved unicast MAC instead of `01-00-5E-90-00-01` |
 | Asynchronous mode only | Standard RFC 5880 procedures per member |
 | Session type | `SessionTypeMicroBFD` constant |
 | Per-group configuration | `MicroBFDGroupConfig` with LAG interface + member links |
@@ -542,6 +542,23 @@ existing OVS bonded port with native OVSDB transactions against
 active NetworkManager bond port profile and reactivating the remembered or
 available bond port profile when `owner_policy: networkmanager-dbus` is
 explicit.
+
+**Kernel bond member path (measured)**: the `e2e-linux` gate
+`TestMicroBFDLAGMemberWire` builds a balance-rr kernel bond with two veth
+member links and an AF_PACKET peer that answers ARP. With both members
+enslaved, each member link carries only repeated ARP requests for the peer
+address and no port 6784 frame within 4 s, although the peer answers every
+request. The likely cause, not yet isolated, is the bonding receive handler:
+it delivers frames that arrive on a member to the bond device, so the
+neighbour entry of the member link stays unresolved and a socket bound to the
+member with `SO_BINDTODEVICE` would not receive the peer packets. In its standalone phase,
+with the members outside the bond, Down packets reach UDP port 6784 with TTL 255, but
+their destination MAC is the ARP-resolved peer MAC. RFC 7130 Section 2.3
+requires `01-00-5E-90-00-01` in the Down, AdminDown and Init states and for
+the first `bfd.DetectMult` Up packets. Member Up/Down, kernel-bond actuation
+and reload phases of the gate wait for these defects to be fixed; the gate
+container also mounts `/sys` read-only, so the sysfs kernel-bond backend
+cannot write `bonding/slaves` there.
 
 ### RFC 8971 Implementation Notes
 

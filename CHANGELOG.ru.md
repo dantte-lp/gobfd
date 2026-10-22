@@ -9,6 +9,16 @@
 
 ### Добавлено
 
+- `TestMicroBFDLAGMemberWire` в `make e2e-linux` — интеграционный гейт
+  RFC 7130: kernel bond с двумя veth member-линками, отправители и слушатели
+  Micro-BFD member-сессий daemon и AF_PACKET-пир, который отвечает на ARP и
+  пишет wire JSON и pcap на каждый member-линк и фазу. Гейт падает на
+  первой фазе: member-линки в bond не отправляют кадров на порт 6784, а
+  member-линки вне bond, как после удаления actuator, отправляют пакеты Down
+  на MAC пира из ARP
+  вместо выделенного MAC `01-00-5E-90-00-01` из RFC 7130 Section 2.3. Строка
+  соответствия RFC 7130 с заявленным выделенным MAC исправлена.
+
 - `cictl package-build` собирает DEB и RPM по пути релиза (GoReleaser
   v2.18.2, затем финализация жизненного цикла RPM) с версией 0.0.0, а
   `cictl package-lifecycle` устанавливает их в контейнеры с systemd, собранные
