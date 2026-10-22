@@ -262,7 +262,7 @@ func TestDaemonOverlaySocketBufferPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, scope := range []bfd.TransportScope{vxlanScope, geneveScope} {
-				if _, err := owner.acquire(scope.Kind, []bfd.TransportScope{scope}); err != nil {
+				if _, err := acquireAll(owner, scope.Kind, []bfd.TransportScope{scope}); err != nil {
 					t.Fatal(err)
 				}
 			}
