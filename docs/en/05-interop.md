@@ -181,7 +181,7 @@ port 49152, Poll/Final, the slow rate outside Up and no authentication. Each
 | Phase | Peer action | Capture assertion |
 |---|---|---|
 | `rx0`, `poll` | Required Min RX 0 with a Poll, then a second Poll | Only Finals from GoBFD, one per Poll, for at least 10 negotiated intervals (RFC 5880 Section 6.8.7) |
-| `silent` | No transmission | The daemon logs Down with diag 1 one Detection Time (from `gobfdctl`, cross-checked with the wire) after the last peer frame, within `[DT-1 ms, DT+max(2 ms, DT/50)]`; the first GoBFD frame (Down, diag 1, Your Discriminator 0) follows within one slow-rate interval, then at least 3 slow-rate intervals within the jitter bounds (Sections 6.8.4 and 6.8.18) |
+| `silent` | No transmission | The daemon logs Down with diag 1 one Detection Time (from `gobfdctl`, cross-checked with the wire) after the last peer frame, within `[DT-1 ms, DT+max(2 ms, DT/50)]`; the first GoBFD frame (Down, diag 1, Your Discriminator 0) follows within `DT+50 ms+max(2 ms, DT/50)` of the last peer frame, then at least 3 slow-rate intervals within the jitter bounds (Sections 6.8.4, 6.8.7 and 6.8.18) |
 | `recover` | New three-way handshake | Up with 300 ms timers in both directions |
 | `demand` | D=1 with a Poll | GoBFD answers with Final and then sends only Poll or Final frames; a SIGHUP to 500 ms produces a GoBFD Poll with the new timers, a peer Final, and a converged reload receipt after that Final (Sections 6.5 and 6.6) |
 | `demand-clear` | D=0 with a Poll | GoBFD answers with Final and resumes periodic TX within `T+slack`, then at least 12 intervals pass the jitter bound and the 3-standard-error mean check for T=500 ms |

@@ -13,8 +13,8 @@
   Min RX, молчание пира и remote Demand с crafted Go peer; закреплённые
   FRR/BIRD эти режимы не воспроизводят. Инструмент `test/interop/scapy`
   получает режим `peer` на кодеке репозитория. Захват показывает только Final
-  при RX0; Down через один Detection Time после молчания и передачу в
-  следующем интервале медленного режима (RFC 5880 Sections 6.8.4 и 6.8.18);
+  при RX0; Down через один Detection Time после молчания с немедленной
+  передачей пакета Down (RFC 5880 Sections 6.8.4, 6.8.7 и 6.8.18);
   только кадры Poll/Final плюс Poll Sequence таймера при Demand (Section 6.6).
   `make interop-testcontainers` запускает тест с сохранением PCAP и
   артефактов SHA-256. Local Demand остаётся открытым.
@@ -455,6 +455,13 @@
   всех трёх P1-находок maintenance-ревью в Beads.
 
 ### Исправлено
+
+- Переход в Down по истечении Detection Time или по принятому Down либо
+  AdminDown теперь сразу отправляет новое состояние, а не ждёт следующего
+  интервала медленного режима (SHOULD из RFC 5880 Section 6.8.7). Запреты
+  нулевого remote RX, Passive при неизвестном пире и unsolicited сохраняются,
+  ожидающий Final переносит изменение, periodic TX соблюдает нижнюю границу
+  медленного режима.
 
 - Hosted jobs E2E Evidence выполняются на `ubuntu-26.04` (Podman 5.7.0). На
   `ubuntu-latest` (Ubuntu 24.04) Podman 4.9.3 собран с Debian imagebuilder
