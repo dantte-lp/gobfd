@@ -286,10 +286,17 @@ func TestSessionSlowToFastPollLifecycle(t *testing.T) {
 		}
 		assertCachedPacketFlags(t, sender.packets[len(sender.packets)-1], false, false)
 		for range 2 {
+			// RFC 5880 Section 6.8.7 sends the state change at once; a failed
+			// attempt must not confirm the new floor Poll.
+			attempts := sender.attempts
+			sender.failures = 1
 			sess.handleDetectTimer(t.Context(), tx, detect)
 			if sess.State() != StateDown || !sess.pollActive || sess.pollSent ||
 				sess.buildControlPacket().DesiredMinTxInterval != 1_000_000 {
 				t.Fatal("non-Up transition must retire old Poll and initiate the mandatory floor Poll")
+			}
+			if sender.attempts != attempts+1 {
+				t.Fatalf("state-change attempts=%d, want %d", sender.attempts, attempts+1)
 			}
 			pkt.State = StateInit
 			sender.failures = 1
@@ -410,7 +417,9 @@ func TestSessionPollRequiresSuccessfulSend(t *testing.T) {
 // RFC 5880 Section 6.8.18: "If the remote system does not receive any BFD
 // Control packets for a Detection Time, it SHOULD reset
 // bfd.RemoteMinRxInterval to its initial value of 1 ... and then can transmit
-// at its own rate.".
+// at its own rate.". Section 6.8.7: a packet whose contents differ "SHOULD be
+// transmitted during the interval between periodic Control packet
+// transmissions", so an expiry that changes the state sends at once.
 func TestRemoteMinRxResetsAfterDetectionTime(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
@@ -419,10 +428,17 @@ func TestRemoteMinRxResetsAfterDetectionTime(t *testing.T) {
 		wantState     State
 		wantDiag      Diag
 		remoteRX      time.Duration
+		passive       bool
+		immediate     bool
 	}{
 		{
 			name: "Up expires to Down", local: StateUp, remote: StateUp, wantState: StateDown,
-			wantDiag: DiagControlTimeExpired,
+			wantDiag: DiagControlTimeExpired, immediate: true,
+		},
+		// Section 6.8.7: a Passive system with bfd.RemoteDiscr zero stays silent.
+		{
+			name: "Passive Up expires silently", local: StateUp, remote: StateUp, wantState: StateDown,
+			wantDiag: DiagControlTimeExpired, passive: true,
 		},
 		{
 			name: "Down held down by peer", local: StateDown, remote: StateAdminDown, wantState: StateDown,
@@ -443,6 +459,9 @@ func TestRemoteMinRxResetsAfterDetectionTime(t *testing.T) {
 			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
 				sess, sender, tx, detect := newRemoteTxTestSession(t)
+				if tt.passive {
+					sess.role = RolePassive
+				}
 				if tt.local != StateUp {
 					diag := DiagNone
 					if tt.local == StateAdminDown {
@@ -479,16 +498,83 @@ func TestRemoteMinRxResetsAfterDetectionTime(t *testing.T) {
 					t.Fatalf("after expiry RemoteMinRx=%s RemoteDemand=%t, want %s/false",
 						got, sess.remoteDemandMode, initialRemoteMinRx)
 				}
-				synctest.Sleep(slowTxInterval)
-				if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != 1 {
+				want := 0
+				if tt.immediate {
+					want = 1
+				}
+				if len(sender.packets) != want {
+					t.Fatalf("packets at expiry=%d, want %d", len(sender.packets), want)
+				}
+				// The periodic schedule keeps the slow floor reduced by at most 25%.
+				synctest.Sleep(slowTxInterval*3/4 - time.Nanosecond)
+				if fireRemoteTxTimer(sess, tx) {
+					t.Fatal("periodic transmission before the jittered slow-rate floor")
+				}
+				synctest.Sleep(slowTxInterval/4 + time.Nanosecond)
+				if tt.passive {
+					if fireRemoteTxTimer(sess, tx) || len(sender.packets) != 0 {
+						t.Fatal("Passive session transmitted with bfd.RemoteDiscr zero")
+					}
+					return
+				}
+				if !fireRemoteTxTimer(sess, tx) || len(sender.packets) != want+1 {
 					t.Fatal("periodic transmission did not resume after Detection Time")
 				}
-				var sent ControlPacket
-				if err := UnmarshalControlPacket(sender.packets[len(sender.packets)-1], &sent); err != nil {
-					t.Fatal(err)
+				for _, payload := range sender.packets {
+					var sent ControlPacket
+					if err := UnmarshalControlPacket(payload, &sent); err != nil {
+						t.Fatal(err)
+					}
+					if sent.State != tt.wantState || sent.Diag != tt.wantDiag {
+						t.Fatalf("resumed packet state=%s diag=%s, want %s/%s",
+							sent.State, sent.Diag, tt.wantState, tt.wantDiag)
+					}
 				}
-				if sent.State != tt.wantState {
-					t.Fatalf("resumed packet state=%s, want %s", sent.State, tt.wantState)
+			})
+		})
+	}
+}
+
+// RFC 5880 Section 6.8.7: a state change sends at once unless a transmit
+// prohibition applies; zero remote Required Min RX still forbids it.
+func TestReceivedDownTransmitsStateChangeImmediately(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name     string
+		remote   State
+		remoteRX time.Duration
+		wantSent bool
+	}{
+		{name: "remote Down", remote: StateDown, remoteRX: 100 * time.Millisecond, wantSent: true},
+		{name: "remote AdminDown", remote: StateAdminDown, remoteRX: 100 * time.Millisecond, wantSent: true},
+		{name: "remote Down with zero RX", remote: StateDown},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				sess, sender, tx, detect := newRemoteTxTestSession(t)
+				pkt := sess.buildControlPacket()
+				pkt.State, pkt.Poll, pkt.Final = tt.remote, false, false
+				pkt.RequiredMinRxInterval = microsecondsFromDuration(tt.remoteRX)
+				sess.handleRecvPacket(t.Context(), recvItem{pkt: pkt}, tx, detect)
+				if sess.State() != StateDown || sess.LocalDiag() != DiagNeighborDown {
+					t.Fatalf("state=%s diag=%s, want Down/NeighborDown", sess.State(), sess.LocalDiag())
+				}
+				if sent := len(sender.packets) == 1; sent != tt.wantSent || len(sender.packets) > 1 {
+					t.Fatalf("packets after state change=%d, want sent=%t", len(sender.packets), tt.wantSent)
+				}
+				if tt.wantSent {
+					var sent ControlPacket
+					if err := UnmarshalControlPacket(sender.packets[0], &sent); err != nil {
+						t.Fatal(err)
+					}
+					if sent.State != StateDown || sent.Diag != DiagNeighborDown || sent.Final {
+						t.Fatalf("state-change packet %+v, want Down/NeighborDown without Final", sent)
+					}
+				}
+				synctest.Sleep(slowTxInterval*3/4 - time.Nanosecond)
+				if fireRemoteTxTimer(sess, tx) {
+					t.Fatal("periodic transmission before the jittered slow-rate floor")
 				}
 			})
 		})

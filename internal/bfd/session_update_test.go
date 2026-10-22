@@ -157,7 +157,7 @@ func TestSessionTimerUpdateRecovery(t *testing.T) {
 		t.Run(proposedTX.String(), func(t *testing.T) {
 			t.Parallel()
 			synctest.Test(t, func(t *testing.T) {
-				s, _, tx, detect := newRemoteTxTestSession(t)
+				s, sender, tx, detect := newRemoteTxTestSession(t)
 				tuple := timerTuple{proposedTX, 0}
 				if _, err := s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 					t.Fatal(err)
@@ -176,11 +176,18 @@ func TestSessionTimerUpdateRecovery(t *testing.T) {
 				if got := s.timerUpdateSnapshot().Effective.TX; got != max(proposedTX, time.Second) {
 					t.Fatalf("non-Up effective TX snapshot = %s, want %s", got, max(proposedTX, time.Second))
 				}
-				if s.pollSent {
-					t.Fatal("interrupted update's send confirmed recovery Poll")
+				// RFC 5880 Section 6.8.7: the state change is sent at once and
+				// carries the recovery Poll; the interrupted update's earlier
+				// send must not be what confirms it.
+				var down ControlPacket
+				if err := UnmarshalControlPacket(sender.packets[len(sender.packets)-1], &down); err != nil {
+					t.Fatal(err)
 				}
-				// A non-Up transition need not send immediately, but the Poll
-				// is established now and the next scheduled send carries it.
+				recoveryPoll := proposedTX < time.Second
+				if len(sender.packets) < 2 || down.State != StateDown || down.Poll != recoveryPoll ||
+					s.pollSent != recoveryPoll {
+					t.Fatalf("state-change packet %+v pollSent=%t, want Down carrying the recovery Poll", down, s.pollSent)
+				}
 				s.sendControl(t.Context())
 				synctest.Sleep(time.Millisecond)
 				pkt := s.buildControlPacket()
