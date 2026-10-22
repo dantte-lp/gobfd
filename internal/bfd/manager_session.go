@@ -244,7 +244,25 @@ func (m *Manager) registerAndStart(
 			key.PeerAddr, ErrDuplicateSession,
 		)
 	}
+	counts := m.insertSessionLocked(ctx, key, demuxKey, effective, owner, discr, sess, senderLease)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
+	return sess, true, nil
+}
+
+// insertSessionLocked registers a built session in every registry and starts
+// it. The caller holds Manager.mu and has checked both keys.
+func (m *Manager) insertSessionLocked(
+	ctx context.Context,
+	key SessionKey,
+	demuxKey packetDemuxKey,
+	effective effectiveSessionConfig,
+	owner SessionOwner,
+	discr uint32,
+	sess *Session,
+	senderLease *SenderLease,
+) fanoutDelivery {
 	entry := &sessionEntry{
 		session:     sess,
 		senderLease: senderLease,
@@ -276,10 +294,7 @@ func (m *Manager) registerAndStart(
 	added.Added = true
 	counts := m.broadcastStateChange(added)
 	m.startSession(sessCtx, entry, sess)
-	m.mu.Unlock()
-	m.reportFanoutDelivery(counts)
-
-	return sess, true, nil
+	return counts
 }
 
 func (m *Manager) startSession(ctx context.Context, entry *sessionEntry, sess *Session) {
@@ -390,6 +405,16 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	}
 
 	// Remove the wire session from every registry after its last claim.
+	counts := m.removeSessionLocked(localDiscr, entry)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
+
+	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+}
+
+// removeSessionLocked removes a wire session from every registry. The caller
+// holds Manager.mu and retires the session afterwards.
+func (m *Manager) removeSessionLocked(localDiscr uint32, entry *sessionEntry) fanoutDelivery {
 	delete(m.sessions, localDiscr)
 	delete(m.sessionsByPeer, entry.demuxKey)
 	delete(m.sessionsByKey, entry.key)
@@ -400,11 +425,7 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	session.mu.Unlock()
 	deleted := stateChangeOf(snapshotForObservation(session, observation), observation.State)
 	deleted.Deleted = true
-	counts := m.broadcastStateChange(deleted)
-	m.mu.Unlock()
-	m.reportFanoutDelivery(counts)
-
-	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+	return m.broadcastStateChange(deleted)
 }
 
 func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
@@ -1008,20 +1029,19 @@ func (m *Manager) reconcileSessionsForOwner(
 		return failedReconcileResult(ReconcileErrorConflict, err)
 	}
 
-	result, retired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
-	claimResult, rollbackRetired, unusedLeases := m.claimDesiredOwnerSessions(
+	// Claims precede releases, so a failed claim leaves every committed
+	// session of this owner in place.
+	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
 		ctx, owner, desiredByKey, desiredOrder, currentClaims,
 	)
-	result.Created = claimResult.Created
-	result.Updated = claimResult.Updated
-	result.Pending = claimResult.Pending
-	result.ResourcePending = claimResult.ResourcePending
-	result.resourceErrs = claimResult.resourceErrs
-	result.TimerUpdates = claimResult.TimerUpdates
-	result.wireCreated = claimResult.wireCreated
-	result.Errors = append(result.Errors, claimResult.Errors...)
-	result.Failed = len(result.Errors)
-	retired = append(retired, rollbackRetired...)
+	if result.Failed == 0 {
+		released, staleRetired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
+		result.Released += released.Released
+		result.wireDestroyed += released.wireDestroyed
+		result.Errors = append(result.Errors, released.Errors...)
+		result.Failed = len(result.Errors)
+		retired = append(retired, staleRetired...)
+	}
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
@@ -1176,11 +1196,18 @@ func (m *Manager) claimDesiredOwnerSessions(
 	var result ReconcileResult
 	var retired []retiredSession
 	var unusedLeases []*SenderLease
+	var replacements []sessionReplacement
 	newClaims := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
 		if _, owned := currentClaims[key]; owned &&
 			m.reconcileExistingTimers(ctx, key, owner, desiredByKey[key], &result) {
+			continue
+		}
+		if old := m.replacedEntry(owner, key, rc.SessionConfig, desiredByKey, replacements); old != nil {
+			replacements = append(replacements, sessionReplacement{
+				key: key, config: rc, effective: desiredByKey[key].effective, old: old,
+			})
 			continue
 		}
 
@@ -1207,17 +1234,28 @@ func (m *Manager) claimDesiredOwnerSessions(
 			newClaims = append(newClaims, sess.LocalDiscriminator())
 		}
 	}
-	if result.Failed == 0 {
-		return result, nil, unusedLeases
+	if result.Failed == 0 && len(replacements) > 0 {
+		replacedRetired, replacementLeases := m.replaceSessions(ctx, owner, replacements, currentClaims, &result)
+		retired = append(retired, replacedRetired...)
+		unusedLeases = append(unusedLeases, replacementLeases...)
 	}
+	if result.Failed > 0 {
+		retired = append(retired, m.rollbackNewClaims(owner, newClaims, &result)...)
+	}
+	return result, retired, unusedLeases
+}
 
-	// Roll back claims added by this creation pass. This closes accepted
-	// sender leases for newly created physical sessions without attempting the
-	// broader stale-claim/full-reload rollback owned by a later lifecycle slice.
+// rollbackNewClaims rolls back claims added by a failed creation pass. This
+// closes accepted sender leases for newly created physical sessions.
+// Replacements commit only after every other claim, so none needs a rollback.
+func (m *Manager) rollbackNewClaims(
+	owner SessionOwner, newClaims []uint32, result *ReconcileResult,
+) []retiredSession {
+	var retired []retiredSession
 	for _, discr := range newClaims {
 		wireDestroyed, detached, err := m.detachSessionClaimByDiscriminator(discr, owner)
 		if err != nil {
-			addReconcileError(&result, ReconcileErrorRollback,
+			addReconcileError(result, ReconcileErrorRollback,
 				fmt.Errorf("rollback new session claim %d: %w", discr, err))
 			continue
 		}
@@ -1227,7 +1265,7 @@ func (m *Manager) claimDesiredOwnerSessions(
 			retired = append(retired, *detached)
 		}
 	}
-	return result, retired, unusedLeases
+	return retired
 }
 
 // recordClaimError records an unresolvable single-hop receive interface or a

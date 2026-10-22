@@ -485,6 +485,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A re-keyed control, VXLAN or Geneve entry whose new session fails no
+  longer removes the old session: session reconciliation now claims every
+  desired entry before it releases removed ones, as Micro-BFD groups already
+  did, and a failed claim releases nothing (receipt `failed`). A type change between a
+  single-hop session without `interface` and a multihop session with the same
+  addresses swaps both sessions in one registry step instead of leaving a gap;
+  a pending new session keeps the old one until the retry. The old session
+  still leaves with an AdminDown drain. Same-key changes to `detect_mult`,
+  `padded_pdu_size`, `multihop_max_hops` and authentication remain conflicts;
+  `docs/superpowers/specs/2026-10-22-gobfd-session-replace-design.md` records
+  the options.
+
 - An orderly stop exits 0 when an AdminDown drain cannot finish because a
   peer is unreachable or never supplied a discriminator; the drain is logged as
   a warning. Admission, commit, owner, failed AdminDown writes and other local

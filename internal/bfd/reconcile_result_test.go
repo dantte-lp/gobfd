@@ -140,7 +140,9 @@ func TestManagerDetailedReconcileCountsSharedWireOwnerClaims(t *testing.T) {
 	}
 }
 
-func TestManagerDetailedReconcilePreservesStaleReleaseAndRollsBackCreations(t *testing.T) {
+// Claims precede releases: a failed claim rolls back the creations of the
+// pass and keeps the stale claim, as Micro-BFD groups do.
+func TestManagerDetailedReconcileFailureKeepsStaleClaimAndRollsBackCreations(t *testing.T) {
 	mgr := NewManager(slog.New(slog.DiscardHandler))
 	defer mgr.Close()
 
@@ -184,15 +186,15 @@ func TestManagerDetailedReconcilePreservesStaleReleaseAndRollsBackCreations(t *t
 		},
 	)
 
-	assertReconcileResult(t, result, 0, 1, 2, []ReconcileErrorCode{
+	assertReconcileResult(t, result, 0, 0, 2, []ReconcileErrorCode{
 		ReconcileErrorCreate,
 		ReconcileErrorCreate,
 	})
 	if !errors.Is(result.Err(), firstFailure) || !errors.Is(result.Err(), secondFailure) {
 		t.Fatalf("detailed reconciliation error = %v, want both sender failures", result.Err())
 	}
-	if got := len(mgr.Sessions()); got != 0 {
-		t.Fatalf("sessions after failed creation pass rollback = %d, want 0", got)
+	if got := mgr.Sessions(); len(got) != 1 || got[0].PeerAddr != ownershipTestConfig("192.0.2.211").PeerAddr {
+		t.Fatalf("sessions after failed creation pass rollback = %+v, want only the stale session", got)
 	}
 }
 

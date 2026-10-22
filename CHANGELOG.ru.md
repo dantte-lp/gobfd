@@ -496,6 +496,17 @@
 
 ### Исправлено
 
+- Re-key записи control, VXLAN или Geneve, новая сессия которой не
+  создаётся, больше не удаляет старую сессию: reconciliation сессий теперь
+  захватывает все желаемые записи до освобождения удалённых, как уже делали
+  группы Micro-BFD, а неудачный claim ничего не освобождает (receipt `failed`). Смена типа между single-hop
+  сессией без `interface` и multihop сессией с теми же адресами меняет сессии
+  местами за один шаг реестра без промежутка; pending новая сессия сохраняет
+  старую до retry. Старая сессия по-прежнему уходит с AdminDown drain.
+  Same-key изменения `detect_mult`, `padded_pdu_size`, `multihop_max_hops` и
+  authentication остаются конфликтами; варианты описаны в
+  `docs/superpowers/specs/2026-10-22-gobfd-session-replace-design.md`.
+
 - Штатная остановка завершается с кодом 0, если AdminDown drain не может
   завершиться из-за недоступного пира или пира без discriminator; drain
   записывается как предупреждение. Ошибки admission, commit, owner, неудачная

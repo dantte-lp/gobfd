@@ -596,8 +596,9 @@ configuration claim. Reconciliation semantics are:
 
 - **New desired entries** acquire a configuration claim and create a wire
   session only when no exact session exists
-- **Removed sessions** release their configuration claim; the wire session is
-  destroyed only when no other claim remains
+- **Removed sessions** release their configuration claim after every desired
+  claim of the source succeeded; the wire session is destroyed only when no
+  other claim remains. A failed claim releases nothing
 - **Existing exact sessions** are shared; conflicting effective parameters are
   rejected without mutating the manager's ownership claims or session
   registries
@@ -858,7 +859,8 @@ automatic interface retry opens it; any other open error leaves the source
 unavailable address that leaves the source `pending`. A listener that cannot
 bind stops its source before the Manager apply, so old claims stay; an overlay
 endpoint that cannot bind leaves out only its own identities; a sender that cannot bind leaves only its own claim pending, and
-the pass still releases entries removed from the desired set. The address
+the pass still releases entries removed from the desired set, except a session
+that the pending entry replaces (see re-keyed entries below). The address
 event that assigns the address retries the source. An API-created
 control or Echo session claims its listener with its sender and opens it when
 absent; an Echo session shares the per-address Echo listener. An absent
@@ -915,11 +917,30 @@ Cancellation after admission does not undo advertised values. The
 defines the negotiation budget and startup/recovery separation. Live FRR/BIRD
 reload qualification remains pending; this is not full Poll/Demand compliance.
 
+A re-keyed control, Micro-BFD member, VXLAN, or Geneve entry is a new wire
+session with a new discriminator: the new session is claimed first and the old
+one is released afterwards with an AdminDown drain (RFC 5880 Section 6.8.16;
+RFC 5882 Section 4.2 tells peer clients not to act on AdminDown). If any claim
+of the source fails, including a rejected timer update, the pass rolls back
+its new claims and releases nothing,
+so the old session keeps running and the receipt is `failed`. A single-hop
+session without `interface` and a multihop session with the same `peer` and
+`local` share one packet demultiplexing key; a type change between them swaps
+the two sessions in one registry step, so no received packet finds neither.
+Only such config-owned control sessions are swapped.
+When the new session of such a swap waits for its local address or interface,
+the old session stays and the receipt is `pending` until the retry swaps them.
+A demultiplexing key that another owner, such as the API, also holds is not
+swapped: the claim fails with a duplicate-session error.
+
 Other effective-parameter changes to an existing same-key session or Micro-BFD
 group are not in-place updates: reconciliation reports a conflict,
 the generation remains stale, and the operator must remove then add the identity
-in separate reloads or restart the process. Removing the final entry or
-disabling a source is supported.
+in separate reloads or restart the process. These are `detect_mult`,
+`padded_pdu_size`, `multihop_max_hops`, and authentication. Removing the final entry or
+disabling a source is supported. The
+[replace design](../superpowers/specs/2026-10-22-gobfd-session-replace-design.md)
+records the options for applying them.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
 `log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`,
