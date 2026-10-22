@@ -38,11 +38,16 @@ const (
 	phaseRecover           = "recover"
 	phaseDemand            = "demand"
 	phaseDemandClear       = "demand-clear"
+	phaseFinalLoss         = "final-loss"
+	phaseFinalRestore      = "final-restore"
 )
 
 // peerPhases is the fixed scenario order.
 func peerPhases() []string {
-	return []string{phaseRequiredMinRxZero, phasePoll, phaseSilent, phaseRecover, phaseDemand, phaseDemandClear}
+	return []string{
+		phaseRequiredMinRxZero, phasePoll, phaseSilent, phaseRecover, phaseDemand, phaseDemandClear,
+		phaseFinalLoss, phasePoll, phaseFinalRestore,
+	}
 }
 
 var (
@@ -65,6 +70,8 @@ type peer struct {
 	demand             bool
 	poll               bool
 	silent             bool
+	// dropFinals simulates loss of every Final reply (fault injection).
+	dropFinals bool
 }
 
 func newPeer() *peer {
@@ -154,7 +161,7 @@ func (crafted *peer) receive(packet bfd.ControlPacket) (bfd.ControlPacket, bool)
 		// Leaving the slow rate changes Desired Min TX (RFC 5880 Section 6.8.3).
 		crafted.poll, crafted.diag = true, bfd.DiagNone
 	}
-	if packet.Poll {
+	if packet.Poll && !crafted.dropFinals {
 		return crafted.packet(true), true
 	}
 	return bfd.ControlPacket{}, false
@@ -170,6 +177,8 @@ func (crafted *peer) apply(phase string) error {
 		crafted.poll = true
 	case phaseSilent:
 		crafted.silent = true
+	case phaseFinalLoss, phaseFinalRestore:
+		crafted.dropFinals = phase == phaseFinalLoss
 	case phaseRecover:
 		*crafted = *newPeer()
 	case phaseDemand, phaseDemandClear:

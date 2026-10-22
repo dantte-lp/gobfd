@@ -101,11 +101,41 @@ func craftedContractFrames() []craftedFrame {
 		timeline.add(true, offset+5, nil)
 		offset += []int{400, 475}[index%2]
 	}
+	// Lost peer Finals keep the 400 ms Poll outstanding; the peer crosses it with
+	// its own Poll; a queued 800 ms tuple waits for that Final plus separation.
+	queued := func(tx uint64, mutate func(*craftedFrame)) func(*craftedFrame) {
+		return func(frame *craftedFrame) {
+			frame.TX, frame.RX = tx, tx
+			if mutate != nil {
+				mutate(frame)
+			}
+		}
+	}
+	for _, step := range []struct {
+		fromPeer bool
+		at       int
+		mutate   func(*craftedFrame)
+	}{
+		{false, 27000, queued(400000, craftedPoll)}, {true, 27005, nil},
+		{false, 27350, queued(400000, craftedPoll)}, {true, 27400, craftedPoll},
+		{false, 27401, queued(400000, craftedFinal)},
+		{false, 27700, queued(400000, craftedPoll)}, {true, 27750, nil},
+		{false, 28050, queued(400000, craftedPoll)}, {true, 28100, nil},
+		{false, 28400, queued(400000, craftedPoll)}, {true, 28401, craftedFinal},
+		{false, 28750, queued(400000, nil)}, {true, 28760, nil},
+		{false, 29900, queued(800000, craftedPoll)}, {true, 29901, craftedFinal},
+		{false, 30600, queued(800000, nil)}, {true, 30610, nil},
+	} {
+		timeline.add(step.fromPeer, step.at, step.mutate)
+	}
 	return timeline.frames
 }
 
 func craftedContractPlan() craftedPlan {
-	return craftedPlan{DetectionMicroseconds: 900000, ReloadTX: 500000, ReloadRX: 500000}
+	return craftedPlan{
+		DetectionMicroseconds: 900000, ReloadTX: 500000, ReloadRX: 500000,
+		QueuedFirst: 400000, QueuedSecond: 800000,
+	}
 }
 
 func craftedFrameAt(frames []craftedFrame, fromPeer bool, milliseconds int) int {
@@ -152,7 +182,8 @@ func TestCraftedPeerEvidenceValid(t *testing.T) {
 	}
 	if evidence.RX0.Polls != 2 || evidence.RX0.QuietMicroseconds < 3000000 ||
 		evidence.Silence.ResumeMicroseconds != 905000 || evidence.Silence.DownIntervals != 4 ||
-		evidence.Demand.GoBFDPolls != 1 || evidence.Demand.Intervals != 13 || evidence.Demand.QuietMicroseconds < 3000000 {
+		evidence.Demand.GoBFDPolls != 1 || evidence.Demand.Intervals != 13 || evidence.Demand.QuietMicroseconds < 3000000 ||
+		evidence.Queued.FirstPolls != 5 || evidence.Queued.ResumedPolls != 3 || evidence.Queued.SeparationMicroseconds != 1499000 {
 		t.Fatalf("unexpected evidence %+v", evidence)
 	}
 }
@@ -253,7 +284,44 @@ func TestCraftedPeerEvidenceRejectsRFCViolations(t *testing.T) {
 			return craftedInsert(frames, gobfdFrame, 19900, func(frame *craftedFrame) { frame.TX, frame.RX = 500000, 500000 })
 		}},
 		{"too few resumed intervals", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
-			return frames[:len(frames)-6]
+			return slices.DeleteFunc(frames, func(frame craftedFrame) bool {
+				at := frame.Epoch.Sub(time.Unix(1_800_000_000, 0))
+				return !frame.fromPeer() && at > 23*time.Second && at < 26*time.Second
+			})
+		}},
+		// RFC 5880 Section 6.5: a lost Final keeps the Poll outstanding; the peer Final ends it.
+		{"Final ends the Poll before retries", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			return craftedInsert(frames, peerFrame, 27010, craftedFinal)
+		}},
+		{"crossed reply carries Poll", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			frames[craftedFrameAt(frames, gobfdFrame, 27401)].Poll = 1
+			return frames
+		}},
+		{"crossed Poll unanswered", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			return craftedWithout(frames, gobfdFrame, 27401)
+		}},
+		{"crossed reply changes advertisement", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			frames[craftedFrameAt(frames, gobfdFrame, 27401)].TX = 800000
+			return frames
+		}},
+		{"local Poll does not resume after crossing", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			for _, at := range []int{27700, 28050, 28400} {
+				frames[craftedFrameAt(frames, gobfdFrame, at)].Poll = 0
+			}
+			return frames
+		}},
+		// RFC 5880 Section 6.8.3: queued changes must not share one ambiguous Final.
+		{"queued tuple advertised before Final", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			frames[craftedFrameAt(frames, gobfdFrame, 28050)].TX = 800000
+			return frames
+		}},
+		{"queued Poll without separation", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			frame := &frames[craftedFrameAt(frames, gobfdFrame, 28750)]
+			frame.Poll, frame.TX, frame.RX = 1, 800000, 800000
+			return frames
+		}},
+		{"queued Poll unanswered", func(frames []craftedFrame, _ *craftedPlan) []craftedFrame {
+			return craftedWithout(frames, peerFrame, 29901)
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
