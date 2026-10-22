@@ -23,6 +23,7 @@ func newTestMicroServer(t *testing.T) *MicroBFDServer {
 	return &MicroBFDServer{
 		manager: bfd.NewManager(logger),
 		logger:  logger,
+		enabled: true,
 	}
 }
 
@@ -36,6 +37,22 @@ func validMicroRequest() *bfdv1.AddMicroBFDGroupRequest {
 		RequiredMinRxInterval: durationpb.New(300 * time.Millisecond),
 		DetectMultiplier:      3,
 		MinActiveLinks:        1,
+	}
+}
+
+func TestMicroPreviewDisabledRejectsAddWithoutMutation(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+	s := &MicroBFDServer{manager: mgr, logger: logger}
+	_, err := s.AddMicroBFDGroup(t.Context(), validMicroRequest())
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("disabled AddMicroBFDGroup error = %v, want FailedPrecondition", err)
+	}
+	if got := len(mgr.MicroBFDGroups()); got != 0 {
+		t.Errorf("disabled AddMicroBFDGroup created %d groups", got)
 	}
 }
 
@@ -106,6 +123,7 @@ func TestMicroServer_DeleteMicroBFDGroup_RemovesByLAG(t *testing.T) {
 	if _, err := s.AddMicroBFDGroup(context.Background(), validMicroRequest()); err != nil {
 		t.Fatalf("AddMicroBFDGroup: %v", err)
 	}
+	s.enabled = false // Disabling admission must preserve inspection and cleanup.
 	if _, err := s.DeleteMicroBFDGroup(context.Background(), &bfdv1.DeleteMicroBFDGroupRequest{
 		LagInterface: "bond0",
 	}); err != nil {

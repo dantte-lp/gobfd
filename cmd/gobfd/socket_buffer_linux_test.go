@@ -108,7 +108,7 @@ func TestAPIPaddedPDURequiresDF(t *testing.T) {
 			t.Cleanup(func() { cleanupCandidateTestSenders(t, sf) })
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
-			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true},
+			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, false,
 				mgr, sf, sf, newDaemonHealthChecker(), nil, logger)
 			ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
@@ -155,6 +155,7 @@ func TestDaemonSocketBufferPolicy(t *testing.T) {
 			}
 			cfg.Echo.Enabled = true
 			cfg.Echo.Peers = []config.EchoPeerConfig{{Peer: "192.0.2.3", Local: local.String()}}
+			cfg.MicroBFD.Enabled = true
 			cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 				LAGInterface: "test-bond", LocalAddr: local.String(), MemberLinks: []string{"lo"},
 			}}

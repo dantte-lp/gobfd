@@ -16,6 +16,26 @@ The original handoff and its dated measurements remain in local Git:
 
 ## Source and acceptance boundaries
 
+- Local follow-up `gobfd-qj0.8.2.1.8.1` is implemented on
+  `task/micro-preview-optin-20261022`, which also integrates the audited batch 9
+  and local-only plan update. It adds permanent `micro_bfd.enabled=false`,
+  config/env/API creation gates, no disabled UDP/6784 listeners, startup
+  preview warning and restart-required enable ownership. List/Delete retain
+  their management and owner checks. Critical race runs and final static
+  review cover this slice. Local results: 324 affected-package top-level race
+  tests and 17 batch 9 selections pass; one existing namespace-dependent IPv6
+  subtest skips. Formatter, vet and both tidy-diff checks pass. Reachable
+  govulncheck findings are zero; existing `GO-2026-4736` and `GO-2026-5932`
+  module-level records remain. All 19 lint profiles pass with zero issues.
+  The 2 GiB iteration lint container reached its cap (last sampled max51,
+  OOM0); this does not establish the canonical resource/release acceptance.
+  Documentation checks precede local integration. Evidence:
+  `reports/micro-preview-20261022/` in that worktree, retained in the main
+  worktree after integration. Parent
+  `.8.2.1.8` remains open for Echo admission and bounded capability status;
+  this does not graduate RFC 7130. The current linter has 18 tagged profiles
+  plus the base profile, with 92 linters. No GitHub or Dolt upload is authorized.
+
 - Historical 2026-10-20 accepted implementation baseline on local `dev`:
   `1484581eb57d0bf210a4072ecb108a066ec26ad2`.
 - GitHub `dev` received the local `dev` history up to

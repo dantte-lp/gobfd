@@ -13,6 +13,7 @@ import (
 // assigns one member to two LAGs is ambiguous and is rejected as a whole.
 func TestCompileControlSessionCandidateRejectsMicroMemberReusedAcrossLAGs(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{
 		{
 			LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
@@ -32,6 +33,7 @@ func TestCompileControlSessionCandidateRejectsMicroMemberReusedAcrossLAGs(t *tes
 // bfd.default_* values that its member sessions use.
 func TestCompileControlSessionCandidateAppliesMicroTimerDefaults(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth0"},
 		PeerAddr: "192.0.2.1", LocalAddr: "192.0.2.2", MinActiveLinks: 1,
@@ -57,6 +59,7 @@ func TestReconcileMicroBFDMemberFailureRollsBackGroup(t *testing.T) {
 	t.Cleanup(mgr.Close)
 	sf := newNthFailureDeclarativeSenderFactory(2)
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
 		PeerAddr: "192.0.2.243", LocalAddr: "127.0.0.1", MinActiveLinks: 1,

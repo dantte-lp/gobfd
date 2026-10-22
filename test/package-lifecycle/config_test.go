@@ -94,6 +94,7 @@ echo:
       local: "@L@"
       interface: "@IF@"
 micro_bfd:
+  enabled: true
   actuator:
     mode: "dry-run"
     backend: "kernel-bond"

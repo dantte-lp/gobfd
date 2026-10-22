@@ -49,6 +49,7 @@ const (
 	startupFieldGRPCTLS
 	startupFieldGRPCMutatingIdentities
 	startupFieldGRPCFlightRecorder
+	startupFieldMicroEnabled
 )
 
 func (f startupFieldID) String() string {
@@ -87,6 +88,7 @@ func (f startupFieldID) String() string {
 		"grpc.tls",
 		"grpc.mutating_identities",
 		"grpc.flight_recorder",
+		"micro_bfd.enabled",
 	}
 	if int(f) >= len(paths) {
 		return "unknown"
@@ -119,6 +121,7 @@ type startupRuntimeContract struct {
 	socket             config.SocketConfig
 	unsolicited        config.UnsolicitedConfig
 	actuator           config.MicroBFDActuatorConfig
+	microEnabled       bool
 	gobgp              config.GoBGPConfig
 	vxlanBackend       string
 	vxlanManagementVNI uint32
@@ -134,6 +137,7 @@ func newStartupRuntimeContract(cfg *config.Config) startupRuntimeContract {
 		socket:             cfg.Socket,
 		unsolicited:        cloneUnsolicitedConfig(cfg.Unsolicited),
 		actuator:           cfg.MicroBFD.Actuator,
+		microEnabled:       cfg.MicroBFD.Enabled,
 		gobgp:              cfg.GoBGP,
 		vxlanBackend:       cfg.VXLAN.Backend,
 		vxlanManagementVNI: cfg.VXLAN.ManagementVNI,
@@ -192,6 +196,7 @@ func (c startupRuntimeContract) changedFields(cfg *config.Config) []startupField
 	appendChanged(startupFieldSocketReadBufferSize, c.socket.ReadBufferSize != cfg.Socket.ReadBufferSize)
 	appendChanged(startupFieldSocketWriteBufferSize, c.socket.WriteBufferSize != cfg.Socket.WriteBufferSize)
 	c.appendUnsolicitedChanges(cfg.Unsolicited, appendChanged)
+	appendChanged(startupFieldMicroEnabled, c.microEnabled != cfg.MicroBFD.Enabled)
 	appendChanged(startupFieldMicroActuatorMode, c.actuator.Mode != cfg.MicroBFD.Actuator.Mode)
 	appendChanged(startupFieldMicroActuatorBackend, c.actuator.Backend != cfg.MicroBFD.Actuator.Backend)
 	appendChanged(startupFieldMicroActuatorOVSDBEndpoint, c.actuator.OVSDBEndpoint != cfg.MicroBFD.Actuator.OVSDBEndpoint)

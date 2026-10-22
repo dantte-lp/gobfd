@@ -337,7 +337,7 @@ runs the prebuilt pinned binary inside it. Both CI workflows and the
 `make lint-ci` compatibility target call the shell-free `cictl lint` command.
 It refuses host execution, fixes `GOMAXPROCS=2` and `GOMEMLIMIT=1500MiB`,
 verifies the pinned binary version and 92 enabled nondeprecated linters, and
-runs the base plus all 17 build-tag profiles through direct Go argument vectors.
+runs the base plus all 18 build-tag profiles through direct Go argument vectors.
 The development image selects its prebuilt `/go/bin/golangci-lint`; minimal CI
 Go containers use the same pinned tools module when `GOLANGCI_LINT` is unset.
 The dev service defaults to 4 CPUs, an 8 GiB hard memory limit, a 6 GiB Go

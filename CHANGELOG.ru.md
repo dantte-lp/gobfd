@@ -9,6 +9,13 @@
 
 ### Добавлено
 
+- Micro-BFD требует явного `micro_bfd.enabled: true` или
+  `GOBFD_MICRO_BFD_ENABLED=true`. Без opt-in конфигурация отклоняет группы и
+  actuator до открытия ресурсов; `AddMicroBFDGroup` возвращает
+  `FailedPrecondition`. List/Delete сохраняют авторизацию и проверки владельца.
+  Изменение enable требует перезапуска. RFC 7130 остаётся неполным preview:
+  multicast MAC и передача через enslaved member не квалифицированы.
+
 - Сценарий crafted peer в testcontainers подтверждает на wire crossed и queued
   Poll sequences (RFC 5880 Sections 6.5 и 6.8.3). При потере Final пира GoBFD
   повторяет Poll с активным кортежем, отвечает на пересекающий Poll пира только

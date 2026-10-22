@@ -249,6 +249,7 @@ func TestCompiledCandidateClonesMicroBFDMemberLinks(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface:   "bond0",
 		MemberLinks:    []string{"eth0", "eth1"},

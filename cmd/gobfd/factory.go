@@ -220,6 +220,13 @@ func newManager(
 	sf *udpSenderFactory,
 	logger *slog.Logger,
 ) (*bfd.Manager, error) {
+	if err := config.ValidateMicroBFDPreview(cfg.MicroBFD); err != nil {
+		return nil, fmt.Errorf("validate Micro-BFD preview: %w", err)
+	}
+	if cfg.MicroBFD.Enabled {
+		logger.Warn("Micro-BFD preview enabled; RFC 7130 L2 qualification is incomplete",
+			slog.String("capability", "micro-bfd"), slog.String("maturity", "preview"))
+	}
 	opts := []bfd.ManagerOption{
 		bfd.WithManagerMetrics(collector),
 		bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex),

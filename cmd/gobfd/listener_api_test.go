@@ -68,7 +68,7 @@ func newAPIListenerFixture(t *testing.T) *apiListenerFixture {
 	owner, mgr := newTestListenerOwner(t, coordinator.readiness, opener, inventory)
 	inner := &fakeAPISenderFactory{}
 	logger := slog.New(slog.DiscardHandler)
-	srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, mgr,
+	srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, false, mgr,
 		newAPIListenerSenderFactory(inner, owner, false), newAPIListenerSenderFactory(inner, owner, true),
 		newDaemonHealthChecker(), nil, logger)
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")

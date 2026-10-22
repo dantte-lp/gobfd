@@ -12,6 +12,7 @@ import (
 func microTransactionTestCandidate(t *testing.T) compiledControlSessionCandidate {
 	t.Helper()
 	cfg := config.DefaultConfig()
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth0", "eth1"},
 		PeerAddr: "192.0.2.244", LocalAddr: "127.0.0.1", MinActiveLinks: 1,

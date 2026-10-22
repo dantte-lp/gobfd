@@ -16,6 +16,7 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 	t.Parallel()
 
 	startup := config.DefaultConfig()
+	startup.MicroBFD.Enabled = true
 	startup.Sessions = []config.SessionConfig{{
 		Peer: "192.0.2.1", Local: "127.0.0.1", Interface: "lo",
 	}}
@@ -91,6 +92,7 @@ func TestStartupRuntimeContractReportsBoundedChangedFields(t *testing.T) {
 	)
 	bindings.Echo.Enabled = true
 	bindings.Echo.Peers = []config.EchoPeerConfig{{Peer: "192.0.2.4", Local: "127.0.0.4", Interface: "lo"}}
+	bindings.MicroBFD.Enabled = true
 	bindings.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth7"}, PeerAddr: "192.0.2.8", LocalAddr: "192.0.2.7",
 	}}

@@ -507,7 +507,12 @@ Key differences from BFD control sessions:
 
 ### RFC 7130 Implementation Notes
 
-**Status**: Preview; protocol implemented, production integration partial
+**Status**: Preview; default-off, member L2 qualification incomplete
+
+`micro_bfd.enabled: true` is required for configured groups, actuation and
+API group creation. The default rejects creation with `FailedPrecondition`;
+List/Delete remain available. Enable changes require restart. This boundary
+does not close the dedicated multicast MAC or enslaved-member wire gates.
 
 **Implementation**: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 

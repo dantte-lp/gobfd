@@ -9,7 +9,7 @@ Four binaries: `gobfd` (daemon), `gobfdctl` (CLI), `gobfd-haproxy-agent` (HAProx
 make build                                         # сборка всех 4 бинарников с ldflags
 go test ./... -race -count=1                       # тесты с race detector
 go test -run '^TestFSMTransition$' ./internal/bfd  # один тест
-make lint                                          # линтер (v2, 92 линтера + 17 build-tag profiles)
+make lint                                          # линтер (v2, 92 линтера + 18 build-tag profiles)
 buf generate                                       # генерация proto
 buf lint                                           # проверка proto
 make interop                                       # interop tests (FRR + BIRD3 + Holo + Thoro/bfd, 4 peers)

@@ -68,6 +68,7 @@ echo:
 
 # Micro-BFD (RFC 7130)
 micro_bfd:
+  enabled: false
   groups: []
 
 # VXLAN BFD (RFC 8971)
@@ -321,9 +322,25 @@ echo:
 
 #### `micro_bfd` -- RFC 7130 Micro-BFD для LAG
 
+Micro-BFD — preview, выключенный по умолчанию. До настройки групп, выбора
+`dry-run` или `enforce` либо вызова `AddMicroBFDGroup` задайте
+`micro_bfd.enabled: true` или `GOBFD_MICRO_BFD_ENABLED=true`.
+Без opt-in конфигурация отклоняется до открытия ресурсов, API возвращает
+`FailedPrecondition` без создания группы. List и Delete сохраняются с прежними
+проверками авторизации management и владения группой.
+Изменение `micro_bfd.enabled` требует перезапуска: SIGHUP отклоняет candidate,
+сохраняя работающую generation. При включённом preview группы меняются через reload.
+При запуске журнал отмечает включённую возможность как preview. Opt-in не
+подтверждает dedicated multicast MAC и передачу через enslaved member.
+
+Это постоянная настройка безопасности deployment, введённая 2026-10-22;
+владелец — maintainer, задача `gobfd-qj0.8.2.1.8.1`. Дата удаления не назначена;
+graduation preview отслеживается отдельно в `gobfd-qj0.8.2.2.1`.
+
 | Ключ | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `micro_bfd.groups[].lag_interface` | string | -- | Имя логического LAG-интерфейса (напр., "bond0") |
+| `micro_bfd.enabled` | bool | `false` | Явное включение неполного RFC 7130 preview; нужен перезапуск |
 | `micro_bfd.groups[].member_links` | []string | -- | Имена физических member-линков |
 | `micro_bfd.groups[].peer_addr` | string | -- | IP удалённой системы для всех member-сессий |
 | `micro_bfd.groups[].local_addr` | string | -- | IP локальной системы |
@@ -390,6 +407,7 @@ member-сессии используют эти значения; к ним пр
 Пример:
 ```yaml
 micro_bfd:
+  enabled: true
   actuator:
     mode: "dry-run"
     backend: "kernel-bond"
@@ -929,7 +947,7 @@ identity отдельными reload либо перезапустить про�
 или отключение source поддерживается.
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
-`unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,
+`unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,
 `vxlan.management_vni`, `geneve.backend` и `geneve.default_vni`. Оба значения
 VNI по умолчанию сразу re-key все identities своего source; runtime-поддержка
 этого не реализована, и это ограничение объёма работ, а не граница ядра или

@@ -23,6 +23,9 @@ var errDuplicateMicroBFDGroupKey = errors.New("duplicate Micro-BFD LAG interface
 // address, member link) pair across all Micro-BFD groups. RFC 7130 Section
 // 2.1: each member link has its own BFD session on port 6784.
 func microListenerConfigs(cfg *config.Config) []netio.ListenerConfig {
+	if !cfg.MicroBFD.Enabled {
+		return nil
+	}
 	seen := make(map[listenerKey]struct{})
 	var configs []netio.ListenerConfig
 	for _, group := range cfg.MicroBFD.Groups {
@@ -112,6 +115,9 @@ func applyMicroBFDCandidates(
 // compileMicroBFDCandidates converts every configured group, applies the
 // bfd.default_* member timers and validates the complete desired set.
 func compileMicroBFDCandidates(cfg *config.Config) ([]bfd.MicroBFDReconcileConfig, error) {
+	if err := config.ValidateMicroBFDPreview(cfg.MicroBFD); err != nil {
+		return nil, fmt.Errorf("validate Micro-BFD preview: %w", err)
+	}
 	if err := validateUniqueMicroBFDGroupKeys(cfg.MicroBFD.Groups); err != nil {
 		return nil, err
 	}

@@ -342,7 +342,7 @@ make lint
 реализованную без shell команду `cictl lint`. Она запрещает запуск на хосте,
 фиксирует `GOMAXPROCS=2` и `GOMEMLIMIT=1500MiB`, проверяет версию закреплённого
 бинарника и 92 включённых nondeprecated линтера, затем прямыми векторами
-аргументов Go запускает базовый и все 17 build-tag profiles. Development image
+аргументов Go запускает базовый и все 18 build-tag profiles. Development image
 выбирает заранее собранный `/go/bin/golangci-lint`, а
 минимальные Go-контейнеры CI используют тот же закреплённый tools module, если
 `GOLANGCI_LINT` не задана. По умолчанию dev-сервис ограничен 4 CPU, жёстким

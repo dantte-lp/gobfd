@@ -462,7 +462,12 @@ RFC 9747 определяет unaffiliated BFD echo для обнаружени�
 
 ### Заметки по RFC 7130
 
-**Статус**: Preview; протокол реализован, production integration частичная
+**Статус**: Preview; выключен по умолчанию, member L2 qualification не завершена
+
+`micro_bfd.enabled: true` требуется для групп из конфигурации, actuator и
+создания группы через API. По умолчанию создание возвращает `FailedPrecondition`;
+List/Delete сохраняются. Изменение enable требует перезапуска. Эта граница
+не закрывает wire gates dedicated multicast MAC и enslaved member.
 
 Реализация: [`internal/bfd/micro.go`](../../internal/bfd/micro.go)
 

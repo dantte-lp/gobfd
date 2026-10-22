@@ -277,9 +277,12 @@ func (ec EchoPeerConfig) LocalAddr() (netip.Addr, error) {
 }
 
 // MicroBFDConfig holds the RFC 7130 Micro-BFD for LAG configuration.
-// When configured, GoBFD runs independent BFD sessions on each LAG member
+// When enabled, GoBFD runs independent BFD sessions on each LAG member
 // link and tracks the aggregate LAG state.
 type MicroBFDConfig struct {
+	// Enabled opts into the incomplete RFC 7130 preview. Changing it requires restart.
+	Enabled bool `koanf:"enabled"`
+
 	// Groups holds per-LAG Micro-BFD group configurations.
 	Groups []MicroBFDGroupConfig `koanf:"groups"`
 
@@ -1185,6 +1188,7 @@ func envKeyMapper(s string) string {
 		"GOBFD_LOG_FORMAT":               "log.format",
 		"GOBFD_UNSOLICITED_ENABLED":      "unsolicited.enabled",
 		"GOBFD_ECHO_ENABLED":             "echo.enabled",
+		"GOBFD_MICRO_BFD_ENABLED":        "micro_bfd.enabled",
 		"GOBFD_VXLAN_ENABLED":            "vxlan.enabled",
 		"GOBFD_VXLAN_BACKEND":            "vxlan.backend",
 		"GOBFD_GENEVE_ENABLED":           "geneve.enabled",
@@ -1217,6 +1221,7 @@ func loadDefaults(k *koanf.Koanf, defaults *Config) error {
 		"bfd.default_required_min_rx":        defaults.BFD.DefaultRequiredMinRx.String(),
 		"bfd.default_detect_multiplier":      defaults.BFD.DefaultDetectMultiplier,
 		"bfd.align_intervals":                defaults.BFD.AlignIntervals,
+		"micro_bfd.enabled":                  defaults.MicroBFD.Enabled,
 		"micro_bfd.actuator.mode":            defaults.MicroBFD.Actuator.Mode,
 		"micro_bfd.actuator.backend":         defaults.MicroBFD.Actuator.Backend,
 		"micro_bfd.actuator.ovsdb_endpoint":  defaults.MicroBFD.Actuator.OVSDBEndpoint,
@@ -1403,6 +1408,9 @@ var (
 	// ErrInvalidMicroBFDActuatorMode indicates an unrecognized Micro-BFD actuator mode.
 	ErrInvalidMicroBFDActuatorMode = errors.New("micro_bfd.actuator.mode must be disabled, dry-run, or enforce")
 
+	// ErrMicroBFDPreviewDisabled indicates Micro-BFD configuration without explicit opt-in.
+	ErrMicroBFDPreviewDisabled = errors.New("micro_bfd.enabled must be true to use the incomplete RFC 7130 preview")
+
 	// ErrInvalidMicroBFDActuatorBackend indicates an unrecognized Micro-BFD actuator backend.
 	ErrInvalidMicroBFDActuatorBackend = errors.New(
 		"micro_bfd.actuator.backend must be auto, kernel-bond, ovs, or networkmanager",
@@ -1475,7 +1483,7 @@ func Validate(cfg *Config) error {
 		return err
 	}
 
-	if err := validateMicroBFDActuator(cfg.MicroBFD.Actuator); err != nil {
+	if err := validateMicroBFD(cfg.MicroBFD); err != nil {
 		return err
 	}
 
@@ -1540,6 +1548,21 @@ var validMicroBFDActuatorActions = map[string]bool{
 	MicroBFDActuatorActionNone:         true,
 	MicroBFDActuatorActionRemoveMember: true,
 	MicroBFDActuatorActionAddMember:    true,
+}
+
+// ValidateMicroBFDPreview rejects configured groups or actuation without opt-in.
+func ValidateMicroBFDPreview(cfg MicroBFDConfig) error {
+	if !cfg.Enabled && (len(cfg.Groups) > 0 || cfg.Actuator.Mode != MicroBFDActuatorModeDisabled) {
+		return ErrMicroBFDPreviewDisabled
+	}
+	return nil
+}
+
+func validateMicroBFD(cfg MicroBFDConfig) error {
+	if err := validateMicroBFDActuator(cfg.Actuator); err != nil {
+		return err
+	}
+	return ValidateMicroBFDPreview(cfg)
 }
 
 func validateMicroBFDActuator(cfg MicroBFDActuatorConfig) error {

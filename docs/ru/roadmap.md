@@ -26,6 +26,36 @@ P2 freshness/cleanup при наличии исполнимой релизной
 release-age hold делает upgrade допустимым, но не следующим. Очистка своих
 временных ресурсов после каждого запуска остаётся обязательной.
 
+## Локальная граница Micro-BFD preview — 2026-10-22
+
+`gobfd-qj0.8.2.1.8.1` реализует первый runtime-срез P0 preview boundary в
+`task/micro-preview-optin-20261022`. `micro_bfd.enabled` по умолчанию false.
+Группы и actuator без opt-in отклоняются до открытия ресурсов; API создания
+возвращает `FailedPrecondition`, List/Delete сохраняют проверки авторизации
+и владения. Изменение enable требует перезапуска; при включённом preview
+группы меняются через reload. При запуске журнал предупреждает, что RFC 7130
+L2 qualification не завершена. README, примеры и EN/RU configuration/compliance
+docs описывают миграцию и оставшиеся gates.
+
+Candidate также содержит проверенный batch 9 и документацию локального аудита.
+Локальные критические race-прогоны дали 324 успешных top-level теста config,
+API и daemon; один существующий IPv6 subtest пропущен из-за namespace.
+Выборки batch 9 дали ещё 17 успешных top-level тестов. Formatter, vet и оба
+tidy-diff прошли; reachable govulncheck findings — ноль, две существующие записи
+уровня модулей сохранены. Все 19 текущих lint profiles дали ноль замечаний.
+Это локальная iteration evidence: lint-контейнер 2 GiB достиг memory cap
+(последняя выборка `memory.events max=51`, без OOM); финальный canonical
+resource/release gate этим не квалифицирован. Локальная интеграция следует
+после проверки документации. Текущий контракт linter
+содержит базовый профиль и 18 build-tag profiles с 92 линтерами;
+AGENTS.md и EN/RU инструкции разработки приведены к этому состоянию.
+
+Родитель `.8.2.1.8` остаётся P0 для Echo admission и ограниченного capability
+status. Committed-latency baseline `.8.2.1.6` предшествует удалению постоянного
+thread pin `.8.2.1.7`; same-key replace `.8.2.2.7` сохраняет записанную паузу
+до решения. Optional Micro-BFD L2 и kernel-bond graduation остаются после v1.
+Запрет публикации ниже сохраняется.
+
 ## Локальная проверка и запрет публикации — 2026-10-22 18:35 UTC
 
 Публикация в GitHub временно приостановлена для экономии минут Actions.

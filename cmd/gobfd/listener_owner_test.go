@@ -307,6 +307,7 @@ func TestListenerOwnerStartupRecordsBindTimeIndexes(t *testing.T) {
 		{Peer: "192.0.2.6", Local: "192.0.2.5", Interface: "eth8"},
 		{Peer: "192.0.2.9", Local: "192.0.2.5", Interface: "eth4"},
 	}
+	cfg.MicroBFD.Enabled = true
 	cfg.MicroBFD.Groups = []config.MicroBFDGroupConfig{{
 		LAGInterface: "bond0", MemberLinks: []string{"eth7"}, PeerAddr: "192.0.2.8", LocalAddr: "192.0.2.7",
 	}}

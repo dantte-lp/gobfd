@@ -185,6 +185,13 @@ VXLAN/Geneve BFD defaults to an explicit `userspace-udp` backend. Reserved
 kernel, OVS/OVN, Cilium, Calico, and NSX backend names fail closed until
 owner-specific integrations are implemented.
 
+Micro-BFD is an incomplete RFC 7130 preview and is disabled by default.
+Set `micro_bfd.enabled: true` (or `GOBFD_MICRO_BFD_ENABLED=true`) before
+configuring groups, using an actuator, or calling `AddMicroBFDGroup`.
+Changing this setting requires a restart. Dedicated multicast MAC and
+enslaved-member transmission qualification remain open; opt-in does not
+establish RFC compliance.
+
 ## Contributing
 
 See [Development](docs/en/09-development.md) for the full workflow.

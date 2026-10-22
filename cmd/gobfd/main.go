@@ -129,7 +129,7 @@ func runServers(
 	coordinator := newReconciliationCoordinator(cfg, logger, healthChecker)
 	listeners, overlays := attachReceiveOwners(cfg, mgr, sf, coordinator, logger)
 	defer coordinator.closeReceivePaths()
-	grpcSrv := newGRPCServer(cfg.GRPC, mgr, newAPIListenerSenderFactory(sf, listeners, false),
+	grpcSrv := newGRPCServer(cfg.GRPC, cfg.MicroBFD.Enabled, mgr, newAPIListenerSenderFactory(sf, listeners, false),
 		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger)
 	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
 	bgpStatus.configuredPeers(goBGPManagedPeers(cfg.Sessions))

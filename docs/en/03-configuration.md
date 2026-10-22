@@ -66,6 +66,7 @@ echo:
 
 # Micro-BFD (RFC 7130)
 micro_bfd:
+  enabled: false
   groups: []
 
 # VXLAN BFD (RFC 8971)
@@ -323,9 +324,25 @@ echo:
 
 #### `micro_bfd` -- RFC 7130 Micro-BFD for LAG
 
+Micro-BFD is a preview, disabled by default. Explicitly set
+`micro_bfd.enabled: true` or `GOBFD_MICRO_BFD_ENABLED=true` before configuring
+groups, selecting `dry-run` or `enforce`, or calling `AddMicroBFDGroup`.
+Otherwise configuration validation fails before resources open, and the API
+returns `FailedPrecondition` without creating a group. List and Delete remain
+available subject to the existing management authorization and ownership rules.
+Changing `micro_bfd.enabled` requires a restart; SIGHUP rejects the candidate
+and preserves the running generation. Group changes remain reloadable when enabled.
+Startup logs mark the enabled capability as preview. This opt-in does not
+qualify the missing dedicated multicast MAC or enslaved-member TX behavior.
+
+This is a permanent deployment safety setting, owned by the maintainer under
+`gobfd-qj0.8.2.1.8.1`, introduced on 2026-10-22. It has no scheduled removal;
+preview graduation is tracked separately under `gobfd-qj0.8.2.2.1`.
+
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `micro_bfd.groups[].lag_interface` | string | -- | Logical LAG interface name (e.g., "bond0") |
+| `micro_bfd.enabled` | bool | `false` | Opt into the incomplete RFC 7130 preview; restart required |
 | `micro_bfd.groups[].member_links` | []string | -- | Physical member link names |
 | `micro_bfd.groups[].peer_addr` | string | -- | Remote system IP for all member sessions |
 | `micro_bfd.groups[].local_addr` | string | -- | Local system IP |
@@ -394,6 +411,7 @@ the actuator in dispatch order.
 Example:
 ```yaml
 micro_bfd:
+  enabled: true
   actuator:
     mode: "dry-run"
     backend: "kernel-bond"
@@ -922,7 +940,7 @@ in separate reloads or restart the process. Removing the final entry or
 disabling a source is supported.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
-`log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.actuator.*`, `gobgp.*`,
+`log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`,
 `vxlan.backend`, `vxlan.management_vni`, `geneve.backend`, and
 `geneve.default_vni`. The two VNI defaults re-key every identity of their
 source at once; runtime support for that is not implemented, which is a scope

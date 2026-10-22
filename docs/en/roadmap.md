@@ -26,6 +26,36 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
+## Local Micro-BFD preview boundary — 2026-10-22
+
+`gobfd-qj0.8.2.1.8.1` implements the first runtime slice of the P0 preview
+boundary on `task/micro-preview-optin-20261022`. `micro_bfd.enabled` defaults
+to false. Groups and actuation without opt-in fail validation before resources
+open; API creation returns `FailedPrecondition` while List/Delete retain
+their existing authorization and ownership checks. Enable changes require
+restart; group changes remain reloadable while enabled. Startup warns that
+RFC 7130 L2 qualification is incomplete. README, examples and EN/RU
+configuration/compliance docs describe the migration and remaining gates.
+
+The candidate also contains reviewed batch 9 and the local audit documentation.
+Critical local race runs pass 324 top-level config, API and daemon tests;
+one existing namespace-dependent IPv6 subtest skips. Batch 9 selections pass
+17 more top-level tests. Formatter, vet and both tidy-diff checks pass;
+reachable govulncheck findings are zero, with the two existing module-level
+records retained. All 19 current lint profiles report zero issues. This is
+local iteration evidence: the 2 GiB lint container reached its memory cap
+(last sampled `memory.events max=51`, no OOM); it does not qualify the final
+canonical resource/release gate. Local integration follows documentation checks.
+The current linter contract
+contains the base profile plus 18 build-tag profiles, all with 92 linters;
+AGENTS.md and EN/RU development instructions now match the implementation.
+
+The parent `.8.2.1.8` remains P0 for Echo admission and bounded capability
+status. Committed-latency baseline `.8.2.1.6` precedes permanent thread-pin
+removal `.8.2.1.7`; same-key replace `.8.2.2.7` retains its recorded decision
+pause. Optional Micro-BFD L2 and kernel-bond graduation remain after v1.
+The local-only delivery hold below remains in force.
+
 ## Local verification and delivery hold — 2026-10-22 18:35 UTC
 
 The maintainer temporarily suspended GitHub delivery to save Actions minutes.

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Micro-BFD requires explicit `micro_bfd.enabled: true` or
+  `GOBFD_MICRO_BFD_ENABLED=true`. Without opt-in, configuration rejects groups
+  and actuation before resources open; `AddMicroBFDGroup` returns
+  `FailedPrecondition`. List/Delete retain their authorization and ownership
+  rules. Changing enable requires restart. RFC 7130 remains an incomplete
+  preview with open multicast MAC and enslaved-member transmission gates.
+
 - The crafted-peer testcontainers scenario proves crossed and queued Poll
   sequences on the wire (RFC 5880 Sections 6.5 and 6.8.3). With the peer Final
   lost, GoBFD repeats its Poll with the active tuple, answers the peer crossing

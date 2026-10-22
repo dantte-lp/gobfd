@@ -117,6 +117,7 @@ bfd:
 # owner_policy: "networkmanager-dbus".
 #
 # micro_bfd:
+#   enabled: true  # Explicit opt-in to the incomplete RFC 7130 preview; restart required.
 #   actuator:
 #     mode: "dry-run"
 #     backend: "kernel-bond"

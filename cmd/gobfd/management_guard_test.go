@@ -53,7 +53,8 @@ func TestGRPCServerGuardsAnonymousLoopbackMutation(t *testing.T) {
 
 	mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
-	srv := newGRPCServer(config.GRPCConfig{}, mgr, nil, nil, newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler))
+	srv := newGRPCServer(config.GRPCConfig{}, false, mgr, nil, nil,
+		newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler))
 
 	tcp, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
