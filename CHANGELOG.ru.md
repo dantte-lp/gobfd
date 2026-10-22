@@ -9,6 +9,13 @@
 
 ### Добавлено
 
+- Сценарий crafted peer в testcontainers подтверждает на wire crossed и queued
+  Poll sequences (RFC 5880 Sections 6.5 и 6.8.3). При потере Final пира GoBFD
+  повторяет Poll с активным кортежем, отвечает на пересекающий Poll пира только
+  Final, возобновляет собственный Poll и объявляет queued-кортеж только в
+  отдельном Poll после Final и разделения по прошедшему времени. Ни один кадр
+  захвата не содержит одновременно P и F.
+
 - `cictl package-build` собирает DEB и RPM по пути релиза (GoReleaser
   v2.18.2, затем финализация жизненного цикла RPM) с версией 0.0.0, а
   `cictl package-lifecycle` устанавливает их в контейнеры с systemd, собранные

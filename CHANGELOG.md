@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The crafted-peer testcontainers scenario proves crossed and queued Poll
+  sequences on the wire (RFC 5880 Sections 6.5 and 6.8.3). With the peer Final
+  lost, GoBFD repeats its Poll with the active tuple, answers the peer crossing
+  Poll with Final only, resumes its own Poll, and advertises a queued tuple only
+  in a separate Poll after the Final and the elapsed-time separation. No
+  captured frame sets both P and F.
+
 - `cictl package-build` builds the DEB and RPM through the release path
   (GoReleaser v2.18.2, then RPM lifecycle finalization) as version 0.0.0, and
   `cictl package-lifecycle` installs them into systemd containers built from

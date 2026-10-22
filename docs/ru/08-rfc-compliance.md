@@ -167,8 +167,17 @@ Discriminator 0 и далее работает в медленном режим�
 Demand 7.24 s с одним Poll GoBFD на 500 ms; periodic TX через 425 ms после
 снятия Demand, 17 интервалов, среднее 434.1 ms. До `b72b3c7` первый пакет Down
 ждал следующего интервала медленного режима (1.862 s после молчания в прогоне
-2026-10-21). Interop FRR/BIRD для ненулевых изменений remote TX/RX остаётся
-открытым.
+2026-10-21).
+
+Та же топология подтверждает crossed и queued Poll sequences (Sections 6.5 и
+6.8.3): при потере Final пира GoBFD повторяет P=1 с активным кортежем 400 ms,
+отвечает на пересекающий Poll пира пакетом только с Final и тем же кортежем,
+возобновляет собственный Poll и объявляет queued-кортеж 800 ms только в
+отдельном Poll после Final пира и интервала не меньше измеренного обмена. Ни
+один кадр захвата не содержит одновременно P и F. Прогон 2026-10-22 на
+`1e19026`: 8 Poll до Final, из них 5 после пересекающего Final, обмен 2.620 s,
+разделение 2.720 s, receipt для 800 ms опубликован после собственного Final.
+Interop FRR/BIRD для ненулевых изменений remote TX/RX остаётся открытым.
 
 Session receive path отклоняет зарезервированный нулевой Desired Min TX до
 обновления состояния пира и таймеров, включая пакеты через `RecvPacket`.
@@ -277,7 +286,7 @@ Daemon завершился с code 0; все пять контейнеров о
 | Секция | Функция | Обоснование |
 |---|---|---|
 | 6.4 | Affiliated Echo Mode | Требует контрольной сессии; вместо него есть RFC 9747 unaffiliated echo в статусе preview |
-| 6.5 | Полные Poll Sequence procedures | Есть config-owned транзакции таймеров, подтверждённая отправка Poll, Final retry и исключение P/F; live reload/RTT qualification ещё впереди |
+| 6.5 | Полные Poll Sequence procedures | Есть config-owned транзакции таймеров, подтверждённая отправка Poll, Final retry, исключение P/F, crossed Poll и разделение queued-кортежей; live reload с FRR/BIRD и wire evidence crafted peer для crossed/queued Poll пройдены. Квалификация RTT целевого развёртывания ещё впереди |
 | 6.6 | Полный Demand Mode | Подавление remote periodic TX, Poll локального таймера при remote Demand и сброс Section 6.8.18 подтверждены на wire с crafted Go peer (`TestCraftedPeerTestcontainers`); закреплённые FRR/BIRD не отправляют Demand. Local Demand и полные Poll procedures остаются открытыми |
 | 4.1 | Бит Multipoint | Зарезервирован для будущих P2MP расширений |
 
