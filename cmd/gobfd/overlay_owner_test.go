@@ -47,6 +47,14 @@ func (c *fakeScopedOverlayConn) Close() error {
 }
 
 func (c *fakeScopedOverlayConn) SetScopes(scopes []bfd.TransportScope) error {
+	// Mirror netio: one wire identity may appear once per socket.
+	for i := range scopes {
+		for j := range i {
+			if netio.SameOverlayWireIdentity(scopes[i], scopes[j]) {
+				return netio.ErrOverlayIdentityMismatch
+			}
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.scopes = append(c.scopes, slices.Clone(scopes))
@@ -134,10 +142,10 @@ func TestOverlayOwnerWidensInPlaceAndClosesEmptyBackends(t *testing.T) {
 	first, second := testVXLANScope("198.51.100.1", 1), testVXLANScope("198.51.100.1", 2)
 	other := testVXLANScope("198.51.100.2", 3)
 	kind := bfd.TransportScopeVXLAN
-	if _, err := owner.acquire(kind, []bfd.TransportScope{first}); err != nil {
+	if _, err := acquireAll(owner, kind, []bfd.TransportScope{first}); err != nil {
 		t.Fatal(err)
 	}
-	conns, err := owner.acquire(kind, []bfd.TransportScope{first, second, other})
+	conns, err := acquireAll(owner, kind, []bfd.TransportScope{first, second, other})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +188,7 @@ func TestOverlayOwnerBackendLossFailStops(t *testing.T) {
 	opener := newFakeOverlayOpener()
 	owner, _ := newTestOverlayOwner(t, coordinator.readiness, opener)
 	scope := testVXLANScope("198.51.100.1", 1)
-	if _, err := owner.acquire(bfd.TransportScopeVXLAN, []bfd.TransportScope{scope}); err != nil {
+	if _, err := acquireAll(owner, bfd.TransportScopeVXLAN, []bfd.TransportScope{scope}); err != nil {
 		t.Fatal(err)
 	}
 	if err := opener.opened(scope.OuterLocalAddr)[0].Close(); err != nil {
@@ -226,16 +234,16 @@ func TestOverlayBackendOpenFailureClassification(t *testing.T) {
 				owner:   bfd.VXLANReconciliationOwner(),
 				desired: []bfd.ReconcileConfig{{Key: "vxlan", SessionConfig: bfd.SessionConfig{TransportScope: scope}}},
 			}
-			applied := false
+			appliedEntries := -1
 			result := coordinator.withListeners(func(
-				context.Context, reconciliationSource, compiledControlSessionCandidate,
+				_ context.Context, _ reconciliationSource, applied compiledControlSessionCandidate,
 			) sourceApplyResult {
-				applied = true
+				appliedEntries = len(applied.overlays[0].desired)
 				return sourceApplyResult{}
 			})(t.Context(), sourceVXLAN, candidate)
-			if applied || result.Pending != tc.wantPending || result.Failed != tc.wantFailed {
-				t.Fatalf("applied=%v result=%+v, want pending=%d failed=%d unapplied",
-					applied, result, tc.wantPending, tc.wantFailed)
+			if appliedEntries != 0 || result.Pending != tc.wantPending || result.Failed != tc.wantFailed {
+				t.Fatalf("applied entries=%d result=%+v, want the identity left out, pending=%d failed=%d",
+					appliedEntries, result, tc.wantPending, tc.wantFailed)
 			}
 		})
 	}
@@ -329,11 +337,11 @@ func TestOverlayOwnerRealBackendsWidenInPlace(t *testing.T) {
 		second := first
 		second.OuterPeerAddr = netip.AddrFrom4([4]byte{127, 0, 57, 101})
 		second.PeerMAC[5] = 3
-		opened, err := owner.acquire(kind, []bfd.TransportScope{first})
+		opened, err := acquireAll(owner, kind, []bfd.TransportScope{first})
 		if err != nil {
 			t.Fatalf("kind %d: open real backend: %v", kind, err)
 		}
-		widened, err := owner.acquire(kind, []bfd.TransportScope{first, second})
+		widened, err := acquireAll(owner, kind, []bfd.TransportScope{first, second})
 		if err != nil {
 			t.Fatalf("kind %d: widen real backend: %v", kind, err)
 		}
@@ -357,4 +365,134 @@ func TestOverlayOwnerRealBackendsWidenInPlace(t *testing.T) {
 func sendOverlayFor(t *testing.T, conn netio.OverlayConn, scope bfd.TransportScope) error {
 	t.Helper()
 	return netio.NewOverlaySender(conn, scope).SendPacket(t.Context(), make([]byte, 24), scope.InnerPeerAddr)
+}
+
+// VXLAN identities that differ only in local MAC share one wire identity, so
+// the desired scope replaces the claimed one instead of joining it.
+func TestOverlayOwnerReplacesSameWireIdentity(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.DiscardHandler)
+	mgr := bfd.NewManager(logger)
+	t.Cleanup(mgr.Close)
+	coordinator, _ := newConvergedReadinessCoordinator(t)
+	owner := newOverlayOwner(config.DefaultConfig(), newUDPSenderFactory(0), mgr, coordinator.readiness, logger)
+	t.Cleanup(owner.close)
+	old := bfd.TransportScope{
+		Kind: bfd.TransportScopeVXLAN, Owner: "overlay-test", Backend: "userspace-udp", VNI: 100,
+		OuterPeerAddr:  netip.AddrFrom4([4]byte{127, 0, 58, 100}),
+		OuterLocalAddr: netip.AddrFrom4([4]byte{127, 0, 58, 1}),
+		InnerPeerAddr:  netip.MustParseAddr("192.0.2.1"), InnerLocalAddr: netip.MustParseAddr("192.0.2.2"),
+		AddressFamily: bfd.AddressFamilyIPv4,
+		PeerMAC:       [6]byte{0x02, 0, 0, 0, 0, 1}, LocalMAC: [6]byte{0x02, 0, 0, 0, 0, 2},
+	}
+	changed := old
+	changed.LocalMAC[5] = 9
+	opened, err := acquireAll(owner, bfd.TransportScopeVXLAN, []bfd.TransportScope{old})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := acquireAll(owner, bfd.TransportScopeVXLAN, []bfd.TransportScope{changed})
+	if err != nil {
+		t.Fatalf("claim with only a new local MAC: %v", err)
+	}
+	if replaced[changed] != opened[old] {
+		t.Fatal("same wire identity reopened the socket")
+	}
+	if err := sendOverlayFor(t, replaced[changed], changed); err != nil {
+		t.Fatalf("send for the replacing identity: %v", err)
+	}
+}
+
+func TestReloadOverlayLocalMACChangeConverges(t *testing.T) {
+	t.Parallel()
+
+	peer := config.VXLANPeerConfig{
+		Peer: "192.0.2.1", Local: "198.51.100.1", PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:0a",
+	}
+	startup := overlayReloadConfig(peer)
+	coordinator := newReconciliationCoordinator(startup, slog.New(slog.DiscardHandler), newDaemonHealthChecker())
+	opener := newFakeOverlayOpener()
+	owner, mgr := newTestOverlayOwner(t, coordinator.readiness, opener)
+	coordinator.overlays = owner
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	for _, localMAC := range []string{"02:00:00:00:00:0a", "02:00:00:00:00:0b"} {
+		peer.LocalMAC = localMAC
+		if err := coordinator.reconcile(t.Context(), overlayReloadConfig(peer), mgr, sf, nil); err != nil {
+			t.Fatal(err)
+		}
+		if snapshot := coordinator.Snapshot(); snapshot.Stale {
+			t.Fatalf("local MAC %s: snapshot = %+v, want converged", localMAC, snapshot)
+		}
+	}
+}
+
+// One unassigned local address pends only its own identities: identities on
+// available endpoints apply, and removed peers are released.
+func TestReloadOverlayAppliesAvailableEndpointsWhileOthersPend(t *testing.T) {
+	t.Parallel()
+
+	available := config.VXLANPeerConfig{
+		Peer: "192.0.2.1", Local: "198.51.100.1", PeerMAC: "02:00:00:00:00:01", LocalMAC: "02:00:00:00:00:0a",
+	}
+	removed := config.VXLANPeerConfig{
+		Peer: "192.0.2.3", Local: "198.51.100.1", PeerMAC: "02:00:00:00:00:03", LocalMAC: "02:00:00:00:00:0a",
+	}
+	unassigned := config.VXLANPeerConfig{
+		Peer: "192.0.2.2", Local: "198.51.100.2", PeerMAC: "02:00:00:00:00:02", LocalMAC: "02:00:00:00:00:0a",
+	}
+	startup := overlayReloadConfig(available, removed)
+	coordinator := newReconciliationCoordinator(startup, slog.New(slog.DiscardHandler), newDaemonHealthChecker())
+	opener := newFakeOverlayOpener()
+	opener.fail[netip.MustParseAddr(unassigned.Local)] = fmt.Errorf("listen overlay UDP: %w", syscall.EADDRNOTAVAIL)
+	owner, mgr := newTestOverlayOwner(t, coordinator.readiness, opener)
+	coordinator.overlays = owner
+	sf := newNthFailureDeclarativeSenderFactory(0)
+	if err := coordinator.reconcile(t.Context(), startup, mgr, sf, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.reconcile(t.Context(), overlayReloadConfig(available, unassigned), mgr, sf, nil); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := coordinator.Snapshot()
+	vxlan := snapshot.LastReceipt.Sources[sourceVXLAN]
+	if vxlan.Pending != 1 || vxlan.Failed != 0 {
+		t.Fatalf("VXLAN receipt = %+v, want only the unassigned identity pending", vxlan)
+	}
+	sessions := mgr.Sessions()
+	if len(sessions) != 1 || sessions[0].PeerAddr != netip.MustParseAddr(available.Peer) {
+		t.Fatalf("sessions = %+v, want only the available peer (removed peer released)", sessions)
+	}
+	endpoint := opener.opened(netip.MustParseAddr(available.Local))
+	if len(endpoint) != 1 || endpoint[0].isClosed() || len(endpoint[0].current()) != 1 {
+		t.Fatal("available endpoint must keep one socket narrowed to the remaining identity")
+	}
+
+	// Retries for the pending identity leave the available backend alone.
+	for range 3 {
+		coordinator.retryPendingSources(t.Context(), snapshot.DesiredGeneration, allReconciliationSources,
+			coordinator.withListeners(func(
+				ctx context.Context, source reconciliationSource, candidate compiledControlSessionCandidate,
+			) sourceApplyResult {
+				return applyCompiledSource(ctx, source, candidate, mgr, sf, slog.New(slog.DiscardHandler))
+			}))
+	}
+	if endpoint := opener.opened(netip.MustParseAddr(available.Local)); len(endpoint) != 1 || endpoint[0].isClosed() {
+		t.Fatal("retries reopened or closed the available backend")
+	}
+}
+
+// acquireAll claims scopes and reports any endpoint failure as an error.
+func acquireAll(
+	owner *overlayOwner, kind bfd.TransportScopeKind, scopes []bfd.TransportScope,
+) (map[bfd.TransportScope]netio.OverlayConn, error) {
+	claim, err := owner.acquire(kind, scopes)
+	if err != nil {
+		return nil, err
+	}
+	failures := make([]error, 0, len(claim.failures))
+	for _, failure := range claim.failures {
+		failures = append(failures, failure)
+	}
+	return claim.conns, errors.Join(failures...)
 }
