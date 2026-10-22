@@ -9,6 +9,15 @@
 
 ### Добавлено
 
+- Linux listeners принимают time64 software receive timestamps и cumulative
+  socket-drop samples. Ancillary buffer сохраняет IPv4/IPv6 TTL и packet-info;
+  усечённые control messages возвращают typed error до demux. Сырые realtime
+  samples отделены от монотонных protocol deadlines; clock conversion и
+  квалификация owner-commit latency остаются открытыми.
+  Неподдерживаемые telemetry options оставляют измерения недоступными;
+  прочие socket errors прекращают запуск, обязательные transport metadata
+  сохраняются.
+
 - Micro-BFD требует явного `micro_bfd.enabled: true` или
   `GOBFD_MICRO_BFD_ENABLED=true`. Без opt-in конфигурация отклоняет группы и
   actuator до открытия ресурсов; `AddMicroBFDGroup` возвращает

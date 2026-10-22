@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Linux listeners capture time64 software receive timestamps and cumulative
+  socket-drop samples. Ancillary buffers retain IPv4/IPv6 TTL and packet-info
+  messages; truncated ancillary data returns a typed error before demux.
+  Raw realtime samples are separate from monotonic protocol deadlines;
+  clock conversion and owner-commit latency qualification remain open.
+  Unsupported telemetry options leave measurements unavailable; other socket
+  errors remain fatal, and mandatory transport metadata is unchanged.
+
 - Micro-BFD requires explicit `micro_bfd.enabled: true` or
   `GOBFD_MICRO_BFD_ENABLED=true`. Without opt-in, configuration rejects groups
   and actuation before resources open; `AddMicroBFDGroup` returns

@@ -12,9 +12,41 @@
 
 ---
 
+## Граница Linux Receive Telemetry
+
+Committed-latency baseline отслеживается в `gobfd-qj0.8.2.1.6`.
+Срез receive metadata включает `SO_TIMESTAMPNS_NEW` и `SO_RXQ_OVFL` на Linux
+listeners при поддержке kernel. `ENOPROTOOPT` оставляет соответствующее
+измерение недоступным, сохраняя работу BFD. Другие ошибки socket option
+содержат её имя и прекращают создание listener. TTL и packet-info остаются
+обязательными. Квалификация требует фактических samples: недоступность
+не означает нулевую задержку или отсутствие потерь.
+Ancillary buffer 128 байт вмещает timestamp, drops, TTL/Hop Limit
+и destination/interface metadata для IPv4 и IPv6. `MSG_CTRUNC` возвращает
+`ErrAncillaryTruncated` до demultiplexing.
+
+`PacketMeta.KernelRXUnixNano` — сырой software `CLOCK_REALTIME` sample;
+ноль означает отсутствие либо некорректные данные. Native-endian time64
+принимается при нормализованных nanoseconds и результате в положительном
+int64 Unix nanoseconds. Источник: [kernel timestamp ABI](https://www.kernel.org/doc/html/latest/networking/timestamping.html).
+
+`SocketDrops` — cumulative uint32 sample из `SO_RXQ_OVFL`;
+`SocketDropsKnown` указывает наличие корректного сообщения counter.
+Kernel не передаёт нулевые drop messages. Sample описывает drops до постановки
+этой datagram в очередь; aggregation должна учитывать wrap и последнюю
+принятую datagram после остановки нагрузки. Источники:
+[socket(7)](https://man7.org/linux/man-pages/man7/socket.7.html),
+[`sock_recv_drops`](https://github.com/torvalds/linux/blob/master/net/socket.c).
+
+Clock conversion, передача до owner-commit boundary и bounded CPU/GC/loss
+workload остаются в родительской задаче. Detection deadlines сохраняют
+монотонное время принятого пакета. Сырые metadata не подтверждают сквозную
+задержку или supported scale.
+
 ## Содержание
 
 - [Краткие выводы](#краткие-выводы)
+- [Граница Linux Receive Telemetry](#граница-linux-receive-telemetry)
 - [Методология тестирования](#методология-тестирования)
 - [Результаты бенчмарков](#результаты-бенчмарков)
   - [Кодек-операции](#31-кодек-операции)

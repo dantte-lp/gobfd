@@ -12,9 +12,39 @@
 
 ---
 
+## Linux Receive Telemetry Boundary
+
+Development tracks the committed-latency baseline in `gobfd-qj0.8.2.1.6`.
+The receive metadata stage enables `SO_TIMESTAMPNS_NEW` and `SO_RXQ_OVFL`
+on Linux listeners when supported. `ENOPROTOOPT` leaves that measurement
+unavailable without stopping BFD; other socket-option failures include the
+option name and stop listener creation. TTL and packet-info options remain
+mandatory. Qualification requires actual samples; unavailable telemetry does
+not mean zero latency or zero loss. The 128-byte ancillary buffer covers timestamp, drop,
+TTL/Hop Limit and destination/interface metadata for IPv4 and IPv6.
+`MSG_CTRUNC` returns `ErrAncillaryTruncated` before demultiplexing.
+
+`PacketMeta.KernelRXUnixNano` is a raw software `CLOCK_REALTIME` sample;
+zero means absent or invalid. Decode accepts native-endian time64 values
+only when nanoseconds are normalized and the result fits positive int64
+Unix nanoseconds. See the [kernel timestamp ABI](https://www.kernel.org/doc/html/latest/networking/timestamping.html).
+
+`SocketDrops` is the cumulative uint32 counter carried by `SO_RXQ_OVFL`;
+`SocketDropsKnown` records whether a valid counter message was present.
+The kernel omits zero-valued drop messages. Samples describe drops before
+that datagram was queued; aggregation must handle wrap and a final accepted
+datagram after the load stops. See [socket(7)](https://man7.org/linux/man-pages/man7/socket.7.html)
+and [`sock_recv_drops`](https://github.com/torvalds/linux/blob/master/net/socket.c).
+
+Clock conversion, propagation to the owner-commit boundary and the bounded
+CPU/GC/loss workload remain open under the parent. Detection deadlines retain
+the existing monotonic accepted-packet time. These raw metadata fields do not
+establish an end-to-end latency or supported-scale result.
+
 ## Table of Contents
 
 - [Executive Summary](#executive-summary)
+- [Linux Receive Telemetry Boundary](#linux-receive-telemetry-boundary)
 - [Test Methodology](#test-methodology)
 - [Benchmark Results](#benchmark-results)
   - [Codec Operations](#31-codec-operations)

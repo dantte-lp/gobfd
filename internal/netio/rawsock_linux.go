@@ -5,8 +5,10 @@ package netio
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"net/netip"
@@ -57,6 +59,9 @@ func (c *LinuxPacketConn) ReadPacket(buf []byte) (int, PacketMeta, error) {
 
 	if flags&unix.MSG_TRUNC != 0 {
 		return 0, PacketMeta{}, fmt.Errorf("read BFD packet: %w", ErrPacketTruncated)
+	}
+	if flags&unix.MSG_CTRUNC != 0 {
+		return 0, PacketMeta{}, fmt.Errorf("read BFD ancillary data: %w", ErrAncillaryTruncated)
 	}
 
 	meta := parseMeta(src, oob[:oobn])
@@ -219,11 +224,9 @@ func NewGenericListener(
 // -------------------------------------------------------------------------
 
 // oobSize is the buffer size for ancillary (out-of-band) data.
-// Must accommodate the largest control message set:
-// IPv4: IP_PKTINFO (28 bytes) + IP_TTL (16 bytes) = 44 bytes
-// IPv6: IPV6_PKTINFO (36 bytes) + IPV6_HOPLIMIT (16 bytes) = 52 bytes
-// Rounded up to 64 for alignment safety.
-const oobSize = 64
+// It covers PKTINFO, TTL/HopLimit, time64 timestamp and socket drops:
+// the largest set occupies 120 bytes including alignment on 64-bit Linux.
+const oobSize = 128
 
 // ErrUnexpectedConnType indicates the net.ListenPacket returned an
 // unexpected connection type instead of *net.UDPConn.
@@ -298,6 +301,12 @@ func applySockOptsCommon(fd int, ifName string, multiHop bool) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
 		return fmt.Errorf("set SO_REUSEADDR: %w", err)
 	}
+	if err := enableReceiveTelemetry(fd, unix.SO_TIMESTAMPNS_NEW); err != nil {
+		return fmt.Errorf("set SO_TIMESTAMPNS_NEW: %w", err)
+	}
+	if err := enableReceiveTelemetry(fd, unix.SO_RXQ_OVFL); err != nil {
+		return fmt.Errorf("set SO_RXQ_OVFL: %w", err)
+	}
 
 	// SO_BINDTODEVICE: bind to specific interface (single-hop only).
 	// RFC 5881 Section 4 requires interface-specific binding.
@@ -307,6 +316,14 @@ func applySockOptsCommon(fd int, ifName string, multiHop bool) error {
 		}
 	}
 
+	return nil
+}
+
+func enableReceiveTelemetry(fd, option int) error {
+	// Unsupported measurement must not raise the BFD host-kernel requirement.
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, option, 1); err != nil && !errors.Is(err, unix.ENOPROTOOPT) {
+		return fmt.Errorf("enable receive telemetry option %d: %w", option, err)
+	}
 	return nil
 }
 
@@ -406,8 +423,30 @@ func parseControlMessages(msgs []unix.SocketControlMessage, meta *PacketMeta) {
 		// IPv6 PKTINFO — equivalent to IPv4 IP_PKTINFO (struct in6_pktinfo).
 		case msgs[i].Header.Level == unix.IPPROTO_IPV6 && msgs[i].Header.Type == unix.IPV6_PKTINFO:
 			parsePktInfo6Message(msgs[i].Data, meta)
+		case msgs[i].Header.Level == unix.SOL_SOCKET && msgs[i].Header.Type == unix.SO_TIMESTAMPNS_NEW:
+			meta.KernelRXUnixNano = parseKernelRXTimestamp(msgs[i].Data)
+		case msgs[i].Header.Level == unix.SOL_SOCKET && msgs[i].Header.Type == unix.SO_RXQ_OVFL:
+			meta.SocketDrops, meta.SocketDropsKnown = 0, len(msgs[i].Data) == 4
+			if meta.SocketDropsKnown {
+				meta.SocketDrops = binary.NativeEndian.Uint32(msgs[i].Data)
+			}
 		}
 	}
+}
+
+// SO_TIMESTAMPNS_NEW uses two signed native-endian 64-bit timespec fields.
+func parseKernelRXTimestamp(data []byte) int64 {
+	const nanosPerSecond = uint64(1_000_000_000)
+	if len(data) != 16 {
+		return 0
+	}
+	sec := binary.NativeEndian.Uint64(data[:8])
+	nsec := binary.NativeEndian.Uint64(data[8:])
+	// Negative signed fields decode above the bounds and are rejected too.
+	if nsec >= nanosPerSecond || sec > (math.MaxInt64-nsec)/nanosPerSecond {
+		return 0
+	}
+	return int64(sec*nanosPerSecond + nsec) // #nosec G115 -- the bound above proves this fits int64.
 }
 
 // parseTTLMessage extracts the TTL value from an IP_TTL control message.
