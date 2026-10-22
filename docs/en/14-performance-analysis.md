@@ -65,9 +65,15 @@ Overlay and direct legacy callers without kernel timing report `unavailable`.
 Real IPv4/IPv6 UDP tests supply nonzero committed samples for both demux paths.
 The real-collector owner benchmark waits for every commit, but excludes UDP,
 wire parsing and authentication and uses synthetic clock input for cost only.
-It measures 16 B/op and 2 allocs/op from existing peer-address metric formatting;
-the new fixed timing metrics alone measure zero allocations. The allocation
-fix is P0 `gobfd-qj0.8.2.1.6.5`, before workload qualification `.1.6.3`.
+The initial result was 16 B/op and 2 allocs/op from peer-address formatting.
+Active registered peer/local pairs now retain the four packet counter handles;
+the unchanged benchmark reports 0 B/op and 0 allocs/op in three local runs.
+Reference counting keeps shared labels cached until their last registration.
+The cache contains only active pairs; historical CounterVec series remain
+retained, and unregistered callers keep the existing vector lookup path.
+Registration publishes zero packet/auth counters before their first update.
+This does not qualify lifetime series retention or the complete UDP pipeline.
+Before/after evidence is in `reports/collector-owner-20261022/`.
 Bounded CPU/GC/loss distributions, calibrated regression policy, supported
 scale and final qualification remain open under the parent.
 

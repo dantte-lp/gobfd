@@ -66,9 +66,15 @@ Overlay и legacy callers без kernel timing сообщают `unavailable`.
 Реальные IPv4/IPv6 UDP tests дают ненулевые committed samples для обоих demux
 paths. Real-collector owner benchmark ждёт каждый commit, но исключает UDP,
 wire parsing и authentication; synthetic clock input применяется только для
-измерения стоимости. Получены 16 B/op и 2 allocs/op от существующего peer-address
-formatting в metrics; новые fixed timing metrics отдельно дают zero allocations.
-Исправление имеет P0 `gobfd-qj0.8.2.1.6.5` перед workload qualification `.1.6.3`.
+измерения стоимости. Исходные 16 B/op и 2 allocs/op приходились на форматирование
+адресов в metrics. Теперь активные зарегистрированные peer/local pairs хранят
+четыре packet counter handles; прежний benchmark даёт 0 B/op и 0 allocs/op
+в трёх локальных запусках. Счётчик регистраций сохраняет общий cache до последней
+сессии. В cache остаются только активные пары; исторические CounterVec series
+сохраняются, незарегистрированные callers используют прежний vector lookup.
+Регистрация публикует нулевые packet/auth counters до первого обновления.
+Это не квалификация lifetime series retention либо полного UDP pipeline.
+Before/after evidence: `reports/collector-owner-20261022/`.
 Bounded CPU/GC/loss distributions, calibrated regression policy, supported scale
 и финальная квалификация остаются в родительской задаче.
 

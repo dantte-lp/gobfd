@@ -92,6 +92,12 @@ Rejected и queued packets не являются owner commits. Overlay и legac
 без kernel timing остаются unavailable; отзыв calibration сохраняется до
 пересоздания listener. См. [границу измерения](14-performance-analysis.md#граница-linux-receive-telemetry).
 
+Регистрация публикует четыре нулевых packet/auth counters и сохраняет их handles
+для активных peer/local pairs. Общие регистрации удерживают handles до последнего
+unregister. Исторические counters сохраняются после удаления сессии; cache
+активных handles не удерживает завершённые пары. Reset или удаление vector series
+при активных handles не поддерживаются.
+
 Per-peer метрики GoBGP существуют только при включённой интеграции для пиров
 из последней валидной конфигурации `sessions`. Allowlist меняется при принятом
 reload; удалённые пиры исчезают при следующем scrape, отклонённый кандидат

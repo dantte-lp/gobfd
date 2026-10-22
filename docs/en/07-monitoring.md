@@ -90,6 +90,12 @@ queued packets are not owner commits. Overlay and legacy paths without kernel
 timing remain unavailable; clock revocation persists until listener recreation.
 See the [measurement boundary](14-performance-analysis.md#linux-receive-telemetry-boundary).
 
+Registration initializes the four packet/auth counters at zero and caches their
+handles for active peer/local pairs. Shared registrations retain the handles
+until the last unregister. Historical counter series survive session removal;
+the active-handle cache does not retain retired pairs. Resetting or deleting
+vector series while their handles are active is unsupported.
+
 GoBGP per-peer metrics exist only with the integration enabled, for peers in
 the latest validated `sessions` configuration. The allowlist changes on accepted
 reloads; removed peers disappear on the next scrape, and invalid candidates

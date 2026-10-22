@@ -26,12 +26,15 @@ make profile            # Generate pprof CPU profile
 Local Go 1.27.3 iteration evidence on 2026-10-22 uses 2 CPUs, GOMAXPROCS2 and
 2 GiB, separately from the historical results below. Three non-race runs of
 `ReceiveTimingMetrics` report 0 B/op and 0 allocs/op. `ReceiveOwnerCollector`
-waits for each actual owner commit with the real collector and reports 16 B/op
-and 2 allocs/op; existing per-packet address formatting is tracked as P0
-`gobfd-qj0.8.2.1.6.5`. It uses synthetic timing for cost measurement and
+waits for each actual owner commit with the real collector. Its baseline
+reported 16 B/op and 2 allocs/op; active-session packet counter handles remove
+that cost, with 0 B/op and 0 allocs/op in three subsequent runs. The cache
+retires on the last registration; historical counter series retain their
+existing semantics. It uses synthetic timing for cost measurement and
 excludes kernel UDP, wire decode and authentication. Real UDP tests qualify
 sample propagation separately; neither result proves supported scale or a
-latency distribution. Evidence: `reports/rx-commit-20261022/`.
+latency distribution. Before/after evidence: `reports/rx-commit-20261022/`
+and `reports/collector-owner-20261022/`.
 
 Historical baseline measured on Go 1.26 in an 8 vCPU Podman container. All
 results below are medians of 6 iterations and are not a current Go 1.27

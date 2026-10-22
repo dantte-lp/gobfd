@@ -13,13 +13,19 @@
   admission до нормального owner completion. Фиксированные global counters
   отделяют отсутствующие и некорректные samples от latency; histogram принимает
   только valid samples. Наблюдаемый clock step отзывает calibration listener,
-  сохраняя packet acceptance и protocol deadlines. Real-collector benchmarks
-  сохраняют измеренный allocation gap существующего address formatting.
+  сохраняя packet acceptance и protocol deadlines.
+
+- Packet/auth counters сохраняют handles активных зарегистрированных peer/local
+  pairs, исключая форматирование адресов на каждый пакет. Общие регистрации
+  удерживают cache до последней сессии; исторические counters и прямые
+  незарегистрированные updates сохраняют прежнюю семантику. Регистрация публикует
+  нулевые counters. Actual-owner benchmark с реальным collector даёт zero
+  allocations; UDP, authentication и scale qualification остаются отдельными.
 
 - Linux listeners принимают time64 software receive timestamps и cumulative
   socket-drop samples. Ancillary buffer сохраняет IPv4/IPv6 TTL и packet-info;
   усечённые control messages возвращают typed error до demux. Сырые realtime
-  samples отделены от монотонных protocol deadlines; clock conversion и
+  samples отделены от монотонных protocol deadlines; calibrated load и
   квалификация owner-commit latency остаются открытыми.
   Неподдерживаемые telemetry options оставляют измерения недоступными;
   прочие socket errors прекращают запуск, обязательные transport metadata
