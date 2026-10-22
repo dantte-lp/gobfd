@@ -26,7 +26,39 @@ freshness/cleanup while executable release work remains. A passed release-age
 hold makes an upgrade eligible, not the next task. Own temporary-resource cleanup
 after each run remains required.
 
-## Local receive telemetry stage — 2026-10-22
+## Local receive-to-commit stage — 2026-10-22
+
+`gobfd-qj0.8.2.1.6.2` is implemented locally at
+`abb9ea138d07a07c95308f4e90192f2703a1aea7`. Paired realtime/monotonic
+calibration follows each listener's lifetime. Timing reaches all four Control
+admission callers and the actual normal-completion owner receipt. Observed
+clock steps revoke the shared epoch, including queued samples; they never
+change packet acceptance or protocol deadlines. Six fixed global outcomes
+retain invalid/unavailable denominators; only valid samples enter the
+latency histogram. A 1 ms consistency policy does not establish accuracy.
+
+Local race checks pass 269 named tests and six fuzz roots across the selected
+BFD cases, netio and metrics; one existing device capability test skips.
+Actual IPv4/IPv6 UDP tests each report one input, one owner commit and one
+valid sample on peer and discriminator routes. All 19 lint profiles/92 linters,
+vet, formatter, both tidy-diff checks and 84 Markdown inputs pass. Source
+readback covers 517 inputs. Reachable govulncheck findings are zero; the two
+existing module-level records remain under the security gate. Evidence:
+`reports/rx-commit-20261022/`. The iteration lint container reached 2 GiB
+(last sampled max37, OOM0); canonical resource acceptance remains open.
+
+Three non-race runs give zero allocations for the fixed timing metrics,
+but real-collector owner processing costs 16 B/op and 2 allocs/op. P0
+`gobfd-qj0.8.2.1.6.5` owns that measured address-formatting cost and now
+precedes `.1.6.3` workload/timer/drop/environment distributions. Then `.1.6.4`
+owns calibrated regression failure policy and `.1.7` owns thread-pin A/B
+after the full baseline. Clock uncertainty must be measured before applying
+latency thresholds. Preserve the approved 1,000-session/GOMAXPROCS8 envelope
+and final 24-hour gate. Parent `.8.2.1.6` remains P0 in progress; this is not
+supported-scale or release acceptance. Source/Dolt uploads and Actions remain
+on hold. Optional kernel work and broad freshness stay after v1.
+
+## Earlier raw receive telemetry stage — 2026-10-22
 
 `gobfd-qj0.8.2.1.6.1` is closed at local implementation
 `217febe9bf26680478c7ed1dce4b8487644f0263`. Linux listeners capture raw
@@ -47,7 +79,7 @@ The 2 GiB iteration lint container reached its cap (last sampled max33, OOM0);
 this is not canonical resource or release qualification. Old-kernel and arm64
 runtime behavior have not been measured. No GitHub or Dolt upload occurred.
 
-Parent `.8.2.1.6` remains P0 in progress. Its next claimed child `.1.6.2`
+At this earlier stage, parent `.8.2.1.6` remained P0 in progress. Child `.1.6.2`
 owns paired clock conversion and actual owner-commit observations, followed
 by `.1.6.3` workload/timer/drop/environment distributions and `.1.6.4`
 calibrated blocking benchmark policy. Existing protocol deadlines remain

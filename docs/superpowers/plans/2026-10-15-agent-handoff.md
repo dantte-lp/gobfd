@@ -1,7 +1,35 @@
 # GoBFD continuation handoff
 
-Current local implementation acceptance: 2026-10-22 19:54 UTC at
-`217febe9bf26680478c7ed1dce4b8487644f0263`; no remote upload occurred.
+Current local implementation evidence: 2026-10-22 20:42 UTC at
+`abb9ea138d07a07c95308f4e90192f2703a1aea7`; no remote upload occurred.
+Clock/owner child `.8.2.1.6.2` is implemented: listener-lifetime calibration,
+four Control admission callers, shared atomic epoch revocation and one
+terminal normal-completion receipt. Refusal, enqueue and panic do not count
+as commits. Six fixed outcomes preserve timing validity denominators; only
+valid samples enter the histogram. Protocol deadlines remain unchanged.
+The 1 ms consistency policy is not an accuracy guarantee; unobserved returning
+clock steps remain undetectable. See EN/RU performance and monitoring docs.
+
+Fresh local evidence: 269 named tests plus six fuzz roots PASS under race,
+one existing device capability skip; four actual IPv4/IPv6 UDP routes each
+have input1/commit1/valid1. All 19 lint profiles/92 linters, vet, formatter,
+both tidy-diff checks and 84 Markdown inputs pass. All 517 source inputs
+match. Govulncheck has zero reachable and two existing module-level records.
+Whole-branch static review reports no new P0/P1. Evidence:
+`reports/rx-commit-20261022/`. The iteration lint reached its 2 GiB cap
+(last sampled max37, OOM0); canonical resource/release acceptance remains open.
+
+Three non-race real-collector owner runs report16B/op and2allocs/op;
+fixed timing metrics alone report0B/0alloc. P0 `.1.6.5` owns existing
+per-packet address formatting before `.1.6.3` workload/timer/drop/environment
+qualification and `.1.6.4` calibrated blocking policy. `.1.7` thread-pin A/B
+follows the completed baseline. Measure clock uncertainty/guard margins;
+do not weaken the approved1000-session/GOMAXPROCS8 envelope or final24h gate.
+Parent `.8.2.1.6` remains P0 in progress. No supported-scale claim, source/Dolt
+upload, Actions dispatch, release branch, tag or release artifact is accepted.
+
+Earlier raw-metadata acceptance at
+`217febe9bf26680478c7ed1dce4b8487644f0263` remains retained below.
 Raw Linux receive telemetry `.8.2.1.6.1` is closed: optional time64 timestamp
 and cumulative drop cmsgs, 128-byte ancillary budget and typed CTRUNC failure
 retain mandatory GTSM/PKTINFO. Only ENOPROTOOPT permits unavailable telemetry;
@@ -13,14 +41,6 @@ have zero allocations; reachable govulncheck findings are zero, with the two
 existing module findings retained. Last sampled 2 GiB iteration lint max33,
 OOM0 does not qualify the canonical resource/release gate.
 
-Parent `.8.2.1.6` stays P0 in progress; claimed `.1.6.2` now owns explicit
-paired clock conversion and actual owner-commit observations. `convertMeta`
-still drops telemetry, `recvItem` has no timing, and four shared admission
-callers need propagation. Observe after the owner commit; `PacketsReceived`
-and enqueue-only benchmarks are insufficient. `.1.6.3` owns bounded load,
-timer/drop/environment evidence; `.1.6.4` owns calibrated benchmark failure
-policy. Do not weaken the approved 1000-session/GOMAXPROCS8 envelope or final
-24-hour qualification. `.1.7` thread-pin A/B remains P0 after baseline.
 Old-kernel and arm64 runtime acceptance remains unmeasured.
 
 The earlier accepted Micro-BFD opt-in is

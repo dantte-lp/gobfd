@@ -26,7 +26,41 @@ P2 freshness/cleanup при наличии исполнимой релизной
 release-age hold делает upgrade допустимым, но не следующим. Очистка своих
 временных ресурсов после каждого запуска остаётся обязательной.
 
-## Локальный срез receive telemetry — 2026-10-22
+## Локальное измерение receive-to-commit — 2026-10-22
+
+`gobfd-qj0.8.2.1.6.2` реализована локально в
+`abb9ea138d07a07c95308f4e90192f2703a1aea7`. Парная realtime/monotonic
+калибровка действует в течение жизни listener. Timing проходит все четыре
+Control admission callers до фактического нормального завершения owner.
+Обнаруженный clock step отзывает общий epoch, включая queued samples;
+packet acceptance и protocol deadlines сохраняются. Шесть фиксированных
+глобальных outcomes учитывают недоступные и недействительные измерения;
+histogram получает только valid samples. Порог согласованности 1 ms
+не подтверждает точность измерения.
+
+Локальные race-проверки дали 269 named tests и шесть fuzz roots PASS для
+выбранных BFD cases, netio и metrics; один существующий device capability
+test пропущен. Реальные IPv4/IPv6 UDP cases на peer и discriminator routes
+дали по одному input, owner commit и valid sample. Все 19 lint profiles/92
+linters, vet, formatter, оба tidy-diff и 84 Markdown inputs прошли.
+Readback охватывает 517 source inputs. Reachable govulncheck findings — ноль;
+две прежние module-level records остаются в security gate. Evidence:
+`reports/rx-commit-20261022/`. Iteration lint достиг лимита 2 GiB
+(последняя выборка max37, OOM0); canonical resource acceptance остаётся открытой.
+
+Три non-race запуска дали zero allocations для фиксированных timing metrics,
+но обработка owner с реальным collector стоит 16 B/op и 2 allocs/op. P0
+`gobfd-qj0.8.2.1.6.5` устраняет измеренную стоимость форматирования адресов
+перед `.1.6.3` workload/timer/drop/environment distributions. Затем `.1.6.4`
+задаёт калиброванную regression failure policy, `.1.7` — thread-pin A/B
+после полного baseline. Перед применением порогов latency требуется измерить
+неопределённость clock conversion. Утверждённые 1000 сессий/GOMAXPROCS8 и
+финальный 24-часовой gate сохраняются. Родитель `.8.2.1.6` остаётся P0
+in progress; supported-scale и release acceptance не подтверждены.
+Source/Dolt upload и Actions приостановлены. Необязательные kernel-работы
+и общая актуальность компонентов остаются после v1.
+
+## Предыдущий срез сырых receive telemetry — 2026-10-22
 
 `gobfd-qj0.8.2.1.6.1` закрыта на локальной реализации
 `217febe9bf26680478c7ed1dce4b8487644f0263`. Linux listeners получают сырые
@@ -47,7 +81,7 @@ formatter, оба tidy-diff и 84 Markdown inputs прошли. Шесть decod
 canonical resource и release qualification этим не подтверждены. Runtime на
 старом kernel и arm64 не измерен. GitHub и Dolt upload не выполнялись.
 
-Родитель `.8.2.1.6` остаётся P0 in progress. Следующая claimed задача `.1.6.2`
+На этом предыдущем этапе родитель `.8.2.1.6` оставался P0 in progress. Задача `.1.6.2`
 включает paired clock conversion и наблюдение actual owner commit; затем
 `.1.6.3` получает workload/timer/drop/environment distributions, `.1.6.4` —
 калиброванную blocking benchmark policy. Protocol deadlines остаются
