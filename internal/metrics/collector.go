@@ -70,6 +70,12 @@ type Collector struct {
 	ReceiveCommitLatency  prometheus.Histogram
 	receiveTimingCounters [bfd.ReceiveTimingOutcomeCount]prometheus.Counter
 
+	// Timer observations use fixed owner/kind and event dimensions only.
+	TimerEvents     *prometheus.CounterVec
+	TimerDelay      *prometheus.HistogramVec
+	timerCounters   [bfd.TimerKindCount][bfd.TimerEventCount]prometheus.Counter
+	timerHistograms [bfd.TimerKindCount][2]prometheus.Observer
+
 	// GoBGPRPCErrors counts failed GoBGP API calls by RPC, including the
 	// startup and background compatibility preflight.
 	GoBGPRPCErrors *prometheus.CounterVec
@@ -107,6 +113,8 @@ func NewCollector(reg prometheus.Registerer) *Collector {
 		c.DeliveryOutcomes,
 		c.ReceiveTimingOutcomes,
 		c.ReceiveCommitLatency,
+		c.TimerEvents,
+		c.TimerDelay,
 		c.GoBGPRPCErrors,
 		c.GoBGPEndpointCompatible,
 		c.goBGPPeers,
@@ -175,7 +183,7 @@ func newMetrics() *Collector {
 			Help:      "Total BFD authentication verification failures (RFC 5880 Section 6.7).",
 		}, peerLabels),
 	}
-	c.initReceiveTiming()
+	c.initTimingMetrics()
 	return c
 }
 

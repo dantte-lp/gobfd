@@ -9,6 +9,12 @@
 
 ### Добавлено
 
+- Timer observations для Control и Echo разделяют scheduled firing, owner
+  dispatch и успешную TX либо публикацию Down по timeout. Фиксированные global
+  metrics учитывают no-effect/invalid outcomes без peer labels; неуспешные
+  и подавленные sends не считаются успешными effects. Jitter, deadlines и
+  protocol decisions сохранены; runtime load qualification остаётся отдельной.
+
 - Control listeners передают calibrated software kernel receive timing через
   admission до нормального owner completion. Фиксированные global counters
   отделяют отсутствующие и некорректные samples от latency; histogram принимает

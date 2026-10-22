@@ -63,6 +63,8 @@ type MetricsReporter interface {
 	DeliveryReporter
 	// ObserveReceiveTiming records exactly one outcome after a Control owner commit.
 	ObserveReceiveTiming(outcome ReceiveTimingOutcome, latency time.Duration)
+	// ObserveTimerEvent separates timer dispatch from a successful TX or timeout Down effect.
+	ObserveTimerEvent(kind TimerKind, event TimerEvent, delay time.Duration)
 
 	// RecordStateTransition increments the state transition counter.
 	// Called on each FSM state change with the old and new state names.
@@ -83,6 +85,7 @@ type MetricsReporter interface {
 type noopMetrics struct{}
 
 func (noopMetrics) ObserveReceiveTiming(ReceiveTimingOutcome, time.Duration) { /* no-op */ }
+func (noopMetrics) ObserveTimerEvent(TimerKind, TimerEvent, time.Duration)   { /* no-op */ }
 
 func (noopMetrics) IncPacketsSent(_, _ netip.Addr)                     { /* no-op */ }
 func (noopMetrics) IncPacketsReceived(_, _ netip.Addr)                 { /* no-op */ }

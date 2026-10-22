@@ -77,6 +77,8 @@ best effort; отмена dispatch не обещает restart/progress.
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Ошибки аутентификации |
 | `gobfd_bfd_control_rx_timing_total` | Counter | `outcome` | Завершённые Control packets по шести фиксированным clock-validity outcomes |
 | `gobfd_bfd_control_rx_commit_seconds` | Histogram | нет | Software kernel RX до нормального owner completion, только valid samples |
+| `gobfd_bfd_timer_events_total` | Counter | `timer`, `event` | Фиксированные Control/Echo dispatch, effect, no-effect и invalid timing outcomes |
+| `gobfd_bfd_timer_delay_seconds` | Histogram | `timer`, `stage` | От запланированного timer firing до owner dispatch или полезного эффекта; только valid samples |
 | `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Фиксированные решения стадий Control, Echo и notifications после удаления сессии |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Неудачные вызовы API GoBGP: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 после успешного preflight совместимости с GoBGP v4, иначе 0 |
@@ -91,6 +93,16 @@ Timing outcomes: `valid`, `unavailable`, `invalid`, `before_calibration`,
 Rejected и queued packets не являются owner commits. Overlay и legacy paths
 без kernel timing остаются unavailable; отзыв calibration сохраняется до
 пересоздания listener. См. [границу измерения](14-performance-analysis.md#граница-linux-receive-telemetry).
+
+Timer kinds: `control_tx`, `control_detection`, `echo_tx`, `echo_detection`.
+Фиксированные events: `dispatch`, `effect`, `no_effect`, `invalid_dispatch`,
+`invalid_effect`. Histogram содержит только valid стадии `dispatch` и `effect`.
+TX effect означает успешный возврат транспорта, не доставку пиру. Detection
+effect — публикация Down по timeout до logs, notifications и отправки
+объявления. Подавленная/неуспешная отправка и detection уже Down/AdminDown
+дают `no_effect`; panic или незавершённый handler могут оставить dispatch
+без terminal event. Непосредственные действия вне timer event сюда не входят.
+См. [границу таймерных измерений](14-performance-analysis.md#граница-таймерных-измерений).
 
 Регистрация публикует четыре нулевых packet/auth counters и сохраняет их handles
 для активных peer/local pairs. Общие регистрации удерживают handles до последнего

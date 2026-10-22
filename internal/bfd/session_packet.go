@@ -206,6 +206,9 @@ func (s *Session) executeFSMActions(
 	}
 	observation, changed := s.commitObservation(result.NewState, diag, cause)
 	s.cachedState = result.NewState
+	if result.Changed && result.NewState == StateDown && cause == CauseDetectionTimeout {
+		s.timerEvent.effect(s.metrics, TimerControlDetection, time.Now())
+	}
 	if changed {
 		s.logStateChange(ctx, result, observation)
 	}

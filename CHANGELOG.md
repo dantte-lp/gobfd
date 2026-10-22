@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Control and Echo timer observations separate scheduled firing, owner dispatch
+  and successful TX or timeout-caused Down publication. Fixed global metrics
+  retain no-effect/invalid outcomes without peer labels; failed or suppressed
+  sends do not become successful effects. Jitter, deadlines and protocol
+  decisions remain unchanged. Runtime load qualification remains separate.
+
 - Control listeners carry calibrated software kernel receive timing through
   admission to normal owner completion. Fixed global clock-validity counters
   separate missing/invalid samples from latency; only valid samples enter the

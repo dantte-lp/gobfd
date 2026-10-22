@@ -77,10 +77,35 @@ Before/after evidence is in `reports/collector-owner-20261022/`.
 Bounded CPU/GC/loss distributions, calibrated regression policy, supported
 scale and final qualification remain open under the parent.
 
+## Timer observation boundary
+
+Control and Echo owner loops retain the actual `time.Timer.C` timestamp.
+Go's [sendTime](https://github.com/golang/go/blob/master/src/time/sleep.go)
+adjusts a delayed channel delivery back to its scheduled firing time. Normal
+runtime readings retain Go monotonic arithmetic; network realtime samples
+are not used in these timer measurements.
+
+`dispatch` measures scheduled firing to owner handling. A TX `effect` measures
+successful `SendPacket` return, before later Poll bookkeeping; it does not
+promise wire or peer arrival. A detection `effect` measures publication of a
+timeout-caused transition to Down, before logs, notifications or announcement
+sends. No deadline, jitter, suppression or FSM action is changed.
+
+Four fixed timer kinds produce 20 counter series and eight histograms for
+valid dispatch/effect stages. Zero-value or future timestamps remain explicit
+outcomes and never enter valid latency histograms. `no_effect` covers normal
+processing with no qualifying send/transition; it combines policy suppression,
+send failure and idle detection, so it is not a packet-loss counter. A panic or
+in-flight handler may leave dispatch without an effect/no-effect receipt.
+Untimed actions do not enter timer observations. These measurements do not
+establish false-Down rate, supported scale or the required load distributions;
+those require the actual UDP workload and accounting in Beads.
+
 ## Table of Contents
 
 - [Executive Summary](#executive-summary)
 - [Linux Receive Telemetry Boundary](#linux-receive-telemetry-boundary)
+- [Timer Observation Boundary](#timer-observation-boundary)
 - [Test Methodology](#test-methodology)
 - [Benchmark Results](#benchmark-results)
   - [Codec Operations](#31-codec-operations)

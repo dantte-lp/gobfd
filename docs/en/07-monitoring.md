@@ -75,6 +75,8 @@ effort, and canceled dispatch has no restart/progress guarantee.
 | `gobfd_bfd_auth_failures_total` | Counter | `peer_addr`, `local_addr` | Authentication failures (RFC 5880 Section 6.7) |
 | `gobfd_bfd_control_rx_timing_total` | Counter | `outcome` | Completed Control packets by six fixed clock-validity outcomes |
 | `gobfd_bfd_control_rx_commit_seconds` | Histogram | none | Software kernel RX to normal owner completion; valid samples only |
+| `gobfd_bfd_timer_events_total` | Counter | `timer`, `event` | Fixed Control/Echo dispatch, effect, no-effect and invalid timing outcomes |
+| `gobfd_bfd_timer_delay_seconds` | Histogram | `timer`, `stage` | Scheduled timer firing to owner dispatch or qualifying effect; valid samples only |
 | `gobfd_bfd_delivery_outcomes_total` | Counter | `source`, `outcome` | Fixed Control, Echo and notification stage decisions, retained after session deletion |
 | `gobfd_gobgp_rpc_errors_total` | Counter | `rpc` | Failed GoBGP API calls: `DisablePeer`, `EnablePeer`, `CheckCompatibility` (preflight) |
 | `gobfd_gobgp_endpoint_compatible` | Gauge | -- | 1 after the GoBGP v4 compatibility preflight passed, else 0 |
@@ -89,6 +91,17 @@ Timing outcomes cover `valid`, `unavailable`, `invalid`, `before_calibration`,
 queued packets are not owner commits. Overlay and legacy paths without kernel
 timing remain unavailable; clock revocation persists until listener recreation.
 See the [measurement boundary](14-performance-analysis.md#linux-receive-telemetry-boundary).
+
+Timer kinds are `control_tx`, `control_detection`, `echo_tx` and
+`echo_detection`. The fixed events are `dispatch`, `effect`, `no_effect`,
+`invalid_dispatch` and `invalid_effect`; histograms contain only valid
+`dispatch` and `effect` stages. A TX effect means successful transport return,
+not peer delivery. A detection effect means publication of timeout-caused Down,
+before logs, notifications and announcement transmission. Suppressed/failed
+sends and already-Down/AdminDown detection are `no_effect`; a panic or an
+in-flight handler may leave dispatch without a terminal event. Immediate
+non-timer actions do not enter these observations. See the
+[timer boundary](14-performance-analysis.md#timer-observation-boundary).
 
 Registration initializes the four packet/auth counters at zero and caches their
 handles for active peer/local pairs. Shared registrations retain the handles

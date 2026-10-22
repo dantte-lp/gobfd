@@ -483,6 +483,7 @@ type Session struct {
 
 	sender         PacketSender
 	metrics        MetricsReporter
+	timerEvent     timerObservation
 	delivery       DeliveryReporter
 	cleanupWake    chan<- struct{}
 	publicLossWake chan<- struct{}

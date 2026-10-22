@@ -110,6 +110,7 @@ type EchoSession struct {
 	// --- Runtime ---
 	sender         PacketSender
 	metrics        MetricsReporter
+	timerEvent     timerObservation
 	delivery       DeliveryReporter
 	publicLossWake chan<- struct{}
 	logger         *slog.Logger
@@ -377,12 +378,16 @@ func (es *EchoSession) echoRunLoop(
 		case <-es.recvCh:
 			es.handleEchoRecv(ctx, detectTimer)
 
-		case <-txTimer.C:
+		case due := <-txTimer.C:
+			es.timerEvent.begin(es.metrics, TimerEchoTX, due)
 			es.sendEcho(ctx)
 			txTimer.Reset(ApplyJitter(es.txInterval, es.detectMult))
+			es.timerEvent.finish(es.metrics)
 
-		case <-detectTimer.C:
+		case due := <-detectTimer.C:
+			es.timerEvent.begin(es.metrics, TimerEchoDetection, due)
 			es.handleDetectTimeout(ctx, detectTimer)
+			es.timerEvent.finish(es.metrics)
 		}
 	}
 }
@@ -448,6 +453,9 @@ func (es *EchoSession) transitionTo(ctx context.Context, newState State, diag Di
 	es.lastStateChange.Store(time.Now().UnixNano())
 	status := es.watchStatusForObservation(es.observation)
 	es.observationMu.Unlock()
+	if newState == StateDown && diag == DiagEchoFailed {
+		es.timerEvent.effect(es.metrics, TimerEchoDetection, time.Now())
+	}
 	es.metrics.RecordStateTransition(
 		es.peerAddr, es.localAddr,
 		oldState.String(), newState.String(),
@@ -478,6 +486,7 @@ func (es *EchoSession) sendEcho(ctx context.Context) {
 		)
 		return
 	}
+	es.timerEvent.effect(es.metrics, TimerEchoTX, time.Now())
 	es.echosSent.Add(1)
 	es.metrics.IncPacketsSent(es.peerAddr, es.localAddr)
 }

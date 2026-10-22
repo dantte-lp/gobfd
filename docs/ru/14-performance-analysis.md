@@ -78,10 +78,35 @@ Before/after evidence: `reports/collector-owner-20261022/`.
 Bounded CPU/GC/loss distributions, calibrated regression policy, supported scale
 и финальная квалификация остаются в родительской задаче.
 
+## Граница таймерных измерений
+
+Control и Echo owner loops сохраняют фактический timestamp из `time.Timer.C`.
+Go [sendTime](https://github.com/golang/go/blob/master/src/time/sleep.go)
+возвращает отложенный channel timestamp к запланированному моменту firing.
+Обычные runtime readings используют монотонную арифметику Go; network
+realtime samples в этих измерениях не участвуют.
+
+`dispatch` измеряет время от scheduled firing до обработки owner. TX `effect`
+фиксируется после успешного `SendPacket`, до последующего Poll bookkeeping;
+это не обещание wire/peer arrival. Detection `effect` фиксирует публикацию
+перехода в Down по timeout до logs, notifications и отправки объявления.
+Deadline, jitter, suppression и FSM actions сохраняются.
+
+Четыре фиксированных timer kinds дают 20 counter series и восемь histograms
+для valid стадий dispatch/effect. Zero/future invalid timestamps остаются
+отдельными outcomes и не входят в valid latency histograms. `no_effect`
+объединяет нормальную обработку без полезного send/transition: policy
+suppression, send failure и idle detection. Это не счётчик потерь пакетов.
+Panic или незавершённый handler могут оставить dispatch без effect/no-effect.
+Действия вне timer event не учитываются. False-Down rate, supported scale
+и обязательные нагрузочные распределения требуют actual UDP workload
+и accounting из Beads; эти метрики сами по себе их не подтверждают.
+
 ## Содержание
 
 - [Краткие выводы](#краткие-выводы)
 - [Граница Linux Receive Telemetry](#граница-linux-receive-telemetry)
+- [Граница таймерных измерений](#граница-таймерных-измерений)
 - [Методология тестирования](#методология-тестирования)
 - [Результаты бенчмарков](#результаты-бенчмарков)
   - [Кодек-операции](#31-кодек-операции)

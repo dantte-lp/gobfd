@@ -102,11 +102,15 @@ func (s *Session) runLoop(
 			s.signalControlSpace()
 			s.handleControlCommand(ctx, cmd, txTimer, detectTimer)
 
-		case <-txTimer.C:
+		case due := <-txTimer.C:
+			s.timerEvent.begin(s.metrics, TimerControlTX, due)
 			s.handleTxTimer(ctx, txTimer)
+			s.timerEvent.finish(s.metrics)
 
-		case <-detectTimer.C:
+		case due := <-detectTimer.C:
+			s.timerEvent.begin(s.metrics, TimerControlDetection, due)
 			s.handleDetectTimer(ctx, txTimer, detectTimer)
+			s.timerEvent.finish(s.metrics)
 		case <-s.updateWake:
 		case <-updateTimer.C:
 		}
@@ -247,6 +251,7 @@ func (s *Session) sendControl(ctx context.Context) {
 		s.recordAdminDrainSendError(err)
 		return
 	}
+	s.timerEvent.effect(s.metrics, TimerControlTX, time.Now())
 	if final {
 		s.pendingFinal = false
 	} else if s.pollActive {
