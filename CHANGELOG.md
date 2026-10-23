@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Go-owned workload tooling captures process, runtime and visible cgroup
+  resource snapshots with explicit unavailable data and JSON-safe histograms.
+  Snapshot observations do not establish reference admission or supported load.
+
 - Base UDP listeners report socket-drop sample validity and bounded cumulative
   increments before packet rejection. Listener lifetime, fresh versus existing
   socket baselines, serial wrap ambiguity and post-load markers remain explicit;

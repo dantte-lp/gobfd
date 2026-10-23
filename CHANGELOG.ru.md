@@ -9,6 +9,10 @@
 
 ### Добавлено
 
+- Go-инструментарий нагрузки собирает снимки ресурсов процесса, runtime и
+  видимого cgroup с явной недоступностью данных и JSON-безопасными гистограммами.
+  Снимки не подтверждают reference admission и квалификацию нагрузки.
+
 - Base UDP listeners учитывают валидность socket-drop samples и ограниченные
   cumulative increments до отбрасывания пакета. Явно разделены lifetime listener,
   baseline новых и existing сокетов, serial wrap ambiguity и post-load markers;

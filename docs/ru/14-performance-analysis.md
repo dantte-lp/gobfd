@@ -136,12 +136,36 @@ read error; усечённые, повреждённые или дублиров
 датаграммы. Overlay paths этой границей listener не инструментированы.
 Wire loss, supported scale и финальная runtime qualification не подтверждаются.
 
+## Наблюдение окружения нагрузки
+
+Go-компонент `test/internal/bfdload.CaptureEnvironment` измеряет собственный
+процесс. Команда `go run ./test/cmd/bfdload environment` внутри закреплённого
+development-контейнера выдаёт JSON-снимок: [RSS и потоки](https://www.kernel.org/doc/html/latest/filesystems/proc.html),
+FD, [переключения контекста всего процесса](https://man7.org/linux/man-pages/man2/getrusage.2.html),
+фактический `GOMAXPROCS`, настройки GC и накопительные гистограммы runtime.
+RSS берётся из `smaps_rollup`; FD включают дескрипторы наблюдения.
+[CPU affinity](https://man7.org/linux/man-pages/man2/sched_setaffinity.2.html)
+относится к наблюдающему потоку. Начало и длительность ограничивают
+последовательный, неатомарный снимок; накладные расходы требуют калибровки.
+
+[Гистограммы](https://github.com/golang/go/blob/2aae1000ea1d4b28923b96db28acf4e3b99d6aff/src/runtime/metrics/histogram.go)
+сохраняют копии счётчиков и границы полуоткрытых интервалов; бесконечные границы
+представлены JSON-строками. Scheduler delay отделён от kernel RX-to-owner latency.
+
+[Данные cgroup v2](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html)
+относятся к текущей видимой группе. Bandwidth-счётчики `cpu.stat` не включают
+родительский throttling; доступность `cpu.stat.local` указана отдельно.
+Отсутствующие и повреждённые данные недоступны для оценки. Лимиты различают
+`max` и численный ноль. Скрытые родители, reference admission, изоляция
+генератора и квалификация нагрузки остаются отдельными задачами Beads.
+
 ## Содержание
 
 - [Краткие выводы](#краткие-выводы)
 - [Граница Linux Receive Telemetry](#граница-linux-receive-telemetry)
 - [Граница таймерных измерений](#граница-таймерных-измерений)
 - [Граница измерений потерь сокета](#граница-измерений-потерь-сокета)
+- [Наблюдение окружения нагрузки](#наблюдение-окружения-нагрузки)
 - [Методология тестирования](#методология-тестирования)
 - [Результаты бенчмарков](#результаты-бенчмарков)
   - [Кодек-операции](#31-кодек-операции)

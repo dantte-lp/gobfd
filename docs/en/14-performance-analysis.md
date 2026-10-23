@@ -134,12 +134,36 @@ Ordinary read errors, closure and timeouts are not consumed-datagram samples.
 Overlay paths are not instrumented by this listener boundary. These observations
 do not establish wire loss, supported scale or final runtime qualification.
 
+## Workload environment observations
+
+The Go-owned `test/internal/bfdload.CaptureEnvironment` observes its own
+process. Run `go run ./test/cmd/bfdload environment` inside the pinned development
+container to emit its JSON snapshot: [RSS and threads](https://www.kernel.org/doc/html/latest/filesystems/proc.html),
+FDs, [process-wide context switches](https://man7.org/linux/man-pages/man2/getrusage.2.html),
+effective `GOMAXPROCS`, GC settings and cumulative runtime histograms.
+RSS uses `smaps_rollup`; FD counts include observation descriptors.
+[CPU affinity](https://man7.org/linux/man-pages/man2/sched_setaffinity.2.html)
+belongs to the observing thread. Start time and elapsed time bound a sequential,
+non-atomic sample; observation overhead requires calibration.
+
+[Histograms](https://github.com/golang/go/blob/2aae1000ea1d4b28923b96db28acf4e3b99d6aff/src/runtime/metrics/histogram.go)
+retain copied counts and ordered half-open bounds, with infinite bounds as
+JSON strings. Scheduler delay is separate from kernel RX-to-owner latency.
+
+[Cgroup v2 data](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html)
+covers the current visible group. `cpu.stat` bandwidth counters exclude
+inherited throttling; optional `cpu.stat.local` has separate validity.
+Missing or malformed data remains unavailable. Limits distinguish `max` from
+numeric zero. Hidden parents, reference admission, generator isolation and
+supported load remain separate gates in Beads.
+
 ## Table of Contents
 
 - [Executive Summary](#executive-summary)
 - [Linux Receive Telemetry Boundary](#linux-receive-telemetry-boundary)
 - [Timer Observation Boundary](#timer-observation-boundary)
 - [Socket-Drop Observation Boundary](#socket-drop-observation-boundary)
+- [Workload Environment Observations](#workload-environment-observations)
 - [Test Methodology](#test-methodology)
 - [Benchmark Results](#benchmark-results)
   - [Codec Operations](#31-codec-operations)
