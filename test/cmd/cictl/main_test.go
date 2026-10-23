@@ -400,8 +400,8 @@ func TestRunProtoVerifyReadsRunnerEnvironment(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	if got := len(runner.names); got != 4 {
-		t.Errorf("protobuf command count = %d, want 4", got)
+	if got := len(runner.names); got != 5 {
+		t.Errorf("protobuf command count = %d, want 5", got)
 	}
 }
 

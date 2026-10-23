@@ -448,8 +448,11 @@ unchanged.
 `cictl proto-verify` requires safe absolute repository and `RUNNER_TEMP`
 directories, builds both generators from `tools/go.mod` below a dedicated
 temporary bin directory, and prepends that directory to `PATH` only for
-`buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb`; a generator
-build, generation, or generated-code drift failure stops the step.
+`buf generate`. It then runs `git diff --exit-code -- pkg/bfdpb` and checks
+`git status --porcelain=v1 -z --untracked-files=all -- pkg/bfdpb` for any output.
+Changed, staged, deleted or new untracked generated files fail verification;
+unrelated untracked files do not. A generator build, generation, status-command
+or generated-code drift failure stops the step.
 
 `cictl buf-fetch-base` and `cictl buf-breaking` read the pull request base only
 from the built-in `GITHUB_BASE_REF` and validate it as a branch name. Fetching

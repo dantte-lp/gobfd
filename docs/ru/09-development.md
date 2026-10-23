@@ -455,8 +455,11 @@ Syft scan для module-файлов, разделяет runtime и tools Cyclon
 `cictl proto-verify` требует безопасные абсолютные каталоги корня репозитория и
 `RUNNER_TEMP`, собирает оба генератора из `tools/go.mod` в отдельном временном
 bin-каталоге и добавляет его в начало `PATH` только для `buf generate`. Затем
-хелпер запускает `git diff --exit-code -- pkg/bfdpb`; ошибка сборки генератора,
-генерации или drift сгенерированного кода завершает шаг.
+хелпер запускает `git diff --exit-code -- pkg/bfdpb` и проверяет отсутствие вывода
+`git status --porcelain=v1 -z --untracked-files=all -- pkg/bfdpb`.
+Изменённые, staged, удалённые и новые untracked generated files отклоняются;
+посторонние untracked files не влияют на результат. Ошибка сборки генератора,
+генерации, status-команды или drift сгенерированного кода завершает шаг.
 
 `cictl buf-fetch-base` и `cictl buf-breaking` читают base pull request только из
 встроенного `GITHUB_BASE_REF` и проверяют его как имя ветки. Fetch использует
