@@ -78,6 +78,11 @@ type ReceivedPacket struct {
 	bufp *[]byte
 }
 
+// ClockCalibration reports the listener's conditional software-clock bounds.
+func (l *Listener) ClockCalibration() bfd.ReceiveCalibration {
+	return l.receiveClock.Calibration()
+}
+
 // Release returns the packet buffer to bfd.PacketPool.
 // It is safe to call multiple times.
 func (p *ReceivedPacket) Release() {

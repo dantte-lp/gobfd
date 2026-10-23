@@ -9,6 +9,10 @@
 
 ### Добавлено
 
+- Receive clocks предоставляют измеренные скобки пары часов и номинальные
+  разрешения с явными условными границами. Отчёт нагрузки сопоставляет их с
+  Linux realtime epoch witness всего прогона; invalid и uncovered данные остаются unknown.
+
 - Go-инструментарий нагрузки запускает реальные UDP receiver и session owners
   с фактическими senders, наблюдениями collector/ledger и освобождением ресурсов.
   Component fixtures не подтверждают reference load и точность часов.

@@ -166,7 +166,40 @@ returns shutdown errors. Control receive ports exclude Echo port 3785 and the
 49152–65535 TX source range. The IPv4/IPv6 component fixture uses isolated
 alternate ports and validates actual packet commit, rejection and returned TX. It does not
 qualify RFC ports, an independent generator, daemon-wide resource bounds or the
-reference workload. Clock uncertainty remains explicitly unknown.
+reference workload.
+
+Listener `clock_calibrations` retain a three-read monotonic bracket around the
+wall/monotonic pair and the nominal native clock resolutions. The conditional
+conversion bound is `span_ns + realtime_resolution_ns + monotonic_resolution_ns`.
+It assumes native clocks with a constant realtime-minus-monotonic offset. For
+each clock, all read errors must stay in one fixed interval whose width is at
+most that clock's nominal resolution; this is not an absolute `+/-resolution`
+error model. Nominal resolution does not establish this assumption or physical
+clock accuracy. The 1 ms consistency tolerance remains separate from this bound.
+
+Let `B,A` be the outer monotonic readings, `M,R` the anchor's monotonic and
+realtime readings, and `C,K` the owner-commit and kernel-RX readings. Measured
+latency is `C-M-(K-R)`. Both anchor reads lie inside the bracket and observed
+monotonic values preserve order. Relative to ideal latency, canceling the common
+clock offsets bounds its error by `A-B` plus one within-clock error difference
+for each clock. Those differences are bounded by their fixed interval widths,
+giving `span + qMonotonic + qRealtime` for either anchor-read order. Fixed clock
+biases cancel. Independent conversion fixtures exercise nonzero pairing skew
+and opposite endpoints of both error intervals.
+
+The workload's `ClockEpochGuard` arms a nonblocking
+[realtime timerfd](https://man7.org/linux/man-pages/man2/timerfd_create.2.html)
+with absolute `CANCEL_ON_SET` before calibration. `Finish` checks the witness
+after the last sample and closes its FD; cancellation, expiration, unavailable
+data and aborted guards cannot qualify the clock. Its seven-day horizon bounds
+the witness lifetime. No per-packet syscall or guard goroutine is added.
+`WithClockEpoch` requires process-local monotonic provenance covering the entire
+calibration bracket and owner shutdown. UTC values remain reporting metadata;
+replaying JSON cannot reconstruct that provenance or requalify a run. It accepts
+only known calibrations inside the completed guard window and attaches the largest conditional conversion
+bound to `TimingUncertaintyNS`; other snapshots retain an explicit unknown
+reason. This evidence does not establish hardware timestamp accuracy, reference
+admission or supported load.
 
 ## Table of Contents
 

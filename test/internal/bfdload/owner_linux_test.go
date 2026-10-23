@@ -24,6 +24,15 @@ func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
 func TestOwnerActualUDPCommitAndCleanup(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	guard, guardErr := NewClockEpochGuard(t.Context())
+	if guardErr != nil {
+		t.Fatal(guardErr)
+	}
+	t.Cleanup(func() {
+		if closeErr := guard.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
 	endpoints := []OwnerEndpoint{
 		{Local: netip.MustParseAddrPort("127.0.0.1:37991"), Peer: netip.MustParseAddrPort("127.0.0.2:37993")},
 		{Local: netip.MustParseAddrPort("[::1]:37992"), Peer: netip.MustParseAddrPort("[::1]:37994")},
@@ -150,6 +159,15 @@ func TestOwnerActualUDPCommitAndCleanup(t *testing.T) {
 	}
 	if !final.Stopped {
 		t.Fatal("final accounting was sampled before worker cleanup")
+	}
+	witness, witnessErr := guard.Finish(t.Context())
+	if witnessErr != nil {
+		t.Fatal(witnessErr)
+	}
+	final = final.WithClockEpoch(witness)
+	if final.TimingUncertaintyNS == nil || *final.TimingUncertaintyNS == 0 ||
+		final.TimingUncertaintyError != "" || len(final.ClockCalibrations) != 2 || final.ReferenceQualified {
+		t.Fatalf("actual guarded clock measurements unavailable: %+v", final)
 	}
 	for kind, want := range map[string]float64{"control": 4, "echo": 0} {
 		if got := metricCounter(final.Metrics, "gobfd_bfd_socket_drop_samples_total",

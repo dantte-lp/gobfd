@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Receive clocks expose measured pairing brackets and nominal resolutions with
+  explicit conditional bounds. Workload reports combine them with a run-scoped
+  Linux realtime epoch witness; invalid or uncovered data remains unknown.
+
 - Go-owned workload tooling drives real UDP receiver and session owners with
   actual senders, collector/ledger observations and bounded resource cleanup.
   Component fixtures do not establish reference load or clock precision.

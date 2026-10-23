@@ -49,11 +49,19 @@ type OwnerSessionObservation struct {
 	DetectionNS        int64           `json:"detection_ns"`
 }
 
+// OwnerClockObservation associates a clock measurement with its receive binding.
+type OwnerClockObservation struct {
+	Binding     netip.AddrPort         `json:"binding"`
+	Calibration bfd.ReceiveCalibration `json:"calibration"`
+}
+
 // OwnerObservation is sequential telemetry, not a reference or daemon verdict.
 // Metrics retain the real collector DTOs, not a second implementation of them.
 type OwnerObservation struct {
+	stoppedAt              time.Time                 `json:"-"`
 	Scope                  string                    `json:"scope"`
 	Stopped                bool                      `json:"stopped"`
+	StoppedAtUTC           time.Time                 `json:"stopped_at_utc"`
 	ReferenceQualified     bool                      `json:"reference_qualified"`
 	TimingUncertaintyNS    *uint64                   `json:"timing_uncertainty_ns"`
 	TimingUncertaintyError string                    `json:"timing_uncertainty_error"`
@@ -61,6 +69,8 @@ type OwnerObservation struct {
 	Sessions               []OwnerSessionObservation `json:"sessions"`
 	Delivery               []bfd.DeliveryCounter     `json:"delivery"`
 	Metrics                []*dto.MetricFamily       `json:"metrics"`
+	ClockCalibrations      []OwnerClockObservation   `json:"clock_calibrations"`
+	ClockEpoch             *ClockEpochObservation    `json:"clock_epoch"`
 }
 
 type ownerSession struct {
@@ -69,13 +79,19 @@ type ownerSession struct {
 	sourcePort uint16
 }
 
+type ownerListener struct {
+	*netio.Listener
+
+	binding netip.AddrPort
+}
+
 // Owner owns UDP listeners, senders and production receiver/session workers.
 // Done closes after cleanup; Close is required to observe any shutdown error.
 type Owner struct {
 	manager      *bfd.Manager
 	registry     *prometheus.Registry
 	ports        *netio.SourcePortAllocator
-	listeners    []*netio.Listener
+	listeners    []ownerListener
 	leases       []*bfd.SenderLease
 	sessions     []ownerSession
 	receiveErrs  []error
@@ -86,6 +102,7 @@ type Owner struct {
 	closeErr     error
 	closeIOOnce  sync.Once
 	closeIOError error
+	stoppedAt    time.Time
 }
 
 // StartOwner starts the actual UDP-to-session-owner path with real metrics.
@@ -182,7 +199,7 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 		if err != nil {
 			return fmt.Errorf("bind owner listener %s: %w", endpoint.Local, err)
 		}
-		o.listeners = append(o.listeners, listener)
+		o.listeners = append(o.listeners, ownerListener{Listener: listener, binding: endpoint.Local})
 		bound[endpoint.Local] = struct{}{}
 	}
 	o.workers.Go(func() { o.manager.RunDispatch(ctx) })
@@ -198,7 +215,7 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 	o.receiveErrs = make([]error, len(o.listeners))
 	for i, listener := range o.listeners {
 		o.workers.Go(func() {
-			o.receiveErrs[i] = receiver.Run(ctx, listener)
+			o.receiveErrs[i] = receiver.Run(ctx, listener.Listener)
 			if o.receiveErrs[i] != nil {
 				o.cancel()
 			}
@@ -265,6 +282,7 @@ func (o *Owner) Close() error {
 		for _, lease := range o.leases {
 			o.closeErr = errors.Join(o.closeErr, lease.Close())
 		}
+		o.stoppedAt = time.Now()
 		close(o.done)
 	})
 	return o.closeErr
@@ -279,12 +297,15 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 	}
 	report := OwnerObservation{
 		Scope: "production-core-owner-component", Environment: environment,
-		TimingUncertaintyError: "listener calibration does not expose a measurement uncertainty bound",
+		TimingUncertaintyError: "run-scoped epoch evidence is required for conditional clock bounds",
 		Delivery:               o.manager.DeliveryCounters(), Sessions: make([]OwnerSessionObservation, len(o.sessions)),
+		ClockCalibrations: make([]OwnerClockObservation, len(o.listeners)),
 	}
 	select {
 	case <-o.done:
 		report.Stopped = true
+		report.stoppedAt = o.stoppedAt
+		report.StoppedAtUTC = o.stoppedAt.UTC()
 	default:
 	}
 	for i, entry := range o.sessions {
@@ -293,6 +314,11 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 			Observation: entry.session.Observation(),
 			Sent:        entry.session.PacketsSent(), Received: entry.session.PacketsReceived(),
 			NegotiatedTXNS: int64(entry.session.NegotiatedTxInterval()), DetectionNS: int64(entry.session.DetectionTime()),
+		}
+	}
+	for i, listener := range o.listeners {
+		report.ClockCalibrations[i] = OwnerClockObservation{
+			Binding: listener.binding, Calibration: listener.ClockCalibration(),
 		}
 	}
 	report.Metrics, err = o.registry.Gather()

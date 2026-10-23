@@ -44,16 +44,25 @@ func (o ReceiveTimingOutcome) String() string {
 
 // ReceiveClock holds a listener's immutable calibration and shared revocation.
 type ReceiveClock struct {
-	anchor   time.Time
-	unixNano int64
-	revoked  atomic.Bool
+	anchor      time.Time
+	unixNano    int64
+	revoked     atomic.Bool
+	calibration ReceiveCalibration
 }
 
 // NewReceiveClock establishes a paired realtime/monotonic calibration.
 func NewReceiveClock() *ReceiveClock {
+	before := time.Now()
 	now := time.Now()
+	after := time.Now()
 	wall, _ := receiveUnixNano(now)
-	return &ReceiveClock{anchor: now, unixNano: wall}
+	realtime, monotonic, err := receiveClockResolutions()
+	calibration := newReceiveCalibration(before, now, after, realtime, monotonic)
+	if err != nil {
+		calibration.Known = false
+		calibration.UnknownReason = err.Error()
+	}
+	return &ReceiveClock{anchor: now, unixNano: wall, calibration: calibration}
 }
 
 // Capture converts only samples from this calibration's observed clock epoch.
