@@ -157,6 +157,17 @@ Missing or malformed data remains unavailable. Limits distinguish `max` from
 numeric zero. Hidden parents, reference admission, generator isolation and
 supported load remain separate gates in Beads.
 
+`test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
+session manager and owning UDP senders with a fresh real collector. Its typed
+snapshot includes configured endpoints, source ports, session observations,
+delivery counters, collector metrics and self-process resources. Cancellation
+or a failed receiver joins all owned workers and closes their sockets; `Close`
+returns shutdown errors. Control receive ports exclude Echo port 3785 and the
+49152–65535 TX source range. The IPv4/IPv6 component fixture uses isolated
+alternate ports and validates actual packet commit, rejection and returned TX. It does not
+qualify RFC ports, an independent generator, daemon-wide resource bounds or the
+reference workload. Clock uncertainty remains explicitly unknown.
+
 ## Table of Contents
 
 - [Executive Summary](#executive-summary)

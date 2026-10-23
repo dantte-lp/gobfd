@@ -159,6 +159,17 @@ RSS берётся из `smaps_rollup`; FD включают дескриптор
 `max` и численный ноль. Скрытые родители, reference admission, изоляция
 генератора и квалификация нагрузки остаются отдельными задачами Beads.
 
+`test/internal/bfdload.StartOwner` запускает production UDP listeners, receiver,
+session manager и владеющие сокетами UDP senders с отдельным реальным collector.
+Типизированный снимок содержит настроенные endpoints, source ports, наблюдения
+сессий, delivery counters, метрики collector и ресурсы собственного процесса.
+Отмена контекста или отказ receiver завершает все собственные workers и закрывает
+сокеты; `Close` возвращает ошибки завершения. Control receive ports исключают
+Echo port 3785 и диапазон source ports TX 49152–65535. IPv4/IPv6 component fixture
+использует изолированные альтернативные порты и проверяет фактические packet commit,
+rejection и ответную TX. Это не квалификация RFC ports, независимого генератора,
+ресурсов всего daemon или reference workload. Погрешность часов явно неизвестна.
+
 ## Содержание
 
 - [Краткие выводы](#краткие-выводы)

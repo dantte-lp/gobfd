@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Go-owned workload tooling drives real UDP receiver and session owners with
+  actual senders, collector/ledger observations and bounded resource cleanup.
+  Component fixtures do not establish reference load or clock precision.
+
 - Go-owned workload tooling captures process, runtime and visible cgroup
   resource snapshots with explicit unavailable data and JSON-safe histograms.
   Snapshot observations do not establish reference admission or supported load.
