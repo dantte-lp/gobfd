@@ -129,6 +129,11 @@ gobfdctl session delete 42
 команд: их таймерная модель отличается от RFC 5880 control sessions --
 TxInterval задаётся локально и не согласуется с peer.
 
+`echo add` требует `echo.enabled: true` у демона и готовый Echo receive path.
+Выключенный preview, pending/failed reconciliation или потеря runtime/binding
+readiness возвращают `FailedPrecondition` без открытия sender и создания сессии.
+List/Delete остаются доступны для очистки. RFC 9747 остаётся preview.
+
 #### Список echo-сессий
 
 ```bash

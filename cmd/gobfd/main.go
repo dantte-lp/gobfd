@@ -223,7 +223,7 @@ func startShutdown(
 ) {
 	g.Go(func() error {
 		<-ctx.Done()
-		readiness.set(componentRuntime, false)
+		readiness.setNotReady(componentRuntime)
 		err := gracefulShutdown(ctx, mgr, logger, fr, servers...)
 		// Receive reads take no context; closing after the AdminDown drain
 		// keeps the drain receiving and lets idle receivers return.

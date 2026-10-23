@@ -43,6 +43,7 @@ func newTestEchoServer(t *testing.T) *EchoServer {
 		manager:       mgr,
 		senderFactory: noopSenderFactory{},
 		logger:        logger,
+		admission:     readyEchoAdmission(),
 	}
 }
 
@@ -173,7 +174,7 @@ func TestEchoServer_DeleteEchoSession_ReleasesSenderExactlyOnce(t *testing.T) {
 	mgr := bfd.NewManager(logger)
 	t.Cleanup(mgr.Close)
 	factory := &echoLeaseTestSenderFactory{}
-	s := &EchoServer{manager: mgr, senderFactory: factory, logger: logger}
+	s := &EchoServer{manager: mgr, senderFactory: factory, logger: logger, admission: readyEchoAdmission()}
 	add, err := s.AddEchoSession(context.Background(), &bfdv1.AddEchoSessionRequest{
 		PeerAddress:      "192.0.2.20",
 		LocalAddress:     "192.0.2.1",
@@ -209,7 +210,7 @@ func TestEchoServer_AddEchoSession_DoesNotOpenSenderAfterManagerClose(t *testing
 	mgr := bfd.NewManager(logger)
 	mgr.Close()
 	factory := &echoLeaseTestSenderFactory{}
-	s := &EchoServer{manager: mgr, senderFactory: factory, logger: logger}
+	s := &EchoServer{manager: mgr, senderFactory: factory, logger: logger, admission: readyEchoAdmission()}
 	_, err := s.AddEchoSession(context.Background(), &bfdv1.AddEchoSessionRequest{
 		PeerAddress:      "192.0.2.21",
 		LocalAddress:     "192.0.2.1",

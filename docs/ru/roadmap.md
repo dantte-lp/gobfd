@@ -177,6 +177,22 @@ thread pin `.8.2.1.7`; same-key replace `.8.2.2.7` сохраняет запис
 до решения. Optional Micro-BFD L2 и kernel-bond graduation остаются после v1.
 Запрет публикации ниже сохраняется.
 
+## Локальная граница Echo API preview — 2026-10-23
+
+`gobfd-qj0.8.2.1.8.2` добавляет fail-closed Echo admission в
+`task/echo-admission-20261023`: требуются `echo.enabled` валидной конфигурации
+и готовность Echo/runtime/binding фактического receive owner. API-only
+конфигурации сохраняют lazy acquisition listener до создания sender.
+Readiness — снимок admission; ранее допущенный запрос может завершиться.
+List/Delete и валидация запроса сохраняют прежнее поведение.
+
+Локальный critical race дал 290 успешных top-level тестов server, daemon и
+dependency inventory; существующий unsolicited IPv6 wire subcase пропущен
+в контейнере. Scoped lint дал ноль issues. Записи находятся в
+`reports/echo-admission-20261023`; stable delivery и полная квалификация
+RFC 9747 не подтверждены. P0 parent остаётся открыт для согласованности
+capability/status в `gobfd-qj0.8.2.1.8.3`. Приоритеты исполнения остаются в Beads.
+
 ## Локальная проверка и запрет публикации — 2026-10-22 18:35 UTC
 
 Публикация в GitHub временно приостановлена для экономии минут Actions.

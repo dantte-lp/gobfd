@@ -565,6 +565,16 @@ func newAPIListenerSenderFactory(
 	}
 }
 
+// EchoReady reports the live receive owner's admission state, before allocation.
+func (f *apiListenerSenderFactory) EchoReady() bool {
+	if !f.echo || f.owner == nil {
+		return false
+	}
+	f.owner.mu.Lock()
+	defer f.owner.mu.Unlock()
+	return !f.owner.closed && f.owner.readiness.echoAPIReady()
+}
+
 // CreateSender claims the listener before it creates the sender.
 func (f *apiListenerSenderFactory) CreateSender(
 	localAddr netip.Addr, ifName string, multiHop, doNotFragment bool, logger *slog.Logger,

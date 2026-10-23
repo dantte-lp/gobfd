@@ -556,6 +556,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Echo API admission requires the validated `echo.enabled` opt-in and live
+  receive-owner readiness before sender/session creation. Valid reloads update
+  the opt-in; disabled/unready admission fails closed while List/Delete remain
+  available. RFC 9747 remains preview.
+
 - Certificate URI identities cannot acquire Unix UID authorization by using
   a `uid:` prefix. TLS URI, TLS DNS and Unix UID session owners are disjoint;
   existing configured URI/DNS role identities retain their syntax.

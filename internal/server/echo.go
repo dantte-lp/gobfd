@@ -18,12 +18,20 @@ import (
 
 // Sentinel errors for the EchoService handler.
 var (
+	// ErrEchoNotReady indicates disabled preview or an unavailable receive path.
+	ErrEchoNotReady = errors.New("echo preview is disabled or receive path is not ready")
+
 	// ErrEchoTxIntervalRequired indicates the request omitted tx_interval.
 	ErrEchoTxIntervalRequired = errors.New("tx_interval is required for echo sessions")
 
 	// ErrEchoDetectMultZero indicates a zero detect_multiplier on echo.
 	ErrEchoDetectMultZero = errors.New("detect_multiplier must be >= 1 for echo sessions")
 )
+
+// Echo admission follows the same owner that claims the receive listener.
+type echoAdmission interface {
+	EchoReady() bool
+}
 
 // EchoServer implements bfdv1connect.EchoServiceHandler.
 //
@@ -36,12 +44,14 @@ type EchoServer struct {
 	manager       *bfd.Manager
 	senderFactory SenderFactory
 	logger        *slog.Logger
+	admission     echoAdmission
 }
 
 var _ bfdv1connect.EchoServiceHandler = (*EchoServer)(nil)
 
 // RegisterEcho registers the RFC 9747 Echo service on rpc. If sf is nil, a
-// noopSenderFactory is used (test mode).
+// noopSenderFactory is used. Creation requires sf to report EchoReady;
+// otherwise admission fails closed. Delete and List remain available.
 func RegisterEcho(
 	rpc *connect.Server,
 	mgr *bfd.Manager,
@@ -51,10 +61,12 @@ func RegisterEcho(
 	if sf == nil {
 		sf = noopSenderFactory{}
 	}
+	admission, _ := sf.(echoAdmission)
 	srv := &EchoServer{
 		manager:       mgr,
 		senderFactory: sf,
 		logger:        logger.With(slog.String("component", "echo-server")),
+		admission:     admission,
 	}
 	bfdv1connect.RegisterEchoServiceHandler(rpc, srv)
 }
@@ -67,6 +79,9 @@ func (s *EchoServer) AddEchoSession(
 	cfg, err := echoSessionConfigFromProto(req)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
+	}
+	if s.admission == nil || !s.admission.EchoReady() {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, ErrEchoNotReady.Error()).WithCause(ErrEchoNotReady)
 	}
 
 	s.logger.InfoContext(ctx, "AddEchoSession called",

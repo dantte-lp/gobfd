@@ -86,7 +86,7 @@ func TestDaemonReadinessConvergedReconciliationCannotMaskRuntimeLoss(t *testing.
 	t.Parallel()
 
 	coordinator, checker := newConvergedReadinessCoordinator(t)
-	coordinator.readiness.set(componentRuntime, false)
+	coordinator.readiness.setNotReady(componentRuntime)
 	coordinator.publishReceipt(generationReceipt{Generation: 2}, nil)
 
 	notServing := grpchealth.StatusNotServing

@@ -75,6 +75,9 @@ Do **not** add entries for:
 
 #### Fixed
 
+- Echo API creation fails closed without enabled preview and live receive
+  readiness; List/Delete remain available for cleanup.
+
 - Prevented certificate URI identities from acquiring Unix UID privileges;
   TLS URI, TLS DNS and Unix UID session owners use distinct namespaces.
 

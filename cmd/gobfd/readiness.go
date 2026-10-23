@@ -40,6 +40,7 @@ const (
 	allReadinessComponents readinessMask = 1<<componentCount - 1
 	bindingComponents      readinessMask = 1<<componentControlBindings | 1<<componentEchoBindings |
 		1<<componentMicroBindings
+	echoReadinessComponents readinessMask = 1<<sourceEcho | 1<<componentRuntime | 1<<componentEchoBindings
 )
 
 type readinessService struct {
@@ -53,7 +54,7 @@ func readinessServices() [4]readinessService {
 		{"", allReadinessComponents},
 		{bfdServiceName, 1<<sourceBase | 1<<sourceVXLAN | 1<<sourceGeneve |
 			1<<componentRuntime | 1<<componentControlBindings},
-		{echoServiceName, 1<<sourceEcho | 1<<componentRuntime | 1<<componentEchoBindings},
+		{echoServiceName, echoReadinessComponents},
 		{microBFDServiceName, 1<<sourceMicro | 1<<componentRuntime | 1<<componentMicroBindings},
 	}
 }
@@ -74,10 +75,23 @@ type listenerBinding struct {
 // service needs. gobfd.gobgp and gobfd.management keep their own writers and
 // stay outside the aggregate.
 type daemonReadiness struct {
-	mu       sync.Mutex
-	ready    readinessMask
-	bindings []listenerBinding
-	checker  *grpchealth.StaticChecker
+	mu          sync.Mutex
+	ready       readinessMask
+	bindings    []listenerBinding
+	checker     *grpchealth.StaticChecker
+	echoEnabled bool
+}
+
+func (r *daemonReadiness) setEchoEnabled(enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.echoEnabled = enabled
+}
+
+func (r *daemonReadiness) echoAPIReady() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.echoEnabled && r.ready&echoReadinessComponents == echoReadinessComponents
 }
 
 // newDaemonReadiness starts with every reconciliation source not ready; the
@@ -97,10 +111,10 @@ func (r *daemonReadiness) setSources(ready reconciliationSourceMask) {
 	r.publishLocked()
 }
 
-func (r *daemonReadiness) set(component readinessComponent, ready bool) {
+func (r *daemonReadiness) setNotReady(component readinessComponent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.setLocked(1<<component, ready)
+	r.setLocked(1<<component, false)
 	r.publishLocked()
 }
 
@@ -204,6 +218,6 @@ func (r *daemonReadiness) runRequired(ctx context.Context, name string, run func
 	if ctx.Err() != nil {
 		return err
 	}
-	r.set(componentRuntime, false)
+	r.setNotReady(componentRuntime)
 	return fmt.Errorf("%s: %w", name, errors.Join(errRequiredWorkerStopped, err))
 }

@@ -175,6 +175,22 @@ removal `.8.2.1.7`; same-key replace `.8.2.2.7` retains its recorded decision
 pause. Optional Micro-BFD L2 and kernel-bond graduation remain after v1.
 The local-only delivery hold below remains in force.
 
+## Local Echo API preview boundary — 2026-10-23
+
+`gobfd-qj0.8.2.1.8.2` adds fail-closed Echo admission on
+`task/echo-admission-20261023`. The API requires validated-generation
+`echo.enabled` and the receive owner's Echo/runtime/binding readiness.
+API-only configurations retain lazy listener acquisition before sender creation.
+Readiness is an admission snapshot; previously admitted requests may complete.
+List/Delete and request validation retain their existing behavior.
+
+Local critical race tests pass 290 top-level tests across server, daemon and
+dependency inventory; one existing unsolicited IPv6 wire subcase skips in the
+container. Scoped lint reports zero issues. Evidence lives under
+`reports/echo-admission-20261023`; this is not stable delivery or full RFC 9747
+qualification. The P0 parent remains open for capability/status consistency
+under `gobfd-qj0.8.2.1.8.3`. Executable priorities remain in Beads.
+
 ## Local verification and delivery hold — 2026-10-22 18:35 UTC
 
 The maintainer temporarily suspended GitHub delivery to save Actions minutes.

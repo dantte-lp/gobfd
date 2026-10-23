@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- Создание через Echo API отклоняется без preview opt-in и готового receive
+  path; List/Delete остаются доступны для очистки.
+
 - URI сертификата больше не предоставляет привилегии Unix UID; владельцы
   сессий TLS URI, TLS DNS и Unix UID используют разные пространства имён.
 

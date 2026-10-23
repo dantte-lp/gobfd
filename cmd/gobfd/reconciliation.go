@@ -304,6 +304,7 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	c.unboundSources = unboundInterfaceSources(retainedCandidate)
 	c.statusMu.Unlock()
 	c.readiness.setSources(0)
+	c.readiness.setEchoEnabled(retainedCandidate.echoEnabled)
 	for i := range retainedCandidate.base {
 		retainedCandidate.base[i].reconcile.DesiredGeneration = generation
 		workingCandidate.base[i].reconcile.DesiredGeneration = generation
@@ -567,6 +568,7 @@ func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 }
 
 type compiledControlSessionCandidate struct {
+	echoEnabled bool
 	base        []baseSessionCandidate
 	echo        []echoSessionCandidate
 	microGroups []bfd.MicroBFDReconcileConfig
@@ -612,7 +614,8 @@ func compileControlSessionCandidate(cfg *config.Config) (compiledControlSessionC
 
 	return compiledControlSessionCandidate{
 		base: base, echo: echo, microGroups: microGroups,
-		overlays: overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
+		echoEnabled: cfg.Echo.Enabled,
+		overlays:    overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
 		listeners: compileListenerConfigs(cfg),
 	}, nil
 }

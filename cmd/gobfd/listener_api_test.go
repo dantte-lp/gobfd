@@ -62,6 +62,7 @@ type apiListenerFixture struct {
 func newAPIListenerFixture(t *testing.T) *apiListenerFixture {
 	t.Helper()
 	coordinator, _ := newConvergedReadinessCoordinator(t)
+	coordinator.readiness.setEchoEnabled(true)
 	opener := newFakeListenerOpener()
 	inventory := &fakeInterfaceInventory{}
 	inventory.set(nil, upInterface("eth1", 1), upInterface("eth8", 8))

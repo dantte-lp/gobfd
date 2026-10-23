@@ -308,6 +308,15 @@ Echo sessions detect forwarding-path failures without requiring the remote syste
 
 Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
 
+API creation also requires `echo.enabled: true`, a reconciled Echo source and
+a ready runtime/receive binding. Otherwise `AddEchoSession` returns
+`FailedPrecondition` before opening a sender or creating a session. API-only
+deployments may omit `echo.peers`: the API claims its receive listener before
+opening the sender. Valid SIGHUP reloads update this opt-in; rejected candidates
+preserve it. Readiness loss rejects subsequent admission; already admitted
+requests may complete. List/Delete remain available under management policy.
+This guard does not promote RFC 9747 beyond preview.
+
 Example:
 ```yaml
 echo:

@@ -306,6 +306,14 @@ Echo-сессии обнаруживают отказы forwarding-path без �
 
 Echo-пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local, interface)`.
 
+Создание через API также требует `echo.enabled: true`, реконсилированного Echo
+source и готового runtime/receive binding. Иначе `AddEchoSession` возвращает
+`FailedPrecondition` до открытия sender и создания сессии. В API-only deployment
+можно не задавать `echo.peers`: API получает receive listener до открытия sender.
+Валидный SIGHUP обновляет opt-in; отклонённый кандидат его сохраняет. Потеря
+готовности отклоняет последующие admission; уже допущенный запрос может завершиться.
+List/Delete доступны с прежней management policy. RFC 9747 остаётся preview.
+
 Пример:
 ```yaml
 echo:

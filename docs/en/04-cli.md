@@ -131,6 +131,11 @@ RFC 9747 unaffiliated BFD echo sessions live under a separate command
 group because their timer model differs from RFC 5880 control sessions:
 TxInterval is locally provisioned and not negotiated with the peer.
 
+`echo add` requires the daemon's `echo.enabled: true` and a ready Echo receive
+path. Disabled preview, pending/failed reconciliation or lost runtime/binding
+readiness returns `FailedPrecondition` without opening a sender or creating a
+session. List/Delete remain available for cleanup. RFC 9747 remains preview.
+
 #### List echo sessions
 
 ```bash
