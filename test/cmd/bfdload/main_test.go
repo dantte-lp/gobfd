@@ -52,97 +52,103 @@ func TestEnvironmentCommand(t *testing.T) {
 }
 
 func TestEnvironmentSignalHelper(_ *testing.T) {
-	if os.Args[len(os.Args)-1] != "bfdload-signal-helper" {
+	if len(os.Args) < 4 || os.Args[2] != "bfdload-signal-helper" {
 		return
 	}
-	os.Args = []string{os.Args[0], "environment"}
+	os.Args = append([]string{os.Args[0]}, os.Args[3:]...)
 	main()
 }
 
-func TestEnvironmentCommandSignalWithBlockedOutput(t *testing.T) {
-	t.Parallel()
+func TestCommandsSignalWithBlockedOutput(t *testing.T) {
 	const pipeCapacity = 4096
 	var output bytes.Buffer
 	if err := run(t.Context(), []string{"environment"}, &output); err != nil {
 		t.Fatal(err)
 	}
-	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		t.Run(sig.String(), func(t *testing.T) {
-			t.Parallel()
-			reader, writer, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				if closeErr := errors.Join(reader.Close(), writer.Close()); closeErr != nil {
-					t.Error(closeErr)
+	for _, args := range [][]string{
+		{"environment"},
+		{"peers", "fixture", "--sessions=1", "--duration=20ms", "--session=127.0.0.1:37983,127.31.0.7:37984"},
+		{"owner", "fixture", "--sessions=1", "--duration=20ms", "--session=127.0.0.1:37983,127.31.0.7:37984"},
+	} {
+		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+			t.Run(args[0]+"/"+sig.String(), func(t *testing.T) {
+				reader, writer, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
 				}
-			})
-			capacity, err := unix.FcntlInt(writer.Fd(), unix.F_SETPIPE_SZ, pipeCapacity)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if capacity >= output.Len() {
-				t.Skipf("snapshot %d bytes does not exceed pipe capacity %d", output.Len(), capacity)
-			}
-			t.Logf("snapshot_bytes=%d pipe_capacity=%d", output.Len(), capacity)
-			executable, err := os.Executable()
-			if err != nil {
-				t.Fatal(err)
-			}
-			child, err := os.StartProcess(executable,
-				[]string{executable, "-test.run=^TestEnvironmentSignalHelper$", "bfdload-signal-helper"},
-				&os.ProcAttr{Files: []*os.File{os.Stdin, writer, os.Stderr}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var state *os.ProcessState
-			var waitErr error
-			done := make(chan struct{})
-			go func() {
-				state, waitErr = child.Wait()
-				close(done)
-			}()
-			t.Cleanup(func() {
+				t.Cleanup(func() {
+					if closeErr := errors.Join(reader.Close(), writer.Close()); closeErr != nil {
+						t.Error(closeErr)
+					}
+				})
+				capacity, err := unix.FcntlInt(writer.Fd(), unix.F_SETPIPE_SZ, pipeCapacity)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if capacity >= output.Len() {
+					t.Skipf("snapshot %d bytes does not exceed pipe capacity %d", output.Len(), capacity)
+				}
+				t.Logf("snapshot_bytes=%d pipe_capacity=%d", output.Len(), capacity)
+				executable, err := os.Executable()
+				if err != nil {
+					t.Fatal(err)
+				}
+				childArgs := append([]string{
+					executable, "-test.run=^TestEnvironmentSignalHelper$", "bfdload-signal-helper",
+				}, args...)
+				child, err := os.StartProcess(executable, childArgs,
+					&os.ProcAttr{Files: []*os.File{os.Stdin, writer, os.Stderr}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var state *os.ProcessState
+				var waitErr error
+				done := make(chan struct{})
+				go func() {
+					state, waitErr = child.Wait()
+					close(done)
+				}()
+				t.Cleanup(func() {
+					select {
+					case <-done:
+					default:
+						if killErr := child.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+							t.Error(killErr)
+						}
+						<-done
+					}
+					if waitErr != nil {
+						t.Error(waitErr)
+					}
+				})
+				if err := reader.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				var prefix [1]byte
+				if _, err := io.ReadFull(reader, prefix[:]); err != nil {
+					t.Fatal(err)
+				}
+				if prefix[0] != '{' {
+					t.Fatalf("child did not start its JSON report: %q", prefix)
+				}
+				if err := child.Signal(sig); err != nil {
+					t.Fatal(err)
+				}
+				timer := time.NewTimer(2 * time.Second)
+				defer timer.Stop()
 				select {
 				case <-done:
-				default:
-					if killErr := child.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
-						t.Error(killErr)
+					if waitErr != nil {
+						t.Fatal(waitErr)
 					}
-					<-done
-				}
-				if waitErr != nil {
-					t.Error(waitErr)
+					status, ok := state.Sys().(syscall.WaitStatus)
+					if !ok || !status.Signaled() || status.Signal() != sig {
+						t.Fatalf("child status = %v, want termination by %s", state, sig)
+					}
+				case <-timer.C:
+					t.Fatalf("%s did not terminate the command while stdout was blocked", sig)
 				}
 			})
-			if err := reader.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-				t.Fatal(err)
-			}
-			var prefix [1]byte
-			if _, err := io.ReadFull(reader, prefix[:]); err != nil {
-				t.Fatal(err)
-			}
-			if prefix[0] != '{' {
-				t.Fatalf("child did not start its JSON report: %q", prefix)
-			}
-			if err := child.Signal(sig); err != nil {
-				t.Fatal(err)
-			}
-			timer := time.NewTimer(2 * time.Second)
-			defer timer.Stop()
-			select {
-			case <-done:
-				if waitErr != nil {
-					t.Fatal(waitErr)
-				}
-				status, ok := state.Sys().(syscall.WaitStatus)
-				if !ok || !status.Signaled() || status.Signal() != sig {
-					t.Fatalf("child status = %v, want termination by %s", state, sig)
-				}
-			case <-timer.C:
-				t.Fatalf("%s did not terminate the command while stdout was blocked", sig)
-			}
-		})
+		}
 	}
 }

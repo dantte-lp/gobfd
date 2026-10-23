@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Go-owned UDP peer workload components add an independent asynchronous
+  Control state model, reproducible per-peer loss, timed blackholes and
+  explicit write/receive accounting. Named profiles preserve qualification
+  inputs; generator observations do not establish daemon or reference support.
+  The `bfdload` owner/peers commands validate explicit topology, record bounded
+  resource windows and preserve partial reports on cancellation. Visible ancestor
+  resource admission remains separate from runtime and reference qualification.
+
 - Receive clocks expose measured pairing brackets and nominal resolutions with
   explicit conditional bounds. Workload reports combine them with a run-scoped
   Linux realtime epoch witness; invalid or uncovered data remains unknown.

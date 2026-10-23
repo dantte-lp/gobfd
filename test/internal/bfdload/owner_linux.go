@@ -20,6 +20,8 @@ import (
 	"github.com/dantte-lp/gobfd/internal/netio"
 )
 
+const sourcePortCapacity = 16384
+
 var errOwnerConfig = errors.New("invalid owner workload configuration")
 
 // OwnerEndpoint identifies a receive binding and its remote receive endpoint.
@@ -141,7 +143,6 @@ func StartOwner(ctx context.Context, cfg OwnerConfig, logger *slog.Logger) (*Own
 }
 
 func validateOwnerConfig(cfg OwnerConfig) error {
-	const sourcePortCapacity = 16384
 	if len(cfg.Sessions) == 0 || len(cfg.Sessions) > sourcePortCapacity || cfg.DetectMultiplier == 0 ||
 		!ownerIntervalFitsWire(cfg.Interval) {
 		return fmt.Errorf("owner session count or wire intervals: %w", errOwnerConfig)

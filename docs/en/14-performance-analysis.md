@@ -168,6 +168,35 @@ alternate ports and validates actual packet commit, rejection and returned TX. I
 qualify RFC ports, an independent generator, daemon-wide resource bounds or the
 reference workload.
 
+`test/internal/bfdload.RunPeers` drives actual UDP with its own unauthenticated
+asynchronous Control state model, independent of the target session FSM.
+Separate seeded PCG streams cover each peer and direction; protocol jitter
+uses another stream. Random omissions and timed blackholes retain separate
+counts from successful UDP writes, canceled writes and unprocessed input.
+Partial startup and cancellation close owned sockets and join workers.
+Named `reference` and `engineering` profiles reject reduced qualification
+inputs; `fixture` is explicitly unqualified. Generator reports remain scoped
+to the generator, with raw kernel-drop samples and no reference verdict.
+`bfdload peers PROFILE` and `bfdload owner PROFILE` consume typed flags and
+repeatable `--session=localAddrPort,peerAddrPort` bindings, plus `--interface`
+for the named profiles. Scalar duplicates, malformed endpoints and reduced
+named profiles fail before sockets open. SIGINT/SIGTERM cancel the workload,
+join workers and emit a partial JSON report; signals retain normal termination
+while stdout is blocked after cleanup.
+
+`RunOwner` records initial/final real collector snapshots, sampled resource
+peaks, means for the first/final six-hour RSS windows, runtime histogram
+deltas and a bounded Down journal. Missing transition events and journal
+overflow remain explicit; the owner does not classify intentional Down without
+the independent peer report. `completed` means the observation duration ended,
+not that all sessions remained Up. Reference resources require exact 8 CPU/
+8 GiB child limits, GOMAXPROCS 8, the pinned compiler and no tighter visible
+cgroup ancestors. Hidden ancestor roots fail closed. Admission does not reserve
+capacity or prove host namespace visibility; the isolated runner must verify
+these independently. Process isolation, settled 24-hour Up duration, background
+CPU load, independent clock validity and full daemon qualification remain
+separate gates in Beads. See the [cgroup v2 hierarchy contract](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+
 Listener `clock_calibrations` retain a three-read monotonic bracket around the
 wall/monotonic pair and the nominal native clock resolutions. The conditional
 conversion bound is `span_ns + realtime_resolution_ns + monotonic_resolution_ns`.
