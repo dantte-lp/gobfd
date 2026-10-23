@@ -39,6 +39,13 @@
   требует Poll/Final. TX/RX directional и queued-update rules сохранены;
   остальные owners, modes и effective parameters вне этого среза сохраняют conflict boundaries.
   Live FRR/BIRD Detect Multiplier reload qualification ещё впереди.
+- Go-owned UDP peer workload components предоставляют независимую модель
+  asynchronous Control, воспроизводимые per-peer потери, timed blackholes
+  и явный учёт writes/receives. Именованные профили сохраняют условия
+  квалификации; наблюдения генератора не подтверждают daemon или reference support.
+  Команды `bfdload` owner/peers проверяют явную топологию, сохраняют ограниченные
+  окна ресурсов и частичные отчёты при отмене. Допуск по ресурсам видимых предков
+  остаётся отдельным от фактической нагрузки и reference qualification.
 
 - Receive clocks предоставляют измеренные скобки пары часов и номинальные
   разрешения с явными условными границами. Отчёт нагрузки сопоставляет их с

@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an explicit external CA and roots: native mTLS renewal atomically replaces
   only the public certificate, preserving the key and SAN. Actual step-ca
   qualification remains pending in `gobfd-qj0.8.2.3.7.4`.
+- Go-owned UDP peer workload components add an independent asynchronous
+  Control state model, reproducible per-peer loss, timed blackholes and
+  explicit write/receive accounting. Named profiles preserve qualification
+  inputs; generator observations do not establish daemon or reference support.
+  The `bfdload` owner/peers commands validate explicit topology, record bounded
+  resource windows and preserve partial reports on cancellation. Visible ancestor
+  resource admission remains separate from runtime and reference qualification.
 
 - Receive clocks expose measured pairing brackets and nominal resolutions with
   explicit conditional bounds. Workload reports combine them with a run-scoped
