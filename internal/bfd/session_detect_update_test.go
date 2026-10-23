@@ -68,7 +68,7 @@ func TestSessionDetectMultiplierUpdateWire(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				s, sender, tx, detect := newRemoteTxTestSession(t)
 				s.remoteDemandMode = tc.demand
-				tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 5}
+				tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 5, 0, 0}
 				admitted, err := s.admitTimerUpdate(t.Context(), tuple, 1)
 				if err != nil {
 					t.Fatal(err)
@@ -147,7 +147,7 @@ func TestSessionDetectMultiplierOneReschedulesJitter(t *testing.T) {
 		s, sender, tx, detect := newRemoteTxTestSession(t)
 		s.sendControl(t.Context())
 		tx.Reset(100 * time.Millisecond)
-		tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 1}
+		tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 1, 0, 0}
 		if _, err := s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +171,7 @@ func TestSessionDetectMultiplierUpdateFailureAndRetirement(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				s, _, tx, detect := newRemoteTxTestSession(t)
 				s.remoteDemandMode = true
-				tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 5}
+				tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 5, 0, 0}
 				if _, err := s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 					t.Fatal(err)
 				}
@@ -209,7 +209,7 @@ func TestSessionDetectMultiplierConcurrentSnapshots(t *testing.T) {
 		})
 		for generation := range uint64(1000) {
 			mult := uint8(3 + 2*(generation%2))
-			tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, mult}
+			tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, mult, 0, 0}
 			if _, err := s.admitTimerUpdate(t.Context(), tuple, generation+1); err != nil {
 				t.Fatal(err)
 			}
@@ -235,7 +235,7 @@ func TestSessionDetectMultiplierPreservesAuthentication(t *testing.T) {
 		}
 		s.auth, s.authKeys, s.authState = auth, keys, state
 		s.sendControl(t.Context())
-		tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 5}
+		tuple := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 5, 0, 0}
 		if _, err = s.admitTimerUpdate(t.Context(), tuple, 1); err != nil {
 			t.Fatal(err)
 		}

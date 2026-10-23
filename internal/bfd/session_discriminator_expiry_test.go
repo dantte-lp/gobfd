@@ -113,7 +113,7 @@ func TestDownInterruptionReanchorsDiscriminatorExpiry(t *testing.T) {
 				s, _, tx, detect := newRemoteTxTestSession(t)
 				s.requiredMinRxInterval = time.Second
 				s.remoteDesiredMinTxInterval, s.remoteDetectMult = 100*time.Millisecond, 3
-				proposal := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 3}
+				proposal := timerTuple{100 * time.Millisecond, 100 * time.Millisecond, 3, 0, 0}
 				if _, err := s.admitTimerUpdate(t.Context(), proposal, 1); err != nil {
 					t.Fatal(err)
 				}

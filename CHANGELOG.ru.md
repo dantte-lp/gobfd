@@ -16,11 +16,18 @@
 
 ### Добавлено
 
+- Добавлен in-place reload multihop receive floor и подготовленного padding
+  stable sole-config base sessions с прежней authentication. TTL-only changes
+  не требуют Poll; padding требует positive-to-positive targets, Async и
+  constructor proof DF preparation. Неподдерживаемый base candidate отклоняется до
+  generation acceptance; queued policy повторно проверяет owner.
+  Padding enable/disable остаётся после v1; live peer/MTU qualification отдельна.
+
 - Добавлен in-place reload `detect_mult` для base sessions с единственным
   config-owner и стабильной identity через существующие TX/RX tuple и receipts.
   Detect-only Async update не требует Poll; remote Demand при обоих концах Up
   требует Poll/Final. TX/RX directional и queued-update rules сохранены;
-  остальные owners, modes и effective parameters сохраняют conflict boundaries.
+  остальные owners, modes и effective parameters вне этого среза сохраняют conflict boundaries.
   Live FRR/BIRD Detect Multiplier reload qualification ещё впереди.
 
 - Receive clocks предоставляют измеренные скобки пары часов и номинальные

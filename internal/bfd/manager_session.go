@@ -1122,6 +1122,9 @@ func (m *Manager) ownerClaimSnapshot(
 		status := entry.refreshTimerSnapshot()
 		candidate := desiredByKey[key].effective
 		if entry.canUpdateTimers(owner, candidate) {
+			if err := entry.session.validatePacketPolicyUpdate(candidate.updateTuple()); err != nil {
+				return nil, fmt.Errorf("reconcile session policy: %w", err)
+			}
 			continue
 		}
 		_, owned := entry.owners[owner]
@@ -1245,6 +1248,8 @@ func recordClaimError(result *ReconcileResult, key SessionKey, err error) {
 	addReconcileError(result, ReconcileErrorCreate, err)
 }
 
+// Caller holds ownershipMu and an active lifecycle operation. Buffer preparation
+// runs outside the registry lock so unrelated demux readers remain independent.
 func (m *Manager) reconcileExistingTimers(
 	ctx context.Context, key SessionKey, owner SessionOwner, candidate reconcileCandidate, result *ReconcileResult,
 ) bool {
@@ -1254,12 +1259,10 @@ func (m *Manager) reconcileExistingTimers(
 		m.mu.Unlock()
 		return false
 	}
+	m.mu.Unlock()
 	rc := candidate.config
-	status, updateErr := entry.session.admitTimerUpdate(ctx,
-		timerTuple{
-			rc.SessionConfig.DesiredMinTxInterval, rc.SessionConfig.RequiredMinRxInterval,
-			rc.SessionConfig.DetectMultiplier,
-		}, rc.DesiredGeneration)
+	status, updateErr := entry.session.admitTimerUpdate(ctx, candidate.effective.updateTuple(), rc.DesiredGeneration)
+	m.mu.Lock()
 	entry.refreshTimerSnapshot()
 	m.mu.Unlock()
 	switch {
@@ -1272,6 +1275,7 @@ func (m *Manager) reconcileExistingTimers(
 			Revision: status.Requested.Revision, Generation: status.Requested.Generation,
 			DesiredMinTxInterval: status.Requested.Tuple.TX, RequiredMinRxInterval: status.Requested.Tuple.RX,
 			DetectMultiplier: status.Requested.Tuple.DetectMult,
+			MultiHopMinTTL:   status.Requested.Tuple.MinTTL, PaddedPduSize: status.Requested.Tuple.PaddedPduSize,
 		})
 	case status.Changed:
 		result.Updated++
@@ -1290,6 +1294,8 @@ func (entry *sessionEntry) canUpdateTimers(owner SessionOwner, candidate effecti
 	current.DesiredMinTxInterval = candidate.DesiredMinTxInterval
 	current.RequiredMinRxInterval = candidate.RequiredMinRxInterval
 	current.DetectMultiplier = candidate.DetectMultiplier
+	current.MultiHopMinTTL = candidate.MultiHopMinTTL
+	current.PaddedPduSize = candidate.PaddedPduSize
 	return current == candidate
 }
 
@@ -1300,6 +1306,8 @@ func (entry *sessionEntry) refreshTimerSnapshot() timerUpdateStatus {
 	entry.effective.DesiredMinTxInterval = status.Confirmed.TX
 	entry.effective.RequiredMinRxInterval = status.Confirmed.RX
 	entry.effective.DetectMultiplier = status.Confirmed.DetectMult
+	entry.effective.MultiHopMinTTL = status.Confirmed.MinTTL
+	entry.effective.PaddedPduSize = status.Confirmed.PaddedPduSize
 	return status
 }
 
@@ -1316,6 +1324,8 @@ type TimerUpdateRef struct {
 	Revision, Generation                        uint64
 	DesiredMinTxInterval, RequiredMinRxInterval time.Duration
 	DetectMultiplier                            uint8
+	MultiHopMinTTL                              uint8
+	PaddedPduSize                               uint16
 }
 
 // ObserveTimerUpdates cannot create resources, admit intent or retry failures.
@@ -1335,7 +1345,7 @@ func (m *Manager) ObserveTimerUpdates(refs []TimerUpdateRef) ReconcileResult {
 		case status.Requested.Revision != ref.Revision || status.Requested.Generation != ref.Generation ||
 			status.Requested.Tuple != (timerTuple{
 				ref.DesiredMinTxInterval, ref.RequiredMinRxInterval,
-				ref.DetectMultiplier,
+				ref.DetectMultiplier, ref.MultiHopMinTTL, ref.PaddedPduSize,
 			}) ||
 			status.State == timerUpdateFailed:
 			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)

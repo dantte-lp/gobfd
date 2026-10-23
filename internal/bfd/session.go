@@ -433,6 +433,9 @@ type Session struct {
 
 	// --- Cached packet (FRR bfdd pattern) ---
 	cachedPacket []byte
+	// waitingPacket is the latest proposal's preallocated growth buffer.
+	// Admission owns it under mu; only the event loop installs it for TX.
+	waitingPacket []byte
 
 	// paddedPduSize is the RFC 9764 padded PDU size. Zero means no padding.
 	paddedPduSize uint16
@@ -822,8 +825,8 @@ func (s *Session) Type() SessionType { return s.sessionType }
 // transportOutcome checks a demultiplexed packet against the session transport:
 // the transport class for every session type, the bound interface for
 // single-hop and the hop policy for multihop. It returns DeliveryFound,
-// DeliveryScopeMismatch or DeliveryTTLRejected; the fields it reads are
-// immutable after construction.
+// DeliveryScopeMismatch or DeliveryTTLRejected. The multihop floor is sampled
+// under mu; the remaining transport identity is immutable.
 func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 	if (s.sessionType == SessionTypeMultiHop) != meta.MultiHop {
 		return DeliveryScopeMismatch
@@ -842,7 +845,10 @@ func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 			return DeliveryScopeMismatch
 		}
 	case SessionTypeMultiHop:
-		if meta.TTL < s.minTTL {
+		s.mu.RLock()
+		floor := s.minTTL
+		s.mu.RUnlock()
+		if meta.TTL < floor {
 			return DeliveryTTLRejected
 		}
 	default:
@@ -851,7 +857,11 @@ func (s *Session) transportOutcome(meta PacketMeta) DeliveryOutcome {
 }
 
 // PaddedPduSize returns the RFC 9764 padded PDU size. Zero means no padding.
-func (s *Session) PaddedPduSize() uint16 { return s.paddedPduSize }
+func (s *Session) PaddedPduSize() uint16 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.paddedPduSize
+}
 
 // AuthType returns the RFC 5880 authentication type configured for this session.
 func (s *Session) AuthType() AuthType {

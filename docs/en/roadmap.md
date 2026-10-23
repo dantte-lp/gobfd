@@ -4,6 +4,35 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Local receive-floor and prepared-padding reload — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.2` extends stable sole-config base sessions with unchanged
+authentication to a five-field TX/RX/DetectMult/MinTTL/PaddedPduSize tuple and
+generation/revision receipts. The local multihop `255 - N` receive floor changes
+under `Session.mu` without Poll even under Demand; this is GoBFD policy, not an
+RFC 5883 receive-TTL requirement. Padding permits only positive-to-positive
+changes in Async on a sender proven DF-prepared at construction.
+
+`Manager.AdmitSessionReload` receives only `candidate.base`, preserves
+retained/live authentication checks and rejects unsupported base field/ownership
+policy before desired-generation, log-level
+or resource mutation. Owner revalidation rejects a queued padding tuple before
+any field commit if Demand activates. Growth prepares one waiting buffer at
+control admission; existing TX/RX Poll direction and queue semantics remain.
+`PaddingPrepared` is immutable preparation evidence, not socket liveness.
+
+The local frozen-source race run passed 1031 top-level tests in five packages;
+two existing namespace/capability-dependent cases remain separate. All 27
+selected baseline/head allocation budgets match. Evidence is retained in
+`reports/session-policy-20261024/`; this does not establish live peer/MTU or
+release acceptance. `gobfd-qj0.8.2.2.7.1` and `gobfd-qj0.8.2.2.7.3` are closed
+on dev; integration `gobfd-qj0.8.2.2.7.4` remains P0, and P1
+`gobfd-qj0.8.2.2.7.5` owns actual-wire qualification across all reload fields.
+Padding enable/disable and dynamic DF are after-v1 P2 `gobfd-ebu`, discovered
+from this slice and outside its v1 acceptance boundary; they do not block it.
+Key rotation remains after-v1 P2 `gobfd-khr`. Beads owns execution; earlier dated
+projections retain their historical scope.
+
 ## Authentication reload admission — 2026-10-24
 
 `gobfd-qj0.8.2.2.7.3` implements admission for same-identity base authentication changes

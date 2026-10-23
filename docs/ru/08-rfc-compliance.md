@@ -293,8 +293,8 @@ intent, shared-owner/unsupported rejection, deadline DetectMult 1,
 failure/retirement и concurrent getters/snapshots. Итоговая валидация относится
 к evidence замороженных исходников; эта секция не утверждает финальный PASS.
 Live FRR/BIRD Detect Multiplier reload ещё не квалифицирован. Shared-owner/API,
-Micro-BFD, overlay, authentication, padding и minimum-TTL changes остаются
-за пределами среза. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+Micro-BFD, overlay и authentication changes остаются за пределами среза;
+ограниченный minimum-TTL/padding reload описан ниже. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 принимает policy без общей Poll/Demand или RFC graduation.
 
 #### Section 6.8.16: Административное управление
@@ -404,6 +404,12 @@ demultiplexing (раздел 6: первый пакет принимается �
 | Интерфейс | `multi_hop` с `interface` отклоняется валидацией YAML и API (раздел 4.1 демультиплексирует по паре адресов) |
 | Echo (раздел 3: MUST NOT be used over multiple hops) | Multihop Control пакеты передают Required Min Echo RX Interval 0; у RFC 9747 Echo нет multihop типа |
 | Demux (раздел 4.1) | Your Discriminator, при нуле -- пара (источник, назначение); `Manager.DemuxWithWire` |
+
+Для стабильной sole-config multihop session с прежней authentication reload
+`multihop_max_hops` обновляет локальный floor `255 - N` под `Session.mu` на
+receive gate. TTL-only change не требует Poll даже при remote Demand.
+Tuple/receipt отслеживает MinTTL вместе с TX/RX, DetectMult и PaddedPduSize;
+эта локальная policy не добавляет нормативного TTL rule в RFC 5883.
 
 **Рекомендации по аутентификации (разделы 3 и 6).** TTL/Hop Limit 255 на приёме
 не защищает multihop путь; RFC 5883 Section 3 возлагает защиту от спуфинга на
@@ -671,7 +677,7 @@ ownership kernel Geneve, OVS/OVN или NSX dataplane.
 
 **Статус**: Частично
 
-Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (бит DF)
+Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (бит DF), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
 
 RFC 9764 определяет BFD Large Packets для проверки MTU пути. Реализация дополняет BFD Control пакеты до настроенного размера нулями и устанавливает бит IP Don't Fragment (DF). Если дополненный пакет превышает MTU пути, он будет отброшен, что позволит BFD обнаружить проблему с MTU.
 
@@ -684,6 +690,25 @@ RFC 9764 определяет BFD Large Packets для проверки MTU пу
 | Статус сессии в API | `BfdSession.padded_pdu_size` передаёт настроенный target в байтах; authenticated PDU может быть длиннее |
 | Глобальное значение по умолчанию | `bfd.default_padded_pdu_size` в YAML конфигурации |
 | Диапазон настроенного target | 0 отключает padding; 24-9000 байт без аутентификации, 26-9000 с аутентификацией (политика v1) |
+
+In-place reload ограничен positive-to-positive targets sole-config base session
+со стабильной identity, прежней authentication и sender, чей immutable
+`PaddingPrepared` доказывает успешную constructor DF preparation, не socket
+liveness. Remote Demand, неизвестный/неподготовленный sender, переходы через
+ноль и shared-owner base padding updates отклоняют весь candidate до изменений
+desired generation, log level или ресурсов. Coordinator admission guard получает
+только `candidate.base`. Micro-BFD и overlay остаются вне допустимого профиля;
+поля padding/minTTL в их configuration не добавляются, conflict/stale других
+sources не меняется. Queued policy повторно
+проверяется до commit любого поля; включившийся Demand завершает весь pending
+tuple ошибкой, включая возврат к confirmed values. TX/RX Poll directions и
+active/queued generation rules сохраняются.
+
+Рост capacity готовит один waiting buffer при control admission; owner меняет
+его до commit полей, growth allocation в packet loop отсутствует. Padding
+enable/disable и dynamic DF остаются after-v1 P2 `gobfd-ebu`; zero-target DF
+defaults не меняются. Итоговая live peer/MTU qualification принадлежит P1
+`gobfd-qj0.8.2.2.7.5`; component checks её не закрывают.
 
 Проверка Keyed MD5 и SHA1 вычисляет digest точно до объявленного BFD `Length`,
 включая extension bytes внутри PDU. Перед вычислением проверяется, что digest
@@ -698,7 +723,8 @@ RFC 9764 определяет BFD Large Packets для проверки MTU пу
 25 байт. YANG typedef RFC 9764 также допускает увеличение меньшего настроенного
 target до минимума сессии; отклонение — выбранная политика GoBFD.
 Допустимый target 26 не усекает более длинный authenticated PDU: передача
-использует `max(actual PDU length, configured target)`. YAML global default
+использует `max(actual PDU length, configured target)` в transport payload
+bytes без IP/UDP headers. YAML global default
 и per-session override проверяются по общей политике до runtime changes;
 raw numeric inputs проверяются до возможного wrap или усечения weak decoder.
 

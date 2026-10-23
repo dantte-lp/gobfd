@@ -13,6 +13,9 @@ import (
 // NewUDPSender always returns ErrUnsupportedPlatform on this platform.
 type UDPSender struct{}
 
+// PaddingPrepared returns false because no Linux sender socket is available.
+func (*UDPSender) PaddingPrepared() bool { return false }
+
 // SenderOption preserves the sender configuration API on non-Linux builds.
 type SenderOption func(*UDPSender)
 

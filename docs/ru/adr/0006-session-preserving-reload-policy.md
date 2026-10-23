@@ -32,8 +32,8 @@ authentication replay state, counters и ownership. Shared session нельзя
 |---|---|
 | Desired TX / required RX intervals | Сохранить действующие Poll/Final transaction rules RFC 5880 §6.8.3 |
 | Detect Multiplier | Объявить новое ненулевое значение в следующем Control packet без Poll в Async; при активном remote Demand выполнить требования Poll из §6.6 |
-| Multihop minimum TTL | Опубликовать согласованную локальную receive-admission policy без замены сессии; согласование с peer не подразумевается |
-| Padded PDU target | Допускать согласованное owner-обновление только в квалифицированном RFC 9764 Asynchronous profile; сохранить нулевой padding и ограничения authentication/transport |
+| Multihop minimum TTL | Применять локальный receive floor 255 − N под Session.mu без замены и Poll, в том числе при remote Demand; это policy GoBFD, не требование RFC 5883 к receive TTL |
+| Padded PDU target | Допускать только positive-to-positive changes в Async на уже DF-prepared sender с прежней authentication и единственным config-owner; неподдерживаемый base candidate отклонять до generation acceptance |
 | Неподдерживаемый authentication transition | Отклонить весь candidate до принятия новой generation; сохранить прежнюю конфигурацию |
 | Wire identity или другой неподдерживаемый transition | Не заменять автоматически; disruptive replacement требует отдельного явного намерения оператора |
 
@@ -43,6 +43,31 @@ effect. Активный Poll сохраняет объявленный tuple, �
 ожидает по действующему transaction contract. Добавление Detect Multiplier,
 TTL или padding не ослабляет эти правила. Исключение для remote Demand не
 квалифицирует общую поддержку Demand mode.
+
+Срез packet policy v1 расширяет tuple, refs и confirmed/effective receipts до
+пяти полей: TX, RX, DetectMult, MinTTL, PaddedPduSize. Coordinator передаёт
+`Manager.AdmitSessionReload` только `candidate.base`; guard проверяет его
+stable-identity field/ownership policy до локального generation
+acceptance, сохраняя описанные ниже retained/live authentication checks.
+Padding требует immutable constructor proof `PaddingPrepared`, а не requested
+option или утверждение socket liveness. Zero-to-positive и positive-to-zero
+transitions, неизвестный/неподготовленный sender, remote Demand и shared-owner
+base padding updates отклоняются. Micro-BFD и overlay остаются вне допустимого
+профиля; поля padding/minTTL в их configuration не добавляются. Effective changes
+других sources сохраняют прежний per-source conflict/stale; новый preflight всех
+пяти sources не подразумевается. Policy проверяется до equality
+shortcuts, включая возврат к confirmed target при активном Demand. Owner
+повторно проверяет queued tuple и отклоняет его целиком до commit любого поля,
+если Demand включился во время ожидания.
+
+Рост capacity готовит один заменяемый waiting buffer при control admission;
+owner меняет buffer до commit полей. Growth allocation не откладывается до
+owner promotion или packet transmission. Target считает transport payload
+bytes без IP/UDP headers; длина отправки равна максимуму declared PDU и target,
+поэтому authentication не усекается. Padding нулевой и находится за пределами
+действующего authentication MAC domain. Прежние authenticated minimum 26 и
+zero-target DF defaults сохраняются. Padding enable/disable и dynamic DF
+preparation — отдельная after-v1 P2 задача `gobfd-ebu`.
 
 Полностью валидировать candidate, включая same-session transitions и ownership,
 до принятия его desired generation. Применять изменение одной сессии через
@@ -113,11 +138,12 @@ acceptance. Прежнее сравнение источников сохран�
 ADR не утверждает provider-specific runtime interoperability.
 
 Implementation и qualification принадлежат Beads parent `gobfd-qj0.8.2.2.7`.
-Detect Multiplier child `gobfd-qj0.8.2.2.7.1` закрыт на dev;
-authentication admission `gobfd-qj0.8.2.2.7.3` находится в работе.
-`gobfd-qj0.8.2.2.7.2` (padding/minimum TTL) и `gobfd-qj0.8.2.2.7.4`
-(reconciliation/rekey integration) остаются P0; `gobfd-qj0.8.2.2.7.5` владеет
-P1 actual-wire final gate. Исполняемые планы, приоритеты, зависимости и acceptance evidence
+Detect Multiplier `gobfd-qj0.8.2.2.7.1` и authentication admission
+`gobfd-qj0.8.2.2.7.3` закрыты на dev. Packet-policy child
+`gobfd-qj0.8.2.2.7.2` ещё требует final gates;
+`gobfd-qj0.8.2.2.7.4` (reconciliation/rekey integration) остаётся P0.
+`gobfd-qj0.8.2.2.7.5` владеет P1 actual-wire final gate для всех reload fields,
+включая RFC 9764 peer/MTU qualification. Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.
 

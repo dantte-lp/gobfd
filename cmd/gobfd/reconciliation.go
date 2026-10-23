@@ -218,12 +218,12 @@ func (c *reconciliationCoordinator) reconcile(
 	}
 	var retained, working compiledControlSessionCandidate
 	var generation uint64
-	if err := mgr.AdmitAuthenticationReload(
+	if err := mgr.AdmitSessionReload(
 		baseReconcileConfigs(c.retainedCandidate.base), baseReconcileConfigs(candidate.base), func() {
 			retained, working, generation = c.acceptCandidateLocked(candidate, logLevel)
 		},
 	); err != nil {
-		return fmt.Errorf("validate authentication reload: %w", err)
+		return fmt.Errorf("validate session reload: %w", err)
 	}
 	if c.onConfiguredPeers != nil {
 		c.onConfiguredPeers(goBGPManagedPeers(cfg.Sessions))
@@ -306,7 +306,7 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 }
 
 // acceptCandidateLocked publishes only local state; it must not call Manager
-// or resource owners while authentication admission holds ownershipMu.
+// or resource owners while session admission holds ownershipMu.
 func (c *reconciliationCoordinator) acceptCandidateLocked(
 	candidate compiledControlSessionCandidate,
 	logLevel *slog.LevelVar,

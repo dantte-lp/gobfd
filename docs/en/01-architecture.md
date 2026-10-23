@@ -143,11 +143,14 @@ This split allows the listener to discard invalid packets before any session loc
 ```mermaid
 flowchart TD
     TIMER["txTimer fires<br/>jittered per RFC 5880 6.8.7"] --> CHECK["maybeSendControl<br/>passive role check,<br/>RemoteMinRx check"]
-    CHECK --> REBUILD["rebuildCachedPacket<br/>pre-serialized 24-byte header<br/>rebuilt only on param change"]
+    CHECK --> REBUILD["rebuildCachedPacket<br/>reused buffer<br/>rebuilt before each send"]
     REBUILD --> SEND["PacketSender.SendPacket<br/>raw UDP socket"]
 ```
 
-**Cached Packet Pattern** (inspired by FRR bfdd): each session maintains a pre-serialized `cachedPacket []byte` that is rebuilt only when parameters change (state transition, Poll/Final, timer negotiation). On each TX interval, the cached bytes are sent directly without re-encoding. For authenticated sessions, the auth sequence number is updated in the cached packet on each transmission without full re-serialization.
+**Reused packet buffer:** `sendControl` calls `rebuildCachedPacket` before each
+send, including header serialization and authentication. Padding growth prepares
+one waiting buffer at control admission; the owner swaps it before field commit.
+The packet loop reuses that capacity rather than allocating a growth buffer.
 
 ### Demultiplexing
 
@@ -194,13 +197,20 @@ bounded field identifiers; configuration values and secrets are not retained in
 the error. Desired-set membership changes may need new control, Echo, or Micro-BFD
 listeners or overlay backends, which their owners open as part of the
 generation. Solely config-owned base sessions with stable wire identity accept
-in-place TX/RX and Detect Multiplier changes through the existing timer tuple
-and generation/revision receipts. A detect-only Async update applies locally
+in-place TX/RX, Detect Multiplier, multihop minimum-TTL and qualified padding
+changes through one five-field tuple and generation/revision receipts, with
+unchanged authentication. A detect-only Async update applies locally
 without Poll; remote Demand with both ends Up requires Poll/Final. Combined
 TX/RX changes retain directional deferral, the active advertised tuple and the
-latest queued proposal. Shared-owner/API, Micro-BFD and overlay updates, and
-padding and minimum-TTL changes remain conflicts outside this slice.
-Unsupported same-identity authentication changes are rejected before accepting
+latest queued proposal. Local TTL-only updates publish the receive floor under
+`Session.mu` without Poll even under Demand. Padding permits positive-to-positive
+changes only on a constructor-proven DF-prepared sender in Async. Unknown or
+unprepared senders, padding enable/disable and shared-owner/API base padding
+updates are rejected before generation acceptance. The coordinator guards only
+`candidate.base`; Micro-BFD/overlay remain outside the qualified profile, with
+other-source conflicts/staleness unchanged. The owner
+rechecks queued policy before any field commit if Demand activates.
+Unsupported same-identity authentication changes are also rejected before accepting
 a generation. [ADR-0006](adr/0006-session-preserving-reload-policy.md) accepts the wider
 policy, not implementation or live peer qualification.
 The coordinator publishes a
@@ -298,7 +308,8 @@ The static store clones constructor inputs and returns caller-owned key copies;
 unknown key-store implementations fail closed because no stable semantic
 identity can be derived.
 
-Authentication reload admission compares those fingerprints with both retained
+`Manager.AdmitSessionReload` checks stable-field/ownership policy and compares
+authentication fingerprints with both retained
 accepted base intent, including entries with no live session, and the live
 Manager registry regardless of API/shared ownership. Enable/disable, algorithm,
 key IDs/material, selected TX key and receive-key-set changes fail before

@@ -112,7 +112,7 @@ func TestManagerAuthenticationReloadRetainedDesired(t *testing.T) {
 			mgr := NewManager(slog.New(slog.DiscardHandler))
 			t.Cleanup(mgr.Close)
 			accepted := 0
-			err := mgr.AdmitAuthenticationReload(tc.previous, tc.desired, func() { accepted++ })
+			err := mgr.AdmitSessionReload(tc.previous, tc.desired, func() { accepted++ })
 			if tc.reject {
 				if !errors.Is(err, ErrAuthenticationReloadUnsupported) || accepted != 0 {
 					t.Fatalf("unsupported reload: error %v, acceptance calls %d", err, accepted)
@@ -157,7 +157,7 @@ func TestManagerAuthenticationReloadChecksRuntimeIndependently(t *testing.T) {
 			desired := authenticationReloadDesired(authenticationReloadConfig(t, key))
 			for _, previous := range [][]ReconcileConfig{nil, desired} {
 				accepted := false
-				err = mgr.AdmitAuthenticationReload(previous, desired, func() { accepted = true })
+				err = mgr.AdmitSessionReload(previous, desired, func() { accepted = true })
 				if !errors.Is(err, ErrAuthenticationReloadUnsupported) || accepted {
 					t.Fatalf("live authentication mismatch: error %v, accepted %t", err, accepted)
 				}
@@ -165,7 +165,7 @@ func TestManagerAuthenticationReloadChecksRuntimeIndependently(t *testing.T) {
 			accepted := false
 			unchanged := authenticationReloadDesired(authenticationReloadConfig(t,
 				AuthKey{ID: 7, Type: AuthTypeMeticulousKeyedSHA1, Secret: []byte("test-material-a")}))
-			if err = mgr.AdmitAuthenticationReload(nil, unchanged, func() { accepted = true }); err != nil || !accepted {
+			if err = mgr.AdmitSessionReload(nil, unchanged, func() { accepted = true }); err != nil || !accepted {
 				t.Fatalf("unchanged live authentication: error %v, accepted %t", err, accepted)
 			}
 			current := mgr.Sessions()
@@ -181,7 +181,7 @@ func TestManagerAuthenticationReloadAcceptanceLockScope(t *testing.T) {
 	mgr := NewManager(slog.New(slog.DiscardHandler))
 	t.Cleanup(mgr.Close)
 	accepted := false
-	err := mgr.AdmitAuthenticationReload(nil, nil, func() {
+	err := mgr.AdmitSessionReload(nil, nil, func() {
 		accepted = true
 		if mgr.ownershipMu.TryLock() {
 			mgr.ownershipMu.Unlock()
@@ -219,7 +219,7 @@ func TestManagerAuthenticationReloadUnlocksAfterAcceptancePanic(t *testing.T) {
 				t.Errorf("acceptance panic = %v, want the original panic", got)
 			}
 		}()
-		_ = mgr.AdmitAuthenticationReload(nil, nil, func() { panic(want) })
+		_ = mgr.AdmitSessionReload(nil, nil, func() { panic(want) })
 	}()
 	if !mgr.ownershipMu.TryLock() {
 		t.Fatal("panicking acceptance retained the ownership lock")
@@ -232,7 +232,7 @@ func TestManagerAuthenticationReloadRejectsClosedManager(t *testing.T) {
 	mgr := NewManager(slog.New(slog.DiscardHandler))
 	mgr.Close()
 	accepted := false
-	err := mgr.AdmitAuthenticationReload(nil, nil, func() { accepted = true })
+	err := mgr.AdmitSessionReload(nil, nil, func() { accepted = true })
 	if !errors.Is(err, ErrManagerClosed) || accepted {
 		t.Fatalf("closed authentication admission: error %v, accepted %t", err, accepted)
 	}

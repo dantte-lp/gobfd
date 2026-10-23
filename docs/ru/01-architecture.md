@@ -155,11 +155,14 @@ flowchart TD
 ```mermaid
 flowchart TD
     TIMER["txTimer fires<br/>jittered per RFC 5880 6.8.7"] --> CHECK["maybeSendControl<br/>passive role check,<br/>RemoteMinRx check"]
-    CHECK --> REBUILD["rebuildCachedPacket<br/>pre-serialized 24-byte header<br/>rebuilt only on param change"]
+    CHECK --> REBUILD["rebuildCachedPacket<br/>reused buffer<br/>rebuilt before each send"]
     REBUILD --> SEND["PacketSender.SendPacket<br/>raw UDP socket"]
 ```
 
-**Паттерн кэшированного пакета** (по образцу FRR bfdd): каждая сессия хранит предварительно сериализованный `cachedPacket []byte`, который пересобирается только при изменении параметров (переход состояния, Poll/Final, согласование таймеров). На каждом TX-интервале кэшированные байты отправляются напрямую без повторной сериализации.
+**Переиспользуемый packet buffer:** `sendControl` вызывает `rebuildCachedPacket`
+перед каждой отправкой, включая сериализацию header и authentication. Рост
+padding готовит один waiting buffer при control admission; owner меняет его до
+commit полей. Packet loop использует готовую capacity без growth allocation.
 
 ### Демультиплексирование
 
@@ -221,13 +224,20 @@ sockets, policy, actuator, GoBGP и глобальные поля overlay backen
 Изменения desired-set membership могут потребовать новые listeners control,
 Echo или Micro-BFD либо overlay backends, которые их владельцы открывают в
 составе generation. Base sessions с единственным config-owner и стабильной
-wire identity принимают in-place TX/RX и Detect Multiplier через существующие
-timer tuple и generation/revision receipts. Detect-only Async update
+wire identity принимают in-place TX/RX, Detect Multiplier, multihop minimum-TTL
+и ограниченные padding changes через единый tuple из пяти полей и
+generation/revision receipts с прежней authentication. Detect-only Async update
 применяется локально без Poll; remote Demand при обоих концах Up требует
 Poll/Final. Комбинация с TX/RX сохраняет directional deferral, активный
-объявленный tuple и последний queued proposal. Shared-owner/API, Micro-BFD и
-overlay updates, а также padding и minimum-TTL changes остаются conflicts за
-пределами этого среза. Неподдерживаемые same-identity authentication changes
+объявленный tuple и последний queued proposal. Local TTL-only update публикует
+receive floor под `Session.mu` без Poll даже при Demand. Padding допускает
+только positive-to-positive changes в Async на sender с constructor proof DF
+preparation. Неизвестный/неподготовленный sender, padding enable/disable и
+shared-owner/API base padding updates отклоняются до generation acceptance.
+Coordinator проверяет только `candidate.base`; Micro-BFD/overlay остаются вне
+допустимого профиля, conflict/stale других sources не меняется. Owner повторно
+проверяет queued policy до commit любого поля,
+если Demand включился во время ожидания. Неподдерживаемые same-identity authentication changes
 отклоняются до принятия generation. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 принимает общую policy, но не квалифицирует реализацию или live peers.
 Coordinator публикует монотонное desired generation только после этой проверки
@@ -314,7 +324,8 @@ authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Stat
 неизвестные реализации key store отклоняются, потому что для них нельзя
 получить стабильную семантическую идентичность.
 
-Authentication reload admission сравнивает fingerprints с retained accepted
+`Manager.AdmitSessionReload` проверяет stable-field/ownership policy и
+сравнивает authentication fingerprints с retained accepted
 base intent, включая записи без live session, и live Manager registry независимо
 от API/shared ownership. Enable/disable, algorithm, key IDs/material, выбранный
 TX key и receive-key-set changes отклоняются до изменений generation, log level,

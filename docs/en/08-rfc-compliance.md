@@ -306,8 +306,8 @@ intent, shared-owner/unsupported rejection, the DetectMult 1 deadline,
 failure/retirement and concurrent getters/snapshots. Final validation results
 belong to the frozen-source evidence; this section asserts no final PASS.
 Live FRR/BIRD Detect Multiplier reload is not yet qualified. Shared-owner/API,
-Micro-BFD, overlay, authentication, padding and minimum-TTL changes remain
-outside this slice. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+Micro-BFD, overlay and authentication changes remain outside this slice;
+bounded minimum-TTL/padding reload is documented below. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 accepts the policy without graduating overall Poll/Demand or RFC compliance.
 
 #### Section 6.8.16: Administrative Control
@@ -413,6 +413,12 @@ production-qualified.
 | Interface | `multi_hop` with `interface` is rejected in YAML and API validation (Section 4.1 demultiplexes by address pair) |
 | Echo (Section 3: MUST NOT be used over multiple hops) | Multihop Control packets advertise Required Min Echo RX Interval 0; RFC 9747 Echo has no multihop type |
 | Demux (Section 4.1) | Your Discriminator, or (source, destination) when it is zero; `Manager.DemuxWithWire` |
+
+For a stable sole-config multihop session with unchanged authentication,
+`multihop_max_hops` reload updates the local `255 - N` floor under `Session.mu`
+at the receive gate. A TTL-only change needs no Poll even under remote Demand.
+The tuple/receipt tracks MinTTL alongside TX/RX, DetectMult and PaddedPduSize;
+this local policy does not add a normative RFC 5883 TTL rule.
 
 **Authentication guidance (Sections 3 and 6).** TTL/Hop Limit 255 on receive
 cannot protect a multihop path; RFC 5883 Section 3 assigns spoofing protection
@@ -714,7 +720,7 @@ integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
 
 **Status**: Partial
 
-**Implementation**: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (DF bit)
+**Implementation**: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (DF bit), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
 
 RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementation pads Control packets to a configured size and sets the IP Don't Fragment (DF) bit. If the padded packet is larger than the path MTU, it will be dropped, causing BFD to detect the MTU issue.
 
@@ -727,6 +733,25 @@ RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementati
 | Public session status | `BfdSession.padded_pdu_size` carries the configured target in bytes; an authenticated PDU may be larger |
 | Global default | `bfd.default_padded_pdu_size` in YAML config |
 | Configured target range | 0 disables padding; 24-9000 bytes without authentication, 26-9000 with authentication (v1 policy) |
+
+In-place reload is limited to positive-to-positive targets on a sole-config
+base session with stable identity, unchanged authentication and a sender whose
+immutable `PaddingPrepared` proves successful constructor-time DF preparation.
+It does not establish socket liveness. Remote Demand, unknown/unprepared
+senders, zero transitions and shared-owner base padding updates reject the
+complete candidate before desired-generation/log/resource mutation. The
+coordinator admission guard receives only `candidate.base`. Micro-BFD and
+overlay remain outside this qualified profile; their configuration gains no
+padding/minTTL fields, and other-source conflict/stale behavior is unchanged.
+Queued policy is rechecked before any field commit; newly active Demand fails
+the whole pending tuple, including a reversal to confirmed values. TX/RX Poll
+directions and active/queued generation rules remain unchanged.
+
+Capacity growth prepares one waiting buffer at control admission and swaps it
+on the owner before field commit; growth allocation does not occur in the
+packet loop. Padding enable/disable and dynamic DF remain after-v1 P2
+`gobfd-ebu`; zero-target DF defaults are unchanged. Final live peer/MTU
+qualification belongs to P1 `gobfd-qj0.8.2.2.7.5`; component checks do not close it.
 
 Keyed MD5 and SHA1 verification hashes exactly the declared BFD `Length`,
 including any PDU extension bytes, after checking that the digest fits within
@@ -741,7 +766,8 @@ The approved v1 configuration policy rejects authenticated targets of 24 or
 25 bytes. RFC 9764's YANG typedef also permits raising a smaller configured
 target to the session minimum; rejection is the selected GoBFD policy.
 Valid targets such as 26 never truncate a larger authenticated PDU: transmission
-uses `max(actual PDU length, configured target)`. YAML global defaults and
+uses `max(actual PDU length, configured target)` in transport payload bytes,
+excluding IP/UDP headers. YAML global defaults and
 per-session overrides apply the same policy before runtime changes; raw
 numeric inputs are checked before weak decoding can wrap or truncate them.
 

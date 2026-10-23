@@ -4,6 +4,35 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Reload локального receive floor и подготовленного padding — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.2` расширяет stable sole-config base sessions с прежней
+authentication до пяти полей TX/RX/DetectMult/MinTTL/PaddedPduSize в tuple и
+generation/revision receipts. Локальный multihop receive floor `255 - N`
+меняется под `Session.mu` без Poll даже при Demand; это policy GoBFD, не
+требование RFC 5883 к receive TTL. Padding допускает только positive-to-positive
+changes в Async на sender с фактической constructor DF preparation.
+
+`Manager.AdmitSessionReload` получает только `candidate.base`, сохраняет
+retained/live authentication checks и отклоняет неподдерживаемую base
+field/ownership policy до изменения desired generation,
+log level или ресурсов. Owner revalidation отклоняет queued padding tuple до
+commit любого поля, если включился Demand. Рост готовит один waiting buffer
+при control admission; прежние TX/RX Poll directions и queue semantics сохранены.
+`PaddingPrepared` доказывает immutable preparation, не socket liveness.
+
+Локальный race-прогон зафиксированных исходников завершился с 1031 успешным
+верхнеуровневым тестом пяти пакетов; два существующих namespace/capability кейса
+проверяются отдельно. Все 27 выбранных allocation budgets совпали с базой.
+Доказательства сохранены в `reports/session-policy-20261024/`; это не live
+peer/MTU или release acceptance. `gobfd-qj0.8.2.2.7.1` и `gobfd-qj0.8.2.2.7.3` закрыты
+на dev; integration `gobfd-qj0.8.2.2.7.4` остаётся P0, P1
+`gobfd-qj0.8.2.2.7.5` владеет actual-wire qualification всех reload fields.
+Padding enable/disable и dynamic DF — after-v1 P2 `gobfd-ebu`, обнаруженная в
+этом срезе и находящаяся вне его v1 acceptance boundary; она его не блокирует.
+Key rotation остаётся after-v1 P2 `gobfd-khr`. Исполнение ведётся в Beads;
+прежние датированные сводки сохраняют исторический scope.
+
 ## Admission authentication reload — 2026-10-24
 
 `gobfd-qj0.8.2.2.7.3` реализует admission. Same-identity base authentication

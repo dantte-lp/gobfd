@@ -33,6 +33,7 @@ type UDPSender struct {
 	srcPort         uint16
 	multiHop        bool
 	dfBit           bool   // RFC 9764: Don't Fragment bit for path MTU verification
+	paddingPrepared bool   // Immutable proof of successful DF socket preparation.
 	bindDevice      string // SO_BINDTODEVICE interface name (RFC 7130 micro-BFD per-member)
 	writeBufferSize int    // SO_SNDBUF size in bytes (0 = OS default)
 }
@@ -114,8 +115,9 @@ func NewUDPSender(
 	}
 
 	isIPv6 := localAddr.Is6() && !localAddr.Is4In6()
+	preparedDF := s.dfBit
 
-	conn, err := dialSenderSocket(localAddr, srcPort, isIPv6, s.dfBit, s.bindDevice)
+	conn, err := dialSenderSocket(localAddr, srcPort, isIPv6, preparedDF, s.bindDevice)
 	if err != nil {
 		return nil, fmt.Errorf("create UDP sender %s:%d: %w",
 			localAddr, srcPort, err)
@@ -134,8 +136,13 @@ func NewUDPSender(
 		}
 	}
 
+	s.paddingPrepared = preparedDF
 	return s, nil
 }
+
+// PaddingPrepared reports successful DF preparation at construction.
+// It does not report socket liveness; requested options cannot change it.
+func (s *UDPSender) PaddingPrepared() bool { return s.paddingPrepared }
 
 // dialSenderSocket creates and configures a UDP socket for BFD TX.
 func dialSenderSocket(

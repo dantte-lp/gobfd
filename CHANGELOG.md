@@ -16,11 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added in-place multihop receive-floor and prepared-padding reload for stable
+  sole-config base sessions with unchanged authentication. Local TTL-only
+  changes need no Poll; padding requires positive-to-positive targets, Async
+  and constructor-proven DF preparation. Unsupported base candidates are rejected
+  before generation acceptance, with owner rechecks for queued policy.
+  Padding enable/disable remains after v1; live peer/MTU qualification is separate.
+
 - Added in-place `detect_mult` reload for solely config-owned base sessions
   with stable identity, using the existing TX/RX tuple and receipts. Detect-only
   Async updates need no Poll; remote Demand with both ends Up requires
   Poll/Final. TX/RX direction and queued-update rules remain intact; other
-  owners, modes and effective parameters retain their conflict boundaries.
+  owners, modes and effective parameters outside that slice retain their conflict boundaries.
   Live FRR/BIRD Detect Multiplier reload qualification remains pending.
 
 - Added read-only `bfd.v1.CapabilityService.ListCapabilities` and

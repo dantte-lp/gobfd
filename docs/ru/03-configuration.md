@@ -971,13 +971,27 @@ address, interface или session type. Записи VXLAN и Geneve можно 
 BFD defaults и per-entry timers,
 padding, authentication, peer и threshold values применяются при создании новой
 identity. Базовые сессии, принадлежащие только config, также принимают in-place
-изменения `desired_min_tx`, `required_min_rx` и `detect_mult` без замены сессии
-или discriminator. Существующие timer tuple и generation/revision receipts
-передают все три значения. Detect-only Async update применяется локально без
+изменения `desired_min_tx`, `required_min_rx`, `detect_mult`, multihop TTL floor
+и допустимого `padded_pdu_size` без замены сессии или discriminator с прежней
+authentication. Tuple, generation/revision refs и confirmed/effective receipts
+передают TX, RX, DetectMult, MinTTL, PaddedPduSize. Detect-only Async update применяется локально без
 Poll и попадает в следующий Control packet (RFC 5880 §6.8.12). Remote Demand
 при обоих концах Up требует Poll/Final (RFC 5880 §6.6), поэтому receipt
 остаётся `pending` до подтверждения. Переход к `detect_mult: 1` или от него
 пересчитывает TX для соответствующего jitter window.
+
+Изменение `multihop_max_hops` обновляет локальный receive floor `255 - N` под
+`Session.mu`; TTL-only update не требует Poll даже при remote Demand. Это
+admission policy GoBFD, не нормативное требование RFC 5883 к receive TTL.
+Padding reload допускает только positive-to-positive targets в Async (`remote D`
+снят) на sender с фактической constructor DF preparation. Immutable
+`PaddingPrepared` доказывает подготовку, не socket liveness. Неизвестный или
+неподготовленный sender, переходы через `0` и shared-owner/API base padding
+updates отклоняются до изменения desired generation, log level или ресурсов.
+Micro-BFD и overlay остаются вне допустимого профиля; поля padding/minTTL в их
+configuration отсутствуют. Если Demand включился во время ожидания, owner revalidation
+отклоняет весь pending tuple до изменения любого поля. Policy предшествует
+equality shortcuts, включая возврат к confirmed target при активном Demand.
 
 Активная Poll-транзакция сохраняет объявленный tuple; новые reload заменяют
 только последнее ожидающее изменение. Комбинация TX/RX/Detect Multiplier
@@ -1006,21 +1020,29 @@ Claims, появившиеся после acceptance, проверяются о�
 apply; эта admission boundary не делает весь reload атомарным и не гарантирует
 бесшовный rollback.
 
-Другие изменения effective parameters, кроме описанных authentication
-transitions, существующей same-key session или Micro-BFD group не являются
-in-place update: reconciliation возвращает
-conflict, generation остаётся stale, а оператор должен удалить и затем добавить
-identity отдельными reload либо перезапустить процесс. Удаление последней записи
-или отключение source поддерживается.
+Coordinator передаёт `Manager.AdmitSessionReload` только `candidate.base`;
+неподдерживаемые stable-base field/ownership transitions отклоняют весь candidate
+до acceptance. Effective changes других sources сохраняют прежний per-source
+conflict/stale. Поздние API claims
+проверяются обычным fail-closed Manager apply. Другие modes не получают
+in-place packet-policy support; несовместимые изменения Micro-BFD groups
+по-прежнему возвращают reconciliation conflicts. Удаление последней записи
+или отключение source сохраняется.
 
-Срез Detect Multiplier не распространяет updates на shared-owner/API,
-Micro-BFD или overlay sessions, а также на authentication, padding или minimum
-TTL. [ADR-0006](adr/0006-session-preserving-reload-policy.md) фиксирует принятую
-policy; authentication admission ведётся в `gobfd-qj0.8.2.2.7.3`. Оставшиеся
-padding/minimum-TTL implementation и integration принадлежат P0 children
-`gobfd-qj0.8.2.2.7.2` и `gobfd-qj0.8.2.2.7.4`; финальный actual-wire gate —
-P1 `gobfd-qj0.8.2.2.7.5`. Coordinated key-ID rotation остаётся after-v1 P2
-в `gobfd-khr`.
+Рост padding capacity готовит один заменяемый waiting buffer при control
+admission; owner promotion меняет его до commit полей. Growth allocation не
+откладывается до packet transmission. Target считает payload bytes без IP/UDP
+headers; длина отправки равна `max(declared PDU length, target)`, authentication
+не усекается, нулевой padding находится вне действующего MAC domain.
+Authenticated targets по-прежнему требуют минимум 26 байт; zero-target DF
+defaults не меняются. Padding enable/disable и dynamic DF preparation остаются
+after-v1 P2 `gobfd-ebu`.
+
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) фиксирует принятую policy.
+Packet-policy child `gobfd-qj0.8.2.2.7.2` ещё требует final gates;
+P0 integration `gobfd-qj0.8.2.2.7.4` и P1 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` остаются отдельными, включая RFC 9764 peer/MTU qualification.
+Coordinated key-ID rotation остаётся after-v1 P2 в `gobfd-khr`.
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
 `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,

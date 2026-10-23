@@ -964,13 +964,28 @@ may be added, removed, or re-keyed, including a new local endpoint or a new
 per-peer Geneve VNI. BFD defaults and per-entry timers,
 padding, authentication, peer, and threshold values apply when a new identity
 is created. Solely config-owned base sessions also accept in-place changes to
-`desired_min_tx`, `required_min_rx` and `detect_mult` without replacing the
-session or discriminator. The existing timer tuple and generation/revision
-receipts carry all three values. A detect-only Async update applies locally
+`desired_min_tx`, `required_min_rx`, `detect_mult`, the multihop TTL floor and
+qualified `padded_pdu_size` without replacing the session or discriminator,
+with unchanged authentication. The tuple and generation/revision references,
+confirmed/effective receipts carry TX, RX, DetectMult, MinTTL and PaddedPduSize.
+A detect-only Async update applies locally
 without Poll and appears in the next Control packet (RFC 5880 §6.8.12).
 Remote Demand with both ends Up requires Poll/Final (RFC 5880 §6.6), so that
 receipt remains `pending` until confirmation. Entering or leaving
 `detect_mult: 1` reschedules TX for the applicable jitter window.
+
+Changing `multihop_max_hops` updates the local receive floor `255 - N` under
+`Session.mu`; TTL-only updates need no Poll even under remote Demand. This is
+GoBFD admission policy, not a normative RFC 5883 receive-TTL rule.
+Padding reload permits only positive-to-positive targets on an actually
+constructor-DF-prepared sender in Async (`remote D` unset). Immutable
+`PaddingPrepared` proves preparation, not socket liveness. Unknown/unprepared
+senders, `0` transitions and shared-owner/API base padding updates are rejected
+before desired generation, log-level or resource changes. Micro-BFD and overlay
+remain outside the qualified profile; their configuration has no padding/minTTL fields.
+If Demand activates while a tuple waits, owner revalidation fails the whole
+pending tuple before any field mutation. Policy precedes equality shortcuts,
+including reversal to a confirmed target while Demand is active.
 
 One active Poll transaction keeps its advertised tuple; newer reloads replace
 only the latest waiting proposal. Combined TX/RX/Detect Multiplier changes
@@ -999,21 +1014,29 @@ fresh key stores remain admissible. No key rotation is enabled. Claims acquired
 after acceptance still face normal fail-closed Manager apply; this admission
 boundary does not make the whole reload atomic or guarantee seamless rollback.
 
-Other effective-parameter changes, excluding authentication transitions above,
-to an existing same-key session or Micro-BFD group are not in-place updates:
-reconciliation reports a conflict,
-the generation remains stale, and the operator must remove then add the identity
-in separate reloads or restart the process. Removing the final entry or
-disabling a source is supported.
+The coordinator passes only `candidate.base` to `Manager.AdmitSessionReload`;
+unsupported stable-base field and ownership transitions reject the complete
+candidate before acceptance. Other-source effective changes retain their
+existing per-source conflict/stale behavior. API claims
+acquired later still face ordinary fail-closed Manager apply. Other modes gain
+no in-place packet-policy support; incompatible Micro-BFD group changes still
+report reconciliation conflicts. Removing the final entry or disabling a
+source remains supported.
 
-The Detect Multiplier slice does not extend updates to shared-owner/API,
-Micro-BFD or overlay sessions, or to authentication, padding or minimum TTL.
+Padding capacity growth prepares one replaceable waiting buffer at control
+admission; owner promotion swaps it before field commit. No growth allocation
+is deferred to packet transmission. The target counts payload bytes excluding
+IP/UDP headers; transmission uses `max(declared PDU length, target)`, never
+truncates authentication, and zero-fills outside its existing MAC domain.
+Authenticated targets still require at least 26 bytes; zero-target DF defaults
+are unchanged. Padding enable/disable and dynamic DF preparation remain
+after-v1 P2 `gobfd-ebu`.
+
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) records the accepted
-policy; authentication admission is `gobfd-qj0.8.2.2.7.3`. Remaining
-padding/minimum-TTL implementation and integration are separate P0 children
-`gobfd-qj0.8.2.2.7.2` and `gobfd-qj0.8.2.2.7.4`; the final actual-wire gate
-is P1 `gobfd-qj0.8.2.2.7.5`. Coordinated key-ID rotation remains after-v1 P2
-in `gobfd-khr`.
+policy. Packet-policy child `gobfd-qj0.8.2.2.7.2` remains subject to final gates;
+P0 integration `gobfd-qj0.8.2.2.7.4` and P1 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` remain separate, including RFC 9764 peer/MTU qualification.
+Coordinated key-ID rotation remains after-v1 P2 in `gobfd-khr`.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
 `log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`,

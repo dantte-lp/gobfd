@@ -32,8 +32,8 @@ must not be mutated for one owner; an incompatible proposal is rejected.
 |---|---|
 | Desired TX / required RX intervals | Retain the existing Poll/Final transaction rules of RFC 5880 §6.8.3 |
 | Detect Multiplier | Advertise the new nonzero value in the next Control packet without Poll in Async; apply §6.6 Poll requirements when remote Demand is active |
-| Multihop minimum TTL | Publish one coherent local receive-admission policy without replacing the session; no peer negotiation is implied |
-| Padded PDU target | Permit owner-coherent updates only in a qualified RFC 9764 Asynchronous profile; retain zero padding and authentication/transport constraints |
+| Multihop minimum TTL | Apply the local 255 − N receive floor under Session.mu without replacement or Poll, including under remote Demand; this is GoBFD policy, not an RFC 5883 receive-TTL requirement |
+| Padded PDU target | Permit only positive-to-positive changes in Async on an already DF-prepared sender, with unchanged authentication and a sole config owner; reject unsupported base candidates before generation acceptance |
 | Unsupported authentication transition | Reject the complete candidate before accepting a new generation; retain the old configuration |
 | Wire identity or other unsupported transition | No implicit replacement; require separate explicit operator intent for disruptive replacement |
 
@@ -43,6 +43,31 @@ effect. An active Poll keeps its advertised tuple, and a later proposal is
 queued according to the existing transaction contract. Adding Detect Multiplier,
 TTL or padding must not weaken those timer rules. The remote-Demand exception
 does not qualify general Demand-mode operation.
+
+The v1 packet-policy slice extends the tuple, references and confirmed/effective
+receipts to five fields: TX, RX, DetectMult, MinTTL and PaddedPduSize.
+The coordinator passes only `candidate.base` to `Manager.AdmitSessionReload`,
+which checks its stable-identity field and ownership policy before local
+generation acceptance, preserving the retained
+and live authentication checks below. Padding requires immutable constructor
+proof `PaddingPrepared`, not a requested option or a socket-liveness claim.
+Zero-to-positive and positive-to-zero transitions, unknown/unprepared senders,
+remote Demand and shared-owner base padding updates fail closed. Micro-BFD and
+overlay remain outside this qualified profile; their configuration gains no
+padding/minTTL fields. Other-source effective changes retain their existing
+per-source conflict/stale behavior; no new five-source preflight is implied.
+Policy is checked before equality shortcuts, including a return to a confirmed
+target while Demand is active. An owner recheck rejects the whole queued tuple
+before any field commit if Demand activates while it waits.
+
+Capacity growth prepares one replaceable waiting buffer at control admission;
+the owner swaps it before committing fields. No growth allocation is deferred
+to owner promotion or packet transmission. The target counts transport payload
+bytes excluding IP/UDP headers; send length is the larger of the declared PDU
+and target, so authentication is never truncated. Padding is zero and lies
+outside the existing authentication MAC domain. Existing authenticated minimum
+26 and zero-target DF defaults remain unchanged. Padding enable/disable and
+dynamic DF preparation are separate after-v1 P2 work in `gobfd-ebu`.
 
 Validate the complete candidate, including same-session transitions and
 ownership, before accepting its desired generation. Apply a same-session
@@ -112,11 +137,12 @@ does not establish this decision's approval or implementation qualification.
 No provider-specific runtime interoperability is asserted by this ADR.
 
 Implementation and qualification remain in Beads parent `gobfd-qj0.8.2.2.7`.
-Detect Multiplier child `gobfd-qj0.8.2.2.7.1` is closed on dev;
-authentication admission `gobfd-qj0.8.2.2.7.3` is in progress.
-`gobfd-qj0.8.2.2.7.2` (padding/minimum TTL) and `gobfd-qj0.8.2.2.7.4`
-(reconciliation/rekey integration) remain P0; `gobfd-qj0.8.2.2.7.5` owns the
-P1 actual-wire final gate. Beads owns executable plans, priorities, dependencies and
+Detect Multiplier `gobfd-qj0.8.2.2.7.1` and authentication admission
+`gobfd-qj0.8.2.2.7.3` are closed on dev. Packet-policy child
+`gobfd-qj0.8.2.2.7.2` remains subject to final gates;
+`gobfd-qj0.8.2.2.7.4` (reconciliation/rekey integration) remains P0.
+`gobfd-qj0.8.2.2.7.5` owns the P1 actual-wire final gate for all reload fields,
+including RFC 9764 peer/MTU qualification. Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.
 
