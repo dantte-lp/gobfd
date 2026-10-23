@@ -570,6 +570,12 @@
 
 ### Исправлено
 
+- Неподдерживаемый same-identity base authentication reload отклоняется до
+  принятия generation и изменения log level, readiness, configured peers или
+  ресурсов. Immutable fingerprints сверяются с retained desired state и live
+  sessions, включая API/shared owners; отказ сохраняет прежнюю конфигурацию.
+  Key rotation и whole-source atomicity не добавлены.
+
 - Отчёты часов нагрузки различают отсутствие наблюдённого timerfd cancellation
   и доказанную эпоху часов. Условная граница преобразования вынесена в отдельное
   поле; общая погрешность остаётся unknown, прежний reference flag сбрасывается.

@@ -199,8 +199,9 @@ and generation/revision receipts. A detect-only Async update applies locally
 without Poll; remote Demand with both ends Up requires Poll/Final. Combined
 TX/RX changes retain directional deferral, the active advertised tuple and the
 latest queued proposal. Shared-owner/API, Micro-BFD and overlay updates, and
-authentication, padding and minimum-TTL changes remain conflicts outside this
-slice. [ADR-0006](adr/0006-session-preserving-reload-policy.md) accepts the wider
+padding and minimum-TTL changes remain conflicts outside this slice.
+Unsupported same-identity authentication changes are rejected before accepting
+a generation. [ADR-0006](adr/0006-session-preserving-reload-policy.md) accepts the wider
 policy, not implementation or live peer qualification.
 The coordinator publishes a
 monotonic desired generation only after that check and the complete immutable
@@ -296,6 +297,19 @@ authenticator type and an immutable fingerprint of a `StaticAuthKeyStore`.
 The static store clones constructor inputs and returns caller-owned key copies;
 unknown key-store implementations fail closed because no stable semantic
 identity can be derived.
+
+Authentication reload admission compares those fingerprints with both retained
+accepted base intent, including entries with no live session, and the live
+Manager registry regardless of API/shared ownership. Enable/disable, algorithm,
+key IDs/material, selected TX key and receive-key-set changes fail before
+generation, log-level, readiness or configured-peer/resource changes. The old
+accepted configuration and session remain intact; startup/new/removed
+identities and semantically identical fresh stores remain admissible.
+Lock order is lifecycle → ownership → registry. Registry locks end before
+short local acceptance; ownership remains held through desired-generation
+publication and ends before callbacks or resource apply. Later API claims
+still encounter normal fail-closed reconciliation. This boundary does not make
+the subsequent whole-source apply atomic or guarantee seamless rollback.
 
 This is the C01.1 ownership core plus the C01.2 atomic-candidate/source
 isolation slice, the C01.3a accepted-control-session sender-lease slice, the

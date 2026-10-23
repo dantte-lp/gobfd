@@ -67,6 +67,22 @@ fall back to delete/recreate or reset sequence/replay protection. RFC 5880
 §6.7 leaves coordination outside BFD; the existence of a key store does not
 qualify a rotation protocol.
 
+Admission compares immutable authentication fingerprints against both the
+retained accepted base desired set, including entries absent from runtime,
+and the live Manager registry without filtering API or shared owners. The
+comparison includes enablement, algorithm, key IDs/material, selected TX key
+and the receive-key set. Startup authentication, new or removed identities and
+fresh stores with identical semantics remain admissible.
+
+The lock order is Manager lifecycle, ownership, then registry. Release the
+registry lock before short local acceptance; retain ownership serialization
+through desired-generation publication, then release it before configured-peer
+callbacks or listener/sender resource application. Rejection precedes generation,
+log-level and readiness changes and preserves the old accepted configuration
+and sessions. Claims acquired after acceptance still pass normal fail-closed
+Manager reconciliation. This admission boundary is not a whole-source atomic
+transaction or a seamless-rollback guarantee.
+
 Optional coordinated key-ID rotation within one authentication algorithm is
 separate after-v1 work in `gobfd-khr` at P2. It does not graduate until receive
 overlap, transmit cutover, old-key retirement, replay/sequence continuity and
@@ -95,11 +111,12 @@ acceptance evidence. The earlier source comparison is recorded at
 does not establish this decision's approval or implementation qualification.
 No provider-specific runtime interoperability is asserted by this ADR.
 
-Implementation and qualification remain in resumed Beads parent
-`gobfd-qj0.8.2.2.7`, with P0 children `gobfd-qj0.8.2.2.7.1` (Detect Multiplier),
-`gobfd-qj0.8.2.2.7.2` (padding/minimum TTL), `gobfd-qj0.8.2.2.7.3`
-(authentication rejection), and `gobfd-qj0.8.2.2.7.4` (reconciliation/rekey
-integration). Beads owns executable plans, priorities, dependencies and
+Implementation and qualification remain in Beads parent `gobfd-qj0.8.2.2.7`.
+Detect Multiplier child `gobfd-qj0.8.2.2.7.1` is closed on dev;
+authentication admission `gobfd-qj0.8.2.2.7.3` is in progress.
+`gobfd-qj0.8.2.2.7.2` (padding/minimum TTL) and `gobfd-qj0.8.2.2.7.4`
+(reconciliation/rekey integration) remain P0; `gobfd-qj0.8.2.2.7.5` owns the
+P1 actual-wire final gate. Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.
 

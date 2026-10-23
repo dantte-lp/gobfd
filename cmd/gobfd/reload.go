@@ -145,17 +145,15 @@ func applyBaseSessionCandidates(
 	sf declarativeSenderFactory,
 	logger *slog.Logger,
 ) bfd.ReconcileResult {
-	desired := make([]bfd.ReconcileConfig, 0, len(candidates))
-	for _, candidate := range candidates {
-		rc := candidate.reconcile
-		rc.SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
+	desired := baseReconcileConfigs(candidates)
+	for i, candidate := range candidates {
+		desired[i].SenderLeaseFactory = declarativeSenderLeaseFactoryFor(
 			sf,
 			candidate.senderLocal,
 			candidate.multiHop,
 			logger,
 			candidate.senderOpts...,
 		)
-		desired = append(desired, rc)
 	}
 
 	return mgr.ReconcileSessionsForOwnerDetailed(
@@ -163,6 +161,14 @@ func applyBaseSessionCandidates(
 		bfd.ConfigReconciliationOwner(),
 		desired,
 	)
+}
+
+func baseReconcileConfigs(candidates []baseSessionCandidate) []bfd.ReconcileConfig {
+	desired := make([]bfd.ReconcileConfig, len(candidates))
+	for i, candidate := range candidates {
+		desired[i] = candidate.reconcile
+	}
+	return desired
 }
 
 func reconcileErrorCodes(result bfd.ReconcileResult) []string {

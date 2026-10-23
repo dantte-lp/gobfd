@@ -569,6 +569,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject unsupported same-identity base authentication reload before accepting
+  a generation or changing log level, readiness, configured peers or resources.
+  Compare immutable fingerprints with retained desired state and live sessions,
+  including API/shared owners; rejected candidates preserve the old configuration.
+  This adds no key rotation or whole-source atomicity.
+
 - Echo API admission requires the validated `echo.enabled` opt-in and live
   receive-owner readiness before sender/session creation. Valid reloads update
   the opt-in; disabled/unready admission fails closed while List/Delete remain

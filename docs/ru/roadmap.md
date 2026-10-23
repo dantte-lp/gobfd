@@ -4,6 +4,29 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Admission authentication reload — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.3` реализует admission. Same-identity base authentication
+changes сверяются с retained accepted desired state, включая записи без runtime,
+и live Manager registry, включая API/shared owners. Неподдерживаемые
+enable/disable, algorithm, key IDs/material, выбранный TX key и receive-key-set
+changes отклоняются до публикации desired generation, изменения log level и
+readiness, configured-peer callbacks и применения listener/sender resources.
+Аутентификация при startup, новые/удаляемые identities и новые stores с прежней
+семантикой допустимы. Поздние claims проверяются обычным fail-closed Manager
+apply; whole-source atomicity и бесшовный rollback не гарантируются.
+
+Detect Multiplier child `gobfd-qj0.8.2.2.7.1` закрыт на dev. Остаются P0 children
+`gobfd-qj0.8.2.2.7.2` и `gobfd-qj0.8.2.2.7.4`; P1
+`gobfd-qj0.8.2.2.7.5` владеет actual-wire final gate. Key-ID rotation остаётся
+after-v1 P2 `gobfd-khr`. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+принят как policy. Critical race-прогон зафиксированных исходников завершился с
+788 успешными верхнеуровневыми тестами BFD, daemon, server и dependency inventory;
+один существующий вложенный IPv6 wire-тест требует отдельного namespace.
+Локальные доказательства сохранены в `reports/auth-reload-20261024/` и не
+подтверждают общую квалификацию. Исполняемые приоритеты и acceptance gates
+ведутся в Beads; прежние датированные записи ниже сохраняют scope исходного среза.
+
 ## Reload с сохранением сессии / Detect Multiplier — 2026-10-24
 
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) принят как policy,

@@ -226,8 +226,9 @@ timer tuple и generation/revision receipts. Detect-only Async update
 применяется локально без Poll; remote Demand при обоих концах Up требует
 Poll/Final. Комбинация с TX/RX сохраняет directional deferral, активный
 объявленный tuple и последний queued proposal. Shared-owner/API, Micro-BFD и
-overlay updates, а также authentication, padding и minimum-TTL changes остаются
-conflicts за пределами этого среза. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+overlay updates, а также padding и minimum-TTL changes остаются conflicts за
+пределами этого среза. Неподдерживаемые same-identity authentication changes
+отклоняются до принятия generation. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 принимает общую policy, но не квалифицирует реализацию или live peers.
 Coordinator публикует монотонное desired generation только после этой проверки
 и компиляции полного неизменяемого session candidate. Один receipt затем хранит claim-level счётчики
@@ -312,6 +313,19 @@ authenticator и неизменяемый fingerprint `StaticAuthKeyStore`. Stat
 клонирует входные данные конструктора и возвращает caller-owned копии ключей;
 неизвестные реализации key store отклоняются, потому что для них нельзя
 получить стабильную семантическую идентичность.
+
+Authentication reload admission сравнивает fingerprints с retained accepted
+base intent, включая записи без live session, и live Manager registry независимо
+от API/shared ownership. Enable/disable, algorithm, key IDs/material, выбранный
+TX key и receive-key-set changes отклоняются до изменений generation, log level,
+readiness, configured peers или ресурсов. Прежние accepted configuration и
+session сохраняются; аутентификация при startup, новые/удаляемые identities и
+новые stores с прежней семантикой остаются допустимыми.
+Порядок блокировок: lifecycle → ownership → registry. Registry locks
+освобождаются до короткого локального acceptance; ownership удерживается до
+публикации desired generation и освобождается до callbacks или resource apply.
+Поздние API claims проверяются обычной fail-closed reconciliation. Граница не
+делает последующий whole-source apply атомарным и не гарантирует бесшовный rollback.
 
 Это ownership core C01.1 вместе со slice C01.2 для atomic candidate/изоляции
 sources, slice C01.3a для sender lease принятой control session, slice C01.3b

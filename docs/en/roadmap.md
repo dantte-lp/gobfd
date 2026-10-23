@@ -4,6 +4,29 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Authentication reload admission — 2026-10-24
+
+`gobfd-qj0.8.2.2.7.3` implements admission for same-identity base authentication changes
+are checked against retained accepted desired state, including absent runtime,
+and the live Manager registry including API/shared owners. Unsupported
+enable/disable, algorithm, key IDs/material, selected TX key and receive-key-set
+changes are rejected before desired-generation publication, log-level/readiness
+changes, configured-peer callbacks or listener/sender resource application.
+Startup/new/removed identities and semantically identical fresh stores remain
+admissible. Claims acquired after acceptance still face normal fail-closed
+Manager apply; this is not whole-source atomicity or seamless rollback.
+
+Detect Multiplier child `gobfd-qj0.8.2.2.7.1` is closed on dev. P0 children
+`gobfd-qj0.8.2.2.7.2` and `gobfd-qj0.8.2.2.7.4` remain; P1
+`gobfd-qj0.8.2.2.7.5` owns the actual-wire final gate. Key-ID rotation remains
+after-v1 P2 `gobfd-khr`. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+is accepted policy. The frozen-source critical race run passed 788 top-level
+tests across BFD, daemon, server and dependency inventory; one existing nested
+IPv6 wire subcase requires a separate namespace. Local evidence is retained in
+`reports/auth-reload-20261024/`; this does not establish overall qualification.
+Beads retains executable priorities and acceptance gates; older dated entries
+below preserve their original slice scope.
+
 ## Session-preserving reload / Detect Multiplier — 2026-10-24
 
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) is accepted policy,

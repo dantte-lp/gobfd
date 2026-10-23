@@ -216,10 +216,19 @@ func (c *reconciliationCoordinator) reconcile(
 	if err != nil {
 		return err
 	}
+	var retained, working compiledControlSessionCandidate
+	var generation uint64
+	if err := mgr.AdmitAuthenticationReload(
+		baseReconcileConfigs(c.retainedCandidate.base), baseReconcileConfigs(candidate.base), func() {
+			retained, working, generation = c.acceptCandidateLocked(candidate, logLevel)
+		},
+	); err != nil {
+		return fmt.Errorf("validate authentication reload: %w", err)
+	}
 	if c.onConfiguredPeers != nil {
 		c.onConfiguredPeers(goBGPManagedPeers(cfg.Sessions))
 	}
-	c.applyCandidateLocked(ctx, candidate, logLevel, c.withListeners(func(
+	c.applyAcceptedCandidateLocked(ctx, retained, working, generation, c.withListeners(func(
 		ctx context.Context,
 		source reconciliationSource,
 		candidate compiledControlSessionCandidate,
@@ -292,6 +301,16 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	logLevel *slog.LevelVar,
 	applySource sourceApplyFunc,
 ) reconciliationSnapshot {
+	retained, working, generation := c.acceptCandidateLocked(candidate, logLevel)
+	return c.applyAcceptedCandidateLocked(ctx, retained, working, generation, applySource)
+}
+
+// acceptCandidateLocked publishes only local state; it must not call Manager
+// or resource owners while authentication admission holds ownershipMu.
+func (c *reconciliationCoordinator) acceptCandidateLocked(
+	candidate compiledControlSessionCandidate,
+	logLevel *slog.LevelVar,
+) (compiledControlSessionCandidate, compiledControlSessionCandidate, uint64) {
 	retainedCandidate := cloneCompiledControlSessionCandidate(candidate)
 	workingCandidate := cloneCompiledControlSessionCandidate(retainedCandidate)
 
@@ -312,7 +331,15 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	if logLevel != nil {
 		logLevel.Set(workingCandidate.logLevel)
 	}
+	return retainedCandidate, workingCandidate, generation
+}
 
+func (c *reconciliationCoordinator) applyAcceptedCandidateLocked(
+	ctx context.Context,
+	retainedCandidate, workingCandidate compiledControlSessionCandidate,
+	generation uint64,
+	applySource sourceApplyFunc,
+) reconciliationSnapshot {
 	receipt := generationReceipt{Generation: generation}
 	c.timerUpdates = nil
 	transientErrors := make([]error, 0, sourceCount)

@@ -220,7 +220,19 @@ Session receive path отклоняет зарезервированный ну�
 Ключевые особенности:
 - Meticulous варианты инкрементируют последовательность на каждый пакет; non-meticulous -- только при смене состояния
 - Окно последовательности: `3 * DetectMult` для non-meticulous
-- `AuthKeyStore` поддерживает несколько ключей для бесшовной ротации
+- `AuthKeyStore` представляет несколько ключей; это не квалифицирует live rotation
+
+RFC 5880 §6.7 оставляет координацию аутентификации за пределами BFD. Reload
+same-identity base session отклоняет неквалифицированные enable/disable,
+algorithm, key IDs/material, выбранный TX key и receive-key-set changes до
+generation acceptance. Immutable fingerprints сверяются с retained accepted
+desired state, включая записи без runtime, и live sessions независимо от
+API/shared ownership. Аутентификация при startup, новые/удаляемые identities и
+новые stores с прежней семантикой допустимы. Поздний API claim проверяется
+обычной fail-closed reconciliation; whole-source apply не становится атомарным.
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) определяет policy;
+`gobfd-qj0.8.2.2.7.3` ведёт admission qualification. Coordinated rotation
+остаётся after-v1 P2 `gobfd-khr`, без qualified wire capability или бесшовного rollback.
 
 Истечение receive-sequence по RFC 5880 Section 6.8.1 использует монотонное
 время последнего принятого корректного пакета в owner loop. После

@@ -229,7 +229,19 @@ All five RFC-defined auth types implemented:
 Key features:
 - Meticulous variants increment sequence on every packet; non-meticulous on state change only
 - Sequence window: `3 * DetectMult` for non-meticulous
-- `AuthKeyStore` supports multiple keys for hitless rotation
+- `AuthKeyStore` represents multiple keys; this does not qualify live rotation
+
+RFC 5880 §6.7 leaves authentication coordination outside BFD. Same-identity
+base reload rejects unqualified enable/disable, algorithm, key IDs/material,
+selected TX key and receive-key-set changes before generation acceptance.
+Immutable fingerprints are checked against both retained accepted desired
+state, including absent runtime entries, and live sessions regardless of
+API/shared ownership. Startup/new/removed identities and semantically identical
+fresh stores remain admissible. A later API claim still encounters normal
+fail-closed reconciliation; the boundary does not make whole-source apply atomic.
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) defines the policy;
+`gobfd-qj0.8.2.2.7.3` tracks admission qualification. Coordinated rotation remains
+after-v1 P2 `gobfd-khr`, not a qualified wire capability or seamless rollback.
 
 RFC 5880 Section 6.8.1 receive-sequence expiry uses the owner loop's monotonic
 last-valid-receive timestamp. At `2 × DetectionTime` without a valid packet,

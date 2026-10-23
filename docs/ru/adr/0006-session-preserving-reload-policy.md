@@ -67,6 +67,22 @@ delete/recreate и сброс sequence/replay protection. RFC 5880 §6.7 ост�
 координацию за пределами BFD; наличие key store не квалифицирует rotation
 protocol.
 
+Admission сравнивает immutable authentication fingerprints с двумя наборами:
+retained accepted base desired set, включая отсутствующие в runtime записи,
+и live Manager registry без фильтрации API или shared owners. Сравниваются
+enablement, algorithm, key IDs/material, выбранный TX key и receive-key set.
+Аутентификация при startup, новые или удаляемые identities и новые экземпляры
+stores с прежней семантикой остаются допустимыми.
+
+Порядок блокировок: Manager lifecycle, ownership, registry. Registry lock
+освобождается до короткого локального acceptance; ownership serialization
+сохраняется до публикации desired generation, затем освобождается до
+configured-peer callbacks и применения listener/sender resources. Отказ
+предшествует изменениям generation, log level и readiness, сохраняя прежние
+accepted configuration и sessions. Claims, появившиеся после acceptance,
+проверяются обычной fail-closed Manager reconciliation. Эта admission boundary
+не является whole-source atomic transaction или гарантией бесшовного rollback.
+
 Опциональная coordinated key-ID rotation в пределах одного authentication
 algorithm — отдельная задача `gobfd-khr`, P2, after-v1. Graduation требует
 квалификации receive overlap, transmit cutover, вывода старого ключа,
@@ -96,11 +112,12 @@ acceptance. Прежнее сравнение источников сохран�
 не подтверждает одобрение этого решения или implementation qualification.
 ADR не утверждает provider-specific runtime interoperability.
 
-Implementation и qualification принадлежат возобновлённому Beads parent
-`gobfd-qj0.8.2.2.7` с P0 children `gobfd-qj0.8.2.2.7.1` (Detect Multiplier),
-`gobfd-qj0.8.2.2.7.2` (padding/minimum TTL), `gobfd-qj0.8.2.2.7.3`
-(authentication rejection) и `gobfd-qj0.8.2.2.7.4` (reconciliation/rekey
-integration). Исполняемые планы, приоритеты, зависимости и acceptance evidence
+Implementation и qualification принадлежат Beads parent `gobfd-qj0.8.2.2.7`.
+Detect Multiplier child `gobfd-qj0.8.2.2.7.1` закрыт на dev;
+authentication admission `gobfd-qj0.8.2.2.7.3` находится в работе.
+`gobfd-qj0.8.2.2.7.2` (padding/minimum TTL) и `gobfd-qj0.8.2.2.7.4`
+(reconciliation/rekey integration) остаются P0; `gobfd-qj0.8.2.2.7.5` владеет
+P1 actual-wire final gate. Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.
 

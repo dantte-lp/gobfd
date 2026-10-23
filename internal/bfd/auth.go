@@ -90,7 +90,7 @@ type AuthKey struct {
 // -------------------------------------------------------------------------
 
 // AuthKeyStore manages authentication keys for a session.
-// Supports multiple active keys for hitless key rotation.
+// It exposes a selected transmit key and a set of accepted receive keys.
 type AuthKeyStore interface {
 	// LookupKey returns a caller-owned key with the given ID, or an error if
 	// not found. Callers may modify the returned Secret.

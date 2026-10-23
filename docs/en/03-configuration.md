@@ -986,8 +986,22 @@ defines the negotiation budget and startup/recovery separation. Live FRR/BIRD
 qualification of Detect Multiplier reload remains pending; this is not full
 Poll/Demand compliance.
 
-Other effective-parameter changes to an existing same-key session or Micro-BFD
-group are not in-place updates: reconciliation reports a conflict,
+Unsupported authentication changes on a retained base identity are rejected
+before accepting a new generation (`ErrAuthenticationReloadUnsupported`). This
+includes authentication enable/disable, algorithm, key IDs/material, selected
+TX key and receive-key-set changes. Admission compares immutable fingerprints
+against both retained accepted desired entries, even without live sessions,
+and live Manager sessions, including API/shared owners. Rejection preserves
+the accepted configuration, generation, log level, readiness, configured peers
+and existing sessions, before listener or sender resources are applied.
+Startup authentication, new/removed identities and semantically identical
+fresh key stores remain admissible. No key rotation is enabled. Claims acquired
+after acceptance still face normal fail-closed Manager apply; this admission
+boundary does not make the whole reload atomic or guarantee seamless rollback.
+
+Other effective-parameter changes, excluding authentication transitions above,
+to an existing same-key session or Micro-BFD group are not in-place updates:
+reconciliation reports a conflict,
 the generation remains stale, and the operator must remove then add the identity
 in separate reloads or restart the process. Removing the final entry or
 disabling a source is supported.
@@ -995,8 +1009,11 @@ disabling a source is supported.
 The Detect Multiplier slice does not extend updates to shared-owner/API,
 Micro-BFD or overlay sessions, or to authentication, padding or minimum TTL.
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) records the accepted
-policy; remaining implementation and integration are separate P0 children
-`gobfd-qj0.8.2.2.7.2`, `gobfd-qj0.8.2.2.7.3` and `gobfd-qj0.8.2.2.7.4`.
+policy; authentication admission is `gobfd-qj0.8.2.2.7.3`. Remaining
+padding/minimum-TTL implementation and integration are separate P0 children
+`gobfd-qj0.8.2.2.7.2` and `gobfd-qj0.8.2.2.7.4`; the final actual-wire gate
+is P1 `gobfd-qj0.8.2.2.7.5`. Coordinated key-ID rotation remains after-v1 P2
+in `gobfd-khr`.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
 `log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`,
