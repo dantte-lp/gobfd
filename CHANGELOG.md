@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `gobfdctl certificate renew` for existing management identities through
+  an explicit external CA and roots: native mTLS renewal atomically replaces
+  only the public certificate, preserving the key and SAN. Actual step-ca
+  qualification remains pending in `gobfd-qj0.8.2.3.7.4`.
+
 - Receive clocks expose measured pairing brackets and nominal resolutions with
   explicit conditional bounds. Workload reports combine them with a run-scoped
   Linux realtime epoch witness; invalid or uncovered data remains unknown.
@@ -550,6 +555,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all three P1 maintenance-review findings in Beads.
 
 ### Fixed
+
+- Certificate URI identities cannot acquire Unix UID authorization by using
+  a `uid:` prefix. TLS URI, TLS DNS and Unix UID session owners are disjoint;
+  existing configured URI/DNS role identities retain their syntax.
 
 - Workload clock reports distinguish no observed timerfd cancellation from a
   proven clock epoch. Conditional conversion bounds have a separate field;

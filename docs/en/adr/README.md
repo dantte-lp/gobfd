@@ -29,3 +29,4 @@ forward link to the replacement.
 | [0002](./0002-ovs-backend-ovsdb.md) | Native OVSDB client for the OVS LAG backend | Accepted |
 | [0003](./0003-linux-advanced-bfd-applicability.md) | Linux applicability of Micro-BFD, VXLAN BFD, and Geneve BFD | Accepted |
 | [0004](./0004-overlay-backend-vocabulary.md) | Shared overlay backend vocabulary | Accepted |
+| [0005](./0005-smallstep-management-certificates.md) | External Smallstep CA renewal for management certificates | Accepted |

@@ -11,6 +11,7 @@
 
 - [Format](#format)
 - [When to Add Entries](#when-to-add-entries)
+- [Current Unreleased Entry](#current-unreleased-entry)
 - [Section Types](#section-types)
 - [Writing Good Entries](#writing-good-entries)
 - [Release Process](#release-process)
@@ -69,6 +70,19 @@ Do **not** add entries for:
 - Test-only changes.
 - CI/CD pipeline adjustments.
 - Documentation typo fixes.
+
+### Current Unreleased Entry
+
+#### Fixed
+
+- Prevented certificate URI identities from acquiring Unix UID privileges;
+  TLS URI, TLS DNS and Unix UID session owners use distinct namespaces.
+
+#### Added
+
+- Added `gobfdctl certificate renew` for existing management identities using
+  explicit external CA roots, preserving the private key and SAN. Actual
+  step-ca qualification remains pending in `gobfd-qj0.8.2.3.7.4`.
 
 ### Section Types
 

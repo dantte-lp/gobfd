@@ -18,6 +18,7 @@
 - [Micro-BFD Commands](#micro-bfd-commands)
 - [Monitor Command](#monitor-command)
 - [Version Command](#version-command)
+- [Certificate Renewal](#certificate-renewal)
 - [Interactive Shell](#interactive-shell)
 - [Output Formats](#output-formats)
 
@@ -294,6 +295,51 @@ gobfdctl v0.1.0
 
 Version information is injected at build time via ldflags (see [09-development.md](./09-development.md)).
 
+### Certificate Renewal
+
+Renew an existing management identity through an explicitly trusted external
+Smallstep CA:
+
+```bash
+gobfdctl certificate renew \
+  --ca-url https://ca.example \
+  --ca-root /etc/gobfd/root.pem \
+  --cert /etc/gobfd/management.pem \
+  --key /etc/gobfd/management-key.pem
+```
+
+| Flag | Required | Description |
+|---|---|---|
+| `--ca-url` | Yes | HTTPS origin of the trusted CA |
+| `--ca-root` | Yes | Explicit PEM roots for the CA endpoint and returned chain |
+| `--cert` | Yes | Existing, currently valid certificate PEM file to replace |
+| `--key` | Yes | Existing matching private-key PEM file |
+
+These local flags have no environment fallback. This non-interactive command
+uses native mTLS `POST /renew`, a 10-second HTTP timeout and caller cancellation
+(including SIGINT/SIGTERM). It bypasses daemon RPC initialization; `--addr` and
+the management `--tls-*` flags do not configure CA access.
+
+Use regular, single-link input files without symlinks in trusted parent
+directories that are not group- or world-writable. Directories and inputs must
+belong to root or the caller. The private key requires mode `0400` or `0600`.
+The JSON response must preserve the
+public key, subject, exact SAN and key-usage/EKU profile. A changed certificate
+must advance expiry; a verified identical chain is a no-op.
+
+Only the public certificate file is atomically replaced, preserving its mode
+and UID/GID; the private key is neither changed nor printed. Success prints
+`certificate renewed` or `certificate unchanged`, independently of `--format`.
+Errors before replacement preserve the previous certificate. An `ErrCommitted`
+error means replacement already occurred; durability may be uncertain, and
+rollback is not promised. This also marks an output error after replacement.
+
+Initial enrollment and unattended scheduling are outside this command. A
+trusted CA can issue identities selected by API role rules; issuance alone
+does not authorize API access. Qualification with an actual step-ca remains
+pending in `gobfd-qj0.8.2.3.7.4`. See [deployment](06-deployment.md#management-certificate-renewal)
+for connection reload boundaries and [ADR-0005](adr/0005-smallstep-management-certificates.md).
+
 ### Interactive Shell
 
 ```bash
@@ -303,7 +349,8 @@ gobfdctl shell
 Launches an interactive shell with:
 - **Tab completion** for commands and subcommands
 - **Readline autocomplete** via reeflective/console (derived from Cobra command tree)
-- Full access to all gobfdctl commands without the `gobfdctl` prefix
+- Session, monitor and version commands without the `gobfdctl` prefix;
+  certificate renewal is available only through the non-interactive CLI
 
 Example session:
 
@@ -316,7 +363,7 @@ gobfd> exit
 
 ### Output Formats
 
-All commands support three output formats via the `--format` flag:
+Session and monitor commands support three output formats via the `--format` flag:
 
 | Format | Use Case |
 |---|---|

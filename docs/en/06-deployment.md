@@ -19,6 +19,7 @@
 - [Podman Compose](#podman-compose)
 - [Container Image](#container-image)
 - [Security Hardening](#security-hardening)
+- [Management Certificate Renewal](#management-certificate-renewal)
 - [Production Checklist](#production-checklist)
 
 ### Requirements
@@ -385,6 +386,37 @@ GoBFD follows the principle of least privilege:
 | **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
 | **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
+
+### Management Certificate Renewal
+
+With an existing valid certificate, its matching private key and explicit
+trusted CA roots, run renewal outside the daemon:
+
+```bash
+gobfdctl certificate renew \
+  --ca-url https://ca.example \
+  --ca-root /etc/gobfd/root.pem \
+  --cert /etc/gobfd/management.pem \
+  --key /etc/gobfd/management-key.pem
+```
+
+The native mTLS `POST /renew` retains the key and exact SAN, replacing only the
+public certificate atomically. Use a caller-owned key with mode `0400` or
+`0600`; input files must be regular, single-link and free of symlinks, with
+trusted parent directories that are not group- or world-writable. An
+`ErrCommitted` error reports an already replaced certificate with potentially
+uncertain durability; do not assume rollback.
+
+The server reads PEM files on each new TLS handshake. Existing TLS connections
+retain their negotiated identity. `gobfdctl` and persistent bridge clients load
+client credentials when their transport is created; restart or recreate the
+client transport after renewal. A trusted CA can issue identities selected by
+API role rules; issuance alone does not authorize API access.
+
+Enrollment and scheduling are separate lifecycle work. Actual step-ca
+qualification remains pending in `gobfd-qj0.8.2.3.7.4`; local TLS fixtures do not
+establish it. See the [CLI reference](04-cli.md#certificate-renewal) for flags
+and unchanged-chain behavior.
 
 ### Memory Tuning (`GOMEMLIMIT` and `GOGC`)
 

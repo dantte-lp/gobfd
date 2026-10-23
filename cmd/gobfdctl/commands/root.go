@@ -77,6 +77,7 @@ func init() {
 	rootCmd.AddCommand(microCmd())
 	rootCmd.AddCommand(monitorCmd())
 	rootCmd.AddCommand(versionCmd())
+	rootCmd.AddCommand(certificateCmd())
 	rootCmd.AddCommand(shellCmd())
 }
 
