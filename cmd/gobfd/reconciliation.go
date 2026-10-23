@@ -14,6 +14,7 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
 	"github.com/dantte-lp/gobfd/internal/netio"
+	"github.com/dantte-lp/gobfd/internal/server"
 )
 
 const (
@@ -303,8 +304,7 @@ func (c *reconciliationCoordinator) applyCandidateLocked(
 	}
 	c.unboundSources = unboundInterfaceSources(retainedCandidate)
 	c.statusMu.Unlock()
-	c.readiness.setSources(0)
-	c.readiness.setEchoEnabled(retainedCandidate.echoEnabled)
+	c.readiness.beginCapabilities(retainedCandidate.capabilities)
 	for i := range retainedCandidate.base {
 		retainedCandidate.base[i].reconcile.DesiredGeneration = generation
 		workingCandidate.base[i].reconcile.DesiredGeneration = generation
@@ -568,12 +568,12 @@ func sourceReceiptLogGroup(receipt sourceReceipt) slog.Attr {
 }
 
 type compiledControlSessionCandidate struct {
-	echoEnabled bool
-	base        []baseSessionCandidate
-	echo        []echoSessionCandidate
-	microGroups []bfd.MicroBFDReconcileConfig
-	overlays    [2]compiledOverlayCandidate
-	logLevel    slog.Level
+	capabilities server.CapabilitySnapshot
+	base         []baseSessionCandidate
+	echo         []echoSessionCandidate
+	microGroups  []bfd.MicroBFDReconcileConfig
+	overlays     [2]compiledOverlayCandidate
+	logLevel     slog.Level
 	// listeners are the receive sockets each source needs.
 	listeners [sourceCount][]netio.ListenerConfig
 }
@@ -614,8 +614,14 @@ func compileControlSessionCandidate(cfg *config.Config) (compiledControlSessionC
 
 	return compiledControlSessionCandidate{
 		base: base, echo: echo, microGroups: microGroups,
-		echoEnabled: cfg.Echo.Enabled,
-		overlays:    overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
+		capabilities: server.CapabilitySnapshot{
+			Unsolicited: server.CapabilityRuntime{Known: true, Enabled: cfg.Unsolicited.Enabled},
+			Echo:        server.CapabilityRuntime{Known: true, Enabled: cfg.Echo.Enabled},
+			MicroBFD:    server.CapabilityRuntime{Known: true, Enabled: cfg.MicroBFD.Enabled},
+			VXLAN:       server.CapabilityRuntime{Known: true, Enabled: cfg.VXLAN.Enabled},
+			Geneve:      server.CapabilityRuntime{Known: true, Enabled: cfg.Geneve.Enabled},
+		},
+		overlays: overlays, logLevel: config.ParseLogLevel(cfg.Log.Level),
 		listeners: compileListenerConfigs(cfg),
 	}, nil
 }

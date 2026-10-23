@@ -149,6 +149,30 @@ Full RFC texts are available in [`docs/rfc/`](docs/rfc/):
 
 Details: [RFC Compliance](docs/en/08-rfc-compliance.md)
 
+### Preview Capability Status
+
+`gobfdctl capabilities` reads `bfd.v1.CapabilityService.ListCapabilities` from
+the daemon. Use `--format json` or `--format yaml` for structured output;
+`capabilities` is also available in the interactive shell.
+
+<!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
+| Profile | RFC | Maturity |
+|---|---|---|
+| unsolicited | 9468 | preview; unsafe |
+| echo | 9747 | preview; incomplete RFC qualification |
+| micro_bfd | 7130 | preview; incomplete L2 owner integration |
+| vxlan | 8971 | preview; unsafe/incomplete owner integration |
+| geneve | 9521 | preview; unsafe/incomplete IPv4 Format A |
+<!-- END GOBFD PREVIEW CAPABILITIES -->
+
+Maturity, effective enablement and local readiness are separate fields.
+Missing runtime state is `unknown`; disabled profiles are `not_ready`.
+`ready` requires the owned receive/backend path and runtime, source and binding
+readiness; it proves neither peer health, full RFC qualification nor L2 actuator
+enforcement. The read-only RPC remains available when a profile is not ready,
+contains no peer addresses, endpoints or secrets, and has no client-side
+fallback catalog. See [CLI Reference](docs/en/04-cli.md#capabilities-command).
+
 ## Performance
 
 GoBFD maintains micro-benchmarks for specific pipeline stages. In

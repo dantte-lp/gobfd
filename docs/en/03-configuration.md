@@ -13,6 +13,7 @@
 
 - [Configuration Sources](#configuration-sources)
 - [Full Configuration Example](#full-configuration-example)
+- [Preview Capability Status](#preview-capability-status)
 - [Configuration Sections](#configuration-sections)
 - [Socket Tuning](#socket-tuning)
 - [Environment Variables](#environment-variables)
@@ -121,6 +122,40 @@ sessions:
     detect_mult: 5
     padded_pdu_size: 128             # RFC 9764: per-session PDU padding
 ```
+
+### Preview Capability Status
+
+<!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
+| Profile | RFC | Maturity |
+|---|---|---|
+| unsolicited | 9468 | preview; unsafe |
+| echo | 9747 | preview; incomplete RFC qualification |
+| micro_bfd | 7130 | preview; incomplete L2 owner integration |
+| vxlan | 8971 | preview; unsafe/incomplete owner integration |
+| geneve | 9521 | preview; unsafe/incomplete IPv4 Format A |
+<!-- END GOBFD PREVIEW CAPABILITIES -->
+
+Inspect the daemon with `gobfdctl capabilities` (`--format table`, `json` or
+`yaml`). The read-only `bfd.v1.CapabilityService.ListCapabilities` RPC remains
+available when forwarding runtime is not ready, under management transport
+policy, and exposes no peer addresses, endpoints or secrets. Its daemon-owned
+catalog has no client-side fallback.
+
+Maturity is independent of effective enablement and local readiness.
+Enablement follows validated `unsolicited.enabled`, `echo.enabled`,
+`micro_bfd.enabled`, `vxlan.enabled` and `geneve.enabled` values. An enabled
+VXLAN/Geneve profile with zero peers has no owned backend and remains
+`not_ready`. Valid reloads update reloadable values; rejected
+candidates preserve the retained generation. Changing `micro_bfd.enabled`
+still requires a restart.
+
+Missing runtime state produces `unknown` enablement/readiness; a disabled
+profile is `not_ready`. `ready` requires the necessary owned receive/backend
+path and local runtime, source and binding readiness. It does not prove peer
+health, RFC compliance or L2 actuator enforcement. API-only Echo can remain
+`not_ready` without a receive listener until API admission claims one; this
+coarse catalog is not an admission preflight. Inspection changes no defaults
+and activates no preview.
 
 ### Configuration Sections
 

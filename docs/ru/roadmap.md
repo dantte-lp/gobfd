@@ -4,6 +4,23 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Ограниченный статус preview-возможностей — 2026-10-24
+
+`gobfd-qj0.8.2.1.8.3` добавляет `CapabilityService.ListCapabilities` и
+`gobfdctl capabilities` для пяти preview RFC 9468/9747/7130/8971/9521.
+Зрелость, enablement валидной конфигурации и готовность локального receive
+path разделены. Отсутствующий runtime сохраняет unknown; включённый профиль
+без фактического receive owner остаётся not ready. README и EN/RU документация
+configuration, CLI и RFC compliance сохраняют одинаковую границу квалификации.
+
+Локальные записи сохранены в `reports/capability-status-20261023/`.
+Критический race-прогон охватывает server, daemon, CLI и dependency inventory;
+существующий IPv6 wire subcase с отдельным namespace остаётся пропущенным.
+Эта граница не квалифицирует RFC wire behavior, Micro-BFD L2 actuation,
+vendor backends, поддерживаемый scale и финальный выпуск v1. Приоритеты
+исполнения и оставшиеся acceptance gates хранятся в Beads; запрет публикации
+сохраняется.
+
 ## Независимый аудит — 2026-10-23
 
 Сверка dev `f9ed31bdd81425ba4efaf9688bb452ddea142266` выявила шесть

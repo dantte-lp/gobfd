@@ -38,7 +38,7 @@ func TestGRPCServerWireCompatibility(t *testing.T) {
 
 	// Wire framing needs AddSession over plaintext TCP: opt in explicitly.
 	grpcCfg := config.GRPCConfig{Addr: "127.0.0.1:0", UnsafeLoopbackMutations: true}
-	srv := newGRPCServer(grpcCfg, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger)
+	srv := newGRPCServer(grpcCfg, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil)
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)

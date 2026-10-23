@@ -13,6 +13,7 @@
 
 - [Источники конфигурации](#источники-конфигурации)
 - [Полный пример конфигурации](#полный-пример-конфигурации)
+- [Статус preview-возможностей](#статус-preview-возможностей)
 - [Секции конфигурации](#секции-конфигурации)
 - [Настройка буферов сокетов](#настройка-буферов-сокетов)
 - [Переменные окружения](#переменные-окружения)
@@ -123,6 +124,40 @@ sessions:
     detect_mult: 5
     padded_pdu_size: 128             # RFC 9764: дополнение PDU per-session
 ```
+
+### Статус preview-возможностей
+
+<!-- BEGIN GOBFD PREVIEW CAPABILITIES -->
+| Profile | RFC | Maturity |
+|---|---|---|
+| unsolicited | 9468 | preview; unsafe |
+| echo | 9747 | preview; incomplete RFC qualification |
+| micro_bfd | 7130 | preview; incomplete L2 owner integration |
+| vxlan | 8971 | preview; unsafe/incomplete owner integration |
+| geneve | 9521 | preview; unsafe/incomplete IPv4 Format A |
+<!-- END GOBFD PREVIEW CAPABILITIES -->
+
+Команда `gobfdctl capabilities` (`--format table`, `json` или `yaml`) запрашивает
+демон. Read-only RPC `bfd.v1.CapabilityService.ListCapabilities` остаётся
+доступен при неготовом forwarding runtime в рамках management transport policy
+и не передаёт адреса peers, endpoints или секреты. Каталог принадлежит демону;
+локальная подстановка в клиенте отсутствует.
+
+Maturity не зависит от effective enablement и локальной readiness.
+Enablement следует валидированным значениям `unsolicited.enabled`,
+`echo.enabled`, `micro_bfd.enabled`, `vxlan.enabled` и `geneve.enabled`.
+Включённый профиль VXLAN/Geneve без peers не имеет owned backend и остаётся
+`not_ready`. Валидный reload обновляет разрешённые к изменению значения; отклонённый
+candidate сохраняет значения retained generation. Изменение
+`micro_bfd.enabled` по-прежнему требует перезапуска.
+
+Отсутствующее runtime state даёт `unknown` enablement/readiness; выключенный
+профиль имеет `not_ready`. Для `ready` необходимы receive/backend path
+владельца и локальная готовность runtime, source и bindings. Значение не
+доказывает здоровье peers, соответствие RFC или применение L2 actuator.
+API-only Echo без receive listener может оставаться `not_ready`, пока API
+admission не получит listener; этот coarse catalog не заменяет admission
+preflight. Просмотр сохраняет defaults и не включает preview.
 
 ### Секции конфигурации
 

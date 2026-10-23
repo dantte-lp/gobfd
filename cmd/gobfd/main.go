@@ -130,7 +130,7 @@ func runServers(
 	listeners, overlays := attachReceiveOwners(cfg, mgr, sf, coordinator, logger)
 	defer coordinator.closeReceivePaths()
 	grpcSrv := newGRPCServer(cfg.GRPC, cfg.MicroBFD.Enabled, mgr, newAPIListenerSenderFactory(sf, listeners, false),
-		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger)
+		newAPIListenerSenderFactory(sf, listeners, true), healthChecker, fr, logger, coordinator)
 	bgpStatus := goBGPStatusFor(cfg.GoBGP, healthChecker, collector)
 	bgpStatus.configuredPeers(goBGPManagedPeers(cfg.Sessions))
 	coordinator.onConfiguredPeers = bgpStatus.configuredPeers

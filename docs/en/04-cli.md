@@ -13,6 +13,7 @@
 
 - [Overview](#overview)
 - [Global Flags](#global-flags)
+- [Capabilities Command](#capabilities-command)
 - [Session Commands](#session-commands)
 - [Echo Commands](#echo-commands)
 - [Micro-BFD Commands](#micro-bfd-commands)
@@ -39,6 +40,38 @@ gobfdctl [global flags] <command> [subcommand] [flags]
 | `--tls-cert` | `""` | Client certificate file for mTLS |
 | `--tls-key` | `""` | Client key file for mTLS |
 | `--format` | `table` | Output format: `table`, `json`, `yaml` |
+
+### Capabilities Command
+
+```bash
+gobfdctl capabilities
+gobfdctl capabilities --format json
+gobfdctl capabilities --format yaml
+```
+
+Calls the read-only `bfd.v1.CapabilityService.ListCapabilities` RPC. The daemon
+returns five ordered profiles: `unsolicited`, `echo`, `micro_bfd`, `vxlan`,
+`geneve`. The table columns are `CAPABILITY`, `RFC`, `MATURITY`, `ENABLEMENT`,
+`READINESS`; JSON and YAML return an array of objects with `kind`, `rfc`,
+`maturity`, `enablement`, `readiness` fields.
+
+| Field | Values and meaning |
+|---|---|
+| `maturity` | `preview`; runtime readiness does not graduate RFC qualification |
+| `enablement` | `disabled`, `enabled`, or `unknown` when runtime state is unavailable |
+| `readiness` | `not_ready`, `ready`, or `unknown` when runtime state is unavailable |
+
+Disabled profiles are `not_ready`. An absent runtime source preserves all five
+preview entries with `unknown` enablement and readiness. The CLI renders
+unspecified enum fields as `unknown`; it reports RPC errors without inventing
+a local catalog or inferring status from client flags.
+
+`ready` describes the necessary owned receive/backend path and local runtime,
+source and binding readiness. It does not prove peer health, RFC compliance or
+L2 actuator enforcement. An API-only Echo deployment may report `not_ready`
+until a later `echo add` claims its receive listener. The status RPC remains
+callable while forwarding runtime is not ready, under the management transport
+policy, and returns no peer addresses, endpoints or secrets.
 
 ### Session Commands
 
@@ -354,7 +387,7 @@ gobfdctl shell
 Launches an interactive shell with:
 - **Tab completion** for commands and subcommands
 - **Readline autocomplete** via reeflective/console (derived from Cobra command tree)
-- Session, monitor and version commands without the `gobfdctl` prefix;
+- Session, monitor, capabilities and version commands without the `gobfdctl` prefix;
   certificate renewal is available only through the non-interactive CLI
 
 Example session:
@@ -362,13 +395,14 @@ Example session:
 ```
 gobfd> session list
 gobfd> session show 10.0.0.1
+gobfd> capabilities
 gobfd> monitor --current
 gobfd> exit
 ```
 
 ### Output Formats
 
-Session and monitor commands support three output formats via the `--format` flag:
+Session, monitor and capabilities commands support three output formats via the `--format` flag:
 
 | Format | Use Case |
 |---|---|

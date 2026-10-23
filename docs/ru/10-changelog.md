@@ -83,6 +83,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Added
 
+- Добавлены read-only `bfd.v1.CapabilityService.ListCapabilities` и
+  `gobfdctl capabilities` с table, JSON и YAML в CLI и shell. Пять preview,
+  полученных от демона, разделяют maturity, enablement и локальную readiness;
+  недоступное runtime state остаётся unknown. Readiness не доказывает здоровье
+  peers, полное соответствие RFC или применение L2 actuator.
+
 - Добавлена команда `gobfdctl certificate renew` для существующих сертификатов
   управления с явно заданными корнями внешнего CA, сохранением закрытого ключа
   и SAN. Квалификация с настоящим step-ca ожидается в `gobfd-qj0.8.2.3.7.4`.

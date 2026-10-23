@@ -4,6 +4,22 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Bounded preview capability status — 2026-10-24
+
+`gobfd-qj0.8.2.1.8.3` adds `CapabilityService.ListCapabilities` and
+`gobfdctl capabilities` for the five RFC 9468/9747/7130/8971/9521 previews.
+Maturity, validated enablement and local receive-path readiness are separate.
+Absent runtime state remains unknown; an enabled profile without its actual
+receive owner remains not ready. README and EN/RU configuration, CLI and RFC
+compliance documentation preserve the same qualification boundary.
+
+Local evidence is retained in `reports/capability-status-20261023/`.
+The critical race run covers server, daemon, CLI and dependency inventory;
+the existing namespace-dependent IPv6 wire subcase remains a separate skip.
+This boundary does not qualify RFC wire behavior, Micro-BFD L2 actuation,
+vendor backends, supported scale or the final v1 release. Executable priorities
+and remaining acceptance gates stay in Beads; the local-only hold continues.
+
 ## Independent audit — 2026-10-23
 
 The audit of dev `f9ed31bdd81425ba4efaf9688bb452ddea142266` found six

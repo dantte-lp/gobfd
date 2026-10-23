@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"connectrpc.com/grpchealth/v2"
+
+	"github.com/dantte-lp/gobfd/internal/server"
 )
 
 // errRequiredWorkerStopped reports that a dataplane worker returned while the
@@ -75,23 +77,32 @@ type listenerBinding struct {
 // service needs. gobfd.gobgp and gobfd.management keep their own writers and
 // stay outside the aggregate.
 type daemonReadiness struct {
-	mu          sync.Mutex
-	ready       readinessMask
-	bindings    []listenerBinding
-	checker     *grpchealth.StaticChecker
-	echoEnabled bool
+	mu           sync.Mutex
+	ready        readinessMask
+	bindings     []listenerBinding
+	checker      *grpchealth.StaticChecker
+	capabilities server.CapabilitySnapshot
 }
 
 func (r *daemonReadiness) setEchoEnabled(enabled bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.echoEnabled = enabled
+	r.capabilities.Echo.Enabled = enabled
 }
 
 func (r *daemonReadiness) echoAPIReady() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.echoEnabled && r.ready&echoReadinessComponents == echoReadinessComponents
+	return r.capabilities.Echo.Enabled && r.ready&echoReadinessComponents == echoReadinessComponents
+}
+
+// Begin a validated generation without exposing new flags with old source bits.
+func (r *daemonReadiness) beginCapabilities(snapshot server.CapabilitySnapshot) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ready &^= allSourceComponents
+	r.capabilities = snapshot
+	r.publishLocked()
 }
 
 // newDaemonReadiness starts with every reconciliation source not ready; the

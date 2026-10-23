@@ -83,6 +83,12 @@ Do **not** add entries for:
 
 #### Added
 
+- Added read-only `bfd.v1.CapabilityService.ListCapabilities` and
+  `gobfdctl capabilities` for CLI/shell table, JSON and YAML output. Five
+  daemon-reported previews separate maturity, enablement and local readiness;
+  unavailable runtime stays unknown. Readiness does not prove peer health,
+  full RFC compliance or L2 actuation.
+
 - Added `gobfdctl certificate renew` for existing management identities using
   explicit external CA roots, preserving the private key and SAN. Actual
   step-ca qualification remains pending in `gobfd-qj0.8.2.3.7.4`.

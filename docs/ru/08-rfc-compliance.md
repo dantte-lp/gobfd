@@ -61,6 +61,14 @@
 | [RFC 5884](https://datatracker.ietf.org/doc/html/rfc5884) | BFD для MPLS LSP | **Stub** | Интерфейсы определены, ожидает LSP Ping |
 | [RFC 5885](https://datatracker.ietf.org/doc/html/rfc5885) | BFD для PW VCCV | **Stub** | Интерфейсы определены, ожидает VCCV/LDP |
 
+`gobfdctl capabilities` и `CapabilityService.ListCapabilities` показывают пять
+preview-профилей отдельно от нормативной матрицы. Maturity, enablement валидной
+конфигурации и готовность локального receive path различаются. `ready` требует
+owned receive path профиля и готовых source/runtime/binding; peer health,
+внешний forwarding ownership и RFC qualification этим не подтверждаются.
+Отсутствующее наблюдение runtime остаётся `unknown`. Небезопасные/неполные
+профили сохраняют эту границу даже при enabled и локальном ready.
+
 > Traditional Echo Mode (RFC 5880 Section 6.4, affiliated с контрольной
 > сессией) не реализован. Remote Demand подавляет периодический TX, когда оба
 > конца Up и локальный Poll не активен; local Demand и полные procedures

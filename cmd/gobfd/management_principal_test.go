@@ -35,7 +35,7 @@ func TestManagementClaimsAndRolesOverMutualTLS(t *testing.T) {
 		mgr := bfd.NewManager(slog.New(slog.DiscardHandler))
 		t.Cleanup(mgr.Close)
 		srv := newGRPCServer(config.GRPCConfig{MutatingIdentities: identities}, false, mgr, nil, nil,
-			newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler))
+			newDaemonHealthChecker(), nil, slog.New(slog.DiscardHandler), nil)
 		tcp, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("listen: %v", err)

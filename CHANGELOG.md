@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added read-only `bfd.v1.CapabilityService.ListCapabilities` and
+  `gobfdctl capabilities` in the CLI and interactive shell, with table/JSON/YAML
+  output. Five daemon-reported profiles separate preview maturity, effective
+  enablement and local readiness; unavailable runtime state stays unknown.
+  Readiness does not establish peer health, full RFC compliance or L2 actuation.
+
 - Added `gobfdctl certificate renew` for existing management identities through
   an explicit external CA and roots: native mTLS renewal atomically replaces
   only the public certificate, preserving the key and SAN. Actual step-ca

@@ -13,6 +13,7 @@
 
 - [Обзор](#обзор)
 - [Глобальные флаги](#глобальные-флаги)
+- [Команда capabilities](#команда-capabilities)
 - [Команды сессий](#команды-сессий)
 - [Команды echo](#команды-echo)
 - [Команды micro-BFD](#команды-micro-bfd)
@@ -39,6 +40,38 @@ gobfdctl [глобальные флаги] <команда> [подкоманд�
 | `--tls-cert` | `""` | Файл сертификата клиента для mTLS |
 | `--tls-key` | `""` | Файл ключа клиента для mTLS |
 | `--format` | `table` | Формат вывода: `table`, `json`, `yaml` |
+
+### Команда capabilities
+
+```bash
+gobfdctl capabilities
+gobfdctl capabilities --format json
+gobfdctl capabilities --format yaml
+```
+
+Вызывает read-only RPC `bfd.v1.CapabilityService.ListCapabilities`. Демон
+возвращает пять профилей в порядке `unsolicited`, `echo`, `micro_bfd`, `vxlan`,
+`geneve`. Колонки таблицы: `CAPABILITY`, `RFC`, `MATURITY`, `ENABLEMENT`,
+`READINESS`; JSON и YAML возвращают массив объектов с полями `kind`, `rfc`,
+`maturity`, `enablement`, `readiness`.
+
+| Поле | Значения и смысл |
+|---|---|
+| `maturity` | `preview`; готовность runtime не подтверждает RFC qualification |
+| `enablement` | `disabled`, `enabled` либо `unknown`, когда runtime state недоступен |
+| `readiness` | `not_ready`, `ready` либо `unknown`, когда runtime state недоступен |
+
+Выключенные профили имеют `not_ready`. При отсутствии runtime source все пять
+preview-записей сохраняются с `unknown` enablement и readiness. CLI отображает
+unspecified enum как `unknown`; ошибка RPC возвращается без подстановки
+локального каталога или определения статуса по клиентским флагам.
+
+`ready` отражает необходимый receive/backend path владельца и локальную
+готовность runtime, source и bindings. Значение не доказывает здоровье peers,
+соответствие RFC или применение L2 actuator. API-only Echo deployment может
+возвращать `not_ready`, пока последующий `echo add` не получит receive listener.
+Status RPC остаётся доступен при неготовом forwarding runtime в рамках
+management transport policy и не передаёт адреса peers, endpoints или секреты.
 
 ### Команды сессий
 
@@ -348,7 +381,7 @@ gobfdctl shell
 Запускает интерактивную оболочку с:
 - **Автодополнением по Tab** для команд и подкоманд
 - **Автодополнением readline** через reeflective/console (из дерева команд Cobra)
-- Командами session, monitor и version без префикса `gobfdctl`;
+- Командами session, monitor, capabilities и version без префикса `gobfdctl`;
   обновление сертификата доступно только в неинтерактивном CLI
 
 Пример сессии:
@@ -356,13 +389,14 @@ gobfdctl shell
 ```
 gobfd> session list
 gobfd> session show 10.0.0.1
+gobfd> capabilities
 gobfd> monitor --current
 gobfd> exit
 ```
 
 ### Форматы вывода
 
-Команды сессий и мониторинга поддерживают `--format`:
+Команды session, monitor и capabilities поддерживают `--format`:
 
 | Формат | Применение |
 |---|---|

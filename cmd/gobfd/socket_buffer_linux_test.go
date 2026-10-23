@@ -109,7 +109,7 @@ func TestAPIPaddedPDURequiresDF(t *testing.T) {
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
 			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, false,
-				mgr, sf, sf, newDaemonHealthChecker(), nil, logger)
+				mgr, sf, sf, newDaemonHealthChecker(), nil, logger, nil)
 			ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)

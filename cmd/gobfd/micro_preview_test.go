@@ -43,7 +43,7 @@ func TestMicroPreviewDaemonAPIAdmission(t *testing.T) {
 			mgr := bfd.NewManager(logger)
 			t.Cleanup(mgr.Close)
 			srv := newGRPCServer(config.GRPCConfig{UnsafeLoopbackMutations: true}, enabled,
-				mgr, nil, nil, newDaemonHealthChecker(), nil, logger)
+				mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil)
 			ts := httptest.NewTestServer(t, srv.Handler)
 			client := bfdv1connect.NewMicroBFDServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 			_, err := client.AddMicroBFDGroup(t.Context(), &bfdv1.AddMicroBFDGroupRequest{

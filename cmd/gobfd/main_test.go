@@ -2160,7 +2160,7 @@ func TestNewGRPCServerEnablesHTTP1AndUnencryptedHTTP2(t *testing.T) {
 	t.Cleanup(mgr.Close)
 
 	srv := newGRPCServer(
-		config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger,
+		config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil,
 	)
 	if srv.Protocols == nil {
 		t.Fatal("Protocols is nil; want explicit HTTP/1 and unencrypted HTTP/2")
@@ -2189,7 +2189,7 @@ func TestHTTPServersEnforceHeaderValueLimit(t *testing.T) {
 			prometheus.NewRegistry(),
 		),
 		"grpc": newGRPCServer(
-			config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger,
+			config.GRPCConfig{Addr: "127.0.0.1:0"}, false, mgr, nil, nil, newDaemonHealthChecker(), nil, logger, nil,
 		),
 	}
 	for name, srv := range servers {

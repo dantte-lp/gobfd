@@ -184,6 +184,7 @@ func newGRPCServer(
 	checker *grpchealth.StaticChecker,
 	fr *trace.FlightRecorder,
 	logger *slog.Logger,
+	capabilities server.CapabilitySource,
 ) *http.Server {
 	mux := http.NewServeMux()
 
@@ -204,6 +205,7 @@ func newGRPCServer(
 	server.Register(rpc, mgr, sf, logger)
 	server.RegisterEcho(rpc, mgr, echoSF, logger)
 	server.RegisterMicroBFD(rpc, mgr, microEnabled, logger)
+	server.RegisterCapabilities(rpc, capabilities)
 	connecthttp.Mount(mux, rpc)
 
 	// gRPC health check (grpc.health.v1) on its own server without the RPC
