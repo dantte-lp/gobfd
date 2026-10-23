@@ -31,6 +31,7 @@ func TestRequirePrincipal(t *testing.T) {
 		{"anonymous", nil, http.StatusForbidden},
 		{"listed identity", tlsFor("spiffe://gobfd.test/ops"), http.StatusOK},
 		{"unlisted identity", tlsFor("spiffe://gobfd.test/monitor"), http.StatusForbidden},
+		{"TLS URI cannot impersonate Unix UID", tlsFor("uid:1000"), http.StatusForbidden},
 	} {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/debug/flightrecorder", nil)
 		req.TLS = tc.tls

@@ -15,7 +15,9 @@ func TestMutationGuard(t *testing.T) {
 	t.Parallel()
 
 	anonymous := context.Background()
-	authenticated := context.WithValue(context.Background(), principalKey{}, "uid:1000")
+	authenticated := context.WithValue(context.Background(), principalKey{}, transportPrincipal{
+		kind: principalUnix, identity: "uid:1000",
+	})
 	tests := []struct {
 		name      string
 		ctx       context.Context

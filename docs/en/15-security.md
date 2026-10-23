@@ -74,8 +74,13 @@ Production rules:
 
 API session claims belong to the caller's principal: one principal cannot
 release another's session (`PermissionDenied`, logged), and
-`grpc.mutating_identities` makes unlisted mTLS identities read-only. Echo and
-Micro-BFD API objects are not yet principal-scoped.
+`grpc.mutating_identities` makes unlisted mTLS identities read-only. Control and
+Micro-BFD API objects are principal-scoped; Echo API objects are not yet scoped.
+
+Transport provenance is independent of the displayed identity. A certificate
+URI such as `uid:0` remains a TLS identity subject to the configured role list.
+Unix UID, TLS URI and TLS DNS owners occupy distinct namespaces; issuing a
+certificate never grants Unix socket privileges.
 
 The flight recorder dump (`grpc.flight_recorder`, off by default) is served only on
 the management server and only to callers with a principal; the metrics listener
