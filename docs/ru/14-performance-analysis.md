@@ -622,7 +622,7 @@ constrained, preview, not implemented, planned или stub.
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (парсинг текста) |
 | Метрики | Нативный Prometheus (эндпоинт `/metrics`) | SNMP (требуется SNMP-инфраструктура) |
 | Деплой | Единый статический бинарник, без зависимостей | C-зависимости, разделяемые библиотеки |
-| Контейнеры | Закреплённые runtime-образы Debian trixie и Oracle Linux 10 | Здесь не оценивается |
+| Контейнеры | Закреплённые runtime-образы Debian trixie | Здесь не оценивается |
 
 ---
 

@@ -54,8 +54,8 @@ func PackageBuild(ctx context.Context, options PackageOptions) error {
 	return nil
 }
 
-// PackageLifecycle installs the dist/ packages into systemd-enabled Debian 13
-// and Oracle Linux 10 containers through the Podman-backed lifecycle test.
+// PackageLifecycle installs the dist/ DEB into a systemd-enabled Debian 13
+// container through the Podman-backed lifecycle test.
 func PackageLifecycle(ctx context.Context, options PackageOptions) error {
 	if options.Runner == nil {
 		return fmt.Errorf("package lifecycle command runner is required: %w", errInvalidConfig)

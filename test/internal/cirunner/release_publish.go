@@ -141,7 +141,6 @@ func verifyReleasePublication(
 	aliases := []releaseOCIImageDigest{
 		{Image: imageRepository + ":latest", Digest: evidence.versioned[0].Digest},
 		{Image: imageRepository + ":debian-trixie", Digest: evidence.versioned[0].Digest},
-		{Image: imageRepository + ":oraclelinux10", Digest: evidence.versioned[2].Digest},
 	}
 	if _, aliasesErr := inspectReleaseOCIAliases(
 		ctx, options.Runner, inputs.root, aliases,

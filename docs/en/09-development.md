@@ -306,9 +306,9 @@ go run ./test/cmd/cictl package-lifecycle  # needs the Podman API socket
 publish, announce, validate, sign, SBOM and image stages, then
 `tools/cmd/packagefinalize` for the native RPM lifecycle programs. It sets the
 test version `v0.0.0` and needs a Git checkout. `package-lifecycle` runs the
-`package_lifecycle_testcontainers` test, which installs the DEB and RPM into
-systemd-enabled containers built from the digest-pinned Debian 13 and Oracle
-Linux 10 release bases. It proves start, sandbox state, a hold past
+`package_lifecycle_testcontainers` test, which installs the DEB into a
+systemd-enabled container built from the digest-pinned Debian 13 release base.
+It proves start, sandbox state, a hold past
 `WatchdogSec=`, reload without a PID change, restart after `SIGKILL`, a stop
 with a dead peer that ends with `Result=success`, zero sandbox denials in the
 journal, `systemd-analyze verify` with the kernel-bond drop-in, and package
@@ -507,7 +507,7 @@ Before release creation, `cictl release-preflight` validates the canonical
 stable SemVer tag, `GITHUB_REPOSITORY`, the checked-out commit, the annotated
 tag object, and the exact `release/vMAJOR.MINOR` branch head. It queries GitHub
 with fixed `git` and `gh` argument vectors, decodes GraphQL and paginated GHCR
-JSON in Go, and refuses an existing release or draft and any of the three
+JSON in Go, and refuses an existing release or draft and any of the two
 versioned OCI tags. The command writes fresh mode `0644` commit, branch, and tag
 object receipts under an `os.Root` anchored at the validated `RUNNER_TEMP`.
 `GH_TOKEN` is inherited by `gh` through the process environment; it is never
@@ -575,21 +575,21 @@ under a validated `RUNNER_TEMP` root; the latter also includes the fixed report
 archive, OCI digest receipt, and supplemental checksum receipt names.
 
 `cictl release-oci-evidence` runs from the immutable verifier checkout and
-replaces the release workflow's OCI shell loop. It inspects the fixed primary,
-Debian Trixie, and Oracle Linux 10 versioned references with direct Buildx
+replaces the release workflow's OCI shell loop. It inspects the fixed primary
+and Debian Trixie versioned references with direct Buildx
 argv, requires exactly `linux/amd64` and
 `linux/arm64` plus their linked attestation manifests, and validates each
 platform's SPDX document and BuildKit SLSA v1 provenance. Docker receives the
 workflow environment without `GH_TOKEN` or `GITHUB_TOKEN`; both payload
 queries are pinned to the inspected image-index digest rather than the mutable
-version tag. Only after all three images pass does the command atomically publish mode `0644`
+version tag. Only after both image references pass does the command atomically publish mode `0644`
 `release-image-digests.txt` through the separately rooted original workspace
 in fixed order; the primary and Debian digests must be identical.
 
 `cictl release-evidence` also runs from the immutable verifier checkout. It
 opens the original workspace as a separate root, rejects missing, empty, linked,
 misnamed, changed, or oversized report and OCI digest inputs, and validates the
-exact three-line digest receipt again. It atomically writes the two canonical
+exact two-line digest receipt again. It atomically writes the two canonical
 SHA-256 records to mode `0644` `release-evidence-checksums.txt`, then calls
 `gh release upload` once with only an owned staging snapshot of the fixed
 report, digest, and checksum paths under the verifier checkout. The command
@@ -599,7 +599,7 @@ when `gh` reports an error.
 
 `cictl release-verify` replaces the release draft verification shell and runs
 from the same immutable verifier checkout. It revalidates the checkout,
-annotated tag object, target commit, release branch, three versioned OCI index
+annotated tag object, target commit, release branch, two versioned OCI index
 receipts, draft tag/body, and the exact 12-name asset inventory before any
 download. It creates a new mode `0700` directory under the identity-bound
 `RUNNER_TEMP` root and invokes the documented fixed
@@ -622,11 +622,10 @@ receive an explicitly token-stripped environment.
 
 `cictl release-promote` is the only OCI alias-promotion command in the release
 workflow and also runs from the immutable verifier checkout. It revalidates
-the annotated tag, target commit, release branch, and exact three-line OCI
+the annotated tag, target commit, release branch, and exact two-line OCI
 digest receipt. Before changing an alias, it snapshots the complete existing
-OCI index for `latest`, `debian-trixie`, and `oraclelinux10`. It then promotes
-the verified primary index to the first two aliases and the verified Oracle
-Linux 10 index to the third, and verifies every resulting index descriptor.
+OCI index for `latest` and `debian-trixie`. It then promotes the verified
+primary index to both aliases and verifies every resulting index descriptor.
 This uses Docker's documented
 [`imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
 single-source index-copy behavior; no platform manifest is flattened.
@@ -635,7 +634,7 @@ digest under an independent bounded rollback context. Docker never receives a
 GitHub token.
 
 `cictl release-publish` is the final release command. It first verifies the
-three promoted alias indexes, then revalidates the live Git identity, draft
+two promoted alias indexes, then revalidates the live Git identity, draft
 tag and body, the exact 12 remote asset identities, and every local digest
 receipt byte used by the preceding checks. Only after its opened roots have
 closed successfully does it execute the single terminal

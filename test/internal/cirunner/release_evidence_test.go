@@ -216,8 +216,7 @@ func TestReleaseEvidenceRejectsInvalidInputsWithoutUpload(t *testing.T) {
 func validReleaseDigestReceipt(version string) []byte {
 	return []byte(
 		"ghcr.io/dantte-lp/gobfd:" + version + " " + testOCIDigest("1") + "\n" +
-			"ghcr.io/dantte-lp/gobfd:" + version + "-debian-trixie " + testOCIDigest("1") + "\n" +
-			"ghcr.io/dantte-lp/gobfd:" + version + "-oraclelinux10 " + testOCIDigest("3") + "\n",
+			"ghcr.io/dantte-lp/gobfd:" + version + "-debian-trixie " + testOCIDigest("1") + "\n",
 	)
 }
 
@@ -253,6 +252,8 @@ func TestValidateReleaseOCIDigestReceiptRejectsNoncanonicalRecords(t *testing.T)
 		[]byte(strings.Replace(string(validReleaseDigestReceipt("0.6.5")), "sha256:", "SHA256:", 1)),
 		[]byte(strings.Replace(string(validReleaseDigestReceipt("0.6.5")), "-debian-trixie", "-oraclelinux10", 1)),
 		append(validReleaseDigestReceipt("0.6.5"), '\n'),
+		append(validReleaseDigestReceipt("0.6.5"),
+			[]byte("ghcr.io/dantte-lp/gobfd:0.6.5-oraclelinux10 "+testOCIDigest("3")+"\n")...),
 	} {
 		if err := validateReleaseOCIDigestReceipt(data, "0.6.5"); err == nil {
 			t.Errorf("validateReleaseOCIDigestReceipt(%q) error = nil", data)

@@ -621,7 +621,7 @@ See [08-rfc-compliance.md](./08-rfc-compliance.md) for the full compliance matri
 | API | ConnectRPC (gRPC + HTTP) | vtysh CLI (text parsing) |
 | Metrics | Native Prometheus (`/metrics` endpoint) | SNMP (requires SNMP infrastructure) |
 | Deployment | Single static binary, no dependencies | C dependencies, shared libraries |
-| Container support | Pinned Debian trixie and Oracle Linux 10 runtime images | Not assessed here |
+| Container support | Pinned Debian trixie runtime images | Not assessed here |
 
 ---
 

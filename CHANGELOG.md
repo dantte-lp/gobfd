@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Oracle Linux 10 OCI images and their release aliases are excluded from v1.
+  OCI releases use Debian trixie; generic RPM packages remain available.
+  The package lifecycle gate covers Debian DEB; historical v0.6 artifacts
+  and qualification records remain unchanged.
+
 ### Added
 
 - Receive clocks expose measured pairing brackets and nominal resolutions with

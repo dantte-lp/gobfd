@@ -37,9 +37,8 @@ or support a non-Linux dataplane runtime.
 |---|---|---|---|
 | Static binaries | Linux distributions with glibc or musl user space | `amd64`, `arm64` | `tar.gz` archive |
 | Debian package | Debian 13 `trixie`, Ubuntu-compatible systems | `amd64`, `arm64` | `.deb`, systemd unit |
-| RPM package | Oracle Linux 10, RHEL-compatible systems, Fedora-compatible systems | `amd64`, `arm64` | `.rpm`, systemd unit |
+| RPM package | RHEL-compatible systems, Fedora-compatible systems | `amd64`, `arm64` | `.rpm`, systemd unit |
 | Default OCI image | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
-| Oracle Linux OCI image | Docker, Podman, Kubernetes CRI runtimes requiring Oracle Linux user space | `linux/amd64`, `linux/arm64` | `docker.io/library/oraclelinux:10-slim` |
 
 | Image tag | Base |
 |---|---|
@@ -47,8 +46,10 @@ or support a non-Linux dataplane runtime.
 | `ghcr.io/dantte-lp/gobfd:latest` | Debian `trixie-slim` |
 | `ghcr.io/dantte-lp/gobfd:<version>-debian-trixie` | Debian `trixie-slim` |
 | `ghcr.io/dantte-lp/gobfd:debian-trixie` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:<version>-oraclelinux10` | Oracle Linux `10-slim` |
-| `ghcr.io/dantte-lp/gobfd:oraclelinux10` | Oracle Linux `10-slim` |
+
+Oracle Linux 10 is excluded from v1 OCI and lifecycle qualification. Generic
+RPM generation remains enabled; an RPM file does not establish platform
+qualification. Existing v0.6 images and tags are preserved.
 
 ### Installation Methods
 
@@ -86,8 +87,8 @@ commands. The declarative inputs are `deployments/systemd/gobfd.sysusers` and
 identity and `/etc/gobfd` ownership without changing the four public-binary
 contract.
 
-`go run ./test/cmd/cictl package-lifecycle` installs the release DEB and RPM
-into systemd containers and runs their install and final-removal phases; see
+`go run ./test/cmd/cictl package-lifecycle` installs the release DEB
+into a Debian systemd container and runs its install and final-removal phases; see
 [Package Lifecycle Tests](./09-development.md#package-lifecycle-tests).
 
 #### From Source
@@ -233,8 +234,9 @@ sudo systemctl edit gobfd   # [Service] LimitNOFILE=<2*sessions+256 or more>
 ```
 
 The [package lifecycle test](./09-development.md#package-lifecycle-tests)
-installs the release DEB and RPM under systemd 257 on Debian 13 and Oracle
-Linux 10. The daemon starts with `Seccomp: 2`, `NoNewPrivs: 1`, `Umask: 0077`,
+covers the release DEB on Debian 13. Historical systemd 257 qualification
+also covered RPM on Oracle Linux 10 before that platform was retired from v1.
+The daemon starts with `Seccomp: 2`, `NoNewPrivs: 1`, `Umask: 0077`,
 `hidepid=invisible,subset=pid` and a 16384 descriptor limit, holds its sessions
 Up for longer than `WatchdogSec=` without a restart, reloads without a PID
 change, restarts after `SIGKILL` and stops with `Result=success` after its peer

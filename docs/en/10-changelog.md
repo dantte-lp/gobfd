@@ -185,7 +185,7 @@ v0.6.2 from `release/v0.6`:
    - Adds changelog and comparison links bound to the immutable tag; a link to
      mutable `master` is not a release note.
    - Builds binaries (linux/amd64, linux/arm64), .deb, .rpm packages.
-   - Publishes Debian-based and Oracle Linux-based OCI images to
+   - For v1, publishes Debian trixie OCI images to
      `ghcr.io/dantte-lp/gobfd`.
    - Creates a draft GitHub Release and attaches all required assets.
    - Verifies the draft's tag, target commit, notes, assets, checksums,

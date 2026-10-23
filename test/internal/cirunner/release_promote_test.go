@@ -20,10 +20,9 @@ func TestPromoteReleaseOCIAliasesUsesPinnedDigestsAndVerifiesAliases(t *testing.
 	runnerTemp := t.TempDir()
 	writeReleasePromotionFixture(t, artifactRoot, runnerTemp)
 	primaryDigest := testOCIDigest("1")
-	oracleDigest := testOCIDigest("3")
 	runner := &releasePromotionRunner{aliasDigests: []string{
-		testOCIDigest("4"), testOCIDigest("4"), testOCIDigest("5"),
-		primaryDigest, primaryDigest, oracleDigest,
+		testOCIDigest("4"), testOCIDigest("4"),
+		primaryDigest, primaryDigest,
 	}}
 	environment := []string{
 		"GH_TOKEN=secret", "GITHUB_TOKEN=other-secret", "PATH=/usr/bin", "DOCKER_CONFIG=/docker",
@@ -47,19 +46,10 @@ func TestPromoteReleaseOCIAliasesUsesPinnedDigestsAndVerifiesAliases(t *testing.
 			"ghcr.io/dantte-lp/gobfd:debian-trixie",
 		}, dir: root, env: dockerEnvironment},
 		{name: "docker", args: []string{
-			"buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}",
-			"ghcr.io/dantte-lp/gobfd:oraclelinux10",
-		}, dir: root, env: dockerEnvironment},
-		{name: "docker", args: []string{
 			"buildx", "imagetools", "create",
 			"--tag", "ghcr.io/dantte-lp/gobfd:latest",
 			"--tag", "ghcr.io/dantte-lp/gobfd:debian-trixie",
 			"ghcr.io/dantte-lp/gobfd@" + primaryDigest,
-		}, dir: root, env: dockerEnvironment},
-		{name: "docker", args: []string{
-			"buildx", "imagetools", "create",
-			"--tag", "ghcr.io/dantte-lp/gobfd:oraclelinux10",
-			"ghcr.io/dantte-lp/gobfd@" + oracleDigest,
 		}, dir: root, env: dockerEnvironment},
 		{name: "docker", args: []string{
 			"buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}",
@@ -69,12 +59,8 @@ func TestPromoteReleaseOCIAliasesUsesPinnedDigestsAndVerifiesAliases(t *testing.
 			"buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}",
 			"ghcr.io/dantte-lp/gobfd:debian-trixie",
 		}, dir: root, env: dockerEnvironment},
-		{name: "docker", args: []string{
-			"buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}",
-			"ghcr.io/dantte-lp/gobfd:oraclelinux10",
-		}, dir: root, env: dockerEnvironment},
 	}
-	if len(runner.calls) != 12 || !reflect.DeepEqual(runner.calls[4:], wantDocker) {
+	if len(runner.calls) != 9 || !reflect.DeepEqual(runner.calls[4:], wantDocker) {
 		t.Fatalf("promotion calls = %#v, want four identity calls then %#v", runner.calls, wantDocker)
 	}
 	if !reflect.DeepEqual(runner.calls[0].env, dockerEnvironment) {
@@ -94,9 +80,9 @@ func TestPromoteReleaseOCIAliasesRejectsAliasDigestDrift(t *testing.T) {
 	runnerTemp := t.TempDir()
 	writeReleasePromotionFixture(t, artifactRoot, runnerTemp)
 	runner := &releasePromotionRunner{aliasDigests: []string{
-		testOCIDigest("4"), testOCIDigest("4"), testOCIDigest("5"),
+		testOCIDigest("4"), testOCIDigest("4"),
 		testOCIDigest("9"),
-		testOCIDigest("4"), testOCIDigest("4"), testOCIDigest("5"),
+		testOCIDigest("4"), testOCIDigest("4"),
 	}}
 	err := PromoteReleaseOCIAliases(context.Background(), PromoteReleaseOCIAliasesOptions{
 		Root: t.TempDir(), ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
@@ -105,32 +91,31 @@ func TestPromoteReleaseOCIAliasesRejectsAliasDigestDrift(t *testing.T) {
 	if err == nil || !containsError(err, "does not reference the verified OCI index") {
 		t.Fatalf("PromoteReleaseOCIAliases() error = %v, want alias digest drift", err)
 	}
-	if len(runner.calls) != 16 {
-		t.Fatalf("commands after first alias drift and rollback = %d, want 16", len(runner.calls))
+	if len(runner.calls) != 12 {
+		t.Fatalf("commands after first alias drift and rollback = %d, want 12", len(runner.calls))
 	}
 }
 
-func TestPromoteReleaseOCIAliasesRollsBackAfterSecondMutationFailure(t *testing.T) {
+func TestPromoteReleaseOCIAliasesRollsBackAfterMutationFailure(t *testing.T) {
 	t.Parallel()
 
 	artifactRoot := t.TempDir()
 	runnerTemp := t.TempDir()
 	writeReleasePromotionFixture(t, artifactRoot, runnerTemp)
 	oldPrimary := testOCIDigest("4")
-	oldOracle := testOCIDigest("5")
 	runner := &releasePromotionRunner{
-		aliasDigests: []string{oldPrimary, oldPrimary, oldOracle, oldPrimary, oldPrimary, oldOracle},
-		failCreateAt: 2,
+		aliasDigests: []string{oldPrimary, oldPrimary, oldPrimary, oldPrimary},
+		failCreateAt: 1,
 	}
 	err := PromoteReleaseOCIAliases(context.Background(), PromoteReleaseOCIAliasesOptions{
 		Root: t.TempDir(), ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
 		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd", Runner: runner,
 	})
 	if err == nil || !containsError(err, "promote verified OCI alias") {
-		t.Fatalf("PromoteReleaseOCIAliases() error = %v, want second mutation failure", err)
+		t.Fatalf("PromoteReleaseOCIAliases() error = %v, want mutation failure", err)
 	}
-	if len(runner.calls) != 15 {
-		t.Fatalf("commands after second mutation failure and rollback = %d, want 15", len(runner.calls))
+	if len(runner.calls) != 11 {
+		t.Fatalf("commands after mutation failure and rollback = %d, want 11", len(runner.calls))
 	}
 	wantRollback := [][]string{
 		{
@@ -141,13 +126,9 @@ func TestPromoteReleaseOCIAliasesRollsBackAfterSecondMutationFailure(t *testing.
 			"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:debian-trixie",
 			"ghcr.io/dantte-lp/gobfd@" + oldPrimary,
 		},
-		{
-			"buildx", "imagetools", "create", "--tag", "ghcr.io/dantte-lp/gobfd:oraclelinux10",
-			"ghcr.io/dantte-lp/gobfd@" + oldOracle,
-		},
 	}
 	for index, want := range wantRollback {
-		if got := runner.calls[9+index].args; !reflect.DeepEqual(got, want) {
+		if got := runner.calls[7+index].args; !reflect.DeepEqual(got, want) {
 			t.Errorf("rollback call %d = %q, want %q", index, got, want)
 		}
 	}
@@ -160,11 +141,10 @@ func TestPromoteReleaseOCIAliasesRollsBackWithIndependentContext(t *testing.T) {
 	runnerTemp := t.TempDir()
 	writeReleasePromotionFixture(t, artifactRoot, runnerTemp)
 	oldPrimary := testOCIDigest("4")
-	oldOracle := testOCIDigest("5")
 	ctx, cancel := context.WithCancel(context.Background())
 	runner := &releasePromotionRunner{
-		aliasDigests:   []string{oldPrimary, oldPrimary, oldOracle, oldPrimary, oldPrimary, oldOracle},
-		cancelCreateAt: 2,
+		aliasDigests:   []string{oldPrimary, oldPrimary, oldPrimary, oldPrimary},
+		cancelCreateAt: 1,
 		cancel:         cancel,
 	}
 	err := PromoteReleaseOCIAliases(ctx, PromoteReleaseOCIAliasesOptions{
@@ -174,8 +154,8 @@ func TestPromoteReleaseOCIAliasesRollsBackWithIndependentContext(t *testing.T) {
 	if err == nil || !containsError(err, context.Canceled.Error()) {
 		t.Fatalf("PromoteReleaseOCIAliases() error = %v, want cancellation", err)
 	}
-	if len(runner.calls) != 15 {
-		t.Fatalf("commands after cancellation and rollback = %d, want 15", len(runner.calls))
+	if len(runner.calls) != 11 {
+		t.Fatalf("commands after cancellation and rollback = %d, want 11", len(runner.calls))
 	}
 }
 
@@ -191,16 +171,15 @@ func TestPromoteReleaseOCIAliasesRollsBackAfterFinalRootIdentityFailure(t *testi
 	}
 	writeReleasePromotionFixture(t, artifactRoot, runnerTemp)
 	oldPrimary := testOCIDigest("4")
-	oldOracle := testOCIDigest("5")
 	runner := &releasePromotionRunner{
 		aliasDigests: []string{
-			oldPrimary, oldPrimary, oldOracle,
-			testOCIDigest("1"), testOCIDigest("1"), testOCIDigest("3"),
-			oldPrimary, oldPrimary, oldOracle,
+			oldPrimary, oldPrimary,
+			testOCIDigest("1"), testOCIDigest("1"),
+			oldPrimary, oldPrimary,
 		},
 	}
 	runner.afterCall = func(call int) {
-		if call != 12 {
+		if call != 9 {
 			return
 		}
 		if err := os.Rename(runnerTemp, runnerTemp+"-owned"); err != nil {
@@ -217,8 +196,8 @@ func TestPromoteReleaseOCIAliasesRollsBackAfterFinalRootIdentityFailure(t *testi
 	if err == nil || !containsError(err, "RUNNER_TEMP after alias verification") {
 		t.Fatalf("PromoteReleaseOCIAliases() error = %v, want final root identity failure", err)
 	}
-	if len(runner.calls) != 18 {
-		t.Fatalf("commands after root replacement and rollback = %d, want 18", len(runner.calls))
+	if len(runner.calls) != 13 {
+		t.Fatalf("commands after root replacement and rollback = %d, want 13", len(runner.calls))
 	}
 }
 
@@ -238,7 +217,7 @@ func TestPromoteReleaseOCIAliasesRejectsInvalidReceiptBeforeMutation(t *testing.
 		Root: t.TempDir(), ArtifactRoot: artifactRoot, RunnerTemp: runnerTemp,
 		RefName: "v0.6.2", SHA: preflightCommit, Repository: "dantte-lp/gobfd", Runner: runner,
 	})
-	if err == nil || !containsError(err, "exactly three") {
+	if err == nil || !containsError(err, "exactly two") {
 		t.Fatalf("PromoteReleaseOCIAliases() error = %v, want invalid receipt", err)
 	}
 	if len(runner.calls) != 4 {

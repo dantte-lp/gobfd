@@ -310,9 +310,9 @@ go run ./test/cmd/cictl package-lifecycle  # нужен сокет Podman API
 этапов publish, announce, validate, sign, SBOM и образов, затем
 `tools/cmd/packagefinalize` для нативных программ жизненного цикла RPM. Команда
 задаёт тестовую версию `v0.0.0` и требует Git checkout. `package-lifecycle`
-запускает тест `package_lifecycle_testcontainers`: он устанавливает DEB и RPM в
-контейнеры с systemd, собранные из закреплённых по digest базовых образов
-релиза Debian 13 и Oracle Linux 10. Тест доказывает запуск, состояние
+запускает тест `package_lifecycle_testcontainers`: он устанавливает DEB в
+контейнер с systemd, собранный из закреплённого по digest базового образа
+релиза Debian 13. Тест доказывает запуск, состояние
 песочницы, удержание дольше `WatchdogSec=`, reload без смены PID, перезапуск
 после `SIGKILL`, остановку при мёртвом пире с `Result=success`, отсутствие
 отказов песочницы в journal, `systemd-analyze verify` с drop-in для
@@ -518,7 +518,7 @@ shell globbing и archive-команд. Копирование evidence испо
 stable SemVer tag, `GITHUB_REPOSITORY`, checked-out commit, объект аннотированного
 tag и точную вершину ветки `release/vMAJOR.MINOR`. Команда вызывает GitHub через
 фиксированные векторы аргументов `git` и `gh`, декодирует GraphQL и постраничный
-GHCR JSON в Go и отклоняет существующий release или draft, а также любой из трёх
+GHCR JSON в Go и отклоняет существующий release или draft, а также любой из двух
 версионных OCI tags. В проверенном `RUNNER_TEMP` через привязанный `os.Root`
 создаются свежие receipts режима `0644` для commit, branch и tag object;
 `GH_TOKEN` наследуется процессом `gh` через окружение, но никогда не попадает в
@@ -592,12 +592,12 @@ supplemental checksum receipt.
 `cictl release-oci-evidence` запускается из immutable verifier checkout и
 заменяет shell-цикл проверки OCI в release workflow. Команда вызывает Buildx
 прямыми фиксированными аргументами для
-версионированных primary, Debian Trixie и Oracle Linux 10 образов, требует
+версионированных primary и Debian Trixie образов, требует
 ровно `linux/amd64` и `linux/arm64` вместе с привязанными attestation
 manifest и проверяет SPDX document и BuildKit SLSA v1 provenance каждой
 платформы. Docker получает окружение workflow без `GH_TOKEN` и
 `GITHUB_TOKEN`; оба payload query привязаны к проверенному digest image index,
-а не к изменяемому version tag. Только после успешной проверки всех трёх образов команда
+а не к изменяемому version tag. Только после успешной проверки обоих образов команда
 атомарно публикует `release-image-digests.txt` режима `0644` через отдельно
 открытый root исходного workspace в фиксированном порядке; digest primary и
 Debian должен совпадать.
@@ -605,7 +605,7 @@ Debian должен совпадать.
 `cictl release-evidence` также запускается из immutable verifier checkout.
 Команда открывает исходный workspace как отдельный root, отклоняет
 отсутствующие, пустые, linked, неверно названные, изменённые или слишком
-большие reports и OCI digest inputs и повторно проверяет точный трёхстрочный
+большие reports и OCI digest inputs и повторно проверяет точный двухстрочный
 digest receipt. Затем она атомарно записывает две канонические строки SHA-256
 в `release-evidence-checksums.txt` режима `0644` и один раз вызывает
 `gh release upload` только для owned staging snapshot фиксированных report,
@@ -616,7 +616,7 @@ identity source и staging root и содержимое всех трёх фай
 
 `cictl release-verify` заменяет shell-проверку release draft и запускается из
 того же immutable verifier checkout. До любой загрузки команда повторно
-проверяет checkout, объект annotated tag, целевой commit, release branch, три
+проверяет checkout, объект annotated tag, целевой commit, release branch, два
 receipt версионированных OCI index, tag/body draft и точный список из 12
 assets. Затем она создаёт новый каталог режима `0700` под root `RUNNER_TEMP`,
 identity которого зафиксирован, и вызывает документированный фиксированный
@@ -641,10 +641,9 @@ members, trailing data, unsafe или duplicate paths, links и special entries;
 `cictl release-promote` — единственная команда продвижения OCI aliases в
 release workflow; она также запускается из immutable verifier checkout.
 Команда повторно проверяет annotated tag, целевой commit, release branch и
-точный трёхстрочный OCI digest receipt. До изменения alias она сохраняет
-полный существующий OCI index для `latest`, `debian-trixie` и
-`oraclelinux10`. Затем проверенный primary index назначается первым двум
-aliases, а проверенный Oracle Linux 10 index — третьему, после чего сверяется
+точный двухстрочный OCI digest receipt. До изменения alias она сохраняет
+полный существующий OCI index для `latest` и `debian-trixie`. Затем
+проверенный primary index назначается обоим aliases, после чего сверяется
 каждый descriptor получившихся indexes. Используется документированное Docker
 поведение
 [`imagetools create`](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/)
@@ -654,7 +653,7 @@ aliases, а проверенный Oracle Linux 10 index — третьему, �
 verification все прежние digest aliases восстанавливаются и проверяются в
 независимом ограниченном rollback context. Docker не получает GitHub token.
 
-`cictl release-publish` — последняя release-команда. Сначала она проверяет три
+`cictl release-publish` — последняя release-команда. Сначала она проверяет два
 продвинутых alias indexes, затем повторно сверяет live Git identity, tag и body
 draft, точные identity 12 remote assets и каждый байт локальных digest
 receipts, использованный предыдущими проверками. Только после успешного

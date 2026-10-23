@@ -14,11 +14,11 @@ import (
 	"testing"
 )
 
-func TestInspectReleaseOCIManifestsValidatesThreeVersionedImages(t *testing.T) {
+func TestInspectReleaseOCIManifestsValidatesTwoVersionedImages(t *testing.T) {
 	t.Parallel()
 
 	runner := &ociManifestRunner{manifests: []ociManifestIndex{
-		validOCIManifestIndex("1"), validOCIManifestIndex("2"), validOCIManifestIndex("3"),
+		validOCIManifestIndex("1"), validOCIManifestIndex("2"),
 	}}
 	root := t.TempDir()
 	environment := []string{
@@ -32,7 +32,6 @@ func TestInspectReleaseOCIManifestsValidatesThreeVersionedImages(t *testing.T) {
 	wantImages := []string{
 		"ghcr.io/dantte-lp/gobfd:0.6.5",
 		"ghcr.io/dantte-lp/gobfd:0.6.5-debian-trixie",
-		"ghcr.io/dantte-lp/gobfd:0.6.5-oraclelinux10",
 	}
 	if len(evidence) != len(wantImages) || len(runner.calls) != len(wantImages) {
 		t.Fatalf("evidence/calls = %d/%d, want %d", len(evidence), len(runner.calls), len(wantImages))
@@ -144,8 +143,8 @@ func TestValidateReleaseOCIAttestationsChecksBothPlatforms(t *testing.T) {
 	); err != nil {
 		t.Fatalf("validateReleaseOCIAttestations() error = %v", err)
 	}
-	if len(runner.calls) != 18 {
-		t.Fatalf("OCI payload command count = %d, want 18", len(runner.calls))
+	if len(runner.calls) != 12 {
+		t.Fatalf("OCI payload command count = %d, want 12", len(runner.calls))
 	}
 	wantEnv := []string{"PATH=/usr/bin", "HOME=/home/runner", "DOCKER_CONFIG=/docker"}
 	for index, call := range runner.calls {
@@ -240,8 +239,7 @@ func TestReleaseOCIEvidenceWritesExactDigestReceipt(t *testing.T) {
 		t.Fatalf("ReleaseOCIEvidence() error = %v", err)
 	}
 	want := "ghcr.io/dantte-lp/gobfd:0.6.5 " + testOCIDigest("1") + "\n" +
-		"ghcr.io/dantte-lp/gobfd:0.6.5-debian-trixie " + testOCIDigest("1") + "\n" +
-		"ghcr.io/dantte-lp/gobfd:0.6.5-oraclelinux10 " + testOCIDigest("3") + "\n"
+		"ghcr.io/dantte-lp/gobfd:0.6.5-debian-trixie " + testOCIDigest("1") + "\n"
 	data, err := os.ReadFile(receiptRoot + "/release-image-digests.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -256,8 +254,8 @@ func TestReleaseOCIEvidenceWritesExactDigestReceipt(t *testing.T) {
 	if info.Mode() != 0o644 {
 		t.Errorf("release image digest receipt mode = %s, want -rw-r--r--", info.Mode())
 	}
-	if len(runner.calls) != 21 {
-		t.Errorf("release OCI evidence command count = %d, want 21", len(runner.calls))
+	if len(runner.calls) != 14 {
+		t.Errorf("release OCI evidence command count = %d, want 14", len(runner.calls))
 	}
 	for index, call := range runner.calls {
 		if call.dir != root {
@@ -317,8 +315,8 @@ func validReleaseOCICommandOutputs(t *testing.T, mismatch bool) [][]byte {
 	if mismatch {
 		debian = validOCIManifestIndex("2")
 	}
-	manifests := []ociManifestIndex{primary, debian, validOCIManifestIndex("3")}
-	outputs := make([][]byte, 0, 3+releaseOCIImageCount*6)
+	manifests := []ociManifestIndex{primary, debian}
+	outputs := make([][]byte, 0, releaseOCIImageCount*7)
 	for _, manifest := range manifests {
 		data, err := json.Marshal(manifest)
 		if err != nil {
@@ -338,7 +336,6 @@ func validReleaseOCIEvidence(t *testing.T) []releaseOCIImageEvidence {
 	images := []string{
 		"ghcr.io/dantte-lp/gobfd:0.6.5",
 		"ghcr.io/dantte-lp/gobfd:0.6.5-debian-trixie",
-		"ghcr.io/dantte-lp/gobfd:0.6.5-oraclelinux10",
 	}
 	evidence := make([]releaseOCIImageEvidence, 0, len(images))
 	for index, image := range images {

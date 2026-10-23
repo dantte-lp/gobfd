@@ -37,9 +37,8 @@ GoBFD не публикует и не поддерживает dataplane runtime
 |---|---|---|---|
 | Статические бинарные файлы | Linux-дистрибутивы с glibc или musl user space | `amd64`, `arm64` | Архив `tar.gz` |
 | Debian-пакет | Debian 13 `trixie`, Ubuntu-compatible системы | `amd64`, `arm64` | `.deb`, systemd-юнит |
-| RPM-пакет | Oracle Linux 10, RHEL-compatible системы, Fedora-compatible системы | `amd64`, `arm64` | `.rpm`, systemd-юнит |
+| RPM-пакет | RHEL-compatible системы, Fedora-compatible системы | `amd64`, `arm64` | `.rpm`, systemd-юнит |
 | OCI-образ по умолчанию | Docker, Podman, Kubernetes CRI runtimes | `linux/amd64`, `linux/arm64` | `docker.io/library/debian:trixie-slim` |
-| Oracle Linux OCI-образ | Docker, Podman, Kubernetes CRI runtimes, требующие Oracle Linux user space | `linux/amd64`, `linux/arm64` | `docker.io/library/oraclelinux:10-slim` |
 
 | Тег образа | База |
 |---|---|
@@ -47,8 +46,10 @@ GoBFD не публикует и не поддерживает dataplane runtime
 | `ghcr.io/dantte-lp/gobfd:latest` | Debian `trixie-slim` |
 | `ghcr.io/dantte-lp/gobfd:<version>-debian-trixie` | Debian `trixie-slim` |
 | `ghcr.io/dantte-lp/gobfd:debian-trixie` | Debian `trixie-slim` |
-| `ghcr.io/dantte-lp/gobfd:<version>-oraclelinux10` | Oracle Linux `10-slim` |
-| `ghcr.io/dantte-lp/gobfd:oraclelinux10` | Oracle Linux `10-slim` |
+
+Oracle Linux 10 исключён из OCI и lifecycle-квалификации v1. Генерация
+универсальных RPM сохранена; наличие RPM-файла не подтверждает квалификацию
+платформы. Образы и теги v0.6 сохранены.
 
 ### Способы установки
 
@@ -86,8 +87,8 @@ gobfdctl session list
 `deployments/systemd/gobfd.tmpfiles` создают системную non-login identity
 `gobfd` и ownership `/etc/gobfd`, не меняя контракт четырёх публичных binaries.
 
-`go run ./test/cmd/cictl package-lifecycle` устанавливает DEB и RPM релиза в
-контейнеры с systemd и выполняет их фазы установки и окончательного удаления;
+`go run ./test/cmd/cictl package-lifecycle` устанавливает DEB релиза в
+контейнер Debian с systemd и выполняет фазы установки и окончательного удаления;
 см. [Тесты жизненного цикла пакетов](./09-development.md#тесты-жизненного-цикла-пакетов).
 
 #### Из исходников
@@ -232,7 +233,8 @@ sudo systemctl edit gobfd   # [Service] LimitNOFILE=<2*sessions+256 или бо�
 ```
 
 [Тест жизненного цикла пакетов](./09-development.md#тесты-жизненного-цикла-пакетов)
-устанавливает DEB и RPM релиза под systemd 257 в Debian 13 и Oracle Linux 10.
+охватывает DEB релиза в Debian 13. Историческая квалификация systemd 257
+также охватывала RPM в Oracle Linux 10 до исключения этой платформы из v1.
 Демон запускается с `Seccomp: 2`, `NoNewPrivs: 1`, `Umask: 0077`,
 `hidepid=invisible,subset=pid` и лимитом 16384 дескрипторов, удерживает сессии
 Up дольше `WatchdogSec=` без перезапуска, выполняет reload без смены PID,

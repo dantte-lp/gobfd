@@ -32,14 +32,14 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("VerifyReleaseDraft() error = %v", err)
 	}
-	if len(runner.calls) != 9 {
-		t.Fatalf("release draft verification command count = %d, want 9", len(runner.calls))
+	if len(runner.calls) != 8 {
+		t.Fatalf("release draft verification command count = %d, want 8", len(runner.calls))
 	}
 	for index, call := range runner.calls {
 		wantEnvironment := environment
 		if index == 0 {
 			wantEnvironment = []string{"PATH=/usr/bin", "DOCKER_CONFIG=/docker"}
-		} else if index >= 4 && index <= 6 {
+		} else if index >= 4 && index <= 5 {
 			wantEnvironment = []string{"PATH=/usr/bin", "DOCKER_CONFIG=/docker"}
 		}
 		if !reflect.DeepEqual(call.env, wantEnvironment) {
@@ -49,14 +49,14 @@ func TestVerifyReleaseDraftRevalidatesExactIdentityAndManifest(t *testing.T) {
 	wantDraftArgs := []string{
 		"release", "view", "v0.6.2", "--repo", "dantte-lp/gobfd", "--json", "isDraft,tagName,body,assets",
 	}
-	if got := runner.calls[7]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDraftArgs) {
+	if got := runner.calls[6]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDraftArgs) {
 		t.Errorf("release draft view call = %#v, want gh %q in %s", got, wantDraftArgs, root)
 	}
 	downloadDirectory := filepath.Join(runnerTemp, releaseAssetDownloadDirectory)
 	wantDownloadArgs := []string{
 		"release", "download", "v0.6.2", "--repo", "dantte-lp/gobfd", "--dir", downloadDirectory,
 	}
-	if got := runner.calls[8]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDownloadArgs) {
+	if got := runner.calls[7]; got.name != "gh" || got.dir != root || !reflect.DeepEqual(got.args, wantDownloadArgs) {
 		t.Errorf("release asset download call = %#v, want gh %q in %s", got, wantDownloadArgs, root)
 	}
 	for _, name := range assets {
@@ -161,8 +161,8 @@ func TestVerifyReleaseDraftRejectsDownloadDirectoryCollision(t *testing.T) {
 	if _, statErr := os.Stat(sentinel); statErr != nil {
 		t.Fatalf("pre-existing download directory was changed: %v", statErr)
 	}
-	if len(runner.calls) != 8 {
-		t.Fatalf("command count before collision = %d, want 8", len(runner.calls))
+	if len(runner.calls) != 7 {
+		t.Fatalf("command count before collision = %d, want 7", len(runner.calls))
 	}
 }
 
@@ -414,7 +414,7 @@ func TestVerifyReleaseDraftRejectsReplacedVerifierRoot(t *testing.T) {
 	writeReleaseVerifyFixture(t, artifactRoot, runnerTemp, assets)
 	runner := newReleaseVerifyRunner(t, assets)
 	runner.afterRun = func(CommandSpec) {
-		if len(runner.calls) != 8 {
+		if len(runner.calls) != 7 {
 			return
 		}
 		if err := os.Rename(root, root+"-moved"); err != nil {

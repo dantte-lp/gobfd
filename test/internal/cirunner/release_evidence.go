@@ -302,11 +302,10 @@ func parseReleaseOCIDigestReceipt(data []byte, version string) ([]releaseOCIImag
 	expectedImages := []string{
 		"ghcr.io/dantte-lp/gobfd:" + version,
 		"ghcr.io/dantte-lp/gobfd:" + version + "-debian-trixie",
-		"ghcr.io/dantte-lp/gobfd:" + version + "-oraclelinux10",
 	}
 	lines := strings.Split(string(data), "\n")
 	if len(lines) != len(expectedImages)+1 || lines[len(lines)-1] != "" {
-		return nil, fmt.Errorf("OCI digest receipt must contain exactly three newline-terminated records: %w",
+		return nil, fmt.Errorf("OCI digest receipt must contain exactly two newline-terminated records: %w",
 			errInvalidConfig)
 	}
 	records := make([]releaseOCIImageDigest, len(expectedImages))

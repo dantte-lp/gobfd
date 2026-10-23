@@ -1,7 +1,7 @@
 //go:build package_lifecycle_testcontainers
 
-// Package packagelifecycle_test installs the release DEB and RPM into
-// systemd-enabled Debian 13 and Oracle Linux 10 containers and proves the
+// Package packagelifecycle_test installs the release DEB into
+// systemd-enabled Debian 13 containers and proves the
 // hardened gobfd.service contract (gobfd-qj0.8.2.3.3).
 package packagelifecycle_test
 
@@ -64,14 +64,6 @@ func distros() []distro {
 			install:       func(path string) []string { return []string{"dpkg", "-i", path} },
 			remove:        []string{"dpkg", "--remove", "gobfd"},
 		},
-		{
-			name:           "oraclelinux-10",
-			containerfile:  "deployments/docker/Containerfile.release.oraclelinux",
-			installSystemd: "microdnf -y install systemd iproute util-linux && microdnf clean all",
-			packageSuffix:  ".rpm",
-			install:        func(path string) []string { return []string{"rpm", "-i", path} },
-			remove:         []string{"rpm", "-e", "gobfd"},
-		},
 	}
 }
 
@@ -79,7 +71,7 @@ func TestPackageLifecycle(t *testing.T) {
 	endpoint := containertest.RequirePodman(t)
 	dist := os.Getenv(distEnv)
 	if dist == "" {
-		t.Fatalf("%s must name the directory with the built DEB and RPM", distEnv)
+		t.Fatalf("%s must name the directory with the built DEB", distEnv)
 	}
 	root := repositoryRoot(t)
 	runID := time.Now().UTC().Format("20060102T150405Z")

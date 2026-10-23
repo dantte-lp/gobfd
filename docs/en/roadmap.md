@@ -4,6 +4,14 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## v1 product scope — 2026-10-23
+
+Maintainer decision: retire Oracle Linux 10 from v1 OCI products and package
+lifecycle qualification (`gobfd-qj0.8.2.8.5.2.8`). The release pipeline selects
+only Debian trixie OCI images; generic RPM generation remains enabled.
+Historical v0.6 images, tags and qualification records are preserved. Older
+Oracle product decisions below are historical and do not define v1 scope.
+
 ## Release-first priority — 2026-10-20
 
 The maintainer prioritizes delivery of v1.0.0 over all other work. This replaces

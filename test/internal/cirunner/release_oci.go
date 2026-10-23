@@ -14,7 +14,7 @@ const (
 	ociReferenceDigestAnnotation = "vnd.docker.reference.digest"
 	ociAttestationManifestType   = "attestation-manifest"
 	ociSLSABuildTypeV1           = "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md"
-	releaseOCIImageCount         = 3
+	releaseOCIImageCount         = 2
 	releaseOCIDigestReceiptLimit = 1 << 10
 )
 
@@ -414,7 +414,6 @@ func inspectReleaseOCIManifests(
 	images := []string{
 		"ghcr.io/dantte-lp/gobfd:" + version,
 		"ghcr.io/dantte-lp/gobfd:" + version + "-debian-trixie",
-		"ghcr.io/dantte-lp/gobfd:" + version + "-oraclelinux10",
 	}
 	dockerEnvironment := withoutEnvironmentKeys(environment, "GH_TOKEN", "GITHUB_TOKEN")
 	evidence := make([]releaseOCIImageEvidence, 0, len(images))

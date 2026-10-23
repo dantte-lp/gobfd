@@ -121,6 +121,9 @@ All other Python container stages remain forbidden.
 ## Container base policy
 
 Use digest-pinned Debian trixie for application build and runtime images.
+Oracle Linux 10 is excluded from v1 OCI products and lifecycle qualification
+by maintainer decision on 2026-10-23. Keep generic RPM package generation;
+preserve historical v0.6 artifacts and release-line contracts.
 Do not substitute Alpine, bookworm or a scratch runtime. Scratch stages that
 only hold checksum-verified downloads contain no executable environment and
 are allowed. Remaining legacy and vendor NOS consumers stay unqualified until
