@@ -4,6 +4,19 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Independent audit — 2026-10-23
+
+The audit of dev `f9ed31bdd81425ba4efaf9688bb452ddea142266` found six
+defects and a separate same-key drain qualification question. The new P0 is
+TLS/Unix principal provenance (`gobfd-qj0.8.2.3.5`); reload policy, Echo owners,
+NetworkManager ownership/cancellation and new protobuf-file detection have
+specific P1 tasks. The release gate depends on those six defect tasks.
+The [dated audit](../ru/audits/2026-10-23-independent-retrospective.md) records
+history, ADR mapping, duplication measurements and diagnostic limitations.
+Existing passing component tests do not establish whole-codebase idempotence
+or v1 readiness. Beads remains the executable authority; general P2 deduplication
+does not supersede release work.
+
 ## v1 product scope — 2026-10-23
 
 Maintainer decision: retire Oracle Linux 10 from v1 OCI products and package
