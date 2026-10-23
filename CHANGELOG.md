@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added in-place `detect_mult` reload for solely config-owned base sessions
+  with stable identity, using the existing TX/RX tuple and receipts. Detect-only
+  Async updates need no Poll; remote Demand with both ends Up requires
+  Poll/Final. TX/RX direction and queued-update rules remain intact; other
+  owners, modes and effective parameters retain their conflict boundaries.
+  Live FRR/BIRD Detect Multiplier reload qualification remains pending.
+
 - Added read-only `bfd.v1.CapabilityService.ListCapabilities` and
   `gobfdctl capabilities` in the CLI and interactive shell, with table/JSON/YAML
   output. Five daemon-reported profiles separate preview maturity, effective

@@ -220,8 +220,16 @@ sockets, policy, actuator, GoBGP и глобальные поля overlay backen
 идентификаторами полей; значения конфигурации и secrets в ошибке не сохраняются.
 Изменения desired-set membership могут потребовать новые listeners control,
 Echo или Micro-BFD либо overlay backends, которые их владельцы открывают в
-составе generation; изменения effective parameters same-key identity остаются reconciliation
-conflicts, а не in-place updates. Coordinator публикует монотонное desired generation только после этой проверки
+составе generation. Base sessions с единственным config-owner и стабильной
+wire identity принимают in-place TX/RX и Detect Multiplier через существующие
+timer tuple и generation/revision receipts. Detect-only Async update
+применяется локально без Poll; remote Demand при обоих концах Up требует
+Poll/Final. Комбинация с TX/RX сохраняет directional deferral, активный
+объявленный tuple и последний queued proposal. Shared-owner/API, Micro-BFD и
+overlay updates, а также authentication, padding и minimum-TTL changes остаются
+conflicts за пределами этого среза. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+принимает общую policy, но не квалифицирует реализацию или live peers.
+Coordinator публикует монотонное desired generation только после этой проверки
 и компиляции полного неизменяемого session candidate. Один receipt затем хранит claim-level счётчики
 `created`, `released`, `pending` и `failed`, а также ограниченную гистограмму
 кодов ошибок ровно для пяти sources: base, Echo, Micro-BFD (группы вместе с
@@ -313,7 +321,7 @@ slice C01.4b для coordinator generations/receipts, а
 
 - runtime-изменение глобальных полей overlay backend и VNI по умолчанию;
 - стабильные owner identifiers для отдельных groups и tunnels;
-- согласование параметров Poll/Final;
+- полная Poll/Demand qualification за пределами ограниченных config-owned TX/RX/Detect Multiplier updates;
 - transport-aware packet demultiplexing; и
 - идентичности аутентифицированных API principals вместо одного
   compatibility/API owner.

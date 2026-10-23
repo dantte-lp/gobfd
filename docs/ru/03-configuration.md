@@ -971,23 +971,39 @@ address, interface или session type. Записи VXLAN и Geneve можно 
 BFD defaults и per-entry timers,
 padding, authentication, peer и threshold values применяются при создании новой
 identity. Базовые сессии, принадлежащие только config, также принимают in-place
-изменения `desired_min_tx` и `required_min_rx`. Активная Poll-транзакция сохраняет
-объявленные значения; новые reload заменяют только последнее ожидающее изменение.
-После активации предложения увеличение TX и уменьшение RX откладывают защищённый
-локальный эффект до Final; обратные изменения действуют сразу. До подтверждения приём изменения означает
-`pending`, не `updated`. Завершение автоматически обновляет текущее поколение и
+изменения `desired_min_tx`, `required_min_rx` и `detect_mult` без замены сессии
+или discriminator. Существующие timer tuple и generation/revision receipts
+передают все три значения. Detect-only Async update применяется локально без
+Poll и попадает в следующий Control packet (RFC 5880 §6.8.12). Remote Demand
+при обоих концах Up требует Poll/Final (RFC 5880 §6.6), поэтому receipt
+остаётся `pending` до подтверждения. Переход к `detect_mult: 1` или от него
+пересчитывает TX для соответствующего jitter window.
+
+Активная Poll-транзакция сохраняет объявленный tuple; новые reload заменяют
+только последнее ожидающее изменение. Комбинация TX/RX/Detect Multiplier
+сохраняет directional rules таймеров: увеличение TX и уменьшение RX откладывают
+защищённый локальный эффект до Final; обратные изменения действуют сразу.
+Poll-dependent admission означает `pending`, не `updated`, до подтверждения.
+Завершение автоматически обновляет текущее поколение и
 readiness без второго SIGHUP. Таймаут или выход из Up завершают receipt ошибкой;
 поздний Final не превращает её в успех. Отмена после приёма не откатывает
 объявленные значения.
 [Контракт транзакций](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
 определяет срок согласования и разделение startup/recovery Poll. Live FRR/BIRD
-reload qualification ещё впереди; это не полное соответствие Poll/Demand.
+qualification Detect Multiplier reload ещё впереди; это не полное соответствие
+Poll/Demand.
 
 Другие изменения effective parameters существующей same-key session или
 Micro-BFD group не являются in-place update: reconciliation возвращает
 conflict, generation остаётся stale, а оператор должен удалить и затем добавить
 identity отдельными reload либо перезапустить процесс. Удаление последней записи
 или отключение source поддерживается.
+
+Срез Detect Multiplier не распространяет updates на shared-owner/API,
+Micro-BFD или overlay sessions, а также на authentication, padding или minimum
+TTL. [ADR-0006](adr/0006-session-preserving-reload-policy.md) фиксирует принятую
+policy; оставшиеся implementation и integration ведутся отдельно в P0 children
+`gobfd-qj0.8.2.2.7.2`, `gobfd-qj0.8.2.2.7.3` и `gobfd-qj0.8.2.2.7.4`.
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,
 `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`, `vxlan.backend`,

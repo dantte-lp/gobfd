@@ -16,6 +16,13 @@
 
 ### Добавлено
 
+- Добавлен in-place reload `detect_mult` для base sessions с единственным
+  config-owner и стабильной identity через существующие TX/RX tuple и receipts.
+  Detect-only Async update не требует Poll; remote Demand при обоих концах Up
+  требует Poll/Final. TX/RX directional и queued-update rules сохранены;
+  остальные owners, modes и effective parameters сохраняют conflict boundaries.
+  Live FRR/BIRD Detect Multiplier reload qualification ещё впереди.
+
 - Receive clocks предоставляют измеренные скобки пары часов и номинальные
   разрешения с явными условными границами. Отчёт нагрузки сопоставляет их с
   Linux realtime epoch witness всего прогона; invalid и uncovered данные остаются unknown.

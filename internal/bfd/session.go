@@ -876,7 +876,11 @@ func (s *Session) RequiredMinRxInterval() time.Duration {
 }
 
 // DetectMultiplier returns the configured detection multiplier.
-func (s *Session) DetectMultiplier() uint8 { return s.detectMult }
+func (s *Session) DetectMultiplier() uint8 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.detectMult
+}
 
 // NegotiatedTxInterval returns the current negotiated TX interval.
 // RFC 5880 Section 6.8.7: max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval).

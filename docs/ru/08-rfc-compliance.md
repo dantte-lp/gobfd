@@ -264,6 +264,27 @@ detection timer.
 - Используется crypto-seeded session-local PRNG; джиттер не является security
   boundary, но seed непредсказуем и нет contention на глобальном RNG в hot path
 
+#### Section 6.8.12: Reload Detect Multiplier
+
+Base sessions с единственным config-owner и стабильной wire identity принимают
+`detect_mult` через существующие TX/RX timer tuple и generation/revision
+receipts (`gobfd-qj0.8.2.2.7.1`). Detect-only Async update применяется локально
+без Poll и объявляется в следующем Control packet. Remote Demand при обоих
+концах Up требует Poll/Final по Section 6.6; receipt остаётся pending до
+соответствующего Final. Комбинация с TX/RX сохраняет directional rules Section
+6.8.3, один активный объявленный tuple и последний queued proposal. Переход
+к DetectMult 1 или от него пересчитывает TX для jitter по Section 6.8.7.
+
+`internal/bfd/session_detect_update_test.go` содержит regression cases для
+сериализованных Control fields, Async и remote-Demand confirmation, повторного
+intent, shared-owner/unsupported rejection, deadline DetectMult 1,
+failure/retirement и concurrent getters/snapshots. Итоговая валидация относится
+к evidence замороженных исходников; эта секция не утверждает финальный PASS.
+Live FRR/BIRD Detect Multiplier reload ещё не квалифицирован. Shared-owner/API,
+Micro-BFD, overlay, authentication, padding и minimum-TTL changes остаются
+за пределами среза. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+принимает policy без общей Poll/Demand или RFC graduation.
+
 #### Section 6.8.16: Административное управление
 
 Graceful shutdown использует общий deadline десять секунд для owner commit,

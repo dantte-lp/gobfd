@@ -4,6 +4,34 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Reload с сохранением сессии / Detect Multiplier — 2026-10-24
+
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) принят как policy,
+а не implementation, interop или release qualification. Возобновлённый parent
+`gobfd-qj0.8.2.2.7` содержит четыре P0 children: `gobfd-qj0.8.2.2.7.1`
+(Detect Multiplier), `gobfd-qj0.8.2.2.7.2` (padding/minimum TTL),
+`gobfd-qj0.8.2.2.7.3` (authentication rejection) и `gobfd-qj0.8.2.2.7.4`
+(reconciliation/rekey integration). Coordinated key-ID rotation одного
+algorithm остаётся after-v1 P2 в `gobfd-khr`. Исполняемые приоритеты и gates
+ведутся в Beads.
+
+Текущий локальный срез Detect Multiplier сохраняет base session с единственным
+config-owner и стабильной identity через существующие TX/RX tuple и receipts.
+Detect-only Async changes не требуют Poll; remote Demand при обоих концах Up
+требует Poll/Final. Комбинации сохраняют TX/RX directional rules, активный
+объявленный tuple и queued generation. Shared-owner/API, Micro-BFD, overlay,
+authentication, padding и minimum-TTL changes остаются conflicts за пределами
+среза; принятие policy не означает реализации этих пробелов.
+
+Critical race-прогон зафиксированных исходников завершился с 781 успешным
+верхнеуровневым тестом BFD, daemon, server и dependency inventory, включая
+непрерывность sequence подписанных пакетов, jitter DetectMult 1 и очередь Poll.
+Один существующий вложенный IPv6 wire-тест требует отдельного namespace.
+Локальные доказательства сохранены в `reports/session-inplace-20261024/`;
+итерационные проверки не подтверждают общую RFC или release qualification.
+Live FRR/BIRD qualification нового Detect Multiplier reload остаётся открытой.
+Прежние датированные записи ниже сохраняют исторический scope.
+
 ## Ограниченный статус preview-возможностей — 2026-10-24
 
 `gobfd-qj0.8.2.1.8.3` добавляет `CapabilityService.ListCapabilities` и

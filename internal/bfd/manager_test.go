@@ -875,7 +875,7 @@ func TestManagerReconcileConflictDoesNotReleaseExistingClaims(t *testing.T) {
 		before := mgr.Sessions()
 
 		conflict := cfg1
-		conflict.DetectMultiplier++
+		conflict.Role = bfd.RolePassive
 		created, destroyed, err := mgr.ReconcileSessions(context.Background(), []bfd.ReconcileConfig{
 			{
 				Key:                "192.0.2.1|192.0.2.2|eth0",

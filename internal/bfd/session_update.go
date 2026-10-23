@@ -14,7 +14,10 @@ var (
 	ErrTimerUpdateFailed = errors.New("timer update failed")
 )
 
-type timerTuple struct{ TX, RX time.Duration }
+type timerTuple struct {
+	TX, RX     time.Duration
+	DetectMult uint8
+}
 
 const timerUpdateBudgetMultiplier = 3
 
@@ -51,7 +54,7 @@ func (s *Session) timerUpdateSnapshot() timerUpdateStatus {
 
 func (s *Session) timerUpdateSnapshotLocked() timerUpdateStatus {
 	status := s.timerUpdate
-	status.Effective = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+	status.Effective = s.effectiveTimersLocked()
 	status.Advertised = s.advertisedTimers()
 	status.Unresolved = s.activeUpdate.Present || s.waitingUpdate.Present ||
 		s.pollActive || !s.separateUntil.IsZero() || s.floorHeld || s.recoverOnUp
@@ -78,7 +81,7 @@ func (s *Session) admitTimerUpdate(
 		return s.timerUpdateSnapshotLocked(), ErrTimerUpdateFailed
 	}
 	if s.timerRevision == 0 {
-		s.timerUpdate.Confirmed = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+		s.timerUpdate.Confirmed = s.effectiveTimersLocked()
 	}
 	generation, repeated, err := s.resolveTimerGenerationLocked(tuple, generation)
 	if err != nil || repeated {
@@ -141,7 +144,7 @@ func (s *Session) queueTimerProposalLocked(tuple timerTuple, generation uint64, 
 	}
 	// Valid uint32-microsecond intervals and an uint8 multiplier bound
 	// this product below 3.3e15 nanoseconds, within time.Duration.
-	budget := timerUpdateBudgetMultiplier * time.Duration(s.detectMult) *
+	budget := timerUpdateBudgetMultiplier * time.Duration(max(s.detectMult, tuple.DetectMult)) *
 		max(currentTX, proposedTX, s.remoteMinRxInterval)
 	proposal.Deadline = now.Add(budget)
 	s.timerUpdate.Requested = proposal
@@ -167,6 +170,7 @@ func (s *Session) notifyTimerUpdate() {
 // performed under mu; promotion uses the already scheduled TX deadline.
 func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	oldTX, oldAllowed, oldDetection := s.calcTxIntervalHot(), s.periodicTxAllowed(), s.calcDetectionTimeHot()
+	oldDetectMult := s.detectMult
 	s.mu.Lock()
 	now := time.Now()
 	unsolicitedFailed := s.processUnsolicitedLocked(now)
@@ -181,7 +185,8 @@ func (s *Session) processTimerUpdates(tx, detect *time.Timer) {
 	if unsolicitedFailed {
 		s.notifyUnsolicitedFailure()
 	}
-	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() {
+	jitterChanged := (oldDetectMult == 1) != (s.detectMult == 1)
+	if oldTX != s.calcTxIntervalHot() || oldAllowed != s.periodicTxAllowed() || jitterChanged {
 		s.scheduleTxTimer(tx, s.lastPacketSent)
 	}
 	if oldDetection != s.calcDetectionTimeHot() {
@@ -212,6 +217,18 @@ func (s *Session) promoteTimerUpdateLocked() {
 	}
 	s.activeUpdate, s.waitingUpdate = s.waitingUpdate, timerProposal{}
 	s.timerUpdate.Changed = s.activeUpdate.Tuple != s.timerUpdate.Confirmed
+	current := s.effectiveTimersLocked()
+	s.detectMult = s.activeUpdate.Tuple.DetectMult
+	demand := s.remoteDemandMode && up && s.observation.RemoteState == StateUp
+	if current.TX == s.activeUpdate.Tuple.TX && current.RX == s.activeUpdate.Tuple.RX && !demand {
+		// RFC 5880 §6.8.12: only active Demand (§6.6) needs a Poll for DetectMult.
+		s.timerUpdate.Confirmed = s.activeUpdate.Tuple
+		s.timerUpdate.ConfirmedRevision = s.activeUpdate.Revision
+		s.timerUpdate.State = timerUpdateApplied
+		s.activeUpdate = timerProposal{}
+		s.notifyTimerUpdate()
+		return
+	}
 	if up {
 		s.desiredMinTxInterval = min(s.desiredMinTxInterval, s.activeUpdate.Tuple.TX)
 		s.requiredMinRxInterval = max(s.requiredMinRxInterval, s.activeUpdate.Tuple.RX)
@@ -293,6 +310,7 @@ func (s *Session) finishTimerPoll() {
 		proposal := s.activeUpdate
 		s.failedPollSeparation = proposal.Failed
 		s.desiredMinTxInterval, s.requiredMinRxInterval = proposal.Tuple.TX, proposal.Tuple.RX
+		s.detectMult = proposal.Tuple.DetectMult
 		s.timerUpdate.Confirmed, s.timerUpdate.ConfirmedRevision = proposal.Tuple, proposal.Revision
 		if !proposal.Failed && s.timerUpdate.Requested.Revision == proposal.Revision {
 			s.timerUpdate.State = timerUpdateApplied
@@ -301,7 +319,7 @@ func (s *Session) finishTimerPoll() {
 	} else if !s.floorHeld && !s.recoverOnUp {
 		// Startup/recovery confirmation updates protocol truth without
 		// changing a failed update receipt into successful application.
-		s.timerUpdate.Confirmed = timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+		s.timerUpdate.Confirmed = s.effectiveTimersLocked()
 	}
 	s.updateAdminDrainLocked(now)
 	s.notifyTimerUpdate()
@@ -343,6 +361,7 @@ func (s *Session) interruptTimerUpdateLocked() {
 	wire := s.advertisedTimers()
 	if s.activeUpdate.Present {
 		s.desiredMinTxInterval, s.requiredMinRxInterval = s.activeUpdate.Tuple.TX, s.activeUpdate.Tuple.RX
+		s.detectMult = s.activeUpdate.Tuple.DetectMult
 	}
 	if s.timerUpdate.State == timerUpdatePending {
 		s.failTimerUpdateLocked()
@@ -360,7 +379,7 @@ func (s *Session) interruptTimerUpdateLocked() {
 
 // advertisedTimers is loop-owned (or called under mu by snapshot readers).
 func (s *Session) advertisedTimers() timerTuple {
-	tuple := timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+	tuple := s.effectiveTimersLocked()
 	if s.activeUpdate.Present {
 		tuple = s.activeUpdate.Tuple
 	}
@@ -400,5 +419,5 @@ func (s *Session) closeTimerUpdates() {
 }
 
 func (s *Session) effectiveTimersLocked() timerTuple {
-	return timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval}
+	return timerTuple{s.desiredMinTxInterval, s.requiredMinRxInterval, s.detectMult}
 }

@@ -589,7 +589,7 @@ func (s *Session) buildControlPacket() ControlPacket {
 		AuthPresent:               false,
 		Demand:                    false, // Demand mode not implemented in MVP.
 		Multipoint:                false, // RFC 5880 Section 6.8.7: MUST be zero.
-		DetectMult:                s.detectMult,
+		DetectMult:                wire.DetectMult,
 		MyDiscriminator:           s.localDiscr,
 		YourDiscriminator:         s.remoteDiscr,
 		DesiredMinTxInterval:      microsecondsFromDuration(wire.TX),

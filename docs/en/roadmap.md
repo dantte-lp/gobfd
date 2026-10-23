@@ -4,6 +4,33 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Session-preserving reload / Detect Multiplier — 2026-10-24
+
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) is accepted policy,
+not implementation, interop or release qualification. Resumed parent
+`gobfd-qj0.8.2.2.7` has four P0 children: `gobfd-qj0.8.2.2.7.1` (Detect
+Multiplier), `gobfd-qj0.8.2.2.7.2` (padding/minimum TTL),
+`gobfd-qj0.8.2.2.7.3` (authentication rejection) and `gobfd-qj0.8.2.2.7.4`
+(reconciliation/rekey integration). Coordinated same-algorithm key-ID rotation
+remains after-v1 P2 in `gobfd-khr`. Beads retains executable priorities and gates.
+
+The active local Detect Multiplier slice preserves a solely config-owned base
+session with stable identity through the existing TX/RX tuple and receipts.
+Detect-only Async changes need no Poll; remote Demand with both ends Up
+requires Poll/Final. Combined changes retain TX/RX direction rules, the active
+advertised tuple and queued generation. Shared-owner/API, Micro-BFD, overlay,
+authentication, padding and minimum-TTL changes remain conflicts outside this
+slice; the accepted policy does not claim those gaps are implemented.
+
+The frozen-source critical race run passed 781 top-level tests across BFD,
+daemon, server and dependency inventory, including signed packet sequence
+continuity, DetectMult 1 jitter and queued Poll updates. One existing nested
+IPv6 wire subcase requires a separate namespace. Local evidence is retained
+in `reports/session-inplace-20261024/`; scoped iteration checks do not establish
+overall RFC or release qualification. Live FRR/BIRD qualification of the new
+Detect Multiplier reload remains open. Older dated entries below retain their
+historical scope.
+
 ## Bounded preview capability status — 2026-10-24
 
 `gobfd-qj0.8.2.1.8.3` adds `CapabilityService.ListCapabilities` and

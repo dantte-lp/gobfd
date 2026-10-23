@@ -1256,7 +1256,10 @@ func (m *Manager) reconcileExistingTimers(
 	}
 	rc := candidate.config
 	status, updateErr := entry.session.admitTimerUpdate(ctx,
-		timerTuple{rc.SessionConfig.DesiredMinTxInterval, rc.SessionConfig.RequiredMinRxInterval}, rc.DesiredGeneration)
+		timerTuple{
+			rc.SessionConfig.DesiredMinTxInterval, rc.SessionConfig.RequiredMinRxInterval,
+			rc.SessionConfig.DetectMultiplier,
+		}, rc.DesiredGeneration)
 	entry.refreshTimerSnapshot()
 	m.mu.Unlock()
 	switch {
@@ -1268,6 +1271,7 @@ func (m *Manager) reconcileExistingTimers(
 			session: entry.session, LocalDiscriminator: entry.session.LocalDiscriminator(),
 			Revision: status.Requested.Revision, Generation: status.Requested.Generation,
 			DesiredMinTxInterval: status.Requested.Tuple.TX, RequiredMinRxInterval: status.Requested.Tuple.RX,
+			DetectMultiplier: status.Requested.Tuple.DetectMult,
 		})
 	case status.Changed:
 		result.Updated++
@@ -1285,6 +1289,7 @@ func (entry *sessionEntry) canUpdateTimers(owner SessionOwner, candidate effecti
 	current := entry.effective
 	current.DesiredMinTxInterval = candidate.DesiredMinTxInterval
 	current.RequiredMinRxInterval = candidate.RequiredMinRxInterval
+	current.DetectMultiplier = candidate.DetectMultiplier
 	return current == candidate
 }
 
@@ -1294,6 +1299,7 @@ func (entry *sessionEntry) refreshTimerSnapshot() timerUpdateStatus {
 	status := entry.session.timerUpdateSnapshot()
 	entry.effective.DesiredMinTxInterval = status.Confirmed.TX
 	entry.effective.RequiredMinRxInterval = status.Confirmed.RX
+	entry.effective.DetectMultiplier = status.Confirmed.DetectMult
 	return status
 }
 
@@ -1309,6 +1315,7 @@ type TimerUpdateRef struct {
 	LocalDiscriminator                          uint32
 	Revision, Generation                        uint64
 	DesiredMinTxInterval, RequiredMinRxInterval time.Duration
+	DetectMultiplier                            uint8
 }
 
 // ObserveTimerUpdates cannot create resources, admit intent or retry failures.
@@ -1326,7 +1333,10 @@ func (m *Manager) ObserveTimerUpdates(refs []TimerUpdateRef) ReconcileResult {
 		status := entry.session.timerUpdateSnapshot()
 		switch {
 		case status.Requested.Revision != ref.Revision || status.Requested.Generation != ref.Generation ||
-			status.Requested.Tuple != (timerTuple{ref.DesiredMinTxInterval, ref.RequiredMinRxInterval}) ||
+			status.Requested.Tuple != (timerTuple{
+				ref.DesiredMinTxInterval, ref.RequiredMinRxInterval,
+				ref.DetectMultiplier,
+			}) ||
 			status.State == timerUpdateFailed:
 			addReconcileError(&result, ReconcileErrorTimerFailed, ErrTimerUpdateFailed)
 		case status.State == timerUpdatePending:

@@ -277,6 +277,27 @@ Steps 8-18 (session): auth consistency, auth verification, state variable update
 - Uses a crypto-seeded session-local PRNG; jitter is not a security boundary,
   but the seed is non-predictable and avoids global RNG contention on the hot path
 
+#### Section 6.8.12: Detect Multiplier Reload
+
+Solely config-owned base sessions with stable wire identity accept
+`detect_mult` through the existing TX/RX timer tuple and generation/revision
+receipts (`gobfd-qj0.8.2.2.7.1`). A detect-only Async update applies locally
+without Poll and is advertised in the next Control packet. Remote Demand
+with both ends Up requires Poll/Final under Section 6.6; its receipt remains
+pending until the relevant Final. Combined TX/RX changes retain Section 6.8.3
+direction rules, one active advertised tuple and the latest queued proposal.
+Changing to or from DetectMult 1 reschedules TX for Section 6.8.7 jitter.
+
+`internal/bfd/session_detect_update_test.go` contains regression cases for
+serialized Control fields, Async versus remote-Demand confirmation, repeated
+intent, shared-owner/unsupported rejection, the DetectMult 1 deadline,
+failure/retirement and concurrent getters/snapshots. Final validation results
+belong to the frozen-source evidence; this section asserts no final PASS.
+Live FRR/BIRD Detect Multiplier reload is not yet qualified. Shared-owner/API,
+Micro-BFD, overlay, authentication, padding and minimum-TTL changes remain
+outside this slice. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
+accepts the policy without graduating overall Poll/Demand or RFC compliance.
+
 #### Section 6.8.16: Administrative Control
 
 Graceful shutdown uses one ten-second deadline for owner commit, the first

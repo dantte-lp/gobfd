@@ -30,3 +30,4 @@
 | [0003](./0003-linux-advanced-bfd-applicability.md) | Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux | Accepted |
 | [0004](./0004-overlay-backend-vocabulary.md) | Единый словарь overlay backend | Accepted |
 | [0005](./0005-smallstep-management-certificates.md) | Внешний Smallstep CA для management-сертификатов | Accepted |
+| [0006](./0006-session-preserving-reload-policy.md) | Политика reload с сохранением сессии | Accepted policy; qualification отдельно |

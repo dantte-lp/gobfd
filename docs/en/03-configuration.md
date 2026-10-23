@@ -964,24 +964,39 @@ may be added, removed, or re-keyed, including a new local endpoint or a new
 per-peer Geneve VNI. BFD defaults and per-entry timers,
 padding, authentication, peer, and threshold values apply when a new identity
 is created. Solely config-owned base sessions also accept in-place changes to
-`desired_min_tx` and `required_min_rx`. One active Poll transaction keeps its
-advertised values; newer reloads replace only the latest waiting proposal.
-When a proposal becomes active, TX increases and RX decreases defer their
+`desired_min_tx`, `required_min_rx` and `detect_mult` without replacing the
+session or discriminator. The existing timer tuple and generation/revision
+receipts carry all three values. A detect-only Async update applies locally
+without Poll and appears in the next Control packet (RFC 5880 §6.8.12).
+Remote Demand with both ends Up requires Poll/Final (RFC 5880 §6.6), so that
+receipt remains `pending` until confirmation. Entering or leaving
+`detect_mult: 1` reschedules TX for the applicable jitter window.
+
+One active Poll transaction keeps its advertised tuple; newer reloads replace
+only the latest waiting proposal. Combined TX/RX/Detect Multiplier changes
+retain the timer direction rules: TX increases and RX decreases defer their
 protected local effect until Final; the reverse directions take effect immediately.
-Admission remains `pending`,
-not `updated`, until confirmation. Completion updates the current generation
+Poll-dependent admission remains `pending`, not `updated`, until confirmation.
+Completion updates the current generation
 and readiness automatically without a second SIGHUP. Timeout or loss of Up
 fails the receipt; a late Final does not turn that failure into success.
 Cancellation after admission does not undo advertised values. The
 [transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
 defines the negotiation budget and startup/recovery separation. Live FRR/BIRD
-reload qualification remains pending; this is not full Poll/Demand compliance.
+qualification of Detect Multiplier reload remains pending; this is not full
+Poll/Demand compliance.
 
 Other effective-parameter changes to an existing same-key session or Micro-BFD
 group are not in-place updates: reconciliation reports a conflict,
 the generation remains stale, and the operator must remove then add the identity
 in separate reloads or restart the process. Removing the final entry or
 disabling a source is supported.
+
+The Detect Multiplier slice does not extend updates to shared-owner/API,
+Micro-BFD or overlay sessions, or to authentication, padding or minimum TTL.
+[ADR-0006](adr/0006-session-preserving-reload-policy.md) records the accepted
+policy; remaining implementation and integration are separate P0 children
+`gobfd-qj0.8.2.2.7.2`, `gobfd-qj0.8.2.2.7.3` and `gobfd-qj0.8.2.2.7.4`.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
 `log.format`, `socket.*`, `unsolicited.*`, `micro_bfd.enabled`, `micro_bfd.actuator.*`, `gobgp.*`,

@@ -193,8 +193,15 @@ backend/VNI fields are rejected with
 bounded field identifiers; configuration values and secrets are not retained in
 the error. Desired-set membership changes may need new control, Echo, or Micro-BFD
 listeners or overlay backends, which their owners open as part of the
-generation; same-key effective
-parameter changes remain reconciliation conflicts rather than in-place updates.
+generation. Solely config-owned base sessions with stable wire identity accept
+in-place TX/RX and Detect Multiplier changes through the existing timer tuple
+and generation/revision receipts. A detect-only Async update applies locally
+without Poll; remote Demand with both ends Up requires Poll/Final. Combined
+TX/RX changes retain directional deferral, the active advertised tuple and the
+latest queued proposal. Shared-owner/API, Micro-BFD and overlay updates, and
+authentication, padding and minimum-TTL changes remain conflicts outside this
+slice. [ADR-0006](adr/0006-session-preserving-reload-policy.md) accepts the wider
+policy, not implementation or live peer qualification.
 The coordinator publishes a
 monotonic desired generation only after that check and the complete immutable
 session candidate compiles. One receipt then records claim-level `created`, `released`,
@@ -299,7 +306,7 @@ following boundaries remain deferred:
 
 - runtime changes of the global overlay backend and default VNI fields;
 - stable per-group and per-tunnel owner identifiers;
-- Poll/Final parameter negotiation;
+- full Poll/Demand qualification beyond bounded config-owned TX/RX/Detect Multiplier updates;
 - transport-aware packet demultiplexing; and
 - authenticated API principal identities instead of one compatibility/API
   owner.
