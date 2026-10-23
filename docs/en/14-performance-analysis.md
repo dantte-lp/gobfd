@@ -184,6 +184,17 @@ named profiles fail before sockets open. SIGINT/SIGTERM cancel the workload,
 join workers and emit a partial JSON report; signals retain normal termination
 while stdout is blocked after cleanup.
 
+The current standalone owner and peer commands use independent duration timers.
+Their totals include setup and shutdown; a successful fixture can still stop the
+owner before the peers' last successful writes reach commit. It does not prove
+complete packet accounting or a shared measurement window. Internal phase-control
+helpers publish bounded files without replacing existing input and verify a common
+time namespace before converting a native monotonic deadline to a Go timer. These
+helpers are not yet connected to the commands or topology controller. Their
+conversion bracket does not establish independent RX timing uncertainty. The
+remaining integration and acceptance criteria belong to Beads
+`gobfd-qj0.8.2.1.6.3.3`.
+
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
 deltas and a bounded Down journal. Missing transition events and journal
