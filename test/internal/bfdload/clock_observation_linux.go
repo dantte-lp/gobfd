@@ -8,24 +8,27 @@ import (
 	"time"
 )
 
-// WithClockEpoch attaches a finished witness and validates the measured window.
-// Its bound remains conditional on the calibration model, not a support verdict.
+// WithClockEpoch attaches cancellation evidence and a conditional conversion bound.
+// It cannot establish total timing uncertainty or reference qualification.
 func (o OwnerObservation) WithClockEpoch(epoch ClockEpochObservation) OwnerObservation {
 	o.ClockEpoch = &epoch
 	o.TimingUncertaintyNS = nil
-	bound, err := o.receiveUncertainty(epoch)
+	o.ConditionalTimingUncertaintyNS = nil
+	o.ReferenceQualified = false
+	bound, err := o.conditionalReceiveBound(epoch)
 	if err != nil {
 		o.TimingUncertaintyError = err.Error()
 		return o
 	}
-	o.TimingUncertaintyNS = &bound
-	o.TimingUncertaintyError = ""
+	o.ConditionalTimingUncertaintyNS = &bound
+	o.TimingUncertaintyError = "total clock uncertainty is unknown: " +
+		"absence of a timerfd cancellation is not a step-free epoch proof"
 	return o
 }
 
-func (o OwnerObservation) receiveUncertainty(epoch ClockEpochObservation) (uint64, error) {
-	if !epoch.valid() {
-		return 0, fmt.Errorf("missing completed realtime epoch witness: %w", errClockEpochUnverifiable)
+func (o OwnerObservation) conditionalReceiveBound(epoch ClockEpochObservation) (uint64, error) {
+	if !epoch.supportsConditionalBound() {
+		return 0, fmt.Errorf("missing completed cancellation witness: %w", errClockEpochUnverifiable)
 	}
 	if !o.stoppedWithin(epoch) || len(o.ClockCalibrations) == 0 {
 		return 0, fmt.Errorf("owner shutdown is outside the guarded window: %w", errClockEpochUnverifiable)
@@ -50,8 +53,8 @@ func (o OwnerObservation) stoppedWithin(epoch ClockEpochObservation) bool {
 		!o.StoppedAtUTC.Before(epoch.StartedAtUTC) && !o.StoppedAtUTC.After(epoch.FinishedAtUTC)
 }
 
-func (e ClockEpochObservation) valid() bool {
-	return e.Mechanism == clockEpochMechanism && e.Unchanged && e.Error == "" && e.ElapsedNS >= 0 &&
+func (e ClockEpochObservation) supportsConditionalBound() bool {
+	return e.Mechanism == clockEpochMechanism && e.NoCancellationObserved && e.Error == "" && e.ElapsedNS >= 0 &&
 		!e.StartedAtUTC.Before(time.Unix(0, 0)) && !e.FinishedAtUTC.After(time.Unix(0, math.MaxInt64)) &&
 		e.FinishedAtUTC.After(e.StartedAtUTC)
 }

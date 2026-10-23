@@ -21,15 +21,15 @@ var (
 
 const clockEpochMechanism = "linux-timerfd-cancel-on-set"
 
-// ClockEpochObservation covers only the guard's completed, bounded run window.
+// ClockEpochObservation records cancellation evidence, not proof of a step-free epoch.
 type ClockEpochObservation struct {
-	started, finished time.Time `json:"-"`
-	Mechanism         string    `json:"mechanism"`
-	StartedAtUTC      time.Time `json:"started_at_utc"`
-	FinishedAtUTC     time.Time `json:"finished_at_utc"`
-	ElapsedNS         int64     `json:"elapsed_ns"`
-	Unchanged         bool      `json:"unchanged"`
-	Error             string    `json:"error,omitempty"`
+	started, finished      time.Time `json:"-"`
+	Mechanism              string    `json:"mechanism"`
+	StartedAtUTC           time.Time `json:"started_at_utc"`
+	FinishedAtUTC          time.Time `json:"finished_at_utc"`
+	ElapsedNS              int64     `json:"elapsed_ns"`
+	NoCancellationObserved bool      `json:"no_cancellation_observed"`
+	Error                  string    `json:"error,omitempty"`
 }
 
 // ClockEpochGuard owns one timerfd and no goroutine. Arm it before calibration;
@@ -49,7 +49,7 @@ type ClockEpochGuard struct {
 }
 
 // NewClockEpochGuard arms a seven-day witness without changing the host clock.
-// Expiration, cancellation and unavailable data can never qualify a run.
+// Expiration, cancellation and unavailable data cannot provide a usable witness.
 func NewClockEpochGuard(ctx context.Context) (*ClockEpochGuard, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("start realtime epoch guard: %w", err)
@@ -102,7 +102,8 @@ func clockEpochReadResult(n int, err error) error {
 	return fmt.Errorf("realtime epoch timerfd returned %d bytes: %w", n, errClockEpochUnverifiable)
 }
 
-// Finish checks the witness and closes it. Repeated calls return the same result.
+// Finish checks cancellation and closes the witness; EAGAIN cannot prove a step-free epoch.
+// Repeated calls return the same result.
 func (g *ClockEpochGuard) Finish(ctx context.Context) (ClockEpochObservation, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -122,7 +123,7 @@ func (g *ClockEpochGuard) Finish(ctx context.Context) (ClockEpochObservation, er
 		observation.ElapsedNS = int64(time.Since(g.started))
 	}
 	g.finishErr = errors.Join(err, g.closeLocked())
-	observation.Unchanged = g.finishErr == nil
+	observation.NoCancellationObserved = g.finishErr == nil
 	if g.finishErr != nil {
 		observation.Error = g.finishErr.Error()
 	}

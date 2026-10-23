@@ -12,6 +12,41 @@ import (
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
+func TestClockWitnessCannotProveTotalUncertainty(t *testing.T) {
+	guard, err := NewClockEpochGuard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := guard.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	calibration := bfd.NewReceiveClock().Calibration()
+	stopped := time.Now()
+	staleBound := uint64(987)
+	observation := OwnerObservation{
+		stoppedAt: stopped, Stopped: true, StoppedAtUTC: stopped.UTC(),
+		ReferenceQualified: true, TimingUncertaintyNS: &staleBound, ConditionalTimingUncertaintyNS: &staleBound,
+		ClockCalibrations: []OwnerClockObservation{{Calibration: calibration}},
+	}
+	witness, err := guard.Finish(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := observation.WithClockEpoch(witness)
+	if got.TimingUncertaintyNS != nil || got.TimingUncertaintyError == "" || got.ReferenceQualified {
+		t.Fatalf("cancellation witness promoted total uncertainty/reference: bound=%v error=%q reference=%v",
+			got.TimingUncertaintyNS, got.TimingUncertaintyError, got.ReferenceQualified)
+	}
+	if !witness.NoCancellationObserved || got.ConditionalTimingUncertaintyNS == nil ||
+		calibration.ConditionalBoundNS <= 0 ||
+		*got.ConditionalTimingUncertaintyNS != uint64(calibration.ConditionalBoundNS) ||
+		got.ConditionalTimingUncertaintyNS == &staleBound {
+		t.Fatal("completed cancellation witness lost its conditional bound or retained a stale value")
+	}
+}
+
 func TestOwnerClockProofRequiresCoveredStoppedWindow(t *testing.T) {
 	started := time.Now()
 	calibration := bfd.NewReceiveClock().Calibration()
@@ -30,19 +65,20 @@ func TestOwnerClockProofRequiresCoveredStoppedWindow(t *testing.T) {
 	}
 	witness := ClockEpochObservation{
 		started: started, finished: finished,
-		Mechanism: clockEpochMechanism, Unchanged: true,
+		Mechanism: clockEpochMechanism, NoCancellationObserved: true,
 		StartedAtUTC: started.UTC(), FinishedAtUTC: finished.UTC(), ElapsedNS: int64(finished.Sub(started)),
 	}
 	qualified := observation.WithClockEpoch(witness)
-	if qualified.TimingUncertaintyNS == nil || *qualified.TimingUncertaintyNS != 406 ||
-		qualified.TimingUncertaintyError != "" || qualified.ReferenceQualified {
+	if qualified.TimingUncertaintyNS != nil || qualified.ConditionalTimingUncertaintyNS == nil ||
+		*qualified.ConditionalTimingUncertaintyNS != 406 ||
+		qualified.TimingUncertaintyError == "" || qualified.ReferenceQualified {
 		t.Fatalf("covered clock proof lost conditional bound or qualified reference load: %+v", qualified)
 	}
 	for _, tc := range []struct {
 		name string
 		edit func(*OwnerObservation, *ClockEpochObservation)
 	}{
-		{"changed", func(_ *OwnerObservation, epoch *ClockEpochObservation) { epoch.Unchanged = false }},
+		{"changed", func(_ *OwnerObservation, epoch *ClockEpochObservation) { epoch.NoCancellationObserved = false }},
 		{"error", func(_ *OwnerObservation, epoch *ClockEpochObservation) { epoch.Error = "unavailable" }},
 		{"wrong_mechanism", func(_ *OwnerObservation, epoch *ClockEpochObservation) { epoch.Mechanism = "" }},
 		{"live_owner", func(owner *OwnerObservation, _ *ClockEpochObservation) { owner.Stopped = false }},
@@ -83,7 +119,8 @@ func TestOwnerClockProofRequiresCoveredStoppedWindow(t *testing.T) {
 			changed, epoch := qualified, witness
 			tc.edit(&changed, &epoch)
 			got := changed.WithClockEpoch(epoch)
-			if got.TimingUncertaintyNS != nil || got.TimingUncertaintyError == "" {
+			if got.TimingUncertaintyNS != nil || got.ConditionalTimingUncertaintyNS != nil ||
+				got.TimingUncertaintyError == "" || got.ReferenceQualified {
 				t.Fatalf("invalid epoch reused a prior bound: %+v", got)
 			}
 		})
@@ -152,7 +189,8 @@ func TestOwnerClockProofRejectsUncoveredLifetimes(t *testing.T) {
 			}
 			// Rewritten wall observations simulate rollback; the host clock never changes.
 			got := observation.WithClockEpoch(witness)
-			if got.TimingUncertaintyNS != nil || got.TimingUncertaintyError == "" {
+			if got.TimingUncertaintyNS != nil || got.ConditionalTimingUncertaintyNS != nil ||
+				got.TimingUncertaintyError == "" || got.ReferenceQualified {
 				t.Fatalf("uncovered lifetime qualified after realtime rollback: bound=%v error=%q",
 					got.TimingUncertaintyNS, got.TimingUncertaintyError)
 			}

@@ -189,17 +189,24 @@ and opposite endpoints of both error intervals.
 
 The workload's `ClockEpochGuard` arms a nonblocking
 [realtime timerfd](https://man7.org/linux/man-pages/man2/timerfd_create.2.html)
-with absolute `CANCEL_ON_SET` before calibration. `Finish` checks the witness
-after the last sample and closes its FD; cancellation, expiration, unavailable
-data and aborted guards cannot qualify the clock. Its seven-day horizon bounds
+with absolute `CANCEL_ON_SET` before calibration. `Finish` checks cancellation
+after the last sample and closes its FD. A successful nonblocking read check
+sets `no_cancellation_observed`; it does not prove that the clock never stepped.
+Timekeeping can publish an offset change before notifying timerfd, and resume
+notification can be deferred. Cancellation, expiration, unavailable data and
+aborted guards cannot provide a usable witness. Its seven-day horizon bounds
 the witness lifetime. No per-packet syscall or guard goroutine is added.
 `WithClockEpoch` requires process-local monotonic provenance covering the entire
 calibration bracket and owner shutdown. UTC values remain reporting metadata;
 replaying JSON cannot reconstruct that provenance or requalify a run. It accepts
-only known calibrations inside the completed guard window and attaches the largest conditional conversion
-bound to `TimingUncertaintyNS`; other snapshots retain an explicit unknown
-reason. This evidence does not establish hardware timestamp accuracy, reference
-admission or supported load.
+only known calibrations inside the completed guard window and attaches the
+largest conditional conversion bound to `conditional_timing_uncertainty_ns`.
+The constant-offset clock model remains an assumption. Total
+`timing_uncertainty_ns` stays null with an explicit unknown reason, and stale
+reference qualification is cleared. Invalid or uncovered inputs clear both
+bounds. Independent evidence of clock validity is still required before full
+load acceptance; cancellation evidence alone cannot satisfy it. This does not
+establish hardware timestamp accuracy, reference admission or supported load.
 
 ## Table of Contents
 

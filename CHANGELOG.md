@@ -544,6 +544,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Workload clock reports distinguish no observed timerfd cancellation from a
+  proven clock epoch. Conditional conversion bounds have a separate field;
+  total clock uncertainty remains unknown and stale reference flags are cleared.
+
 - An orderly stop exits 0 when an AdminDown drain cannot finish because a
   peer is unreachable or never supplied a discriminator; the drain is logged as
   a warning. Admission, commit, owner, failed AdminDown writes and other local

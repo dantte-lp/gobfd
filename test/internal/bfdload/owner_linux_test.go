@@ -112,7 +112,8 @@ func TestOwnerActualUDPCommitAndCleanup(t *testing.T) {
 			t.Fatalf("packet was not processed by the session owner: %+v", session)
 		}
 	}
-	if observed.ReferenceQualified || observed.TimingUncertaintyNS != nil {
+	if observed.ReferenceQualified || observed.TimingUncertaintyNS != nil ||
+		observed.ConditionalTimingUncertaintyNS != nil {
 		t.Fatal("component fixture incorrectly qualified reference load or clock precision")
 	}
 	if len(observed.Sessions) != 2 {
@@ -165,8 +166,9 @@ func TestOwnerActualUDPCommitAndCleanup(t *testing.T) {
 		t.Fatal(witnessErr)
 	}
 	final = final.WithClockEpoch(witness)
-	if final.TimingUncertaintyNS == nil || *final.TimingUncertaintyNS == 0 ||
-		final.TimingUncertaintyError != "" || len(final.ClockCalibrations) != 2 || final.ReferenceQualified {
+	if final.TimingUncertaintyNS != nil || final.ConditionalTimingUncertaintyNS == nil ||
+		*final.ConditionalTimingUncertaintyNS == 0 || final.TimingUncertaintyError == "" ||
+		len(final.ClockCalibrations) != 2 || final.ReferenceQualified {
 		t.Fatalf("actual guarded clock measurements unavailable: %+v", final)
 	}
 	for kind, want := range map[string]float64{"control": 4, "echo": 0} {

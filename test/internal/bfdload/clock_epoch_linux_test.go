@@ -18,8 +18,8 @@ func TestClockEpochReadResults(t *testing.T) {
 		err  error
 		want error
 	}{
-		{"unchanged", -1, unix.EAGAIN, nil},
-		{"unchanged_zero", 0, unix.EAGAIN, nil},
+		{"no_cancellation_observed", -1, unix.EAGAIN, nil},
+		{"no_cancellation_observed_zero", 0, unix.EAGAIN, nil},
 		{"changed", -1, unix.ECANCELED, ErrClockEpochChanged},
 		{"expired", 8, nil, errClockEpochUnverifiable},
 		{"short", 7, nil, errClockEpochUnverifiable},
@@ -49,7 +49,7 @@ func TestClockEpochActualFinishAndCleanup(t *testing.T) {
 	})
 	fd := guard.fd
 	observed, err := guard.Finish(t.Context())
-	if err != nil || !observed.Unchanged || observed.ElapsedNS < 0 || observed.Mechanism == "" {
+	if err != nil || !observed.NoCancellationObserved || observed.ElapsedNS < 0 || observed.Mechanism == "" {
 		t.Fatalf("actual epoch witness unavailable: %+v err=%v", observed, err)
 	}
 	again, err := guard.Finish(t.Context())
@@ -83,7 +83,7 @@ func TestClockEpochCancellationAndAbort(t *testing.T) {
 			ctx = t.Context()
 		}
 		observed, finishErr := guard.Finish(ctx)
-		if !errors.Is(finishErr, want) || observed.Unchanged || observed.Error == "" {
+		if !errors.Is(finishErr, want) || observed.NoCancellationObserved || observed.Error == "" {
 			t.Fatalf("aborted witness qualified: %+v err=%v, want %v", observed, finishErr, want)
 		}
 		if closeErr := guard.Close(); closeErr != nil {
@@ -112,7 +112,7 @@ func TestClockEpochUnownedDescriptorIsPreserved(t *testing.T) {
 		guard := &ClockEpochGuard{fd: fds[0]}
 		if finish {
 			observation, err := guard.Finish(t.Context())
-			if !errors.Is(err, errClockEpochGuardClosed) || observation.Unchanged {
+			if !errors.Is(err, errClockEpochGuardClosed) || observation.NoCancellationObserved {
 				t.Errorf("unowned guard was usable: %+v err=%v", observation, err)
 			}
 		} else if err := guard.Close(); err != nil {
@@ -146,7 +146,7 @@ func TestClockEpochActualExpiryIsRejected(t *testing.T) {
 		t.Fatalf("owned timer did not expire: events=%d err=%v", n, pollErr)
 	}
 	observed, err := guard.Finish(t.Context())
-	if !errors.Is(err, errClockEpochUnverifiable) || observed.Unchanged {
+	if !errors.Is(err, errClockEpochUnverifiable) || observed.NoCancellationObserved {
 		t.Fatalf("expired guard qualified: %+v err=%v", observed, err)
 	}
 }

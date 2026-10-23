@@ -58,19 +58,20 @@ type OwnerClockObservation struct {
 // OwnerObservation is sequential telemetry, not a reference or daemon verdict.
 // Metrics retain the real collector DTOs, not a second implementation of them.
 type OwnerObservation struct {
-	stoppedAt              time.Time                 `json:"-"`
-	Scope                  string                    `json:"scope"`
-	Stopped                bool                      `json:"stopped"`
-	StoppedAtUTC           time.Time                 `json:"stopped_at_utc"`
-	ReferenceQualified     bool                      `json:"reference_qualified"`
-	TimingUncertaintyNS    *uint64                   `json:"timing_uncertainty_ns"`
-	TimingUncertaintyError string                    `json:"timing_uncertainty_error"`
-	Environment            Environment               `json:"environment"`
-	Sessions               []OwnerSessionObservation `json:"sessions"`
-	Delivery               []bfd.DeliveryCounter     `json:"delivery"`
-	Metrics                []*dto.MetricFamily       `json:"metrics"`
-	ClockCalibrations      []OwnerClockObservation   `json:"clock_calibrations"`
-	ClockEpoch             *ClockEpochObservation    `json:"clock_epoch"`
+	stoppedAt                      time.Time                 `json:"-"`
+	Scope                          string                    `json:"scope"`
+	Stopped                        bool                      `json:"stopped"`
+	StoppedAtUTC                   time.Time                 `json:"stopped_at_utc"`
+	ReferenceQualified             bool                      `json:"reference_qualified"`
+	TimingUncertaintyNS            *uint64                   `json:"timing_uncertainty_ns"`
+	TimingUncertaintyError         string                    `json:"timing_uncertainty_error"`
+	ConditionalTimingUncertaintyNS *uint64                   `json:"conditional_timing_uncertainty_ns"`
+	Environment                    Environment               `json:"environment"`
+	Sessions                       []OwnerSessionObservation `json:"sessions"`
+	Delivery                       []bfd.DeliveryCounter     `json:"delivery"`
+	Metrics                        []*dto.MetricFamily       `json:"metrics"`
+	ClockCalibrations              []OwnerClockObservation   `json:"clock_calibrations"`
+	ClockEpoch                     *ClockEpochObservation    `json:"clock_epoch"`
 }
 
 type ownerSession struct {
@@ -297,7 +298,7 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 	}
 	report := OwnerObservation{
 		Scope: "production-core-owner-component", Environment: environment,
-		TimingUncertaintyError: "run-scoped epoch evidence is required for conditional clock bounds",
+		TimingUncertaintyError: "total clock uncertainty has not been independently established",
 		Delivery:               o.manager.DeliveryCounters(), Sessions: make([]OwnerSessionObservation, len(o.sessions)),
 		ClockCalibrations: make([]OwnerClockObservation, len(o.listeners)),
 	}
