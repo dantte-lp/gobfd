@@ -206,6 +206,10 @@ and local Demand Poll bounds are labelled separately from measured timing;
 the crafted peer does not implement a detection timer. Source contracts alone
 do not close P0 `gobfd-qj0.8.2.2.7.5.2`; actual candidate captures are required.
 
+Local qualification on `d9e67064e51012c0d25a1a22dc9bd469600d8469` passes both
+topologies with those captures; receipts are in `reports/detect-wire-20261024/`.
+This does not close prepared-padding, TTL or final five-field qualification.
+
 ### Running Interop Tests
 
 #### Full Cycle (Recommended)

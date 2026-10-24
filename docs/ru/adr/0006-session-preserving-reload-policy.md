@@ -210,6 +210,13 @@ post-receipt пакетом в пределах существующего timer
 Runtime discovery использует запросы registry по префиксам и точное сравнение
 первого столбца; полный registry не буферизуется в race runner.
 
+Локальная DetectMult wire-квалификация прошла на
+`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
+шесть аутентифицированных Async-фаз и две crafted remote-Demand фазы; captures
+и receipts — в `reports/detect-wire-20261024/`. Задачи `.5.2` и `.5.2.1`
+закрыты локально. Prepared padding, фактический TTL admission и unified
+exact-candidate gate остаются P0; stable acceptance не подтверждается.
+
 Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.

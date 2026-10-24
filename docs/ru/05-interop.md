@@ -207,6 +207,10 @@ Async и local Demand Poll bounds отделены от измерений; craf
 detection timer. Source contracts не закрывают P0 `gobfd-qj0.8.2.2.7.5.2`:
 обязательны фактические captures кандидата.
 
+Локальная квалификация на `d9e67064e51012c0d25a1a22dc9bd469600d8469` проходит
+обе топологии с этими captures; receipts — в `reports/detect-wire-20261024/`.
+Это не закрывает prepared-padding, TTL и финальную five-field квалификацию.
+
 ### Запуск тестов совместимости
 
 #### Полный цикл (рекомендуется)

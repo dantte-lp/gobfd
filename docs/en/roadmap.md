@@ -6,20 +6,26 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
 ## Reload wire qualifier preparation — 2026-10-24
 
-P0 `gobfd-qj0.8.2.2.7.5.2` adds authenticated Async DetectMult 1→5→3
-and crafted remote-Demand 5→3 phases to the existing wire scenarios. The
-source evaluator checks multiplier-specific jitter, directional detection
-calculations, UDP/authentication continuity and per-generation Demand windows.
-Critical source contracts passed 33 top-level tests with race detection,
-including a review-driven next-Control bound with observed RED/GREEN.
-Final lint and actual candidate captures remain separate qualification steps.
-The first crafted run exhausted its 512 MiB race-runner cap during full
-registry buffering, before peer startup. P0 `gobfd-qj0.8.2.2.7.5.2.1` scopes
-registry discovery without raising that cap; runtime retry remains mandatory.
-ADR 0006 distinguishes received-multiplier local detection, derived peer Async
-detection and derived local Demand Poll bounds. The crafted peer has no
-detection timer. This task and the mandatory five-field wire parent remain
-open until their actual acceptance evidence is recorded in Beads.
+`gobfd-qj0.8.2.2.7.5.2` is locally qualified on
+`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
+authenticated FRR/BIRD3 Async DetectMult 1→5→3 and crafted remote-Demand 5→3
+pass actual capture, receipt, UDP/authentication and identity checks.
+The full four-peer gate passes in 346.02 s; crafted-peer passes in 84.94 s.
+Both retain the 512 MiB runner cap with peaks 112635904 and 68599808 bytes,
+zero max/OOM events and zero swap. Evidence: `reports/detect-wire-20261024/`.
+The existing baseline DetectionPrecision skip has no Down(diag=1) packets;
+it is not coverage and is tracked in final gate `gobfd-qj0.8.2.2.7.5.5`.
+The second existing skip records BIRD3's fixed source-port deviation from
+RFC 5881 §4; GoBFD's own source-port check passes independently.
+
+Critical source contracts pass 33 top-level tests with race detection; tagged
+lint/vet, compilation and 88 Markdown checks pass. Independent review's
+next-Control gap is fixed with observed RED/GREEN. The first crafted run's
+registry-buffer OOM is fixed by closed child `gobfd-qj0.8.2.2.7.5.2.1` using
+scoped queries, without raising the cap. ADR 0006 separates local receive,
+derived peer Async and local Demand Poll bounds; the crafted peer has no
+detection timer. P0 padding `.5.3`, TTL `.5.4` and unified final-candidate `.5.5`
+remain mandatory under `gobfd-qj0.8.2.2.7.5`; this is not stable acceptance.
 
 P0 `gobfd-qj0.8.2.2.7.5.1` extends the existing receipt qualifier with explicit
 immediate and Poll-phase expectations. Current timer and crafted-peer callers

@@ -209,6 +209,13 @@ arrive within one negotiated TX plus slack. Later old multipliers fail the gate.
 Runtime field discovery uses scoped registry queries and exact first-column
 matching; it does not buffer the full dissector registry in the race runner.
 
+Local DetectMult wire qualification passed on
+`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
+six authenticated Async phases and two crafted remote-Demand phases, with
+captures and receipts in `reports/detect-wire-20261024/`. Children `.5.2` and
+`.5.2.1` are closed locally. Prepared padding, actual TTL admission and the
+unified exact-candidate gate remain P0; no stable acceptance is implied.
+
 Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.

@@ -6,20 +6,26 @@
 
 ## Подготовка wire validator для reload — 2026-10-24
 
-P0 `gobfd-qj0.8.2.2.7.5.2` добавляет аутентифицированные Async-фазы
-DetectMult 1→5→3 и crafted remote-Demand 5→3 в существующие wire-сценарии.
-Source evaluator проверяет jitter для каждого множителя, направленные расчёты
-Detection Time, непрерывность UDP/аутентификации и Demand windows каждого
-поколения. С race detector прошли 33 top-level source contract, включая
-next-Control bound после замечания review и наблюдённого RED/GREEN. Финальный
-lint и фактические captures кандидата остаются отдельными этапами квалификации.
-Первый crafted-прогон исчерпал лимит race runner 512 MiB при буферизации полного
-registry до запуска peer. P0 `gobfd-qj0.8.2.2.7.5.2.1` ограничивает discovery
-без повышения лимита; повторная runtime-квалификация остаётся обязательной.
-ADR 0006 разделяет локальное обнаружение по принятому множителю, расчётное
-peer Async detection и local Demand Poll bounds. Crafted peer не имеет
-detection timer. Эта задача и обязательный five-field wire parent остаются
-открыты до записи фактического acceptance evidence в Beads.
+`gobfd-qj0.8.2.2.7.5.2` квалифицирована локально на
+`task/detect-wire-20261024@d9e67064e51012c0d25a1a22dc9bd469600d8469`:
+аутентифицированные FRR/BIRD3 Async DetectMult 1→5→3 и crafted remote-Demand
+5→3 проходят фактические capture, receipt, UDP/authentication и identity checks.
+Полный four-peer gate проходит за 346.02 s, crafted-peer — за 84.94 s.
+Лимит обоих runner сохранён на 512 MiB, peaks — 112635904 и 68599808 bytes,
+max/OOM events и swap — 0. Evidence: `reports/detect-wire-20261024/`.
+Прежний baseline DetectionPrecision пропущен из-за отсутствия Down(diag=1);
+это не coverage, gap ведётся в final gate `gobfd-qj0.8.2.2.7.5.5`.
+Второй прежний SKIP отражает отклонение fixed source port BIRD3 от RFC 5881 §4;
+проверка собственного source port GoBFD проходит независимо.
+
+С race detector проходят 33 top-level source contract; tagged lint/vet,
+компиляция и проверки 88 Markdown-файлов проходят. Замечание независимого review
+к next-Control исправлено с наблюдённым RED/GREEN. OOM первого crafted-прогона
+устранён закрытой задачей `gobfd-qj0.8.2.2.7.5.2.1`: запросы registry ограничены
+без повышения лимита. ADR 0006 разделяет local receive, расчётные peer Async
+и local Demand Poll bounds; crafted peer не имеет detection timer.
+P0 padding `.5.3`, TTL `.5.4` и unified final-candidate `.5.5` обязательны в
+`gobfd-qj0.8.2.2.7.5`; это не stable acceptance.
 
 P0 `gobfd-qj0.8.2.2.7.5.1` расширяет существующий validator receipts явными
 режимами немедленного применения и Poll-фаз. Прежние timer и crafted-peer
