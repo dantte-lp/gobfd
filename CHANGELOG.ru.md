@@ -16,6 +16,11 @@
 
 ### Добавлено
 
+- Добавлена ограниченная scheduler contention в owner UDP workload, выключенная
+  по умолчанию, с фактическими compute/yield и joined-worker receipts. Общие CPU
+  mixing primitive и pressure period переиспользуются; runtime distributions
+  остаются отдельными от reference acceptance.
+
 - Добавлен явный ограниченный GC-pressure вариант owner UDP workload с
   фактическими allocation и reference-cleanup receipts после join в общей
   эпохе. Наблюдения GC процесса не подтверждают reference qualification.

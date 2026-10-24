@@ -77,6 +77,19 @@ settings. GC cycles и pause histograms относятся ко всему пр�
 приписывать их только allocation helper нельзя. Режим выключен по умолчанию;
 завершённый fixture не подтверждает reference GC qualification.
 
+Вариант `--scheduler-pressure`, выключенный по умолчанию, готовит четыре
+runnable helper на effective `GOMAXPROCS`, не более 32 helpers. В каждом общем
+окне 100 ms helper выполняет до 64 раундов прежнего CPU mixing primitive из
+1024 итераций с последующим `runtime.Gosched`. Между раундами проверять отмену
+и wall deadline; истекшие окна пропускать без накопления долга. Не закреплять
+эти helpers за OS threads и не менять runtime settings. Сохранять фактические
+rounds, yield calls, skipped/incomplete worker windows, checksum и phase
+lateness; yield call не подтверждает OS context switch. При успехе и ошибке
+завершать CPU, GC и scheduler helpers до measurement freeze и drain. Peers
+передают запрос, но owner pressure не создают. Наблюдения scheduler, timer и
+committed RX процесса отделены от калиброванных reference distributions;
+неизвестная clock uncertainty сохраняется.
+
 ## Последствия
 
 Команды без control directory сохраняют независимые timers и явные ограничения.

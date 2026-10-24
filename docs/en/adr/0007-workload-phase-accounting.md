@@ -78,6 +78,19 @@ Process GC cycles and pause histograms remain process-wide observations;
 they are not attributable solely to the allocation helper. Default-off and
 completed fixture generation do not establish reference GC qualification.
 
+The default-off `--scheduler-pressure` variant prepares four runnable helpers
+per effective `GOMAXPROCS`, at most 32 helpers. In each common 100 ms window,
+each helper attempts at most 64 rounds of the existing 1024-iteration CPU
+mixing primitive followed by `runtime.Gosched`. Check cancellation and the
+wall deadline between rounds; skip elapsed windows without carrying debt.
+Do not pin these helpers or change runtime settings. Retain actual rounds,
+yield calls, skipped/incomplete worker windows, checksum and phase lateness;
+a yield call does not prove an OS context switch. Join CPU, GC and scheduler
+helpers before measurement freeze and drain on success and failure. Peers
+carry the request without generating owner pressure. Process scheduler,
+timer and committed-RX observations remain separate from calibrated reference
+distributions and preserve unknown clock uncertainty.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit

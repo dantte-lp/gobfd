@@ -28,6 +28,7 @@ func TestProfileRejectsReducedQualification(t *testing.T) {
 				t.Fatal(err)
 			}
 			profile.GCPressure = true
+			profile.SchedulerPressure = true
 			if err := profile.Validate(); err != nil {
 				t.Fatalf("additive GC variant rejected: %v", err)
 			}

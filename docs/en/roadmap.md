@@ -25,6 +25,25 @@ Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
 historical v0.6 evidence remain. These status rows neither close their owners
 nor create an executable plan. Use Beads for current priorities and acceptance.
 
+## Scheduler-pressure workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.3` adds bounded default-off compute/yield workers
+inside the existing owner quota. The local mixed IPv4/IPv6 independent-process
+fixture passes in 47.57 s: 79 lifetime peer writes settle as 79 owner commits.
+Four helpers complete 7680 rounds/yields in 120 worker windows and all join
+before measurement freeze. The process scheduler histogram retains 1094
+window samples; production timer and committed-RX histogram counts increase
+by 130 and 69 respectively. These window deltas exclude the initial snapshot;
+the lifetime packet ledger includes setup/drain.
+
+All four owned containers are removed. The runner peaks at
+293404672/536870912 bytes with zero max/OOM events and swap. Evidence:
+`reports/workload-scheduler-20261024/`. Yield calls do not establish OS context
+switches or queue depth; these process observations are not calibrated
+reference distributions. Clock uncertainty remains unknown and reference
+qualification false. Churn, thread-pin A/B, reference/engineering runs and
+final-candidate wire/security gates remain separate open work.
+
 ## GC-pressure workload fixture — 2026-10-24
 
 `gobfd-qj0.8.2.1.6.3.4.3.2` adds an explicit default-off allocation variant

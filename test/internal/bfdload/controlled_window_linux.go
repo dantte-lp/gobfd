@@ -61,7 +61,10 @@ func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owne
 		r.CPUPressure, cpuErr = pressure.join()
 		return errors.Join(err, cpuErr)
 	}
-	err = awaitPhaseTime(windowCtx, started)
+	scheduler, err := startSchedulerPressure(windowCtx, r.Config.Profile, started, cancel)
+	if err == nil {
+		err = awaitPhaseTime(windowCtx, started)
+	}
 	if err == nil {
 		r.Initial, err = owner.Snapshot(windowCtx)
 	}
@@ -76,7 +79,11 @@ func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owne
 	r.CPUPressure, pressureErr = pressure.join()
 	var gcErr error
 	r.GCPressure, gcErr = gc.join()
-	return errors.Join(err, pressureErr, gcErr)
+	var schedulerErr error
+	if scheduler != nil {
+		r.SchedulerPressure, schedulerErr = scheduler.join()
+	}
+	return errors.Join(err, pressureErr, gcErr, schedulerErr)
 }
 
 func (r *OwnerWorkloadObservation) completeControlled(ctx context.Context, owner *Owner, control *Control) error {

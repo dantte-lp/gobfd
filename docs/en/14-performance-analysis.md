@@ -188,6 +188,18 @@ calibrated pressure, latency acceptance or reference support.
 `released_objects` counts occupied ring entries dropped at worker exit,
 not all prior overwrites or objects reclaimed by GC.
 
+`--scheduler-pressure` adds four owner helpers per effective `GOMAXPROCS`,
+bounded at 32. In each common 100 ms window, a helper attempts up to 64 rounds
+of 1024 compute iterations followed by `runtime.Gosched`, stopping at the
+deadline or cancellation and skipping elapsed windows. The
+`scheduler_pressure` receipt retains actual rounds/yield calls, joined
+workers, skipped/incomplete worker windows, checksum and phase lateness.
+Yield calls do not establish OS context-switch counts or runnable-queue depth.
+The existing scheduler-window histogram and production timer/committed-RX
+histograms remain distinct observations. Workers join before freeze/drain;
+the default-off variant preserves named inputs and does not change runtime
+settings or establish calibrated reference distributions.
+
 `test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
 session manager and owning UDP senders with a fresh real collector. Its typed
 snapshot includes configured endpoints, source ports, session observations,

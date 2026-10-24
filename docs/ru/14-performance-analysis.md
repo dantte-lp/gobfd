@@ -190,6 +190,18 @@ window охватывают весь owner process и не доказывают 
 `released_objects` считает занятые ring entries, освобождённые при выходе worker,
 а не все прежние перезаписи или объекты, память которых вернул GC.
 
+`--scheduler-pressure` добавляет четыре owner helper на effective `GOMAXPROCS`,
+не более 32. В каждом общем окне 100 ms helper выполняет до 64 раундов по
+1024 compute iterations с последующим `runtime.Gosched`, останавливаясь по
+deadline или отмене и пропуская истекшие окна. Отчёт `scheduler_pressure`
+сохраняет фактические rounds/yield calls, завершённых workers, skipped/incomplete
+worker windows, checksum и phase lateness. Yield calls не подтверждают число
+OS context switches или глубину runnable queue. Прежние scheduler-window,
+production timer и committed-RX histograms остаются отдельными наблюдениями.
+Workers завершаются до freeze/drain; вариант выключен по умолчанию, сохраняет
+именованные входные условия, не меняет runtime settings и не подтверждает
+калиброванные reference distributions.
+
 `test/internal/bfdload.StartOwner` запускает production UDP listeners, receiver,
 session manager и владеющие сокетами UDP senders с отдельным реальным collector.
 Типизированный снимок содержит настроенные endpoints, source ports, наблюдения

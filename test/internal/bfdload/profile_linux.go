@@ -21,17 +21,18 @@ var ErrProfile = errors.New("invalid workload profile")
 
 // Profile is the intended workload, not evidence that the runtime admitted or completed it.
 type Profile struct {
-	Kind             string        `json:"kind"`
-	Sessions         int           `json:"sessions"`
-	Interval         time.Duration `json:"interval_ns"`
-	DetectMultiplier uint8         `json:"detect_multiplier"`
-	Duration         time.Duration `json:"duration_ns"`
-	LossPermille     uint64        `json:"loss_permille"`
-	BlackholeEvery   time.Duration `json:"blackhole_every_ns"`
-	BlackholeFor     time.Duration `json:"blackhole_for_ns"`
-	CPULoadPercent   uint64        `json:"cpu_load_percent"`
-	GCPressure       bool          `json:"gc_pressure"`
-	Seed             uint64        `json:"seed"`
+	Kind              string        `json:"kind"`
+	Sessions          int           `json:"sessions"`
+	Interval          time.Duration `json:"interval_ns"`
+	DetectMultiplier  uint8         `json:"detect_multiplier"`
+	Duration          time.Duration `json:"duration_ns"`
+	LossPermille      uint64        `json:"loss_permille"`
+	BlackholeEvery    time.Duration `json:"blackhole_every_ns"`
+	BlackholeFor      time.Duration `json:"blackhole_for_ns"`
+	CPULoadPercent    uint64        `json:"cpu_load_percent"`
+	GCPressure        bool          `json:"gc_pressure"`
+	SchedulerPressure bool          `json:"scheduler_pressure"`
+	Seed              uint64        `json:"seed"`
 }
 
 // DefaultProfile supplies the approved workloads and an explicitly unqualified fixture.
@@ -69,6 +70,7 @@ func (p Profile) Validate() error {
 	}
 	expected.Seed = p.Seed
 	expected.GCPressure = p.GCPressure
+	expected.SchedulerPressure = p.SchedulerPressure
 	if p != expected {
 		return fmt.Errorf("workload differs from %s qualification inputs: %w", p.Kind, ErrProfile)
 	}

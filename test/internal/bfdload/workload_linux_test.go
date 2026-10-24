@@ -23,6 +23,7 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 	profile.Sessions = 1
 	profile.CPULoadPercent = 25
 	profile.GCPressure = true
+	profile.SchedulerPressure = true
 	cfg := PeerConfig{Profile: profile, SourcePortBase: 55000, Sessions: []OwnerEndpoint{
 		{Local: netip.MustParseAddrPort("127.0.0.1:38061"), Peer: netip.MustParseAddrPort("127.33.0.2:38062")},
 	}}
@@ -48,6 +49,12 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded struct {
+		Scheduler *struct {
+			Enabled   bool   `json:"enabled"`
+			Rounds    uint64 `json:"rounds"`
+			Yields    uint64 `json:"yields"`
+			Completed bool   `json:"completed"`
+		} `json:"scheduler_pressure"`
 		GC *struct {
 			Enabled        bool   `json:"enabled"`
 			AllocatedBytes uint64 `json:"allocated_bytes"`
@@ -66,6 +73,11 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
+	if decoded.Scheduler == nil || !decoded.Scheduler.Enabled || !decoded.Scheduler.Completed ||
+		decoded.Scheduler.Rounds == 0 || decoded.Scheduler.Yields == 0 {
+		t.Fatalf("scheduler pressure has no actual joined activity receipt: %+v", decoded.Scheduler)
+	}
+	t.Logf("scheduler pressure receipt: %+v", report.SchedulerPressure)
 	if decoded.GC == nil || !decoded.GC.Enabled || decoded.GC.AllocatedBytes == 0 || decoded.GC.Objects == 0 ||
 		decoded.GC.Batches == 0 || !decoded.GC.Completed {
 		t.Fatalf("GC pressure has no actual joined allocation receipt: %+v", decoded.GC)

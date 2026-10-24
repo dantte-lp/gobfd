@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	gcPressurePeriod  = 100 * time.Millisecond
 	gcChunkBytes      = 64 * 1024
 	gcObjectsPerBatch = 64
 	gcRetainedBatches = 4
@@ -54,7 +53,7 @@ func startGCPressure(
 	ctx context.Context, profile Profile, at time.Time, failed context.CancelFunc,
 ) (*gcPressure, error) {
 	pressure := &gcPressure{observation: GCPressureObservation{
-		Enabled: profile.GCPressure, PeriodNS: int64(gcPressurePeriod),
+		Enabled: profile.GCPressure, PeriodNS: int64(pressurePeriod),
 		BytesPerBatch: gcChunkBytes * gcObjectsPerBatch, RetainedLimitBytes: gcChunkBytes * gcRetainedObjects,
 		ScheduledAtUTC: at.UTC(), DurationNS: int64(profile.Duration), Completed: true,
 	}}
@@ -95,14 +94,14 @@ func runGCWorker(ctx context.Context, at time.Time, observation GCPressureObserv
 	result.StartLatenessNS = max(0, int64(time.Since(at)))
 	duration := time.Duration(observation.DurationNS)
 	end := at.Add(duration)
-	count := wholeGCBatches(duration)
-	if duration%gcPressurePeriod != 0 {
+	count := wholePressureWindows(duration)
+	if duration%pressurePeriod != 0 {
 		count++
 	}
 	var retained [gcRetainedObjects][]byte
 	for batch := uint64(0); batch < count; batch++ {
 		// Skip elapsed windows instead of allocating accumulated debt.
-		current := wholeGCBatches(time.Since(at))
+		current := wholePressureWindows(time.Since(at))
 		if current > batch {
 			next := min(current, count)
 			result.SkippedBatches += next - batch
@@ -111,7 +110,7 @@ func runGCWorker(ctx context.Context, at time.Time, observation GCPressureObserv
 		if batch == count {
 			break
 		}
-		until := at.Add(time.Duration(batch) * gcPressurePeriod).Add(gcPressurePeriod)
+		until := at.Add(time.Duration(batch) * pressurePeriod).Add(pressurePeriod)
 		if end.Before(until) {
 			until = end
 		}
@@ -133,13 +132,6 @@ func runGCWorker(ctx context.Context, at time.Time, observation GCPressureObserv
 	result.EndLatenessNS = max(0, int64(time.Since(end)))
 	result.Completed = result.err == nil && !time.Now().Before(end)
 	return result
-}
-
-func wholeGCBatches(duration time.Duration) uint64 {
-	if duration <= 0 {
-		return 0
-	}
-	return uint64(duration) / uint64(gcPressurePeriod)
 }
 
 func allocateGCBatch(

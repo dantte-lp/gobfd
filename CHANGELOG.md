@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add bounded default-off scheduler contention to the owner UDP workload,
+  with actual compute/yield and joined-worker receipts. Reuse the CPU mixing
+  primitive and pressure period; runtime distributions remain separate from
+  reference acceptance.
+
 - Add an explicit bounded GC-pressure variant to the owner UDP workload, with
   actual allocation and joined reference-cleanup receipts at the common epoch.
   Process GC observations remain separate from reference qualification.

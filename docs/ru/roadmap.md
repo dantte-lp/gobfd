@@ -25,6 +25,25 @@ Oracle Linux 10 исключён из v1 OCI/lifecycle scope; создание g
 и historical v0.6 evidence сохранены. Эти строки не закрывают задачи владельцев
 и не создают исполняемый план. Приоритеты и критерии приёмки находятся в Beads.
 
+## Scheduler-pressure workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.3` добавляет ограниченные compute/yield workers,
+выключенные по умолчанию, внутри прежней owner quota. Локальный mixed IPv4/IPv6
+fixture с независимыми процессами прошёл за 47,57 s: 79 lifetime peer writes
+учтены как 79 owner commits. Четыре helper выполнили 7680 rounds/yields за 120
+worker windows и завершились до measurement freeze. Scheduler histogram
+процесса сохраняет 1094 window samples; счётчики production timer и committed-RX
+histograms выросли на 130 и 69 соответственно. Эти window deltas исключают
+начальный снимок; lifetime packet ledger включает setup/drain.
+
+Все четыре собственных контейнера удалены. Пик runner —
+293404672/536870912 bytes, max/OOM events и swap равны нулю. Evidence:
+`reports/workload-scheduler-20261024/`. Yield calls не подтверждают OS context
+switches или queue depth; наблюдения процесса не являются калиброванными
+reference distributions. Clock uncertainty остаётся неизвестной,
+reference qualification — false. Churn, thread-pin A/B, reference/engineering
+runs и final-candidate wire/security gates остаются отдельными открытыми задачами.
+
 ## GC-pressure workload fixture — 2026-10-24
 
 `gobfd-qj0.8.2.1.6.3.4.3.2` добавляет явный, выключенный по умолчанию вариант

@@ -48,6 +48,7 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	}
 	profile.CPULoadPercent = 25
 	profile.GCPressure = true
+	profile.SchedulerPressure = true
 	cfg, err := bfdload.LoopbackConfig(profile)
 	if err != nil {
 		t.Fatal(err)
@@ -233,6 +234,28 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		t.Fatal("independent owner process observed no GC pauses")
 	}
 	t.Logf("GC allocation receipt: %+v; process_gc_pauses=%d", allocation, gcPauses)
+	contention := ownerReport.SchedulerPressure
+	if !contention.Enabled || !contention.Completed || contention.Workers != 4 || contention.JoinedWorkers != 4 ||
+		contention.Rounds == 0 || contention.Yields != contention.Rounds || !peerReport.Profile.SchedulerPressure ||
+		!contention.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
+		t.Fatalf("owner process has no joined scheduler activity: %+v", contention)
+	}
+	var schedulerSamples uint64
+	for _, count := range ownerReport.SchedulerWindow.Counts {
+		schedulerSamples += count
+	}
+	if schedulerSamples == 0 {
+		t.Fatal("process scheduler histogram has no window observations")
+	}
+	for _, name := range []string{"gobfd_bfd_timer_delay_seconds", "gobfd_bfd_control_rx_commit_seconds"} {
+		initial := workloadHistogramCount(ownerReport.Initial, name)
+		final := workloadHistogramCount(ownerReport.MeasurementFinal, name)
+		if final <= initial {
+			t.Fatalf("no actual %s window samples: before=%d after=%d", name, initial, final)
+		}
+		t.Logf("workload histogram %s: initial=%d final=%d", name, initial, final)
+	}
+	t.Logf("scheduler receipt: %+v; process_scheduler_samples=%d", contention, schedulerSamples)
 	if !ownerReport.Completed || !ownerReport.Final.Stopped || ownerReport.ReferenceQualified ||
 		!peerReport.Completed || !peerReport.Stopped || peerReport.ReferenceQualified || len(peerReport.Peers) != 2 ||
 		len(ownerReport.Final.Sessions) != 2 || ownerReport.Final.TimingUncertaintyNS != nil {
@@ -312,6 +335,7 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 		"--duration="+cfg.Profile.Duration.String(), "--interface=lo",
 		"--cpu-load-percent="+strconv.FormatUint(cfg.Profile.CPULoadPercent, 10),
 		"--gc-pressure="+strconv.FormatBool(cfg.Profile.GCPressure),
+		"--scheduler-pressure="+strconv.FormatBool(cfg.Profile.SchedulerPressure),
 	)
 	if cfg.ControlDirectory != "" {
 		args = append(args, "--control-dir="+cfg.ControlDirectory)
@@ -320,6 +344,18 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 		args = append(args, "--session="+endpoint.Local.String()+","+endpoint.Peer.String())
 	}
 	return args
+}
+
+func workloadHistogramCount(observed bfdload.OwnerObservation, name string) uint64 {
+	var count uint64
+	for _, family := range observed.Metrics {
+		if family.GetName() == name {
+			for _, metric := range family.GetMetric() {
+				count += metric.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return count
 }
 
 func startWorkloadContainer(

@@ -6,17 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/bits"
 	"runtime"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
 
-const (
-	cpuPressurePeriod = 100 * time.Millisecond
-	cpuPercentScale   = 100
-)
+const cpuPercentScale = 100
 
 // CPUPressureObservation reports generated thread CPU time, not a held host-load claim.
 type CPUPressureObservation struct {
@@ -50,7 +46,7 @@ func startCPUPressure(
 	ctx context.Context, profile Profile, at time.Time, failed context.CancelFunc,
 ) (*cpuPressure, error) {
 	result := &cpuPressure{observation: CPUPressureObservation{
-		RequestedPercent: profile.CPULoadPercent, PeriodNS: int64(cpuPressurePeriod),
+		RequestedPercent: profile.CPULoadPercent, PeriodNS: int64(pressurePeriod),
 		ScheduledAtUTC: at.UTC(), DurationNS: int64(profile.Duration), Completed: true,
 	}}
 	if profile.CPULoadPercent == 0 {
@@ -112,8 +108,8 @@ func runCPUWorker(ctx context.Context, at time.Time, duration time.Duration, dut
 	}
 	end := at.Add(duration)
 	result.WorkChecksum = 1
-	for window := at; window.Before(end); window = window.Add(cpuPressurePeriod) {
-		until := window.Add(cpuPressurePeriod)
+	for window := at; window.Before(end); window = window.Add(pressurePeriod) {
+		until := window.Add(pressurePeriod)
 		if end.Before(until) {
 			until = end
 		}
@@ -157,9 +153,7 @@ func burnCPUWindow(
 		if err := ctx.Err(); err != nil {
 			return used, fmt.Errorf("CPU pressure interrupted: %w", err)
 		}
-		for range 1024 {
-			*checksum = bits.RotateLeft64(*checksum+0x9e3779b97f4a7c15, 13)
-		}
+		burnPressureChunk(checksum)
 		current, clockErr := threadCPUTime()
 		if clockErr != nil {
 			return used, clockErr

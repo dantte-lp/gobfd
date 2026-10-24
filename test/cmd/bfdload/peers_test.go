@@ -70,6 +70,32 @@ func TestWorkloadGCArgumentUsesProfileValidation(t *testing.T) {
 	}
 }
 
+func TestWorkloadSchedulerArgumentUsesProfileValidation(t *testing.T) {
+	t.Parallel()
+	for _, option := range []string{"--scheduler-pressure", "--scheduler-pressure=true", "--scheduler-pressure=false"} {
+		cfg, err := parseWorkloadConfig([]string{
+			"fixture", "--sessions=1", option, "--session=127.0.0.1:3784,127.31.0.2:3784",
+		})
+		if err != nil {
+			t.Fatalf("scheduler pressure option %s: %v", option, err)
+		}
+		if cfg.Profile.SchedulerPressure != (option != "--scheduler-pressure=false") {
+			t.Fatalf("scheduler option did not reach profile: %+v", cfg.Profile)
+		}
+	}
+	for _, options := range [][]string{
+		{"--scheduler-pressure=invalid"},
+		{"--scheduler-pressure", "--scheduler-pressure=false"},
+		{"--scheduler-pressure=true", "--scheduler-pressure=true"},
+	} {
+		args := append([]string{"fixture", "--sessions=1"}, options...)
+		args = append(args, "--session=127.0.0.1:3784,127.31.0.2:3784")
+		if _, err := parseWorkloadConfig(args); !errors.Is(err, bfdload.ErrProfile) {
+			t.Fatalf("invalid scheduler flags accepted on valid topology: %v: %v", options, err)
+		}
+	}
+}
+
 func TestPeersCommandActualUDPAndPartialJSON(t *testing.T) {
 	listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 31, 0, 1), Port: 37971})
 	if err != nil {
