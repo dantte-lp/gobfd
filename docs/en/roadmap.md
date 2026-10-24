@@ -30,6 +30,21 @@ Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
 historical v0.6 evidence remain. These status rows neither close their owners
 nor create an executable plan. Use Beads for current priorities and acceptance.
 
+## Down-journal source accounting — 2026-10-25
+
+`gobfd-qj0.8.2.1.6.3.4.3.5` adds lifetime source/notification accounting
+through joined owner shutdown. Final retained FSM `Up`→`Down` counts must
+equal observed before/after-cutoff notifications; only `[start,end)` events
+enter the measured journal. Missing notifications, gaps, omitted rows and
+invalid source counters fail completeness. Normal post-window flaps remain
+accounted without contaminating measurement rows. Existing production counters
+are reused without changing the BFD hot path.
+
+Evidence and acceptance belong to the Beads issue and
+`reports/workload-down-cutoff-20261025/`. This boundary does not classify
+intentional versus false Down, establish calibrated commit timestamps or
+close reference/24h, engineering-scale, thread-pin, wire or security gates.
+
 ## Session-churn workload fixture — 2026-10-24
 
 `gobfd-qj0.8.2.1.6.3.4.3.4` adds default-off real final-claim retirement and

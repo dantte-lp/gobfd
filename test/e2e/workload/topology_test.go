@@ -52,6 +52,7 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	profile.SchedulerPressure = true
 	profile.SessionChurn = true
 	profile.Duration = 11 * time.Second
+	profile.BlackholeEvery, profile.BlackholeFor = 9*time.Second, 600*time.Millisecond
 	cfg, err := bfdload.LoopbackConfig(profile)
 	if err != nil {
 		t.Fatal(err)
@@ -279,6 +280,17 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		}
 	}
 	t.Logf("session churn receipt: %+v", churn)
+	journal := ownerReport.DownJournal
+	if !journal.Settled || !journal.Complete || journal.SourceTransitions == 0 ||
+		journal.ObservedBeforeCutoff == 0 || len(ownerReport.DownEvents) == 0 ||
+		!journal.Closed || journal.FinalSourceTransitions == nil ||
+		*journal.FinalSourceTransitions != journal.ObservedBeforeCutoff+journal.ObservedAfterCutoff ||
+		journal.ObservedBeforeCutoff > journal.SourceTransitions ||
+		uint64(len(ownerReport.DownEvents)) != journal.ObservedBeforeCutoff ||
+		ownerReport.NotificationGaps != 0 || ownerReport.DownEventsOmitted != 0 {
+		t.Fatalf("actual blackhole transitions lack a complete source-settled journal: %+v", journal)
+	}
+	t.Logf("Down journal receipt: %+v", journal)
 	if !ownerReport.Completed || !ownerReport.Final.Stopped || ownerReport.ReferenceQualified ||
 		!peerReport.Completed || !peerReport.Stopped || peerReport.ReferenceQualified || len(peerReport.Peers) != 2 ||
 		len(ownerReport.Final.Sessions) != 2 || ownerReport.Final.TimingUncertaintyNS != nil {
@@ -367,6 +379,8 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 		"--gc-pressure="+strconv.FormatBool(cfg.Profile.GCPressure),
 		"--scheduler-pressure="+strconv.FormatBool(cfg.Profile.SchedulerPressure),
 		"--session-churn="+strconv.FormatBool(cfg.Profile.SessionChurn),
+		"--blackhole-every="+cfg.Profile.BlackholeEvery.String(),
+		"--blackhole-for="+cfg.Profile.BlackholeFor.String(),
 	)
 	if cfg.ControlDirectory != "" {
 		args = append(args, "--control-dir="+cfg.ControlDirectory)

@@ -123,6 +123,25 @@ cannot settle peer writes. This fixed-manifest variant does not introduce new
 peer addresses or qualify arbitrary unique-label growth; it does not change
 named baseline dimensions or establish reference qualification.
 
+At measurement end, sample the Down-journal denominator from the actual retained
+collector `Up`→`Down` counter, which increments before notification timestamp
+and enqueue. Start one bounded consumer with the subscription and keep it active
+through setup, measurement and shutdown. Retain at most `maxDownEvents` compact
+Down projections, preserving monotonic timestamps until the actual phase is
+known. Count all gaps and omissions. After all owner goroutines join, join that
+consumer within five seconds, cancelling and joining it on timeout. Freeze the
+measurement snapshot before stop/drain and journal join in both controlled and
+uncontrolled modes; use it for histogram deltas. Count every observed
+notification, separating those before and after cutoff, but retain journal rows
+only in `[start,end)`. Require final source total to equal both observed counts
+combined, and before-cutoff count <= cutoff source <= final source. Gaps,
+overflow, invalid counters, an unclosed subscription or a count mismatch fail
+completeness. Thus later flaps cannot compensate for a missing earlier event;
+fully delivered later flaps remain outside the measured journal. Do not subtract
+sampled setup history: missed startup flaps conservatively fail this contract.
+Reuse production metrics; add no hot-path fence or counter. Journal completeness
+does not classify Down as intentional or qualify commit timestamps or clocks.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit
@@ -142,6 +161,7 @@ scheduler or kernel fast path.
 - [Bounded scheduler pressure](../../../test/internal/bfdload/scheduler_pressure_linux.go)
 - [Real session churn and joined recovery](../../../test/internal/bfdload/session_churn_linux.go)
 - [Serialized inventory and lease retirement](../../../test/internal/bfdload/owner_churn_linux.go)
+- [Source-settled Down journal](../../../test/internal/bfdload/down_journal_linux.go)
 - [Workload and clock boundaries](../14-performance-analysis.md)
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4)
 - [Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)

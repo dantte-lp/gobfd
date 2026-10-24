@@ -5,7 +5,6 @@ package bfdload
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -39,6 +38,9 @@ func (r *OwnerWorkloadObservation) runWindow(ctx context.Context, owner *Owner) 
 	}
 	r.StartedAtUTC = started.UTC()
 	err = r.observeWithPressure(ctx, owner, started)
+	if err == nil {
+		r.MeasurementFinal, err = owner.Snapshot(ctx)
+	}
 	if control == nil {
 		return started, err
 	}
@@ -51,10 +53,6 @@ func (r *OwnerWorkloadObservation) runWindow(ctx context.Context, owner *Owner) 
 func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owner *Owner, started time.Time) error {
 	windowCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	changes, err := owner.manager.SubscribeStateChanges(windowCtx)
-	if err != nil {
-		return fmt.Errorf("subscribe owner workload transitions: %w", err)
-	}
 	pressure, err := startCPUPressure(windowCtx, r.Config.Profile, started, cancel)
 	if err != nil {
 		return err
@@ -79,7 +77,7 @@ func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owne
 	}
 	if err == nil {
 		r.Resources.observe(r.Initial.Environment, 0, r.Config.Profile.Duration)
-		err = r.observe(windowCtx, owner, started, changes)
+		err = r.observe(windowCtx, owner, started)
 	}
 	if err != nil {
 		cancel()
@@ -100,11 +98,6 @@ func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owne
 }
 
 func (r *OwnerWorkloadObservation) completeControlled(ctx context.Context, owner *Owner, control *Control) error {
-	var err error
-	r.MeasurementFinal, err = owner.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
 	if publishErr := control.publish("owner-measured", "done\n"); publishErr != nil {
 		return publishErr
 	}

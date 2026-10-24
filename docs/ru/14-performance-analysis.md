@@ -291,12 +291,29 @@ Reference и absolute-clock qualification остаются открытыми.
 
 `RunOwner` сохраняет начальный и конечный снимки production collector, измеренные
 пики ресурсов, средние RSS за первые и последние шесть часов, дельты runtime
-гистограмм и ограниченный журнал Down. Notification gaps и переполнение журнала
-считаются, но конечный timer не синхронизирован с buffered или ещё не dispatched
-изменениями. Пустой журнал не доказывает отсутствие Down. Beads
-`gobfd-qj0.8.2.1.6.3.4.3.5` требует cutoff fencing до false-Down qualification.
+гистограмм и ограниченный журнал Down. На cutoff `down_journal` сохраняет
+фактический retained counter переходов FSM `Up`→`Down` без ожидания dispatch и
+задержки measurement snapshot. Один consumer непрерывно читает подписку от setup
+до остановки owner, сохраняя не более `maxDownEvents` компактных Down projections
+и считая gaps/omissions. Классифицировать их монотонные timestamps после получения
+фактической фазы; ожидание setup readiness не оставляет канал без чтения.
+После завершения всех owners ожидать завершения consumer не более пяти секунд и
+требовать совпадения общего числа наблюдаемых переходов с конечным retained
+source count. Counts до и после cutoff разделены; в измеренный журнал входят
+только строки `[start,end)`. Обычные post-window flaps учитываются без примеси
+к этим строкам. Требуется `observed_before_cutoff <= source_transitions <=
+final_source_transitions`. Gaps, пропущенные строки, отсутствующий или некорректный
+source counter и незавершённая доставка завершают прогон ошибкой. `closed`,
+`settled` и `complete` подтверждают joined final check; пустой журнал сам по себе
+не доказывает отсутствие Down. Ненаблюдавшиеся startup flaps консервативно
+отклоняют completeness; sampled startup baseline не вычитается. Принадлежность
+интервалу использует существующий timestamp notification, а не новый
+калиброванный FSM-commit timestamp. Граница принадлежит Beads
+`gobfd-qj0.8.2.1.6.3.4.3.5`.
+В controlled и uncontrolled режимах `measurement_final` фиксируется до stop/drain
+и journal join; дельты runtime-гистограмм используют этот снимок.
 Без независимого отчёта генератора Down не признаётся намеренным.
-`completed` означает завершение периода наблюдения; controlled mode
+`completed` требует завершения периода наблюдения и сверенного с source журнала; controlled mode
 дополнительно требует terminal-ledger settlement. Непрерывный Up всех сессий
 этим не подтверждается. Допуск reference требует лимитов дочерней cgroup ровно 8 CPU/
 8 GiB, GOMAXPROCS 8, закреплённого компилятора и отсутствия более тесных лимитов

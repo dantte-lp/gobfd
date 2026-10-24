@@ -289,12 +289,28 @@ boundaries. Reference and absolute-clock qualification remain open.
 
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
-deltas and a bounded Down journal. Notification gaps and journal overflow are
-counted, but the end timer does not fence buffered or not-yet-dispatched changes.
-An empty journal is not proof of no Down transitions. Beads
-`gobfd-qj0.8.2.1.6.3.4.3.5` requires cutoff fencing before false-Down qualification.
+deltas and a bounded Down journal. At the cutoff, `down_journal` captures the
+actual retained FSM `Up`→`Down` counter without waiting for dispatch or delaying
+the measurement snapshot. One consumer continuously reads the subscription from
+setup through owner shutdown, retaining at most `maxDownEvents` compact Down
+projections and counting gaps/omissions. Classify their monotonic timestamps
+after the actual phase is known; setup readiness never leaves the channel
+unread. After all owners join, join that consumer within five seconds and
+require its total observed transitions to match the final retained source count.
+Separate before/after-cutoff counts; only `[start,end)` rows enter the measured
+journal. Normal post-window flaps are accounted without contaminating those
+rows. Require `observed_before_cutoff <= source_transitions <=
+final_source_transitions`. Gaps, omitted rows, a missing or invalid source counter
+and unsettled delivery fail the run. `closed`, `settled` and `complete` confirm
+the joined final check; an empty journal alone is not proof of no Down.
+Unobserved startup flaps conservatively fail completeness; a sampled startup
+baseline is not subtracted. Interval membership uses the existing notification
+timestamp, not a newly calibrated FSM-commit timestamp. Beads
+`gobfd-qj0.8.2.1.6.3.4.3.5` owns this boundary.
+Both controlled and uncontrolled modes freeze `measurement_final` before
+stop/drain and journal join; runtime histogram deltas use this snapshot.
 The owner does not classify intentional Down without the independent peer
-report. `completed` means the observation duration ended;
+report. `completed` requires the observation duration and source-settled journal;
 controlled mode additionally requires terminal-ledger settlement. It does not
 mean all sessions remained Up. Reference resources require exact 8 CPU/
 8 GiB child limits, GOMAXPROCS 8, the pinned compiler and no tighter visible

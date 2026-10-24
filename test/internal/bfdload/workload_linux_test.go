@@ -43,6 +43,15 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 		t.Fatal(joinedErr)
 	}
 	report := owner.report
+	if report.MeasurementFinal.Scope == "" || report.MeasurementFinal.Stopped {
+		t.Fatal("uncontrolled workload lacks a measurement snapshot before journal catchup")
+	}
+	for index, measured := range report.MeasurementFinal.Environment.Runtime.SchedulerLatency.Counts {
+		if report.SchedulerWindow.Counts[index]+
+			report.Initial.Environment.Runtime.SchedulerLatency.Counts[index] != measured {
+			t.Fatal("uncontrolled scheduler window includes post-measurement journal catchup")
+		}
+	}
 	//nolint:musttag // The core report deliberately retains Observation and DeliveryCounter names.
 	encoded, err := json.Marshal(report)
 	if err != nil {

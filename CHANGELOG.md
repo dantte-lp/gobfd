@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Settle workload Down-journal delivery against the retained production FSM
+  counter, with bounded closed-subscription drain and joined final validation.
+  Gaps, omitted events, mismatched or invalid source counts fail completeness;
+  empty journals alone do not establish absence of Down transitions.
+
 - Add default-off `--session-churn` to the qualification workload, using real
   final-claim drain, recreation and observed recovery. Separate current and
   retired generation counters, active registrations and retained metric series;

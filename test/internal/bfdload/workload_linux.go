@@ -83,6 +83,7 @@ type OwnerWorkloadObservation struct {
 	DownEvents         []OwnerDownEvent             `json:"down_events"`
 	DownEventsOmitted  uint64                       `json:"down_events_omitted"`
 	NotificationGaps   uint64                       `json:"notification_gaps"`
+	DownJournal        DownJournalObservation       `json:"down_journal"`
 	Error              string                       `json:"error,omitempty"`
 	Phase              *Phase                       `json:"phase,omitempty"`
 	MeasurementFinal   OwnerObservation             `json:"measurement_final"`
@@ -131,13 +132,18 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 		result.Error = err.Error()
 		return result, err
 	}
+	journalCtx, cancelJournal := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelJournal()
+	changes, subscribeErr := owner.manager.SubscribeStateChanges(journalCtx)
+	if subscribeErr != nil {
+		return result.finish(ctx, owner, guard, time.Now(), nil, subscribeErr)
+	}
+	journal := startDownJournal(journalCtx, changes)
 	started, err := result.runWindow(ctx, owner)
-	return result.finish(ctx, owner, guard, started, err)
+	return result.finish(ctx, owner, guard, started, journal, err)
 }
 
-func (r *OwnerWorkloadObservation) observe(
-	ctx context.Context, owner *Owner, started time.Time, changes <-chan bfd.StateChange,
-) error {
+func (r *OwnerWorkloadObservation) observe(ctx context.Context, owner *Owner, started time.Time) error {
 	timer := time.NewTimer(max(0, time.Until(started.Add(r.Config.Profile.Duration))))
 	defer timer.Stop()
 	ticker := time.NewTicker(ownerSamplePeriod)
@@ -149,6 +155,9 @@ func (r *OwnerWorkloadObservation) observe(
 		case <-owner.Done():
 			return fmt.Errorf("owner stopped before observation completed: %w", errors.Join(errOwnerConfig, ctx.Err()))
 		case <-timer.C:
+			if err := r.captureDownJournal(owner, started); err != nil {
+				return err
+			}
 			r.Completed = true
 			return nil
 		case <-ticker.C:
@@ -157,11 +166,6 @@ func (r *OwnerWorkloadObservation) observe(
 				return err
 			}
 			r.Resources.observe(environment, time.Since(started), r.Config.Profile.Duration)
-		case change, open := <-changes:
-			if !open {
-				return fmt.Errorf("owner workload subscription closed: %w", errors.Join(errOwnerConfig, ctx.Err()))
-			}
-			r.observeChange(change, started)
 		}
 	}
 }
@@ -174,7 +178,12 @@ func (r *OwnerWorkloadObservation) observeChange(change bfd.StateChange, started
 	if change.Added || change.Deleted || change.OldState != bfd.StateUp || change.NewState != bfd.StateDown {
 		return
 	}
-	if change.Timestamp.Before(started) || !change.Timestamp.Before(started.Add(r.Config.Profile.Duration)) {
+	if !change.Timestamp.Before(started.Add(r.Config.Profile.Duration)) {
+		r.DownJournal.ObservedAfterCutoff++
+		return
+	}
+	r.DownJournal.ObservedBeforeCutoff++
+	if change.Timestamp.Before(started) {
 		return
 	}
 	if len(r.DownEvents) == maxDownEvents {
@@ -188,19 +197,26 @@ func (r *OwnerWorkloadObservation) observeChange(change bfd.StateChange, started
 }
 
 func (r *OwnerWorkloadObservation) finish(
-	ctx context.Context, owner *Owner, guard *ClockEpochGuard, started time.Time, runErr error,
+	ctx context.Context, owner *Owner, guard *ClockEpochGuard,
+	started time.Time, journal *downJournal, runErr error,
 ) (OwnerWorkloadObservation, error) {
 	runErr = errors.Join(runErr, owner.Close())
 	observeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	if journal != nil {
+		runErr = errors.Join(runErr, r.joinDownJournal(observeCtx, started, journal))
+	}
 	var snapshotErr error
 	r.Final, snapshotErr = owner.Snapshot(observeCtx)
 	epoch, epochErr := guard.Finish(observeCtx)
 	r.Final = r.Final.WithClockEpoch(epoch)
 	runErr = errors.Join(runErr, snapshotErr, epochErr, guard.Close())
+	if snapshotErr == nil {
+		runErr = errors.Join(runErr, r.finalizeDownJournal())
+	}
 	if snapshotErr == nil && len(r.Initial.Sessions) != 0 {
 		measuredFinal := r.Final
-		if r.Phase != nil && len(r.MeasurementFinal.Sessions) != 0 {
+		if r.MeasurementFinal.Scope != "" {
 			measuredFinal = r.MeasurementFinal
 		}
 		var schedulerErr, gcErr error

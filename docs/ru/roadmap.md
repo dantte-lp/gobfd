@@ -30,6 +30,21 @@ Oracle Linux 10 исключён из v1 OCI/lifecycle scope; создание g
 и historical v0.6 evidence сохранены. Эти строки не закрывают задачи владельцев
 и не создают исполняемый план. Приоритеты и критерии приёмки находятся в Beads.
 
+## Сверка Down journal с source — 2026-10-25
+
+`gobfd-qj0.8.2.1.6.3.4.3.5` добавляет lifetime source/notification accounting
+до завершения остановки owner. Конечный retained counter FSM `Up`→`Down` должен
+совпадать с observed notifications до и после cutoff; в измеренный журнал
+входят только события `[start,end)`. Пропущенные notifications, gaps, omitted
+rows и некорректные source counters отклоняют completeness. Обычные post-window
+flaps учитываются без примеси к measurement rows. Существующие production
+counters используются без изменения горячего пути BFD.
+
+Evidence и acceptance принадлежат задаче Beads и
+`reports/workload-down-cutoff-20261025/`. Эта граница не классифицирует Down
+как намеренный или ложный, не устанавливает калиброванные commit timestamps
+и не закрывает reference/24h, engineering-scale, thread-pin, wire или security gates.
+
 ## Session-churn workload fixture — 2026-10-24
 
 `gobfd-qj0.8.2.1.6.3.4.3.4` добавляет выключенные по умолчанию реальное

@@ -34,6 +34,74 @@ func TestControlledWorkloadWithSessionChurn(t *testing.T) {
 	testControlledWorkload(t, 0, 0, false, true)
 }
 
+func TestControlledWorkloadConsumesStartupAndStopBeyondSubscriberBuffer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 12*time.Second)
+	defer cancel()
+	profile, err := DefaultProfile("fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.Sessions, profile.Duration = 80, 400*time.Millisecond
+	directory := privateControlDirectory(t)
+	control, err := OpenControl(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := control.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	cfg := PeerConfig{Profile: profile, SourcePortBase: 55100, ControlDirectory: directory}
+	for index := range profile.Sessions {
+		peer := netip.AddrFrom4([4]byte{127, 42, 0, byte(index + 1)})
+		cfg.Sessions = append(cfg.Sessions, OwnerEndpoint{
+			Local: netip.MustParseAddrPort("127.0.0.1:38261"), Peer: netip.AddrPortFrom(peer, 38262),
+		})
+	}
+	type observation struct {
+		report OwnerWorkloadObservation
+		err    error
+	}
+	type peerObservation struct {
+		report PeerObservation
+		err    error
+	}
+	owners, peers := make(chan observation, 1), make(chan peerObservation, 1)
+	logger := slog.New(slog.DiscardHandler)
+	go func() { report, err := RunOwner(ctx, cfg, logger); owners <- observation{report, err} }()
+	go func() { report, err := RunPeers(ctx, cfg, logger); peers <- peerObservation{report, err} }()
+	_, beginErr := control.Begin(ctx)
+	waitErr := beginErr
+	if waitErr == nil {
+		waitErr = control.WaitMeasured(ctx)
+	}
+	if waitErr != nil {
+		cancel()
+		owner, peer := <-owners, <-peers
+		t.Fatalf("setup did not complete: owner=%v peer=%v control=%v", owner.err, peer.err, waitErr)
+	}
+	if err := control.StopPeers(); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	peer := <-peers
+	var written uint64
+	for _, session := range peer.report.Peers {
+		written += session.Written
+	}
+	if err := control.StopOwner(written); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	owner := <-owners
+	if err := errors.Join(owner.err, peer.err); err != nil || !owner.report.DownJournal.Complete ||
+		owner.report.NotificationGaps != 0 || owner.report.DownEventsOmitted != 0 {
+		t.Fatalf("normal startup/stop exceeded subscriber capacity: gaps=%d journal=%+v err=%v",
+			owner.report.NotificationGaps, owner.report.DownJournal, err)
+	}
+}
+
 func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, churn bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
