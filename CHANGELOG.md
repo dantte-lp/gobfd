@@ -48,7 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Async updates need no Poll; remote Demand with both ends Up requires
   Poll/Final. TX/RX direction and queued-update rules remain intact; other
   owners, modes and effective parameters outside that slice retain their conflict boundaries.
-  Live FRR/BIRD Detect Multiplier reload qualification remains pending.
+  Scoped local FRR/BIRD Async and crafted remote-Demand qualification is
+  recorded; final exact-candidate qualification remains separate.
 
 - Added read-only `bfd.v1.CapabilityService.ListCapabilities` and
   `gobfdctl capabilities` in the CLI and interactive shell, with table/JSON/YAML

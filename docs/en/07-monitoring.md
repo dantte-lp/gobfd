@@ -207,7 +207,7 @@ groups:
     rules:
       # Alert when no sessions are configured or dynamically active.
       - alert: BFDNoActiveSessions
-        expr: sum(gobfd_bfd_sessions) == 0
+        expr: (sum(gobfd_bfd_sessions) or vector(0)) == 0
         for: 10s
         labels:
           severity: warning
@@ -250,6 +250,14 @@ groups:
         annotations:
           summary: "BFD packet drops for {{ $labels.peer_addr }}"
 ```
+
+This aggregate example also handles a fresh daemon with no session label series.
+It cannot distinguish an empty daemon from an unavailable exporter; monitor
+`up` separately. Fleet rules need job/instance scoping. See the Prometheus
+[operator](https://prometheus.io/docs/prometheus/latest/querying/operators/)
+and [function](https://prometheus.io/docs/prometheus/latest/querying/functions/)
+references. The shipped observability lab still uses the older expression
+without the empty-vector fallback (`gobfd-qj0.8.2.8.7.2.8`).
 
 ### Structured Logging
 

@@ -11,11 +11,16 @@ The source audit is
 Its original target was `master@5680385679d8e03d74226b5fcde269210d63bde8`;
 the reconciliation inspected `dev@49085d969237e4d283d7c712b50d54612b3fe466`.
 
-The table preserves all 69 historical dispositions: 25 Fixed, 9 Partial,
+The original snapshot contains 69 findings: 25 Fixed, 9 Partial,
 34 Open and 1 Accepted constraint. Original severity was 8 Critical,
 31 High, 22 Medium and 8 Low; severity is not the current Beads priority.
 A source review, including inspected tests, is not a fresh runtime or interop run.
 Later fixes do not silently change these historical counts.
+
+The table retains the separately dated M-18 local update of **2026-10-20**
+and the M-19 hardening note of **2026-10-21**. M-18 was Open in the original
+snapshot; its later Fixed locally status is not included in the counts above.
+These annotations do not re-audit or recount the other findings.
 
 The previous full narrative and immutable source links remain in git at
 `3e2a98045e11881ae86e1439aebe5f3496f9ab82:docs/en/gist-audit-reconciliation.md`.
@@ -26,7 +31,7 @@ old present-tense descriptions without rewriting the historical finding table.
 
 ## Historical dispositions
 
-| Finding | Disposition on the audited SHA | Beads owner and historical priority |
+| Finding | Historical disposition, with explicitly dated local updates | Beads owner and historical priority |
 |---|---|---|
 | C-01 | Fixed | `gobfd-8f3.1` / P0 |
 | C-02 | Fixed | `gobfd-qj0.8.2.1.9` / P0 |

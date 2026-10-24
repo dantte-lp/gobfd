@@ -26,17 +26,21 @@
 
 ### Предварительные требования
 
-- **Podman** + **Podman Compose** (все команды выполняются в контейнерах)
+- **Podman** + **Podman Compose** для сборки, тестов и линтинга в контейнерах
 - **Git** для управления версиями
-- Go 1.27.3 для optional IDE support; сборка использует закреплённый container toolchain
+- Go 1.27.3 для IDE и целей, вызывающих Go на хосте; сборка использует закреплённый контейнерный toolchain
 
-> **Важно**: Все тестирование, сборка и линтинг выполняются внутри контейнеров Podman. Локальный Go-тулчейн не требуется для CI-эквивалентных сборок.
+> `make build`, `make test`, `make lint` и `make vulncheck` используют Podman.
+> Bootstrap, `lint-ci` и некоторые integration/report targets по-прежнему
+> вызывают `go run` на хосте; им нужен закреплённый Go toolchain или явный запуск
+> в контейнере. Цели `semgrep*` вызывают выбранный executable на хосте.
+> Bootstrap Compose provider выполняется до `make up`.
 
 ### Настройка разработки
 
 ```bash
 # Клонирование репозитория
-git clone https://github.com/dantte-lp/gobfd.git
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 
 # Запуск контейнера разработки
@@ -215,31 +219,17 @@ Go 1.27 `testing/synctest` обеспечивает детерминирован
 основе виртуального времени и добавляет `synctest.Sleep` для операции
 advance-time-and-settle:
 
-```go
-func TestFSMDetectionTimeout(t *testing.T) {
-    synctest.Test(t, func(t *testing.T) {
-        sess := newTestSession(t, SessionConfig{
-            DesiredMinTxInterval:  100 * time.Millisecond,
-            RequiredMinRxInterval: 100 * time.Millisecond,
-            DetectMultiplier:      3,
-        })
+Пример проверки сессии — существующий `TestSessionDetectionTimeout` в
+[`internal/bfd/session_test.go`](../../internal/bfd/session_test.go): тест
+запускает настоящий session loop с mock sender, передаёт Control packet через
+`RecvPacket` и проверяет Down и `DiagControlTimeExpired` после продвижения
+виртуального времени. Отдельный `TestFSMDetectionTimeout` в
+[`fsm_test.go`](../../internal/bfd/fsm_test.go) проверяет чистую функцию
+перехода. Эти тесты используют разные helpers; объединять их в вымышленный
+пример API нельзя.
 
-        // Перевод сессии в Up
-        sess.injectPacket(controlPacket(StateInit, 0))
-        synctest.Wait()
-        require.Equal(t, StateUp, sess.State())
-
-        // Таймаут обнаружения = 3 x 100ms = 300ms
-        synctest.Sleep(350 * time.Millisecond)
-        require.Equal(t, StateDown, sess.State())
-    })
-}
-```
-
-Преимущества:
-- Тесты работают в виртуальном времени (мгновенное выполнение)
-- Детерминированность -- никаких нестабильных тестов с таймерами
-- Идеально для таймеров BFD-протокола и таймаутов обнаружения
+Виртуальное время действует внутри `synctest` bubble. Ожидания UDP, interop и
+E2E используют реальные часы и ограничиваются context.
 
 #### Фаззинг
 

@@ -7,8 +7,10 @@ Micro-benchmarks измеряют указанные операции. Они н
 
 ## Запуск benchmarks
 
-Все Go-команды выполняются в закреплённом Podman development environment.
-Сначала выполните `make up`; Go на хосте не требуется.
+Перечисленные ниже benchmark-команды выполняются в закреплённом Podman
+development environment. Сначала выполните `make up`. Ограничения bootstrap
+на хосте и отдельной цели `benchmark-report` описаны в
+[Разработке](09-development.md) и разделе отчётов ниже.
 
 | Команда | Вход и выход |
 |---|---|

@@ -190,13 +190,18 @@ gobfdctl echo add \
 |---|---|---|---|
 | `--peer` | Да | -- | IP-адрес echo target |
 | `--local` | Нет | -- | Локальный IP (fallback на default route) |
-| `--interface` | Нет | -- | Outbound интерфейс для `SO_BINDTODEVICE` |
+| `--interface` | Нет | -- | Сохраняется в метаданных сессии; текущий API sender не применяет `SO_BINDTODEVICE` |
 | `--tx-interval` | Нет | `1s` | Интервал отправки echo (RFC 9747 Section 3.3) |
 | `--detect-mult` | Нет | `3` | Detection multiplier; `DetectionTime = mult * TxInterval` |
 
 `AddEchoSession` требует структурно корректный положительный `tx_interval`
 в границах BFD wire interval; нарушения возвращают `InvalidArgument`. CLI
 передаёт свой default `1s`, а прямой API-запрос должен содержать это поле.
+
+Echo-сессии через API сейчас используют Control destination port 3784 вместо
+3785. `WithDstPort(PortEcho)` применяется только к декларативным Echo-сессиям.
+Ограничение отслеживается в `gobfd-qj0.8.2.1.17`; пример команды не подтверждает
+работоспособный Echo dataplane.
 
 #### Удалить echo-сессию
 

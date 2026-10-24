@@ -71,7 +71,7 @@ sudo systemctl enable --now gobfd
 
 # Проверка
 sudo systemctl status gobfd
-gobfdctl session list
+sudo gobfdctl session list
 ```
 
 Пакеты собираются GoReleaser v2 и включают:
@@ -95,28 +95,23 @@ gobfdctl session list
 #### Из исходников
 
 ```bash
-git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
+cd gobfd
 
-# Сборка всех 4 бинарников с информацией о версии (рекомендуется)
+# Сборка всех 4 бинарников с информацией о версии в закреплённом контейнере
+make up
 make build
 
-# Или ручная сборка с ldflags
-VERSION=$(git describe --tags --always --dirty)
-GIT_COMMIT=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS="-s -w \
-  -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-  -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-  -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-
-go build -ldflags="${LDFLAGS}" -o bin/gobfd ./cmd/gobfd
-go build -ldflags="${LDFLAGS}" -o bin/gobfdctl ./cmd/gobfdctl
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
-
-# Установка
-sudo install -m 755 bin/gobfd bin/gobfdctl bin/gobfd-haproxy-agent bin/gobfd-exabgp-bridge /usr/local/bin/
+# Установка бинарников, записанных в корень репозитория
+sudo install -m 755 gobfd gobfdctl gobfd-haproxy-agent gobfd-exabgp-bridge /usr/local/bin/
 ```
+
+Копирование бинарников не устанавливает конфигурацию пакета, systemd unit и
+системные учётные записи. Пример конфигурации требует существующую группу
+`gobfd-admin`. Для управляемой службы используйте пакет; проверочный запуск с
+настройками по умолчанию выполняется как `sudo ./gobfd` без этого примера.
+В другом терминале запросите сокет командой `sudo ./gobfdctl session list`.
+Оператору без root требуется членство в группе сокета в текущей login session.
 
 ### systemd-сервис
 
@@ -260,6 +255,7 @@ Docker Compose v5.6.0. Установите checksum-pinned provider и выбе
 Python `podman-compose` не поддерживается:
 
 ```bash
+# Bootstrap выполняется на хосте с закреплённым Go toolchain
 go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"
 export PODMAN_COMPOSE_PROVIDER="$HOME/.local/bin/docker-compose"
 export PODMAN_COMPOSE_WARNING_LOGS=false

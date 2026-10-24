@@ -119,6 +119,11 @@ podman exec gobgp-bgp-failover gobgp global rib
 
 ## Проверка Prometheus alerts
 
+Используйте изолированный хост: lab публикует host ports 9090/3000 и использует
+стандартные Grafana credentials; см. [Интеграции](11-integrations.md#наблюдаемость).
+Ниже приведена локальная процедура; эта правка документации не фиксирует новый
+прогон. Требуются `curl`, `jq`, `timeout` и shell.
+
 Запустите observability stack:
 
 ```bash
@@ -132,14 +137,31 @@ curl -fsS http://localhost:9090/api/v1/targets
 curl -fsS http://localhost:9090/api/v1/rules
 ```
 
-Вызовите down transition:
+До проверки подтвердите healthy target GoBFD, состояние FRR-сессии Up и
+наличие как минимум двух успешных scrapes. Интервалы scrape и evaluation
+равны 15 секундам. Вызовите down transition и ожидайте конкретный alert не
+дольше 60 секунд; одного HTTP 200 недостаточно:
 
 ```bash
-podman stop frr-observability
-sleep 5
-curl -fsS http://localhost:9090/api/v1/alerts
-podman start frr-observability
+(
+  set -eu
+  trap 'podman start frr-observability' EXIT
+  podman stop frr-observability
+  timeout 60s sh -c '
+    until curl --max-time 3 -fsS http://localhost:9090/api/v1/alerts |
+      jq -e '\''any(.data.alerts[]; .labels.alertname == "BFDSessionDownTransition" and .state == "firing")'\''
+    do
+      sleep 2
+    done
+  '
+)
 ```
+
+Код 0 подтверждает наблюдённый firing alert; timeout означает неуспешную
+проверку. Trap запускает peer заново при обоих исходах. После запуска снова
+проверьте BFD Up и healthy targets, затем отсутствие alert после минутного
+окна increase и следующего evaluation. Поля ответа определяет Prometheus
+[alerts API](https://prometheus.io/docs/prometheus/latest/querying/api/#alerts).
 
 Назначение alerts:
 

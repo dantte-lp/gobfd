@@ -209,7 +209,7 @@ groups:
     rules:
       # Алерт, когда нет сконфигурированных или динамически активных сессий.
       - alert: BFDNoActiveSessions
-        expr: sum(gobfd_bfd_sessions) == 0
+        expr: (sum(gobfd_bfd_sessions) or vector(0)) == 0
         for: 10s
         labels:
           severity: warning
@@ -252,6 +252,15 @@ groups:
         annotations:
           summary: "Потери BFD-пакетов для {{ $labels.peer_addr }}"
 ```
+
+Этот агрегированный пример также учитывает свежий демон без session label series.
+Он не отличает пустой демон от недоступного exporter; проверяйте `up` отдельно.
+Правила для нескольких экземпляров требуют ограничения по job/instance.
+См. справочники Prometheus по
+[операторам](https://prometheus.io/docs/prometheus/latest/querying/operators/)
+и [функциям](https://prometheus.io/docs/prometheus/latest/querying/functions/).
+Поставляемый observability lab пока использует прежнее выражение без
+empty-vector fallback (`gobfd-qj0.8.2.8.7.2.8`).
 
 ### Структурированное логирование
 

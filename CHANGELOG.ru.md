@@ -48,7 +48,19 @@
   Detect-only Async update не требует Poll; remote Demand при обоих концах Up
   требует Poll/Final. TX/RX directional и queued-update rules сохранены;
   остальные owners, modes и effective parameters вне этого среза сохраняют conflict boundaries.
-  Live FRR/BIRD Detect Multiplier reload qualification ещё впереди.
+  Зафиксирована ограниченная локальная квалификация FRR/BIRD Async и crafted
+  remote-Demand; квалификация точного финального кандидата остаётся отдельной.
+
+- Добавлены read-only RPC `bfd.v1.CapabilityService.ListCapabilities` и
+  `gobfdctl capabilities` в CLI и интерактивной оболочке с выводом table/JSON/YAML.
+  Пять профилей от демона разделяют зрелость preview, фактическое включение и
+  локальную готовность; недоступное состояние runtime остаётся unknown.
+  Readiness не подтверждает здоровье peers, полное соответствие RFC или L2 actuation.
+
+- Добавлена команда `gobfdctl certificate renew` для существующей management
+  identity с явно заданными внешней CA и roots: native mTLS renewal атомарно
+  заменяет только публичный сертификат, сохраняя ключ и SAN. Квалификация с
+  реальным step-ca остаётся в `gobfd-qj0.8.2.3.7.4`.
 - Go-owned UDP peer workload components предоставляют независимую модель
   asynchronous Control, воспроизводимые per-peer потери, timed blackholes
   и явный учёт writes/receives. Именованные профили сохраняют условия
@@ -624,6 +636,15 @@
   ресурсов. Immutable fingerprints сверяются с retained desired state и live
   sessions, включая API/shared owners; отказ сохраняет прежнюю конфигурацию.
   Key rotation и whole-source atomicity не добавлены.
+
+- Допуск Echo через API требует валидированного opt-in `echo.enabled` и
+  готового receive owner до создания sender/session. Валидный reload обновляет
+  opt-in; disabled/unready admission отклоняется, а List/Delete остаются
+  доступны. RFC 9747 сохраняет статус preview.
+
+- URI identity сертификата не получает Unix UID authorization через префикс
+  `uid:`. Владельцы TLS URI, TLS DNS и Unix UID разделены; синтаксис существующих
+  настроенных URI/DNS role identities сохранён.
 
 - Отчёты часов нагрузки различают отсутствие наблюдённого timerfd cancellation
   и доказанную эпоху часов. Условная граница преобразования вынесена в отдельное

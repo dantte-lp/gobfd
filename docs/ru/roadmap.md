@@ -14,7 +14,7 @@
 
 | Область | Текущая граница | Источник Beads |
 |---|---|---|
-| Документация | Локальный EN/RU audit принят; оговорка historical M-18 отложена в P2 | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.6` |
+| Документация | Сверка EN/RU с исходниками и последующие исправления; датированная оговорка M-18 сохранена | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.7` |
 | Management/reload | Unsafe-loopback policy changes отклоняются до candidate acceptance; полная pending activation открыта | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Renewal существующего сертификата реализован; actual CA и lifecycle qualification не завершены | `gobfd-qj0.8.2.3.7` |
 | Runtime | CPU fixture даёт ограниченное evidence; reference workload, оставшиеся stress drivers и thread-pin A/B не завершены | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
@@ -1618,6 +1618,11 @@ RFC core продолжается с Poll/Final, обработки remote Deman
 остаётся отдельной. Принятые core-срезы диагностики, аутентификации и padded PDU
 этой очередью не переоткрываются.
 
+Задача `gobfd-qj0.8.2.1.2.3` добавляет истечение RemoteDiscr по owner timer
+через один Detection Time в любом состоянии и запрещает Passive TX при
+неизвестном peer, включая Final retries и прямые отправки FSM. Последние
+наблюдённые причинные факты сохраняются; authentication sequence expiry
+остаётся независимым и составляет два Detection Times.
 Родитель `gobfd-qj0.8.2.1.2` принят локально через
 `e4f3761a0f1fc59fbf9b2f859923a81125d157bf`; полная релизная квалификация отдельна.
 

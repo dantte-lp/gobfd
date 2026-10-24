@@ -11,8 +11,8 @@ optional vendor profiles.
 | Rule | Requirement |
 |---|---|
 | Container runtime | Podman. |
-| Go toolchain | `make e2e-core` uses the repository-pinned Go 1.27 host/CI toolchain; other targets use the dev container or a target-specific Go container. |
-| Host Go | Valid for the Go-owned `e2e-core` and BGP fast-failover testcontainers lifecycles. |
+| Go toolchain | Core and BGP fast-failover testcontainers gates use the pinned dev container; aggregate orchestration and some integration targets invoke host `go run` in the current Makefile. |
+| Host Go | Required by targets that invoke `go run` directly; use the repository-pinned toolchain or an explicit container invocation. |
 | Compose project | Every dev stack uses `COMPOSE_PROJECT_NAME`; no fixed dev `container_name` is allowed. |
 | Vendor NOS | Optional/manual unless public images and licenses allow CI execution. |
 | Packet capture | Required when a target claims wire behavior. |

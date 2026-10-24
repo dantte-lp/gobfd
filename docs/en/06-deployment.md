@@ -71,7 +71,7 @@ sudo systemctl enable --now gobfd
 
 # Verify
 sudo systemctl status gobfd
-gobfdctl session list
+sudo gobfdctl session list
 ```
 
 Packages are built by GoReleaser v2 and include:
@@ -95,29 +95,23 @@ into a Debian systemd container and runs its install and final-removal phases; s
 #### From Source
 
 ```bash
-git clone https://github.com/dantte-lp/gobfd.git
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 
-# Build all 4 binaries with version info (recommended)
+# Build all 4 binaries with version info in the pinned container
+make up
 make build
 
-# Or build manually with ldflags
-VERSION=$(git describe --tags --always --dirty)
-GIT_COMMIT=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS="-s -w \
-  -X github.com/dantte-lp/gobfd/internal/version.Version=${VERSION} \
-  -X github.com/dantte-lp/gobfd/internal/version.GitCommit=${GIT_COMMIT} \
-  -X github.com/dantte-lp/gobfd/internal/version.BuildDate=${BUILD_DATE}"
-
-go build -ldflags="${LDFLAGS}" -o bin/gobfd ./cmd/gobfd
-go build -ldflags="${LDFLAGS}" -o bin/gobfdctl ./cmd/gobfdctl
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-haproxy-agent ./cmd/gobfd-haproxy-agent
-go build -ldflags="${LDFLAGS}" -o bin/gobfd-exabgp-bridge ./cmd/gobfd-exabgp-bridge
-
-# Install
-sudo install -m 755 bin/gobfd bin/gobfdctl bin/gobfd-haproxy-agent bin/gobfd-exabgp-bridge /usr/local/bin/
+# Install the binaries written to the repository root
+sudo install -m 755 gobfd gobfdctl gobfd-haproxy-agent gobfd-exabgp-bridge /usr/local/bin/
 ```
+
+Copying binaries does not install the package configuration, systemd unit or
+system identities. The example configuration requires an existing `gobfd-admin`
+group. Use the package lifecycle for a managed service; a default-config smoke
+can run as `sudo ./gobfd` without that example. Query its socket from another
+terminal with `sudo ./gobfdctl session list`. Non-root operators require socket
+group membership in their current login session.
 
 ### systemd Service
 
@@ -266,6 +260,9 @@ sudo systemctl status gobfd
 GoBFD uses Podman's external Compose-provider wrapper with the official Docker
 Compose v5.6.0 Go binary. Install the checksum-pinned provider and select it
 explicitly; Python `podman-compose` is unsupported:
+
+The bootstrap command below currently runs on the host and requires the
+repository-pinned Go toolchain. It does not use the development container.
 
 ```bash
 go run ./test/cmd/toolbootstrap compose --install-dir "$HOME/.local/bin"

@@ -330,9 +330,10 @@ unsolicited listener не открывается. Настроенные per-add
 > `cleanup_timeout` < 0, ни один интерфейс не включён или элемент
 > `allowed_prefixes` не является корректным CIDR.
 >
-> **Небезопасный preview**: квалификация IPv6 по захвату пакетов и внедрение
-> отказов при закрытии lease открыты (`gobfd-qj0.8.2.1.10.1`). Не включайте
-> unsolicited BFD на недоверенном интерфейсе.
+> **Небезопасный preview**: ограниченная development qualification охватывает
+> dual-stack packet capture и конкурентное освобождение sender leases
+> (`gobfd-qj0.8.2.1.10.1`). Эти результаты не подтверждают квалификацию
+> финального кандидата или stable RFC. Не включайте unsolicited BFD на недоверенном интерфейсе.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 
@@ -777,9 +778,9 @@ link-local адресов на двух линках образует две с�
 
 YAML-сессия, адрес `local` которой не назначен ни одному или назначен нескольким
 интерфейсам, переходит в состояние pending, а не failed: соседние сессии
-создаются, receipt реконсиляции учитывает её как pending, повтор выполняется при
-следующем событии link интерфейса, resync перечня интерфейсов или SIGHUP. Адрес,
-добавленный без события link, учитывается только при этих событиях. Пока сессия
+создаются, receipt реконсиляции учитывает её как pending. В Linux события link
+и address, resync перечня интерфейсов и SIGHUP повторяют pending sources.
+Добавление локального адреса запускает повтор без изменения состояния link. Пока сессия
 в состоянии pending, реконсиляция считается устаревшей и readiness gRPC health
 остаётся `NOT_SERVING`. Адрес, назначенный нескольким интерфейсам, остаётся
 неоднозначным при каждом повторе, поэтому сессия остаётся pending, а readiness --
@@ -1039,9 +1040,10 @@ readiness без второго SIGHUP. Таймаут или выход из Up
 поздний Final не превращает её в успех. Отмена после приёма не откатывает
 объявленные значения.
 [Контракт транзакций](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
-определяет срок согласования и разделение startup/recovery Poll. Live FRR/BIRD
-qualification Detect Multiplier reload ещё впереди; это не полное соответствие
-Poll/Demand.
+определяет срок согласования и разделение startup/recovery Poll. Ограниченная
+локальная квалификация FRR/BIRD Async и crafted remote-Demand зафиксирована в
+`gobfd-qj0.8.2.2.7.5.2`; квалификация точного финального кандидата остаётся
+отдельной. Это не подтверждает полное соответствие Poll/Demand.
 
 Неподдерживаемые authentication changes retained base identity отклоняются
 до принятия новой generation (`ErrAuthenticationReloadUnsupported`):

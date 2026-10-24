@@ -46,7 +46,7 @@ update latency.
 
 Use the authoritative Go testcontainers gate for automated validation. It
 writes packet, container, and JSON test evidence under
-`reports/e2e/bgp-fast-failover/<UTC run>/` and removes its exact test-owned
+`reports/e2e/bgp-fast-failover/run.*/` and removes its exact test-owned
 resources:
 
 ```bash

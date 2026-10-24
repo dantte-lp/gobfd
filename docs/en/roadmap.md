@@ -14,7 +14,7 @@ at `5c3ef14bfcf2194e26f951d6125eab3f2fe2ebd6` under
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | Local EN/RU audit accepted; historical M-18 wording has a deferred P2 | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.6` |
+| Documentation | EN/RU source audit and follow-up corrections; dated M-18 exception retained | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.7` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Runtime | CPU fixture is scoped evidence; reference workload, remaining stress drivers and thread-pin A/B incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |

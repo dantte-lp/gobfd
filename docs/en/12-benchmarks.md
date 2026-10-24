@@ -7,8 +7,10 @@ runtime measurement and qualification boundaries.
 
 ## Run benchmarks
 
-All Go commands run in the pinned Podman development environment. Use
-`make up` first; no host Go toolchain is required.
+The benchmark commands below run in the pinned Podman development environment.
+Use `make up` first. Host bootstrap and the separate `benchmark-report` target
+have the limitations described in [Development](09-development.md) and the
+report section below.
 
 | Command | Input and output |
 |---|---|

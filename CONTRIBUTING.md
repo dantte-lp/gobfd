@@ -13,7 +13,8 @@
 ## Getting Started
 
 1. Fork the repository and clone it locally
-2. Set up the development environment:
+2. Select the pinned Compose provider using
+   [Deployment](docs/en/06-deployment.md#podman-compose), then start the environment:
    ```bash
    podman compose -f deployments/compose/compose.dev.yml up -d --build
    ```
@@ -36,7 +37,9 @@
 
 ### Build and Test
 
-All Go commands run inside Podman containers. No local Go toolchain required.
+Build, test and lint commands below run inside Podman containers. Some host
+bootstrap, integration and report targets still invoke `go run` directly;
+those targets require the pinned Go toolchain or an explicit container invocation.
 
 ```bash
 make up            # Start dev container

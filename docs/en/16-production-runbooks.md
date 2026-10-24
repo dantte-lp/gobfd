@@ -118,6 +118,11 @@ Expected result:
 
 ## Prometheus Alert Validation
 
+Use an isolated host: this lab publishes host ports 9090/3000 and has default
+Grafana credentials, as described in [Integrations](11-integrations.md#observability).
+The drill below is a local procedure; this documentation edit does not record
+a new execution. It requires `curl`, `jq`, `timeout` and a shell.
+
 Start the observability stack:
 
 ```bash
@@ -131,14 +136,31 @@ curl -fsS http://localhost:9090/api/v1/targets
 curl -fsS http://localhost:9090/api/v1/rules
 ```
 
-Trigger a down transition:
+Confirm that the GoBFD target is healthy, the FRR session is Up and at least two
+successful scrapes are recorded before the drill. The configured scrape and
+evaluation intervals are both 15 seconds. Trigger a down transition and poll
+the specific alert for at most 60 seconds; HTTP 200 alone is insufficient:
 
 ```bash
-podman stop frr-observability
-sleep 5
-curl -fsS http://localhost:9090/api/v1/alerts
-podman start frr-observability
+(
+  set -eu
+  trap 'podman start frr-observability' EXIT
+  podman stop frr-observability
+  timeout 60s sh -c '
+    until curl --max-time 3 -fsS http://localhost:9090/api/v1/alerts |
+      jq -e '\''any(.data.alerts[]; .labels.alertname == "BFDSessionDownTransition" and .state == "firing")'\''
+    do
+      sleep 2
+    done
+  '
+)
 ```
+
+Exit 0 confirms an observed firing alert; timeout is a failed drill. The trap
+restarts the peer on both outcomes. Recheck BFD Up and healthy targets after
+restart, then confirm alert clearance after the one-minute increase window
+and a subsequent evaluation. Response fields follow the Prometheus
+[alerts API](https://prometheus.io/docs/prometheus/latest/querying/api/#alerts).
 
 Alert intent:
 

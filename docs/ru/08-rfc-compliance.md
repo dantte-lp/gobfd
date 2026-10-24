@@ -538,7 +538,7 @@ RFC 9747 определяет unaffiliated BFD echo для обнаружени�
 | Тип сессии | Константа `SessionTypeEcho` |
 | TTL 255 отправка, приём строго с TTL 254 | `netio.ValidateExpectedTTL` на Echo listener |
 | Декларативные echo-пиры | `echo.peers[]` в конфиге, реконсиляция при SIGHUP |
-| Отправитель с портом назначения 3785 | Функциональная опция `WithDstPort(PortEcho)` |
+| Отправитель с портом назначения 3785 | Декларативный Echo использует `WithDstPort(PortEcho)`; Echo через API пока использует Control port 3784 (`gobfd-qj0.8.2.1.17`) |
 
 Ключевые отличия от BFD control сессий:
 - Нет трёхстороннего рукопожатия (нет состояния Init)

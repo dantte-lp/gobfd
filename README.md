@@ -57,13 +57,21 @@ Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysi
 
 ## Quick Start
 
+Select the [pinned Compose provider](docs/en/06-deployment.md#podman-compose)
+before starting the development environment.
+
 ```bash
 git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 make up                          # pinned Podman development environment
 make build                       # builds all 4 binaries with version ldflags
-sudo ./gobfd -config configs/gobfd.example.yml
+sudo ./gobfd                     # default configuration, no sessions
 ```
+
+The packaged example selects the `gobfd-admin` socket group. Source builds do
+not create that host group; prepare it before using the example, or follow
+the [package installation instructions](docs/en/06-deployment.md#installation-methods).
+From another terminal, `sudo ./gobfdctl session list` queries the default socket.
 
 Local Podman stack with Prometheus + Grafana:
 

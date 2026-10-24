@@ -326,9 +326,10 @@ unsolicited listener. Configured per-address listeners remain available.
 > is >= 0, at least one interface is enabled and every `allowed_prefixes`
 > entry is a valid CIDR.
 >
-> **Unsafe preview**: IPv6 packet-capture qualification and lease-close fault
-> injection are open (`gobfd-qj0.8.2.1.10.1`). Do not enable unsolicited BFD
-> on an untrusted interface.
+> **Unsafe preview**: bounded development qualification covers dual-stack
+> packet capture and concurrent sender-lease release (`gobfd-qj0.8.2.1.10.1`).
+> These receipts do not establish final-candidate or stable RFC qualification.
+> Do not enable unsolicited BFD on an untrusted interface.
 
 #### `echo` -- RFC 9747 Unaffiliated BFD Echo
 
@@ -767,9 +768,9 @@ new index and needs the session recreated.
 
 A YAML session whose `local` address no interface or several interfaces own is
 pending, not failed: neighbouring sessions are created, the reconciliation
-receipt counts it as pending, and the next interface link event, interface
-inventory resync or SIGHUP retries it. An address added without a link event is
-picked up only on those triggers. While a session is pending, the reconciliation
+receipt counts it as pending. Linux link events, address events, inventory
+resyncs and SIGHUP retry pending sources. Adding the local address triggers
+retry without a link-state change. While a session is pending, the reconciliation
 is stale and gRPC health readiness stays `NOT_SERVING`. An address owned by
 several interfaces stays ambiguous on every retry, so the session stays pending
 and readiness stays `NOT_SERVING` until the configuration sets `interface` (or
@@ -1025,9 +1026,10 @@ and readiness automatically without a second SIGHUP. Timeout or loss of Up
 fails the receipt; a late Final does not turn that failure into success.
 Cancellation after admission does not undo advertised values. The
 [transaction contract](../superpowers/specs/2026-09-08-gobfd-timer-update-transactions-design.md)
-defines the negotiation budget and startup/recovery separation. Live FRR/BIRD
-qualification of Detect Multiplier reload remains pending; this is not full
-Poll/Demand compliance.
+defines the negotiation budget and startup/recovery separation. Scoped local
+FRR/BIRD Async and crafted remote-Demand qualification is recorded in
+`gobfd-qj0.8.2.2.7.5.2`; final exact-candidate qualification remains separate.
+This does not establish full Poll/Demand compliance.
 
 Unsupported authentication changes on a retained base identity are rejected
 before accepting a new generation (`ErrAuthenticationReloadUnsupported`). This

@@ -203,7 +203,12 @@ make int-haproxy-down         # Cleanup
 
 **Directory:** `deployments/integrations/observability/`
 
-Production monitoring with Prometheus alerting rules and pre-provisioned Grafana dashboard.
+Isolated lab example with Prometheus rules and a pre-provisioned Grafana dashboard.
+The Compose file publishes ports 9090 and 3000 on host interfaces and uses
+Grafana credentials `admin/admin`. The localhost URLs below do not restrict
+that publication. Isolate the host or override bindings and credentials before
+starting it. The separate [deployment stack](06-deployment.md#podman-compose)
+binds its published monitoring ports to loopback.
 
 ### Topology
 
@@ -251,6 +256,11 @@ pre-session parser/demux refusals are not all peer packet drops. See
 | BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3` for 1m | Warning |
 | BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` for 30s | Warning |
 | BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` for 1m | Warning |
+
+The shipped `BFDNoActiveSessions` rule requires an existing session series and
+does not fire for a fresh empty exporter. Use the empty-vector handling in
+[Monitoring](07-monitoring.md#alerting-rules) when adapting this example;
+the shared rule correction is tracked in `gobfd-qj0.8.2.8.7.2.8`.
 
 Prometheus v3.15.0, Grafana 13.2.4 and FRR 10.7.1 are built from
 checksum-pinned upstream artifacts on Debian trixie

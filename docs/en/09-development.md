@@ -26,17 +26,21 @@
 
 ### Prerequisites
 
-- **Podman** + **Podman Compose** (all commands run inside containers)
+- **Podman** + **Podman Compose** for containerized builds, tests and lint
 - **Git** for version control
-- Go 1.27.3 for optional IDE support; builds use the repository-pinned container toolchain
+- Go 1.27.3 for IDE support and targets that invoke host Go; builds use the repository-pinned container toolchain
 
-> **Important**: All testing, building, scanning, and linting runs inside Podman containers. No local Go toolchain is required for CI-equivalent builds.
+> `make build`, `make test`, `make lint` and `make vulncheck` use Podman.
+> Host bootstrap, `lint-ci` and some integration/report targets still invoke
+> `go run` directly; they require the pinned Go toolchain or an explicit
+> container invocation. `semgrep*` targets call the selected host executable.
+> The Compose-provider bootstrap precedes `make up`.
 
 ### Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/dantte-lp/gobfd.git
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
 cd gobfd
 
 # Start the development container
@@ -211,31 +215,17 @@ separate runtime/tools CycloneDX SBOMs in the
 Go 1.27 `testing/synctest` enables deterministic time-based testing and adds
 `synctest.Sleep` for the common advance-time-and-settle operation:
 
-```go
-func TestFSMDetectionTimeout(t *testing.T) {
-    synctest.Test(t, func(t *testing.T) {
-        sess := newTestSession(t, SessionConfig{
-            DesiredMinTxInterval:  100 * time.Millisecond,
-            RequiredMinRxInterval: 100 * time.Millisecond,
-            DetectMultiplier:      3,
-        })
+Use the existing `TestSessionDetectionTimeout` in
+[`internal/bfd/session_test.go`](../../internal/bfd/session_test.go) as the
+session-level example: it runs the real session loop with a mock sender,
+injects a Control packet through `RecvPacket` and checks Down plus
+`DiagControlTimeExpired` after virtual time advances. The separate
+`TestFSMDetectionTimeout` in [`fsm_test.go`](../../internal/bfd/fsm_test.go)
+tests the pure transition function. These tests use different helpers and
+should not be combined into a synthetic API example.
 
-        // Bring session to Up state
-        sess.injectPacket(controlPacket(StateInit, 0))
-        synctest.Wait()
-        require.Equal(t, StateUp, sess.State())
-
-        // Detection timeout = 3 x 100ms = 300ms
-        synctest.Sleep(350 * time.Millisecond)
-        require.Equal(t, StateDown, sess.State())
-    })
-}
-```
-
-Benefits:
-- Tests run in virtual time (instant execution)
-- Deterministic -- no flaky timer-dependent tests
-- Perfect for BFD protocol timers and detection timeouts
+Virtual time applies inside the `synctest` bubble. UDP, interop and E2E waits
+remain context-bounded wall-clock waits.
 
 #### Fuzz Testing
 

@@ -203,7 +203,12 @@ make int-haproxy-down         # Очистка
 
 **Директория:** `deployments/integrations/observability/`
 
-Продакшн-мониторинг с правилами алертинга Prometheus и преднастроенным дашбордом Grafana.
+Изолированный лабораторный пример с правилами Prometheus и настроенным Grafana dashboard.
+Compose публикует порты 9090 и 3000 на интерфейсах хоста и использует Grafana
+credentials `admin/admin`. URL localhost ниже не ограничивают эту публикацию.
+До запуска изолируйте хост или переопределите bindings и credentials.
+Отдельный [deployment stack](06-deployment.md#podman-compose) привязывает
+опубликованные monitoring ports к loopback.
 
 ### Топология
 
@@ -251,6 +256,11 @@ counters и alerts см. [Мониторинг](07-monitoring.md).
 | BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3` за 1м | Warning |
 | BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` за 30с | Warning |
 | BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` за 1м | Warning |
+
+Поставляемое правило `BFDNoActiveSessions` требует существующий session series
+и не срабатывает для свежего пустого exporter. При адаптации примера используйте
+обработку отсутствующих series из [Мониторинга](07-monitoring.md#правила-алертинга);
+исправление общего правила отслеживается в `gobfd-qj0.8.2.8.7.2.8`.
 
 Prometheus v3.15.0, Grafana 13.2.4 и FRR 10.7.1 собираются из закреплённых
 по checksum upstream-артефактов на Debian trixie (`test/interop/prometheus`,

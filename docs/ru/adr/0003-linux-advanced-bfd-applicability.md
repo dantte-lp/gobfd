@@ -52,8 +52,7 @@ LAG. GoBFD реализует:
 Production-ограничения:
 
 1. Enforcement требует явного backend и `owner_policy`.
-2. Модели ownership kernel bonding, OVS и NetworkManager взаимно
-   несовместимы.
+2. Модели ownership kernel bonding, OVS и NetworkManager различаются.
 3. Ручные изменения оператора требуют reconciliation при рестарте
    демона.
 4. Teamd и дополнительные switching-стеки остаются будущими
