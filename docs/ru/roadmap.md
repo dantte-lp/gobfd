@@ -25,6 +25,24 @@ Oracle Linux 10 исключён из v1 OCI/lifecycle scope; создание g
 и historical v0.6 evidence сохранены. Эти строки не закрывают задачи владельцев
 и не создают исполняемый план. Приоритеты и критерии приёмки находятся в Beads.
 
+## GC-pressure workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.2` добавляет явный, выключенный по умолчанию вариант
+allocation внутри прежних owner quota и общей эпохи. Локальный mixed IPv4/IPv6
+fixture с независимыми процессами прошёл за 47,93 s: 79 peer writes учтены как
+79 owner commits. За трёхсекундное окно helper выделил 125829120 bytes в 1920
+объектах/30 batches, удерживал не более 256 ссылок и освободил оставшиеся 256
+ссылок до measurement freeze. Owner зарегистрировал девять GC cycles процесса
+и 18 pause samples при `GOGC=100`. Все четыре собственных контейнера удалены;
+пик runner — 220823552/536870912 bytes, max/OOM events и swap равны нулю.
+Evidence: `reports/workload-gc-20261024/`.
+
+Это наблюдения fixture, а не калиброванные reference distributions или
+доказательство, что GC вызван только helper. Clock uncertainty остаётся
+неизвестной, reference qualification — false. Scheduler/churn drivers,
+thread-pin A/B, допущенные reference/engineering runs и final-candidate wire
+gates остаются открытыми.
+
 ## Исторические checkpoints
 
 Следующие датированные записи сохраняют исходную область и измерения.

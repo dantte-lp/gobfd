@@ -16,6 +16,10 @@
 
 ### Добавлено
 
+- Добавлен явный ограниченный GC-pressure вариант owner UDP workload с
+  фактическими allocation и reference-cleanup receipts после join в общей
+  эпохе. Наблюдения GC процесса не подтверждают reference qualification.
+
 - Предложена граница экспериментального prerelease и изолированная удалённая
   квалификация; stable validation и ограничения публикации сохранены.
 

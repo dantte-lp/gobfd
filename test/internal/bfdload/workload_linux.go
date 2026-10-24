@@ -87,6 +87,7 @@ type OwnerWorkloadObservation struct {
 	Phase              *Phase                 `json:"phase,omitempty"`
 	MeasurementFinal   OwnerObservation       `json:"measurement_final"`
 	CPUPressure        CPUPressureObservation `json:"cpu_pressure"`
+	GCPressure         GCPressureObservation  `json:"gc_pressure"`
 }
 
 // RunOwner uses the peer manifest to run the actual production core and collector.

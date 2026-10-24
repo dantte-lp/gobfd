@@ -37,7 +37,7 @@ func (r *OwnerWorkloadObservation) runWindow(ctx context.Context, owner *Owner) 
 		r.Phase = phase.observation()
 	}
 	r.StartedAtUTC = started.UTC()
-	err = r.observeWithCPUPressure(ctx, owner, started)
+	err = r.observeWithPressure(ctx, owner, started)
 	if control == nil {
 		return started, err
 	}
@@ -47,12 +47,19 @@ func (r *OwnerWorkloadObservation) runWindow(ctx context.Context, owner *Owner) 
 	return started, errors.Join(err, control.Close())
 }
 
-func (r *OwnerWorkloadObservation) observeWithCPUPressure(ctx context.Context, owner *Owner, started time.Time) error {
+func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owner *Owner, started time.Time) error {
 	windowCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	pressure, err := startCPUPressure(windowCtx, r.Config.Profile, started, cancel)
 	if err != nil {
 		return err
+	}
+	gc, err := startGCPressure(windowCtx, r.Config.Profile, started, cancel)
+	if err != nil {
+		cancel()
+		var cpuErr error
+		r.CPUPressure, cpuErr = pressure.join()
+		return errors.Join(err, cpuErr)
 	}
 	err = awaitPhaseTime(windowCtx, started)
 	if err == nil {
@@ -67,7 +74,9 @@ func (r *OwnerWorkloadObservation) observeWithCPUPressure(ctx context.Context, o
 	}
 	var pressureErr error
 	r.CPUPressure, pressureErr = pressure.join()
-	return errors.Join(err, pressureErr)
+	var gcErr error
+	r.GCPressure, gcErr = gc.join()
+	return errors.Join(err, pressureErr, gcErr)
 }
 
 func (r *OwnerWorkloadObservation) completeControlled(ctx context.Context, owner *Owner, control *Control) error {

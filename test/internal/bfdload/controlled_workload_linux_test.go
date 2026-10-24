@@ -14,18 +14,22 @@ import (
 )
 
 func TestControlledWorkloadDrainsActualWritesAfterMeasurement(t *testing.T) {
-	testControlledWorkload(t, 0, 0)
+	testControlledWorkload(t, 0, 0, false)
 }
 
 func TestControlledWorkloadRejectsMissingTerminalReceipt(t *testing.T) {
-	testControlledWorkload(t, 1, 0)
+	testControlledWorkload(t, 1, 0, false)
 }
 
 func TestControlledWorkloadWithCPUPressure(t *testing.T) {
-	testControlledWorkload(t, 0, 25)
+	testControlledWorkload(t, 0, 25, false)
 }
 
-func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64) {
+func TestControlledWorkloadWithGCPressure(t *testing.T) {
+	testControlledWorkload(t, 0, 25, true)
+}
+
+func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -35,6 +39,10 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64) {
 	}
 	profile.Sessions, profile.Duration = 1, 400*time.Millisecond
 	profile.CPULoadPercent = cpuPercent
+	profile.GCPressure = gc
+	if gc {
+		profile.Duration = 1500 * time.Millisecond
+	}
 	directory := privateControlDirectory(t)
 	control, err := OpenControl(directory)
 	if err != nil {
@@ -119,6 +127,15 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64) {
 	}
 	if cpuPercent != 0 {
 		t.Logf("common-phase CPU pressure receipt: %+v", pressure)
+	}
+	allocation := owner.report.GCPressure
+	if gc && (!allocation.Enabled || !allocation.Completed || allocation.AllocatedBytes == 0 ||
+		allocation.ReleasedObjects == 0 || !allocation.ScheduledAtUTC.Equal(owner.report.StartedAtUTC) ||
+		owner.report.MeasurementFinal.Environment.Runtime.GCCycles <= owner.report.Initial.Environment.Runtime.GCCycles) {
+		t.Fatalf("GC worker lost the common epoch, observed cycles or cleanup: %+v", allocation)
+	}
+	if gc {
+		t.Logf("common-phase GC pressure receipt: %+v", allocation)
 	}
 	if written == 0 || committed != written || owner.report.Final.Sessions[0].Received != written {
 		t.Fatalf("incomplete actual UDP boundary: written=%d committed=%d", written, committed)

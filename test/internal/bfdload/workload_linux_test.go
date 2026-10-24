@@ -22,6 +22,7 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 	}
 	profile.Sessions = 1
 	profile.CPULoadPercent = 25
+	profile.GCPressure = true
 	cfg := PeerConfig{Profile: profile, SourcePortBase: 55000, Sessions: []OwnerEndpoint{
 		{Local: netip.MustParseAddrPort("127.0.0.1:38061"), Peer: netip.MustParseAddrPort("127.33.0.2:38062")},
 	}}
@@ -47,6 +48,13 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded struct {
+		GC *struct {
+			Enabled        bool   `json:"enabled"`
+			AllocatedBytes uint64 `json:"allocated_bytes"`
+			Objects        uint64 `json:"objects"`
+			Batches        uint64 `json:"batches"`
+			Completed      bool   `json:"completed"`
+		} `json:"gc_pressure"`
 		Pressure *struct {
 			RequestedPercent uint64 `json:"requested_percent"`
 			Workers          int    `json:"workers"`
@@ -58,6 +66,22 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
+	if decoded.GC == nil || !decoded.GC.Enabled || decoded.GC.AllocatedBytes == 0 || decoded.GC.Objects == 0 ||
+		decoded.GC.Batches == 0 || !decoded.GC.Completed {
+		t.Fatalf("GC pressure has no actual joined allocation receipt: %+v", decoded.GC)
+	}
+	if report.Final.Environment.Runtime.GCCycles <= report.Initial.Environment.Runtime.GCCycles {
+		t.Fatal("allocation workload observed no actual process GC cycle")
+	}
+	var pauses uint64
+	for _, count := range report.GCPauseWindow.Counts {
+		pauses += count
+	}
+	if pauses == 0 {
+		t.Fatal("allocation workload observed no actual process GC pause")
+	}
+	t.Logf("GC pressure receipt: %+v; process_gc_cycles=%d process_gc_pauses=%d", report.GCPressure,
+		report.Final.Environment.Runtime.GCCycles-report.Initial.Environment.Runtime.GCCycles, pauses)
 	if decoded.Pressure == nil || decoded.Pressure.RequestedPercent != 25 || decoded.Pressure.Workers == 0 ||
 		decoded.Pressure.CPUTimeNS <= 0 || decoded.Pressure.Windows == 0 || !decoded.Pressure.Completed {
 		t.Fatalf("requested CPU pressure has no actual joined worker receipt: %+v", decoded.Pressure)

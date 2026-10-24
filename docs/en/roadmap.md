@@ -25,6 +25,23 @@ Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
 historical v0.6 evidence remain. These status rows neither close their owners
 nor create an executable plan. Use Beads for current priorities and acceptance.
 
+## GC-pressure workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.2` adds an explicit default-off allocation variant
+inside the existing owner quota and common phase. The local mixed IPv4/IPv6
+independent-process fixture passes in 47.93 s: 79 peer writes settle as 79
+owner commits. In its three-second window, the helper allocates 125829120
+bytes in 1920 objects/30 batches, retains at most 256 references and drops the
+256 remaining references before measurement freeze. The owner observes nine
+process GC cycles and 18 pause samples at `GOGC=100`. All four owned containers
+are removed; the runner peaks at 220823552/536870912 bytes with zero max/OOM
+events and swap. Evidence: `reports/workload-gc-20261024/`.
+
+These are fixture observations, not calibrated reference distributions or
+sole-helper GC causality. Clock uncertainty remains unknown and reference
+qualification remains false. Scheduler/churn drivers, thread-pin A/B, the
+admitted reference/engineering runs and final-candidate wire gates stay open.
+
 ## Historical checkpoints
 
 The following dated records retain their original scope and measurements.

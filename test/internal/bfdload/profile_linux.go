@@ -30,6 +30,7 @@ type Profile struct {
 	BlackholeEvery   time.Duration `json:"blackhole_every_ns"`
 	BlackholeFor     time.Duration `json:"blackhole_for_ns"`
 	CPULoadPercent   uint64        `json:"cpu_load_percent"`
+	GCPressure       bool          `json:"gc_pressure"`
 	Seed             uint64        `json:"seed"`
 }
 
@@ -67,6 +68,7 @@ func (p Profile) Validate() error {
 		return nil
 	}
 	expected.Seed = p.Seed
+	expected.GCPressure = p.GCPressure
 	if p != expected {
 		return fmt.Errorf("workload differs from %s qualification inputs: %w", p.Kind, ErrProfile)
 	}

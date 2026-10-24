@@ -26,6 +26,9 @@ func TestPeersCommandRejectsInvalidInputsBeforeBinding(t *testing.T) {
 		{"peers", "fixture", "--source-port-base=65536"},
 		{"owner", "fixture", "--cpu-load-percent=101"},
 		{"owner", "reference", "--cpu-load-percent=25"},
+		{"owner", "fixture", "--gc-pressure=invalid"},
+		{"owner", "fixture", "--gc-pressure", "--gc-pressure=false"},
+		{"owner", "fixture", "--gc-pressure=true", "--gc-pressure=true"},
 		{"peers", "fixture", "--session=not-an-address"},
 		{"peers", "fixture", "--session=127.31.0.1:3784,127.31.0.1:3784"},
 		{"peers", "fixture", "--unknown=true"},
@@ -49,6 +52,21 @@ func TestWorkloadCPUArgumentUsesProfileValidation(t *testing.T) {
 	})
 	if err != nil || cfg.Profile.CPULoadPercent != 25 {
 		t.Fatalf("requested CPU duty did not reach the shared profile: %+v: %v", cfg.Profile, err)
+	}
+}
+
+func TestWorkloadGCArgumentUsesProfileValidation(t *testing.T) {
+	t.Parallel()
+	for _, option := range []string{"--gc-pressure", "--gc-pressure=true", "--gc-pressure=false"} {
+		cfg, err := parseWorkloadConfig([]string{
+			"fixture", "--sessions=1", option, "--session=127.0.0.1:3784,127.31.0.2:3784",
+		})
+		if err != nil {
+			t.Fatalf("GC pressure option %s: %v", option, err)
+		}
+		if cfg.Profile.GCPressure != (option != "--gc-pressure=false") {
+			t.Fatalf("GC pressure option did not reach profile: %+v", cfg.Profile)
+		}
 	}
 }
 

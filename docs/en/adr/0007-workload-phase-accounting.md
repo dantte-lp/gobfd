@@ -66,6 +66,18 @@ polling and runtime work on those helper threads. These observations neither
 prove an 80% held host load nor replace CPU/throttling calibration on admitted
 reference resources. No scheduler setting or production session pin changes.
 
+An explicit `--gc-pressure` variant adds one owner worker at the same epoch
+without changing the named profile's CPU, loss, blackhole or session inputs.
+It allocates up to 64 objects of 64 KiB in each 100 ms window and retains at
+most 256 references (16 MiB). Touch each OS page, skip elapsed windows rather
+than accumulating debt, and retain actual allocation, skipped/truncated-batch,
+lateness and released-reference counts. Stop and join before measurement
+freeze and drain. Clearing references does not immediately reclaim heap or
+bound RSS. Do not force GC or change `GOGC`, `GOMEMLIMIT` or scheduler settings.
+Process GC cycles and pause histograms remain process-wide observations;
+they are not attributable solely to the allocation helper. Default-off and
+completed fixture generation do not establish reference GC qualification.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit

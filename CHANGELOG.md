@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an explicit bounded GC-pressure variant to the owner UDP workload, with
+  actual allocation and joined reference-cleanup receipts at the common epoch.
+  Process GC observations remain separate from reference qualification.
+
 - Proposed experimental prerelease boundary and isolated remote qualification
   ownership; stable validation and publication restrictions remain unchanged.
 

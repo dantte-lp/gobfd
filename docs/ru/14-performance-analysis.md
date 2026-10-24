@@ -176,6 +176,20 @@ CPU time. Workers останавливаются и join до frozen owner snaps
 Завершение генерации не доказывает удержание нагрузки 80% или reference acceptance;
 использовать реальные CPU/cgroup observations и clock-validity evidence отдельно.
 
+`--gc-pressure` добавляет выключенную по умолчанию фиксированную нагрузку
+внутри owner quota: до 4 MiB за 100 ms объектами по 64 KiB, с удержанием ссылок
+не более чем на 16 MiB. Peers передают тот же профиль, но эту нагрузку не создают.
+Отчёт `gc_pressure` разделяет фактические bytes, objects, batches, пропущенные
+и незавершённые batches, пиковое число удерживаемых ссылок, освобождённые ссылки
+и phase lateness. Пропущенное окно не компенсируется позже. Workers завершаются
+и очищают ring до measurement freeze и drain; старые недостижимые объекты
+ожидают обычного GC, поэтому это не лимит heap/RSS. Helper не вызывает GC
+принудительно и не меняет runtime settings. Существующие GC cycles и pause
+window охватывают весь owner process и не доказывают причинность, калибровку
+давления, latency acceptance или reference support.
+`released_objects` считает занятые ring entries, освобождённые при выходе worker,
+а не все прежние перезаписи или объекты, память которых вернул GC.
+
 `test/internal/bfdload.StartOwner` запускает production UDP listeners, receiver,
 session manager и владеющие сокетами UDP senders с отдельным реальным collector.
 Типизированный снимок содержит настроенные endpoints, source ports, наблюдения

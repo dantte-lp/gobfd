@@ -47,6 +47,7 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile.CPULoadPercent = 25
+	profile.GCPressure = true
 	cfg, err := bfdload.LoopbackConfig(profile)
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +217,22 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		!pressure.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
 		t.Fatalf("owner process has no actual phase-coordinated CPU receipt: %+v", pressure)
 	}
+	allocation := ownerReport.GCPressure
+	if !allocation.Enabled || !allocation.Completed || allocation.Workers != 1 || allocation.AllocatedBytes == 0 ||
+		allocation.Objects == 0 || allocation.ReleasedObjects == 0 || allocation.PeakRetainedObjects > 256 ||
+		!allocation.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) || !peerReport.Profile.GCPressure ||
+		ownerReport.Initial.Environment.Runtime.GCPercent != 100 ||
+		ownerReport.MeasurementFinal.Environment.Runtime.GCCycles <= ownerReport.Initial.Environment.Runtime.GCCycles {
+		t.Fatalf("owner process has no actual default-GC allocation receipt: %+v", allocation)
+	}
+	var gcPauses uint64
+	for _, count := range ownerReport.GCPauseWindow.Counts {
+		gcPauses += count
+	}
+	if gcPauses == 0 {
+		t.Fatal("independent owner process observed no GC pauses")
+	}
+	t.Logf("GC allocation receipt: %+v; process_gc_pauses=%d", allocation, gcPauses)
 	if !ownerReport.Completed || !ownerReport.Final.Stopped || ownerReport.ReferenceQualified ||
 		!peerReport.Completed || !peerReport.Stopped || peerReport.ReferenceQualified || len(peerReport.Peers) != 2 ||
 		len(ownerReport.Final.Sessions) != 2 || ownerReport.Final.TimingUncertaintyNS != nil {
@@ -294,6 +311,7 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 		cfg.Profile.Kind, "--sessions="+strconv.Itoa(cfg.Profile.Sessions),
 		"--duration="+cfg.Profile.Duration.String(), "--interface=lo",
 		"--cpu-load-percent="+strconv.FormatUint(cfg.Profile.CPULoadPercent, 10),
+		"--gc-pressure="+strconv.FormatBool(cfg.Profile.GCPressure),
 	)
 	if cfg.ControlDirectory != "" {
 		args = append(args, "--control-dir="+cfg.ControlDirectory)

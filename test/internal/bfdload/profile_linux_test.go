@@ -27,6 +27,10 @@ func TestProfileRejectsReducedQualification(t *testing.T) {
 			if err := profile.Validate(); err != nil {
 				t.Fatal(err)
 			}
+			profile.GCPressure = true
+			if err := profile.Validate(); err != nil {
+				t.Fatalf("additive GC variant rejected: %v", err)
+			}
 			for _, tc := range []struct {
 				name string
 				edit func(*Profile)

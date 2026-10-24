@@ -174,6 +174,20 @@ Workers stop and join before the frozen owner snapshot and packet drain.
 Completed generation does not establish a held 80% load or reference acceptance;
 use the actual CPU/cgroup observations and clock-validity evidence separately.
 
+`--gc-pressure` adds a default-off, fixed allocation workload inside the owner
+quota: up to 4 MiB per 100 ms, in 64 KiB objects, with at most 16 MiB of retained
+references. Peers carry the same profile but do not allocate this workload.
+The `gc_pressure` receipt separates actual bytes, objects, batches, skipped or
+truncated batches, peak retained-reference count, released references and
+phase lateness. A skipped window is not caught up later. Workers join and
+clear the ring before measurement freeze and drain; unreachable old objects
+still await normal GC, so this is not a heap/RSS limit. The helper does not
+force GC or modify runtime settings. Existing GC-cycle and pause-window
+observations cover the whole owner process and do not prove causality,
+calibrated pressure, latency acceptance or reference support.
+`released_objects` counts occupied ring entries dropped at worker exit,
+not all prior overwrites or objects reclaimed by GC.
+
 `test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
 session manager and owning UDP senders with a fresh real collector. Its typed
 snapshot includes configured endpoints, source ports, session observations,

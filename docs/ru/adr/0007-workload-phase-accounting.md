@@ -65,6 +65,18 @@ clock polling и runtime work этих helper threads. Наблюдения не
 удержание host load на 80% и не заменяют CPU/throttling calibration на допущенных
 reference resources. Scheduler settings и production session pins не меняются.
 
+Явный вариант `--gc-pressure` добавляет один owner worker с той же эпохой,
+сохраняя CPU, loss, blackhole и число сессий именованного профиля. В каждом
+окне 100 ms он выделяет до 64 объектов по 64 KiB и удерживает не более 256
+ссылок (16 MiB). Обращаться к каждой OS page, пропускать истекшие окна без
+накопления долга и сохранять фактические allocation, skipped/truncated batch,
+lateness и released-reference counts. Завершать worker до measurement freeze
+и drain. Очистка ссылок не освобождает heap немедленно и не ограничивает RSS.
+Не вызывать GC принудительно и не менять `GOGC`, `GOMEMLIMIT` или scheduler
+settings. GC cycles и pause histograms относятся ко всему процессу;
+приписывать их только allocation helper нельзя. Режим выключен по умолчанию;
+завершённый fixture не подтверждает reference GC qualification.
+
 ## Последствия
 
 Команды без control directory сохраняют независимые timers и явные ограничения.
