@@ -16,6 +16,10 @@
 
 ### Добавлено
 
+- Отказ до создания сессий именованного owner workload при недостаточном запасе
+  задач у leaf или ancestor cgroup. Admission report сохраняет task observations
+  и явный дополнительный budget для текущего закреплённого baseline.
+
 - Сохранение immutable test image ID и разрешённых source/base OCI annotations
   до очистки four-peer topology; ограничение размера Podman image metadata.
   Лимит строк TShark применяется после display filter; отсутствие обязательных

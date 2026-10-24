@@ -100,7 +100,7 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 		return result, err
 	}
 	if cfg.Profile.Kind != fixtureProfile {
-		admission, err := AdmitReferenceResources(ctx)
+		admission, err := AdmitReferenceResources(ctx, len(cfg.Sessions))
 		result.Admission = &admission
 		if err != nil {
 			result.Error = err.Error()

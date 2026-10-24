@@ -39,6 +39,16 @@ counters включают handshake и drain; деление на запроше
 не доказывает одновременность наблюдений. Недостающие clock evidence остаются
 unknown, а не нулевой uncertainty.
 
+До запуска именованного owner profile сохранять `pids.current` и `pids.max`
+каждого видимого non-root cgroup ancestor. Закреплённый baseline требует
+дополнительного запаса задач: число сессий плюс принятый запас 64 задачи.
+Отсутствующие или повреждённые observations и недостаточный запас отклонять до
+создания сессий; вычитать текущее потребление из лимита без unsigned overflow.
+Linux PID limits учитывают потоки и потребление descendants; `GOMAXPROCS` не
+ограничивает создание потоков. Последовательная проверка не резервирует capacity
+и не доказывает runtime peak. Сохранять консервативный baseline budget до его
+пересмотра на основании отдельно измеренного thread-pin A/B.
+
 ## Последствия
 
 Команды без control directory сохраняют независимые timers и явные ограничения.
@@ -55,3 +65,5 @@ stable delivery. Implementation acceptance принадлежит Beads
 - [Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)
 - [Linux socket overflow counters](https://man7.org/linux/man-pages/man7/socket.7.html)
 - [Go filesystem operations внутри directory root](https://github.com/golang/go/blob/master/src/os/root.go)
+- [Linux cgroup v2 PID controller](https://docs.kernel.org/admin-guide/cgroup-v2.html#pid)
+- [Go thread affinity](https://pkg.go.dev/runtime#LockOSThread)

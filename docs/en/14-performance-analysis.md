@@ -157,6 +157,14 @@ Missing or malformed data remains unavailable. Limits distinguish `max` from
 numeric zero. Hidden parents, reference admission, generator isolation and
 supported load remain separate gates in Beads.
 
+Snapshots retain `pids.current` and `pids.max` as task counts. Before named
+owner profiles create sessions, admission checks additional headroom of
+`sessions + 64` at every visible ancestor: 1,064 tasks for reference and 5,064
+for engineering. This conservative policy covers the currently pinned Control
+baseline, not a measured upper bound. The report retains the budget even on
+refusal; it does not reserve capacity or relax the separate CPU, memory,
+thread-pin A/B and runtime qualification gates. See [ADR-0007](./adr/0007-workload-phase-accounting.md).
+
 `test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
 session manager and owning UDP senders with a fresh real collector. Its typed
 snapshot includes configured endpoints, source ports, session observations,

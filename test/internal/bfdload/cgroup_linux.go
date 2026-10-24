@@ -131,7 +131,9 @@ func readCgroupSnapshot(ctx context.Context, root *os.Root) (*CgroupSnapshot, er
 		file        string
 		destination *Limit
 	}{
-		{"memory.max", &result.MemoryMaxBytes}, {"memory.high", &result.MemoryHighBytes},
+		{"memory.max", &result.MemoryMaxBytes},
+		{"memory.high", &result.MemoryHighBytes},
+		{"pids.max", &result.PidsMax},
 	} {
 		data, err := readEnvironmentFile(ctx, root, item.file)
 		if err != nil {
@@ -142,14 +144,22 @@ func readCgroupSnapshot(ctx context.Context, root *os.Root) (*CgroupSnapshot, er
 			return nil, fmt.Errorf("cgroup %s: %w", item.file, err)
 		}
 	}
-	current, err := readEnvironmentFile(ctx, root, "memory.current")
-	if err != nil {
-		return nil, err
+	for _, item := range []struct {
+		file        string
+		destination *uint64
+	}{
+		{"memory.current", &result.MemoryCurrentBytes}, {"pids.current", &result.PidsCurrent},
+	} {
+		current, err := readEnvironmentFile(ctx, root, item.file)
+		if err != nil {
+			return nil, err
+		}
+		*item.destination, err = strconv.ParseUint(strings.TrimSpace(string(current)), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("cgroup %s: %w", item.file, err)
+		}
 	}
-	result.MemoryCurrentBytes, err = strconv.ParseUint(strings.TrimSpace(string(current)), 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("cgroup memory.current: %w", err)
-	}
+	var err error
 	result.CPUQuotaUS, result.CPUPeriodUS, err = readCPUQuota(ctx, root)
 	if err != nil {
 		return nil, err

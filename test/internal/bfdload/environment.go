@@ -83,6 +83,8 @@ type CgroupSnapshot struct {
 	MemoryMaxBytes      Limit             `json:"memory_max_bytes"`
 	MemoryHighBytes     Limit             `json:"memory_high_bytes"`
 	MemoryEvents        map[string]uint64 `json:"memory_events"`
+	PidsCurrent         uint64            `json:"pids_current"`
+	PidsMax             Limit             `json:"pids_max"`
 }
 
 func snapshotRuntime() (RuntimeSnapshot, error) {

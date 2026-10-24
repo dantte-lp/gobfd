@@ -146,6 +146,7 @@ func TestCgroupRequiredCounters(t *testing.T) {
 			"nr_periods 2\nnr_throttled 1\nthrottled_usec 9\n",
 		"memory.current": "12345\n", "memory.max": "2147483648\n", "memory.high": "max\n",
 		"memory.events": "low 0\nhigh 2\nmax 3\noom 0\noom_kill 0\n",
+		"pids.current":  "17\n", "pids.max": "512\n",
 	}
 	for _, broken := range []string{"", "localZero", "cpu.stat", "memory.events", "cpu.max"} {
 		t.Run("broken="+broken, func(t *testing.T) {
@@ -168,7 +169,8 @@ func TestCgroupRequiredCounters(t *testing.T) {
 			}
 			if got.CPUQuotaUS.Unlimited || got.CPUQuotaUS.Value != 200000 || got.CPUPeriodUS != 100000 ||
 				got.MemoryCurrentBytes != 12345 || got.MemoryMaxBytes.Unlimited || got.MemoryMaxBytes.Value != 2147483648 ||
-				!got.MemoryHighBytes.Unlimited || got.CPUStat["throttled_usec"] != 9 || got.MemoryEvents["max"] != 3 {
+				!got.MemoryHighBytes.Unlimited || got.CPUStat["throttled_usec"] != 9 || got.MemoryEvents["max"] != 3 ||
+				got.PidsCurrent != 17 || got.PidsMax.Unlimited || got.PidsMax.Value != 512 {
 				t.Fatalf("resource snapshot loses counters/units: %+v", got)
 			}
 			if broken == "localZero" {

@@ -4,6 +4,23 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Baseline task admission — 2026-10-24
+
+P0 `gobfd-qj0.8.2.1.6.3.4.1` adds the missing PID-limit preflight before
+named owner profiles create sessions. Every visible ancestor must retain
+`sessions + 64` additional tasks; missing data and insufficient headroom fail
+closed. The original admission accepted all five deliberately invalid cases;
+the corrected critical race suites pass 76 tests. Evidence:
+`reports/workload-admission-20261024/`. [ADR-0007](./adr/0007-workload-phase-accounting.md)
+defines this conservative baseline policy separately from capacity reservation.
+
+Reference distributions remain P0 in `gobfd-qj0.8.2.1.6.3.4`. The current
+shared runner has no admitted 8 GiB reference headroom; the 80% CPU field is
+still a requested input, with no pressure-generator receipt. Full CPU/GC,
+scheduler, loss, churn and clock-validity evidence, regression policy,
+thread-pin A/B and final four-profile wire qualification remain mandatory.
+No reduced fixture or admission-only result closes those gates.
+
 ## UDP workload phase integration — 2026-10-24
 
 P0 `gobfd-qj0.8.2.1.6.3.3` resumes the preserved workload implementation in

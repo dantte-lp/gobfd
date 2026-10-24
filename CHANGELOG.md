@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Reject named owner workload profiles before session creation when leaf or
+  ancestor PID limits lack baseline thread headroom. Retain task observations
+  and the explicit additional budget in workload admission reports.
+
 - Retain immutable test image identities and allowlisted source/base OCI
   annotations before four-peer cleanup. Bound Podman image metadata responses.
   Apply TShark row limits after display filtering and fail missing mandatory

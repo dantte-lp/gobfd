@@ -159,6 +159,14 @@ RSS берётся из `smaps_rollup`; FD включают дескриптор
 `max` и численный ноль. Скрытые родители, reference admission, изоляция
 генератора и квалификация нагрузки остаются отдельными задачами Beads.
 
+Снимки сохраняют `pids.current` и `pids.max` как число задач. До создания
+сессий именованные owner profiles проверяют дополнительный запас `sessions + 64`
+у каждого видимого предка: 1064 задачи для reference и 5064 для engineering.
+Эта консервативная политика учитывает текущий закреплённый Control baseline,
+а не измеренную верхнюю границу. Отчёт сохраняет budget также при отказе;
+проверка не резервирует capacity и не отменяет отдельные CPU, memory,
+thread-pin A/B и runtime qualification gates. См. [ADR-0007](./adr/0007-workload-phase-accounting.md).
+
 `test/internal/bfdload.StartOwner` запускает production UDP listeners, receiver,
 session manager и владеющие сокетами UDP senders с отдельным реальным collector.
 Типизированный снимок содержит настроенные endpoints, source ports, наблюдения

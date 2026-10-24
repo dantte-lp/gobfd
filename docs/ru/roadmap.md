@@ -4,6 +4,23 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Допуск baseline по числу задач — 2026-10-24
+
+P0 `gobfd-qj0.8.2.1.6.3.4.1` добавляет недостающую проверку PID limits до
+создания сессий именованных owner profiles. Каждый видимый предок должен иметь
+дополнительный запас `sessions + 64` задач; отсутствие данных и нехватка запаса
+приводят к отказу. Прежний admission принял все пять заведомо недопустимых
+вариантов; исправленные critical race suites проходят 76 тестов. Evidence:
+`reports/workload-admission-20261024/`. [ADR-0007](./adr/0007-workload-phase-accounting.md)
+отделяет консервативную baseline policy от резервирования capacity.
+
+Reference distributions остаются P0 в `gobfd-qj0.8.2.1.6.3.4`. На текущем
+shared runner нет допущенного reference-запаса 8 GiB; поле 80% CPU остаётся
+запрошенным входом без pressure-generator receipt. Обязательны полные CPU/GC,
+scheduler, loss, churn и clock-validity evidence, regression policy,
+thread-pin A/B и итоговая four-profile wire qualification. Уменьшенная fixture
+или один admission не закрывают эти gates.
+
 ## Интеграция общей фазы UDP workload — 2026-10-24
 
 P0 `gobfd-qj0.8.2.1.6.3.3` продолжает сохранённую реализацию в
