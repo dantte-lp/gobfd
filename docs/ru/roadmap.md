@@ -4,6 +4,23 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Исправления единого квалификатора — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.5` выполняется. Offline-анализ сохранённого capture
+воспроизводит ошибку read limit TShark: `-c 1` не возвращает строк, тот же
+фильтр без ограничения возвращает 13 строк, начиная с frame 511.
+Квалификатор ограничивает число декодированных подходящих строк; отсутствие
+обязательных initial Down и detection-expiry evidence теперь завершает проверку
+ошибкой. Известное отклонение BIRD source port учитывается отдельно.
+Evidence: `reports/final-wire-20261024/`.
+
+P0 `.5.5.2` дополняет существующий сборщик сохранением immutable ID и девяти
+разрешённых OCI annotations до очистки. Критические race/shuffle tests
+проверяют provenance boundary и ограниченный Podman JSON parser, включая
+совместимость duplicate members и invalid UTF-8. Обязательны actual topology
+на окончательном candidate, независимый review, scale/latency и security
+qualification. Stable release и удалённая публикация не подтверждены.
+
 ## Wire-квалификация multihop TTL — 2026-10-24
 
 P0 `gobfd-qj0.8.2.2.7.5.4` прошла локальную wire-квалификацию на

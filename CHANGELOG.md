@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Retain immutable test image identities and allowlisted source/base OCI
+  annotations before four-peer cleanup. Bound Podman image metadata responses.
+  Apply TShark row limits after display filtering and fail missing mandatory
+  initial-state/detection evidence instead of skipping those assertions.
+
 - Added an authenticated multihop startup profile to the existing crafted-peer
   qualifier, with actual TTL boundary probes and persistent replay-state
   verification for in-place receive-floor reloads; runtime acceptance remains

@@ -9,6 +9,18 @@
 
 FROM docker.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.source="https://github.com/dantte-lp/gobfd" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.version="${VCS_REF}" \
+      org.opencontainers.image.licenses="GPL-2.0-or-later" \
+      org.opencontainers.image.title="GoBFD packet analysis fixture" \
+      org.opencontainers.image.description="Debian TShark BFD capture and offline analysis" \
+      org.opencontainers.image.base.name="docker.io/library/debian:trixie-slim" \
+      org.opencontainers.image.base.digest="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
+
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
        tshark \

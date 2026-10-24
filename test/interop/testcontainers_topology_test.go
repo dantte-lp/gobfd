@@ -126,7 +126,7 @@ func registerFourPeerImageCleanup(
 	t *testing.T,
 	endpoint, imageName string,
 	resources *fourPeerResources,
-) {
+) *podmanapi.Client {
 	t.Helper()
 
 	client, err := podmanapi.NewClient(strings.TrimPrefix(endpoint, "unix://"))
@@ -155,6 +155,7 @@ func registerFourPeerImageCleanup(
 			}
 		}
 	})
+	return client
 }
 
 func startFourPeerTopology(
@@ -167,31 +168,25 @@ func startFourPeerTopology(
 	t.Helper()
 
 	buildID := time.Now().UnixNano()
-	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
-	if err != nil {
-		t.Fatalf("resolve FRR build metadata: %v", err)
-	}
 	frrImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/frr"),
 		fmt.Sprintf("localhost/frr-interop-test:%d", buildID), resources,
-		map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 	)
 	gobfdImage := buildFourPeerImage(
 		ctx, t, endpoint, prepareFourPeerGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources,
 	)
 	birdImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
 		fmt.Sprintf("localhost/bird3-interop-test:%d", buildID), resources,
-		map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 	)
 	thoroImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/thoro"),
-		fmt.Sprintf("localhost/thoro-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/thoro-interop-test:%d", buildID), resources,
 	)
 	tsharkImage := buildFourPeerImage(
 		ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources, nil,
+		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources,
 	)
 
 	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "four-peer-testcontainers", resources)
@@ -749,11 +744,16 @@ func buildFourPeerImage(
 	t *testing.T,
 	endpoint, contextPath, imageName string,
 	resources *fourPeerResources,
-	buildArgs map[string]*string,
 ) string {
 	t.Helper()
 
-	registerFourPeerImageCleanup(ctx, t, endpoint, imageName, resources)
+	imageClient := registerFourPeerImageCleanup(ctx, t, endpoint, imageName, resources)
+	ensureFourPeerArtifactDirectory(t)
+	root := fourPeerRepositoryRoot(t)
+	revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
+	if err != nil {
+		t.Fatalf("resolve image build metadata: %v", err)
+	}
 	provider, err := testcontainers.ProviderPodman.GetProvider()
 	if err != nil {
 		t.Fatalf("create Podman provider for %s: %v", imageName, err)
@@ -774,7 +774,7 @@ func buildFourPeerImage(
 			Repo:       repository,
 			Tag:        tag,
 			KeepImage:  true,
-			BuildArgs:  buildArgs,
+			BuildArgs:  map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate},
 			BuildOptionsModifier: func(options *client.ImageBuildOptions) {
 				options.CPUPeriod = 100000
 				options.CPUQuota = 200000
@@ -786,6 +786,31 @@ func buildFourPeerImage(
 	closeErr := provider.Close()
 	if joinedErr := errors.Join(buildErr, closeErr); joinedErr != nil {
 		t.Fatalf("build test-owned image %s: %v", imageName, joinedErr)
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	metadata, inspectErr := imageClient.ImageMetadata(inspectCtx, builtImage)
+	var labels map[string]string
+	if inspectErr == nil {
+		labels, inspectErr = validateFourPeerImageMetadata(metadata, revision)
+	}
+	record := struct {
+		Requested string            `json:"requested"`
+		Built     string            `json:"built"`
+		ID        string            `json:"id"`
+		Labels    map[string]string `json:"labels"`
+		Error     string            `json:"error,omitempty"`
+	}{Requested: imageName, Built: builtImage, ID: metadata.ID, Labels: labels}
+	if inspectErr != nil {
+		record.Error = inspectErr.Error()
+	}
+	encoded, marshalErr := json.MarshalIndent(record, "", "  ")
+	var writeErr error
+	if marshalErr == nil {
+		_, writeErr = persistTimerArtifact("image-provenance", "json", encoded)
+	}
+	if err := errors.Join(inspectErr, marshalErr, writeErr); err != nil {
+		t.Fatalf("retain test-owned image %s provenance: %v", imageName, err)
 	}
 
 	return builtImage
@@ -827,6 +852,16 @@ func prepareFourPeerGoContext(t *testing.T, root string) string {
 		"RUN CGO_ENABLED=0 go build -trimpath -o /bin/gobfdctl ./cmd/gobfdctl\n" +
 		"FROM docker.io/library/debian:trixie-slim@sha256:" +
 		"a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f\n" +
+		"ARG VCS_REF\nARG BUILD_DATE\n" +
+		"LABEL org.opencontainers.image.source=\"https://github.com/dantte-lp/gobfd\" " +
+		"org.opencontainers.image.revision=\"${VCS_REF}\" " +
+		"org.opencontainers.image.created=\"${BUILD_DATE}\" " +
+		"org.opencontainers.image.version=\"${VCS_REF}\" " +
+		"org.opencontainers.image.licenses=\"Apache-2.0\" " +
+		"org.opencontainers.image.title=\"GoBFD interoperability daemon\" " +
+		"org.opencontainers.image.description=\"GoBFD daemon and CLI from the qualified candidate\" " +
+		"org.opencontainers.image.base.name=\"docker.io/library/debian:trixie-slim\" " +
+		"org.opencontainers.image.base.digest=\"sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f\"\n" +
 		"COPY --from=builder /bin/gobfd /bin/gobfdctl /bin/\n" +
 		"ENTRYPOINT [\"/bin/gobfd\"]\n"
 	if err := os.WriteFile(filepath.Join(contextPath, "Containerfile"), []byte(containerfile), 0o600); err != nil {

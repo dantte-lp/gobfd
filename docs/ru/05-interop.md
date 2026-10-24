@@ -235,6 +235,19 @@ source-only результаты эту задачу не закрывают.
 и DetectionPrecision требуют final-gate disposition вместе с известным
 отклонением fixed source port BIRD.
 
+Окончательный qualifier ограничивает декодированные строки TShark после display
+filter; `-c` ограничивает прочитанные пакеты и может скрыть поздние matching frames.
+Отсутствие initial Down(diag=0) или detection-expiry evidence завершает обязательные
+проверки ошибкой. Исключение BIRD source port подтверждено закреплённым
+[BFD TX socket](https://github.com/CZ-NIC/bird/blob/c3669497e3949b942d86d07e343092cc439b4659/proto/bfd/packets.c#L496)
+и [platform helper](https://github.com/CZ-NIC/bird/blob/c3669497e3949b942d86d07e343092cc439b4659/sysdep/unix/io.c#L796):
+`SKF_HIGH_PORT` не обеспечивает диапазон RFC 5881 на Linux. В сохранённом padding
+capture 938 BIRD packets используют порт 43990; это отклонение peer, а не
+compliance coverage GoBFD. Общий сборщик сохраняет immutable image ID и
+обязательные source/base OCI annotations до очистки.
+Evidence: `reports/final-wire-20261024/`; actual final-candidate qualification
+остаётся в `gobfd-qj0.8.2.2.7.5.5`.
+
 Тот же crafted lifecycle предоставляет `TestCraftedMultihopTTLTestcontainers`
 с закрытым startup command `peer-multihop`: UDP/4784, meticulous SHA1,
 local RX 3 s и прежний TX 300 ms. `SIGUSR1` включает remote Demand;

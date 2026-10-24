@@ -270,6 +270,15 @@ max/OOM events и swap трёх прогонов — 0. Проверки цел�
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.
 
+Окончательный five-field qualifier ограничивает результат TShark после display
+filter; ограничение прочитанных пакетов `-c` не доказывает отсутствие BFD frame.
+Отсутствие обязательных initial-state или detection-expiry evidence завершает
+квалификацию ошибкой. До очистки тестовых образов общий сборщик сохраняет
+immutable image ID и только обязательные OCI source/base annotations.
+Эти записи связывают тестовую среду с candidate, но не заменяют product OCI,
+scale, security или stable-release qualification. Окончательная проверка
+принадлежит Beads `gobfd-qj0.8.2.2.7.5.5`.
+
 ## Источники
 
 - [RFC 5880 §6.6: Demand mode](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.6)

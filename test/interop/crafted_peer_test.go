@@ -608,11 +608,11 @@ func startCraftedPeerTopology(
 	t.Helper()
 	buildID := time.Now().UnixNano()
 	gobfdImage := buildFourPeerImage(ctx, t, endpoint, prepareFourPeerGoContext(t, root),
-		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources, nil)
+		fmt.Sprintf("localhost/gobfd-interop-test:%d", buildID), resources)
 	tsharkImage := buildFourPeerImage(ctx, t, endpoint, filepath.Join(root, "test/interop/tshark"),
-		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources, nil)
+		fmt.Sprintf("localhost/tshark-interop-test:%d", buildID), resources)
 	peerImage := buildFourPeerImage(ctx, t, endpoint, prepareCraftedPeerContext(t, root),
-		fmt.Sprintf("localhost/bfd-crafted-peer-test:%d", buildID), resources, nil)
+		fmt.Sprintf("localhost/bfd-crafted-peer-test:%d", buildID), resources)
 	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "crafted-peer-testcontainers", resources)
 	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, configPath, networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)

@@ -16,6 +16,11 @@
 
 ### Добавлено
 
+- Сохранение immutable test image ID и разрешённых source/base OCI annotations
+  до очистки four-peer topology; ограничение размера Podman image metadata.
+  Лимит строк TShark применяется после display filter; отсутствие обязательных
+  initial-state/detection evidence завершает проверку ошибкой вместо SKIP.
+
 - В штатный crafted-peer qualifier добавлен authenticated multihop startup
   profile с фактическими TTL boundary probes и сохранением replay state при
   in-place reload receive floor; runtime acceptance учитывается отдельно до

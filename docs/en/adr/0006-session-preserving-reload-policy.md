@@ -269,6 +269,14 @@ Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.
 
+The final five-field qualifier limits TShark results after display filtering;
+the packet-read limit `-c` cannot establish absence of a matching BFD frame.
+Missing mandatory initial-state or detection-expiry evidence fails qualification.
+Before test-owned image cleanup, the shared builder retains immutable image IDs
+and only required OCI source/base annotations. These records bind the test
+environment to the candidate; they do not replace product OCI, scale, security
+or stable-release qualification. Beads `gobfd-qj0.8.2.2.7.5.5` owns the final gate.
+
 ## References
 
 - [RFC 5880 §6.6: Demand mode](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.6)

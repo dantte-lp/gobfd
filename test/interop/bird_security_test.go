@@ -5,7 +5,6 @@ package interop_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
-	"github.com/dantte-lp/gobfd/test/internal/interopproject"
 )
 
 func TestBIRDFlowSpecValidation(t *testing.T) {
@@ -27,13 +25,8 @@ func TestBIRDFlowSpecValidation(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 		t.Cleanup(cancel)
 		root := fourPeerRepositoryRoot(t)
-		revision, buildDate, err := interopproject.BuildMetadata(ctx, root, os.Getenv("GOBFD_BUILD_REVISION"))
-		if err != nil {
-			t.Fatalf("resolve BIRD build metadata: %v", err)
-		}
 		image := buildFourPeerImage(ctx, t, endpoint, filepath.Join(root, "test/interop/bird3"),
-			fmt.Sprintf("localhost/bird3-security-test:%d", time.Now().UnixNano()), resources,
-			map[string]*string{"VCS_REF": &revision, "BUILD_DATE": &buildDate})
+			fmt.Sprintf("localhost/bird3-security-test:%d", time.Now().UnixNano()), resources)
 		peer := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 			Image:      image,
 			Entrypoint: []string{"bird"},

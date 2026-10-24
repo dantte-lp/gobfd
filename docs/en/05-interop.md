@@ -234,6 +234,19 @@ and stable-release gates remain separate. Baseline initial-Down and
 DetectionPrecision skips require final-gate disposition alongside the known
 BIRD fixed-source-port deviation.
 
+Final-candidate qualification limits decoded TShark rows after display filtering;
+`-c` limits packets read and can hide later matching frames. Missing initial
+Down(diag=0) or detection-expiry evidence fails these mandatory assertions.
+The remaining BIRD source-port exception is source-backed: its pinned
+[BFD TX socket](https://github.com/CZ-NIC/bird/blob/c3669497e3949b942d86d07e343092cc439b4659/proto/bfd/packets.c#L496)
+requests `SKF_HIGH_PORT`, but
+[the platform helper](https://github.com/CZ-NIC/bird/blob/c3669497e3949b942d86d07e343092cc439b4659/sysdep/unix/io.c#L796)
+does not enforce the RFC 5881 range on Linux. The retained padding capture has
+938 BIRD packets from port 43990; this is a peer deviation, not GoBFD compliance
+coverage. The shared builder retains immutable image IDs and required OCI
+source/base annotations before cleanup. Evidence: `reports/final-wire-20261024/`;
+actual final-candidate qualification remains with `gobfd-qj0.8.2.2.7.5.5`.
+
 The same crafted lifecycle also provides `TestCraftedMultihopTTLTestcontainers`
 with the closed `peer-multihop` startup command: UDP/4784, meticulous SHA1,
 local RX 3 s and unchanged TX 300 ms. `SIGUSR1` enters remote Demand;

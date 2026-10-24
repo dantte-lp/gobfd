@@ -821,14 +821,18 @@ func tsharkQueryFile(ctx context.Context, capturePath string, args ...string) (s
 // tsharkFields extracts specific fields from packets matching a display filter.
 // Returns [][]string where each row is one packet's field values.
 func tsharkFields(ctx context.Context, filter string, fields []string, maxCount int) ([][]string, error) {
-	output, err := tsharkFieldStream(ctx, filter, fields, maxCount)
+	output, err := tsharkFieldStream(ctx, filter, fields)
 	if err != nil {
 		return nil, err
 	}
 
+	return parseTsharkFieldRows(output, maxCount), nil
+}
+
+func parseTsharkFieldRows(output string, maxCount int) [][]string {
 	output = strings.TrimSpace(output)
 	if output == "" {
-		return nil, nil
+		return nil
 	}
 
 	var rows [][]string
@@ -837,20 +841,20 @@ func tsharkFields(ctx context.Context, filter string, fields []string, maxCount 
 			continue
 		}
 		rows = append(rows, strings.Split(line, "\t"))
+		if maxCount > 0 && len(rows) >= maxCount {
+			break
+		}
 	}
-	return rows, nil
+	return rows
 }
 
-func tsharkFieldStream(ctx context.Context, filter string, fields []string, maxCount int) (string, error) {
-	args := []string{"-Y", filter, "-T", "fields"}
+func tsharkFieldStream(ctx context.Context, filter string, fields []string) (string, error) {
+	args := make([]string, 0, 8+2*len(fields))
+	args = append(args, "-Y", filter, "-T", "fields")
 	for _, f := range fields {
 		args = append(args, "-e", f)
 	}
 	args = append(args, "-E", "separator=\t", "-E", "header=n")
-	if maxCount > 0 {
-		args = append(args, "-c", strconv.Itoa(maxCount))
-	}
-
 	return tsharkQuery(ctx, args...)
 }
 
@@ -1733,8 +1737,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 		type peer struct {
 			name string
 			ip   string
-			// skipSrcPort: BIRD3 uses a fixed source port outside the
-			// ephemeral range (known RFC 5881 §4 deviation).
+			// BIRD's Linux allocator does not constrain ports to RFC 5881 §4's range.
 			skipSrcPort bool
 		}
 		peers := []peer{
@@ -1761,7 +1764,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 			})
 			t.Run(p.name+"_SrcPortEphemeral", func(t *testing.T) {
 				if p.skipSrcPort {
-					t.Skipf("%s uses a fixed source port (known RFC 5881 §4 deviation)", p.name)
+					t.Skipf("%s delegates source-port allocation to Linux without RFC 5881 §4 range enforcement", p.name)
 				}
 				assertNoPackets(ctx, t,
 					"bfd && ip.src == "+p.ip+" && (udp.srcport < 49152 || udp.srcport > 65535)",
@@ -1941,7 +1944,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x01",
 			[]string{"bfd.diag"}, 3)
 		if err != nil || len(rows) == 0 {
-			t.Skipf("no initial Down packets captured (session may have started before capture)")
+			t.Fatalf("initial Down evidence required: rows=%d error=%v", len(rows), err)
 		}
 		diag, err := parseHexOrDec(rows[0][0])
 		if err != nil {
@@ -1998,7 +2001,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 			t.Run(p.name, func(t *testing.T) {
 				output, err := tsharkFieldStream(ctx,
 					"bfd && ip.src == "+gobfdIP+" && ip.dst == "+p.ip,
-					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"}, 0)
+					[]string{"frame.time_epoch", "bfd.sta", "bfd.flags.p", "bfd.flags.f"})
 				if err != nil {
 					t.Fatalf("read jitter packet fields for %s: %v", p.name, err)
 				}
@@ -2091,7 +2094,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 			"bfd && ip.src == "+gobfdIP+" && ip.dst == "+frrIP+" && bfd.sta == 0x01 && bfd.diag == 0x01",
 			[]string{"frame.time_epoch"}, 1)
 		if err != nil || len(firstDown) == 0 {
-			t.Skipf("no Down(diag=1) packets: %v", err)
+			t.Fatalf("Down(diag=1) evidence required: rows=%d error=%v", len(firstDown), err)
 		}
 		downTime, err := strconv.ParseFloat(strings.TrimSpace(firstDown[0][0]), 64)
 		if err != nil {
@@ -2103,7 +2106,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 			"bfd && ip.src == "+frrIP+" && ip.dst == "+gobfdIP,
 			[]string{"frame.time_epoch"}, 0)
 		if err != nil || len(allFRR) == 0 {
-			t.Skipf("no FRR packets: %v", err)
+			t.Fatalf("FRR evidence required: rows=%d error=%v", len(allFRR), err)
 		}
 
 		var lastFRRTime float64
@@ -2119,7 +2122,7 @@ func runRFCCompliance(t *testing.T, birdAuthType byte) {
 			}
 		}
 		if !found {
-			t.Skipf("no FRR packets before the Down(diag=1) packet")
+			t.Fatal("FRR input before Down(diag=1) evidence required")
 		}
 
 		gap := downTime - lastFRRTime

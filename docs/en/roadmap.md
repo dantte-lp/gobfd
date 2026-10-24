@@ -4,6 +4,22 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Unified qualifier corrections — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.5` remains in progress. Offline analysis of the retained
+capture reproduces the TShark read-limit defect: `-c 1` yields no matching row,
+whereas the same filter without it yields 13 rows, beginning at frame 511.
+The qualifier limits decoded matching rows instead; missing initial Down and
+detection-expiry evidence now fails the mandatory assertions. The known BIRD
+source-port deviation remains separate. Evidence: `reports/final-wire-20261024/`.
+
+P0 `.5.5.2` extends the existing image builder to retain immutable IDs and nine
+allowlisted OCI annotations before cleanup. Critical race/shuffle tests verify
+the provenance boundary and bounded Podman JSON parsing, including duplicate
+members and invalid UTF-8 compatibility. Actual final-candidate topology runs,
+independent review, scale/latency and security qualification remain required.
+No stable-release or remote-publication acceptance is implied.
+
 ## Multihop TTL wire qualification — 2026-10-24
 
 P0 `gobfd-qj0.8.2.2.7.5.4` passed local wire qualification on
