@@ -94,6 +94,8 @@ func registerProfileFlags(flags *flag.FlagSet, p *bfdload.Profile) {
 	flags.IntVar(&p.Sessions, "sessions", p.Sessions, "exact session count")
 	flags.DurationVar(&p.Interval, "interval", p.Interval, "desired TX and required RX interval")
 	flags.DurationVar(&p.Duration, "duration", p.Duration, "traffic duration")
+	flags.Uint64Var(&p.CPULoadPercent, "cpu-load-percent", p.CPULoadPercent,
+		"requested owner CPU duty; measured separately")
 	flags.Uint64Var(&p.LossPermille, "loss-permille", p.LossPermille, "intentional loss per thousand in each direction")
 	flags.DurationVar(&p.BlackholeEvery, "blackhole-every", p.BlackholeEvery, "blackhole period, zero disables")
 	flags.DurationVar(&p.BlackholeFor, "blackhole-for", p.BlackholeFor, "blackhole duration, zero disables")

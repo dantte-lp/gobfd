@@ -49,6 +49,23 @@ overflow. Linux PID limits count threads, including descendant usage;
 reserves capacity nor proves the runtime peak. Keep the conservative baseline
 budget until the separately measured thread-pin A/B justifies a revision.
 
+Generate requested CPU pressure inside the owner quota with at most eight
+workers, using the effective `GOMAXPROCS` as the worker count. Prepare workers
+before the common epoch. Each bounded helper locks its thread only to attribute
+`CLOCK_THREAD_CPUTIME_ID` reads and unlocks it on exit. In fixed 100 ms duty
+windows, request thread CPU time equal to the configured percentage of that
+window; truncate the last window at the measurement end. Stop burning at each
+wall deadline and count missed budgets instead of carrying debt into later
+windows. Cancellation or a clock failure stops and joins workers before the
+owner report can complete. The measurement snapshot and packet drain retain
+their existing boundaries.
+
+Retain requested duty, actual worker CPU and wall time, start/end lateness,
+window and missed-window counts separately. Worker CPU time includes clock
+polling and runtime work on those helper threads. These observations neither
+prove an 80% held host load nor replace CPU/throttling calibration on admitted
+reference resources. No scheduler setting or production session pin changes.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit
@@ -67,3 +84,4 @@ scheduler or kernel fast path.
 - [Go directory-scoped filesystem operations](https://github.com/golang/go/blob/master/src/os/root.go)
 - [Linux cgroup v2 PID controller](https://docs.kernel.org/admin-guide/cgroup-v2.html#pid)
 - [Go thread affinity](https://pkg.go.dev/runtime#LockOSThread)
+- [Linux thread CPU clocks](https://man7.org/linux/man-pages/man3/clock_gettime.3.html)

@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Generate bounded owner CPU duty with thread CPU-time receipts, missed-window
+  accounting and context-bound worker cleanup in the UDP workload harness.
+
 - Reject named owner workload profiles before session creation when leaf or
   ancestor PID limits lack baseline thread headroom. Retain task observations
   and the explicit additional budget in workload admission reports.

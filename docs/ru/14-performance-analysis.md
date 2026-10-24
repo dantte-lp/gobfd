@@ -167,6 +167,16 @@ RSS берётся из `smaps_rollup`; FD включают дескриптор
 проверка не резервирует capacity и не отменяет отдельные CPU, memory,
 thread-pin A/B и runtime qualification gates. См. [ADR-0007](./adr/0007-workload-phase-accounting.md).
 
+Owner workload создаёт запрошенное CPU pressure ограниченными helper workers
+внутри собственной quota. `--cpu-load-percent` использует общий profile validator;
+именованные profiles сохраняют утверждённый вход 80%. JSON receipt `cpu_pressure`
+разделяет requested duty, фактическое thread CPU time, сумму worker wall time,
+start/end lateness и пропущенные duty windows по 100 ms. CPU time включает clock
+polling и runtime overhead workers; elapsed wall time не равно потреблённому
+CPU time. Workers останавливаются и join до frozen owner snapshot и packet drain.
+Завершение генерации не доказывает удержание нагрузки 80% или reference acceptance;
+использовать реальные CPU/cgroup observations и clock-validity evidence отдельно.
+
 `test/internal/bfdload.StartOwner` запускает production UDP listeners, receiver,
 session manager и владеющие сокетами UDP senders с отдельным реальным collector.
 Типизированный снимок содержит настроенные endpoints, source ports, наблюдения

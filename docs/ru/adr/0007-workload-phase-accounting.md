@@ -49,6 +49,22 @@ Linux PID limits учитывают потоки и потребление desce
 и не доказывает runtime peak. Сохранять консервативный baseline budget до его
 пересмотра на основании отдельно измеренного thread-pin A/B.
 
+Генерировать запрошенное CPU pressure внутри owner quota не более чем восемью
+workers; число workers равно effective `GOMAXPROCS`. Подготовить workers до
+общей epoch. Каждый ограниченный helper закрепляет свой поток только для
+атрибуции `CLOCK_THREAD_CPUTIME_ID` и освобождает его при выходе. В фиксированных
+duty windows по 100 ms запрашивать thread CPU time, равное заданному проценту
+окна; последнее окно обрезать по концу measurement. Прекращать вычисления по wall
+deadline окна и считать пропущенные budgets без переноса долга на следующие
+окна. Отмена или ошибка clock останавливает и join workers до завершения owner
+report. Границы measurement snapshot и packet drain сохраняются.
+
+Сохранять раздельно requested duty, фактические worker CPU и wall time,
+start/end lateness, число окон и пропущенных budgets. Worker CPU time включает
+clock polling и runtime work этих helper threads. Наблюдения не доказывают
+удержание host load на 80% и не заменяют CPU/throttling calibration на допущенных
+reference resources. Scheduler settings и production session pins не меняются.
+
 ## Последствия
 
 Команды без control directory сохраняют независимые timers и явные ограничения.
@@ -67,3 +83,4 @@ stable delivery. Implementation acceptance принадлежит Beads
 - [Go filesystem operations внутри directory root](https://github.com/golang/go/blob/master/src/os/root.go)
 - [Linux cgroup v2 PID controller](https://docs.kernel.org/admin-guide/cgroup-v2.html#pid)
 - [Go thread affinity](https://pkg.go.dev/runtime#LockOSThread)
+- [Linux thread CPU clocks](https://man7.org/linux/man-pages/man3/clock_gettime.3.html)

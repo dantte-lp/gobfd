@@ -4,6 +4,24 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## CPU-pressure workload receipts — 2026-10-24 10:31 UTC
+
+P0 `gobfd-qj0.8.2.1.6.3.4.2` подключает запрошенную owner CPU duty к
+ограниченным workers и реальным thread CPU-time receipts. Существующая
+independent-process IPv4/IPv6 fixture проходит за 52,08 с: 79 writes равны
+79 commits; один worker фиксирует 751118863 ns CPU за 3000044323 ns wall time,
+выполнены все 30 duty windows без пропусков. Scheduled epoch совпадает с owner
+measurement; после cleanup отсутствуют все четыре контейнера. Runner peak —
+229322752 bytes при лимите 512 MiB, max/OOM events и swap — 0. Evidence:
+`reports/workload-cpu-20261024/`. Обновлённые critical race suites проходят
+82 теста без skips; scoped lint сообщает 0 issues.
+
+Fixture с 25% не квалифицирует удержание reference load 80%, clock accuracy,
+supported scale или stable delivery. Остальные GC/scheduler/loss/churn profiles
+принадлежат P0 `gobfd-qj0.8.2.1.6.3.4.3`; необходимы допущенные reference
+resources и все parent distributions до regression policy, thread-pin A/B и
+итоговых wire/24-hour qualification. Исполнимая authority остаётся в Beads.
+
 ## Допуск baseline по числу задач — 2026-10-24
 
 P0 `gobfd-qj0.8.2.1.6.3.4.1` добавляет недостающую проверку PID limits до
@@ -15,8 +33,8 @@ P0 `gobfd-qj0.8.2.1.6.3.4.1` добавляет недостающую пров�
 отделяет консервативную baseline policy от резервирования capacity.
 
 Reference distributions остаются P0 в `gobfd-qj0.8.2.1.6.3.4`. На текущем
-shared runner нет допущенного reference-запаса 8 GiB; поле 80% CPU остаётся
-запрошенным входом без pressure-generator receipt. Обязательны полные CPU/GC,
+shared runner нет допущенного reference-запаса 8 GiB; на этом checkpoint поле
+80% CPU ещё не имело pressure-generator receipt. Обязательны полные CPU/GC,
 scheduler, loss, churn и clock-validity evidence, regression policy,
 thread-pin A/B и итоговая four-profile wire qualification. Уменьшенная fixture
 или один admission не закрывают эти gates.

@@ -30,9 +30,6 @@ func (c *Control) ownerStart(ctx context.Context, owner *Owner) (*phaseStart, er
 	if err != nil {
 		return nil, err
 	}
-	if waitErr := awaitPhaseTime(readyCtx, phase.goStart); waitErr != nil {
-		return nil, waitErr
-	}
 	return phase, nil
 }
 

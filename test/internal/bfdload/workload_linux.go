@@ -67,25 +67,26 @@ type OwnerDownEvent struct {
 // Completed means the requested observation duration ended; it does not prove
 // that every session stayed Up or that latency and clock acceptance passed.
 type OwnerWorkloadObservation struct {
-	Scope              string             `json:"scope"`
-	Config             PeerConfig         `json:"config"`
-	Admission          *ResourceAdmission `json:"admission,omitempty"`
-	StartedAtUTC       time.Time          `json:"started_at_utc"`
-	ElapsedNS          int64              `json:"elapsed_ns"`
-	SamplePeriodNS     int64              `json:"sample_period_ns"`
-	Completed          bool               `json:"completed"`
-	ReferenceQualified bool               `json:"reference_qualified"`
-	Initial            OwnerObservation   `json:"initial"`
-	Final              OwnerObservation   `json:"final"`
-	Resources          ResourceWindow     `json:"resources"`
-	SchedulerWindow    Histogram          `json:"scheduler_window"`
-	GCPauseWindow      Histogram          `json:"gc_pause_window"`
-	DownEvents         []OwnerDownEvent   `json:"down_events"`
-	DownEventsOmitted  uint64             `json:"down_events_omitted"`
-	NotificationGaps   uint64             `json:"notification_gaps"`
-	Error              string             `json:"error,omitempty"`
-	Phase              *Phase             `json:"phase,omitempty"`
-	MeasurementFinal   OwnerObservation   `json:"measurement_final"`
+	Scope              string                 `json:"scope"`
+	Config             PeerConfig             `json:"config"`
+	Admission          *ResourceAdmission     `json:"admission,omitempty"`
+	StartedAtUTC       time.Time              `json:"started_at_utc"`
+	ElapsedNS          int64                  `json:"elapsed_ns"`
+	SamplePeriodNS     int64                  `json:"sample_period_ns"`
+	Completed          bool                   `json:"completed"`
+	ReferenceQualified bool                   `json:"reference_qualified"`
+	Initial            OwnerObservation       `json:"initial"`
+	Final              OwnerObservation       `json:"final"`
+	Resources          ResourceWindow         `json:"resources"`
+	SchedulerWindow    Histogram              `json:"scheduler_window"`
+	GCPauseWindow      Histogram              `json:"gc_pause_window"`
+	DownEvents         []OwnerDownEvent       `json:"down_events"`
+	DownEventsOmitted  uint64                 `json:"down_events_omitted"`
+	NotificationGaps   uint64                 `json:"notification_gaps"`
+	Error              string                 `json:"error,omitempty"`
+	Phase              *Phase                 `json:"phase,omitempty"`
+	MeasurementFinal   OwnerObservation       `json:"measurement_final"`
+	CPUPressure        CPUPressureObservation `json:"cpu_pressure"`
 }
 
 // RunOwner uses the peer manifest to run the actual production core and collector.
@@ -136,10 +137,7 @@ func (r *OwnerWorkloadObservation) observe(ctx context.Context, owner *Owner, st
 	if err != nil {
 		return fmt.Errorf("subscribe owner workload transitions: %w", err)
 	}
-	timer := time.NewTimer(r.Config.Profile.Duration)
-	if r.Phase != nil {
-		timer.Reset(max(0, time.Until(started.Add(r.Config.Profile.Duration))))
-	}
+	timer := time.NewTimer(max(0, time.Until(started.Add(r.Config.Profile.Duration))))
 	defer timer.Stop()
 	ticker := time.NewTicker(ownerSamplePeriod)
 	defer ticker.Stop()

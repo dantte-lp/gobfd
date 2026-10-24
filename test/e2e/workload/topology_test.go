@@ -46,6 +46,7 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	profile.CPULoadPercent = 25
 	cfg, err := bfdload.LoopbackConfig(profile)
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +210,12 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		len(ownerReport.MeasurementFinal.Sessions) != len(cfg.Sessions) || ownerReport.MeasurementFinal.Stopped {
 		t.Fatal("owner measurement snapshot is missing or includes shutdown")
 	}
+	pressure := ownerReport.CPUPressure
+	if !pressure.Completed || pressure.RequestedPercent != profile.CPULoadPercent || pressure.Workers != 1 ||
+		pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 || pressure.Windows == 0 ||
+		!pressure.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
+		t.Fatalf("owner process has no actual phase-coordinated CPU receipt: %+v", pressure)
+	}
 	if !ownerReport.Completed || !ownerReport.Final.Stopped || ownerReport.ReferenceQualified ||
 		!peerReport.Completed || !peerReport.Stopped || peerReport.ReferenceQualified || len(peerReport.Peers) != 2 ||
 		len(ownerReport.Final.Sessions) != 2 || ownerReport.Final.TimingUncertaintyNS != nil {
@@ -286,6 +293,7 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 	args = append(args,
 		cfg.Profile.Kind, "--sessions="+strconv.Itoa(cfg.Profile.Sessions),
 		"--duration="+cfg.Profile.Duration.String(), "--interface=lo",
+		"--cpu-load-percent="+strconv.FormatUint(cfg.Profile.CPULoadPercent, 10),
 	)
 	if cfg.ControlDirectory != "" {
 		args = append(args, "--control-dir="+cfg.ControlDirectory)

@@ -165,6 +165,16 @@ baseline, not a measured upper bound. The report retains the budget even on
 refusal; it does not reserve capacity or relax the separate CPU, memory,
 thread-pin A/B and runtime qualification gates. See [ADR-0007](./adr/0007-workload-phase-accounting.md).
 
+The owner workload generates requested CPU pressure with bounded helper workers
+inside its own quota. `--cpu-load-percent` uses the shared profile validator;
+named profiles retain the approved 80% input. The JSON `cpu_pressure` receipt
+separates requested duty, actual thread CPU time, summed worker wall time,
+start/end lateness and missed 100 ms duty windows. It includes worker clock
+polling and runtime overhead; elapsed wall time alone is not consumed CPU time.
+Workers stop and join before the frozen owner snapshot and packet drain.
+Completed generation does not establish a held 80% load or reference acceptance;
+use the actual CPU/cgroup observations and clock-validity evidence separately.
+
 `test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
 session manager and owning UDP senders with a fresh real collector. Its typed
 snapshot includes configured endpoints, source ports, session observations,

@@ -4,6 +4,24 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## CPU-pressure workload receipts — 2026-10-24 10:31 UTC
+
+P0 `gobfd-qj0.8.2.1.6.3.4.2` connects requested owner CPU duty to bounded
+workers and actual thread CPU-time receipts. The existing independent-process
+IPv4/IPv6 fixture passes in 52.08 s: 79 writes equal 79 commits; one worker
+records 751118863 ns CPU over 3000044323 ns wall time, with all 30 duty windows
+completed and none missed. The scheduled epoch matches the owner measurement;
+all four containers are absent after cleanup. Runner peak is 229322752 bytes
+under 512 MiB, with zero max/OOM events and swap. Evidence:
+`reports/workload-cpu-20261024/`. The updated critical race suites pass 82
+tests with no skips; scoped lint reports zero issues.
+
+The 25% fixture does not qualify a held 80% reference load, clock accuracy,
+supported scale or stable delivery. Remaining GC/scheduler/loss/churn profiles
+belong to P0 `gobfd-qj0.8.2.1.6.3.4.3`; admitted reference resources and all
+parent distributions remain required before regression policy, thread-pin A/B
+and final wire/24-hour qualification. Beads remains the executable authority.
+
 ## Baseline task admission — 2026-10-24
 
 P0 `gobfd-qj0.8.2.1.6.3.4.1` adds the missing PID-limit preflight before
@@ -15,8 +33,8 @@ the corrected critical race suites pass 76 tests. Evidence:
 defines this conservative baseline policy separately from capacity reservation.
 
 Reference distributions remain P0 in `gobfd-qj0.8.2.1.6.3.4`. The current
-shared runner has no admitted 8 GiB reference headroom; the 80% CPU field is
-still a requested input, with no pressure-generator receipt. Full CPU/GC,
+shared runner has no admitted 8 GiB reference headroom; at this checkpoint the
+80% CPU field had no pressure-generator receipt. Full CPU/GC,
 scheduler, loss, churn and clock-validity evidence, regression policy,
 thread-pin A/B and final four-profile wire qualification remain mandatory.
 No reduced fixture or admission-only result closes those gates.

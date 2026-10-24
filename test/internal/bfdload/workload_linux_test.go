@@ -4,6 +4,7 @@ package bfdload
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/netip"
@@ -20,6 +21,7 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile.Sessions = 1
+	profile.CPULoadPercent = 25
 	cfg := PeerConfig{Profile: profile, SourcePortBase: 55000, Sessions: []OwnerEndpoint{
 		{Local: netip.MustParseAddrPort("127.0.0.1:38061"), Peer: netip.MustParseAddrPort("127.33.0.2:38062")},
 	}}
@@ -30,15 +32,37 @@ func TestOwnerWorkloadActualUDPReportAndCleanup(t *testing.T) {
 	}
 	done := make(chan ownerResult, 1)
 	go func() {
-		report, err := RunOwner(t.Context(), cfg, logger)
-		done <- ownerResult{report, err}
+		report, runErr := RunOwner(t.Context(), cfg, logger)
+		done <- ownerResult{report, runErr}
 	}()
 	peers, peerErr := RunPeers(t.Context(), cfg, logger)
 	owner := <-done
-	if err := errors.Join(peerErr, owner.err); err != nil {
-		t.Fatal(err)
+	if joinedErr := errors.Join(peerErr, owner.err); joinedErr != nil {
+		t.Fatal(joinedErr)
 	}
 	report := owner.report
+	//nolint:musttag // The core report deliberately retains Observation and DeliveryCounter names.
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Pressure *struct {
+			RequestedPercent uint64 `json:"requested_percent"`
+			Workers          int    `json:"workers"`
+			CPUTimeNS        int64  `json:"cpu_time_ns"`
+			Windows          uint64 `json:"windows"`
+			Completed        bool   `json:"completed"`
+		} `json:"cpu_pressure"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Pressure == nil || decoded.Pressure.RequestedPercent != 25 || decoded.Pressure.Workers == 0 ||
+		decoded.Pressure.CPUTimeNS <= 0 || decoded.Pressure.Windows == 0 || !decoded.Pressure.Completed {
+		t.Fatalf("requested CPU pressure has no actual joined worker receipt: %+v", decoded.Pressure)
+	}
+	t.Logf("CPU pressure receipt: %+v", report.CPUPressure)
 	if report.Scope != "production-core-owner-workload" || !report.Completed || !report.Final.Stopped ||
 		report.ReferenceQualified || report.Final.TimingUncertaintyNS != nil || report.Final.ClockEpoch == nil ||
 		report.Resources.Samples < 2 || report.Resources.PeakRSSBytes == 0 {

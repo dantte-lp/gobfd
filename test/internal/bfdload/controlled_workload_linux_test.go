@@ -14,14 +14,18 @@ import (
 )
 
 func TestControlledWorkloadDrainsActualWritesAfterMeasurement(t *testing.T) {
-	testControlledWorkload(t, 0)
+	testControlledWorkload(t, 0, 0)
 }
 
 func TestControlledWorkloadRejectsMissingTerminalReceipt(t *testing.T) {
-	testControlledWorkload(t, 1)
+	testControlledWorkload(t, 1, 0)
 }
 
-func testControlledWorkload(t *testing.T, extraWrites uint64) {
+func TestControlledWorkloadWithCPUPressure(t *testing.T) {
+	testControlledWorkload(t, 0, 25)
+}
+
+func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -30,6 +34,7 @@ func testControlledWorkload(t *testing.T, extraWrites uint64) {
 		t.Fatal(err)
 	}
 	profile.Sessions, profile.Duration = 1, 400*time.Millisecond
+	profile.CPULoadPercent = cpuPercent
 	directory := privateControlDirectory(t)
 	control, err := OpenControl(directory)
 	if err != nil {
@@ -107,6 +112,14 @@ func testControlledWorkload(t *testing.T, extraWrites uint64) {
 			owner.report.MeasurementFinal.Stopped, owner.err)
 	}
 	committed := deliveryCount(owner.report.Final, bfd.DeliveryPacketOwner, bfd.DeliveryCommitted)
+	pressure := owner.report.CPUPressure
+	if cpuPercent != 0 && (!pressure.Completed || pressure.CPUTimeNS <= 0 || pressure.WorkerWallTimeNS <= 0 ||
+		pressure.RequestedPercent != cpuPercent || !pressure.ScheduledAtUTC.Equal(owner.report.StartedAtUTC)) {
+		t.Fatalf("CPU workers lost the common epoch or actual receipt: %+v", pressure)
+	}
+	if cpuPercent != 0 {
+		t.Logf("common-phase CPU pressure receipt: %+v", pressure)
+	}
 	if written == 0 || committed != written || owner.report.Final.Sessions[0].Received != written {
 		t.Fatalf("incomplete actual UDP boundary: written=%d committed=%d", written, committed)
 	}

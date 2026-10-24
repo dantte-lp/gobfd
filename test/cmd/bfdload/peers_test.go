@@ -24,6 +24,8 @@ func TestPeersCommandRejectsInvalidInputsBeforeBinding(t *testing.T) {
 		{"peers", "fixture", "--sessions=1", "--sessions=2"},
 		{"peers", "fixture", "--detect-multiplier=256"},
 		{"peers", "fixture", "--source-port-base=65536"},
+		{"owner", "fixture", "--cpu-load-percent=101"},
+		{"owner", "reference", "--cpu-load-percent=25"},
 		{"peers", "fixture", "--session=not-an-address"},
 		{"peers", "fixture", "--session=127.31.0.1:3784,127.31.0.1:3784"},
 		{"peers", "fixture", "--unknown=true"},
@@ -36,6 +38,17 @@ func TestPeersCommandRejectsInvalidInputsBeforeBinding(t *testing.T) {
 		if output.Len() != 0 {
 			t.Fatalf("invalid inputs produced a workload report: %v", args)
 		}
+	}
+}
+
+func TestWorkloadCPUArgumentUsesProfileValidation(t *testing.T) {
+	t.Parallel()
+	cfg, err := parseWorkloadConfig([]string{
+		"fixture", "--sessions=1", "--cpu-load-percent=25",
+		"--session=127.0.0.1:3784,127.31.0.2:3784",
+	})
+	if err != nil || cfg.Profile.CPULoadPercent != 25 {
+		t.Fatalf("requested CPU duty did not reach the shared profile: %+v: %v", cfg.Profile, err)
 	}
 }
 
