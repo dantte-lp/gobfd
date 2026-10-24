@@ -7,15 +7,15 @@
 ## Граница публикации — 2026-10-24
 
 Эта проекция описывает локальную реализацию `dev`, а не опубликованную
-стабильную поставку. Английская документация сверяется с source до приёмки
-русского перевода. Публикация приостановлена в P0 `gobfd-qj0.8.2.8.7.2.3`,
-добавленной как явная зависимость alpha readiness `gobfd-qj0.8.2.6.4`.
-Путь prerelease в последней пока не реализован.
+стабильную поставку. Сверка английского текста с source и русский перевод
+приняты локально на `5c3ef14bfcf2194e26f951d6125eab3f2fe2ebd6` в
+`gobfd-qj0.8.2.8.7.2.3`. Публикация приостановлена; alpha readiness
+`gobfd-qj0.8.2.6.4` пока не предоставляет путь prerelease.
 
 | Область | Текущая граница | Источник Beads |
 |---|---|---|
-| Документация | Source-backed corrections и EN/RU parity предшествуют публикации | `gobfd-qj0.8.2.8.7.2.3` |
-| Management/reload | Unix/mTLS boundaries реализованы; unsafe-loopback policy reload и полная pending activation открыты | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
+| Документация | Локальный EN/RU audit принят; оговорка historical M-18 отложена в P2 | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.6` |
+| Management/reload | Unsafe-loopback policy changes отклоняются до candidate acceptance; полная pending activation открыта | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Renewal существующего сертификата реализован; actual CA и lifecycle qualification не завершены | `gobfd-qj0.8.2.3.7` |
 | Runtime | CPU fixture даёт ограниченное evidence; reference workload, оставшиеся stress drivers и thread-pin A/B не завершены | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Development slices не заменяют final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |

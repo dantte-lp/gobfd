@@ -1078,6 +1078,12 @@ these bounded field paths, never configuration values or authentication
 secrets. Socket buffer values are included in this startup-only boundary
 and apply to every supported UDP socket described in the socket tuning section.
 
+Changing `grpc.unsafe_loopback_mutations` in either direction rejects the
+reload before generation acceptance, log-level changes, peer callbacks or
+session/resource application. The running RPC policy and `gobfd.management`
+health retain their startup values; changing this policy requires a restart.
+Reapplying the unchanged policy remains admissible.
+
 Base configuration, Echo, Micro-BFD members, VXLAN, and Geneve use distinct
 source ownership. Removing the final entry for one of these sources does not
 delete sessions owned by another source. Echo sender acquisition failure rolls

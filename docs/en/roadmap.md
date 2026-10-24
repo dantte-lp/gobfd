@@ -7,15 +7,15 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 ## Publication boundary — 2026-10-24
 
 This projection describes local `dev` implementation, not published stable
-delivery. English documentation is being verified against source before its
-Russian translation is accepted. Publication remains held under P0
-`gobfd-qj0.8.2.8.7.2.3`, now an explicit dependency of alpha readiness
-`gobfd-qj0.8.2.6.4`. The latter does not yet provide a prerelease path.
+delivery. English source verification and Russian parity are locally accepted
+at `5c3ef14bfcf2194e26f951d6125eab3f2fe2ebd6` under
+`gobfd-qj0.8.2.8.7.2.3`. Publication remains held; alpha readiness
+`gobfd-qj0.8.2.6.4` does not yet provide a prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | Source-backed corrections and EN/RU parity precede publication | `gobfd-qj0.8.2.8.7.2.3` |
-| Management/reload | Unix/mTLS boundaries implemented; unsafe-loopback policy reload and complete pending activation remain open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
+| Documentation | Local EN/RU audit accepted; historical M-18 wording has a deferred P2 | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.6` |
+| Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Runtime | CPU fixture is scoped evidence; reference workload, remaining stress drivers and thread-pin A/B incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |

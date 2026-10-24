@@ -603,6 +603,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject changes to `grpc.unsafe_loopback_mutations` on reload before accepting
+  a generation or applying side effects; changing the running policy requires
+  a restart, in either direction.
+
 - Rejected-authentication session logs retain one `peer` attribute inherited
   from the session logger, so strict JSONL consumers can read replay failures.
 

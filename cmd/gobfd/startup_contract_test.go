@@ -4,9 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
+
+	"connectrpc.com/grpchealth/v2"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/internal/config"
@@ -166,4 +171,85 @@ func cloneStartupContractTestConfig(src *config.Config) *config.Config {
 	dst.VXLAN.Peers = slices.Clone(src.VXLAN.Peers)
 	dst.Geneve.Peers = slices.Clone(src.Geneve.Peers)
 	return &dst
+}
+
+func TestReconciliationRejectsUnsafeLoopbackPolicyChangeBeforeMutation(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		allowed bool
+	}{
+		{name: "enable anonymous mutations"},
+		{name: "disable anonymous mutations", allowed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger := slog.New(slog.DiscardHandler)
+			startup := config.DefaultConfig()
+			startup.GRPC.Addr = "127.0.0.1:50052"
+			startup.GRPC.UnsafeLoopbackMutations = tc.allowed
+			checker := newDaemonHealthChecker()
+			coordinator := newReconciliationCoordinator(startup, logger, checker)
+			mgr := bfd.NewManager(logger)
+			t.Cleanup(mgr.Close)
+			sf := newNthFailureDeclarativeSenderFactory(0)
+			level := new(slog.LevelVar)
+			srv := newGRPCServer(startup.GRPC, false, mgr, nil, nil, checker, nil, logger, nil)
+			if err := coordinator.reconcile(t.Context(), startup, mgr, sf, level); err != nil {
+				t.Fatal(err)
+			}
+			before := coordinator.Snapshot()
+			callbacks := 0
+			coordinator.onConfiguredPeers = func([]netip.Addr) { callbacks++ }
+			candidate := cloneStartupContractTestConfig(startup)
+			candidate.GRPC.UnsafeLoopbackMutations = !tc.allowed
+			candidate.Log.Level = "debug"
+			candidate.Sessions = []config.SessionConfig{{
+				Peer: "192.0.2.10", Local: "127.0.0.1", Interface: "lo",
+				Auth: config.AuthConfig{Type: "simple_password", Secret: "reload-secret"},
+			}}
+			for range 2 {
+				err := coordinator.reconcile(t.Context(), candidate, mgr, sf, level)
+				if !errors.Is(err, errStartupConfigChanged) {
+					t.Fatalf("policy change error = %v, want errStartupConfigChanged", err)
+				}
+				var changeErr *startupConfigChangeError
+				if !errors.As(err, &changeErr) || len(changeErr.FieldIDs()) != 1 ||
+					changeErr.FieldIDs()[0].String() != "grpc.unsafe_loopback_mutations" {
+					t.Fatalf("policy change diagnostic = %v, want only the startup field path", err)
+				}
+				if strings.Contains(err.Error(), "reload-secret") || strings.Contains(err.Error(), "192.0.2.10") {
+					t.Fatalf("policy change diagnostic leaked candidate values: %v", err)
+				}
+			}
+			if coordinator.Snapshot() != before || level.Level() != slog.LevelInfo ||
+				len(mgr.Sessions()) != 0 || sf.calls != 0 || len(sf.closed) != 0 || callbacks != 0 {
+				t.Fatal("rejected policy changed generation, log level, sessions, resources or peer callbacks")
+			}
+			if err := coordinator.reconcile(t.Context(), startup, mgr, sf, level); err != nil {
+				t.Fatalf("unchanged startup policy: %v", err)
+			}
+			after := coordinator.Snapshot()
+			if after.DesiredGeneration != before.DesiredGeneration+1 || after.AppliedGeneration != after.DesiredGeneration ||
+				after.Stale || sf.calls != 0 || len(mgr.Sessions()) != 0 {
+				t.Fatal("unchanged startup policy did not converge without creating resources")
+			}
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bfd.v1.BfdService/DeleteSession",
+				strings.NewReader(`{"localDiscriminator":42}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			srv.Handler.ServeHTTP(rec, req)
+			wantCode, wantHealth := http.StatusForbidden, grpchealth.StatusServing
+			if tc.allowed {
+				wantCode, wantHealth = http.StatusNotFound, grpchealth.StatusNotServing
+			}
+			if rec.Code != wantCode {
+				t.Fatalf("retained anonymous mutation policy HTTP status = %d, want %d", rec.Code, wantCode)
+			}
+			health, err := checker.Check(t.Context(), &grpchealth.CheckRequest{Service: managementHealthServiceName})
+			if err != nil || health.Status != wantHealth {
+				t.Fatalf("retained management health = %v, %v, want %v", health, err, wantHealth)
+			}
+		})
+	}
 }

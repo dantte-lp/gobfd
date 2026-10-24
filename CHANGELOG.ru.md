@@ -604,6 +604,10 @@
 
 ### Исправлено
 
+- Изменение `grpc.unsafe_loopback_mutations` при reload отклоняется до принятия
+  поколения и побочных эффектов; смена действующей policy в любом направлении
+  требует restart.
+
 - Session logs отклонённой authentication сохраняют один атрибут `peer`,
   унаследованный от session logger: strict JSONL consumers читают replay failures.
 

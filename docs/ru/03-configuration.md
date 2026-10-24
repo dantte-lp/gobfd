@@ -1092,6 +1092,12 @@ VNI по умолчанию сразу re-key все identities своего sou
 буферов входят в startup-only границу и применяются к поддерживаемым
 UDP-сокетам, описанным в разделе настройки буферов.
 
+Изменение `grpc.unsafe_loopback_mutations` в любом направлении отклоняет
+reload до generation acceptance, изменения log level, peer callbacks и
+применения sessions/resources. Действующая RPC policy и health
+`gobfd.management` сохраняют startup values; смена policy требует restart.
+Повторное применение неизменённой policy допустимо.
+
 Base configuration, Echo, Micro-BFD members, VXLAN и Geneve используют
 раздельный ownership sources. Удаление последней записи одного source не
 удаляет sessions другого source. Ошибка получения sender для Echo откатывает
