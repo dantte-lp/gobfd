@@ -53,6 +53,13 @@ checkpoint сохраняется через reload и вход в remote Demand
 `gobfd-qj0.8.2.2.7.5.4.3`. Профиль не квалифицирует routed/cloud paths или
 общую работу Demand.
 
+Локальная TTL wire-квалификация прошла на
+`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`:
+исходный crafted profile — 162.94 s, authenticated multihop — 81.98 s.
+Семь boundary/replay windows сохраняют identity, source lease и generation
+semantics. Evidence: `reports/ttl-wire-20261024/`. Квалифицирован только TTL;
+unified five-field final-candidate gate `gobfd-qj0.8.2.2.7.5.5` остаётся обязательным.
+
 Увеличение TX и уменьшение RX сохраняют защищённый прежний локальный эффект
 до соответствующего Final; обратные изменения сохраняют действующий immediate
 effect. Активный Poll сохраняет объявленный tuple, последующий proposal

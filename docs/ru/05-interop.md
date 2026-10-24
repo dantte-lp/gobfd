@@ -250,6 +250,14 @@ state transitions не меняются. Исходный baseline охваты�
 Проверяется локальная policy GoBFD `255 - N`; routed/cloud acceptance остаётся
 отдельной. Actual qualification принадлежит `gobfd-qj0.8.2.2.7.5.4.3`.
 
+Локальная квалификация на `491b2214994f07e017eb93ab67a29a95378c619e` проходит
+исходный crafted profile за 162.94 s и authenticated multihop за 81.98 s.
+Все семь boundary/replay windows проходят; совпадают 863 source hashes
+и 212 artifact sidecars. Evidence: `reports/ttl-wire-20261024/`. Оба профиля
+повторены на исправленном source после удаления повторного атрибута session log;
+strict JSON receipt parsing сохранён. Unified five-field и stable-release
+qualification остаются отдельными.
+
 ### Запуск тестов совместимости
 
 #### Полный цикл (рекомендуется)

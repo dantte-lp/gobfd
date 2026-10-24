@@ -53,6 +53,13 @@ cannot substitute for continuity. Source tests alone do not close the actual
 kernel/capture gate `gobfd-qj0.8.2.2.7.5.4.3`. This profile does not qualify
 routed/cloud paths or general Demand operation.
 
+Local TTL wire qualification passed on
+`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`:
+the default crafted profile takes 162.94 s and authenticated multihop 81.98 s.
+Seven boundary/replay windows retain identity, source lease and generation
+semantics. Evidence: `reports/ttl-wire-20261024/`. This qualifies the TTL slice;
+unified five-field final-candidate gate `gobfd-qj0.8.2.2.7.5.5` remains mandatory.
+
 TX increases and RX decreases retain their protected old local effect until
 the relevant Final; the reverse directions retain their existing immediate
 effect. An active Poll keeps its advertised tuple, and a later proposal is

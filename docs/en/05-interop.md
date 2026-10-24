@@ -249,6 +249,14 @@ reload and Demand transitions as well as each probe. This
 checks GoBFD's local `255 - N` policy; routed/cloud acceptance remains separate.
 Actual qualification belongs to `gobfd-qj0.8.2.2.7.5.4.3`.
 
+Local qualification on `491b2214994f07e017eb93ab67a29a95378c619e` passes the
+default crafted profile in 162.94 s and authenticated multihop in 81.98 s.
+All seven boundary/replay windows pass; 863 source hashes and 212 artifact
+sidecars match. Evidence: `reports/ttl-wire-20261024/`. Both profiles repeat
+on the corrected source after a duplicated session-log attribute was removed;
+strict JSON receipt parsing remains enforced. This does not close unified
+five-field or stable-release qualification.
+
 ### Running Interop Tests
 
 #### Full Cycle (Recommended)

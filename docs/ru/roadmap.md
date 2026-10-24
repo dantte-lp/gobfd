@@ -4,25 +4,39 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
-## Квалификация multihop TTL в работе — 2026-10-24
+## Wire-квалификация multihop TTL — 2026-10-24
 
-P0 `gobfd-qj0.8.2.2.7.5.4` продолжается в `task/ttl-wire-20261024` от локального
-`dev@5c0772ceb548c2d692cee61eabea37d40b2b2b82`. Штатная crafted-топология
-получила authenticated UDP/4784 startup profile; исходное single-hop поведение
-сохранено. Транзакционный анализатор захвата проверяет Poll ниже порога,
-идентичный повтор на пороге, порядок Final, счётчики принятого ввода и replay
-state. После наблюдённого RED проходят 73 top-level source tests с
-race/shuffle; production core и зависимости не изменены. Два выявленных review
-пробела квалификации устранены: исходный counter baseline охватывает reload,
-а ранее принятый sequence повторяется после reload до свежей boundary-пробы.
-Ровно один ожидаемый auth failure на пробу учитывает этот намеренный replay.
-Evidence: `reports/ttl-wire-20261024/`.
+P0 `gobfd-qj0.8.2.2.7.5.4` прошла локальную wire-квалификацию на
+`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`.
+Исходный crafted baseline проходит за 162.94 s; authenticated UDP/4784
+multihop — за 81.98 s. Семь проб охватывают floors 254→250→254 в Async
+и remote Demand, затем отклонённый auth+hop-policy candidate. Каждое окно
+отклоняет ранее принятый signed payload и свежий Poll ниже порога; только
+его идентичный повтор на пороге увеличивает accepted RX и получает Final.
+Один ожидаемый auth failure относится к намеренному replay. Исходный
+identity/counter baseline и authentication checkpoints охватывают reload и
+вход в Demand; local Poll отсутствует. Rejection сохраняет generation 5/5
+и floor 254.
 
-Это source-stage snapshot без actual-wire acceptance.
-Beads `.5.4.1` и `.5.4.2` остаются in progress; `.5.4.3` отвечает за фактический
-захват на проверенном исходном коде. P0 unified final-candidate `.5.5`,
-scale/latency и security qualification остаются обязательными до v1.
-Dynamic DF и key rotation остаются after-v1 P2; remote publication приостановлена.
+Лимит обоих runner — 512 MiB, peaks — 380297216 и 388112384 bytes;
+max/OOM events и swap — 0. Совпали все 863 source hashes и 212 artifact
+sidecars; шесть exact image ID сохранены из engine events. Оба health service
+остаются SERVING. Source gates проходят 73 interop/peer и 12 auth/expiry/log
+tests с race/shuffle, lint, vet, сборку, tidy и проверки 88 Markdown-файлов.
+Первый multihop-запуск выявил повторный атрибут `peer` в logs; однострочный
+production fix сохраняет constructor-bound context и strict JSON ingestion.
+Оба actual-профиля повторены на исправленном source. Независимый review
+устранил два предыдущих пробела counter/replay oracle. Evidence:
+`reports/ttl-wire-20261024/`.
+
+P0 unified five-field `.5.5`, scale/latency и security gates остаются
+обязательными до v1. `.5.5.1` отвечает за подтверждённую документацией проблему
+read limit `tshark -c`, которая может объяснять прежние filtered-query SKIP;
+обязательны actual reproduction и disposition. Dynamic DF и key rotation
+остаются after-v1 P2. Routed/cloud, general Demand, stable release и remote
+publication acceptance не заявлены.
+P0 `.5.5.2` отвечает за автоматическое сохранение immutable image ID и source
+provenance штатным shared qualifier до cleanup.
 
 ## Wire-квалификация prepared padding — 2026-10-24
 

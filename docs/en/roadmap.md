@@ -4,25 +4,37 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
-## Multihop TTL qualification in progress — 2026-10-24
+## Multihop TTL wire qualification — 2026-10-24
 
-P0 `gobfd-qj0.8.2.2.7.5.4` continues in `task/ttl-wire-20261024` from local
-`dev@5c0772ceb548c2d692cee61eabea37d40b2b2b82`. The existing crafted topology
-now has an authenticated UDP/4784 startup profile; default single-hop behavior
-is retained. A transactional capture evaluator checks the below-floor Poll,
-identical at-floor retry, Final ordering, accepted-input counters and replay
-state. The observed RED/GREEN source gate passes 73 top-level tests with
-race/shuffle, without production-core or dependency changes. Independent review
-found and resolved two qualification gaps: an initial counter baseline now
-spans reloads, and an already accepted sequence is replayed after reload
-before fresh boundary input. Exactly one expected auth failure per probe
-accounts for that deliberate replay. Evidence: `reports/ttl-wire-20261024/`.
+P0 `gobfd-qj0.8.2.2.7.5.4` passed local wire qualification on
+`task/ttl-wire-20261024@491b2214994f07e017eb93ab67a29a95378c619e`.
+The unchanged crafted baseline passes in 162.94 s; authenticated UDP/4784
+multihop passes in 81.98 s. Seven probes cover floors 254→250→254 in Async
+and remote Demand, then a rejected auth+hop-policy candidate. Each window
+rejects a previously accepted signed payload and a fresh below-floor Poll;
+its identical at-floor retry alone increments accepted RX and receives Final.
+One expected auth failure accounts for the deliberate replay. Initial
+identity/counter and authentication checkpoints span reloads and Demand entry;
+local Poll remains absent. Rejection retains generation 5/5 and floor 254.
 
-This source-stage snapshot does not establish actual-wire acceptance.
-Beads `.5.4.1` and `.5.4.2` remain in progress; `.5.4.3` owns actual capture
-at the reviewed source. P0 unified final-candidate `.5.5`, scale/latency and
-security qualification remain mandatory before v1. Dynamic DF and key
-rotation remain after-v1 P2; remote publication remains on hold.
+Both runners retain the 512 MiB cap, with peaks 380297216 and 388112384 bytes,
+zero max/OOM events and swap. All 863 source hashes and 212 artifact sidecars
+match; six exact image IDs are retained from engine events. Both health services
+remain SERVING. Source gates pass 73 interop/peer and 12 auth/expiry/log tests
+with race/shuffle, lint, vet, compilation, tidy and 88 Markdown checks.
+The first multihop run exposed duplicate `peer` log attributes; a one-line
+production fix preserves constructor-bound context and strict JSON ingestion.
+Both actual profiles were repeated on the corrected source. Independent review
+resolved two earlier counter/replay oracle gaps. Evidence:
+`reports/ttl-wire-20261024/`.
+
+P0 unified five-field `.5.5`, scale/latency and security gates remain mandatory
+before v1. `.5.5.1` owns a newly sourced `tshark -c` read-limit issue that may
+explain prior filtered-query SKIPs; actual reproduction and disposition remain
+required. Dynamic DF and key rotation remain after-v1 P2. No routed/cloud,
+general Demand, stable release or remote publication acceptance is asserted.
+P0 `.5.5.2` owns automated immutable image-ID/source-provenance retention in
+the existing shared qualifier before cleanup.
 
 ## Prepared-padding wire qualification — 2026-10-24
 
