@@ -595,12 +595,7 @@ func startCraftedPeerTopology(
 	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, craftedPeerConfig), networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 	// Fail before the scenario when the dissector lacks a queried field.
-	code, registry, err := containertest.Exec(ctx, resources.tshark, []string{"tshark", "-G", "fields"})
-	for _, field := range craftedFrameFields() {
-		if err != nil || code != 0 || !strings.Contains(registry, "\t"+field+"\t") {
-			t.Fatalf("tshark field %s unavailable: exit=%d error=%v", field, code, err)
-		}
-	}
+	requireCaptureFields(ctx, t, append(detectFrameFields(), "bfd.diag"))
 	peer := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:                    peerImage,
 		Name:                     "scapy-interop",
@@ -703,7 +698,6 @@ func advanceCrafted(ctx context.Context, t *testing.T, peer testcontainers.Conta
 
 func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer testcontainers.Container) {
 	t.Helper()
-	requireDetectFields(ctx, t)
 	baseline, err := os.ReadFile(filepath.Join(root, craftedPeerConfig))
 	if err != nil {
 		t.Fatalf("read crafted peer daemon baseline: %v", err)

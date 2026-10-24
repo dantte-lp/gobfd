@@ -198,7 +198,9 @@ the crafted remote-Demand session uses 5→3, each with its own Poll, peer Final
 applied receipt and quiet window. DetectMult 1 uses 75–90% jitter with mean
 0.825T; other tested multipliers use 75–100% with mean 0.875T. Capture checks
 preserve UDP source port/length, authentication type/key/sequence, discriminators
-and timers. The runtime tshark field registry is retained before mutations.
+and timers. Before mutations, runtime tshark registry queries are restricted to
+`frame.`, `ip.`, `bfd.` and `udp.`; the retained rows use first-column field
+matching. This avoids buffering the full registry in the bounded race runner.
 Local receive Detection Time uses the peer's multiplier. Derived peer Async
 and local Demand Poll bounds are labelled separately from measured timing;
 the crafted peer does not implement a detection timer. Source contracts alone

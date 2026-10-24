@@ -883,7 +883,7 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 func TestTimerReload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
-	requireDetectFields(ctx, t)
+	requireCaptureFields(ctx, t, detectFrameFields())
 	baseline, err := os.ReadFile("gobfd/gobfd.yml")
 	if err != nil {
 		t.Fatalf("read immutable daemon baseline: %v", err)

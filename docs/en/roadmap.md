@@ -10,9 +10,12 @@ P0 `gobfd-qj0.8.2.2.7.5.2` adds authenticated Async DetectMult 1→5→3
 and crafted remote-Demand 5→3 phases to the existing wire scenarios. The
 source evaluator checks multiplier-specific jitter, directional detection
 calculations, UDP/authentication continuity and per-generation Demand windows.
-Critical source contracts passed 32 top-level tests with race detection,
+Critical source contracts passed 33 top-level tests with race detection,
 including a review-driven next-Control bound with observed RED/GREEN.
 Final lint and actual candidate captures remain separate qualification steps.
+The first crafted run exhausted its 512 MiB race-runner cap during full
+registry buffering, before peer startup. P0 `gobfd-qj0.8.2.2.7.5.2.1` scopes
+registry discovery without raising that cap; runtime retry remains mandatory.
 ADR 0006 distinguishes received-multiplier local detection, derived peer Async
 detection and derived local Demand Poll bounds. The crafted peer has no
 detection timer. This task and the mandatory five-field wire parent remain

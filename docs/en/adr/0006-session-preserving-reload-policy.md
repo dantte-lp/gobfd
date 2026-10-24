@@ -206,6 +206,8 @@ candidate captures remain mandatory before closing the wire task.
 Async capture permits one old in-flight Control only as the first local
 post-receipt packet within the existing timer slack; the first new Control must
 arrive within one negotiated TX plus slack. Later old multipliers fail the gate.
+Runtime field discovery uses scoped registry queries and exact first-column
+matching; it does not buffer the full dissector registry in the race runner.
 
 Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,

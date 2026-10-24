@@ -207,6 +207,8 @@ Async Detection Time соседа вычисляется, но не измеря
 Async capture допускает один старый in-flight Control только первым локальным
 post-receipt пакетом в пределах существующего timer slack; первый новый Control
 обязателен за один negotiated TX плюс slack. Поздний старый множитель отклоняется.
+Runtime discovery использует запросы registry по префиксам и точное сравнение
+первого столбца; полный registry не буферизуется в race runner.
 
 Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,

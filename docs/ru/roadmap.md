@@ -10,9 +10,12 @@ P0 `gobfd-qj0.8.2.2.7.5.2` добавляет аутентифицированн
 DetectMult 1→5→3 и crafted remote-Demand 5→3 в существующие wire-сценарии.
 Source evaluator проверяет jitter для каждого множителя, направленные расчёты
 Detection Time, непрерывность UDP/аутентификации и Demand windows каждого
-поколения. С race detector прошли 32 top-level source contract, включая
+поколения. С race detector прошли 33 top-level source contract, включая
 next-Control bound после замечания review и наблюдённого RED/GREEN. Финальный
 lint и фактические captures кандидата остаются отдельными этапами квалификации.
+Первый crafted-прогон исчерпал лимит race runner 512 MiB при буферизации полного
+registry до запуска peer. P0 `gobfd-qj0.8.2.2.7.5.2.1` ограничивает discovery
+без повышения лимита; повторная runtime-квалификация остаётся обязательной.
 ADR 0006 разделяет локальное обнаружение по принятому множителю, расчётное
 peer Async detection и local Demand Poll bounds. Crafted peer не имеет
 detection timer. Эта задача и обязательный five-field wire parent остаются

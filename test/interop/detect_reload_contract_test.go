@@ -3,6 +3,7 @@
 package interop_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -26,6 +27,35 @@ func TestTimerReloadDetectOneJitter(t *testing.T) {
 	for _, multiplier := range []uint64{0, 256} {
 		if _, modeErr := checkJitteredIntervals(intervals, 300000, multiplier); modeErr == nil {
 			t.Fatalf("accepted invalid multiplier %d", multiplier)
+		}
+	}
+}
+
+func TestTimerReloadCaptureRegistry(t *testing.T) {
+	t.Parallel()
+	fields := []string{"frame.number", "ip.src", "bfd.flags.a", "udp.length"}
+	responses := map[string]string{
+		"fields,frame.": "frame.number\tFrame number\n",
+		"fields,ip.":    "ip.src\tSource address\n",
+		"fields,bfd.":   "bfd.flags.a\tAuthentication present\n",
+		"fields,udp.":   "udp.length\tLength\n",
+	}
+	query := func(_ context.Context, scope string) (string, error) {
+		if value, ok := responses[scope]; ok {
+			return value, nil
+		}
+		return "", errors.New("unbounded registry query")
+	}
+	registry, err := captureFieldRegistry(t.Context(), fields, query)
+	if err != nil || !strings.Contains(registry, "bfd.flags.a\tAuthentication present\n") {
+		t.Fatalf("bounded registry discovery failed: %v", err)
+	}
+	for _, response := range []string{
+		"", "other.bfd.flags.a\tWrong field\n", "F\tdescription\tbfd.flags.a\tFT_BOOLEAN\n",
+	} {
+		responses["fields,bfd."] = response
+		if _, fieldErr := captureFieldRegistry(t.Context(), fields, query); !errors.Is(fieldErr, errTimerEvidence) {
+			t.Fatalf("accepted missing/incorrect first-column field: %v", fieldErr)
 		}
 	}
 }

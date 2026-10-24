@@ -199,7 +199,9 @@ crafted remote-Demand — 5→3, каждый раз с собственными
 applied receipt и quiet window. DetectMult 1 использует jitter 75–90% со
 средним 0.825T, остальные проверяемые множители — 75–100% и 0.875T.
 Capture сохраняет UDP source port/length, тип/key/sequence аутентификации,
-discriminators и таймеры. Runtime registry полей tshark сохраняется до изменений.
+discriminators и таймеры. До изменений запросы runtime registry tshark ограничены
+префиксами `frame.`, `ip.`, `bfd.` и `udp.`; сохраняемые строки сопоставляются
+по первому столбцу. Полный registry не буферизуется в ограниченном race runner.
 Локальное receive Detection Time зависит от множителя peer. Расчётные peer
 Async и local Demand Poll bounds отделены от измерений; crafted peer не имеет
 detection timer. Source contracts не закрывают P0 `gobfd-qj0.8.2.2.7.5.2`:

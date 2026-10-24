@@ -316,14 +316,36 @@ func readDetectFrames(ctx context.Context, peer string, after uint64) ([]detectF
 	return parseDetectFrames(rows)
 }
 
-func requireDetectFields(ctx context.Context, t *testing.T) {
-	t.Helper()
-	registry, err := projectContainerCommand(ctx, "tshark-interop", "exec", "tshark", "-G", "fields")
-	writeTimerArtifact(t, "detect-field-registry", "txt", []byte(registry))
-	for _, field := range detectFrameFields() {
-		if err != nil || !strings.Contains(registry, "\t"+field+"\t") {
-			t.Fatalf("DetectMult field %s unavailable: %v", field, err)
+func captureFieldRegistry(ctx context.Context, fields []string,
+	query func(context.Context, string) (string, error),
+) (string, error) {
+	var registry strings.Builder
+	// Scope metadata before exec buffering; the full registry exhausts bounded race runners.
+	for _, scope := range []string{"frame.", "ip.", "bfd.", "udp."} {
+		part, err := query(ctx, "fields,"+scope)
+		if err != nil {
+			return registry.String(), fmt.Errorf("capture registry %s: %w", scope, err)
 		}
+		registry.WriteString(part)
+		registry.WriteByte('\n')
+	}
+	result := registry.String()
+	for _, field := range fields {
+		if !strings.HasPrefix(result, field+"\t") && !strings.Contains(result, "\n"+field+"\t") {
+			return result, fmt.Errorf("capture field %s unavailable: %w", field, errTimerEvidence)
+		}
+	}
+	return result, nil
+}
+
+func requireCaptureFields(ctx context.Context, t *testing.T, fields []string) {
+	t.Helper()
+	registry, err := captureFieldRegistry(ctx, fields, func(queryCtx context.Context, scope string) (string, error) {
+		return projectContainerCommand(queryCtx, "tshark-interop", "exec", "tshark", "-G", scope)
+	})
+	writeTimerArtifact(t, "capture-field-registry", "tsv", []byte(registry))
+	if err != nil {
+		t.Fatalf("capture field registry: %v", err)
 	}
 }
 
