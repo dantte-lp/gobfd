@@ -127,6 +127,9 @@ reference qualification не устанавливается.
 
 На measurement end брать denominator Down journal из фактического retained counter
 collector `Up`→`Down`, увеличиваемым до timestamp notification и enqueue.
+Плановый конец измерения и фактическое время завершения чтения сохранять
+отдельно: планировщик и сбор метрик могут задержать чтение, которое не является
+атомарным снимком точно на границе измерения.
 Запускать один bounded consumer вместе с подпиской и сохранять чтение на setup,
 measurement и shutdown. Сохранять не более `maxDownEvents` компактных Down
 projections, оставляя монотонные timestamps до получения фактической фазы.
@@ -135,7 +138,8 @@ consumer не более пяти секунд; на timeout отменять и
 measurement snapshot до stop/drain и journal join в controlled и uncontrolled
 режимах; использовать его для histogram deltas. Считать каждую наблюдаемую notification,
 разделяя counts до и после cutoff, но сохранять строки журнала только в
-`[start,end)`. Требовать равенства final source total сумме обоих observed counts
+`[start,end)`. Счётчик до конца измерения включает запуск и не равен числу
+событий внутри окна измерения. Требовать равенства final source total сумме обоих observed counts
 и before-cutoff count <= cutoff source <= final source. Gaps, overflow,
 некорректные counters, незакрытая подписка и несовпадение counts отклоняют
 completeness. Последующие flaps не компенсируют пропущенное раннее событие;

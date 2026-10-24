@@ -125,7 +125,9 @@ named baseline dimensions or establish reference qualification.
 
 At measurement end, sample the Down-journal denominator from the actual retained
 collector `Up`→`Down` counter, which increments before notification timestamp
-and enqueue. Start one bounded consumer with the subscription and keep it active
+and enqueue. Retain the planned cutoff and actual sample completion time
+separately: scheduling and collection may delay the read, and it is not an
+atomic snapshot at the cutoff. Start one bounded consumer with the subscription and keep it active
 through setup, measurement and shutdown. Retain at most `maxDownEvents` compact
 Down projections, preserving monotonic timestamps until the actual phase is
 known. Count all gaps and omissions. After all owner goroutines join, join that
@@ -133,7 +135,8 @@ consumer within five seconds, cancelling and joining it on timeout. Freeze the
 measurement snapshot before stop/drain and journal join in both controlled and
 uncontrolled modes; use it for histogram deltas. Count every observed
 notification, separating those before and after cutoff, but retain journal rows
-only in `[start,end)`. Require final source total to equal both observed counts
+only in `[start,end)`. The before-cutoff count includes setup and is not the
+measurement-window event count. Require final source total to equal both observed counts
 combined, and before-cutoff count <= cutoff source <= final source. Gaps,
 overflow, invalid counters, an unclosed subscription or a count mismatch fail
 completeness. Thus later flaps cannot compensate for a missing earlier event;

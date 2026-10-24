@@ -795,7 +795,7 @@ operator-provided images. The Go lifecycle renders a topology containing only
 available profiles, records exact container identities in a mode-0600 receipt,
 and records the run-owned GoBFD image reference, ID, and ownership labels in
 the same mode-0600 receipt. Cleanup validates all recorded identities before
-its first mutation, removes the image by exact ID without force, and deletes
+its first mutation, removes the image by exact ID without `--force`, and deletes
 the receipt last. A standalone bootstrap intentionally leaves the staged image
 and receipt for a later `--skip-build` deployment or exact `--down` cleanup;
 `--skip-build` never trusts a shared `latest` tag. A UID-scoped host-global lock

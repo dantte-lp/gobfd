@@ -156,6 +156,8 @@ Missing or malformed data remains unavailable. Limits distinguish `max` from
 numeric zero. Hidden parents, reference admission, generator isolation and
 supported load remain separate gates in Beads.
 
+### Resource admission
+
 Snapshots retain `pids.current` and `pids.max` as task counts. Before named
 owner profiles create sessions, admission checks additional headroom of
 `sessions + 64` at every visible ancestor: 1,064 tasks for reference and 5,064
@@ -163,6 +165,8 @@ for engineering. This conservative policy covers the currently pinned Control
 baseline, not a measured upper bound. The report retains the budget even on
 refusal; it does not reserve capacity or relax the separate CPU, memory,
 thread-pin A/B and runtime qualification gates. See [ADR-0007](./adr/0007-workload-phase-accounting.md).
+
+### CPU pressure
 
 The owner workload generates requested CPU pressure with bounded helper workers
 inside its own quota. `--cpu-load-percent` uses the shared profile validator;
@@ -176,6 +180,8 @@ polling and runtime overhead; elapsed wall time alone is not consumed CPU time.
 Workers stop and join before the frozen owner snapshot and packet drain.
 Completed generation does not establish a held 80% load or reference acceptance;
 use the actual CPU/cgroup observations and clock-validity evidence separately.
+
+### GC pressure
 
 `--gc-pressure` adds a default-off, fixed allocation workload inside the owner
 quota: up to 4 MiB per 100 ms, in 64 KiB objects, with at most 16 MiB of retained
@@ -191,6 +197,8 @@ calibrated pressure, latency acceptance or reference support.
 `released_objects` counts occupied ring entries dropped at worker exit,
 not all prior overwrites or objects reclaimed by GC.
 
+### Scheduler pressure
+
 `--scheduler-pressure` adds four owner helpers per effective `GOMAXPROCS`;
 it rejects values above eight rather than clamping the worker count. The
 maximum is 32 helpers. In each common 100 ms window, a helper attempts up to 64 rounds
@@ -203,6 +211,8 @@ The existing scheduler-window histogram and production timer/committed-RX
 histograms remain distinct observations. Workers join before freeze/drain;
 the default-off variant preserves named inputs and does not change runtime
 settings or establish calibrated reference distributions.
+
+### Session churn
 
 The default-off `--session-churn` variant releases and recreates one actual
 admitted Manager session at a time from the explicit peer manifest. It starts
@@ -235,6 +245,8 @@ unique-peer label growth. Churn joins before measurement freeze; the bounded
 event journal covers all five-second slots of the 24-hour profile and counts
 later omissions explicitly.
 
+### Owner and independent peers
+
 `test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
 session manager and owning UDP senders with a fresh real collector. Its typed
 snapshot includes configured endpoints, source ports, session observations,
@@ -262,6 +274,8 @@ named profiles fail before sockets open. SIGINT/SIGTERM cancel the workload,
 join workers and emit a partial JSON report; signals retain normal termination
 while stdout is blocked after cleanup.
 
+### Measurement phases and historical fixtures
+
 Commands without `--control-dir` retain independent duration timers and lifetime
 totals that include setup and shutdown. Controlled owner/peer commands use the
 existing Go-owned topology controller: bind both roles, reach Up, publish a common
@@ -287,11 +301,16 @@ passes in 47.67 s with the same 79/79 ledger and explicit nonempty measurement
 snapshot. Mutation and malformed-report checks prove snapshot and failure
 boundaries. Reference and absolute-clock qualification remain open.
 
+### Down-journal completeness
+
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
 deltas and a bounded Down journal. At the cutoff, `down_journal` captures the
-actual retained FSM `Up`→`Down` counter without waiting for dispatch or delaying
-the measurement snapshot. One consumer continuously reads the subscription from
+actual retained FSM `Up`→`Down` counter without waiting for notification catchup.
+The planned cutoff and actual counter-sample completion time are separate;
+scheduling and metric collection can delay the sample. Neither the counter nor
+the measurement snapshot is an atomic reading at the planned cutoff.
+One consumer continuously reads the subscription from
 setup through owner shutdown, retaining at most `maxDownEvents` compact Down
 projections and counting gaps/omissions. Classify their monotonic timestamps
 after the actual phase is known; setup readiness never leaves the channel
@@ -307,6 +326,27 @@ Unobserved startup flaps conservatively fail completeness; a sampled startup
 baseline is not subtracted. Interval membership uses the existing notification
 timestamp, not a newly calibrated FSM-commit timestamp. Beads
 `gobfd-qj0.8.2.1.6.3.4.3.5` owns this boundary.
+
+| Report field | Meaning |
+|---|---|
+| `down_journal.cutoff_at_utc` | Planned measurement end |
+| `down_journal.source_sampled_at_utc` | Actual completion time of the cutoff counter read |
+| `down_journal.source_transitions` | Retained lifetime `Up`→`Down` count at that read |
+| `down_journal.final_source_transitions` | Retained lifetime count after owner shutdown |
+| `down_journal.observed_before_cutoff` | Delivered transitions timestamped before cutoff, including setup |
+| `down_journal.observed_after_cutoff` | Delivered transitions timestamped at or after cutoff |
+| `down_events` | Only delivered transitions timestamped in `[start,end)` |
+
+Completeness requires
+`final_source_transitions = observed_before_cutoff + observed_after_cutoff`,
+the ordering above, a stopped owner, a closed subscription and no recorded
+gap, omission or error. Do not use `observed_before_cutoff` as the number of
+measurement-window Down events. See the
+[journal implementation](../../test/internal/bfdload/down_journal_linux.go)
+and [timestamp classification](../../test/internal/bfdload/workload_linux.go).
+
+### Completion and qualification
+
 Both controlled and uncontrolled modes freeze `measurement_final` before
 stop/drain and journal join; runtime histogram deltas use this snapshot.
 The owner does not classify intentional Down without the independent peer
@@ -319,6 +359,8 @@ capacity or prove host namespace visibility; the isolated runner must verify
 these independently. Process isolation, settled 24-hour Up duration, background
 CPU load, independent clock validity and full daemon qualification remain
 separate gates in Beads. See the [cgroup v2 hierarchy contract](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+
+### Clock validity and conditional uncertainty
 
 Listener `clock_calibrations` retain a three-read monotonic bracket around the
 wall/monotonic pair and the nominal native clock resolutions. The conditional
