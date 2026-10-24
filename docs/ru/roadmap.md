@@ -6,6 +6,21 @@
 
 ## Исправления единого квалификатора — 2026-10-24
 
+Существующий default FourPeer gate проходит за 429,47 с на
+`task/final-wire-20261024@e4e79a8eee8e7c38bfc78321bdc5e9030909c214`:
+10 сценариев; initial Down и DetectionPrecision выполнены, detection gap —
+0,901 с. Единственный RFC SKIP — подтверждённое исходным кодом отклонение
+source-port range BIRD на Linux. ID всех шести first-party images и по девять
+обязательных annotations сохранены до очистки; сами images отсутствуют.
+Совпали 867 source hashes и 310 artifact sidecars; 14 readiness probes вернули
+28 SERVING results. Peak runner — 414269440 bytes при прежнем лимите 512 MiB;
+max/OOM events и swap — 0.
+
+Final unified qualification остаётся P0 после committed-load и изменений
+thread pinning Session/Echo (`gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7`).
+Все четыре профиля повторяются на итоговом production candidate. Этот
+development receipt не заменяет final scale, security, OCI или stable release.
+
 P0 `gobfd-qj0.8.2.2.7.5.5` выполняется. Offline-анализ сохранённого capture
 воспроизводит ошибку read limit TShark: `-c 1` не возвращает строк, тот же
 фильтр без ограничения возвращает 13 строк, начиная с frame 511.

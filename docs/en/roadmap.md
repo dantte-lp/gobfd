@@ -6,6 +6,21 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
 ## Unified qualifier corrections — 2026-10-24
 
+The existing default FourPeer gate passes in 429.47 s on
+`task/final-wire-20261024@e4e79a8eee8e7c38bfc78321bdc5e9030909c214`:
+10 scenarios, initial Down and DetectionPrecision both executed, measured
+detection gap 0.901 s. The sole RFC skip is the source-backed BIRD Linux
+source-port range deviation. All six first-party image IDs and nine required
+annotations per image survive cleanup as artifacts; the images themselves are
+absent. All 867 source hashes and 310 artifact sidecars match; 14 readiness
+probes return 28 SERVING results. Runner peak is 414269440 bytes under the
+unchanged 512 MiB cap, with zero max/OOM events and swap.
+
+Final unified qualification remains P0 after committed-load and Session/Echo
+thread-pin work (`gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7`). Repeat all four
+profiles on the resulting production candidate; this development receipt does
+not replace final scale, security, OCI or stable-release qualification.
+
 P0 `gobfd-qj0.8.2.2.7.5.5` remains in progress. Offline analysis of the retained
 capture reproduces the TShark read-limit defect: `-c 1` yields no matching row,
 whereas the same filter without it yields 13 rows, beginning at frame 511.

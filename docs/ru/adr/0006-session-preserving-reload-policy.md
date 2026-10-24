@@ -278,6 +278,11 @@ immutable image ID и только обязательные OCI source/base anno
 Эти записи связывают тестовую среду с candidate, но не заменяют product OCI,
 scale, security или stable-release qualification. Окончательная проверка
 принадлежит Beads `gobfd-qj0.8.2.2.7.5.5`.
+Исправленный default qualifier локально принят на
+`e4e79a8eee8e7c38bfc78321bdc5e9030909c214`; окончательные четыре профиля
+следуют после оставшихся production Session/Echo thread и scale изменений.
+Позднейшее изменение production code не наследует development receipt как
+окончательную квалификацию.
 
 ## Источники
 

@@ -247,6 +247,14 @@ compliance coverage GoBFD. Общий сборщик сохраняет immutabl
 обязательные source/base OCI annotations до очистки.
 Evidence: `reports/final-wire-20261024/`; actual final-candidate qualification
 остаётся в `gobfd-qj0.8.2.2.7.5.5`.
+Default FourPeer gate проходит на
+`e4e79a8eee8e7c38bfc78321bdc5e9030909c214` за 429,47 с: все десять сценариев,
+initial Down и DetectionPrecision выполнены (gap 0,901 с), один явный BIRD
+RFC SKIP; сохранены шесть image ID, совпали 867 source hashes и 310 artifact
+sidecars. Четырнадцать readiness probes вернули SERVING для обоих services.
+При лимите runner 512 MiB max/OOM events и swap — 0; отсутствие точных image
+ID после очистки подтверждено. Все четыре final profiles повторяются после
+оставшихся production thread/scale изменений.
 
 Тот же crafted lifecycle предоставляет `TestCraftedMultihopTTLTestcontainers`
 с закрытым startup command `peer-multihop`: UDP/4784, meticulous SHA1,

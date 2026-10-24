@@ -276,6 +276,10 @@ Before test-owned image cleanup, the shared builder retains immutable image IDs
 and only required OCI source/base annotations. These records bind the test
 environment to the candidate; they do not replace product OCI, scale, security
 or stable-release qualification. Beads `gobfd-qj0.8.2.2.7.5.5` owns the final gate.
+The corrected default qualifier is locally accepted on
+`e4e79a8eee8e7c38bfc78321bdc5e9030909c214`; final four-profile qualification
+follows the remaining production Session/Echo thread and scale work. A later
+production change cannot inherit the development receipt as final acceptance.
 
 ## References
 

@@ -246,6 +246,14 @@ does not enforce the RFC 5881 range on Linux. The retained padding capture has
 coverage. The shared builder retains immutable image IDs and required OCI
 source/base annotations before cleanup. Evidence: `reports/final-wire-20261024/`;
 actual final-candidate qualification remains with `gobfd-qj0.8.2.2.7.5.5`.
+The default FourPeer gate passes on
+`e4e79a8eee8e7c38bfc78321bdc5e9030909c214` in 429.47 s with all ten scenarios,
+initial Down and DetectionPrecision executed (0.901 s gap), one explicit BIRD
+RFC skip, six retained image identities, 867 matching source hashes and 310
+matching artifact sidecars. Fourteen readiness probes return both services
+SERVING. The 512 MiB runner has zero max/OOM events and swap; exact image
+absence is verified after cleanup. Repeat all four final profiles after the
+remaining production thread/scale changes.
 
 The same crafted lifecycle also provides `TestCraftedMultihopTTLTestcontainers`
 with the closed `peer-multihop` startup command: UDP/4784, meticulous SHA1,
