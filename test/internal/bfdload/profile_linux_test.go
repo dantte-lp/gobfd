@@ -29,6 +29,7 @@ func TestProfileRejectsReducedQualification(t *testing.T) {
 			}
 			profile.GCPressure = true
 			profile.SchedulerPressure = true
+			profile.SessionChurn = true
 			if err := profile.Validate(); err != nil {
 				t.Fatalf("additive GC variant rejected: %v", err)
 			}
@@ -76,6 +77,7 @@ func TestProfileRejectsInvalidWireAndSchedule(t *testing.T) {
 		{"zero_multiplier", func(p *Profile) { p.DetectMultiplier = 0 }},
 		{"loss_overflow", func(p *Profile) { p.LossPermille = 1001 }},
 		{"cpu_overflow", func(p *Profile) { p.CPULoadPercent = 101 }},
+		{"churn_short_window", func(p *Profile) { p.SessionChurn, p.Duration = true, 5*time.Second }},
 		{"negative_period", func(p *Profile) { p.BlackholeEvery = -1 }},
 		{"negative_width", func(p *Profile) { p.BlackholeFor = -1 }},
 		{"width_without_period", func(p *Profile) { p.BlackholeFor = time.Second }},

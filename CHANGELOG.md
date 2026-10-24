@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add default-off `--session-churn` to the qualification workload, using real
+  final-claim drain, recreation and observed recovery. Separate current and
+  retired generation counters, active registrations and retained metric series;
+  preserve lifetime terminal accounting and reject fixtures shorter than six
+  seconds. This fixed-manifest variant does not qualify reference load.
+
 - Add bounded default-off scheduler contention to the owner UDP workload,
   with actual compute/yield and joined-worker receipts. Reuse the CPU mixing
   primitive and pressure period; runtime distributions remain separate from

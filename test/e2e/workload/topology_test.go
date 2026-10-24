@@ -15,6 +15,7 @@ import (
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/test/internal/bfdload"
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
 	"github.com/dantte-lp/gobfd/test/internal/podmanapi"
@@ -49,6 +50,8 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 	profile.CPULoadPercent = 25
 	profile.GCPressure = true
 	profile.SchedulerPressure = true
+	profile.SessionChurn = true
+	profile.Duration = 11 * time.Second
 	cfg, err := bfdload.LoopbackConfig(profile)
 	if err != nil {
 		t.Fatal(err)
@@ -256,6 +259,26 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		t.Logf("workload histogram %s: initial=%d final=%d", name, initial, final)
 	}
 	t.Logf("scheduler receipt: %+v; process_scheduler_samples=%d", contention, schedulerSamples)
+	churn := ownerReport.SessionChurn
+	if !churn.Enabled || !churn.Joined || !churn.Completed || churn.Released != 2 || churn.Created != 2 ||
+		churn.Recovered != 2 || churn.EventsOmitted != 0 || len(churn.Events) != 2 || !peerReport.Profile.SessionChurn ||
+		!churn.ScheduledAtUTC.Equal(ownerReport.StartedAtUTC) {
+		t.Fatalf("mixed fixture has no joined actual session churn: %+v", churn)
+	}
+	for _, event := range churn.Events {
+		if event.ReleaseStartedAtUTC.IsZero() || event.ReleasedAtUTC.Before(event.ReleaseStartedAtUTC) ||
+			event.CreatedAtUTC.Before(event.ReleasedAtUTC) || event.RecoveredAtUTC.Before(event.CreatedAtUTC) {
+			t.Fatalf("churn phase boundaries are missing or reversed: %+v", event)
+		}
+		if event.Before == nil || event.Absent == nil || event.Restored == nil ||
+			event.Before.KnownPeers != 2 || event.Absent.KnownPeers != 1 || event.Restored.KnownPeers != 2 ||
+			event.Before.ActiveMetricRegistrations != 2 || event.Absent.ActiveMetricRegistrations != 1 ||
+			event.Restored.ActiveMetricRegistrations != 2 || event.Absent.RetainedSessions != 2 ||
+			event.Absent.RetainedPacketRows != 8 || event.NewGeneration != event.OldGeneration+1 {
+			t.Fatalf("churn conflated registry, active registrations or retained metrics: %+v", event)
+		}
+	}
+	t.Logf("session churn receipt: %+v", churn)
 	if !ownerReport.Completed || !ownerReport.Final.Stopped || ownerReport.ReferenceQualified ||
 		!peerReport.Completed || !peerReport.Stopped || peerReport.ReferenceQualified || len(peerReport.Peers) != 2 ||
 		len(ownerReport.Final.Sessions) != 2 || ownerReport.Final.TimingUncertaintyNS != nil {
@@ -269,17 +292,24 @@ func TestUDPWorkloadOwnedTopology(t *testing.T) {
 		t.Fatal("actual cgroup or runtime samples do not establish independent bounded processes")
 	}
 	for index, observed := range peerReport.Peers {
-		if observed.Written == 0 || observed.Accepted == 0 || observed.UpTransitions == 0 ||
+		if observed.Written == 0 || observed.Accepted == 0 || observed.UpTransitions < 2 ||
 			ownerReport.Final.Sessions[index].Received == 0 {
 			t.Fatalf("no actual independent-process Up/commit for peer %d: %+v", index, observed)
 		}
 	}
-	var received uint64
+	received := ownerReport.Final.RetiredReceived
 	for _, observed := range ownerReport.Final.Sessions {
 		received += observed.Received
 	}
-	if received != written {
-		t.Fatalf("actual process boundary incomplete: written=%d committed=%d", written, received)
+	var committed uint64
+	for _, row := range ownerReport.Final.Delivery {
+		if row.Source == bfd.DeliveryPacketOwner && row.Outcome == bfd.DeliveryCommitted {
+			committed += row.Count
+		}
+	}
+	if ownerReport.Final.TerminalPackets != written || received != committed || ownerReport.Final.RetiredReceived == 0 {
+		t.Fatalf("actual lifetime boundary incomplete: written=%d terminal=%d committed=%d sampled=%d",
+			written, ownerReport.Final.TerminalPackets, committed, received)
 	}
 	postHostID, err := bfdload.NetworkNamespaceID()
 	if err != nil || postHostID != hostID {
@@ -336,6 +366,7 @@ func workloadArguments(cfg bfdload.PeerConfig) []string {
 		"--cpu-load-percent="+strconv.FormatUint(cfg.Profile.CPULoadPercent, 10),
 		"--gc-pressure="+strconv.FormatBool(cfg.Profile.GCPressure),
 		"--scheduler-pressure="+strconv.FormatBool(cfg.Profile.SchedulerPressure),
+		"--session-churn="+strconv.FormatBool(cfg.Profile.SessionChurn),
 	)
 	if cfg.ControlDirectory != "" {
 		args = append(args, "--control-dir="+cfg.ControlDirectory)

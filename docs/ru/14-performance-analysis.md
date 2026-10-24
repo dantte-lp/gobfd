@@ -206,6 +206,37 @@ Workers завершаются до freeze/drain; вариант выключе�
 именованные входные условия, не меняет runtime settings и не подтверждает
 калиброванные reference distributions.
 
+Вариант `--session-churn`, выключенный по умолчанию, освобождает и создаёт
+заново одну реальную допущенную сессию Manager из явного manifest peers.
+Первый цикл начинается через 250 ms после общей эпохи; период — пять секунд,
+разрыв после реального final-claim drain — 200 ms. Объявляемый AdminDown TX
+floor в одну секунду требует не менее трёх секунд notification drain при
+multiplier 3. Поэтому fixture требует `--duration=6s` или больше. Цикл с остатком
+менее пяти секунд пропускается и считается отдельно. Это admission budget,
+а не гарантия задержки drain или recovery. Mixed process fixture использует
+11-секундное окно measurement для проверки поколений IPv4 и IPv6.
+Ожидание Up ограничено пятью секундами после создания и концом measurement.
+Включённое окно без реального recovery завершается ошибкой, а не выдаётся за
+выполненный churn.
+
+`session_churn` хранит реальные release/create/Up recovery, времена фаз,
+source ports и старые/новые поколения для корреляции с независимым peer report.
+Начало вызова release и окончание drain ограничивают момент удаления из registry;
+timestamp окончания не является точным временем удаления. Down вне `[start, end)`
+исключаются; notification-gap loss учитывается консервативно.
+Слоты вне Up пропускаются; причина false Down не выводится автоматически.
+Фиксированные слоты и сериализованный inventory исключают выдачу завершённого
+поколения за текущую регистрацию. `retired_received` отделён от RX текущего
+поколения; `terminal_packets` использует lifetime ledger commits/rejections/
+kernel drops. Активные `registrations.known_peers` и `active_metric_registrations`
+отделены от сохранённых session/packet series. Series считаются как реальные
+collector DTO label sets, а не развёрнутые histogram buckets или peer-Up counts.
+После остановки сохраняются последние samples сессий с `registered=false`.
+Вариант повторно использует подготовленные wire identities и не квалифицирует
+рост произвольных уникальных peer labels. Churn завершается до measurement
+freeze; ограниченный журнал вмещает все пятисекундные слоты 24-часового профиля
+и явно считает дальнейшие пропуски.
+
 `test/internal/bfdload.StartOwner` запускает production UDP listeners, receiver,
 session manager и владеющие сокетами UDP senders с отдельным реальным collector.
 Типизированный снимок содержит настроенные endpoints, source ports, наблюдения
@@ -260,9 +291,12 @@ Reference и absolute-clock qualification остаются открытыми.
 
 `RunOwner` сохраняет начальный и конечный снимки production collector, измеренные
 пики ресурсов, средние RSS за первые и последние шесть часов, дельты runtime
-гистограмм и ограниченный журнал Down. Пропуски уведомлений и переполнение
-журнала отражаются явно; без независимого отчёта генератора Down не признаётся
-намеренным. `completed` означает завершение периода наблюдения; controlled mode
+гистограмм и ограниченный журнал Down. Notification gaps и переполнение журнала
+считаются, но конечный timer не синхронизирован с buffered или ещё не dispatched
+изменениями. Пустой журнал не доказывает отсутствие Down. Beads
+`gobfd-qj0.8.2.1.6.3.4.3.5` требует cutoff fencing до false-Down qualification.
+Без независимого отчёта генератора Down не признаётся намеренным.
+`completed` означает завершение периода наблюдения; controlled mode
 дополнительно требует terminal-ledger settlement. Непрерывный Up всех сессий
 этим не подтверждается. Допуск reference требует лимитов дочерней cgroup ровно 8 CPU/
 8 GiB, GOMAXPROCS 8, закреплённого компилятора и отсутствия более тесных лимитов
@@ -372,9 +406,10 @@ dispatch/effect и wire-поведение: timestamps и success denominators �
 Принятый reference — 1 000 смешанных IPv4/IPv6 sessions, номинальный интервал
 100 ms и 24 часа после setup. Engineering profile — 5 000 sessions,
 300 ms и 30 минут. Named profiles сохраняют обязательные CPU/loss/blackhole
-inputs. Ограниченные CPU, GC и scheduler-pressure drivers реализованы;
-варианты GC и scheduler выключены по умолчанию. Калиброванные pressure distributions,
-churn и независимое clock evidence не завершены. Короткий fixture или более долгий запуск без этих свидетельств
+inputs. Ограниченные CPU, GC, scheduler-pressure и session-churn drivers для
+фиксированного manifest реализованы; варианты GC, scheduler и churn выключены
+по умолчанию. Калиброванные stress distributions и независимое clock evidence
+не завершены. Короткий fixture или более долгий запуск без этих свидетельств
 не являются reference acceptance. Текущие inputs находятся в
 [`profile_linux.go`](../../test/internal/bfdload/profile_linux.go); Beads
 определяет приёмку и исполнение.

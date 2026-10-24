@@ -16,6 +16,13 @@
 
 ### Добавлено
 
+- В qualification workload добавлен выключенный по умолчанию `--session-churn`
+  с реальными final-claim drain, повторным созданием и наблюдаемым восстановлением.
+  Разделены counters текущих и завершённых поколений, активные регистрации и
+  сохранённые metric series; lifetime terminal accounting сохранён, fixtures
+  короче шести секунд отклоняются. Вариант с фиксированным manifest не
+  квалифицирует reference load.
+
 - Добавлена ограниченная scheduler contention в owner UDP workload, выключенная
   по умолчанию, с фактическими compute/yield и joined-worker receipts. Общие CPU
   mixing primitive и pressure period переиспользуются; runtime distributions

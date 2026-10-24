@@ -22,13 +22,37 @@
 | Smallstep | Renewal существующего сертификата реализован; actual CA и lifecycle qualification не завершены | `gobfd-qj0.8.2.3.7` |
 | Echo preview | Ограничения destination/interface API и TX interface декларативной конфигурации остаются описанными дефектами исходников | `gobfd-qj0.8.2.1.17`, `gobfd-qj0.8.2.1.19` |
 | Legacy demos | Расхождения CLI и pod selector в HAProxy/Kubernetes требуют исправления исходников и фактического запуска | `gobfd-qj0.8.2.8.7.1.4.1` |
-| Runtime | Ограниченные CPU, GC и scheduler fixtures реализованы; session churn, reference distributions, clock qualification и thread-pin A/B не завершены | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
+| Runtime | Ограниченные CPU, GC, scheduler и churn fixtures для фиксированного manifest реализованы; calibrated distributions, clock qualification и thread-pin A/B не завершены | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Development slices не заменяют final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
 | Security | Ограниченные advisory decisions требуют evidence финального кандидата | `gobfd-qj0.8.4.1` |
 
 Oracle Linux 10 исключён из v1 OCI/lifecycle scope; создание generic RPM
 и historical v0.6 evidence сохранены. Эти строки не закрывают задачи владельцев
 и не создают исполняемый план. Приоритеты и критерии приёмки находятся в Beads.
+
+## Session-churn workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.4` добавляет выключенные по умолчанию реальное
+освобождение последней claim и recovery в существующем owner workload.
+Independent-process mixed IPv4/IPv6 fixture прошла за 56,18 s с 11-секундным
+окном measurement: два release, два создания и два наблюдаемых recovery.
+Оба peers фиксируют по два Up transition. В каждом цикле реальные known-peer/
+active registrations меняются с 2 до 1 и обратно до 2; две session и восемь
+packet metric series сохраняются. Один завершающий цикл с недостаточным
+остатком времени явно пропущен.
+
+Lifetime ledger учитывает 190 успешных peer writes как 174 commits и
+16 terminal rejections неизвестной сессии. На завершённые поколения приходятся
+73 commits, на текущие — 101. Все четыре собственных контейнера удалены;
+пик runner — 216944640/536870912 bytes, max/OOM events и swap равны нулю.
+Evidence: `reports/workload-churn-20261024/`.
+
+Fixture с фиксированным manifest не вводит произвольные уникальные peer labels
+и не квалифицирует reference distributions, scale, total clock uncertainty
+или stable delivery. Worker требует реального recovery, ограничивает ожидание
+Up и завершается до measurement freeze. Down вне measurement-интервала
+исключаются. Reference/engineering runs, калиброванные loss/blackhole/stress
+distributions, thread-pin A/B и final-candidate wire/security gates остаются открытыми.
 
 ## Scheduler-pressure workload fixture — 2026-10-24
 
@@ -46,8 +70,10 @@ histograms выросли на 130 и 69 соответственно. Эти wi
 `reports/workload-scheduler-20261024/`. Yield calls не подтверждают OS context
 switches или queue depth; наблюдения процесса не являются калиброванными
 reference distributions. Clock uncertainty остаётся неизвестной,
-reference qualification — false. Churn, thread-pin A/B, reference/engineering
-runs и final-candidate wire/security gates остаются отдельными открытыми задачами.
+reference qualification — false. На этом checkpoint churn driver ещё ожидал
+реализации; его последующая fixture описана выше. Thread-pin A/B, калиброванные
+distributions, reference/engineering runs и final-candidate wire/security gates
+остаются открытыми.
 
 ## GC-pressure workload fixture — 2026-10-24
 
@@ -64,8 +90,8 @@ Evidence: `reports/workload-gc-20261024/`.
 Это наблюдения fixture, а не калиброванные reference distributions или
 доказательство, что GC вызван только helper. Clock uncertainty остаётся
 неизвестной, reference qualification — false. На этом checkpoint
-scheduler/churn drivers ещё ожидали реализации; scheduler fixture описана
-выше. Session churn, thread-pin A/B, допущенные reference/engineering runs и
+scheduler/churn drivers ещё ожидали реализации; их последующие fixtures описаны
+выше. Калиброванные distributions, thread-pin A/B, допущенные reference/engineering runs и
 final-candidate wire gates остаются открытыми.
 
 ## Исторические checkpoints

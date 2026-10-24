@@ -90,6 +90,41 @@ lateness; yield call не подтверждает OS context switch. При у�
 committed RX процесса отделены от калиброванных reference distributions;
 неизвестная clock uncertainty сохраняется.
 
+Вариант `--session-churn`, выключенный по умолчанию, последовательно меняет
+одну допущенную сессию из явного manifest endpoints. Первый цикл начинается
+через 250 ms после эпохи измерения; следующие используют период пять секунд
+без повторения пропущенных циклов. Реальная последняя claim Manager
+освобождается с завершением drain; затем выдерживается разрыв регистрации
+200 ms. Та же wire identity создаётся заново, и наблюдаемый Up требуется до
+конца measurement. AdminDown объявляет интервал не менее секунды; multiplier 3
+требует notification drain не менее трёх секунд. Включённая fixture требует
+не менее шести секунд. Цикл не начинается, если до конца осталось менее пяти
+секунд; пропущенные завершающие циклы считаются отдельно. Ожидание Up ограничено
+пятью секундами после создания и концом measurement; окно без реального recovery
+завершается ошибкой. Подписка начинается до churn; Down-события setup/drain
+исключаются из measurement-интервала. Потери notification-gap учитываются
+консервативно. Слоты вне
+Up пропускаются с отдельным счётчиком; их состояние не приписывается churn.
+Независимые peers продолжают трафик во время разрыва и восстановления.
+
+Один owner lock сериализует изменение inventory, Close и снимки membership
+вместе с collector. После начала закрытия новые сессии отклоняются. Фиксированный
+слот владеет только текущей sender lease; packet counters завершённых поколений
+суммируются после join без сохранения каждого старого объекта. Записываются
+старые/новые поколения, discriminators, source ports, времена фаз и фактическая
+cardinality Manager/collector до удаления, во время отсутствия и после Up.
+Начало вызова release и окончание drain ограничивают момент удаления из registry;
+окончание drain не является моментом удаления.
+Число known peers определяется взаимно однозначными session/demux registrations
+Manager; active session gauge и сохранённые session/packet metric series
+учитываются отдельно. Ограниченный журнал вмещает все пятисекундные циклы
+24-часового профиля; дальнейшие пропуски считаются явно. Churn завершается до
+measurement freeze; terminal ledger охватывает все поколения. Только RX
+последнего поколения не позволяет учесть peer writes. Вариант использует
+фиксированный manifest, не добавляет peer addresses и не квалифицирует рост
+произвольных уникальных labels. Размерности named baseline сохраняются;
+reference qualification не устанавливается.
+
 ## Последствия
 
 Команды без control directory сохраняют независимые timers и явные ограничения.
@@ -108,6 +143,8 @@ stable delivery. Implementation acceptance принадлежит Beads
 - [Ограниченный GC pressure](../../../test/internal/bfdload/gc_pressure_linux.go)
 - [Ограниченный scheduler pressure](../../../test/internal/bfdload/scheduler_pressure_linux.go)
 - [Границы workload и clock](../14-performance-analysis.md)
+- [Реальный session churn и завершение recovery](../../../test/internal/bfdload/session_churn_linux.go)
+- [Сериализованный inventory и завершение leases](../../../test/internal/bfdload/owner_churn_linux.go)
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4)
 - [Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)
 - [Linux socket overflow counters](https://man7.org/linux/man-pages/man7/socket.7.html)

@@ -29,6 +29,9 @@ func TestPeersCommandRejectsInvalidInputsBeforeBinding(t *testing.T) {
 		{"owner", "fixture", "--gc-pressure=invalid"},
 		{"owner", "fixture", "--gc-pressure", "--gc-pressure=false"},
 		{"owner", "fixture", "--gc-pressure=true", "--gc-pressure=true"},
+		{"owner", "fixture", "--session-churn=invalid"},
+		{"owner", "fixture", "--session-churn", "--session-churn=false"},
+		{"owner", "fixture", "--session-churn=true", "--session-churn=true"},
 		{"peers", "fixture", "--session=not-an-address"},
 		{"peers", "fixture", "--session=127.31.0.1:3784,127.31.0.1:3784"},
 		{"peers", "fixture", "--unknown=true"},
@@ -92,6 +95,43 @@ func TestWorkloadSchedulerArgumentUsesProfileValidation(t *testing.T) {
 		args = append(args, "--session=127.0.0.1:3784,127.31.0.2:3784")
 		if _, err := parseWorkloadConfig(args); !errors.Is(err, bfdload.ErrProfile) {
 			t.Fatalf("invalid scheduler flags accepted on valid topology: %v: %v", options, err)
+		}
+	}
+}
+
+func TestWorkloadSessionChurnArgumentUsesProfileValidation(t *testing.T) {
+	t.Parallel()
+	for _, option := range []string{"--session-churn", "--session-churn=true", "--session-churn=false"} {
+		cfg, err := parseWorkloadConfig([]string{
+			"fixture", "--sessions=1", "--duration=6s", option, "--session=127.0.0.1:3784,127.31.0.2:3784",
+		})
+		if err != nil {
+			t.Fatalf("session churn option %s: %v", option, err)
+		}
+		encoded, err := json.Marshal(cfg.Profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var observed struct {
+			Enabled *bool `json:"session_churn"`
+		}
+		if err := json.Unmarshal(encoded, &observed); err != nil {
+			t.Fatal(err)
+		}
+		if observed.Enabled == nil || *observed.Enabled != (option != "--session-churn=false") {
+			t.Fatalf("churn option did not reach profile: %s", encoded)
+		}
+	}
+	for _, options := range [][]string{
+		{"--session-churn=invalid"},
+		{"--session-churn", "--session-churn=false"},
+		{"--session-churn=true", "--session-churn=true"},
+		{"--session-churn", "--duration=2s"},
+	} {
+		args := append([]string{"fixture", "--sessions=1"}, options...)
+		args = append(args, "--session=127.0.0.1:3784,127.31.0.2:3784")
+		if _, err := parseWorkloadConfig(args); !errors.Is(err, bfdload.ErrProfile) {
+			t.Fatalf("invalid churn flags accepted on valid topology: %v: %v", options, err)
 		}
 	}
 }

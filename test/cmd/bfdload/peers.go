@@ -99,6 +99,7 @@ func registerProfileFlags(flags *flag.FlagSet, p *bfdload.Profile) {
 	flags.BoolVar(&p.GCPressure, "gc-pressure", p.GCPressure, "generate bounded owner allocations without forcing GC")
 	flags.BoolVar(&p.SchedulerPressure, "scheduler-pressure", p.SchedulerPressure,
 		"generate bounded owner compute/yield contention")
+	flags.BoolVar(&p.SessionChurn, "session-churn", p.SessionChurn, "release and recover admitted owner sessions")
 	flags.Uint64Var(&p.LossPermille, "loss-permille", p.LossPermille, "intentional loss per thousand in each direction")
 	flags.DurationVar(&p.BlackholeEvery, "blackhole-every", p.BlackholeEvery, "blackhole period, zero disables")
 	flags.DurationVar(&p.BlackholeFor, "blackhole-for", p.BlackholeFor, "blackhole duration, zero disables")

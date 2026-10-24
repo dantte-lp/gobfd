@@ -89,6 +89,7 @@ type OwnerWorkloadObservation struct {
 	CPUPressure        CPUPressureObservation       `json:"cpu_pressure"`
 	GCPressure         GCPressureObservation        `json:"gc_pressure"`
 	SchedulerPressure  SchedulerPressureObservation `json:"scheduler_pressure"`
+	SessionChurn       SessionChurnObservation      `json:"session_churn"`
 }
 
 // RunOwner uses the peer manifest to run the actual production core and collector.
@@ -134,11 +135,9 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 	return result.finish(ctx, owner, guard, started, err)
 }
 
-func (r *OwnerWorkloadObservation) observe(ctx context.Context, owner *Owner, started time.Time) error {
-	changes, err := owner.manager.SubscribeStateChanges(ctx)
-	if err != nil {
-		return fmt.Errorf("subscribe owner workload transitions: %w", err)
-	}
+func (r *OwnerWorkloadObservation) observe(
+	ctx context.Context, owner *Owner, started time.Time, changes <-chan bfd.StateChange,
+) error {
 	timer := time.NewTimer(max(0, time.Until(started.Add(r.Config.Profile.Duration))))
 	defer timer.Stop()
 	ticker := time.NewTicker(ownerSamplePeriod)
@@ -173,6 +172,9 @@ func (r *OwnerWorkloadObservation) observeChange(change bfd.StateChange, started
 		return
 	}
 	if change.Added || change.Deleted || change.OldState != bfd.StateUp || change.NewState != bfd.StateDown {
+		return
+	}
+	if change.Timestamp.Before(started) || !change.Timestamp.Before(started.Add(r.Config.Profile.Duration)) {
 		return
 	}
 	if len(r.DownEvents) == maxDownEvents {

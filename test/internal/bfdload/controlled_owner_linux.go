@@ -14,8 +14,10 @@ func (c *Control) ownerStart(ctx context.Context, owner *Owner) (*phaseStart, er
 	readyCtx, cancel := context.WithTimeout(ctx, controlReadyTimeout)
 	defer cancel()
 	if err := c.wait(readyCtx, func() (bool, error) {
+		owner.inventory.RLock()
+		defer owner.inventory.RUnlock()
 		for _, entry := range owner.sessions {
-			if entry.session.State() != bfd.StateUp {
+			if entry.session == nil || entry.session.State() != bfd.StateUp {
 				return false, nil
 			}
 		}
@@ -46,11 +48,8 @@ func (c *Control) drainOwner(ctx context.Context, owner *Owner) error {
 		if snapshotErr != nil {
 			return false, snapshotErr
 		}
-		count, countErr := terminalPacketCount(observed)
+		count := observed.TerminalPackets
 		last = count
-		if countErr != nil {
-			return false, countErr
-		}
 		if count > expected {
 			return false, fmt.Errorf("owner terminal packets %d exceed actual peer writes %d: %w", count, expected, ErrControl)
 		}

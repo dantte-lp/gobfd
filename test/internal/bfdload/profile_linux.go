@@ -32,6 +32,7 @@ type Profile struct {
 	CPULoadPercent    uint64        `json:"cpu_load_percent"`
 	GCPressure        bool          `json:"gc_pressure"`
 	SchedulerPressure bool          `json:"scheduler_pressure"`
+	SessionChurn      bool          `json:"session_churn"`
 	Seed              uint64        `json:"seed"`
 }
 
@@ -71,6 +72,7 @@ func (p Profile) Validate() error {
 	expected.Seed = p.Seed
 	expected.GCPressure = p.GCPressure
 	expected.SchedulerPressure = p.SchedulerPressure
+	expected.SessionChurn = p.SessionChurn
 	if p != expected {
 		return fmt.Errorf("workload differs from %s qualification inputs: %w", p.Kind, ErrProfile)
 	}
@@ -78,6 +80,9 @@ func (p Profile) Validate() error {
 }
 
 func (p Profile) validateDimensions() error {
+	if p.SessionChurn && p.Duration < sessionChurnMinimum {
+		return fmt.Errorf("session churn requires at least six seconds: %w", ErrProfile)
+	}
 	if p.Sessions < 1 || p.Sessions > sourcePortCapacity || !ownerIntervalFitsWire(p.Interval) ||
 		p.DetectMultiplier == 0 || p.Duration <= 0 || p.LossPermille > 1000 || p.CPULoadPercent > 100 {
 		return fmt.Errorf("workload count, wire interval, duration, loss, or CPU target: %w", ErrProfile)

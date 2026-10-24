@@ -91,6 +91,38 @@ carry the request without generating owner pressure. Process scheduler,
 timer and committed-RX observations remain separate from calibrated reference
 distributions and preserve unknown clock uncertainty.
 
+The default-off `--session-churn` variant cycles one admitted session from
+the explicit endpoint manifest at a time. Start 250 ms after the measurement
+epoch, then use a five-second cadence without replaying missed cycles. Release
+the real final Manager claim and join its drain before a 200 ms registration
+gap; recreate the same wire identity and require observed Up before the
+measurement deadline. AdminDown advertises at least one second, so multiplier
+3 requires at least a three-second notification drain. Enabled fixtures require
+at least six seconds. Do not start a cycle with less than five seconds left;
+count skipped trailing cycles separately. Wait for Up for at most five seconds
+after creation and before measurement end; a window with no actual recovery
+fails. Subscribe before churn and retain Down events only within the measurement
+interval, excluding setup and drain. Keep notification-gap loss conservative. Skip
+slots that are not Up and report the skip rather than attributing their state
+to churn. Peer traffic continues independently throughout the gap and recovery.
+
+Serialize inventory mutation, Close and membership/collector snapshots with
+one owner lock. Reject creation after closing starts. Each fixed slot owns only
+its current sender lease; accumulate retired packet counters after session
+join instead of retaining every generation. Record old/new generations,
+discriminators, source ports, phase times and actual Manager/collector
+cardinality before release, during absence and after recovery. Release-call start
+and drain-completion timestamps bound registry removal; completion is not the
+removal instant. The Manager's
+one-to-one session/demux registrations define the known-peer count; active
+session gauge values and retained session/packet metric series remain separate.
+Retain enough bounded event records for the 24-hour five-second profile and
+count any omissions explicitly. Join churn before measurement freeze and use
+the lifetime terminal ledger across all generations. Final-generation RX alone
+cannot settle peer writes. This fixed-manifest variant does not introduce new
+peer addresses or qualify arbitrary unique-label growth; it does not change
+named baseline dimensions or establish reference qualification.
+
 ## Consequences
 
 Commands without a control directory retain independent timers and explicit
@@ -108,6 +140,8 @@ scheduler or kernel fast path.
 - [CPU pressure and measured thread CPU](../../../test/internal/bfdload/cpu_pressure_linux.go)
 - [Bounded GC pressure](../../../test/internal/bfdload/gc_pressure_linux.go)
 - [Bounded scheduler pressure](../../../test/internal/bfdload/scheduler_pressure_linux.go)
+- [Real session churn and joined recovery](../../../test/internal/bfdload/session_churn_linux.go)
+- [Serialized inventory and lease retirement](../../../test/internal/bfdload/owner_churn_linux.go)
 - [Workload and clock boundaries](../14-performance-analysis.md)
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4)
 - [Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)

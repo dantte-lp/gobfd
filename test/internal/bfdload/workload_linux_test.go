@@ -192,3 +192,28 @@ func TestResourceWindowUsesFirstAndFinalSixHours(t *testing.T) {
 		t.Fatalf("wrong RSS window boundaries, denominator, mean or peak: %+v", window)
 	}
 }
+
+func TestOwnerDownEventsExcludeSetupAndDrain(t *testing.T) {
+	t.Parallel()
+	started := time.Unix(1000, 0)
+	observed := OwnerWorkloadObservation{Config: PeerConfig{Profile: Profile{Duration: time.Second}}}
+	for _, input := range []struct {
+		discriminator uint32
+		at            time.Time
+	}{
+		{1, started.Add(-time.Nanosecond)},
+		{2, started},
+		{3, started.Add(500 * time.Millisecond)},
+		{4, started.Add(time.Second)},
+	} {
+		observed.observeChange(bfd.StateChange{
+			Timestamp: input.at, LocalDiscr: input.discriminator,
+			OldState: bfd.StateUp, NewState: bfd.StateDown, Diag: bfd.DiagControlTimeExpired,
+		}, started)
+	}
+	if len(observed.DownEvents) != 2 || observed.DownEvents[0].LocalDiscriminator != 2 ||
+		observed.DownEvents[0].ElapsedNS != 0 || observed.DownEvents[1].LocalDiscriminator != 3 ||
+		observed.DownEvents[1].ElapsedNS != 500000000 {
+		t.Fatalf("setup/drain contaminated the measured Down denominator: %+v", observed.DownEvents)
+	}
+}

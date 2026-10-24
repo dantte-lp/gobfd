@@ -4,6 +4,7 @@ package bfdload
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/netip"
@@ -14,22 +15,26 @@ import (
 )
 
 func TestControlledWorkloadDrainsActualWritesAfterMeasurement(t *testing.T) {
-	testControlledWorkload(t, 0, 0, false)
+	testControlledWorkload(t, 0, 0, false, false)
 }
 
 func TestControlledWorkloadRejectsMissingTerminalReceipt(t *testing.T) {
-	testControlledWorkload(t, 1, 0, false)
+	testControlledWorkload(t, 1, 0, false, false)
 }
 
 func TestControlledWorkloadWithCPUPressure(t *testing.T) {
-	testControlledWorkload(t, 0, 25, false)
+	testControlledWorkload(t, 0, 25, false, false)
 }
 
 func TestControlledWorkloadWithGCPressure(t *testing.T) {
-	testControlledWorkload(t, 0, 25, true)
+	testControlledWorkload(t, 0, 25, true, false)
 }
 
-func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc bool) {
+func TestControlledWorkloadWithSessionChurn(t *testing.T) {
+	testControlledWorkload(t, 0, 0, false, true)
+}
+
+func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc, churn bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -42,6 +47,12 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc boo
 	profile.GCPressure = gc
 	if gc {
 		profile.Duration = 1500 * time.Millisecond
+	}
+	if churn {
+		profile.Duration = 6 * time.Second
+		if decodeErr := json.Unmarshal([]byte(`{"session_churn":true}`), &profile); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
 	}
 	directory := privateControlDirectory(t)
 	control, err := OpenControl(directory)
@@ -82,7 +93,10 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc boo
 		t.Fatal(err)
 	}
 	if waitErr := control.WaitMeasured(ctx); waitErr != nil {
-		t.Fatal(waitErr)
+		cancel()
+		owner, peer := <-owners, <-peers
+		t.Fatalf("measurement phase failed: %v; owner=%v; churn=%+v; peer=%v",
+			waitErr, owner.err, owner.report.SessionChurn, peer.err)
 	}
 	select {
 	case stopped := <-owners:
@@ -137,10 +151,53 @@ func testControlledWorkload(t *testing.T, extraWrites, cpuPercent uint64, gc boo
 	if gc {
 		t.Logf("common-phase GC pressure receipt: %+v", allocation)
 	}
-	if written == 0 || committed != written || owner.report.Final.Sessions[0].Received != written {
+	if churn {
+		assertChurnWorkload(t, owner.report, peer.report, written, committed)
+	} else if written == 0 || committed != written || owner.report.Final.Sessions[0].Received != written {
 		t.Fatalf("incomplete actual UDP boundary: written=%d committed=%d", written, committed)
 	}
 	t.Logf("actual UDP common phase: written=%d committed=%d", written, committed)
+}
+
+func assertChurnWorkload(
+	t *testing.T, owner OwnerWorkloadObservation, peer PeerObservation, written, committed uint64,
+) {
+	t.Helper()
+	//nolint:musttag // Observation and DeliveryCounter deliberately retain their core JSON names.
+	encoded, err := json.Marshal(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observed struct {
+		Churn *struct {
+			Enabled     bool   `json:"enabled"`
+			Joined      bool   `json:"joined"`
+			Created     uint64 `json:"created"`
+			Released    uint64 `json:"released"`
+			Recovered   uint64 `json:"recovered"`
+			SkippedTail uint64 `json:"skipped_tail_cycles"`
+		} `json:"session_churn"`
+		Final struct {
+			RetiredReceived uint64 `json:"retired_received"`
+			TerminalPackets uint64 `json:"terminal_packets"`
+		} `json:"final"`
+	}
+	if err := json.Unmarshal(encoded, &observed); err != nil {
+		t.Fatal(err)
+	}
+	if observed.Churn == nil || !observed.Churn.Enabled || !observed.Churn.Joined ||
+		observed.Churn.Created == 0 || observed.Churn.Released == 0 || observed.Churn.Recovered == 0 {
+		t.Fatalf("real workload did not create, release and recover an admitted session: %+v", observed.Churn)
+	}
+	if observed.Churn.SkippedTail != 1 {
+		t.Fatalf("short tail was not excluded from real drain/recovery: %+v", observed.Churn)
+	}
+	if observed.Final.RetiredReceived == 0 || observed.Final.TerminalPackets != written ||
+		observed.Final.RetiredReceived+owner.Final.Sessions[0].Received != committed ||
+		peer.Peers[0].UpTransitions < 2 {
+		t.Fatalf("churn lost lifetime accounting or independent peer recovery: written=%d committed=%d retired=%d peer=%+v",
+			written, committed, observed.Final.RetiredReceived, peer.Peers[0])
+	}
 }
 
 func TestControlBeginCanceledBeforePublication(t *testing.T) {

@@ -5,6 +5,7 @@ package bfdload
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -50,6 +51,10 @@ func (r *OwnerWorkloadObservation) runWindow(ctx context.Context, owner *Owner) 
 func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owner *Owner, started time.Time) error {
 	windowCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	changes, err := owner.manager.SubscribeStateChanges(windowCtx)
+	if err != nil {
+		return fmt.Errorf("subscribe owner workload transitions: %w", err)
+	}
 	pressure, err := startCPUPressure(windowCtx, r.Config.Profile, started, cancel)
 	if err != nil {
 		return err
@@ -68,9 +73,13 @@ func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owne
 	if err == nil {
 		r.Initial, err = owner.Snapshot(windowCtx)
 	}
+	var churn *sessionChurn
+	if err == nil {
+		churn, err = startSessionChurn(windowCtx, owner, r.Config.Profile, started, cancel)
+	}
 	if err == nil {
 		r.Resources.observe(r.Initial.Environment, 0, r.Config.Profile.Duration)
-		err = r.observe(windowCtx, owner, started)
+		err = r.observe(windowCtx, owner, started, changes)
 	}
 	if err != nil {
 		cancel()
@@ -83,7 +92,11 @@ func (r *OwnerWorkloadObservation) observeWithPressure(ctx context.Context, owne
 	if scheduler != nil {
 		r.SchedulerPressure, schedulerErr = scheduler.join()
 	}
-	return errors.Join(err, pressureErr, gcErr, schedulerErr)
+	var churnErr error
+	if churn != nil {
+		r.SessionChurn, churnErr = churn.join()
+	}
+	return errors.Join(err, pressureErr, gcErr, schedulerErr, churnErr)
 }
 
 func (r *OwnerWorkloadObservation) completeControlled(ctx context.Context, owner *Owner, control *Control) error {

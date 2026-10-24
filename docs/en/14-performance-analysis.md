@@ -204,6 +204,37 @@ histograms remain distinct observations. Workers join before freeze/drain;
 the default-off variant preserves named inputs and does not change runtime
 settings or establish calibrated reference distributions.
 
+The default-off `--session-churn` variant releases and recreates one actual
+admitted Manager session at a time from the explicit peer manifest. It starts
+250 ms after the common epoch, uses a five-second cadence and keeps a 200 ms
+gap after the real final-claim drain. AdminDown's one-second advertised TX floor
+requires at least three seconds of notification drain at multiplier 3. Enabled
+fixtures therefore require `--duration=6s` or longer; a cycle with less than five
+seconds remaining is skipped and counted separately. This is an admission
+budget, not a drain or recovery latency guarantee. The mixed process fixture
+uses an 11-second measurement window to exercise both IPv4 and IPv6 generations.
+Up recovery waits at most five seconds after creation and ends no later than
+measurement. An enabled window with no actual recovery fails instead of
+reporting completed churn.
+
+`session_churn` records actual release/create/Up recovery, phase times, source
+ports and old/new generations for correlation with the independent peer report.
+Release-call start and drain completion bound registry removal; the completion
+timestamp is not its exact removal time. Down events outside `[start, end)`
+are excluded; notification-gap loss remains conservative.
+It skips slots outside Up and does not infer false-Down causes. Fixed slots and
+a serialized inventory prevent a retired generation from appearing as the
+current registration. `retired_received` and current-generation RX are separate;
+`terminal_packets` uses the lifetime committed/rejected/kernel-drop ledger.
+Active `registrations.known_peers` and `active_metric_registrations` are distinct
+from retained session and packet series counts. Those series counts are real
+collector DTO label sets, not expanded histogram buckets or active peer-Up
+counts. Stopped snapshots retain the last session samples with `registered=false`.
+The variant reuses prepared wire identities and does not qualify arbitrary
+unique-peer label growth. Churn joins before measurement freeze; the bounded
+event journal covers all five-second slots of the 24-hour profile and counts
+later omissions explicitly.
+
 `test/internal/bfdload.StartOwner` runs the production UDP listeners, receiver,
 session manager and owning UDP senders with a fresh real collector. Its typed
 snapshot includes configured endpoints, source ports, session observations,
@@ -258,9 +289,12 @@ boundaries. Reference and absolute-clock qualification remain open.
 
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
-deltas and a bounded Down journal. Missing transition events and journal
-overflow remain explicit; the owner does not classify intentional Down without
-the independent peer report. `completed` means the observation duration ended;
+deltas and a bounded Down journal. Notification gaps and journal overflow are
+counted, but the end timer does not fence buffered or not-yet-dispatched changes.
+An empty journal is not proof of no Down transitions. Beads
+`gobfd-qj0.8.2.1.6.3.4.3.5` requires cutoff fencing before false-Down qualification.
+The owner does not classify intentional Down without the independent peer
+report. `completed` means the observation duration ended;
 controlled mode additionally requires terminal-ledger settlement. It does not
 mean all sessions remained Up. Reference resources require exact 8 CPU/
 8 GiB child limits, GOMAXPROCS 8, the pinned compiler and no tighter visible
@@ -369,9 +403,10 @@ and wire behavior separately; their timestamps and success denominators differ.
 The approved reference is 1,000 mixed IPv4/IPv6 sessions, nominal 100 ms
 intervals and 24 hours after setup. The engineering profile is 5,000 sessions
 at 300 ms for 30 minutes. Named profiles preserve required CPU/loss/blackhole
-inputs. Bounded CPU, GC and scheduler-pressure drivers are implemented;
-GC and scheduler variants are off by default. Calibrated pressure distributions,
-churn and independent clock evidence remain incomplete. Neither a short fixture nor a longer run without those
+inputs. Bounded CPU, GC, scheduler-pressure and fixed-manifest session-churn
+drivers are implemented; GC, scheduler and churn variants are off by default.
+Calibrated stress distributions and independent clock evidence remain incomplete.
+Neither a short fixture nor a longer run without those
 receipts is reference acceptance. Current inputs live in
 [`profile_linux.go`](../../test/internal/bfdload/profile_linux.go); Beads owns
 acceptance and execution.

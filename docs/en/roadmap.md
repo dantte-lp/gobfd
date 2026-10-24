@@ -22,13 +22,36 @@ source audit covers `dev@70738148033e58c7774cd632f3dba93303c9d7ba` under
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
 | Echo preview | API destination/interface and declarative TX interface limitations remain documented source defects | `gobfd-qj0.8.2.1.17`, `gobfd-qj0.8.2.1.19` |
 | Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
-| Runtime | Bounded CPU, GC and scheduler fixtures exist; session churn, reference distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
+| Runtime | Bounded CPU, GC, scheduler and fixed-manifest churn fixtures exist; calibrated distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
 | Security | Existing bounded advisory decisions require final candidate evidence | `gobfd-qj0.8.4.1` |
 
 Oracle Linux 10 is outside v1 OCI/lifecycle scope; generic RPM generation and
 historical v0.6 evidence remain. These status rows neither close their owners
 nor create an executable plan. Use Beads for current priorities and acceptance.
+
+## Session-churn workload fixture — 2026-10-24
+
+`gobfd-qj0.8.2.1.6.3.4.3.4` adds default-off real final-claim retirement and
+recovery inside the existing owner workload. The independent-process mixed
+IPv4/IPv6 fixture passes in 56.18 s with an 11-second measurement window:
+two releases, two creations and two observed recoveries. Both peers record
+two Up transitions. For each cycle, actual known-peer/active registrations
+change from 2 to 1 and back to 2; two session and eight packet metric series
+remain retained. One insufficient trailing cycle is explicitly skipped.
+
+The lifetime ledger settles 190 successful peer writes as 174 commits and
+16 unknown-session terminal rejections. Retired generations account for 73
+commits and current generations for 101. All four owned containers are removed;
+the runner peaks at 216944640/536870912 bytes with zero max/OOM events and swap.
+Evidence: `reports/workload-churn-20261024/`.
+
+This fixed-manifest fixture neither introduces arbitrary unique peer labels nor
+qualifies reference distributions, scale, total clock uncertainty or stable
+delivery. The worker requires actual recovery, bounds waiting for Up and joins
+before measurement freeze. Down events outside the measurement interval are
+excluded. Reference/engineering runs, calibrated loss/blackhole/stress
+distributions, thread-pin A/B and final-candidate wire/security gates remain open.
 
 ## Scheduler-pressure workload fixture — 2026-10-24
 
@@ -46,8 +69,9 @@ All four owned containers are removed. The runner peaks at
 `reports/workload-scheduler-20261024/`. Yield calls do not establish OS context
 switches or queue depth; these process observations are not calibrated
 reference distributions. Clock uncertainty remains unknown and reference
-qualification false. Churn, thread-pin A/B, reference/engineering runs and
-final-candidate wire/security gates remain separate open work.
+qualification false. At this checkpoint the churn driver was still pending;
+its later fixture is recorded above. Thread-pin A/B, calibrated distributions,
+reference/engineering runs and final-candidate wire/security gates remain open.
 
 ## GC-pressure workload fixture — 2026-10-24
 
@@ -64,7 +88,7 @@ events and swap. Evidence: `reports/workload-gc-20261024/`.
 These are fixture observations, not calibrated reference distributions or
 sole-helper GC causality. Clock uncertainty remains unknown and reference
 qualification remains false. At this checkpoint scheduler/churn drivers were
-still pending; the scheduler fixture is recorded above. Session churn,
+still pending; their later fixtures are recorded above. Calibrated distributions,
 thread-pin A/B, admitted reference/engineering runs and final-candidate wire
 gates remain open.
 

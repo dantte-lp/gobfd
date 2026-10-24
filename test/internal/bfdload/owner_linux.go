@@ -42,6 +42,8 @@ type OwnerConfig struct {
 // OwnerSessionObservation separates sampled counters from the causal tuple.
 type OwnerSessionObservation struct {
 	Endpoint           OwnerEndpoint   `json:"endpoint"`
+	Generation         uint64          `json:"generation"`
+	Registered         bool            `json:"registered"`
 	LocalDiscriminator uint32          `json:"local_discriminator"`
 	SourcePort         uint16          `json:"source_port"`
 	Observation        bfd.Observation `json:"observation"`
@@ -63,6 +65,7 @@ type OwnerObservation struct {
 	stoppedAt                      time.Time                 `json:"-"`
 	Scope                          string                    `json:"scope"`
 	Stopped                        bool                      `json:"stopped"`
+	Closing                        bool                      `json:"closing"`
 	StoppedAtUTC                   time.Time                 `json:"stopped_at_utc"`
 	ReferenceQualified             bool                      `json:"reference_qualified"`
 	TimingUncertaintyNS            *uint64                   `json:"timing_uncertainty_ns"`
@@ -74,12 +77,19 @@ type OwnerObservation struct {
 	Metrics                        []*dto.MetricFamily       `json:"metrics"`
 	ClockCalibrations              []OwnerClockObservation   `json:"clock_calibrations"`
 	ClockEpoch                     *ClockEpochObservation    `json:"clock_epoch"`
+	Registrations                  OwnerRegistrations        `json:"registrations"`
+	RetiredSessions                uint64                    `json:"retired_sessions"`
+	RetiredSent                    uint64                    `json:"retired_sent"`
+	RetiredReceived                uint64                    `json:"retired_received"`
+	TerminalPackets                uint64                    `json:"terminal_packets"`
 }
 
 type ownerSession struct {
 	endpoint   OwnerEndpoint
 	session    *bfd.Session
 	sourcePort uint16
+	lease      *bfd.SenderLease
+	generation uint64
 }
 
 type ownerListener struct {
@@ -95,7 +105,12 @@ type Owner struct {
 	registry     *prometheus.Registry
 	ports        *netio.SourcePortAllocator
 	listeners    []ownerListener
-	leases       []*bfd.SenderLease
+	logger       *slog.Logger
+	inventory    sync.RWMutex
+	closing      bool
+	retired      uint64
+	retiredSent  uint64
+	retiredRX    uint64
 	sessions     []ownerSession
 	receiveErrs  []error
 	workers      sync.WaitGroup
@@ -126,7 +141,7 @@ func StartOwner(ctx context.Context, cfg OwnerConfig, logger *slog.Logger) (*Own
 	owner := &Owner{
 		manager: bfd.NewManager(logger, bfd.WithManagerMetrics(collector),
 			bfd.WithSessionInterfaceResolver(netio.ResolveSessionIfIndex)),
-		registry: registry, ports: netio.NewSourcePortAllocator(), cancel: cancel, done: make(chan struct{}),
+		registry: registry, ports: netio.NewSourcePortAllocator(), logger: logger, cancel: cancel, done: make(chan struct{}),
 	}
 	if err := owner.start(runCtx, cfg, logger); err != nil {
 		return nil, errors.Join(err, owner.Close())
@@ -209,9 +224,12 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("create owner sessions: %w", err)
 		}
-		if err := o.createSession(ctx, cfg, endpoint, logger); err != nil {
+		entry, err := o.createSession(ctx, cfg, endpoint)
+		if err != nil {
 			return err
 		}
+		entry.generation = 1
+		o.sessions = append(o.sessions, entry)
 	}
 	receiver := netio.NewReceiver(o.manager, logger)
 	o.receiveErrs = make([]error, len(o.listeners))
@@ -226,8 +244,9 @@ func (o *Owner) start(ctx context.Context, cfg OwnerConfig, logger *slog.Logger)
 	return nil
 }
 
-func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint OwnerEndpoint, logger *slog.Logger) error {
-	var sourcePort uint16
+// createSession runs before publication or while the caller holds inventory.
+func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint OwnerEndpoint) (ownerSession, error) {
+	entry := ownerSession{endpoint: endpoint}
 	session, err := o.manager.CreateSession(ctx, bfd.SessionConfig{
 		LocalAddr: endpoint.Local.Addr(), PeerAddr: endpoint.Peer.Addr(), Interface: endpoint.Interface,
 		Type: bfd.SessionTypeSingleHop, Role: bfd.RoleActive,
@@ -237,7 +256,7 @@ func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint Own
 		if err != nil {
 			return nil, fmt.Errorf("allocate owner source port: %w", err)
 		}
-		sender, err := netio.NewUDPSender(endpoint.Local.Addr(), port, false, logger,
+		sender, err := netio.NewUDPSender(endpoint.Local.Addr(), port, false, o.logger,
 			netio.WithDstPort(endpoint.Peer.Port()), netio.WithBindDevice(endpoint.Interface))
 		if err != nil {
 			o.ports.Release(port)
@@ -251,15 +270,17 @@ func (o *Owner) createSession(ctx context.Context, cfg OwnerConfig, endpoint Own
 			}
 			return nil
 		})
-		sourcePort = port
-		o.leases = append(o.leases, lease)
+		entry.sourcePort, entry.lease = port, lease
 		return lease, nil
 	})
 	if err != nil {
-		return fmt.Errorf("create owner session %s to %s: %w", endpoint.Local, endpoint.Peer, err)
+		if entry.lease != nil {
+			err = errors.Join(err, entry.lease.Close())
+		}
+		return ownerSession{}, fmt.Errorf("create owner session %s to %s: %w", endpoint.Local, endpoint.Peer, err)
 	}
-	o.sessions = append(o.sessions, ownerSession{endpoint: endpoint, session: session, sourcePort: sourcePort})
-	return nil
+	entry.session = session
+	return entry, nil
 }
 
 // Done closes after cancellation or receive failure has completed cleanup.
@@ -276,13 +297,20 @@ func (o *Owner) closeListeners() {
 // Close cancels and joins every owned worker before releasing sender leases.
 func (o *Owner) Close() error {
 	o.closeOnce.Do(func() {
+		o.inventory.Lock()
+		o.closing = true
+		o.inventory.Unlock()
 		o.cancel()
 		o.closeListeners()
 		o.workers.Wait()
+		o.inventory.Lock()
+		defer o.inventory.Unlock()
 		o.manager.Close()
 		o.closeErr = errors.Join(o.closeIOError, errors.Join(o.receiveErrs...))
-		for _, lease := range o.leases {
-			o.closeErr = errors.Join(o.closeErr, lease.Close())
+		for _, entry := range o.sessions {
+			if entry.lease != nil {
+				o.closeErr = errors.Join(o.closeErr, entry.lease.Close())
+			}
 		}
 		o.stoppedAt = time.Now()
 		close(o.done)
@@ -297,11 +325,14 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 	if err != nil {
 		return OwnerObservation{}, fmt.Errorf("sample owner environment: %w", err)
 	}
+	o.inventory.RLock()
+	defer o.inventory.RUnlock()
 	report := OwnerObservation{
 		Scope: "production-core-owner-component", Environment: environment,
 		TimingUncertaintyError: "total clock uncertainty has not been independently established",
-		Delivery:               o.manager.DeliveryCounters(), Sessions: make([]OwnerSessionObservation, len(o.sessions)),
+		Delivery:               o.manager.DeliveryCounters(), Sessions: make([]OwnerSessionObservation, 0, len(o.sessions)),
 		ClockCalibrations: make([]OwnerClockObservation, len(o.listeners)),
+		Closing:           o.closing, RetiredSessions: o.retired, RetiredSent: o.retiredSent, RetiredReceived: o.retiredRX,
 	}
 	select {
 	case <-o.done:
@@ -310,13 +341,18 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 		report.StoppedAtUTC = o.stoppedAt.UTC()
 	default:
 	}
-	for i, entry := range o.sessions {
-		report.Sessions[i] = OwnerSessionObservation{
+	for _, entry := range o.sessions {
+		if entry.session == nil {
+			continue
+		}
+		registered, found := o.manager.LookupByDiscriminator(entry.session.LocalDiscriminator())
+		report.Sessions = append(report.Sessions, OwnerSessionObservation{
 			Endpoint: entry.endpoint, LocalDiscriminator: entry.session.LocalDiscriminator(), SourcePort: entry.sourcePort,
+			Generation: entry.generation, Registered: found && registered == entry.session,
 			Observation: entry.session.Observation(),
 			Sent:        entry.session.PacketsSent(), Received: entry.session.PacketsReceived(),
 			NegotiatedTXNS: int64(entry.session.NegotiatedTxInterval()), DetectionNS: int64(entry.session.DetectionTime()),
-		}
+		})
 	}
 	for i, listener := range o.listeners {
 		report.ClockCalibrations[i] = OwnerClockObservation{
@@ -326,6 +362,14 @@ func (o *Owner) Snapshot(ctx context.Context) (OwnerObservation, error) {
 	report.Metrics, err = o.registry.Gather()
 	if err != nil {
 		return OwnerObservation{}, fmt.Errorf("gather actual owner collector: %w", err)
+	}
+	report.Registrations, err = observeOwnerRegistrations(report.Metrics, len(o.manager.Sessions()))
+	if err != nil {
+		return OwnerObservation{}, err
+	}
+	report.TerminalPackets, err = terminalPacketCount(report)
+	if err != nil {
+		return OwnerObservation{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return OwnerObservation{}, fmt.Errorf("finish owner observation: %w", err)
