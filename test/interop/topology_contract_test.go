@@ -745,9 +745,13 @@ func TestInteropOperationalContract(t *testing.T) {
 	})
 
 	taggedGo := contents["tagged Go helper"]
-	assertContainsAll(t, "invalid-vector resource limits", taggedGo, []string{
+	vectorBuilder := readContractFile(t, "invalid-vector Compose builder",
+		filepath.Join(root, "test", "interop", "invalid_vector_image_test.go"))
+	assertContainsAll(t, "invalid-vector build resource limits", vectorBuilder, []string{
 		`"--cpu-period", "100000", "--cpu-quota", "200000"`,
 		`"--memory", "2g", "--memory-swap", "2g", "--jobs", "1"`,
+	})
+	assertContainsAll(t, "invalid-vector runtime resource limits", taggedGo, []string{
 		`"--cpus", "1", "--memory", "256m", "--memory-swap", "256m", "--pids-limit", "64"`,
 	})
 	assertContainsAll(t, "tagged Go helper", taggedGo, []string{

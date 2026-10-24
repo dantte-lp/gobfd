@@ -232,7 +232,7 @@ receipts and 675 verified sidecars are in `reports/padding-wire-20261024/`.
 This qualifies the padding reload slice only; actual TTL, unified final-candidate
 and stable-release gates remain separate. Baseline initial-Down and
 DetectionPrecision skips require final-gate disposition alongside the known
-BIRD fixed-source-port deviation.
+BIRD Linux source-port range deviation.
 
 Final-candidate qualification limits decoded TShark rows after display filtering;
 `-c` limits packets read and can hide later matching frames. Missing initial

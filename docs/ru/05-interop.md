@@ -233,7 +233,7 @@ source-only результаты эту задачу не закрывают.
 Квалифицирован только padding reload; actual TTL, unified final-candidate
 и stable-release gates остаются отдельными. Baseline SKIP начального Down
 и DetectionPrecision требуют final-gate disposition вместе с известным
-отклонением fixed source port BIRD.
+отклонением source-port range BIRD на Linux.
 
 Окончательный qualifier ограничивает декодированные строки TShark после display
 filter; `-c` ограничивает прочитанные пакеты и может скрыть поздние matching frames.

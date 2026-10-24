@@ -816,6 +816,14 @@ func buildFourPeerImage(
 	return builtImage
 }
 
+func buildInvalidVectorImage(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	endpoint := containertest.RequirePodman(t)
+	root := fourPeerRepositoryRoot(t)
+	return buildFourPeerImage(ctx, t, endpoint, prepareCraftedPeerContext(t, root),
+		bfdFuzzImage, new(fourPeerResources))
+}
+
 func prepareFourPeerGoContext(t *testing.T, root string) string {
 	t.Helper()
 

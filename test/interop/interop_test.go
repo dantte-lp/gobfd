@@ -2475,11 +2475,10 @@ func TestFRRDetectionTimeout(t *testing.T) {
 // preserved 1055-packet invalid-vector corpus and verifies GoBFD survives.
 // Tests RFC 5880 Section 6.8.6 validation robustness.
 //
-// Uses podman build + podman run directly (NOT podman compose run) because
-// podman compose's "run" subcommand tears down and recreates the entire
-// compose stack, destroying frr-interop and other containers.
+// The standalone generator joins the existing network because Compose "run"
+// tears down and recreates the stack, destroying frr-interop and other containers.
 func TestBFDInvalidVectors(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
 
 	projectName, err := interopProjectName()
@@ -2487,19 +2486,7 @@ func TestBFDInvalidVectors(t *testing.T) {
 		t.Fatalf("resolve interop Compose project: %v", err)
 	}
 
-	// Build directly from the repository root so the Go module and internal BFD
-	// codec are available to the bounded multi-stage build context.
-	buildOut, err := exec.CommandContext(ctx,
-		"podman", "build",
-		"--cpu-period", "100000", "--cpu-quota", "200000",
-		"--memory", "2g", "--memory-swap", "2g", "--jobs", "1",
-		"-t", bfdFuzzImage,
-		"-f", "scapy/Containerfile",
-		"../..",
-	).CombinedOutput()
-	if err != nil {
-		t.Fatalf("podman build BFD invalid-vector generator: %v\n%s", err, buildOut)
-	}
+	image := buildInvalidVectorImage(ctx, t)
 
 	// Run on the existing compose network without disturbing other services.
 	runOut, err := exec.CommandContext(ctx,
@@ -2510,7 +2497,7 @@ func TestBFDInvalidVectors(t *testing.T) {
 		"--network", interopNetworkName(projectName),
 		"--ip", fuzzIP,
 		"-e", "GOBFD_IP="+gobfdIP,
-		bfdFuzzImage,
+		image,
 	).CombinedOutput()
 	if err != nil {
 		t.Fatalf("BFD invalid-vector generator failed: %v\n%s", err, runOut)
