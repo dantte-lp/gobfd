@@ -705,7 +705,9 @@ func runInteropFakeCommand(mode, command string, args []string) int {
 		if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", joined); code != 0 {
 			return code
 		}
-		if strings.Contains(joined, "-test.run=^(TestTimerReload)$") && os.Getenv("INTEROP_FAKE_TIMER_FAIL") == "true" {
+		timerBatch := strings.Contains(joined, "-test.run=^(TestTimerReload)$") ||
+			strings.Contains(joined, "-test.run=^(TestMeticulousTimerReload)$")
+		if timerBatch && os.Getenv("INTEROP_FAKE_TIMER_FAIL") == "true" {
 			fmt.Fprintln(os.Stderr, "timer phase failed")
 			return 17
 		}

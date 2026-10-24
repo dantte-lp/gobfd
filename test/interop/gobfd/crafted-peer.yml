@@ -30,3 +30,4 @@ sessions:
     desired_min_tx: "300ms"
     required_min_rx: "300ms"
     detect_mult: 3
+    padded_pdu_size: 128

@@ -534,7 +534,7 @@ func TestTimerReloadArtifactCleanup(t *testing.T) {
 				t.Errorf("fake PCAP attempt: %v", err)
 			}
 		})
-		err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop",
+		err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop", fourPeerDefault,
 			func(_ int, _ []byte, exitCode int, _ error) {
 				if code := fakeAppend("INTEROP_FAKE_COMMAND_LOG", "", fmt.Sprintf("batch-exit=%d", exitCode)); code != 0 {
 					t.Errorf("record batch exit: %d", code)
@@ -668,43 +668,49 @@ func TestTimerReloadOwnedMutation(t *testing.T) {
 }
 
 func TestTimerReloadAssertionBatches(t *testing.T) {
-	for _, fail := range []bool{false, true} {
-		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
-			directory := t.TempDir()
-			assignment := installFakeCommand(t, directory, "assertions", "timer-batches")
-			key, value, _ := strings.Cut(assignment, "=")
-			t.Setenv(key, value)
-			t.Setenv("INTEROP_FAKE_COMMAND_LOG", filepath.Join(directory, "commands"))
-			t.Setenv("INTEROP_FAKE_TIMER_FAIL", strconv.FormatBool(fail))
-			t.Setenv("GORACE", "atexit_sleep_ms=0")
-			var events []string
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop",
-				func(index int, output []byte, exitCode int, runErr error) {
-					events = append(events, fmt.Sprintf("artifact-%d", index))
-					if index == 1 && fail &&
-						(exitCode != 17 || runErr == nil || !strings.Contains(string(output), "timer phase failed")) {
-						t.Errorf("lost original subprocess failure: %d/%v/%s", exitCode, runErr, output)
-					}
-				})
-			if (err != nil) != fail {
-				t.Fatalf("batch error=%v", err)
-			}
-			log, readErr := os.ReadFile(filepath.Join(directory, "commands"))
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			lines := strings.Split(strings.TrimSpace(string(log)), "\n")
-			want := 3
-			if fail {
-				want = 2
-			}
-			if len(lines) != want || len(events) != want || !strings.Contains(lines[0], "TestRFCCompliance") ||
-				!strings.Contains(lines[1], "-test.run=^(TestTimerReload)$") {
-				t.Fatalf("batch commands=%s events=%v", log, events)
-			}
-		})
+	for _, profile := range []fourPeerProfile{fourPeerDefault, fourPeerMeticulous} {
+		for _, fail := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d/%t", profile, fail), func(t *testing.T) {
+				directory := t.TempDir()
+				assignment := installFakeCommand(t, directory, "assertions", "timer-batches")
+				key, value, _ := strings.Cut(assignment, "=")
+				t.Setenv(key, value)
+				t.Setenv("INTEROP_FAKE_COMMAND_LOG", filepath.Join(directory, "commands"))
+				t.Setenv("INTEROP_FAKE_TIMER_FAIL", strconv.FormatBool(fail))
+				t.Setenv("GORACE", "atexit_sleep_ms=0")
+				var events []string
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				err := runFourPeerAssertionBatches(ctx, filepath.Join(directory, "assertions"), "gobfd-interop", profile,
+					func(index int, output []byte, exitCode int, runErr error) {
+						events = append(events, fmt.Sprintf("artifact-%d", index))
+						if index == 1 && fail &&
+							(exitCode != 17 || runErr == nil || !strings.Contains(string(output), "timer phase failed")) {
+							t.Errorf("lost original subprocess failure: %d/%v/%s", exitCode, runErr, output)
+						}
+					})
+				if (err != nil) != fail {
+					t.Fatalf("batch error=%v", err)
+				}
+				log, readErr := os.ReadFile(filepath.Join(directory, "commands"))
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				lines := strings.Split(strings.TrimSpace(string(log)), "\n")
+				want := 3
+				if fail {
+					want = 2
+				}
+				rfcName, timerName := "TestRFCCompliance", "TestTimerReload"
+				if profile == fourPeerMeticulous {
+					rfcName, timerName = "TestMeticulousRFCCompliance", "TestMeticulousTimerReload"
+				}
+				if len(lines) != want || len(events) != want || !strings.Contains(lines[0], rfcName) ||
+					!strings.Contains(lines[1], "-test.run=^("+timerName+")$") {
+					t.Fatalf("batch commands=%s events=%v", log, events)
+				}
+			})
+		}
 	}
 }
 

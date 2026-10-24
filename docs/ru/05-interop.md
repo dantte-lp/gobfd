@@ -211,6 +211,22 @@ detection timer. Source contracts не закрывают P0 `gobfd-qj0.8.2.2.7.
 обе топологии с этими captures; receipts — в `reports/detect-wire-20261024/`.
 Это не закрывает prepared-padding, TTL и финальную five-field квалификацию.
 
+Prepared-padding сценарии расширяют тот же timer lifecycle аутентифицированными
+целями 128→192→128, отклонением auth+padding, enable/disable padding и
+комбинированного кандидата. Meticulous SHA1 startup-профиль запускается через
+`TestFourPeerMeticulousTopologyTestcontainers`; default keyed SHA1 — через
+`TestFourPeerTopologyTestcontainers`. Каждый загружает и восстанавливает
+собственный выбранный immutable baseline. Независимый peer сохраняет свой
+размер пакета. Capture validator сохраняет replay state между фазами и retries,
+проверяет DF, raw UDP payload, declared PDU length, нули padding и границу MAC.
+Aggregate и named BFD readiness проверяются внутри собственного контейнера демона
+через существующий Unix socket тем же собранным interop-бинарником, скопированным
+механизмом container files; TCP остаётся loopback-only. Crafted peer принимает SIGUSR2
+как Poll текущего состояния без продвижения фазы и сброса Demand: это даёт
+Final старого размера после отклонённого Demand resize. Фактический capture
+acceptance ведётся отдельно в `gobfd-qj0.8.2.2.7.5.3.3`;
+source-only результаты эту задачу не закрывают.
+
 ### Запуск тестов совместимости
 
 #### Полный цикл (рекомендуется)

@@ -217,6 +217,21 @@ Runtime discovery использует запросы registry по префик
 закрыты локально. Prepared padding, фактический TTL admission и unified
 exact-candidate gate остаются P0; stable acceptance не подтверждается.
 
+Квалификация prepared padding (`gobfd-qj0.8.2.2.7.5.3`) сохраняет capture cursor
+и receive authentication state каждого направления на всей цепочке resize
+и отклонённых кандидатов. Повторная оценка транзакционна: ошибка или неполное
+evidence не продвигают cursor и replay state. Независимый peer сохраняет
+собственный размер PDU; локальная цель 128→192→128 не доказывает двусторонний
+MTU. DF, declared BFD Length, UDP payload, нулевой padding и граница MAC
+проверяются отдельно. Meticulous SHA1 задаётся только при старте того же
+FourPeer lifecycle; default keyed SHA1 квалифицируется отдельно. Runtime auth
+rotation остаётся вне v1. Aggregate и named BFD readiness проверяются через
+существующий management Unix socket внутри собственного контейнера демона
+тем же собранным interop-бинарником. Он копируется существующим механизмом
+container files; пути runner не передаются host engine как bind paths.
+TCP listener остаётся loopback-only.
+Source contracts не закрывают эту actual-wire задачу.
+
 Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.

@@ -18,6 +18,7 @@ import (
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/dantte-lp/gobfd/internal/bfd"
 	"github.com/dantte-lp/gobfd/test/internal/containertest"
 )
 
@@ -595,7 +596,7 @@ func startCraftedPeerTopology(
 	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, craftedPeerConfig), networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 	// Fail before the scenario when the dissector lacks a queried field.
-	requireCaptureFields(ctx, t, append(detectFrameFields(), "bfd.diag"))
+	requireCaptureFields(ctx, t, append(paddingFrameFields(), "bfd.diag"))
 	peer := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:                    peerImage,
 		Name:                     "scapy-interop",
@@ -740,6 +741,12 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 			fmt.Sprintf("crafted-detect-%d", multiplier), multiplier, timerReceiptPoll)
 		detectUpdates = append(detectUpdates, phase)
 	}
+	observer := newPaddingObserver(ctx, t, []byte(detectBaseline), fuzzIP, bfd.AuthTypeNone)
+	candidate, err := paddingConfig(detectBaseline, fuzzIP, 192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runPaddingCandidate(ctx, t, candidate, "crafted-demand-padding-rejected", 128, true, observer)
 	advanceCrafted(ctx, t, peer, "demand-clear", true)
 	hold(8 * time.Second)
 	// RFC 5880 Sections 6.5 and 6.8.3: lost Finals, a crossed Poll and a queued

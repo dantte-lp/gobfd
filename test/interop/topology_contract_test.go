@@ -556,7 +556,8 @@ func TestInteropOperationalContract(t *testing.T) {
 		`GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})"`,
 		"go test -tags interop_testcontainers -race -count=1 " +
 			"-run '^(TestTimerReload.+|TestCraftedPeerEvidence.+)$$' ./test/interop/",
-		"-run '^(TestFourPeerTopologyTestcontainers|TestBIRDFlowSpecValidation|" +
+		"-run '^(TestFourPeerTopologyTestcontainers|TestFourPeerMeticulousTopologyTestcontainers|" +
+			"TestBIRDFlowSpecValidation|" +
 			"TestCraftedPeerTestcontainers)$$' ./test/interop/",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,

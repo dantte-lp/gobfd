@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/dantte-lp/gobfd/internal/bfd"
 )
 
 var (
@@ -90,6 +92,30 @@ func timerJSONObject(data []byte, required ...string) (map[string]json.RawMessag
 	return values, nil
 }
 
+func timerPublicationTime(raw json.RawMessage) (time.Time, error) {
+	var timestamp string
+	if err := json.Unmarshal(raw, &timestamp); err != nil {
+		return time.Time{}, fmt.Errorf("receipt publication time: %w", err)
+	}
+	if start := strings.IndexAny(timestamp, ".,"); start >= 0 {
+		fraction := timestamp[start+1:]
+		if end := strings.IndexAny(fraction, "Z+-"); end >= 0 {
+			fraction = fraction[:end]
+		}
+		if timestamp[start] != '.' || len(fraction) == 0 || len(fraction) > 9 {
+			return time.Time{}, fmt.Errorf("receipt publication precision %q: %w", timestamp, errTimerEvidence)
+		}
+	}
+	var published time.Time
+	if err := json.Unmarshal(raw, &published); err != nil {
+		return time.Time{}, fmt.Errorf("decode publication time: %w", err)
+	}
+	if published.IsZero() {
+		return time.Time{}, fmt.Errorf("missing receipt publication time: %w", errTimerEvidence)
+	}
+	return published, nil
+}
+
 func parseTimerReceipts(input string) ([]timerReceipt, error) {
 	var receipts []timerReceipt
 	for line := range strings.SplitSeq(strings.TrimSpace(input), "\n") {
@@ -112,18 +138,8 @@ func parseTimerReceipts(input string) ([]timerReceipt, error) {
 			"created", "updated", "released", "pending", "timer_pending", "failed"); err != nil {
 			return nil, err
 		}
-		var timestamp string
-		if err := json.Unmarshal(fields["time"], &timestamp); err != nil {
-			return nil, fmt.Errorf("receipt publication time: %w", err)
-		}
-		if start := strings.IndexAny(timestamp, ".,"); start >= 0 {
-			fraction := timestamp[start+1:]
-			if end := strings.IndexAny(fraction, "Z+-"); end >= 0 {
-				fraction = fraction[:end]
-			}
-			if timestamp[start] != '.' || len(fraction) == 0 || len(fraction) > 9 {
-				return nil, fmt.Errorf("receipt publication precision %q: %w", timestamp, errTimerEvidence)
-			}
+		if _, err := timerPublicationTime(fields["time"]); err != nil {
+			return nil, err
 		}
 		var receipt timerReceipt
 		if err := json.Unmarshal([]byte(line), &receipt); err != nil {
@@ -881,16 +897,17 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 }
 
 func TestTimerReload(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
+	runTimerReload(t, fourPeerDefault)
+}
+
+func runTimerReload(t *testing.T, profile fourPeerProfile) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	requireCaptureFields(ctx, t, detectFrameFields())
-	baseline, err := os.ReadFile("gobfd/gobfd.yml")
+	requireCaptureFields(ctx, t, paddingFrameFields())
+	baseline, bird, err := loadFourPeerConfig(filepath.Join("..", ".."), profile)
 	if err != nil {
 		t.Fatalf("read immutable daemon baseline: %v", err)
-	}
-	bird, err := os.ReadFile("bird3/bird.conf")
-	if err != nil {
-		t.Fatalf("read immutable BIRD baseline: %v", err)
 	}
 	// Restore from the saved baseline even when a phase aborts; never edit tracked fixtures.
 	t.Cleanup(func() {
@@ -901,6 +918,7 @@ func TestTimerReload(t *testing.T) {
 			setTimerPeerRX(restoreCtx, t, peer, string(bird), 300)
 		}
 	})
+	observers := make(map[string]*paddingObserver)
 	for _, peer := range []struct{ name, address string }{{"FRR", frrIP}, {"BIRD3", bird3IP}} {
 		if !t.Run(peer.name, func(t *testing.T) {
 			before, counters := timerSnapshot(ctx, t, peer.address, peer.name+"-floor-before")
@@ -932,9 +950,60 @@ func TestTimerReload(t *testing.T) {
 				runDetectGeneration(ctx, t, string(baseline), peer.address,
 					fmt.Sprintf("%s-detect-%d", peer.name, multiplier), multiplier, timerReceiptImmediate)
 			}
+			authType := bfd.AuthTypeSimplePassword
+			if peer.address == bird3IP {
+				authType = bfd.AuthTypeKeyedSHA1
+				if profile == fourPeerMeticulous {
+					authType = bfd.AuthTypeMeticulousKeyedSHA1
+				}
+			}
+			observer := newPaddingObserver(ctx, t, baseline, peer.address, authType)
+			observers[peer.address] = observer
+			for _, size := range []uint64{192, 128} {
+				candidate, buildErr := paddingConfig(string(baseline), peer.address, size)
+				if buildErr != nil {
+					t.Fatal(buildErr)
+				}
+				runPaddingCandidate(ctx, t, candidate, fmt.Sprintf("%s-padding-%d", peer.name, size), size, false, observer)
+			}
+			candidate, buildErr := paddingConfig(string(baseline), peer.address, 0)
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			if peer.address == bird3IP {
+				candidate, buildErr = paddingConfig(string(baseline), peer.address, 192)
+				if buildErr != nil {
+					t.Fatal(buildErr)
+				}
+				start, end, blockErr := timerPeerBlock(candidate, peer.address)
+				if blockErr != nil {
+					t.Fatal(blockErr)
+				}
+				block := candidate[start:end]
+				if strings.Count(block, "      key_id: 7\n") != 1 {
+					t.Fatal("ambiguous auth candidate")
+				}
+				block = strings.Replace(block, "      key_id: 7\n", "      key_id: 8\n", 1)
+				candidate = candidate[:start] + block + candidate[end:]
+			}
+			runPaddingCandidate(ctx, t, candidate, peer.name+"-padding-rejected", 128, true, observer)
 		}) {
 			return
 		}
+	}
+	if !t.Run("padding-enable-rejected", func(t *testing.T) {
+		holo := newPaddingObserver(ctx, t, baseline, holoIP, bfd.AuthTypeNone)
+		candidate, buildErr := paddingConfig(string(baseline), holoIP, 128)
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		candidate, buildErr = paddingConfig(candidate, frrIP, 192)
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		runPaddingCandidate(ctx, t, candidate, "combined-enable-rejected", 128, true, observers[frrIP], holo)
+	}) {
+		return
 	}
 	for _, peer := range []struct{ name, address string }{{"FRR", frrIP}, {"BIRD3", bird3IP}} {
 		if !t.Run(peer.name+"-RX0", func(t *testing.T) {

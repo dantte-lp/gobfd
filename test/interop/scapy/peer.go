@@ -212,7 +212,7 @@ func runPeerMain() int {
 	ctx, timeout := context.WithTimeout(ctx, peerTimeout)
 	defer timeout()
 	advance := make(chan os.Signal, 1)
-	signal.Notify(advance, syscall.SIGUSR1)
+	signal.Notify(advance, syscall.SIGUSR1, syscall.SIGUSR2)
 	defer signal.Stop(advance)
 	if err := runPeer(ctx, os.Getenv, os.Stdout, advance); err != nil {
 		fmt.Fprintf(os.Stderr, "BFD crafted peer: %v\n", err)
@@ -295,8 +295,8 @@ func (loop *peerLoop) run(ctx context.Context, packets <-chan bfd.ControlPacket,
 			} else {
 				loop.lastSent = time.Now()
 			}
-		case <-advance:
-			err = loop.advance()
+		case event := <-advance:
+			err = loop.signal(event)
 		}
 		if err != nil {
 			return err
@@ -315,6 +315,13 @@ func (loop *peerLoop) receive(packet bfd.ControlPacket) error {
 		return nil
 	}
 	return loop.transmit(reply)
+}
+
+func (loop *peerLoop) signal(event os.Signal) error {
+	if event == syscall.SIGUSR2 {
+		return loop.crafted.apply(phasePoll)
+	}
+	return loop.advance()
 }
 
 func (loop *peerLoop) advance() error {

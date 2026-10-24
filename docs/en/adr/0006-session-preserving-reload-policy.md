@@ -216,6 +216,21 @@ captures and receipts in `reports/detect-wire-20261024/`. Children `.5.2` and
 `.5.2.1` are closed locally. Prepared padding, actual TTL admission and the
 unified exact-candidate gate remain P0; no stable acceptance is implied.
 
+Prepared-padding qualification (`gobfd-qj0.8.2.2.7.5.3`) retains one capture
+cursor and authentication receive state per direction across the whole resize
+and rejection sequence. Retry evaluation is transactional: failed or incomplete
+evidence cannot advance either state. The independent peer keeps its own PDU
+size; a local 128→192→128 target is not a bidirectional MTU claim. Verify DF,
+declared BFD Length, UDP payload, zero padding and the existing MAC boundary
+separately. Meticulous SHA1 is a startup-only profile of the same FourPeer
+lifecycle; default keyed SHA1 remains a separate qualification. Runtime auth
+rotation remains outside v1. Probe aggregate and named BFD readiness through
+the existing management Unix socket inside the owned daemon container, using
+the same compiled interop executable. Copy it through the existing container
+file mechanism; runner paths must not become host-engine bind paths.
+The TCP listener remains loopback-only.
+Source contracts alone do not close this actual-wire task.
+
 Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.

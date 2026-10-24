@@ -2,11 +2,24 @@ package main
 
 import (
 	"io"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
 )
+
+func TestPeerPollProbePreservesDemandAndPhase(t *testing.T) {
+	t.Parallel()
+	loop := &peerLoop{crafted: newPeer(), next: 5}
+	loop.crafted.demand = true
+	if err := loop.signal(syscall.SIGUSR2); err != nil {
+		t.Fatal(err)
+	}
+	if !loop.crafted.poll || !loop.crafted.demand || loop.next != 5 {
+		t.Fatal("probe changed Demand/phase or failed to start Poll")
+	}
+}
 
 const testRemoteDiscriminator = 0x1111
 

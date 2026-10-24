@@ -4,6 +4,21 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Prepared-padding qualification in progress — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.3` is in progress on
+`task/padding-wire-20261024`, based on local dev
+`8931c769d6b49cdf1ad5139d74e61505b85e585a`.
+Children `.3.1` and `.3.2` own the shared qualifier/drivers and a startup-only
+meticulous SHA1 profile of the existing FourPeer lifecycle. Child `.3.3`
+requires actual captures on the reviewed candidate. RFC 9764 DF/length/padding
+and RFC 5880 authentication continuity are checked independently; persistent
+per-direction replay state must span the whole resize and rejection chain.
+Exact receipts, client outcomes and readiness remain mandatory. Dynamic DF
+enable/disable and coordinated auth rotation remain after-v1 P2. Beads owns
+current priorities and acceptance; source contracts do not establish runtime
+or v1 release readiness. Evidence: `reports/padding-wire-20261024/`.
+
 ## Reload wire qualifier preparation — 2026-10-24
 
 `gobfd-qj0.8.2.2.7.5.2` is locally qualified on

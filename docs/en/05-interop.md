@@ -210,6 +210,22 @@ Local qualification on `d9e67064e51012c0d25a1a22dc9bd469600d8469` passes both
 topologies with those captures; receipts are in `reports/detect-wire-20261024/`.
 This does not close prepared-padding, TTL or final five-field qualification.
 
+Prepared-padding scenarios extend the same timer lifecycle with authenticated
+128→192→128 targets, rejected auth+padding changes, padding enable/disable,
+and combined-candidate rejection. The meticulous SHA1 startup profile uses
+`TestFourPeerMeticulousTopologyTestcontainers`; the default keyed SHA1 profile
+remains `TestFourPeerTopologyTestcontainers`. Each loads and restores its own
+selected immutable baseline. The independent peer keeps its own packet size.
+Capture verification retains replay state across phases and retries, and
+checks DF, raw UDP payload, declared PDU length, zero padding and MAC domain.
+Aggregate and named BFD readiness are probed inside the owned daemon container
+through the existing Unix socket, using the same compiled interop executable
+copied through container files; TCP remains loopback-only. The crafted peer accepts
+SIGUSR2 as a current-state Poll probe without advancing its phase or clearing
+Demand, allowing old-size Final evidence after a rejected Demand resize.
+Actual capture acceptance is tracked separately in
+`gobfd-qj0.8.2.2.7.5.3.3`; source-only results do not close it.
+
 ### Running Interop Tests
 
 #### Full Cycle (Recommended)

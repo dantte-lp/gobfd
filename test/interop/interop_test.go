@@ -1587,6 +1587,11 @@ func TestThoroHandshake(t *testing.T) {
 // clean up after themselves. The stack should be left in a working state
 // for subsequent tests.
 func TestRFCCompliance(t *testing.T) {
+	runRFCCompliance(t, 4)
+}
+
+func runRFCCompliance(t *testing.T, birdAuthType byte) {
+	t.Helper()
 	t.Cleanup(func() {
 		if t.Failed() {
 			dumpTsharkCapture(t, 200)
@@ -1659,7 +1664,7 @@ func TestRFCCompliance(t *testing.T) {
 			payloadLength int
 		}{
 			{"FRR", frrIP, 40, 1, 128},
-			{"BIRD3", bird3IP, 52, 4, 128},
+			{"BIRD3", bird3IP, 52, birdAuthType, 128},
 			{"Holo", holoIP, 24, 0, 24},
 			{"Thoro", thoroIP, 24, 0, 24},
 		}

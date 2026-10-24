@@ -104,6 +104,43 @@ func validDetectAuth(frame detectFrame) bool {
 	}
 }
 
+func checkControlContinuity(prior, frame detectFrame) error {
+	if frame.SourcePort != prior.SourcePort || frame.AuthPresent != prior.AuthPresent ||
+		frame.AuthType != prior.AuthType || frame.Key != prior.Key || frame.Demand != prior.Demand ||
+		!validDetectAuth(frame) {
+		return fmt.Errorf("changed Control transport/auth identity: %w", errTimerEvidence)
+	}
+	if frame.HasSequence {
+		delta := (frame.Sequence + 1<<32 - prior.Sequence) % (1 << 32)
+		if delta >= 1<<31 || ((frame.AuthType == 3 || frame.AuthType == 5) && delta != 1) {
+			return fmt.Errorf("Control auth sequence discontinuity: %w", errTimerEvidence)
+		}
+	}
+	return nil
+}
+
+type controlPublication struct {
+	At                      time.Time
+	Interval                int64
+	TargetSeen, PostReceipt bool
+}
+
+func (publication *controlPublication) observe(frame timerFrame, target bool) error {
+	if publication.TargetSeen && !target {
+		return fmt.Errorf("Control target reverted: %w", errTimerEvidence)
+	}
+	if !frame.Epoch.Before(publication.At) {
+		age := frame.Epoch.Sub(publication.At).Microseconds()
+		if !target && (publication.PostReceipt || age > timerSlack(publication.Interval)) ||
+			!publication.TargetSeen && target && age > publication.Interval+timerSlack(publication.Interval) {
+			return fmt.Errorf("missed next Control bound: %w", errTimerEvidence)
+		}
+		publication.PostReceipt = true
+	}
+	publication.TargetSeen = publication.TargetSeen || target
+	return nil
+}
+
 func evaluateDetectPhase(frames []detectFrame, phase detectPhase) (detectWireResult, error) {
 	previous := phase.Before
 	if previous[0].SourcePort < 49152 || previous[0].SourcePort > 65535 ||
@@ -122,18 +159,11 @@ func evaluateDetectPhase(frames []detectFrame, phase detectPhase) (detectWireRes
 			direction = 1
 		}
 		prior := previous[direction]
-		if frame.SourcePort != prior.SourcePort || frame.UDPLength != prior.UDPLength ||
-			frame.AuthPresent != prior.AuthPresent ||
-			frame.AuthType != prior.AuthType || frame.Key != prior.Key || frame.Demand != prior.Demand ||
-			!validDetectAuth(frame) {
-			return detectWireResult{}, fmt.Errorf("DetectMult changed transport/auth identity: %w", errTimerEvidence)
+		if frame.UDPLength != prior.UDPLength {
+			return detectWireResult{}, fmt.Errorf("DetectMult UDP length changed: %w", errTimerEvidence)
 		}
-		if frame.HasSequence {
-			// RFC 5880 sequence arithmetic is modulo 2^32; meticulous packets increment by one.
-			delta := (frame.Sequence + 1<<32 - prior.Sequence) % (1 << 32)
-			if delta >= 1<<31 || ((frame.AuthType == 3 || frame.AuthType == 5) && delta != 1) {
-				return detectWireResult{}, fmt.Errorf("DetectMult auth sequence discontinuity: %w", errTimerEvidence)
-			}
+		if err := checkControlContinuity(prior, frame); err != nil {
+			return detectWireResult{}, err
 		}
 		previous[direction] = frame
 		base[index] = frame.timerFrame
@@ -162,7 +192,7 @@ func evaluateDetectTimeline(frames []timerFrame, phase detectPhase) (detectWireR
 	}
 	var previous timerFrame
 	var intervals []int64
-	seen, postReceipt := false, false
+	publication := controlPublication{At: phase.AppliedAt, Interval: int64(max(phase.TX, phase.RemoteRX))}
 	for _, frame := range frames {
 		local := frame.Source == gobfdIP && frame.Destination == phase.Peer
 		remote := frame.Source == phase.Peer && frame.Destination == gobfdIP
@@ -189,20 +219,16 @@ func evaluateDetectTimeline(frames []timerFrame, phase detectPhase) (detectWireR
 			continue
 		}
 		if frame.TX != phase.TX || frame.RX != phase.RX ||
-			(frame.Multiplier != phase.Multiplier && (seen || frame.Multiplier != phase.PreviousMultiplier)) {
+			(frame.Multiplier != phase.Multiplier && (publication.TargetSeen || frame.Multiplier != phase.PreviousMultiplier)) {
 			return result, fmt.Errorf("DetectMult changed local tuple: %w", errTimerEvidence)
 		}
-		if phase.Mode == timerReceiptImmediate && !frame.Epoch.Before(phase.AppliedAt) {
-			interval := int64(max(phase.TX, phase.RemoteRX))
-			age := frame.Epoch.Sub(phase.AppliedAt).Microseconds()
-			// Capture may observe one already-sent packet during the bounded egress window.
-			if frame.Multiplier != phase.Multiplier && (postReceipt || age > timerSlack(interval)) ||
-				!seen && frame.Multiplier == phase.Multiplier && age > interval+timerSlack(interval) {
-				return result, fmt.Errorf("DetectMult missed next Control bound: %w", errTimerEvidence)
+		if phase.Mode == timerReceiptImmediate {
+			if err := publication.observe(frame, frame.Multiplier == phase.Multiplier); err != nil {
+				return result, err
 			}
-			postReceipt = true
+		} else {
+			publication.TargetSeen = publication.TargetSeen || frame.Multiplier == phase.Multiplier
 		}
-		seen = seen || frame.Multiplier == phase.Multiplier
 		if frame.Poll == 1 {
 			if phase.Mode != timerReceiptPoll || frame.Multiplier != phase.Multiplier || !frame.Epoch.Before(phase.AppliedAt) {
 				return result, fmt.Errorf("unexpected DetectMult Poll: %w", errTimerEvidence)
@@ -226,7 +252,7 @@ func evaluateDetectTimeline(frames []timerFrame, phase detectPhase) (detectWireR
 		}
 		previous = frame
 	}
-	if !seen || result.RemoteTX == 0 {
+	if !publication.TargetSeen || result.RemoteTX == 0 {
 		return result, fmt.Errorf("missing DetectMult traffic: %w", errTimerEvidence)
 	}
 	result.DetectionMicroseconds = phase.Before[1].Multiplier * max(phase.RX, result.RemoteTX)
@@ -379,24 +405,39 @@ func runDetectGeneration(ctx context.Context, t *testing.T, baseline, peer, name
 		t.Fatalf("DetectMult requires stable established baseline: %+v", before)
 	}
 	phase.TX, phase.RX, phase.RemoteRX = phase.Before[0].TX, phase.Before[0].RX, phase.Before[1].RX
-	current := readTimerReceipts(phaseCtx, t, name+"-before")
-	previous := current[len(current)-1]
-	if previous.Stale || previous.Desired == 0 || previous.Desired != previous.Applied || previous.Failed != 0 {
-		t.Fatalf("DetectMult requires converged generation: %+v", previous)
-	}
 	candidate, err := detectConfig(baseline, peer, multiplier)
 	if err != nil {
 		t.Fatal(err)
 	}
+	phase.AppliedAt = reloadControlCandidate(phaseCtx, t, candidate, name, mode)
+	if mode == timerReceiptPoll {
+		quiet := time.Duration(craftedQuietMultiple*max(phase.TX, phase.RemoteRX)) * time.Microsecond
+		if waitErr := waitCrafted(phaseCtx, quiet); waitErr != nil {
+			t.Fatal(waitErr)
+		}
+	}
+	return captureDetectGeneration(phaseCtx, t, phase, name, before, counters)
+}
+
+func reloadControlCandidate(ctx context.Context, t *testing.T, candidate, name string,
+	mode timerReceiptMode,
+) time.Time {
+	t.Helper()
+	current := readTimerReceipts(ctx, t, name+"-before")
+	previous := current[len(current)-1]
+	if previous.Stale || previous.Desired == 0 || previous.Desired != previous.Applied ||
+		previous.Failed != 0 || previous.Pending != 0 {
+		t.Fatalf("reload requires converged generation: %+v", previous)
+	}
 	path := writeTimerArtifact(t, name+"-config", "yml", []byte(candidate))
-	if copyErr := copyTimerConfig(phaseCtx, "gobfd-interop", path, "/etc/gobfd/gobfd.yml"); copyErr != nil {
+	if copyErr := copyTimerConfig(ctx, "gobfd-interop", path, "/etc/gobfd/gobfd.yml"); copyErr != nil {
 		t.Fatal(copyErr)
 	}
-	if _, reloadErr := signalTimerReload(phaseCtx); reloadErr != nil {
+	if _, reloadErr := signalTimerReload(ctx); reloadErr != nil {
 		t.Fatal(reloadErr)
 	}
 	var lastRaw string
-	phase.AppliedAt, err = pollUntil(phaseCtx, 100*time.Millisecond,
+	appliedAt, err := pollUntil(ctx, 100*time.Millisecond,
 		func(pollCtx context.Context) (time.Time, bool, error) {
 			logs, logErr := projectContainerLogs(pollCtx, "gobfd-interop")
 			lastRaw = logs
@@ -410,22 +451,23 @@ func runDetectGeneration(ctx context.Context, t *testing.T, baseline, peer, name
 			applied, receiptErr := timerGenerationApplied(receipts, previous.Applied, mode)
 			return applied, !applied.IsZero(), receiptErr
 		})
-	evidenceErr := retainTimerPollEvidence(phaseCtx, name+"-after", previous.Applied+1, lastRaw, err)
+	evidenceErr := retainTimerPollEvidence(ctx, name+"-after", previous.Applied+1, lastRaw, err)
 	if evidenceErr != nil {
 		t.Fatal(evidenceErr)
 	}
-	if mode == timerReceiptPoll {
-		quiet := time.Duration(craftedQuietMultiple*max(phase.TX, phase.RemoteRX)) * time.Microsecond
-		if waitErr := waitCrafted(phaseCtx, quiet); waitErr != nil {
-			t.Fatal(waitErr)
-		}
-	}
+	return appliedAt
+}
+
+func captureDetectGeneration(phaseCtx context.Context, t *testing.T, phase detectPhase, name string,
+	before sessionState, counters [2]uint64,
+) detectPhase {
+	t.Helper()
 	var frames []detectFrame
 	var result detectWireResult
 	var wireErr error
-	_, err = pollUntil(phaseCtx, 200*time.Millisecond, func(pollCtx context.Context) (bool, bool, error) {
+	_, err := pollUntil(phaseCtx, 200*time.Millisecond, func(pollCtx context.Context) (bool, bool, error) {
 		var queryErr error
-		frames, queryErr = readDetectFrames(pollCtx, peer, phase.Start)
+		frames, queryErr = readDetectFrames(pollCtx, phase.Peer, phase.Start)
 		if queryErr != nil {
 			return false, false, queryErr
 		}
@@ -451,11 +493,11 @@ func runDetectGeneration(ctx context.Context, t *testing.T, baseline, peer, name
 	if err != nil {
 		t.Fatalf("DetectMult wire evidence: %v", err)
 	}
-	after, afterCounters := timerSnapshot(phaseCtx, t, peer, name+"-after")
+	after, afterCounters := timerSnapshot(phaseCtx, t, phase.Peer, name+"-after")
 	localDetection, parseErr := time.ParseDuration(after.DetectionTime)
 	if parseErr != nil || localDetection != time.Duration(result.DetectionMicroseconds)*time.Microsecond ||
 		after.LocalState != "Up" || after.RemoteState != "Up" || after.LocalDiscriminator != before.LocalDiscriminator ||
-		after.RemoteDiscriminator != before.RemoteDiscriminator || after.DetectMultiplier != uint32(multiplier) ||
+		after.RemoteDiscriminator != before.RemoteDiscriminator || after.DetectMultiplier != uint32(phase.Multiplier) ||
 		after.PaddedPduSize != before.PaddedPduSize ||
 		after.DesiredMinTx != before.DesiredMinTx || after.RequiredMinRx != before.RequiredMinRx ||
 		afterCounters != counters {

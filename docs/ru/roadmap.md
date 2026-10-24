@@ -4,6 +4,21 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Квалификация prepared padding в работе — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.3` выполняется в
+`task/padding-wire-20261024` от локального dev
+`8931c769d6b49cdf1ad5139d74e61505b85e585a`.
+Задачи `.3.1` и `.3.2` содержат общий validator/drivers и startup-only
+meticulous SHA1 профиль существующего FourPeer lifecycle. Задача `.3.3`
+требует фактических captures проверенного кандидата. DF/длины/padding
+RFC 9764 и непрерывность authentication RFC 5880 проверяются независимо;
+receive replay state каждого направления сохраняется на всей цепочке resize
+и отклонённых кандидатов. Receipts, client outcomes и readiness обязательны.
+Dynamic DF enable/disable и согласованная auth rotation остаются after-v1 P2.
+Приоритеты и acceptance ведутся в Beads; source contracts не подтверждают
+runtime и готовность v1. Evidence: `reports/padding-wire-20261024/`.
+
 ## Подготовка wire validator для reload — 2026-10-24
 
 `gobfd-qj0.8.2.2.7.5.2` квалифицирована локально на

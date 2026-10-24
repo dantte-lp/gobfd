@@ -43,6 +43,11 @@ type fourPeerResources struct {
 }
 
 func TestFourPeerTopologyTestcontainers(t *testing.T) {
+	runFourPeerTopology(t, fourPeerDefault)
+}
+
+func runFourPeerTopology(t *testing.T, profile fourPeerProfile) {
+	t.Helper()
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	endpoint := containertest.RequirePodman(t)
 	resources := new(fourPeerResources)
@@ -52,12 +57,18 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		t.Cleanup(cancel)
 		projectName := fmt.Sprintf("gobfd-interop-tc-%d", time.Now().UnixNano())
 		root := fourPeerRepositoryRoot(t)
+		baseline, bird, err := loadFourPeerConfig(root, profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ensureFourPeerArtifactDirectory(t)
+		configPath := writeTimerArtifact(t, "startup-gobfd", "yml", baseline)
+		birdPath := writeTimerArtifact(t, "startup-bird", "conf", bird)
 
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
 		registerFourPeerImageCleanup(ctx, t, endpoint, bfdFuzzImage, resources)
-		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources)
+		startFourPeerTopology(ctx, t, endpoint, root, projectName, resources, configPath, birdPath)
 		t.Setenv("INTEROP_PROJECT_NAME", projectName)
-		ensureFourPeerArtifactDirectory(t)
 		// Register after all containers: artifacts survive assertion failures and precede exact-ID cleanup.
 		registerFourPeerArtifactCleanup(ctx, t, func(artifactCtx context.Context) {
 			logs, err := projectContainerLogs(artifactCtx, "gobfd-interop")
@@ -69,7 +80,7 @@ func TestFourPeerTopologyTestcontainers(t *testing.T) {
 		}, func(artifactCtx context.Context) {
 			captureFourPeerPCAP(artifactCtx, t, resources.tshark)
 		})
-		runFourPeerAssertions(ctx, t, projectName)
+		runFourPeerAssertions(ctx, t, projectName, profile)
 	}) {
 		t.Error("four-peer testcontainers topology failed")
 	}
@@ -151,6 +162,7 @@ func startFourPeerTopology(
 	t *testing.T,
 	endpoint, root, projectName string,
 	resources *fourPeerResources,
+	configPath, birdPath string,
 ) {
 	t.Helper()
 
@@ -231,7 +243,7 @@ func startFourPeerTopology(
 	resources.containerIDs = append(resources.containerIDs, loader.GetContainerID())
 	verifyFourPeerHoloConfiguration(ctx, t, holo, loader)
 
-	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, "test/interop/gobfd/gobfd.yml"),
+	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, configPath,
 		networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 
@@ -267,7 +279,7 @@ func startFourPeerTopology(
 		Labels:   labels,
 		Networks: []string{networkName},
 		Files: []testcontainers.ContainerFile{{
-			HostFilePath:      filepath.Join(root, "test/interop/bird3/bird.conf"),
+			HostFilePath:      birdPath,
 			ContainerFilePath: "/etc/bird/bird.conf",
 			FileMode:          0o644,
 		}},
@@ -326,6 +338,10 @@ func startFourPeerGoBFD(
 	resources *fourPeerResources,
 ) testcontainers.Container {
 	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve existing interop executable: %v", err)
+	}
 
 	gobfd := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:    image,
@@ -341,6 +357,10 @@ func startFourPeerGoBFD(
 			HostFilePath:      configPath,
 			ContainerFilePath: "/etc/gobfd/gobfd.yml",
 			FileMode:          0o644,
+		}, {
+			HostFilePath:      executable,
+			ContainerFilePath: "/tmp/gobfd-interop.test",
+			FileMode:          0o755,
 		}},
 		WaitingFor: wait.ForExec([]string{
 			"/bin/gobfdctl", "--addr", "127.0.0.1:50051",
@@ -566,14 +586,14 @@ func nestedObjects(root map[string]any, path ...string) []map[string]any {
 	return objects
 }
 
-func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string) {
+func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string, profile fourPeerProfile) {
 	t.Helper()
 
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatalf("resolve current interop test binary: %v", err)
 	}
-	err = runFourPeerAssertionBatches(ctx, executable, projectName,
+	err = runFourPeerAssertionBatches(ctx, executable, projectName, profile,
 		func(index int, output []byte, exitCode int, runErr error) {
 			writeTimerArtifact(t, fmt.Sprintf("assertions-%d", index+1), "txt",
 				fmt.Appendf(output, "\nexit_code=%d error=%v\n", exitCode, runErr))
@@ -585,13 +605,19 @@ func runFourPeerAssertions(ctx context.Context, t *testing.T, projectName string
 }
 
 func runFourPeerAssertionBatches(
-	ctx context.Context, executable, projectName string, record func(int, []byte, int, error),
+	ctx context.Context, executable, projectName string, profile fourPeerProfile, record func(int, []byte, int, error),
 ) error {
+	if profile != fourPeerDefault && profile != fourPeerMeticulous {
+		return fmt.Errorf("unknown assertion profile %d: %w", profile, errTimerEvidence)
+	}
 	// Separate processes order RFC baseline analysis before timer mutation and destructive tests.
 	batches := [][]string{
 		{"TestFRRHandshake", "TestBIRD3Handshake", "TestHoloHandshake", "TestThoroHandshake", "TestRFCCompliance"},
 		{"TestTimerReload"},
 		{"TestHoloFailureRecoveryLifecycle", "TestFRRDetectionTimeout", "TestBFDInvalidVectors", "TestGracefulShutdown"},
+	}
+	if profile == fourPeerMeticulous {
+		batches[0][4], batches[1][0] = "TestMeticulousRFCCompliance", "TestMeticulousTimerReload"
 	}
 	for index, names := range batches {
 		filter := "^(" + strings.Join(names, "|") + ")$"

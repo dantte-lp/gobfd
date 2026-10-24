@@ -257,7 +257,7 @@ interop-testcontainers: dev-ensure
 		INTEROP_TESTCONTAINERS_ARTIFACT_DIR=/app/reports/e2e/interop-testcontainers \
 		GOBFD_BUILD_REVISION="$(shell git rev-parse --verify HEAD^{commit})" \
 		go test -tags interop_testcontainers -race -count=1 -v -timeout 20m \
-		-run '^(TestFourPeerTopologyTestcontainers|TestBIRDFlowSpecValidation|TestCraftedPeerTestcontainers)$$' ./test/interop/
+		-run '^(TestFourPeerTopologyTestcontainers|TestFourPeerMeticulousTopologyTestcontainers|TestBIRDFlowSpecValidation|TestCraftedPeerTestcontainers)$$' ./test/interop/
 
 interop-up: interop-project-validate
 	$(INTEROP_CTL) up
