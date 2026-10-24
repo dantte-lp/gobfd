@@ -49,8 +49,8 @@ addresses или vendor-specific assumptions.
 - `dnsPolicy: ClusterFirstWithHostNet`
 - только Linux nodes
 - `NET_RAW` для BFD packet sockets
-- `NET_ADMIN` для socket options и будущей link-state integration
-- TCP readiness/liveness probes для gRPC и metrics ports
+- `NET_ADMIN` для включённых socket options и interface operations
+- Exec `gobfdctl` readiness через Unix socket; metrics TCP liveness
 
 Развёртывание:
 
@@ -73,8 +73,12 @@ kubectl -n gobfd logs -l app.kubernetes.io/name=gobfd -c gobfd --tail=100
 - Для статических окружений фиксируйте BFD-сессии в `configmap-gobfd.yml`.
 - Для динамических окружений создавайте сессии через `gobfdctl` или controller
   после node/peer discovery.
-- Держите GoBFD API на localhost или доверенной management-сети, если mTLS не
-  настроен.
+- Сохраняйте Unix socket по умолчанию. Remote TCP management требует mTLS;
+  trusted network не разрешает non-loopback plaintext listener.
+
+Импорт Kubernetes images и live-cluster qualification не завершены. Эти
+manifests и probes являются примерами, а не принятым cluster deployment.
+Readiness подтверждает management access, но не session или route convergence.
 
 ## BGP fast-failover drill
 
@@ -145,7 +149,7 @@ podman start frr-observability
 | `BFDSessionDownTransition` | Сессия перешла из Up в Down. |
 | `BFDSessionFlapping` | Сессия изменила состояние более 3 раз за 5 минут. |
 | `BFDAuthFailures` | Проверка authentication по RFC 5880 завершилась ошибкой. |
-| `BFDPacketDrops` | Были packet validation, demux или buffer drops. |
+| `BFDPacketDrops` | Выросли drops принятых peer packets; pre-session parser/demux outcomes учитывает отдельный delivery ledger. |
 
 ## Packet verification
 
@@ -185,23 +189,19 @@ vendor-документации.
 
 - [Arista EOS BFD verification note](../../deployments/integrations/bgp-fast-failover/vendor-notes/arista-eos.md)
 
-Публичное поведение Arista EOS:
-
-- `neighbor bfd` включает BFD для BGP neighbor или peer group.
-- Если BFD-сессия перешла Down, связанная BGP-сессия также переводится Down.
-- `show bfd peers` отображает BFD state и session type, включая RFC7130 и Vxlan
-  там, где они поддерживаются.
-- `show port-channel <N> detail` может показать members inactive из-за RFC 7130
-  micro-session state.
+Используйте первичные ссылки заметки для точного vendor release и profile.
+Optional vendor command example не квалифицирует hardware offload, Micro-BFD
+member enforcement или forwarding continuity в GoBFD.
 
 ## Открытые production gaps
 
 | Gap | Статус |
 |---|---|
-| Dedicated API/CLI create flows для Echo, Micro-BFD, VXLAN и Geneve | Planned |
+| Echo и Micro-BFD API/CLI creation | Реализован preview; transport/owner/RFC qualification остаётся отдельной |
+| Dedicated VXLAN/Geneve create API/CLI | Не реализован; используются opt-in declarative profiles |
 | Kernel/OVS/OVN/Cilium/Calico/NSX overlay backends beyond `userspace-udp` | Future |
-| Release signatures, provenance и Scorecard hardening | Implemented |
+| OCI SBOM/provenance и release checksums | Workflow реализован; точный кандидат проверяется до публикации; signing step не настроен |
 
 ---
 
-*Последнее обновление: 2026-05-01*
+*Сверено с исходниками `dev`: 2026-10-24.*

@@ -2,6 +2,10 @@
 
 This document tracks external dependencies that carry non-trivial risk due to maintenance status, single-maintainer projects, or upstream changes. Each entry includes a risk assessment and mitigation strategy.
 
+Pins come from `go.mod`; advisory acceptance comes from `scripts/vuln-audit.go`
+and its Beads owner. This register does not replace fresh scans of the final
+runtime/tool graphs or establish the current upstream maintainer count.
+
 ## reeflective/console — Medium Risk
 
 | Field | Value |
@@ -9,7 +13,7 @@ This document tracks external dependencies that carry non-trivial risk due to ma
 | **Module** | `github.com/reeflective/console v0.5.0` |
 | **Used in** | `cmd/gobfdctl/commands/shell.go` — interactive REPL shell |
 | **Risk level** | Medium |
-| **Reason** | Pre-1.0 library and single-maintainer bus-factor risk |
+| **Reason** | Pre-1.0 API and external maintenance dependency |
 
 ### Description
 
@@ -18,7 +22,7 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 ### Risk Factors
 
 - **Pre-1.0 API**: The library has not reached v1.0, meaning breaking API changes are possible between minor versions.
-- **Single maintainer**: The project is maintained by a single developer. Bus factor = 1.
+- **External maintenance**: Upstream staffing and release activity require a fresh review before an upgrade.
 - **Transitive dependencies**: Pulls in readline, completion, and terminal UI modules.
 - **No stdlib alternative**: Go's standard library does not include a Cobra-compatible REPL framework.
 
@@ -28,8 +32,10 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
    `v0.1.25` to `v0.5.0` release-note range and CLI/race tests were reviewed
    before adoption.
 2. **Vendoring**: If the project becomes unmaintained, vendor the source into `internal/console/`.
-3. **Graceful degradation**: The non-interactive CLI (`gobfdctl <command>`) works without this dependency. The interactive shell is a convenience feature only.
-4. **Bounded scope**: The dependency is isolated to a single file (`shell.go`) and does not affect the daemon or protocol implementation.
+3. **Runtime scope**: Non-interactive commands do not start the REPL. The CLI
+   binary still depends on the module at build time; it is not an optional build dependency.
+4. **Bounded scope**: Product integration is in `shell.go`; the daemon and
+   protocol implementation do not import the console package.
 
 ---
 

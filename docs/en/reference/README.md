@@ -8,4 +8,4 @@ snapshots.
 
 | Document | Description |
 |---|---|
-| [`dependency-risk.md`](./dependency-risk.md) | Dependency risk register: pre-1.0 modules, single-maintainer projects, mitigation strategies. |
+| [`dependency-risk.md`](./dependency-risk.md) | Dependency pins, module boundaries, advisory exceptions and mitigation policy. |

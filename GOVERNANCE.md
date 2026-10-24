@@ -29,8 +29,10 @@ GoBFD is an independent open source project maintained in this repository.
 
 | Decision type | Location |
 |---|---|
-| Implementation roadmap | `docs/en/implementation-plan.md` |
-| Codebase consistency audit | `docs/en/codebase-consistency-audit.md` |
+| Executable plan, priorities, acceptance and handoff | Beads (`bd show gobfd-qj0.8`, `bd ready`) |
+| Dated status projection | [docs/en/roadmap.md](docs/en/roadmap.md) |
+| Architecture decisions | [docs/en/adr/README.md](docs/en/adr/README.md) |
+| Historical external audit | [docs/en/gist-audit-reconciliation.md](docs/en/gist-audit-reconciliation.md) |
 | Security posture | `docs/en/15-security.md` |
 | Release process | `docs/en/10-changelog.md` |
 
@@ -54,10 +56,12 @@ require:
    evidence, and automatically publishes the complete draft as its final
    mutation.
 
-Every fix accepted on a supported line requires an explicit assessment of
-whether the defect also exists on `master` or `dev`. Applicable fixes are
-forward-ported through a separate reviewed pull request; otherwise the
-maintainer records why no forward-port is required.
+After a supported patch is published, its accepted stable history and both
+changelogs reach `master` before release closeout. Assess applicable
+forward-ports to `dev` separately and record source-supported inapplicability.
+Development acceptance does not establish stable delivery. Experimental alpha
+policy remains proposed in [ADR-0008](docs/en/adr/0008-experimental-prerelease-boundary.md);
+the current release tooling accepts stable tags only.
 
 ## References
 

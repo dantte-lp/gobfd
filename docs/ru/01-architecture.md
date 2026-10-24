@@ -52,9 +52,9 @@ graph TB
     end
 
     subgraph "External"
-        GOBGP["GoBGP<br/>gRPC :50052"]
+        GOBGP["GoBGP<br/>gRPC 127.0.0.1:50051"]
         PROM["Prometheus<br/>:9100/metrics"]
-        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081/7784"]
+        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081"]
     end
 
     MAIN --> CFG
@@ -141,7 +141,7 @@ flowchart TD
     RECV --> HANDLE["handleRecvPacket<br/>RFC 5880 steps 8-18:<br/>auth, FSM event, timer reset"]
 ```
 
-Валидация из 13 шагов RFC 5880 Section 6.8.6 разделена на два уровня:
+Receive validation RFC 5880 Section 6.8.6 разделена на два уровня:
 
 | Уровень | Шаги | Ответственность |
 |---|---|---|
@@ -367,10 +367,12 @@ slice C01.4b для coordinator generations/receipts, а
 
 - runtime-изменение глобальных полей overlay backend и VNI по умолчанию;
 - стабильные owner identifiers для отдельных groups и tunnels;
-- полная Poll/Demand qualification за пределами ограниченных config-owned TX/RX/Detect Multiplier updates;
-- transport-aware packet demultiplexing; и
-- идентичности аутентифицированных API principals вместо одного
-  compatibility/API owner.
+- полная Poll/Demand qualification за пределами ограниченных config-owned TX/RX/Detect Multiplier updates.
+
+Transport-aware demultiplexing уже проверяет transport class, interface,
+overlay scope и TTL до доставки. API claims выводятся из аутентифицированных
+Unix UID или mTLS principals; явно включённый anonymous compatibility path
+остаётся отдельным. Эти реализации не закрывают более широкие задачи квалификации.
 
 ### Трёхстороннее рукопожатие
 
@@ -383,15 +385,10 @@ sequenceDiagram
 
     A->>B: Control(State=Down)
     Note over B: Down -> Init
-    B->>A: Control(State=Down)
-    Note over A: Down -> Init
-
-    A->>B: Control(State=Init)
-    Note over B: Init -> Up
     B->>A: Control(State=Init)
-    Note over A: Init -> Up
-
+    Note over A: Down -> Up
     A->>B: Control(State=Up)
+    Note over B: Init -> Up
     B->>A: Control(State=Up)
     Note over A,B: Both peers Up
 ```
@@ -481,9 +478,10 @@ Public Control/Echo raw QueueFull передаёт отдельный capacity-o
 Control-only snapshot. Observation-version floors отклоняют старые raw events,
 доставленные после снимка. При работающем dispatch следующий owner edge или
 reconnect не требуется. Private failure hints сохраняют cleanup-only область;
-legacy `StateChanges()` остаётся best effort без resynchronization. Kernel
-`SO_RXQ_OVFL` остаётся отдельной задачей; unsolicited/Echo сохраняют текущие
-границы preview qualification.
+legacy `StateChanges()` остаётся best effort без resynchronization. Наблюдения
+kernel `SO_RXQ_OVFL` имеют отдельные epochs и denominators; см.
+[Производительность](14-performance-analysis.md#граница-измерений-потерь-сокета).
+Unsolicited/Echo сохраняют preview qualification boundaries.
 
 Регистрация публикует `SESSION_ADDED` после добавления в реестры
 и до запуска владельца, включая пассивную сессию, остающуюся Down.
@@ -648,40 +646,19 @@ AdminDown exchange. Echo removal публикует Watch tombstone без из�
 
 ### Структура проекта
 
-```
-gobfd/
-+-- api/bfd/v1/bfd.proto          # Protobuf service definitions (buf managed)
-+-- cmd/
-|   +-- gobfd/main.go             # Daemon entry point
-|   +-- gobfdctl/                 # CLI client
-|   |   +-- main.go
-|   |   +-- commands/             # Cobra commands + reeflective/console shell
-|   +-- gobfd-haproxy-agent/      # HAProxy agent-check bridge
-|   +-- gobfd-exabgp-bridge/      # ExaBGP process API bridge
-+-- internal/
-|   +-- bfd/                      # Core protocol (FSM, session, packet, auth)
-|   +-- config/                   # koanf/v2 configuration
-|   +-- gobgp/                    # GoBGP gRPC client + flap dampening
-|   +-- metrics/                  # Prometheus collectors
-|   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
-|   +-- sdnotify/                 # уведомления systemd readiness/watchdog
-|   +-- server/                   # ConnectRPC server + interceptors
-|   +-- version/                  # Build info
-+-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
-+-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
-+-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
-+-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
-+-- test/integration/            # Integration tests (datapath, CLI, server)
-+-- configs/                      # Example configuration
-+-- deployments/
-|   +-- compose/                  # Podman Compose (dev + prod stacks)
-|   +-- docker/                   # Containerfile + debug image
-|   +-- systemd/                  # systemd unit file
-|   +-- nfpm/                     # deb/rpm install scripts
-|   +-- integrations/            # 5 integration examples (BGP, HAProxy, observability, ExaBGP, k8s)
-+-- docs/                         # Documentation + RFC texts
-```
+| Путь | Ответственность |
+|---|---|
+| `api/bfd/v1/`, `pkg/bfdpb/` | API schema и generated public bindings |
+| `cmd/` | Daemon, CLI, HAProxy agent и ExaBGP bridge |
+| `internal/bfd/` | Session owners, FSM, authentication, reconciliation |
+| `internal/netio/`, `internal/overlay/` | Linux sockets и общий overlay vocabulary |
+| `internal/config/`, `internal/server/`, `internal/apiclient/` | Конфигурация и management boundary |
+| `internal/gobgp/`, `internal/metrics/`, `internal/sdnotify/` | Routing coupling и operational signals |
+| `internal/stepca/`, `internal/version/` | Certificate renewal и build identity |
+| `test/`, `bench/` | Qualification harnesses и component benchmarks |
+| `configs/`, `deployments/` | Примеры конфигурации и развёртывания |
+| `tools/` | Изолированный developer-tool module |
+| `docs/` | Английский исходник, русский перевод, ADR и тексты RFC |
 
 ### Технологический стек
 
@@ -729,4 +706,4 @@ gobfd/
 
 ---
 
-*Последнее обновление: 2026-08-28*
+*Сверено с исходниками `dev`: 2026-10-24.*

@@ -32,14 +32,15 @@ network. Security-relevant areas include:
 - **BFD packet parsing** (`internal/bfd/packet.go`): Buffer handling,
   length validation, malformed packet handling
 - **Authentication** (`internal/bfd/auth.go`): Sequence number validation,
-  HMAC verification, key management
+  RFC keyed-hash verification, key management
 - **Raw socket operations** (`internal/netio/`): TTL validation (GTSM),
   interface binding, privilege management
 - **gRPC API** (`internal/server/`): Input validation, authorization
 
 ## Security Measures
 
-- The `unsafe` package is never used
+- Handwritten runtime code does not use `unsafe`; generated protobuf bindings
+  retain the standard generator's descriptor implementation and are never hand-edited
 - All packet parsing uses bounds-checked operations via `encoding/binary`
 - Fuzz testing is implemented for the BFD packet parser
 - `gosec` linter runs with `audit: true` in CI

@@ -44,7 +44,7 @@
 
 | RFC | Название | Статус | Примечания |
 |---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Локальный timer Poll/Final и remote Demand реализованы; crossed/queued wire evidence ожидает интеграции ветки; local Demand и affiliated Echo отложены |
+| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | Базовый протокол BFD | **Асинхронное ядро; частично** | Timer Poll/Final и remote Demand handling реализованы; scoped wire receipts сохранены; final unified qualification открыта; local Demand и affiliated Echo отложены |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD для IPv4/IPv6 Single-Hop | **Частично; numbered-multiaccess profile** | UDP 3784, TTL=255, проверки транспортного класса и интерфейса приёма в каждой сессии, привязка TX single-hop к интерфейсу; point-to-point initial demux отложен |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Общее применение BFD | **Application integration частичная** | State delivery и actuator convergence не завершены; penalty dampening является implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD для Multihop | **Ограниченный GTSM profile** | UDP 4784; политика hops `multihop_max_hops` в каждой сессии (по умолчанию 1: TTL>=254) -- политика GoBFD, а не правило RFC 5883; квалификация на реальных путях из 2/5 hops не выполнена |
@@ -93,17 +93,27 @@ erratum остаётся Held for Document Update; его применение �
 
 #### Section 4.1: Формат пакета
 
-Реализация: [`internal/bfd/packet.go`](../../internal/bfd/packet.go). 24-байтный заголовок кодируется/декодируется через `encoding/binary.BigEndian`. Zero-allocation кодек с `sync.Pool`.
+Реализация: [`internal/bfd/packet.go`](../../internal/bfd/packet.go).
+Обязательный 24-byte header использует `encoding/binary.BigEndian` и caller-owned
+storage. Unauthenticated parse и выбранные marshal paths не выделяют память;
+authenticated parse создаёт `AuthSection` и заимствует digest/password bytes.
+Перед повторным использованием receive buffer см. [codec lifetime](02-protocol.md).
 
 См. [02-protocol.md](./02-protocol.md) для полной таблицы формата пакета.
 
 #### Section 6.1: Переменные состояния
 
-Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go). Все обязательные переменные реализованы. Потокобезопасность через `atomic.Uint32`.
+Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go).
+Local state и diagnostic используют одну packed atomic pair. `Observation`
+возвращает coherent committed local/remote facts под `Session.mu`; remote getters
+не читают отдельные atomics. Local Demand не реализован.
 
 #### Section 6.2: FSM
 
-Реализация: [`internal/bfd/fsm.go`](../../internal/bfd/fsm.go). Table-driven FSM с `map[stateEvent]transition`. Чистая функция без побочных эффектов. Все 16 переходов из Section 6.8.6 реализованы.
+Реализация: [`internal/bfd/fsm.go`](../../internal/bfd/fsm.go). Чистый indexed
+lookup использует array, построенный из declarative `map[stateEvent]transition`
+при initialization. Session выполняет actions. Down timeout diagnostic следует
+явной Held-erratum policy выше.
 
 #### Section 6.3: Демультиплексирование
 
@@ -133,8 +143,9 @@ Poll, если объявляемый Desired Min TX снижается с ме�
 ошибкой, кортеж остаётся действующим, а следующие поколения ждут за этим Poll.
 Вход в Up через Final сохраняет односекундный порог TX, пока recovery Poll не
 передаст более быстрый Desired Min TX.
-Полная квалификация Section 6.5 ещё впереди, включая live FRR/BIRD reload evidence
-и диапазон RTT целевого окружения.
+Полная квалификация Section 6.5 открыта. Ограниченные FRR/BIRD reload receipts
+сохранены в [Interop](05-interop.md); final unified candidate и deployment RTT
+qualification остаются отдельными.
 
 Изменения receive interval пира пересчитывают TX от последней успешной
 отправки; неизменившиеся входящие пакеты не откладывают её срок. Нулевой
@@ -218,8 +229,8 @@ Session receive path отклоняет зарезервированный ну�
 | Meticulous Keyed SHA1 (5) | `MeticulousKeyedSHA1Auth` |
 
 Ключевые особенности:
-- Meticulous варианты инкрементируют последовательность на каждый пакет; non-meticulous -- только при смене состояния
-- Окно последовательности: `3 * DetectMult` для non-meticulous
+- Все keyed variants увеличивают TX sequence при каждом signing
+- Включительные receive windows используют принятый Detect Multiplier: `[last, last + 3 * DetectMult]` для non-meticulous, `[last + 1, last + 3 * DetectMult]` для meticulous
 - `AuthKeyStore` представляет несколько ключей; это не квалифицирует live rotation
 
 RFC 5880 §6.7 оставляет координацию аутентификации за пределами BFD. Reload
@@ -273,8 +284,8 @@ detection timer.
 
 - Нормальный (DetectMult > 1): 75-100% интервала
 - DetectMult == 1: 75-90% интервала
-- Используется crypto-seeded session-local PRNG; джиттер не является security
-  boundary, но seed непредсказуем и нет contention на глобальном RNG в hot path
+- Session-local PRNG предпочитает cryptographic seed; при ошибке чтения
+  используется time-based seed. Jitter не является security boundary
 
 #### Section 6.8.12: Reload Detect Multiplier
 
@@ -292,7 +303,8 @@ receipts (`gobfd-qj0.8.2.2.7.1`). Detect-only Async update применяетс�
 intent, shared-owner/unsupported rejection, deadline DetectMult 1,
 failure/retirement и concurrent getters/snapshots. Итоговая валидация относится
 к evidence замороженных исходников; эта секция не утверждает финальный PASS.
-Live FRR/BIRD Detect Multiplier reload ещё не квалифицирован. Shared-owner/API,
+Ограниченные Detect Multiplier wire slices описаны в [Interop](05-interop.md);
+final unified candidate qualification открыта. Shared-owner/API,
 Micro-BFD, overlay и authentication changes остаются за пределами среза;
 ограниченный minimum-TTL/padding reload описан ниже. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 принимает policy без общей Poll/Demand или RFC graduation.
@@ -433,6 +445,20 @@ Tuple/receipt отслеживает MinTTL вместе с TX/RX, DetectMult и
 
 RFC 7419 определяет набор общих интервалов BFD для совместимости с аппаратными реализациями: 3.3мс, 10мс, 20мс, 50мс, 100мс, 1с. Опция `bfd.align_intervals: true` выравнивает интервалы вверх до ближайшего общего значения.
 
+| Функция | Реализация |
+|---|---|
+| Common interval set | `CommonIntervals`, шесть значений |
+| Округление вверх | `AlignToCommonInterval()` |
+| Проверка принадлежности | `IsCommonInterval()` |
+| Ближайшее значение | `NearestCommonInterval()` |
+| Конфигурация | `bfd.align_intervals: true` |
+| Graceful restart interval | `GracefulRestartInterval = 10s` |
+
+Значения выше максимума common set 1 s остаются неизменными. Alignment сам
+по себе не устанавливает hardware/cloud interoperability или timer accuracy.
+Проверяйте выбранную процедуру peer и интервалы на целевом пути. Для graceful
+restart RFC рекомендует 10 s; multiplier 255 даёт Detection Time 42,5 минуты.
+
 ### Заметки по RFC 9384
 
 Реализация: [`internal/gobgp/rfc9384.go`](../../internal/gobgp/rfc9384.go)
@@ -444,6 +470,12 @@ RFC 9384 требует Cease NOTIFICATION subcode 10 ("BFD Down") при раз
 корреляции. Поэтому wire-соответствие RFC 9384 не реализовано.
 
 ### Заметки по RFC 9468
+
+Режим MUST быть выключен по умолчанию: `unsolicited.enabled: false`.
+Для passive sessions выделяется локальный discriminator через
+`DiscriminatorAllocator`; сессия создаётся с `RolePassive` и немедленно
+получает triggering packet. Это не разрешает произвольное создание сессий:
+действуют следующие interface/source/authentication/admission ограничения.
 
 Реализация: [`internal/bfd/unsolicited.go`](../../internal/bfd/unsolicited.go), [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
 
@@ -551,7 +583,7 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 | NetworkManager backend | `NetworkManagerLAGBackend` деактивирует и активирует NM-owned bond port profiles через D-Bus |
 
 Логика агрегатного состояния:
-- Группа стартует со всеми member-ами Down, агрегат Down
+- Новые member sessions стартуют Down; существующая shared session может задать своё текущее состояние
 - Когда `upCount >= MinActiveLinks`, агрегат переходит в Up
 - Когда `upCount < MinActiveLinks`, агрегат переходит в Down
 - Изменения состояния сообщаются только при переходах агрегата (пересечение порога)
@@ -583,14 +615,14 @@ RFC 8971 определяет BFD в VXLAN-инкапсуляции для об�
 | Требование | Реализация |
 |---|---|
 | Внешний UDP порт 4789 | `netio.VXLANPort = 4789`, `VXLANConn` через явный backend `userspace-udp` |
-| Внутренний UDP порт 3784 | `BuildInnerPacket()` с dst-портом 3784 |
+| Внутренний UDP порт 3784 | `BuildInnerPacketInto()` с dst-портом 3784 |
 | Кодек VXLAN-заголовка | `MarshalVXLANHeader` / `UnmarshalVXLANHeader` |
 | Management VNI | `VXLANConfig.ManagementVNI`, отклонение при несовпадении VNI |
 | Валидация VNI (24 бит) | `ErrInvalidVXLANVNI` валидация конфигурации |
 | Валидация I-флага | Сентинел `ErrVXLANInvalidFlags` |
 | Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
 | Inner source MAC | Для каждого пира требуются remote/local MAC исходящих VTEP и exact match |
-| Inner TTL=255 | `BuildInnerPacket()` устанавливает TTL=255 (RFC 5881 GTSM) |
+| Inner TTL=255 | `BuildInnerPacketInto()` устанавливает TTL=255 (RFC 5881 GTSM) |
 | Inner IPv4 checksum | `ipv4HeaderChecksum()` по RFC 1071 |
 | Тип сессии | Константа `SessionTypeVXLAN` |
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
@@ -600,11 +632,12 @@ RFC 8971 определяет BFD в VXLAN-инкапсуляции для об�
 | Декларативные пиры | `vxlan.peers[]` в конфиге, реконсиляция при SIGHUP |
 | Валидация конфигурации | Диапазон VNI, конкретные IPv4 endpoints, remote/local unicast source MAC, detect_mult и обнаружение дублирующей wire identity |
 
-Стек инкапсуляции пакетов:
-```
-Outer IP → Outer UDP (4789) → VXLAN Header (8B) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
+Инкапсуляция от outer к inner:
+
+| Уровень | Поддерживаемый profile |
+|---|---|
+| Outer | IP, UDP destination 4789, VXLAN fixed header 8 B |
+| Inner | Ethernet 14 B, IPv4 20 B, UDP destination 3784, BFD Control |
 
 Кодек VXLAN-заголовка обрабатывает 8-байтный фиксированный формат с I-флагом (VNI валиден) и 24-битным кодированием VNI. Пакеты Management VNI обрабатываются локально и не перенаправляются в tenant-сети.
 
@@ -668,7 +701,7 @@ RFC 9521 определяет BFD в Geneve-инкапсуляции для об
 | Валидация версии | `ErrGeneveInvalidVersion` (только версия 0 поддерживается) |
 | Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
 | Опции переменной длины | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
-| Inner TTL=255 | `BuildInnerPacket()` устанавливает TTL=255 (RFC 5881 GTSM) |
+| Inner TTL=255 | `BuildInnerPacketInto()` устанавливает TTL=255 (RFC 5881 GTSM) |
 | Тип сессии | Константа `SessionTypeGeneve` |
 | Адаптер OverlaySender | `OverlaySender` реализует `bfd.PacketSender` |
 | Цикл OverlayReceiver | Достигает `Manager.DemuxWithWire` только после exact match configured VAP identity |
@@ -677,11 +710,12 @@ RFC 9521 определяет BFD в Geneve-инкапсуляции для об
 | Декларативные пиры | `geneve.peers[]` в конфиге, переопределение VNI per-peer, реконсиляция при SIGHUP |
 | Валидация конфигурации | Проверяются VNI, concrete outer IPv4 endpoints, detect_mult, дубликаты и полный unicast VAP MAC/IPv4 tuple |
 
-Стек инкапсуляции пакетов (Format A):
-```
-Outer IP → Outer UDP (6081) → Geneve Header (8B, O=1, C=0, Proto=0x6558) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
+Инкапсуляция от outer к inner (Format A):
+
+| Уровень | Поддерживаемый profile |
+|---|---|
+| Outer | IP, UDP destination 6081, Geneve base header 8 B; O=1, C=0, Protocol=0x6558 |
+| Inner | Ethernet 14 B, IPv4 20 B, UDP destination 3784, BFD Control |
 
 Ключевые отличия от VXLAN BFD (RFC 8971):
 - Geneve поддерживает опции TLV переменной длины (VXLAN имеет фиксированный 8-байтный заголовок)
@@ -839,4 +873,4 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 
 ---
 
-*Последнее обновление: 2026-02-23*
+*Сверено с исходниками `dev`: 2026-10-24.*

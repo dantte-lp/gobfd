@@ -26,7 +26,7 @@
 
 - **Linux** (сырые сокеты требуют Linux-специфичных API)
 - Capability **CAP_NET_RAW** и **CAP_NET_ADMIN** (для UDP-сокетов с TTL=255)
-- Go 1.27+ (только для сборки из исходников)
+- Закреплённый Go 1.27.3 внутри Podman (только для сборки исходников)
 
 Для non-Linux целей поддерживается только compile-time совместимость.
 Конструкторы транспорта `internal/netio` возвращают `ErrUnsupportedPlatform`;
@@ -281,9 +281,14 @@ Docker Buildx/Bake не входит в runtime-контракт проекта.
 
 #### Стек разработки
 
+Описание: `deployments/compose/compose.dev.yml`.
+
 ```bash
 # Запуск среды разработки
 make up
+
+# Сборка и тесты внутри development container
+make build && make test
 
 # Запуск отдельного теста через управляемый Make Compose project
 make test-run RUN=TestFSMTransition PKG=./internal/bfd
@@ -306,10 +311,15 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 podman compose -f deployments/compose/compose.yml up -d
 
 # Сервисы:
-#   gobfd API:        unix:///run/gobfd/gobfd.sock (host)
+#   gobfd API:        unix:///run/gobfd/gobfd.sock (внутри контейнера gobfd)
 #   Prometheus:       http://localhost:9090
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
+
+Unix socket остаётся внутри GoBFD container: этот Compose file не монтирует
+`/run/gobfd`. Для management используйте `podman exec gobfd gobfdctl session list`
+либо отдельно настройте owned socket mount. Host networking не разделяет
+filesystem paths.
 
 Все три сервиса используют сетевое пространство Linux-хоста. Prometheus
 опрашивает `127.0.0.1:9100`, Grafana использует источник данных
@@ -333,8 +343,8 @@ graph LR
         GR["Grafana<br/>:3000"]
     end
 
-    G -->|scrape /metrics| P
-    P -->|data source| GR
+    P -->|scrape /metrics| G
+    GR -->|query data source| P
 
     style G fill:#1a73e8,color:#fff
     style P fill:#E6522C,color:#fff
@@ -451,9 +461,9 @@ GC и длительность пауз GC. RSS и `GOMEMLIMIT` измеряют
 - [ ] Включить интеграцию с GoBGP при использовании BFD для BGP failover
 - [ ] Включить демпфирование flap-ов для предотвращения churn-а маршрутов
 - [ ] Настроить скрапинг Prometheus по адресу `:9100/metrics`
-- [ ] Импортировать дашборд Grafana
-- [ ] Настроить алертинг на переходы `Up -> Down`
-- [ ] Проверить доступность `CAP_NET_RAW`
+- [ ] Импортировать дашборд из `deployments/compose/configs/grafana/dashboards/bfd.json`
+- [ ] Настроить алертинг на `gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}`
+- Проверить socket startup и выбранный dataplane profile; `session list` проверяет только management access.
 - [ ] Протестировать SIGHUP: `systemctl reload gobfd`
 - [ ] Убедиться, что graceful shutdown отправляет AdminDown
 
@@ -465,4 +475,4 @@ GC и длительность пауз GC. RSS и `GOMEMLIMIT` измеряют
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Сверено с исходниками `dev`: 2026-10-24.*

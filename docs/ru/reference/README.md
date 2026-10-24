@@ -8,4 +8,4 @@ point-in-time снимки.
 
 | Документ | Описание |
 |---|---|
-| [`dependency-risk.md`](./dependency-risk.md) | Реестр рисков зависимостей: pre-1.0 модули, single-maintainer проекты, стратегии митигации. |
+| [`dependency-risk.md`](./dependency-risk.md) | Pins зависимостей, module boundaries, advisory exceptions и mitigation policy. |

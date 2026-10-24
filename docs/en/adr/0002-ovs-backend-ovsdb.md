@@ -55,10 +55,10 @@ The native backend works against the `Open_vSwitch` schema:
 
 ```go
 type OVSDBLAGBackend struct {
-    client OVSDBClient
+    client BondLAGClient
 }
 
-type OVSDBLAGClient interface {
+type BondLAGClient interface {
     RemoveBondInterface(ctx context.Context, bond, iface string) error
     AddBondInterface(ctx context.Context, bond, iface string) error
 }

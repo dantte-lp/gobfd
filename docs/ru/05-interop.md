@@ -118,7 +118,7 @@ GoBFD тестируется с четырьмя независимыми реа
 graph LR
     subgraph "172.20.0.0/24 (сеть Podman)"
         GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
-        FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
+        FRR["FRR 10.7.1<br/>172.20.0.20<br/>bfdd"]
         BIRD["BIRD 3.4.0<br/>172.20.0.30<br/>BFD protocol"]
         HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
         LOADER["holo-config<br/>одноразовый YANG loader"]
@@ -145,7 +145,7 @@ graph LR
 
 | Пир | Версия | Реализация | Язык | Документированное покрытие RFC |
 |---|---:|---|---|---|
-| [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
+| [FRR](https://frrouting.org/) | 10.7.1 | bfdd | C | 5880, 5881, 5882, 5883 |
 | [BIRD3](https://bird.network.cz/) | 3.4.0 + fix | BFD protocol | C | 5880, 5881, 5882, 5883 |
 | [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
 | [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
@@ -169,8 +169,9 @@ Holo использует immutable digest официального образа
 
 ### Crafted Go peer
 
-Закреплённые FRR 10.7.1 и BIRD 3.4.0 не объявляют Required Min RX 0 и не
-устанавливают бит Demand. Поэтому `TestCraftedPeerTestcontainers` (тег
+Закреплённые FRR/BIRD profiles не проверяют все zero-RX и remote-Demand inputs.
+BIRD zero-RX не является общим доказанным ограничением.
+`TestCraftedPeerTestcontainers` (тег
 `interop_testcontainers`) запускает отдельную топологию: GoBFD с одной сессией
 из `gobfd/crafted-peer.yml`, tshark в сетевом namespace GoBFD и
 репозиторный Go-инструмент из `scapy/Containerfile` с аргументом `peer` по
@@ -669,11 +670,16 @@ make interop-rfc
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
 ![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
 
-> Мультивендорное тестирование совместимости BFD с коммерческими/промышленными NOS-контейнерами. Проверка соответствия RFC 5880/5881/5882 на независимых, промышленных реализациях BFD. Двойной стек: IPv4 (RFC 5881 Section 4) и IPv6 (RFC 5881 Section 5) тестируются на каждом доступном вендоре.
+> Опциональные NOS profile tests. Настройка топологии не устанавливает полную
+> квалификацию RFC 5880/5881/5882. SONiC/VyOS profiles имеют только IPv4;
+> остальные настроенные profiles включают IPv6. Доступность images и фактические
+> результаты запуска остаются отдельными условиями приёмки.
 
 ### Топология вендоров
 
-Звёздообразная топология с GoBFD в центре и dual-stack point-to-point линками к каждому вендорному NOS: IPv4 /30 (RFC 3021) и IPv6 /127 (RFC 6164) на одной veth-паре. Контейнеры и veth-линки управляются напрямую через Podman для максимальной совместимости.
+Звёздообразная топология использует IPv4 /30 и, где настроено, IPv6 /127 на
+той же veth pair. RFC 3021 относится к /31, а не к этим /30 links. Go-owned
+lifecycle code управляет containers и veth links через Podman.
 
 ```mermaid
 graph TD
@@ -804,40 +810,40 @@ GoBFD. Перед первой мутацией cleanup проверяет вс�
 |---|---|---|
 | Установление сессии (v4+v6) | 5880 Section 6.8.6 | Трёхстороннее рукопожатие до состояния Up |
 | Обнаружение отказа (v4+v6) | 5880 Section 6.8.4 | Обнаружение за DetectMult x interval |
-| Формат пакетов (v4) | 5880 Section 4.1, 5881 Section 4 | Version=1, TTL=255, порт 3784 |
-| Формат пакетов (v6) | 5880 Section 4.1, 5881 Section 5 | Version=1, Hop Limit=255, порт 3784 |
+| Формат пакетов (v4) | 5880 Section 4.1, 5881 Sections 4-5 | Version=1, TTL=255, порт 3784 |
+| Формат пакетов (v6) | 5880 Section 4.1, 5881 Sections 4-5 | Version=1, Hop Limit=255, порт 3784 |
 | Согласование таймеров (v4+v6) | 5880 Section 6.8.2 | Согласованный TX = max(DesiredMinTx, RemoteMinRx) |
 | Точность обнаружения (v4+v6) | 5880 Section 6.8.4 | Время обнаружения ~900мс (3 x 300мс) |
 | Независимость сессий | 5880 Section 6.8.1 | Отказ одного вендора не влияет на остальных (группировка по baseName) |
 
 ### Особенности вендоров
 
-**Nokia SR Linux**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия). Containerlab применяет `nokia/config.cli` с явно заданными таймерами 300мс. Контейнер SR Linux выполняет тот же код, что и промышленное оборудование Nokia.
-
-**FRRouting**: Нативный демон `bfdd` реализует RFC 5880/5881/5882/5883. Таймеры BFD настраиваются напрямую в `frr.conf` (300мс TX/RX, множитель 3). FRR интегрирует BFD с BGP через директиву `neighbor X bfd`. Контейнер ~188МБ, запускается за секунды.
-
-**Arista cEOS**: BFD-сессии создаются по протоколу (требуется установленная BGP-сессия через `neighbor X bfd`). cEOS 4.36.0.1F работает с `service routing protocols model multi-agent` и требует 8 обязательных переменных окружения для контейнеризованного режима (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth` и др.). Время загрузки 60-120с; тестовый раннер ожидает успешного выполнения `Cli -p 15 -c "show version"`. Состояние BFD проверяется через `Cli -p 15 -c "show bfd peers"`.
-
-**Cisco XRd**: XRd Control Plane является deferred optional profile. Profile определён, но не входит в primary vendor set до появления operator-provided XRd image. XRd vRouter требует PCI passthrough и несовместим с veth-based topologies.
-
-**Интеграция с GoBGP**: GoBFD работает совместно с GoBGP (ASN 65001) внутри контейнера GoBFD. Вендорные NOS, такие как Nokia, требуют BGP для BFD, инициируемого протоколом. При паузе/возобновлении контейнера вендора BGP-сосед GoBGP переходит в состояние `Idle(Admin)` и должен быть явно перевключён через `gobgp neighbor <ip> enable`.
+Repository profiles настраивают single-hop BGP+BFD. Они не квалифицируют все
+NOS features, hardware offload или owner-specific overlay backends.
+Boot/readiness polling принадлежит Go lifecycle; сохраняйте фактический outcome,
+не выводите фиксированное startup time из названия vendor.
 
 ### Проверка конфигурации вендоров
 
-| Profile | Runtime Config | Official Source Constraint | Repository Status |
-|---|---|---|---|
-| Arista cEOS | `arista/startup-config.cfg` | EOS BGP использует `neighbor bfd`; interface timers используют `bfd interval`; VXLAN BFD использует `bfd vtep evpn` под VTI. | Current profile is single-hop BGP+BFD. RFC 8971 reserved for a future Vxlan1 profile. |
-| Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers задаются в microseconds; BGP failure-detection enables BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
-| SONiC-VS | Go lifecycle в `test/internal/clabbootstrap` | SONiC использует ConfigDB для настройки data-plane interfaces; `sonic-vs` является containerized SONiC kind; текущий BFD path основан на FRR. | Fixed argv calls запускают bgpd/bfdd и настраивают data-plane interface без repository shell. Для заявления native SONiC BFD CLI coverage всё ещё нужны отдельные доказательства. |
-| VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
-| FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
-| Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
+| Profile | Repository input | Область |
+|---|---|---|
+| Arista cEOS | `arista/startup-config.cfg` | BGP neighbors и interface BFD timers; без Vxlan1 qualification |
+| Nokia SR Linux | `nokia/config.cli` | Subinterface BFD и BGP failure-detection configuration |
+| SONiC-VS | `test/internal/clabbootstrap` | FRR-backed process/interface lifecycle; native SONiC CLI acceptance отдельно |
+| VyOS | `vyos/config.boot` | Interface, BGP neighbor BFD и explicit BFD peer |
+| FRRouting | `frr/frr.conf` | IPv4/IPv6 single-hop BGP+BFD |
+| Cisco XRd | `cisco/xrd.cfg` | Отложенный optional image-gated profile |
+
+Перед адаптацией lab inputs изучите upstream documentation точного релиза.
+Настроенный vendor syntax сам по себе не является измеренным passing deployment.
 
 ### Тестирование BFD с двойным стеком IPv6
 
-RFC 5881 определяет BFD как для IPv4 (Section 4), так и для IPv6 (Section 5). Набор вендорных interop-тестов проверяет обе адресные семьи на каждом доступном вендоре с использованием dual-stack линков.
+RFC 5881 задаёт single-hop encapsulation обеих address families в §4,
+а TTL/Hop Limit handling — в §5. Profiles Arista, Nokia, Cisco и FRR имеют
+IPv6 endpoints; SONiC/VyOS имеют только IPv4. Cisco остаётся image-gated.
 
-**Ключевые отличия (RFC 5881 Section 5 vs Section 4)**:
+**Отличия address families**:
 - IPv6 использует Hop Limit=255 вместо TTL=255 для GTSM
 - BFD-сессии создаются для каждой адресной семьи отдельно (отдельные IPv4 и IPv6 сессии на вендора)
 - Тот же UDP-порт 3784 и диапазон исходных портов 49152-65535
@@ -859,71 +865,15 @@ RFC 5881 определяет BFD как для IPv4 (Section 4), так и дл
 
 ---
 
-## Перспективы: интеграция с netlab
+## Опциональные lab tools
 
-[netlab](https://github.com/ipspace/netlab) — это уровень оркестрации поверх containerlab и libvirt/Ansible со встроенным BFD-модулем, поддерживающим 16+ сетевых платформ.
+netlab и VM-based vendor orchestration не входят в поддерживаемый toolchain.
+В репозитории нет Python environment, dependency group или Python lock file
+для расширения. Текущий topology lifecycle остаётся Go-owned и использует
+Podman. Оценка внешней lab требует отдельного владельца и записанного допуска
+images, privileges и resources; эта страница не создаёт план миграции.
 
-### Сравнение: текущее решение vs netlab
-
-| Возможность | Текущее (Podman + containerlab) | netlab |
-|---|---|---|
-| Управление топологией | Генерируемый Containerlab YAML + Go lifecycle | Автоматическое (декларативный YAML) |
-| IP-адресация | Статическая в Go profile definitions | Автоматическая |
-| Конфигурация BFD | Файлы для каждого вендора | Директива `module: [bgp, bfd]` |
-| Конфигурация BGP | Для каждого вендора + GoBGP TOML | Автогенерация для платформы |
-| Поддержка вендоров | 6 (нативные контейнеры) | 29 (нативные + vrnetlab VM) |
-| Runtime | Podman (прямой) | Docker (рекомендуется) или Podman (экспериментально) |
-| Зависимости | Podman, containerlab | Python 3.8+, Ansible 2.9+, Docker/libvirt |
-
-### Пример топологии netlab
-
-```yaml
-provider: clab
-module: [bgp, bfd]
-
-nodes:
-  gobfd:
-    device: linux
-    image: localhost/gobfd-clab:<run-id>
-  frr1:
-    device: frr
-  srlinux1:
-    device: srlinux
-
-links:
-  - gobfd-frr1
-  - gobfd-srlinux1
-```
-
-netlab автоматически управляет IP-адресацией, назначением BGP AS и конфигурацией BFD-сессий на вендорных узлах.
-
-### План миграции
-
-1. Установить Python 3.8+ и Ansible на тестовый хост
-2. Отдельно оценить netlab до добавления в группы зависимостей единого Python
-   lock-файла проекта.
-3. Установить Docker (основной runtime netlab)
-4. Преобразовать генерируемую Containerlab topology в YAML netlab
-5. Для VM-вендоров (Cisco IOS-XR, Juniper vMX) включить вложенный KVM на хосте
-
-> **Примечание**: netlab не входит в поддерживаемый toolchain репозитория и требует Ansible
-> и KVM. Это перспективное направление для расширения покрытия вендоров за
-> пределы нативных контейнерных платформ.
-
-### Трёхуровневая стратегия тестирования
-
-Vendor interop coverage использует три уровня:
-
-| Уровень | Вендор | Назначение | Покрытие RFC |
-|---|---|---|---|
-| 1 (немедленный) | FRRouting | Полное покрытие RFC с открытым кодом | 5880, 5881, 5882, 5883 |
-| 2 (коммерческий) | Nokia SR Linux | Промышленный коммерческий NOS | 5880 (async mode) |
-| 3 (широта) | Arista cEOS | Независимая промышленная реализация | 5880, 5881, 5882 |
-
-**Нативные контейнеры** (FRR, SR Linux, cEOS) потребляют ~0.5 vCPU и 0.5-1.5 ГБ RAM каждый. Топология из 3 узлов комфортно работает в VM с 4 vCPU и 8 ГБ RAM.
-
-**vrnetlab VM-в-контейнере** платформы (Cisco IOL/IOSv/CSR, Juniper vMX/vPTX) требуют вложенного KVM и 2-8 ГБ RAM на узел.
-
----
-
-*Последнее обновление: 2026-05-01*
+Наличие vendor image или настроенной topology не означает полное покрытие RFC.
+Запустите выбранный profile и сохраните точные source/image identities, captures,
+assertion results, skips и cleanup evidence. Vendor acceptance отслеживается
+отдельно в Beads; недоступные и отложенные profiles не считаются пройденными.

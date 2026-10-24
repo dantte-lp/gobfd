@@ -28,7 +28,7 @@
 
 - **Podman** + **Podman Compose** (all commands run inside containers)
 - **Git** for version control
-- Go 1.27 (only needed for local IDE support; builds run in containers)
+- Go 1.27.3 for optional IDE support; builds use the repository-pinned container toolchain
 
 > **Important**: All testing, building, scanning, and linting runs inside Podman containers. No local Go toolchain is required for CI-equivalent builds.
 
@@ -109,7 +109,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 
 | Target | Description |
 |---|---|
-| `make all` | Build + test + lint |
+| `make all` | Build + test + gopls-check + lint + lint-docs |
 | `make build` | Compile all binaries with version info |
 | `make test` | Run all tests with `-race -count=1` |
 | `make test-v` | Verbose test output |
@@ -192,7 +192,7 @@ separate runtime/tools CycloneDX SBOMs in the
 |---|---|
 | `make tidy` | Run `go mod tidy` |
 | `make download` | Download module dependencies |
-| `make clean` | Remove binaries and caches |
+| `make clean` | Remove `gobfd`/`gobfdctl` and Go caches; bridge binaries are retained |
 | `make versions` | Show tool versions |
 
 ### Testing Strategy
@@ -259,11 +259,9 @@ Each fuzz test has two variants:
 - **Round-trip**: verifies `parse(marshal(packet)) == packet` for structured inputs
 - **Raw input**: feeds arbitrary bytes to the parser, verifying it never panics
 
-The default fuzz duration is 60 seconds. To run longer:
-
-```bash
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
-```
+The Make target fixes fuzz duration at 60 seconds; it does not consume a
+`FUZZTIME` variable. For another duration, run the explicit `go test` command
+with `-fuzztime` inside the pinned development container.
 
 #### Overlay Wire Qualification
 
@@ -742,7 +740,10 @@ wall-clock waits. See [FSM Tests](#fsm-tests-testingsynctest) above.
 
 #### `os.Root` -- Sandboxed File Access
 
-Configuration file loading uses `os.OpenRoot` to sandbox filesystem access within the config directory. This prevents path traversal attacks where a malicious config path could read arbitrary files:
+Configuration loading opens the parent of the operator-selected path as an
+`os.Root`, then reads relative to that root. This confines subsequent rooted
+operations; it does not establish a fixed trusted directory for an arbitrary
+selected config path. Protect configuration paths and parent permissions:
 
 ```go
 root, err := os.OpenRoot(filepath.Dir(path))
@@ -777,10 +778,10 @@ The daemon continuously records the last N seconds of trace data. With `grpc.fli
 
 #### Swiss Tables
 
-Go 1.26 introduced Swiss tables as the default `map` implementation. GoBFD's
-discriminator lookup, FSM transition table, and session demuxing benefit from
-improved cache locality. Go 1.27 removes the former `noswissmap` diagnostic
-experiment, so it must not appear in build or benchmark commands.
+Map implementation belongs to the pinned runtime. GoBFD uses maps for
+registry/demux lookup; its runtime FSM lookup is an indexed array. Do not infer
+a measured speedup from the map implementation alone. The removed `noswissmap`
+diagnostic experiment must not appear in Go 1.27 build or benchmark commands.
 
 #### HTTP and JSON Compatibility
 
@@ -820,7 +821,7 @@ exact error strings.
 # Development loop
 make up           # Start dev environment
 # ... make changes ...
-make all          # Build + test + lint
+make all          # Build + test + gopls + lint + docs
 
 # For protocol changes:
 make interop      # Verify interop with 4 peers
@@ -838,4 +839,4 @@ make proto-lint   # Lint proto definitions
 
 ---
 
-*Last updated: 2026-08-27*
+*Reviewed against `dev` source: 2026-10-24.*

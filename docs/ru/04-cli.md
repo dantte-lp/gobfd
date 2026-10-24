@@ -81,6 +81,9 @@ management transport policy и не передаёт адреса peers, endpoin
 gobfdctl session list
 ```
 
+Таблица показывает peer/local identity, текущее состояние, type и discriminators.
+Поля таймеров доступны в `session show` или structured JSON/YAML output.
+
 #### Показать конкретную сессию
 
 ```bash
@@ -129,7 +132,7 @@ gobfdctl session add \
 | Флаг | Обязательный | По умолчанию | Описание |
 |---|---|---|---|
 | `--peer` | Да | -- | IP-адрес удалённой системы |
-| `--local` | Да | -- | IP-адрес локальной системы |
+| `--local` | Нет | -- | Local IP; задайте явно для квалификации receive binding |
 | `--interface` | Нет | -- | Сетевой интерфейс (для `SO_BINDTODEVICE`) |
 | `--type` | Нет | `single-hop` | Тип сессии: `single-hop` или `multi-hop` |
 | `--tx-interval` | Нет | `1s` | Desired Min TX Interval |
@@ -137,7 +140,7 @@ gobfdctl session add \
 | `--detect-mult` | Нет | `3` | Множитель обнаружения |
 | `--padded-pdu-size` | Нет | `0` | Target PDU в байтах: 0 отключает padding; 24-9000 без auth, 26-9000 с auth |
 | `--auth-type` | Нет | `none` | Тип auth: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
-| `--auth-key-id` | Если auth включён | `0` | Auth Key ID RFC 5880, диапазон 0-255 |
+| `--auth-key-id` | Нет | `0` | Auth Key ID RFC 5880, диапазон 0-255; ноль допустим |
 | `--auth-secret` | Если auth включён | -- | Секрет: 1-16 байт для Simple Password/MD5, 1-20 байт для SHA1 |
 
 `AddSession` возвращает `InvalidArgument` при некорректной структуре protobuf
@@ -427,14 +430,16 @@ gobfdctl session list --format json
 gobfdctl session list --format yaml
 
 # Конвейер JSON к jq
-gobfdctl session list --format json | jq '.sessions[].state'
+gobfdctl session list --format json | jq '.[].local_state'
 ```
 
 ### Примеры
 
 ```bash
 # Подключение к удалённому демону
-gobfdctl --addr 10.0.0.1:50052 session list
+gobfdctl --addr https://gobfd.example.net:50052 \
+  --tls-ca /etc/gobfd/ca.crt --tls-cert /etc/gobfd/client.crt \
+  --tls-key /etc/gobfd/client.key session list
 
 # Быстрая настройка сессии для тестирования
 gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \
@@ -442,6 +447,11 @@ gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \
 
 # Отслеживание изменений состояния в JSON
 gobfdctl --format json monitor --current
+
+# Проверка состояния в скрипте
+if gobfdctl session show 10.0.0.1 --format json | jq -e '.local_state == "Up"' > /dev/null; then
+  echo "BFD session is Up"
+fi
 ```
 
 ### Связанные документы
@@ -452,4 +462,4 @@ gobfdctl --format json monitor --current
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Сверено с исходниками `dev`: 2026-10-24.*

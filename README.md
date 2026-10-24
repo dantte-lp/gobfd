@@ -6,7 +6,6 @@
 <p align="center">
   <a href="https://github.com/dantte-lp/gobfd/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/dantte-lp/gobfd/ci.yml?branch=master&style=for-the-badge&label=CI" alt="CI"></a>
   <a href="https://pkg.go.dev/github.com/dantte-lp/gobfd"><img src="https://img.shields.io/badge/pkg.go.dev-reference-007d9c?style=for-the-badge&logo=go&logoColor=white" alt="pkg.go.dev"></a>
-  <a href="https://goreportcard.com/report/github.com/dantte-lp/gobfd"><img src="https://img.shields.io/badge/Go_Report-A+-00ADD8?style=for-the-badge" alt="Go Report Card"></a>
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.27">
   <img src="https://img.shields.io/badge/RFC-5880-1a73e8?style=for-the-badge" alt="RFC 5880">
   <img src="https://img.shields.io/badge/RFC-5881-1a73e8?style=for-the-badge" alt="RFC 5881">
@@ -20,13 +19,22 @@
 
 ---
 
-GoBFD is a production-oriented [Bidirectional Forwarding Detection](https://datatracker.ietf.org/doc/html/rfc5880) (BFD) protocol daemon written in Go 1.27. It detects forwarding path failures between adjacent systems in milliseconds, enabling fast convergence for BGP, OSPF, and other routing protocols.
+GoBFD is a pre-1.0 [Bidirectional Forwarding Detection](https://datatracker.ietf.org/doc/html/rfc5880) (BFD) daemon written in Go 1.27. It detects forwarding-path failures using negotiated BFD timers and exposes session state to routing and application integrations.
+
+This checkout documents the next product line on `dev`, built with Go 1.27.3.
+`master` and `release/v0.6` describe the accepted v0.6 line; their defaults and
+GoBGP v3 integration differ from `dev`. Stable v1 qualification and the
+proposed experimental alpha are unfinished. See the [dated status](docs/en/roadmap.md)
+and [RFC support boundaries](docs/en/08-rfc-compliance.md) before deployment.
 
 Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (HAProxy bridge), **gobfd-exabgp-bridge** (ExaBGP bridge).
 
 ## Why GoBFD
 
-- **Standalone daemon, decoupled from any control plane.** GoBFD watches BFD state and drives external actuators (GoBGP `DisablePeer/EnablePeer`, HAProxy agent-check, ExaBGP route announcements) over a typed gRPC API. A daemon restart does not flap the routing control plane.
+- **Standalone daemon.** GoBFD exposes BFD state through a typed API. Its GoBGP
+  handler, HAProxy agent and ExaBGP bridge apply their own coupling policies.
+  Restart and AdminDown effects depend on the client and deployment; forwarding
+  continuity is not guaranteed.
 - **Measured allocation boundaries.** Micro-benchmarks report zero allocations
   for selected codec, FSM, timer, lookup, and caller-buffer paths. Allocating
   compatibility and authenticated receive paths are documented explicitly;
@@ -37,20 +45,22 @@ Four binaries: **gobfd** (daemon), **gobfdctl** (CLI), **gobfd-haproxy-agent** (
   [RFC Compliance](docs/en/08-rfc-compliance.md) for the exact matrix.
 - **Operational surfaces.** ConnectRPC/gRPC API, Prometheus metrics,
   structured `slog` logging, systemd integration, and a runtime flight
-  recorder are available. The current control and metrics defaults are
-  plaintext all-interface listeners; production deployments must isolate or
-  override them and must not expose the debug endpoint publicly.
-- **Verified interop.** The base suite covers FRR 10.7.0, BIRD 3.4.0 with
-  the CVE-2026-112112 fix, immutable Holo 0.9.0, and Thoro/bfd. Separate
-  BGP+BFD coupling tests cover GoBGP, FRR, BIRD3, and ExaBGP. Containerlab
-  profiles cover Arista cEOS, Nokia SR Linux, SONiC-VS, and VyOS.
+  recorder are available. Management defaults to the Unix socket
+  `/run/gobfd/gobfd.sock`; metrics defaults to `127.0.0.1:9100`.
+  Remote management requires mTLS. See [Security](docs/en/15-security.md).
+- **Interop suites.** The base topology contains FRR, BIRD3, Holo and Thoro/bfd.
+  BGP coupling and vendor NOS suites are separate. A topology or passing
+  historical run does not qualify every profile on the current candidate.
+  See [Interop](docs/en/05-interop.md) for pins and acceptance boundaries.
 
 Background and benchmarks: [Competitive Analysis](docs/en/13-competitive-analysis.md) and [Performance Analysis](docs/en/14-performance-analysis.md).
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/dantte-lp/gobfd.git && cd gobfd
+git clone --branch dev https://github.com/dantte-lp/gobfd.git
+cd gobfd
+make up                          # pinned Podman development environment
 make build                       # builds all 4 binaries with version ldflags
 sudo ./gobfd -config configs/gobfd.example.yml
 ```
@@ -58,11 +68,13 @@ sudo ./gobfd -config configs/gobfd.example.yml
 Local Podman stack with Prometheus + Grafana:
 
 ```bash
-make test
+make test                        # local critical and regression suites
 podman compose -f deployments/compose/compose.yml up -d
 ```
 
-> **Requires** Linux with `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities. See [Deployment](docs/en/06-deployment.md).
+> The daemon needs Linux network privileges appropriate to its enabled paths.
+> Configure the packaged service or container capabilities before running it.
+> See [Deployment](docs/en/06-deployment.md).
 
 ## Architecture
 
@@ -81,7 +93,7 @@ graph TB
     EXA["gobfd-exabgp-bridge"] --> SRV
     SRV --> BFD
     NET --> BFD
-    BGP --> GOBGP["GoBGP :50052"]
+    BGP --> GOBGP["GoBGP 127.0.0.1:50051"]
     NET --> PEER["BFD Peers"]
 
     style BFD fill:#1a73e8,color:#fff
@@ -104,6 +116,10 @@ Full documentation is available in [`docs/`](docs/README.md):
 | 09 | [Development](docs/en/09-development.md) | Dev workflow, make targets, testing, linting |
 | 10 | [Changelog Guide](docs/en/10-changelog.md) | How to maintain CHANGELOG.md, semantic versioning |
 | 11 | [Integrations](docs/en/11-integrations.md) | BGP failover, HAProxy, observability, ExaBGP, Kubernetes |
+| 12 | [Benchmarks](docs/en/12-benchmarks.md) | Run and interpret measurements |
+| 13 | [Comparisons](docs/en/13-competitive-analysis.md) | Comparison method and limits |
+| 14 | [Performance](docs/en/14-performance-analysis.md) | Receive telemetry, workload and resource boundaries |
+| 15 | [Security](docs/en/15-security.md) | Management identities, secrets and deployment policy |
 | 16 | [Production Runbooks](docs/en/16-production-runbooks.md) | Kubernetes, BGP, Prometheus, packet verification, failure drills |
 
 Documentation is also available in Russian at [`docs/ru/`](docs/ru/README.md).
@@ -193,7 +209,7 @@ allocation boundaries. See [BENCHMARKS.md](BENCHMARKS.md) for detailed results.
 - RFC 9747 Echo and RFC 7130 Micro-BFD preview paths, plus unsafe/incomplete
   RFC 8971 VXLAN and RFC 9521 Geneve userspace previews
 - BFD flap dampening for BGP integration (implementation policy informed by RFC 5882 Section 3.1)
-- Zero-allocation packet codec with pre-built cached packets
+- Selected zero-allocation codec paths; authenticated parsing and lifecycle costs have explicit boundaries
 - ConnectRPC/gRPC API + CLI with interactive shell; by default only the Unix
   socket `/run/gobfd/gobfd.sock` with kernel peer-UID principals, optional
   loopback TCP (anonymous clients read only) and mTLS for remote access;

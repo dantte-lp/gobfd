@@ -15,7 +15,7 @@
 - [Полный пример конфигурации](#полный-пример-конфигурации)
 - [Статус preview-возможностей](#статус-preview-возможностей)
 - [Секции конфигурации](#секции-конфигурации)
-- [Настройка буферов сокетов](#настройка-буферов-сокетов)
+- [Настройка буферов сокетов](#socket----настройка-буферов-сокетов)
 - [Переменные окружения](#переменные-окружения)
 - [Декларативные сессии](#декларативные-сессии)
 - [Интеграция с GoBGP](#интеграция-с-gobgp)
@@ -244,6 +244,10 @@ log level, generation, health, sessions или ресурсов отправит
 | `align_intervals` | bool | `false` | RFC 7419: выравнивание таймеров до ближайшего общего интервала |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: дополнение BFD-пакетов до этого размера с битом DF (0 = отключено; targets v1: 24-9000 без auth, 26-9000 с auth; actual PDU не усекается) |
 
+Эти defaults подставляются для пропущенных значений декларативных YAML sessions.
+Граница gRPC `AddSession` отдельно подставляет `1s` для пропущенных TX/RX
+и отклоняет нулевой Detect Multiplier; настраиваемые defaults она не наследует.
+
 Все поля detection multiplier проверяются до численного декодирования, включая
 Echo, VXLAN, Geneve и Micro-BFD peers и defaults. Значения вне 0–255, дроби и
 boolean отклоняются; переполнение и усечение исключены. Ноль сохраняет прежнее
@@ -255,9 +259,15 @@ boolean отклоняются; переполнение и усечение и�
 Поиск multiplier использует тот же case-insensitive matching, что decoder;
 конфликтующие case aliases одного поля отклоняются.
 
-При `align_intervals: true` значения `DesiredMinTxInterval` и `RequiredMinRxInterval` округляются вверх до ближайшего общего интервала RFC 7419 (3.3мс, 10мс, 20мс, 50мс, 100мс, 1с). Это предотвращает несовпадения при согласовании с аппаратными реализациями BFD.
+При `align_intervals: true` создание округляет TX/RX вверх внутри common set
+RFC 7419 (3,3 ms, 10 ms, 20 ms, 50 ms, 100 ms, 1 s); значения выше 1 s не
+меняются. Alignment не устанавливает peer interoperability или timer accuracy.
 
 > **Примечание**: По RFC 5880 Section 6.8.3, когда сессия не в состоянии Up, TX-интервал принудительно устанавливается не менее 1 секунды.
+
+#### `gobgp` -- Интеграция GoBGP
+
+Подробности находятся в разделе [Интеграция GoBGP](#интеграция-с-gobgp).
 
 #### `unsolicited` -- RFC 9468 Unsolicited BFD
 
@@ -608,17 +618,19 @@ HTTP/Unix и dataplane backends без UDP не входят в эту поли�
 при запуске, в том числе для отправителей, создаваемых позже. SIGHUP отклоняет
 изменение любого значения; требуется перезапуск процесса.
 
-**Рекомендации по размерам:**
-
-- **< 100 сессий**: значений ОС по умолчанию обычно достаточно (установите оба в `0`)
-- **100-1000 сессий**: 4 МиБ (по умолчанию) обеспечивает запас для всплесков трафика
-- **> 1000 сессий**: рассмотрите 8-16 МиБ; мониторьте `netstat -su` на предмет ошибок приёма UDP
+Квалифицируйте размеры по фактической burst load, requested/effective kernel
+limits и socket drops. Число сессий само по себе не задаёт безопасный размер;
+ноль сохраняет OS defaults, а не гарантирует проверенную ёмкость.
 
 > **Примечание**: Ядро может ограничить эффективный размер буфера значением `net.core.rmem_max` / `net.core.wmem_max`. Для увеличения буферов поднимите эти sysctl-параметры:
 > ```bash
 > sysctl -w net.core.rmem_max=16777216
 > sysctl -w net.core.wmem_max=16777216
 > ```
+
+#### `sessions` -- Декларативные сессии
+
+См. раздел [Декларативные сессии](#декларативные-сессии).
 
 ### Переменные окружения
 
@@ -636,6 +648,7 @@ YAML, а YAML перекрывает встроенные defaults.
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
 | `GOBFD_UNSOLICITED_ENABLED` | `unsolicited.enabled` | `true` |
 | `GOBFD_ECHO_ENABLED` | `echo.enabled` | `true` |
+| `GOBFD_MICRO_BFD_ENABLED` | `micro_bfd.enabled` | `true` |
 | `GOBFD_SOCKET_READ_BUFFER_SIZE` | `socket.read_buffer_size` | `8388608` |
 | `GOBFD_SOCKET_WRITE_BUFFER_SIZE` | `socket.write_buffer_size` | `8388608` |
 | `GOBFD_VXLAN_ENABLED` | `vxlan.enabled` | `true` |
@@ -692,7 +705,7 @@ cross-adapter rollback не входят в эту гарантию.
 | Ключ | Тип | Обязательный | Описание |
 |---|---|---|---|
 | `peer` | string | Да | IP-адрес удалённой системы |
-| `local` | string | Да | IP-адрес локальной системы |
+| `local` | string | Нет | Local IP; задайте явно для проверенной receive binding |
 | `interface` | string | Нет | Сетевой интерфейс для `SO_BINDTODEVICE` RX и TX single-hop сессии; для `multi_hop` запрещён (`ErrInvalidSessionMultiHopInterface`) |
 | `type` | string | Нет | `single_hop` (по умолчанию) или `multi_hop` |
 | `desired_min_tx` | duration | Нет | Переопределение TX-интервала |
@@ -1098,7 +1111,7 @@ pending для неназначенного local address, а не skipped.
 | `log.level`: `debug`, `info`, `warn` или `error` без учёта регистра | `ErrInvalidLogLevel` |
 | `log.format`: точно `json` или `text` | `ErrInvalidLogFormat` |
 | `socket.read_buffer_size` / `socket.write_buffer_size` должны быть >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
-| `grpc.addr` не должен быть пустым | `ErrEmptyGRPCAddr` |
+| Хотя бы одно из `grpc.addr` или `grpc.socket.path` должно быть непустым | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` должен быть >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` должен быть > 0 | `ErrInvalidDesiredMinTx` |
 | `bfd.default_required_min_rx` должен быть >= 0 | `ErrInvalidRequiredMinRx` |
@@ -1181,4 +1194,4 @@ multi-hop flag)`, где port — 3784, 4784, 3785 или 6784. Записи, и
 
 ---
 
-*Последнее обновление: 2026-02-24*
+*Сверено с исходниками `dev`: 2026-10-24.*

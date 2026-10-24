@@ -15,7 +15,7 @@
 - [Full Configuration Example](#full-configuration-example)
 - [Preview Capability Status](#preview-capability-status)
 - [Configuration Sections](#configuration-sections)
-- [Socket Tuning](#socket-tuning)
+- [Socket Tuning](#socket----socket-buffer-tuning)
 - [Environment Variables](#environment-variables)
 - [Declarative Sessions](#declarative-sessions)
 - [GoBGP Integration](#gobgp-integration)
@@ -240,7 +240,9 @@ Changing the format requires a restart.
 | `align_intervals` | bool | `false` | RFC 7419: align timers to nearest common interval |
 | `default_padded_pdu_size` | uint16 | `0` | RFC 9764: pad BFD packets to this size with DF bit (0 = disabled; v1 targets: 24-9000 without auth, 26-9000 with auth; never truncate the actual PDU) |
 
-These defaults apply to sessions created via gRPC that do not specify their own parameters. Sessions defined in the `sessions` section can override any of these values.
+These defaults supply omitted values for declarative YAML sessions. The gRPC
+`AddSession` boundary separately defaults omitted TX/RX to `1s` and rejects a
+zero Detect Multiplier; it does not inherit these configurable defaults.
 
 All detection multiplier fields are checked before numeric decoding, including
 Echo, VXLAN, Geneve and Micro-BFD peers and defaults. Values outside 0–255,
@@ -253,7 +255,9 @@ non-mapping list entries are rejected before weak decoding.
 Multiplier lookup follows the decoder's case-insensitive matching; conflicting
 case aliases for a field are rejected.
 
-When `align_intervals` is `true`, `DesiredMinTxInterval` and `RequiredMinRxInterval` are rounded UP to the nearest RFC 7419 common interval (3.3ms, 10ms, 20ms, 50ms, 100ms, 1s). This prevents negotiation mismatches with hardware BFD implementations.
+With `align_intervals: true`, creation rounds TX/RX up within the RFC 7419
+common set (3.3 ms, 10 ms, 20 ms, 50 ms, 100 ms, 1 s); values above 1 s remain
+unchanged. Alignment does not establish peer interoperability or timer accuracy.
 
 > **Note**: Per RFC 5880 Section 6.8.3, when the session is not in Up state, the TX interval is enforced to be at least 1 second regardless of the configured value.
 
@@ -604,11 +608,9 @@ fails that socket construction and closes the new socket. Buffer policy is
 captured at startup, including for senders created later; changing either
 value through SIGHUP is rejected and requires a process restart.
 
-**Sizing guidelines:**
-
-- **< 100 sessions**: OS defaults are usually sufficient (set both to `0`)
-- **100-1000 sessions**: 4 MiB (default) provides headroom for burst traffic
-- **> 1000 sessions**: Consider 8-16 MiB; monitor `netstat -su` for UDP receive errors
+Qualify buffer sizes using actual burst load, requested/effective kernel
+limits and observed socket drops. Session count alone does not establish a
+safe size; zero retains OS defaults rather than a tested capacity guarantee.
 
 > **Note**: The kernel may cap the effective buffer size at `net.core.rmem_max` / `net.core.wmem_max`. To allow larger buffers, increase these sysctl values:
 > ```bash
@@ -636,6 +638,7 @@ built-in defaults.
 | `GOBFD_LOG_FORMAT` | `log.format` | `"text"` |
 | `GOBFD_UNSOLICITED_ENABLED` | `unsolicited.enabled` | `true` |
 | `GOBFD_ECHO_ENABLED` | `echo.enabled` | `true` |
+| `GOBFD_MICRO_BFD_ENABLED` | `micro_bfd.enabled` | `true` |
 | `GOBFD_SOCKET_READ_BUFFER_SIZE` | `socket.read_buffer_size` | `8388608` |
 | `GOBFD_SOCKET_WRITE_BUFFER_SIZE` | `socket.write_buffer_size` | `8388608` |
 | `GOBFD_VXLAN_ENABLED` | `vxlan.enabled` | `true` |
@@ -692,7 +695,7 @@ The YAML uniqueness key is the tuple: `(peer, local, interface)`.
 | Key | Type | Required | Description |
 |---|---|---|---|
 | `peer` | string | Yes | Remote system's IP address |
-| `local` | string | Yes | Local system's IP address |
+| `local` | string | No | Local IP; use an explicit address for a verified receive binding |
 | `interface` | string | No | Network interface for `SO_BINDTODEVICE` on single-hop RX and TX; rejected on `multi_hop` (`ErrInvalidSessionMultiHopInterface`) |
 | `type` | string | No | `single_hop` (default) or `multi_hop` |
 | `desired_min_tx` | duration | No | Override default TX interval |
@@ -1094,7 +1097,7 @@ changes are not rolled back.
 | `log.level` must be `debug`, `info`, `warn`, or `error` (case-insensitive) | `ErrInvalidLogLevel` |
 | `log.format` must be exactly `json` or `text` | `ErrInvalidLogFormat` |
 | `socket.read_buffer_size` / `socket.write_buffer_size` must be >= 0 | `ErrInvalidSocketReadBufferSize` / `ErrInvalidSocketWriteBufferSize` |
-| `grpc.addr` must not be empty | `ErrEmptyGRPCAddr` |
+| At least one of `grpc.addr` or `grpc.socket.path` must be nonempty | `ErrEmptyGRPCAddr` |
 | `bfd.default_detect_multiplier` must be >= 1 | `ErrInvalidDetectMultiplier` |
 | `bfd.default_desired_min_tx` must be > 0 | `ErrInvalidDesiredMinTx` |
 | `bfd.default_required_min_rx` must be >= 0 | `ErrInvalidRequiredMinRx` |
@@ -1176,4 +1179,4 @@ the error contains no address or interface values.
 
 ---
 
-*Last updated: 2026-02-24*
+*Reviewed against `dev` source: 2026-10-24.*

@@ -29,7 +29,9 @@
 
 GoBFD integrates with routing, load balancing, monitoring, and orchestration systems to provide sub-second failure detection. Each integration example is a self-contained, runnable stack under `deployments/integrations/`.
 
-All stacks use **podman compose** with OCI containers and include a **tshark** sidecar for BFD packet capture and RFC compliance verification.
+The four Compose examples use **podman compose** and include **tshark** capture
+containers. Kubernetes uses manifests and an existing k3s cluster; it has no
+tshark sidecar. Examples require separate qualification on the target environment.
 
 | # | Integration | Components | Subnet | New Code |
 |---|------------|-----------|--------|----------|
@@ -40,8 +42,9 @@ All stacks use **podman compose** with OCI containers and include a **tshark** s
 | 5 | Kubernetes DaemonSet | GoBFD + GoBGP + k3s | Host network | K8s manifests |
 
 GoBFD on `dev` uses the GoBGP v4 API and requires a GoBGP v4 daemon: GoBGP v3
-`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. Every
-integration builds GoBGP v4.10.0 from the shared `test/interop/gobgp` recipe.
+`/apipb.GobgpApi` and v4 `/api.GoBgpService` are wire-incompatible. Examples
+that use GoBGP build v4.10.0 from `test/interop/gobgp`; HAProxy and observability
+do not run GoBGP.
 The Kubernetes example builds `gobgp:local` from that recipe and imports it
 into k3s next to `gobfd:local`; it has not been run on a live k3s cluster.
 
@@ -225,9 +228,10 @@ graph LR
 
 ### Metrics
 
-The drop and authentication-failure series are registered but currently remain
-zero because production data-path accounting is not wired. Their alert rules
-are placeholders until the v1 loss-accounting work is complete.
+Packet-drop and authentication-failure accounting is wired. The per-peer
+counters and fixed delivery outcomes have different stage denominators;
+pre-session parser/demux refusals are not all peer packet drops. See
+[Monitoring](07-monitoring.md) before interpreting zero counters or alerts.
 
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -243,10 +247,10 @@ are placeholders until the v1 loss-accounting work is complete.
 | Alert | Expression | Severity |
 |-------|-----------|----------|
 | BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` for 10s | Warning |
-| BFDSessionDownTransition | `increase(state_transitions{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
-| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(state_transitions[5m])) > 3` for 1m | Warning |
-| BFDAuthFailures | `rate(auth_failures[5m]) > 0` for 30s | Warning |
-| BFDPacketDrops | `rate(packets_dropped[5m]) > 0` for 1m | Warning |
+| BFDSessionDownTransition | `increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
+| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3` for 1m | Warning |
+| BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` for 30s | Warning |
+| BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` for 1m | Warning |
 
 Prometheus v3.15.0, Grafana 13.2.4 and FRR 10.7.1 are built from
 checksum-pinned upstream artifacts on Debian trixie
@@ -381,7 +385,7 @@ graph TD
 - **hostNetwork: true** — BFD uses raw sockets, needs direct access to host network
 - **CAP_NET_RAW + CAP_NET_ADMIN** — required for BFD packet operations
 - **Linux node selector** — the example relies on Linux socket and capability semantics
-- **TCP probes** — gRPC and metrics sockets provide generic readiness/liveness checks
+- **Probes** — exec `gobfdctl` over the Unix socket for readiness; metrics TCP for liveness; neither proves session convergence
 - **DaemonSet** — one GoBFD instance per node for consistent BFD coverage
 - **Dynamic sessions** — BFD sessions added via `gobfdctl` after discovering node IPs
 
@@ -413,7 +417,8 @@ sudo make int-k8s-down
 
 ## Packet Verification with tshark
 
-All integration stacks include a **tshark** sidecar container for BFD packet capture and RFC compliance verification.
+The four Compose examples include a **tshark** capture container. The Kubernetes
+manifests do not; capture there requires a separately authorized namespace tool.
 
 ### Capture Setup
 
@@ -484,4 +489,4 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 
 ---
 
-*Last updated: 2026-05-01*
+*Reviewed against `dev` source: 2026-10-24.*

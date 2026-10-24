@@ -52,9 +52,9 @@ graph TB
     end
 
     subgraph "External"
-        GOBGP["GoBGP<br/>gRPC :50052"]
+        GOBGP["GoBGP<br/>gRPC 127.0.0.1:50051"]
         PROM["Prometheus<br/>:9100/metrics"]
-        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081/7784"]
+        PEER["BFD Peers<br/>UDP 3784/4784/3785/6784/4789/6081"]
     end
 
     MAIN --> CFG
@@ -129,7 +129,7 @@ flowchart TD
     RECV --> HANDLE["handleRecvPacket<br/>RFC 5880 steps 8-18:<br/>auth, FSM event, timer reset"]
 ```
 
-The 13-step validation from RFC 5880 Section 6.8.6 is split across two layers:
+Receive validation for RFC 5880 Section 6.8.6 is split across two layers:
 
 | Layer | Steps | Responsibility |
 |---|---|---|
@@ -352,10 +352,13 @@ following boundaries remain deferred:
 
 - runtime changes of the global overlay backend and default VNI fields;
 - stable per-group and per-tunnel owner identifiers;
-- full Poll/Demand qualification beyond bounded config-owned TX/RX/Detect Multiplier updates;
-- transport-aware packet demultiplexing; and
-- authenticated API principal identities instead of one compatibility/API
-  owner.
+- full Poll/Demand qualification beyond bounded config-owned TX/RX/Detect Multiplier updates.
+
+Transport-aware demultiplexing already validates transport class, interface,
+overlay scope and TTL before delivery. API claims derive from authenticated
+Unix UID or mTLS principals; the explicitly enabled anonymous compatibility
+path remains separate. These implemented boundaries do not close the broader
+qualification tasks.
 
 ### Three-Way Handshake
 
@@ -368,15 +371,10 @@ sequenceDiagram
 
     A->>B: Control(State=Down)
     Note over B: Down -> Init
-    B->>A: Control(State=Down)
-    Note over A: Down -> Init
-
-    A->>B: Control(State=Init)
-    Note over B: Init -> Up
     B->>A: Control(State=Init)
-    Note over A: Init -> Up
-
+    Note over A: Down -> Up
     A->>B: Control(State=Up)
+    Note over B: Init -> Up
     B->>A: Control(State=Up)
     Note over A,B: Both peers Up
 ```
@@ -467,8 +465,9 @@ its Control-only snapshot. Their observation-version floors reject older raw
 events dispatched after the snapshot. Recovery needs no next owner edge or
 reconnect while dispatch runs. Private failure hints remain cleanup-only, and
 legacy `StateChanges()` remains best effort without resynchronization. Kernel
-`SO_RXQ_OVFL` remains separate work, and
-unsolicited/Echo modes retain their existing preview qualification boundaries.
+`SO_RXQ_OVFL` observations have separate epochs and denominators; see
+[Performance](14-performance-analysis.md#socket-drop-observation-boundary).
+Unsolicited/Echo retain their preview qualification boundaries.
 
 Registration publishes `SESSION_ADDED` after registry insertion and before the
 owner starts, including a passive session that stays Down. This lifecycle
@@ -628,40 +627,19 @@ exchange. Echo removal publishes its Watch tombstone without changing protocol s
 
 ### Project Structure
 
-```
-gobfd/
-+-- api/bfd/v1/bfd.proto          # Protobuf service definitions (buf managed)
-+-- cmd/
-|   +-- gobfd/main.go             # Daemon entry point
-|   +-- gobfdctl/                 # CLI client
-|   |   +-- main.go
-|   |   +-- commands/             # Cobra commands + reeflective/console shell
-|   +-- gobfd-haproxy-agent/      # HAProxy agent-check bridge
-|   +-- gobfd-exabgp-bridge/      # ExaBGP process API bridge
-+-- internal/
-|   +-- bfd/                      # Core protocol (FSM, session, packet, auth)
-|   +-- config/                   # koanf/v2 configuration
-|   +-- gobgp/                    # GoBGP gRPC client + flap dampening
-|   +-- metrics/                  # Prometheus collectors
-|   +-- netio/                    # Raw sockets, UDP listeners, overlay tunnels (Linux)
-|   +-- sdnotify/                 # systemd readiness/watchdog notifications
-|   +-- server/                   # ConnectRPC server + interceptors
-|   +-- version/                  # Build info
-+-- pkg/bfdpb/                    # Generated protobuf types (public API)
-+-- test/interop/                 # 4-peer interop tests (FRR, BIRD3, Holo, Thoro/bfd)
-+-- test/interop-bgp/            # BGP+BFD interop tests (GoBGP, FRR, BIRD3, ExaBGP)
-+-- test/interop-rfc/            # RFC-specific interop tests (7419, 9384, 9468)
-+-- test/interop-clab/           # Vendor NOS interop tests (Nokia, Arista, Cisco, FRR, SONiC, VyOS)
-+-- test/integration/            # Integration tests (datapath, CLI, server)
-+-- configs/                      # Example configuration
-+-- deployments/
-|   +-- compose/                  # Podman Compose (dev + prod stacks)
-|   +-- docker/                   # Containerfile + debug image
-|   +-- systemd/                  # systemd unit file
-|   +-- nfpm/                     # deb/rpm install scripts
-|   +-- integrations/            # 5 integration examples (BGP, HAProxy, observability, ExaBGP, k8s)
-+-- docs/                         # Documentation + RFC texts
-```
+| Path | Responsibility |
+|---|---|
+| `api/bfd/v1/`, `pkg/bfdpb/` | API schema and generated public bindings |
+| `cmd/` | Daemon, CLI, HAProxy agent and ExaBGP bridge |
+| `internal/bfd/` | Session owners, FSM, authentication, reconciliation |
+| `internal/netio/`, `internal/overlay/` | Linux sockets and shared overlay vocabulary |
+| `internal/config/`, `internal/server/`, `internal/apiclient/` | Configuration and management boundary |
+| `internal/gobgp/`, `internal/metrics/`, `internal/sdnotify/` | Routing coupling and operational signals |
+| `internal/stepca/`, `internal/version/` | Certificate renewal and build identity |
+| `test/`, `bench/` | Qualification harnesses and component benchmarks |
+| `configs/`, `deployments/` | Configuration and deployment examples |
+| `tools/` | Isolated developer-tool module |
+| `docs/` | English source, Russian translation, ADRs and RFC texts |
 
 ### Technology Stack
 
@@ -709,4 +687,4 @@ gobfd/
 
 ---
 
-*Last updated: 2026-08-28*
+*Reviewed against `dev` source: 2026-10-24.*

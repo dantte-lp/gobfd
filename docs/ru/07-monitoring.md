@@ -54,8 +54,8 @@ Marker не считается успешно доставленным исхо�
 `legacy_notification` учитывает queued/full attempts; пропущенный Added,
 закрытый channel и nil sink не являются попытками. Потеря notification не
 увеличивает Control packet-drop counters. Raw abandonment учитывается после
-join всех producers и Manager workers. Kernel `SO_RXQ_OVFL` остаётся задачей
-`gobfd-qj0.8.2.1.6`; ledger не квалифицирует Echo transport/security. Echo Watch
+join всех producers и Manager workers. Kernel `SO_RXQ_OVFL` observations
+используют отдельные socket-drop metrics ниже; ledger не квалифицирует Echo transport/security. Echo Watch
 lifecycle реализован отдельно в `gobfd-qj0.8.2.1.3.10`: frozen rows измеряют
 фактические Echo counters/timestamps без увеличения observation version только
 из-за счётчиков. Drop/auth fields, которыми Echo не владеет, равны нулю и не
@@ -145,6 +145,16 @@ Action deadline задаёт следующий запланированный a
 или остановка обработчика очищают pending action. AdminDown отменяет
 ожидающий Down; Up для включения ранее отключённого GoBFD пира сохраняется.
 
+#### Значения labels
+
+| Label | Примеры значений |
+|---|---|
+| `peer_addr` | `10.0.0.1`, `192.168.1.1`, `fd00::1` |
+| `local_addr` | `10.0.0.2`, `192.168.1.2`, `fd00::2` |
+| `session_type` | `SingleHop`, `MultiHop`, `MicroBFD`, `VXLAN`, `Geneve` |
+| `from_state` | `AdminDown`, `Down`, `Init`, `Up` |
+| `to_state` | `AdminDown`, `Down`, `Init`, `Up` |
+
 #### Примеры запросов
 
 ```promql
@@ -164,6 +174,9 @@ rate(gobfd_bfd_auth_failures_total[5m])
 rate(gobfd_bfd_packets_dropped_total[5m])
 ```
 
+Transition counters не восстанавливают текущее число Up sessions. Отдельной
+per-session state gauge нет; читайте `local_state` из CLI/API snapshot.
+
 ### Дашборд Grafana
 
 Готовый дашборд расположен в:
@@ -176,9 +189,9 @@ deployments/compose/configs/grafana/dashboards/bfd.json
 
 | Панель | Описание |
 |---|---|
-| **Обзор сессий** | Количество сессий, распределение по состояниям и типам |
+| **Обзор сессий** | Active sessions и active sessions по peer; не число peers Up |
 | **Скорость пакетов** | TX/RX по пирам |
-| **Переходы состояний** | Временная шкала изменений с аннотациями Up/Down |
+| **Переходы состояний** | Transition counters выбранного временного окна |
 | **Ошибки** | Ошибки auth, отброшенные пакеты |
 
 Для импорта:
@@ -242,7 +255,8 @@ groups:
 
 ### Структурированное логирование
 
-GoBFD использует исключительно `log/slog` (stdlib).
+GoBFD использует исключительно `log/slog` (stdlib). `fmt.Println`, `log`,
+`zap` и `zerolog` не используются.
 
 #### Уровни логирования
 
@@ -375,7 +389,7 @@ go tool trace trace.out
 `gobfd.gobgp` находится в
 `NOT_SERVING` до успешного preflight GoBGP v4, а также после неудачного
 preflight или неудачного `DisablePeer`/`EnablePeer` до следующего успеха,
-а также после BFD Down для соседа с несколькими базовыми сессиями
+а также после BFD Down для соседа с несколькими базовыми сессиями до следующего успеха
 (`03-configuration.md`, «Идентичность сессии»). `gobfd.gobgp` и
 `gobfd.management` не входят в пустой service, а health LAG actuator не входит в
 `bfd.v1.MicroBFDService`.
@@ -390,4 +404,4 @@ convergence конфигурации.
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Сверено с исходниками `dev`: 2026-10-24.*

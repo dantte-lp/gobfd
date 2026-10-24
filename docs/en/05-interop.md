@@ -117,7 +117,7 @@ BGP+BFD suite and are not counted as base peers.
 graph LR
     subgraph "172.20.0.0/24 (Podman network)"
         GOBFD["GoBFD<br/>172.20.0.10<br/>Go 1.27"]
-        FRR["FRR 10.7.0<br/>172.20.0.20<br/>bfdd"]
+        FRR["FRR 10.7.1<br/>172.20.0.20<br/>bfdd"]
         BIRD["BIRD 3.4.0<br/>172.20.0.30<br/>BFD protocol"]
         HOLO["Holo 0.9.0<br/>172.20.0.50<br/>holod"]
         LOADER["holo-config<br/>one-shot YANG loader"]
@@ -144,7 +144,7 @@ graph LR
 
 | Peer | Version | Implementation | Language | Documented RFC coverage |
 |---|---:|---|---|---|
-| [FRR](https://frrouting.org/) | 10.7.0 | bfdd | C | 5880, 5881, 5882, 5883 |
+| [FRR](https://frrouting.org/) | 10.7.1 | bfdd | C | 5880, 5881, 5882, 5883 |
 | [BIRD3](https://bird.network.cz/) | 3.4.0 + fix | BFD protocol | C | 5880, 5881, 5882, 5883 |
 | [Holo](https://github.com/holo-routing/holo/releases/tag/v0.9.0) | 0.9.0 | holod | Rust | 5880, 5881, 5882, 5883 |
 | [Thoro/bfd](https://github.com/Thoro/bfd) | repository build | gRPC daemon | Go | 5880, 5881 |
@@ -168,8 +168,9 @@ loader has no fixed address and is not a fifth peer.
 
 ### Crafted Go Peer
 
-Pinned FRR 10.7.1 and BIRD 3.4.0 cannot advertise Required Min RX 0 or set
-the Demand bit. `TestCraftedPeerTestcontainers` (`interop_testcontainers` tag)
+The pinned FRR/BIRD profiles do not exercise every zero-RX and remote-Demand
+input. BIRD zero-RX behavior is not a general proven limitation.
+`TestCraftedPeerTestcontainers` (`interop_testcontainers` tag)
 therefore runs a separate topology: GoBFD with one session from
 `gobfd/crafted-peer.yml`, tshark in the GoBFD network namespace, and the
 repository-owned Go tool from `scapy/Containerfile` started with the `peer`
@@ -670,11 +671,16 @@ make interop-rfc
 ![Cisco](https://img.shields.io/badge/Cisco-XRd-049FD9?style=for-the-badge)
 ![containerlab](https://img.shields.io/badge/containerlab-0.79.0-1a73e8?style=for-the-badge)
 
-> Multi-vendor BFD interoperability testing against commercial/enterprise NOS containers. Validates RFC 5880/5881/5882 compliance against independent, production-oriented BFD implementations. Dual-stack: IPv4 (RFC 5881 Section 4) and IPv6 (RFC 5881 Section 5) tested on every available vendor.
+> Optional NOS profile tests. A configured topology does not establish full
+> RFC 5880/5881/5882 qualification. SONiC/VyOS profiles are IPv4-only; other
+> configured profiles include IPv6. Image availability and actual run evidence
+> remain separate acceptance gates.
 
 ### Vendor Topology
 
-Star topology with GoBFD at the center and dual-stack point-to-point links to each vendor NOS: IPv4 /30 (RFC 3021) and IPv6 /127 (RFC 6164) on the same veth pair. Containers and veth links are managed directly via Podman for maximum compatibility.
+The star topology uses IPv4 /30 links and, where configured, IPv6 /127 on the
+same veth pair. RFC 3021 concerns /31 rather than these /30 links. Go-owned
+lifecycle code manages containers and veth links through Podman.
 
 ```mermaid
 graph TD
@@ -804,40 +810,40 @@ container that the test suite could otherwise discover.
 |---|---|---|
 | Session establishment (v4+v6) | 5880 Section 6.8.6 | Three-way handshake reaches Up state |
 | Failure detection (v4+v6) | 5880 Section 6.8.4 | Detection within DetectMult x interval |
-| Packet format (v4) | 5880 Section 4.1, 5881 Section 4 | Version=1, TTL=255, port 3784 |
-| Packet format (v6) | 5880 Section 4.1, 5881 Section 5 | Version=1, Hop Limit=255, port 3784 |
+| Packet format (v4) | 5880 Section 4.1, 5881 Sections 4-5 | Version=1, TTL=255, port 3784 |
+| Packet format (v6) | 5880 Section 4.1, 5881 Sections 4-5 | Version=1, Hop Limit=255, port 3784 |
 | Timer negotiation (v4+v6) | 5880 Section 6.8.2 | Negotiated TX = max(DesiredMinTx, RemoteMinRx) |
 | Detection timing (v4+v6) | 5880 Section 6.8.4 | Detection time ~900ms (3 x 300ms) |
 | Session independence | 5880 Section 6.8.1 | Failure of one vendor doesn't affect others (grouped by baseName) |
 
 ### Vendor-Specific Notes
 
-**Nokia SR Linux**: BFD sessions are protocol-triggered (requires established BGP session). Containerlab applies `nokia/config.cli`, whose explicit timer values are 300ms. The SR Linux container runs the same code as production Nokia hardware.
-
-**FRRouting**: Native `bfdd` daemon implements RFC 5880/5881/5882/5883. BFD timers are configured directly in `frr.conf` (300ms TX/RX, multiplier 3). FRR integrates BFD with BGP via `neighbor X bfd` directive. The container is ~188MB and starts in seconds.
-
-**Arista cEOS**: BFD sessions are protocol-triggered (requires established BGP session via `neighbor X bfd`). cEOS 4.36.0.1F runs with `service routing protocols model multi-agent` and requires 8 mandatory environment variables for containerized operation (`CEOS=1`, `EOS_PLATFORM=ceoslab`, `INTFTYPE=eth`, etc.). Boot time is 60-120s; the test runner waits for `Cli -p 15 -c "show version"` to succeed. BFD state is checked via `Cli -p 15 -c "show bfd peers"`.
-
-**Cisco XRd**: XRd Control Plane is a deferred optional profile. The profile remains defined, but it is not part of the primary vendor set until an operator-provided XRd image is available. XRd vRouter requires PCI passthrough and is incompatible with veth-based topologies.
-
-**GoBGP integration**: GoBFD runs alongside GoBGP (ASN 65001) inside the GoBFD container. Vendor NOS like Nokia require BGP for protocol-triggered BFD. When a vendor container is paused/unpaused, GoBGP's BGP neighbor transitions to `Idle(Admin)` and must be explicitly re-enabled via `gobgp neighbor <ip> enable`.
+The repository profiles configure single-hop BGP+BFD. They do not qualify
+all NOS features, hardware offload or owner-specific overlay backends.
+Boot/readiness polling belongs to the Go lifecycle; retain its actual outcome
+rather than inferring a fixed startup time from a vendor name.
 
 ### Vendor Configuration Validation
 
-| Profile | Runtime Config | Official Source Constraint | Repository Status |
-|---|---|---|---|
-| Arista cEOS | `arista/startup-config.cfg` | EOS BGP uses `neighbor bfd`; interface timers use `bfd interval`; VXLAN BFD uses `bfd vtep evpn` under VTI. | Current profile is single-hop BGP+BFD. RFC 8971 is reserved for a future Vxlan1 profile. |
-| Nokia SR Linux | `nokia/config.cli` | BFD subinterface timers are microseconds; BGP failure-detection can enable BFD at group or neighbor level. | Current profile enables BFD on `ethernet-1/1.0` before BGP group failure-detection. |
-| SONiC-VS | Go lifecycle in `test/internal/clabbootstrap` | SONiC uses ConfigDB for data-plane interface configuration; `sonic-vs` is the containerized SONiC kind; the current BFD path is FRR-backed. | Fixed argv calls start bgpd/bfdd and configure the data-plane interface without a repository shell. Separate evidence is still required before claiming native SONiC BFD CLI coverage. |
-| VyOS | `vyos/config.boot` | VyOS enables BFD for BGP through `protocols bgp neighbor <neighbor> bfd`; data interfaces are `ethN`. | Current profile configures `eth1`, BGP neighbor BFD, and a BFD peer tied to `eth1`. |
-| FRRouting | `frr/frr.conf` | FRR requires BFD peers plus `neighbor ... bfd`; `receive-interval`, `transmit-interval`, and `detect-multiplier` are supported. | Current profile is IPv4/IPv6 single-hop BGP+BFD. |
-| Cisco XRd | `cisco/xrd.cfg` | IOS XR BGP neighbors support `bfd fast-detect`, `bfd minimum-interval`, and `bfd multiplier`. | Current profile is deferred and image-gated; XRd Control Plane is required for veth-based tests. |
+| Profile | Repository input | Scope |
+|---|---|---|
+| Arista cEOS | `arista/startup-config.cfg` | BGP neighbors and interface BFD timers; no Vxlan1 qualification |
+| Nokia SR Linux | `nokia/config.cli` | Subinterface BFD and BGP failure-detection configuration |
+| SONiC-VS | `test/internal/clabbootstrap` | FRR-backed process/interface lifecycle; native SONiC CLI acceptance separate |
+| VyOS | `vyos/config.boot` | Interface, BGP neighbor BFD and explicit BFD peer |
+| FRRouting | `frr/frr.conf` | IPv4/IPv6 single-hop BGP+BFD |
+| Cisco XRd | `cisco/xrd.cfg` | Deferred optional image-gated profile |
+
+Consult the exact upstream release documentation before adapting these lab
+inputs. Configured vendor syntax alone is not a measured passing deployment.
 
 ### IPv6 Dual-Stack BFD Testing
 
-RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor interop suite tests both address families on every available vendor using dual-stack links.
+RFC 5881 defines single-hop encapsulation for both address families in §4 and
+TTL/Hop Limit handling in §5. The configured Arista, Nokia, Cisco and FRR profiles
+have IPv6 endpoints; SONiC/VyOS are IPv4-only. Cisco remains image-gated.
 
-**Key differences (RFC 5881 Section 5 vs Section 4)**:
+**Address-family differences**:
 - IPv6 uses Hop Limit=255 instead of TTL=255 for GTSM
 - BFD sessions are per address family (separate IPv4 and IPv6 sessions per vendor)
 - Same UDP port 3784 and source port range 49152-65535
@@ -859,71 +865,15 @@ RFC 5881 defines BFD for both IPv4 (Section 4) and IPv6 (Section 5). The vendor 
 
 ---
 
-## Future: netlab Integration
+## Optional lab tooling
 
-[netlab](https://github.com/ipspace/netlab) is an orchestration layer on top of containerlab and libvirt/Ansible with a built-in BFD module that supports 16+ network platforms.
+netlab and VM-based vendor orchestration are outside the supported repository
+toolchain. There is no repository Python environment, dependency group or
+Python lock file to extend. Current topology lifecycle remains Go-owned and
+Podman-based. Any external lab evaluation needs separate ownership and recorded
+image, privilege and resource admission; this page introduces no migration plan.
 
-### Comparison: Current vs netlab
-
-| Capability | Current (Podman + containerlab) | netlab |
-|---|---|---|
-| Topology management | Generated Containerlab YAML + Go lifecycle | Automated (YAML declarative) |
-| IP addressing | Static in Go profile definitions | Auto-assigned |
-| BFD configuration | Per-vendor config files | `module: [bgp, bfd]` directive |
-| BGP configuration | Per-vendor + GoBGP TOML | Auto-generated per platform |
-| Vendor support | 6 (native containers) | 29 (native + vrnetlab VMs) |
-| Runtime | Podman (direct) | Docker (recommended) or Podman (experimental) |
-| Prerequisites | Podman, containerlab | Python 3.8+, Ansible 2.9+, Docker/libvirt |
-
-### Example netlab Topology
-
-```yaml
-provider: clab
-module: [bgp, bfd]
-
-nodes:
-  gobfd:
-    device: linux
-    image: localhost/gobfd-clab:<run-id>
-  frr1:
-    device: frr
-  srlinux1:
-    device: srlinux
-
-links:
-  - gobfd-frr1
-  - gobfd-srlinux1
-```
-
-netlab automatically handles IP addressing, BGP AS assignment, and BFD session configuration on vendor nodes.
-
-### Migration Path
-
-1. Install Python 3.8+ and Ansible on the test host
-2. Evaluate netlab separately before adding it to the repository's locked
-   Python dependency groups.
-3. Install Docker (netlab's primary runtime)
-4. Convert the generated Containerlab topology to netlab YAML
-5. For VM-based vendors (Cisco IOS-XR, Juniper vMX), enable nested KVM on the host
-
-> **Note**: netlab is not part of the supported repository toolchain and requires Ansible
-> and KVM. It remains a future direction for expanding vendor coverage beyond
-> native container platforms.
-
-### Three-Tier Testing Strategy
-
-Vendor interop coverage uses three tiers:
-
-| Tier | Vendor | Purpose | RFC Coverage |
-|---|---|---|---|
-| 1 (immediate) | FRRouting | Full open-source RFC coverage | 5880, 5881, 5882, 5883 |
-| 2 (commercial) | Nokia SR Linux | Production-grade commercial NOS | 5880 (async mode) |
-| 3 (breadth) | Arista cEOS | Independent enterprise implementation | 5880, 5881, 5882 |
-
-**Native containers** (FRR, SR Linux, cEOS) consume ~0.5 vCPU and 0.5-1.5 GB RAM each. A 3-node topology fits comfortably in a VM with 4 vCPU and 8 GB RAM.
-
-**vrnetlab VM-in-container** platforms (Cisco IOL/IOSv/CSR, Juniper vMX/vPTX) require nested KVM and 2-8 GB RAM per node.
-
----
-
-*Last updated: 2026-05-01*
+A vendor image or configured topology is not full RFC coverage. Run the selected
+profile and retain exact source/image identities, captures, assertion results,
+skips and cleanup evidence. Current vendor acceptance remains separately tracked
+in Beads; unavailable or deferred profiles cannot be reported as passing.

@@ -29,7 +29,9 @@
 
 GoBFD интегрируется с системами маршрутизации, балансировки нагрузки, мониторинга и оркестрации для обеспечения обнаружения сбоев за доли секунды. Каждый пример интеграции — самодостаточный запускаемый стек в директории `deployments/integrations/`.
 
-Все стеки используют **podman compose** с OCI-контейнерами и включают sidecar-контейнер **tshark** для захвата BFD-пакетов и проверки соответствия RFC.
+Четыре Compose-примера используют **podman compose** и **tshark** capture
+containers. Kubernetes использует manifests и существующий k3s cluster;
+tshark sidecar отсутствует. Примеры требуют отдельной квалификации целевого окружения.
 
 | # | Интеграция | Компоненты | Подсеть | Новый код |
 |---|-----------|-----------|---------|-----------|
@@ -40,8 +42,9 @@ GoBFD интегрируется с системами маршрутизаци�
 | 5 | DaemonSet в Kubernetes | GoBFD + GoBGP + k3s | Host network | K8s-манифесты |
 
 GoBFD в `dev` использует API GoBGP v4 и требует демон GoBGP v4: GoBGP v3
-`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Все
-интеграции собирают GoBGP v4.10.0 из общего рецепта `test/interop/gobgp`.
+`/apipb.GobgpApi` и v4 `/api.GoBgpService` несовместимы по wire. Примеры
+с GoBGP собирают v4.10.0 из `test/interop/gobgp`; HAProxy и observability
+не запускают GoBGP.
 Пример Kubernetes собирает `gobgp:local` из этого рецепта и импортирует его в
 k3s вместе с `gobfd:local`; на живом кластере k3s он не запускался.
 
@@ -225,10 +228,10 @@ graph LR
 
 ### Метрики
 
-Серии потерь пакетов и ошибок аутентификации зарегистрированы, но сейчас
-остаются равны нулю, потому что production data-path accounting ещё не
-подключён. Соответствующие alert rules являются placeholders до завершения v1
-loss accounting.
+Packet-drop и authentication-failure accounting подключён. Per-peer counters
+и fixed delivery outcomes имеют разные stage denominators; не все pre-session
+parser/demux refusals входят в peer packet drops. Перед интерпретацией нулевых
+counters и alerts см. [Мониторинг](07-monitoring.md).
 
 | Метрика | Тип | Описание |
 |---------|-----|----------|
@@ -244,10 +247,10 @@ loss accounting.
 | Алерт | Выражение | Критичность |
 |-------|----------|-------------|
 | BFDNoActiveSessions | `sum(gobfd_bfd_sessions) == 0` за 10с | Warning |
-| BFDSessionDownTransition | `increase(state_transitions{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
-| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(state_transitions[5m])) > 3` за 1м | Warning |
-| BFDAuthFailures | `rate(auth_failures[5m]) > 0` за 30с | Warning |
-| BFDPacketDrops | `rate(packets_dropped[5m]) > 0` за 1м | Warning |
+| BFDSessionDownTransition | `increase(gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}[1m]) > 0` | Critical |
+| BFDSessionFlapping | `sum by (peer_addr, local_addr) (increase(gobfd_bfd_state_transitions_total[5m])) > 3` за 1м | Warning |
+| BFDAuthFailures | `rate(gobfd_bfd_auth_failures_total[5m]) > 0` за 30с | Warning |
+| BFDPacketDrops | `rate(gobfd_bfd_packets_dropped_total[5m]) > 0` за 1м | Warning |
 
 Prometheus v3.15.0, Grafana 13.2.4 и FRR 10.7.1 собираются из закреплённых
 по checksum upstream-артефактов на Debian trixie (`test/interop/prometheus`,
@@ -383,7 +386,7 @@ graph TD
 - **hostNetwork: true** — BFD использует raw-сокеты, требуется прямой доступ к сети хоста
 - **CAP_NET_RAW + CAP_NET_ADMIN** — необходимы для работы с BFD-пакетами
 - **Linux node selector** — пример опирается на Linux socket и capability semantics
-- **TCP probes** — gRPC и metrics sockets дают универсальные readiness/liveness проверки
+- **Probes** — exec `gobfdctl` через Unix socket для readiness; metrics TCP для liveness; session convergence они не доказывают
 - **DaemonSet** — один экземпляр GoBFD на каждый узел для полного покрытия BFD
 - **Динамические сессии** — BFD-сессии добавляются через `gobfdctl` после обнаружения IP узлов
 
@@ -415,7 +418,8 @@ sudo make int-k8s-down
 
 ## Верификация пакетов через tshark
 
-Все интеграционные стеки включают sidecar-контейнер **tshark** для захвата BFD-пакетов и проверки соответствия RFC.
+Четыре Compose-примера включают **tshark** capture container. Kubernetes
+manifests его не содержат; capture требует отдельно разрешённого namespace tool.
 
 ### Настройка захвата
 
@@ -486,4 +490,4 @@ podman exec <tshark-контейнер> tshark -r /captures/bfd.pcapng -Y bfd \
 
 ---
 
-*Последнее обновление: 2026-05-01*
+*Сверено с исходниками `dev`: 2026-10-24.*

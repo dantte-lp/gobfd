@@ -14,7 +14,7 @@
 GoBFD has four security surfaces:
 
 - BFD packet processing on UDP ports 3784, 3785, 4784, 6784, 4789, and 6081.
-- The ConnectRPC control API exposed by `grpc.addr`.
+- The ConnectRPC control API on the default Unix socket and optional `grpc.addr` TCP listener.
 - The optional GoBGP gRPC client integration.
 - Container, systemd, and Kubernetes privileges needed for raw sockets and
   interface-bound networking.
@@ -36,9 +36,10 @@ anonymous. Set `unsolicited.auth` (Meticulous Keyed SHA1) where both sides can
 share a key: the packet that would create a session is then verified first.
 Do not enable unsolicited BFD on an anonymous shared segment.
 
-RFC 9747 unaffiliated Echo inherits RFC 5880/5881 considerations and adds a
-spoofing concern for looped-back Echo packets. Use BFD authentication for Echo
-packets when the deployment can coordinate keys.
+RFC 9747 unaffiliated Echo adds a spoofing concern for returned packets.
+The current Echo preview has no authentication setting and transmits
+unauthenticated packets. Control-session authentication does not protect it.
+Keep it disabled on untrusted segments and isolate any opt-in lab profile.
 
 ## ConnectRPC API
 
@@ -116,8 +117,11 @@ cannot be attributed to the shipped daemon.
 
 RFC 5880 auth secrets may be supplied through YAML or gRPC `AddSession`.
 Production deployments should mount YAML secrets read-only and avoid committing
-real key material. Rotate keys by deploying a new config and reloading during a
-maintenance window; dynamic key rotation is not implemented yet.
+real key material. Reload rejects authentication changes on a retained session
+identity. Changing deployed keys requires a coordinated maintenance restart
+or explicit claim release/recreation with session interruption. Multiple stored
+keys alone do not provide qualified live rotation; see
+[ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
 ## Container And Kubernetes Boundary
 

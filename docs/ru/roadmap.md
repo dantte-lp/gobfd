@@ -4,6 +4,36 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Граница публикации — 2026-10-24
+
+Эта проекция описывает локальную реализацию `dev`, а не опубликованную
+стабильную поставку. Английская документация сверяется с source до приёмки
+русского перевода. Публикация приостановлена в P0 `gobfd-qj0.8.2.8.7.2.3`,
+добавленной как явная зависимость alpha readiness `gobfd-qj0.8.2.6.4`.
+Путь prerelease в последней пока не реализован.
+
+| Область | Текущая граница | Источник Beads |
+|---|---|---|
+| Документация | Source-backed corrections и EN/RU parity предшествуют публикации | `gobfd-qj0.8.2.8.7.2.3` |
+| Management/reload | Unix/mTLS boundaries реализованы; unsafe-loopback policy reload и полная pending activation открыты | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
+| Smallstep | Renewal существующего сертификата реализован; actual CA и lifecycle qualification не завершены | `gobfd-qj0.8.2.3.7` |
+| Runtime | CPU fixture даёт ограниченное evidence; reference workload, оставшиеся stress drivers и thread-pin A/B не завершены | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
+| Wire/integrations | Development slices не заменяют final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
+| Security | Ограниченные advisory decisions требуют evidence финального кандидата | `gobfd-qj0.8.4.1` |
+
+Oracle Linux 10 исключён из v1 OCI/lifecycle scope; создание generic RPM
+и historical v0.6 evidence сохранены. Эти строки не закрывают задачи владельцев
+и не создают исполняемый план. Приоритеты и критерии приёмки находятся в Beads.
+
+## Исторические checkpoints
+
+Следующие датированные записи сохраняют исходную область и измерения.
+Старое описание остатка или закрытый development slice не переопределяют
+текущий код, состояние Beads и stable delivery boundary.
+
+<details>
+<summary>Развернуть датированные development и release checkpoints</summary>
+
 ## Предложение альфы и допуск удалённого runner — 2026-10-24
 
 Предложена `v1.0.0-alpha.1`; разрешена новая qualification VM через
@@ -1616,3 +1646,5 @@ XDP/AF_XDP (`gobfd-376`, backlog P4) ждёт базового замера за
 - [Production-дизайн v1](../superpowers/specs/2026-08-18-gobfd-v1-production-contract-design.md)
 - [Матрица соответствия RFC](./08-rfc-compliance.md)
 - [Разработка и quality gates](./09-development.md)
+
+</details>

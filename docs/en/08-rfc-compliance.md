@@ -44,7 +44,7 @@
 
 | RFC | Title | Status | Notes |
 |---|---|---|---|
-| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Local timer Poll/Final and remote Demand are implemented; crossed/queued wire evidence awaits branch integration; local Demand and affiliated Echo remain deferred |
+| [RFC 5880](https://datatracker.ietf.org/doc/html/rfc5880) | BFD Base Protocol | **Asynchronous core; partial** | Local timer Poll/Final and remote Demand handling implemented; scoped wire receipts retained; final unified qualification open; local Demand and affiliated Echo deferred |
 | [RFC 5881](https://datatracker.ietf.org/doc/html/rfc5881) | BFD for IPv4/IPv6 Single-Hop | **Partial; numbered-multiaccess profile** | UDP 3784, TTL=255, per-session transport-class and receive-interface checks, single-hop TX device binding; point-to-point initial demux remains deferred |
 | [RFC 5882](https://datatracker.ietf.org/doc/html/rfc5882) | Generic Application of BFD | **Application integration partial** | State delivery and actuator convergence remain incomplete; penalty dampening is implementation policy |
 | [RFC 5883](https://datatracker.ietf.org/doc/html/rfc5883) | BFD for Multihop Paths | **Constrained GTSM profile** | UDP 4784; per-session hop policy `multihop_max_hops` (default 1: TTL>=254) is GoBFD policy, not an RFC 5883 rule; real 2/5-hop path qualification is pending |
@@ -96,7 +96,10 @@ the original RFC text requires this behavior. See `gobfd-9ro`.
 
 **Implementation**: [`internal/bfd/packet.go`](../../internal/bfd/packet.go)
 
-The 24-byte mandatory header is encoded/decoded using `encoding/binary.BigEndian` directly on a caller-owned byte buffer. No reflection, no `unsafe`, no gopacket. Zero-allocation codec using `sync.Pool` for buffers.
+The mandatory 24-byte header uses `encoding/binary.BigEndian` on caller-owned
+storage. Unauthenticated parse and selected marshal paths allocate zero;
+authenticated parse allocates `AuthSection` and borrows digest/password bytes.
+See [codec lifetime](02-protocol.md) before reusing a receive buffer.
 
 See [02-protocol.md](./02-protocol.md) for the complete packet format table.
 
@@ -104,7 +107,9 @@ See [02-protocol.md](./02-protocol.md) for the complete packet format table.
 
 **Implementation**: [`internal/bfd/session.go`](../../internal/bfd/session.go)
 
-All mandatory state variables are implemented. Thread safety via `atomic.Uint32` for state fields that are read by the gRPC server goroutine.
+Local state and diagnostic use one packed atomic pair. `Observation` returns
+coherent committed local/remote facts under `Session.mu`; remote getters do
+not read independent atomics. Local Demand remains unimplemented.
 
 See [02-protocol.md](./02-protocol.md#state-variables) for the full variable mapping table.
 
@@ -112,7 +117,9 @@ See [02-protocol.md](./02-protocol.md#state-variables) for the full variable map
 
 **Implementation**: [`internal/bfd/fsm.go`](../../internal/bfd/fsm.go)
 
-Table-driven FSM with `map[stateEvent]transition`. Pure function -- no side effects. All 16 transitions from Section 6.8.6 are implemented.
+Pure indexed FSM lookup uses an array built from the declarative
+`map[stateEvent]transition` at initialization. Session executes the actions.
+The Down timeout diagnostic follows the explicit Held-erratum policy above.
 
 #### Section 6.3: Demultiplexing
 
@@ -143,8 +150,9 @@ effective tuple equals the confirmed one. If that Poll gets no Final before the
 deadline, the receipt fails, the tuple stays effective and later generations
 queue behind the Poll. Entering Up through a Final keeps the one-second TX
 floor until a recovery Poll carries a faster Desired Min TX. Full Section 6.5
-qualification remains pending, including live FRR/BIRD reload evidence and the
-deployed RTT envelope.
+qualification remains pending. Scoped FRR/BIRD reload receipts are recorded
+in [Interop](05-interop.md); final unified candidate and deployment RTT
+qualification remain separate.
 
 Peer receive-interval changes reschedule TX from the last successful send;
 unchanged incoming packets do not postpone it. A zero peer receive interval
@@ -227,8 +235,8 @@ All five RFC-defined auth types implemented:
 | Meticulous Keyed SHA1 (5) | Complete | `MeticulousKeyedSHA1Auth` |
 
 Key features:
-- Meticulous variants increment sequence on every packet; non-meticulous on state change only
-- Sequence window: `3 * DetectMult` for non-meticulous
+- All keyed variants increment TX sequence on each signing call
+- Inclusive receive windows use received Detect Multiplier: `[last, last + 3 * DetectMult]` for non-meticulous, `[last + 1, last + 3 * DetectMult]` for meticulous
 - `AuthKeyStore` represents multiple keys; this does not qualify live rotation
 
 RFC 5880 §6.7 leaves authentication coordination outside BFD. Same-identity
@@ -286,8 +294,8 @@ Steps 8-18 (session): auth consistency, auth verification, state variable update
 
 - Normal (DetectMult > 1): 75-100% of interval
 - DetectMult == 1: 75-90% of interval
-- Uses a crypto-seeded session-local PRNG; jitter is not a security boundary,
-  but the seed is non-predictable and avoids global RNG contention on the hot path
+- Session-local PRNG prefers cryptographic seed and falls back to time-based
+  seed on read failure; jitter is not a security boundary
 
 #### Section 6.8.12: Detect Multiplier Reload
 
@@ -305,7 +313,8 @@ serialized Control fields, Async versus remote-Demand confirmation, repeated
 intent, shared-owner/unsupported rejection, the DetectMult 1 deadline,
 failure/retirement and concurrent getters/snapshots. Final validation results
 belong to the frozen-source evidence; this section asserts no final PASS.
-Live FRR/BIRD Detect Multiplier reload is not yet qualified. Shared-owner/API,
+Bounded Detect Multiplier wire slices are recorded in [Interop](05-interop.md);
+final unified candidate qualification remains open. Shared-owner/API,
 Micro-BFD, overlay and authentication changes remain outside this slice;
 bounded minimum-TTL/padding reload is documented below. [ADR-0006](adr/0006-session-preserving-reload-policy.md)
 accepts the policy without graduating overall Poll/Demand or RFC compliance.
@@ -463,7 +472,10 @@ Additionally, 10s is recommended for graceful restart (multiplier 255 = 42.5 min
 | Config option | `bfd.align_intervals: true` in YAML config |
 | Graceful restart interval | `GracefulRestartInterval = 10s` |
 
-When `bfd.align_intervals` is enabled, `DesiredMinTxInterval` and `RequiredMinRxInterval` are aligned to the nearest common interval (rounded up) during session creation. This prevents negotiation mismatches with hardware BFD implementations from Arista, Nokia, Juniper, and Cisco.
+When `bfd.align_intervals` is enabled, session creation rounds intervals up
+within the common set; values above its 1 s maximum remain unchanged.
+Alignment alone establishes neither hardware/cloud interoperability nor timer
+accuracy. Verify the selected peer procedure and intervals on the target path.
 
 ### RFC 9384 Implementation Notes
 
@@ -597,7 +609,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 | NetworkManager backend | `NetworkManagerLAGBackend` deactivates and activates NM-owned bond port profiles through D-Bus |
 
 Aggregate state logic:
-- Group starts with all members Down, aggregate Down
+- New member sessions start Down; an existing shared session can seed its current state
 - When `upCount >= MinActiveLinks`, aggregate transitions to Up
 - When `upCount < MinActiveLinks`, aggregate transitions to Down
 - State changes are reported only on aggregate transitions (threshold crossing)
@@ -630,14 +642,14 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Requirement | Implementation |
 |---|---|
 | Outer UDP port 4789 | `netio.VXLANPort = 4789`, `VXLANConn` through explicit `userspace-udp` backend |
-| Inner UDP port 3784 | `BuildInnerPacket()` with dst port 3784 |
+| Inner UDP port 3784 | `BuildInnerPacketInto()` with dst port 3784 |
 | VXLAN header codec | `MarshalVXLANHeader` / `UnmarshalVXLANHeader` |
 | Management VNI | `VXLANConfig.ManagementVNI`, VNI mismatch rejection |
 | VNI validation (24-bit) | `ErrInvalidVXLANVNI` config validation |
 | I flag validation | `ErrVXLANInvalidFlags` sentinel |
 | Inner destination MAC | `VXLANBFDInnerMAC = 00:52:02:00:00:00` (IANA) |
 | Inner source MAC | Per-peer remote/local originating VTEP MACs are required and matched exactly |
-| Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
+| Inner TTL=255 | `BuildInnerPacketInto()` sets TTL=255 (RFC 5881 GTSM) |
 | Inner IPv4 checksum | `ipv4HeaderChecksum()` per RFC 1071 |
 | Session type | `SessionTypeVXLAN` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
@@ -647,11 +659,12 @@ RFC 8971 defines BFD encapsulated in VXLAN for forwarding-path liveness detectio
 | Declarative peers | `vxlan.peers[]` in config, reconciled on SIGHUP |
 | Config validation | VNI range, concrete IPv4 endpoints, remote/local unicast source MACs, detect_mult, and duplicate wire identity detection |
 
-Packet encapsulation stack:
-```
-Outer IP → Outer UDP (4789) → VXLAN Header (8B) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
+Packet encapsulation, outer to inner:
+
+| Layer | Supported profile |
+|---|---|
+| Outer | IP, UDP destination 4789, VXLAN fixed header 8 B |
+| Inner | Ethernet 14 B, IPv4 20 B, UDP destination 3784, BFD Control |
 
 The VXLAN header codec handles the 8-byte fixed format with I flag (VNI valid) and 24-bit VNI encoding. Management VNI packets are processed locally and not forwarded to tenant networks.
 
@@ -713,7 +726,7 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Version validation | `ErrGeneveInvalidVersion` (only version 0 supported) |
 | Ethernet payload (Format A) | `GeneveProtocolEthernet = 0x6558` |
 | Variable-length options | `GeneveHeader.OptLen` + `TotalHeaderSize()` |
-| Inner TTL=255 | `BuildInnerPacket()` sets TTL=255 (RFC 5881 GTSM) |
+| Inner TTL=255 | `BuildInnerPacketInto()` sets TTL=255 (RFC 5881 GTSM) |
 | Session type | `SessionTypeGeneve` constant |
 | OverlaySender adapter | `OverlaySender` implements `bfd.PacketSender` |
 | OverlayReceiver loop | Reaches `Manager.DemuxWithWire` only after exact configured VAP identity matches |
@@ -722,11 +735,12 @@ RFC 9521 defines BFD encapsulated in Geneve for forwarding-path liveness detecti
 | Declarative peers | `geneve.peers[]` in config, per-peer VNI override, reconciled on SIGHUP |
 | Config validation | VNI range, concrete outer IPv4 endpoints, detect_mult, duplicate keys, and complete unicast VAP MAC/IPv4 identity are checked |
 
-Packet encapsulation stack (Format A):
-```
-Outer IP → Outer UDP (6081) → Geneve Header (8B, O=1, C=0, Proto=0x6558) →
-Inner Ethernet (14B) → Inner IPv4 (20B) → Inner UDP (8B, dst 3784) → BFD Control
-```
+Packet encapsulation, outer to inner (Format A):
+
+| Layer | Supported profile |
+|---|---|
+| Outer | IP, UDP destination 6081, Geneve base header 8 B; O=1, C=0, Protocol=0x6558 |
+| Inner | Ethernet 14 B, IPv4 20 B, UDP destination 3784, BFD Control |
 
 Key differences from VXLAN BFD (RFC 8971):
 - Geneve supports variable-length TLV options (VXLAN has fixed 8-byte header)
@@ -885,4 +899,4 @@ Full RFC text files are available in the `docs/rfc/` directory:
 
 ---
 
-*Last updated: 2026-02-23*
+*Reviewed against `dev` source: 2026-10-24.*

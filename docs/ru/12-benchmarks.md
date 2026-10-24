@@ -1,327 +1,109 @@
-# Руководство по бенчмаркам
+# Руководство по benchmarks
 
-![Go](https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white)
-![Bench](https://img.shields.io/badge/go_test-bench-1a73e8?style=for-the-badge)
-![Allocs](https://img.shields.io/badge/Allocs-Measured_Per_Benchmark-ffc107?style=for-the-badge)
-![Reports](https://img.shields.io/badge/Reports-Reproducible-ffc107?style=for-the-badge)
+Micro-benchmarks измеряют указанные операции. Они не подтверждают UDP throughput,
+потери, точность таймеров, невосприимчивость к GC или поддерживаемый масштаб.
+[Анализ производительности](14-performance-analysis.md) описывает отдельные
+границы runtime-измерений и квалификации.
 
-> Как запускать, читать и интерпретировать результаты бенчмарков GoBFD.
+## Запуск benchmarks
 
----
+Все Go-команды выполняются в закреплённом Podman development environment.
+Сначала выполните `make up`; Go на хосте не требуется.
 
-## Содержание
+| Команда | Вход и выход |
+|---|---|
+| `make benchmark` | `internal/bfd`, шесть запусков с `-benchmem`; stdout и `benchmark.txt` |
+| `make benchmark-all` | Все пакеты, шесть запусков с `-benchmem`; stdout и `benchmark.txt` |
+| `make benchmark-save BENCH_VERSION=local-doc-audit` | Samples BFD/netio и metadata в `testdata/benchmarks/local-doc-audit/` |
+| `make benchmark-compare OLD=v0.4.0 NEW=local-doc-audit` | Сравнение `benchstat` и HTML в `reports/benchmarks/` |
+| `make profile` | CPU/heap profiles BFD: `cpu.prof` и `mem.prof` |
+| `make benchmark-cross` | Go-операции и локальные C-модели последовательно; `bench-results/` |
 
-- [Запуск бенчмарков](#запуск-бенчмарков)
-- [Формат вывода Go-бенчмарков](#формат-вывода-go-бенчмарков)
-- [Категории бенчмарков](#категории-бенчмарков)
-- [Целевые показатели](#целевые-показатели)
-- [Политика нулевых аллокаций](#политика-нулевых-аллокаций)
-- [Сравнение версий](#сравнение-версий)
-- [CI Benchmark Policy](#ci-benchmark-policy)
-- [Генерация отчётов](#генерация-отчётов)
+Используйте новый идентификатор snapshot, сохраняя предыдущие samples; он не
+создаёт release tag. `benchmark-save` отдельно запускает BFD и netio с
+`-bench=. -benchmem -count=6 -run='^$' -timeout=120s`.
+`benchmark` и `benchmark-all` не включают race detector и не записывают CPU/
+heap profiles. Race qualification относится к test gate; profiling выполняется отдельно.
 
----
+| Файл snapshot | Содержание |
+|---|---|
+| `benchmark-bfd.txt` | Samples BFD benchmarks |
+| `benchmark-netio.txt` | Samples network codec и metadata benchmarks |
+| `benchmark.txt` | Объединённые samples |
+| `meta.json` | Идентификатор snapshot, commit, дата, версия Go, число запусков |
 
-### Запуск бенчмарков
+## Чтение вывода
 
-GoBFD предоставляет несколько целей Makefile для бенчмарков. Все команды выполняются внутри Podman dev-контейнера — локальный Go не требуется.
-
-```bash
-# Быстрый запуск — stdout + benchmark.txt (только пакет BFD)
-make benchmark
-
-# Все пакеты — stdout + benchmark.txt
-make benchmark-all
-
-# Сохранение по версии — testdata/benchmarks/<version>/
-make benchmark-save                          # использует текущий git-тег
-make benchmark-save BENCH_VERSION=v0.5.0     # явное указание версии
-
-# Статистическое сравнение двух версий
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-```
-
-Каждый запуск `benchmark-save` создаёт:
-
-```
-testdata/benchmarks/v0.4.0/
-    benchmark-bfd.txt       # бенчмарки internal/bfd (22 бенчмарка, 6 запусков)
-    benchmark-netio.txt     # бенчмарки internal/netio (6 бенчмарков, 6 запусков)
-    benchmark.txt           # объединённый вывод
-    meta.json               # версия, коммит, дата, версия Go, количество запусков
-```
-
-Параметры: `-bench=. -benchmem -count=6 -run='^$' -timeout=120s`. Флаг `-count=6` обеспечивает достаточную выборку для статистического анализа `benchstat`. Флаг `-run='^$'` пропускает юнит-тесты (запускает только бенчмарки).
-
----
-
-### Формат вывода Go-бенчмарков
-
-```
+```text
 BenchmarkControlPacketMarshal-8    195605820    5.869 ns/op    0 B/op    0 allocs/op
-                              |          |          |            |           |
-                          GOMAXPROCS  итерации   время/оп    байт/оп   аллокаций/оп
 ```
 
-| Столбец | Значение |
-|---------|----------|
-| `-8` | GOMAXPROCS (количество CPU, доступных Go runtime) |
-| `195605820` | Количество итераций бенчмарка (больше = более быстрая операция) |
-| `5.869 ns/op` | Время на операцию в наносекундах (меньше = лучше) |
-| `0 B/op` | Байт выделено на куче за операцию (меньше = лучше) |
-| `0 allocs/op` | Аллокаций на куче за операцию (0 = горячий путь без аллокаций) |
-
-При `-count=6` каждая строка бенчмарка появляется 6 раз. Инструмент `benchstat` вычисляет **медиану** (не среднее) и 95% доверительный интервал по этим запускам.
-
----
-
-### Категории бенчмарков
-
-GoBFD содержит 34 бенчмарка в 7 категориях в двух пакетах (`internal/bfd` и `internal/netio`).
-
-#### 1. Кодек пакетов (`internal/bfd`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `ControlPacketMarshal` | Сериализация BFD control-пакета (24 байта) в wire-формат | Вызывается каждый TX-интервал для каждой сессии |
-| `ControlPacketMarshalWithAuth` | Маршалинг с секцией аутентификации SHA1 | Аутентификация добавляет HMAC-вычисления |
-| `ControlPacketUnmarshal` | Парсинг wire-байтов в структуру control-пакета | Вызывается для каждого принятого пакета |
-| `ControlPacketUnmarshalWithAuth` | Анмаршалинг с валидацией секции аутентификации | Парсинг аутентификации требует выделения памяти для копии дайджеста |
-| `ControlPacketRoundTrip` | Маршалинг + анмаршалинг вместе | Полная стоимость кодека |
-
-#### 2. Переходы FSM (`internal/bfd`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `FSMTransitionUpRecvUp` | Keepalive в устойчивом состоянии (Up -> приём Up -> Up) | Самый частый переход в production |
-| `FSMTransitionDownRecvDown` | Первый шаг трёхстороннего хендшейка | Горячий путь установления сессии |
-| `FSMTransitionUpTimerExpired` | Таймаут обнаружения (Up -> таймер -> Down) | Критический путь обнаружения сбоя |
-| `FSMTransitionIgnored` | Игнорируемый переход (невалидное событие для текущего состояния) | Должен быть быстрым, чтобы не замедлять RX-путь |
-
-#### 3. Вычисления таймеров (`internal/bfd`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `ApplyJitter` | Вычисление jitter по RFC 5880 (до 25% случайного) | Применяется перед каждым TX для предотвращения синхронизации |
-| `ApplyJitterDetectMultOne` | Jitter при DetectMult=1 (строже, до 90%) | Дополнительные 10% jitter по RFC 5880 секция 6.8.7 |
-| `DetectionTimeCalc` | `DetectMult * max(RequiredMinRxInterval, remoteDesiredMinTxInterval)` | Вычисляется при каждом изменении параметров |
-| `CalcTxInterval` | Согласование TX-интервала между локальным и удалённым | Определяет фактическую частоту отправки пакетов |
-
-#### 4. Инфраструктура сессий (`internal/bfd`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `PacketPool` | Цикл Get/Put `sync.Pool` для пакетных буферов | Амортизирует стоимость аллокаций между сессиями |
-| `RecvStateToEvent` | Маппинг BFD-состояния в FSM-событие | Вызывается для каждого принятого пакета |
-| `SessionRecvPacket` | Стоимость отправки в канал (пакет -> goroutine сессии) | Overhead демультиплексирования на пакет |
-
-#### 5. Измеряемые этапы RX и TX (`internal/bfd`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `RecvDecodeLookupEnqueue` | Unmarshal + поиск дискриминатора + попытка записи в буферизованный канал | Стоимость до начала обработки сессией |
-| `RecvDecodeFSM` | Unmarshal + преобразование состояния + stateless-переход FSM | Только вычислительная стоимость кодека и FSM |
-| `TxMarshalJitter` | Marshal готового пакета + расчёт jitter | Этап TX без socket send |
-
-Ни один из этих бенчмарков не является сквозным. В частности,
-`RecvDecodeLookupEnqueue` не ожидает аутентификацию, изменение состояния
-сессии, commit FSM, сброс таймера или доставку уведомления.
-
-#### 6. Масштабирование сессий (`internal/bfd`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `ManagerCreate100Sessions` | Пропускная способность создания/удаления 100 сессий | Ротация сессий при перезагрузке конфигурации |
-| `ManagerCreate1000Sessions` | Пропускная способность создания/удаления 1000 сессий | Масштабное провизионирование |
-| `ManagerDemux1000Sessions` | Диспетчеризация пакетов при 1000 активных сессиях | Верификация O(1) поиска в Swiss table map |
-| `ManagerReconcile` | Реконсиляция конфигурации (добавить 10, удалить 5 из 100) | Стоимость инкрементального обновления |
-
-#### 7. Кодек оверлеев (`internal/netio`)
-
-| Бенчмарк | Что измеряет | Почему важно |
-|-----------|-------------|--------------|
-| `BuildInnerPacketInto` | Сборка внутреннего пакета в буфер вызывающей стороны | Production TX-путь VXLAN/Geneve |
-| `BuildInnerPacket` | Сборка внутреннего пакета Ethernet + IPv4 + UDP + BFD | Совместимая обёртка с аллокацией |
-| `StripInnerPacket` | Извлечение BFD payload из внутреннего пакета | RX-путь для оверлейных сессий |
-| `VXLANHeaderMarshal` | Сериализация заголовка VXLAN (RFC 7348) | TX overhead на пакет для VXLAN BFD |
-| `VXLANHeaderUnmarshal` | Парсинг заголовка VXLAN | RX overhead на пакет для VXLAN BFD |
-| `GeneveHeaderMarshal` | Сериализация заголовка Geneve (RFC 8926) | TX overhead на пакет для Geneve BFD |
-| `GeneveHeaderUnmarshal` | Парсинг заголовка Geneve | RX overhead на пакет для Geneve BFD |
-
----
-
-### Целевые показатели
-
-Целевые метрики GoBFD, основанные на требованиях протокола BFD и production-ограничениях:
-
-| Категория | Цель | Обоснование |
-|-----------|------|-------------|
-| Кодек пакетов (маршалинг/анмаршалинг) | 0 аллокаций, <10 нс/оп | Вызывается каждый TX/RX интервал (потенциально тысячи раз в секунду) |
-| Переходы FSM | 0 аллокаций, <25 нс/оп | Самая частая операция в горячем пути |
-| Вычисления таймеров | <1 нс/оп | Чистая арифметика, доступ к памяти не требуется |
-| Decode + lookup + enqueue | Наблюдаемые аллокации и задержка | Регрессионное доказательство только для именованного этапа |
-| Marshal + jitter | Наблюдаемые аллокации и задержка | Регрессионное доказательство без socket send |
-| Демультиплексирование (любое количество) | O(1), ~50 нс/оп | Swiss table map lookup, не зависит от числа сессий |
-| Заголовки оверлеев | 0 аллокаций, <5 нс/оп | Тонкий wire-формат, заголовки фиксированного размера |
-
-#### Baseline-результаты v0.4.0
-
-| Бенчмарк | нс/оп | Б/оп | аллок/оп | Статус |
-|-----------|------:|-----:|---------:|--------|
-| ControlPacketMarshal | 5.9 | 0 | 0 | Цель достигнута |
-| ControlPacketUnmarshal | 11.0 | 0 | 0 | Цель достигнута |
-| ControlPacketRoundTrip | 17.9 | 0 | 0 | Цель достигнута |
-| FSMTransitionUpRecvUp | 20.1 | 0 | 0 | Цель достигнута |
-| ApplyJitter | 9.6 | 0 | 0 | Цель достигнута |
-| DetectionTimeCalc | 0.7 | 0 | 0 | Цель достигнута |
-| FullRecvPath (историческое имя) | 64.2 | 0 | 0 | Измерение v0.4.0; заканчивается enqueue |
-| FullTxPath (историческое имя) | 6.7 | 0 | 0 | Измерение v0.4.0; без socket send |
-| ManagerDemux1000Sessions | 50.7 | 0 | 0 | Цель достигнута |
-| VXLANHeaderMarshal | 2.8 | 0 | 0 | Цель достигнута |
-| GeneveHeaderUnmarshal | 3.8 | 0 | 0 | Цель достигнута |
-
----
-
-### Политика нулевых аллокаций
-
-GoBFD ставит целью нулевые аллокации для выбранных именованных операций.
-Текущее доказательство не обеспечивает repository-wide инвариант нулевых
-аллокаций для всех runtime-путей пакетов и таймеров.
-
-#### Почему нулевые аллокации важны для BFD
-
-BFD-сессии отправляют и принимают пакеты с интервалами до 10 мс. При 1000 сессий с интервалом 100 мс это 10000 пакетов в секунду в каждом направлении. Любая аллокация в горячем пути означает:
-
-1. **Давление на GC** — более частые паузы сборки мусора
-2. **Джиттер задержки** — stop-the-world паузы GC добавляют непредсказуемую задержку
-3. **Ложные срабатывания** — если пауза GC превышает detection time, удалённый пир объявляет сессию Down
-
-Production-образы не задают неквалифицированный `GOMEMLIMIT` и сохраняют
-стандартный `GOGC`. Устанавливайте мягкий лимит с запасом только после измерений
-целевой deployment-нагрузки. Переопределяйте `GOGC` только после подтверждения
-репрезентативными deployment-измерениями; нулевые аллокации отдельных операций
-не исключают GC из процесса и не гарантируют работу BFD без пауз.
-
-#### Методы верификации
-
-1. **Флаг `-benchmem`** — каждый бенчмарк сообщает аллокации собственного тела
-2. **`testing.AllocsPerRun`** — одно явное утверждение защищает
-   `BuildInnerPacketInto`; это не repository-wide gate
-3. **Сравнение `benchstat`** — CI публикует выборки времени и аллокаций, а
-   текущая политика регрессии >=10% остаётся предупреждением
-
-#### Известные исключения
-
-- `ControlPacketUnmarshalWithAuth`: 1 аллокация (64 Б) — копирование дайджеста аутентификации для HMAC-верификации. Это намеренно: дайджест должен пережить входной буфер.
-- `BuildInnerPacketInto`: 0 аллокаций — записывает внутренний пакет в буфер TX, принадлежащий соединению и используемый production-путями VXLAN/Geneve.
-- `BuildInnerPacket`: 1 аллокация (80 Б) — совместимый allocating-wrapper для автономных вызывающих сторон и тестов.
-- `ManagerCreate*` / `ManagerReconcile`: аллокации ожидаемы — операции жизненного цикла сессий не являются горячим путём.
-
----
-
-### Сравнение версий
-
-Используйте `benchstat` через Makefile для сравнения результатов бенчмарков между версиями:
-
-```bash
-# Сохранить текущие бенчмарки
-make benchmark-save BENCH_VERSION=v0.5.0
-
-# Сравнить с предыдущей версией
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-```
-
-#### Чтение вывода benchstat
-
-```
-                           │  v0.4.0   │              v0.5.0              │
-                           │  sec/op   │   sec/op     vs base             │
-ControlPacketMarshal-8       5.87n ± 3%   5.52n ± 1%  -5.96% (p=0.002 n=6)
-FSMTransitionUpRecvUp-8      20.1n ± 1%   20.3n ± 2%       ~ (p=0.485 n=6)
-```
-
-| Символ | Значение |
-|--------|----------|
-| `± 3%` | 95% доверительный интервал — меньше означает более стабильные измерения |
-| `-5.96%` | Статистически значимое улучшение (отрицательное = быстрее) |
-| `~` | Нет статистически значимой разницы |
-| `p=0.002` | p-значение — ниже 0.05 означает статистически значимую разницу |
-| `n=6` | Количество семплов для сравнения |
-
-Регрессия показывается как положительный процент (напр., `+12.3%`). Исследуйте любую регрессию >5% в бенчмарках горячего пути перед релизом.
-
-### CI Benchmark Policy
-
-| Gate | Requirement |
-|------|-------------|
-| Pull request benchmark gate | GitHub Actions `Benchmark comparison` запускает только stable hot-path benchmarks. |
-| E2E evidence gate | `.github/workflows/e2e.yml` публикует E2E artifacts отдельно от benchmark artifacts. |
-| E2E timing data | Diagnostic only; не performance regression gate. |
-| Vendor profile timing | Diagnostic only; не comparable между licensed или operator-provided images. |
-| Regression scope | Protocol hot paths в `internal/bfd` и `internal/netio`. |
-| Regression action | Значимое увеличение `sec/op` минимум на 10% классифицируется как critical или report-only по существующим порогам длительности; CI выдаёт warning и сохраняет решение неблокирующим. |
-| Evidence | Артефакт сохраняет нормализованные `old.txt` и `new.txt`, Markdown, экранированный HTML, CSV/notes benchstat и JSON схемы `gobfd.benchmark-comparison.v1`. |
-
-CI-хелпер запускает benchmark-команды head и base напрямую, без shell-программы
-в workflow. Base checkout создаётся как detached временный Git worktree внутри
-`RUNNER_TEMP` и удаляется как после успешного запуска, так и после ошибки
-бенчмарка. JSON-артефакт содержит для каждой строки сравнения benchstat единицу
-измерения, имя бенчмарка, значения base и head, форматированную дельту,
-статистическую значимость и классификацию регрессии `none`, `reported` или
-`critical`. Это стабильный машиночитаемый вход для визуализации;
-`bench-report.md` остаётся источником PR-комментария.
-
-#### HTML-отчёт
-
-`make benchmark-compare` также генерирует `reports/benchmarks/comparison.html` — автономную HTML-таблицу с цветовой кодировкой. Откройте в любом браузере.
-
----
-
-### Генерация отчётов
-
-#### Тестовый отчёт (JUnit XML + HTML)
-
-```bash
-make test-report
-```
-
-Создаёт:
-- `reports/tests/unit-report.xml` — JUnit XML (для интеграции с CI)
-- `reports/tests/unit-report.json` — JSON-формат (для программного анализа)
-- `reports/tests/unit-report.html` — автономный HTML-отчёт (для людей)
-
-#### Отчёт сравнения бенчмарков
-
-```bash
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-```
-
-Создаёт:
-- `reports/benchmarks/comparison.txt` — текстовая таблица
-- `reports/benchmarks/comparison.html` — автономная HTML-таблица
-
-#### Полный пайплайн
-
-```bash
-make report-all OLD=v0.4.0
-```
-
-Запускает `test-report` + `benchmark-save` + `benchmark-compare` последовательно. Все результаты сохраняются в директорию `reports/` (в gitignore — пересоздайте через `make report-all`).
-
-#### Рабочий процесс разработчика
-
-```bash
-# При выпуске новой версии:
-make benchmark-save BENCH_VERSION=v0.5.0
-
-# Сравнение с предыдущей:
-make benchmark-compare OLD=v0.4.0 NEW=v0.5.0
-# -> откройте reports/benchmarks/comparison.html в браузере
-
-# Тестовый отчёт:
-make test-report
-# -> откройте reports/tests/unit-report.html в браузере
-
-# Всё сразу:
-make report-all OLD=v0.4.0
-```
+| Поле | Значение |
+|---|---|
+| `-8` | Фактический `GOMAXPROCS` benchmark |
+| `195605820` | Адаптивное число iterations; сравнивайте time/op, а не только counts |
+| `ns/op` | Elapsed time одной операции |
+| `B/op`, `allocs/op` | Учтённые heap bytes и allocations одной операции |
+
+Сохраняйте raw samples. Повторение само по себе не устраняет host contention,
+CPU throttling, влияние cache или timer noise. Сравнивайте одинаковые тела
+benchmarks, compiler, architecture, limits и environment; оцените статистическую
+неопределённость до объяснения результата изменением исходников. Race и non-race
+стоимости не являются одной нагрузкой.
+
+## Границы операций
+
+| Семейство benchmark | Измеряемая работа | Исключение или ограничение |
+|---|---|---|
+| Control marshal | Сериализация пакета в переданный буфер | With-auth marshal записывает готовую auth section, но не подписывает |
+| Control unmarshal | Парсинг и validation wire fields | With-auth parse создаёт `AuthSection`; digest ссылается на входной буфер |
+| FSM | Indexed transition lookup | Без owner loop, socket, timer и notification |
+| Jitter и interval arithmetic | Указанное вычисление | Без timer wake-up и scheduling delay |
+| `RecvDecodeLookupEnqueue` | Decode, discriminator lookup, попытка buffered enqueue | Enqueue не является обработкой пакета или owner commit |
+| `RecvDecodeFSM` | Decode и stateless FSM transition | Без live owner state и transport |
+| `ReceiveOwnerCollector` | Фактический owner commit с real collector | Synthetic timing; без UDP, wire decoding и authentication |
+| `TxMarshalJitter` | Marshal и расчёт jitter | Без socket send и peer arrival |
+| Create/reconcile | Жизненный цикл sessions | B/op не является полным retained RSS на сессию |
+| `BuildInnerPacketInto` | Сборка inner packet в caller-owned storage | Production overlay TX path |
+| `BuildInnerPacket` | Allocating compatibility wrapper | Отдельные стоимость и ownership |
+| Metadata/timer/metrics | Указанный parser или observer | Без полного packet pipeline и scale guarantee |
+
+Определения находятся в [`internal/bfd/`](../../internal/bfd/),
+[`internal/netio/`](../../internal/netio/) и
+[`internal/metrics/`](../../internal/metrics/). При изменении имени или границ
+проверяйте тело benchmark. Не фиксируйте число benchmarks в документации.
+
+## Политика allocations
+
+Выбранные операции codec, FSM, timer, lookup и caller-buffer имеют цель
+zero allocations. Authenticated parsing создаёт `AuthSection`; digest там
+не копируется, поэтому retaining callers должны учитывать lifetime буфера.
+Compatibility inner-packet builder выделяет возвращаемый slice. Construction
+и reconciliation сессий выделяют lifecycle state. Нулевой результат одного
+тела не доказывает zero allocations всех hot paths и не ограничивает GC pauses.
+
+Исторические Go 1.26 samples сохранены в
+[`testdata/benchmarks/v0.4.0/`](../../testdata/benchmarks/v0.4.0/).
+Их ns/op не являются приёмкой Go 1.27.3; их нельзя отмечать как выполнение
+постороннего threshold. [BENCHMARKS.md](../../BENCHMARKS.md) ссылается на
+сохранённые samples и более новые ограниченные owner observations.
+
+## Политика CI и отчёты
+
+Текущий benchmark report выдаёт warning для critical regression выше своего
+threshold; само предупреждение не завершает job ошибкой. Calibrated blocking
+regression policy остаётся в Beads `gobfd-qj0.8.2.1.6.4`. Сохраняйте отказы
+при malformed output и не называйте warning release performance gate.
+
+`make test-report` запускает race suite и создаёт JUnit/HTML в
+`reports/tests/`; `make report-all` также сохраняет и сравнивает Go benchmarks.
+`benchmark-report` — старый Make target с прямым вызовом `go run`;
+запускайте генератор в закреплённом контейнере без host Go.
+Analysis UIs должны слушать loopback. Profiles могут содержать чувствительные данные.
+
+## Связанные документы
+
+- [Разработка](09-development.md) — закреплённые инструменты и quality workflow.
+- [Сравнения](13-competitive-analysis.md) — ограничения C-моделей и deployment.
+- [Производительность](14-performance-analysis.md) — telemetry, workload и resources.
+- [ADR workload](adr/0007-workload-phase-accounting.md) — политика фаз и ledger.

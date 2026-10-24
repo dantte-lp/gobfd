@@ -14,7 +14,7 @@
 У GoBFD четыре поверхности безопасности:
 
 - обработка BFD-пакетов на UDP-портах 3784, 3785, 4784, 6784, 4789 и 6081;
-- ConnectRPC control API, опубликованный через `grpc.addr`;
+- ConnectRPC control API на Unix socket по умолчанию и optional TCP listener `grpc.addr`;
 - опциональная интеграция с GoBGP gRPC API;
 - привилегии контейнера, systemd и Kubernetes для raw sockets и сетевой
   привязки к интерфейсам.
@@ -37,9 +37,10 @@ RFC 9468 unsolicited BFD остаётся выключенным по умолч
 проверяется заранее. Не включайте unsolicited BFD в anonymous shared
 segment.
 
-RFC 9747 unaffiliated Echo наследует требования RFC 5880/5881 и добавляет риск
-spoofing для looped-back Echo-пакетов. Используйте BFD authentication для Echo,
-если в развёртывании можно согласовать ключи.
+RFC 9747 unaffiliated Echo добавляет риск spoofing возвращённых пакетов.
+Текущий Echo preview не имеет настройки authentication и передаёт
+неаутентифицированные пакеты. Authentication Control session его не защищает.
+Сохраняйте Echo выключенным в недоверенных сегментах; opt-in lab profile изолируйте.
 
 ## ConnectRPC API
 
@@ -118,8 +119,11 @@ findings не приписываются поставляемому daemon.
 
 RFC 5880 auth secrets можно передавать через YAML или gRPC `AddSession`.
 Production-развёртывания должны монтировать YAML secrets read-only и не
-коммитить реальные ключи. Ротация выполняется через новый конфиг и reload в
-maintenance window; dynamic key rotation пока не реализована.
+коммитить реальные ключи. Reload отклоняет authentication changes сохранённой
+session identity. Для смены deployed keys требуется coordinated maintenance
+restart или explicit claim release/recreation с прерыванием session. Наличие
+нескольких сохранённых ключей не квалифицирует live rotation; см.
+[ADR-0006](adr/0006-session-preserving-reload-policy.md).
 
 ## Граница Container And Kubernetes
 

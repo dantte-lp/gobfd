@@ -28,7 +28,7 @@
 
 - **Podman** + **Podman Compose** (все команды выполняются в контейнерах)
 - **Git** для управления версиями
-- Go 1.27 (нужен только для поддержки IDE; сборка в контейнерах)
+- Go 1.27.3 для optional IDE support; сборка использует закреплённый container toolchain
 
 > **Важно**: Все тестирование, сборка и линтинг выполняются внутри контейнеров Podman. Локальный Go-тулчейн не требуется для CI-эквивалентных сборок.
 
@@ -113,7 +113,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 
 | Цель | Описание |
 |---|---|
-| `make all` | Сборка + тесты + линтинг |
+| `make all` | Сборка + тесты + gopls-check + lint + lint-docs |
 | `make build` | Компиляция всех бинарных файлов с информацией о версии |
 | `make test` | Все тесты с `-race -count=1` |
 | `make test-v` | Подробный вывод тестов |
@@ -195,7 +195,7 @@ runtime/tools CycloneDX SBOM в артефакте `dependency-security-reports`
 |---|---|
 | `make tidy` | Запуск `go mod tidy` |
 | `make download` | Загрузка зависимостей модуля |
-| `make clean` | Удаление бинарников и кэшей |
+| `make clean` | Удаление `gobfd`/`gobfdctl` и Go caches; bridge binaries сохраняются |
 | `make versions` | Показать версии инструментов |
 
 ### Стратегия тестирования
@@ -263,11 +263,9 @@ make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
 - **Round-trip**: проверяет `parse(marshal(packet)) == packet` для структурированных входных данных
 - **Raw input**: подаёт произвольные байты в парсер, проверяя отсутствие паники
 
-Длительность фаззинга по умолчанию — 60 секунд. Для более длительного запуска:
-
-```bash
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio FUZZTIME=300s
-```
+Make target фиксирует fuzz duration 60 секунд и не использует `FUZZTIME`.
+Для другой длительности выполните явный `go test` с `-fuzztime` внутри
+закреплённого development container.
 
 #### Проверка Overlay на проводе
 
@@ -765,7 +763,10 @@ GoBFD использует Go 1.27, сохраняя нужные API безоп
 
 #### `os.Root` -- Песочница для доступа к файлам
 
-Загрузка конфигурации использует `os.OpenRoot` для ограничения доступа к файловой системе директорией конфигурации. Это предотвращает атаки обхода пути (path traversal):
+Загрузка конфигурации открывает parent выбранного оператором path как
+`os.Root`, затем читает относительно него. Это ограничивает последующие rooted
+operations, но не задаёт фиксированный trusted directory для произвольного
+выбранного config path. Защитите configuration paths и parent permissions:
 
 ```go
 root, err := os.OpenRoot(filepath.Dir(path))
@@ -800,11 +801,10 @@ concurrency-heavy пакетах. Это разные механизмы; GoBFD 
 
 #### Swiss Tables
 
-Go 1.26 ввёл Swiss tables как реализацию `map` по умолчанию. Поиск
-дискриминаторов, таблица переходов FSM и демультиплексирование сессий GoBFD
-выигрывают от улучшенной локальности кэша. Go 1.27 удаляет прежний
-диагностический experiment `noswissmap`, поэтому он не должен появляться в
-командах сборки и бенчмарков.
+Реализация map определяется закреплённым runtime. GoBFD использует maps
+для registry/demux lookup; runtime FSM lookup — indexed array. Реализация map
+сама по себе не доказывает ускорение. Удалённый diagnostic experiment
+`noswissmap` не должен появляться в Go 1.27 build или benchmark commands.
 
 #### Совместимость HTTP и JSON
 
@@ -844,7 +844,7 @@ invalid UTF-8 в CLI, Podman, FRR и vulnerability audit без сравнени
 # Цикл разработки
 make up           # Запуск среды разработки
 # ... внесение изменений ...
-make all          # Сборка + тесты + линтинг
+make all          # Сборка + тесты + gopls + lint + docs
 
 # Для изменений протокола:
 make interop      # Проверка совместимости с 4 пирами
@@ -862,4 +862,4 @@ make proto-lint   # Линтинг proto-определений
 
 ---
 
-*Последнее обновление: 2026-08-27*
+*Сверено с исходниками `dev`: 2026-10-24.*

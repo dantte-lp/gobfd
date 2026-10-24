@@ -53,8 +53,8 @@ original successful event. `legacy_notification` counts queued/full attempts;
 skipped Added events, closed channels and nil sinks are not attempts.
 Notification loss never increments Control packet-drop counters. Raw shutdown
 abandonment is counted after all producers and Manager workers join.
-Kernel `SO_RXQ_OVFL` remains owned by `gobfd-qj0.8.2.1.6`; this ledger does not
-qualify Echo transport/security. Echo Watch lifecycle is implemented separately
+Kernel `SO_RXQ_OVFL` observations use the separate socket-drop metrics below;
+this ledger does not qualify Echo transport/security. Echo Watch lifecycle is implemented separately
 by `gobfd-qj0.8.2.1.3.10`: frozen rows sample actual Echo counters and timestamps
 without counter-only observation-version churn. Its unowned drop/auth fields
 are zero and do not replace the delivery ledger or prove absence of loss.
@@ -149,7 +149,7 @@ cancels a pending Down; an Up that re-enables a peer GoBFD disabled remains.
 |---|---|
 | `peer_addr` | `10.0.0.1`, `192.168.1.1`, `fd00::1` |
 | `local_addr` | `10.0.0.2`, `192.168.1.2`, `fd00::2` |
-| `session_type` | `single_hop`, `multi_hop` |
+| `session_type` | `SingleHop`, `MultiHop`, `MicroBFD`, `VXLAN`, `Geneve` |
 | `from_state` | `AdminDown`, `Down`, `Init`, `Up` |
 | `to_state` | `AdminDown`, `Down`, `Init`, `Up` |
 
@@ -158,9 +158,6 @@ cancels a pending Down; an Up that re-enables a peer GoBFD disabled remains.
 ```promql
 # Total active sessions
 sum(gobfd_bfd_sessions)
-
-# Sessions in Up state (requires combining with state transitions)
-gobfd_bfd_state_transitions_total{to_state="Up"} - gobfd_bfd_state_transitions_total{from_state="Up"}
 
 # Packet rate per peer (5 minute window)
 rate(gobfd_bfd_packets_sent_total[5m])
@@ -175,6 +172,9 @@ rate(gobfd_bfd_auth_failures_total[5m])
 rate(gobfd_bfd_packets_dropped_total[5m])
 ```
 
+Transition counters cannot reconstruct current Up sessions. There is no
+per-session state gauge; read `local_state` from the CLI/API snapshot.
+
 ### Grafana Dashboard
 
 A pre-built Grafana dashboard is included at:
@@ -187,9 +187,9 @@ The dashboard provides:
 
 | Panel | Description |
 |---|---|
-| **Session Overview** | Total sessions, sessions by state, sessions by type |
+| **Session Overview** | Active sessions and active sessions by peer; not peer-Up counts |
 | **Packet Rates** | TX/RX packet rates per peer |
-| **State Transitions** | Timeline of state changes with Up/Down annotations |
+| **State Transitions** | Transition counters over the selected time window |
 | **Error Rates** | Auth failures, dropped packets |
 
 To import:
@@ -397,4 +397,4 @@ process/listener startup rather than configuration convergence.
 
 ---
 
-*Last updated: 2026-02-21*
+*Reviewed against `dev` source: 2026-10-24.*

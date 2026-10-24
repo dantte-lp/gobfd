@@ -26,7 +26,7 @@
 
 - **Linux** kernel (raw sockets require Linux-specific APIs)
 - **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
-- Go 1.27+ (for building from source only)
+- Repository-pinned Go 1.27.3 inside Podman (source builds only)
 
 Non-Linux targets are compile-only compatibility surfaces. The `internal/netio`
 transport constructors return `ErrUnsupportedPlatform`; GoBFD does not publish
@@ -321,10 +321,15 @@ which Make builds inside the development container before execution:
 podman compose -f deployments/compose/compose.yml up -d
 
 # Services:
-#   gobfd API:        unix:///run/gobfd/gobfd.sock (host)
+#   gobfd API:        unix:///run/gobfd/gobfd.sock (inside gobfd container)
 #   Prometheus:       http://localhost:9090
 #   Grafana:          http://localhost:3000 (admin/admin)
 ```
+
+The Unix socket stays inside the GoBFD container because this Compose file
+does not bind-mount `/run/gobfd`. Use `podman exec gobfd gobfdctl session list`
+for management, or separately configure an owned socket mount. Host networking
+does not share filesystem paths.
 
 All three services share the Linux host network. Prometheus scrapes
 `127.0.0.1:9100`, and Grafana uses `http://127.0.0.1:9090` as its data source.
@@ -347,8 +352,8 @@ graph LR
         GR["Grafana<br/>:3000"]
     end
 
-    G -->|scrape /metrics| P
-    P -->|data source| GR
+    P -->|scrape /metrics| G
+    GR -->|query data source| P
 
     style G fill:#1a73e8,color:#fff
     style P fill:#E6522C,color:#fff
@@ -468,7 +473,7 @@ smaller workload; the soft limit is not an OOM guarantee.
 - [ ] Set up Prometheus scraping of `:9100/metrics`
 - [ ] Import Grafana dashboard from `deployments/compose/configs/grafana/dashboards/bfd.json`
 - [ ] Configure alerting on `gobfd_bfd_state_transitions_total{from_state="Up",to_state="Down"}`
-- [ ] Verify `CAP_NET_RAW` is available (test with `gobfdctl session list`)
+- Verify successful socket startup and the selected dataplane profile; `session list` only tests management access.
 - [ ] Test SIGHUP reload: `systemctl reload gobfd`
 - [ ] Verify graceful shutdown sends AdminDown (check peer logs)
 
@@ -480,4 +485,4 @@ smaller workload; the soft limit is not an OOM guarantee.
 
 ---
 
-*Last updated: 2026-02-21*
+*Reviewed against `dev` source: 2026-10-24.*

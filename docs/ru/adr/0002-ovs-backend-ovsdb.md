@@ -57,10 +57,10 @@ CLI-backend отображал переходы RFC 7130 в эти операц�
 
 ```go
 type OVSDBLAGBackend struct {
-    client OVSDBClient
+    client BondLAGClient
 }
 
-type OVSDBLAGClient interface {
+type BondLAGClient interface {
     RemoveBondInterface(ctx context.Context, bond, iface string) error
     AddBondInterface(ctx context.Context, bond, iface string) error
 }

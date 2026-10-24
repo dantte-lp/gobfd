@@ -34,8 +34,9 @@ v0.30.2. Это не новая Go-зависимость и не квалифи
   и bearer-token fallback. Private CA адресуется из конфигурации оператора,
   URL не поступает из RPC.
 - Context cancellation, конечный HTTP timeout, лимиты ответа и цепочки,
-  строгие JSON/PEM. `encoding/json/v2` Go 1.27 применяется только к новому
-  протокольному ответу; существующие JSON v1 consumers не меняются.
+  strict JSON с отклонением duplicate names и invalid UTF-8, certificate-only
+  PEM. `encoding/json/v2` Go 1.27 применяется только к новому protocol boundary;
+  существующие JSON v1 consumers не меняются.
 - Проверенный действующий non-CA leaf, прежние public key, subject, точный SAN
   и профиль key usage/EKU. Изменённый сертификат продлевает срок; идентичная
   проверенная цепочка возвращает unchanged. Дублирующие поля ответа согласованы;

@@ -81,7 +81,8 @@ policy, and returns no peer addresses, endpoints or secrets.
 gobfdctl session list
 ```
 
-Shows all BFD sessions with their current state, peer address, timers, and discriminators.
+The table shows peer/local identity, current state, type and discriminators.
+Use `session show` or structured JSON/YAML output for timer fields.
 
 #### Show a specific session
 
@@ -131,7 +132,7 @@ gobfdctl session add \
 | Flag | Required | Default | Description |
 |---|---|---|---|
 | `--peer` | Yes | -- | Remote system IP address |
-| `--local` | Yes | -- | Local system IP address |
+| `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
 | `--interface` | No | -- | Network interface (for `SO_BINDTODEVICE`) |
 | `--type` | No | `single-hop` | Session type: `single-hop` or `multi-hop` |
 | `--tx-interval` | No | `1s` | Desired Min TX Interval |
@@ -139,7 +140,7 @@ gobfdctl session add \
 | `--detect-mult` | No | `3` | Detection Multiplier |
 | `--padded-pdu-size` | No | `0` | Target PDU size in bytes: 0 disables padding; 24-9000 without auth, 26-9000 with auth |
 | `--auth-type` | No | `none` | Auth type: `none`, `simple-password`, `keyed-md5`, `meticulous-keyed-md5`, `keyed-sha1`, `meticulous-keyed-sha1` |
-| `--auth-key-id` | If auth enabled | `0` | RFC 5880 Auth Key ID, range 0-255 |
+| `--auth-key-id` | No | `0` | RFC 5880 Auth Key ID, range 0-255; zero is valid |
 | `--auth-secret` | If auth enabled | -- | Auth secret: 1-16 bytes for Simple Password/MD5, 1-20 bytes for SHA1 |
 
 `AddSession` returns `InvalidArgument` for malformed protobuf TX/RX durations
@@ -433,14 +434,16 @@ gobfdctl session list --format json
 gobfdctl session list --format yaml
 
 # Pipe JSON to jq
-gobfdctl session list --format json | jq '.sessions[].state'
+gobfdctl session list --format json | jq '.[].local_state'
 ```
 
 ### Examples
 
 ```bash
 # Connect to remote daemon
-gobfdctl --addr 10.0.0.1:50052 session list
+gobfdctl --addr https://gobfd.example.net:50052 \
+  --tls-ca /etc/gobfd/ca.crt --tls-cert /etc/gobfd/client.crt \
+  --tls-key /etc/gobfd/client.key session list
 
 # Quick session setup for testing
 gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \
@@ -450,7 +453,7 @@ gobfdctl session add --peer 10.0.0.1 --local 10.0.0.2 --interface eth0 \
 gobfdctl --format json monitor --current
 
 # Scripted health check
-if gobfdctl session show 10.0.0.1 --format json | jq -e '.state == "Up"' > /dev/null; then
+if gobfdctl session show 10.0.0.1 --format json | jq -e '.local_state == "Up"' > /dev/null; then
   echo "BFD session is Up"
 fi
 ```
@@ -463,4 +466,4 @@ fi
 
 ---
 
-*Last updated: 2026-02-21*
+*Reviewed against `dev` source: 2026-10-24.*

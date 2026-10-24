@@ -30,8 +30,9 @@
   request.
 - Release-preparation changes start from and target the applicable supported
   `release/vMAJOR.MINOR` line.
-- After a maintenance fix is accepted, maintainers assess whether it also
-  needs a separate forward-port to `master` or `dev`.
+- After publishing a maintenance patch, its accepted stable history and both
+  changelogs must reach `master` before closeout. Assess the forward-port to
+  `dev` separately.
 
 ### Build and Test
 
@@ -118,7 +119,7 @@ make lint-commit MSG='fix(interop): run RFC tests from the dev container'
 ### Linting
 
 The project uses golangci-lint v2 with a strict 92-linter base configuration
-and 17 build-tag profiles. Your code must pass the canonical wrapper:
+and 18 build-tag profiles. Your code must pass the canonical wrapper:
 
 ```bash
 make lint
