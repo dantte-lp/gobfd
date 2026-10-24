@@ -92,6 +92,8 @@ type sessionState struct {
 	RemoteMinRx         string `json:"remote_min_rx_interval"`
 	NegotiatedTx        string `json:"negotiated_tx_interval"`
 	DetectionTime       string `json:"detection_time"`
+	DetectMultiplier    uint32 `json:"detect_multiplier"`
+	PaddedPduSize       uint32 `json:"padded_pdu_size"`
 }
 
 type holoLifecycleSchedule struct {

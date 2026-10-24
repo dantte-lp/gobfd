@@ -192,6 +192,18 @@ port 49152, Poll/Final, the slow rate outside Up and no authentication. Each
 and peer logs, the frame TSV, the summary JSON and the PCAP with SHA-256 files
 under `INTEROP_TESTCONTAINERS_ARTIFACT_DIR`.
 
+The existing reload scenarios also exercise Detect Multiplier changes:
+authenticated FRR/BIRD3 Async sessions use 1→5→3 without a GoBFD Poll;
+the crafted remote-Demand session uses 5→3, each with its own Poll, peer Final,
+applied receipt and quiet window. DetectMult 1 uses 75–90% jitter with mean
+0.825T; other tested multipliers use 75–100% with mean 0.875T. Capture checks
+preserve UDP source port/length, authentication type/key/sequence, discriminators
+and timers. The runtime tshark field registry is retained before mutations.
+Local receive Detection Time uses the peer's multiplier. Derived peer Async
+and local Demand Poll bounds are labelled separately from measured timing;
+the crafted peer does not implement a detection timer. Source contracts alone
+do not close P0 `gobfd-qj0.8.2.2.7.5.2`; actual candidate captures are required.
+
 ### Running Interop Tests
 
 #### Full Cycle (Recommended)

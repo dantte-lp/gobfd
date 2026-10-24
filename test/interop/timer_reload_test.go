@@ -205,14 +205,9 @@ func parseTimerCounter(input, label string) (uint64, error) {
 }
 
 func timerConfig(baseline, peer, tx, rx string) (string, error) {
-	marker := "  - peer: \"" + peer + "\"\n"
-	if strings.Count(baseline, marker) != 1 {
-		return "", fmt.Errorf("unique peer block %s: %w", peer, errTimerEvidence)
-	}
-	start := strings.Index(baseline, marker)
-	end := len(baseline)
-	if next := strings.Index(baseline[start+len(marker):], "\n  - peer:"); next >= 0 {
-		end = start + len(marker) + next
+	start, end, err := timerPeerBlock(baseline, peer)
+	if err != nil {
+		return "", err
 	}
 	block := baseline[start:end]
 	for _, field := range []struct{ name, value string }{{"desired_min_tx", tx}, {"required_min_rx", rx}} {
@@ -223,6 +218,19 @@ func timerConfig(baseline, peer, tx, rx string) (string, error) {
 		block = strings.Replace(block, old, "    "+field.name+": \""+field.value+"\"", 1)
 	}
 	return baseline[:start] + block + baseline[end:], nil
+}
+
+func timerPeerBlock(baseline, peer string) (int, int, error) {
+	marker := "  - peer: \"" + peer + "\"\n"
+	if strings.Count(baseline, marker) != 1 {
+		return 0, 0, fmt.Errorf("unique peer block %s: %w", peer, errTimerEvidence)
+	}
+	start := strings.Index(baseline, marker)
+	end := len(baseline)
+	if next := strings.Index(baseline[start+len(marker):], "\n  - peer:"); next >= 0 {
+		end = start + len(marker) + next
+	}
+	return start, end, nil
 }
 
 type timerFrame struct {
@@ -406,7 +414,7 @@ func evaluateTimerPhase(frames []timerFrame, phase timerPhase) (timerWireResult,
 	if phase.RXZero {
 		return result, nil
 	}
-	mean, err := checkJitteredIntervals(intervals, int64(max(phase.TX, phase.RemoteRX)))
+	mean, err := checkJitteredIntervals(intervals, int64(max(phase.TX, phase.RemoteRX)), 3)
 	if err != nil {
 		return result, err
 	}
@@ -420,11 +428,16 @@ func timerSlack(expected int64) int64 {
 	return max(2000, expected/50)
 }
 
-// checkIntervalBounds applies RFC 5880 section 6.8.7 with DetectMult above 1:
-// each interval is the negotiated TX reduced by 0-25%, plus wakeup slack.
-func checkIntervalBounds(intervals []int64, expected int64) error {
+// RFC 5880 section 6.8.7 caps DetectMult 1 at 90%, other multipliers at 100%.
+func checkIntervalBounds(intervals []int64, expected int64, multiplier uint64) error {
+	if expected <= 0 || expected > 1<<32-1 || multiplier == 0 || multiplier > 255 {
+		return fmt.Errorf("invalid jitter target %d multiplier %d: %w", expected, multiplier, errTimerEvidence)
+	}
 	slack := timerSlack(expected)
 	low, high := expected*3/4-slack, expected+slack
+	if multiplier == 1 {
+		high = expected*9/10 + slack
+	}
 	for _, interval := range intervals {
 		if interval < low || interval > high {
 			return fmt.Errorf("interval %d outside [%d,%d] us: %w", interval, low, high, errTimerEvidence)
@@ -434,28 +447,29 @@ func checkIntervalBounds(intervals []int64, expected int64) error {
 }
 
 // checkJitteredIntervals requires at least 12 bounded intervals and returns their mean.
-func checkJitteredIntervals(intervals []int64, expected int64) (float64, error) {
+func checkJitteredIntervals(intervals []int64, expected int64, multiplier uint64) (float64, error) {
 	if len(intervals) < 12 {
 		return 0, fmt.Errorf("stable intervals=%d, want at least 12: %w", len(intervals), errTimerEvidence)
 	}
-	if err := checkIntervalBounds(intervals, expected); err != nil {
+	if err := checkIntervalBounds(intervals, expected, multiplier); err != nil {
 		return 0, err
 	}
 	var sum int64
 	for _, interval := range intervals {
 		sum += interval
 	}
-	// applyJitterWithRand draws the reduction uniformly from 0..25%: mean 0.875T,
-	// standard deviation 0.075T. Reject a sample mean beyond three standard errors,
-	// -1.8*T*sqrt(n) <= 8*sum - 7*n*T <= 1.8*T*sqrt(n) + 8*n*slack. Timer rearm after
-	// each send adds wakeup latency to every interval, so only the upper side carries
-	// slack. Integer terms stay far below 2^53.
+	// Conservative standard deviations bound uniform 75..100% and 75..90% draws.
+	mean, sigma := 0.875, 0.075
+	if multiplier == 1 {
+		mean, sigma = 0.825, 0.045
+	}
 	n := int64(len(intervals))
-	deviation := float64(8*sum - 7*n*expected)
-	bound := 1.8 * float64(expected) * math.Sqrt(float64(n))
-	if deviation < -bound || deviation > bound+float64(8*n*timerSlack(expected)) {
-		return 0, fmt.Errorf("mean interval %d us deviates from 0.875*%d us beyond 3 standard errors (n=%d): %w",
-			sum/n, expected, n, errTimerEvidence)
+	deviation := float64(sum) - mean*float64(n*expected)
+	bound := 3 * sigma * float64(expected) * math.Sqrt(float64(n))
+	// Timer rearm adds wakeup latency, so only the upper side carries slack.
+	if deviation < -bound || deviation > bound+float64(n*timerSlack(expected)) {
+		return 0, fmt.Errorf("mean interval %d us deviates from %g*%d us beyond 3 standard errors (n=%d): %w",
+			sum/n, mean, expected, n, errTimerEvidence)
 	}
 	return float64(sum) / float64(n), nil
 }
@@ -869,6 +883,7 @@ func restoreTimerBaseline(ctx context.Context, t *testing.T, baseline []byte, na
 func TestTimerReload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
+	requireDetectFields(ctx, t)
 	baseline, err := os.ReadFile("gobfd/gobfd.yml")
 	if err != nil {
 		t.Fatalf("read immutable daemon baseline: %v", err)
@@ -912,6 +927,10 @@ func TestTimerReload(t *testing.T) {
 				restored.RemoteDiscriminator != before.RemoteDiscriminator || restoredCounters != counters {
 				t.Fatalf("peer RX restoration changed identity/counters: before=%+v/%v after=%+v/%v",
 					before, counters, restored, restoredCounters)
+			}
+			for _, multiplier := range []uint64{1, 5, 3} {
+				runDetectGeneration(ctx, t, string(baseline), peer.address,
+					fmt.Sprintf("%s-detect-%d", peer.name, multiplier), multiplier, timerReceiptImmediate)
 			}
 		}) {
 			return

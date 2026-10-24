@@ -190,6 +190,23 @@ ordering is the current owner/coordinator contract, not an RFC JSON requirement.
 Neither mode alone proves the presence or absence of wire Poll/Final. Shared
 qualifier preparation is tracked in `gobfd-qj0.8.2.2.7.5.1`.
 
+Detect Multiplier wire qualification (`gobfd-qj0.8.2.2.7.5.2`) extends the
+existing authenticated Async phases with 1→5→3 and remote-Demand phases with
+5→3. At a 300 ms negotiated interval, multiplier 1 has 75–90% jitter and
+expected mean 247.5 ms; the other tested multipliers have 75–100% jitter and
+expected mean 262.5 ms (RFC 5880 §6.8.7). Changing the local multiplier leaves
+GoBFD's receive Detection Time based on the received peer multiplier.
+The peer's Async Detection Time is derived, not measured by these phases.
+For the crafted remote-Demand peer, 5×500 ms derives a local Poll bound;
+that peer has no detection timer. Responsive Finals and a quiet window do not
+qualify missing-Final expiry or graduate general Demand support. Capture checks
+retain discriminator, UDP source port/length, authentication type/key/sequence,
+timer tuple and state continuity independently of generation receipts. Actual
+candidate captures remain mandatory before closing the wire task.
+Async capture permits one old in-flight Control only as the first local
+post-receipt packet within the existing timer slack; the first new Control must
+arrive within one negotiated TX plus slack. Later old multipliers fail the gate.
+
 Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.

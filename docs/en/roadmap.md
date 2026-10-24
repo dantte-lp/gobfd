@@ -6,6 +6,18 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
 ## Reload wire qualifier preparation — 2026-10-24
 
+P0 `gobfd-qj0.8.2.2.7.5.2` adds authenticated Async DetectMult 1→5→3
+and crafted remote-Demand 5→3 phases to the existing wire scenarios. The
+source evaluator checks multiplier-specific jitter, directional detection
+calculations, UDP/authentication continuity and per-generation Demand windows.
+Critical source contracts passed 32 top-level tests with race detection,
+including a review-driven next-Control bound with observed RED/GREEN.
+Final lint and actual candidate captures remain separate qualification steps.
+ADR 0006 distinguishes received-multiplier local detection, derived peer Async
+detection and derived local Demand Poll bounds. The crafted peer has no
+detection timer. This task and the mandatory five-field wire parent remain
+open until their actual acceptance evidence is recorded in Beads.
+
 P0 `gobfd-qj0.8.2.2.7.5.1` extends the existing receipt qualifier with explicit
 immediate and Poll-phase expectations. Current timer and crafted-peer callers
 retain Poll semantics; direct convergence and owner-pending are both valid for

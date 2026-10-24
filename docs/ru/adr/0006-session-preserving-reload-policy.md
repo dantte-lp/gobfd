@@ -191,6 +191,23 @@ Wire-квалификация выбирает ожидаемую семанти
 Ни один режим сам по себе не доказывает наличие или отсутствие wire Poll/Final.
 Подготовка общего validator ведётся в `gobfd-qj0.8.2.2.7.5.1`.
 
+Wire-квалификация Detect Multiplier (`gobfd-qj0.8.2.2.7.5.2`) расширяет
+существующие аутентифицированные Async-фазы последовательностью 1→5→3,
+remote-Demand — 5→3. При согласованном интервале 300 ms множитель 1 имеет
+jitter 75–90% и ожидаемое среднее 247.5 ms; остальные проверяемые множители —
+75–100% и 262.5 ms (RFC 5880 §6.8.7). Изменение локального множителя сохраняет
+зависимость receive Detection Time GoBFD от принятого множителя peer.
+Async Detection Time соседа вычисляется, но не измеряется этими фазами.
+Для crafted remote-Demand peer значение 5×500 ms задаёт расчётную границу
+локального Poll; у этого peer нет detection timer. Ответы Final и quiet window
+не квалифицируют missing-Final expiry или общую поддержку Demand. Capture
+проверяет непрерывность discriminator, UDP source port/length, типа/key/sequence
+аутентификации, timer tuple и state независимо от generation receipts.
+Для закрытия wire-задачи обязательны фактические captures кандидата.
+Async capture допускает один старый in-flight Control только первым локальным
+post-receipt пакетом в пределах существующего timer slack; первый новый Control
+обязателен за один negotiated TX плюс slack. Поздний старый множитель отклоняется.
+
 Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.

@@ -83,11 +83,12 @@ func parseCraftedFrames(rows [][]string) ([]craftedFrame, error) {
 
 // craftedPlan carries the values the capture is checked against.
 type craftedPlan struct {
-	DetectionMicroseconds uint64 `json:"detection_microseconds"`
-	ReloadTX              uint64 `json:"reload_tx"`
-	ReloadRX              uint64 `json:"reload_rx"`
-	QueuedFirst           uint64 `json:"queued_first"`
-	QueuedSecond          uint64 `json:"queued_second"`
+	DetectionMicroseconds uint64        `json:"detection_microseconds"`
+	ReloadTX              uint64        `json:"reload_tx"`
+	ReloadRX              uint64        `json:"reload_rx"`
+	QueuedFirst           uint64        `json:"queued_first"`
+	QueuedSecond          uint64        `json:"queued_second"`
+	DetectUpdates         []detectPhase `json:"detect_updates,omitempty"`
 }
 
 type craftedRX0Evidence struct {
@@ -317,7 +318,7 @@ func evaluateCraftedSilence(frames []craftedFrame, last, resume int, evidence *c
 	if len(intervals) < craftedResumeMinimum {
 		return 0, fmt.Errorf("Down intervals=%d, want >=%d: %w", len(intervals), craftedResumeMinimum, errCraftedEvidence)
 	}
-	if err := checkIntervalBounds(intervals, int64(first.TX)); err != nil {
+	if err := checkIntervalBounds(intervals, int64(first.TX), 3); err != nil {
 		return 0, err
 	}
 	evidence.Silence.Resume, evidence.Silence.ResumeMicroseconds = first.Number, elapsed
@@ -381,6 +382,9 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 				peerFinal = index
 			}
 		case frame.Poll == 1:
+			if peerFinal >= 0 && craftedDetectPoll(frame, plan.DetectUpdates) {
+				continue
+			}
 			if peerFinal >= 0 || frame.TX != plan.ReloadTX || frame.RX != plan.ReloadRX || frame.State != 3 {
 				return fmt.Errorf("GoBFD Poll %+v, want new timers before the peer Final (RFC 5880 6.5, 6.8.3): %w",
 					frame, errCraftedEvidence)
@@ -399,6 +403,9 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 	}
 	if firstPoll < 0 || peerFinal < 0 {
 		return fmt.Errorf("no GoBFD Poll Sequence completed under remote Demand (RFC 5880 6.6): %w", errCraftedEvidence)
+	}
+	if err := evaluateCraftedDetect(frames, frames[peerFinal].Number, frames[clearIndex].Number, plan); err != nil {
+		return err
 	}
 	polls, _, err := craftedPairPolls(frames, start, clearIndex)
 	if err != nil {
@@ -445,7 +452,7 @@ func evaluateCraftedDemand(frames []craftedFrame, from int, plan craftedPlan, ev
 		}
 		previous = &frames[index]
 	}
-	mean, err := checkJitteredIntervals(intervals, int64(resumed))
+	mean, err := checkJitteredIntervals(intervals, int64(resumed), 3)
 	if err != nil {
 		return err
 	}
@@ -696,6 +703,7 @@ func advanceCrafted(ctx context.Context, t *testing.T, peer testcontainers.Conta
 
 func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer testcontainers.Container) {
 	t.Helper()
+	requireDetectFields(ctx, t)
 	baseline, err := os.ReadFile(filepath.Join(root, craftedPeerConfig))
 	if err != nil {
 		t.Fatalf("read crafted peer daemon baseline: %v", err)
@@ -728,6 +736,16 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 	hold(3 * time.Second)
 	appliedAt := reloadCraftedTimers(ctx, t, string(baseline), previous)
 	hold(3 * time.Second)
+	detectBaseline, err := timerConfig(string(baseline), fuzzIP, craftedReloadTimer, craftedReloadTimer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detectUpdates := make([]detectPhase, 0, 2)
+	for _, multiplier := range []uint64{5, 3} {
+		phase := runDetectGeneration(ctx, t, detectBaseline, fuzzIP,
+			fmt.Sprintf("crafted-detect-%d", multiplier), multiplier, timerReceiptPoll)
+		detectUpdates = append(detectUpdates, phase)
+	}
 	advanceCrafted(ctx, t, peer, "demand-clear", true)
 	hold(8 * time.Second)
 	// RFC 5880 Sections 6.5 and 6.8.3: lost Finals, a crossed Poll and a queued
@@ -759,6 +777,7 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 		DetectionMicroseconds: uint64(detection / time.Microsecond),
 		ReloadTX:              craftedReloadMicros, ReloadRX: craftedReloadMicros,
 		QueuedFirst: craftedQueuedFirstMicros, QueuedSecond: craftedQueuedSecondMicros,
+		DetectUpdates: detectUpdates,
 	}, appliedAt, queuedAt)
 }
 
