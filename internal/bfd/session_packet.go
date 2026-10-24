@@ -116,7 +116,6 @@ func (s *Session) verifyReceivedAuth(item recvItem) DeliveryOutcome {
 	pkt := item.pkt
 	if err := s.auth.Verify(s.authState, s.authKeys, &pkt, item.wire, len(item.wire)); err != nil {
 		s.logger.Debug("auth verification failed",
-			slog.String("peer", s.peerAddr.String()),
 			slog.String("error", err.Error()),
 		)
 		return DeliveryAuthFailed

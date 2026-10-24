@@ -581,6 +581,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Rejected-authentication session logs retain one `peer` attribute inherited
+  from the session logger, so strict JSONL consumers can read replay failures.
+
 - Prepare desired claims before stale release and retain old source claims on
   resource-pending preparation. Bound occupied-key replacement to prepared,
   sole-config base SingleHop/MultiHop swaps, then drain the captured old session

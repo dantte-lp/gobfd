@@ -582,6 +582,9 @@
 
 ### Исправлено
 
+- Session logs отклонённой authentication сохраняют один атрибут `peer`,
+  унаследованный от session logger: strict JSONL consumers читают replay failures.
+
 - Desired claims готовятся до stale release; resource-pending preparation
   сохраняет старые claims source. Occupied-key replacement ограничен prepared
   sole-config base SingleHop/MultiHop swap с drain actual old session до
