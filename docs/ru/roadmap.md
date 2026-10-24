@@ -4,6 +4,23 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Предложение альфы и допуск удалённого runner — 2026-10-24
+
+Предложена `v1.0.0-alpha.1`; разрешена новая qualification VM через
+`um-gate/netlab2`. Read-only admission подтверждает целевой гипервизор,
+128 logical CPUs, около 184 GB available memory и 2,58 TB свободного storage.
+Новая VM и detached workload не созданы. Изолированный Pulumi provisioning и
+фактический guest admission принадлежат P0 `gobfd-qj0.8.2.1.6.3.4.4.1`.
+Перенос текущего candidate не исправляет per-session thread pinning и не
+подтверждает final 24-hour acceptance.
+
+[ADR-0008](./adr/0008-experimental-prerelease-boundary.md) предлагает отдельный
+экспериментальный channel. Alpha acceptance и delivery принадлежат P0
+`gobfd-qj0.8.2.6.4`; текущие release preflight/notes отклоняют prerelease tags.
+Не закрыты typed pending activation, unsafe loopback policy reload, остальные
+stress profiles, integration/security acceptance и итоговая квалификация.
+Предложение альфы не является stable release или разрешением remote publication.
+
 ## CPU-pressure workload receipts — 2026-10-24 10:31 UTC
 
 P0 `gobfd-qj0.8.2.1.6.3.4.2` подключает запрошенную owner CPU duty к

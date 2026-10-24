@@ -4,6 +4,23 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Alpha proposal and remote runner admission — 2026-10-24
+
+The maintainer proposes `v1.0.0-alpha.1` and authorizes a new qualification VM
+through `um-gate/netlab2`. Read-only admission confirms the intended hypervisor,
+128 logical CPUs, approximately 184 GB available memory and 2.58 TB free storage.
+No new VM or detached workload has been created. P0
+`gobfd-qj0.8.2.1.6.3.4.4.1` owns isolated Pulumi provisioning and actual guest
+admission. Moving the current candidate does not fix its per-session thread
+pinning or establish final 24-hour acceptance.
+
+[ADR-0008](./adr/0008-experimental-prerelease-boundary.md) proposes the separate
+experimental channel. P0 `gobfd-qj0.8.2.6.4` owns alpha acceptance and delivery;
+current release preflight/notes still reject prerelease tags. Typed pending
+activation, unsafe loopback policy reload, remaining stress profiles,
+integration/security acceptance and final qualification remain unclosed.
+An alpha proposal is not a stable release or permission to publish remotely.
+
 ## CPU-pressure workload receipts — 2026-10-24 10:31 UTC
 
 P0 `gobfd-qj0.8.2.1.6.3.4.2` connects requested owner CPU duty to bounded

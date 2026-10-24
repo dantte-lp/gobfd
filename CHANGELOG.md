@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Proposed experimental prerelease boundary and isolated remote qualification
+  ownership; stable validation and publication restrictions remain unchanged.
+
 - Generate bounded owner CPU duty with thread CPU-time receipts, missed-window
   accounting and context-bound worker cleanup in the UDP workload harness.
 

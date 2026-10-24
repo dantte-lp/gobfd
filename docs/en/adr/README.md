@@ -32,3 +32,4 @@ forward link to the replacement.
 | [0005](./0005-smallstep-management-certificates.md) | External Smallstep CA renewal for management certificates | Accepted |
 | [0006](./0006-session-preserving-reload-policy.md) | Session-preserving reload policy | Accepted policy; qualification separate |
 | [0007](./0007-workload-phase-accounting.md) | Workload phases and terminal packet accounting | Accepted policy; qualification separate |
+| [0008](./0008-experimental-prerelease-boundary.md) | Experimental prerelease boundary | Proposed; no publication authorization |
