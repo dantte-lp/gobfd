@@ -227,6 +227,14 @@ Final старого размера после отклонённого Demand r
 acceptance ведётся отдельно в `gobfd-qj0.8.2.2.7.5.3.3`;
 source-only результаты эту задачу не закрывают.
 
+Локальная квалификация на `b97729458a696aee21023ba147af51417ed9ff7b` проходит
+оба FourPeer профиля и crafted Demand с этими captures. Три runtime receipts
+и 675 проверенных sidecar сохранены в `reports/padding-wire-20261024/`.
+Квалифицирован только padding reload; actual TTL, unified final-candidate
+и stable-release gates остаются отдельными. Baseline SKIP начального Down
+и DetectionPrecision требуют final-gate disposition вместе с известным
+отклонением fixed source port BIRD.
+
 ### Запуск тестов совместимости
 
 #### Полный цикл (рекомендуется)

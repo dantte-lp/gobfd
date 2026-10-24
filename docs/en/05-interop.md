@@ -226,6 +226,14 @@ Demand, allowing old-size Final evidence after a rejected Demand resize.
 Actual capture acceptance is tracked separately in
 `gobfd-qj0.8.2.2.7.5.3.3`; source-only results do not close it.
 
+Local qualification at `b97729458a696aee21023ba147af51417ed9ff7b` passes both
+FourPeer profiles and crafted Demand with these captures. The three runtime
+receipts and 675 verified sidecars are in `reports/padding-wire-20261024/`.
+This qualifies the padding reload slice only; actual TTL, unified final-candidate
+and stable-release gates remain separate. Baseline initial-Down and
+DetectionPrecision skips require final-gate disposition alongside the known
+BIRD fixed-source-port deviation.
+
 ### Running Interop Tests
 
 #### Full Cycle (Recommended)

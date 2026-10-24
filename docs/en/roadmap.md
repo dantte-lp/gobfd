@@ -4,20 +4,37 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
-## Prepared-padding qualification in progress — 2026-10-24
+## Prepared-padding wire qualification — 2026-10-24
 
-P0 `gobfd-qj0.8.2.2.7.5.3` is in progress on
-`task/padding-wire-20261024`, based on local dev
-`8931c769d6b49cdf1ad5139d74e61505b85e585a`.
-Children `.3.1` and `.3.2` own the shared qualifier/drivers and a startup-only
-meticulous SHA1 profile of the existing FourPeer lifecycle. Child `.3.3`
-requires actual captures on the reviewed candidate. RFC 9764 DF/length/padding
-and RFC 5880 authentication continuity are checked independently; persistent
-per-direction replay state must span the whole resize and rejection chain.
-Exact receipts, client outcomes and readiness remain mandatory. Dynamic DF
-enable/disable and coordinated auth rotation remain after-v1 P2. Beads owns
-current priorities and acceptance; source contracts do not establish runtime
-or v1 release readiness. Evidence: `reports/padding-wire-20261024/`.
+P0 `gobfd-qj0.8.2.2.7.5.3` passed local qualification on
+`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`.
+Default FourPeer passes in 451.84 s, meticulous SHA1 in 271.71 s and crafted
+Demand in 134.28 s. Eight resize phases and seven rejected candidates retain
+identity, source port, authentication continuity, counters and accepted
+generation as applicable. Seventeen peer windows check actual DF, raw UDP
+payload, declared BFD Length, zero padding and MAC boundary. Both aggregate
+and named BFD readiness remain SERVING. The independent peer keeps its own
+packet size; this is not bidirectional MTU or forwarding acceptance.
+
+All three runners retain the 512 MiB cap; peaks are 402780160, 425705472 and
+386764800 bytes, with zero max/OOM events and swap. All 853 source hashes and
+675 artifact sidecars match. Critical source contracts pass 44 top-level tests
+with race/shuffle; crafted-peer tests, lint, vet, compilation, module tidy and
+88 Markdown checks pass. A reviewed host-bind mismatch was replaced by copying
+the same compiled test executable through container files and probing the
+existing Unix socket inside the owned daemon. A full disposable compiler cache
+and scanner OOM were resolved using separate checks and a measured scanner
+`GOMEMLIMIT=1000MiB`, without raising the 2 GiB job cap.
+
+Evidence: `reports/padding-wire-20261024/`. Three baseline skips remain explicit:
+BIRD fixed source port, missing initial Down capture and missing baseline
+Down(diag=1) for DetectionPrecision. Final gate `gobfd-qj0.8.2.2.7.5.5` owns
+their disposition. P0 TTL `.5.4`, unified final-candidate `.5.5`, scale/latency
+and security gates remain mandatory for v1. The fresh scanner reports zero
+reachable/imported-package findings and two existing module-only advisories;
+`gobfd-qj0.8.4.1` retains their policy. Dynamic DF and auth rotation remain
+after-v1 P2. Beads owns current priorities and acceptance; no stable release
+readiness or remote publication is asserted.
 
 ## Reload wire qualifier preparation — 2026-10-24
 

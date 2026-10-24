@@ -232,6 +232,17 @@ container files; пути runner не передаются host engine как bi
 TCP listener остаётся loopback-only.
 Source contracts не закрывают эту actual-wire задачу.
 
+Локальная prepared-padding квалификация прошла на
+`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`:
+default auth4 и meticulous auth5 FourPeer profiles, а также отклонение resize
+при crafted remote Demand; captures и receipts — в `reports/padding-wire-20261024/`.
+Восемь resize-фаз и семь отклонённых кандидатов охватывают семнадцать peer windows;
+aggregate и named BFD health остаются SERVING. Лимит runner 512 MiB сохранён,
+max/OOM events и swap трёх прогонов — 0. Проверки целостности подтверждают
+853 файла исходников и 675 sidecar. Это закрывает локальный padding-срез,
+но не actual TTL, unified final-candidate, forwarding, general Demand или
+квалификацию stable release.
+
 Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.

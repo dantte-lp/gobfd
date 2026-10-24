@@ -231,6 +231,17 @@ file mechanism; runner paths must not become host-engine bind paths.
 The TCP listener remains loopback-only.
 Source contracts alone do not close this actual-wire task.
 
+Local prepared-padding qualification passed on
+`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`:
+default auth4 and meticulous auth5 FourPeer profiles plus crafted remote-Demand
+rejection, with captures and receipts in `reports/padding-wire-20261024/`.
+Eight resize phases and seven rejected candidates cover seventeen peer windows;
+actual aggregate and named BFD health remain SERVING. The 512 MiB runner cap
+is unchanged; all three runs have zero max/OOM events and swap. Source and
+artifact integrity checks match 853 files and 675 sidecars. This closes the
+local padding slice, not actual TTL, unified final-candidate, forwarding,
+general Demand or stable-release qualification.
+
 Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.

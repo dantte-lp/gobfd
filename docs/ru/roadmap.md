@@ -4,20 +4,36 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
-## Квалификация prepared padding в работе — 2026-10-24
+## Wire-квалификация prepared padding — 2026-10-24
 
-P0 `gobfd-qj0.8.2.2.7.5.3` выполняется в
-`task/padding-wire-20261024` от локального dev
-`8931c769d6b49cdf1ad5139d74e61505b85e585a`.
-Задачи `.3.1` и `.3.2` содержат общий validator/drivers и startup-only
-meticulous SHA1 профиль существующего FourPeer lifecycle. Задача `.3.3`
-требует фактических captures проверенного кандидата. DF/длины/padding
-RFC 9764 и непрерывность authentication RFC 5880 проверяются независимо;
-receive replay state каждого направления сохраняется на всей цепочке resize
-и отклонённых кандидатов. Receipts, client outcomes и readiness обязательны.
-Dynamic DF enable/disable и согласованная auth rotation остаются after-v1 P2.
-Приоритеты и acceptance ведутся в Beads; source contracts не подтверждают
-runtime и готовность v1. Evidence: `reports/padding-wire-20261024/`.
+P0 `gobfd-qj0.8.2.2.7.5.3` прошла локальную квалификацию на
+`task/padding-wire-20261024@b97729458a696aee21023ba147af51417ed9ff7b`.
+Default FourPeer проходит за 451.84 s, meticulous SHA1 — 271.71 s,
+crafted Demand — 134.28 s. Восемь resize-фаз и семь отклонённых кандидатов
+сохраняют identity, source port, непрерывность authentication, counters и
+accepted generation в применимых случаях. Семнадцать peer windows проверяют
+фактические DF, raw UDP payload, declared BFD Length, нулевой padding и границу
+MAC. Aggregate и named BFD readiness остаются SERVING. Независимый peer
+сохраняет свой размер пакета; bidirectional MTU и forwarding не подтверждаются.
+
+Лимит трёх runner сохранён на 512 MiB; peaks — 402780160, 425705472 и
+386764800 bytes, max/OOM events и swap — 0. Совпали все 853 source hashes
+и 675 artifact sidecars. С race/shuffle проходят 44 top-level source contract,
+crafted-peer tests, lint, vet, сборка, module tidy и проверки 88 Markdown-файлов.
+Найденный review host-bind mismatch устранён копированием того же собранного
+test-бинарника механизмом container files: штатный Unix socket проверяется
+внутри собственного контейнера демона. Переполнение одноразового compiler cache
+и OOM scanner устранены раздельными проверками и измеренным
+`GOMEMLIMIT=1000MiB` scanner без повышения job cap 2 GiB.
+
+Evidence: `reports/padding-wire-20261024/`. Три baseline SKIP сохранены явно:
+fixed source port BIRD, отсутствие capture начального Down и baseline Down(diag=1)
+для DetectionPrecision. Их disposition ведётся в `gobfd-qj0.8.2.2.7.5.5`.
+P0 TTL `.5.4`, unified final-candidate `.5.5`, scale/latency и security gates
+остаются обязательными для v1. Свежий scanner не находит reachable/imported-package
+уязвимостей; два прежних module-only advisory остаются в `gobfd-qj0.8.4.1`.
+Dynamic DF и auth rotation остаются after-v1 P2. Приоритеты и acceptance ведутся
+в Beads; готовность stable release и remote publication не заявляются.
 
 ## Подготовка wire validator для reload — 2026-10-24
 
