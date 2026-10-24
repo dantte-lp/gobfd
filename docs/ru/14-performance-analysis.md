@@ -205,6 +205,11 @@ Independent-process IPv4/IPv6 fixture 2026-10-24 проходит за 47,98 с:
 и unknown total clock uncertainty. Это production-core fixture receipt, а не
 reference-load или complete-daemon qualification. Implementation acceptance
 принадлежит Beads `gobfd-qj0.8.2.1.6.3.3`.
+Локальная implementation acceptance зафиксирована на
+`b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1`; исправленная process fixture
+проходит за 47,67 с с тем же ledger 79/79 и явным непустым measurement snapshot.
+Mutation и malformed-report проверки подтверждают snapshot/failure boundaries.
+Reference и absolute-clock qualification остаются открытыми.
 
 `RunOwner` сохраняет начальный и конечный снимки production collector, измеренные
 пики ресурсов, средние RSS за первые и последние шесть часов, дельты runtime

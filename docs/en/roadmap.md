@@ -20,7 +20,14 @@ The independent-process IPv4/IPv6 fixture passes in 47.98 s: 79 writes equal
 the same private namespace; all four containers are removed. Runner peak is
 293216256 bytes under 512 MiB, with zero max/OOM events and swap. Both process
 reports retain `reference_qualified=false` and unknown total clock uncertainty.
-Evidence: `reports/udp-resume-20261024/`; whole-branch acceptance remains pending.
+Corrective snapshot-presence assertions have a retained mutation RED/GREEN;
+malformed-peer JSON fails with retained diagnostics and four container removals.
+The corrected normal fixture passes in 47.67 s with the same 79/79 ledger and
+runner peak 203628544 bytes. Implementation is locally accepted at
+`b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1`: 73 critical race tests, lint, vet,
+tidy, 90 Markdown files, English spelling, inventory and fresh scanner pass;
+independent whole-branch review has no open findings. Evidence:
+`reports/udp-resume-20261024/`.
 Reference profiles, regression policy and thread-pin A/B stay P0 before the final
 four-profile wire gate. No supported-scale or stable-release claim follows.
 

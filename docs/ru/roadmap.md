@@ -20,7 +20,14 @@ Independent-process IPv4/IPv6 fixture проходит за 47,98 с: 79 writes 
 private namespace; все четыре контейнера удалены. Peak runner — 293216256 bytes
 при лимите 512 MiB; max/OOM events и swap — 0. Оба process reports сохраняют
 `reference_qualified=false` и unknown total clock uncertainty.
-Evidence: `reports/udp-resume-20261024/`; whole-branch acceptance ещё впереди.
+Усиленные snapshot-presence assertions имеют сохранённый mutation RED/GREEN;
+malformed-peer JSON отклоняется с сохранением диагностики и удалением четырёх
+контейнеров. Исправленная normal fixture проходит за 47,67 с с тем же ledger
+79/79 и peak runner 203628544 bytes. Implementation локально принята на
+`b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1`: проходят 73 critical race tests,
+lint, vet, tidy, 90 Markdown, English spelling, inventory и fresh scanner;
+независимый whole-branch review не имеет открытых замечаний. Evidence:
+`reports/udp-resume-20261024/`.
 Reference profiles, regression policy и thread-pin A/B остаются P0 до final
 four-profile wire gate. Supported scale и stable release этим не подтверждены.
 

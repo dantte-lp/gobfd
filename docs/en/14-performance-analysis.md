@@ -203,6 +203,11 @@ namespace setup and four verified container removals. Evidence:
 and unknown total clock uncertainty. This is a production-core fixture receipt,
 not reference-load or complete-daemon qualification. Beads
 `gobfd-qj0.8.2.1.6.3.3` owns implementation acceptance.
+Local implementation acceptance is recorded at
+`b2e68ad2a13824a05a9b92528fe55c9a8d4fd6d1`; the corrected process fixture
+passes in 47.67 s with the same 79/79 ledger and explicit nonempty measurement
+snapshot. Mutation and malformed-report checks prove snapshot and failure
+boundaries. Reference and absolute-clock qualification remain open.
 
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
