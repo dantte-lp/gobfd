@@ -235,6 +235,21 @@ source-only результаты эту задачу не закрывают.
 и DetectionPrecision требуют final-gate disposition вместе с известным
 отклонением fixed source port BIRD.
 
+Тот же crafted lifecycle предоставляет `TestCraftedMultihopTTLTestcontainers`
+с закрытым startup command `peer-multihop`: UDP/4784, meticulous SHA1,
+local RX 3 s и прежний TX 300 ms. `SIGUSR1` включает remote Demand;
+три шага `SIGUSR2` приостанавливают periodic TX peer до reload, повторяют
+последний принятый payload с допустимым TTL, отправляют свежий Poll ниже
+порога и его byte-identical повтор на пороге с шагом 200 ms, затем явно
+возобновляют TX после authenticated Final и снимков counters. Max-hops 1→5→1
+проверяется в Async и remote Demand, затем — отклонение auth+hop-policy input.
+Capture/authentication checkpoints сохраняются между фазами. Accepted RX
+увеличивается на один; ровно один auth failure относится к намеренному replay,
+state transitions не меняются. Исходный baseline охватывает reload и вход
+в Demand, а также каждую пробу.
+Проверяется локальная policy GoBFD `255 - N`; routed/cloud acceptance остаётся
+отдельной. Actual qualification принадлежит `gobfd-qj0.8.2.2.7.5.4.3`.
+
 ### Запуск тестов совместимости
 
 #### Полный цикл (рекомендуется)

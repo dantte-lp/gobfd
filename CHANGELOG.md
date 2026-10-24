@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an authenticated multihop startup profile to the existing crafted-peer
+  qualifier, with actual TTL boundary probes and persistent replay-state
+  verification for in-place receive-floor reloads; runtime acceptance remains
+  separately tracked before release.
+
 - Added in-place multihop receive-floor and prepared-padding reload for stable
   sole-config base sessions with unchanged authentication. Local TTL-only
   changes need no Poll; padding requires positive-to-positive targets, Async

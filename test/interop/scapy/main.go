@@ -32,7 +32,10 @@ var (
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "peer" {
-		os.Exit(runPeerMain())
+		os.Exit(runPeerMain(peerSingleHop))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "peer-multihop" {
+		os.Exit(runPeerMain(peerMultihopTTL))
 	}
 	os.Exit(realMain())
 }
@@ -68,7 +71,7 @@ func run(ctx context.Context, getenv func(string) string, output io.Writer) (run
 		return err
 	}
 
-	sender, err := newUDPSender(target)
+	sender, err := newUDPSender(target, bfdDestinationPort)
 	if err != nil {
 		return err
 	}
@@ -110,7 +113,7 @@ type udpSender struct {
 	destination *net.UDPAddr
 }
 
-func newUDPSender(target netip.Addr) (*udpSender, error) {
+func newUDPSender(target netip.Addr, port uint16) (*udpSender, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: bfdSourcePort})
 	if err != nil {
 		return nil, fmt.Errorf("listen on BFD source port %d: %w", bfdSourcePort, err)
@@ -118,7 +121,7 @@ func newUDPSender(target netip.Addr) (*udpSender, error) {
 	return &udpSender{
 		conn:        conn,
 		ipv4:        ipv4.NewPacketConn(conn),
-		destination: net.UDPAddrFromAddrPort(netip.AddrPortFrom(target, bfdDestinationPort)),
+		destination: net.UDPAddrFromAddrPort(netip.AddrPortFrom(target, port)),
 	}, nil
 }
 

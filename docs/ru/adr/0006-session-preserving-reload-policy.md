@@ -37,6 +37,22 @@ authentication replay state, counters и ownership. Shared session нельзя
 | Неподдерживаемый authentication transition | Отклонить весь candidate до принятия новой generation; сохранить прежнюю конфигурацию |
 | Неквалифицированное изменение wire identity или другой неподдерживаемый transition | Не заменять автоматически; disruptive replacement требует отдельного явного намерения оператора |
 
+Квалификация multihop receive floor использует authenticated UDP/4784 startup
+profile штатной crafted-peer topology. Peer приостанавливается до reload;
+повтор его последнего принятого signed payload с допустимым TTL должен быть
+отклонён до свежей boundary-пробы. Этот намеренный replay добавляет ровно
+один auth failure и ноль accepted inputs; сам reload не добавляет auth failures
+или state transitions. Исходный identity/counter baseline охватывает все
+reload и вход в remote Demand. За подписанным Poll ниже `255 - N`
+следует идентичный payload с тем же sequence на пороге. Только второй пакет
+может увеличивать accepted-input counter и вызывать Final; отклонённый пакет
+не продвигает receive authentication state. Один capture/authentication
+checkpoint сохраняется через reload и вход в remote Demand. Probe укладывается
+в действующий Detection Time, чтобы expiry replay state не подменяло проверку
+непрерывности. Source tests не закрывают actual kernel/capture gate
+`gobfd-qj0.8.2.2.7.5.4.3`. Профиль не квалифицирует routed/cloud paths или
+общую работу Demand.
+
 Увеличение TX и уменьшение RX сохраняют защищённый прежний локальный эффект
 до соответствующего Final; обратные изменения сохраняют действующий immediate
 effect. Активный Poll сохраняет объявленный tuple, последующий proposal

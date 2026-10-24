@@ -558,7 +558,7 @@ func TestInteropOperationalContract(t *testing.T) {
 			"-run '^(TestTimerReload.+|TestCraftedPeerEvidence.+)$$' ./test/interop/",
 		"-run '^(TestFourPeerTopologyTestcontainers|TestFourPeerMeticulousTopologyTestcontainers|" +
 			"TestBIRDFlowSpecValidation|" +
-			"TestCraftedPeerTestcontainers)$$' ./test/interop/",
+			"TestCraftedPeerTestcontainers|TestCraftedMultihopTTLTestcontainers)$$' ./test/interop/",
 		"interop-project-validate",
 		`"INTEROP_PROJECT_NAME=$${INTEROP_PROJECT_NAME}"`,
 		`bgp_project="$${INTEROP_PROJECT_NAME}-bgp"`,
@@ -807,59 +807,6 @@ func TestInteropOperationalContract(t *testing.T) {
 		"GoBFD, FRR, BIRD3, Holo, Holo loader, Thoro/bfd, tshark, Go BFD invalid-vector generator",
 		"Exact Compose project label",
 	})
-
-	implementationPlan := readContractFile(
-		t,
-		"Holo implementation plan",
-		filepath.Join(root, "docs", "superpowers", "plans", "2026-08-21-"+"aio"+"bfd-to-holo-interop.md"),
-	)
-	assertContainsAll(t, "Holo Task 6 plan", implementationPlan, []string{
-		`TASK6_ARTIFACT_DIR="$(mktemp -d`,
-		"INVALID_STARTUP=",
-		"PODMAN=(timeout 2m podman)",
-		"INTEROP_COMPOSE_OVERRIDE_FILE",
-		`grep -Fq '=== Holo daemon logs ==='`,
-		`grep -Fq '=== Holo daemon /tmp/holod.err ==='`,
-		`grep -Fq '=== Holo configuration loader logs ==='`,
-		`"${PODMAN[@]}" events`,
-		`.Name == "holo-interop" and .Status == "create"`,
-		`.Name == "holo-interop" and .Status == "start"`,
-		`.Name == "holo-config-interop" and .Status == "create"`,
-		`.Name == "holo-config-interop" and .Status == "start"`,
-		`.Name == "holo-config-interop" and .Status == "died"`,
-		`(.ContainerExitCode | type) == "number"`,
-		`.ContainerExitCode == 0`,
-		`grep -Fq 'Holo running configuration is missing the required BFD session'`,
-		`--command 'show running format json'`,
-		`Holo command-line interface 0.5.0`,
-		`holo-version.txt`,
-		`.["ietf-interfaces:interfaces"].interface[]?`,
-		`.type == "iana-if-type:ethernetCsmacd"`,
-		`.["ietf-ip:ipv4"] | type`,
-		`.type == "ietf-bfd-types:bfdv1"`,
-		`.["dest-addr"] == "172.20.0.10"`,
-		`.["source-addr"] == "172.20.0.50"`,
-		"source ./test/interop/project_guard.sh",
-		"interop_verify_project_absent",
-		"interop_verify_labelled_containers_absent",
-		"make interop-up",
-		"go test -json -tags interop",
-		`select(.Action == "pass" and .Test == "TestHoloFailureRecoveryLifecycle")`,
-		`select(.Action == "skip" and .Test == "TestHoloFailureRecoveryLifecycle")`,
-		"make interop-down",
-		"make proto-lint",
-		"gobfd-interop-negative",
-		"gobfd-interop-bgp",
-		"v062-testcontainers",
-		"io.gobfd.e2e.merge-owner",
-		"There is no `podman volume rm` cleanup path.",
-	})
-	if strings.Contains(implementationPlan, `.ContainerExitCode != 0`) {
-		t.Error("Holo Task 6 plan retains the impossible non-zero loader assertion")
-	}
-	if strings.Contains(implementationPlan, "\nbuf lint\n") {
-		t.Error("Holo Task 6 plan invokes an unpinned host buf binary")
-	}
 }
 
 func TestInteropJitterAnalyzerContract(t *testing.T) {

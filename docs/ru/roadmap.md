@@ -4,6 +4,26 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Квалификация multihop TTL в работе — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.4` продолжается в `task/ttl-wire-20261024` от локального
+`dev@5c0772ceb548c2d692cee61eabea37d40b2b2b82`. Штатная crafted-топология
+получила authenticated UDP/4784 startup profile; исходное single-hop поведение
+сохранено. Транзакционный анализатор захвата проверяет Poll ниже порога,
+идентичный повтор на пороге, порядок Final, счётчики принятого ввода и replay
+state. После наблюдённого RED проходят 73 top-level source tests с
+race/shuffle; production core и зависимости не изменены. Два выявленных review
+пробела квалификации устранены: исходный counter baseline охватывает reload,
+а ранее принятый sequence повторяется после reload до свежей boundary-пробы.
+Ровно один ожидаемый auth failure на пробу учитывает этот намеренный replay.
+Evidence: `reports/ttl-wire-20261024/`.
+
+Это source-stage snapshot без actual-wire acceptance.
+Beads `.5.4.1` и `.5.4.2` остаются in progress; `.5.4.3` отвечает за фактический
+захват на проверенном исходном коде. P0 unified final-candidate `.5.5`,
+scale/latency и security qualification остаются обязательными до v1.
+Dynamic DF и key rotation остаются after-v1 P2; remote publication приостановлена.
+
 ## Wire-квалификация prepared padding — 2026-10-24
 
 P0 `gobfd-qj0.8.2.2.7.5.3` прошла локальную квалификацию на

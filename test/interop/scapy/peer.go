@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"slices"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -56,8 +58,8 @@ var (
 	errPhasesExhausted = errors.New("crafted peer phases exhausted")
 )
 
-// peer is a minimal RFC 5880 asynchronous-mode BFD system without
-// authentication. It exists to drive GoBFD into remote Required Min RX
+// peer is the RFC 5880 asynchronous state model; peerTransport validates authentication.
+// It exists to drive GoBFD into remote Required Min RX
 // Interval zero, remote silence and remote Demand, which pinned FRR and BIRD
 // cannot advertise.
 type peer struct {
@@ -144,7 +146,7 @@ func nextState(local, remote bfd.State) bfd.State {
 // receive applies the RFC 5880 Section 6.8.6 reception rules to a codec-valid
 // packet and returns the Final reply that a Poll requires (Section 6.8.7).
 func (crafted *peer) receive(packet bfd.ControlPacket) (bfd.ControlPacket, bool) {
-	if crafted.silent || (packet.YourDiscriminator != 0 && packet.YourDiscriminator != peerDiscriminator) {
+	if crafted.silent || !peerPacketTarget(packet) {
 		return bfd.ControlPacket{}, false
 	}
 	if packet.Final {
@@ -206,7 +208,7 @@ func writePeerEvent(output io.Writer, event, value string) {
 }
 
 // runPeerMain runs the crafted peer until SIGTERM or SIGINT.
-func runPeerMain() int {
+func runPeerMain(mode peerMode) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, peerTimeout)
@@ -214,7 +216,7 @@ func runPeerMain() int {
 	advance := make(chan os.Signal, 1)
 	signal.Notify(advance, syscall.SIGUSR1, syscall.SIGUSR2)
 	defer signal.Stop(advance)
-	if err := runPeer(ctx, os.Getenv, os.Stdout, advance); err != nil {
+	if err := runPeer(ctx, os.Getenv, os.Stdout, advance, mode); err != nil {
 		fmt.Fprintf(os.Stderr, "BFD crafted peer: %v\n", err)
 		return 2
 	}
@@ -222,42 +224,55 @@ func runPeerMain() int {
 }
 
 func runPeer(
-	ctx context.Context, getenv func(string) string, output io.Writer, advance <-chan os.Signal,
+	ctx context.Context, getenv func(string) string, output io.Writer, advance <-chan os.Signal, mode peerMode,
 ) (runErr error) {
+	transport, err := newPeerTransport(mode)
+	if err != nil {
+		return err
+	}
 	target, err := parseTarget(getenv)
 	if err != nil {
 		return err
 	}
-	sender, err := newUDPSender(target)
+	sender, err := newUDPSender(target, transport.port)
 	if err != nil {
 		return err
 	}
-	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: bfdDestinationPort})
+	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: int(transport.port)})
 	if err != nil {
-		return errors.Join(fmt.Errorf("listen on BFD port %d: %w", bfdDestinationPort, err), sender.Close())
+		return errors.Join(fmt.Errorf("listen on BFD port %d: %w", transport.port, err), sender.Close())
 	}
 	defer func() {
 		runErr = errors.Join(runErr, receiver.Close(), sender.Close())
 	}()
-	packets := make(chan bfd.ControlPacket, peerPacketQueue)
+	packets := make(chan []byte, peerPacketQueue)
 	go readPeerPackets(ctx, receiver, target, packets)
-	loop := &peerLoop{crafted: newPeer(), output: output, send: func(packet bfd.ControlPacket) error {
-		payload, marshalErr := marshalControl(packet)
-		if marshalErr != nil {
-			return marshalErr
-		}
-		return sender.Send(ctx, vectorPacket{Detail: "crafted peer control", Payload: payload, TTL: defaultTTL})
-	}}
+	loop := &peerLoop{
+		crafted: newPeer(), transport: transport, mode: mode, output: output,
+		sendRaw: func(packet vectorPacket) error { return sender.Send(ctx, packet) },
+		send: func(packet bfd.ControlPacket) error {
+			payload, marshalErr := transport.marshal(packet)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			return sender.Send(ctx, vectorPacket{Detail: "crafted peer control", Payload: payload, TTL: defaultTTL})
+		},
+	}
 	writePeerEvent(output, "start", target.String())
 	return loop.run(ctx, packets, advance)
 }
 
 // peerLoop owns the crafted peer state on one goroutine.
 type peerLoop struct {
-	crafted *peer
-	output  io.Writer
-	send    func(bfd.ControlPacket) error
-	next    int
+	crafted    *peer
+	transport  *peerTransport
+	mode       peerMode
+	probe      *peerTTLProbe
+	probeIndex int
+	sendRaw    func(vectorPacket) error
+	output     io.Writer
+	send       func(bfd.ControlPacket) error
+	next       int
 	// lastSent is the last transmission or skipped periodic slot.
 	lastSent time.Time
 }
@@ -266,7 +281,12 @@ type peerLoop struct {
 // shorter advertised interval at once, so the remote Detection Time derived
 // from it never expires between packets (RFC 5880 Sections 6.8.3 and 6.8.4).
 func (loop *peerLoop) deadline() time.Time {
-	return loop.lastSent.Add(loop.crafted.interval())
+	deadline := loop.lastSent.Add(loop.crafted.interval())
+	if probe := loop.probe; probe != nil &&
+		(probe.stage == ttlProbeReplay || probe.stage == ttlProbeWaiting) && probe.deadline.Before(deadline) {
+		return probe.deadline
+	}
+	return deadline
 }
 
 func (loop *peerLoop) transmit(packet bfd.ControlPacket) error {
@@ -274,7 +294,7 @@ func (loop *peerLoop) transmit(packet bfd.ControlPacket) error {
 	return loop.send(packet)
 }
 
-func (loop *peerLoop) run(ctx context.Context, packets <-chan bfd.ControlPacket, advance <-chan os.Signal) error {
+func (loop *peerLoop) run(ctx context.Context, packets <-chan []byte, advance <-chan os.Signal) error {
 	loop.lastSent = time.Now()
 	timer := time.NewTimer(loop.crafted.interval())
 	defer timer.Stop()
@@ -287,14 +307,10 @@ func (loop *peerLoop) run(ctx context.Context, packets <-chan bfd.ControlPacket,
 				return fmt.Errorf("crafted peer scenario: %w", ctx.Err())
 			}
 			return nil
-		case packet := <-packets:
-			err = loop.receive(packet)
+		case wire := <-packets:
+			err = loop.receiveWire(wire)
 		case <-timer.C:
-			if packet, ok := loop.crafted.periodic(); ok {
-				err = loop.transmit(packet)
-			} else {
-				loop.lastSent = time.Now()
-			}
+			err = loop.tick(time.Now())
 		case event := <-advance:
 			err = loop.signal(event)
 		}
@@ -305,7 +321,30 @@ func (loop *peerLoop) run(ctx context.Context, packets <-chan bfd.ControlPacket,
 	}
 }
 
+func (loop *peerLoop) receiveWire(wire []byte) error {
+	if loop.crafted.silent {
+		return nil
+	}
+	packet, err := loop.transport.decode(wire)
+	if err != nil {
+		writePeerEvent(loop.output, "discard", err.Error())
+		return nil
+	}
+	return loop.receive(packet)
+}
+
+func peerPacketTarget(packet bfd.ControlPacket) bool {
+	return packet.YourDiscriminator == 0 || packet.YourDiscriminator == peerDiscriminator
+}
+
 func (loop *peerLoop) receive(packet bfd.ControlPacket) error {
+	if packet.Final && loop.probe != nil {
+		if loop.probe.stage != ttlProbeAwaitFinal {
+			return fmt.Errorf("unexpected Final before admissible probe: %w", errPeerTTLProbe)
+		}
+		loop.probe.stage = ttlProbeComplete
+		writePeerEvent(loop.output, "ttl-probe-final", strconv.Itoa(loop.probe.floor))
+	}
 	previous := loop.crafted.state
 	reply, ok := loop.crafted.receive(packet)
 	if loop.crafted.state != previous {
@@ -319,13 +358,22 @@ func (loop *peerLoop) receive(packet bfd.ControlPacket) error {
 
 func (loop *peerLoop) signal(event os.Signal) error {
 	if event == syscall.SIGUSR2 {
+		if loop.mode == peerMultihopTTL {
+			return loop.probeSignal(time.Now())
+		}
 		return loop.crafted.apply(phasePoll)
 	}
 	return loop.advance()
 }
 
 func (loop *peerLoop) advance() error {
+	if loop.probe != nil {
+		return fmt.Errorf("advance while probe paused: %w", errPeerTTLProbe)
+	}
 	phases := peerPhases()
+	if loop.mode == peerMultihopTTL {
+		phases = []string{phaseDemand, phaseDemandClear}
+	}
 	if loop.next == len(phases) {
 		return errPhasesExhausted
 	}
@@ -337,21 +385,19 @@ func (loop *peerLoop) advance() error {
 	return nil
 }
 
-// readPeerPackets forwards codec-valid packets from the target until the
-// socket closes; RFC 5880 Section 6.8.6 discards invalid packets silently.
-func readPeerPackets(ctx context.Context, conn *net.UDPConn, target netip.Addr, packets chan<- bfd.ControlPacket) {
+// readPeerPackets transfers owned datagrams; the owner validates codec and authentication before FSM mutation.
+func readPeerPackets(ctx context.Context, conn *net.UDPConn, target netip.Addr, packets chan<- []byte) {
 	buffer := make([]byte, peerReadBuffer)
 	for {
 		size, source, err := conn.ReadFromUDPAddrPort(buffer)
 		if err != nil {
 			return
 		}
-		var packet bfd.ControlPacket
-		if source.Addr().Unmap() != target || bfd.UnmarshalControlPacket(buffer[:size], &packet) != nil {
+		if source.Addr().Unmap() != target {
 			continue
 		}
 		select {
-		case packets <- packet:
+		case packets <- slices.Clone(buffer[:size]):
 		case <-ctx.Done():
 			return
 		}

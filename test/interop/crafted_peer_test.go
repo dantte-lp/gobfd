@@ -540,11 +540,22 @@ func evaluateCraftedQueued(frames []craftedFrame, from int, plan craftedPlan, ev
 }
 
 func TestCraftedPeerTestcontainers(t *testing.T) {
+	runCraftedPeerTopology(t, craftedSingleHop, runCraftedPeerScenario)
+}
+
+func TestCraftedMultihopTTLTestcontainers(t *testing.T) {
+	runCraftedPeerTopology(t, craftedMultihopTTL, runTTLScenario)
+}
+
+func runCraftedPeerTopology(t *testing.T, profile craftedProfile,
+	scenario func(context.Context, *testing.T, []byte, testcontainers.Container),
+) {
+	t.Helper()
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	endpoint := containertest.RequirePodman(t)
 	resources := new(fourPeerResources)
 
-	if !t.Run("remote RX0 silence and Demand", func(t *testing.T) {
+	if !t.Run("crafted peer scenario", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 12*time.Minute)
 		t.Cleanup(cancel)
 		root := fourPeerRepositoryRoot(t)
@@ -552,7 +563,16 @@ func TestCraftedPeerTestcontainers(t *testing.T) {
 		assertFourPeerNamesAvailable(ctx, t, endpoint)
 		t.Setenv("INTEROP_PROJECT_NAME", projectName)
 		ensureFourPeerArtifactDirectory(t)
-		peer := startCraftedPeerTopology(ctx, t, endpoint, root, projectName, resources)
+		input, err := os.ReadFile(filepath.Join(root, craftedPeerConfig))
+		if err != nil {
+			t.Fatalf("read crafted startup baseline: %v", err)
+		}
+		baseline, err := selectCraftedConfig(input, profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configPath := writeTimerArtifact(t, "crafted-startup", "yml", baseline)
+		peer := startCraftedPeerTopology(ctx, t, endpoint, root, projectName, resources, configPath, profile)
 		registerFourPeerArtifactCleanup(ctx, t, func(artifactCtx context.Context) {
 			for name, container := range map[string]string{"daemon": "gobfd-interop", "crafted-peer": "scapy-interop"} {
 				logs, err := projectContainerLogs(artifactCtx, container)
@@ -565,7 +585,7 @@ func TestCraftedPeerTestcontainers(t *testing.T) {
 		}, func(artifactCtx context.Context) {
 			captureFourPeerPCAP(artifactCtx, t, resources.tshark)
 		})
-		runCraftedPeerScenario(ctx, t, root, peer)
+		scenario(ctx, t, baseline, peer)
 	}) {
 		t.Error("crafted peer testcontainers topology failed")
 	}
@@ -583,6 +603,7 @@ func TestCraftedPeerTestcontainers(t *testing.T) {
 
 func startCraftedPeerTopology(
 	ctx context.Context, t *testing.T, endpoint, root, projectName string, resources *fourPeerResources,
+	configPath string, profile craftedProfile,
 ) testcontainers.Container {
 	t.Helper()
 	buildID := time.Now().UnixNano()
@@ -593,16 +614,24 @@ func startCraftedPeerTopology(
 	peerImage := buildFourPeerImage(ctx, t, endpoint, prepareCraftedPeerContext(t, root),
 		fmt.Sprintf("localhost/bfd-crafted-peer-test:%d", buildID), resources, nil)
 	networkName, labels := startFourPeerNetwork(ctx, t, projectName, "crafted-peer-testcontainers", resources)
-	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, filepath.Join(root, craftedPeerConfig), networkName, labels, resources)
+	gobfd := startFourPeerGoBFD(ctx, t, gobfdImage, configPath, networkName, labels, resources)
 	resources.tshark = startFourPeerTshark(ctx, t, tsharkImage, gobfd, labels, resources)
 	// Fail before the scenario when the dissector lacks a queried field.
-	requireCaptureFields(ctx, t, append(paddingFrameFields(), "bfd.diag"))
+	fields := append(paddingFrameFields(), "bfd.diag")
+	if profile == craftedMultihopTTL {
+		fields = append(fields, "ip.ttl", "udp.dstport")
+	}
+	requireCaptureFields(ctx, t, fields)
+	command := "peer"
+	if profile == craftedMultihopTTL {
+		command = "peer-multihop"
+	}
 	peer := startFourPeerContainer(ctx, t, testcontainers.ContainerRequest{
 		Image:                    peerImage,
 		Name:                     "scapy-interop",
 		Labels:                   labels,
 		Networks:                 []string{networkName},
-		Cmd:                      []string{"peer"},
+		Cmd:                      []string{command},
 		Env:                      map[string]string{"GOBFD_IP": gobfdIP},
 		WaitingFor:               wait.ForLog(`"event":"start"`).WithStartupTimeout(20 * time.Second),
 		HostConfigModifier:       addFourPeerCapabilities,
@@ -652,7 +681,7 @@ func waitCrafted(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-func waitCraftedUp(ctx context.Context, t *testing.T) {
+func waitCraftedUp(ctx context.Context, t *testing.T, localRX uint64) {
 	t.Helper()
 	upCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -666,7 +695,7 @@ func waitCraftedUp(ctx context.Context, t *testing.T) {
 		return err == nil, err == nil && state.LocalState == "Up" && state.RemoteState == "Up", err
 	})
 	if err == nil {
-		err = waitTimerQuiet(ctx, fuzzIP, craftedBaseInterval)
+		err = waitTimerQuietRX(ctx, fuzzIP, craftedBaseInterval, localRX)
 	}
 	if err != nil {
 		t.Fatalf("crafted peer session Up with baseline timers: %v", err)
@@ -697,18 +726,14 @@ func advanceCrafted(ctx context.Context, t *testing.T, peer testcontainers.Conta
 	}
 }
 
-func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer testcontainers.Container) {
+func runCraftedPeerScenario(ctx context.Context, t *testing.T, baseline []byte, peer testcontainers.Container) {
 	t.Helper()
-	baseline, err := os.ReadFile(filepath.Join(root, craftedPeerConfig))
-	if err != nil {
-		t.Fatalf("read crafted peer daemon baseline: %v", err)
-	}
 	hold := func(duration time.Duration) {
 		if waitErr := waitCrafted(ctx, duration); waitErr != nil {
 			t.Fatal(waitErr)
 		}
 	}
-	waitCraftedUp(ctx, t)
+	waitCraftedUp(ctx, t, craftedBaseInterval)
 	// (a) RFC 5880 Section 6.8.7: remote Required Min RX 0 stops periodic TX; a Poll still gets a Final.
 	advanceCrafted(ctx, t, peer, "rx0", true)
 	hold(4 * time.Second)
@@ -723,7 +748,7 @@ func runCraftedPeerScenario(ctx context.Context, t *testing.T, root string, peer
 	advanceCrafted(ctx, t, peer, "silent", false)
 	hold(6 * time.Second)
 	advanceCrafted(ctx, t, peer, "recover", false)
-	waitCraftedUp(ctx, t)
+	waitCraftedUp(ctx, t, craftedBaseInterval)
 	// (c) RFC 5880 Section 6.6: remote Demand stops periodic TX; a timer change uses a Poll Sequence.
 	receipts := readTimerReceipts(ctx, t, "crafted-demand-before")
 	previous := receipts[len(receipts)-1].Applied

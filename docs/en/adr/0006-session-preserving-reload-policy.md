@@ -37,6 +37,22 @@ must not be mutated for one owner; an incompatible proposal is rejected.
 | Unsupported authentication transition | Reject the complete candidate before accepting a new generation; retain the old configuration |
 | Unqualified wire-identity change or other unsupported transition | No implicit replacement; require separate explicit operator intent for disruptive replacement |
 
+Multihop receive-floor qualification uses an authenticated UDP/4784 startup
+profile of the existing crafted-peer topology. The peer pauses before reload;
+an admissible-TTL replay of its last accepted signed payload must be rejected
+before the fresh boundary probe. That deliberate replay accounts for exactly
+one auth failure and zero accepted inputs; reload itself adds neither auth
+failures nor state transitions. An initial identity/counter baseline spans
+all reloads and remote-Demand entry. For each boundary, a signed
+Poll below `255 - N` is followed by the identical payload and sequence at
+the floor. Only the latter may count as accepted input or elicit Final;
+rejected input must not advance receive authentication state. One persistent
+capture/authentication checkpoint spans reloads and remote-Demand entry.
+Probes complete within the existing Detection Time so replay-state expiry
+cannot substitute for continuity. Source tests alone do not close the actual
+kernel/capture gate `gobfd-qj0.8.2.2.7.5.4.3`. This profile does not qualify
+routed/cloud paths or general Demand operation.
+
 TX increases and RX decreases retain their protected old local effect until
 the relevant Final; the reverse directions retain their existing immediate
 effect. An active Poll keeps its advertised tuple, and a later proposal is

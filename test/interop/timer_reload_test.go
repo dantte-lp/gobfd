@@ -568,12 +568,7 @@ func timerSnapshot(ctx context.Context, t *testing.T, peer, name string) (sessio
 	if err != nil {
 		t.Fatalf("parse timer snapshot: %v", err)
 	}
-	text, err := projectContainerCommand(ctx, "gobfd-interop",
-		"exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer)
-	writeTimerArtifact(t, name+"-status", "txt", []byte(text))
-	if err != nil {
-		t.Fatalf("timer text counters: %v", err)
-	}
+	text := timerTextSnapshot(ctx, t, peer, name)
 	var counters [2]uint64
 	for index, label := range []string{"State Transitions", "Auth Failures"} {
 		counters[index], err = parseTimerCounter(text, label)
@@ -582,6 +577,17 @@ func timerSnapshot(ctx context.Context, t *testing.T, peer, name string) (sessio
 		}
 	}
 	return state, counters
+}
+
+func timerTextSnapshot(ctx context.Context, t *testing.T, peer, name string) string {
+	t.Helper()
+	text, err := projectContainerCommand(ctx, "gobfd-interop",
+		"exec", "/bin/gobfdctl", "--addr", "127.0.0.1:50051", "session", "show", peer)
+	writeTimerArtifact(t, name+"-status", "txt", []byte(text))
+	if err != nil {
+		t.Fatalf("timer text counters: %v", err)
+	}
+	return text
 }
 
 func readTimerReceipts(ctx context.Context, t *testing.T, name string) []timerReceipt {
@@ -626,6 +632,10 @@ func retainTimerPollEvidence(ctx context.Context, name string, generation uint64
 }
 
 func waitTimerQuiet(ctx context.Context, peer string, remoteRX uint64) error {
+	return waitTimerQuietRX(ctx, peer, remoteRX, 300000)
+}
+
+func waitTimerQuietRX(ctx context.Context, peer string, remoteRX, localRX uint64) error {
 	boundary, err := lastFrameForFilter(ctx, timerTraffic(peer))
 	if err != nil {
 		return err
@@ -654,7 +664,7 @@ func waitTimerQuiet(ctx context.Context, peer string, remoteRX uint64) error {
 				}
 				remote++
 			} else {
-				if frame.TX != 300000 || frame.RX != 300000 {
+				if frame.TX != 300000 || frame.RX != localRX {
 					local = 0
 					continue
 				}

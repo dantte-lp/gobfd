@@ -64,26 +64,11 @@ func TestTimerReloadPaddingRejectedGeneration(t *testing.T) {
 func paddingContractFrame(t *testing.T, authType bfd.AuthType, size int, mine, yours, sequence uint32,
 ) (paddingFrame, bfd.AuthKeyStore) {
 	t.Helper()
-	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{ID: 7, Type: authType, Secret: []byte("fixture-key")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	auth, err := bfd.NewAuthenticator(authType)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state := &bfd.AuthState{Type: authType, XmitAuthSeq: sequence}
 	packet := &bfd.ControlPacket{
 		Version: 1, State: bfd.StateUp, DetectMult: 3,
 		MyDiscriminator: mine, YourDiscriminator: yours, DesiredMinTxInterval: 300000, RequiredMinRxInterval: 300000,
 	}
-	payload := make([]byte, size)
-	if err := auth.Sign(state, keys, packet, payload, 0); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bfd.MarshalControlPacket(packet, payload); err != nil {
-		t.Fatal(err)
-	}
+	payload, keys := signedContractControl(t, packet, authType, size, sequence)
 	frame := paddingFrame{
 		UDPLength: uint64(size + 8), AuthType: uint64(authType), DF: 1, Payload: payload,
 		Source: gobfdIP, Destination: bird3IP, SourcePort: 50000, State: 3, Mine: uint64(mine), Yours: uint64(yours),
@@ -94,6 +79,28 @@ func paddingContractFrame(t *testing.T, authType bfd.AuthType, size int, mine, y
 		frame.Source, frame.Destination, frame.SourcePort = bird3IP, gobfdIP, 60000
 	}
 	return frame, keys
+}
+
+func signedContractControl(t *testing.T, packet *bfd.ControlPacket, authType bfd.AuthType, size int, sequence uint32,
+) ([]byte, bfd.AuthKeyStore) {
+	t.Helper()
+	keys, err := bfd.NewStaticAuthKeyStore(bfd.AuthKey{ID: 7, Type: authType, Secret: []byte("fixture-key")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := bfd.NewAuthenticator(authType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &bfd.AuthState{Type: authType, XmitAuthSeq: sequence}
+	payload := make([]byte, size)
+	if err := auth.Sign(state, keys, packet, payload, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bfd.MarshalControlPacket(packet, payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload, keys
 }
 
 func TestTimerReloadPaddingCapture(t *testing.T) {

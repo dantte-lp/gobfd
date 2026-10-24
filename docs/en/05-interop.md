@@ -234,6 +234,21 @@ and stable-release gates remain separate. Baseline initial-Down and
 DetectionPrecision skips require final-gate disposition alongside the known
 BIRD fixed-source-port deviation.
 
+The same crafted lifecycle also provides `TestCraftedMultihopTTLTestcontainers`
+with the closed `peer-multihop` startup command: UDP/4784, meticulous SHA1,
+local RX 3 s and unchanged TX 300 ms. `SIGUSR1` enters remote Demand;
+three `SIGUSR2` steps pause peer periodic TX before reload, replay its last
+accepted payload at admissible TTL, then send a fresh below-floor Poll and
+its byte-identical at-floor retry at successive 200 ms slots, then resume
+after authenticated Final and counter snapshots. Max-hops 1→5→1 is exercised
+in Async and remote Demand, followed by rejected auth+hop-policy input.
+Capture/authentication checkpoints persist across phases. Accepted RX increases
+by one; exactly one auth failure accounts for the deliberate replay, and
+state transitions remain unchanged. A persistent initial baseline checks
+reload and Demand transitions as well as each probe. This
+checks GoBFD's local `255 - N` policy; routed/cloud acceptance remains separate.
+Actual qualification belongs to `gobfd-qj0.8.2.2.7.5.4.3`.
+
 ### Running Interop Tests
 
 #### Full Cycle (Recommended)

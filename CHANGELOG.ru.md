@@ -16,6 +16,11 @@
 
 ### Добавлено
 
+- В штатный crafted-peer qualifier добавлен authenticated multihop startup
+  profile с фактическими TTL boundary probes и сохранением replay state при
+  in-place reload receive floor; runtime acceptance учитывается отдельно до
+  выпуска.
+
 - Добавлен in-place reload multihop receive floor и подготовленного padding
   stable sole-config base sessions с прежней authentication. TTL-only changes
   не требуют Poll; padding требует positive-to-positive targets, Async и

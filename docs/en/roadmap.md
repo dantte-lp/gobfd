@@ -4,6 +4,26 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Multihop TTL qualification in progress — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.4` continues in `task/ttl-wire-20261024` from local
+`dev@5c0772ceb548c2d692cee61eabea37d40b2b2b82`. The existing crafted topology
+now has an authenticated UDP/4784 startup profile; default single-hop behavior
+is retained. A transactional capture evaluator checks the below-floor Poll,
+identical at-floor retry, Final ordering, accepted-input counters and replay
+state. The observed RED/GREEN source gate passes 73 top-level tests with
+race/shuffle, without production-core or dependency changes. Independent review
+found and resolved two qualification gaps: an initial counter baseline now
+spans reloads, and an already accepted sequence is replayed after reload
+before fresh boundary input. Exactly one expected auth failure per probe
+accounts for that deliberate replay. Evidence: `reports/ttl-wire-20261024/`.
+
+This source-stage snapshot does not establish actual-wire acceptance.
+Beads `.5.4.1` and `.5.4.2` remain in progress; `.5.4.3` owns actual capture
+at the reviewed source. P0 unified final-candidate `.5.5`, scale/latency and
+security qualification remain mandatory before v1. Dynamic DF and key
+rotation remain after-v1 P2; remote publication remains on hold.
+
 ## Prepared-padding wire qualification — 2026-10-24
 
 P0 `gobfd-qj0.8.2.2.7.5.3` passed local qualification on
