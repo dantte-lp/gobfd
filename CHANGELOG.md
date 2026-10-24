@@ -576,6 +576,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prepare desired claims before stale release and retain old source claims on
+  resource-pending preparation. Bound occupied-key replacement to prepared,
+  sole-config base SingleHop/MultiHop swaps, then drain the captured old session
+  before lease/discriminator cleanup. Overlay preflight rejects unequal
+  same-wire scopes with live/draining lease refs, prunes obsolete unused
+  preparations and permits unused preparation supersession. Incomplete acquire holds the source before Manager apply
+  or release. Peer-visible cutover does not guarantee hitless rollback.
+
 - Reject unsupported same-identity base authentication reload before accepting
   a generation or changing log level, readiness, configured peers or resources.
   Compare immutable fingerprints with retained desired state and live sessions,

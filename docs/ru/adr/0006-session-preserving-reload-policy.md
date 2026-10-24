@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-24 |
-| Qualification | Принята policy; implementation и peer qualification проверяются отдельно |
+| Qualification | Принята policy; implqual-local; actual-wire qualification открыта |
 
 ## Контекст
 
@@ -35,7 +35,7 @@ authentication replay state, counters и ownership. Shared session нельзя
 | Multihop minimum TTL | Применять локальный receive floor 255 − N под Session.mu без замены и Poll, в том числе при remote Demand; это policy GoBFD, не требование RFC 5883 к receive TTL |
 | Padded PDU target | Допускать только positive-to-positive changes в Async на уже DF-prepared sender с прежней authentication и единственным config-owner; неподдерживаемый base candidate отклонять до generation acceptance |
 | Неподдерживаемый authentication transition | Отклонить весь candidate до принятия новой generation; сохранить прежнюю конфигурацию |
-| Wire identity или другой неподдерживаемый transition | Не заменять автоматически; disruptive replacement требует отдельного явного намерения оператора |
+| Неквалифицированное изменение wire identity или другой неподдерживаемый transition | Не заменять автоматически; disruptive replacement требует отдельного явного намерения оператора |
 
 Увеличение TX и уменьшение RX сохраняют защищённый прежний локальный эффект
 до соответствующего Final; обратные изменения сохраняют действующий immediate
@@ -121,6 +121,36 @@ cutover должна откатывать подготовленные ресу�
 Administrative signaling следует RFC 5880 §6.8.16 и применимой client policy
 RFC 5882; AdminDown не обещает неизменность BGP или forwarding во всех случаях.
 
+Source получает/готовит desired resources до освобождения stale claims. Снятие
+старых claims допустимо только при нулевых `Failed` и `ResourcePending`;
+timer negotiation учитывается отдельно. Fatal preparation откатывает новые
+claims, valid disjoint claims могут сохраниться для resource-pending retry.
+Занятый receive key допускает подготовленный SingleHop/MultiHop swap только
+для base sessions без interface с одним config-owner, отсутствующим в desired
+старым ключом и прежними остальными identity fields. Другие collisions
+отклоняются до sender factory, а для base reload — и до desired-generation
+acceptance. Отмена до публикации swap сохраняет прежнюю identity;
+подготовленные lease/discriminator освобождаются ровно один раз. После публикации
+прежняя captured session фиксирует AdminDown и выполняет drain вне Manager и
+lifecycle mutation locks, удерживая lease/discriminator до завершения или
+typed incomplete failure, после чего выполняется cleanup.
+
+Чистый overlay scope preflight проверяет целый source VXLAN или Geneve до
+любого backend open или `SetScopes`. Неравный scope с wire identity живого или
+draining lease, включая изменение VXLAN local MAC, требует отдельного явного
+removal/recreation. Duplicate desired wire identities недопустимы; никогда не
+закоммиченную unused preparation можно заменить новым same-wire scope.
+После успешного preflight obsolete unused preparations удаляются до следующих
+claims. Retained set — пересечение existing scopes и current desired плюс scopes
+с положительными physical `SenderLease` refs. Фактическая sender factory повышает
+ref. Registered physical session удерживает ref через retirement drain;
+idempotent lease close затем освобождает его. Unused или unpublished lease
+освобождается ordinary once-only cleanup без drain при construction failure или
+отмене. Active/draining exact scopes переживают failed generations. Неполный acquire возвращает Pending/Failed
+до Manager apply/release этого source, сохраняя live/draining scopes/backends;
+preparations текущего desired могут остаться для retry. Это не общий pre-generation overlay admission и не
+атомарность всех sources.
+
 ## Последствия
 
 Поддерживаемые изменения сохраняют локальную identity сессии и исключают
@@ -140,10 +170,21 @@ ADR не утверждает provider-specific runtime interoperability.
 Implementation и qualification принадлежат Beads parent `gobfd-qj0.8.2.2.7`.
 Detect Multiplier `gobfd-qj0.8.2.2.7.1` и authentication admission
 `gobfd-qj0.8.2.2.7.3` закрыты на dev. Packet-policy child
-`gobfd-qj0.8.2.2.7.2` ещё требует final gates;
-`gobfd-qj0.8.2.2.7.4` (reconciliation/rekey integration) остаётся P0.
-`gobfd-qj0.8.2.2.7.5` владеет P1 actual-wire final gate для всех reload fields,
-включая RFC 9764 peer/MTU qualification. Исполняемые планы, приоритеты, зависимости и acceptance evidence
+`gobfd-qj0.8.2.2.7.2` закрыт на dev. Reconciliation/rekey integration
+`gobfd-qj0.8.2.2.7.4`, `gobfd-qj0.8.2.2.7.4.1` и
+`gobfd-qj0.8.2.2.7.4.2` реализованы и прошли ограниченную локальную
+Go-квалификацию; доказательства интеграции и закрытия задач хранятся в Beads.
+Evidence — `reports/rekey-lifecycle-20261024/`. Critical01 содержит
+1049 top-level PASS, ноль FAIL, пять пакетов и два прежних environment skips;
+quality04 — ноль issues, vet01 и оба benchmark-прогона завершились с exit 0.
+Все 27 выбранных allocation budgets совпадают с базой; 577 source-inventory
+checks совпадают с frozen critical input. Это не all-wire, scale или stable acceptance.
+Overlay lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` входит в эту квалификацию.
+`gobfd-qj0.8.2.2.7.5` владеет обязательным P0 actual-wire final gate с явной
+зависимостью от `gobfd-qj0.8.2.2.7.4`. Существующий wire gate должен до v1
+квалифицировать все пять reload fields, включая RFC 9764 peer/MTU behavior.
+Source unit tests не подтверждают interoperability; policy не вводит новый harness.
+Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.
 

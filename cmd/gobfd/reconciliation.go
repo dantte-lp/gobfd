@@ -823,8 +823,10 @@ func applyCompiledOverlay(
 	desired := make([]bfd.ReconcileConfig, len(candidate.desired))
 	copy(desired, candidate.desired)
 	for i := range desired {
-		sender := netio.NewOverlaySender(candidate.conns[i], desired[i].SessionConfig.TransportScope)
-		desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
+		if desired[i].SenderLeaseFactory == nil {
+			sender := netio.NewOverlaySender(candidate.conns[i], desired[i].SessionConfig.TransportScope)
+			desired[i].SenderLeaseFactory = bfd.NonOwningSenderLeaseFactory(sender)
+		}
 	}
 	return sourceResultFromBFD(applyOverlayDesiredSessions(
 		ctx, mgr, candidate.owner, desired,

@@ -60,6 +60,9 @@ func (m *Manager) claimSession(
 	owner SessionOwner,
 	idempotent bool,
 ) (*Session, bool, *SenderLease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
 	key, err := sessionKeyFromConfig(cfg)
 	if err != nil {
 		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
@@ -70,7 +73,7 @@ func (m *Manager) claimSession(
 		return nil, false, nil, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
-	if sess, found, claimErr := m.claimExisting(key, effective, owner, idempotent); found {
+	if sess, found, claimErr := m.claimExisting(ctx, key, effective, owner, idempotent); found {
 		return sess, false, nil, claimErr
 	}
 	if cfg, err = m.resolveSessionIfIndex(cfg); err != nil {
@@ -79,6 +82,9 @@ func (m *Manager) claimSession(
 
 	lease, err := acquireSenderLease(senderFactory)
 	if err != nil {
+		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
+	}
+	if err = ctx.Err(); err != nil {
 		return nil, false, lease, fmt.Errorf("%s: %w", createSessionErrPrefix, err)
 	}
 
@@ -150,6 +156,7 @@ func closeSenderLeaseError(lease *SenderLease) error {
 }
 
 func (m *Manager) claimExisting(
+	ctx context.Context,
 	key SessionKey,
 	effective effectiveSessionConfig,
 	owner SessionOwner,
@@ -157,6 +164,9 @@ func (m *Manager) claimExisting(
 ) (*Session, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, true, fmt.Errorf("claim existing session: %w", err)
+	}
 
 	entry, exists := m.sessionsByKey[key]
 	if !exists {
@@ -232,6 +242,10 @@ func (m *Manager) registerAndStart(
 	demuxKey := demuxKeyFromSessionConfig(cfg)
 
 	m.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		m.mu.Unlock()
+		return nil, false, fmt.Errorf("register session: %w", err)
+	}
 	if entry, exists := m.sessionsByKey[key]; exists {
 		session, err := entry.claimExisting(key, effective, owner, idempotent)
 		m.mu.Unlock()
@@ -244,7 +258,20 @@ func (m *Manager) registerAndStart(
 			key.PeerAddr, ErrDuplicateSession,
 		)
 	}
+	counts := m.insertSessionLocked(ctx, key, demuxKey, effective, owner, discr, sess, senderLease)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
 
+	return sess, true, nil
+}
+
+// insertSessionLocked installs a prepared session after both registry keys have
+// been checked. Caller holds Manager.mu and the ownership mutation guard.
+func (m *Manager) insertSessionLocked(
+	ctx context.Context, key SessionKey, demuxKey packetDemuxKey,
+	effective effectiveSessionConfig, owner SessionOwner, discr uint32,
+	sess *Session, senderLease *SenderLease,
+) fanoutDelivery {
 	entry := &sessionEntry{
 		session:     sess,
 		senderLease: senderLease,
@@ -276,10 +303,7 @@ func (m *Manager) registerAndStart(
 	added.Added = true
 	counts := m.broadcastStateChange(added)
 	m.startSession(sessCtx, entry, sess)
-	m.mu.Unlock()
-	m.reportFanoutDelivery(counts)
-
-	return sess, true, nil
+	return counts
 }
 
 func (m *Manager) startSession(ctx context.Context, entry *sessionEntry, sess *Session) {
@@ -390,6 +414,16 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	}
 
 	// Remove the wire session from every registry after its last claim.
+	counts := m.removeSessionLocked(localDiscr, entry)
+	m.mu.Unlock()
+	m.reportFanoutDelivery(counts)
+
+	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+}
+
+// removeSessionLocked detaches one physical identity. Its owner drains and
+// releases the captured entry after all Manager locks have been released.
+func (m *Manager) removeSessionLocked(localDiscr uint32, entry *sessionEntry) fanoutDelivery {
 	delete(m.sessions, localDiscr)
 	delete(m.sessionsByPeer, entry.demuxKey)
 	delete(m.sessionsByKey, entry.key)
@@ -400,11 +434,7 @@ func (m *Manager) detachSessionClaimByDiscriminator(
 	session.mu.Unlock()
 	deleted := stateChangeOf(snapshotForObservation(session, observation), observation.State)
 	deleted.Deleted = true
-	counts := m.broadcastStateChange(deleted)
-	m.mu.Unlock()
-	m.reportFanoutDelivery(counts)
-
-	return true, &retiredSession{localDiscr: localDiscr, entry: entry}, nil
+	return m.broadcastStateChange(deleted)
 }
 
 func (m *Manager) finishSessionDestroy(localDiscr uint32, entry *sessionEntry) {
@@ -1008,20 +1038,26 @@ func (m *Manager) reconcileSessionsForOwner(
 		return failedReconcileResult(ReconcileErrorConflict, err)
 	}
 
-	result, retired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
-	claimResult, rollbackRetired, unusedLeases := m.claimDesiredOwnerSessions(
+	// A source retains every old claim until all resource claims are available.
+	// Timer negotiation is independent and does not block unrelated removals.
+	result, retired, unusedLeases := m.claimDesiredOwnerSessions(
 		ctx, owner, desiredByKey, desiredOrder, currentClaims,
 	)
-	result.Created = claimResult.Created
-	result.Updated = claimResult.Updated
-	result.Pending = claimResult.Pending
-	result.ResourcePending = claimResult.ResourcePending
-	result.resourceErrs = claimResult.resourceErrs
-	result.TimerUpdates = claimResult.TimerUpdates
-	result.wireCreated = claimResult.wireCreated
-	result.Errors = append(result.Errors, claimResult.Errors...)
-	result.Failed = len(result.Errors)
-	retired = append(retired, rollbackRetired...)
+	// Successful claims are already published. Cancellation before the release
+	// phase retains old claims without promising to undo those new identities.
+	if result.Failed == 0 && result.ResourcePending == 0 {
+		if err := ctx.Err(); err != nil {
+			addReconcileError(&result, ReconcileErrorLifecycle, fmt.Errorf("release stale source claims: %w", err))
+		}
+	}
+	if result.Failed == 0 && result.ResourcePending == 0 {
+		released, staleRetired := m.releaseStaleOwnerClaims(owner, desiredByKey, currentClaims)
+		result.Released += released.Released
+		result.wireDestroyed += released.wireDestroyed
+		result.Errors = append(result.Errors, released.Errors...)
+		result.Failed = len(result.Errors)
+		retired = append(retired, staleRetired...)
+	}
 	m.ownershipMu.Unlock()
 	op.unlockMutation()
 
@@ -1117,6 +1153,9 @@ func (m *Manager) ownerClaimSnapshot(
 	for _, key := range desiredOrder {
 		entry, exists := m.sessionsByKey[key]
 		if !exists {
+			if _, _, err := m.replacementEntryLocked(owner, key, desiredByKey); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		status := entry.refreshTimerSnapshot()
@@ -1179,6 +1218,7 @@ func (m *Manager) claimDesiredOwnerSessions(
 	var result ReconcileResult
 	var retired []retiredSession
 	var unusedLeases []*SenderLease
+	var replacements []sessionReplacement
 	newClaims := make([]uint32, 0, len(desiredOrder))
 	for _, key := range desiredOrder {
 		rc := desiredByKey[key].config
@@ -1186,11 +1226,21 @@ func (m *Manager) claimDesiredOwnerSessions(
 			m.reconcileExistingTimers(ctx, key, owner, desiredByKey[key], &result) {
 			continue
 		}
+		m.mu.RLock()
+		old, replacement, replacementErr := m.replacementEntryLocked(owner, key, desiredByKey)
+		m.mu.RUnlock()
+		if replacementErr != nil {
+			recordClaimError(&result, key, replacementErr)
+			continue
+		}
+		if replacement {
+			replacements = append(replacements, sessionReplacement{
+				key: key, config: rc, effective: desiredByKey[key].effective, old: old,
+			})
+			continue
+		}
 
-		m.logger.Info("reconcile: claiming desired owner session",
-			slog.Any("key", key),
-			slog.Any("owner", owner),
-		)
+		m.logger.Info("reconcile: claiming desired owner session", slog.Any("key", key), slog.Any("owner", owner))
 
 		sess, wireCreated, unusedLease, claimErr := m.claimSession(
 			ctx, rc.SessionConfig, rc.SenderLeaseFactory, owner, true,
@@ -1210,17 +1260,26 @@ func (m *Manager) claimDesiredOwnerSessions(
 			newClaims = append(newClaims, sess.LocalDiscriminator())
 		}
 	}
-	if result.Failed == 0 {
-		return result, nil, unusedLeases
+	if result.Failed == 0 && len(replacements) > 0 {
+		replaced, discarded := m.replaceSessions(ctx, owner, replacements, currentClaims, &result)
+		retired = append(retired, replaced...)
+		unusedLeases = append(unusedLeases, discarded...)
 	}
+	if result.Failed > 0 {
+		retired = append(retired, m.rollbackNewClaims(owner, newClaims, &result)...)
+	}
+	return result, retired, unusedLeases
+}
 
-	// Roll back claims added by this creation pass. This closes accepted
-	// sender leases for newly created physical sessions without attempting the
-	// broader stale-claim/full-reload rollback owned by a later lifecycle slice.
+// rollbackNewClaims releases only claims added by a failed preparation pass.
+func (m *Manager) rollbackNewClaims(
+	owner SessionOwner, newClaims []uint32, result *ReconcileResult,
+) []retiredSession {
+	var retired []retiredSession
 	for _, discr := range newClaims {
 		wireDestroyed, detached, err := m.detachSessionClaimByDiscriminator(discr, owner)
 		if err != nil {
-			addReconcileError(&result, ReconcileErrorRollback,
+			addReconcileError(result, ReconcileErrorRollback,
 				fmt.Errorf("rollback new session claim %d: %w", discr, err))
 			continue
 		}
@@ -1230,7 +1289,7 @@ func (m *Manager) claimDesiredOwnerSessions(
 			retired = append(retired, *detached)
 		}
 	}
-	return result, retired, unusedLeases
+	return retired
 }
 
 // recordClaimError records an unresolvable single-hop receive interface or a

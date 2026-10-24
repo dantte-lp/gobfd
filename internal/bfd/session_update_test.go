@@ -432,13 +432,13 @@ func TestTimerUpdateExistingOwnerContract(t *testing.T) {
 	mgr.sessionsByKey[key] = &sessionEntry{
 		session: session, effective: effective, owners: map[SessionOwner]struct{}{owner: {}},
 	}
-	if _, _, err := mgr.claimExisting(key, effective, owner, false); !errors.Is(err, ErrDuplicateSession) {
+	if _, _, err := mgr.claimExisting(t.Context(), key, effective, owner, false); !errors.Is(err, ErrDuplicateSession) {
 		t.Fatalf("existing API claim lost duplicate contract: %v", err)
 	}
-	if _, _, err := mgr.claimExisting(key, effective, owner, true); err != nil {
+	if _, _, err := mgr.claimExisting(t.Context(), key, effective, owner, true); err != nil {
 		t.Fatalf("existing idempotent claim lost ownership: %v", err)
 	}
-	_, _, claimErr := mgr.claimExisting(key, effective, ConfigReconciliationOwner(), true)
+	_, _, claimErr := mgr.claimExisting(t.Context(), key, effective, ConfigReconciliationOwner(), true)
 	if !errors.Is(claimErr, ErrSessionParameterConflict) {
 		t.Fatal("new sharing claim accepted while Poll unresolved")
 	}

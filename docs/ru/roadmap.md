@@ -4,6 +4,50 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Подготовленный rekey и сохранение source — 2026-10-24
+
+Reconciliation/rekey `gobfd-qj0.8.2.2.7.4`, Manager lifecycle
+`gobfd-qj0.8.2.2.7.4.1`, overlay lifecycle `gobfd-qj0.8.2.2.7.4.2` и
+lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` реализованы и прошли
+ограниченную локальную Go-квалификацию. Доказательства локальной интеграции
+и закрытия задач хранятся в Beads. Source готовит/получает ресурсы до
+stale release при нулевых Failed/ResourcePending независимо от TimerPending.
+Fatal preparation откатывает новые claims; resource-pending проход может
+сохранить disjoint new claims. Prepared receive-key swap ограничен base
+SingleHop/MultiHop changes без interface с sole config-owner; другие collisions
+отклоняются до factory, base admission — и до generation publication.
+
+Отмена до публикации сохраняет прежнюю identity и освобождает подготовленные
+ресурсы один раз. Peer-visible cutover завершает actual old session через
+AdminDown/drain вне Manager/lifecycle locks без гарантии hitless rollback.
+Overlay source-local preflight отклоняет неравные same-wire scopes с
+live/draining physical-session lease refs; unused never-committed preparation
+может заменяться. Успешный preflight удаляет obsolete unused preparations до
+следующих claims, сохраняя existing current-desired scopes плюс положительные
+lease refs. Registered session удерживает ref через drain до idempotent close;
+unused/unpublished leases освобождаются один раз без drain.
+Неполный acquire сохраняет live/draining exact scopes/backends и
+не запускает Manager apply/release этого source. Disjoint supersets текущего
+desired set могут остаться для retry; общий overlay admission и атомарность sources не обещаются.
+
+Critical01 содержит 1049 top-level PASS, ноль FAIL, пять пакетов и два прежних
+environment-dependent skips. Evidence: `reports/rekey-lifecycle-20261024/critical01.log`.
+Quality04 возвращает ноль issues; vet01 и benchmark base/head завершились с exit 0.
+Allocation diff пуст для 27 выбранных budgets: 26 сохраняют нулевые аллокации,
+authenticated unmarshal — прежние 64 B/op и 1 alloc/op. Все 577 source-inventory
+checks совпадают с frozen critical input. Evidence —
+`reports/rekey-lifecycle-20261024/`; Markdown gate проверяет 88 файлов.
+Это bounded local Go qualification, не all-wire,
+supported scale или stable-release acceptance.
+
+Packet-policy `gobfd-qj0.8.2.2.7.2` закрыт на dev в
+`ef18750a2481d0126dff3fc399d2e8fe37bb6022`. Обязательный P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` открыт и явно зависит от `gobfd-qj0.8.2.2.7.4`.
+Существующий wire harness должен до v1 квалифицировать все пять reload fields;
+source unit tests не подтверждают interoperability. Планы, commit receipts и
+приоритеты исполнения ведутся в Beads;
+прежние датированные сводки сохраняют исторический scope.
+
 ## Reload локального receive floor и подготовленного padding — 2026-10-24
 
 `gobfd-qj0.8.2.2.7.2` расширяет stable sole-config base sessions с прежней

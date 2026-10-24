@@ -57,6 +57,9 @@ func (m *Manager) validateSessionReloadLocked(
 			return ErrAuthenticationReloadUnsupported
 		}
 		if !live {
+			if _, _, collisionErr := m.replacementEntryLocked(configSessionOwner(), key, desiredByKey); collisionErr != nil {
+				return collisionErr
+			}
 			continue
 		}
 		if policyErr := entry.session.validatePacketPolicyUpdate(candidate.updateTuple()); policyErr != nil {

@@ -182,6 +182,15 @@ source. Claims with the same canonical key and effective parameters share one
 wire session and discriminator; releasing one claim preserves the others, and
 releasing the last claim destroys the wire session. Empty declarative sets are
 forwarded, so removing the final entry releases only that source's claims.
+Reconciliation claims/prepares desired resources before releasing stale claims.
+Old claims are released only with zero `Failed` and `ResourcePending`;
+`TimerPending` is separate. Fatal preparation rolls back only newly created
+claims, while valid disjoint claims may remain on resource-pending retries.
+The receive-key collision path permits a prepared SingleHop/MultiHop swap only
+for an interface-empty base identity whose sole owner is config, whose old key
+is absent from desired, and whose other identity fields are unchanged. Shared,
+API/unsolicited, same-type or other-scope collisions fail before the factory;
+the base admission guard also checks this before generation acceptance.
 The daemon validates the complete combined base, Micro-BFD member, VXLAN, and
 Geneve control-session candidate before applying any of those sources. Each
 source compiler also validates its complete set before that adapter opens
@@ -244,10 +253,22 @@ listener of a recreated interface is rebound in place with `SO_BINDTODEVICE`.
 An overlay owner (`cmd/gobfd/overlay_owner.go`) does the same for the VXLAN and
 Geneve sources: one backend per tunnel kind and outer local address, opened on
 the first claim, widened in place (`SetScopes` swaps a copy-on-write identity
-set read with one atomic load per packet) when an identity is added, narrowed
-after a clean apply, and closed when empty; live sessions never change socket.
-Each local endpoint claims independently, so an endpoint that cannot open pends
-or fails only its own identities.
+set read with one atomic load per packet) when an identity is added, pruned
+against current desired and physical lease refs, and closed when empty; live sessions never change socket.
+Acquire errors are classified per local endpoint, but any missing acquisition
+returns Pending/Failed before Manager apply or backend release for the whole
+overlay source, retaining all old live/draining sessions, exact scopes and
+backends. Actual physical-session sender factories increment scope refs;
+registered sessions retain refs through retirement drain and release them on
+idempotent lease close. Unused/unpublished leases use once-only cleanup without
+drain, including failed construction or cancellation. Pruning retains
+existing scopes in current desired plus scopes with refs, and removes obsolete
+unused preparations after successful preflight before further claims. Pure
+whole-source preflight refuses unequal same-wire scopes only against
+live/draining refs, including a VXLAN `local_mac` change. Such a change requires
+separate explicit removal/recreation; unused never-committed preparations may
+be superseded. Duplicate desired wire identities remain invalid. This is source-local apply protection, not
+five-source atomicity or global pre-generation overlay admission.
 Only `ENODEV` from a listener device binding (unavailable interface) and
 `EADDRNOTAVAIL` from a listener, sender, or overlay bind (unavailable address)
 are classified; both leave the source `pending`. Address events and resyncs
@@ -594,6 +615,12 @@ releases resources. Reconciliation drains retired sessions concurrently within
 one budget. No Manager lock is held across the wait, and a same-key replacement
 does not inherit the retired session's drain. `Manager.Close()` only cancels,
 joins and releases; daemon shutdown already drains its captured sessions.
+Rekey publishes the prepared replacement before the old captured session's
+actual AdminDown/drain, outside Manager and lifecycle mutation locks. The old
+lease/discriminator remain owned until drain completion or typed incomplete
+failure, then cleanup releases them once. Cancellation before replacement
+publication preserves the old identity and discards prepared resources; after
+peer-visible cutover, seamless rollback is not promised.
 RFC 9468 Section 2 failure cleanup cancels unsolicited Down sessions without
 AdminDown drain: the passive side must stop Control transmission. Standalone
 Echo and Micro-BFD group-only removal have no Control-session AdminDown

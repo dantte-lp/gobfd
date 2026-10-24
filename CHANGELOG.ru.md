@@ -577,6 +577,14 @@
 
 ### Исправлено
 
+- Desired claims готовятся до stale release; resource-pending preparation
+  сохраняет старые claims source. Occupied-key replacement ограничен prepared
+  sole-config base SingleHop/MultiHop swap с drain actual old session до
+  lease/discriminator cleanup. Overlay preflight отклоняет неравные same-wire
+  scopes с live/draining lease refs, удаляет obsolete unused preparations и
+  разрешает замену unused preparation. Неполный acquire удерживает source до Manager apply/release.
+  Peer-visible cutover не гарантирует hitless rollback.
+
 - Неподдерживаемый same-identity base authentication reload отклоняется до
   принятия generation и изменения log level, readiness, configured peers или
   ресурсов. Immutable fingerprints сверяются с retained desired state и live

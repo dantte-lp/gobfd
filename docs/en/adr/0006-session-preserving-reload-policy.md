@@ -4,7 +4,7 @@
 |---|---|
 | Status | Accepted |
 | Date | 2026-10-24 |
-| Qualification | Accepted policy; implementation and peer qualification remain separate |
+| Qualification | Accepted policy; implqual-local; actual-wire qualification remains open |
 
 ## Context
 
@@ -35,7 +35,7 @@ must not be mutated for one owner; an incompatible proposal is rejected.
 | Multihop minimum TTL | Apply the local 255 − N receive floor under Session.mu without replacement or Poll, including under remote Demand; this is GoBFD policy, not an RFC 5883 receive-TTL requirement |
 | Padded PDU target | Permit only positive-to-positive changes in Async on an already DF-prepared sender, with unchanged authentication and a sole config owner; reject unsupported base candidates before generation acceptance |
 | Unsupported authentication transition | Reject the complete candidate before accepting a new generation; retain the old configuration |
-| Wire identity or other unsupported transition | No implicit replacement; require separate explicit operator intent for disruptive replacement |
+| Unqualified wire-identity change or other unsupported transition | No implicit replacement; require separate explicit operator intent for disruptive replacement |
 
 TX increases and RX decreases retain their protected old local effect until
 the relevant Final; the reverse directions retain their existing immediate
@@ -120,6 +120,36 @@ are visible to the peer, a seamless rollback is not guaranteed. Administrative
 signaling follows RFC 5880 §6.8.16 and the applicable RFC 5882 client policy;
 AdminDown is not a universal promise that BGP or forwarding remains unchanged.
 
+The source claims/prepares desired resources before stale-claim release. Only
+zero `Failed` and `ResourcePending` permit old release; timer negotiation is
+tracked separately. Fatal preparation rolls back newly created claims, while
+valid disjoint claims may remain on resource-pending retry. An occupied receive
+key permits a prepared SingleHop/MultiHop swap only for interface-empty base
+sessions with one config owner, no old key in desired and all other identity
+fields unchanged. Other collisions fail before the sender factory and, for
+base reload, before desired-generation acceptance. Cancellation before swap
+publication retains the old identity; prepared lease/discriminator cleanup is
+exactly once. After publication the old captured session commits AdminDown and
+drains outside Manager/lifecycle mutation locks, retaining its lease and
+discriminator until completion or typed incomplete failure before cleanup.
+
+Overlay scope preflight is pure and covers one complete VXLAN or Geneve source
+before any backend open or `SetScopes`. Unequal scopes sharing a wire identity
+with a live/draining lease, including a VXLAN local-MAC change, require explicit
+separate removal/recreation. Duplicate desired wire identities remain invalid;
+a never-committed unused preparation may be superseded by a new same-wire scope.
+After successful preflight, obsolete unused preparations are pruned before
+further claims. The retained set is existing scopes intersected with current
+desired, union scopes with positive physical `SenderLease` refs. Each actual
+sender factory increments a ref. A registered physical session retains its ref
+through retirement drain; idempotent lease close then releases it. An unused or
+unpublished lease uses ordinary once-only cleanup without drain, including failed
+construction or cancellation. Active/draining exact scopes survive failed generations.
+An incomplete acquire returns Pending/Failed before that source's Manager apply
+or release, retaining its live/draining scopes/backends; currently desired
+preparations may remain for retry. This is neither global
+pre-generation overlay admission nor all-source atomicity.
+
 ## Consequences
 
 Supported changes preserve local session identity and avoid an unnecessary
@@ -139,10 +169,21 @@ No provider-specific runtime interoperability is asserted by this ADR.
 Implementation and qualification remain in Beads parent `gobfd-qj0.8.2.2.7`.
 Detect Multiplier `gobfd-qj0.8.2.2.7.1` and authentication admission
 `gobfd-qj0.8.2.2.7.3` are closed on dev. Packet-policy child
-`gobfd-qj0.8.2.2.7.2` remains subject to final gates;
-`gobfd-qj0.8.2.2.7.4` (reconciliation/rekey integration) remains P0.
-`gobfd-qj0.8.2.2.7.5` owns the P1 actual-wire final gate for all reload fields,
-including RFC 9764 peer/MTU qualification. Beads owns executable plans, priorities, dependencies and
+`gobfd-qj0.8.2.2.7.2` is closed on dev. Reconciliation/rekey integration
+`gobfd-qj0.8.2.2.7.4`, `gobfd-qj0.8.2.2.7.4.1` and
+`gobfd-qj0.8.2.2.7.4.2` have completed lifecycle implementation and bounded
+local Go qualification; integration and closure receipts are maintained in Beads.
+Evidence is in `reports/rekey-lifecycle-20261024/`.
+Critical01 records 1049 top-level PASS, zero FAIL, five packages and two existing
+environment skips; quality04 has zero issues, vet01 and both benchmark runs
+exit 0. All 27 selected allocation budgets match baseline; 577 source-inventory
+checks match the frozen critical input. This is not all-wire, scale or stable acceptance.
+Overlay lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` is included in that qualification.
+`gobfd-qj0.8.2.2.7.5` owns the mandatory P0 actual-wire final gate, explicitly
+depending on `gobfd-qj0.8.2.2.7.4`. The existing wire gate must qualify all five
+reload fields, including RFC 9764 peer/MTU behavior, before v1. Source unit tests
+do not establish interoperability; no new harness is introduced by this policy.
+Beads owns executable plans, priorities, dependencies and
 acceptance evidence. Acceptance of this policy is not implementation,
 interop or stable-release acceptance.
 

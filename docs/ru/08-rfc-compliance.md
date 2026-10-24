@@ -317,6 +317,13 @@ cancel/join и освобождения lease, включая reconciliation rol
 Внутренний предел десять секунд учитывает более раннюю отмену caller;
 ошибки неполного drain и release сохраняются. Нефинальный claim не изменяет wire
 state. Reconciliation использует один бюджет для параллельного drain.
+Rekey сохраняет captured lease и discriminator старой session до завершения
+actual AdminDown/drain или typed incomplete failure вне Manager и lifecycle
+mutation locks, затем выполняет cleanup один раз. Отмена prepared replacement
+до публикации сохраняет прежнюю identity; после peer-visible cutover hitless
+rollback не гарантируется. Влияние на clients определяется
+[RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16)
+и [RFC 5882 §3.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
 RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны:
 failure cleanup unsolicited Down-сессии выполняет cancel без административного
 drain. Standalone Echo и удаление только Micro-BFD group не владеют этим Control
@@ -621,6 +628,22 @@ context, включая ожидание очереди отправки; отм
 socket I/O. Полученный payload использует буфер listener до следующего receive,
 поэтому у каждого listener один receiver loop.
 
+Reload preflight проверяет целый overlay source до первого backend open или
+`SetScopes`. Неравный scope с live/draining wire identity, включая изменение
+VXLAN local MAC, требует отдельного явного removal/recreation. Unused
+never-committed preparation может заменяться; duplicate desired wire identities
+отклоняются. Успешный preflight удаляет obsolete unused preparations до
+следующих claims. Неполный acquire
+возвращает Pending/Failed до Manager apply/release этого source, сохраняя все
+live/draining exact scopes/backends. Pruning сохраняет existing scopes текущего
+desired плюс положительные physical-session lease refs. Registered session
+удерживает ref через drain до idempotent lease close; unused/unpublished leases
+проходят ordinary once-only cleanup без drain. Preparations текущего
+desired могут остаться для retry. Общий pre-generation admission и атомарность всех sources не добавляются.
+Обязательный P0 wire gate `gobfd-qj0.8.2.2.7.5` зависит от
+`gobfd-qj0.8.2.2.7.4` и до v1 должен охватить все пять reload fields существующим
+harness. Source unit tests не являются interoperability qualification.
+
 [Проверка overlay на проводе](./09-development.md#проверка-overlay-на-проводе)
 проверяет этот userspace IPv4-профиль через реальные UDP-пакеты с результатами
 для сверки с capture. Owner-specific backends и vendor forwarding paths она
@@ -707,8 +730,9 @@ active/queued generation rules сохраняются.
 Рост capacity готовит один waiting buffer при control admission; owner меняет
 его до commit полей, growth allocation в packet loop отсутствует. Padding
 enable/disable и dynamic DF остаются after-v1 P2 `gobfd-ebu`; zero-target DF
-defaults не меняются. Итоговая live peer/MTU qualification принадлежит P1
-`gobfd-qj0.8.2.2.7.5`; component checks её не закрывают.
+defaults не меняются. Итоговая live peer/MTU qualification принадлежит
+обязательному P0 `gobfd-qj0.8.2.2.7.5` после `gobfd-qj0.8.2.2.7.4` и до v1;
+component checks её не закрывают.
 
 Проверка Keyed MD5 и SHA1 вычисляет digest точно до объявленного BFD `Length`,
 включая extension bytes внутри PDU. Перед вычислением проверяется, что digest

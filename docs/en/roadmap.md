@@ -4,6 +4,50 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Prepared rekey and source retention — 2026-10-24
+
+Reconciliation/rekey `gobfd-qj0.8.2.2.7.4`, Manager lifecycle
+`gobfd-qj0.8.2.2.7.4.1`, overlay lifecycle `gobfd-qj0.8.2.2.7.4.2` and
+lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` have completed local
+implementation and bounded Go qualification. Beads records local integration
+and task-closure receipts. The source prepares/claims resources
+before stale release, gated by zero Failed/ResourcePending independently of
+TimerPending. Fatal preparation rolls back new claims; resource-pending passes
+may retain disjoint new claims. The prepared receive-key swap is limited to
+unbound sole-config base SingleHop/MultiHop changes; other collisions fail
+before factory, with base admission before generation publication.
+
+Pre-publication cancellation keeps the old identity and cleans prepared
+resources once. Peer-visible cutover retires the actual old session through
+AdminDown/drain outside Manager/lifecycle locks; it does not promise hitless
+rollback. Overlay source-local preflight rejects unequal same-wire scopes
+against live/draining physical-session lease refs; an unused never-committed
+preparation may be superseded. Successful preflight prunes obsolete unused
+preparations before further claims, retaining existing current-desired scopes
+union positive lease refs. Registered-session refs persist through drain until
+idempotent close; unused/unpublished leases clean up once without drain.
+Incomplete acquire retains every live/draining exact scope/backend
+and skips that source's Manager apply/release. Disjoint supersets needed by the
+current desired set may remain for retry; neither global overlay admission nor all-source atomicity is claimed.
+
+Critical01 records 1049 top-level PASS, zero FAIL, five packages and two existing
+environment-dependent skips. Evidence: `reports/rekey-lifecycle-20261024/critical01.log`.
+Quality04 reports zero issues; vet01 and benchmark base/head exit 0. The
+allocation diff is empty across 27 selected budgets: 26 stay at zero allocation;
+authenticated unmarshal retains its existing 64 B/op and 1 alloc/op. The 577
+source-inventory checks match frozen critical input. Evidence remains in
+`reports/rekey-lifecycle-20261024/`; the Markdown gate checks 88 files.
+This is bounded local Go qualification, not all-wire, supported
+scale or stable-release acceptance.
+
+Packet-policy `gobfd-qj0.8.2.2.7.2` is closed on dev at
+`ef18750a2481d0126dff3fc399d2e8fe37bb6022`. Mandatory P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` remains open and explicitly depends on `gobfd-qj0.8.2.2.7.4`.
+The existing wire harness must qualify all five reload fields before v1;
+source unit tests do not establish interoperability. Beads owns executable plans,
+commit receipts and priorities;
+older dated projections retain their historical scope.
+
 ## Local receive-floor and prepared-padding reload — 2026-10-24
 
 `gobfd-qj0.8.2.2.7.2` extends stable sole-config base sessions with unchanged

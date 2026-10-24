@@ -328,7 +328,15 @@ Final Control-session claim release uses this drain before cancel/join and
 lease release, including reconciliation rollback.
 The private ten-second cap honors earlier caller cancellation; incomplete drain
 and release errors are preserved. Non-final claims do not change wire state.
-Reconciliation shares one concurrent drain budget. RFC 9468 Section 2 failure
+Reconciliation shares one concurrent drain budget.
+Rekey keeps the captured old sender lease and discriminator until its actual
+AdminDown/drain completes or reports typed incomplete failure, outside Manager
+and lifecycle mutation locks, then cleans up once. Prepared replacement
+cancellation before publication keeps the old identity; after peer-visible
+cutover this is no hitless rollback. Client effects remain governed by
+[RFC 5880 §6.8.16](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.16)
+and [RFC 5882 §3.2](https://www.rfc-editor.org/rfc/rfc5882.html#section-3.2).
+RFC 9468 Section 2 failure
 cleanup of unsolicited Down sessions cancels without this administrative
 exchange, because the passive side must stop Control transmission.
 Standalone Echo and
@@ -666,6 +674,22 @@ listener or leave a deadline on subsequent operations. `Close` unblocks pending
 socket I/O. Receive payloads borrow the listener buffer until the next receive,
 so each listener has one receiver loop.
 
+Reload preflight checks one complete overlay source before the first backend
+open or `SetScopes`. Unequal scopes sharing a live/draining wire identity,
+including VXLAN local-MAC changes, require separate explicit removal/recreation.
+An unused never-committed preparation may be superseded; duplicate desired wire
+identities still fail preflight. Successful preflight removes obsolete unused
+preparations before further claims. Incomplete
+acquisition returns Pending/Failed before Manager apply/release for that source,
+preserving live/draining exact scopes/backends. Pruning keeps existing scopes
+in current desired union positive physical-session lease refs. Registered
+sessions retain refs through drain until idempotent lease close; unused or
+unpublished leases use ordinary once-only cleanup without drain. Current desired
+preparations may remain for retry. This does not add global pre-generation admission or all-source
+atomicity. Mandatory P0 wire gate `gobfd-qj0.8.2.2.7.5` depends on
+`gobfd-qj0.8.2.2.7.4` and must cover all five reload fields before v1 using the
+existing harness. Source unit tests are not interoperability qualification.
+
 The [overlay wire qualification](./09-development.md#overlay-wire-qualification)
 checks this userspace IPv4 profile with real UDP and capture-correlatable
 results. It does not qualify owner-specific backends or vendor forwarding paths.
@@ -751,7 +775,8 @@ Capacity growth prepares one waiting buffer at control admission and swaps it
 on the owner before field commit; growth allocation does not occur in the
 packet loop. Padding enable/disable and dynamic DF remain after-v1 P2
 `gobfd-ebu`; zero-target DF defaults are unchanged. Final live peer/MTU
-qualification belongs to P1 `gobfd-qj0.8.2.2.7.5`; component checks do not close it.
+qualification belongs to mandatory P0 `gobfd-qj0.8.2.2.7.5`, after
+`gobfd-qj0.8.2.2.7.4` and before v1; component checks do not close it.
 
 Keyed MD5 and SHA1 verification hashes exactly the declared BFD `Length`,
 including any PDU extension bytes, after checking that the digest fits within

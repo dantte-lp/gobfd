@@ -664,6 +664,19 @@ sets и используют отдельные типизированные rec
   эффективных параметров отклоняется без мутации ownership claims и реестров
   сессий manager
 
+Каждый source получает/готовит desired resources до снятия старых claims;
+release требует нулевых `Failed` и `ResourcePending` независимо от
+`TimerPending`. Fatal preparation откатывает новые claims, valid disjoint
+claims могут остаться для resource-pending retry. Занятый receive key допускает
+подготовленный SingleHop/MultiHop swap только для base session без interface,
+с одним config-owner, отсутствующей в desired старой identity и прежними
+остальными identity fields. Shared/API/unsolicited, same-type и other-scope
+collisions отклоняются до sender factory, для base admission — и до generation
+acceptance. Отмена до публикации replacement сохраняет прежнюю identity.
+После публикации старая session выполняет actual AdminDown/drain вне Manager и
+lifecycle mutation locks до lease/discriminator cleanup; incomplete drain
+возвращает типизированную ошибку. Peer-visible cutover не гарантирует hitless rollback.
+
 До применения любого source при startup или SIGHUP демон компилирует и
 проверяет полный объединённый candidate base, Micro-BFD members, VXLAN и
 Geneve. Каждый adapter также проверяет полный набор своего source до открытия
@@ -922,10 +935,10 @@ kill -HUP $(pidof gobfd)
 local address (`EADDRNOTAVAIL`) при bind listener, sender или overlay backend
 считается типизированным недоступным адресом и оставляет source в `pending`.
 Listener, который не может выполнить bind, останавливает свой source до apply в
-Manager, поэтому старые claims сохраняются; overlay endpoint, который не может
-выполнить bind, исключает только свои identities; sender, который не
-может выполнить bind, оставляет в `pending` только свой claim, а проход всё равно
-освобождает записи, удалённые из desired set. Address event, назначающий адрес,
+Manager, поэтому старые claims сохраняются; неполный overlay acquire также
+удерживает весь source. Pending sender claim Control-сессии сохраняет все
+старые claims своего Manager source; valid disjoint new claims могут остаться
+учтёнными. Address event, назначающий адрес,
 повторяет применение source. Control- или Echo-сессия, созданная через API, захватывает
 свой listener вместе с sender и открывает его при отсутствии; Echo-сессия
 использует общий Echo listener своего адреса. Отсутствующий интерфейс или
@@ -951,14 +964,24 @@ Overlay backends тоже входят в generation. Один userspace-udp с�
 Перед применением source VXLAN или Geneve захватывает identities своего desired
 set: новый local endpoint открывает backend, а identity, добавленная на открытый
 endpoint, входит в набор identities этого сокета на месте, поэтому работающие
-сессии сохраняют свой сокет. Identity с тем же wire identity, что и захваченная,
-например VXLAN peer с изменённым `local_mac`, заменяет её. Каждый local endpoint
-захватывается независимо: identities endpoint, который не открывается,
-исключаются из применения (`pending` для неназначенного адреса, иначе `failed`),
-а остальные identities применяются, включая удаления. После применения без failed и resource-pending
-записей каждый backend сужается до desired identities, а backend без identities
-закрывается и возвращает inner source port. Неудачное применение сохраняет
-расширенный набор. Startup захватывает backends так же, поэтому backend, который
+сессии сохраняют свой сокет. Чистый whole-source scope preflight выполняется до
+первого backend open или `SetScopes`: неравный scope с live/draining wire
+identity, включая изменение VXLAN `local_mac`, требует отдельного явного
+removal/recreation. Never-committed unused preparation может заменяться новым
+same-wire scope; duplicate desired wire identities недопустимы. Успешный
+preflight удаляет obsolete unused preparations до новых claims. Ошибки
+классифицируются по endpoint: `pending` для
+неназначенного адреса, иначе `failed`. Любой неполный acquire возвращает результат
+до Manager apply или release всего overlay source, сохраняя все прежние sessions,
+live/draining exact scopes и backends. Retained scopes — existing scopes текущего
+desired плюс scopes с physical-session lease refs; factory повышает refs,
+registered session удерживает ref через retirement drain до idempotent close,
+а unused/unpublished lease проходит ordinary once-only cleanup без drain.
+Preparations текущего desired могут остаться для retry. Это source-local apply protection, не общий pre-generation overlay
+admission или атомарность всех sources. После применения без failed и resource-pending
+записей backend сохраняет existing desired identities и live/draining lease refs;
+пустой backend закрывается и возвращает inner source port. Неудачное применение сохраняет
+текущий нужный набор и live/draining refs. Startup захватывает backends так же, поэтому backend, который
 не открывается, переводит свой source в failed или pending, а не останавливает
 daemon. Порты непривилегированные, сокеты не привязаны к устройству, поэтому
 capability не требуется.
@@ -1039,9 +1062,11 @@ defaults не меняются. Padding enable/disable и dynamic DF preparation
 after-v1 P2 `gobfd-ebu`.
 
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) фиксирует принятую policy.
-Packet-policy child `gobfd-qj0.8.2.2.7.2` ещё требует final gates;
-P0 integration `gobfd-qj0.8.2.2.7.4` и P1 actual-wire gate
-`gobfd-qj0.8.2.2.7.5` остаются отдельными, включая RFC 9764 peer/MTU qualification.
+Packet-policy child `gobfd-qj0.8.2.2.7.2` закрыт на dev;
+P0 integration `gobfd-qj0.8.2.2.7.4` с `gobfd-qj0.8.2.2.7.4.1` и
+`gobfd-qj0.8.2.2.7.4.2` имеет bounded local Go qualification и остаётся в работе
+до documentation checks/local integration. Обязательный P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` остаётся открытым, включая RFC 9764 peer/MTU qualification.
 Coordinated key-ID rotation остаётся after-v1 P2 в `gobfd-khr`.
 
 Перезапуска процесса требуют: `grpc.*`, `metrics.*`, `log.format`, `socket.*`,

@@ -208,7 +208,16 @@ VXLAN, Geneve, compatibility/API-пути и unsolicited BFD. Изменения
 параметрами разделяют одну wire session и discriminator; освобождение одного
 claim сохраняет остальные, а освобождение последнего уничтожает wire session.
 Пустые декларативные наборы передаются в Manager, поэтому удаление последней
-записи освобождает только claims этого source. Демон проверяет полный
+записи освобождает только claims этого source.
+Reconciliation сначала получает/готовит desired resources, затем освобождает
+stale claims только при нулевых `Failed` и `ResourcePending`; `TimerPending`
+учитывается отдельно. Fatal preparation откатывает лишь новые claims, а valid
+disjoint claims могут сохраняться для resource-pending retry. Receive-key
+collision допускает подготовленный SingleHop/MultiHop swap только для base
+identity без interface, с единственным config-owner, отсутствующим в desired
+старым ключом и прежними остальными identity fields. Shared, API/unsolicited,
+same-type и other-scope collisions отклоняются до factory; base admission guard
+проверяет их и до generation acceptance. Демон проверяет полный
 объединённый candidate control sessions base, Micro-BFD members, VXLAN и
 Geneve до применения любого из этих sources. Compiler каждого source также
 проверяет полный набор до открытия sender adapter или изменения session
@@ -272,10 +281,22 @@ source снимает claims вне своего desired set. Control- и Echo-�
 Geneve: один backend на вид туннеля и outer local address открывается при первом
 claim, расширяется на месте при добавлении identity (`SetScopes` подменяет
 copy-on-write набор identities, который читается одной атомарной загрузкой на
-пакет), сужается после чистого применения и закрывается, когда опустеет;
-работающие сессии не меняют сокет. Каждый local endpoint захватывается
-независимо, поэтому endpoint, который не открывается, переводит в pending или
-failed только свои identities. Классифицируются только `ENODEV` от привязки
+пакет), сужается по current desired и physical lease refs и закрывается, когда опустеет;
+работающие сессии не меняют сокет. Ошибки acquire классифицируются по local
+endpoint, но любой неполный acquire возвращает Pending/Failed до Manager apply
+или backend release всего overlay source, сохраняя прежние live/draining
+sessions, exact scopes и backends. Фактическая physical-session sender factory
+повышает scope ref; registered session удерживает его через retirement drain,
+затем освобождает idempotent lease close. Unused/unpublished leases проходят
+once-only cleanup без drain, включая construction failure или отмену.
+Pruning сохраняет existing scopes текущего desired плюс scopes с refs и удаляет
+obsolete unused preparations после успешного preflight до следующих claims.
+Чистый whole-source preflight отклоняет неравные same-wire scopes только при
+live/draining refs, включая изменение VXLAN `local_mac`. Такой переход требует
+отдельного явного удаления и повторного создания; unused never-committed
+preparations могут заменяться. Duplicate desired wire identities недопустимы. Это source-local
+apply protection, не атомарность пяти sources или общий pre-generation overlay
+admission. Классифицируются только `ENODEV` от привязки
 listener к устройству (недоступный интерфейс) и `EADDRNOTAVAIL` от bind listener,
 sender или overlay (недоступный адрес); оба оставляют source в `pending`.
 Address events и сверка повторяют применение всех pending sources без влияния
@@ -614,6 +635,12 @@ Background; более ранняя отмена caller возвращает `Dr
 сессий параллельно в одном бюджете. Ожидание не удерживает Manager locks;
 замена с тем же ключом не наследует drain прежней сессии. `Manager.Close()`
 выполняет только cancel/join/release: daemon shutdown уже выполнил общий drain.
+Rekey публикует подготовленную replacement до actual AdminDown/drain прежней
+captured session вне Manager и lifecycle mutation locks. Прежние lease и
+discriminator удерживаются до завершения drain или typed incomplete failure,
+затем cleanup освобождает их один раз. Отмена до публикации replacement
+сохраняет прежнюю identity и освобождает подготовленные ресурсы; после
+peer-visible cutover бесшовный rollback не обещается.
 Failure cleanup unsolicited Down-сессии выполняет cancel без AdminDown drain:
 RFC 9468 Section 2 требует прекратить Control-передачу пассивной стороны.
 Standalone Echo и удаление только Micro-BFD group не имеют Control-session

@@ -664,6 +664,19 @@ configuration claim. Reconciliation semantics are:
   rejected without mutating the manager's ownership claims or session
   registries
 
+Each source claims/prepares desired resources before releasing old claims;
+release requires zero `Failed` and `ResourcePending`, independently of
+`TimerPending`. Fatal preparation rolls back newly created claims; valid
+disjoint claims may remain for resource-pending retry. An occupied receive key
+permits a prepared SingleHop/MultiHop swap only for an interface-empty base
+session with one config owner, no old identity in desired and all other identity
+fields unchanged. Shared/API/unsolicited, same-type and other-scope collisions
+are rejected before the sender factory; base admission also rejects them before
+generation acceptance. Cancellation before replacement publication keeps the
+old identity. After publication, the old session performs actual AdminDown/drain
+outside Manager/lifecycle mutation locks before lease/discriminator cleanup;
+typed incomplete drain is reported. Peer-visible cutover has no hitless-rollback guarantee.
+
 Before startup or SIGHUP applies any control-session source, the daemon
 compiles and validates the complete combined base, Micro-BFD member, VXLAN,
 and Geneve candidate. Each adapter also validates its complete source set
@@ -918,9 +931,10 @@ automatic interface retry opens it; any other open error leaves the source
 `failed`. A local address that is not assigned yet or still IPv6-tentative
 (`EADDRNOTAVAIL`) on a listener, sender, or overlay backend bind is a typed
 unavailable address that leaves the source `pending`. A listener that cannot
-bind stops its source before the Manager apply, so old claims stay; an overlay
-endpoint that cannot bind leaves out only its own identities; a sender that cannot bind leaves only its own claim pending, and
-the pass still releases entries removed from the desired set. The address
+bind stops its source before Manager apply, so old claims stay; an incomplete
+overlay acquire likewise holds the whole source. A pending control-session
+sender claim retains every old claim of its Manager source, while valid
+disjoint new claims may remain tracked. The address
 event that assigns the address retries the source. An API-created
 control or Echo session claims its listener with its sender and opens it when
 absent; an Echo session shares the per-address Echo listener. An absent
@@ -946,14 +960,25 @@ serves each tunnel kind and outer local address (VXLAN UDP 4789, Geneve UDP
 6081). Before the VXLAN or Geneve source applies, it claims the identities of
 its desired set: a new local endpoint opens a backend, and an identity added
 on an open endpoint joins that socket's identity set in place, so live
-sessions keep their socket. An identity with the wire identity of a claimed
-one, such as a VXLAN peer whose `local_mac` changed, replaces it. Each local
-endpoint claims independently: identities of an endpoint that cannot open are
-left out of the apply, `pending` for an unassigned address and `failed`
-otherwise, while the other identities apply, including removals. After an apply without failed or resource-pending
-entries, every backend narrows to the desired identities and a backend left
-without one closes and returns its inner source port. A failed apply keeps the
-wider set. Startup claims backends the same way, so a backend that cannot open
+sessions keep their socket. Pure whole-source scope preflight precedes the first
+backend open or `SetScopes`: an unequal scope sharing a live/draining wire
+identity, including a VXLAN `local_mac` change, requires explicit separate
+removal/recreation. A never-committed unused preparation can instead be
+superseded by a new same-wire scope; duplicate desired wire identities remain
+invalid. Successful preflight prunes obsolete unused preparations before new
+claims. Failures are classified per endpoint, `pending` for an unassigned
+address and `failed` otherwise. Any incomplete acquire returns before Manager
+apply or release for the entire overlay source, retaining every old session,
+live/draining exact scope and backend. Retained scopes are existing scopes in
+current desired plus scopes with physical-session lease refs; the factory
+increments refs. Registered sessions retain refs through retirement drain,
+then release them on idempotent close; unused/unpublished leases use ordinary
+once-only cleanup without drain. Currently desired preparations may remain for
+retry. This is source-local apply protection, not global pre-generation
+overlay admission or all-source atomicity. After an apply without failed or resource-pending
+entries, each backend retains existing desired identities and live/draining
+lease refs; an empty backend closes and returns its inner source port. A failed apply keeps the
+currently needed set and live/draining refs. Startup claims backends the same way, so a backend that cannot open
 fails or pends its source instead of stopping the daemon. The ports are
 unprivileged and the sockets are not device-bound, so no capability is needed.
 
@@ -1033,9 +1058,11 @@ are unchanged. Padding enable/disable and dynamic DF preparation remain
 after-v1 P2 `gobfd-ebu`.
 
 [ADR-0006](adr/0006-session-preserving-reload-policy.md) records the accepted
-policy. Packet-policy child `gobfd-qj0.8.2.2.7.2` remains subject to final gates;
-P0 integration `gobfd-qj0.8.2.2.7.4` and P1 actual-wire gate
-`gobfd-qj0.8.2.2.7.5` remain separate, including RFC 9764 peer/MTU qualification.
+policy. Packet-policy child `gobfd-qj0.8.2.2.7.2` is closed on dev;
+P0 integration `gobfd-qj0.8.2.2.7.4` with `gobfd-qj0.8.2.2.7.4.1` and
+`gobfd-qj0.8.2.2.7.4.2` has bounded local Go qualification and remains in progress
+pending documentation checks/local integration. Mandatory P0 actual-wire gate
+`gobfd-qj0.8.2.2.7.5` remains open, including RFC 9764 peer/MTU qualification.
 Coordinated key-ID rotation remains after-v1 P2 in `gobfd-khr`.
 
 The following settings require a process restart: `grpc.*`, `metrics.*`,
