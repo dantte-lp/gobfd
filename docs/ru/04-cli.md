@@ -27,7 +27,7 @@
 
 `gobfdctl` взаимодействует с демоном gobfd через ConnectRPC (совместим с протоколами gRPC, Connect и gRPC-Web). Поддерживает как неинтерактивные команды (через Cobra), так и интерактивную оболочку (через reeflective/console) с автодополнением по Tab.
 
-```
+```text
 gobfdctl [глобальные флаги] <команда> [подкоманда] [флаги]
 ```
 
@@ -133,7 +133,7 @@ gobfdctl session add \
 |---|---|---|---|
 | `--peer` | Да | -- | IP-адрес удалённой системы |
 | `--local` | Нет | -- | Local IP; задайте явно для квалификации receive binding |
-| `--interface` | Нет | -- | Сетевой интерфейс (для `SO_BINDTODEVICE`) |
+| `--interface` | Нет | -- | Привязка RX/TX single-hop к устройству; для `multi-hop` запрещён |
 | `--type` | Нет | `single-hop` | Тип сессии: `single-hop` или `multi-hop` |
 | `--tx-interval` | Нет | `1s` | Desired Min TX Interval |
 | `--rx-interval` | Нет | `1s` | Required Min RX Interval |
@@ -213,6 +213,9 @@ gobfdctl echo delete 42
 
 RFC 7130 micro-BFD использует одну BFD-сессию на каждый member-линк LAG.
 CLI управляет ресурсом группы; создание member-сессий — отдельная операция.
+Создание требует `micro_bfd.enabled: true` у демона; иначе возвращается
+`FailedPrecondition`. В CLI нет команды создания member-сессий; используйте
+declarative group configuration для совместного создания группы и её members.
 
 #### Список micro-BFD групп
 
@@ -326,7 +329,7 @@ gobfd-exabgp-bridge --version
 
 Пример вывода:
 
-```
+```text
 gobfdctl v0.1.0
   commit:  abc1234
   built:   2026-02-22T12:00:00Z
@@ -394,7 +397,7 @@ gobfdctl shell
 
 Пример сессии:
 
-```
+```text
 gobfd> session list
 gobfd> session show 10.0.0.1
 gobfd> capabilities
@@ -404,7 +407,9 @@ gobfd> exit
 
 ### Форматы вывода
 
-Команды session, monitor и capabilities поддерживают `--format`:
+Session list/show/add, echo list, micro list, monitor и capabilities поддерживают
+три формата через `--format`. Echo/micro add и delete, session delete, version
+и certificate renew выводят текст независимо от `--format`:
 
 | Формат | Применение |
 |---|---|

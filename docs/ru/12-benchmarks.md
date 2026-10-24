@@ -92,8 +92,8 @@ Compatibility inner-packet builder выделяет возвращаемый sli
 
 ## Политика CI и отчёты
 
-Текущий benchmark report выдаёт warning для critical regression выше своего
-threshold; само предупреждение не завершает job ошибкой. Calibrated blocking
+Текущий benchmark report выдаёт warning для классифицированных critical time/op
+regressions от 10% включительно; само предупреждение не завершает job ошибкой. Calibrated blocking
 regression policy остаётся в Beads `gobfd-qj0.8.2.1.6.4`. Сохраняйте отказы
 при malformed output и не называйте warning release performance gate.
 

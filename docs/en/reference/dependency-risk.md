@@ -53,14 +53,14 @@ The `reeflective/console` library provides the interactive shell for `gobfdctl`.
 
 ### Description
 
-GoBGP is affected by a denial-of-service advisory in BGP NEXT_HOP path
-attribute handling. GHSA-4p9m-8gc4-rw2h lists v4.4.0 as patched (upstream
-commit `583080a`). The Go vulnerability database lists no fixed GoBGP v4
-version and limits the advisory to the symbol `fsmHandler.recvMessageloop` in
-`github.com/osrg/gobgp/v4/pkg/server`, which GoBFD does not import. On `dev`,
-strict `govulncheck@v1.8.0 ./...` reports the advisory only at module level,
-with no imported package or reachable symbol; module-level `osv-scanner` also
-reports it.
+The acceptance rationale recorded in [`scripts/vuln-audit.go`](../../../scripts/vuln-audit.go)
+and [SECURITY.md](../../../SECURITY.md) concerns the BGP NEXT_HOP denial-of-service
+advisory. It records GHSA-4p9m-8gc4-rw2h's patched v4.4.0 (upstream commit
+`583080a`) and the Go vulnerability database's missing fixed v4 version, scoped
+to `fsmHandler.recvMessageloop` in `github.com/osrg/gobgp/v4/pkg/server`.
+GoBFD imports the API package instead. The recorded `dev` acceptance covers
+module-only govulncheck and OSV findings; a fresh final-candidate scan must
+confirm that boundary. This register does not establish current database contents.
 
 GoBGP v3 serves `/apipb.GobgpApi` and v4 serves `/api.GoBgpService`; the two
 are wire-incompatible. GoBFD on `dev` requires a GoBGP v4 daemon. GoBGP v3.37.0
@@ -145,5 +145,5 @@ All GoBFD-owned imports now use its maintained, API-compatible successor,
    console/Carapace complete their migration and `go mod tidy` permits it.
 3. **Regression gate**: New first-party imports of `gopkg.in/yaml.v3` are not
    permitted.
-4. **No known advisory**: The archived module `v3.0.1` has no known
-   vulnerability; the maintained successor is pinned to `v3.0.5`.
+4. **Security review**: Scan both exact module graphs before qualification;
+   archival status and the successor pin do not establish absence of advisories.

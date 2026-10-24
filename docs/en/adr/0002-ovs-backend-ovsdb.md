@@ -28,7 +28,7 @@ manager.
 
 The production adapter uses `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
 The former `ovn-org` repository is archived; the active owner retained the
-used transaction API while fixing reconnect and inactivity-probe deadlocks.
+used transaction API while fixing leader-change and inactivity-probe deadlocks.
 The GoBFD
 core depends on a narrow local interface so tests do not need a live
 OVSDB server.
@@ -85,6 +85,9 @@ the kernel-bond and CLI-backed OVS paths.
 
 ## References
 
+- [Backend selection and owner policy](../../../internal/netio/lag_backend.go)
+- [Native OVSDB adapter](../../../internal/netio/lag_ovsdb.go)
+- [Selected module version](../../../go.mod)
 - RFC 7047: <https://datatracker.ietf.org/doc/html/rfc7047>
 - Open vSwitch `ovsdb(7)`:
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>

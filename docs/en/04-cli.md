@@ -27,7 +27,7 @@
 
 `gobfdctl` communicates with the gobfd daemon via ConnectRPC (compatible with gRPC, Connect, and gRPC-Web protocols). It provides both non-interactive commands (via Cobra) and an interactive shell (via reeflective/console) with tab completion.
 
-```
+```text
 gobfdctl [global flags] <command> [subcommand] [flags]
 ```
 
@@ -133,7 +133,7 @@ gobfdctl session add \
 |---|---|---|---|
 | `--peer` | Yes | -- | Remote system IP address |
 | `--local` | No | -- | Local IP; specify it explicitly to qualify receive binding |
-| `--interface` | No | -- | Network interface (for `SO_BINDTODEVICE`) |
+| `--interface` | No | -- | Single-hop RX/TX device binding; rejected for `multi-hop` |
 | `--type` | No | `single-hop` | Session type: `single-hop` or `multi-hop` |
 | `--tx-interval` | No | `1s` | Desired Min TX Interval |
 | `--rx-interval` | No | `1s` | Required Min RX Interval |
@@ -213,6 +213,9 @@ gobfdctl echo delete 42
 
 RFC 7130 micro-BFD uses one BFD session per LAG member link. The CLI manages
 the group resource; member-session creation is a separate operation.
+Creation requires the daemon's `micro_bfd.enabled: true`; otherwise it returns
+`FailedPrecondition`. The CLI has no member-session creation command; use the
+declarative group configuration to create the group and its members together.
 
 #### List micro-BFD groups
 
@@ -331,7 +334,7 @@ gobfd-exabgp-bridge --version
 
 Example output:
 
-```
+```text
 gobfdctl v0.1.0
   commit:  abc1234
   built:   2026-02-22T12:00:00Z
@@ -398,7 +401,7 @@ Launches an interactive shell with:
 
 Example session:
 
-```
+```text
 gobfd> session list
 gobfd> session show 10.0.0.1
 gobfd> capabilities
@@ -408,7 +411,9 @@ gobfd> exit
 
 ### Output Formats
 
-Session, monitor and capabilities commands support three output formats via the `--format` flag:
+Session list/show/add, echo list, micro list, monitor and capabilities support
+three output formats via `--format`. Echo/micro add and delete, session delete,
+version and certificate renewal print text regardless of `--format`:
 
 | Format | Use Case |
 |---|---|

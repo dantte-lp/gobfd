@@ -32,7 +32,7 @@ RFC 5880 Section 4.1 defines a 24-byte mandatory header:
 | 0 | 1 | Version (3 bits) + Diagnostic (5 bits) | Version MUST be 1 |
 | 1 | 1 | State (2 bits) + P F C A D M (6 bits) | P=Poll, F=Final, C=CPI, A=Auth, D=Demand, M=Multipoint |
 | 2 | 1 | Detect Multiplier | MUST NOT be zero |
-| 3 | 1 | Length | Total packet length in bytes |
+| 3 | 1 | Length | BFD PDU length in bytes; excludes RFC 9764 transport padding |
 | 4-7 | 4 | My Discriminator | MUST NOT be zero |
 | 8-11 | 4 | Your Discriminator | Zero until peer discriminator is known |
 | 12-15 | 4 | Desired Min TX Interval | **Microseconds** |
@@ -147,21 +147,28 @@ RFC 5880 Sections 6.8.1-6.8.4.
 
 The actual transmission interval is the larger of the local desired minimum and the remote required minimum:
 
-```
+```text
 ActualTxInterval = max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval)
 ```
 
-When the session is not in Up state, the TX interval is enforced to be at least 1 second (1,000,000 microseconds) per RFC 5880 Section 6.8.3.
+When the session is not Up, the advertised Desired Min TX and the unjittered
+TX interval have a one-second floor (1,000,000 microseconds) per RFC 5880
+Section 6.8.3. Section 6.8.7 jitter still applies: a one-second interval can
+produce a periodic transmission after 750 ms.
 
 #### Detection Time
 
 The detection time is calculated from the remote peer's parameters:
 
-```
+```text
 DetectionTime = bfd.RemoteDetectMult * max(bfd.RequiredMinRxInterval, bfd.RemoteDesiredMinTxInterval)
 ```
 
-If no packet is received within the Detection Time, the session transitions to Down with Diagnostic = Control Detection Time Expired (1).
+If no valid packet is received within Detection Time, Init and Up transition
+to Down with Diagnostic = Control Detection Time Expired (1). An already Down
+session updates that diagnostic under the selected Held-erratum policy;
+AdminDown retains its administrative state and diagnostic. See
+[`handleDetectTimer`](../../internal/bfd/session_loop.go).
 
 ### Jitter
 
@@ -172,18 +179,7 @@ RFC 5880 Section 6.8.7. Periodic transmission intervals include random jitter to
 | DetectMult > 1 | 0-25% reduction | 75-100% of interval |
 | DetectMult == 1 | 10-25% reduction | 75-90% of interval |
 
-Implementation:
-
-```go
-func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
-    if detectMult == 1 {
-        jitterPercent = 10 + rng.IntN(16) // 75-90%
-    } else {
-        jitterPercent = rng.IntN(26)       // 75-100%
-    }
-    return interval - (interval * jitterPercent / 100)
-}
-```
+Implementation: [`applyJitterWithRand` and `Session.applyJitter`](../../internal/bfd/session_packet.go).
 
 The session-local PRNG prefers a cryptographic seed and falls back to a
 time-based seed if that read fails. Jitter is not a security boundary;

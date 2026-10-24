@@ -135,20 +135,23 @@ graph TB
 ```mermaid
 flowchart TD
     NET["Network<br/>UDP 3784 / 4784"] --> LISTEN["netio.Listener<br/>ReadMsgUDP<br/>PacketPool.Get()"]
-    LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>RFC 5880 steps 1-7<br/>version, length, detect mult,<br/>multipoint, discriminators"]
-    UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>Tier 1: YourDiscr (O1 map)<br/>Tier 2: PeerKey (SrcIP, DstIP, If)"]
-    DEMUX --> RECV["Session.RecvPkt<br/>buffered chan"]
-    RECV --> HANDLE["handleRecvPacket<br/>RFC 5880 steps 8-18:<br/>auth, FSM event, timer reset"]
+    LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>header and auth-section shape<br/>version, length, detect mult,<br/>multipoint, discriminators"]
+    UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>YourDiscr or scoped peer key<br/>transport, interface, TTL admission"]
+    DEMUX --> RECV["Session.recvPacket<br/>buffered recvCh"]
+    RECV --> HANDLE["handleRecvPacket<br/>auth, FSM event, timer reset"]
 ```
 
-Receive validation RFC 5880 Section 6.8.6 разделена на два уровня:
+Приём по RFC 5880 Section 6.8.6 проходит три уровня. Номера шагов в комментариях
+кода локально группируют проверки; RFC включает выбор сессии между проверками
+заголовка и аутентификации.
 
-| Уровень | Шаги | Ответственность |
+| Уровень | Исходник | Ответственность |
 |---|---|---|
-| **Кодек** (`packet.go`) | 1-7 | Версия, длина, detect mult, multipoint, дискриминаторы (без состояния) |
-| **Сессия** (`session.go`) | 8-18 | Проверка auth, событие FSM, обновление таймеров, обновление переменных |
+| **Кодек** | [`packet.go`](../../internal/bfd/packet.go) | Версия, длины, detect mult, multipoint, ненулевой My Discriminator и ограничение state при нулевом Your Discriminator |
+| **Manager** | [`manager_session.go`](../../internal/bfd/manager_session.go) | Выбор сессии, допуск по transport scope, интерфейсу и TTL |
+| **Сессия** | [`session_packet.go`](../../internal/bfd/session_packet.go) | Отклонение нулевого Desired Min TX, проверка auth, событие FSM, обновление таймеров и переменных |
 
-Это разделение позволяет слушателю отбрасывать невалидные пакеты до захвата блокировки сессии.
+Кодек отклоняет malformed packets до выбора сессии или захвата её блокировки.
 
 ### Путь отправки пакета (TX)
 
@@ -169,7 +172,7 @@ commit полей. Packet loop использует готовую capacity бе
 Двухуровневый поиск по RFC 5880 Section 6.8.6:
 
 1. **Уровень 1** -- Your Discriminator ненулевой: O(1) поиск по дискриминатору. Быстрый путь для установленных сессий.
-2. **Уровень 2** -- Your Discriminator нулевой И состояние Down/AdminDown: поиск по составному ключу (SrcIP, DstIP, Interface). Используется только при первоначальном установлении сессии.
+2. **Уровень 2** -- Your Discriminator нулевой И состояние Down/AdminDown: поиск по составному ключу (SrcIP, DstIP, Interface, transport scope). Используется при установлении или повторном установлении после потери discriminator пиром.
 
 ### Идентичность и ownership сессий
 
@@ -185,8 +188,8 @@ single-hop listeners IPv4 и IPv6 с `SO_BINDTODEVICE`, независимо о�
 Сначала выполняется lookup настроенного peer; для несовпавшего пакета unbound
 listener разрешает ingress index по startup snapshot включённых интерфейсов,
 затем выполняются unsolicited lookup и admission. Системный поиск имени
-интерфейса на пути пакета отсутствует. Изменения интерфейсов и политики
-unsolicited требуют перезапуска.
+интерфейса на пути пакета отсутствует. Изменение настроенного набора
+unsolicited-интерфейсов или политики требует перезапуска.
 
 Owner получает признак единственного unsolicited claim через существующие
 timer-intent lock и wakeup. В этом режиме ownership останавливается
@@ -507,7 +510,11 @@ Down. Его cause сохраняется при последующем timeout 
 C-bit только сохраняется и отображается; политика остаётся hard-fail.
 
 Каждая BFD-сессия работает как независимая горутина с собственными таймерами и
-состоянием. Её контекст отделён от сигнального контекста демона, чтобы SIGTERM
+состоянием. Текущие владельцы [Control](../../internal/bfd/session_loop.go) и
+[Echo](../../internal/bfd/echo.go) вызывают `runtime.LockOSThread` на всё время
+цикла. Число горутин поэтому не описывает затраты OS threads; поддерживаемый
+scale и точность таймеров требуют отдельной квалификации.
+Контекст сессии отделён от сигнального контекста демона, чтобы SIGTERM
 не остановил сессию до AdminDown drain. `Manager.Close()` явно отменяет
 индивидуальный контекст сессии и ожидает завершения каждой зарегистрированной
 session- и echo-горутины до освобождения sender lease или discriminator.
@@ -549,13 +556,14 @@ deadlock, когда Close уже ожидает write-side lifecycle transition
 ```mermaid
 graph TB
     subgraph "Manager"
-        M["Manager goroutine<br/>session CRUD"]
+        M["Manager<br/>serialized lifecycle and ownership"]
     end
 
     subgraph "Session N goroutines"
         S1["Session 1<br/>TX timer + RX channel"]
         S2["Session 2<br/>TX timer + RX channel"]
         SN["Session N<br/>TX timer + RX channel"]
+        E["EchoSession<br/>TX timer + returned Echo channel"]
     end
 
     subgraph "Shared Receivers"
@@ -570,12 +578,13 @@ graph TB
     R --> S1
     R --> S2
     R --> SN
-    ER --> S1
+    ER --> E
     OR --> S2
     MD --> SN
     M --> S1
     M --> S2
     M --> SN
+    M --> E
 ```
 
 Ключевые принципы:

@@ -410,8 +410,12 @@ make interop-pcap
 # Сводка в формате CSV
 make interop-pcap-summary
 
-# Живой захват
-make interop-capture
+# Поля сводки:
+#   frame.time_relative, ip.src, ip.dst,
+#   bfd.version, bfd.diag, bfd.sta, bfd.flags,
+#   bfd.detect_time_multiplier, bfd.my_discriminator,
+#   bfd.your_discriminator, bfd.desired_min_tx_interval,
+#   bfd.required_min_rx_interval
 ```
 
 ### Устранение проблем

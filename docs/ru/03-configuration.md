@@ -344,13 +344,18 @@ unsolicited listener не открывается. Настроенные per-add
 | `echo.default_detect_multiplier` | uint32 | -- | Множитель обнаружения echo по умолчанию |
 | `echo.peers[].peer` | string | -- | IP удалённой системы (цель echo) |
 | `echo.peers[].local` | string | -- | IP локальной системы |
-| `echo.peers[].interface` | string | -- | Сетевой интерфейс для `SO_BINDTODEVICE` (опционально) |
+| `echo.peers[].interface` | string | -- | Опциональная привязка receive listener к устройству; текущий declarative TX sender к нему не привязывается |
 | `echo.peers[].tx_interval` | duration | -- | Переопределение `default_tx_interval` для этого пира |
 | `echo.peers[].detect_mult` | uint32 | -- | Переопределение `default_detect_multiplier` для этого пира |
 
 Echo-сессии обнаруживают отказы forwarding-path без необходимости запуска BFD на удалённой стороне. Локальная система отправляет BFD Control пакеты на UDP порт 3785 удалённой стороны, которая пересылает их обратно через обычную IP-маршрутизацию.
 
 Echo-пиры реконсилируются при SIGHUP. Ключ сессии: `(peer, local, interface)`.
+
+Declarative sender выбирает UDP destination port 3785, но не применяет
+`SO_BINDTODEVICE` из `interface` (`gobfd-qj0.8.2.1.19`). Echo через API также
+игнорирует interface для транспорта и сейчас отправляет на Control port 3784
+(`gobfd-qj0.8.2.1.17`). Ни один путь не квалифицирует interface-bound Echo TX.
 
 Создание через API также требует `echo.enabled: true`, реконсилированного Echo
 source и готового runtime/receive binding. Иначе `AddEchoSession` возвращает
@@ -1191,8 +1196,8 @@ multi-hop flag)`, где port — 3784, 4784, 3785 или 6784. Записи, и
 | `gobgp.strategy` | `disable-peer` | Наиболее безопасное действие BGP |
 | `gobgp.action_timeout` | `5s` | Ограничивает внешние вызовы GoBGP API |
 | `gobgp.tls.enabled` | `false` | Совместимый default для localhost GoBGP |
-| `socket.read_buffer_size` | `4194304` (4 МиБ) | Запас для 100+ сессий |
-| `socket.write_buffer_size` | `4194304` (4 МиБ) | Запас для 100+ сессий |
+| `socket.read_buffer_size` | `4194304` (4 МиБ) | Запрашиваемый receive buffer; эффективная ёмкость требует проверки под нагрузкой deployment |
+| `socket.write_buffer_size` | `4194304` (4 МиБ) | Запрашиваемый send buffer; эффективная ёмкость требует проверки под нагрузкой deployment |
 
 ### Связанные документы
 

@@ -46,6 +46,10 @@ evidence for the approved 80% reference workload or 24-hour acceptance.
 
 ## References
 
+- [Current Control owner thread pin](../../../internal/bfd/session_loop.go)
+- [Current Echo owner thread pin](../../../internal/bfd/echo.go)
+- [Stable release preflight](../../../test/internal/cirunner/release_preflight.go)
+- [Stable release notes validation](../../../test/internal/cirunner/release_notes.go)
 - [SemVer prerelease semantics](https://semver.org/spec/v2.0.0.html#spec-item-9)
 - [Workload accounting boundary](./0007-workload-phase-accounting.md)
 - [Dated status projection](../roadmap.md)

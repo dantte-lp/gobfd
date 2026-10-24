@@ -25,7 +25,7 @@
 ### Requirements
 
 - **Linux** kernel (raw sockets require Linux-specific APIs)
-- **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities (for raw UDP sockets with TTL=255)
+- **CAP_NET_RAW** and **CAP_NET_ADMIN** capabilities in the shipped runtime contract (device binding and configured network operations)
 - Repository-pinned Go 1.27.3 inside Podman (source builds only)
 
 Non-Linux targets are compile-only compatibility surfaces. The `internal/netio`
@@ -175,9 +175,9 @@ Key features:
 
 | Feature | Description |
 |---|---|
-| `Type=notify` | Uses `sd_notify(READY)` for accurate readiness reporting |
+| `Type=notify` | Uses `sd_notify(READY)` for process/listener startup; configuration convergence has separate gRPC health |
 | `WatchdogSec=30s` | systemd watchdog -- daemon sends keepalives at 15s intervals |
-| `ExecReload` | SIGHUP reloads log level and reconciles session membership within startup-open transport bindings; startup-owned changes are rejected and require restart |
+| `ExecReload` | SIGHUP reloads log level and reconciles sessions plus owned UDP listeners/backends; startup-owned settings require restart |
 | `Restart=on-failure` | Auto-restart with 5s delay after a crash or a fail-stop exit on receive-path or dispatch loss |
 | Orderly stop | Exits 0 after the AdminDown drain. A drain that cannot finish because a peer is unreachable or never supplied a discriminator is logged as a warning; local drain failures still exit with an error |
 | Security directives | Least-privilege with only `CAP_NET_RAW` and `CAP_NET_ADMIN` |
@@ -206,7 +206,9 @@ reopens only `/sys/devices/virtual/net/<bond>/bonding/slaves`, the file the
 backend writes, for each actuated bond:
 
 ```bash
-sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+sudo install -D -m 0644 deployments/systemd/gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+# Replace bond0 in the installed drop-in with each actuated bond before restart.
+sudoedit /etc/systemd/system/gobfd.service.d/kernel-bond.conf
 sudo systemctl daemon-reload && sudo systemctl restart gobfd
 ```
 
@@ -373,6 +375,10 @@ Release images contain the four GoBFD binaries and no development toolchain:
 `gobfd`, `gobfdctl`, `gobfd-haproxy-agent`, and
 `gobfd-exabgp-bridge`.
 
+The source-build `deployments/docker/Containerfile` above contains only
+`gobfd` and `gobfdctl`; the separate release recipe is
+`deployments/docker/Containerfile.release`.
+
 Running the container requires:
 - `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities
 - `network_mode: host` (recommended) or proper port mapping for UDP 3784/4784
@@ -386,7 +392,7 @@ GoBFD follows the principle of least privilege:
 | **Capabilities** | Only `CAP_NET_RAW` + `CAP_NET_ADMIN` (no root) |
 | **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, address-family and system-call filters, `ProcSubset=pid`; see [Sandbox Contract](#sandbox-contract) |
 | **Code** | No `unsafe` in handwritten first-party code; generated protobuf runtime code is excluded; all socket errors handled |
-| **TTL** | GTSM (RFC 5082): TTL=255 on transmit, TTL=255 check on receive |
+| **TTL** | Control TX TTL=255; single-hop RX requires 255, multihop RX uses the configured `255 - multihop_max_hops` floor |
 | **Auth** | Optional BFD authentication (5 types per RFC 5880 Section 6.7) |
 
 ### Management Certificate Renewal

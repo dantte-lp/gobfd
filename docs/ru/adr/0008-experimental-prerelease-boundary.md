@@ -46,6 +46,10 @@ Control threads не укладываются в stable reference bound 48 threa
 
 ## Источники
 
+- [Текущий thread pin владельца Control](../../../internal/bfd/session_loop.go)
+- [Текущий thread pin владельца Echo](../../../internal/bfd/echo.go)
+- [Preflight stable release](../../../test/internal/cirunner/release_preflight.go)
+- [Валидация notes stable release](../../../test/internal/cirunner/release_notes.go)
 - [SemVer prerelease semantics](https://semver.org/spec/v2.0.0.html#spec-item-9)
 - [Граница workload accounting](./0007-workload-phase-accounting.md)
 - [Датированная сводка](../roadmap.md)

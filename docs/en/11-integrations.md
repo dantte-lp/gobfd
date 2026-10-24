@@ -7,7 +7,7 @@
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-DaemonSet-326CE5?style=for-the-badge)
 ![tshark](https://img.shields.io/badge/tshark-Packet_Verification-1a73e8?style=for-the-badge)
 
-> Ready-to-run integration stacks demonstrating GoBFD with production systems. Each example includes compose files, configuration, demo scripts, and tshark packet verification.
+> Integration examples for routing, load balancing, monitoring and Kubernetes. Compose examples include packet-capture containers; target-environment qualification remains separate.
 
 ---
 
@@ -65,7 +65,7 @@ checked.
 
 **Directory:** `deployments/integrations/bgp-fast-failover/`
 
-BFD Down triggers BGP peer disable, causing immediate route withdrawal instead of waiting for the 90-second BGP holdtimer.
+BFD Down triggers BGP peer disable and route withdrawal before the normal BGP hold timer expires.
 
 Detailed runbook: [`deployments/integrations/bgp-fast-failover/README.md`](../../deployments/integrations/bgp-fast-failover/README.md)
 
@@ -197,6 +197,12 @@ curl http://localhost:8080    # Verify load balancing
 make int-haproxy-down         # Cleanup
 ```
 
+`make int-haproxy` is the legacy demonstration runner: several observations
+are warning-only, and its session query still uses the unsupported `sessions`
+command. Use `make int-haproxy-testcontainers` for the separate assertion-based
+gate; a completed demo does not establish failover acceptance.
+The legacy runner correction is tracked in `gobfd-qj0.8.2.8.7.1.4.1`.
+
 ---
 
 ## Observability
@@ -295,7 +301,7 @@ Anycast IP announcement controlled by BFD link health via ExaBGP's process API.
 ```mermaid
 graph LR
     subgraph "172.24.0.0/24"
-        GOBGP["GoBGP<br/>172.24.0.10<br/>AS 65001<br/>route receiver"]
+        GOBGP["GoBGP + GoBFD receiver sidecar<br/>172.24.0.10<br/>AS 65001<br/>route receiver"]
         subgraph "172.24.0.20 (shared netns)"
             GOBFD["GoBFD<br/>BFD session"]
             EXABGP["ExaBGP<br/>AS 65002"]
@@ -323,7 +329,7 @@ The `gobfd-exabgp-bridge` runs as an ExaBGP process:
 - Logs to STDERR (ExaBGP convention)
 - Reconnects to GoBFD with exponential backoff
 
-`GOBFD_PEER` is required. Optional `GOBFD_LOCAL`, `GOBFD_INTERFACE` and
+`GOBFD_PEER` and `ANYCAST_PREFIX` are required. Optional `GOBFD_LOCAL`, `GOBFD_INTERFACE` and
 `GOBFD_SESSION_TYPE` select one session using the same rules as the HAProxy
 agent. `ANYCAST_PREFIX` must be a valid IP prefix. The bridge starts with a
 withdrawal to reconcile a previous process's route. Only a completed snapshot
@@ -413,6 +419,14 @@ kubectl -n gobfd rollout status daemonset/gobfd
 sudo make int-k8s-down
 ```
 
+This runner imports both images into the local k3s image store only. Other
+nodes need the same images before scheduling because `imagePullPolicy: Never`
+is set. The full demo currently selects `app=gobfd`, which does not match the
+manifest labels, and retains obsolete CLI/tool probes. A successful image
+import or rollout does not complete the demo or qualify BFD/BGP convergence.
+Runner correction and live verification are tracked in
+`gobfd-qj0.8.2.8.7.1.4.1`.
+
 ### Manifests
 
 | File | Resource | Description |
@@ -432,9 +446,9 @@ manifests do not; capture there requires a separately authorized namespace tool.
 
 ### Capture Setup
 
-The tshark container captures all BFD traffic on the shared network namespace:
+The tshark container captures Control and Echo UDP ports in the shared network namespace:
 
-- **Filter:** `udp port 3784 or udp port 4784`
+- **Filter:** `udp port 3784 or udp port 3785 or udp port 4784`
 - **Format:** pcapng written to `/captures/bfd.pcapng`
 - **Autostop:** 100MB file size limit
 
@@ -457,8 +471,8 @@ podman exec <tshark-container> tshark -r /captures/bfd.pcapng -Y bfd \
 | Field | Expected Value | RFC Reference |
 |-------|---------------|---------------|
 | Version | 1 | RFC 5880 Section 4.1 |
-| TTL | 255 | RFC 5881 Section 5 (GTSM) |
-| Dest Port | 3784 (single-hop) / 4784 (multihop) | RFC 5881 Section 4 |
+| Single-hop TTL | 255 | RFC 5881 Section 5 (GTSM) |
+| Dest Port | 3784 (single-hop) / 4784 (multihop) | RFC 5881 Section 4 / RFC 5883 Section 5 |
 | Source Port | 49152-65535 | RFC 5881 Section 4 |
 | State transitions | Down → Init → Up (three-way) | RFC 5880 Section 6.8.6 |
 
@@ -473,7 +487,7 @@ Reference: [tshark.dev](https://tshark.dev/) — tshark documentation and tutori
 | BGP Fast Failover | 172.22.0.0/24 | gobfd, gobgp, frr, tshark | — |
 | HAProxy Health | 172.23.0.0/24 | gobfd-monitor, haproxy-agent, haproxy, backend1/2, backend1/2-bfd, tshark | 8080 |
 | Observability | 172.25.0.0/24 | gobfd, frr, prometheus, grafana, tshark | 9090, 3000 |
-| ExaBGP Anycast | 172.24.0.0/24 | gobgp, gobfd, exabgp, tshark | — |
+| ExaBGP Anycast | 172.24.0.0/24 | gobgp, gobfd-receiver, gobfd, exabgp, tshark | — |
 | Kubernetes | Host network | DaemonSet (gobfd + gobgp sidecar) | — |
 | **Interop: Base** | 172.20.0.0/24 | gobfd, frr, bird3, holo, holo-config, thoro, tshark | — |
 | **Interop: BGP+BFD** | 172.21.0.0/24 | gobfd, gobgp, frr, bird3, exabgp, gobfd-sidecar | — |

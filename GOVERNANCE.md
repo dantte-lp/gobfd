@@ -13,7 +13,7 @@ GoBFD is an independent open source project maintained in this repository.
 | Versioning | Semantic Versioning 2.0.0; current release line is `0.x` |
 | Changelog | Keep a Changelog 1.1.0 |
 | Commits | Conventional Commits 1.0.0 |
-| Validation | Podman-only Makefile targets |
+| Validation | Pinned Podman build and check targets; host orchestration exceptions are listed in [Development](docs/en/09-development.md) |
 
 ## Maintainer Responsibilities
 

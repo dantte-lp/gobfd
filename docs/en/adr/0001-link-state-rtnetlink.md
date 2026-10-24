@@ -54,8 +54,16 @@ GoBFD uses Linux rtnetlink for interface link-state notifications.
 - The monitor parses `RTM_NEWLINK` and `RTM_DELLINK` and emits
   `InterfaceEvent{IfName, IfIndex, Up}`.
 - Operational-up rule: `IFF_UP && IFF_RUNNING`.
-- A link-down transition triggers BFD `Down` with `DiagPathDown` before
-  the detection timer expires.
+- A link-down transition requests BFD `Down` with `DiagPathDown` without
+  waiting for detection expiry. Event delivery and owner scheduling do not
+  guarantee that it wins a concurrent timer expiry; an existing local
+  AdminDown retains its administrative state and diagnostic.
+
+The current monitor also subscribes to IPv4/IPv6 address notifications and
+emits address/resync events for pending-resource retries. See
+[`ifmon_linux.go`](../../../internal/netio/ifmon_linux.go),
+[`interface_events.go`](../../../cmd/gobfd/interface_events.go) and
+[`Session.handlePathDown`](../../../internal/bfd/session_loop.go).
 
 ## References
 

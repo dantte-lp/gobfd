@@ -72,6 +72,10 @@ no-op; ошибка до атомарного commit сохраняет преж
 
 ## Источники
 
+- [CLI обновления](../../../cmd/gobfdctl/commands/certificate.go)
+- [Ограниченный transport к CA](../../../internal/stepca/client.go)
+- [Проверка identity сертификата и EKU](../../../internal/stepca/certificate.go)
+- [Rooted доступ к credentials и атомарная замена](../../../internal/stepca/files_linux.go)
 - [step-ca renewal](https://smallstep.com/docs/step-ca/renewal/)
 - [Renew API](https://github.com/smallstep/certificates/blob/v0.30.2/api/renew.go)
 - [Response schema](https://github.com/smallstep/certificates/blob/v0.30.2/api/sign.go)

@@ -283,6 +283,11 @@ production change cannot inherit the development receipt as final acceptance.
 
 ## References
 
+- [Generation acceptance and source receipts](../../../cmd/gobfd/reconciliation.go)
+- [Retained/live reload admission](../../../internal/bfd/manager_auth_reload.go)
+- [Owner timer and packet-policy transactions](../../../internal/bfd/session_update.go)
+- [Prepared replacement lifecycle](../../../internal/bfd/manager_replace.go)
+- [Overlay scope and physical-lease ownership](../../../cmd/gobfd/overlay_owner.go)
 - [RFC 5880 §6.6: Demand mode](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.6)
 - [RFC 5880 §6.7: Authentication](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.7)
 - [RFC 5880 §6.8.3: Timer manipulation](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.3)

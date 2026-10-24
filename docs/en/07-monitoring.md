@@ -179,7 +179,7 @@ per-session state gauge; read `local_state` from the CLI/API snapshot.
 
 A pre-built Grafana dashboard is included at:
 
-```
+```text
 deployments/compose/configs/grafana/dashboards/bfd.json
 ```
 
@@ -261,20 +261,21 @@ without the empty-vector fallback (`gobfd-qj0.8.2.8.7.2.8`).
 
 ### Structured Logging
 
-GoBFD uses `log/slog` (stdlib) exclusively. No `fmt.Println`, `log`, `zap`, or `zerolog`.
+Daemon structured logs use `log/slog`. CLI output and bridge protocol output
+are separate from logging.
 
 #### Log Levels
 
 | Level | Usage |
 |---|---|
-| `debug` | Timer negotiation details, packet content, FSM event details |
+| `debug` | Authentication verification refusals and Poll completion |
 | `info` | Session state changes, daemon start/stop, config reload |
-| `warn` | Transition to Down, auth errors, invalid packets |
-| `error` | Socket bind failures, critical FSM errors |
+| `warn` | Failed packet sends and notification queue overflow |
+| `error` | Packet encoding/signing failures and incomplete reconciliation |
 
 #### Structured Fields
 
-Every log entry from a session includes:
+Example Control state-change record; transitions to Down also use INFO:
 
 ```json
 {
@@ -285,7 +286,6 @@ Every log entry from a session includes:
   "local_discr": 42,
   "old_state": "Down",
   "new_state": "Up",
-  "event": "RecvInit",
   "diag": "None"
 }
 ```
@@ -328,8 +328,11 @@ state. Non-Linux stubs do not auto-retry.
 
 | Parameter | Value |
 |---|---|
-| Window age | 500ms |
-| Max size | 2 MiB |
+| Configured minimum age (`MinAge`) | 500ms |
+| Configured buffer target (`MaxBytes`) | 2 MiB |
+
+`MaxBytes` takes precedence over `MinAge` and is a hint, not a bound on dump
+size or total recorder memory. See [`trace.FlightRecorderConfig`](https://pkg.go.dev/runtime/trace#FlightRecorderConfig).
 
 The flight recorder captures scheduling events, goroutine creation, GC pauses, and network I/O. On BFD session failure, the trace snapshot can be dumped for analysis with `go tool trace`.
 
@@ -341,8 +344,11 @@ metrics listener serves no debug endpoint:
 
 ```bash
 curl --unix-socket /run/gobfd/gobfd.sock -o trace.out http://localhost/debug/flightrecorder
-go tool trace trace.out
+go tool trace -http=127.0.0.1:0 trace.out
 ```
+
+Treat trace files as sensitive data: they can contain process and network
+details. Keep the analysis HTTP server on loopback.
 
 ### Endpoints
 

@@ -92,8 +92,8 @@ retained samples and more recent scoped owner observations.
 
 ## CI policy and reports
 
-The current benchmark report emits a warning for critical regressions above
-its threshold; a warning does not itself fail the job. A calibrated blocking
+The current benchmark report emits a warning for classified critical time/op
+regressions of at least 10%; a warning does not itself fail the job. A calibrated blocking
 regression policy remains Beads `gobfd-qj0.8.2.1.6.4`. Preserve malformed-output
 failures and do not describe the warning as a release performance gate.
 

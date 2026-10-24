@@ -86,8 +86,10 @@ Claims сессий API принадлежат принципалу вызвав
 выдача сертификата не предоставляет привилегии Unix socket.
 
 Дамп flight recorder (`grpc.flight_recorder`, по умолчанию выключен) доступен
-только на сервере управления и только вызывающим с принципалом; listener
-метрик не обслуживает endpoint отладки.
+только на сервере управления Unix-socket principals или mTLS identities,
+разрешённым `grpc.mutating_identities`; anonymous callers отклоняются даже в
+unsafe mode. Listener метрик не обслуживает endpoint отладки. Trace files
+содержат чувствительные runtime details; analysis HTTP servers оставляйте на loopback.
 
 ## Интеграция с GoBGP
 

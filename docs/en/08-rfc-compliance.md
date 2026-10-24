@@ -123,11 +123,11 @@ The Down timeout diagnostic follows the explicit Held-erratum policy above.
 
 #### Section 6.3: Demultiplexing
 
-**Implementation**: [`internal/bfd/manager.go`](../../internal/bfd/manager.go)
+**Implementation**: [`internal/bfd/manager_session.go`](../../internal/bfd/manager_session.go)
 
 Two-tier demultiplexing:
 - Tier 1: O(1) lookup by Your Discriminator (fast path)
-- Tier 2: Composite key (SrcIP, DstIP, Interface) for session establishment
+- Tier 2: Composite key (SrcIP, DstIP, Interface, transport scope) for session establishment or re-establishment
 
 #### Section 6.5: Poll Sequences
 
@@ -278,15 +278,15 @@ anchored to the last valid receive.
 
 #### Section 6.8.6: Reception of BFD Control Packets
 
-Validation split across two layers:
+Receive processing spans three layers. The numbered groups in code comments
+are implementation shorthand; the RFC also requires session selection between
+header and authentication validation.
 
-| Layer | Steps | File |
+| Layer | Responsibility | File |
 |---|---|---|
-| Codec | 1-7 (stateless) | `packet.go` |
-| Session | 8-18 (stateful) | `session.go` |
-
-Steps 1-7 (codec): version, length, detect mult, multipoint, discriminators.
-Steps 8-18 (session): auth consistency, auth verification, state variable update, FSM event, timer reset.
+| Codec | Header and authentication-section shape, discriminator validity | [`packet.go`](../../internal/bfd/packet.go) |
+| Manager | Session selection, transport scope, interface and TTL admission | [`manager_session.go`](../../internal/bfd/manager_session.go) |
+| Session | Zero Desired Min TX, auth consistency/verification, variables, FSM and timers | [`session_packet.go`](../../internal/bfd/session_packet.go) |
 
 #### Section 6.8.7: Jitter
 
@@ -554,7 +554,7 @@ RFC 9747 defines the unaffiliated BFD echo function for forwarding-path liveness
 
 | Requirement | Implementation |
 |---|---|
-| UDP port 3785 | `netio.PortEcho = 3785`, listener in `createListeners()` |
+| UDP port 3785 | `netio.PortEcho = 3785`; `echoListenerConfigs()` and API listener claims in `cmd/gobfd/listeners.go` |
 | Standard BFD Control packet format | Reuses `MarshalControlPacket` codec |
 | DiagEchoFailed on timeout | `DiagEchoFailed` (value 2) |
 | Locally provisioned timers | `EchoSessionConfig.TxInterval`, no negotiation |
@@ -587,7 +587,7 @@ RFC 7130 defines Micro-BFD — independent BFD sessions on every LAG member link
 
 | Requirement | Implementation |
 |---|---|
-| UDP port 6784 | `netio.PortMicroBFD = 6784`, per-member listeners in `createMicroBFDListeners()` |
+| UDP port 6784 | `netio.PortMicroBFD = 6784`; per-member `microListenerConfigs()` in `cmd/gobfd/micro_bfd.go` |
 | One BFD session per member link (Sections 2, 2.2) | `microBFDMemberSessionConfig()` derives one `SessionTypeMicroBFD` session per member link from its group; one group owns each member link (`ErrMicroBFDMemberOwned`) |
 | Member session contract (Section 2.2) | `ValidateMicroBFDConfig()` applies RFC 5880 session validation (peer address, interval wire bounds, detect multiplier) to every member session on the daemon and direct Manager/API paths; groups store and report the shared timers |
 | `SO_BINDTODEVICE` per member | `WithBindDevice()` functional option on sender |
@@ -758,7 +758,7 @@ integrate with kernel Geneve, OVS/OVN, or NSX dataplane socket ownership.
 
 **Status**: Partial
 
-**Implementation**: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (DF bit), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
+**Implementation**: [`internal/bfd/session_packet.go`](../../internal/bfd/session_packet.go) (PDU construction), [`internal/bfd/session_loop.go`](../../internal/bfd/session_loop.go) (padded send), [`internal/netio/sender.go`](../../internal/netio/sender.go) (DF bit), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
 
 RFC 9764 defines BFD Large Packets for MTU path verification. A BFD implementation pads Control packets to a configured size and sets the IP Don't Fragment (DF) bit. If the padded packet is larger than the path MTU, it will be dropped, causing BFD to detect the MTU issue.
 

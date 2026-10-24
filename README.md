@@ -76,7 +76,7 @@ From another terminal, `sudo ./gobfdctl session list` queries the default socket
 Local Podman stack with Prometheus + Grafana:
 
 ```bash
-make test                        # local critical and regression suites
+make test                        # all packages with the race detector
 podman compose -f deployments/compose/compose.yml up -d
 ```
 

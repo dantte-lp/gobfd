@@ -181,7 +181,7 @@ per-session state gauge нет; читайте `local_state` из CLI/API snapsh
 
 Готовый дашборд расположен в:
 
-```
+```text
 deployments/compose/configs/grafana/dashboards/bfd.json
 ```
 
@@ -264,21 +264,21 @@ empty-vector fallback (`gobfd-qj0.8.2.8.7.2.8`).
 
 ### Структурированное логирование
 
-GoBFD использует исключительно `log/slog` (stdlib). `fmt.Println`, `log`,
-`zap` и `zerolog` не используются.
+Структурированные логи daemon используют `log/slog`. CLI output и вывод
+протоколов bridge отделены от логирования.
 
 #### Уровни логирования
 
 | Уровень | Использование |
 |---|---|
-| `debug` | Детали согласования таймеров, содержимое пакетов, детали событий FSM |
+| `debug` | Отказы проверки authentication и завершение Poll |
 | `info` | Смена состояния сессии, старт/стоп демона, перезагрузка конфига |
-| `warn` | Переход в Down, ошибки auth, невалидные пакеты |
-| `error` | Невозможность bind сокета, критические ошибки FSM |
+| `warn` | Неуспешная отправка пакетов и overflow notification queue |
+| `error` | Ошибки кодирования/подписи пакетов и incomplete reconciliation |
 
 #### Структурированные поля
 
-Каждая запись лога из сессии включает:
+Пример Control state-change record; переход в Down также использует INFO:
 
 ```json
 {
@@ -289,7 +289,6 @@ GoBFD использует исключительно `log/slog` (stdlib). `fmt.
   "local_discr": 42,
   "old_state": "Down",
   "new_state": "Up",
-  "event": "RecvInit",
   "diag": "None"
 }
 ```
@@ -333,8 +332,11 @@ Linux interface events обновляют эти же receipts без смены
 
 | Параметр | Значение |
 |---|---|
-| Возраст окна | 500ms |
-| Максимальный размер | 2 MiB |
+| Настроенный minimum age (`MinAge`) | 500ms |
+| Настроенный buffer target (`MaxBytes`) | 2 MiB |
+
+`MaxBytes` имеет приоритет над `MinAge` и служит hint, а не границей размера dump
+или всей памяти recorder. См. [`trace.FlightRecorderConfig`](https://pkg.go.dev/runtime/trace#FlightRecorderConfig).
 
 Flight recorder захватывает события планирования, создание горутин, паузы GC и сетевой I/O. При сбое BFD-сессии снимок трассировки может быть сохранён для анализа через `go tool trace`.
 
@@ -347,8 +349,11 @@ HTTP-дамп по умолчанию выключен. С `grpc.flight_recorder
 
 ```bash
 curl --unix-socket /run/gobfd/gobfd.sock -o trace.out http://localhost/debug/flightrecorder
-go tool trace trace.out
+go tool trace -http=127.0.0.1:0 trace.out
 ```
+
+Считайте trace files чувствительными данными: они могут содержать сведения о
+процессе и сети. Analysis HTTP server оставляйте на loopback.
 
 ### Endpoints
 

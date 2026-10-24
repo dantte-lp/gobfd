@@ -118,6 +118,10 @@ Production-ограничения:
 
 ## References
 
+- [Конфигурация Micro-BFD и подключение member sessions](../../../cmd/gobfd/micro_bfd.go)
+- [Проверки ownership actuator backend](../../../internal/netio/lag_backend.go)
+- [Допуск overlay backend](../../../internal/netio/overlay_backend.go)
+- [Точный поддерживаемый профиль inner packet](../../../internal/netio/overlay_inner.go)
 - RFC 7130: <https://datatracker.ietf.org/doc/html/rfc7130>
 - RFC 8971: <https://datatracker.ietf.org/doc/html/rfc8971>
 - RFC 9521: <https://datatracker.ietf.org/doc/html/rfc9521>

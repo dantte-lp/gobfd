@@ -101,6 +101,12 @@ stable delivery. Implementation acceptance принадлежит Beads
 
 ## Источники
 
+- [Общая workload epoch и протокол stop/drain](../../../test/internal/bfdload/control_phase_linux.go)
+- [Конечный учёт owner](../../../test/internal/bfdload/controlled_owner_linux.go)
+- [Допуск по PID headroom](../../../test/internal/bfdload/admission_linux.go)
+- [CPU pressure и измерение thread CPU](../../../test/internal/bfdload/cpu_pressure_linux.go)
+- [Ограниченный GC pressure](../../../test/internal/bfdload/gc_pressure_linux.go)
+- [Ограниченный scheduler pressure](../../../test/internal/bfdload/scheduler_pressure_linux.go)
 - [Границы workload и clock](../14-performance-analysis.md)
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4)
 - [Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)

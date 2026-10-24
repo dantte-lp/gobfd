@@ -122,7 +122,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make test` | Все тесты с `-race -count=1` |
 | `make test-v` | Подробный вывод тестов |
 | `make test-run RUN=TestFSM PKG=./internal/bfd` | Конкретный тест |
-| `make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd` | Фаззинг (60с) |
+| `make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd` | Фаззинг (60с) |
 | `make test-integration` | Интеграционные тесты |
 
 #### Тесты совместимости
@@ -237,21 +237,28 @@ GoBFD включает fuzz-тесты для всех парсеров паке
 
 ```bash
 # Кодек BFD Control пакетов
-make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd
+make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd
 
 # Overlay-кодек VXLAN (RFC 8971)
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzVXLANHeader$' PKG=./internal/netio
 
 # Overlay-кодек Geneve (RFC 9521)
-make fuzz FUNC=FuzzGeneveHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzGeneveHeader$' PKG=./internal/netio
 
 # Сборка/разбор внутренних пакетов
-make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
+make fuzz FUNC='^FuzzInnerPacket$' PKG=./internal/netio
 ```
 
-Каждый fuzz-тест имеет два варианта:
-- **Round-trip**: проверяет `parse(marshal(packet)) == packet` для структурированных входных данных
-- **Raw input**: подаёт произвольные байты в парсер, проверяя отсутствие паники
+[Test filters Go](https://github.com/golang/go/blob/master/src/testing/testing.go)
+используют незакреплённые regular expressions. Ограничивайте `FUNC` якорями для
+выбора одного target: например, `FuzzVXLANHeader` также совпадает с
+`FuzzVXLANHeaderUnmarshalRaw`.
+
+Overlay families содержат structured round-trip targets и отдельные raw-input
+targets: `FuzzVXLANHeaderUnmarshalRaw`, `FuzzGeneveHeaderUnmarshalRaw` и
+`FuzzStripInnerPacketRaw`. `FuzzControlPacket` принимает произвольные wire bytes;
+пакеты, принятые parser и outbound marshaler, разбираются повторно с проверкой
+сохранённых полей. Это отдельные границы targets, а не два варианта каждого fuzz-теста.
 
 Make target фиксирует fuzz duration 60 секунд и не использует `FUZZTIME`.
 Для другой длительности выполните явный `go test` с `-fuzztime` внутри

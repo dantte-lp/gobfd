@@ -12,7 +12,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Proposed | Accepted | Superseded by ADR-NNNN | Deprecated |
+| Status | One of: Proposed, Accepted, Superseded by ADR-NNNN, Deprecated |
 | Date | YYYY-MM-DD |
 
 ## Context

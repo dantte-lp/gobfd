@@ -166,7 +166,10 @@ thread-pin A/B and runtime qualification gates. See [ADR-0007](./adr/0007-worklo
 
 The owner workload generates requested CPU pressure with bounded helper workers
 inside its own quota. `--cpu-load-percent` uses the shared profile validator;
-named profiles retain the approved 80% input. The JSON `cpu_pressure` receipt
+named profiles retain the approved 80% input. Enabled CPU pressure starts one
+thread-pinned worker per effective `GOMAXPROCS` and rejects values above eight.
+Each 100 ms window requests that percentage of thread CPU time, bounded by
+the window's wall-clock deadline. The JSON `cpu_pressure` receipt
 separates requested duty, actual thread CPU time, summed worker wall time,
 start/end lateness and missed 100 ms duty windows. It includes worker clock
 polling and runtime overhead; elapsed wall time alone is not consumed CPU time.
@@ -188,8 +191,9 @@ calibrated pressure, latency acceptance or reference support.
 `released_objects` counts occupied ring entries dropped at worker exit,
 not all prior overwrites or objects reclaimed by GC.
 
-`--scheduler-pressure` adds four owner helpers per effective `GOMAXPROCS`,
-bounded at 32. In each common 100 ms window, a helper attempts up to 64 rounds
+`--scheduler-pressure` adds four owner helpers per effective `GOMAXPROCS`;
+it rejects values above eight rather than clamping the worker count. The
+maximum is 32 helpers. In each common 100 ms window, a helper attempts up to 64 rounds
 of 1024 compute iterations followed by `runtime.Gosched`, stopping at the
 deadline or cancellation and skipping elapsed windows. The
 `scheduler_pressure` receipt retains actual rounds/yield calls, joined
@@ -365,8 +369,9 @@ and wire behavior separately; their timestamps and success denominators differ.
 The approved reference is 1,000 mixed IPv4/IPv6 sessions, nominal 100 ms
 intervals and 24 hours after setup. The engineering profile is 5,000 sessions
 at 300 ms for 30 minutes. Named profiles preserve required CPU/loss/blackhole
-inputs; the remaining GC/scheduler/churn drivers and independent clock evidence
-are not complete. Neither a short fixture nor a longer run without those
+inputs. Bounded CPU, GC and scheduler-pressure drivers are implemented;
+GC and scheduler variants are off by default. Calibrated pressure distributions,
+churn and independent clock evidence remain incomplete. Neither a short fixture nor a longer run without those
 receipts is reference acceptance. Current inputs live in
 [`profile_linux.go`](../../test/internal/bfdload/profile_linux.go); Beads owns
 acceptance and execution.

@@ -9,15 +9,20 @@ record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 This projection describes local `dev` implementation, not published stable
 delivery. English source verification and Russian parity are locally accepted
 at `5c3ef14bfcf2194e26f951d6125eab3f2fe2ebd6` under
-`gobfd-qj0.8.2.8.7.2.3`. Publication remains held; alpha readiness
+`gobfd-qj0.8.2.8.7.2.3`, with follow-up corrections at
+`852c034ea75ab930f801f9785c90af4d3f861f11`. The subsequent full-document
+source audit covers `dev@70738148033e58c7774cd632f3dba93303c9d7ba` under
+`gobfd-qj0.8.2.8.7.2.9`. Publication remains held; alpha readiness
 `gobfd-qj0.8.2.6.4` does not yet provide a prerelease path.
 
 | Area | Current boundary | Beads authority |
 |---|---|---|
-| Documentation | EN/RU source audit and follow-up corrections; dated M-18 exception retained | `gobfd-qj0.8.2.8.7.2.3`, `gobfd-qj0.8.2.8.7.2.7` |
+| Documentation | English-first source audit and matching Russian corrections; historical records keep their dates and scope | `gobfd-qj0.8.2.8.7.2.9` |
 | Management/reload | Unsafe-loopback policy changes reject before candidate acceptance; complete pending activation remains open | `gobfd-qj0.8.2.3.6`, `gobfd-qj0.8.2.2.6` |
 | Smallstep | Existing-certificate renewal implemented; actual CA and lifecycle qualification incomplete | `gobfd-qj0.8.2.3.7` |
-| Runtime | CPU fixture is scoped evidence; reference workload, remaining stress drivers and thread-pin A/B incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
+| Echo preview | API destination/interface and declarative TX interface limitations remain documented source defects | `gobfd-qj0.8.2.1.17`, `gobfd-qj0.8.2.1.19` |
+| Legacy demos | HAProxy/Kubernetes CLI and pod-selector drift require source fixes and actual execution | `gobfd-qj0.8.2.8.7.1.4.1` |
+| Runtime | Bounded CPU, GC and scheduler fixtures exist; session churn, reference distributions, clock qualification and thread-pin A/B remain incomplete | `gobfd-qj0.8.2.1.6`, `gobfd-qj0.8.2.1.7` |
 | Wire/integrations | Retained development slices do not replace final exact-candidate qualification | `gobfd-qj0.8.2.2.7.5.5`, `gobfd-qj0.8.2.8.5.2` |
 | Security | Existing bounded advisory decisions require final candidate evidence | `gobfd-qj0.8.4.1` |
 
@@ -58,8 +63,10 @@ events and swap. Evidence: `reports/workload-gc-20261024/`.
 
 These are fixture observations, not calibrated reference distributions or
 sole-helper GC causality. Clock uncertainty remains unknown and reference
-qualification remains false. Scheduler/churn drivers, thread-pin A/B, the
-admitted reference/engineering runs and final-candidate wire gates stay open.
+qualification remains false. At this checkpoint scheduler/churn drivers were
+still pending; the scheduler fixture is recorded above. Session churn,
+thread-pin A/B, admitted reference/engineering runs and final-candidate wire
+gates remain open.
 
 ## Historical checkpoints
 

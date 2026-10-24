@@ -84,8 +84,10 @@ Unix UID, TLS URI and TLS DNS owners occupy distinct namespaces; issuing a
 certificate never grants Unix socket privileges.
 
 The flight recorder dump (`grpc.flight_recorder`, off by default) is served only on
-the management server and only to callers with a principal; the metrics listener
-serves no debug endpoint.
+the management server to Unix-socket principals or mTLS identities permitted by
+`grpc.mutating_identities`; anonymous callers are refused even in unsafe mode.
+The metrics listener serves no debug endpoint. Trace files contain sensitive
+runtime details; keep analysis HTTP servers on loopback.
 
 ## GoBGP Integration
 

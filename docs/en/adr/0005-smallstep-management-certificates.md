@@ -81,6 +81,10 @@ acceptance criteria live in Beads `gobfd-qj0.8.2.3.7`; transport provenance is
 
 ## References
 
+- [Renewal CLI](../../../cmd/gobfdctl/commands/certificate.go)
+- [Bounded CA transport](../../../internal/stepca/client.go)
+- [Certificate identity and EKU verification](../../../internal/stepca/certificate.go)
+- [Rooted credential access and atomic replacement](../../../internal/stepca/files_linux.go)
 - [step-ca renewal](https://smallstep.com/docs/step-ca/renewal/)
 - [Renew API source](https://github.com/smallstep/certificates/blob/v0.30.2/api/renew.go)
 - [Response schema](https://github.com/smallstep/certificates/blob/v0.30.2/api/sign.go)

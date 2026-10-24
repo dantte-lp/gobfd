@@ -118,7 +118,7 @@ make test-run RUN=TestFSMTransition PKG=./internal/bfd
 | `make test` | Run all tests with `-race -count=1` |
 | `make test-v` | Verbose test output |
 | `make test-run RUN=TestFSM PKG=./internal/bfd` | Run specific test |
-| `make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd` | Fuzz test (60s) |
+| `make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd` | Fuzz test (60s) |
 | `make test-integration` | Run integration tests |
 
 #### Interoperability Testing
@@ -233,21 +233,28 @@ GoBFD includes fuzz tests for all packet parsers that handle untrusted network i
 
 ```bash
 # BFD Control packet codec
-make fuzz FUNC=FuzzControlPacket PKG=./internal/bfd
+make fuzz FUNC='^FuzzControlPacket$' PKG=./internal/bfd
 
 # VXLAN overlay codec (RFC 8971)
-make fuzz FUNC=FuzzVXLANHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzVXLANHeader$' PKG=./internal/netio
 
 # Geneve overlay codec (RFC 9521)
-make fuzz FUNC=FuzzGeneveHeader PKG=./internal/netio
+make fuzz FUNC='^FuzzGeneveHeader$' PKG=./internal/netio
 
 # Inner packet assembly/disassembly
-make fuzz FUNC=FuzzInnerPacket PKG=./internal/netio
+make fuzz FUNC='^FuzzInnerPacket$' PKG=./internal/netio
 ```
 
-Each fuzz test has two variants:
-- **Round-trip**: verifies `parse(marshal(packet)) == packet` for structured inputs
-- **Raw input**: feeds arbitrary bytes to the parser, verifying it never panics
+[Go's test filters](https://github.com/golang/go/blob/master/src/testing/testing.go)
+are unanchored regular expressions. Anchor `FUNC` to select one target; for
+example, `FuzzVXLANHeader` alone also matches `FuzzVXLANHeaderUnmarshalRaw`.
+
+The overlay families pair structured round-trip targets with separate raw-input
+targets: `FuzzVXLANHeaderUnmarshalRaw`, `FuzzGeneveHeaderUnmarshalRaw` and
+`FuzzStripInnerPacketRaw`. `FuzzControlPacket` consumes arbitrary wire bytes;
+packets accepted by both parsing and outbound marshaling are parsed again to
+check preserved fields. These are separate target boundaries, not two variants
+of every fuzz test.
 
 The Make target fixes fuzz duration at 60 seconds; it does not consume a
 `FUZZTIME` variable. For another duration, run the explicit `go test` command

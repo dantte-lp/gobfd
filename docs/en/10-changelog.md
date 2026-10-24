@@ -50,7 +50,7 @@ changes to `dev` separately. Do not rewrite existing tags or reuse failed cuts.
 
 Release preparation starts only after implementation and final qualification
 are complete. Beads owns the executable plan and approval gates. Current
-prepublication documentation work is `gobfd-qj0.8.2.8.7.2.3`.
+prepublication documentation reconciliation is owned by `gobfd-qj0.8.2.8.7.2`.
 
 Before creating a release branch or tag, verify that the matching branch and
 tag rulesets are active. A tag identifies the exact reviewed release-branch
@@ -75,7 +75,8 @@ uses Go-owned `cictl` preflight, notes, verification and publication steps:
    RPM generation remains available.
 4. Attach all required assets to a draft and verify checksums, notes, target
    commit, SBOM/provenance, packages, OCI evidence and the release report.
-5. Publish only the complete verified draft. Independent postpublication
+5. Promote the verified OCI aliases, then publish the complete verified draft.
+   Independent postpublication
    readback and supported-branch closeout are separate maintainer steps;
    `release-publish` is the workflow's terminal mutation.
 

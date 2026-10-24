@@ -130,7 +130,9 @@ make lint
 
 ### Security
 
-- Never use the `unsafe` package -- GoBFD handles untrusted network input
+- Never introduce `unsafe` in handwritten code. Generated protobuf descriptor
+  code uses the standard generator implementation; regenerate it with
+  `make proto-gen` rather than editing it manually.
 - Never use `math/rand` -- use `math/rand/v2` or `crypto/rand`
 - Run `make vulncheck` before adding new dependencies
 
@@ -149,7 +151,7 @@ make lint
 - [ ] Tests added or updated
 - [ ] `make verify` passes
 - [ ] `make lint-docs` passes for documentation changes
-- [ ] `buf lint` passes (if proto files changed)
+- [ ] `make proto-lint` passes (if proto files changed)
 - [ ] Documentation updated (if applicable)
 - [ ] CHANGELOG.md updated (if user-facing change)
 - [ ] Commit messages are descriptive

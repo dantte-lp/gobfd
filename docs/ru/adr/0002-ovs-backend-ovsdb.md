@@ -28,7 +28,7 @@ backend не сможет подтвердить ownership через OVSDB ил
 
 Production-адаптер использует `github.com/ovn-kubernetes/libovsdb` `v0.8.1`.
 Прежний репозиторий `ovn-org` архивирован; активный владелец сохранил
-используемый transaction API и исправил deadlock в reconnect и inactivity
+используемый transaction API и исправил deadlock при leader change и inactivity
 probe. Ядро GoBFD
 зависит от узкого локального интерфейса, чтобы тесты не требовали
 работающий OVSDB-сервер.
@@ -89,6 +89,9 @@ Backend переиспользует валидацию и политику RFC 
 
 ## References
 
+- [Выбор backend и owner policy](../../../internal/netio/lag_backend.go)
+- [Нативный OVSDB adapter](../../../internal/netio/lag_ovsdb.go)
+- [Выбранная версия модуля](../../../go.mod)
 - RFC 7047: <https://datatracker.ietf.org/doc/html/rfc7047>
 - Open vSwitch `ovsdb(7)`:
   <https://docs.openvswitch.org/en/stable/ref/ovsdb.7/>

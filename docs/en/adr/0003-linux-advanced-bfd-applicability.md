@@ -114,6 +114,10 @@ Production constraints:
 
 ## References
 
+- [Micro-BFD configuration and member wiring](../../../cmd/gobfd/micro_bfd.go)
+- [Actuator backend ownership checks](../../../internal/netio/lag_backend.go)
+- [Overlay backend admission](../../../internal/netio/overlay_backend.go)
+- [Exact supported inner-packet profile](../../../internal/netio/overlay_inner.go)
 - RFC 7130: <https://datatracker.ietf.org/doc/html/rfc7130>
 - RFC 8971: <https://datatracker.ietf.org/doc/html/rfc8971>
 - RFC 9521: <https://datatracker.ietf.org/doc/html/rfc9521>

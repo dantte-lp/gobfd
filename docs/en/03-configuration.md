@@ -340,13 +340,18 @@ unsolicited listener. Configured per-address listeners remain available.
 | `echo.default_detect_multiplier` | uint32 | -- | Default echo detection multiplier |
 | `echo.peers[].peer` | string | -- | Remote system IP (echo target) |
 | `echo.peers[].local` | string | -- | Local system IP |
-| `echo.peers[].interface` | string | -- | Network interface for `SO_BINDTODEVICE` (optional) |
+| `echo.peers[].interface` | string | -- | Optional receive-listener device binding; the current declarative TX sender does not bind to this device |
 | `echo.peers[].tx_interval` | duration | -- | Override `default_tx_interval` for this peer |
 | `echo.peers[].detect_mult` | uint32 | -- | Override `default_detect_multiplier` for this peer |
 
 Echo sessions detect forwarding-path failures without requiring the remote system to run BFD. The local system sends BFD Control packets to UDP port 3785 on the remote, which forwards them back via normal IP routing.
 
 Echo peers are reconciled on SIGHUP reload. Session key: `(peer, local, interface)`.
+
+The declarative sender selects UDP destination port 3785 but does not apply
+`SO_BINDTODEVICE` from `interface` (`gobfd-qj0.8.2.1.19`). API-created Echo
+also ignores the interface for transport and currently sends to Control port
+3784 (`gobfd-qj0.8.2.1.17`). Neither path qualifies interface-bound Echo TX.
 
 API creation also requires `echo.enabled: true`, a reconciled Echo source and
 a ready runtime/receive binding. Otherwise `AddEchoSession` returns
@@ -1176,8 +1181,8 @@ the error contains no address or interface values.
 | `gobgp.strategy` | `disable-peer` | Safest BGP action |
 | `gobgp.action_timeout` | `5s` | Bounds external GoBGP API calls |
 | `gobgp.tls.enabled` | `false` | Backward-compatible localhost GoBGP default |
-| `socket.read_buffer_size` | `4194304` (4 MiB) | Headroom for 100+ sessions |
-| `socket.write_buffer_size` | `4194304` (4 MiB) | Headroom for 100+ sessions |
+| `socket.read_buffer_size` | `4194304` (4 MiB) | Requested receive buffer; qualify effective capacity under deployment load |
+| `socket.write_buffer_size` | `4194304` (4 MiB) | Requested send buffer; qualify effective capacity under deployment load |
 
 ### Related Documents
 

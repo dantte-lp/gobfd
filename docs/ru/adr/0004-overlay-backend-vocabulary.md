@@ -46,5 +46,7 @@ startup validation и завершиться ошибкой позже, при �
 
 ## Ссылки
 
+- [Общий parser backend](../../../internal/overlay/backend.go)
+- [Допуск в конструкторе backend](../../../internal/netio/overlay_backend.go)
 - [Go 1.27 specification: Import declarations](https://go.dev/ref/spec#Import_declarations)
 - [ADR-0003: Применимость Micro-BFD, VXLAN BFD и Geneve BFD в Linux](./0003-linux-advanced-bfd-applicability.md)

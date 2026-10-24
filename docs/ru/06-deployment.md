@@ -25,7 +25,7 @@
 ### Требования
 
 - **Linux** (сырые сокеты требуют Linux-специфичных API)
-- Capability **CAP_NET_RAW** и **CAP_NET_ADMIN** (для UDP-сокетов с TTL=255)
+- Capability **CAP_NET_RAW** и **CAP_NET_ADMIN** по shipped runtime contract (device binding и настроенные network operations)
 - Закреплённый Go 1.27.3 внутри Podman (только для сборки исходников)
 
 Для non-Linux целей поддерживается только compile-time совместимость.
@@ -175,9 +175,9 @@ WantedBy=multi-user.target
 
 | Возможность | Описание |
 |---|---|
-| `Type=notify` | Использует `sd_notify(READY)` для точного отчёта о готовности |
+| `Type=notify` | `sd_notify(READY)` подтверждает startup процесса/listeners; convergence конфигурации имеет отдельный gRPC health |
 | `WatchdogSec=30s` | Watchdog systemd -- демон отправляет keepalive каждые 15 секунд |
-| `ExecReload` | SIGHUP перезагружает уровень лога и реконсилирует membership sessions в пределах открытых при startup transport bindings; startup-owned изменения отклоняются и требуют restart |
+| `ExecReload` | SIGHUP перезагружает уровень лога и реконсилирует sessions и owned UDP listeners/backends; startup-owned настройки требуют restart |
 | `Restart=on-failure` | Авто-перезапуск с задержкой 5 секунд после сбоя или выхода fail-stop при потере receive path или dispatch |
 | Штатная остановка | Выход с кодом 0 после AdminDown drain. Drain, который не может завершиться из-за недоступного пира или пира без discriminator, записывается как предупреждение; локальные ошибки drain по-прежнему завершают процесс с ошибкой |
 | Директивы безопасности | Минимальные привилегии с `CAP_NET_RAW` и `CAP_NET_ADMIN` |
@@ -206,7 +206,9 @@ WantedBy=multi-user.target
 файл, который пишет backend, для каждого управляемого bond:
 
 ```bash
-sudo install -D -m 0644 gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+sudo install -D -m 0644 deployments/systemd/gobfd-kernel-bond.conf /etc/systemd/system/gobfd.service.d/kernel-bond.conf
+# До restart замените bond0 в установленном drop-in на каждый управляемый bond.
+sudoedit /etc/systemd/system/gobfd.service.d/kernel-bond.conf
 sudo systemctl daemon-reload && sudo systemctl restart gobfd
 ```
 
@@ -361,6 +363,10 @@ Release-образы содержат четыре бинарных файла G
 `gobfd`, `gobfdctl`, `gobfd-haproxy-agent` и
 `gobfd-exabgp-bridge`.
 
+Приведённый source-build `deployments/docker/Containerfile` содержит только
+`gobfd` и `gobfdctl`; отдельный release recipe находится в
+`deployments/docker/Containerfile.release`.
+
 Контейнер требует:
 - Capability `CAP_NET_RAW` и `CAP_NET_ADMIN`
 - `network_mode: host` (рекомендуется) или проброс UDP-портов 3784/4784
@@ -371,8 +377,8 @@ Release-образы содержат четыре бинарных файла G
 |---|---|
 | **Capabilities** | Только `CAP_NET_RAW` + `CAP_NET_ADMIN` (без root) |
 | **systemd** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, фильтры address family и системных вызовов, `ProcSubset=pid`; см. [Контракт песочницы](#контракт-песочницы) |
-| **Код** | Нет пакета `unsafe`, все ошибки сокетов обрабатываются |
-| **TTL** | GTSM (RFC 5082): TTL=255 на передачу, проверка TTL=255 на приём |
+| **Код** | Нет `unsafe` в handwritten first-party code; generated protobuf runtime code исключён; ошибки сокетов обрабатываются |
+| **TTL** | Control TX TTL=255; single-hop RX требует 255, multihop RX использует настроенный порог `255 - multihop_max_hops` |
 | **Аутентификация** | Опциональная BFD-аутентификация (5 типов по RFC 5880 Section 6.7) |
 
 ### Обновление сертификатов управления

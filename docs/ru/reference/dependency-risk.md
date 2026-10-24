@@ -53,14 +53,14 @@ tool graphs и не устанавливает текущее число upstrea
 
 ### Описание
 
-GoBGP затронут denial-of-service advisory в обработке BGP path attribute
-NEXT_HOP. GHSA-4p9m-8gc4-rw2h указывает v4.4.0 как исправленную версию
-(upstream commit `583080a`). Go vulnerability database не указывает
-исправленную версию GoBGP v4 и ограничивает advisory символом
-`fsmHandler.recvMessageloop` в `github.com/osrg/gobgp/v4/pkg/server`, который
-GoBFD не импортирует. В `dev` строгий `govulncheck@v1.8.0 ./...` сообщает
-advisory только на уровне модуля, без импортированного пакета и достижимого
-символа; `osv-scanner` на уровне модуля также сообщает advisory.
+Основание принятия риска в [`scripts/vuln-audit.go`](../../../scripts/vuln-audit.go)
+и [SECURITY.md](../../../SECURITY.md) относится к denial-of-service advisory
+обработки BGP NEXT_HOP. Оно фиксирует исправленную v4.4.0 в GHSA-4p9m-8gc4-rw2h
+(upstream commit `583080a`) и отсутствие fixed v4 в Go vulnerability database
+при области `fsmHandler.recvMessageloop` в `github.com/osrg/gobgp/v4/pkg/server`.
+GoBFD импортирует API package. Записанное принятие в `dev` охватывает только
+module-only findings govulncheck и OSV; свежий scan финального candidate должен
+подтвердить эту границу. Реестр не устанавливает текущее содержимое баз advisory.
 
 GoBGP v3 обслуживает `/apipb.GobgpApi`, v4 — `/api.GoBgpService`; они
 несовместимы по wire. GoBFD в `dev` требует демон GoBGP v4. Для GoBGP v3.37.0
@@ -147,5 +147,5 @@ GoBGP v3 обслуживает `/apipb.GobgpApi`, v4 — `/api.GoBgpService`; �
    console/Carapace, когда это разрешит `go mod tidy`.
 3. **Regression gate**: новые first-party импорты `gopkg.in/yaml.v3`
    запрещены.
-4. **Нет известного advisory**: для архивного `v3.0.1` нет известной
-   уязвимости; поддерживаемый наследник закреплён на `v3.0.5`.
+4. **Security review**: сканировать оба точных module graphs до квалификации;
+   archive status и pin наследника не подтверждают отсутствие advisory.

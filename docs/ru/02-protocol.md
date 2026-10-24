@@ -32,7 +32,7 @@ RFC 5880 Section 4.1 определяет обязательный заголо�
 | 0 | 1 | Версия (3 бита) + Диагностика (5 бит) | Версия ОБЯЗАНА быть 1 |
 | 1 | 1 | Состояние (2 бита) + P F C A D M (6 бит) | P=Poll, F=Final, C=CPI, A=Auth, D=Demand, M=Multipoint |
 | 2 | 1 | Множитель обнаружения | НЕ ДОЛЖЕН быть нулём |
-| 3 | 1 | Длина | Полная длина пакета в байтах |
+| 3 | 1 | Длина | Длина BFD PDU в байтах; transport padding RFC 9764 не входит |
 | 4-7 | 4 | My Discriminator | НЕ ДОЛЖЕН быть нулём |
 | 8-11 | 4 | Your Discriminator | Ноль, пока дискриминатор пира не известен |
 | 12-15 | 4 | Desired Min TX Interval | **Микросекунды** |
@@ -113,7 +113,7 @@ Down timeout diagnostic соответствует принятой Held-erratum
 Ключевые переходы:
 
 - **Down + RecvDown --> Init**: начало установления сессии (первый шаг рукопожатия)
-- **Down + RecvInit --> Up**: быстрый переход в Up (сервер получает Init от клиента)
+- **Down + RecvInit --> Up**: локальный peer в Down получает Init от удалённого peer
 - **Up + RecvDown --> Down**: пир упал (Diag = NeighborDown)
 - **Up + TimerExpired --> Down**: таймаут обнаружения (Diag = ControlTimeExpired)
 
@@ -159,20 +159,26 @@ RFC 5880 Section 6.8.1-6.8.4.
 
 **TX-интервал**: фактический интервал передачи -- больший из локального желаемого минимума и удалённого требуемого минимума:
 
-```
+```text
 ActualTxInterval = max(bfd.DesiredMinTxInterval, bfd.RemoteMinRxInterval)
 ```
 
-Когда сессия не в состоянии Up, TX-интервал принудительно устанавливается не менее 1 секунды (1 000 000 микросекунд) по RFC 5880 Section 6.8.3.
+Вне Up объявляемый Desired Min TX и TX-интервал до jitter имеют нижнюю границу
+одна секунда (1 000 000 микросекунд) по RFC 5880 Section 6.8.3. Jitter Section
+6.8.7 сохраняется: интервал в одну секунду допускает периодическую передачу
+через 750 ms.
 
 **Время обнаружения**:
 
-```
+```text
 DetectionTime = bfd.RemoteDetectMult * max(bfd.RequiredMinRxInterval, bfd.RemoteDesiredMinTxInterval)
 ```
 
-Если за Detection Time пакет не принят, сессия переходит в Down с Diagnostic
-Control Detection Time Expired (1).
+Если за Detection Time не принят корректный пакет, Init и Up переходят в Down
+с Diagnostic Control Detection Time Expired (1). Уже находящаяся в Down сессия
+обновляет диагностику по выбранной Held-erratum policy; AdminDown сохраняет
+административное состояние и диагностику. См.
+[`handleDetectTimer`](../../internal/bfd/session_loop.go).
 
 ### Джиттер
 
@@ -183,18 +189,7 @@ RFC 5880 Section 6.8.7. Случайный джиттер предотвраща
 | DetectMult > 1 | Уменьшение на 0-25% | 75-100% интервала |
 | DetectMult == 1 | Уменьшение на 10-25% | 75-90% интервала |
 
-Реализация:
-
-```go
-func ApplyJitter(interval time.Duration, detectMult uint8) time.Duration {
-    if detectMult == 1 {
-        jitterPercent = 10 + rng.IntN(16) // 75-90%
-    } else {
-        jitterPercent = rng.IntN(26)       // 75-100%
-    }
-    return interval - (interval * jitterPercent / 100)
-}
-```
+Реализация: [`applyJitterWithRand` и `Session.applyJitter`](../../internal/bfd/session_packet.go).
 
 Session-local PRNG предпочитает cryptographic seed; при ошибке чтения
 используется time-based seed. Jitter не является security boundary;

@@ -123,20 +123,23 @@ graph TB
 ```mermaid
 flowchart TD
     NET["Network<br/>UDP 3784 / 4784"] --> LISTEN["netio.Listener<br/>ReadMsgUDP<br/>PacketPool.Get()"]
-    LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>RFC 5880 steps 1-7<br/>version, length, detect mult,<br/>multipoint, discriminators"]
-    UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>Tier 1: YourDiscr (O1 map)<br/>Tier 2: PeerKey (SrcIP, DstIP, If)"]
-    DEMUX --> RECV["Session.RecvPkt<br/>buffered chan"]
-    RECV --> HANDLE["handleRecvPacket<br/>RFC 5880 steps 8-18:<br/>auth, FSM event, timer reset"]
+    LISTEN --> UNMARSHAL["bfd.UnmarshalControlPacket<br/>header and auth-section shape<br/>version, length, detect mult,<br/>multipoint, discriminators"]
+    UNMARSHAL --> DEMUX["Manager.DemuxWithWire<br/>YourDiscr or scoped peer key<br/>transport, interface, TTL admission"]
+    DEMUX --> RECV["Session.recvPacket<br/>buffered recvCh"]
+    RECV --> HANDLE["handleRecvPacket<br/>auth, FSM event, timer reset"]
 ```
 
-Receive validation for RFC 5880 Section 6.8.6 is split across two layers:
+Receive processing for RFC 5880 Section 6.8.6 spans three layers. The step
+numbers in code comments group checks locally; the RFC includes session
+selection between the header and authentication checks.
 
-| Layer | Steps | Responsibility |
+| Layer | Source | Responsibility |
 |---|---|---|
-| **Codec** (`packet.go`) | 1-7 | Version, length, detect mult, multipoint, discriminators (stateless) |
-| **Session** (`session.go`) | 8-18 | Auth verification, FSM event, timer update, state variable update |
+| **Codec** | [`packet.go`](../../internal/bfd/packet.go) | Version, lengths, detect mult, multipoint, nonzero My Discriminator and zero Your Discriminator state restriction |
+| **Manager** | [`manager_session.go`](../../internal/bfd/manager_session.go) | Session lookup, transport scope, interface and TTL admission |
+| **Session** | [`session_packet.go`](../../internal/bfd/session_packet.go) | Zero Desired Min TX rejection, auth verification, FSM event, timer and state-variable updates |
 
-This split allows the listener to discard invalid packets before any session lock is acquired.
+The codec rejects malformed packets before session lookup or locking.
 
 ### Packet TX Flow
 
@@ -157,7 +160,7 @@ The packet loop reuses that capacity rather than allocating a growth buffer.
 Two-tier lookup per RFC 5880 Section 6.8.6:
 
 1. **Tier 1** -- Your Discriminator is nonzero: O(1) map lookup by discriminator. Fast path for established sessions.
-2. **Tier 2** -- Your Discriminator is zero AND state is Down/AdminDown: lookup by composite key (SrcIP, DstIP, Interface). Used only during initial session establishment.
+2. **Tier 2** -- Your Discriminator is zero AND state is Down/AdminDown: lookup by composite key (SrcIP, DstIP, Interface, transport scope). Used for establishment or re-establishment after the peer forgets the discriminator.
 
 ### Session Identity and Ownership
 
@@ -172,8 +175,8 @@ listeners bound with `SO_BINDTODEVICE`, independently of configured sessions.
 Ancillary data retains the actual destination and ingress index. Configured
 peer lookup runs first; an unbound listener resolves an unmatched ingress index
 through a startup snapshot of enabled interfaces before unsolicited lookup and
-admission. No packet triggers a system interface-name lookup. Interface changes
-require a restart, as does the unsolicited policy.
+admission. No packet triggers a system interface-name lookup. Changing the
+configured unsolicited interface set or policy requires a restart.
 
 The manager records typed claims from base configuration, Micro-BFD members,
 VXLAN, Geneve, the compatibility/API path, and unsolicited BFD. Ownership
@@ -494,7 +497,11 @@ commits. C-bit reporting retains hard-fail behavior; it adds no graceful
 restart policy.
 
 Each BFD session runs as an independent goroutine with its own timers and
-state. Its context is detached from the daemon signal context so SIGTERM does
+state. Current [Control](../../internal/bfd/session_loop.go) and
+[Echo](../../internal/bfd/echo.go) owners each call `runtime.LockOSThread` for
+the loop lifetime. Goroutine count therefore does not describe their OS-thread
+cost; supported scale and timer precision require separate qualification.
+The session context is detached from the daemon signal context so SIGTERM does
 not stop it before the AdminDown drain. `Manager.Close()` cancels the
 per-session context explicitly and waits for every registered session and echo
 goroutine to exit before releasing its sender lease or discriminator.
@@ -535,13 +542,14 @@ write-side lifecycle transition.
 ```mermaid
 graph TB
     subgraph "Manager"
-        M["Manager goroutine<br/>session CRUD"]
+        M["Manager<br/>serialized lifecycle and ownership"]
     end
 
     subgraph "Session N goroutines"
         S1["Session 1<br/>TX timer + RX channel"]
         S2["Session 2<br/>TX timer + RX channel"]
         SN["Session N<br/>TX timer + RX channel"]
+        E["EchoSession<br/>TX timer + returned Echo channel"]
     end
 
     subgraph "Shared Receivers"
@@ -556,12 +564,13 @@ graph TB
     R --> S1
     R --> S2
     R --> SN
-    ER --> S1
+    ER --> E
     OR --> S2
     MD --> SN
     M --> S1
     M --> S2
     M --> SN
+    M --> E
 ```
 
 ### Graceful Shutdown

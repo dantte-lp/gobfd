@@ -286,6 +286,11 @@ scale, security или stable-release qualification. Окончательная 
 
 ## Источники
 
+- [Принятие generation и source receipts](../../../cmd/gobfd/reconciliation.go)
+- [Reload admission по retained/live состоянию](../../../internal/bfd/manager_auth_reload.go)
+- [Транзакции таймеров и packet policy владельца](../../../internal/bfd/session_update.go)
+- [Lifecycle подготовленной replacement](../../../internal/bfd/manager_replace.go)
+- [Владение overlay scope и physical lease](../../../cmd/gobfd/overlay_owner.go)
 - [RFC 5880 §6.6: Demand mode](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.6)
 - [RFC 5880 §6.7: Authentication](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.7)
 - [RFC 5880 §6.8.3: Timer manipulation](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.3)

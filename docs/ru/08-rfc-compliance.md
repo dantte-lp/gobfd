@@ -117,9 +117,9 @@ lookup использует array, построенный из declarative `map[
 
 #### Section 6.3: Демультиплексирование
 
-Реализация: [`internal/bfd/manager.go`](../../internal/bfd/manager.go). Двухуровневое демультиплексирование:
+Реализация: [`internal/bfd/manager_session.go`](../../internal/bfd/manager_session.go). Двухуровневое демультиплексирование:
 - Уровень 1: O(1) поиск по Your Discriminator (быстрый путь)
-- Уровень 2: Составной ключ (SrcIP, DstIP, Interface) для установления сессии
+- Уровень 2: Составной ключ (SrcIP, DstIP, Interface, transport scope) для установления или повторного установления сессии
 
 #### Section 6.5: Poll-последовательности
 
@@ -273,12 +273,15 @@ detection timer.
 
 #### Section 6.8.6: Приём пакетов
 
-Валидация разделена на два уровня:
+Приём проходит три уровня. Номера групп в комментариях кода служат сокращением
+для реализации; RFC также требует выбирать сессию между проверками заголовка
+и аутентификации.
 
-| Уровень | Шаги | Файл |
+| Уровень | Ответственность | Файл |
 |---|---|---|
-| Кодек | 1-7 (без состояния) | `packet.go` |
-| Сессия | 8-18 (с состоянием) | `session.go` |
+| Кодек | Заголовок, форма authentication section, допустимость discriminator | [`packet.go`](../../internal/bfd/packet.go) |
+| Manager | Выбор сессии, допуск по transport scope, интерфейсу и TTL | [`manager_session.go`](../../internal/bfd/manager_session.go) |
+| Сессия | Нулевой Desired Min TX, наличие и проверка auth, переменные, FSM и таймеры | [`session_packet.go`](../../internal/bfd/session_packet.go) |
 
 #### Section 6.8.7: Джиттер
 
@@ -528,7 +531,7 @@ RFC 9747 определяет unaffiliated BFD echo для обнаружени�
 
 | Требование | Реализация |
 |---|---|
-| UDP порт 3785 | `netio.PortEcho = 3785`, слушатель в `createListeners()` |
+| UDP порт 3785 | `netio.PortEcho = 3785`; `echoListenerConfigs()` и API listener claims в `cmd/gobfd/listeners.go` |
 | Стандартный формат BFD Control | Переиспользование кодека `MarshalControlPacket` |
 | DiagEchoFailed при таймауте | `DiagEchoFailed` (значение 2) |
 | Локально настроенные таймеры | `EchoSessionConfig.TxInterval`, без согласования |
@@ -561,7 +564,7 @@ RFC 7130 определяет Micro-BFD — независимые BFD-сесс�
 
 | Требование | Реализация |
 |---|---|
-| UDP порт 6784 | `netio.PortMicroBFD = 6784`, per-member слушатели в `createMicroBFDListeners()` |
+| UDP порт 6784 | `netio.PortMicroBFD = 6784`; per-member `microListenerConfigs()` в `cmd/gobfd/micro_bfd.go` |
 | Одна BFD-сессия на member link (Sections 2, 2.2) | `microBFDMemberSessionConfig()` выводит из группы одну сессию `SessionTypeMicroBFD` на member link; каждым member link владеет одна группа (`ErrMicroBFDMemberOwned`) |
 | Контракт member-сессии (Section 2.2) | `ValidateMicroBFDConfig()` применяет проверку сессии RFC 5880 (адрес пира, wire-границы интервалов, detect multiplier) к каждой member-сессии на пути daemon и прямом пути Manager/API; группы хранят и возвращают общие таймеры |
 | `SO_BINDTODEVICE` на каждый member | Функциональная опция `WithBindDevice()` на отправителе |
@@ -734,7 +737,7 @@ ownership kernel Geneve, OVS/OVN или NSX dataplane.
 
 **Статус**: Частично
 
-Реализация: [`internal/bfd/session.go`](../../internal/bfd/session.go) (padding), [`internal/netio/sender.go`](../../internal/netio/sender.go) (бит DF), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
+Реализация: [`internal/bfd/session_packet.go`](../../internal/bfd/session_packet.go) (сборка PDU), [`internal/bfd/session_loop.go`](../../internal/bfd/session_loop.go) (padded send), [`internal/netio/sender.go`](../../internal/netio/sender.go) (бит DF), [`internal/bfd/session_update.go`](../../internal/bfd/session_update.go) (reload policy)
 
 RFC 9764 определяет BFD Large Packets для проверки MTU пути. Реализация дополняет BFD Control пакеты до настроенного размера нулями и устанавливает бит IP Don't Fragment (DF). Если дополненный пакет превышает MTU пути, он будет отброшен, что позволит BFD обнаружить проблему с MTU.
 
@@ -862,6 +865,7 @@ RFC 7881 определяет инкапсуляцию S-BFD для IPv4 и IPv6
 | [rfc5884.txt](../rfc/rfc5884.txt) | RFC 5884 -- BFD for MPLS LSPs |
 | [rfc5885.txt](../rfc/rfc5885.txt) | RFC 5885 -- BFD for PW VCCV |
 | [rfc7130.txt](../rfc/rfc7130.txt) | RFC 7130 -- BFD on LAG |
+| [rfc7419.txt](../rfc/rfc7419.txt) | RFC 7419 -- Common Interval Support in BFD |
 | [rfc9985.txt](../rfc/rfc9985.txt) | RFC 9985 -- Optimizing BFD Authentication |
 | [rfc9986.txt](../rfc/rfc9986.txt) | RFC 9986 -- Meticulous Keyed ISAAC for Optimized BFD Authentication |
 

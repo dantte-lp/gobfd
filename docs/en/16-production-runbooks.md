@@ -51,11 +51,17 @@ Required properties:
 - `NET_ADMIN` for enabled socket options and interface operations
 - Exec `gobfdctl` readiness over the Unix socket; metrics TCP liveness
 
+Before applying manifests, provide `gobfd:local` and `gobgp:local` in every
+eligible node's image store: the manifest sets `imagePullPolicy: Never`.
+The example runner imports into its local k3s store only and retains a pod-label
+mismatch and obsolete probes (`gobfd-qj0.8.2.8.7.1.4.1`). These are separate
+from the direct manifest commands below.
+
 Deploy:
 
 ```bash
 kubectl apply -f deployments/integrations/kubernetes/manifests/
-kubectl -n gobfd rollout status daemonset/gobfd
+kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
 kubectl -n gobfd get pods -o wide
 ```
 
@@ -99,6 +105,10 @@ podman exec gobgp-bgp-failover gobgp global rib
 podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd -c 5
 ```
 
+Confirm BFD Up and route `10.20.0.0/24` present before the failure drill.
+The commands below display observations; `make int-bgp-failover` performs the
+separate assertion-based withdrawal/restoration gate.
+
 Failure drill:
 
 ```bash
@@ -114,7 +124,7 @@ Expected result:
 
 - BFD transitions from Up to Down before the normal BGP hold timer expires.
 - GoBGP disables the affected peer.
-- Route reachability recovers after the BFD session returns Up.
+- Route `10.20.0.0/24` returns to the GoBGP RIB after BFD Up; verify forwarding separately.
 
 ## Prometheus Alert Validation
 
@@ -166,7 +176,7 @@ Alert intent:
 
 | Alert | Meaning |
 |---|---|
-| `BFDNoActiveSessions` | GoBFD has no configured active sessions. |
+| `BFDNoActiveSessions` | No active session objects; the shipped rule misses fresh-empty exporters (`gobfd-qj0.8.2.8.7.2.8`). |
 | `BFDSessionDownTransition` | A session transitioned from Up to Down. |
 | `BFDSessionFlapping` | A session changed state more than 3 times in 5 minutes. |
 | `BFDAuthFailures` | RFC 5880 authentication verification failed. |

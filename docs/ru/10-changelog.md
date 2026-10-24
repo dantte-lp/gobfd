@@ -51,7 +51,7 @@
 
 Подготовка релиза начинается после завершения реализации и финальной
 квалификации. Исполняемый план и условия одобрения хранятся в Beads.
-Текущая проверка документации перед публикацией — `gobfd-qj0.8.2.8.7.2.3`.
+Сверка документации перед публикацией принадлежит `gobfd-qj0.8.2.8.7.2`.
 
 До создания release branch или тега проверьте активность соответствующих
 rulesets для веток и тегов. Тег указывает на точный проверенный commit
@@ -76,7 +76,8 @@ Workflow [release.yml](../../.github/workflows/release.yml) использует
    исключён из v1 OCI и lifecycle qualification; создание общего RPM сохранено.
 4. Приложить все обязательные assets к draft и проверить checksums, notes,
    commit, SBOM/provenance, пакеты, OCI evidence и release report.
-5. Опубликовать только полный проверенный draft. Независимый postpublication
+5. Продвинуть проверенные OCI aliases, затем опубликовать полный проверенный draft.
+   Независимый postpublication
    readback и закрытие поддерживаемых веток — отдельные шаги maintainer;
    `release-publish` является terminal mutation workflow.
 

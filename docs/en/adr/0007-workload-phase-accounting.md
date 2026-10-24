@@ -102,6 +102,12 @@ scheduler or kernel fast path.
 
 ## References
 
+- [Common workload epoch and stop/drain protocol](../../../test/internal/bfdload/control_phase_linux.go)
+- [Terminal owner accounting](../../../test/internal/bfdload/controlled_owner_linux.go)
+- [PID headroom admission](../../../test/internal/bfdload/admission_linux.go)
+- [CPU pressure and measured thread CPU](../../../test/internal/bfdload/cpu_pressure_linux.go)
+- [Bounded GC pressure](../../../test/internal/bfdload/gc_pressure_linux.go)
+- [Bounded scheduler pressure](../../../test/internal/bfdload/scheduler_pressure_linux.go)
 - [Workload and clock boundaries](../14-performance-analysis.md)
 - [RFC 5880 Section 6.8.4](https://www.rfc-editor.org/rfc/rfc5880.html#section-6.8.4)
 - [Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html)

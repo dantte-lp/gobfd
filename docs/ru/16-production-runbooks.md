@@ -24,9 +24,9 @@
 - Текущие userspace receive paths VXLAN/Geneve являются небезопасными и
   неполными preview: валидация inner packet и полная tunnel-session identity
   не прошли production qualification.
-- Kubernetes host-network pods require `dnsPolicy: ClusterFirstWithHostNet`
-  when `hostNetwork: true` is set.
-- Vendor examples require public vendor documentation.
+- Kubernetes pods с host networking требуют `dnsPolicy: ClusterFirstWithHostNet`
+  при `hostNetwork: true`.
+- Vendor examples требуют публичной vendor documentation.
 
 ## Профили развёртывания
 
@@ -52,11 +52,17 @@ addresses или vendor-specific assumptions.
 - `NET_ADMIN` для включённых socket options и interface operations
 - Exec `gobfdctl` readiness через Unix socket; metrics TCP liveness
 
+До применения manifests поместите `gobfd:local` и `gobgp:local` в image store
+каждого подходящего узла: manifest задаёт `imagePullPolicy: Never`.
+Пример runner импортирует только в локальное k3s store и сохраняет несовпадение
+pod labels и устаревшие probes (`gobfd-qj0.8.2.8.7.1.4.1`). Это отдельные
+ограничения runner, не приведённых ниже прямых manifest commands.
+
 Развёртывание:
 
 ```bash
 kubectl apply -f deployments/integrations/kubernetes/manifests/
-kubectl -n gobfd rollout status daemonset/gobfd
+kubectl -n gobfd rollout status daemonset/gobfd --timeout=120s
 kubectl -n gobfd get pods -o wide
 ```
 
@@ -100,6 +106,10 @@ podman exec gobgp-bgp-failover gobgp global rib
 podman exec tshark-bgp-failover tshark -r /captures/bfd.pcapng -Y bfd -c 5
 ```
 
+До failure drill подтвердите BFD Up и наличие маршрута `10.20.0.0/24`.
+Команды ниже показывают наблюдения; отдельный gate с assertions отзыва и
+восстановления запускается через `make int-bgp-failover`.
+
 Failure drill:
 
 ```bash
@@ -115,7 +125,7 @@ podman exec gobgp-bgp-failover gobgp global rib
 
 - BFD переходит из Up в Down до истечения обычного BGP hold timer.
 - GoBGP отключает затронутого пира.
-- Доступность маршрута восстанавливается после возврата BFD-сессии в Up.
+- Маршрут `10.20.0.0/24` возвращается в GoBGP RIB после BFD Up; forwarding проверяется отдельно.
 
 ## Проверка Prometheus alerts
 
@@ -167,7 +177,7 @@ curl -fsS http://localhost:9090/api/v1/rules
 
 | Alert | Значение |
 |---|---|
-| `BFDNoActiveSessions` | У GoBFD нет активных сконфигурированных сессий. |
+| `BFDNoActiveSessions` | Нет активных session objects; shipped rule пропускает свежий пустой exporter (`gobfd-qj0.8.2.8.7.2.8`). |
 | `BFDSessionDownTransition` | Сессия перешла из Up в Down. |
 | `BFDSessionFlapping` | Сессия изменила состояние более 3 раз за 5 минут. |
 | `BFDAuthFailures` | Проверка authentication по RFC 5880 завершилась ошибкой. |

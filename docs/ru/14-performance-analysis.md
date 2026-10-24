@@ -168,7 +168,10 @@ thread-pin A/B и runtime qualification gates. См. [ADR-0007](./adr/0007-workl
 
 Owner workload создаёт запрошенное CPU pressure ограниченными helper workers
 внутри собственной quota. `--cpu-load-percent` использует общий profile validator;
-именованные profiles сохраняют утверждённый вход 80%. JSON receipt `cpu_pressure`
+именованные profiles сохраняют утверждённый вход 80%. При включённой CPU pressure
+создаётся один thread-pinned worker на effective `GOMAXPROCS`; значения больше
+восьми отклоняются. Каждое окно 100 ms запрашивает эту долю thread CPU time
+в пределах wall-clock deadline окна. JSON receipt `cpu_pressure`
 разделяет requested duty, фактическое thread CPU time, сумму worker wall time,
 start/end lateness и пропущенные duty windows по 100 ms. CPU time включает clock
 polling и runtime overhead workers; elapsed wall time не равно потреблённому
@@ -190,8 +193,9 @@ window охватывают весь owner process и не доказывают 
 `released_objects` считает занятые ring entries, освобождённые при выходе worker,
 а не все прежние перезаписи или объекты, память которых вернул GC.
 
-`--scheduler-pressure` добавляет четыре owner helper на effective `GOMAXPROCS`,
-не более 32. В каждом общем окне 100 ms helper выполняет до 64 раундов по
+`--scheduler-pressure` добавляет четыре owner helper на effective `GOMAXPROCS`;
+значения больше восьми отклоняются, а не уменьшают число workers. Максимум —
+32 helper. В каждом общем окне 100 ms helper выполняет до 64 раундов по
 1024 compute iterations с последующим `runtime.Gosched`, останавливаясь по
 deadline или отмене и пропуская истекшие окна. Отчёт `scheduler_pressure`
 сохраняет фактические rounds/yield calls, завершённых workers, skipped/incomplete
@@ -368,8 +372,9 @@ dispatch/effect и wire-поведение: timestamps и success denominators �
 Принятый reference — 1 000 смешанных IPv4/IPv6 sessions, номинальный интервал
 100 ms и 24 часа после setup. Engineering profile — 5 000 sessions,
 300 ms и 30 минут. Named profiles сохраняют обязательные CPU/loss/blackhole
-inputs; оставшиеся GC/scheduler/churn drivers и независимое clock evidence
-не завершены. Короткий fixture или более долгий запуск без этих свидетельств
+inputs. Ограниченные CPU, GC и scheduler-pressure drivers реализованы;
+варианты GC и scheduler выключены по умолчанию. Калиброванные pressure distributions,
+churn и независимое clock evidence не завершены. Короткий fixture или более долгий запуск без этих свидетельств
 не являются reference acceptance. Текущие inputs находятся в
 [`profile_linux.go`](../../test/internal/bfdload/profile_linux.go); Beads
 определяет приёмку и исполнение.
