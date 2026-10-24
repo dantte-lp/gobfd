@@ -4,6 +4,26 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## UDP workload phase integration — 2026-10-24
+
+P0 `gobfd-qj0.8.2.1.6.3.3` resumes the preserved workload implementation in
+`task/udp-resume-20261024`. The common phase now reaches both CLI roles and the
+existing owned topology: measurement ends before peer join and bounded owner
+drain. Critical race suites pass 71 tests, including refusal of an unaccounted
+write; scoped lint and the canonical dependency-inventory check pass. The
+required-Podman missing-binary path has a retained RED/GREEN check and now fails
+instead of silently skipping. [ADR-0007](./adr/0007-workload-phase-accounting.md)
+states the accounting and clock boundaries.
+
+The independent-process IPv4/IPv6 fixture passes in 47.98 s: 79 writes equal
+79 commits; repeated setup changes assigned/existing counts from 4/0 to 0/4 in
+the same private namespace; all four containers are removed. Runner peak is
+293216256 bytes under 512 MiB, with zero max/OOM events and swap. Both process
+reports retain `reference_qualified=false` and unknown total clock uncertainty.
+Evidence: `reports/udp-resume-20261024/`; whole-branch acceptance remains pending.
+Reference profiles, regression policy and thread-pin A/B stay P0 before the final
+four-profile wire gate. No supported-scale or stable-release claim follows.
+
 ## Unified qualifier corrections — 2026-10-24
 
 The existing default FourPeer gate passes in 429.47 s on

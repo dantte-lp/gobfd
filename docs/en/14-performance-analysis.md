@@ -184,23 +184,33 @@ named profiles fail before sockets open. SIGINT/SIGTERM cancel the workload,
 join workers and emit a partial JSON report; signals retain normal termination
 while stdout is blocked after cleanup.
 
-The current standalone owner and peer commands use independent duration timers.
-Their totals include setup and shutdown; a successful fixture can still stop the
-owner before the peers' last successful writes reach commit. It does not prove
-complete packet accounting or a shared measurement window. Internal phase-control
-helpers publish bounded files without replacing existing input and verify a common
-time namespace before converting a native monotonic deadline to a Go timer. These
-helpers are not yet connected to the commands or topology controller. Their
-conversion bracket does not establish independent RX timing uncertainty. The
-remaining integration and acceptance criteria belong to Beads
-`gobfd-qj0.8.2.1.6.3.3`.
+Commands without `--control-dir` retain independent duration timers and lifetime
+totals that include setup and shutdown. Controlled owner/peer commands use the
+existing Go-owned topology controller: bind both roles, reach Up, publish a common
+future monotonic epoch, freeze the owner measurement snapshot, stop and join peers,
+then drain terminal accounting before owner shutdown. The private bounded control
+files refuse replacement and verify a common time namespace. Missing terminal
+receipts fail at a bounded deadline instead of marking the run complete.
+The conversion bracket does not establish independent RX timing uncertainty.
+Lifetime totals must not be divided by the requested measurement duration to
+claim window throughput; snapshots remain sampled observations.
+See [ADR-0007](./adr/0007-workload-phase-accounting.md).
+
+The 2026-10-24 independent-process IPv4/IPv6 fixture passes in 47.98 s with
+79 actual writes and 79 owner commits, matching phase identities, idempotent
+namespace setup and four verified container removals. Evidence:
+`reports/udp-resume-20261024/`. Both reports retain `reference_qualified=false`
+and unknown total clock uncertainty. This is a production-core fixture receipt,
+not reference-load or complete-daemon qualification. Beads
+`gobfd-qj0.8.2.1.6.3.3` owns implementation acceptance.
 
 `RunOwner` records initial/final real collector snapshots, sampled resource
 peaks, means for the first/final six-hour RSS windows, runtime histogram
 deltas and a bounded Down journal. Missing transition events and journal
 overflow remain explicit; the owner does not classify intentional Down without
-the independent peer report. `completed` means the observation duration ended,
-not that all sessions remained Up. Reference resources require exact 8 CPU/
+the independent peer report. `completed` means the observation duration ended;
+controlled mode additionally requires terminal-ledger settlement. It does not
+mean all sessions remained Up. Reference resources require exact 8 CPU/
 8 GiB child limits, GOMAXPROCS 8, the pinned compiler and no tighter visible
 cgroup ancestors. Hidden ancestor roots fail closed. Admission does not reserve
 capacity or prove host namespace visibility; the isolated runner must verify
@@ -232,8 +242,9 @@ The workload's `ClockEpochGuard` arms a nonblocking
 with absolute `CANCEL_ON_SET` before calibration. `Finish` checks cancellation
 after the last sample and closes its FD. A successful nonblocking read check
 sets `no_cancellation_observed`; it does not prove that the clock never stepped.
-Timekeeping can publish an offset change before notifying timerfd, and resume
-notification can be deferred. Cancellation, expiration, unavailable data and
+[Timekeeping publishes before notification](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/kernel/time/timekeeping.c#L1468-L1474),
+and [resume notification is deferred](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/fs/timerfd.c#L118-L131).
+These upstream v6.12 sources do not qualify a vendor kernel. Cancellation, expiration, unavailable data and
 aborted guards cannot provide a usable witness. Its seven-day horizon bounds
 the witness lifetime. No per-packet syscall or guard goroutine is added.
 `WithClockEpoch` requires process-local monotonic provenance covering the entire

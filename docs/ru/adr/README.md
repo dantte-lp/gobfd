@@ -31,3 +31,4 @@
 | [0004](./0004-overlay-backend-vocabulary.md) | Единый словарь overlay backend | Accepted |
 | [0005](./0005-smallstep-management-certificates.md) | Внешний Smallstep CA для management-сертификатов | Accepted |
 | [0006](./0006-session-preserving-reload-policy.md) | Политика reload с сохранением сессии | Accepted policy; qualification отдельно |
+| [0007](./0007-workload-phase-accounting.md) | Фазы нагрузки и конечный учёт пакетов | Accepted policy; qualification отдельно |

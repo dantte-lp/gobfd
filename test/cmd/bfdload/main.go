@@ -15,7 +15,7 @@ import (
 	"github.com/dantte-lp/gobfd/test/internal/bfdload"
 )
 
-var errCommandArguments = errors.New("expected bfdload environment or {peers|owner} PROFILE [flags]")
+var errCommandArguments = errors.New("expected environment, peers/owner PROFILE, or prepare HOST_NAMESPACE PROFILE")
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout); err != nil {
@@ -25,6 +25,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, output io.Writer) error {
+	if len(args) > 0 && args[0] == "prepare" {
+		return runPrepare(ctx, args[1:], output)
+	}
 	if len(args) > 0 && (args[0] == "peers" || args[0] == "owner") {
 		return runWorkload(ctx, args, output)
 	}

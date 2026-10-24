@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"math"
 	"net/netip"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/netio"
@@ -17,9 +19,10 @@ import (
 
 // PeerConfig gives the independent generator the target's local/peer tuples.
 type PeerConfig struct {
-	Profile        Profile         `json:"profile"`
-	Sessions       []OwnerEndpoint `json:"sessions"`
-	SourcePortBase uint16          `json:"source_port_base"`
+	Profile          Profile         `json:"profile"`
+	Sessions         []OwnerEndpoint `json:"sessions"`
+	SourcePortBase   uint16          `json:"source_port_base"`
+	ControlDirectory string          `json:"control_directory,omitempty"`
 }
 
 // PeerSessionObservation counts actual writes separately from scheduled omissions.
@@ -64,6 +67,7 @@ type PeerObservation struct {
 	Peers              []PeerSessionObservation `json:"peers"`
 	Environment        Environment              `json:"environment"`
 	Error              string                   `json:"error,omitempty"`
+	Phase              *Phase                   `json:"phase,omitempty"`
 }
 
 // RunPeers runs separate reference state machines over actual UDP until the
@@ -97,6 +101,7 @@ type peerGroup struct {
 	stopIO    func() bool
 	closeOnce sync.Once
 	closeErr  error
+	phase     atomic.Pointer[phaseStart]
 }
 
 func (g *peerGroup) closeIO() {
@@ -132,11 +137,23 @@ func (g *peerGroup) run(ctx context.Context, cfg PeerConfig, logger *slog.Logger
 	}
 	// The resource slice is immutable before cancellation can close its sockets.
 	g.stopIO = context.AfterFunc(runCtx, g.closeIO)
+	if cfg.ControlDirectory != "" {
+		if err := waitListenerReady(runCtx, cfg.ControlDirectory, true); err != nil {
+			return false, err
+		}
+	}
 	trafficStart := time.Now()
 	for _, peer := range g.peers {
 		peer.started = true
+		if cfg.ControlDirectory != "" {
+			peer.phase = &g.phase
+			peer.duration = cfg.Profile.Duration
+		}
 		g.workers.Go(func() { peer.read(runCtx, cancel) })
 		g.workers.Go(func() { peer.run(runCtx, cancel, trafficStart) })
+	}
+	if cfg.ControlDirectory != "" {
+		return g.runControlled(runCtx, cfg)
 	}
 	timer := time.NewTimer(cfg.Profile.Duration)
 	defer timer.Stop()
@@ -165,6 +182,9 @@ func (g *peerGroup) finish(
 		runErr = errors.Join(runErr, peer.readErr, peer.loopErr)
 	}
 	result.Stopped, result.Completed = true, completed
+	if phase := g.phase.Load(); phase != nil {
+		result.Phase = phase.observation()
+	}
 	result.StartedAtUTC, result.ElapsedNS = g.started.UTC(), int64(time.Since(g.started))
 	observeCtx, observeCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer observeCancel()
@@ -179,6 +199,9 @@ func (g *peerGroup) finish(
 
 // Validate checks the complete wire topology before any socket is opened.
 func (cfg PeerConfig) Validate() error {
+	if cfg.ControlDirectory != "" && !filepath.IsAbs(cfg.ControlDirectory) {
+		return fmt.Errorf("control directory must be absolute: %w", ErrControl)
+	}
 	if err := cfg.Profile.Validate(); err != nil {
 		return err
 	}

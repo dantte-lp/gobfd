@@ -4,6 +4,26 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Интеграция общей фазы UDP workload — 2026-10-24
+
+P0 `gobfd-qj0.8.2.1.6.3.3` продолжает сохранённую реализацию в
+`task/udp-resume-20261024`. Общая фаза подключена к обеим CLI-ролям и существующей
+owned topology: measurement заканчивается до peer join и bounded owner drain.
+Критические race suites проходят 71 тест, включая отказ при недостающей записи;
+scoped lint и canonical dependency-inventory check проходят. Required-Podman
+запуск без binary имеет сохранённый RED/GREEN и завершается ошибкой вместо SKIP.
+[ADR-0007](./adr/0007-workload-phase-accounting.md) фиксирует accounting и clock
+boundaries.
+
+Independent-process IPv4/IPv6 fixture проходит за 47,98 с: 79 writes равны
+79 commits; повторный setup меняет assigned/existing с 4/0 на 0/4 в том же
+private namespace; все четыре контейнера удалены. Peak runner — 293216256 bytes
+при лимите 512 MiB; max/OOM events и swap — 0. Оба process reports сохраняют
+`reference_qualified=false` и unknown total clock uncertainty.
+Evidence: `reports/udp-resume-20261024/`; whole-branch acceptance ещё впереди.
+Reference profiles, regression policy и thread-pin A/B остаются P0 до final
+four-profile wire gate. Supported scale и stable release этим не подтверждены.
+
 ## Исправления единого квалификатора — 2026-10-24
 
 Существующий default FourPeer gate проходит за 429,47 с на

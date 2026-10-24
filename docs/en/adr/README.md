@@ -31,3 +31,4 @@ forward link to the replacement.
 | [0004](./0004-overlay-backend-vocabulary.md) | Shared overlay backend vocabulary | Accepted |
 | [0005](./0005-smallstep-management-certificates.md) | External Smallstep CA renewal for management certificates | Accepted |
 | [0006](./0006-session-preserving-reload-policy.md) | Session-preserving reload policy | Accepted policy; qualification separate |
+| [0007](./0007-workload-phase-accounting.md) | Workload phases and terminal packet accounting | Accepted policy; qualification separate |

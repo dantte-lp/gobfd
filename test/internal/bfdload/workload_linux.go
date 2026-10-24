@@ -84,6 +84,8 @@ type OwnerWorkloadObservation struct {
 	DownEventsOmitted  uint64             `json:"down_events_omitted"`
 	NotificationGaps   uint64             `json:"notification_gaps"`
 	Error              string             `json:"error,omitempty"`
+	Phase              *Phase             `json:"phase,omitempty"`
+	MeasurementFinal   OwnerObservation   `json:"measurement_final"`
 }
 
 // RunOwner uses the peer manifest to run the actual production core and collector.
@@ -105,6 +107,12 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 			return result, err
 		}
 	}
+	if cfg.ControlDirectory != "" {
+		if err := waitListenerReady(ctx, cfg.ControlDirectory, false); err != nil {
+			result.Error = err.Error()
+			return result, err
+		}
+	}
 	guard, err := NewClockEpochGuard(ctx)
 	if err != nil {
 		result.Error = err.Error()
@@ -119,13 +127,7 @@ func RunOwner(ctx context.Context, cfg PeerConfig, logger *slog.Logger) (OwnerWo
 		result.Error = err.Error()
 		return result, err
 	}
-	started := time.Now()
-	result.StartedAtUTC = started.UTC()
-	result.Initial, err = owner.Snapshot(ctx)
-	if err == nil {
-		result.Resources.observe(result.Initial.Environment, 0, cfg.Profile.Duration)
-		err = result.observe(ctx, owner, started)
-	}
+	started, err := result.runWindow(ctx, owner)
 	return result.finish(ctx, owner, guard, started, err)
 }
 
@@ -135,6 +137,9 @@ func (r *OwnerWorkloadObservation) observe(ctx context.Context, owner *Owner, st
 		return fmt.Errorf("subscribe owner workload transitions: %w", err)
 	}
 	timer := time.NewTimer(r.Config.Profile.Duration)
+	if r.Phase != nil {
+		timer.Reset(max(0, time.Until(started.Add(r.Config.Profile.Duration))))
+	}
 	defer timer.Stop()
 	ticker := time.NewTicker(ownerSamplePeriod)
 	defer ticker.Stop()
@@ -192,10 +197,15 @@ func (r *OwnerWorkloadObservation) finish(
 	r.Final = r.Final.WithClockEpoch(epoch)
 	runErr = errors.Join(runErr, snapshotErr, epochErr, guard.Close())
 	if snapshotErr == nil && len(r.Initial.Sessions) != 0 {
+		measuredFinal := r.Final
+		if r.Phase != nil && len(r.MeasurementFinal.Sessions) != 0 {
+			measuredFinal = r.MeasurementFinal
+		}
 		var schedulerErr, gcErr error
 		r.SchedulerWindow, schedulerErr = histogramDelta(r.Initial.Environment.Runtime.SchedulerLatency,
-			r.Final.Environment.Runtime.SchedulerLatency)
-		r.GCPauseWindow, gcErr = histogramDelta(r.Initial.Environment.Runtime.GCPauses, r.Final.Environment.Runtime.GCPauses)
+			measuredFinal.Environment.Runtime.SchedulerLatency)
+		r.GCPauseWindow, gcErr = histogramDelta(r.Initial.Environment.Runtime.GCPauses,
+			measuredFinal.Environment.Runtime.GCPauses)
 		runErr = errors.Join(runErr, schedulerErr, gcErr)
 	}
 	r.ElapsedNS = int64(time.Since(started))

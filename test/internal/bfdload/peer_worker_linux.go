@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
 
 	"github.com/dantte-lp/gobfd/internal/bfd"
@@ -42,6 +43,9 @@ type peerRuntime struct {
 	started  bool
 	readErr  error
 	loopErr  error
+	up       atomic.Bool
+	phase    *atomic.Pointer[phaseStart]
+	duration time.Duration
 }
 
 func bindPeer(
@@ -171,7 +175,7 @@ func (p *peerRuntime) onInput(ctx context.Context, input peerInput, started time
 		p.observed.KernelDropCounterRaw = input.meta.SocketDrops
 	}
 	now := time.Now()
-	decision, err := p.rx.next(now.Sub(started))
+	decision, err := p.decision(p.rx, now, started)
 	if err != nil {
 		return err
 	}
@@ -253,7 +257,7 @@ func (p *peerRuntime) send(ctx context.Context, now, started time.Time, final bo
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("peer send interrupted: %w", err)
 	}
-	decision, err := p.tx.next(now.Sub(started))
+	decision, err := p.decision(p.tx, now, started)
 	if err != nil {
 		return err
 	}
@@ -287,6 +291,7 @@ func (p *peerRuntime) send(ctx context.Context, now, started time.Time, final bo
 }
 
 func (p *peerRuntime) observeState(previous bfd.State) {
+	p.up.Store(p.state.state == bfd.StateUp)
 	if p.state.state == previous {
 		return
 	}
@@ -297,6 +302,17 @@ func (p *peerRuntime) observeState(previous bfd.State) {
 		p.observed.DownTransitions++
 	case bfd.StateAdminDown, bfd.StateInit:
 	}
+}
+
+func (p *peerRuntime) decision(schedule *lossSchedule, now, started time.Time) (packetDecision, error) {
+	if p.phase != nil {
+		phase := p.phase.Load()
+		if phase == nil || now.Before(phase.goStart) || !now.Before(phase.goStart.Add(p.duration)) {
+			return packetDecision{disposition: packetTransmit}, nil
+		}
+		started = phase.goStart
+	}
+	return schedule.next(now.Sub(started))
 }
 
 func resetPeerDetection(timer *time.Timer, deadline time.Time) {

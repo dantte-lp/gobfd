@@ -186,22 +186,33 @@ jitter использует другой поток. Random omissions и timed b
 нагрузку, завершают workers и выводят частичный JSON-отчёт; при блокировке stdout
 после очистки сохраняется стандартное завершение по сигналу.
 
-Текущие команды owner и peers используют независимые таймеры длительности.
-Итоговые счётчики включают запуск и остановку; успешная fixture может остановить
-owner до commit последних успешных UDP writes генератора. Полный учёт пакетов
-и общее окно измерения этим не подтверждаются. Внутренние функции управления
-фазами публикуют ограниченные файлы без замены существующего входа и проверяют
-общий time namespace перед преобразованием native monotonic deadline в Go timer.
-Эти функции ещё не подключены к командам и контроллеру топологии. Скобка
-преобразования не устанавливает независимую погрешность RX timing. Интеграция
-и критерии приёмки остаются в Beads `gobfd-qj0.8.2.1.6.3.3`.
+Команды без `--control-dir` сохраняют независимые timers и lifetime totals,
+включающие запуск и остановку. Controlled owner/peer commands используют
+существующий Go-owned topology controller: bind обоих участников, Up, общая
+будущая monotonic epoch, frozen measurement snapshot owner, остановка и join peers,
+затем terminal drain до остановки owner. Приватные bounded control files запрещают
+replacement и проверяют общий time namespace. Недостающие terminal receipts
+завершают drain ошибкой по deadline вместо ложного completion.
+Conversion bracket не устанавливает независимую погрешность RX timing.
+Деление lifetime totals на requested measurement duration не доказывает window
+throughput; снимки остаются sampled observations.
+См. [ADR-0007](./adr/0007-workload-phase-accounting.md).
+
+Independent-process IPv4/IPv6 fixture 2026-10-24 проходит за 47,98 с:
+79 actual writes, 79 owner commits, одинаковые phase identities, идемпотентная
+настройка namespace и удаление четырёх контейнеров. Evidence:
+`reports/udp-resume-20261024/`. Оба отчёта сохраняют `reference_qualified=false`
+и unknown total clock uncertainty. Это production-core fixture receipt, а не
+reference-load или complete-daemon qualification. Implementation acceptance
+принадлежит Beads `gobfd-qj0.8.2.1.6.3.3`.
 
 `RunOwner` сохраняет начальный и конечный снимки production collector, измеренные
 пики ресурсов, средние RSS за первые и последние шесть часов, дельты runtime
 гистограмм и ограниченный журнал Down. Пропуски уведомлений и переполнение
 журнала отражаются явно; без независимого отчёта генератора Down не признаётся
-намеренным. `completed` означает завершение периода наблюдения, а не непрерывный
-Up всех сессий. Допуск reference требует лимитов дочерней cgroup ровно 8 CPU/
+намеренным. `completed` означает завершение периода наблюдения; controlled mode
+дополнительно требует terminal-ledger settlement. Непрерывный Up всех сессий
+этим не подтверждается. Допуск reference требует лимитов дочерней cgroup ровно 8 CPU/
 8 GiB, GOMAXPROCS 8, закреплённого компилятора и отсутствия более тесных лимитов
 у видимых предков. Скрытая иерархия отклоняется. Допуск не резервирует ресурсы
 и не доказывает видимость host namespace: это отдельно проверяет изолированный
@@ -233,8 +244,9 @@ wall/monotonic pair и номинальные разрешения native clocks
 с absolute `CANCEL_ON_SET` до калибровки. `Finish` проверяет cancellation после
 последнего измерения и закрывает FD. Успешная неблокирующая проверка выставляет
 `no_cancellation_observed`, но не доказывает отсутствие скачков часов.
-Timekeeping может опубликовать изменение offset до уведомления timerfd;
-уведомление после resume может откладываться. Отмена, истечение, недоступные
+[Timekeeping публикует offset до уведомления](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/kernel/time/timekeeping.c#L1468-L1474);
+[уведомление после resume откладывается](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/fs/timerfd.c#L118-L131).
+Эти upstream v6.12 sources не квалифицируют vendor kernel. Отмена, истечение, недоступные
 данные и abort не дают пригодного свидетельства. Lifetime ограничен семью днями.
 Операций syscall на каждый пакет и отдельной guard goroutine не добавляется.
 `WithClockEpoch` требует монотонные метки текущего процесса для всей скобки

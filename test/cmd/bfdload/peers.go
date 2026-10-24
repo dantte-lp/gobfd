@@ -60,6 +60,7 @@ func parseWorkloadConfig(args []string) (bfdload.PeerConfig, error) {
 	multiplier := flags.Uint("detect-multiplier", uint(profile.DetectMultiplier), "BFD detection multiplier")
 	sourcePort := flags.Uint("source-port-base", 49152, "first stable peer source port")
 	iface := flags.String("interface", "", "explicit interface for all bindings")
+	flags.StringVar(&cfg.ControlDirectory, "control-dir", "", "shared private phase-control directory")
 	flags.Func("session", "repeat localAddrPort,peerAddrPort for each session", func(value string) error {
 		endpoint, err := parseEndpoint(value)
 		if err != nil {
