@@ -864,7 +864,7 @@ func reloadCraftedTimers(ctx context.Context, t *testing.T, baseline string, pre
 		if parseErr != nil {
 			return time.Time{}, false, parseErr
 		}
-		applied, receiptErr := timerGenerationApplied(receipts, previous)
+		applied, receiptErr := timerGenerationApplied(receipts, previous, timerReceiptPoll)
 		return applied, !applied.IsZero(), receiptErr
 	})
 	if evidenceErr := retainTimerPollEvidence(ctx, "crafted-demand-after", previous+1, lastRaw, err); evidenceErr != nil {

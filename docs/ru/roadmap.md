@@ -4,6 +4,15 @@
 только в Beads. Эта страница содержит датированные сводки и историю;
 актуальную работу определяют `bd show gobfd-qj0.8` и `bd ready`.
 
+## Подготовка wire validator для reload — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.1` расширяет существующий validator receipts явными
+режимами немедленного применения и Poll-фаз. Прежние timer и crafted-peer
+callers сохраняют Poll-семантику; немедленный режим допускает прямую сходимость
+и owner-pending. После наблюдённого RED прямой сходимости прошли 22 top-level
+критических tagged-теста. Это подготовка harness, не новая wire/peer acceptance;
+parent `gobfd-qj0.8.2.2.7.5` остаётся обязательным P0.
+
 ## Подготовленный rekey и сохранение source — 2026-10-24
 
 Reconciliation/rekey `gobfd-qj0.8.2.2.7.4`, Manager lifecycle

@@ -4,6 +4,15 @@ Executable plans, priorities, dependencies and acceptance criteria live
 exclusively in Beads. This page is a dated status projection and historical
 record; use `bd show gobfd-qj0.8` and `bd ready` for current execution.
 
+## Reload wire qualifier preparation — 2026-10-24
+
+P0 `gobfd-qj0.8.2.2.7.5.1` extends the existing receipt qualifier with explicit
+immediate and Poll-phase expectations. Current timer and crafted-peer callers
+retain Poll semantics; direct convergence and owner-pending are both valid for
+immediate updates. Critical tagged contracts pass 22 top-level tests after an
+observed direct-convergence RED. This is harness preparation, not new wire or
+peer acceptance; parent `gobfd-qj0.8.2.2.7.5` remains mandatory P0.
+
 ## Prepared rekey and source retention — 2026-10-24
 
 Reconciliation/rekey `gobfd-qj0.8.2.2.7.4`, Manager lifecycle

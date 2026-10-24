@@ -140,7 +140,18 @@ func parseTimerReceipts(input string) ([]timerReceipt, error) {
 	return receipts, nil
 }
 
-func timerGenerationApplied(receipts []timerReceipt, previous uint64) (time.Time, error) {
+// The phase declares receipt semantics; captured Poll/Final is checked separately.
+type timerReceiptMode uint8
+
+const (
+	timerReceiptPoll timerReceiptMode = iota + 1
+	timerReceiptImmediate
+)
+
+func timerGenerationApplied(receipts []timerReceipt, previous uint64, mode timerReceiptMode) (time.Time, error) {
+	if mode != timerReceiptPoll && mode != timerReceiptImmediate {
+		return time.Time{}, fmt.Errorf("invalid reload receipt mode %d: %w", mode, errTimerEvidence)
+	}
 	pending := false
 	var applied time.Time
 	for _, receipt := range receipts {
@@ -162,7 +173,7 @@ func timerGenerationApplied(receipts []timerReceipt, previous uint64) (time.Time
 		}
 		if receipt.Message != "configuration reconciliation converged" || receipt.Applied != previous+1 ||
 			receipt.Pending != 0 || receipt.Base.Pending != 0 || receipt.Base.TimerPending != 0 || receipt.Base.Updated != 1 ||
-			!pending {
+			(mode == timerReceiptPoll && !pending) {
 			return time.Time{}, fmt.Errorf("unexpected applied receipt %+v: %w", receipt, errTimerEvidence)
 		}
 		if applied.IsZero() || receipt.PublishedAt.Before(applied) {
@@ -673,7 +684,7 @@ func runTimerGeneration(
 			return false, false, parseErr
 		}
 		var receiptErr error
-		appliedAt, receiptErr = timerGenerationApplied(parsed, last.Applied)
+		appliedAt, receiptErr = timerGenerationApplied(parsed, last.Applied, timerReceiptPoll)
 		return !appliedAt.IsZero(), !appliedAt.IsZero(), receiptErr
 	})
 	if evidenceErr := retainTimerPollEvidence(phaseCtx, name+"-after", last.Applied+1, lastRaw, err); evidenceErr != nil {

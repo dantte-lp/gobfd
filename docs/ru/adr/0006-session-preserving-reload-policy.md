@@ -184,6 +184,13 @@ Overlay lease-ref/preparation cleanup `gobfd-qj0.8.2.2.7.4.2.1` входит в 
 зависимостью от `gobfd-qj0.8.2.2.7.4`. Существующий wire gate должен до v1
 квалифицировать все пять reload fields, включая RFC 9764 peer/MTU behavior.
 Source unit tests не подтверждают interoperability; policy не вводит новый harness.
+Wire-квалификация выбирает ожидаемую семантику receipts по сценарию независимо
+от проверки capture. Немедленные изменения допускают прямую сходимость или
+ожидание owner; прежние Poll-фазы сохраняют pending-before-applied evidence.
+Этот порядок задаёт текущий owner/coordinator contract, не требования RFC к JSON.
+Ни один режим сам по себе не доказывает наличие или отсутствие wire Poll/Final.
+Подготовка общего validator ведётся в `gobfd-qj0.8.2.2.7.5.1`.
+
 Исполняемые планы, приоритеты, зависимости и acceptance evidence
 ведутся в Beads. Принятие policy не означает acceptance реализации,
 interop или stable release.

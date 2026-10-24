@@ -83,13 +83,76 @@ func TestTimerReloadReceipts(t *testing.T) {
 			var applied bool
 			if err == nil {
 				var published time.Time
-				published, err = timerGenerationApplied(receipts, 1)
+				published, err = timerGenerationApplied(receipts, 1, timerReceiptPoll)
 				applied = !published.IsZero()
 			}
 			if (err != nil) != test.wantErr || applied != test.wantApplied {
 				t.Fatalf("receipt applied=%t error=%v, want %t/error=%t", applied, err, test.wantApplied, test.wantErr)
 			}
 		})
+	}
+}
+
+// Async DetectMult may apply without Poll; owner queueing can still report pending.
+func TestTimerReloadImmediateReceipts(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, input          string
+		wantApplied, wantErr bool
+	}{
+		{"direct convergence", timerAppliedJSON, true, false},
+		{"owner pending then convergence", timerPendingJSON + "\n" + timerAppliedJSON, true, false},
+		{"repeated convergence", timerAppliedJSON + "\n" + timerAppliedJSON, true, false},
+		{"owner pending only", timerPendingJSON, false, false},
+		{"older generation", strings.ReplaceAll(timerAppliedJSON, `generation":2`, `generation":1`), false, false},
+		{"failed", strings.Replace(timerAppliedJSON, `"failed":0`, `"failed":1`, 1), false, true},
+		{
+			"future generation",
+			strings.Replace(timerAppliedJSON, `desired_generation":2`, `desired_generation":3`, 1),
+			false, true,
+		},
+		{"noop", strings.Replace(timerAppliedJSON, `"updated":1`, `"updated":0`, 1), false, true},
+		{"created", strings.Replace(timerAppliedJSON, `"created":0`, `"created":1`, 1), false, true},
+		{"released", strings.Replace(timerAppliedJSON, `"released":0`, `"released":1`, 1), false, true},
+		{
+			"wrong applied generation",
+			strings.Replace(timerAppliedJSON, `applied_generation":2`, `applied_generation":1`, 1),
+			false, true,
+		},
+		{"pending after convergence", timerAppliedJSON + "\n" + timerPendingJSON, false, true},
+		{"duplicate member", strings.Replace(timerAppliedJSON, `"failed":0`, `"failed":0,"failed":0`, 1), false, true},
+		{"invalid UTF8", timerAppliedJSON + string([]byte{0xff}), false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			receipts, err := parseTimerReceipts(tc.input)
+			var applied time.Time
+			if err == nil {
+				applied, err = timerGenerationApplied(receipts, 1, timerReceiptImmediate)
+			}
+			if (err != nil) != tc.wantErr || !applied.IsZero() != tc.wantApplied {
+				t.Fatalf("immediate receipt applied=%s error=%v, want applied=%t", applied, err, tc.wantApplied)
+			}
+			if tc.wantApplied && !applied.Equal(time.Date(2026, time.October, 20, 12, 0, 0, 3, time.UTC)) {
+				t.Fatalf("immediate publication time = %s", applied)
+			}
+		})
+	}
+}
+
+func TestTimerReloadRejectsUnknownReceiptMode(t *testing.T) {
+	t.Parallel()
+	receipts, err := parseTimerReceipts(timerAppliedJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []timerReceiptMode{0, 255} {
+		for _, input := range [][]timerReceipt{nil, receipts} {
+			applied, modeErr := timerGenerationApplied(input, 1, mode)
+			if !errors.Is(modeErr, errTimerEvidence) || !applied.IsZero() {
+				t.Fatalf("mode %d applied=%s error=%v, want invalid evidence", mode, applied, modeErr)
+			}
+		}
 	}
 }
 
@@ -327,7 +390,7 @@ func TestTimerReloadReceiptFinalCausality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	applied, err := timerGenerationApplied(receipts, 1)
+	applied, err := timerGenerationApplied(receipts, 1, timerReceiptPoll)
 	if err != nil {
 		t.Fatal(err)
 	}
